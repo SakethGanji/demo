@@ -5,32 +5,32 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/shared/lib/utils"
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-semibold transition-all duration-200 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2",
+  "inline-flex items-center justify-center gap-1.5 whitespace-nowrap text-[13px] font-medium transition-colors disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-1 cursor-default",
   {
     variants: {
       variant: {
         default:
-          "bg-primary text-primary-foreground shadow-md hover:bg-primary/90 hover:shadow-lg rounded-xl",
+          "bg-primary text-primary-foreground hover:bg-primary/90 rounded-md shadow-xs",
         destructive:
-          "bg-destructive text-white shadow-md hover:bg-destructive/90 hover:shadow-lg rounded-xl",
+          "bg-destructive text-white hover:bg-destructive/90 rounded-md shadow-xs",
         outline:
-          "glass-button hover:bg-accent/50 hover:text-accent-foreground",
+          "border border-border bg-card rounded-md hover:bg-accent hover:text-accent-foreground",
         secondary:
-          "bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80 rounded-xl",
+          "bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-md",
         ghost:
-          "hover:bg-accent hover:text-accent-foreground rounded-xl",
+          "hover:bg-accent hover:text-accent-foreground rounded-md",
         link:
           "text-primary underline-offset-4 hover:underline",
         glass:
-          "glass-button-primary",
+          "bg-primary text-primary-foreground rounded-md hover:bg-primary/90 shadow-xs",
       },
       size: {
-        default: "h-10 px-5 py-2 has-[>svg]:px-4",
-        sm: "h-9 gap-1.5 px-4 has-[>svg]:px-3 rounded-lg",
-        lg: "h-12 px-8 has-[>svg]:px-6 text-base rounded-2xl",
-        icon: "size-10 rounded-xl",
-        "icon-sm": "size-9 rounded-lg",
-        "icon-lg": "size-12 rounded-2xl",
+        default: "h-8 px-3 py-1.5 has-[>svg]:px-2.5",
+        sm: "h-7 gap-1 px-2.5 has-[>svg]:px-2 text-xs",
+        lg: "h-9 px-4 has-[>svg]:px-3",
+        icon: "size-8",
+        "icon-sm": "size-7",
+        "icon-lg": "size-9",
       },
     },
     defaultVariants: {

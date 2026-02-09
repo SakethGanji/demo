@@ -8,9 +8,8 @@ from ...base import (
     NodeProperty,
     NodeTypeDescription,
 )
-from ..base_subnode import BaseSubnode
-from .utils import (
-    format_history_text,
+from .base_memory import MemorySubnodeBase, SESSION_ID_PROPERTY
+from ....utils.memory import (
     extract_relationships,
     get_db_connection,
     run_async,
@@ -39,7 +38,7 @@ def _get_connection():
     return get_db_connection("kg_conn", _INIT_SQL)
 
 
-class KnowledgeGraphMemoryNode(BaseSubnode):
+class KnowledgeGraphMemoryNode(MemorySubnodeBase):
     """Knowledge Graph Memory - stores entity relationships in Neo4j."""
 
     node_description = NodeTypeDescription(
@@ -51,13 +50,7 @@ class KnowledgeGraphMemoryNode(BaseSubnode):
         inputs=[],
         outputs=[],
         properties=[
-            NodeProperty(
-                display_name="Session ID",
-                name="sessionId",
-                type="string",
-                default="default",
-                description="Unique session identifier for chat history. Supports expressions.",
-            ),
+            SESSION_ID_PROPERTY,
             NodeProperty(
                 display_name="Connection URI",
                 name="connectionString",
@@ -116,31 +109,27 @@ class KnowledgeGraphMemoryNode(BaseSubnode):
         max_relationships = self.get_parameter(node_definition, "maxRelationships", 20)
         recent_messages = self.get_parameter(node_definition, "recentMessages", 3)
 
-        return {
-            "type": "knowledge_graph",
-            "sessionId": session_id,
-            "connectionString": connection_string,
-            "username": username,
-            "password": password,
-            "extractionModel": extraction_model,
-            "maxRelationships": max_relationships,
-            "recentMessages": recent_messages,
-            "getHistory": lambda: self._get_history(
+        return self.build_memory_config(
+            memory_type="knowledge_graph",
+            session_id=session_id,
+            get_history=lambda: self._get_history(
                 session_id, connection_string, username, password,
                 max_relationships, recent_messages
             ),
-            "addMessage": lambda role, content: self._add_message(
+            add_message=lambda role, content: self._add_message(
                 session_id, role, content, connection_string, username, password,
                 extraction_model
             ),
-            "clearHistory": lambda: self._clear_history(
+            clear_history=lambda: self._clear_history(
                 session_id, connection_string, username, password
             ),
-            "getHistoryText": lambda: self._get_history_text(
-                session_id, connection_string, username, password,
-                max_relationships, recent_messages
-            ),
-        }
+            connectionString=connection_string,
+            username=username,
+            password=password,
+            extractionModel=extraction_model,
+            maxRelationships=max_relationships,
+            recentMessages=recent_messages,
+        )
 
     @staticmethod
     async def _get_relationships_from_neo4j(
@@ -357,18 +346,3 @@ class KnowledgeGraphMemoryNode(BaseSubnode):
         except Exception:
             pass
 
-    @staticmethod
-    def _get_history_text(
-        session_id: str,
-        connection_string: str,
-        username: str,
-        password: str,
-        max_relationships: int,
-        recent_messages: int,
-    ) -> str:
-        """Get history as formatted text."""
-        history = KnowledgeGraphMemoryNode._get_history(
-            session_id, connection_string, username, password,
-            max_relationships, recent_messages
-        )
-        return format_history_text(history)

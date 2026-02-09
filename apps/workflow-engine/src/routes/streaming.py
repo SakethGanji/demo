@@ -145,6 +145,8 @@ async def stream_adhoc_execution(
                 type=n["type"],
                 parameters=n.get("parameters", {}),
                 position=n.get("position"),
+                label=n.get("label"),
+                pinned_data=[NodeData(json=d["json"]) for d in n["pinnedData"]] if n.get("pinnedData") else None,
                 retry_on_fail=n.get("retry_on_fail") or n.get("retryOnFail", 0),
                 retry_delay=n.get("retry_delay") or n.get("retryDelay", 1000),
                 continue_on_fail=n.get("continue_on_fail") or n.get("continueOnFail", False),
@@ -159,6 +161,7 @@ async def stream_adhoc_execution(
                 target_input=c.get("target_input") or c.get("targetInput", "main"),
                 connection_type=c.get("connection_type") or c.get("connectionType", "normal"),
                 slot_name=c.get("slot_name") or c.get("slotName"),
+                waypoints=c.get("waypoints"),
             )
             for c in workflow.connections
         ],

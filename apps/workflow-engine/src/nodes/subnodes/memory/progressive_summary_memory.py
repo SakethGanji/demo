@@ -8,8 +8,8 @@ from ...base import (
     NodeProperty,
     NodeTypeDescription,
 )
-from ..base_subnode import BaseSubnode
-from .utils import format_history_text, call_llm_for_summary, get_db_connection, run_async
+from .base_memory import MemorySubnodeBase, SESSION_ID_PROPERTY
+from ....utils.memory import call_llm_for_summary, get_db_connection, run_async
 
 if TYPE_CHECKING:
     from ....engine.types import NodeDefinition
@@ -42,7 +42,7 @@ def _get_connection():
     return get_db_connection("progressive_summary_conn", _INIT_SQL)
 
 
-class ProgressiveSummaryMemoryNode(BaseSubnode):
+class ProgressiveSummaryMemoryNode(MemorySubnodeBase):
     """Progressive Summary Memory - rolling summary that evolves with each conversation."""
 
     node_description = NodeTypeDescription(
@@ -54,13 +54,7 @@ class ProgressiveSummaryMemoryNode(BaseSubnode):
         inputs=[],
         outputs=[],
         properties=[
-            NodeProperty(
-                display_name="Session ID",
-                name="sessionId",
-                type="string",
-                default="default",
-                description="Unique session identifier for chat history. Supports expressions.",
-            ),
+            SESSION_ID_PROPERTY,
             NodeProperty(
                 display_name="Summary Model",
                 name="summaryModel",
@@ -95,19 +89,18 @@ class ProgressiveSummaryMemoryNode(BaseSubnode):
         max_summary_tokens = self.get_parameter(node_definition, "maxSummaryTokens", 1000)
         update_frequency = self.get_parameter(node_definition, "updateFrequency", 2)
 
-        return {
-            "type": "progressive_summary",
-            "sessionId": session_id,
-            "summaryModel": summary_model,
-            "maxSummaryTokens": max_summary_tokens,
-            "updateFrequency": update_frequency,
-            "getHistory": lambda: self._get_history(session_id),
-            "addMessage": lambda role, content: self._add_message(
+        return self.build_memory_config(
+            memory_type="progressive_summary",
+            session_id=session_id,
+            get_history=lambda: self._get_history(session_id),
+            add_message=lambda role, content: self._add_message(
                 session_id, role, content, summary_model, max_summary_tokens, update_frequency
             ),
-            "clearHistory": lambda: self._clear_history(session_id),
-            "getHistoryText": lambda: self._get_history_text(session_id),
-        }
+            clear_history=lambda: self._clear_history(session_id),
+            summaryModel=summary_model,
+            maxSummaryTokens=max_summary_tokens,
+            updateFrequency=update_frequency,
+        )
 
     @staticmethod
     def _get_summary(session_id: str) -> tuple[str | None, int]:
@@ -257,8 +250,3 @@ class ProgressiveSummaryMemoryNode(BaseSubnode):
         conn.execute("DELETE FROM progressive_summaries WHERE session_id = ?", (session_id,))
         conn.commit()
 
-    @staticmethod
-    def _get_history_text(session_id: str) -> str:
-        """Get history as formatted text."""
-        history = ProgressiveSummaryMemoryNode._get_history(session_id)
-        return format_history_text(history)

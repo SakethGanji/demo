@@ -111,7 +111,7 @@ export function useAIChat() {
               const payload = data.payload as AIResponsePayload;
               // Store operations on the message
               updateLastMessage({ operations: payload });
-              // Apply to workflow
+              // Apply to workflow (reads node types from store registry)
               applyAIResponse(payload);
             } else if (data.type === 'error') {
               updateLastMessage({

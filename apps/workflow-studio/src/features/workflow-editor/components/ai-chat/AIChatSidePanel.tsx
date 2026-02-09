@@ -11,7 +11,7 @@ export default function AIChatSidePanel() {
   const { sendMessage, isStreaming, cancelStream } = useAIChat();
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+    <div className="h-full flex flex-col overflow-hidden">
       {/* Messages */}
       <AIChatMessageList messages={messages} isStreaming={isStreaming} />
 

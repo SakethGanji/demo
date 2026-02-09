@@ -9,7 +9,7 @@ from ...base import (
     NodeProperty,
     NodeTypeDescription,
 )
-from ..base_subnode import BaseSubnode
+from .base_memory import MemorySubnodeBase, SESSION_ID_PROPERTY
 
 if TYPE_CHECKING:
     from ....engine.types import NodeDefinition
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 _chat_histories: dict[str, list[dict[str, str]]] = defaultdict(list)
 
 
-class SimpleMemoryNode(BaseSubnode):
+class SimpleMemoryNode(MemorySubnodeBase):
     """Simple in-memory chat history storage."""
 
     node_description = NodeTypeDescription(
@@ -31,13 +31,7 @@ class SimpleMemoryNode(BaseSubnode):
         inputs=[],
         outputs=[],
         properties=[
-            NodeProperty(
-                display_name="Session ID",
-                name="sessionId",
-                type="string",
-                default="default",
-                description="Unique session identifier for chat history",
-            ),
+            SESSION_ID_PROPERTY,
             NodeProperty(
                 display_name="Max Messages",
                 name="maxMessages",
@@ -56,15 +50,14 @@ class SimpleMemoryNode(BaseSubnode):
         session_id = self.get_parameter(node_definition, "sessionId", "default")
         max_messages = self.get_parameter(node_definition, "maxMessages", 20)
 
-        return {
-            "type": "simple",
-            "sessionId": session_id,
-            "maxMessages": max_messages,
-            "getHistory": lambda: self._get_history(session_id, max_messages),
-            "addMessage": lambda role, content: self._add_message(session_id, role, content, max_messages),
-            "clearHistory": lambda: self._clear_history(session_id),
-            "getHistoryText": lambda: self._get_history_text(session_id, max_messages),
-        }
+        return self.build_memory_config(
+            memory_type="simple",
+            session_id=session_id,
+            get_history=lambda: self._get_history(session_id, max_messages),
+            add_message=lambda role, content: self._add_message(session_id, role, content, max_messages),
+            clear_history=lambda: self._clear_history(session_id),
+            maxMessages=max_messages,
+        )
 
     @staticmethod
     def _get_history(session_id: str, max_messages: int) -> list[dict[str, str]]:
@@ -84,17 +77,3 @@ class SimpleMemoryNode(BaseSubnode):
     def _clear_history(session_id: str) -> None:
         """Clear chat history for session."""
         _chat_histories[session_id] = []
-
-    @staticmethod
-    def _get_history_text(session_id: str, max_messages: int) -> str:
-        """Get chat history as formatted text for prompt injection."""
-        history = _chat_histories[session_id][-max_messages:]
-        if not history:
-            return ""
-
-        lines = []
-        for msg in history:
-            role = "User" if msg["role"] == "user" else "Assistant"
-            lines.append(f"{role}: {msg['content']}")
-
-        return "\n".join(lines)

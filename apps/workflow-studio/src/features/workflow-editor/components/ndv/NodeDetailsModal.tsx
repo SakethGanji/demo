@@ -53,7 +53,7 @@ const iconMap: Record<string, LucideIcon> = {
 };
 
 export default function NodeDetailsModal() {
-  const { isOpen, activeNodeId, closeNDV } = useNDVStore();
+  const { isOpen, activeNodeId, closeNDV, inputPanelSize, outputPanelSize, setPanelSizes } = useNDVStore();
   const { nodes, deleteNode, executionData, updateNodeData } = useWorkflowStore();
   const { executeWorkflow, isExecuting } = useExecuteWorkflow();
 
@@ -142,33 +142,33 @@ export default function NodeDetailsModal() {
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-background/80 backdrop-blur-sm"
+        className="absolute inset-0 bg-background/60 backdrop-blur-[2px]"
         onClick={closeNDV}
       />
 
       {/* Modal */}
-      <div className="relative z-10 flex h-[90vh] w-[95vw] max-w-[1600px] flex-col overflow-hidden rounded-xl bg-white dark:bg-card shadow-2xl">
+      <div className="relative z-10 flex flex-col overflow-hidden rounded-lg border border-border bg-card shadow-xl" style={{ position: 'absolute', inset: 16 }}>
         {/* Consolidated Header - Node identity + controls */}
-        <div className="flex items-center justify-between border-b border-border px-3 py-2">
+        <div className="flex items-center justify-between border-b border-border px-3 h-11 shrink-0">
           {/* Left: Back button */}
           <button
             onClick={closeNDV}
-            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+            className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[13px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
           >
             <ArrowLeft size={14} />
             <span className="hidden sm:inline">Back</span>
           </button>
 
           {/* Center: Node icon + name + status */}
-          <div className="flex items-center gap-3 min-w-0 flex-1 justify-center">
+          <div className="flex items-center gap-2 min-w-0 flex-1 justify-center">
             {/* Node icon */}
-            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <IconComponent size={16} />
+            <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded bg-primary/10 text-primary">
+              <IconComponent size={14} />
             </div>
 
             {/* Editable node name */}
             {isEditingName ? (
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1">
                 <input
                   ref={nameInputRef}
                   type="text"
@@ -176,71 +176,71 @@ export default function NodeDetailsModal() {
                   onChange={(e) => setEditedName(e.target.value)}
                   onKeyDown={handleNameKeyDown}
                   onBlur={handleSaveName}
-                  className="text-base font-semibold text-foreground bg-secondary rounded-md px-2 py-0.5 border border-primary focus:outline-none focus:ring-1 focus:ring-primary min-w-[120px] max-w-[200px]"
+                  className="text-[13px] font-semibold text-foreground bg-background rounded-md px-2 py-0.5 border border-ring focus:outline-none focus:ring-1 focus:ring-ring/40 min-w-[120px] max-w-[200px]"
                 />
                 <button
                   onClick={handleSaveName}
-                  className="p-1 rounded hover:bg-accent text-primary"
+                  className="p-1 rounded-md hover:bg-accent text-primary"
                   title="Save"
                 >
-                  <Check size={14} />
+                  <Check size={12} />
                 </button>
                 <button
                   onClick={handleCancelEdit}
-                  className="p-1 rounded hover:bg-accent text-muted-foreground"
+                  className="p-1 rounded-md hover:bg-accent text-muted-foreground"
                   title="Cancel"
                 >
-                  <X size={14} />
+                  <X size={12} />
                 </button>
               </div>
             ) : (
-              <div className="flex items-center gap-1.5 group min-w-0">
-                <span className="text-base font-semibold text-foreground truncate max-w-[200px]">
+              <div className="flex items-center gap-1 group min-w-0">
+                <span className="text-[13px] font-semibold text-foreground truncate max-w-[200px]">
                   {activeNode.data.label}
                 </span>
                 <button
                   onClick={() => setIsEditingName(true)}
-                  className="p-1 rounded hover:bg-accent text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                  className="p-0.5 rounded hover:bg-accent text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
                   title="Rename node"
                 >
-                  <Pencil size={12} />
+                  <Pencil size={11} />
                 </button>
               </div>
             )}
 
             {/* Status badge */}
             {nodeExecution?.status === 'running' && (
-              <span className="flex-shrink-0 rounded-full bg-amber-100 dark:bg-amber-950 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+              <span className="flex-shrink-0 rounded bg-[var(--warning)]/10 px-1.5 py-0.5 text-[11px] font-medium text-[var(--warning)]">
                 Running
               </span>
             )}
             {nodeExecution?.status === 'success' && (
-              <span className="flex-shrink-0 rounded-full bg-emerald-100 dark:bg-emerald-950 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+              <span className="flex-shrink-0 rounded bg-[var(--success)]/10 px-1.5 py-0.5 text-[11px] font-medium text-[var(--success)]">
                 Success
               </span>
             )}
             {nodeExecution?.status === 'error' && (
-              <span className="flex-shrink-0 rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">
+              <span className="flex-shrink-0 rounded bg-destructive/10 px-1.5 py-0.5 text-[11px] font-medium text-destructive">
                 Error
               </span>
             )}
           </div>
 
           {/* Right: Action buttons */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1">
             <button
               onClick={handleExecute}
               disabled={isExecuting}
-              className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+              className="flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1 text-[13px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
             >
               {isExecuting ? (
                 <>
-                  <Loader2 size={14} className="animate-spin" />
+                  <Loader2 size={13} className="animate-spin" />
                   <span className="hidden sm:inline">Running...</span>
                 </>
               ) : (
                 <>
-                  <Play size={14} />
+                  <Play size={13} />
                   <span className="hidden sm:inline">Test</span>
                 </>
               )}
@@ -250,14 +250,14 @@ export default function NodeDetailsModal() {
               className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
               title="Delete node"
             >
-              <Trash2 size={16} />
+              <Trash2 size={14} />
             </button>
             <button
               onClick={closeNDV}
               className="rounded-md p-1.5 text-muted-foreground hover:bg-accent transition-colors"
               title="Close"
             >
-              <X size={16} />
+              <X size={14} />
             </button>
           </div>
         </div>
@@ -266,7 +266,12 @@ export default function NodeDetailsModal() {
         <div className="flex-1 overflow-hidden">
           <PanelGroup direction="horizontal">
             {/* Input Panel */}
-            <Panel defaultSize={25} minSize={15} maxSize={40}>
+            <Panel
+              defaultSize={inputPanelSize}
+              minSize={15}
+              maxSize={40}
+              onResize={(size) => setPanelSizes(size, outputPanelSize)}
+            >
               <InputPanel
                 nodeId={activeNodeId!}
                 executionData={nodeExecution}
@@ -276,7 +281,7 @@ export default function NodeDetailsModal() {
             <PanelResizeHandle className="w-1 bg-border hover:bg-primary transition-colors" />
 
             {/* Settings Panel */}
-            <Panel defaultSize={50} minSize={30}>
+            <Panel defaultSize={100 - inputPanelSize - outputPanelSize} minSize={30}>
               <NodeSettings
                 node={activeNode}
                 onExecute={handleExecute}
@@ -286,7 +291,12 @@ export default function NodeDetailsModal() {
             <PanelResizeHandle className="w-1 bg-border hover:bg-primary transition-colors" />
 
             {/* Output Panel */}
-            <Panel defaultSize={25} minSize={15} maxSize={40}>
+            <Panel
+              defaultSize={outputPanelSize}
+              minSize={15}
+              maxSize={40}
+              onResize={(size) => setPanelSizes(inputPanelSize, size)}
+            >
               <OutputPanel
                 nodeId={activeNodeId!}
                 executionData={nodeExecution}

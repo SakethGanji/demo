@@ -8,8 +8,8 @@ from ...base import (
     NodeProperty,
     NodeTypeDescription,
 )
-from ..base_subnode import BaseSubnode
-from .utils import format_history_text, call_llm_for_summary, get_db_connection, run_async
+from ....utils.memory import call_llm_for_summary, get_db_connection, run_async
+from .base_memory import MemorySubnodeBase, SESSION_ID_PROPERTY
 
 if TYPE_CHECKING:
     from ....engine.types import NodeDefinition
@@ -34,7 +34,7 @@ def _get_connection():
     return get_db_connection("summary_conn", _INIT_SQL)
 
 
-class SummaryMemoryNode(BaseSubnode):
+class SummaryMemoryNode(MemorySubnodeBase):
     """Summary Memory - LLM summarizes old messages when threshold reached."""
 
     node_description = NodeTypeDescription(
@@ -46,13 +46,7 @@ class SummaryMemoryNode(BaseSubnode):
         inputs=[],
         outputs=[],
         properties=[
-            NodeProperty(
-                display_name="Session ID",
-                name="sessionId",
-                type="string",
-                default="default",
-                description="Unique session identifier for chat history. Supports expressions.",
-            ),
+            SESSION_ID_PROPERTY,
             NodeProperty(
                 display_name="Recent Messages",
                 name="recentMessages",
@@ -87,19 +81,18 @@ class SummaryMemoryNode(BaseSubnode):
         summary_threshold = self.get_parameter(node_definition, "summaryThreshold", 15)
         summary_model = self.get_parameter(node_definition, "summaryModel", "gemini-2.0-flash")
 
-        return {
-            "type": "summary",
-            "sessionId": session_id,
-            "recentMessages": recent_messages,
-            "summaryThreshold": summary_threshold,
-            "summaryModel": summary_model,
-            "getHistory": lambda: self._get_history(session_id, recent_messages),
-            "addMessage": lambda role, content: self._add_message(
+        return self.build_memory_config(
+            memory_type="summary",
+            session_id=session_id,
+            get_history=lambda: self._get_history(session_id, recent_messages),
+            add_message=lambda role, content: self._add_message(
                 session_id, role, content, recent_messages, summary_threshold, summary_model
             ),
-            "clearHistory": lambda: self._clear_history(session_id),
-            "getHistoryText": lambda: self._get_history_text(session_id, recent_messages),
-        }
+            clear_history=lambda: self._clear_history(session_id),
+            recentMessages=recent_messages,
+            summaryThreshold=summary_threshold,
+            summaryModel=summary_model,
+        )
 
     @staticmethod
     def _get_history(session_id: str, recent_messages: int) -> list[dict[str, str]]:
@@ -241,8 +234,3 @@ class SummaryMemoryNode(BaseSubnode):
         conn.execute("DELETE FROM summary_messages WHERE session_id = ?", (session_id,))
         conn.commit()
 
-    @staticmethod
-    def _get_history_text(session_id: str, recent_messages: int) -> str:
-        """Get history as formatted text."""
-        history = SummaryMemoryNode._get_history(session_id, recent_messages)
-        return format_history_text(history)

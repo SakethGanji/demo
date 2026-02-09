@@ -1,5 +1,3 @@
-"use client"
-
 import * as React from "react"
 import { Link, useMatchRoute } from "@tanstack/react-router"
 import { Moon, Sun, Hexagon, Workflow, FolderOpen } from "lucide-react"
@@ -14,7 +12,6 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarRail,
   SidebarGroup,
   SidebarGroupContent,
 } from "@/shared/components/ui/sidebar"
@@ -30,20 +27,20 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   }
 
   return (
-    <Sidebar collapsible="icon" variant="floating" {...props}>
+    <Sidebar {...props}>
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" tooltip="Command Studio">
-              <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-400 via-indigo-500 to-violet-600 dark:from-indigo-500 dark:via-indigo-600 dark:to-violet-700 shadow-sm">
-                <Hexagon className="size-4 text-white" strokeWidth={2.5} fill="currentColor" fillOpacity={0.2} />
+              <div className="flex aspect-square size-7 items-center justify-center rounded-md bg-sidebar-primary">
+                <Hexagon className="size-3.5 text-sidebar-primary-foreground" strokeWidth={2.5} fill="currentColor" fillOpacity={0.2} />
               </div>
               <div className="grid flex-1 text-left leading-tight">
                 <div className="flex items-center gap-1">
-                  <span className="text-sm font-semibold tracking-tight text-foreground">Command</span>
-                  <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-gradient-to-r from-indigo-500 to-violet-600 dark:from-indigo-400 dark:to-violet-500 text-white shadow-sm">Studio</span>
+                  <span className="text-[13px] font-semibold text-sidebar-foreground">Command</span>
+                  <span className="text-[10px] font-semibold px-1 py-0.5 rounded bg-sidebar-primary text-sidebar-primary-foreground">Studio</span>
                 </div>
-                <span className="truncate text-[10px] text-muted-foreground/60 italic">by Luna</span>
+                <span className="truncate text-[10px] text-sidebar-foreground/40">by Luna</span>
               </div>
             </SidebarMenuButton>
           </SidebarMenuItem>
@@ -84,18 +81,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" tooltip="Profile">
-              <Avatar className="h-8 w-8 rounded-lg">
-                <AvatarFallback className="rounded-lg">SG</AvatarFallback>
+              <Avatar className="h-7 w-7 rounded-md">
+                <AvatarFallback className="rounded-md text-[11px] bg-sidebar-accent text-sidebar-foreground">SG</AvatarFallback>
               </Avatar>
-              <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-medium">Saketh G</span>
-                <span className="truncate text-xs">saketh@example.com</span>
+              <div className="grid flex-1 text-left leading-tight">
+                <span className="truncate text-[13px] font-medium text-sidebar-foreground">Saketh G</span>
+                <span className="truncate text-[11px] text-sidebar-foreground/50">saketh@example.com</span>
               </div>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
-      <SidebarRail />
     </Sidebar>
   )
 }

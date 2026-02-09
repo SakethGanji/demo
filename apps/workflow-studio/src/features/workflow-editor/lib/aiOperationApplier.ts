@@ -9,18 +9,21 @@
 import type { Node, Edge } from 'reactflow';
 import type { AIResponsePayload, AIOperation } from '../types/aiChat';
 import type { WorkflowNodeData } from '../types/workflow';
+import type { NodeTypeMetadata } from './createNodeData';
 import { useWorkflowStore } from '../stores/workflowStore';
-import { fromBackendWorkflow } from './workflowTransform';
-import { generateNodeName } from './workflowTransform';
-import { getNodeIcon, normalizeNodeGroup, isTriggerType } from './nodeConfig';
+import { fromBackendWorkflow, generateNodeName, getExistingNodeNames } from './workflowTransform';
+import { createWorkflowNodeData, getDefaultIO } from './createNodeData';
+import { SUBNODE_SLOT_NAMES } from './nodeConfig';
 import { toast } from 'sonner';
 
 /**
  * Apply an AI response payload to the current workflow.
  * Saves history first so the user can Ctrl+Z to undo.
+ * Reads node type metadata from the workflow store's registry.
  */
 export function applyAIResponse(payload: AIResponsePayload): void {
   const store = useWorkflowStore.getState();
+  const nodeTypesMap = store.nodeTypesMap;
 
   // Save history before any changes
   store.saveToHistory();
@@ -28,9 +31,9 @@ export function applyAIResponse(payload: AIResponsePayload): void {
   try {
     if (payload.mode === 'full_workflow' && payload.workflow) {
       validateFullWorkflow(payload.workflow);
-      applyFullWorkflow(payload.workflow);
+      applyFullWorkflow(payload.workflow, nodeTypesMap);
     } else if (payload.mode === 'incremental' && payload.operations) {
-      applyIncrementalOps(payload.operations);
+      applyIncrementalOps(payload.operations, nodeTypesMap);
     }
     // 'explanation' mode — nothing to apply
   } catch (err) {
@@ -80,7 +83,10 @@ function validateFullWorkflow(workflow: NonNullable<AIResponsePayload['workflow'
 // Full workflow replacement
 // ------------------------------------------------------------------
 
-function applyFullWorkflow(workflow: NonNullable<AIResponsePayload['workflow']>): void {
+function applyFullWorkflow(
+  workflow: NonNullable<AIResponsePayload['workflow']>,
+  nodeTypesMap?: Map<string, NodeTypeMetadata>,
+): void {
   const store = useWorkflowStore.getState();
 
   // Convert the AI workflow to the format expected by fromBackendWorkflow
@@ -92,19 +98,34 @@ function applyFullWorkflow(workflow: NonNullable<AIResponsePayload['workflow']>)
     name: workflow.name,
     active: store.isActive,
     definition: {
-      nodes: workflow.nodes.map((n, idx) => ({
-        name: n.name,
-        type: n.type,
-        parameters: n.parameters || {},
-        position: { x: 250 + (idx % 4) * 300, y: 150 + Math.floor(idx / 4) * 200 },
-        group: getGroupForType(n.type),
-      })),
-      connections: workflow.connections.map((c) => ({
-        source_node: c.source_node,
-        target_node: c.target_node,
-        source_output: c.source_output || 'main',
-        target_input: c.target_input || 'main',
-      })),
+      nodes: workflow.nodes.map((n, idx) => {
+        // Look up full metadata from cache if available
+        const meta = nodeTypesMap?.get(n.type);
+        return {
+          name: n.name,
+          type: n.type,
+          parameters: n.parameters || {},
+          position: { x: 250 + (idx % 4) * 300, y: 150 + Math.floor(idx / 4) * 200 },
+          group: meta?.group,
+          ...(meta?.inputs ? { inputs: meta.inputs } : {}),
+          ...(meta?.outputs ? { outputs: meta.outputs } : {}),
+          ...(meta?.inputCount !== undefined ? { inputCount: meta.inputCount } : {}),
+          ...(meta?.outputCount !== undefined ? { outputCount: meta.outputCount } : {}),
+          ...(meta?.outputStrategy ? { outputStrategy: meta.outputStrategy } : {}),
+          ...(meta?.subnodeSlots ? { subnodeSlots: meta.subnodeSlots } : {}),
+        };
+      }),
+      connections: workflow.connections.map((c) => {
+        const targetInput = c.target_input || 'main';
+        const isSubnode = (SUBNODE_SLOT_NAMES as readonly string[]).includes(targetInput);
+        return {
+          source_node: c.source_node,
+          target_node: c.target_node,
+          source_output: c.source_output || 'main',
+          target_input: targetInput,
+          ...(isSubnode ? { connection_type: 'subnode' as const, slot_name: targetInput } : {}),
+        };
+      }),
     },
   };
 
@@ -171,12 +192,15 @@ function autoLayoutNodes(
 // Incremental operations
 // ------------------------------------------------------------------
 
-function applyIncrementalOps(operations: AIOperation[]): void {
+function applyIncrementalOps(
+  operations: AIOperation[],
+  nodeTypesMap?: Map<string, NodeTypeMetadata>,
+): void {
   for (const op of operations) {
     try {
       switch (op.op) {
         case 'addNode':
-          applyAddNode(op);
+          applyAddNode(op, nodeTypesMap);
           break;
         case 'updateNode':
           applyUpdateNode(op);
@@ -197,11 +221,12 @@ function applyIncrementalOps(operations: AIOperation[]): void {
   }
 }
 
-function applyAddNode(op: Extract<AIOperation, { op: 'addNode' }>): void {
+function applyAddNode(
+  op: Extract<AIOperation, { op: 'addNode' }>,
+  nodeTypesMap?: Map<string, NodeTypeMetadata>,
+): void {
   const store = useWorkflowStore.getState();
-  const existingNames = store.nodes
-    .filter((n) => n.type === 'workflowNode')
-    .map((n) => (n.data as WorkflowNodeData).name);
+  const existingNames = getExistingNodeNames(store.nodes as Node<WorkflowNodeData>[]);
 
   const name = existingNames.includes(op.name)
     ? generateNodeName(op.type, existingNames)
@@ -224,26 +249,22 @@ function applyAddNode(op: Extract<AIOperation, { op: 'addNode' }>): void {
     position = { x: rightmost + 300, y: 200 };
   }
 
-  const isTrigger = isTriggerType(op.type);
-  const defaultInputs = isTrigger ? [] : [{ name: 'main', displayName: 'Main' }];
-  const defaultOutputs = getDefaultOutputsForType(op.type);
+  // Look up full metadata from cache if available, else use fallback
+  const meta = nodeTypesMap?.get(op.type);
+  const data = createWorkflowNodeData(
+    meta ?? { type: op.type },
+    {
+      name,
+      label: name,
+      parameters: op.parameters || {},
+    },
+  );
 
   const newNode: Node<WorkflowNodeData> = {
     id: name,
     type: 'workflowNode',
     position,
-    data: {
-      name,
-      type: op.type,
-      label: name,
-      icon: getNodeIcon(op.type),
-      parameters: op.parameters || {},
-      inputs: defaultInputs,
-      inputCount: isTrigger ? 0 : 1,
-      outputs: defaultOutputs,
-      outputCount: defaultOutputs.length,
-      group: normalizeNodeGroup(getGroupForType(op.type)),
-    } as WorkflowNodeData,
+    data,
   };
 
   store.addNode(newNode);
@@ -303,12 +324,34 @@ function applyAddConnection(op: Extract<AIOperation, { op: 'addConnection' }>): 
     console.warn(`addConnection: nodes not found`, op);
     return;
   }
-  store.onConnect({
-    source: sourceNode.id,
-    target: targetNode.id,
-    sourceHandle: op.source_output || 'main',
-    targetHandle: op.target_input || 'main',
-  });
+
+  const targetInput = op.target_input || 'main';
+  const isSubnode = (SUBNODE_SLOT_NAMES as readonly string[]).includes(targetInput);
+
+  if (isSubnode) {
+    // For subnode connections, create a properly typed subnodeEdge
+    const subnodeEdge: Edge = {
+      id: `${sourceNode.id}-${targetNode.id}-${targetInput}`,
+      source: sourceNode.id,
+      target: targetNode.id,
+      sourceHandle: 'config',
+      targetHandle: targetInput,
+      type: 'subnodeEdge',
+      data: {
+        isSubnodeEdge: true,
+        slotName: targetInput,
+        slotType: (sourceNode.data as WorkflowNodeData)?.subnodeType || 'tool',
+      },
+    };
+    store.setEdges([...store.edges, subnodeEdge]);
+  } else {
+    store.onConnect({
+      source: sourceNode.id,
+      target: targetNode.id,
+      sourceHandle: op.source_output || 'main',
+      targetHandle: targetInput,
+    });
+  }
 }
 
 function applyRemoveConnection(op: Extract<AIOperation, { op: 'removeConnection' }>): void {
@@ -329,40 +372,3 @@ function applyRemoveConnection(op: Extract<AIOperation, { op: 'removeConnection'
   }
 }
 
-// ------------------------------------------------------------------
-// Helpers
-// ------------------------------------------------------------------
-
-function getDefaultOutputsForType(nodeType: string): Array<{ name: string; displayName: string }> {
-  switch (nodeType) {
-    case 'If':
-      return [
-        { name: 'true', displayName: 'True' },
-        { name: 'false', displayName: 'False' },
-      ];
-    case 'Switch':
-      return [
-        { name: 'output0', displayName: 'Output 0' },
-        { name: 'output1', displayName: 'Output 1' },
-        { name: 'fallback', displayName: 'Fallback' },
-      ];
-    case 'Loop':
-      return [
-        { name: 'loop', displayName: 'Loop' },
-        { name: 'done', displayName: 'Done' },
-      ];
-    default:
-      return [{ name: 'main', displayName: 'Main' }];
-  }
-}
-
-function getGroupForType(nodeType: string): string[] {
-  const triggerTypes = ['Start', 'Webhook', 'Cron', 'ErrorTrigger', 'ChatInput'];
-  const flowTypes = ['If', 'Switch', 'Merge', 'Wait', 'SplitInBatches', 'Loop', 'ExecuteWorkflow', 'StopAndError'];
-  const aiTypes = ['LLMChat', 'AIAgent'];
-
-  if (triggerTypes.includes(nodeType)) return ['trigger'];
-  if (flowTypes.includes(nodeType)) return ['flow'];
-  if (aiTypes.includes(nodeType)) return ['ai'];
-  return ['transform'];
-}

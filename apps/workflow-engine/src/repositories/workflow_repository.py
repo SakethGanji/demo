@@ -37,6 +37,8 @@ class WorkflowRepository:
                     "type": n.type,
                     "parameters": n.parameters,
                     "position": n.position,
+                    **({"label": n.label} if n.label else {}),
+                    **({"pinned_data": [{"json": d.json} for d in n.pinned_data]} if n.pinned_data else {}),
                     "retry_on_fail": n.retry_on_fail,
                     "retry_delay": n.retry_delay,
                     "continue_on_fail": n.continue_on_fail,
@@ -51,6 +53,7 @@ class WorkflowRepository:
                     "target_input": c.target_input,
                     **({"connection_type": c.connection_type} if c.connection_type and c.connection_type != "normal" else {}),
                     **({"slot_name": c.slot_name} if c.slot_name else {}),
+                    **({"waypoints": c.waypoints} if c.waypoints else {}),
                 }
                 for c in workflow.connections
             ],
@@ -107,6 +110,8 @@ class WorkflowRepository:
                     "type": n.type,
                     "parameters": n.parameters,
                     "position": n.position,
+                    **({"label": n.label} if n.label else {}),
+                    **({"pinned_data": [{"json": d.json} for d in n.pinned_data]} if n.pinned_data else {}),
                     "retry_on_fail": n.retry_on_fail,
                     "retry_delay": n.retry_delay,
                     "continue_on_fail": n.continue_on_fail,
@@ -121,6 +126,7 @@ class WorkflowRepository:
                     "target_input": c.target_input,
                     **({"connection_type": c.connection_type} if c.connection_type and c.connection_type != "normal" else {}),
                     **({"slot_name": c.slot_name} if c.slot_name else {}),
+                    **({"waypoints": c.waypoints} if c.waypoints else {}),
                 }
                 for c in workflow.connections
             ],
@@ -166,6 +172,7 @@ class WorkflowRepository:
         """Convert database model to StoredWorkflow."""
         from ..engine.types import (
             Connection,
+            NodeData,
             NodeDefinition,
             StoredWorkflow,
             Workflow as WorkflowType,
@@ -180,6 +187,8 @@ class WorkflowRepository:
                 type=n["type"],
                 parameters=n.get("parameters", {}),
                 position=n.get("position"),
+                label=n.get("label"),
+                pinned_data=[NodeData(json=d["json"]) for d in n["pinned_data"]] if n.get("pinned_data") else None,
                 retry_on_fail=n.get("retry_on_fail", 0),
                 retry_delay=n.get("retry_delay", 1000),
                 continue_on_fail=n.get("continue_on_fail", False),
@@ -196,6 +205,7 @@ class WorkflowRepository:
                 target_input=c.get("target_input", "main"),
                 connection_type=c.get("connection_type", "normal"),
                 slot_name=c.get("slot_name"),
+                waypoints=c.get("waypoints"),
             )
             for c in definition.get("connections", [])
         ]

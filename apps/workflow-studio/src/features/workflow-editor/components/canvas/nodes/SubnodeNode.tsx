@@ -1,6 +1,5 @@
 import { memo, useMemo } from 'react';
 import { Handle, Position, type NodeProps } from 'reactflow';
-import { useNDVStore } from '../../../stores/ndvStore';
 import type { WorkflowNodeData, SubnodeType } from '../../../types/workflow';
 import { getIconForNode } from '../../../lib/nodeIcons';
 import { cn } from '@/shared/lib/utils';
@@ -37,18 +36,12 @@ function getSubnodeStyles(type: SubnodeType): SubnodeStyleConfig {
   return styles[type];
 }
 
-function SubnodeNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
-  const openNDV = useNDVStore((s) => s.openNDV);
-
+function SubnodeNode({ data, selected }: NodeProps<WorkflowNodeData>) {
   const subnodeType = data.subnodeType || 'tool';
   const styles = useMemo(() => getSubnodeStyles(subnodeType), [subnodeType]);
 
   // Get icon using shared utility
   const IconComponent = getIconForNode(data.icon, data.type);
-
-  const handleDoubleClick = () => {
-    openNDV(id);
-  };
 
   // When stacked, hide visually but keep in ReactFlow graph
   if (data.stacked) {
@@ -81,7 +74,6 @@ function SubnodeNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
           // @ts-expect-error CSS custom property
           '--tw-ring-color': styles.accentColor,
         }}
-        onDoubleClick={handleDoubleClick}
       >
         {/* Top handle - connects to parent node */}
         <Handle

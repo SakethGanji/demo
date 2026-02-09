@@ -2,11 +2,7 @@
 
 from __future__ import annotations
 
-import json
-from datetime import date, datetime, time, timedelta
-from decimal import Decimal
 from typing import Any, TYPE_CHECKING
-from uuid import UUID
 
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -19,6 +15,7 @@ from ..base import (
     NodeProperty,
     NodePropertyOption,
 )
+from ...utils.serialization import serialize_value as _base_serialize, parse_json_params
 
 if TYPE_CHECKING:
     from ...engine.types import ExecutionContext, NodeData, NodeDefinition, NodeExecutionResult
@@ -29,39 +26,15 @@ DEFAULT_DATABASE = "testdb"
 
 
 def _serialize_value(val: Any) -> Any:
-    """Convert MongoDB/Python types to JSON-safe values."""
+    """Serialize MongoDB-specific types, falling back to common serialization."""
     if isinstance(val, ObjectId):
         return str(val)
-    if isinstance(val, Decimal):
-        return float(val)
-    if isinstance(val, (datetime, date, time)):
-        return val.isoformat()
-    if isinstance(val, timedelta):
-        return val.total_seconds()
-    if isinstance(val, bytes):
-        return val.hex()
-    if isinstance(val, UUID):
-        return str(val)
+    # Lists/dicts need to recurse through this function for ObjectId handling
     if isinstance(val, list):
         return [_serialize_value(v) for v in val]
     if isinstance(val, dict):
         return {k: _serialize_value(v) for k, v in val.items()}
-    return val
-
-
-def _parse_json(raw: Any) -> Any:
-    """Parse a JSON value that may be a string, dict, or list."""
-    if isinstance(raw, (dict, list)):
-        return raw
-    if isinstance(raw, str):
-        s = raw.strip()
-        if not s:
-            return {}
-        try:
-            return json.loads(s)
-        except json.JSONDecodeError:
-            return {}
-    return {}
+    return _base_serialize(val)
 
 
 class MongoDBNode(BaseNode):

@@ -1,7 +1,7 @@
 import { useEffect, useCallback, useState } from 'react';
 import { useReactFlow } from 'reactflow';
 import { useWorkflowStore } from '../stores/workflowStore';
-import { useNodeCreatorStore } from '../stores/nodeCreatorStore';
+import { useEditorLayoutStore } from '../stores/editorLayoutStore';
 import { useNDVStore } from '../stores/ndvStore';
 
 interface KeyboardShortcutsOptions {
@@ -30,9 +30,8 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
   const importWorkflow = useWorkflowStore((s) => s.importWorkflow);
   const workflowName = useWorkflowStore((s) => s.workflowName);
 
-  const closePanel = useNodeCreatorStore((s) => s.closePanel);
-  const openPanel = useNodeCreatorStore((s) => s.openPanel);
-  const isCreatorOpen = useNodeCreatorStore((s) => s.isOpen);
+  const closePanel = useEditorLayoutStore((s) => s.closeCreatorPanel);
+  const openPanel = useEditorLayoutStore((s) => s.openCreatorPanel);
 
   const closeNDV = useNDVStore((s) => s.closeNDV);
   const openNDV = useNDVStore((s) => s.openNDV);
@@ -53,11 +52,8 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
           event.preventDefault();
           return;
         }
-        if (isCreatorOpen) {
-          closePanel();
-          event.preventDefault();
-          return;
-        }
+        // Reset node creator context (connection/subnode mode)
+        closePanel();
       }
 
       // Don't handle other shortcuts when typing
@@ -330,7 +326,6 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       closePanel,
       openPanel,
       closeNDV,
-      isCreatorOpen,
       isNDVOpen,
       addStickyNote,
       getNodes,

@@ -5,14 +5,17 @@
  * Uses fetch-based REST API.
  */
 
+import { useCallback, useRef } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { workflowsApi } from '@/shared/lib/api';
 import { useWorkflowStore } from '../stores/workflowStore';
+import type { BackendWorkflow } from '@/shared/lib/backendTypes';
 import {
   toBackendWorkflow,
   fromBackendWorkflow,
-  type BackendWorkflow,
+  findUpstreamNodeName,
+  buildNameToIdMap,
 } from '../lib/workflowTransform';
 import { toast } from 'sonner';
 import type { WorkflowNodeData } from '../types/workflow';
@@ -28,10 +31,12 @@ export function useSaveWorkflow() {
     workflowName,
     workflowId,
     setWorkflowId,
+    markAsSaved,
   } = useWorkflowStore();
 
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const isSavingRef = useRef(false);
 
   const createMutation = useMutation({
     mutationFn: (workflow: BackendWorkflow) => workflowsApi.create(workflow),
@@ -48,7 +53,10 @@ export function useSaveWorkflow() {
     },
   });
 
-  const saveWorkflow = async () => {
+  const saveWorkflow = useCallback(async () => {
+    // Guard against concurrent saves (e.g. rapid double-click)
+    if (isSavingRef.current) return;
+    isSavingRef.current = true;
     const backendWorkflow = toBackendWorkflow(
       nodes as Node<WorkflowNodeData>[],
       edges,
@@ -63,6 +71,7 @@ export function useSaveWorkflow() {
           id: workflowId,
           workflow: backendWorkflow,
         });
+        markAsSaved();
         toast.success('Workflow saved', {
           description: `"${result.name}" has been updated.`,
         });
@@ -77,6 +86,7 @@ export function useSaveWorkflow() {
           search: { workflowId: result.id },
           replace: true,
         });
+        markAsSaved();
         toast.success('Workflow created', {
           description: `"${result.name}" has been saved.`,
         });
@@ -88,8 +98,10 @@ export function useSaveWorkflow() {
         description: message,
       });
       throw error;
+    } finally {
+      isSavingRef.current = false;
     }
-  };
+  }, [nodes, edges, workflowName, workflowId, updateMutation, createMutation, setWorkflowId, navigate, markAsSaved]);
 
   return {
     saveWorkflow,
@@ -211,11 +223,7 @@ export function useExecuteWorkflow() {
       const result = await runAdhocMutation.mutateAsync(backendWorkflow);
 
       // Map backend node names to UI node IDs and update execution data
-      const nameToId = new Map<string, string>();
-      workflowNodes.forEach((node) => {
-        const data = node.data as WorkflowNodeData;
-        nameToId.set(data.name, node.id);
-      });
+      const nameToId = buildNameToIdMap(workflowNodes as Node<WorkflowNodeData>[]);
 
       // Update each node's execution data
       if (result.data) {
@@ -223,7 +231,7 @@ export function useExecuteWorkflow() {
           const nodeId = nameToId.get(nodeName);
           if (nodeId) {
             // Find input data (from previous node)
-            const inputNodeName = findInputNode(nodeName, edges, workflowNodes);
+            const inputNodeName = findUpstreamNodeName(nodeName, nameToId, edges);
             const inputData = inputNodeName ? result.data[inputNodeName] : null;
 
             const normalizedOutput = normalizeOutputData(outputData);
@@ -241,8 +249,8 @@ export function useExecuteWorkflow() {
 
       // Handle errors
       if (result.errors && result.errors.length > 0) {
-        result.errors.forEach((err: { nodeName: string; error: string }) => {
-          const nodeId = nameToId.get(err.nodeName);
+        result.errors.forEach((err) => {
+          const nodeId = nameToId.get(err.node_name);
           if (nodeId) {
             setNodeExecutionData(nodeId, {
               input: null,
@@ -258,7 +266,7 @@ export function useExecuteWorkflow() {
         });
       } else {
         toast.success('Workflow executed successfully', {
-          description: `Execution ID: ${result.executionId}`,
+          description: `Execution ID: ${result.execution_id}`,
         });
       }
 
@@ -334,37 +342,6 @@ export function useToggleWorkflowActive() {
 // Helper Functions
 // ============================================================================
 
-/**
- * Find the source node name that provides input to a target node
- */
-function findInputNode(
-  targetNodeName: string,
-  edges: { source: string; target: string }[],
-  nodes: Node<WorkflowNodeData>[]
-): string | null {
-  // Create maps for ID <-> name conversion
-  const idToName = new Map<string, string>();
-  const nameToId = new Map<string, string>();
-  nodes.forEach((node) => {
-    const data = node.data as WorkflowNodeData;
-    idToName.set(node.id, data.name);
-    nameToId.set(data.name, node.id);
-  });
-
-  // Find the target node's ID from its name
-  const targetNodeId = nameToId.get(targetNodeName);
-  if (!targetNodeId) return null;
-
-  // Find edge that targets this node
-  for (const edge of edges) {
-    if (edge.target === targetNodeId) {
-      // Return the source node's name
-      return idToName.get(edge.source) || null;
-    }
-  }
-
-  return null;
-}
 
 /**
  * Normalize backend output data to display format

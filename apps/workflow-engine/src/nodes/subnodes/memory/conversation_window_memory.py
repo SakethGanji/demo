@@ -8,8 +8,8 @@ from ...base import (
     NodeProperty,
     NodeTypeDescription,
 )
-from ..base_subnode import BaseSubnode
-from .utils import format_history_text, get_db_connection
+from .base_memory import MemorySubnodeBase, SESSION_ID_PROPERTY
+from ....utils.memory import get_db_connection
 
 if TYPE_CHECKING:
     from ....engine.types import NodeDefinition
@@ -34,7 +34,7 @@ def _get_connection():
     return get_db_connection("conv_window_conn", _INIT_SQL)
 
 
-class ConversationWindowMemoryNode(BaseSubnode):
+class ConversationWindowMemoryNode(MemorySubnodeBase):
     """Conversation Window Memory - keeps N complete conversation turns (user+assistant pairs)."""
 
     node_description = NodeTypeDescription(
@@ -46,13 +46,7 @@ class ConversationWindowMemoryNode(BaseSubnode):
         inputs=[],
         outputs=[],
         properties=[
-            NodeProperty(
-                display_name="Session ID",
-                name="sessionId",
-                type="string",
-                default="default",
-                description="Unique session identifier for chat history. Supports expressions.",
-            ),
+            SESSION_ID_PROPERTY,
             NodeProperty(
                 display_name="Max Turns",
                 name="maxTurns",
@@ -79,16 +73,15 @@ class ConversationWindowMemoryNode(BaseSubnode):
         max_turns = self.get_parameter(node_definition, "maxTurns", 10)
         include_partial = self.get_parameter(node_definition, "includePartial", True)
 
-        return {
-            "type": "conversation_window",
-            "sessionId": session_id,
-            "maxTurns": max_turns,
-            "includePartial": include_partial,
-            "getHistory": lambda: self._get_history(session_id, max_turns, include_partial),
-            "addMessage": lambda role, content: self._add_message(session_id, role, content, max_turns),
-            "clearHistory": lambda: self._clear_history(session_id),
-            "getHistoryText": lambda: self._get_history_text(session_id, max_turns, include_partial),
-        }
+        return self.build_memory_config(
+            memory_type="conversation_window",
+            session_id=session_id,
+            get_history=lambda: self._get_history(session_id, max_turns, include_partial),
+            add_message=lambda role, content: self._add_message(session_id, role, content, max_turns),
+            clear_history=lambda: self._clear_history(session_id),
+            maxTurns=max_turns,
+            includePartial=include_partial,
+        )
 
     @staticmethod
     def _get_current_turn(session_id: str) -> int:
@@ -223,8 +216,3 @@ class ConversationWindowMemoryNode(BaseSubnode):
         conn.execute("DELETE FROM conversation_window_messages WHERE session_id = ?", (session_id,))
         conn.commit()
 
-    @staticmethod
-    def _get_history_text(session_id: str, max_turns: int, include_partial: bool) -> str:
-        """Get history as formatted text."""
-        history = ConversationWindowMemoryNode._get_history(session_id, max_turns, include_partial)
-        return format_history_text(history)

@@ -52,17 +52,51 @@ import {
   Wrench,
   Download,
   Upload,
+  // New icons for missing nodes
+  RefreshCw,
+  CircleStop,
+  GitFork,
+  ListOrdered,
+  Leaf,
+  CircuitBoard,
+  Mail,
+  FileOutput,
+  FileType,
+  Reply,
+  LogIn,
+  Repeat,
+  SquareFunction,
+  Workflow,
+  SlidersHorizontal,
+  BookOpen,
+  HardDrive,
+  MessageSquareDashed,
+  ScrollText,
+  Share2,
+  Unplug,
+  Table,
+  Search,
+  KeyRound,
+  FolderOpen,
+  Image,
+  Link,
+  Regex,
+  CloudDownload,
+  CloudUpload,
+  Variable,
+  Cog,
+  BrainCircuit,
 } from 'lucide-react';
 
 // Lucide icon component type
-export type LucideIconComponent = React.ComponentType<{ size?: string | number; className?: string }>;
+type LucideIconComponent = React.ComponentType<{ size?: string | number; className?: string }>;
 
 /**
  * Icon mapping - maps icon names to Lucide components
  * Supports FontAwesome names (fa:xxx), Lucide names, and node type names
  */
-export const iconMap: Record<string, LucideIconComponent> = {
-  // Trigger nodes - distinct starting icons
+const iconMap: Record<string, LucideIconComponent> = {
+  // ── Trigger nodes ──────────────────────────────────────────────────
   'mouse-pointer': MousePointer,
   play: Play,
   'fa:play': Play,
@@ -86,8 +120,11 @@ export const iconMap: Record<string, LucideIconComponent> = {
   message: MessageCircle,
   'fa:message': MessageCircle,
   chatinput: MessageCircle,
+  'sign-in-alt': LogIn,
+  'fa:sign-in-alt': LogIn,
+  executeworkflowtrigger: LogIn,
 
-  // Flow control nodes - branching/routing icons
+  // ── Flow control nodes ─────────────────────────────────────────────
   'git-branch': GitBranch,
   'code-branch': GitBranch,
   'fa:code-branch': GitBranch,
@@ -109,13 +146,24 @@ export const iconMap: Record<string, LucideIconComponent> = {
   'hourglass-half': Pause,
   'fa:hourglass-half': Pause,
   wait: Pause,
+  sync: RefreshCw,
+  'fa:sync': RefreshCw,
+  loop: RefreshCw,
+  repeat: Repeat,
+  'stop-circle': CircleStop,
+  'fa:stop-circle': CircleStop,
+  stopanderror: CircleStop,
+  sitemap: GitFork,
+  'fa:sitemap': GitFork,
+  executeworkflow: GitFork,
 
-  // Transform/Action nodes
+  // ── Transform/Action nodes ─────────────────────────────────────────
   code: Code,
   'fa:code': Code,
   terminal: Terminal,
   filecode: FileCode,
   filter: Filter,
+  'fa:filter': Filter,
   layers: Layers,
   'th-large': LayoutGrid,
   'fa:th-large': LayoutGrid,
@@ -132,8 +180,25 @@ export const iconMap: Record<string, LucideIconComponent> = {
   'chart-bar': BarChart3,
   'fa:chart-bar': BarChart3,
   pandasexplore: BarChart3,
+  'list-ol': ListOrdered,
+  'fa:list-ol': ListOrdered,
+  itemlists: ListOrdered,
+  sample: Filter,
 
-  // AI nodes - smart/brain icons
+  // ── Integration/Database nodes ─────────────────────────────────────
+  leaf: Leaf,
+  'fa:leaf': Leaf,
+  mongodb: Leaf,
+  'fa:database': Database,
+  postgres: Database,
+  'project-diagram': CircuitBoard,
+  'fa:project-diagram': CircuitBoard,
+  neo4j: CircuitBoard,
+  envelope: Mail,
+  'fa:envelope': Mail,
+  sendemail: Mail,
+
+  // ── AI nodes ───────────────────────────────────────────────────────
   bot: Bot,
   robot: Bot,
   'fa:robot': Bot,
@@ -141,19 +206,31 @@ export const iconMap: Record<string, LucideIconComponent> = {
   brain: Brain,
   'fa:brain': Brain,
   aiagent: Brain,
+  'brain-circuit': BrainCircuit,
   sparkles: Sparkles,
   cpu: Cpu,
 
-  // Output/Display nodes
+  // ── File I/O nodes ─────────────────────────────────────────────────
+  'file-export': FileOutput,
+  'fa:file-export': FileOutput,
+  writefile: FileOutput,
+  'file-text': FileType,
+  'fa:file-text': FileType,
+
+  // ── Output/Display nodes ───────────────────────────────────────────
   'message-square': MessageSquare,
   'comment-dots': Send,
   'fa:comment-dots': Send,
   chatoutput: Send,
   monitor: Monitor,
   htmldisplay: Monitor,
+  markdowndisplay: FileText,
   panelbottom: PanelBottom,
+  reply: Reply,
+  'fa:reply': Reply,
+  respondtowebhook: Reply,
 
-  // Subnode tools
+  // ── Subnode tools ──────────────────────────────────────────────────
   calculator: Calculator,
   'fa:calculator': Calculator,
   calculatortool: Calculator,
@@ -164,16 +241,32 @@ export const iconMap: Record<string, LucideIconComponent> = {
   'fa:font': Type,
   texttool: Type,
   currenttimetool: Clock,
+  httprequesttool: Globe,
+  codetool: SquareFunction,
+  workflowtool: Workflow,
 
-  // Subnode models/memory
+  // ── Subnode models ─────────────────────────────────────────────────
   google: Sparkles,
   'fa:google': Sparkles,
   geminimodel: Sparkles,
+  llmmodelnode: SlidersHorizontal,
+
+  // ── Subnode memory ─────────────────────────────────────────────────
   database: Database,
   simplememory: Database,
   memory: Database,
+  sqlitememory: HardDrive,
+  buffermemory: BookOpen,
+  tokenbuffermemory: BookOpen,
+  conversationwindowmemory: MessageSquareDashed,
+  summarymemory: ScrollText,
+  summarybuffermemory: ScrollText,
+  progressivesummarymemory: ScrollText,
+  vectormemory: Search,
+  entitymemory: Share2,
+  knowledgegraphmemory: CircuitBoard,
 
-  // Storage nodes
+  // ── Storage nodes ──────────────────────────────────────────────────
   download: Download,
   'fa:download': Download,
   objectread: Download,
@@ -181,12 +274,37 @@ export const iconMap: Record<string, LucideIconComponent> = {
   'fa:upload': Upload,
   objectwrite: Upload,
 
-  // Generic/fallback
+  // ── Generic / future-proofing ──────────────────────────────────────
   network: Network,
   box: Box,
   hash: Hash,
   wrench: Wrench,
   tasks: Wrench,
+  cog: Cog,
+  'fa:cog': Cog,
+  'fa:cogs': Cog,
+  sliders: SlidersHorizontal,
+  'fa:sliders-h': SlidersHorizontal,
+  table: Table,
+  'fa:table': Table,
+  key: KeyRound,
+  'fa:key': KeyRound,
+  folder: FolderOpen,
+  'fa:folder': FolderOpen,
+  'fa:folder-open': FolderOpen,
+  image: Image,
+  'fa:image': Image,
+  link: Link,
+  'fa:link': Link,
+  regex: Regex,
+  'cloud-download': CloudDownload,
+  'fa:cloud-download-alt': CloudDownload,
+  'cloud-upload': CloudUpload,
+  'fa:cloud-upload-alt': CloudUpload,
+  variable: Variable,
+  'fa:variable': Variable,
+  unplug: Unplug,
+  'fa:plug': Unplug,
 };
 
 /**

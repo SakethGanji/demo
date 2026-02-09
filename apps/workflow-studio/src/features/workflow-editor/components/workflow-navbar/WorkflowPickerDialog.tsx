@@ -40,7 +40,7 @@ export default function WorkflowPickerDialog({
       />
 
       {/* Dialog */}
-      <div className="fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-[440px] max-h-[520px] flex flex-col rounded-2xl border border-border bg-card shadow-lg overflow-hidden">
+      <div className="fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-[420px] max-h-[480px] flex flex-col rounded-lg border border-border bg-card shadow-xl overflow-hidden">
         {/* Header */}
         <div className="px-5 pt-5 pb-3">
           <div className="flex items-center justify-between mb-4">
@@ -67,7 +67,7 @@ export default function WorkflowPickerDialog({
               placeholder="Search workflows..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-lg border border-input bg-secondary py-2 pl-9 pr-3 text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring transition-all"
+              className="w-full rounded-lg border border-input bg-background py-2 pl-9 pr-3 text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring transition-all"
               autoFocus
             />
           </div>
@@ -107,7 +107,7 @@ export default function WorkflowPickerDialog({
                     <div className="text-xs text-muted-foreground">
                       {wf.nodeCount} node{wf.nodeCount !== 1 ? 's' : ''}
                       {!wf.active && (
-                        <span className="ml-1.5 text-amber-500">(Inactive)</span>
+                        <span className="ml-1.5 text-[var(--warning)]">(Inactive)</span>
                       )}
                     </div>
                   </div>

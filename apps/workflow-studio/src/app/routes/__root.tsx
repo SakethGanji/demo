@@ -1,19 +1,21 @@
 import { useEffect } from 'react'
-import { createRootRoute, Outlet } from '@tanstack/react-router'
+import { createRootRoute, Outlet, useMatchRoute } from '@tanstack/react-router'
 import { Toaster } from 'sonner'
 
 import { AppSidebar } from '@/shared/components/app-sidebar'
 import { ThemeProvider } from '@/shared/components/theme-provider'
 import { ErrorBoundary } from '@/shared/components/ErrorBoundary'
-import { SidebarInset, SidebarProvider } from '@/shared/components/ui/sidebar'
-import { useNodeCreatorStore } from '@/features/workflow-editor/stores/nodeCreatorStore'
+import { SidebarProvider } from '@/shared/components/ui/sidebar'
+import { useEditorLayoutStore } from '@/features/workflow-editor/stores/editorLayoutStore'
 
 export const rootRoute = createRootRoute({
   component: RootLayout,
 })
 
 function RootLayout() {
-  const closePanel = useNodeCreatorStore((s) => s.closePanel)
+  const closePanel = useEditorLayoutStore((s) => s.closeCreatorPanel)
+  const matchRoute = useMatchRoute()
+  const isEditorRoute = matchRoute({ to: '/editor', fuzzy: true })
 
   // Global keyboard shortcuts
   useEffect(() => {
@@ -27,16 +29,30 @@ function RootLayout() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [closePanel])
 
+  // Editor route: full takeover, no sidebar
+  if (isEditorRoute) {
+    return (
+      <ThemeProvider defaultTheme="system" storageKey="workflow-studio-theme">
+        <ErrorBoundary>
+          <main className="h-screen w-screen overflow-hidden">
+            <Outlet />
+          </main>
+        </ErrorBoundary>
+        <Toaster position="bottom-right" richColors closeButton />
+      </ThemeProvider>
+    )
+  }
+
   return (
     <ThemeProvider defaultTheme="system" storageKey="workflow-studio-theme">
       <ErrorBoundary>
         <SidebarProvider defaultOpen={false}>
           <AppSidebar />
-          <SidebarInset>
+          <main className="relative flex w-full flex-1 flex-col">
             <div className="h-full w-full relative">
               <Outlet />
             </div>
-          </SidebarInset>
+          </main>
         </SidebarProvider>
       </ErrorBoundary>
       <Toaster position="bottom-right" richColors closeButton />

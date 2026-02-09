@@ -212,6 +212,7 @@ class NodeDefinition:
     parameters: dict[str, Any] = field(default_factory=dict)
     position: dict[str, float] | None = None
     pinned_data: list[NodeData] | None = None
+    label: str | None = None
     retry_on_fail: int = 0
     retry_delay: int = 1000
     continue_on_fail: bool = False
@@ -227,6 +228,7 @@ class Connection:
     target_input: str = "main"
     connection_type: Literal["normal", "subnode"] = "normal"
     slot_name: str | None = None  # For subnode connections
+    waypoints: list[dict[str, float]] | None = None  # Manual edge routing
 
 
 # --- Subnode Types ---

@@ -13,8 +13,6 @@ from ..core.exceptions import (
 )
 from ..engine.types import (
     Workflow,
-    NodeDefinition,
-    Connection,
     NodeData,
 )
 from ..engine.workflow_runner import WorkflowRunner
@@ -109,33 +107,8 @@ class WorkflowService:
         # Build updated workflow from existing + request
         internal_workflow = Workflow(
             name=request.name or existing.workflow.name,
-            nodes=[
-                NodeDefinition(
-                    name=n.name,
-                    type=n.type,
-                    parameters=n.parameters,
-                    position=n.position,
-                    retry_on_fail=n.retry_on_fail,
-                    retry_delay=n.retry_delay,
-                    continue_on_fail=n.continue_on_fail,
-                )
-                for n in (request.nodes or [])
-            ]
-            if request.nodes
-            else existing.workflow.nodes,
-            connections=[
-                Connection(
-                    source_node=c.source_node,
-                    target_node=c.target_node,
-                    source_output=c.source_output,
-                    target_input=c.target_input,
-                    connection_type=c.connection_type,
-                    slot_name=c.slot_name,
-                )
-                for c in (request.connections or [])
-            ]
-            if request.connections
-            else existing.workflow.connections,
+            nodes=[n.to_dataclass() for n in request.nodes] if request.nodes else existing.workflow.nodes,
+            connections=[c.to_dataclass() for c in request.connections] if request.connections else existing.workflow.connections,
             id=workflow_id,
             description=request.description or existing.workflow.description,
             settings=request.settings or existing.workflow.settings,
@@ -309,34 +282,7 @@ class WorkflowService:
 
     def _request_to_workflow(self, request: WorkflowCreateRequest) -> Workflow:
         """Convert request to internal Workflow type."""
-        return Workflow(
-            name=request.name,
-            nodes=[
-                NodeDefinition(
-                    name=n.name,
-                    type=n.type,
-                    parameters=n.parameters,
-                    position=n.position,
-                    retry_on_fail=n.retry_on_fail,
-                    retry_delay=n.retry_delay,
-                    continue_on_fail=n.continue_on_fail,
-                )
-                for n in request.nodes
-            ],
-            connections=[
-                Connection(
-                    source_node=c.source_node,
-                    target_node=c.target_node,
-                    source_output=c.source_output,
-                    target_input=c.target_input,
-                    connection_type=c.connection_type,
-                    slot_name=c.slot_name,
-                )
-                for c in request.connections
-            ],
-            description=request.description,
-            settings=request.settings,
-        )
+        return request.to_workflow()
 
     def _workflow_to_dict(self, workflow: Workflow) -> dict[str, Any]:
         """Convert internal Workflow to dict for API response."""
@@ -351,11 +297,13 @@ class WorkflowService:
             node_dict: dict[str, Any] = {
                 "name": n.name,
                 "type": n.type,
+                "label": n.label,
                 "parameters": n.parameters,
                 "position": n.position,
                 "retry_on_fail": n.retry_on_fail,
                 "retry_delay": n.retry_delay,
                 "continue_on_fail": n.continue_on_fail,
+                **({"pinnedData": [{"json": d.json} for d in n.pinned_data]} if n.pinned_data else {}),
                 # Enriched I/O data for frontend
                 "inputs": io_data["inputs"],
                 "inputCount": io_data["inputCount"],
@@ -389,6 +337,7 @@ class WorkflowService:
                     "target_input": c.target_input,
                     **({"connection_type": c.connection_type} if c.connection_type else {}),
                     **({"slot_name": c.slot_name} if c.slot_name else {}),
+                    **({"waypoints": c.waypoints} if c.waypoints else {}),
                 }
                 for c in workflow.connections
             ],

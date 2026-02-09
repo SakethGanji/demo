@@ -1,6 +1,7 @@
 import type { DragEvent } from 'react';
 import type { NodeDefinition } from '../../types/workflow';
-import { getNodeGroupFromType, getNodeStyles, type NodeGroup } from '../../lib/nodeStyles';
+import { getNodeStyles } from '../../lib/nodeStyles';
+import { normalizeNodeGroup, type NodeGroup } from '../../lib/nodeConfig';
 import { getIconForNode } from '../../lib/nodeIcons';
 import { useWorkflowStore } from '../../stores/workflowStore';
 
@@ -14,7 +15,7 @@ export default function NodeItem({ node, onClick }: NodeItemProps) {
   const setDraggedNodeType = useWorkflowStore((s) => s.setDraggedNodeType);
 
   // Get group-based styling to match canvas nodes
-  const nodeGroup = getNodeGroupFromType(node.type, node.group ? [node.group] : (node.category ? [node.category] : undefined));
+  const nodeGroup = normalizeNodeGroup(node.group ? [node.group] : (node.category ? [node.category] : undefined));
   const styles = getNodeStyles(nodeGroup);
 
   const handleDragStart = (e: DragEvent<HTMLButtonElement>) => {
@@ -37,12 +38,11 @@ export default function NodeItem({ node, onClick }: NodeItemProps) {
       draggable
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
-      className="group flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-3 text-left transition-all hover:border-border hover:bg-accent/50 hover:shadow-sm cursor-grab active:cursor-grabbing"
+      className="group flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-accent cursor-grab active:cursor-grabbing"
     >
       <div
         className={`
-          flex h-10 w-10 shrink-0 items-center justify-center rounded-xl
-          group-hover:scale-105 transition-transform
+          flex h-8 w-8 shrink-0 items-center justify-center rounded-md
           ${nodeGroup === 'ai' ? 'node-ai-shimmer' : ''}
         `}
         style={{
@@ -50,17 +50,12 @@ export default function NodeItem({ node, onClick }: NodeItemProps) {
           color: styles.accentColor,
         }}
       >
-        <IconComponent size={20} />
+        <IconComponent size={16} />
       </div>
       <div className="min-w-0 flex-1">
-        <p className="font-medium text-foreground">{node.displayName}</p>
-        <p className="truncate text-sm text-muted-foreground">{node.description}</p>
+        <p className="text-[13px] font-medium text-foreground">{node.displayName}</p>
+        <p className="truncate text-[12px] text-muted-foreground leading-tight">{node.description}</p>
       </div>
-      {/* Accent indicator */}
-      <div
-        className="h-8 w-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-        style={{ backgroundColor: styles.accentColor }}
-      />
     </button>
   );
 }

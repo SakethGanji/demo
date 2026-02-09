@@ -2,12 +2,13 @@ import { create } from 'zustand';
 import type { Node, Edge, Connection, NodeChange, EdgeChange } from 'reactflow';
 import { addEdge, applyNodeChanges, applyEdgeChanges } from 'reactflow';
 import type { WorkflowNodeData, NodeExecutionData, StickyNoteData, SubnodeEdgeData, SubnodeType, OutputStrategy } from '../types/workflow';
+import type { BackendNodeData } from '@/shared/lib/backendTypes';
 import type { NodeIO } from '../lib/nodeStyles';
-import { isTriggerNode } from '../hooks/useNodeTypes';
-import { generateNodeName } from '../lib/workflowTransform';
-
-// Subnode slot names that identify subnode connections
-const SUBNODE_SLOT_NAMES = ['chatModel', 'memory', 'tools'];
+import type { NodeTypeMetadata } from '../lib/createNodeData';
+import { isTriggerType } from '../lib/nodeConfig';
+import { generateNodeName, getExistingNodeNames } from '../lib/workflowTransform';
+import { createWorkflowNodeData, createReactFlowNode } from '../lib/createNodeData';
+import { SUBNODE_SLOT_NAMES } from '../lib/nodeConfig';
 
 // Helper to compute dynamic outputs for nodes with outputStrategy
 function computeDynamicOutputs(data: WorkflowNodeData): WorkflowNodeData {
@@ -47,9 +48,6 @@ function computeDynamicOutputs(data: WorkflowNodeData): WorkflowNodeData {
 
   return data;
 }
-
-// Backend-compatible pinned data format: { json: {...} }[]
-type BackendNodeData = { json: Record<string, unknown> };
 
 // Connection validation result
 interface ConnectionValidation {
@@ -111,6 +109,13 @@ interface WorkflowState {
   history: HistoryEntry[];
   historyIndex: number;
   isUndoRedoAction: boolean; // Flag to prevent saving undo/redo actions to history
+
+  // Dirty state tracking
+  lastSavedSnapshot: string | null;
+
+  // Node type registry (synced from React Query cache)
+  nodeTypesMap: Map<string, NodeTypeMetadata>;
+  setNodeTypesMap: (map: Map<string, NodeTypeMetadata>) => void;
 
   // Metadata actions
   setWorkflowName: (name: string) => void;
@@ -194,9 +199,16 @@ interface WorkflowState {
   canUndo: () => boolean;
   canRedo: () => boolean;
 
+  // Edge waypoints
+  updateEdgeWaypoints: (edgeId: string, waypoints: Array<{ x: number; y: number }> | undefined) => void;
+
   // Multi-node operations
   deleteNodes: (nodeIds: string[]) => void;
   moveNodes: (nodeIds: string[], delta: { x: number; y: number }) => void;
+
+  // Dirty state
+  markAsSaved: () => void;
+  isDirty: () => boolean;
 
   // Export/Import
   exportWorkflow: () => string;
@@ -234,6 +246,10 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   history: [],
   historyIndex: -1,
   isUndoRedoAction: false,
+  lastSavedSnapshot: null,
+  nodeTypesMap: new Map(),
+
+  setNodeTypesMap: (map) => set({ nodeTypesMap: map }),
 
   // Metadata actions
   setWorkflowName: (name) => set({ workflowName: name }),
@@ -390,7 +406,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
     // Normal connection validation
     // Can't connect to trigger nodes (they have no inputs)
-    if (isTriggerNode(targetNode.data?.type || '')) {
+    if (isTriggerType(targetNode.data?.type || '')) {
       return { isValid: false, message: 'Cannot connect to trigger nodes' };
     }
 
@@ -492,16 +508,11 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   addSubworkflowNode: (workflowId, workflowName) => {
-    const { nodes, saveToHistory } = get();
+    const { nodes, nodeTypesMap, saveToHistory } = get();
 
     saveToHistory();
 
-    const existingNames = nodes
-      .filter((n) => n.type === 'workflowNode' || n.type === 'subworkflowNode' || n.type === 'subnodeNode')
-      .map((n) => (n.data as WorkflowNodeData)?.name)
-      .filter(Boolean) as string[];
-
-    const nodeName = generateNodeName('ExecuteWorkflow', existingNames);
+    const existingNames = getExistingNodeNames(nodes as Node<WorkflowNodeData>[]);
 
     // Position to the right of the rightmost node
     const realNodes = nodes.filter((n) => n.type !== 'addNodes');
@@ -512,27 +523,23 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       position = { x: maxX + 250, y: avgY };
     }
 
-    const newNode: Node = {
-      id: `node-${Date.now()}`,
-      type: 'subworkflowNode',
-      position,
-      data: {
-        name: nodeName,
-        label: workflowName,
-        type: 'ExecuteWorkflow',
-        icon: 'git-branch',
-        description: `Execute workflow: ${workflowName}`,
-        parameters: { workflowId },
-        subworkflowId: workflowId,
-        continueOnFail: false,
-        retryOnFail: 0,
-        retryDelay: 1000,
-        inputCount: 1,
-        outputCount: 1,
-        inputs: [{ name: 'main', displayName: 'Main' }],
-        outputs: [{ name: 'main', displayName: 'Main' }],
-      } as WorkflowNodeData,
-    };
+    const meta = nodeTypesMap.get('ExecuteWorkflow');
+    const newNode = createReactFlowNode(
+      meta ?? { type: 'ExecuteWorkflow' },
+      {
+        nodeType: 'subworkflowNode',
+        position,
+        existingNames,
+        overrides: {
+          label: workflowName,
+          parameters: { workflowId },
+          subworkflowId: workflowId,
+        },
+      },
+    );
+
+    // Ensure description is set
+    (newNode.data as WorkflowNodeData).description = `Execute workflow: ${workflowName}`;
 
     // Remove placeholder if it's the only node
     const hasOnlyPlaceholder = nodes.length === 1 && nodes[0].type === 'addNodes';
@@ -543,15 +550,12 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   copyWorkflowNodes: (workflowName, definition) => {
-    const { nodes, edges, saveToHistory } = get();
+    const { nodes, edges, nodeTypesMap, saveToHistory } = get();
 
     saveToHistory();
 
     // Collect existing names for uniqueness
-    const existingNames = nodes
-      .filter((n) => n.type === 'workflowNode' || n.type === 'subworkflowNode' || n.type === 'subnodeNode')
-      .map((n) => (n.data as WorkflowNodeData)?.name)
-      .filter(Boolean) as string[];
+    const existingNames = getExistingNodeNames(nodes as Node<WorkflowNodeData>[]);
 
     // Position offset: place copied nodes to the right of the rightmost existing node
     const realNodes = nodes.filter((n) => n.type !== 'addNodes');
@@ -583,21 +587,22 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         y: offsetY + ((srcNode.position?.y ?? 0) - srcMinY),
       };
 
+      // Look up full metadata from cache if available
+      const meta = nodeTypesMap?.get(srcNode.type);
+      const data = createWorkflowNodeData(
+        meta ?? { type: srcNode.type },
+        {
+          name: newName,
+          label: newName,
+          parameters: { ...srcNode.parameters },
+        },
+      );
+
       return {
         id: `node-${timestamp}-${index}`,
         type: 'workflowNode',
         position,
-        data: {
-          name: newName,
-          type: srcNode.type,
-          label: newName,
-          icon: srcNode.type.toLowerCase(),
-          parameters: { ...srcNode.parameters },
-          inputCount: 1,
-          outputCount: 1,
-          inputs: [{ name: 'main', displayName: 'Main' }],
-          outputs: [{ name: 'main', displayName: 'Main' }],
-        } as WorkflowNodeData,
+        data,
       };
     });
 
@@ -642,6 +647,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     const slotIndex = slots.findIndex((s: { name: string }) => s.name === slotName);
     if (slotIndex === -1) return;
 
+    // Save state before adding subnode (for undo support)
+    get().saveToHistory();
+
     // Calculate parent node width (nodes with slots are ~180px wide)
     const parentWidth = slots.length > 0 ? Math.max(180, slots.length * 55 + 20) : 64;
 
@@ -653,29 +661,32 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     const subnodeY = parentNode.position.y + 130; // Below parent node
 
     // Generate unique name for the subnode (backend requires unique names)
-    const existingNames = nodes
-      .filter((n) => n.type === 'workflowNode' || n.type === 'subworkflowNode' || n.type === 'subnodeNode')
-      .map((n) => (n.data as WorkflowNodeData)?.name)
-      .filter(Boolean) as string[];
-    const uniqueName = generateNodeName(subnodeData.type, existingNames);
+    const existingNames = getExistingNodeNames(nodes as Node<WorkflowNodeData>[]);
 
-    // Create subnode (marked as stacked so it's hidden and rendered as badge on parent)
-    const newNode: Node = {
-      id: `${subnodeData.type}-${Date.now()}`,
-      type: 'subnodeNode',
-      position: { x: subnodeX, y: subnodeY },
-      data: {
-        name: uniqueName,
+    const nodeId = `${subnodeData.type}-${Date.now()}`;
+
+    // Create subnode via factory (marked as stacked so it's rendered as badge on parent)
+    const newNode = createReactFlowNode(
+      {
         type: subnodeData.type,
-        label: subnodeData.label,
         icon: subnodeData.icon || 'wrench',
-        isSubnode: true,
         subnodeType: subnodeData.subnodeType,
-        nodeShape: 'circular',
-        parameters: subnodeData.properties || {},
-        stacked: true,
       },
-    };
+      {
+        id: nodeId,
+        nodeType: 'subnodeNode',
+        position: { x: subnodeX, y: subnodeY },
+        existingNames,
+        overrides: {
+          label: subnodeData.label,
+          parameters: subnodeData.properties || {},
+          isSubnode: true,
+          subnodeType: subnodeData.subnodeType,
+          nodeShape: 'circular',
+          stacked: true,
+        },
+      },
+    );
 
     // Create edge connecting subnode to parent slot
     const subnodeEdgeData: SubnodeEdgeData = {
@@ -795,16 +806,11 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
   // Pinned data methods - uses backend format { json: {...} }[]
   pinNodeData: (nodeId, data) => {
+    // Atomic update: both pinnedData and node.data.pinnedData in one set()
+    const { pinnedData, nodes } = get();
     set({
-      pinnedData: {
-        ...get().pinnedData,
-        [nodeId]: data,
-      },
-    });
-
-    // Also update node's pinnedData field for backend compatibility
-    set({
-      nodes: get().nodes.map((node) =>
+      pinnedData: { ...pinnedData, [nodeId]: data },
+      nodes: nodes.map((node) =>
         node.id === nodeId
           ? { ...node, data: { ...node.data, pinnedData: data } }
           : node
@@ -813,13 +819,13 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   unpinNodeData: (nodeId) => {
-    const newPinnedData = { ...get().pinnedData };
+    // Atomic update: both pinnedData and node.data.pinnedData in one set()
+    const { pinnedData, nodes } = get();
+    const newPinnedData = { ...pinnedData };
     delete newPinnedData[nodeId];
-    set({ pinnedData: newPinnedData });
-
-    // Also clear node's pinnedData field
     set({
-      nodes: get().nodes.map((node) =>
+      pinnedData: newPinnedData,
+      nodes: nodes.map((node) =>
         node.id === nodeId
           ? { ...node, data: { ...node.data, pinnedData: undefined } }
           : node
@@ -844,7 +850,6 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   // Load workflow from API data
   loadWorkflow: (data) => {
     // Process nodes to compute dynamic outputs for nodes with outputStrategy
-    // and ensure all subnodes are marked as stacked
     const processedNodes = data.nodes.map((node) => {
       if ((node.type === 'workflowNode' || node.type === 'subworkflowNode') && node.data) {
         const nodeData = node.data as WorkflowNodeData;
@@ -852,15 +857,10 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
           return { ...node, data: computeDynamicOutputs(nodeData) };
         }
       }
-      if (node.type === 'subnodeNode' && node.data) {
-        const nodeData = node.data as WorkflowNodeData;
-        if (!nodeData.stacked) {
-          return { ...node, data: { ...nodeData, stacked: true } };
-        }
-      }
       return node;
     });
 
+    const snapshot = JSON.stringify({ nodes: processedNodes, edges: data.edges });
     set({
       nodes: processedNodes,
       edges: data.edges,
@@ -871,6 +871,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       executionData: {},
       subworkflowExecutionData: {},
       pinnedData: {},
+      lastSavedSnapshot: snapshot,
     });
   },
 
@@ -986,10 +987,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     const timestamp = Date.now();
 
     // Collect existing names including the ones we're about to create
-    const existingNames = nodes
-      .filter((n) => n.type === 'workflowNode' || n.type === 'subnodeNode')
-      .map((n) => (n.data as WorkflowNodeData)?.name)
-      .filter(Boolean) as string[];
+    const existingNames = getExistingNodeNames(nodes as Node<WorkflowNodeData>[]);
 
     // Create new nodes with new IDs and unique names
     const newNodes = clipboard.nodes.map((node, index) => {
@@ -1053,10 +1051,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     const timestamp = Date.now();
 
     // Collect existing names including the ones we're about to create
-    const existingNames = nodes
-      .filter((n) => n.type === 'workflowNode' || n.type === 'subnodeNode')
-      .map((n) => (n.data as WorkflowNodeData)?.name)
-      .filter(Boolean) as string[];
+    const existingNames = getExistingNodeNames(nodes as Node<WorkflowNodeData>[]);
 
     // Create new nodes with offset position and unique names
     const newNodes = nodesToDuplicate.map((node, index) => {
@@ -1159,8 +1154,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       historyIndex: historyIndex - 1,
     });
 
-    // Reset flag after state update
-    setTimeout(() => set({ isUndoRedoAction: false }), 0);
+    // Reset flag via microtask — runs after current synchronous subscribers
+    // but before any user-triggered macrotasks (clicks, inputs)
+    queueMicrotask(() => set({ isUndoRedoAction: false }));
   },
 
   redo: () => {
@@ -1177,8 +1173,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       historyIndex: historyIndex + 1,
     });
 
-    // Reset flag after state update
-    setTimeout(() => set({ isUndoRedoAction: false }), 0);
+    queueMicrotask(() => set({ isUndoRedoAction: false }));
   },
 
   canUndo: () => {
@@ -1189,6 +1184,17 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   canRedo: () => {
     const { history, historyIndex } = get();
     return historyIndex < history.length - 2;
+  },
+
+  // Edge waypoints
+  updateEdgeWaypoints: (edgeId, waypoints) => {
+    set({
+      edges: get().edges.map((edge) =>
+        edge.id === edgeId
+          ? { ...edge, data: { ...edge.data, waypoints } }
+          : edge
+      ),
+    });
   },
 
   // Delete multiple nodes
@@ -1234,6 +1240,20 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
           : node
       ),
     });
+  },
+
+  // Dirty state tracking
+  markAsSaved: () => {
+    const { nodes, edges } = get();
+    const snapshot = JSON.stringify({ nodes, edges });
+    set({ lastSavedSnapshot: snapshot });
+  },
+
+  isDirty: () => {
+    const { nodes, edges, lastSavedSnapshot } = get();
+    if (lastSavedSnapshot === null) return false;
+    const current = JSON.stringify({ nodes, edges });
+    return current !== lastSavedSnapshot;
   },
 
   // Export workflow as JSON string

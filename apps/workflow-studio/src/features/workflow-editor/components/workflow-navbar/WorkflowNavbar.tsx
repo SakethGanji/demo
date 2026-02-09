@@ -14,14 +14,17 @@ import {
   ZoomOut,
   Plus,
   Square,
-  PanelRight,
   Sparkles,
   GitBranch,
+  ChevronLeft,
+  Blocks,
+  ScrollText,
+  Monitor,
 } from 'lucide-react';
+import { Link } from '@tanstack/react-router';
 import { useReactFlow } from 'reactflow';
 import { useWorkflowStore } from '../../stores/workflowStore';
-import { useUIModeStore } from '../../stores/uiModeStore';
-import { useNodeCreatorStore } from '../../stores/nodeCreatorStore';
+import { useEditorLayoutStore } from '../../stores/editorLayoutStore';
 import { useExecutionStream } from '../../hooks/useExecutionStream';
 import { Popover, PopoverContent, PopoverTrigger } from '@/shared/components/ui/popover';
 import CodeEditor from '@/shared/components/ui/code-editor';
@@ -40,39 +43,33 @@ import type { Node } from 'reactflow';
 import WorkflowPickerDialog from './WorkflowPickerDialog';
 
 export default function WorkflowNavbar() {
-  const {
-    workflowName,
-    workflowId,
-    nodes,
-    edges,
-    isActive,
-    setWorkflowName,
-    undo,
-    redo,
-    canUndo,
-    canRedo,
-    addSubworkflowNode,
-    copyWorkflowNodes,
-  } = useWorkflowStore();
+  const workflowName = useWorkflowStore((s) => s.workflowName);
+  const workflowId = useWorkflowStore((s) => s.workflowId);
+  const nodes = useWorkflowStore((s) => s.nodes);
+  const edges = useWorkflowStore((s) => s.edges);
+  const isActive = useWorkflowStore((s) => s.isActive);
+  const setWorkflowName = useWorkflowStore((s) => s.setWorkflowName);
+  const undo = useWorkflowStore((s) => s.undo);
+  const redo = useWorkflowStore((s) => s.redo);
+  const canUndo = useWorkflowStore((s) => s.canUndo);
+  const canRedo = useWorkflowStore((s) => s.canRedo);
+  const addSubworkflowNode = useWorkflowStore((s) => s.addSubworkflowNode);
+  const copyWorkflowNodes = useWorkflowStore((s) => s.copyWorkflowNodes);
+  const isDirty = useWorkflowStore((s) => s.isDirty);
 
   const { saveWorkflow, isSaving } = useSaveWorkflow();
   const { toggleActive, isToggling } = useToggleWorkflowActive();
   const { importWorkflow } = useImportWorkflow();
   const { executeWorkflow, isExecuting, cancelExecution } = useExecutionStream();
 
-  const isPreviewOpen = useUIModeStore((s) => s.isPreviewOpen);
-  const activeTab = useUIModeStore((s) => s.activeTab);
-  const openTab = useUIModeStore((s) => s.openTab);
-  const setPreviewOpen = useUIModeStore((s) => s.setPreviewOpen);
-  const openPanel = useNodeCreatorStore((s) => s.openPanel);
+  const rightPanelOpen = useEditorLayoutStore((s) => s.rightPanelOpen);
+  const rightPanelTab = useEditorLayoutStore((s) => s.rightPanelTab);
+  const openRightPanel = useEditorLayoutStore((s) => s.openRightPanel);
+  const bottomPanelOpen = useEditorLayoutStore((s) => s.bottomPanelOpen);
+  const bottomPanelTab = useEditorLayoutStore((s) => s.bottomPanelTab);
+  const openBottomPanel = useEditorLayoutStore((s) => s.openBottomPanel);
 
-  const handleToggleTab = (tab: 'ai' | 'test') => {
-    if (isPreviewOpen && activeTab === tab) {
-      setPreviewOpen(false);
-    } else {
-      openTab(tab);
-    }
-  };
+  const ensureRightPanelOpen = useEditorLayoutStore((s) => s.ensureRightPanelOpen);
 
   const { zoomIn, zoomOut } = useReactFlow();
 
@@ -93,7 +90,6 @@ export default function WorkflowNavbar() {
       setIsRunOpen(false);
       executeWorkflow(parsed);
     } catch {
-      // If JSON is invalid, just run without payload
       setIsRunOpen(false);
       executeWorkflow({});
     }
@@ -127,22 +123,33 @@ export default function WorkflowNavbar() {
     const reader = new FileReader();
     reader.onload = (e) => {
       const content = e.target?.result as string;
-      // Use the hook which POSTs to backend and loads the enriched result
       importWorkflow(content);
     };
     reader.readAsText(file);
-
-    // Reset input so same file can be imported again
     event.target.value = '';
   };
 
-  const btnClass = "h-8 w-8 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed";
-  const dividerClass = "w-px h-5 bg-border";
+  const btnClass = "h-7 w-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed";
+  const dividerClass = "w-px h-4 bg-border";
+
+  const isBottomTabActive = (tab: string) => bottomPanelOpen && bottomPanelTab === tab;
+  const isRightTabActive = (tab: string) => rightPanelOpen && rightPanelTab === tab;
 
   return (
     <>
-      {/* Unified floating toolbar */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center h-9 bg-card border border-border rounded-lg shadow-sm overflow-hidden">
+      <div className="editor-chrome flex items-center h-10 px-2 bg-card border-b border-border shrink-0 gap-0.5">
+        {/* Left section: Back + Name */}
+        <Link
+          to="/workflows"
+          className="h-7 px-1.5 flex items-center gap-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors text-xs"
+          title="Back to workflows"
+        >
+          <ChevronLeft size={14} />
+          <span className="hidden sm:inline">Workflows</span>
+        </Link>
+
+        <div className={dividerClass} />
+
         {/* Workflow name */}
         {isEditingName ? (
           <input
@@ -158,7 +165,7 @@ export default function WorkflowNavbar() {
                 setIsEditingName(false);
               }
             }}
-            className="h-full w-32 px-3 text-sm font-medium text-foreground bg-transparent outline-none border-r border-border"
+            className="h-7 w-36 px-2 text-[13px] font-medium text-foreground bg-transparent outline-none border border-border rounded-md"
           />
         ) : (
           <button
@@ -166,14 +173,22 @@ export default function WorkflowNavbar() {
               setEditedName(workflowName);
               setIsEditingName(true);
             }}
-            className="h-full px-3 text-sm font-medium text-foreground hover:bg-accent transition-colors truncate max-w-36 border-r border-border"
+            className="h-7 px-2 text-[13px] font-medium text-foreground hover:bg-accent transition-colors rounded-md truncate max-w-40"
             title="Click to rename"
           >
             {workflowName}
           </button>
         )}
+        {isDirty() && (
+          <span
+            className="w-1.5 h-1.5 rounded-full bg-[var(--warning)] flex-shrink-0"
+            title="Unsaved changes"
+          />
+        )}
 
-        {/* Undo/Redo */}
+        {/* Center section: Undo/Redo + Zoom */}
+        <div className="flex-1" />
+
         <button onClick={() => undo()} disabled={!canUndo()} className={btnClass} title="Undo">
           <Undo2 size={14} />
         </button>
@@ -183,7 +198,6 @@ export default function WorkflowNavbar() {
 
         <div className={dividerClass} />
 
-        {/* Zoom */}
         <button onClick={() => zoomOut()} className={btnClass} title="Zoom out">
           <ZoomOut size={14} />
         </button>
@@ -191,25 +205,65 @@ export default function WorkflowNavbar() {
           <ZoomIn size={14} />
         </button>
 
+        {/* Right section */}
+        <div className="flex-1" />
+
+        {/* Bottom panel tabs */}
+        <button
+          onClick={() => openBottomPanel('logs')}
+          className={btnClass + (isBottomTabActive('logs') ? ' !text-primary' : '')}
+          title="Toggle logs"
+        >
+          <ScrollText size={14} />
+        </button>
+        <button
+          onClick={() => openBottomPanel('ui')}
+          className={btnClass + (isBottomTabActive('ui') ? ' !text-primary' : '')}
+          title="Toggle UI"
+        >
+          <Monitor size={14} />
+        </button>
+
         <div className={dividerClass} />
 
-        {/* AI Chat toggle */}
+        {/* Right panel tabs */}
         <button
-          onClick={() => handleToggleTab('ai')}
-          className={btnClass + ` px-2 gap-1 ${isPreviewOpen && activeTab === 'ai' ? '!text-primary' : ''}`}
+          onClick={() => openRightPanel('nodes')}
+          className={btnClass + (isRightTabActive('nodes') ? ' !text-primary' : '')}
+          title="Toggle node list"
+        >
+          <Blocks size={14} />
+        </button>
+        <button
+          onClick={() => openRightPanel('ai')}
+          className={btnClass + (isRightTabActive('ai') ? ' !text-primary' : '')}
           title="Toggle AI assistant"
         >
           <Sparkles size={14} />
         </button>
 
-        {/* UI Preview toggle */}
+        <div className={dividerClass} />
+
+        {/* Add node */}
         <button
-          onClick={() => handleToggleTab('test')}
-          className={btnClass + ` px-2 gap-1 ${isPreviewOpen && activeTab === 'test' ? '!text-primary' : ''}`}
-          title="Toggle test interface"
+          onClick={() => ensureRightPanelOpen('nodes')}
+          className={btnClass + ' !text-primary'}
+          title="Add node"
         >
-          <PanelRight size={14} />
+          <Plus size={16} strokeWidth={2.5} />
         </button>
+
+        <div className={dividerClass} />
+
+        {/* Active toggle */}
+        <div className="px-1 flex items-center">
+          <Switch
+            checked={isActive}
+            onCheckedChange={(checked) => toggleActive(checked)}
+            disabled={isToggling || !workflowId}
+            className="data-[state=checked]:bg-[var(--success)]"
+          />
+        </div>
 
         {/* Run/Stop */}
         {isExecuting ? (
@@ -224,25 +278,23 @@ export default function WorkflowNavbar() {
           <Popover open={isRunOpen} onOpenChange={setIsRunOpen}>
             <PopoverTrigger asChild>
               <button
-                className={btnClass + ' !text-emerald-600'}
+                className={btnClass + ' !text-[var(--success)]'}
                 title="Run workflow"
               >
                 <Play size={16} fill="currentColor" />
               </button>
             </PopoverTrigger>
             <PopoverContent align="end" className="w-80 p-0 overflow-hidden">
-              {/* Quick run */}
               <button
                 onClick={handleRunWithoutPayload}
-                className="w-full px-3 py-2.5 text-sm text-left hover:bg-accent flex items-center gap-2 border-b border-border"
+                className="w-full px-3 py-2 text-[13px] text-left hover:bg-accent flex items-center gap-2 border-b border-border"
               >
-                <Play size={14} className="text-emerald-600" fill="currentColor" />
+                <Play size={12} className="text-[var(--success)]" fill="currentColor" />
                 Run without payload
               </button>
-              {/* With payload */}
               <div className="p-3">
-                <div className="text-xs font-medium text-muted-foreground mb-2">Or run with payload:</div>
-                <div className="rounded-lg border border-border overflow-hidden mb-3">
+                <div className="text-[11px] font-medium text-muted-foreground mb-2">Or run with payload:</div>
+                <div className="rounded-md border border-border overflow-hidden mb-2">
                   <CodeEditor
                     value={testInput}
                     onChange={setTestInput}
@@ -252,38 +304,15 @@ export default function WorkflowNavbar() {
                 </div>
                 <button
                   onClick={handleRunWithPayload}
-                  className="w-full h-8 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 flex items-center justify-center gap-1.5"
+                  className="w-full h-7 rounded-md bg-[var(--success)] text-white text-[12px] font-medium hover:brightness-110 flex items-center justify-center gap-1.5"
                 >
-                  <Play size={12} fill="currentColor" />
+                  <Play size={11} fill="currentColor" />
                   Run with Payload
                 </button>
               </div>
             </PopoverContent>
           </Popover>
         )}
-
-        <div className={dividerClass} />
-
-        {/* Add node */}
-        <button
-          onClick={() => openPanel('regular')}
-          className="h-full px-2 text-primary hover:bg-accent transition-colors"
-          title="Add node"
-        >
-          <Plus size={16} strokeWidth={2.5} />
-        </button>
-
-        <div className={dividerClass} />
-
-        {/* Active toggle */}
-        <div className="h-full px-2 flex items-center">
-          <Switch
-            checked={isActive}
-            onCheckedChange={(checked) => toggleActive(checked)}
-            disabled={isToggling || !workflowId}
-            className="data-[state=checked]:bg-[var(--success)]"
-          />
-        </div>
 
         {/* Save */}
         <button

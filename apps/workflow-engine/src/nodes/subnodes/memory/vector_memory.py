@@ -10,8 +10,8 @@ from ...base import (
     NodePropertyOption,
     NodeTypeDescription,
 )
-from ..base_subnode import BaseSubnode
-from .utils import format_history_text, get_embedding, cosine_similarity, get_db_connection, run_async
+from .base_memory import MemorySubnodeBase, SESSION_ID_PROPERTY
+from ....utils.memory import get_embedding, cosine_similarity, get_db_connection, run_async
 
 if TYPE_CHECKING:
     from ....engine.types import NodeDefinition
@@ -36,7 +36,7 @@ def _get_connection():
     return get_db_connection("vector_conn", _INIT_SQL)
 
 
-class VectorMemoryNode(BaseSubnode):
+class VectorMemoryNode(MemorySubnodeBase):
     """Vector Memory - semantic search over conversation history using embeddings."""
 
     node_description = NodeTypeDescription(
@@ -48,13 +48,7 @@ class VectorMemoryNode(BaseSubnode):
         inputs=[],
         outputs=[],
         properties=[
-            NodeProperty(
-                display_name="Session ID",
-                name="sessionId",
-                type="string",
-                default="default",
-                description="Unique session identifier for chat history. Supports expressions.",
-            ),
+            SESSION_ID_PROPERTY,
             NodeProperty(
                 display_name="Top K",
                 name="topK",
@@ -124,28 +118,24 @@ class VectorMemoryNode(BaseSubnode):
         similarity_threshold = self.get_parameter(node_definition, "similarityThreshold", 0.7)
         max_messages = self.get_parameter(node_definition, "maxMessages", 500)
 
-        return {
-            "type": "vector",
-            "sessionId": session_id,
-            "topK": top_k,
-            "embeddingProvider": embedding_provider,
-            "embeddingModel": embedding_model,
-            "alwaysIncludeRecent": always_include_recent,
-            "similarityThreshold": similarity_threshold,
-            "maxMessages": max_messages,
-            "getHistory": lambda query=None: self._get_history(
+        return self.build_memory_config(
+            memory_type="vector",
+            session_id=session_id,
+            get_history=lambda query=None: self._get_history(
                 session_id, query, top_k, embedding_provider, embedding_model,
                 always_include_recent, similarity_threshold
             ),
-            "addMessage": lambda role, content: self._add_message(
+            add_message=lambda role, content: self._add_message(
                 session_id, role, content, embedding_provider, embedding_model, max_messages
             ),
-            "clearHistory": lambda: self._clear_history(session_id),
-            "getHistoryText": lambda query=None: self._get_history_text(
-                session_id, query, top_k, embedding_provider, embedding_model,
-                always_include_recent, similarity_threshold
-            ),
-        }
+            clear_history=lambda: self._clear_history(session_id),
+            topK=top_k,
+            embeddingProvider=embedding_provider,
+            embeddingModel=embedding_model,
+            alwaysIncludeRecent=always_include_recent,
+            similarityThreshold=similarity_threshold,
+            maxMessages=max_messages,
+        )
 
     @staticmethod
     def _get_history(
@@ -268,19 +258,3 @@ class VectorMemoryNode(BaseSubnode):
         conn.execute("DELETE FROM vector_messages WHERE session_id = ?", (session_id,))
         conn.commit()
 
-    @staticmethod
-    def _get_history_text(
-        session_id: str,
-        query: str | None,
-        top_k: int,
-        embedding_provider: str,
-        embedding_model: str,
-        always_include_recent: int,
-        similarity_threshold: float,
-    ) -> str:
-        """Get history as formatted text."""
-        history = VectorMemoryNode._get_history(
-            session_id, query, top_k, embedding_provider, embedding_model,
-            always_include_recent, similarity_threshold
-        )
-        return format_history_text(history)

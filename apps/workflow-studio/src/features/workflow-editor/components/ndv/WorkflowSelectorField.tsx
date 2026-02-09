@@ -4,6 +4,7 @@
  * Used by the Execute Workflow node to select which workflow to execute.
  */
 
+import { useId } from 'react';
 import { useWorkflows } from '@/features/workflows/hooks/useWorkflows';
 
 interface NodeProperty {
@@ -30,6 +31,7 @@ export function WorkflowSelectorField({
   onChange,
   currentWorkflowId,
 }: WorkflowSelectorFieldProps) {
+  const fieldId = useId();
   const { data: workflows, isLoading, error } = useWorkflows();
 
   // Filter out the current workflow to prevent self-referencing
@@ -39,15 +41,16 @@ export function WorkflowSelectorField({
 
   return (
     <div>
-      <label className="mb-1 block text-sm font-medium text-foreground">
+      <label htmlFor={fieldId} className="mb-1 block text-sm font-medium text-foreground">
         {property.displayName}
         {property.required && <span className="text-destructive ml-1">*</span>}
       </label>
       <select
+        id={fieldId}
         value={value || ''}
         onChange={(e) => onChange(e.target.value)}
         disabled={isLoading}
-        className="w-full rounded-lg border border-input bg-secondary px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+        className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
       >
         <option value="">
           {isLoading

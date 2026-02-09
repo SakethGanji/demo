@@ -22,6 +22,10 @@ interface ExpressionEditorProps {
   onChange: (value: string) => void;
   placeholder?: string;
   label?: string;
+  /** Optional id for label htmlFor association */
+  id?: string;
+  /** Blur callback for validation */
+  onBlur?: () => void;
   /** Output schema from connected upstream node for autocomplete */
   outputSchema?: OutputSchema;
   /** Sample data from upstream node execution for preview */
@@ -180,8 +184,10 @@ function generateSchemaFields(
 export default function ExpressionEditor({
   value,
   onChange,
-  placeholder = 'Enter value or expression...',
+  placeholder = 'Value or {{ expression }}...',
   label,
+  id,
+  onBlur,
   outputSchema,
   sampleData,
   allNodeData,
@@ -191,7 +197,9 @@ export default function ExpressionEditor({
   const [cursorPosition, setCursorPosition] = useState(0);
   const [isDragOver, setIsDragOver] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const suggestionsRef = useRef<HTMLDivElement>(null);
 
   const hasExpression = value.includes('{{');
   // Can preview if we have expressions AND either sample data or allNodeData
@@ -272,6 +280,19 @@ export default function ExpressionEditor({
     return baseExpressionSuggestions;
   }, [outputSchema]);
 
+  // Flatten suggestions into a single list with section headers for keyboard nav
+  const flatSuggestions = useMemo(() => {
+    const items: Array<{ label: string; description: string; category: string }> = [];
+    const categories = ['field', 'data', 'helper'] as const;
+    for (const cat of categories) {
+      const catItems = expressionSuggestions.filter((s) => s.category === cat);
+      if (catItems.length > 0) {
+        items.push(...catItems);
+      }
+    }
+    return items;
+  }, [expressionSuggestions]);
+
   const insertExpression = (expr: string) => {
     const before = value.slice(0, cursorPosition);
     const after = value.slice(cursorPosition);
@@ -296,6 +317,13 @@ export default function ExpressionEditor({
     setIsExpanded(!isExpanded);
   };
 
+  // Reset activeIndex when suggestions open
+  useEffect(() => {
+    if (showSuggestions) {
+      setActiveIndex(0);
+    }
+  }, [showSuggestions]);
+
   useEffect(() => {
     const handleClickOutside = () => {
       if (showSuggestions) {
@@ -306,10 +334,58 @@ export default function ExpressionEditor({
     return () => document.removeEventListener('click', handleClickOutside);
   }, [showSuggestions]);
 
+  // Scroll active suggestion into view
+  useEffect(() => {
+    if (showSuggestions && suggestionsRef.current) {
+      const activeEl = suggestionsRef.current.querySelector('[data-active="true"]');
+      if (activeEl) {
+        activeEl.scrollIntoView({ block: 'nearest' });
+      }
+    }
+  }, [activeIndex, showSuggestions]);
+
+  // Keyboard navigation for suggestions
+  const handleTextareaKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!showSuggestions || flatSuggestions.length === 0) return;
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setActiveIndex((prev) => (prev + 1) % flatSuggestions.length);
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setActiveIndex((prev) => (prev - 1 + flatSuggestions.length) % flatSuggestions.length);
+        break;
+      case 'Enter':
+        e.preventDefault();
+        insertExpression(flatSuggestions[activeIndex].label);
+        break;
+      case 'Escape':
+        e.preventDefault();
+        setShowSuggestions(false);
+        break;
+    }
+  };
+
+  // Build category header positions for rendering
+  const categoryHeaders = useMemo(() => {
+    const headers: Map<number, string> = new Map();
+    let currentCat = '';
+    const categoryLabels: Record<string, string> = { field: 'Fields', data: 'Data', helper: 'Helpers' };
+    flatSuggestions.forEach((s, i) => {
+      if (s.category !== currentCat) {
+        currentCat = s.category;
+        headers.set(i, categoryLabels[s.category] || s.category);
+      }
+    });
+    return headers;
+  }, [flatSuggestions]);
+
   return (
     <div className="space-y-1">
       {label && (
-        <label className="text-xs font-medium text-foreground">{label}</label>
+        <label htmlFor={id} className="text-xs font-medium text-foreground">{label}</label>
       )}
 
       <div className="relative">
@@ -320,7 +396,7 @@ export default function ExpressionEditor({
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           className={`
-            flex items-start gap-1 rounded-md border bg-secondary transition-all
+            flex items-start gap-1 rounded-md border bg-background transition-all
             ${isExpanded ? 'border-primary ring-1 ring-primary' : 'border-input'}
             ${hasExpression ? 'bg-primary/5' : ''}
             ${isDragOver ? 'border-primary ring-2 ring-primary/50 bg-primary/10' : ''}
@@ -343,11 +419,14 @@ export default function ExpressionEditor({
           {isExpanded ? (
             <textarea
               ref={inputRef}
+              id={id}
               value={value}
               onChange={(e) => onChange(e.target.value)}
               onSelect={(e) =>
                 setCursorPosition((e.target as HTMLTextAreaElement).selectionStart)
               }
+              onBlur={onBlur}
+              onKeyDown={handleTextareaKeyDown}
               placeholder={placeholder}
               rows={2}
               className="flex-1 bg-transparent py-1.5 pr-6 text-sm focus:outline-none resize-none font-mono"
@@ -380,7 +459,7 @@ export default function ExpressionEditor({
                 onClick={() => setShowPreview(!showPreview)}
                 className={`p-0.5 rounded transition-colors ${
                   showPreview
-                    ? 'text-amber-500 bg-amber-500/10'
+                    ? 'text-[var(--warning)] bg-[var(--warning)]/10'
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
                 title={showPreview ? 'Show expression' : 'Preview resolved value'}
@@ -421,10 +500,10 @@ export default function ExpressionEditor({
 
         {/* Preview display */}
         {showPreview && previewValue && (
-          <div className="mt-1 rounded-md bg-amber-500/10 border border-amber-500/20 px-2 py-1">
+          <div className="mt-1 rounded-md bg-[var(--warning)]/10 border border-[var(--warning)]/20 px-2 py-1">
             <div className="flex items-center gap-1 mb-0.5">
-              <Eye size={10} className="text-amber-500" />
-              <span className="text-[10px] font-medium text-amber-600 dark:text-amber-400">Preview</span>
+              <Eye size={10} className="text-[var(--warning)]" />
+              <span className="text-[10px] font-medium text-[var(--warning)]">Preview</span>
             </div>
             <p className="text-xs font-mono text-foreground break-all">{previewValue}</p>
           </div>
@@ -446,67 +525,32 @@ export default function ExpressionEditor({
 
             {showSuggestions && (
               <div
+                ref={suggestionsRef}
                 className="absolute z-50 mt-1 w-full max-h-48 overflow-auto rounded-md border border-border bg-popover shadow-lg"
                 onClick={(e) => e.stopPropagation()}
               >
-                {/* Schema fields section */}
-                {expressionSuggestions.some((s) => s.category === 'field') && (
-                  <div className="px-2 py-1 text-[10px] font-medium text-muted-foreground bg-muted/50 border-b border-border">
-                    Fields
-                  </div>
-                )}
-                {expressionSuggestions
-                  .filter((s) => s.category === 'field')
-                  .map((suggestion) => (
+                {flatSuggestions.map((suggestion, idx) => (
+                  <div key={suggestion.label}>
+                    {/* Category header */}
+                    {categoryHeaders.has(idx) && (
+                      <div className="px-2 py-1 text-[10px] font-medium text-muted-foreground bg-muted/50 border-b border-border">
+                        {categoryHeaders.get(idx)}
+                      </div>
+                    )}
                     <button
-                      key={suggestion.label}
                       type="button"
+                      data-active={idx === activeIndex}
                       onClick={() => insertExpression(suggestion.label)}
-                      className="w-full px-2 py-1.5 text-left hover:bg-accent flex items-center justify-between gap-1"
+                      className={`w-full px-2 py-1.5 text-left flex items-center justify-between gap-1 ${
+                        idx === activeIndex ? 'bg-accent' : 'hover:bg-accent'
+                      }`}
                     >
                       <code className="text-xs font-mono text-primary truncate">
                         {suggestion.label}
                       </code>
                     </button>
-                  ))}
-
-                {/* Data variables section */}
-                <div className="px-2 py-1 text-[10px] font-medium text-muted-foreground bg-muted/50 border-b border-border">
-                  Data
-                </div>
-                {expressionSuggestions
-                  .filter((s) => s.category === 'data')
-                  .map((suggestion) => (
-                    <button
-                      key={suggestion.label}
-                      type="button"
-                      onClick={() => insertExpression(suggestion.label)}
-                      className="w-full px-2 py-1.5 text-left hover:bg-accent flex items-center justify-between gap-1"
-                    >
-                      <code className="text-xs font-mono text-foreground truncate">
-                        {suggestion.label}
-                      </code>
-                    </button>
-                  ))}
-
-                {/* Helper variables section */}
-                <div className="px-2 py-1 text-[10px] font-medium text-muted-foreground bg-muted/50 border-b border-border">
-                  Helpers
-                </div>
-                {expressionSuggestions
-                  .filter((s) => s.category === 'helper')
-                  .map((suggestion) => (
-                    <button
-                      key={suggestion.label}
-                      type="button"
-                      onClick={() => insertExpression(suggestion.label)}
-                      className="w-full px-2 py-1.5 text-left hover:bg-accent flex items-center justify-between gap-1"
-                    >
-                      <code className="text-xs font-mono text-foreground truncate">
-                        {suggestion.label}
-                      </code>
-                    </button>
-                  ))}
+                  </div>
+                ))}
               </div>
             )}
           </div>

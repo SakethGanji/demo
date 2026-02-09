@@ -9,8 +9,8 @@ from ...base import (
     NodePropertyOption,
     NodeTypeDescription,
 )
-from ..base_subnode import BaseSubnode
-from .utils import count_message_tokens, format_history_text, get_db_connection
+from .base_memory import MemorySubnodeBase, SESSION_ID_PROPERTY
+from ....utils.memory import count_message_tokens, get_db_connection
 
 if TYPE_CHECKING:
     from ....engine.types import NodeDefinition
@@ -35,7 +35,7 @@ def _get_connection():
     return get_db_connection("token_buffer_conn", _INIT_SQL)
 
 
-class TokenBufferMemoryNode(BaseSubnode):
+class TokenBufferMemoryNode(MemorySubnodeBase):
     """Token Buffer Memory - manages context by token budget instead of message count."""
 
     node_description = NodeTypeDescription(
@@ -47,13 +47,7 @@ class TokenBufferMemoryNode(BaseSubnode):
         inputs=[],
         outputs=[],
         properties=[
-            NodeProperty(
-                display_name="Session ID",
-                name="sessionId",
-                type="string",
-                default="default",
-                description="Unique session identifier for chat history. Supports expressions.",
-            ),
+            SESSION_ID_PROPERTY,
             NodeProperty(
                 display_name="Max Tokens",
                 name="maxTokens",
@@ -100,17 +94,16 @@ class TokenBufferMemoryNode(BaseSubnode):
         token_method = self.get_parameter(node_definition, "tokenMethod", "tiktoken")
         tiktoken_model = self.get_parameter(node_definition, "tiktokenModel", "gpt-4")
 
-        return {
-            "type": "token_buffer",
-            "sessionId": session_id,
-            "maxTokens": max_tokens,
-            "tokenMethod": token_method,
-            "tiktokenModel": tiktoken_model,
-            "getHistory": lambda: self._get_history(session_id, max_tokens, token_method, tiktoken_model),
-            "addMessage": lambda role, content: self._add_message(session_id, role, content, max_tokens, token_method, tiktoken_model),
-            "clearHistory": lambda: self._clear_history(session_id),
-            "getHistoryText": lambda: self._get_history_text(session_id, max_tokens, token_method, tiktoken_model),
-        }
+        return self.build_memory_config(
+            memory_type="token_buffer",
+            session_id=session_id,
+            get_history=lambda: self._get_history(session_id, max_tokens, token_method, tiktoken_model),
+            add_message=lambda role, content: self._add_message(session_id, role, content, max_tokens, token_method, tiktoken_model),
+            clear_history=lambda: self._clear_history(session_id),
+            maxTokens=max_tokens,
+            tokenMethod=token_method,
+            tiktokenModel=tiktoken_model,
+        )
 
     @staticmethod
     def _get_history(
@@ -196,15 +189,3 @@ class TokenBufferMemoryNode(BaseSubnode):
         conn.execute("DELETE FROM token_buffer_messages WHERE session_id = ?", (session_id,))
         conn.commit()
 
-    @staticmethod
-    def _get_history_text(
-        session_id: str,
-        max_tokens: int,
-        token_method: str,
-        tiktoken_model: str,
-    ) -> str:
-        """Get history as formatted text."""
-        history = TokenBufferMemoryNode._get_history(
-            session_id, max_tokens, token_method, tiktoken_model
-        )
-        return format_history_text(history)

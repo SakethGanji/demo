@@ -2,21 +2,25 @@ import { useCallback, useMemo, useEffect, useRef, useState, type DragEvent, type
 import ReactFlow, {
   Background,
   MiniMap,
+  Controls,
   type OnConnect,
   type OnConnectStart,
   type Connection,
   type Node,
+  type NodeChange,
+  type Edge,
   BackgroundVariant,
+  SelectionMode,
   useReactFlow,
   ConnectionLineType,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
 import { useWorkflowStore } from '../../stores/workflowStore';
-import { useNodeCreatorStore } from '../../stores/nodeCreatorStore';
+import { useEditorLayoutStore } from '../../stores/editorLayoutStore';
+import { useNDVStore } from '../../stores/ndvStore';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { useSaveWorkflow } from '../../hooks/useWorkflowApi';
-import { getNodeIcon } from '../../hooks/useNodeTypes';
 import AddNodesButton from './nodes/AddNodesButton';
 import WorkflowNode from './nodes/WorkflowNode';
 import SubworkflowNode from './nodes/SubworkflowNode';
@@ -26,11 +30,14 @@ import SubnodeEdge from './edges/SubnodeEdge';
 import StickyNote from './nodes/StickyNote';
 import NodeContextMenu from './NodeContextMenu';
 import { KeyboardShortcutsHelp } from '../KeyboardShortcutsHelp';
-import { getNodeGroupFromType, getMiniMapColor, calculateNodeDimensions, type NodeGroup } from '../../lib/nodeStyles';
+import { getMiniMapColor, calculateNodeDimensions } from '../../lib/nodeStyles';
+import { normalizeNodeGroup, type NodeGroup } from '../../lib/nodeConfig';
 import { generateNodeName, getExistingNodeNames } from '../../lib/workflowTransform';
 import { isTriggerType } from '../../lib/nodeConfig';
+import { createWorkflowNodeData } from '../../lib/createNodeData';
 import type { WorkflowNodeData, SubnodeSlotDefinition, OutputStrategy } from '../../types/workflow';
 import type { NodeIO } from '../../lib/nodeStyles';
+import type { ApiProperty } from '@/shared/lib/api';
 
 // Define custom node types - use 'any' to work around React 19 type incompatibility
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -51,15 +58,6 @@ const edgeTypes: any = {
 
 // Distance threshold for detecting drop near a node (in pixels)
 const DROP_PROXIMITY_THRESHOLD = 100;
-
-// Property definition from API (matching NodeCreatorPanel)
-interface ApiProperty {
-  name: string;
-  displayName: string;
-  type: string;
-  default?: unknown;
-  [key: string]: unknown;
-}
 
 // Extended node definition for drag data
 interface DraggedNodeData {
@@ -83,7 +81,6 @@ export default function WorkflowCanvas() {
   const {
     nodes,
     edges,
-    onNodesChange,
     onEdgesChange,
     onConnect,
     addNode,
@@ -94,12 +91,19 @@ export default function WorkflowCanvas() {
     clearDropTarget,
   } = useWorkflowStore();
 
-  const closePanel = useNodeCreatorStore((s) => s.closePanel);
-  const openForConnection = useNodeCreatorStore((s) => s.openForConnection);
-  const { fitView, screenToFlowPosition, getNodes } = useReactFlow();
+  const storeOnNodesChange = useWorkflowStore((s) => s.onNodesChange);
+  const validateConnection = useWorkflowStore((s) => s.validateConnection);
+  const openNDV = useNDVStore((s) => s.openNDV);
+
+  const closePanel = useEditorLayoutStore((s) => s.closeCreatorPanel);
+  const openForConnection = useEditorLayoutStore((s) => s.openForConnection);
+  const { fitView, screenToFlowPosition, getNodes, getEdges } = useReactFlow();
 
   // Track the current connection being dragged
   const connectingRef = useRef<{ nodeId: string; handleId: string | null } | null>(null);
+
+  // Track edge reconnection state
+  const reconnectingRef = useRef(false);
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null);
@@ -178,6 +182,80 @@ export default function WorkflowCanvas() {
     [isValidConnection]
   );
 
+  // Intercept node removals to protect trigger nodes (v11 alternative to onBeforeDelete)
+  const handleNodesChange = useCallback(
+    (changes: NodeChange[]) => {
+      const removals = changes.filter((c) => c.type === 'remove');
+      if (removals.length === 0) {
+        storeOnNodesChange(changes);
+        return;
+      }
+
+      const { nodes: currentNodes, nodeTypesMap } = useWorkflowStore.getState();
+      const triggerRemovals = removals.filter((r) => {
+        const node = currentNodes.find((n) => n.id === r.id);
+        return node && isTriggerType(node.data?.type || '', nodeTypesMap);
+      });
+
+      if (triggerRemovals.length > 0) {
+        const confirmed = window.confirm(
+          'This will delete a trigger node. Are you sure?'
+        );
+        if (!confirmed) {
+          // Filter out trigger removals, keep everything else
+          const nonTriggerChanges = changes.filter(
+            (c) => c.type !== 'remove' || !triggerRemovals.some((t) => t.id === c.id)
+          );
+          if (nonTriggerChanges.length > 0) {
+            storeOnNodesChange(nonTriggerChanges);
+          }
+          return;
+        }
+      }
+
+      storeOnNodesChange(changes);
+    },
+    [storeOnNodesChange]
+  );
+
+  // Handle ReactFlow internal errors
+  const handleError = useCallback((id: string, message: string) => {
+    console.error(`[ReactFlow Error] ${id}: ${message}`);
+  }, []);
+
+  // Open NDV on node double-click (canvas-level handler)
+  const handleNodeDoubleClick = useCallback(
+    (_event: React.MouseEvent, node: Node) => {
+      if (node.type === 'addNodes' || node.type === 'stickyNote') return;
+      openNDV(node.id);
+    },
+    [openNDV]
+  );
+
+  // Edge reconnection handlers (v11 API: edgesUpdatable + onEdgeUpdate)
+  const handleEdgeUpdate = useCallback(
+    (oldEdge: Edge, newConnection: Connection) => {
+      const validation = validateConnection(newConnection);
+      if (!validation.isValid) return;
+
+      // Remove old edge and create new connection
+      const currentEdges = useWorkflowStore.getState().edges;
+      useWorkflowStore.getState().setEdges(
+        currentEdges.filter((e) => e.id !== oldEdge.id)
+      );
+      onConnect(newConnection);
+    },
+    [validateConnection, onConnect]
+  );
+
+  const handleEdgeUpdateStart = useCallback(() => {
+    reconnectingRef.current = true;
+  }, []);
+
+  const handleEdgeUpdateEnd = useCallback(() => {
+    reconnectingRef.current = false;
+  }, []);
+
   const handleSelectionChange = useCallback(
     ({ nodes: selectedNodes }: { nodes: { id: string }[] }) => {
       if (selectedNodes.length === 1) {
@@ -222,7 +300,7 @@ export default function WorkflowCanvas() {
         if (node.type !== 'workflowNode' && node.type !== 'subworkflowNode') continue;
 
         // Skip trigger nodes (they have no inputs)
-        if (isTriggerType(node.data?.type || '')) continue;
+        if (isTriggerType(node.data?.type || '', useWorkflowStore.getState().nodeTypesMap)) continue;
 
         // Skip nodes that already have an input connection
         if (isInputConnected(node.id)) continue;
@@ -258,16 +336,18 @@ export default function WorkflowCanvas() {
   // Find the nearest edge to a drop position (for inserting between nodes)
   const findNearestEdge = useCallback(
     (dropPosition: { x: number; y: number }) => {
+      const currentEdges = getEdges();
+      const currentNodes = getNodes();
       let nearestEdge = null;
       let nearestDistance = DROP_PROXIMITY_THRESHOLD;
 
-      for (const edge of edges) {
+      for (const edge of currentEdges) {
         // Skip subnode edges
         if (edge.data?.isSubnodeEdge) continue;
 
         // Get source and target nodes
-        const sourceNode = nodes.find((n) => n.id === edge.source);
-        const targetNode = nodes.find((n) => n.id === edge.target);
+        const sourceNode = currentNodes.find((n) => n.id === edge.source);
+        const targetNode = currentNodes.find((n) => n.id === edge.target);
 
         if (!sourceNode || !targetNode) continue;
 
@@ -288,7 +368,7 @@ export default function WorkflowCanvas() {
 
       return nearestEdge;
     },
-    [edges, nodes]
+    [getEdges, getNodes]
   );
 
   // Handle drag over canvas
@@ -326,49 +406,37 @@ export default function WorkflowCanvas() {
 
       // Create the new node
       const newNodeId = `node-${Date.now()}`;
-      const existingNames = getExistingNodeNames(nodes as Node<WorkflowNodeData>[]);
+      const existingNames = getExistingNodeNames(getNodes() as Node<WorkflowNodeData>[]);
       const nodeName = generateNodeName(draggedNode.name, existingNames);
 
-      // Extract defaults from properties
-      const defaultParams: Record<string, unknown> = {};
-      if (draggedNode.properties) {
-        for (const prop of draggedNode.properties) {
-          if (prop.default !== undefined) {
-            defaultParams[prop.name] = prop.default;
-          }
-        }
-      }
+      const isTrigger = isTriggerType(draggedNode.type, useWorkflowStore.getState().nodeTypesMap);
 
-      const isTrigger = isTriggerType(draggedNode.type);
-      const inputCount = isTrigger ? 0 : Math.max(1, draggedNode.inputCount ?? draggedNode.inputs?.length ?? 1);
-      const outputCount = Math.max(1, draggedNode.outputCount ?? draggedNode.outputs?.length ?? 1);
-
-      const nodeData: WorkflowNodeData = {
-        name: nodeName,
-        label: draggedNode.displayName,
-        type: draggedNode.type,
-        icon: getNodeIcon(draggedNode.type, draggedNode.icon),
-        description: draggedNode.description,
-        parameters: defaultParams,
-        continueOnFail: false,
-        retryOnFail: 0,
-        retryDelay: 1000,
-        group: draggedNode.group,
-        inputCount,
-        outputCount,
-        inputs: draggedNode.inputs,
-        outputs: draggedNode.outputs,
-        outputStrategy: draggedNode.outputStrategy,
-        subnodeSlots: draggedNode.subnodeSlots,
-      };
+      const nodeData = createWorkflowNodeData(
+        {
+          type: draggedNode.type,
+          displayName: draggedNode.displayName,
+          icon: draggedNode.icon,
+          description: draggedNode.description,
+          group: draggedNode.group,
+          inputCount: isTrigger ? 0 : Math.max(1, draggedNode.inputCount ?? draggedNode.inputs?.length ?? 1),
+          outputCount: Math.max(1, draggedNode.outputCount ?? draggedNode.outputs?.length ?? 1),
+          inputs: draggedNode.inputs,
+          outputs: draggedNode.outputs,
+          outputStrategy: draggedNode.outputStrategy,
+          subnodeSlots: draggedNode.subnodeSlots,
+          properties: draggedNode.properties,
+        },
+        { name: nodeName },
+      );
 
       // Calculate final position
       let finalPosition = position;
 
       // If dropping on an edge, position between the two nodes
       if (nearEdge && !nearNode) {
-        const sourceNode = nodes.find((n) => n.id === nearEdge.source);
-        const targetNode = nodes.find((n) => n.id === nearEdge.target);
+        const currentNodes = getNodes();
+        const sourceNode = currentNodes.find((n) => n.id === nearEdge.source);
+        const targetNode = currentNodes.find((n) => n.id === nearEdge.target);
 
         if (sourceNode && targetNode) {
           finalPosition = {
@@ -404,8 +472,8 @@ export default function WorkflowCanvas() {
       if (nearEdge && !nearNode) {
         // Dropping on edge: delete old edge and create two new connections
         // Remove the old edge
-        const newEdges = edges.filter((e) => e.id !== nearEdge.id);
-        useWorkflowStore.getState().setEdges(newEdges);
+        const filteredEdges = useWorkflowStore.getState().edges.filter((e) => e.id !== nearEdge.id);
+        useWorkflowStore.getState().setEdges(filteredEdges);
 
         // Connect source -> new node
         if (!isTrigger) {
@@ -443,8 +511,7 @@ export default function WorkflowCanvas() {
       screenToFlowPosition,
       findNearestConnectableNode,
       findNearestEdge,
-      nodes,
-      edges,
+      getNodes,
       addNode,
       onConnect,
       setDraggedNodeType,
@@ -453,18 +520,12 @@ export default function WorkflowCanvas() {
     ]
   );
 
-  // Check if canvas is empty (only has placeholder)
-  const isEmpty = useMemo(
-    () => nodes.length === 1 && nodes[0].type === 'addNodes',
-    [nodes]
-  );
-
   return (
     <div className="h-full w-full" onDragOver={handleDragOver} onDrop={handleDrop}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
-        onNodesChange={onNodesChange}
+        onNodesChange={handleNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={handleConnect}
         onConnectStart={handleConnectStart}
@@ -472,6 +533,8 @@ export default function WorkflowCanvas() {
         onSelectionChange={handleSelectionChange}
         onPaneClick={handlePaneClick}
         onNodeContextMenu={handleNodeContextMenu}
+        onNodeDoubleClick={handleNodeDoubleClick}
+        onError={handleError}
         isValidConnection={handleIsValidConnection}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
@@ -487,6 +550,13 @@ export default function WorkflowCanvas() {
         snapGrid={[20, 20]}
         deleteKeyCode={['Backspace', 'Delete']}
         multiSelectionKeyCode="Shift"
+        selectionMode={SelectionMode.Partial}
+        connectionRadius={20}
+        elevateEdgesOnSelect
+        edgesUpdatable
+        onEdgeUpdate={handleEdgeUpdate}
+        onEdgeUpdateStart={handleEdgeUpdateStart}
+        onEdgeUpdateEnd={handleEdgeUpdateEnd}
         connectionLineType={ConnectionLineType.SmoothStep}
         connectionLineStyle={{
           stroke: '#9ca3af',
@@ -520,8 +590,8 @@ export default function WorkflowCanvas() {
 
         {/* MiniMap - colored by node group, positioned to avoid sidebar */}
         <MiniMap
-          position="bottom-left"
-          style={{ marginBottom: 20, marginLeft: 100 }}
+          position="bottom-right"
+          style={{ marginBottom: 8, marginRight: 8 }}
           nodeColor={(node) => {
             if (node.type === 'addNodes') return 'var(--muted)';
             if (node.type === 'subworkflowNode') return getMiniMapColor('flow');
@@ -537,16 +607,23 @@ export default function WorkflowCanvas() {
               return colors[color] || colors.yellow;
             }
             // Get group-based color for workflow nodes
-            const nodeGroup = getNodeGroupFromType(
-              node.data?.type || '',
+            const nodeGroup = normalizeNodeGroup(
               node.data?.group ? [node.data.group] : undefined
             );
             return getMiniMapColor(nodeGroup);
           }}
-          maskColor="hsl(var(--background) / 0.8)"
+          maskColor="color-mix(in srgb, var(--background) 80%, transparent)"
           className="!bg-card !shadow-md !rounded-lg !border !border-border"
         />
 
+        <Controls
+          position="bottom-left"
+          showInteractive={false}
+          showZoom
+          showFitView
+          fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
+          style={{ marginBottom: 8, marginLeft: 8 }}
+        />
       </ReactFlow>
 
 

@@ -8,7 +8,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { useWorkflowStore } from '../stores/workflowStore';
 import { useUIModeStore } from '../stores/uiModeStore';
-import { toBackendWorkflow } from '../lib/workflowTransform';
+import { toBackendWorkflow, findUpstreamNodeName, buildNameToIdMap } from '../lib/workflowTransform';
 import { consumeSSEStream } from '../lib/sseParser';
 import { backends } from '@/shared/lib/config';
 import { toast } from 'sonner';
@@ -70,33 +70,9 @@ export function useExecutionStream(): UseExecutionStreamResult {
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // Build name-to-id mapping for translating backend node names to UI node IDs
-  const buildNameToIdMap = useCallback(() => {
-    const map = new Map<string, string>();
-    const workflowNodes = nodes.filter((n) => n.type === 'workflowNode' || n.type === 'subworkflowNode');
-    workflowNodes.forEach((node) => {
-      const data = node.data as WorkflowNodeData;
-      map.set(data.name, node.id);
-    });
-    return map;
-  }, [nodes]);
-
-  // Find the input node name for a given node
-  const findInputNodeName = useCallback(
-    (targetNodeName: string, nameToId: Map<string, string>) => {
-      const targetNodeId = nameToId.get(targetNodeName);
-      if (!targetNodeId) return null;
-
-      for (const edge of edges) {
-        if (edge.target === targetNodeId) {
-          // Find the source node's name
-          for (const [name, id] of nameToId) {
-            if (id === edge.source) return name;
-          }
-        }
-      }
-      return null;
-    },
-    [edges]
+  const getNameToIdMap = useCallback(
+    () => buildNameToIdMap(nodes as Node<WorkflowNodeData>[]),
+    [nodes],
   );
 
   const cancelExecution = useCallback(() => {
@@ -124,7 +100,7 @@ export function useExecutionStream(): UseExecutionStreamResult {
       });
     });
 
-    const nameToId = buildNameToIdMap();
+    const nameToId = getNameToIdMap();
     const nodeOutputs: Record<string, Array<{ json: Record<string, unknown> }>> = {};
 
     try {
@@ -174,7 +150,7 @@ export function useExecutionStream(): UseExecutionStreamResult {
         if (!dataStr.trim()) return;
         try {
           const event: ExecutionEvent = JSON.parse(dataStr);
-          handleEvent(event, nameToId, nodeOutputs, findInputNodeName);
+          handleEvent(event, nameToId, nodeOutputs);
         } catch (e) {
           console.error('Failed to parse SSE event:', e);
         }
@@ -208,7 +184,6 @@ export function useExecutionStream(): UseExecutionStreamResult {
       event: ExecutionEvent,
       nameToId: Map<string, string>,
       nodeOutputs: Record<string, Array<{ json: Record<string, unknown> }>>,
-      findInputNodeName: (name: string, map: Map<string, string>) => string | null
     ) {
       switch (event.type) {
         case 'execution:start':
@@ -275,7 +250,7 @@ export function useExecutionStream(): UseExecutionStreamResult {
               }
 
               // Find input from upstream node
-              const inputNodeName = findInputNodeName(event.nodeName, nameToId);
+              const inputNodeName = findUpstreamNodeName(event.nodeName, nameToId, edges);
               const inputData = inputNodeName ? nodeOutputs[inputNodeName] : null;
 
               setNodeExecutionData(nodeId, {
@@ -354,8 +329,7 @@ export function useExecutionStream(): UseExecutionStreamResult {
     setNodeExecutionData,
     setSubworkflowNodeExecutionData,
     clearExecutionData,
-    buildNameToIdMap,
-    findInputNodeName,
+    getNameToIdMap,
     setHtmlContent,
     setMarkdownContent,
   ]);

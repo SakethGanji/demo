@@ -36,6 +36,9 @@ export interface WorkflowNodeData {
   parameters?: Record<string, unknown>;
   disabled?: boolean;
 
+  // User notes
+  notes?: string;
+
   // Error handling options
   continueOnFail?: boolean;
   retryOnFail?: number;   // 0-10
@@ -117,14 +120,3 @@ export interface SubnodeEdgeData {
   slotType: SubnodeType;      // "model", "memory", "tool"
 }
 
-// Workflow edge data with optional waypoints for manual routing
-export interface WorkflowEdgeData {
-  waypoints?: Array<{ x: number; y: number }>;  // Manual bend points
-}
-
-// Extended node definition for node picker
-export interface SubnodeNodeDefinition extends NodeDefinition {
-  isSubnode: true;
-  subnodeType: SubnodeType;
-  providesToSlot: string;
-}

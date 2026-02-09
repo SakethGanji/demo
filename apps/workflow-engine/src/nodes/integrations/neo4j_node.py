@@ -2,11 +2,7 @@
 
 from __future__ import annotations
 
-import json
-from datetime import date, datetime, time, timedelta
-from decimal import Decimal
 from typing import Any, TYPE_CHECKING
-from uuid import UUID
 
 from neo4j import AsyncGraphDatabase
 
@@ -18,6 +14,7 @@ from ..base import (
     NodeProperty,
     NodePropertyOption,
 )
+from ...utils.serialization import serialize_value as _base_serialize, parse_json_params
 
 if TYPE_CHECKING:
     from ...engine.types import ExecutionContext, NodeData, NodeDefinition, NodeExecutionResult
@@ -30,21 +27,7 @@ DEFAULT_DATABASE = "neo4j"
 
 
 def _serialize_value(val: Any) -> Any:
-    """Convert Neo4j/Python types to JSON-safe values."""
-    if isinstance(val, Decimal):
-        return float(val)
-    if isinstance(val, (datetime, date, time)):
-        return val.isoformat()
-    if isinstance(val, timedelta):
-        return val.total_seconds()
-    if isinstance(val, bytes):
-        return val.hex()
-    if isinstance(val, UUID):
-        return str(val)
-    if isinstance(val, list):
-        return [_serialize_value(v) for v in val]
-    if isinstance(val, dict):
-        return {k: _serialize_value(v) for k, v in val.items()}
+    """Serialize Neo4j-specific types, falling back to common serialization."""
     # Neo4j Node / Relationship / Path objects
     if hasattr(val, '__class__') and val.__class__.__name__ == 'Node':
         return {
@@ -68,25 +51,12 @@ def _serialize_value(val: Any) -> Any:
             "nodes": [_serialize_value(n) for n in val.nodes],
             "relationships": [_serialize_value(r) for r in val.relationships],
         }
-    return val
-
-
-def _parse_params(params_raw: Any) -> dict:
-    """Parse Cypher parameters. Neo4j uses named params ($name), so always return a dict."""
-    if isinstance(params_raw, dict):
-        return params_raw
-    if isinstance(params_raw, str):
-        raw = params_raw.strip()
-        if not raw:
-            return {}
-        try:
-            parsed = json.loads(raw)
-            if isinstance(parsed, dict):
-                return parsed
-            return {}
-        except json.JSONDecodeError:
-            return {}
-    return {}
+    # Lists/dicts need to recurse through this function (not the base) for Neo4j types
+    if isinstance(val, list):
+        return [_serialize_value(v) for v in val]
+    if isinstance(val, dict):
+        return {k: _serialize_value(v) for k, v in val.items()}
+    return _base_serialize(val)
 
 
 def _process_records(records_raw: list, keys: list) -> list:
@@ -255,7 +225,7 @@ class Neo4jNode(BaseNode):
                     query = str(expression_engine.resolve(query_template, expr_ctx))
                     params = expression_engine.resolve_json_template(params_template, expr_ctx)
                     if not isinstance(params, dict):
-                        params = _parse_params(params)
+                        params = parse_json_params(params, default={})
 
                     result = await session.run(query, params)
                     records_raw = await result.values()
@@ -301,7 +271,7 @@ class Neo4jNode(BaseNode):
             try:
                 for i, stmt in enumerate(stmts):
                     query = str(expression_engine.resolve(stmt.get("query", ""), expr_ctx))
-                    params = _parse_params(stmt.get("params", {}))
+                    params = parse_json_params(stmt.get("params", {}), default={})
 
                     result = await tx.run(query, params)
                     records_raw = await result.values()

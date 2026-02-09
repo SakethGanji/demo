@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useNDVStore } from '../../stores/ndvStore';
+import { isTriggerType } from '../../lib/nodeConfig';
 
 interface NodeContextMenuProps {
   nodeId: string;
@@ -93,6 +94,17 @@ function NodeContextMenu({ nodeId, x, y, onClose }: NodeContextMenuProps) {
       shortcut: 'Del',
       danger: true,
       onClick: () => {
+        const hasTrigger = targetNodeIds.some((nid) => {
+          const n = nodes.find((nd) => nd.id === nid);
+          return n && isTriggerType(n.data?.type || '');
+        });
+        if (hasTrigger) {
+          const confirmed = window.confirm('This will delete a trigger node. Are you sure?');
+          if (!confirmed) {
+            onClose();
+            return;
+          }
+        }
         deleteNodes(targetNodeIds);
         onClose();
       },

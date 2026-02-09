@@ -10,9 +10,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { nodesApi } from '@/shared/lib/api';
 
-// Re-export centralized functions for convenience
-export { getNodeIcon, isTriggerType as isTriggerNode } from '../lib/nodeConfig';
-
 /**
  * Fetch all available node types with their schemas
  */

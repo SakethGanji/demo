@@ -8,8 +8,8 @@ from ...base import (
     NodeProperty,
     NodeTypeDescription,
 )
-from ..base_subnode import BaseSubnode
-from .utils import format_history_text, call_llm_for_summary, get_db_connection, run_async
+from .base_memory import MemorySubnodeBase, SESSION_ID_PROPERTY
+from ....utils.memory import call_llm_for_summary, get_db_connection, run_async
 
 if TYPE_CHECKING:
     from ....engine.types import NodeDefinition
@@ -42,7 +42,7 @@ def _get_connection():
     return get_db_connection("summary_buffer_conn", _INIT_SQL)
 
 
-class SummaryBufferMemoryNode(BaseSubnode):
+class SummaryBufferMemoryNode(MemorySubnodeBase):
     """Summary Buffer Memory - maintains running summary + full recent messages."""
 
     node_description = NodeTypeDescription(
@@ -54,13 +54,7 @@ class SummaryBufferMemoryNode(BaseSubnode):
         inputs=[],
         outputs=[],
         properties=[
-            NodeProperty(
-                display_name="Session ID",
-                name="sessionId",
-                type="string",
-                default="default",
-                description="Unique session identifier for chat history. Supports expressions.",
-            ),
+            SESSION_ID_PROPERTY,
             NodeProperty(
                 display_name="Recent Messages",
                 name="recentMessages",
@@ -95,19 +89,18 @@ class SummaryBufferMemoryNode(BaseSubnode):
         summary_model = self.get_parameter(node_definition, "summaryModel", "gemini-2.0-flash")
         summary_max_tokens = self.get_parameter(node_definition, "summaryMaxTokens", 500)
 
-        return {
-            "type": "summary_buffer",
-            "sessionId": session_id,
-            "recentMessages": recent_messages,
-            "summaryModel": summary_model,
-            "summaryMaxTokens": summary_max_tokens,
-            "getHistory": lambda: self._get_history(session_id, recent_messages),
-            "addMessage": lambda role, content: self._add_message(
+        return self.build_memory_config(
+            memory_type="summary_buffer",
+            session_id=session_id,
+            get_history=lambda: self._get_history(session_id, recent_messages),
+            add_message=lambda role, content: self._add_message(
                 session_id, role, content, recent_messages, summary_model, summary_max_tokens
             ),
-            "clearHistory": lambda: self._clear_history(session_id),
-            "getHistoryText": lambda: self._get_history_text(session_id, recent_messages),
-        }
+            clear_history=lambda: self._clear_history(session_id),
+            recentMessages=recent_messages,
+            summaryModel=summary_model,
+            summaryMaxTokens=summary_max_tokens,
+        )
 
     @staticmethod
     def _get_summary(session_id: str) -> str | None:
@@ -259,8 +252,3 @@ class SummaryBufferMemoryNode(BaseSubnode):
         conn.execute("DELETE FROM summary_buffer_summaries WHERE session_id = ?", (session_id,))
         conn.commit()
 
-    @staticmethod
-    def _get_history_text(session_id: str, recent_messages: int) -> str:
-        """Get history as formatted text."""
-        history = SummaryBufferMemoryNode._get_history(session_id, recent_messages)
-        return format_history_text(history)

@@ -41,7 +41,7 @@ const lightHighlightStyle = HighlightStyle.define([
 // Light theme base styles
 const lightTheme = EditorView.theme({
   '&': {
-    backgroundColor: 'hsl(var(--secondary))',
+    backgroundColor: 'var(--secondary)',
     color: '#24292e',
   },
   '.cm-content': {
@@ -52,8 +52,8 @@ const lightTheme = EditorView.theme({
     padding: '8px 0',
   },
   '.cm-gutters': {
-    backgroundColor: 'hsl(var(--secondary))',
-    borderRight: '1px solid hsl(var(--border))',
+    backgroundColor: 'var(--secondary)',
+    borderRight: '1px solid var(--border)',
     color: '#6a737d',
   },
   '.cm-lineNumbers .cm-gutterElement': {
@@ -84,7 +84,7 @@ const lightTheme = EditorView.theme({
 // Dark theme base styles (complementing oneDark)
 const darkTheme = EditorView.theme({
   '&': {
-    backgroundColor: 'hsl(var(--secondary))',
+    backgroundColor: 'var(--secondary)',
   },
   '.cm-content': {
     fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
@@ -93,8 +93,8 @@ const darkTheme = EditorView.theme({
     padding: '8px 0',
   },
   '.cm-gutters': {
-    backgroundColor: 'hsl(var(--secondary))',
-    borderRight: '1px solid hsl(var(--border))',
+    backgroundColor: 'var(--secondary)',
+    borderRight: '1px solid var(--border)',
   },
   '.cm-lineNumbers .cm-gutterElement': {
     padding: '0 8px 0 12px',
@@ -235,7 +235,7 @@ export default function CodeEditor({
   return (
     <div
       ref={containerRef}
-      className={`rounded-lg border border-input overflow-auto focus-within:border-ring focus-within:ring-1 focus-within:ring-ring ${className}`}
+      className={`rounded-md border border-input overflow-auto focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/20 ${className}`}
       style={{ minHeight, maxHeight }}
     />
   );

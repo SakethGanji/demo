@@ -79,7 +79,7 @@ export default function RunDataDisplay({ data, mode, basePath = '$json' }: RunDa
     return (
       <div className="space-y-1.5">
         <div className="flex items-center gap-2">
-          <span className="inline-flex items-center rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+          <span className="inline-flex items-center rounded bg-[var(--success)]/10 px-1.5 py-0.5 text-[10px] font-medium text-[var(--success)]">
             JSON
           </span>
           <span className="text-xs text-muted-foreground">
@@ -112,14 +112,14 @@ export default function RunDataDisplay({ data, mode, basePath = '$json' }: RunDa
   );
 }
 
-// Type badge colors
+// Type badge colors — using theme CSS variables for consistency
 const typeBadgeColors: Record<string, string> = {
-  string: 'bg-emerald-500/10 text-emerald-500',
-  number: 'bg-blue-500/10 text-blue-500',
-  boolean: 'bg-purple-500/10 text-purple-500',
-  object: 'bg-orange-500/10 text-orange-500',
-  array: 'bg-yellow-500/10 text-yellow-500',
-  null: 'bg-gray-500/10 text-gray-500',
+  string: 'bg-[var(--success)]/10 text-[var(--success)]',
+  number: 'bg-primary/10 text-primary',
+  boolean: 'bg-[var(--node-flow)]/10 text-[var(--node-flow)]',
+  object: 'bg-[var(--warning)]/10 text-[var(--warning)]',
+  array: 'bg-[var(--node-trigger)]/10 text-[var(--node-trigger)]',
+  null: 'bg-muted text-muted-foreground',
 };
 
 // Schema field row component with expand/collapse for nested fields
@@ -187,7 +187,7 @@ const SchemaFieldRow = memo(function SchemaFieldRow({ name, node, depth, onDragS
             title={`Copy {{ ${node.path} }}`}
           >
             {copied ? (
-              <Check size={12} className="text-emerald-500" />
+              <Check size={12} className="text-[var(--success)]" />
             ) : (
               <Copy size={12} className="text-muted-foreground" />
             )}

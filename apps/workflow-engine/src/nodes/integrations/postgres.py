@@ -2,11 +2,7 @@
 
 from __future__ import annotations
 
-import json
-from datetime import date, datetime, time, timedelta
-from decimal import Decimal
 from typing import Any, TYPE_CHECKING
-from uuid import UUID
 
 import psycopg
 
@@ -18,6 +14,7 @@ from ..base import (
     NodeProperty,
     NodePropertyOption,
 )
+from ...utils.serialization import serialize_value, parse_json_params
 
 if TYPE_CHECKING:
     from ...engine.types import ExecutionContext, NodeData, NodeDefinition, NodeExecutionResult
@@ -26,48 +23,12 @@ if TYPE_CHECKING:
 DEFAULT_CONNECTION_STRING = "postgresql://postgres:postgres@localhost:5433/testdb"
 
 
-def _serialize_value(val: Any) -> Any:
-    """Convert Python/Postgres types to JSON-safe values."""
-    if isinstance(val, Decimal):
-        return float(val)
-    if isinstance(val, (datetime, date, time)):
-        return val.isoformat()
-    if isinstance(val, timedelta):
-        return val.total_seconds()
-    if isinstance(val, bytes):
-        return val.hex()
-    if isinstance(val, UUID):
-        return str(val)
-    if isinstance(val, list):
-        return [_serialize_value(v) for v in val]
-    if isinstance(val, dict):
-        return {k: _serialize_value(v) for k, v in val.items()}
-    return val
-
-
-def _parse_params(params_raw: Any) -> list | dict:
-    """Parse query parameters from expression-resolved value."""
-    if isinstance(params_raw, (list, dict)):
-        return params_raw
-    if isinstance(params_raw, str):
-        raw = params_raw.strip()
-        if not raw:
-            return []
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            return [raw]
-    if params_raw is None:
-        return []
-    return [params_raw]
-
-
 async def _fetch_rows(cur: psycopg.AsyncCursor) -> list[dict[str, Any]]:
     """Fetch all rows from cursor and serialize to dicts."""
     raw_rows = await cur.fetchall()
     columns = [desc[0] for desc in cur.description] if cur.description else []
     return [
-        {col: _serialize_value(row[i]) for i, col in enumerate(columns)}
+        {col: serialize_value(row[i]) for i, col in enumerate(columns)}
         for row in raw_rows
     ]
 
@@ -201,7 +162,7 @@ class PostgresNode(BaseNode):
                 query = str(expression_engine.resolve(query_template, expr_ctx))
                 params = expression_engine.resolve_json_template(params_template, expr_ctx)
                 if not isinstance(params, (list, dict)):
-                    params = _parse_params(params)
+                    params = parse_json_params(params)
 
                 async with conn.cursor() as cur:
                     await cur.execute(query, params)
@@ -236,7 +197,7 @@ class PostgresNode(BaseNode):
             try:
                 for i, stmt in enumerate(stmts):
                     query = str(expression_engine.resolve(stmt.get("query", ""), expr_ctx))
-                    params = _parse_params(stmt.get("params", []))
+                    params = parse_json_params(stmt.get("params", []))
 
                     async with conn.cursor() as cur:
                         await cur.execute(query, params)

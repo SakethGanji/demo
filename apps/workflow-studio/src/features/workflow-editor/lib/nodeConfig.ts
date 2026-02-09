@@ -20,33 +20,47 @@
  * Used ONLY when the backend doesn't provide an icon.
  * New nodes should define icons in the backend.
  */
-export const FALLBACK_ICONS: Record<string, string> = {
+const FALLBACK_ICONS: Record<string, string> = {
   // Triggers
   Start: 'mouse-pointer',
   Webhook: 'webhook',
   Cron: 'clock',
   ErrorTrigger: 'alert-triangle',
+  ExecuteWorkflowTrigger: 'sign-in-alt',
   ChatInput: 'message',
   // Transform
   Set: 'pen',
   Code: 'code',
+  Filter: 'filter',
   HttpRequest: 'globe',
   ReadFile: 'file',
+  WriteFile: 'file-export',
   PandasExplore: 'chart-bar',
   ObjectRead: 'download',
   ObjectWrite: 'upload',
+  ItemLists: 'list-ol',
+  Sample: 'filter',
   // Flow
   If: 'git-branch',
   Switch: 'route',
   Merge: 'git-merge',
+  Loop: 'sync',
   Wait: 'clock',
+  StopAndError: 'stop-circle',
   SplitInBatches: 'layers',
   ExecuteWorkflow: 'sitemap',
+  // Integrations
+  MongoDB: 'leaf',
+  Postgres: 'database',
+  Neo4j: 'project-diagram',
+  SendEmail: 'envelope',
   // AI
   LLMChat: 'message-square',
   AIAgent: 'bot',
   // Output
   HTMLDisplay: 'monitor',
+  MarkdownDisplay: 'file-text',
+  RespondToWebhook: 'reply',
   ChatOutput: 'message-square',
 };
 
@@ -69,20 +83,35 @@ export function getNodeIcon(nodeType: string, iconFromApi?: string): string {
 /**
  * Node types that are triggers (no inputs).
  */
-export const TRIGGER_TYPES = new Set([
+const TRIGGER_TYPES = new Set([
   'Start',
   'Webhook',
   'Cron',
   'ErrorTrigger',
+  'ExecuteWorkflowTrigger',
   'ChatInput',
 ]);
 
 /**
  * Check if a node type is a trigger.
+ * When nodeTypesMap is provided, uses inputCount === 0 as the source of truth.
+ * Falls back to the hardcoded set when the map is unavailable.
  */
-export function isTriggerType(type: string): boolean {
+export function isTriggerType(type: string, nodeTypesMap?: Map<string, { inputCount?: number }>): boolean {
+  const meta = nodeTypesMap?.get(type);
+  if (meta) return (meta.inputCount ?? 1) === 0;
   return TRIGGER_TYPES.has(type);
 }
+
+// ============================================================================
+// Subnode Slot Names
+// ============================================================================
+
+/**
+ * Target handle names that identify subnode connections.
+ * Used for connection validation and edge filtering.
+ */
+export const SUBNODE_SLOT_NAMES = ['chatModel', 'memory', 'tools'] as const;
 
 // ============================================================================
 // Node Groups (for styling)

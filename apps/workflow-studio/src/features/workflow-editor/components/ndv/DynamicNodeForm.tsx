@@ -5,12 +5,53 @@
  * property schema from the API (INodeProperty[]).
  */
 
-import { useState } from 'react';
-import { Eye, EyeOff, Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import { useState, useId, useMemo, useCallback, useEffect, useRef } from 'react';
+import { Eye, EyeOff, Plus, Trash2, ChevronDown, ChevronUp, Info } from 'lucide-react';
 import ExpressionEditor from './ExpressionEditor';
 import CodeEditor from '@/shared/components/ui/code-editor';
 import { WorkflowSelectorField } from './WorkflowSelectorField';
 import { FilePathField } from './FilePathField';
+
+// --- Inlined from formValidation.ts ---
+interface FieldError {
+  message: string;
+}
+
+function validateField(
+  value: unknown,
+  options: { required?: boolean; type?: string; min?: number; max?: number }
+): FieldError | null {
+  if (options.required) {
+    if (value === undefined || value === null || value === '') {
+      return { message: 'This field is required' };
+    }
+  }
+  if (options.type === 'number' && value !== undefined && value !== null && value !== '') {
+    const num = typeof value === 'number' ? value : parseFloat(String(value));
+    if (isNaN(num)) return { message: 'Must be a valid number' };
+    if (options.min !== undefined && num < options.min) return { message: `Minimum value is ${options.min}` };
+    if (options.max !== undefined && num > options.max) return { message: `Maximum value is ${options.max}` };
+  }
+  return null;
+}
+
+// --- Inlined from useDebouncedCallback.ts ---
+function useDebouncedCallback<T extends (...args: unknown[]) => void>(
+  callback: T,
+  delay: number
+): T {
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const callbackRef = useRef(callback);
+  callbackRef.current = callback;
+
+  return useCallback(
+    (...args: unknown[]) => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      timeoutRef.current = setTimeout(() => callbackRef.current(...args), delay);
+    },
+    [delay]
+  ) as T;
+}
 
 // Type definitions matching the API schema
 // These are compatible with INodeProperty from workflow-engine
@@ -71,6 +112,24 @@ interface OutputSchema {
 // Export for consumers
 export type { NodeProperty, OutputSchema };
 
+// Shared small components
+function FieldDescription({ text }: { text?: string }) {
+  if (!text) return null;
+  return (
+    <div className="mt-1.5 flex items-start gap-1.5">
+      <Info size={12} className="mt-0.5 flex-shrink-0 text-muted-foreground" />
+      <p className="text-xs text-muted-foreground leading-relaxed">{text}</p>
+    </div>
+  );
+}
+
+function FieldErrorMessage({ error }: { error?: FieldError | null }) {
+  if (!error) return null;
+  return (
+    <p className="mt-1 text-xs text-[var(--destructive)]">{error.message}</p>
+  );
+}
+
 interface DynamicNodeFormProps {
   properties: NodeProperty[];
   values: Record<string, unknown>;
@@ -94,6 +153,46 @@ export default function DynamicNodeForm({
   sampleData,
   allNodeData,
 }: DynamicNodeFormProps) {
+  const [fieldErrors, setFieldErrors] = useState<Record<string, FieldError | null>>({});
+  const [touchedFields, setTouchedFields] = useState<Set<string>>(new Set());
+
+  // Debounced onChange for text-input types
+  const debouncedOnChange = useDebouncedCallback(onChange, 300);
+
+  // Determine which onChange to use based on field type
+  const getOnChange = useCallback((property: NodeProperty) => {
+    const immediateTypes: NodePropertyType[] = ['boolean', 'options', 'workflowSelector', 'filePath'];
+    if (immediateTypes.includes(property.type)) {
+      return onChange;
+    }
+    return debouncedOnChange;
+  }, [onChange, debouncedOnChange]);
+
+  const handleValidate = useCallback((name: string, property: NodeProperty, value: unknown) => {
+    const error = validateField(value, {
+      required: property.required,
+      type: property.type,
+      min: property.typeOptions?.minValue,
+      max: property.typeOptions?.maxValue,
+    });
+    setFieldErrors((prev) => ({ ...prev, [name]: error }));
+    return error;
+  }, []);
+
+  const handleBlur = useCallback((name: string, property: NodeProperty, value: unknown) => {
+    setTouchedFields((prev) => new Set(prev).add(name));
+    handleValidate(name, property, value);
+  }, [handleValidate]);
+
+  const handleFieldChange = useCallback((property: NodeProperty, value: unknown) => {
+    const fieldOnChange = getOnChange(property);
+    fieldOnChange(property.name, value);
+    // Re-validate if already touched
+    if (touchedFields.has(property.name)) {
+      handleValidate(property.name, property, value);
+    }
+  }, [getOnChange, touchedFields, handleValidate]);
+
   // Filter properties based on displayOptions
   const visibleProperties = properties.filter((prop) =>
     shouldShowProperty(prop, allValues || values)
@@ -101,17 +200,24 @@ export default function DynamicNodeForm({
 
   return (
     <div className="space-y-3">
-      {visibleProperties.map((property) => (
-        <PropertyField
-          key={property.name}
-          property={property}
-          value={values[property.name]}
-          onChange={(value) => onChange(property.name, value)}
-          allValues={allValues || values}
-          upstreamSchema={upstreamSchema}
-          sampleData={sampleData}
-          allNodeData={allNodeData}
-        />
+      {visibleProperties.map((property, index) => (
+        <div key={property.name}>
+          {/* Field grouping divider after 6th field when form is long */}
+          {visibleProperties.length > 8 && index === 6 && (
+            <div className="border-t border-border/50 my-1" />
+          )}
+          <PropertyField
+            property={property}
+            value={values[property.name]}
+            onChange={(value) => handleFieldChange(property, value)}
+            onBlur={() => handleBlur(property.name, property, values[property.name])}
+            error={touchedFields.has(property.name) ? fieldErrors[property.name] : null}
+            allValues={allValues || values}
+            upstreamSchema={upstreamSchema}
+            sampleData={sampleData}
+            allNodeData={allNodeData}
+          />
+        </div>
       ))}
     </div>
   );
@@ -132,7 +238,7 @@ function shouldShowProperty(
     for (const [field, allowedValues] of Object.entries(displayOptions.show)) {
       const currentValue = values[field];
       if (Array.isArray(allowedValues)) {
-        if (!allowedValues.includes(currentValue as string)) {
+        if (!allowedValues.some(v => String(v) === String(currentValue))) {
           return false;
         }
       }
@@ -144,7 +250,7 @@ function shouldShowProperty(
     for (const [field, hiddenValues] of Object.entries(displayOptions.hide)) {
       const currentValue = values[field];
       if (Array.isArray(hiddenValues)) {
-        if (hiddenValues.includes(currentValue as string)) {
+        if (hiddenValues.some(v => String(v) === String(currentValue))) {
           return false;
         }
       }
@@ -161,13 +267,15 @@ interface PropertyFieldProps {
   property: NodeProperty;
   value: unknown;
   onChange: (value: unknown) => void;
+  onBlur?: () => void;
+  error?: FieldError | null;
   allValues: Record<string, unknown>;
   upstreamSchema?: OutputSchema;
   sampleData?: Record<string, unknown>[];
   allNodeData?: Record<string, Record<string, unknown>[]>;
 }
 
-function PropertyField({ property, value, onChange, allValues, upstreamSchema, sampleData, allNodeData }: PropertyFieldProps) {
+function PropertyField({ property, value, onChange, onBlur, error, allValues, upstreamSchema, sampleData, allNodeData }: PropertyFieldProps) {
   const { type } = property;
 
   switch (type) {
@@ -177,22 +285,31 @@ function PropertyField({ property, value, onChange, allValues, upstreamSchema, s
           property={property}
           value={(value as string) || ''}
           onChange={onChange}
+          onBlur={onBlur}
+          error={error}
         />
       ) : property.typeOptions?.rows && property.typeOptions.rows > 1 ? (
-        <ExpressionEditor
-          label={property.displayName}
-          value={(value as string) || ''}
-          onChange={(v) => onChange(v)}
-          placeholder={property.placeholder}
-          outputSchema={upstreamSchema}
-          sampleData={sampleData}
-          allNodeData={allNodeData}
-        />
+        <div>
+          <ExpressionEditor
+            label={property.displayName}
+            value={(value as string) || ''}
+            onChange={(v) => onChange(v)}
+            placeholder={property.placeholder}
+            outputSchema={upstreamSchema}
+            sampleData={sampleData}
+            allNodeData={allNodeData}
+            onBlur={onBlur}
+          />
+          <FieldDescription text={property.description} />
+          <FieldErrorMessage error={error} />
+        </div>
       ) : (
         <StringField
           property={property}
           value={(value as string) || ''}
           onChange={onChange}
+          onBlur={onBlur}
+          error={error}
           upstreamSchema={upstreamSchema}
           sampleData={sampleData}
           allNodeData={allNodeData}
@@ -205,6 +322,8 @@ function PropertyField({ property, value, onChange, allValues, upstreamSchema, s
           property={property}
           value={value as number}
           onChange={onChange}
+          onBlur={onBlur}
+          error={error}
         />
       );
 
@@ -223,6 +342,8 @@ function PropertyField({ property, value, onChange, allValues, upstreamSchema, s
           property={property}
           value={value as string}
           onChange={onChange}
+          onBlur={onBlur}
+          error={error}
         />
       );
 
@@ -232,6 +353,8 @@ function PropertyField({ property, value, onChange, allValues, upstreamSchema, s
           property={property}
           value={value}
           onChange={onChange}
+          onBlur={onBlur}
+          error={error}
         />
       );
 
@@ -280,6 +403,8 @@ function StringField({
   property,
   value,
   onChange,
+  onBlur,
+  error,
   upstreamSchema,
   sampleData,
   allNodeData,
@@ -287,27 +412,32 @@ function StringField({
   property: NodeProperty;
   value: string;
   onChange: (value: string) => void;
+  onBlur?: () => void;
+  error?: FieldError | null;
   upstreamSchema?: OutputSchema;
   sampleData?: Record<string, unknown>[];
   allNodeData?: Record<string, Record<string, unknown>[]>;
 }) {
+  const fieldId = useId();
+
   return (
     <div>
-      <label className="mb-1 block text-sm font-medium text-foreground">
+      <label htmlFor={fieldId} className="mb-1 block text-sm font-medium text-foreground">
         {property.displayName}
         {property.required && <span className="text-destructive ml-1">*</span>}
       </label>
       <ExpressionEditor
+        id={fieldId}
         value={value}
         onChange={onChange}
         placeholder={property.placeholder}
         outputSchema={upstreamSchema}
         sampleData={sampleData}
         allNodeData={allNodeData}
+        onBlur={onBlur}
       />
-      {property.description && (
-        <p className="mt-1 text-xs text-muted-foreground">{property.description}</p>
-      )}
+      <FieldDescription text={property.description} />
+      <FieldErrorMessage error={error} />
     </div>
   );
 }
@@ -316,26 +446,35 @@ function PasswordField({
   property,
   value,
   onChange,
+  onBlur,
+  error,
 }: {
   property: NodeProperty;
   value: string;
   onChange: (value: string) => void;
+  onBlur?: () => void;
+  error?: FieldError | null;
 }) {
   const [showPassword, setShowPassword] = useState(false);
+  const fieldId = useId();
 
   return (
     <div>
-      <label className="mb-1 block text-sm font-medium text-foreground">
+      <label htmlFor={fieldId} className="mb-1 block text-sm font-medium text-foreground">
         {property.displayName}
         {property.required && <span className="text-destructive ml-1">*</span>}
       </label>
       <div className="relative">
         <input
+          id={fieldId}
           type={showPassword ? 'text' : 'password'}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onBlur={onBlur}
           placeholder={property.placeholder}
-          className="w-full rounded-lg border border-input bg-secondary px-3 py-2 pr-10 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+          className={`w-full rounded-lg border bg-background px-3 py-2 pr-10 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring ${
+            error ? 'border-[var(--destructive)]' : 'border-input'
+          }`}
         />
         <button
           type="button"
@@ -345,9 +484,8 @@ function PasswordField({
           {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
         </button>
       </div>
-      {property.description && (
-        <p className="mt-1 text-xs text-muted-foreground">{property.description}</p>
-      )}
+      <FieldDescription text={property.description} />
+      <FieldErrorMessage error={error} />
     </div>
   );
 }
@@ -356,37 +494,77 @@ function NumberField({
   property,
   value,
   onChange,
+  onBlur,
+  error,
 }: {
   property: NodeProperty;
   value: number | undefined;
   onChange: (value: number) => void;
+  onBlur?: () => void;
+  error?: FieldError | null;
 }) {
   const { typeOptions } = property;
   const min = typeOptions?.minValue;
   const max = typeOptions?.maxValue;
   const step = typeOptions?.step ?? 1;
+  const fieldId = useId();
+
+  // Local string state for better UX — user can type freely
+  const [localValue, setLocalValue] = useState(
+    value !== undefined && value !== null ? String(value) : ''
+  );
+  const prevValueRef = useRef(value);
+
+  // Sync localValue when external value prop changes (e.g., from undo or reset)
+  useEffect(() => {
+    if (value !== prevValueRef.current) {
+      prevValueRef.current = value;
+      setLocalValue(value !== undefined && value !== null ? String(value) : '');
+    }
+  }, [value]);
+
+  // Local error for immediate feedback
+  const localError = useMemo((): FieldError | null => {
+    if (localValue === '') return null;
+    const parsed = parseFloat(localValue);
+    if (isNaN(parsed)) return { message: 'Must be a valid number' };
+    if (min !== undefined && parsed < min) return { message: `Minimum value is ${min}` };
+    if (max !== undefined && parsed > max) return { message: `Maximum value is ${max}` };
+    return null;
+  }, [localValue, min, max]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    setLocalValue(raw);
+    const parsed = parseFloat(raw);
+    if (!isNaN(parsed)) {
+      onChange(parsed);
+    }
+  };
+
+  const displayError = localError || error;
 
   return (
     <div>
-      <label className="mb-1 block text-sm font-medium text-foreground">
+      <label htmlFor={fieldId} className="mb-1 block text-sm font-medium text-foreground">
         {property.displayName}
         {property.required && <span className="text-destructive ml-1">*</span>}
       </label>
       <input
+        id={fieldId}
         type="number"
-        value={value ?? (typeof property.default === 'number' ? property.default : '')}
-        onChange={(e) => {
-          const parsed = parseFloat(e.target.value);
-          onChange(isNaN(parsed) ? (typeof property.default === 'number' ? property.default : 0) : parsed);
-        }}
+        value={localValue}
+        onChange={handleChange}
+        onBlur={onBlur}
         min={min}
         max={max}
         step={step}
-        className="w-full rounded-lg border border-input bg-secondary px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+        className={`w-full rounded-lg border bg-background px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring ${
+          displayError ? 'border-[var(--destructive)]' : 'border-input'
+        }`}
       />
-      {property.description && (
-        <p className="mt-1 text-xs text-muted-foreground">{property.description}</p>
-      )}
+      <FieldDescription text={property.description} />
+      <FieldErrorMessage error={displayError} />
     </div>
   );
 }
@@ -400,9 +578,12 @@ function BooleanField({
   value: boolean;
   onChange: (value: boolean) => void;
 }) {
+  const fieldId = useId();
+
   return (
-    <label className="flex items-center gap-2 cursor-pointer">
+    <label htmlFor={fieldId} className="flex items-center gap-2 cursor-pointer">
       <input
+        id={fieldId}
         type="checkbox"
         checked={value}
         onChange={(e) => onChange(e.target.checked)}
@@ -410,9 +591,7 @@ function BooleanField({
       />
       <div>
         <span className="text-sm text-foreground">{property.displayName}</span>
-        {property.description && (
-          <p className="text-xs text-muted-foreground">{property.description}</p>
-        )}
+        <FieldDescription text={property.description} />
       </div>
     </label>
   );
@@ -422,27 +601,36 @@ function OptionsField({
   property,
   value,
   onChange,
+  onBlur,
+  error,
 }: {
   property: NodeProperty;
   value: string | number | undefined;
   onChange: (value: string | number) => void;
+  onBlur?: () => void;
+  error?: FieldError | null;
 }) {
   const options = property.options || [];
+  const fieldId = useId();
 
   return (
     <div>
-      <label className="mb-1 block text-sm font-medium text-foreground">
+      <label htmlFor={fieldId} className="mb-1 block text-sm font-medium text-foreground">
         {property.displayName}
         {property.required && <span className="text-destructive ml-1">*</span>}
       </label>
       <select
+        id={fieldId}
         value={String(value ?? property.default ?? '')}
         onChange={(e) => {
           // Try to preserve the original type (number vs string)
           const selectedOption = options.find((o) => String(o.value) === e.target.value);
           onChange(selectedOption?.value ?? e.target.value);
         }}
-        className="w-full rounded-lg border border-input bg-secondary px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+        onBlur={onBlur}
+        className={`w-full rounded-lg border bg-background px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring ${
+          error ? 'border-[var(--destructive)]' : 'border-input'
+        }`}
       >
         {options.map((option) => (
           <option key={String(option.value)} value={String(option.value)}>
@@ -450,9 +638,8 @@ function OptionsField({
           </option>
         ))}
       </select>
-      {property.description && (
-        <p className="mt-1 text-xs text-muted-foreground">{property.description}</p>
-      )}
+      <FieldDescription text={property.description} />
+      <FieldErrorMessage error={error} />
     </div>
   );
 }
@@ -461,10 +648,14 @@ function JsonField({
   property,
   value,
   onChange,
+  onBlur,
+  error,
 }: {
   property: NodeProperty;
   value: unknown;
   onChange: (value: unknown) => void;
+  onBlur?: () => void;
+  error?: FieldError | null;
 }) {
   const rows = property.typeOptions?.rows ?? 6;
   const language = property.typeOptions?.language ?? 'json';
@@ -499,7 +690,7 @@ function JsonField({
   const maxHeight = `${Math.max(rows * 24, 300)}px`;
 
   return (
-    <div>
+    <div onBlur={onBlur}>
       <label className="mb-1 block text-sm font-medium text-foreground">
         {property.displayName}
         {property.required && <span className="text-destructive ml-1">*</span>}
@@ -512,11 +703,8 @@ function JsonField({
         minHeight={minHeight}
         maxHeight={maxHeight}
       />
-      {property.description && (
-        <p className="mt-1 text-xs text-muted-foreground whitespace-pre-wrap">
-          {property.description}
-        </p>
-      )}
+      <FieldDescription text={property.description} />
+      <FieldErrorMessage error={error} />
     </div>
   );
 }
@@ -535,6 +723,7 @@ function CollectionField({
   const [expandedItems, setExpandedItems] = useState<Record<number, boolean>>({});
   const nestedProperties = property.properties || [];
   const isMultiple = property.typeOptions?.multipleValues !== false;
+  const fieldId = useId();
 
   const addItem = () => {
     const defaultItem: Record<string, unknown> = {};
@@ -563,9 +752,39 @@ function CollectionField({
     setExpandedItems({ ...expandedItems, [index]: !expandedItems[index] });
   };
 
+  const moveItem = (index: number, direction: 'up' | 'down') => {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= value.length) return;
+    const newValue = [...value];
+    [newValue[index], newValue[targetIndex]] = [newValue[targetIndex], newValue[index]];
+    // Update expanded state to follow the moved item
+    const newExpanded = { ...expandedItems };
+    const wasExpanded = expandedItems[index];
+    const targetWasExpanded = expandedItems[targetIndex];
+    newExpanded[index] = targetWasExpanded ?? true;
+    newExpanded[targetIndex] = wasExpanded ?? true;
+    setExpandedItems(newExpanded);
+    onChange(newValue);
+  };
+
+  // Get preview text for a collapsed item
+  const getItemPreview = (item: unknown): string => {
+    if (!item || typeof item !== 'object') return '';
+    const itemObj = item as Record<string, unknown>;
+    // Use the first nested property's value as preview
+    if (nestedProperties.length > 0) {
+      const firstVal = itemObj[nestedProperties[0].name];
+      if (firstVal !== undefined && firstVal !== null && firstVal !== '') {
+        const str = String(firstVal);
+        return str.length > 40 ? str.slice(0, 40) + '...' : str;
+      }
+    }
+    return '';
+  };
+
   return (
     <div>
-      <label className="mb-2 block text-sm font-medium text-foreground">
+      <label htmlFor={fieldId} className="mb-2 block text-sm font-medium text-foreground">
         {property.displayName}
       </label>
 
@@ -573,28 +792,54 @@ function CollectionField({
         {value.map((item, index) => {
           const itemValues = item as Record<string, unknown>;
           const isExpanded = expandedItems[index] ?? true;
+          const preview = !isExpanded ? getItemPreview(item) : '';
 
           return (
             <div
               key={index}
-              className="rounded-lg border border-border bg-secondary/50"
+              className="rounded-lg border border-border bg-muted/50"
             >
               <div className="flex items-center justify-between px-3 py-2">
                 <button
                   type="button"
                   onClick={() => toggleItem(index)}
-                  className="flex items-center gap-2 text-sm font-medium text-foreground"
+                  className="flex items-center gap-2 text-sm font-medium text-foreground min-w-0"
                 >
-                  {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                  Item {index + 1}
+                  {isExpanded ? <ChevronUp size={16} className="flex-shrink-0" /> : <ChevronDown size={16} className="flex-shrink-0" />}
+                  <span>Item {index + 1}</span>
+                  {preview && (
+                    <span className="text-xs text-muted-foreground truncate">
+                      — {preview}
+                    </span>
+                  )}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => removeItem(index)}
-                  className="p-1 text-muted-foreground hover:text-destructive rounded"
-                >
-                  <Trash2 size={14} />
-                </button>
+                <div className="flex items-center gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => moveItem(index, 'up')}
+                    disabled={index === 0}
+                    className="p-1 text-muted-foreground hover:text-foreground rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="Move up"
+                  >
+                    <ChevronUp size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => moveItem(index, 'down')}
+                    disabled={index === value.length - 1}
+                    className="p-1 text-muted-foreground hover:text-foreground rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="Move down"
+                  >
+                    <ChevronDown size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeItem(index)}
+                    className="p-1 text-muted-foreground hover:text-destructive rounded"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               </div>
 
               {isExpanded && (
@@ -626,9 +871,7 @@ function CollectionField({
         </button>
       )}
 
-      {property.description && (
-        <p className="mt-1 text-xs text-muted-foreground">{property.description}</p>
-      )}
+      <FieldDescription text={property.description} />
     </div>
   );
 }

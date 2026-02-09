@@ -10,8 +10,8 @@ from ...base import (
     NodePropertyOption,
     NodeTypeDescription,
 )
-from ..base_subnode import BaseSubnode
-from .utils import format_history_text, get_db_connection
+from .base_memory import MemorySubnodeBase, SESSION_ID_PROPERTY
+from ....utils.memory import get_db_connection
 
 if TYPE_CHECKING:
     from ....engine.types import NodeDefinition
@@ -38,7 +38,7 @@ def _get_connection():
     return get_db_connection("buffer_conn", _INIT_SQL)
 
 
-class BufferMemoryNode(BaseSubnode):
+class BufferMemoryNode(MemorySubnodeBase):
     """Buffer Memory - keeps the last N messages with configurable storage."""
 
     node_description = NodeTypeDescription(
@@ -50,13 +50,7 @@ class BufferMemoryNode(BaseSubnode):
         inputs=[],
         outputs=[],
         properties=[
-            NodeProperty(
-                display_name="Session ID",
-                name="sessionId",
-                type="string",
-                default="default",
-                description="Unique session identifier for chat history. Supports expressions.",
-            ),
+            SESSION_ID_PROPERTY,
             NodeProperty(
                 display_name="Max Messages",
                 name="maxMessages",
@@ -96,27 +90,25 @@ class BufferMemoryNode(BaseSubnode):
         storage = self.get_parameter(node_definition, "storage", "memory")
 
         if storage == "sqlite":
-            return {
-                "type": "buffer",
-                "sessionId": session_id,
-                "maxMessages": max_messages,
-                "storage": storage,
-                "getHistory": lambda: self._get_history_sqlite(session_id, max_messages),
-                "addMessage": lambda role, content: self._add_message_sqlite(session_id, role, content, max_messages),
-                "clearHistory": lambda: self._clear_history_sqlite(session_id),
-                "getHistoryText": lambda: self._get_history_text_sqlite(session_id, max_messages),
-            }
+            return self.build_memory_config(
+                memory_type="buffer",
+                session_id=session_id,
+                get_history=lambda: self._get_history_sqlite(session_id, max_messages),
+                add_message=lambda role, content: self._add_message_sqlite(session_id, role, content, max_messages),
+                clear_history=lambda: self._clear_history_sqlite(session_id),
+                maxMessages=max_messages,
+                storage=storage,
+            )
         else:
-            return {
-                "type": "buffer",
-                "sessionId": session_id,
-                "maxMessages": max_messages,
-                "storage": storage,
-                "getHistory": lambda: self._get_history_memory(session_id, max_messages),
-                "addMessage": lambda role, content: self._add_message_memory(session_id, role, content, max_messages),
-                "clearHistory": lambda: self._clear_history_memory(session_id),
-                "getHistoryText": lambda: self._get_history_text_memory(session_id, max_messages),
-            }
+            return self.build_memory_config(
+                memory_type="buffer",
+                session_id=session_id,
+                get_history=lambda: self._get_history_memory(session_id, max_messages),
+                add_message=lambda role, content: self._add_message_memory(session_id, role, content, max_messages),
+                clear_history=lambda: self._clear_history_memory(session_id),
+                maxMessages=max_messages,
+                storage=storage,
+            )
 
     # ----- In-Memory Storage -----
 
@@ -138,12 +130,6 @@ class BufferMemoryNode(BaseSubnode):
     def _clear_history_memory(session_id: str) -> None:
         """Clear in-memory history."""
         _chat_histories[session_id] = []
-
-    @staticmethod
-    def _get_history_text_memory(session_id: str, max_messages: int) -> str:
-        """Get in-memory history as formatted text."""
-        history = _chat_histories[session_id][-max_messages:]
-        return format_history_text(history)
 
     # ----- SQLite Storage -----
 
@@ -184,8 +170,3 @@ class BufferMemoryNode(BaseSubnode):
         conn.execute("DELETE FROM buffer_messages WHERE session_id = ?", (session_id,))
         conn.commit()
 
-    @staticmethod
-    def _get_history_text_sqlite(session_id: str, max_messages: int) -> str:
-        """Get SQLite history as formatted text."""
-        history = BufferMemoryNode._get_history_sqlite(session_id, max_messages)
-        return format_history_text(history)

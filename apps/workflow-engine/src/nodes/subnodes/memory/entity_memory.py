@@ -8,8 +8,8 @@ from ...base import (
     NodeProperty,
     NodeTypeDescription,
 )
-from ..base_subnode import BaseSubnode
-from .utils import format_history_text, extract_entities, get_db_connection, run_async
+from .base_memory import MemorySubnodeBase, SESSION_ID_PROPERTY
+from ....utils.memory import extract_entities, get_db_connection, run_async
 
 if TYPE_CHECKING:
     from ....engine.types import NodeDefinition
@@ -46,7 +46,7 @@ def _get_connection():
     return get_db_connection("entity_conn", _INIT_SQL)
 
 
-class EntityMemoryNode(BaseSubnode):
+class EntityMemoryNode(MemorySubnodeBase):
     """Entity Memory - extracts and tracks entities mentioned in conversation."""
 
     node_description = NodeTypeDescription(
@@ -58,13 +58,7 @@ class EntityMemoryNode(BaseSubnode):
         inputs=[],
         outputs=[],
         properties=[
-            NodeProperty(
-                display_name="Session ID",
-                name="sessionId",
-                type="string",
-                default="default",
-                description="Unique session identifier for chat history. Supports expressions.",
-            ),
+            SESSION_ID_PROPERTY,
             NodeProperty(
                 display_name="Extraction Model",
                 name="extractionModel",
@@ -108,20 +102,19 @@ class EntityMemoryNode(BaseSubnode):
         max_entities = self.get_parameter(node_definition, "maxEntities", 50)
         recent_messages = self.get_parameter(node_definition, "recentMessages", 5)
 
-        return {
-            "type": "entity",
-            "sessionId": session_id,
-            "extractionModel": extraction_model,
-            "entityTypes": entity_types,
-            "maxEntities": max_entities,
-            "recentMessages": recent_messages,
-            "getHistory": lambda: self._get_history(session_id, recent_messages),
-            "addMessage": lambda role, content: self._add_message(
+        return self.build_memory_config(
+            memory_type="entity",
+            session_id=session_id,
+            get_history=lambda: self._get_history(session_id, recent_messages),
+            add_message=lambda role, content: self._add_message(
                 session_id, role, content, extraction_model, entity_types, max_entities
             ),
-            "clearHistory": lambda: self._clear_history(session_id),
-            "getHistoryText": lambda: self._get_history_text(session_id, recent_messages),
-        }
+            clear_history=lambda: self._clear_history(session_id),
+            extractionModel=extraction_model,
+            entityTypes=entity_types,
+            maxEntities=max_entities,
+            recentMessages=recent_messages,
+        )
 
     @staticmethod
     def _get_entities(session_id: str) -> list[dict[str, Any]]:
@@ -257,8 +250,3 @@ class EntityMemoryNode(BaseSubnode):
         conn.execute("DELETE FROM entity_memory_entities WHERE session_id = ?", (session_id,))
         conn.commit()
 
-    @staticmethod
-    def _get_history_text(session_id: str, recent_messages: int) -> str:
-        """Get history as formatted text."""
-        history = EntityMemoryNode._get_history(session_id, recent_messages)
-        return format_history_text(history)

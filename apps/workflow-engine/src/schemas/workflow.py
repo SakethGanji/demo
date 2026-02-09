@@ -1,8 +1,20 @@
 """Workflow-related Pydantic schemas."""
 
-from typing import Any, Literal
+from __future__ import annotations
+
+from typing import Any, Literal, TYPE_CHECKING
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from ..engine.types import NodeDefinition, Connection, NodeData, Workflow
+
+
+class PinnedDataItem(BaseModel):
+    """Schema for a pinned data item (test data)."""
+
+    json: dict[str, Any] = Field(default_factory=dict, description="JSON data")
+    binary: dict[str, Any] | None = Field(None, description="Binary data")
 
 
 class NodeDefinitionSchema(BaseModel):
@@ -13,6 +25,7 @@ class NodeDefinitionSchema(BaseModel):
     label: str | None = Field(None, description="Display label for the node")
     parameters: dict[str, Any] = Field(default_factory=dict, description="Node parameters")
     position: dict[str, float] | None = Field(None, description="UI position {x, y}")
+    pinned_data: list[PinnedDataItem] | None = Field(None, description="Pinned test data")
     retry_on_fail: int = Field(0, ge=0, description="Number of retries on failure")
     retry_delay: int = Field(1000, ge=0, description="Delay between retries in ms")
     continue_on_fail: bool = Field(False, description="Continue execution on failure")
@@ -27,6 +40,21 @@ class NodeDefinitionSchema(BaseModel):
             }
         }
 
+    def to_dataclass(self) -> NodeDefinition:
+        """Convert to engine NodeDefinition dataclass."""
+        from ..engine.types import NodeDefinition as ND, NodeData as NDData
+        return ND(
+            name=self.name,
+            type=self.type,
+            parameters=self.parameters,
+            position=self.position,
+            label=self.label,
+            pinned_data=[NDData(json=p.json) for p in self.pinned_data] if self.pinned_data else None,
+            retry_on_fail=self.retry_on_fail,
+            retry_delay=self.retry_delay,
+            continue_on_fail=self.continue_on_fail,
+        )
+
 
 class ConnectionSchema(BaseModel):
     """Schema for connection between nodes."""
@@ -39,6 +67,7 @@ class ConnectionSchema(BaseModel):
         "normal", description="Connection type: normal for data flow, subnode for configuration"
     )
     slot_name: str | None = Field(None, description="Slot name for subnode connections")
+    waypoints: list[dict[str, float]] | None = Field(None, description="Manual edge routing waypoints [{x, y}]")
 
     class Config:
         json_schema_extra = {
@@ -50,6 +79,19 @@ class ConnectionSchema(BaseModel):
                 "connection_type": "normal",
             }
         }
+
+    def to_dataclass(self) -> Connection:
+        """Convert to engine Connection dataclass."""
+        from ..engine.types import Connection as Conn
+        return Conn(
+            source_node=self.source_node,
+            target_node=self.target_node,
+            source_output=self.source_output,
+            target_input=self.target_input,
+            connection_type=self.connection_type,
+            slot_name=self.slot_name,
+            waypoints=self.waypoints,
+        )
 
 
 class WorkflowCreateRequest(BaseModel):
@@ -64,6 +106,17 @@ class WorkflowCreateRequest(BaseModel):
     settings: dict[str, Any] = Field(default_factory=dict, description="Workflow settings")
     # For ad-hoc execution with input
     input_data: dict[str, Any] | None = Field(None, alias="_input_data", description="Input data for ad-hoc execution")
+
+    def to_workflow(self) -> Workflow:
+        """Convert to engine Workflow dataclass."""
+        from ..engine.types import Workflow as WF
+        return WF(
+            name=self.name,
+            nodes=[n.to_dataclass() for n in self.nodes],
+            connections=[c.to_dataclass() for c in self.connections],
+            description=self.description,
+            settings=self.settings,
+        )
 
 
 class WorkflowUpdateRequest(BaseModel):

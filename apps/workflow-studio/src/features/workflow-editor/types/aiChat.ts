@@ -18,7 +18,7 @@ export interface AIChatRequest {
   mode_hint: 'auto' | 'generate' | 'modify' | 'explain' | 'fix';
 }
 
-export interface WorkflowContextPayload {
+interface WorkflowContextPayload {
   name: string;
   nodes: Array<{ name: string; type: string; parameters: Record<string, unknown> }>;
   connections: Array<{

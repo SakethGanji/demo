@@ -25,14 +25,14 @@ interface SchemaDisplayProps {
   basePath: string;
 }
 
-// Type badge colors
+// Type badge colors — using theme CSS variables for consistency
 const typeBadgeColors: Record<string, string> = {
-  string: 'bg-emerald-500/10 text-emerald-500',
-  number: 'bg-blue-500/10 text-blue-500',
-  boolean: 'bg-purple-500/10 text-purple-500',
-  object: 'bg-orange-500/10 text-orange-500',
-  array: 'bg-yellow-500/10 text-yellow-500',
-  unknown: 'bg-gray-500/10 text-gray-500',
+  string: 'bg-[var(--success)]/10 text-[var(--success)]',
+  number: 'bg-primary/10 text-primary',
+  boolean: 'bg-[var(--node-flow)]/10 text-[var(--node-flow)]',
+  object: 'bg-[var(--warning)]/10 text-[var(--warning)]',
+  array: 'bg-[var(--node-trigger)]/10 text-[var(--node-trigger)]',
+  unknown: 'bg-muted text-muted-foreground',
 };
 
 export default function SchemaDisplay({ schema, basePath }: SchemaDisplayProps) {
@@ -53,7 +53,7 @@ export default function SchemaDisplay({ schema, basePath }: SchemaDisplayProps) 
   return (
     <div className="space-y-1.5">
       <div className="flex items-center gap-2">
-        <span className="inline-flex items-center rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">
+        <span className="inline-flex items-center rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
           Schema
         </span>
         <span className="text-xs text-muted-foreground">
@@ -161,7 +161,7 @@ const SchemaFieldRow = memo(function SchemaFieldRow({
             title={`Copy {{ ${path} }}`}
           >
             {copied ? (
-              <Check size={12} className="text-emerald-500" />
+              <Check size={12} className="text-[var(--success)]" />
             ) : (
               <Copy size={12} className="text-muted-foreground" />
             )}

@@ -1,8 +1,8 @@
 import type { Node } from 'reactflow';
 import type { WorkflowNodeData } from '../../types/workflow';
 
-export type InputType = 'chat' | 'form' | null;
-export type OutputType = 'chat' | 'html' | 'markdown' | 'text';
+type InputType = 'chat' | 'form' | null;
+type OutputType = 'chat' | 'html' | 'markdown' | 'text';
 
 export interface UIConfig {
   inputType: InputType;
@@ -65,6 +65,3 @@ export function detectUINodes(nodes: Node<WorkflowNodeData>[]): UIConfig {
 /**
  * Check if a workflow has UI nodes configured
  */
-export function hasUINodes(nodes: Node<WorkflowNodeData>[]): boolean {
-  return nodes.some((n) => INPUT_NODE_TYPES[n.data.type] || OUTPUT_NODE_TYPES[n.data.type]);
-}

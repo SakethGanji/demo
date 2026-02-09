@@ -2,55 +2,38 @@
 
 from __future__ import annotations
 
-import sqlite3
-import threading
-from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
 from ...base import (
     NodeProperty,
     NodeTypeDescription,
 )
-from ..base_subnode import BaseSubnode
+from .base_memory import MemorySubnodeBase, SESSION_ID_PROPERTY
+from ....utils.memory import get_db_connection
 
 if TYPE_CHECKING:
     from ....engine.types import NodeDefinition
 
 
-# Thread-local connections (sqlite3 objects can't cross threads)
-_local = threading.local()
-
-# Use a dedicated DB file to avoid contention with the main workflows.db
-_DB_PATH = Path(__file__).resolve().parents[4] / "agent_memory.db"
-
-
-def _get_connection() -> sqlite3.Connection:
-    """Get a thread-local SQLite connection with WAL mode."""
-    conn = getattr(_local, "conn", None)
-    if conn is None:
-        conn = sqlite3.connect(str(_DB_PATH))
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA busy_timeout=5000")
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS chat_messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id TEXT NOT NULL,
-                role TEXT NOT NULL,
-                content TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_chat_session ON chat_messages(session_id)"
-        )
-        conn.commit()
-        _local.conn = conn
-    return conn
+_INIT_SQL = [
+    """
+    CREATE TABLE IF NOT EXISTS chat_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_chat_session ON chat_messages(session_id)",
+]
 
 
-class SQLiteMemoryNode(BaseSubnode):
+def _get_connection():
+    return get_db_connection("sqlite_mem_conn", _INIT_SQL)
+
+
+class SQLiteMemoryNode(MemorySubnodeBase):
     """Persistent SQLite-backed chat memory that survives server restarts."""
 
     node_description = NodeTypeDescription(
@@ -62,13 +45,7 @@ class SQLiteMemoryNode(BaseSubnode):
         inputs=[],
         outputs=[],
         properties=[
-            NodeProperty(
-                display_name="Session ID",
-                name="sessionId",
-                type="string",
-                default="default",
-                description="Unique session identifier for chat history. Supports expressions.",
-            ),
+            SESSION_ID_PROPERTY,
             NodeProperty(
                 display_name="Max Messages",
                 name="maxMessages",
@@ -87,15 +64,14 @@ class SQLiteMemoryNode(BaseSubnode):
         session_id = self.get_parameter(node_definition, "sessionId", "default")
         max_messages = self.get_parameter(node_definition, "maxMessages", 50)
 
-        return {
-            "type": "sqlite",
-            "sessionId": session_id,
-            "maxMessages": max_messages,
-            "getHistory": lambda: self._get_history(session_id, max_messages),
-            "addMessage": lambda role, content: self._add_message(session_id, role, content, max_messages),
-            "clearHistory": lambda: self._clear_history(session_id),
-            "getHistoryText": lambda: self._get_history_text(session_id, max_messages),
-        }
+        return self.build_memory_config(
+            memory_type="sqlite",
+            session_id=session_id,
+            get_history=lambda: self._get_history(session_id, max_messages),
+            add_message=lambda role, content: self._add_message(session_id, role, content, max_messages),
+            clear_history=lambda: self._clear_history(session_id),
+            maxMessages=max_messages,
+        )
 
     @staticmethod
     def _get_history(session_id: str, max_messages: int) -> list[dict[str, str]]:
@@ -134,15 +110,3 @@ class SQLiteMemoryNode(BaseSubnode):
         conn = _get_connection()
         conn.execute("DELETE FROM chat_messages WHERE session_id = ?", (session_id,))
         conn.commit()
-
-    @staticmethod
-    def _get_history_text(session_id: str, max_messages: int) -> str:
-        """Get chat history as formatted text for prompt injection."""
-        history = SQLiteMemoryNode._get_history(session_id, max_messages)
-        if not history:
-            return ""
-        lines = []
-        for msg in history:
-            role = "User" if msg["role"] == "user" else "Assistant"
-            lines.append(f"{role}: {msg['content']}")
-        return "\n".join(lines)

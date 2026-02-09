@@ -19,7 +19,7 @@ import type { Node } from 'reactflow';
 import type { WorkflowNodeData, SubnodeSlotDefinition, SubnodeType } from '../../types/workflow';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useNDVStore } from '../../stores/ndvStore';
-import { useNodeCreatorStore } from '../../stores/nodeCreatorStore';
+import { useEditorLayoutStore } from '../../stores/editorLayoutStore';
 import DynamicNodeForm, { type NodeProperty, type OutputSchema } from './DynamicNodeForm';
 import { useNodeTypes } from '../../hooks/useNodeTypes';
 import { backends } from '@/shared/lib/config';
@@ -36,11 +36,11 @@ const subnodeTypeIcons: Record<SubnodeType, typeof Bot> = {
   tool: Wrench,
 };
 
-// Accent colors for subnode types
+// Accent colors for subnode types — uses CSS custom properties from theme
 const subnodeTypeColors: Record<SubnodeType, string> = {
-  model: '#8b5cf6',   // violet
-  memory: '#6366f1',  // indigo
-  tool: '#f59e0b',    // amber
+  model: 'var(--subnode-model)',
+  memory: 'var(--subnode-memory)',
+  tool: 'var(--subnode-tool)',
 };
 
 export default function NodeSettings({ node }: NodeSettingsProps) {
@@ -61,7 +61,7 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
     workflowId: s.workflowId,
   }));
   const { closeNDV } = useNDVStore();
-  const { openForSubnode } = useNodeCreatorStore();
+  const openForSubnode = useEditorLayoutStore((s) => s.openForSubnode);
 
   // Webhook URL for Webhook nodes
   const isWebhookNode = node.data.type === 'Webhook';
@@ -147,13 +147,13 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
 
   return (
     <div className="flex h-full flex-col bg-card">
-      {/* Compact Tabs - No duplicate header */}
+      {/* Compact Tabs */}
       <div className="flex border-b border-border">
         <button
           onClick={() => setActiveTab('parameters')}
-          className={`flex-1 px-3 py-2 text-sm font-medium transition-colors ${
+          className={`flex-1 px-3 py-2 text-[13px] font-medium transition-colors ${
             activeTab === 'parameters'
-              ? 'border-b-2 border-primary text-primary'
+              ? 'border-b-2 border-primary text-foreground'
               : 'text-muted-foreground hover:text-foreground'
           }`}
         >
@@ -161,9 +161,9 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
         </button>
         <button
           onClick={() => setActiveTab('settings')}
-          className={`flex-1 px-3 py-2 text-sm font-medium transition-colors ${
+          className={`flex-1 px-3 py-2 text-[13px] font-medium transition-colors ${
             activeTab === 'settings'
-              ? 'border-b-2 border-primary text-primary'
+              ? 'border-b-2 border-primary text-foreground'
               : 'text-muted-foreground hover:text-foreground'
           }`}
         >
@@ -186,16 +186,16 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
                   </div>
                   {webhookUrl ? (
                     <div className="flex items-center gap-2">
-                      <code className="flex-1 text-xs bg-secondary px-2 py-1.5 rounded border border-border truncate">
+                      <code className="flex-1 text-xs bg-muted px-2 py-1.5 rounded border border-border truncate">
                         {webhookUrl}
                       </code>
                       <button
                         onClick={copyWebhookUrl}
-                        className="flex items-center justify-center size-8 rounded-md border border-border bg-secondary hover:bg-accent transition-colors"
+                        className="flex items-center justify-center size-8 rounded-md border border-border bg-muted hover:bg-accent transition-colors"
                         title="Copy URL"
                       >
                         {copiedUrl ? (
-                          <Check size={14} className="text-emerald-500" />
+                          <Check size={14} className="text-[var(--success)]" />
                         ) : (
                           <Copy size={14} className="text-muted-foreground" />
                         )}
@@ -207,7 +207,7 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
                     </p>
                   )}
                   <p className="text-xs text-muted-foreground mt-2">
-                    Workflow must be <span className="font-medium text-emerald-500">active</span> to receive webhooks
+                    Workflow must be <span className="font-medium text-[var(--success)]">active</span> to receive webhooks
                   </p>
                 </div>
               </div>
@@ -219,7 +219,7 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
                 onClick={() => toggleSection('main')}
                 className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-accent transition-colors"
               >
-                <span className="text-sm font-medium text-foreground">
+                <span className="text-[13px] font-medium text-foreground">
                   Main Parameters
                 </span>
                 {expandedSections.main ? (
@@ -271,7 +271,7 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
                   onClick={() => toggleSection('subnodes')}
                   className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-accent transition-colors"
                 >
-                  <span className="text-sm font-medium text-foreground">
+                  <span className="text-[13px] font-medium text-foreground">
                     Connected Subnodes
                   </span>
                   {expandedSections.subnodes ? (
@@ -285,7 +285,7 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
                     {connectedSubnodes.slots.map((slot) => {
                       const slotSubnodes = connectedSubnodes.slotMap[slot.name] || [];
                       const SlotIcon = subnodeTypeIcons[slot.slotType as SubnodeType] || Wrench;
-                      const slotColor = subnodeTypeColors[slot.slotType as SubnodeType] || '#888';
+                      const slotColor = subnodeTypeColors[slot.slotType as SubnodeType] || 'var(--muted-foreground)';
                       const canAddMore = slot.multiple || slotSubnodes.length === 0;
 
                       return (
@@ -321,7 +321,7 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
                                 return (
                                   <div key={subnode.id} className="space-y-0">
                                     <div
-                                      className="flex items-center justify-between rounded-md border border-border/50 bg-secondary/30 px-2.5 py-1.5 group"
+                                      className="flex items-center justify-between rounded-md border border-border/50 bg-muted/30 px-2.5 py-1.5 group"
                                     >
                                       <button
                                         onClick={() => setExpandedSubnodes(prev => ({ ...prev, [subnode.id]: !prev[subnode.id] }))}
@@ -374,7 +374,7 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
                 onClick={() => toggleSection('options')}
                 className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-accent transition-colors"
               >
-                <span className="text-sm font-medium text-foreground">Error Handling</span>
+                <span className="text-[13px] font-medium text-foreground">Error Handling</span>
                 {expandedSections.options ? (
                   <ChevronUp size={14} className="text-muted-foreground" />
                 ) : (
@@ -393,11 +393,11 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
                             continueOnFail: e.target.checked,
                           });
                         }}
-                        className="mt-0.5 h-4 w-4 rounded border-input text-primary focus:ring-ring"
+                        className="mt-0.5 h-3.5 w-3.5 rounded border-input text-primary focus:ring-ring accent-primary"
                       />
                       <div>
-                        <span className="text-sm text-foreground">Continue on fail</span>
-                        <p className="text-xs text-muted-foreground">
+                        <span className="text-[13px] text-foreground">Continue on fail</span>
+                        <p className="text-[12px] text-muted-foreground">
                           Continue even if this node fails
                         </p>
                       </div>
@@ -413,11 +413,11 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
                               retryOnFail: e.target.checked ? 3 : 0,
                             });
                           }}
-                          className="mt-0.5 h-4 w-4 rounded border-input text-primary focus:ring-ring"
+                          className="mt-0.5 h-3.5 w-3.5 rounded border-input text-primary focus:ring-ring accent-primary"
                         />
                         <div>
-                          <span className="text-sm text-foreground">Retry on fail</span>
-                          <p className="text-xs text-muted-foreground">Retry if it fails</p>
+                          <span className="text-[13px] text-foreground">Retry on fail</span>
+                          <p className="text-[12px] text-muted-foreground">Retry if it fails</p>
                         </div>
                       </label>
 
@@ -436,7 +436,7 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
                                 const val = Math.min(10, Math.max(1, parseInt(e.target.value) || 1));
                                 updateNodeData(node.id, { retryOnFail: val });
                               }}
-                              className="w-16 rounded-md border border-input bg-secondary px-2 py-1 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+                              className="w-16 rounded-md border border-input bg-background px-2 py-1 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
                             />
                           </div>
                           <div>
@@ -452,7 +452,7 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
                                 const val = Math.max(0, parseInt(e.target.value) || 1000);
                                 updateNodeData(node.id, { retryDelay: val });
                               }}
-                              className="w-24 rounded-md border border-input bg-secondary px-2 py-1 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+                              className="w-24 rounded-md border border-input bg-background px-2 py-1 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
                             />
                           </div>
                         </div>
@@ -488,7 +488,11 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
               <textarea
                 rows={2}
                 placeholder="Add notes..."
-                className="w-full rounded-md border border-input bg-secondary px-2 py-1.5 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+                value={node.data.notes || ''}
+                onChange={(e) => {
+                  updateNodeData(node.id, { notes: e.target.value });
+                }}
+                className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
               />
             </div>
 

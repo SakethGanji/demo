@@ -2,7 +2,7 @@
  * FilePathField - File path input with file browser dialog
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId } from 'react';
 import { Folder, File, ChevronRight, Home, ArrowUp, X, Search } from 'lucide-react';
 
 interface FileEntry {
@@ -37,6 +37,7 @@ interface FilePathFieldProps {
 }
 
 export function FilePathField({ property, value, onChange }: FilePathFieldProps) {
+  const fieldId = useId();
   const [isOpen, setIsOpen] = useState(false);
   const [currentPath, setCurrentPath] = useState('~');
   const [entries, setEntries] = useState<FileEntry[]>([]);
@@ -112,23 +113,24 @@ export function FilePathField({ property, value, onChange }: FilePathFieldProps)
 
   return (
     <div>
-      <label className="mb-1 block text-sm font-medium text-foreground">
+      <label htmlFor={fieldId} className="mb-1 block text-sm font-medium text-foreground">
         {property.displayName}
         {property.required && <span className="text-destructive ml-1">*</span>}
       </label>
 
       <div className="flex gap-2">
         <input
+          id={fieldId}
           type="text"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={property.placeholder}
-          className="flex-1 rounded-lg border border-input bg-secondary px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+          className="flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
         />
         <button
           type="button"
           onClick={() => setIsOpen(true)}
-          className="px-3 py-2 rounded-lg border border-input bg-secondary hover:bg-accent text-sm font-medium flex items-center gap-1"
+          className="px-3 py-2 rounded-lg border border-input bg-muted hover:bg-accent text-sm font-medium flex items-center gap-1"
         >
           <Folder size={16} />
           Browse
@@ -155,7 +157,7 @@ export function FilePathField({ property, value, onChange }: FilePathFieldProps)
             </div>
 
             {/* Navigation bar */}
-            <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-secondary/50">
+            <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-muted/50">
               <button
                 onClick={handleGoHome}
                 className="p-1.5 hover:bg-accent rounded"
@@ -213,7 +215,7 @@ export function FilePathField({ property, value, onChange }: FilePathFieldProps)
                       className="w-full flex items-center gap-3 px-3 py-2 rounded hover:bg-accent text-left group"
                     >
                       {entry.type === 'directory' ? (
-                        <Folder size={18} className="text-blue-500 flex-shrink-0" />
+                        <Folder size={18} className="text-primary flex-shrink-0" />
                       ) : (
                         <File size={18} className="text-muted-foreground flex-shrink-0" />
                       )}
@@ -232,7 +234,7 @@ export function FilePathField({ property, value, onChange }: FilePathFieldProps)
             </div>
 
             {/* Footer */}
-            <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-secondary/50">
+            <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-muted/50">
               <span className="text-xs text-muted-foreground">
                 {extensions && `Showing: ${extensions}`}
               </span>

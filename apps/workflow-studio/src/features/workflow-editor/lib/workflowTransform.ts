@@ -11,59 +11,15 @@
 
 import type { Node, Edge } from 'reactflow';
 import type { WorkflowNodeData } from '../types/workflow';
-import { getNodeIcon, normalizeNodeGroup, isTriggerType } from './nodeConfig';
-
-// Backend types (internal)
-interface BackendNodeData {
-  json: Record<string, unknown>;
-  binary?: Record<string, unknown>;
-}
-
-interface BackendNodeDefinition {
-  name: string;
-  type: string;
-  label?: string;
-  parameters: Record<string, unknown>;
-  position?: { x: number; y: number };
-  continueOnFail?: boolean;
-  retryOnFail?: number;
-  retryDelay?: number;
-  pinnedData?: BackendNodeData[];
-}
-
-interface BackendConnection {
-  source_node: string;
-  source_output: string;
-  target_node: string;
-  target_input: string;
-  connection_type?: 'normal' | 'subnode';
-  slot_name?: string;
-  waypoints?: Array<{ x: number; y: number }>;  // Manual edge routing
-}
-
-export interface BackendWorkflow {
-  id?: string;
-  name: string;
-  nodes: BackendNodeDefinition[];
-  connections: BackendConnection[];
-}
-
-// ============================================================================
-// Default Parameters (for node creation)
-// ============================================================================
-
-/**
- * Returns default parameters for a node type.
- *
- * NOTE: Most defaults are now defined in the backend node schemas and applied
- * by DynamicNodeForm when rendering. Only add frontend defaults here for
- * parameters that need immediate values at node creation time.
- */
-export function getDefaultParameters(_backendType: string): Record<string, unknown> {
-  // All defaults are now managed by the backend schema.
-  // The DynamicNodeForm uses property.default from the API response.
-  return {};
-}
+import type { WorkflowDefinition } from '@/features/workflows/hooks/useWorkflows';
+import { getNodeIcon, isTriggerType, normalizeNodeGroup } from './nodeConfig';
+import { createWorkflowNodeData, getDefaultIO } from './createNodeData';
+import type {
+  BackendNodeDefinition,
+  BackendConnection,
+  BackendWorkflow,
+  ApiWorkflowDetail,
+} from '@/shared/lib/backendTypes';
 
 // ============================================================================
 // Name Generation
@@ -145,24 +101,26 @@ export function toBackendWorkflow(
       x: Math.round(node.position.x),
       y: Math.round(node.position.y),
     },
-    continueOnFail: node.data.continueOnFail || false,
-    retryOnFail: node.data.retryOnFail || 0,
-    retryDelay: node.data.retryDelay || 1000,
-    pinnedData: node.data.pinnedData,
+    continue_on_fail: node.data.continueOnFail || false,
+    retry_on_fail: node.data.retryOnFail || 0,
+    retry_delay: node.data.retryDelay || 1000,
+    pinned_data: node.data.pinnedData,
   }));
 
   // Transform subnode nodes - type is already backend format
   const backendSubnodes: BackendNodeDefinition[] = subnodeNodes.map((node) => ({
     name: node.data.name,
     type: node.data.type,
+    label: node.data.label,
     parameters: node.data.parameters || {},
     position: {
       x: Math.round(node.position.x),
       y: Math.round(node.position.y),
     },
-    continueOnFail: false,
-    retryOnFail: 0,
-    retryDelay: 1000,
+    continue_on_fail: false,
+    retry_on_fail: 0,
+    retry_delay: 1000,
+    pinned_data: node.data.pinnedData,
   }));
 
   // Transform edges to connections (deduplicate by source+target+handles)
@@ -225,93 +183,50 @@ export function toBackendWorkflow(
  */
 export function getExistingNodeNames(nodes: Node<WorkflowNodeData>[]): string[] {
   return nodes
-    .filter((n) => n.type === 'workflowNode' || n.type === 'subworkflowNode')
+    .filter((n) => n.type === 'workflowNode' || n.type === 'subworkflowNode' || n.type === 'subnodeNode')
     .map((n) => n.data.name);
+}
+
+/**
+ * Find the upstream node name that provides input to a target node.
+ * @param targetNodeName - The name of the target node
+ * @param nameToId - Map from node name to node ID
+ * @param edges - Array of edges with source/target IDs
+ */
+export function findUpstreamNodeName(
+  targetNodeName: string,
+  nameToId: Map<string, string>,
+  edges: { source: string; target: string }[],
+): string | null {
+  const targetNodeId = nameToId.get(targetNodeName);
+  if (!targetNodeId) return null;
+
+  for (const edge of edges) {
+    if (edge.target === targetNodeId) {
+      for (const [name, id] of nameToId) {
+        if (id === edge.source) return name;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Build a name-to-ID map for workflow nodes.
+ */
+export function buildNameToIdMap(nodes: Node<WorkflowNodeData>[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const node of nodes) {
+    if (node.type === 'workflowNode' || node.type === 'subworkflowNode') {
+      map.set((node.data as WorkflowNodeData).name, node.id);
+    }
+  }
+  return map;
 }
 
 // ============================================================================
 // Backend → ReactFlow Transformation
 // ============================================================================
-
-/**
- * API response types (snake_case from backend)
- */
-interface ApiWorkflowDetail {
-  id: string;
-  name: string;
-  active: boolean;
-  definition: {
-    nodes: Array<{
-      name: string;
-      type: string;
-      label?: string;
-      parameters: Record<string, unknown>;
-      position?: { x: number; y: number };
-      // Enriched I/O data from backend
-      inputs?: Array<{ name: string; displayName: string }>;
-      inputCount?: number;
-      outputs?: Array<{ name: string; displayName: string }>;
-      outputCount?: number;
-      inputStrategy?: Record<string, unknown>;
-      outputStrategy?: Record<string, unknown>;
-      // Node group for styling
-      group?: string[];
-      // Subnode properties
-      isSubnode?: boolean;
-      subnodeType?: 'model' | 'memory' | 'tool';
-      subnodeSlots?: Array<{
-        name: string;
-        displayName: string;
-        slotType: 'model' | 'memory' | 'tool';
-        required: boolean;
-        multiple: boolean;
-      }>;
-    }>;
-    connections: Array<{
-      source_node: string;
-      target_node: string;
-      source_output: string;
-      target_input: string;
-      connection_type?: 'normal' | 'subnode';
-      slot_name?: string;
-      waypoints?: Array<{ x: number; y: number }>;
-    }>;
-  };
-}
-
-// Known subnode type prefixes/patterns for detection
-const SUBNODE_TYPE_PATTERNS: Array<{ pattern: RegExp; subnodeType: 'model' | 'memory' | 'tool' }> = [
-  { pattern: /Model$/i, subnodeType: 'model' },
-  { pattern: /^(Gemini|OpenAI|Anthropic|Claude)/i, subnodeType: 'model' },
-  { pattern: /Memory$/i, subnodeType: 'memory' },
-  { pattern: /^(Simple|Buffer|Window|SQLite)Memory/i, subnodeType: 'memory' },
-  { pattern: /Tool$/i, subnodeType: 'tool' },
-  { pattern: /^(Calculator|CurrentTime|RandomNumber|Text)$/i, subnodeType: 'tool' },
-];
-
-/**
- * Detects if a node type is a subnode and returns its subnode type
- */
-function detectSubnodeType(nodeType: string, isSubnode?: boolean): 'model' | 'memory' | 'tool' | null {
-  // If explicitly marked as subnode in backend response
-  if (isSubnode) {
-    for (const { pattern, subnodeType } of SUBNODE_TYPE_PATTERNS) {
-      if (pattern.test(nodeType)) {
-        return subnodeType;
-      }
-    }
-    return 'tool'; // Default subnode type
-  }
-
-  // Try to detect from type name
-  for (const { pattern, subnodeType } of SUBNODE_TYPE_PATTERNS) {
-    if (pattern.test(nodeType)) {
-      return subnodeType;
-    }
-  }
-
-  return null;
-}
 
 /**
  * Transforms backend workflow to ReactFlow nodes and edges.
@@ -334,108 +249,101 @@ export function fromBackendWorkflow(api: ApiWorkflowDetail): {
   // Build name to ID map (we use the name as the ID for simplicity)
   // Node types use backend PascalCase format directly
   const nodes: Node<WorkflowNodeData>[] = api.definition.nodes.map((node) => {
-    // Determine if this is a subnode
-    const isSubnodeFromConnection = subnodeNames.has(node.name);
-    const subnodeType = detectSubnodeType(node.type, node.isSubnode || isSubnodeFromConnection);
-    const isSubnode = subnodeType !== null;
+    // Determine if this is a subnode (from backend metadata or connection analysis)
+    const isSubnode = node.isSubnode || subnodeNames.has(node.name);
+    const subnodeType = isSubnode ? (node.subnodeType || 'tool') : null;
+
+    // Resolve I/O from backend enrichment or defaults
+    const defaultIO = getDefaultIO(node.type);
+    const inputs = node.inputs?.map((i) => ({ name: i.name, displayName: i.displayName })) || defaultIO.inputs;
+    const outputs = node.outputs?.map((o) => ({ name: o.name, displayName: o.displayName })) || defaultIO.outputs;
+    const isTrigger = isTriggerType(node.type);
 
     if (isSubnode) {
-      // Create subnode node
+      // Create subnode node via factory
+      const data = createWorkflowNodeData(
+        {
+          type: node.type,
+          icon: getNodeIcon(node.type),
+          group: node.group,
+        },
+        {
+          name: node.name,
+          label: node.label || node.name,
+          parameters: node.parameters,
+          isSubnode: true,
+          subnodeType: node.subnodeType || subnodeType || undefined,
+          nodeShape: 'circular',
+        },
+      );
+
       return {
         id: node.name,
         type: 'subnodeNode',
         position: node.position || { x: 0, y: 0 },
-        data: {
-          name: node.name,
-          type: node.type,
-          label: node.label || node.name,
-          icon: getNodeIcon(node.type),
-          parameters: node.parameters,
-          isSubnode: true,
-          subnodeType: node.subnodeType || subnodeType,
-          nodeShape: 'circular',
-        } as WorkflowNodeData,
+        data,
       };
     }
 
     // Check if this is an ExecuteWorkflow node with a workflowId → render as subworkflowNode
     if (node.type === 'ExecuteWorkflow' && node.parameters?.workflowId) {
-      const isTrigger = false; // ExecuteWorkflow is never a trigger
-      const defaultInputs = [{ name: 'main', displayName: 'Main' }];
-      const defaultOutputs = [{ name: 'main', displayName: 'Main' }];
+      const data = createWorkflowNodeData(
+        {
+          type: node.type,
+          icon: getNodeIcon(node.type),
+          group: node.group,
+          inputs,
+          outputs,
+          inputCount: node.inputCount ?? 1,
+          outputCount: node.outputCount ?? 1,
+          outputStrategy: node.outputStrategy as WorkflowNodeData['outputStrategy'],
+          subnodeSlots: node.subnodeSlots,
+        },
+        {
+          name: node.name,
+          label: node.label || node.name,
+          parameters: node.parameters,
+          subworkflowId: node.parameters.workflowId as string,
+        },
+      );
 
       return {
         id: node.name,
         type: 'subworkflowNode',
         position: node.position || { x: 0, y: 0 },
-        data: {
-          name: node.name,
-          type: node.type,
-          label: node.label || node.name,
-          icon: getNodeIcon(node.type),
-          parameters: node.parameters,
-          inputs: node.inputs?.map((i) => ({ name: i.name, displayName: i.displayName })) || defaultInputs,
-          inputCount: node.inputCount ?? 1,
-          outputs: node.outputs?.map((o) => ({ name: o.name, displayName: o.displayName })) || defaultOutputs,
-          outputCount: node.outputCount ?? 1,
-          group: normalizeNodeGroup(node.group),
-          subworkflowId: node.parameters.workflowId as string,
-        } as WorkflowNodeData,
+        data,
       };
     }
 
-    // Create regular workflow node
-    // Default I/O for nodes without enriched data (e.g., imported from file)
-    // Trigger nodes don't have inputs
-    const isTrigger = isTriggerType(node.type);
-    const defaultInputs = isTrigger ? [] : [{ name: 'main', displayName: 'Main' }];
-
-    // Type-specific default outputs
-    const getDefaultOutputs = (nodeType: string) => {
-      switch (nodeType) {
-        case 'If':
-          return [
-            { name: 'true', displayName: 'True' },
-            { name: 'false', displayName: 'False' },
-          ];
-        case 'Switch':
-          return [
-            { name: 'output0', displayName: 'Output 0' },
-            { name: 'output1', displayName: 'Output 1' },
-            { name: 'fallback', displayName: 'Fallback' },
-          ];
-        case 'Loop':
-          return [
-            { name: 'loop', displayName: 'Loop' },
-            { name: 'done', displayName: 'Done' },
-          ];
-        default:
-          return [{ name: 'main', displayName: 'Main' }];
-      }
-    };
-    const defaultOutputs = getDefaultOutputs(node.type);
+    // Create regular workflow node via factory
+    const data = createWorkflowNodeData(
+      {
+        type: node.type,
+        icon: getNodeIcon(node.type),
+        group: node.group,
+        inputs,
+        outputs,
+        inputCount: node.inputCount ?? (isTrigger ? 0 : inputs.length),
+        outputCount: node.outputCount ?? outputs.length,
+        outputStrategy: node.outputStrategy as WorkflowNodeData['outputStrategy'],
+        subnodeSlots: node.subnodeSlots,
+      },
+      {
+        name: node.name,
+        label: node.label || node.name,
+        parameters: node.parameters,
+        continueOnFail: node.continue_on_fail ?? false,
+        retryOnFail: node.retry_on_fail ?? 0,
+        retryDelay: node.retry_delay ?? 1000,
+        pinnedData: node.pinnedData,
+      },
+    );
 
     return {
       id: node.name,
       type: 'workflowNode',
       position: node.position || { x: 0, y: 0 },
-      data: {
-        name: node.name,
-        type: node.type,
-        label: node.label || node.name,
-        icon: getNodeIcon(node.type),
-        parameters: node.parameters,
-        // Use enriched I/O data from backend, or defaults for imported files
-        inputs: node.inputs?.map((i) => ({ name: i.name, displayName: i.displayName })) || defaultInputs,
-        inputCount: node.inputCount ?? (isTrigger ? 0 : 1),
-        outputs: node.outputs?.map((o) => ({ name: o.name, displayName: o.displayName })) || defaultOutputs,
-        outputCount: node.outputCount ?? defaultOutputs.length,
-        outputStrategy: node.outputStrategy as WorkflowNodeData['outputStrategy'],
-        // Node group for styling (normalized from backend array)
-        group: normalizeNodeGroup(node.group),
-        // Subnode slots for parent nodes (e.g., AIAgent has chatModel, memory, tools)
-        ...(node.subnodeSlots ? { subnodeSlots: node.subnodeSlots } : {}),
-      } as WorkflowNodeData,
+      data,
     };
   });
 
@@ -459,10 +367,7 @@ export function fromBackendWorkflow(api: ApiWorkflowDetail): {
         data: {
           isSubnodeEdge: true,
           slotName,
-          slotType: detectSubnodeType(
-            api.definition.nodes.find((n) => n.name === conn.source_node)?.type || '',
-            true
-          ) || 'tool',
+          slotType: api.definition.nodes.find((n) => n.name === conn.source_node)?.subnodeType || 'tool',
           ...(conn.waypoints ? { waypoints: conn.waypoints } : {}),
         },
       };
@@ -534,5 +439,91 @@ export function fromBackendWorkflow(api: ApiWorkflowDetail): {
     workflowId: api.id,
     isActive: api.active,
   };
+}
+
+// ============================================================================
+// WorkflowDefinition → Preview Data (lightweight, for listing page thumbnails)
+// ============================================================================
+
+/** Runtime node data from backend (richer than the TS type) */
+interface RuntimeNode {
+  name: string;
+  type: string;
+  parameters: Record<string, unknown>;
+  position?: { x: number; y: number };
+  group?: string[];
+  isSubnode?: boolean;
+  subnodeType?: 'model' | 'memory' | 'tool';
+  inputCount?: number;
+  outputCount?: number;
+  subnodeSlots?: Array<{ name: string }>;
+  icon?: string;
+}
+
+/**
+ * Lightweight conversion from WorkflowDefinition (listing page format) to
+ * ReactFlow Node/Edge arrays suitable for WorkflowSVG rendering.
+ *
+ * Much simpler than fromBackendWorkflow: no subnode stacking, no
+ * createWorkflowNodeData factory, no editor-specific fields. Filters out
+ * subnodes and subnode edges entirely.
+ */
+export function definitionToPreviewData(definition: WorkflowDefinition): {
+  nodes: Node<WorkflowNodeData>[];
+  edges: Edge[];
+} {
+  if (definition.nodes.length === 0) return { nodes: [], edges: [] };
+
+  // Cast to runtime type — backend sends richer data than the TS type declares
+  const runtimeNodes = definition.nodes as RuntimeNode[];
+
+  // Identify subnodes to filter out
+  const subnodeNames = new Set<string>();
+  for (const node of runtimeNodes) {
+    if (node.isSubnode) subnodeNames.add(node.name);
+  }
+
+  const mainNodes = runtimeNodes.filter((n) => !subnodeNames.has(n.name));
+
+  const nodes: Node<WorkflowNodeData>[] = mainNodes.map((node) => {
+    const isTrigger = isTriggerType(node.type);
+    const inputCount = isTrigger ? 0 : Math.max(1, node.inputCount ?? 1);
+    const outputCount = Math.max(1, node.outputCount ?? 1);
+    const group = normalizeNodeGroup(node.group);
+
+    return {
+      id: node.name,
+      type: 'workflowNode',
+      position: node.position || { x: 0, y: 0 },
+      data: {
+        name: node.name,
+        type: node.type,
+        label: node.name,
+        group,
+        icon: node.icon ? node.icon.replace('fa:', '') : getNodeIcon(node.type),
+        inputCount,
+        outputCount,
+        subnodeSlots: node.subnodeSlots as WorkflowNodeData['subnodeSlots'],
+      } as WorkflowNodeData,
+    };
+  });
+
+  // Build edges, skipping subnode connections
+  const edges: Edge[] = definition.connections
+    .filter((conn) => {
+      if (conn.connectionType === 'subnode') return false;
+      if (subnodeNames.has(conn.sourceNode) || subnodeNames.has(conn.targetNode)) return false;
+      return true;
+    })
+    .map((conn) => ({
+      id: `edge-${conn.sourceNode}-${conn.sourceOutput}-${conn.targetNode}-${conn.targetInput}`,
+      source: conn.sourceNode,
+      target: conn.targetNode,
+      sourceHandle: conn.sourceOutput,
+      targetHandle: conn.targetInput,
+      type: 'workflowEdge',
+    }));
+
+  return { nodes, edges };
 }
 

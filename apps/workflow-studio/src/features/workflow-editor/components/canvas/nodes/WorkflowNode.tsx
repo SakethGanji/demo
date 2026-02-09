@@ -1,20 +1,20 @@
 import { memo, useState, useMemo, useRef, useEffect } from 'react';
-import { Handle, Position, type NodeProps } from 'reactflow';
+import { Handle, Position, NodeToolbar, type NodeProps } from 'reactflow';
 import { Plus, Play, MoreHorizontal, Check, X } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/shared/components/ui/popover';
-import { useNodeCreatorStore } from '../../../stores/nodeCreatorStore';
+import { useEditorLayoutStore } from '../../../stores/editorLayoutStore';
 import { useNDVStore } from '../../../stores/ndvStore';
 import { useWorkflowStore } from '../../../stores/workflowStore';
 import type { WorkflowNodeData, SubnodeType } from '../../../types/workflow';
 import {
-  getNodeGroupFromType,
   getNodeStyles,
   getNodeShapeConfig,
   calculateHandlePositions,
   calculateNodeDimensions,
 } from '../../../lib/nodeStyles';
+import { normalizeNodeGroup } from '../../../lib/nodeConfig';
 import { getIconForNode } from '../../../lib/nodeIcons';
-import { isTriggerType } from '../../../lib/nodeConfig';
+import { isTriggerType, SUBNODE_SLOT_NAMES } from '../../../lib/nodeConfig';
 
 // Colors for stacked subnode badges (gray tones matching node theme)
 const SUBNODE_BADGE_COLORS: Record<SubnodeType, { bg: string; border: string; text: string }> = {
@@ -32,7 +32,7 @@ const StatusBadge = ({ status }: { status: 'success' | 'error' }) => {
         absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full
         flex items-center justify-center text-white
         shadow-sm animate-badge-pop z-10
-        ${isSuccess ? 'bg-emerald-500' : 'bg-red-500'}
+        ${isSuccess ? 'bg-[var(--success)]' : 'bg-destructive'}
       `}
     >
       {isSuccess ? <Check size={10} strokeWidth={3} /> : <X size={10} strokeWidth={3} />}
@@ -46,8 +46,8 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
   const [isEditingLabel, setIsEditingLabel] = useState(false);
   const labelInputRef = useRef<HTMLInputElement>(null);
 
-  const openForConnection = useNodeCreatorStore((s) => s.openForConnection);
-  const openForSubnode = useNodeCreatorStore((s) => s.openForSubnode);
+  const openForConnection = useEditorLayoutStore((s) => s.openForConnection);
+  const openForSubnode = useEditorLayoutStore((s) => s.openForSubnode);
   const openNDV = useNDVStore((s) => s.openNDV);
   const executionData = useWorkflowStore((s) => s.executionData[id]);
   const draggedNodeType = useWorkflowStore((s) => s.draggedNodeType);
@@ -91,12 +91,13 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
     () => getIconForNode(data.icon, data.type),
     [data.icon, data.type]
   );
-  // Use centralized trigger detection (backend types only)
-  const isTrigger = isTriggerType(data.type || '');
+  // Use centralized trigger detection — dynamic via nodeTypesMap when available
+  const nodeTypesMap = useWorkflowStore((s) => s.nodeTypesMap);
+  const isTrigger = isTriggerType(data.type || '', nodeTypesMap);
 
   // Get group-based styling and shape
   const nodeGroup = useMemo(
-    () => getNodeGroupFromType(data.type, data.group ? [data.group] : undefined),
+    () => normalizeNodeGroup(data.group ? [data.group] : undefined),
     [data.type, data.group]
   );
   const styles = useMemo(() => getNodeStyles(nodeGroup), [nodeGroup]);
@@ -129,10 +130,6 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
     openForConnection(id, handleId);
   };
 
-  const handleDoubleClick = () => {
-    openNDV(id);
-  };
-
   // Execution status flags
   const isRunning = executionData?.status === 'running';
   const isSuccess = executionData?.status === 'success';
@@ -140,7 +137,6 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
 
   // Check if this node's input is already connected (excluding subnode edges)
   const hasInputConnection = useMemo(() => {
-    const SUBNODE_SLOT_NAMES = ['chatModel', 'memory', 'tools'];
     return edges.some(
       (e) => e.target === id && !e.data?.isSubnodeEdge && !SUBNODE_SLOT_NAMES.includes(e.targetHandle || '')
     );
@@ -151,7 +147,7 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
     if (!draggedNodeType) return false;
     if (isTrigger) return false; // Triggers have no inputs
     // Check if the dragged node is a trigger (triggers can't connect to inputs)
-    if (isTriggerType(draggedNodeType)) return false;
+    if (isTriggerType(draggedNodeType, nodeTypesMap)) return false;
     // Check if this node already has an input connection
     return !hasInputConnection;
   }, [draggedNodeType, isTrigger, hasInputConnection]);
@@ -180,17 +176,23 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
     });
   };
 
-  // Check if a specific output handle is already connected
-  const isOutputConnected = (handleId: string) => {
-    return edges.some((e) => e.source === id && e.sourceHandle === handleId);
-  };
+  // Pre-compute set of connected output handle IDs to avoid O(n) per handle
+  const connectedOutputHandles = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of edges) {
+      if (e.source === id && e.sourceHandle) {
+        set.add(e.sourceHandle);
+      }
+    }
+    return set;
+  }, [edges, id]);
 
   // Render output handles - transforms into plus button on hover when not connected
   const renderOutputHandles = () => {
     return outputPositions.map((position, index) => {
       const outputDef = data.outputs?.[index];
       const handleId = outputDef?.name || `output-${index}`;
-      const hasConnection = isOutputConnected(handleId);
+      const hasConnection = connectedOutputHandles.has(handleId);
       const canExpand = !hasConnection && showActions;
 
       return (
@@ -441,10 +443,10 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
       {/* Drop zone indicator - shows on the left when node can accept a connection */}
       {canBeDropTarget && (
         <div
-          className="absolute -left-8 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border-2 border-dashed border-emerald-500 bg-emerald-500/20 animate-pulse flex items-center justify-center"
+          className="absolute -left-8 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border-2 border-dashed border-[var(--success)] bg-[var(--success)]/20 animate-pulse flex items-center justify-center"
           style={{ pointerEvents: 'none' }}
         >
-          <Plus size={12} className="text-emerald-500" />
+          <Plus size={12} className="text-[var(--success)]" />
         </div>
       )}
 
@@ -452,23 +454,22 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
         className={`
           relative cursor-grab border transition-all duration-300 flex items-center justify-center
           ${selected ? 'ring-2 ring-offset-1' : ''}
-          ${isRunning ? 'animate-pulse-border' : ''}
-          ${canBeDropTarget ? 'ring-2 ring-emerald-500/50 ring-offset-1' : ''}
+          ${isRunning ? 'animate-pulse' : ''}
+          ${canBeDropTarget ? 'ring-2 ring-[var(--success)]/50 ring-offset-1' : ''}
         `}
         style={{
           height: dimensions.height,
           width: dimensions.width,
           backgroundColor: styles.bgColor,
-          borderColor: canBeDropTarget ? '#10b981' : (isRunning ? styles.accentColor : (selected ? styles.accentColor : styles.borderColor)),
+          borderColor: canBeDropTarget ? 'var(--success)' : (isRunning ? styles.accentColor : (selected ? styles.accentColor : styles.borderColor)),
           borderWidth: 2,
           borderRadius: shapeConfig.borderRadius,
           boxShadow: canBeDropTarget
-            ? '0 0 20px rgba(16, 185, 129, 0.4)'
+            ? '0 0 15px var(--success)'
             : (selected ? `0 4px 12px ${styles.accentColor}40` : '0 1px 3px rgba(0,0,0,0.1)'),
           // @ts-expect-error CSS custom property
-          '--tw-ring-color': canBeDropTarget ? '#10b981' : styles.accentColor,
+          '--tw-ring-color': canBeDropTarget ? 'var(--success)' : styles.accentColor,
         }}
-        onDoubleClick={handleDoubleClick}
       >
         {/* Input Handles */}
         {renderInputHandles()}
@@ -520,27 +521,33 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
         </span>
       )}
 
-      {/* Quick Actions - shows on hover or when selected */}
-      {showActions && (
-        <div className="nodrag absolute -top-10 left-1/2 flex -translate-x-1/2 gap-1 rounded-lg bg-popover p-1 shadow-md border border-border">
-          <button
-            className="rounded-md p-1.5 hover:bg-accent"
-            title="Run node"
-          >
-            <Play size={14} className="text-muted-foreground" />
-          </button>
-          <button
-            className="rounded-md p-1.5 hover:bg-accent"
-            title="More options"
-            onClick={(e) => {
-              e.stopPropagation();
-              // Would open context menu
-            }}
-          >
-            <MoreHorizontal size={14} className="text-muted-foreground" />
-          </button>
-        </div>
-      )}
+      {/* Quick Actions - shows on hover or when selected (NodeToolbar doesn't scale with zoom) */}
+      <NodeToolbar
+        isVisible={showActions}
+        position={Position.Top}
+        offset={8}
+        className="nodrag flex gap-0.5 rounded-md bg-popover p-0.5 shadow-md border border-border"
+      >
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            openNDV(id);
+          }}
+          className="rounded p-1 hover:bg-accent transition-colors"
+          title="Open settings"
+        >
+          <Play size={12} className="text-muted-foreground" />
+        </button>
+        <button
+          className="rounded p-1 hover:bg-accent transition-colors"
+          title="More options"
+          onClick={(e) => {
+            e.stopPropagation();
+          }}
+        >
+          <MoreHorizontal size={12} className="text-muted-foreground" />
+        </button>
+      </NodeToolbar>
     </div>
   );
 }

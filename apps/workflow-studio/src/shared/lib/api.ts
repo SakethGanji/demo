@@ -5,83 +5,29 @@
  * Replaces tRPC with standard REST calls.
  */
 
-// ============================================================================
-// Types (internal - used by API functions)
-// ============================================================================
+import type {
+  BackendWorkflow,
+  ApiWorkflowSummary,
+  ApiWorkflowDetail,
+  ApiCreateResponse,
+  ApiExecutionResult,
+  ApiExecutionListItem,
+} from './backendTypes';
 
-// Backend workflow format (simplified for API layer)
-interface BackendNodeDefinition {
+// Property definition from API node type
+export interface ApiProperty {
   name: string;
+  displayName: string;
   type: string;
-  parameters: Record<string, unknown>;
-  position?: { x: number; y: number };
-  continueOnFail?: boolean;
-  retryOnFail?: number;
-  retryDelay?: number;
-  pinnedData?: { json: Record<string, unknown> }[];
-}
-
-interface BackendConnection {
-  source_node: string;
-  source_output: string;
-  target_node: string;
-  target_input: string;
-  connection_type?: 'normal' | 'subnode';
-  slot_name?: string;
-}
-
-interface BackendWorkflow {
-  id?: string;
-  name: string;
-  nodes: BackendNodeDefinition[];
-  connections: BackendConnection[];
-}
-
-interface WorkflowSummary {
-  id: string;
-  name: string;
-  active: boolean;
-  webhookUrl: string;
-  nodeCount: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-interface WorkflowDetail {
-  id: string;
-  name: string;
-  active: boolean;
-  webhookUrl: string;
-  definition: BackendWorkflow;
-  createdAt: string;
-  updatedAt: string;
-}
-
-interface CreateWorkflowResponse {
-  id: string;
-  name: string;
-  active: boolean;
-  webhookUrl: string;
-  createdAt: string;
-}
-
-interface UpdateWorkflowResponse {
-  id: string;
-  name: string;
-  active: boolean;
-  updatedAt: string;
-}
-
-interface SetActiveResponse {
-  id: string;
-  active: boolean;
-}
-
-interface ExecutionResult {
-  status: 'success' | 'failed';
-  executionId: string;
-  data: Record<string, unknown>;
-  errors: { nodeName: string; error: string }[];
+  default?: unknown;
+  required?: boolean;
+  description?: string;
+  options?: { name: string; value: unknown }[];
+  displayOptions?: {
+    show?: Record<string, unknown[]>;
+    hide?: Record<string, unknown[]>;
+  };
+  [key: string]: unknown;
 }
 
 interface NodeTypeInfo {
@@ -91,22 +37,29 @@ interface NodeTypeInfo {
   icon: string;
   group: string[];
   inputCount: number;
-  outputCount: number;
-  properties: {
-    name: string;
-    displayName: string;
-    type: string;
-    default?: unknown;
-    required?: boolean;
-    description?: string;
-    options?: { name: string; value: unknown }[];
-    displayOptions?: {
-      show?: Record<string, unknown[]>;
-      hide?: Record<string, unknown[]>;
-    };
-  }[];
+  outputCount: number | 'dynamic';
+  properties: ApiProperty[];
   inputs: { name: string; displayName: string; type: string; required?: boolean }[];
   outputs: { name: string; displayName: string; type: string; schema?: unknown }[];
+  // Subnode metadata
+  isSubnode?: boolean;
+  subnodeType?: 'model' | 'memory' | 'tool';
+  providesToSlot?: string;
+  // Parent node subnode slots
+  subnodeSlots?: Array<{
+    name: string;
+    displayName: string;
+    slotType: 'model' | 'memory' | 'tool';
+    required: boolean;
+    multiple: boolean;
+  }>;
+  // Dynamic output strategy
+  outputStrategy?: {
+    type: 'dynamicFromCollection' | 'dynamicFromParameter' | 'static';
+    collectionName?: string;
+    parameter?: string;
+    addFallback?: boolean;
+  };
 }
 
 // ============================================================================
@@ -145,22 +98,22 @@ async function apiFetch<T>(
 // ============================================================================
 
 export const workflowsApi = {
-  list: (): Promise<WorkflowSummary[]> => {
+  list: (): Promise<ApiWorkflowSummary[]> => {
     return apiFetch('/workflows');
   },
 
-  get: (id: string): Promise<WorkflowDetail> => {
+  get: (id: string): Promise<ApiWorkflowDetail> => {
     return apiFetch(`/workflows/${id}`);
   },
 
-  create: (workflow: BackendWorkflow): Promise<CreateWorkflowResponse> => {
+  create: (workflow: BackendWorkflow): Promise<ApiCreateResponse> => {
     return apiFetch('/workflows', {
       method: 'POST',
       body: JSON.stringify(workflow),
     });
   },
 
-  update: (id: string, workflow: BackendWorkflow): Promise<UpdateWorkflowResponse> => {
+  update: (id: string, workflow: BackendWorkflow): Promise<ApiWorkflowDetail> => {
     return apiFetch(`/workflows/${id}`, {
       method: 'PUT',
       body: JSON.stringify(workflow),
@@ -173,24 +126,35 @@ export const workflowsApi = {
     });
   },
 
-  setActive: (id: string, active: boolean): Promise<SetActiveResponse> => {
+  setActive: (id: string, active: boolean): Promise<{ id: string; active: boolean }> => {
     return apiFetch(`/workflows/${id}/active`, {
       method: 'PATCH',
       body: JSON.stringify({ active }),
     });
   },
 
-  run: (id: string): Promise<ExecutionResult> => {
+  run: (id: string): Promise<ApiExecutionResult> => {
     return apiFetch(`/workflows/${id}/run`, {
       method: 'POST',
     });
   },
 
-  runAdhoc: (workflow: BackendWorkflow): Promise<ExecutionResult> => {
+  runAdhoc: (workflow: BackendWorkflow): Promise<ApiExecutionResult> => {
     return apiFetch('/workflows/run-adhoc', {
       method: 'POST',
       body: JSON.stringify(workflow),
     });
+  },
+};
+
+// ============================================================================
+// Executions API
+// ============================================================================
+
+export const executionsApi = {
+  list: (workflowId?: string): Promise<ApiExecutionListItem[]> => {
+    const params = workflowId ? `?workflow_id=${workflowId}` : '';
+    return apiFetch(`/executions${params}`);
   },
 };
 

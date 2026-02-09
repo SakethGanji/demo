@@ -6,7 +6,7 @@
  * styling-related utilities.
  */
 
-import { normalizeNodeGroup, type NodeGroup } from './nodeConfig';
+import type { NodeGroup } from './nodeConfig';
 
 // Re-export NodeGroup type for convenience
 export type { NodeGroup };
@@ -20,12 +20,12 @@ interface NodeStyleConfig {
   handleColor: string;
 }
 
-export interface NodeShapeConfig {
+interface NodeShapeConfig {
   borderRadius: string; // CSS border-radius value (can be asymmetric)
   accentType: 'left-bar' | 'bottom-bar' | 'diamond' | 'shimmer' | 'none';
 }
 
-export interface NodeDimensions {
+interface NodeDimensions {
   width: number;
   height: number;
   minWidth: number;
@@ -34,17 +34,6 @@ export interface NodeDimensions {
 export interface NodeIO {
   name: string;
   displayName?: string;
-}
-
-/**
- * Determine node group from API-provided group.
- * Uses centraliz config for normalization.
- *
- * @deprecated Use normalizeNodeGroup from nodeConfig.ts directly.
- * This function is kept for backward compatibility.
- */
-export function getNodeGroupFromType(_type: string, apiGroup?: string[]): NodeGroup {
-  return normalizeNodeGroup(apiGroup);
 }
 
 /**
@@ -135,22 +124,6 @@ export function calculateHandlePositions(handleCount: number): number[] {
   return Array.from({ length: handleCount }, (_, i) =>
     padding + (i * spacing)
   );
-}
-
-/**
- * Calculate minimum node height based on handle count
- * Uses dynamic spacing consistent with calculateNodeDimensions
- */
-export function calculateNodeMinHeight(inputCount: number, outputCount: number): number {
-  const baseHeight = 48; // Base height for icon-only node (label is now outside)
-  const maxHandles = Math.max(inputCount, outputCount);
-
-  if (maxHandles <= 1) return baseHeight;
-
-  // Dynamic handle spacing - same logic as calculateNodeDimensions
-  const handleSpacing = maxHandles <= 4 ? 24 : maxHandles <= 8 ? 22 : 20;
-
-  return baseHeight + ((maxHandles - 1) * handleSpacing);
 }
 
 /**

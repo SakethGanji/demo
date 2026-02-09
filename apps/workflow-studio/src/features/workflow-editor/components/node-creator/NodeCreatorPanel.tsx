@@ -1,21 +1,15 @@
 import { useCallback, useMemo } from 'react';
-import { X, Search, ArrowLeft, ChevronRight, Loader2 } from 'lucide-react';
-import { useNodeCreatorStore } from '../../stores/nodeCreatorStore';
+import { Search, X, Loader2 } from 'lucide-react';
+import { useEditorLayoutStore } from '../../stores/editorLayoutStore';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { generateNodeName, getExistingNodeNames } from '../../lib/workflowTransform';
-import { useNodeTypes, getNodeIcon } from '../../hooks/useNodeTypes';
+import { useNodeTypes } from '../../hooks/useNodeTypes';
+import { getNodeIcon } from '../../lib/nodeConfig';
+import { createWorkflowNodeData } from '../../lib/createNodeData';
 import NodeItem from './NodeItem';
-import type { NodeDefinition, WorkflowNodeData, SubnodeType, SubnodeSlotDefinition, OutputStrategy } from '../../types/workflow';
+import type { NodeDefinition, SubnodeType, SubnodeSlotDefinition, OutputStrategy } from '../../types/workflow';
 import type { NodeGroup, NodeIO } from '../../lib/nodeStyles';
-
-// Property definition from API
-interface ApiProperty {
-  name: string;
-  displayName: string;
-  type: string;
-  default?: unknown;
-  [key: string]: unknown;
-}
+import type { ApiProperty } from '@/shared/lib/api';
 
 // Extended node definition with API metadata for dynamic UI
 interface ExtendedNodeDefinition extends NodeDefinition {
@@ -38,19 +32,18 @@ interface ExtendedNodeDefinition extends NodeDefinition {
 
 export default function NodeCreatorPanel() {
   const {
-    isOpen,
-    view,
-    search,
+    nodeCreatorView: view,
+    nodeCreatorSearch: search,
     sourceNodeId,
     sourceHandleId,
     dropPosition,
     subnodeSlotContext,
-    closePanel,
-    setView,
-    setSearch,
+    closeCreatorPanel: closePanel,
+    setCreatorView: setView,
+    setCreatorSearch: setSearch,
     clearConnectionContext,
     clearSubnodeContext,
-  } = useNodeCreatorStore();
+  } = useEditorLayoutStore();
 
   const { addNode, addSubnode, nodes, onConnect } = useWorkflowStore();
 
@@ -142,10 +135,10 @@ export default function NodeCreatorPanel() {
       return triggerNodes;
     }
     if (view === 'subnode' && subnodeSlotContext) {
-      // Filter subnodes by the slot type they can connect to
       return subnodeNodes.filter((node) => node.subnodeType === subnodeSlotContext.slotType);
     }
-    return regularNodes;
+    // Default: show all non-subnode nodes (triggers + regular)
+    return [...triggerNodes, ...regularNodes];
   }, [view, triggerNodes, regularNodes, subnodeNodes, subnodeSlotContext]);
 
   // Filter nodes by search
@@ -176,9 +169,7 @@ export default function NodeCreatorPanel() {
 
   // Calculate position for new node
   const getNewNodePosition = useCallback(() => {
-    // If we have a drop position (from dragging a connection), use it
     if (dropPosition) {
-      // Snap to grid (20px)
       return {
         x: Math.round(dropPosition.x / 20) * 20,
         y: Math.round(dropPosition.y / 20) * 20,
@@ -186,7 +177,6 @@ export default function NodeCreatorPanel() {
     }
 
     if (sourceNodeId) {
-      // Position to the right of source node
       const sourceNode = nodes.find((n) => n.id === sourceNodeId);
       if (sourceNode) {
         return {
@@ -196,12 +186,10 @@ export default function NodeCreatorPanel() {
       }
     }
 
-    // Find a good position for new node
     if (nodes.length === 0 || (nodes.length === 1 && nodes[0].type === 'addNodes')) {
       return { x: 250, y: 200 };
     }
 
-    // Place to the right of the rightmost node
     const maxX = Math.max(...nodes.map((n) => n.position.x));
     const avgY =
       nodes.reduce((sum, n) => sum + n.position.y, 0) / nodes.length;
@@ -215,45 +203,26 @@ export default function NodeCreatorPanel() {
       const position = getNewNodePosition();
       const newNodeId = `node-${Date.now()}`;
 
-      // Generate unique node name based on backend type
-      // nodeDef.name contains the backend type (e.g., 'HttpRequest', 'Start')
       const existingNames = getExistingNodeNames(nodes as any);
       const nodeName = generateNodeName(nodeDef.name, existingNames);
 
-      // Extract defaults from properties
-      const defaultParams: Record<string, unknown> = {};
-      if (nodeDef.properties) {
-        for (const prop of nodeDef.properties) {
-          if (prop.default !== undefined) {
-            defaultParams[prop.name] = prop.default;
-          }
-        }
-      }
-
-      // Backend now returns computed default outputs, so we use them directly.
-      // No need to recalculate here - the API already computed outputs based on
-      // property defaults (e.g., Switch with numberOfOutputs=2 returns 3 outputs).
-      const nodeData: WorkflowNodeData = {
-        name: nodeName,           // Unique name for backend connections
-        label: nodeDef.displayName,  // Display label in UI
-        type: nodeDef.type,       // UI type (camelCase)
-        icon: nodeDef.icon,
-        description: nodeDef.description,
-        parameters: defaultParams,
-        continueOnFail: false,
-        retryOnFail: 0,
-        retryDelay: 1000,
-        // Dynamic UI metadata from API (already computed with defaults)
-        group: nodeDef.group,
-        inputCount: nodeDef.inputCount,
-        outputCount: nodeDef.outputCount,
-        inputs: nodeDef.inputs,
-        outputs: nodeDef.outputs,
-        // Output strategy for dynamic recalculation when user changes params
-        outputStrategy: nodeDef.outputStrategy,
-        // Subnode slots for parent nodes (like AI Agent)
-        subnodeSlots: nodeDef.subnodeSlots,
-      };
+      const nodeData = createWorkflowNodeData(
+        {
+          type: nodeDef.type,
+          displayName: nodeDef.displayName,
+          icon: nodeDef.icon,
+          description: nodeDef.description,
+          group: nodeDef.group,
+          inputCount: nodeDef.inputCount,
+          outputCount: nodeDef.outputCount,
+          inputs: nodeDef.inputs,
+          outputs: nodeDef.outputs,
+          outputStrategy: nodeDef.outputStrategy,
+          subnodeSlots: nodeDef.subnodeSlots,
+          properties: nodeDef.properties,
+        },
+        { name: nodeName },
+      );
 
       const newNode = {
         id: newNodeId,
@@ -264,7 +233,6 @@ export default function NodeCreatorPanel() {
 
       addNode(newNode);
 
-      // Auto-connect if we have a source node
       if (sourceNodeId) {
         onConnect({
           source: sourceNodeId,
@@ -274,17 +242,14 @@ export default function NodeCreatorPanel() {
         });
       }
 
-      // If this was a trigger, switch to regular view for next node
       if (view === 'trigger') {
         setView('regular');
       }
 
       clearConnectionContext();
-      closePanel();
     },
     [
       addNode,
-      closePanel,
       clearConnectionContext,
       getNewNodePosition,
       nodes,
@@ -301,7 +266,6 @@ export default function NodeCreatorPanel() {
     (nodeDef: ExtendedNodeDefinition) => {
       if (!subnodeSlotContext || !nodeDef.subnodeType) return;
 
-      // Extract defaults from properties
       const defaultParams: Record<string, unknown> = {};
       if (nodeDef.properties) {
         for (const prop of nodeDef.properties) {
@@ -324,9 +288,8 @@ export default function NodeCreatorPanel() {
       );
 
       clearSubnodeContext();
-      closePanel();
     },
-    [addSubnode, closePanel, clearSubnodeContext, subnodeSlotContext]
+    [addSubnode, clearSubnodeContext, subnodeSlotContext]
   );
 
   // Choose the right handler based on view
@@ -341,182 +304,101 @@ export default function NodeCreatorPanel() {
     [view, handleNodeSelect, handleSubnodeSelect]
   );
 
-  if (!isOpen) return null;
-
-  // Get slot type display name for subnode view
+  // Context banner info
+  const hasContext = !!sourceNodeId || !!subnodeSlotContext;
   const slotTypeLabels: Record<string, string> = {
     model: 'Chat Model',
     memory: 'Memory',
     tool: 'Tool',
   };
-
-  const title =
-    view === 'trigger'
-      ? 'What triggers this workflow?'
-      : view === 'subnode' && subnodeSlotContext
-      ? `Select ${slotTypeLabels[subnodeSlotContext.slotType] || 'Subnode'}`
-      : 'What happens next?';
-
-  const subtitle =
-    view === 'trigger'
-      ? 'Select a trigger to start your workflow'
-      : view === 'subnode' && subnodeSlotContext
-      ? `Choose a ${subnodeSlotContext.slotType} to attach`
-      : 'Add a node to continue your workflow';
+  const contextLabel = subnodeSlotContext
+    ? `Selecting ${slotTypeLabels[subnodeSlotContext.slotType] || 'subnode'}`
+    : sourceNodeId
+    ? 'Adding connected node'
+    : '';
 
   return (
-    <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 z-40 bg-background/60"
-        onClick={closePanel}
-      />
-
-      {/* Panel */}
-      <div className="fixed right-4 top-4 bottom-4 z-50 flex w-[420px] flex-col rounded-2xl overflow-hidden glass-card">
-        {/* Header */}
-        <div className="border-b border-border px-5 py-5 bg-[var(--card-gradient)]">
-          <div className="flex items-center justify-between">
-            {view !== 'trigger' && view !== 'subnode' && (
-              <button
-                onClick={() => setView('trigger')}
-                className="mr-3 rounded-xl p-2 hover:bg-accent transition-colors"
-              >
-                <ArrowLeft size={18} className="text-muted-foreground" />
-              </button>
-            )}
-            {view === 'subnode' && (
-              <button
-                onClick={closePanel}
-                className="mr-3 rounded-xl p-2 hover:bg-accent transition-colors"
-              >
-                <ArrowLeft size={18} className="text-muted-foreground" />
-              </button>
-            )}
-            <div className="flex-1">
-              <h2 className="text-lg font-bold text-foreground">
-                {title}
-              </h2>
-              <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>
-            </div>
-            <button
-              onClick={closePanel}
-              className="rounded-xl p-2 hover:bg-accent transition-colors"
-            >
-              <X size={18} className="text-muted-foreground" />
-            </button>
-          </div>
-
-          {/* Search */}
-          <div className="relative mt-4">
-            <Search
-              size={16}
-              className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground"
-            />
-            <input
-              type="text"
-              placeholder="Search nodes..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-xl border border-[var(--input-border)] bg-[var(--input)] py-2.5 pl-11 pr-4 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
-              autoFocus
-            />
-          </div>
+    <div className="h-full flex flex-col bg-card">
+      {/* Context banner */}
+      {hasContext && (
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 border-b border-primary/20 shrink-0">
+          <span className="text-[11px] font-medium text-primary flex-1 truncate">
+            {contextLabel}
+          </span>
+          <button
+            onClick={closePanel}
+            className="p-0.5 text-primary/70 hover:text-primary rounded"
+            title="Dismiss"
+          >
+            <X size={12} />
+          </button>
         </div>
+      )}
 
-        {/* Node List */}
-        <div className="flex-1 overflow-y-auto p-4">
-          {isLoading ? (
-            // Loading state
-            <div className="flex flex-col items-center justify-center py-12">
-              <Loader2 size={32} className="animate-spin text-muted-foreground mb-3" />
-              <p className="text-sm text-muted-foreground">Loading nodes...</p>
-            </div>
-          ) : isError ? (
-            // Error state
-            <div className="flex flex-col items-center justify-center py-12">
-              <p className="text-sm text-destructive mb-2">Failed to load nodes</p>
-              <p className="text-xs text-muted-foreground">Please check your connection and try again</p>
-            </div>
-          ) : search ? (
-            // Flat list when searching
-            <div className="space-y-2">
-              {filteredNodes.map((node) => (
-                <NodeItem
-                  key={node.type}
-                  node={node}
-                  onClick={() => handleNodeClick(node)}
-                />
-              ))}
-              {filteredNodes.length === 0 && (
-                <p className="py-8 text-center text-sm text-muted-foreground">
-                  No nodes found matching "{search}"
-                </p>
-              )}
-            </div>
-          ) : (
-            // Grouped list when not searching
-            <div className="space-y-6">
-              {view === 'trigger' ? (
-                // Trigger view - flat list with sections
-                <>
-                  <div className="space-y-2">
-                    <h3 className="label-caps">
-                      Popular
-                    </h3>
-                    {triggerNodes.slice(0, 3).map((node) => (
-                      <NodeItem
-                        key={node.type}
-                        node={node}
-                        onClick={() => handleNodeClick(node)}
-                      />
-                    ))}
-                  </div>
-                  {triggerNodes.length > 3 && (
-                    <div className="space-y-2">
-                      <h3 className="label-caps">
-                        Other Triggers
-                      </h3>
-                      {triggerNodes.slice(3).map((node) => (
-                        <NodeItem
-                          key={node.type}
-                          node={node}
-                          onClick={() => handleNodeClick(node)}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </>
-              ) : (
-                // Regular view - grouped by category
-                Object.entries(groupedNodes).map(([category, categoryNodes]) => (
-                  <div key={category} className="space-y-2">
-                    <h3 className="flex items-center label-caps">
-                      {category}
-                      <ChevronRight size={12} className="ml-1" />
-                    </h3>
-                    {categoryNodes.map((node) => (
-                      <NodeItem
-                        key={node.type}
-                        node={node}
-                        onClick={() => handleNodeClick(node)}
-                      />
-                    ))}
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="border-t border-border px-5 py-4 bg-[var(--card-gradient)]">
-          <p className="text-xs text-muted-foreground">
-            Press <kbd className="glass-badge text-[9px] px-2 py-0.5 font-mono">Esc</kbd> to close
-          </p>
+      {/* Header */}
+      <div className="border-b border-border px-3 py-2 shrink-0">
+        <div className="relative">
+          <Search
+            size={13}
+            className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+          />
+          <input
+            type="text"
+            placeholder="Search nodes..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full rounded-md border border-input bg-background h-7 pl-7 pr-2 text-xs outline-none focus:border-ring focus:ring-1 focus:ring-ring/20 transition-colors"
+          />
         </div>
       </div>
-    </>
+
+      {/* Node list */}
+      <div className="flex-1 overflow-y-auto p-2">
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center py-10">
+            <Loader2 size={20} className="animate-spin text-muted-foreground mb-2" />
+            <p className="text-xs text-muted-foreground">Loading nodes...</p>
+          </div>
+        ) : isError ? (
+          <div className="flex flex-col items-center justify-center py-10">
+            <p className="text-xs text-destructive mb-1">Failed to load nodes</p>
+            <p className="text-[11px] text-muted-foreground">Check your connection</p>
+          </div>
+        ) : search ? (
+          <div className="space-y-0.5">
+            {filteredNodes.map((node) => (
+              <NodeItem
+                key={node.type}
+                node={node}
+                onClick={() => handleNodeClick(node)}
+              />
+            ))}
+            {filteredNodes.length === 0 && (
+              <p className="py-6 text-center text-xs text-muted-foreground">
+                No nodes matching "{search}"
+              </p>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {Object.entries(groupedNodes).map(([category, categoryNodes]) => (
+              <div key={category} className="space-y-0.5">
+                <h3 className="flex items-center text-[10px] font-medium text-muted-foreground mb-1 px-1 uppercase tracking-wider">
+                  {category}
+                </h3>
+                {categoryNodes.map((node) => (
+                  <NodeItem
+                    key={node.type}
+                    node={node}
+                    onClick={() => handleNodeClick(node)}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 

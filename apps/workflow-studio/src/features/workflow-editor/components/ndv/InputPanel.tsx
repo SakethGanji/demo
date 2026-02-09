@@ -1,11 +1,56 @@
 import { useState, useMemo, useCallback } from 'react';
 import { Database, Code, ChevronDown, ChevronUp, Copy, Check, Settings } from 'lucide-react';
+import type { Node, Edge } from 'reactflow';
 import type { NodeExecutionData } from '../../types/workflow';
 import { useWorkflowStore } from '../../stores/workflowStore';
-import { getAllUpstreamNodes, getExpressionBasePath } from '../../lib/graphUtils';
 import { useNodeTypes } from '../../hooks/useNodeTypes';
 import RunDataDisplay from './RunDataDisplay';
 import SchemaDisplay from './SchemaDisplay';
+
+// --- Inlined from graphUtils.ts ---
+interface UpstreamNode {
+  id: string;
+  name: string;
+  label: string;
+  isImmediate: boolean;
+}
+
+function getAllUpstreamNodes(nodeId: string, nodes: Node[], edges: Edge[]): UpstreamNode[] {
+  const result: UpstreamNode[] = [];
+  const visited = new Set<string>();
+  const immediateSourceId = edges.find(
+    (e) => e.target === nodeId && !e.data?.isSubnodeEdge
+  )?.source;
+
+  function traverse(currentId: string) {
+    if (visited.has(currentId)) return;
+    visited.add(currentId);
+    const incomingEdges = edges.filter(
+      (e) => e.target === currentId && !e.data?.isSubnodeEdge
+    );
+    for (const edge of incomingEdges) {
+      const sourceNode = nodes.find((n) => n.id === edge.source);
+      if (sourceNode && sourceNode.type === 'workflowNode') {
+        traverse(sourceNode.id);
+        if (!result.find((n) => n.id === sourceNode.id)) {
+          result.push({
+            id: sourceNode.id,
+            name: sourceNode.data.name || sourceNode.data.label,
+            label: sourceNode.data.label,
+            isImmediate: sourceNode.id === immediateSourceId,
+          });
+        }
+      }
+    }
+  }
+
+  traverse(nodeId);
+  return result;
+}
+
+function getExpressionBasePath(nodeName: string, isImmediate: boolean): string {
+  return isImmediate ? '$json' : `$node["${nodeName}"].json`;
+}
 
 interface InputPanelProps {
   nodeId: string;
@@ -105,14 +150,14 @@ export default function InputPanel({ nodeId, executionData }: InputPanelProps) {
   return (
     <div className="flex h-full flex-col">
       {/* Header with node selector and view toggle */}
-      <div className="flex items-center justify-between border-b border-border bg-[var(--card-gradient)] px-4 py-3 gap-3">
+      <div className="flex items-center justify-between border-b border-border bg-card px-3 py-2 gap-2">
         {/* Node selector dropdown */}
         <div className="flex-1 min-w-0">
           {upstreamNodes.length > 0 ? (
             <select
               value={effectiveSelectedNode?.id || ''}
               onChange={(e) => setSelectedNodeId(e.target.value || null)}
-              className="w-full text-sm font-semibold bg-[var(--input)] border border-[var(--input-border)] rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary truncate"
+              className="w-full text-[13px] font-medium bg-card border border-input rounded-md px-2 h-7 focus:outline-none focus:ring-2 focus:ring-ring/20 focus:border-ring truncate"
             >
               {upstreamNodes.map((node) => (
                 <option key={node.id} value={node.id}>
@@ -122,7 +167,7 @@ export default function InputPanel({ nodeId, executionData }: InputPanelProps) {
               ))}
             </select>
           ) : (
-            <span className="text-sm font-semibold text-foreground truncate block">
+            <span className="text-[13px] font-medium text-foreground truncate block">
               No upstream nodes
             </span>
           )}
@@ -130,44 +175,44 @@ export default function InputPanel({ nodeId, executionData }: InputPanelProps) {
 
         {/* Item count badge */}
         {hasData && (
-          <span className="glass-badge flex-shrink-0">
+          <span className="bg-muted border border-border rounded px-1.5 py-0.5 text-[11px] font-medium flex-shrink-0">
             {itemCount} items
           </span>
         )}
 
         {/* Display mode toggle */}
-        <div className="glass-toggle-group flex items-center flex-shrink-0">
+        <div className="bg-muted rounded-md p-0.5 flex items-center flex-shrink-0">
           <button
             onClick={() => setDisplayMode('schema')}
-            className={`rounded-lg p-2 transition-all ${
+            className={`rounded p-1.5 transition-colors ${
               displayMode === 'schema'
-                ? 'bg-[var(--card-solid)] shadow-sm text-foreground'
+                ? 'bg-card shadow-xs text-foreground'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
             title="Schema view"
           >
-            <Database size={14} />
+            <Database size={13} />
           </button>
           <button
             onClick={() => setDisplayMode('json')}
-            className={`rounded-lg p-2 transition-all ${
+            className={`rounded p-1.5 transition-colors ${
               displayMode === 'json'
-                ? 'bg-[var(--card-solid)] shadow-sm text-foreground'
+                ? 'bg-card shadow-xs text-foreground'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
             title="JSON view"
           >
-            <Code size={14} />
+            <Code size={13} />
           </button>
         </div>
       </div>
 
       {/* Expression path indicator */}
       {effectiveSelectedNode && (
-        <div className="px-4 py-2 bg-primary/5 border-b border-border flex items-center justify-between">
-          <code className="text-xs text-primary font-mono font-semibold">{basePath}</code>
+        <div className="px-3 py-1.5 bg-primary/5 border-b border-border flex items-center justify-between">
+          <code className="text-[11px] text-primary font-mono font-medium">{basePath}</code>
           {!effectiveSelectedNode.isImmediate && (
-            <span className="label-caps">from {effectiveSelectedNode.label}</span>
+            <span className="text-[11px] text-muted-foreground">from {effectiveSelectedNode.label}</span>
           )}
         </div>
       )}
@@ -192,10 +237,10 @@ export default function InputPanel({ nodeId, executionData }: InputPanelProps) {
           />
         ) : (
           <div className="flex h-full flex-col items-center justify-center text-center px-6">
-            <div className="w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center mb-4">
-              <Database size={24} className="text-muted-foreground/50" />
+            <div className="w-10 h-10 rounded-lg bg-muted/50 flex items-center justify-center mb-3">
+              <Database size={18} className="text-muted-foreground/50" />
             </div>
-            <p className="text-sm font-semibold text-foreground mb-1">
+            <p className="text-[13px] font-medium text-foreground mb-0.5">
               {effectiveSelectedNode
                 ? `No data from ${effectiveSelectedNode.label}`
                 : upstreamNodes.length === 0
@@ -203,12 +248,12 @@ export default function InputPanel({ nodeId, executionData }: InputPanelProps) {
                   : 'Select a node to view data'}
             </p>
             {effectiveSelectedNode && (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-[12px] text-muted-foreground">
                 Run workflow to see output data
               </p>
             )}
             {upstreamNodes.length === 0 && (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-[12px] text-muted-foreground">
                 Connect a node to see its output here
               </p>
             )}
@@ -220,22 +265,22 @@ export default function InputPanel({ nodeId, executionData }: InputPanelProps) {
       <div className="border-t border-border">
         <button
           onClick={() => setShowSystemVars(!showSystemVars)}
-          className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-accent/50 transition-colors"
+          className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-accent/50 transition-colors"
         >
-          <div className="flex items-center gap-2">
-            <Settings size={14} className="text-muted-foreground" />
-            <span className="label-caps">System Variables</span>
+          <div className="flex items-center gap-1.5">
+            <Settings size={12} className="text-muted-foreground" />
+            <span className="text-[11px] font-medium text-muted-foreground">System Variables</span>
           </div>
           {showSystemVars ? (
-            <ChevronUp size={14} className="text-muted-foreground" />
+            <ChevronUp size={12} className="text-muted-foreground" />
           ) : (
-            <ChevronDown size={14} className="text-muted-foreground" />
+            <ChevronDown size={12} className="text-muted-foreground" />
           )}
         </button>
 
         {showSystemVars && (
           <div className="px-3 pb-3">
-            <div className="rounded-xl border border-border bg-[var(--card-solid)] overflow-hidden">
+            <div className="rounded-md border border-border bg-card overflow-hidden">
               {SYSTEM_VARIABLES.map((variable) => (
                 <SystemVariableRow key={variable.path} {...variable} />
               ))}
@@ -276,21 +321,21 @@ function SystemVariableRow({ path, description }: SystemVariableRowProps) {
     <div
       draggable
       onDragStart={handleDragStart}
-      className="flex items-center justify-between border-b border-border last:border-b-0 hover:bg-accent/30 cursor-grab transition-colors group px-3 py-2.5"
+      className="flex items-center justify-between border-b border-border last:border-b-0 hover:bg-accent/30 cursor-grab transition-colors group px-2.5 py-2"
     >
       <div className="flex flex-col gap-0.5 min-w-0">
-        <code className="text-xs font-mono font-semibold text-foreground">{path}</code>
-        <span className="label-caps">{description}</span>
+        <code className="text-[11px] font-mono font-medium text-foreground">{path}</code>
+        <span className="text-[10px] text-muted-foreground">{description}</span>
       </div>
       <button
         onClick={handleCopy}
-        className="p-2 rounded-lg hover:bg-accent opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
+        className="p-1.5 rounded-md hover:bg-accent opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
         title={`Copy {{ ${path} }}`}
       >
         {copied ? (
-          <Check size={14} className="text-[var(--success)]" />
+          <Check size={12} className="text-[var(--success)]" />
         ) : (
-          <Copy size={14} className="text-muted-foreground" />
+          <Copy size={12} className="text-muted-foreground" />
         )}
       </button>
     </div>
