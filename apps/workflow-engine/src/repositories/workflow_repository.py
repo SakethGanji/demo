@@ -164,6 +164,20 @@ class WorkflowRepository:
         await self._session.commit()
         return True
 
+    async def find_by_webhook_path(self, path: str) -> StoredWorkflow | None:
+        """Find an active workflow by its webhook node's custom path."""
+        statement = select(WorkflowModel).where(WorkflowModel.active == True)
+        result = await self._session.execute(statement)
+        workflows = result.scalars().all()
+
+        for w in workflows:
+            for node in w.definition.get("nodes", []):
+                if node["type"] == "Webhook":
+                    node_path = node.get("parameters", {}).get("path", "")
+                    if node_path and node_path == path:
+                        return self._to_stored_workflow(w)
+        return None
+
     def _generate_id(self) -> str:
         """Generate a unique workflow ID."""
         return f"wf_{int(time.time() * 1000)}_{uuid.uuid4().hex[:7]}"

@@ -55,6 +55,7 @@ class WorkflowRunner:
         mode: Literal["manual", "webhook", "cron"] = "manual",
         on_event: ExecutionEventCallback | None = None,
         workflow_repository: Any | None = None,
+        execution_id: str | None = None,
     ) -> ExecutionContext:
         """
         Run a workflow from a starting node.
@@ -74,6 +75,8 @@ class WorkflowRunner:
             initial_data = [NodeData(json={})]
 
         context = self._create_context(workflow, mode)
+        if execution_id:
+            context.execution_id = execution_id
         context.workflow_repository = workflow_repository
         context.on_event = on_event
 
@@ -502,6 +505,7 @@ class WorkflowRunner:
         # Check for pinned data
         if node_def.pinned_data:
             context.node_states[job.node_name] = node_def.pinned_data
+            context.last_completed_node = job.node_name
             self._queue_next_nodes(
                 context,
                 node_def,
@@ -601,6 +605,7 @@ class WorkflowRunner:
         main_output = result.outputs.get("main") or next(iter(result.outputs.values()), None)
         if main_output:
             context.node_states[job.node_name] = main_output
+            context.last_completed_node = job.node_name
 
         # Queue next nodes based on outputs
         self._queue_next_nodes(context, node_def, result, queue, node_map, job.run_index)

@@ -152,9 +152,8 @@ export function getMiniMapColor(group: NodeGroup): string {
 export function getNodeShapeConfig(group: NodeGroup): NodeShapeConfig {
   const shapes: Record<NodeGroup, NodeShapeConfig> = {
     trigger: {
-      // More rounded on left side (start point)
-      borderRadius: '20px 10px 10px 20px',
-      accentType: 'left-bar',
+      borderRadius: '12px',
+      accentType: 'none',
     },
     transform: {
       borderRadius: '12px',
@@ -162,20 +161,19 @@ export function getNodeShapeConfig(group: NodeGroup): NodeShapeConfig {
     },
     flow: {
       borderRadius: '12px',
-      accentType: 'diamond',
+      accentType: 'none',
     },
     ai: {
-      borderRadius: '16px',
-      accentType: 'shimmer',
+      borderRadius: '12px',
+      accentType: 'none',
     },
     action: {
       borderRadius: '12px',
-      accentType: 'bottom-bar',
+      accentType: 'none',
     },
     output: {
-      // More rounded on right side (end point)
-      borderRadius: '10px 20px 20px 10px',
-      accentType: 'bottom-bar',
+      borderRadius: '12px',
+      accentType: 'none',
     },
   };
 

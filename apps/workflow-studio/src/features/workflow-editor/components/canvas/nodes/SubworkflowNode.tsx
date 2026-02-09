@@ -91,7 +91,7 @@ function SubworkflowNodeInner({ id, data, selected }: NodeProps<WorkflowNodeData
         height: containerSize.height,
         backgroundColor: 'var(--node-subworkflow-light)',
         borderColor: isRunning ? 'var(--node-subworkflow)' : (selected ? 'var(--node-subworkflow)' : 'var(--node-subworkflow-border)'),
-        boxShadow: selected ? '0 4px 12px var(--node-subworkflow)40' : '0 1px 3px rgba(0,0,0,0.1)',
+        boxShadow: selected ? '0 4px 12px var(--node-subworkflow)40' : '0 1px 3px rgba(0,0,0,0.08)',
       }}
     >
       {/* Input Handle */}
@@ -112,12 +112,12 @@ function SubworkflowNodeInner({ id, data, selected }: NodeProps<WorkflowNodeData
           borderColor: 'var(--node-subworkflow-border)',
         }}
       >
-        <span className="text-xs font-semibold truncate flex-1" style={{ color: 'var(--node-subworkflow)' }}>
+        <span className="text-xs font-semibold truncate flex-1" style={{ color: '#ffffff' }}>
           {data.label || 'Subworkflow'}
         </span>
         <button
           className="nodrag shrink-0 opacity-50 hover:opacity-100 transition-opacity cursor-pointer"
-          style={{ color: 'var(--node-subworkflow)', pointerEvents: 'all' }}
+          style={{ color: '#ffffff', pointerEvents: 'all' }}
           onClick={handleOpenSubworkflow}
           title="Open in editor"
         >
@@ -128,7 +128,7 @@ function SubworkflowNodeInner({ id, data, selected }: NodeProps<WorkflowNodeData
       {/* Inner workflow preview */}
       <div
         className="relative"
-        style={{ height: containerSize.height - TITLE_BAR_HEIGHT, pointerEvents: 'none' }}
+        style={{ height: containerSize.height - TITLE_BAR_HEIGHT, pointerEvents: 'none', backgroundColor: 'var(--background)' }}
       >
         {isLoading && (
           <div className="flex items-center justify-center h-full">

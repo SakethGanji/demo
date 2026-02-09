@@ -579,7 +579,7 @@ export default function WorkflowCanvas() {
           variant={BackgroundVariant.Dots}
           gap={20}
           size={2}
-          className="text-muted-foreground/30 [&>pattern>circle]:fill-current"
+          className="text-muted-foreground/50 [&>pattern>circle]:fill-current"
         />
         <Background
           id="grid-2"
@@ -612,8 +612,8 @@ export default function WorkflowCanvas() {
             );
             return getMiniMapColor(nodeGroup);
           }}
-          maskColor="color-mix(in srgb, var(--background) 80%, transparent)"
-          className="!bg-card !shadow-md !rounded-lg !border !border-border"
+          maskColor="color-mix(in srgb, var(--canvas-float) 80%, transparent)"
+          className="!bg-[var(--canvas-float)] !shadow-md !rounded-lg !border !border-[var(--canvas-float-border)]"
         />
 
         <Controls

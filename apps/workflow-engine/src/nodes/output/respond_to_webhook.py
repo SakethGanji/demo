@@ -16,7 +16,9 @@ from ..base import (
 if TYPE_CHECKING:
     from ...engine.types import ExecutionContext, NodeDefinition, NodeExecutionResult
 
-from ...engine.types import NodeData, WebhookResponse, WorkflowStopSignal
+import json as json_module
+
+from ...engine.types import NodeData, WebhookResponse
 from ...engine.expression_engine import expression_engine, ExpressionEngine
 
 
@@ -183,6 +185,12 @@ class RespondToWebhookNode(BaseNode):
                 body = expression_engine.resolve(body_template, expr_context)
             else:
                 body = body_template
+            # Parse JSON string to dict/list so JSONResponse serializes it properly
+            if isinstance(body, str) and content_type == "application/json":
+                try:
+                    body = json_module.loads(body)
+                except (json_module.JSONDecodeError, ValueError):
+                    pass
         else:  # lastNode
             response_field = self.get_parameter(node_definition, "responseField", "")
             if input_data:
@@ -235,28 +243,24 @@ class RespondToWebhookNode(BaseNode):
                 "data": body,
             }
 
-        # Set the webhook response in context
-        context.webhook_response = WebhookResponse(
-            status_code=status_code,
-            body=body,
-            headers=headers if headers else None,
-            content_type=content_type,
-        )
+        # Set the webhook response in context (only first RespondToWebhook wins)
+        if not context.webhook_response:
+            context.webhook_response = WebhookResponse(
+                status_code=status_code,
+                body=body,
+                headers=headers if headers else None,
+                content_type=content_type,
+            )
 
-        # Store result and stop execution
-        context.node_states[node_definition.name] = [
+        # Pass through input data so downstream nodes can continue executing
+        output_data = input_data if input_data else [
             NodeData(json={
                 "_respondedToWebhook": True,
                 "statusCode": status_code,
                 "contentType": content_type,
             })
         ]
-
-        # Raise stop signal to halt workflow after sending response
-        raise WorkflowStopSignal(
-            message="Webhook response sent",
-            error_type="warning"  # Not an error, just stopping
-        )
+        return self.output(output_data)
 
     def _get_nested_value(self, obj: dict[str, Any], path: str) -> Any:
         """Get value at nested path."""

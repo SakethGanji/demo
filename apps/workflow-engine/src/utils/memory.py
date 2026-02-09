@@ -140,71 +140,10 @@ def format_history_text(history: list[dict[str, str]]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Embeddings
+# Embeddings (delegated to llm_provider)
 # ---------------------------------------------------------------------------
 
-
-async def get_embedding(
-    text: str,
-    provider: str = "openai",
-    model: str = "text-embedding-3-small",
-) -> list[float]:
-    """
-    Get embedding vector for text.
-
-    Args:
-        text: Text to embed.
-        provider: "openai" or "gemini".
-        model: Embedding model ID.
-
-    Returns:
-        Embedding vector as list of floats.
-    """
-    if provider == "openai":
-        return await _get_openai_embedding(text, model)
-    elif provider == "gemini":
-        return await _get_gemini_embedding(text, model)
-    else:
-        raise ValueError(f"Unknown embedding provider: {provider}")
-
-
-async def _get_openai_embedding(text: str, model: str) -> list[float]:
-    """Get embedding using OpenAI API."""
-    from openai import AsyncOpenAI
-    import os
-
-    api_key = os.environ.get("WORKFLOW_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY")
-    client = AsyncOpenAI(api_key=api_key)
-
-    response = await client.embeddings.create(
-        model=model,
-        input=text,
-    )
-    return response.data[0].embedding
-
-
-async def _get_gemini_embedding(text: str, model: str) -> list[float]:
-    """Get embedding using Gemini API."""
-    from google import genai
-    import os
-
-    api_key = os.environ.get("WORKFLOW_GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
-
-    if api_key:
-        client = genai.Client(api_key=api_key)
-    else:
-        project = os.environ.get("GOOGLE_CLOUD_PROJECT", "prj-gen-ai-9571")
-        location = os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
-        client = genai.Client(vertexai=True, project=project, location=location)
-
-    def do_embed():
-        return client.models.embed_content(
-            model=model,
-            contents=text,
-        )
-
-    response = await asyncio.to_thread(do_embed)
-    return response.embeddings[0].values
+from ..engine.llm_provider import get_embedding  # noqa: F401
 
 
 # ---------------------------------------------------------------------------

@@ -52,8 +52,17 @@ class WebhookNode(BaseNode):
                     NodePropertyOption(name="POST", value="POST"),
                     NodePropertyOption(name="GET", value="GET"),
                     NodePropertyOption(name="PUT", value="PUT"),
+                    NodePropertyOption(name="PATCH", value="PATCH"),
                     NodePropertyOption(name="DELETE", value="DELETE"),
                 ],
+            ),
+            NodeProperty(
+                display_name="Webhook Path",
+                name="path",
+                type="string",
+                default="",
+                placeholder="my-api/orders",
+                description="Custom webhook path. If set, the webhook is accessible at /webhook/p/{path} in addition to /webhook/{workflowId}.",
             ),
             NodeProperty(
                 display_name="Response Mode",

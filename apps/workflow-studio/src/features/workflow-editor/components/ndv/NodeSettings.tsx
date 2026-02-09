@@ -66,6 +66,9 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
   // Webhook URL for Webhook nodes
   const isWebhookNode = node.data.type === 'Webhook';
   const webhookUrl = workflowId ? `${backends.workflow}/webhook/${workflowId}` : null;
+  const webhookPath = (node.data.parameters as Record<string, unknown>)?.path as string | undefined;
+  const webhookPathUrl = webhookPath ? `${backends.workflow}/webhook/p/${webhookPath}` : null;
+  const [copiedPathUrl, setCopiedPathUrl] = useState(false);
 
   const copyWebhookUrl = useCallback(() => {
     if (webhookUrl) {
@@ -74,6 +77,14 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
       setTimeout(() => setCopiedUrl(false), 2000);
     }
   }, [webhookUrl]);
+
+  const copyWebhookPathUrl = useCallback(() => {
+    if (webhookPathUrl) {
+      navigator.clipboard.writeText(webhookPathUrl);
+      setCopiedPathUrl(true);
+      setTimeout(() => setCopiedPathUrl(false), 2000);
+    }
+  }, [webhookPathUrl]);
 
   // Fetch node type schema from API
   const { data: nodeTypes, isLoading: isLoadingSchema } = useNodeTypes();
@@ -185,21 +196,41 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
                     <span className="text-sm font-medium text-foreground">Webhook URL</span>
                   </div>
                   {webhookUrl ? (
-                    <div className="flex items-center gap-2">
-                      <code className="flex-1 text-xs bg-muted px-2 py-1.5 rounded border border-border truncate">
-                        {webhookUrl}
-                      </code>
-                      <button
-                        onClick={copyWebhookUrl}
-                        className="flex items-center justify-center size-8 rounded-md border border-border bg-muted hover:bg-accent transition-colors"
-                        title="Copy URL"
-                      >
-                        {copiedUrl ? (
-                          <Check size={14} className="text-[var(--success)]" />
-                        ) : (
-                          <Copy size={14} className="text-muted-foreground" />
-                        )}
-                      </button>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <code className="flex-1 text-xs bg-muted px-2 py-1.5 rounded border border-border truncate">
+                          {webhookUrl}
+                        </code>
+                        <button
+                          onClick={copyWebhookUrl}
+                          className="flex items-center justify-center size-8 rounded-md border border-border bg-muted hover:bg-accent transition-colors shrink-0"
+                          title="Copy URL"
+                        >
+                          {copiedUrl ? (
+                            <Check size={14} className="text-[var(--success)]" />
+                          ) : (
+                            <Copy size={14} className="text-muted-foreground" />
+                          )}
+                        </button>
+                      </div>
+                      {webhookPathUrl && (
+                        <div className="flex items-center gap-2">
+                          <code className="flex-1 text-xs bg-muted px-2 py-1.5 rounded border border-border truncate">
+                            {webhookPathUrl}
+                          </code>
+                          <button
+                            onClick={copyWebhookPathUrl}
+                            className="flex items-center justify-center size-8 rounded-md border border-border bg-muted hover:bg-accent transition-colors shrink-0"
+                            title="Copy custom path URL"
+                          >
+                            {copiedPathUrl ? (
+                              <Check size={14} className="text-[var(--success)]" />
+                            ) : (
+                              <Copy size={14} className="text-muted-foreground" />
+                            )}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <p className="text-xs text-muted-foreground">

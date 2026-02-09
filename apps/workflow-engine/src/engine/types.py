@@ -45,9 +45,10 @@ class WebhookResponse:
     """Custom response for webhook-triggered workflows."""
 
     status_code: int = 200
-    body: Any = None
+    body: Any = None  # dict, str, bytes, or None
     headers: dict[str, str] | None = None
     content_type: str = "application/json"
+    is_binary: bool = False
 
 
 @dataclass
@@ -97,6 +98,9 @@ class ExecutionContext:
 
     # Custom webhook response (set by RespondToWebhook node)
     webhook_response: WebhookResponse | None = None
+
+    # Track the actual last successfully completed node
+    last_completed_node: str | None = None
 
     # Subworkflow input data (set by ExecuteWorkflow node)
     subworkflow_input: list[NodeData] | None = None

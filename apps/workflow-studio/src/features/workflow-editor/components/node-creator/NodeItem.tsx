@@ -42,12 +42,12 @@ export default function NodeItem({ node, onClick }: NodeItemProps) {
     >
       <div
         className={`
-          flex h-8 w-8 shrink-0 items-center justify-center rounded-md
+          flex h-8 w-8 shrink-0 items-center justify-center rounded-full
           ${nodeGroup === 'ai' ? 'node-ai-shimmer' : ''}
         `}
         style={{
           backgroundColor: styles.iconBgColor,
-          color: styles.accentColor,
+          color: '#ffffff',
         }}
       >
         <IconComponent size={16} />

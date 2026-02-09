@@ -5,7 +5,7 @@ import { Popover, PopoverTrigger, PopoverContent } from '@/shared/components/ui/
 import { useEditorLayoutStore } from '../../../stores/editorLayoutStore';
 import { useNDVStore } from '../../../stores/ndvStore';
 import { useWorkflowStore } from '../../../stores/workflowStore';
-import type { WorkflowNodeData, SubnodeType } from '../../../types/workflow';
+import type { WorkflowNodeData } from '../../../types/workflow';
 import {
   getNodeStyles,
   getNodeShapeConfig,
@@ -16,12 +16,6 @@ import { normalizeNodeGroup } from '../../../lib/nodeConfig';
 import { getIconForNode } from '../../../lib/nodeIcons';
 import { isTriggerType, SUBNODE_SLOT_NAMES } from '../../../lib/nodeConfig';
 
-// Colors for stacked subnode badges (gray tones matching node theme)
-const SUBNODE_BADGE_COLORS: Record<SubnodeType, { bg: string; border: string; text: string }> = {
-  tool: { bg: 'var(--subnode-tool-light)', border: 'var(--subnode-tool-border)', text: 'var(--subnode-tool)' },
-  memory: { bg: 'var(--subnode-memory-light)', border: 'var(--subnode-memory-border)', text: 'var(--subnode-memory)' },
-  model: { bg: 'var(--subnode-model-light)', border: 'var(--subnode-model-border)', text: 'var(--subnode-model)' },
-};
 
 // Status badge component for success/error states
 const StatusBadge = ({ status }: { status: 'success' | 'error' }) => {
@@ -280,8 +274,8 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
       const node = allNodes.find((n) => n.id === e.source);
       if (!node) return null;
       const nd = node.data as WorkflowNodeData;
-      return { id: node.id, label: nd.label, type: nd.subnodeType || 'tool' as SubnodeType, icon: nd.icon, nodeType: nd.type };
-    }).filter(Boolean) as { id: string; label: string; type: SubnodeType; icon?: string; nodeType: string }[];
+      return { id: node.id, label: nd.label, type: nd.subnodeType || 'tool', icon: nd.icon, nodeType: nd.type };
+    }).filter(Boolean) as { id: string; label: string; type: string; icon?: string; nodeType: string }[];
   };
 
   // Render bottom section for subnode slots (stacked badge style)
@@ -297,7 +291,6 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
           const slotPercent = (index + 0.5) / slots.length * 100;
           const canAdd = canSlotAcceptMore(slot.name, slot.multiple);
           const connectedSubnodes = getSlotSubnodes(slot.name);
-          const badgeColors = SUBNODE_BADGE_COLORS[slot.slotType as SubnodeType] || SUBNODE_BADGE_COLORS.tool;
 
           return (
             <div key={`slot-group-${slot.name}`}>
@@ -320,7 +313,7 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
                     <button
                       className="nodrag absolute flex items-center cursor-pointer transition-transform hover:scale-105"
                       style={{
-                        bottom: '-28px',
+                        bottom: '-32px',
                         left: `${slotPercent}%`,
                         transform: 'translateX(-50%)',
                         pointerEvents: 'all',
@@ -328,7 +321,7 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
                       title={`${connectedSubnodes.length} ${slot.displayName}${connectedSubnodes.length > 1 ? 's' : ''}`}
                     >
                       {/* Render up to 3 overlapping circles with icons */}
-                      <div className="relative flex items-center" style={{ height: 22 }}>
+                      <div className="relative flex items-center" style={{ height: 28 }}>
                         {connectedSubnodes.slice(0, 3).map((subnode, i) => {
                           const SubnodeIcon = getIconForNode(subnode.icon, subnode.nodeType);
                           return (
@@ -336,18 +329,18 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
                               key={subnode.id}
                               className="flex items-center justify-center rounded-full border-2"
                               style={{
-                                width: 20,
-                                height: 20,
-                                backgroundColor: badgeColors.bg,
-                                borderColor: badgeColors.border,
-                                color: badgeColors.text,
+                                width: 26,
+                                height: 26,
+                                backgroundColor: styles.iconBgColor,
+                                borderColor: styles.borderColor,
+                                color: '#ffffff',
                                 marginLeft: i > 0 ? -8 : 0,
                                 zIndex: 3 - i,
                                 position: 'relative',
                               }}
                               title={subnode.label}
                             >
-                              <SubnodeIcon size={10} />
+                              <SubnodeIcon size={12} />
                             </div>
                           );
                         })}
@@ -356,8 +349,8 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
                           <div
                             className="flex items-center justify-center rounded-full border text-[8px] font-bold bg-muted border-border text-muted-foreground"
                             style={{
-                              width: 20,
-                              height: 20,
+                              width: 26,
+                              height: 26,
                               marginLeft: -8,
                               zIndex: 0,
                               position: 'relative',
@@ -390,7 +383,7 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
                         >
                           <div
                             className="w-3 h-3 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: badgeColors.border }}
+                            style={{ backgroundColor: styles.iconBgColor }}
                           />
                           <span className="truncate">{subnode.label}</span>
                         </button>
@@ -414,9 +407,9 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
                     ${showActions ? 'opacity-100' : 'opacity-0'}
                   `}
                   style={{
-                    bottom: connectedSubnodes.length > 0 ? '-28px' : '-20px',
+                    bottom: connectedSubnodes.length > 0 ? '-32px' : '-20px',
                     left: connectedSubnodes.length > 0
-                      ? `calc(${slotPercent}% + ${Math.min(connectedSubnodes.length, 3) * 6 + 14}px)`
+                      ? `calc(${slotPercent}% + ${Math.min(connectedSubnodes.length, 3) * 9 + 16}px)`
                       : `${slotPercent}%`,
                     transform: connectedSubnodes.length > 0 ? 'none' : 'translateX(-50%)',
                     pointerEvents: 'all',
@@ -436,7 +429,7 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
   return (
     <div
       className="relative flex flex-col items-center"
-      style={subnodeSlotCount > 0 ? { paddingBottom: 32 } : undefined}
+      style={subnodeSlotCount > 0 ? { paddingBottom: 38 } : undefined}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
@@ -462,11 +455,13 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
           width: dimensions.width,
           backgroundColor: styles.bgColor,
           borderColor: canBeDropTarget ? 'var(--success)' : (isRunning ? styles.accentColor : (selected ? styles.accentColor : styles.borderColor)),
-          borderWidth: 2,
+          borderWidth: (selected || isRunning) ? 2 : 1,
           borderRadius: shapeConfig.borderRadius,
           boxShadow: canBeDropTarget
             ? '0 0 15px var(--success)'
-            : (selected ? `0 4px 12px ${styles.accentColor}40` : '0 1px 3px rgba(0,0,0,0.1)'),
+            : isHovered
+              ? '0 4px 12px rgba(0,0,0,0.12)'
+              : (selected ? `0 4px 12px ${styles.accentColor}40` : '0 1px 3px rgba(0,0,0,0.08)'),
           // @ts-expect-error CSS custom property
           '--tw-ring-color': canBeDropTarget ? 'var(--success)' : styles.accentColor,
         }}
@@ -477,12 +472,12 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
         {/* Node Content - Icon only, centered */}
         <div
           className={`
-            flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-colors duration-300
+            flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors duration-300
             ${nodeGroup === 'ai' ? 'node-ai-shimmer' : ''}
           `}
           style={{
-            backgroundColor: nodeGroup !== 'ai' ? styles.iconBgColor : undefined,
-            color: styles.accentColor,
+            backgroundColor: styles.iconBgColor,
+            color: '#ffffff',
           }}
         >
           <IconComponent size={20} />
@@ -507,12 +502,12 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
           defaultValue={data.label}
           onBlur={handleLabelSave}
           onKeyDown={handleLabelKeyDown}
-          className={`nodrag text-center text-xs font-medium bg-background border border-border rounded px-1 py-0.5 outline-none focus:ring-1 focus:ring-ring ${subnodeSlotCount > 0 ? 'mt-6' : 'mt-2'}`}
+          className={`nodrag text-center text-xs font-medium bg-background border border-border rounded px-1 py-0.5 outline-none focus:ring-1 focus:ring-ring ${subnodeSlotCount > 0 ? 'mt-8' : 'mt-2'}`}
           style={{ width: Math.max(80, dimensions.width + 20) }}
         />
       ) : (
         <span
-          className={`text-center text-xs font-medium text-muted-foreground leading-tight truncate cursor-text hover:text-foreground ${subnodeSlotCount > 0 ? 'mt-6' : 'mt-2'}`}
+          className={`text-center text-xs font-medium text-muted-foreground leading-tight truncate cursor-text hover:text-foreground ${subnodeSlotCount > 0 ? 'mt-8' : 'mt-2'}`}
           style={{ maxWidth: Math.max(120, dimensions.width + 40) }}
           title={`${data.label} (double-click to rename)`}
           onDoubleClick={handleLabelDoubleClick}
@@ -526,26 +521,26 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
         isVisible={showActions}
         position={Position.Top}
         offset={8}
-        className="nodrag flex gap-0.5 rounded-md bg-popover p-0.5 shadow-md border border-border"
+        className="nodrag flex gap-0.5 rounded-md bg-[var(--canvas-float)] p-0.5 shadow-md border border-[var(--canvas-float-border)]"
       >
         <button
           onClick={(e) => {
             e.stopPropagation();
             openNDV(id);
           }}
-          className="rounded p-1 hover:bg-accent transition-colors"
+          className="rounded p-1 hover:bg-[var(--canvas-float-hover)] transition-colors"
           title="Open settings"
         >
-          <Play size={12} className="text-muted-foreground" />
+          <Play size={12} className="text-[var(--canvas-float-foreground)]" />
         </button>
         <button
-          className="rounded p-1 hover:bg-accent transition-colors"
+          className="rounded p-1 hover:bg-[var(--canvas-float-hover)] transition-colors"
           title="More options"
           onClick={(e) => {
             e.stopPropagation();
           }}
         >
-          <MoreHorizontal size={12} className="text-muted-foreground" />
+          <MoreHorizontal size={12} className="text-[var(--canvas-float-foreground)]" />
         </button>
       </NodeToolbar>
     </div>

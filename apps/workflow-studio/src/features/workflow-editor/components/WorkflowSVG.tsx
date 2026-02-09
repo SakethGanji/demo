@@ -2,7 +2,7 @@ import { memo, useId, useMemo } from 'react';
 import { getSmoothStepPath, Position, type Node, type Edge } from 'reactflow';
 import { Check, X } from 'lucide-react';
 import type { WorkflowNodeData, NodeExecutionData } from '../types/workflow';
-import { getNodeStyles, getNodeShapeConfig, calculateNodeDimensions } from '../lib/nodeStyles';
+import { getNodeStyles, calculateNodeDimensions } from '../lib/nodeStyles';
 import { normalizeNodeGroup } from '../lib/nodeConfig';
 import { getIconForNode } from '../lib/nodeIcons';
 
@@ -13,17 +13,12 @@ interface WorkflowSVGProps {
   showIcons?: boolean;
   showDotGrid?: boolean;
   className?: string;
+  style?: React.CSSProperties;
   width?: number;
   height?: number;
 }
 
 const PADDING = 40;
-
-/** Parse the first numeric value from a CSS border-radius string like "20px 10px 10px 20px" */
-function parseBorderRadius(br: string): number {
-  const match = br.match(/(\d+)/);
-  return match ? parseInt(match[1], 10) : 12;
-}
 
 /** Get node dimensions (width/height) using the existing calculateNodeDimensions utility */
 function getNodeDims(data: WorkflowNodeData) {
@@ -58,14 +53,20 @@ function computeViewBox(nodes: Node<WorkflowNodeData>[]): string {
   return `${minX - PADDING} ${minY - PADDING} ${maxX - minX + PADDING * 2} ${maxY - minY + PADDING * 2}`;
 }
 
-/** Subnode colors by type */
-const SUBNODE_COLORS: Record<string, { fill: string; stroke: string }> = {
-  model: { fill: 'var(--subnode-model-light)', stroke: 'var(--subnode-model-border)' },
-  memory: { fill: 'var(--subnode-memory-light)', stroke: 'var(--subnode-memory-border)' },
-  tool: { fill: 'var(--subnode-tool-light)', stroke: 'var(--subnode-tool-border)' },
-};
+/** Find parent node group for a subnode by looking up subnodeEdges */
+function getSubnodeParentStyles(nodeId: string, edges: Edge[], nodeMap: Map<string, Node<WorkflowNodeData>>) {
+  const parentEdge = edges.find(
+    (e) => e.source === nodeId && e.data?.isSubnodeEdge
+  );
+  if (!parentEdge) return null;
+  const parentNode = nodeMap.get(parentEdge.target);
+  if (!parentNode) return null;
+  const parentData = parentNode.data as WorkflowNodeData;
+  const group = normalizeNodeGroup(parentData.group ? [parentData.group] : undefined);
+  return getNodeStyles(group);
+}
 
-function WorkflowSVG({ nodes, edges, executionData, showIcons, showDotGrid, className, width, height }: WorkflowSVGProps) {
+function WorkflowSVG({ nodes, edges, executionData, showIcons, showDotGrid, className, style, width, height }: WorkflowSVGProps) {
   const patternId = useId();
   const viewBox = useMemo(() => computeViewBox(nodes), [nodes]);
 
@@ -83,6 +84,7 @@ function WorkflowSVG({ nodes, edges, executionData, showIcons, showDotGrid, clas
       viewBox={viewBox}
       preserveAspectRatio="xMidYMid meet"
       className={`pointer-events-none ${className ?? ''}`}
+      style={style}
     >
       <defs>
         <style>{`
@@ -148,7 +150,7 @@ function WorkflowSVG({ nodes, edges, executionData, showIcons, showDotGrid, clas
             key={edge.id}
             d={edgePath}
             fill="none"
-            stroke="var(--muted-foreground)"
+            stroke="var(--border)"
             strokeWidth={1.5}
             strokeOpacity={0.5}
             strokeDasharray={isSubnodeEdge ? '4 3' : undefined}
@@ -171,12 +173,17 @@ function WorkflowSVG({ nodes, edges, executionData, showIcons, showDotGrid, clas
         const nodeExec = executionData?.[data.name];
 
         if (isSubnode) {
-          // Render as circle
+          // Render as circle — inherit parent node's colors
           const cx = x + dims.width / 2;
           const cy = y + dims.height / 2;
-          const r = 22;
-          const subnodeType = data.subnodeType || 'tool';
-          const colors = SUBNODE_COLORS[subnodeType] || SUBNODE_COLORS.tool;
+          const r = 36;
+          const parentNodeStyles = getSubnodeParentStyles(node.id, edges, nodeMap);
+          const subnodeFill = showIcons
+            ? (parentNodeStyles?.iconBgColor ?? styles.iconBgColor)
+            : (parentNodeStyles?.accentColor ?? styles.accentColor);
+          const subnodeStroke = showIcons
+            ? (parentNodeStyles?.borderColor ?? styles.borderColor)
+            : subnodeFill;
 
           return (
             <g key={node.id}>
@@ -184,12 +191,12 @@ function WorkflowSVG({ nodes, edges, executionData, showIcons, showDotGrid, clas
                 cx={cx}
                 cy={cy}
                 r={r}
-                fill={colors.fill}
-                stroke={colors.stroke}
+                fill={subnodeFill}
+                stroke={subnodeStroke}
                 strokeWidth={1.5}
               />
               {showIcons && (
-                <SubnodeIcon data={data} cx={cx} cy={cy} color={colors.stroke} />
+                <SubnodeIcon data={data} cx={cx} cy={cy} color="#ffffff" />
               )}
               {nodeExec && <ExecutionBadge status={nodeExec.status} cx={cx + r - 4} cy={cy - r + 4} />}
             </g>
@@ -197,8 +204,6 @@ function WorkflowSVG({ nodes, edges, executionData, showIcons, showDotGrid, clas
         }
 
         // Render as rect (workflowNode or subworkflowNode)
-        const shape = getNodeShapeConfig(group);
-        const rx = parseBorderRadius(shape.borderRadius);
 
         return (
           <g key={node.id}>
@@ -207,11 +212,12 @@ function WorkflowSVG({ nodes, edges, executionData, showIcons, showDotGrid, clas
               y={y}
               width={dims.width}
               height={dims.height}
-              rx={rx}
-              ry={rx}
-              fill={styles.bgColor}
-              stroke={styles.borderColor}
-              strokeWidth={1.5}
+              rx={12}
+              ry={12}
+              fill={showIcons ? styles.bgColor : styles.accentColor}
+              stroke={showIcons ? styles.borderColor : styles.accentColor}
+              strokeWidth={1}
+              strokeOpacity={showIcons ? 1 : 0.7}
             />
             {/* Running animation */}
             {nodeExec?.status === 'running' && (
@@ -220,8 +226,8 @@ function WorkflowSVG({ nodes, edges, executionData, showIcons, showDotGrid, clas
                 y={y}
                 width={dims.width}
                 height={dims.height}
-                rx={rx}
-                ry={rx}
+                rx={12}
+                ry={12}
                 fill="none"
                 stroke={styles.accentColor}
                 strokeWidth={2}
@@ -230,7 +236,15 @@ function WorkflowSVG({ nodes, edges, executionData, showIcons, showDotGrid, clas
               />
             )}
             {showIcons && (
-              <NodeIcon data={data} x={x} y={y} dims={dims} color={styles.accentColor} />
+              <>
+                <circle
+                  cx={x + dims.width / 2}
+                  cy={y + dims.height / 2}
+                  r={14}
+                  fill={styles.iconBgColor}
+                />
+                <NodeIcon data={data} x={x} y={y} dims={dims} color="#ffffff" />
+              </>
             )}
             {nodeExec && <ExecutionBadge status={nodeExec.status} cx={x + dims.width - 4} cy={y + 4} />}
           </g>

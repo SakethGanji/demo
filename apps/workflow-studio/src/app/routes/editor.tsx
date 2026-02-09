@@ -34,16 +34,16 @@ function RightPanel() {
 
   return (
     <div className="editor-chrome h-full flex flex-col bg-card">
-      <div className="flex items-center h-8 px-2 border-b border-border shrink-0">
+      <div className="flex items-center h-9 px-2 border-b border-border shrink-0">
         <div className="flex gap-0.5">
           {rightPanelTabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setTab(tab.id)}
               className={cn(
-                'inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors',
+                'relative inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-none transition-colors',
                 activeTab === tab.id
-                  ? 'bg-accent text-foreground'
+                  ? 'text-foreground after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-primary'
                   : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
               )}
             >

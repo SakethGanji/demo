@@ -128,7 +128,7 @@ def _get_gemini_client() -> Any:
         else:
             project = os.environ.get(
                 "GOOGLE_CLOUD_PROJECT",
-                _get_env("LLM_PROXY_PROJECT") or "prj-gen-ai-9571",
+                _get_env("LLM_PROXY_PROJECT") or "",
             )
             location = os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
             _clients["gemini"] = genai.Client(
@@ -165,7 +165,7 @@ def _get_llama_client(model: str) -> Any:
 
         region = LLAMA_MODELS[model]
         base_url = _get_env("LLM_PROXY_BASE_URL") or _DEFAULT_PROXY_TEMPLATE.format(
-            project=_get_env("LLM_PROXY_PROJECT") or "prj-gen-ai-9571",
+            project=_get_env("LLM_PROXY_PROJECT") or "",
             region=region,
         )
         token = os.environ.get("COIN_TOKEN", "")
@@ -624,6 +624,38 @@ async def _call_anthropic(
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
+
+async def get_embedding(
+    text: str,
+    provider: str = "openai",
+    model: str = "text-embedding-3-small",
+) -> list[float]:
+    """Get embedding vector for text using the configured provider.
+
+    Args:
+        text: Text to embed.
+        provider: "openai" or "gemini".
+        model: Embedding model ID (e.g. "text-embedding-3-small", "text-embedding-004").
+
+    Returns:
+        Embedding vector as list of floats.
+    """
+    if provider == "openai":
+        client = _get_openai_client()
+        response = await client.embeddings.create(model=model, input=text)
+        return response.data[0].embedding
+
+    if provider == "gemini":
+        client = _get_gemini_client()
+
+        def do_embed():
+            return client.models.embed_content(model=model, contents=text)
+
+        response = await asyncio.to_thread(do_embed)
+        return response.embeddings[0].values
+
+    raise ValueError(f"Unknown embedding provider: {provider}")
 
 
 async def call_llm(

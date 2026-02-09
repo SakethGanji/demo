@@ -13,8 +13,8 @@ import type { WorkflowNodeData } from '../../../types/workflow';
 type Point = { x: number; y: number };
 
 const EDGE_COLORS = {
-  default: { start: 'var(--muted-foreground)', end: 'var(--muted-foreground)' },
-  hover: { start: 'var(--foreground)', end: 'var(--foreground)' },
+  default: { start: 'var(--border)', end: 'var(--border)' },
+  hover: { start: 'var(--muted-foreground)', end: 'var(--muted-foreground)' },
   running: { start: 'var(--warning)', end: 'var(--warning)' },
   success: { start: 'var(--success)', end: 'var(--success)' },
   error: { start: 'var(--destructive)', end: 'var(--destructive)' },

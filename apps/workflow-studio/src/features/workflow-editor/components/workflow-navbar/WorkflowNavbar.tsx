@@ -129,7 +129,7 @@ export default function WorkflowNavbar() {
     event.target.value = '';
   };
 
-  const btnClass = "h-7 w-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed";
+  const btnClass = "h-8 w-8 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed";
   const dividerClass = "w-px h-4 bg-border";
 
   const isBottomTabActive = (tab: string) => bottomPanelOpen && bottomPanelTab === tab;
@@ -137,11 +137,11 @@ export default function WorkflowNavbar() {
 
   return (
     <>
-      <div className="editor-chrome flex items-center h-10 px-2 bg-card border-b border-border shrink-0 gap-0.5">
+      <div className="editor-chrome flex items-center h-11 px-3 bg-card border-b border-border shrink-0 gap-1">
         {/* Left section: Back + Name */}
         <Link
           to="/workflows"
-          className="h-7 px-1.5 flex items-center gap-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors text-xs"
+          className="h-8 px-1.5 flex items-center gap-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors text-xs"
           title="Back to workflows"
         >
           <ChevronLeft size={14} />
@@ -165,7 +165,7 @@ export default function WorkflowNavbar() {
                 setIsEditingName(false);
               }
             }}
-            className="h-7 w-36 px-2 text-[13px] font-medium text-foreground bg-transparent outline-none border border-border rounded-md"
+            className="h-8 w-36 px-2 text-[13px] font-medium text-foreground bg-transparent outline-none border border-border rounded-md"
           />
         ) : (
           <button
@@ -173,7 +173,7 @@ export default function WorkflowNavbar() {
               setEditedName(workflowName);
               setIsEditingName(true);
             }}
-            className="h-7 px-2 text-[13px] font-medium text-foreground hover:bg-accent transition-colors rounded-md truncate max-w-40"
+            className="h-8 px-2 text-[13px] font-medium text-foreground hover:bg-accent transition-colors rounded-md truncate max-w-40"
             title="Click to rename"
           >
             {workflowName}
@@ -189,58 +189,66 @@ export default function WorkflowNavbar() {
         {/* Center section: Undo/Redo + Zoom */}
         <div className="flex-1" />
 
-        <button onClick={() => undo()} disabled={!canUndo()} className={btnClass} title="Undo">
-          <Undo2 size={14} />
-        </button>
-        <button onClick={() => redo()} disabled={!canRedo()} className={btnClass} title="Redo">
-          <Redo2 size={14} />
-        </button>
+        <div className="flex bg-muted/50 rounded-md px-0.5 py-0.5">
+          <button onClick={() => undo()} disabled={!canUndo()} className={btnClass} title="Undo">
+            <Undo2 size={14} />
+          </button>
+          <button onClick={() => redo()} disabled={!canRedo()} className={btnClass} title="Redo">
+            <Redo2 size={14} />
+          </button>
+        </div>
 
         <div className={dividerClass} />
 
-        <button onClick={() => zoomOut()} className={btnClass} title="Zoom out">
-          <ZoomOut size={14} />
-        </button>
-        <button onClick={() => zoomIn()} className={btnClass} title="Zoom in">
-          <ZoomIn size={14} />
-        </button>
+        <div className="flex bg-muted/50 rounded-md px-0.5 py-0.5">
+          <button onClick={() => zoomOut()} className={btnClass} title="Zoom out">
+            <ZoomOut size={14} />
+          </button>
+          <button onClick={() => zoomIn()} className={btnClass} title="Zoom in">
+            <ZoomIn size={14} />
+          </button>
+        </div>
 
         {/* Right section */}
         <div className="flex-1" />
 
         {/* Bottom panel tabs */}
-        <button
-          onClick={() => openBottomPanel('logs')}
-          className={btnClass + (isBottomTabActive('logs') ? ' !text-primary' : '')}
-          title="Toggle logs"
-        >
-          <ScrollText size={14} />
-        </button>
-        <button
-          onClick={() => openBottomPanel('ui')}
-          className={btnClass + (isBottomTabActive('ui') ? ' !text-primary' : '')}
-          title="Toggle UI"
-        >
-          <Monitor size={14} />
-        </button>
+        <div className="flex bg-muted/50 rounded-md px-0.5 py-0.5">
+          <button
+            onClick={() => openBottomPanel('logs')}
+            className={btnClass + (isBottomTabActive('logs') ? ' !text-primary' : '')}
+            title="Toggle logs"
+          >
+            <ScrollText size={14} />
+          </button>
+          <button
+            onClick={() => openBottomPanel('ui')}
+            className={btnClass + (isBottomTabActive('ui') ? ' !text-primary' : '')}
+            title="Toggle UI"
+          >
+            <Monitor size={14} />
+          </button>
+        </div>
 
         <div className={dividerClass} />
 
         {/* Right panel tabs */}
-        <button
-          onClick={() => openRightPanel('nodes')}
-          className={btnClass + (isRightTabActive('nodes') ? ' !text-primary' : '')}
-          title="Toggle node list"
-        >
-          <Blocks size={14} />
-        </button>
-        <button
-          onClick={() => openRightPanel('ai')}
-          className={btnClass + (isRightTabActive('ai') ? ' !text-primary' : '')}
-          title="Toggle AI assistant"
-        >
-          <Sparkles size={14} />
-        </button>
+        <div className="flex bg-muted/50 rounded-md px-0.5 py-0.5">
+          <button
+            onClick={() => openRightPanel('nodes')}
+            className={btnClass + (isRightTabActive('nodes') ? ' !text-primary' : '')}
+            title="Toggle node list"
+          >
+            <Blocks size={14} />
+          </button>
+          <button
+            onClick={() => openRightPanel('ai')}
+            className={btnClass + (isRightTabActive('ai') ? ' !text-primary' : '')}
+            title="Toggle AI assistant"
+          >
+            <Sparkles size={14} />
+          </button>
+        </div>
 
         <div className={dividerClass} />
 

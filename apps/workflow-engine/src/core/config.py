@@ -49,7 +49,7 @@ class Settings(BaseSettings):
 
     # Company LLM proxy settings
     llm_proxy_base_url: str | None = None
-    llm_proxy_project: str = "prj-gen-ai-9571"
+    llm_proxy_project: str = ""
     ssl_cert_file: str | None = None
 
 

@@ -32,7 +32,7 @@ function SubnodeEdge({
         id={id}
         d={edgePath}
         fill="none"
-        stroke="#4a4a6a"
+        stroke="var(--border)"
         strokeWidth={1}
         strokeDasharray="4 3"
         strokeOpacity={0.7}

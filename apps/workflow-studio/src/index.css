@@ -54,48 +54,61 @@
   --tracking-normal: 0em;
   --spacing: 0.25rem;
 
+  /* Spacing scale */
+  --space-xs: 0.25rem;     /* 4px */
+  --space-sm: 0.5rem;      /* 8px */
+  --space-md: 0.75rem;     /* 12px */
+  --space-lg: 1rem;        /* 16px */
+  --space-xl: 1.5rem;      /* 24px */
+  --space-2xl: 2rem;       /* 32px */
+  --space-3xl: 3rem;       /* 48px */
+
+  /* Semantic spacing */
+  --space-panel: var(--space-md);       /* Panel inner padding */
+  --space-section: var(--space-xl);     /* Between major sections */
+  --space-element: var(--space-sm);     /* Between related elements */
+  --space-inline: var(--space-xs);      /* Inline element spacing */
+  --space-card: var(--space-md);        /* Card internal padding */
+
+  /* Canvas floating surfaces — always dark-accented */
+  --canvas-float: #2c2c2c;
+  --canvas-float-foreground: #e5e5e5;
+  --canvas-float-hover: #383838;
+  --canvas-float-border: #383838;
+
   /* Node group colors */
   --node-trigger: #d97706;
-  --node-trigger-light: #fef3c7;
-  --node-trigger-border: #f59e0b;
-  --node-trigger-icon-bg: #fde68a;
+  --node-trigger-light: #383838;
+  --node-trigger-border: #4a4a4a;
+  --node-trigger-icon-bg: #d97706;
   --node-transform: #2563eb;
-  --node-transform-light: #dbeafe;
-  --node-transform-border: #3b82f6;
-  --node-transform-icon-bg: #bfdbfe;
+  --node-transform-light: #383838;
+  --node-transform-border: #4a4a4a;
+  --node-transform-icon-bg: #2563eb;
   --node-flow: #7c3aed;
-  --node-flow-light: #ede9fe;
-  --node-flow-border: #8b5cf6;
-  --node-flow-icon-bg: #ddd6fe;
+  --node-flow-light: #383838;
+  --node-flow-border: #4a4a4a;
+  --node-flow-icon-bg: #7c3aed;
   --node-ai: #6b7280;
-  --node-ai-light: #f3f4f6;
-  --node-ai-border: #9ca3af;
-  --node-ai-icon-bg: #e5e7eb;
+  --node-ai-light: #383838;
+  --node-ai-border: #4a4a4a;
+  --node-ai-icon-bg: #6b7280;
   --node-action: #059669;
-  --node-action-light: #d1fae5;
-  --node-action-border: #10b981;
-  --node-action-icon-bg: #a7f3d0;
+  --node-action-light: #383838;
+  --node-action-border: #4a4a4a;
+  --node-action-icon-bg: #059669;
   --node-output: #0d9488;
-  --node-output-light: #ccfbf1;
-  --node-output-border: #14b8a6;
-  --node-output-icon-bg: #99f6e4;
+  --node-output-light: #383838;
+  --node-output-border: #4a4a4a;
+  --node-output-icon-bg: #0d9488;
   --node-subworkflow: #6b7280;
-  --node-subworkflow-light: #f3f4f6;
-  --node-subworkflow-border: #9ca3af;
-  --node-subworkflow-icon-bg: #e5e7eb;
+  --node-subworkflow-light: #383838;
+  --node-subworkflow-border: #4a4a4a;
+  --node-subworkflow-icon-bg: #6b7280;
   --node-handle: #a8a29e;
   --subnode-model: #4b5563;
-  --subnode-model-light: #f0f0f0;
-  --subnode-model-border: #6b7280;
-  --subnode-model-icon-bg: #d1d5db;
   --subnode-memory: #4b5563;
-  --subnode-memory-light: #f0f0f0;
-  --subnode-memory-border: #6b7280;
-  --subnode-memory-icon-bg: #d1d5db;
   --subnode-tool: #4b5563;
-  --subnode-tool-light: #f0f0f0;
-  --subnode-tool-border: #6b7280;
-  --subnode-tool-icon-bg: #d1d5db;
 
   /* Sticky note colors */
   --sticky-yellow-bg: #fef9c3;
@@ -155,10 +168,6 @@
   --sidebar-accent-foreground: #e5e5e5;
   --sidebar-border: #333333;
   --sidebar-ring: #18a0fb;
-  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --font-serif: Georgia, serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
-  --radius: 0.5rem;
   --shadow-2xs: 0 1px 2px 0 rgb(0 0 0 / 0.1);
   --shadow-xs: 0 1px 3px 0 rgb(0 0 0 / 0.15);
   --shadow-sm: 0 2px 4px 0 rgb(0 0 0 / 0.2);
@@ -168,48 +177,45 @@
   --shadow-xl: 0 20px 30px -5px rgb(0 0 0 / 0.35);
   --shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.5);
 
-  /* Node group colors - dark mode */
+  /* Canvas floating surfaces — lighter in dark mode for contrast */
+  --canvas-float: #383838;
+  --canvas-float-foreground: #e5e5e5;
+  --canvas-float-hover: #484848;
+  --canvas-float-border: #4a4a4a;
+
+  /* Node group colors - dark mode (elevated from bg for contrast) */
   --node-trigger: #fbbf24;
-  --node-trigger-light: #292115;
-  --node-trigger-border: #b4891c;
-  --node-trigger-icon-bg: #3d3018;
+  --node-trigger-light: #484848;
+  --node-trigger-border: #5c5c5c;
+  --node-trigger-icon-bg: #b4891c;
   --node-transform: #60a5fa;
-  --node-transform-light: #172135;
-  --node-transform-border: #3b7ac7;
-  --node-transform-icon-bg: #1e2d45;
+  --node-transform-light: #484848;
+  --node-transform-border: #5c5c5c;
+  --node-transform-icon-bg: #3b7ac7;
   --node-flow: #a78bfa;
-  --node-flow-light: #1f1a30;
-  --node-flow-border: #7a5fc7;
-  --node-flow-icon-bg: #2a2242;
+  --node-flow-light: #484848;
+  --node-flow-border: #5c5c5c;
+  --node-flow-icon-bg: #7a5fc7;
   --node-ai: #9ca3af;
-  --node-ai-light: #1f2124;
-  --node-ai-border: #6b7280;
-  --node-ai-icon-bg: #2a2d32;
+  --node-ai-light: #484848;
+  --node-ai-border: #5c5c5c;
+  --node-ai-icon-bg: #6b7280;
   --node-action: #34d399;
-  --node-action-light: #132a22;
-  --node-action-border: #25a070;
-  --node-action-icon-bg: #1a3830;
+  --node-action-light: #484848;
+  --node-action-border: #5c5c5c;
+  --node-action-icon-bg: #25a070;
   --node-output: #2dd4bf;
-  --node-output-light: #132826;
-  --node-output-border: #22a090;
-  --node-output-icon-bg: #1a3835;
+  --node-output-light: #484848;
+  --node-output-border: #5c5c5c;
+  --node-output-icon-bg: #22a090;
   --node-subworkflow: #9ca3af;
-  --node-subworkflow-light: #1f2124;
-  --node-subworkflow-border: #6b7280;
-  --node-subworkflow-icon-bg: #2a2d32;
-  --node-handle: #525252;
+  --node-subworkflow-light: #484848;
+  --node-subworkflow-border: #5c5c5c;
+  --node-subworkflow-icon-bg: #6b7280;
+  --node-handle: #6e6e6e;
   --subnode-model: #d1d5db;
-  --subnode-model-light: #18191b;
-  --subnode-model-border: #4b5563;
-  --subnode-model-icon-bg: #1f2225;
   --subnode-memory: #d1d5db;
-  --subnode-memory-light: #18191b;
-  --subnode-memory-border: #4b5563;
-  --subnode-memory-icon-bg: #1f2225;
   --subnode-tool: #d1d5db;
-  --subnode-tool-light: #18191b;
-  --subnode-tool-border: #4b5563;
-  --subnode-tool-icon-bg: #1f2225;
 
   /* Sticky note colors - dark mode */
   --sticky-yellow-bg: #422006;
@@ -276,6 +282,20 @@
   --radius-md: var(--radius);
   --radius-lg: calc(var(--radius) + 2px);
   --radius-xl: calc(var(--radius) + 4px);
+
+  /* Semantic spacing — usable as p-panel, gap-section, m-element, etc. */
+  --spacing-xs: var(--space-xs);
+  --spacing-sm: var(--space-sm);
+  --spacing-md: var(--space-md);
+  --spacing-lg: var(--space-lg);
+  --spacing-xl: var(--space-xl);
+  --spacing-2xl: var(--space-2xl);
+  --spacing-3xl: var(--space-3xl);
+  --spacing-panel: var(--space-panel);
+  --spacing-section: var(--space-section);
+  --spacing-element: var(--space-element);
+  --spacing-inline: var(--space-inline);
+  --spacing-card: var(--space-card);
 
   --shadow-2xs: var(--shadow-2xs);
   --shadow-xs: var(--shadow-xs);
@@ -536,18 +556,18 @@ textarea,
 .react-flow__controls {
   box-shadow: var(--shadow-md) !important;
   border-radius: var(--radius-lg) !important;
-  border: 1px solid var(--border) !important;
+  border: 1px solid var(--canvas-float-border) !important;
   overflow: hidden;
 }
 
 .react-flow__controls-button {
-  background-color: var(--card) !important;
-  color: var(--foreground) !important;
-  border-bottom: 1px solid var(--border) !important;
+  background-color: var(--canvas-float) !important;
+  color: var(--canvas-float-foreground) !important;
+  border-bottom: 1px solid var(--canvas-float-border) !important;
 }
 
 .react-flow__controls-button:hover {
-  background-color: var(--accent) !important;
+  background-color: var(--canvas-float-hover) !important;
 }
 
 .react-flow__controls-button svg {
@@ -557,7 +577,7 @@ textarea,
 .react-flow__minimap {
   box-shadow: var(--shadow-md) !important;
   border-radius: var(--radius-lg) !important;
-  border: 1px solid var(--border) !important;
+  border: 1px solid var(--canvas-float-border) !important;
   overflow: hidden;
 }
 
@@ -599,13 +619,13 @@ textarea,
 }
 
 .node-ai-shimmer {
-  background: linear-gradient(135deg, var(--node-ai-icon-bg) 0%, rgba(107, 114, 128, 0.15) 50%, var(--node-ai-icon-bg) 100%);
+  background: linear-gradient(135deg, var(--node-ai-icon-bg) 0%, rgba(107, 114, 128, 0.6) 50%, var(--node-ai-icon-bg) 100%);
   background-size: 200% 200%;
   animation: shimmer 3s ease-in-out infinite;
 }
 
 .dark .node-ai-shimmer {
-  background: linear-gradient(135deg, var(--node-ai-icon-bg) 0%, rgba(156, 163, 175, 0.25) 50%, var(--node-ai-icon-bg) 100%);
+  background: linear-gradient(135deg, var(--node-ai-icon-bg) 0%, rgba(156, 163, 175, 0.5) 50%, var(--node-ai-icon-bg) 100%);
   background-size: 200% 200%;
 }
 
