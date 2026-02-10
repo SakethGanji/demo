@@ -52,14 +52,25 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
   });
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [expandedSubnodes, setExpandedSubnodes] = useState<Record<string, boolean>>({});
-  const { updateNodeData, edges, nodes, executionData, deleteNode, workflowId } = useWorkflowStore((s) => ({
-    updateNodeData: s.updateNodeData,
-    edges: s.edges,
-    nodes: s.nodes,
-    executionData: s.executionData,
-    deleteNode: s.deleteNode,
-    workflowId: s.workflowId,
-  }));
+  // Individual selectors — actions are stable refs, data only triggers re-render when it changes
+  const updateNodeData = useWorkflowStore((s) => s.updateNodeData);
+  const deleteNode = useWorkflowStore((s) => s.deleteNode);
+  const workflowId = useWorkflowStore((s) => s.workflowId);
+  const edges = useWorkflowStore((s) => s.edges);
+  const executionData = useWorkflowStore((s) => s.executionData);
+
+  // Targeted selector: only returns the upstream node object (stable ref unless that node changes)
+  const upstreamNodeId = useMemo(
+    () => edges.find((e) => e.target === node.id)?.source,
+    [edges, node.id]
+  );
+  const upstreamNode = useWorkflowStore(
+    useCallback(
+      (s) => (upstreamNodeId ? s.nodes.find((n) => n.id === upstreamNodeId) ?? null : null),
+      [upstreamNodeId]
+    )
+  );
+
   const { closeNDV } = useNDVStore();
   const openForSubnode = useEditorLayoutStore((s) => s.openForSubnode);
 
@@ -86,15 +97,26 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
     }
   }, [webhookPathUrl]);
 
+  // Stable params reference and onChange callback — prevents DynamicNodeForm re-renders
+  const nodeParams = useMemo(
+    () => (node.data.parameters as Record<string, unknown>) || {},
+    [node.data.parameters]
+  );
+  const handleParamChange = useCallback((key: string, value: unknown) => {
+    const store = useWorkflowStore.getState();
+    const currentNode = store.nodes.find((n) => n.id === node.id);
+    if (!currentNode) return;
+    store.updateNodeData(node.id, {
+      parameters: { ...(currentNode.data as WorkflowNodeData).parameters, [key]: value },
+    });
+  }, [node.id]);
+
   // Fetch node type schema from API
   const { data: nodeTypes, isLoading: isLoadingSchema } = useNodeTypes();
 
   // Get the schema for this node type (type is already backend format)
   const nodeSchema = nodeTypes?.find((n) => n.type === node.data.type);
 
-  // Find upstream node(s) connected to this node's input
-  const upstreamNodeId = edges.find((e) => e.target === node.id)?.source;
-  const upstreamNode = upstreamNodeId ? nodes.find((n) => n.id === upstreamNodeId) : null;
   const upstreamNodeSchema = upstreamNode?.data?.type
     ? nodeTypes?.find((n) => n.type === upstreamNode.data.type)
     : null;
@@ -111,43 +133,47 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
   }, [upstreamNodeId, executionData]);
 
   // Build a map of node name -> execution data for all nodes (for $node["Name"].json expressions)
-  const allNodeData = useMemo(() => {
-    const result: Record<string, Record<string, unknown>[]> = {};
-    for (const n of nodes) {
-      const nodeName = n.data?.name || n.data?.label;
-      if (nodeName && executionData[n.id]?.output?.items) {
-        result[nodeName] = executionData[n.id].output.items as Record<string, unknown>[];
+  // Uses a store selector so it only recalculates when store changes, and the result
+  // is stable unless execution data or node names actually change.
+  const allNodeData = useWorkflowStore(
+    useCallback((s) => {
+      const result: Record<string, Record<string, unknown>[]> = {};
+      for (const n of s.nodes) {
+        const nodeName = n.data?.name || n.data?.label;
+        if (nodeName && s.executionData[n.id]?.output?.items) {
+          result[nodeName] = s.executionData[n.id].output.items as Record<string, unknown>[];
+        }
       }
-    }
-    return result;
-  }, [nodes, executionData]);
+      return result;
+    }, [])
+  );
 
-  // Get connected subnodes for each slot
-  const connectedSubnodes = useMemo(() => {
-    const slots = node.data.subnodeSlots as SubnodeSlotDefinition[] | undefined;
-    if (!slots || slots.length === 0) return null;
+  // Get connected subnodes for each slot — uses store selector to avoid subscribing to full nodes array
+  const connectedSubnodes = useWorkflowStore(
+    useCallback((s) => {
+      const slots = node.data.subnodeSlots as SubnodeSlotDefinition[] | undefined;
+      if (!slots || slots.length === 0) return null;
 
-    // Find subnode edges targeting this node
-    const subnodeEdges = edges.filter(
-      (e) => e.target === node.id && e.data?.isSubnodeEdge
-    );
+      const subnodeEdges = s.edges.filter(
+        (e) => e.target === node.id && e.data?.isSubnodeEdge
+      );
 
-    // Map each slot to its connected subnodes
-    const slotMap: Record<string, Node<WorkflowNodeData>[]> = {};
-    for (const slot of slots) {
-      slotMap[slot.name] = [];
-    }
-
-    for (const edge of subnodeEdges) {
-      const slotName = edge.data?.slotName || edge.targetHandle;
-      const subnodeNode = nodes.find((n) => n.id === edge.source);
-      if (subnodeNode && slotName && slotMap[slotName]) {
-        slotMap[slotName].push(subnodeNode as Node<WorkflowNodeData>);
+      const slotMap: Record<string, Node<WorkflowNodeData>[]> = {};
+      for (const slot of slots) {
+        slotMap[slot.name] = [];
       }
-    }
 
-    return { slots, slotMap };
-  }, [node.id, node.data.subnodeSlots, edges, nodes]);
+      for (const edge of subnodeEdges) {
+        const slotName = edge.data?.slotName || edge.targetHandle;
+        const subnodeNode = s.nodes.find((n) => n.id === edge.source);
+        if (subnodeNode && slotName && slotMap[slotName]) {
+          slotMap[slotName].push(subnodeNode as Node<WorkflowNodeData>);
+        }
+      }
+
+      return { slots, slotMap };
+    }, [node.id, node.data.subnodeSlots])
+  );
 
   const toggleSection = (section: string) => {
     setExpandedSections((prev) => ({
@@ -269,13 +295,9 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
                   ) : nodeSchema && nodeSchema.properties.length > 0 ? (
                     <DynamicNodeForm
                       properties={nodeSchema.properties as NodeProperty[]}
-                      values={(node.data.parameters as Record<string, unknown>) || {}}
-                      onChange={(key, value) => {
-                        updateNodeData(node.id, {
-                          parameters: { ...node.data.parameters, [key]: value },
-                        });
-                      }}
-                      allValues={(node.data.parameters as Record<string, unknown>) || {}}
+                      values={nodeParams}
+                      onChange={handleParamChange}
+                      allValues={nodeParams}
                       upstreamSchema={upstreamOutputSchema}
                       sampleData={upstreamSampleData}
                       allNodeData={allNodeData}

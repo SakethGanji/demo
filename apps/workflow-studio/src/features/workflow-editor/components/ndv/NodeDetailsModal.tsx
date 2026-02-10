@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useState, useRef, useMemo } from 'react';
 import {
   X,
   ArrowLeft,
@@ -54,7 +54,20 @@ const iconMap: Record<string, LucideIcon> = {
 
 export default function NodeDetailsModal() {
   const { isOpen, activeNodeId, closeNDV, inputPanelSize, outputPanelSize, setPanelSizes } = useNDVStore();
-  const { nodes, deleteNode, executionData, updateNodeData } = useWorkflowStore();
+
+  // Individual selectors — only re-render when the specific data we need changes
+  const deleteNode = useWorkflowStore((s) => s.deleteNode);
+  const updateNodeData = useWorkflowStore((s) => s.updateNodeData);
+  const activeNode = useWorkflowStore(
+    useCallback((s) => s.nodes.find((n) => n.id === activeNodeId) ?? null, [activeNodeId])
+  );
+  const nodeExecution = useWorkflowStore(
+    useCallback(
+      (s) => (activeNodeId ? s.executionData[activeNodeId] ?? null : null),
+      [activeNodeId]
+    )
+  );
+
   const { executeWorkflow, isExecuting } = useExecuteWorkflow();
 
   // Inline name editing state
@@ -62,10 +75,6 @@ export default function NodeDetailsModal() {
   const [editedName, setEditedName] = useState('');
   const [lastNodeId, setLastNodeId] = useState<string | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
-
-  // Find the active node
-  const activeNode = nodes.find((n) => n.id === activeNodeId);
-  const nodeExecution = activeNodeId ? executionData[activeNodeId] : null;
 
   // Get icon component
   const IconComponent = activeNode ? (iconMap[activeNode.data.icon || 'code'] || Code) : Code;

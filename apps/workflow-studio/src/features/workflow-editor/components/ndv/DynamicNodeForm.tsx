@@ -5,7 +5,7 @@
  * property schema from the API (INodeProperty[]).
  */
 
-import { useState, useId, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useState, useId, useMemo, useCallback, useEffect, useRef, memo } from 'react';
 import { Eye, EyeOff, Plus, Trash2, ChevronDown, ChevronUp, Info } from 'lucide-react';
 import ExpressionEditor from './ExpressionEditor';
 import CodeEditor from '@/shared/components/ui/code-editor';
@@ -144,7 +144,7 @@ interface DynamicNodeFormProps {
   allNodeData?: Record<string, Record<string, unknown>[]>;
 }
 
-export default function DynamicNodeForm({
+export default memo(function DynamicNodeForm({
   properties,
   values,
   onChange,
@@ -155,6 +155,9 @@ export default function DynamicNodeForm({
 }: DynamicNodeFormProps) {
   const [fieldErrors, setFieldErrors] = useState<Record<string, FieldError | null>>({});
   const [touchedFields, setTouchedFields] = useState<Set<string>>(new Set());
+  // Ref for touchedFields — keeps handleFieldChange stable across touches
+  const touchedFieldsRef = useRef(touchedFields);
+  touchedFieldsRef.current = touchedFields;
 
   // Debounced onChange for text-input types
   const debouncedOnChange = useDebouncedCallback(onChange, 300);
@@ -184,14 +187,15 @@ export default function DynamicNodeForm({
     handleValidate(name, property, value);
   }, [handleValidate]);
 
+  // Use ref for touchedFields to keep this callback stable
   const handleFieldChange = useCallback((property: NodeProperty, value: unknown) => {
     const fieldOnChange = getOnChange(property);
     fieldOnChange(property.name, value);
-    // Re-validate if already touched
-    if (touchedFields.has(property.name)) {
+    // Re-validate if already touched (use ref to avoid dep on touchedFields state)
+    if (touchedFieldsRef.current.has(property.name)) {
       handleValidate(property.name, property, value);
     }
-  }, [getOnChange, touchedFields, handleValidate]);
+  }, [getOnChange, handleValidate]);
 
   // Filter properties based on displayOptions
   const visibleProperties = properties.filter((prop) =>
@@ -221,7 +225,7 @@ export default function DynamicNodeForm({
       ))}
     </div>
   );
-}
+});
 
 /**
  * Check if a property should be shown based on displayOptions
@@ -275,7 +279,7 @@ interface PropertyFieldProps {
   allNodeData?: Record<string, Record<string, unknown>[]>;
 }
 
-function PropertyField({ property, value, onChange, onBlur, error, allValues, upstreamSchema, sampleData, allNodeData }: PropertyFieldProps) {
+const PropertyField = memo(function PropertyField({ property, value, onChange, onBlur, error, allValues, upstreamSchema, sampleData, allNodeData }: PropertyFieldProps) {
   const { type } = property;
 
   switch (type) {
@@ -393,7 +397,7 @@ function PropertyField({ property, value, onChange, onBlur, error, allValues, up
         </div>
       );
   }
-}
+});
 
 // ============================================
 // Field Components

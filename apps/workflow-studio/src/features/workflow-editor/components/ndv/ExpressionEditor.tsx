@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, memo, useCallback } from 'react';
 import { Code2, X, ChevronDown, Eye, EyeOff } from 'lucide-react';
 
 // Type definitions for output schema (matching workflow-engine)
@@ -181,7 +181,7 @@ function generateSchemaFields(
   return suggestions;
 }
 
-export default function ExpressionEditor({
+export default memo(function ExpressionEditor({
   value,
   onChange,
   placeholder = 'Value or {{ expression }}...',
@@ -192,6 +192,21 @@ export default function ExpressionEditor({
   sampleData,
   allNodeData,
 }: ExpressionEditorProps) {
+  // Local state for responsive typing — prevents parent re-renders from resetting input
+  const [localValue, setLocalValue] = useState(value);
+  const prevValueRef = useRef(value);
+
+  // Sync from prop when it changes externally (e.g., after debounce round-trip)
+  if (value !== prevValueRef.current) {
+    prevValueRef.current = value;
+    setLocalValue(value);
+  }
+
+  const handleChange = useCallback((newValue: string) => {
+    setLocalValue(newValue);
+    onChange(newValue);
+  }, [onChange]);
+
   const [isExpanded, setIsExpanded] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [cursorPosition, setCursorPosition] = useState(0);
@@ -201,15 +216,15 @@ export default function ExpressionEditor({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
 
-  const hasExpression = value.includes('{{');
+  const hasExpression = localValue.includes('{{');
   // Can preview if we have expressions AND either sample data or allNodeData
   const canPreview = hasExpression && ((sampleData && sampleData.length > 0) || (allNodeData && Object.keys(allNodeData).length > 0));
 
   // Resolved/preview value
   const previewValue = useMemo(() => {
     if (!showPreview || !canPreview) return null;
-    return resolveExpression(value, sampleData, allNodeData);
-  }, [showPreview, canPreview, value, sampleData, allNodeData]);
+    return resolveExpression(localValue, sampleData, allNodeData);
+  }, [showPreview, canPreview, localValue, sampleData, allNodeData]);
 
   // Handle drag events - use refs to avoid re-renders during drag
   const dragCountRef = useRef(0);
@@ -257,10 +272,10 @@ export default function ExpressionEditor({
     if (fieldPath && (fieldPath.startsWith('$json') || fieldPath.startsWith('$node') || fieldPath.startsWith('$'))) {
       // Insert the expression at the end of current value (or replace if empty)
       const expression = `{{ ${fieldPath} }}`;
-      if (value.trim()) {
-        onChange(`${value} ${expression}`);
+      if (localValue.trim()) {
+        handleChange(`${localValue} ${expression}`);
       } else {
-        onChange(expression);
+        handleChange(expression);
       }
 
       // Auto-expand to show the inserted expression
@@ -294,10 +309,10 @@ export default function ExpressionEditor({
   }, [expressionSuggestions]);
 
   const insertExpression = (expr: string) => {
-    const before = value.slice(0, cursorPosition);
-    const after = value.slice(cursorPosition);
+    const before = localValue.slice(0, cursorPosition);
+    const after = localValue.slice(cursorPosition);
     const newValue = `${before}{{ ${expr} }}${after}`;
-    onChange(newValue);
+    handleChange(newValue);
     setShowSuggestions(false);
 
     // Focus and set cursor position after the inserted expression
@@ -312,7 +327,7 @@ export default function ExpressionEditor({
 
   const toggleExpressionMode = () => {
     if (!hasExpression) {
-      onChange(`{{ ${value || '$json'} }}`);
+      handleChange(`{{ ${localValue || '$json'} }}`);
     }
     setIsExpanded(!isExpanded);
   };
@@ -420,8 +435,8 @@ export default function ExpressionEditor({
             <textarea
               ref={inputRef}
               id={id}
-              value={value}
-              onChange={(e) => onChange(e.target.value)}
+              value={localValue}
+              onChange={(e) => handleChange(e.target.value)}
               onSelect={(e) =>
                 setCursorPosition((e.target as HTMLTextAreaElement).selectionStart)
               }
@@ -440,9 +455,9 @@ export default function ExpressionEditor({
                 setTimeout(() => inputRef.current?.focus(), 0);
               }}
             >
-              {value ? (
+              {localValue ? (
                 <span className="truncate text-xs">
-                  {hasExpression ? highlightExpression(value) : value}
+                  {hasExpression ? highlightExpression(localValue) : localValue}
                 </span>
               ) : (
                 <span className="text-muted-foreground text-xs">{placeholder}</span>
@@ -467,10 +482,10 @@ export default function ExpressionEditor({
                 {showPreview ? <EyeOff size={12} /> : <Eye size={12} />}
               </button>
             )}
-            {value && (
+            {localValue && (
               <button
                 type="button"
-                onClick={() => onChange('')}
+                onClick={() => handleChange('')}
                 className="p-0.5 text-muted-foreground hover:text-foreground rounded"
                 title="Clear"
               >
@@ -558,4 +573,4 @@ export default function ExpressionEditor({
       </div>
     </div>
   );
-}
+});
