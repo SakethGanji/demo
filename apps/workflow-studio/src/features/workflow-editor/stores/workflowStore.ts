@@ -1340,10 +1340,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   isDirty: () => {
-    const { nodes, edges, lastSavedSnapshot } = get();
-    if (lastSavedSnapshot === null) return false;
-    const current = JSON.stringify({ nodes, edges });
-    return current !== lastSavedSnapshot;
+    return get()._isDirty;
   },
 
   // Export workflow as JSON string

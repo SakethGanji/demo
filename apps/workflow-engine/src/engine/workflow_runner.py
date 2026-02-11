@@ -593,7 +593,9 @@ class WorkflowRunner:
                     outputs={"main": [NodeData(json={"error": error_msg, "_errorNode": job.node_name})]}
                 )
             else:
-                # Propagate NO_OUTPUT to downstream nodes
+                # Stop execution: clear the queue so no downstream nodes run
+                queue.clear()
+                # Propagate NO_OUTPUT to any multi-input nodes waiting on this branch
                 self._propagate_no_output(context, node_def, queue, node_map, job.run_index)
                 return True
 

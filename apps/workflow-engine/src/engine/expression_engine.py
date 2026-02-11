@@ -6,6 +6,7 @@ Uses simpleeval for safe expression evaluation (no eval() or exec()).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
@@ -205,7 +206,7 @@ class ExpressionEngine:
         # Need to sanitize node names (replace spaces with underscores)
         def sanitize_node_ref_with_fields(match: re.Match) -> str:
             node_name = match.group(1)
-            safe_name = re.sub(r"[^a-zA-Z0-9_]", "_", node_name)
+            safe_name = self._sanitize_name(node_name)
             field_path = match.group(2)  # e.g. "body.text" or "text"
             # Build chained .get() calls for nested access
             fields = field_path.split(".")
@@ -216,12 +217,12 @@ class ExpressionEngine:
 
         def sanitize_node_ref_json(match: re.Match) -> str:
             node_name = match.group(1)
-            safe_name = re.sub(r"[^a-zA-Z0-9_]", "_", node_name)
+            safe_name = self._sanitize_name(node_name)
             return f"node_{safe_name}_json"
 
         def sanitize_node_ref(match: re.Match) -> str:
             node_name = match.group(1)
-            safe_name = re.sub(r"[^a-zA-Z0-9_]", "_", node_name)
+            safe_name = self._sanitize_name(node_name)
             return f"node_{safe_name}"
 
         # Match both single and double quotes: $node["Name"] or $node['Name']
@@ -288,8 +289,17 @@ class ExpressionEngine:
         return eval_ctx
 
     def _sanitize_name(self, name: str) -> str:
-        """Sanitize node name for use as variable name."""
-        return re.sub(r"[^a-zA-Z0-9_]", "_", name)
+        """Sanitize node name for use as variable name.
+
+        Appends a short hash when the name contains non-alphanumeric characters
+        to avoid collisions (e.g. 'foo-bar' vs 'foo_bar').
+        """
+        sanitized = re.sub(r"[^a-zA-Z0-9_]", "_", name)
+        if sanitized != name:
+            # Name was modified — append hash to disambiguate
+            short_hash = hashlib.md5(name.encode()).hexdigest()[:6]
+            return f"{sanitized}_{short_hash}"
+        return sanitized
 
     def _stringify(self, value: Any) -> str:
         """Convert value to string for interpolation."""

@@ -144,6 +144,7 @@ class WebhookService:
     ) -> None:
         """Run workflow in background and save execution with its own DB session."""
         from ..engine.workflow_runner import WorkflowRunner
+        from ..engine.types import ExecutionContext, ExecutionError
         from ..db.session import async_session_factory
         from ..repositories.execution_repository import ExecutionRepository
 
@@ -162,10 +163,32 @@ class WebhookService:
             async with async_session_factory() as session:
                 exec_repo = ExecutionRepository(session)
                 await exec_repo.complete(context, stored.id, stored.name)
-        except Exception:
+        except Exception as e:
             logger.exception(
                 "Background webhook execution failed for workflow %s", stored.id
             )
+            # Save a failed execution record so users can see the error
+            try:
+                async with async_session_factory() as session:
+                    exec_repo = ExecutionRepository(session)
+                    fail_context = ExecutionContext(
+                        workflow=stored.workflow,
+                        execution_id=execution_id,
+                        start_time=datetime.now(),
+                        mode="webhook",
+                    )
+                    fail_context.errors.append(
+                        ExecutionError(
+                            node_name=webhook_node.name,
+                            error=str(e),
+                            timestamp=datetime.now(),
+                        )
+                    )
+                    await exec_repo.complete(fail_context, stored.id, stored.name)
+            except Exception:
+                logger.exception(
+                    "Failed to save error execution for workflow %s", stored.id
+                )
 
     async def _handle_last_node(
         self,

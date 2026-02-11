@@ -1,4 +1,4 @@
-import { memo, useState, useMemo, useRef, useEffect } from 'react';
+import { memo, useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import {
   EdgeLabelRenderer,
   getSmoothStepPath,

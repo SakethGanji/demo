@@ -50,7 +50,7 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
   const openForSubnode = useEditorLayoutStore((s) => s.openForSubnode);
   const openNDV = useNDVStore((s) => s.openNDV);
   const executionData = useNodeExecution(id);
-  const draggedNodeType = useWorkflowStore((s) => s.draggedNodeType);
+  const isDragging = useWorkflowStore((s) => s.draggedNodeType !== null);
   const updateNodeData = useWorkflowStore((s) => s.updateNodeData);
 
   const hasInputConnection = useHasInputConnection(id);
@@ -139,13 +139,11 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
 
   // Check if this node can be a drop target (has unconnected input and something is being dragged)
   const canBeDropTarget = useMemo(() => {
-    if (!draggedNodeType) return false;
+    if (!isDragging) return false;
     if (isTrigger) return false; // Triggers have no inputs
-    // Check if the dragged node is a trigger (triggers can't connect to inputs)
-    if (isTriggerType(draggedNodeType, nodeTypesMap)) return false;
     // Check if this node already has an input connection
     return !hasInputConnection;
-  }, [draggedNodeType, isTrigger, hasInputConnection]);
+  }, [isDragging, isTrigger, hasInputConnection]);
 
   // Render input handles (labels shown on edges if needed)
   const renderInputHandles = () => {

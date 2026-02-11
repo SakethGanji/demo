@@ -16,6 +16,7 @@ from ..core.dependencies import get_workflow_repository, get_execution_repositor
 from ..engine.workflow_runner import WorkflowRunner
 from ..engine.types import (
     ExecutionEvent,
+    ExecutionEventType,
     NodeData,
     NodeDefinition,
     Connection,
@@ -100,7 +101,7 @@ async def _run_workflow_with_events(
         except Exception as e:
             on_event(
                 ExecutionEvent(
-                    type=ExecutionEvent.__class__,  # type: ignore
+                    type=ExecutionEventType.EXECUTION_ERROR,
                     execution_id="error",
                     timestamp=datetime.now(),
                     error=str(e),
