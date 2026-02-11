@@ -113,6 +113,14 @@ interface WorkflowState {
   // Dirty state tracking
   lastSavedSnapshot: string | null;
 
+  // Derived state for efficient selectors
+  nodeCount: number;
+  edgeCount: number;
+  isAnyNodeRunning: boolean;
+  _canUndo: boolean;
+  _canRedo: boolean;
+  _isDirty: boolean;
+
   // Node type registry (synced from React Query cache)
   nodeTypesMap: Map<string, NodeTypeMetadata>;
   setNodeTypesMap: (map: Map<string, NodeTypeMetadata>) => void;
@@ -215,6 +223,11 @@ interface WorkflowState {
   importWorkflow: (json: string) => boolean;
 }
 
+/** Count only real workflow nodes (excludes placeholders, sticky notes, subnodes). */
+function countWorkflowNodes(nodes: Node[]) {
+  return nodes.filter((n) => n.type === 'workflowNode').length;
+}
+
 // Initial "Add first step" node for empty canvas
 const initialNodes: Node[] = [
   {
@@ -247,6 +260,12 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   historyIndex: -1,
   isUndoRedoAction: false,
   lastSavedSnapshot: null,
+  nodeCount: countWorkflowNodes(initialNodes),
+  edgeCount: 0,
+  isAnyNodeRunning: false,
+  _canUndo: false,
+  _canRedo: false,
+  _isDirty: false,
   nodeTypesMap: new Map(),
 
   setNodeTypesMap: (map) => set({ nodeTypesMap: map }),
@@ -322,7 +341,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       });
     }
 
-    set({ nodes: updatedNodes });
+    set({ nodes: updatedNodes, nodeCount: countWorkflowNodes(updatedNodes), _isDirty: true });
   },
 
   onEdgesChange: (changes) => {
@@ -332,8 +351,11 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       get().saveToHistory();
     }
 
+    const newEdges = applyEdgeChanges(changes, get().edges);
     set({
-      edges: applyEdgeChanges(changes, get().edges),
+      edges: newEdges,
+      edgeCount: newEdges.length,
+      _isDirty: true,
     });
   },
 
@@ -470,24 +492,22 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         slotType: sourceNode?.data?.subnodeType || 'tool',
       };
 
-      set({
-        edges: addEdge(
-          {
-            ...connection,
-            type: 'subnodeEdge',
-            data: subnodeEdgeData,
-          },
-          get().edges
-        ),
-      });
+      const newEdges = addEdge(
+        {
+          ...connection,
+          type: 'subnodeEdge',
+          data: subnodeEdgeData,
+        },
+        get().edges
+      );
+      set({ edges: newEdges, edgeCount: newEdges.length, _isDirty: true });
     } else {
       // Normal workflow edge
-      set({
-        edges: addEdge(
-          { ...connection, type: 'workflowEdge' },
-          get().edges
-        ),
-      });
+      const newEdges = addEdge(
+        { ...connection, type: 'workflowEdge' },
+        get().edges
+      );
+      set({ edges: newEdges, edgeCount: newEdges.length, _isDirty: true });
     }
   },
 
@@ -500,10 +520,11 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     // Remove the placeholder "add nodes" button if this is the first real node
     const hasOnlyPlaceholder = nodes.length === 1 && nodes[0].type === 'addNodes';
 
+    const newNodes = hasOnlyPlaceholder ? [node] : [...nodes, node];
     set({
-      nodes: hasOnlyPlaceholder
-        ? [node]
-        : [...nodes, node],
+      nodes: newNodes,
+      nodeCount: countWorkflowNodes(newNodes),
+      _isDirty: true,
     });
   },
 
@@ -544,8 +565,11 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     // Remove placeholder if it's the only node
     const hasOnlyPlaceholder = nodes.length === 1 && nodes[0].type === 'addNodes';
 
+    const updatedNodes = hasOnlyPlaceholder ? [newNode] : [...nodes, newNode];
     set({
-      nodes: hasOnlyPlaceholder ? [newNode] : [...nodes, newNode],
+      nodes: updatedNodes,
+      nodeCount: countWorkflowNodes(updatedNodes),
+      _isDirty: true,
     });
   },
 
@@ -631,9 +655,14 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     // Remove placeholder if it's the only node
     const hasOnlyPlaceholder = nodes.length === 1 && nodes[0].type === 'addNodes';
 
+    const updatedNodes = hasOnlyPlaceholder ? newNodes : [...nodes, ...newNodes];
+    const updatedEdges = [...edges, ...newEdges];
     set({
-      nodes: hasOnlyPlaceholder ? newNodes : [...nodes, ...newNodes],
-      edges: [...edges, ...newEdges],
+      nodes: updatedNodes,
+      edges: updatedEdges,
+      nodeCount: countWorkflowNodes(updatedNodes),
+      edgeCount: updatedEdges.length,
+      _isDirty: true,
     });
   },
 
@@ -705,9 +734,14 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       data: subnodeEdgeData,
     };
 
+    const updatedNodes = [...nodes, newNode];
+    const updatedEdges = [...edges, newEdge];
     set({
-      nodes: [...nodes, newNode],
-      edges: [...edges, newEdge],
+      nodes: updatedNodes,
+      edges: updatedEdges,
+      nodeCount: countWorkflowNodes(updatedNodes),
+      edgeCount: updatedEdges.length,
+      _isDirty: true,
     });
   },
 
@@ -722,7 +756,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         color: 'yellow',
       },
     };
-    set({ nodes: [...get().nodes, stickyNode] });
+    const newNodes = [...get().nodes, stickyNode];
+    set({ nodes: newNodes, nodeCount: countWorkflowNodes(newNodes), _isDirty: true });
   },
 
   updateNodeData: (nodeId, data) => {
@@ -766,13 +801,16 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     const newPinnedData = { ...pinnedData };
     delete newPinnedData[nodeId];
 
+    const newNodes = hasRealNodes ? remainingNodes : initialNodes;
+    const newEdges = edges.filter(
+      (e) => e.source !== nodeId && e.target !== nodeId
+    );
     set({
-      nodes: hasRealNodes
-        ? remainingNodes
-        : initialNodes,
-      edges: edges.filter(
-        (e) => e.source !== nodeId && e.target !== nodeId
-      ),
+      nodes: newNodes,
+      edges: newEdges,
+      nodeCount: countWorkflowNodes(newNodes),
+      edgeCount: newEdges.length,
+      _isDirty: true,
       selectedNodeId: get().selectedNodeId === nodeId ? null : get().selectedNodeId,
       pinnedData: newPinnedData,
     });
@@ -781,11 +819,16 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   setSelectedNode: (nodeId) => set({ selectedNodeId: nodeId }),
 
   setNodeExecutionData: (nodeId, data) => {
+    const newExecutionData = {
+      ...get().executionData,
+      [nodeId]: data,
+    };
+    const isAnyNodeRunning = Object.values(newExecutionData).some(
+      (d) => d.status === 'running'
+    );
     set({
-      executionData: {
-        ...get().executionData,
-        [nodeId]: data,
-      },
+      executionData: newExecutionData,
+      isAnyNodeRunning,
     });
   },
 
@@ -802,7 +845,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     });
   },
 
-  clearExecutionData: () => set({ executionData: {}, subworkflowExecutionData: {} }),
+  clearExecutionData: () => set({ executionData: {}, subworkflowExecutionData: {}, isAnyNodeRunning: false }),
 
   // Pinned data methods - uses backend format { json: {...} }[]
   pinNodeData: (nodeId, data) => {
@@ -872,6 +915,14 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       subworkflowExecutionData: {},
       pinnedData: {},
       lastSavedSnapshot: snapshot,
+      nodeCount: countWorkflowNodes(processedNodes),
+      edgeCount: data.edges.length,
+      isAnyNodeRunning: false,
+      _isDirty: false,
+      _canUndo: false,
+      _canRedo: false,
+      history: [],
+      historyIndex: -1,
     });
   },
 
@@ -892,6 +943,14 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       dropTargetNodeId: null,
       dropTargetHandleId: null,
       dropTargetEdgeId: null,
+      nodeCount: countWorkflowNodes(initialNodes),
+      edgeCount: 0,
+      isAnyNodeRunning: false,
+      _isDirty: false,
+      _canUndo: false,
+      _canRedo: false,
+      history: [],
+      historyIndex: -1,
     }),
 
   // Drag-drop actions
@@ -1026,9 +1085,14 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     // Deselect existing nodes
     const updatedNodes = nodes.map((n) => ({ ...n, selected: false }));
 
+    const finalNodes = [...updatedNodes, ...newNodes];
+    const finalEdges = [...edges, ...newEdges];
     set({
-      nodes: [...updatedNodes, ...newNodes],
-      edges: [...edges, ...newEdges],
+      nodes: finalNodes,
+      edges: finalEdges,
+      nodeCount: countWorkflowNodes(finalNodes),
+      edgeCount: finalEdges.length,
+      _isDirty: true,
     });
   },
 
@@ -1089,9 +1153,14 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     // Deselect existing nodes and add new ones
     const updatedNodes = nodes.map((n) => ({ ...n, selected: false }));
 
+    const finalNodes = [...updatedNodes, ...newNodes];
+    const finalEdges = [...edges, ...newEdges];
     set({
-      nodes: [...updatedNodes, ...newNodes],
-      edges: [...edges, ...newEdges],
+      nodes: finalNodes,
+      edges: finalEdges,
+      nodeCount: countWorkflowNodes(finalNodes),
+      edgeCount: finalEdges.length,
+      _isDirty: true,
     });
   },
 
@@ -1110,8 +1179,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     lastHistorySaveTime = now;
 
     const newEntry: HistoryEntry = {
-      nodes: JSON.parse(JSON.stringify(nodes)),
-      edges: JSON.parse(JSON.stringify(edges)),
+      nodes: structuredClone(nodes),
+      edges: structuredClone(edges),
     };
 
     // Remove any future history if we're not at the end
@@ -1123,9 +1192,12 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       newHistory.shift();
     }
 
+    const newIndex = newHistory.length - 1;
     set({
       history: newHistory,
-      historyIndex: newHistory.length - 1,
+      historyIndex: newIndex,
+      _canUndo: newIndex >= 0,
+      _canRedo: false, // We just trimmed future history
     });
   },
 
@@ -1135,23 +1207,30 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     if (historyIndex < 0) return;
 
     // Save current state to history if this is the first undo
+    let currentHistory = history;
     if (historyIndex === history.length - 1) {
       const { nodes, edges } = get();
       const currentEntry: HistoryEntry = {
-        nodes: JSON.parse(JSON.stringify(nodes)),
-        edges: JSON.parse(JSON.stringify(edges)),
+        nodes: structuredClone(nodes),
+        edges: structuredClone(edges),
       };
-      const newHistory = [...history, currentEntry];
-      set({ history: newHistory });
+      currentHistory = [...history, currentEntry];
     }
 
-    const previousState = history[historyIndex];
+    const previousState = currentHistory[historyIndex];
+    const newIndex = historyIndex - 1;
 
     set({
       isUndoRedoAction: true,
+      history: currentHistory,
       nodes: previousState.nodes,
       edges: previousState.edges,
-      historyIndex: historyIndex - 1,
+      historyIndex: newIndex,
+      nodeCount: countWorkflowNodes(previousState.nodes),
+      edgeCount: previousState.edges.length,
+      _isDirty: true,
+      _canUndo: newIndex >= 0,
+      _canRedo: true,
     });
 
     // Reset flag via microtask — runs after current synchronous subscribers
@@ -1165,12 +1244,18 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     if (historyIndex >= history.length - 2) return;
 
     const nextState = history[historyIndex + 2];
+    const newIndex = historyIndex + 1;
 
     set({
       isUndoRedoAction: true,
       nodes: nextState.nodes,
       edges: nextState.edges,
-      historyIndex: historyIndex + 1,
+      historyIndex: newIndex,
+      nodeCount: countWorkflowNodes(nextState.nodes),
+      edgeCount: nextState.edges.length,
+      _isDirty: true,
+      _canUndo: true,
+      _canRedo: newIndex < history.length - 2,
     });
 
     queueMicrotask(() => set({ isUndoRedoAction: false }));
@@ -1217,9 +1302,14 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       delete newPinnedData[id];
     }
 
+    const newNodes = hasRealNodes ? remainingNodes : initialNodes;
+    const newEdges = edges.filter((e) => !nodeIdSet.has(e.source) && !nodeIdSet.has(e.target));
     set({
-      nodes: hasRealNodes ? remainingNodes : initialNodes,
-      edges: edges.filter((e) => !nodeIdSet.has(e.source) && !nodeIdSet.has(e.target)),
+      nodes: newNodes,
+      edges: newEdges,
+      nodeCount: countWorkflowNodes(newNodes),
+      edgeCount: newEdges.length,
+      _isDirty: true,
       selectedNodeId: nodeIds.includes(get().selectedNodeId || '') ? null : get().selectedNodeId,
       pinnedData: newPinnedData,
     });
@@ -1246,7 +1336,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   markAsSaved: () => {
     const { nodes, edges } = get();
     const snapshot = JSON.stringify({ nodes, edges });
-    set({ lastSavedSnapshot: snapshot });
+    set({ lastSavedSnapshot: snapshot, _isDirty: false });
   },
 
   isDirty: () => {
@@ -1378,14 +1468,18 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       const { saveToHistory } = get();
       saveToHistory();
 
+      const importedNodes = workflow.nodes.length > 0 ? workflow.nodes : initialNodes;
       set({
-        nodes: workflow.nodes.length > 0 ? workflow.nodes : initialNodes,
+        nodes: importedNodes,
         edges,
         workflowName: workflow.name || 'Imported Workflow',
         workflowTags: workflow.tags || [],
         isActive: workflow.isActive || false,
         selectedNodeId: null,
         executionData: {},
+        nodeCount: countWorkflowNodes(importedNodes),
+        edgeCount: edges.length,
+        _isDirty: true,
       });
 
       return true;

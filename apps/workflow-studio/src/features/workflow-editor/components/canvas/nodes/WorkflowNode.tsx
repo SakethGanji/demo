@@ -14,7 +14,13 @@ import {
 } from '../../../lib/nodeStyles';
 import { normalizeNodeGroup } from '../../../lib/nodeConfig';
 import { getIconForNode } from '../../../lib/nodeIcons';
-import { isTriggerType, SUBNODE_SLOT_NAMES } from '../../../lib/nodeConfig';
+import { isTriggerType } from '../../../lib/nodeConfig';
+import {
+  useNodeExecution,
+  useHasInputConnection,
+  useConnectedOutputHandles,
+  useSubnodeSlotData,
+} from '../../../hooks/useWorkflowSelectors';
 
 
 // Status badge component for success/error states
@@ -43,11 +49,13 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
   const openForConnection = useEditorLayoutStore((s) => s.openForConnection);
   const openForSubnode = useEditorLayoutStore((s) => s.openForSubnode);
   const openNDV = useNDVStore((s) => s.openNDV);
-  const executionData = useWorkflowStore((s) => s.executionData[id]);
+  const executionData = useNodeExecution(id);
   const draggedNodeType = useWorkflowStore((s) => s.draggedNodeType);
-  const edges = useWorkflowStore((s) => s.edges);
-  const allNodes = useWorkflowStore((s) => s.nodes);
   const updateNodeData = useWorkflowStore((s) => s.updateNodeData);
+
+  const hasInputConnection = useHasInputConnection(id);
+  const connectedOutputHandles = useConnectedOutputHandles(id);
+  const subnodeSlotData = useSubnodeSlotData(id, data.subnodeSlots);
 
   // Focus input when editing starts
   useEffect(() => {
@@ -129,13 +137,6 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
   const isSuccess = executionData?.status === 'success';
   const isError = executionData?.status === 'error';
 
-  // Check if this node's input is already connected (excluding subnode edges)
-  const hasInputConnection = useMemo(() => {
-    return edges.some(
-      (e) => e.target === id && !e.data?.isSubnodeEdge && !SUBNODE_SLOT_NAMES.includes(e.targetHandle || '')
-    );
-  }, [edges, id]);
-
   // Check if this node can be a drop target (has unconnected input and something is being dragged)
   const canBeDropTarget = useMemo(() => {
     if (!draggedNodeType) return false;
@@ -169,17 +170,6 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
       );
     });
   };
-
-  // Pre-compute set of connected output handle IDs to avoid O(n) per handle
-  const connectedOutputHandles = useMemo(() => {
-    const set = new Set<string>();
-    for (const e of edges) {
-      if (e.source === id && e.sourceHandle) {
-        set.add(e.sourceHandle);
-      }
-    }
-    return set;
-  }, [edges, id]);
 
   // Render output handles - transforms into plus button on hover when not connected
   const renderOutputHandles = () => {
@@ -255,33 +245,10 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
     });
   };
 
-  // Check if a slot can accept more subnodes
-  const canSlotAcceptMore = (slotName: string, multiple: boolean) => {
-    if (multiple) return true; // Multiple slots always show +
-    // Check if there's already a connection to this slot
-    const hasConnection = edges.some(
-      (e) => e.target === id && e.targetHandle === slotName && e.data?.isSubnodeEdge
-    );
-    return !hasConnection;
-  };
-
-  // Get connected subnodes for a given slot
-  const getSlotSubnodes = (slotName: string) => {
-    const subnodeEdges = edges.filter(
-      (e) => e.target === id && e.data?.isSubnodeEdge && (e.data as { slotName?: string }).slotName === slotName
-    );
-    return subnodeEdges.map((e) => {
-      const node = allNodes.find((n) => n.id === e.source);
-      if (!node) return null;
-      const nd = node.data as WorkflowNodeData;
-      return { id: node.id, label: nd.label, type: nd.subnodeType || 'tool', icon: nd.icon, nodeType: nd.type };
-    }).filter(Boolean) as { id: string; label: string; type: string; icon?: string; nodeType: string }[];
-  };
-
   // Render bottom section for subnode slots (stacked badge style)
   const renderSubnodeSlotSection = () => {
     const slots = data.subnodeSlots;
-    if (!slots || slots.length === 0) return null;
+    if (!slots || slots.length === 0 || !subnodeSlotData) return null;
 
     return (
       <>
@@ -289,8 +256,9 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
         {slots.map((slot, index) => {
           // Position evenly across the node width
           const slotPercent = (index + 0.5) / slots.length * 100;
-          const canAdd = canSlotAcceptMore(slot.name, slot.multiple);
-          const connectedSubnodes = getSlotSubnodes(slot.name);
+          const slotInfo = subnodeSlotData[slot.name];
+          const canAdd = slotInfo?.canAddMore ?? false;
+          const connectedSubnodes = slotInfo?.subnodes ?? [];
 
           return (
             <div key={`slot-group-${slot.name}`}>

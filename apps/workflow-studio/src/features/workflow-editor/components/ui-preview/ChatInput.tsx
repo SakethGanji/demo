@@ -16,9 +16,6 @@ interface ChatInputProps {
 export function ChatInput({ config }: ChatInputProps) {
   const [input, setInput] = useState('');
   const workflowId = useWorkflowStore((s) => s.workflowId);
-  const workflowName = useWorkflowStore((s) => s.workflowName);
-  const nodes = useWorkflowStore((s) => s.nodes);
-  const edges = useWorkflowStore((s) => s.edges);
   const addMessage = useUIModeStore((s) => s.addMessage);
   const isExecuting = useUIModeStore((s) => s.isExecuting);
   const setIsExecuting = useUIModeStore((s) => s.setExecuting);
@@ -35,12 +32,14 @@ export function ChatInput({ config }: ChatInputProps) {
     addMessage({ type: 'user', content: message });
     setIsExecuting(true);
 
+    const { workflowId: wfId, nodes, edges, workflowName } = useWorkflowStore.getState();
+
     try {
       let response: Response;
 
-      if (workflowId) {
+      if (wfId) {
         // Use saved workflow execution
-        response = await fetch(`${backends.workflow}/api/workflows/${workflowId}/run`, {
+        response = await fetch(`${backends.workflow}/api/workflows/${wfId}/run`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -155,7 +154,7 @@ export function ChatInput({ config }: ChatInputProps) {
     } finally {
       setIsExecuting(false);
     }
-  }, [input, workflowId, workflowName, nodes, edges, addMessage, setIsExecuting, setHtmlContent, setMarkdownContent, isExecuting]);
+  }, [input, workflowId, addMessage, setIsExecuting, setHtmlContent, setMarkdownContent, isExecuting]);
 
   const placeholder = config.placeholder || 'Type a message...';
 

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useMemo } from 'react'
+import { lazy, Suspense, useEffect, useRef } from 'react'
 import { createRoute } from '@tanstack/react-router'
 import { ReactFlowProvider, useViewport } from 'reactflow'
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
@@ -7,14 +7,14 @@ import { Loader2, X, Blocks, Sparkles, CheckCircle2, XCircle, Clock } from 'luci
 import { rootRoute } from './__root'
 import { useWorkflowStore } from '@/features/workflow-editor/stores/workflowStore'
 import { useEditorLayoutStore, type RightPanelTab } from '@/features/workflow-editor/stores/editorLayoutStore'
+import { useExecSummary } from '@/features/workflow-editor/hooks/useWorkflowSelectors'
 import { fromBackendWorkflow } from '@/features/workflow-editor/lib/workflowTransform'
 import { backends } from '@/shared/lib/config'
 import { cn } from '@/shared/lib/utils'
 import { useNodeTypes } from '@/features/workflow-editor/hooks/useNodeTypes'
 import type { NodeTypeMetadata } from '@/features/workflow-editor/lib/createNodeData'
-import NodeCreatorPanel from '@/features/workflow-editor/components/node-creator/NodeCreatorPanel'
-
 // Lazy load heavy components
+const NodeCreatorPanel = lazy(() => import('@/features/workflow-editor/components/node-creator/NodeCreatorPanel'))
 const WorkflowCanvas = lazy(() => import('@/features/workflow-editor/components/canvas/WorkflowCanvas'))
 const NodeDetailsModal = lazy(() => import('@/features/workflow-editor/components/ndv/NodeDetailsModal'))
 const WorkflowNavbar = lazy(() => import('@/features/workflow-editor/components/workflow-navbar/WorkflowNavbar'))
@@ -73,23 +73,14 @@ function RightPanel() {
 
 // --- Inlined from StatusBar.tsx ---
 function StatusBar() {
-  const nodes = useWorkflowStore((s) => s.nodes)
-  const edges = useWorkflowStore((s) => s.edges)
-  const executionData = useWorkflowStore((s) => s.executionData)
+  const nodeCount = useWorkflowStore((s) => s.nodeCount)
+  const edgeCount = useWorkflowStore((s) => s.edgeCount)
+  const isRunning = useWorkflowStore((s) => s.isAnyNodeRunning)
+  const execSummary = useExecSummary()
   const { zoom } = useViewport()
 
-  const nodeCount = nodes.filter((n) => n.type === 'workflowNode').length
-  const edgeCount = edges.length
-
-  const execEntries = Object.values(executionData)
-  const isRunning = execEntries.some((d) => d.status === 'running')
-  const hasErrors = execEntries.some((d) => d.status === 'error')
-  const hasLogs = execEntries.length > 0
+  const { hasErrors, hasLogs, totalDuration } = execSummary
   const allSuccess = hasLogs && !isRunning && !hasErrors
-  const totalDuration = execEntries.reduce(
-    (sum, d) => sum + ((d.startTime && d.endTime ? d.endTime - d.startTime : 0)),
-    0
-  )
 
   return (
     <div className="editor-chrome flex items-center h-6 px-3 bg-card border-t border-border text-[11px] text-muted-foreground shrink-0 select-none gap-3">

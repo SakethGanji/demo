@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, memo } from 'react';
 import { Bot, User, ChevronDown, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
 import type { AIChatMessage } from '../../types/aiChat';
@@ -49,7 +49,7 @@ export function AIChatMessageList({ messages, isStreaming }: AIChatMessageListPr
   );
 }
 
-function MessageBubble({ message }: { message: AIChatMessage }) {
+const MessageBubble = memo(function MessageBubble({ message }: { message: AIChatMessage }) {
   const isUser = message.role === 'user';
 
   return (
@@ -84,7 +84,7 @@ function MessageBubble({ message }: { message: AIChatMessage }) {
       </div>
     </div>
   );
-}
+});
 
 function OperationsSummary({ payload }: { payload: NonNullable<AIChatMessage['operations']> }) {
   const [expanded, setExpanded] = useState(false);

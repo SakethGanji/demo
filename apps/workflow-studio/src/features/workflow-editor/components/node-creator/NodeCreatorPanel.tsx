@@ -31,21 +31,22 @@ interface ExtendedNodeDefinition extends NodeDefinition {
 }
 
 export default function NodeCreatorPanel() {
-  const {
-    nodeCreatorView: view,
-    nodeCreatorSearch: search,
-    sourceNodeId,
-    sourceHandleId,
-    dropPosition,
-    subnodeSlotContext,
-    closeCreatorPanel: closePanel,
-    setCreatorView: setView,
-    setCreatorSearch: setSearch,
-    clearConnectionContext,
-    clearSubnodeContext,
-  } = useEditorLayoutStore();
+  const view = useEditorLayoutStore((s) => s.nodeCreatorView);
+  const search = useEditorLayoutStore((s) => s.nodeCreatorSearch);
+  const sourceNodeId = useEditorLayoutStore((s) => s.sourceNodeId);
+  const sourceHandleId = useEditorLayoutStore((s) => s.sourceHandleId);
+  const dropPosition = useEditorLayoutStore((s) => s.dropPosition);
+  const subnodeSlotContext = useEditorLayoutStore((s) => s.subnodeSlotContext);
+  const closePanel = useEditorLayoutStore((s) => s.closeCreatorPanel);
+  const setView = useEditorLayoutStore((s) => s.setCreatorView);
+  const setSearch = useEditorLayoutStore((s) => s.setCreatorSearch);
+  const clearConnectionContext = useEditorLayoutStore((s) => s.clearConnectionContext);
+  const clearSubnodeContext = useEditorLayoutStore((s) => s.clearSubnodeContext);
 
-  const { addNode, addSubnode, nodes, onConnect } = useWorkflowStore();
+  const addNode = useWorkflowStore((s) => s.addNode);
+  const addSubnode = useWorkflowStore((s) => s.addSubnode);
+  const nodes = useWorkflowStore((s) => s.nodes);
+  const onConnect = useWorkflowStore((s) => s.onConnect);
 
   // Fetch node types from API
   const { data: apiNodes, isLoading, isError } = useNodeTypes();

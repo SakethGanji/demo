@@ -9,32 +9,45 @@ interface KeyboardShortcutsOptions {
   onSaveAs?: () => void;
 }
 
+const SHORTCUTS = [
+  // Edit operations
+  { key: 'Ctrl/Cmd + Z', description: 'Undo' },
+  { key: 'Ctrl/Cmd + Shift + Z', description: 'Redo' },
+  { key: 'Ctrl/Cmd + C', description: 'Copy selected nodes' },
+  { key: 'Ctrl/Cmd + X', description: 'Cut selected nodes' },
+  { key: 'Ctrl/Cmd + V', description: 'Paste nodes' },
+  { key: 'Ctrl/Cmd + D', description: 'Duplicate selected nodes' },
+  { key: 'Ctrl/Cmd + A', description: 'Select all nodes' },
+  { key: 'Shift + Click', description: 'Add node to selection' },
+  { key: 'Ctrl + Drag', description: 'Selection box' },
+  { key: 'Delete/Backspace', description: 'Delete selected nodes' },
+  // Node operations
+  { key: 'Enter', description: 'Open selected node settings' },
+  { key: 'Arrow keys', description: 'Move selected nodes' },
+  { key: 'Shift + Arrow', description: 'Move nodes faster' },
+  // Add nodes
+  { key: 'N', description: 'Add new node' },
+  { key: 'T', description: 'Add trigger node' },
+  { key: 'S', description: 'Add sticky note' },
+  // File operations
+  { key: 'Ctrl/Cmd + S', description: 'Save workflow' },
+  { key: 'Ctrl/Cmd + E', description: 'Export workflow' },
+  { key: 'Ctrl/Cmd + I', description: 'Import workflow' },
+  // View operations
+  { key: 'Ctrl/Cmd + 0', description: 'Fit to view' },
+  { key: 'Ctrl/Cmd + F', description: 'Zoom to selection' },
+  { key: 'Ctrl/Cmd + +', description: 'Zoom in' },
+  { key: 'Ctrl/Cmd + -', description: 'Zoom out' },
+  { key: 'F', description: 'Fit to view' },
+  { key: 'Escape', description: 'Close panel/modal' },
+  { key: '?', description: 'Show shortcuts help' },
+] as const;
+
 export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
   const { onSave, onSaveAs } = options;
   const { fitView, zoomIn, zoomOut, getNodes, setNodes } = useReactFlow();
   const [isShortcutsHelpOpen, setIsShortcutsHelpOpen] = useState(false);
 
-  const deleteNode = useWorkflowStore((s) => s.deleteNode);
-  const deleteNodes = useWorkflowStore((s) => s.deleteNodes);
-  const selectedNodeId = useWorkflowStore((s) => s.selectedNodeId);
-  const addStickyNote = useWorkflowStore((s) => s.addStickyNote);
-  const copyNodes = useWorkflowStore((s) => s.copyNodes);
-  const cutNodes = useWorkflowStore((s) => s.cutNodes);
-  const pasteNodes = useWorkflowStore((s) => s.pasteNodes);
-  const duplicateNodes = useWorkflowStore((s) => s.duplicateNodes);
-  const undo = useWorkflowStore((s) => s.undo);
-  const redo = useWorkflowStore((s) => s.redo);
-  const moveNodes = useWorkflowStore((s) => s.moveNodes);
-  const clipboard = useWorkflowStore((s) => s.clipboard);
-  const exportWorkflow = useWorkflowStore((s) => s.exportWorkflow);
-  const importWorkflow = useWorkflowStore((s) => s.importWorkflow);
-  const workflowName = useWorkflowStore((s) => s.workflowName);
-
-  const closePanel = useEditorLayoutStore((s) => s.closeCreatorPanel);
-  const openPanel = useEditorLayoutStore((s) => s.openCreatorPanel);
-
-  const closeNDV = useNDVStore((s) => s.closeNDV);
-  const openNDV = useNDVStore((s) => s.openNDV);
   const isNDVOpen = useNDVStore((s) => s.isOpen);
 
   const handleKeyDown = useCallback(
@@ -48,12 +61,12 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       // Always handle Escape
       if (event.key === 'Escape') {
         if (isNDVOpen) {
-          closeNDV();
+          useNDVStore.getState().closeNDV();
           event.preventDefault();
           return;
         }
         // Reset node creator context (connection/subnode mode)
-        closePanel();
+        useEditorLayoutStore.getState().closeCreatorPanel();
       }
 
       // Don't handle other shortcuts when typing
@@ -79,12 +92,13 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       // Ctrl/Cmd + E: Export workflow
       if (modifierKey && event.key === 'e') {
         event.preventDefault();
-        const json = exportWorkflow();
+        const wfStore = useWorkflowStore.getState();
+        const json = wfStore.exportWorkflow();
         const blob = new Blob([json], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `${workflowName.replace(/[^a-z0-9]/gi, '_')}.json`;
+        a.download = `${wfStore.workflowName.replace(/[^a-z0-9]/gi, '_')}.json`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -105,7 +119,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
             reader.onload = (e) => {
               const json = e.target?.result as string;
               if (json) {
-                importWorkflow(json);
+                useWorkflowStore.getState().importWorkflow(json);
               }
             };
             reader.readAsText(file);
@@ -118,7 +132,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       // Ctrl/Cmd + Z: Undo
       if (modifierKey && !event.shiftKey && event.key === 'z') {
         event.preventDefault();
-        undo();
+        useWorkflowStore.getState().undo();
         return;
       }
 
@@ -126,7 +140,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       if ((modifierKey && event.shiftKey && event.key === 'Z') ||
           (modifierKey && event.key === 'y')) {
         event.preventDefault();
-        redo();
+        useWorkflowStore.getState().redo();
         return;
       }
 
@@ -135,6 +149,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
         event.preventDefault();
         const nodes = getNodes();
         const selectedIds = nodes.filter((n) => n.selected).map((n) => n.id);
+        const { selectedNodeId, copyNodes } = useWorkflowStore.getState();
         if (selectedIds.length > 0) {
           copyNodes(selectedIds);
         } else if (selectedNodeId) {
@@ -148,6 +163,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
         event.preventDefault();
         const nodes = getNodes();
         const selectedIds = nodes.filter((n) => n.selected).map((n) => n.id);
+        const { selectedNodeId, cutNodes } = useWorkflowStore.getState();
         if (selectedIds.length > 0) {
           cutNodes(selectedIds);
         } else if (selectedNodeId) {
@@ -159,6 +175,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       // Ctrl/Cmd + V: Paste
       if (modifierKey && event.key === 'v') {
         event.preventDefault();
+        const { clipboard, pasteNodes } = useWorkflowStore.getState();
         if (clipboard) {
           pasteNodes();
         }
@@ -170,6 +187,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
         event.preventDefault();
         const nodes = getNodes();
         const selectedIds = nodes.filter((n) => n.selected).map((n) => n.id);
+        const { selectedNodeId, duplicateNodes } = useWorkflowStore.getState();
         if (selectedIds.length > 0) {
           duplicateNodes(selectedIds);
         } else if (selectedNodeId) {
@@ -218,14 +236,14 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       // N: Add new node (when no modifiers)
       if (event.key === 'n' && !modifierKey && !event.shiftKey && !event.altKey) {
         event.preventDefault();
-        openPanel('regular');
+        useEditorLayoutStore.getState().openCreatorPanel('regular');
         return;
       }
 
       // T: Add trigger node
       if (event.key === 't' && !modifierKey && !event.shiftKey && !event.altKey) {
         event.preventDefault();
-        openPanel('trigger');
+        useEditorLayoutStore.getState().openCreatorPanel('trigger');
         return;
       }
 
@@ -240,7 +258,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
         const centerY = nodes.length > 0
           ? nodes.reduce((sum, n) => sum + n.position.y, 0) / nodes.length
           : 300;
-        addStickyNote({ x: centerX + 100, y: centerY - 100 });
+        useWorkflowStore.getState().addStickyNote({ x: centerX + 100, y: centerY - 100 });
         return;
       }
 
@@ -249,6 +267,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
         event.preventDefault();
         const nodes = getNodes();
         const selectedIds = nodes.filter((n) => n.selected).map((n) => n.id);
+        const { selectedNodeId, deleteNodes, deleteNode } = useWorkflowStore.getState();
         if (selectedIds.length > 0) {
           deleteNodes(selectedIds);
         } else if (selectedNodeId) {
@@ -261,6 +280,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
         const nodes = getNodes();
         const selectedIds = nodes.filter((n) => n.selected).map((n) => n.id);
+        const { selectedNodeId } = useWorkflowStore.getState();
         const nodeIds = selectedIds.length > 0 ? selectedIds : (selectedNodeId ? [selectedNodeId] : []);
 
         if (nodeIds.length > 0) {
@@ -270,15 +290,18 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
             x: event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0,
             y: event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0,
           };
-          moveNodes(nodeIds, delta);
+          useWorkflowStore.getState().moveNodes(nodeIds, delta);
         }
         return;
       }
 
       // Enter: Open selected node details
-      if (event.key === 'Enter' && selectedNodeId) {
-        event.preventDefault();
-        openNDV(selectedNodeId);
+      if (event.key === 'Enter') {
+        const { selectedNodeId } = useWorkflowStore.getState();
+        if (selectedNodeId) {
+          event.preventDefault();
+          useNDVStore.getState().openNDV(selectedNodeId);
+        }
         return;
       }
 
@@ -294,6 +317,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
         event.preventDefault();
         const nodes = getNodes();
         const selectedIds = nodes.filter((n) => n.selected).map((n) => n.id);
+        const { selectedNodeId } = useWorkflowStore.getState();
         if (selectedIds.length > 0) {
           fitView({ padding: 0.3, duration: 200, nodes: nodes.filter((n) => n.selected) });
         } else if (selectedNodeId) {
@@ -320,28 +344,9 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       fitView,
       zoomIn,
       zoomOut,
-      deleteNode,
-      deleteNodes,
-      selectedNodeId,
-      closePanel,
-      openPanel,
-      closeNDV,
-      isNDVOpen,
-      addStickyNote,
       getNodes,
       setNodes,
-      copyNodes,
-      cutNodes,
-      pasteNodes,
-      duplicateNodes,
-      undo,
-      redo,
-      moveNodes,
-      clipboard,
-      openNDV,
-      exportWorkflow,
-      importWorkflow,
-      workflowName,
+      isNDVOpen,
     ]
   );
 
@@ -351,39 +356,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
   }, [handleKeyDown]);
 
   return {
-    shortcuts: [
-      // Edit operations
-      { key: 'Ctrl/Cmd + Z', description: 'Undo' },
-      { key: 'Ctrl/Cmd + Shift + Z', description: 'Redo' },
-      { key: 'Ctrl/Cmd + C', description: 'Copy selected nodes' },
-      { key: 'Ctrl/Cmd + X', description: 'Cut selected nodes' },
-      { key: 'Ctrl/Cmd + V', description: 'Paste nodes' },
-      { key: 'Ctrl/Cmd + D', description: 'Duplicate selected nodes' },
-      { key: 'Ctrl/Cmd + A', description: 'Select all nodes' },
-      { key: 'Shift + Click', description: 'Add node to selection' },
-      { key: 'Ctrl + Drag', description: 'Selection box' },
-      { key: 'Delete/Backspace', description: 'Delete selected nodes' },
-      // Node operations
-      { key: 'Enter', description: 'Open selected node settings' },
-      { key: 'Arrow keys', description: 'Move selected nodes' },
-      { key: 'Shift + Arrow', description: 'Move nodes faster' },
-      // Add nodes
-      { key: 'N', description: 'Add new node' },
-      { key: 'T', description: 'Add trigger node' },
-      { key: 'S', description: 'Add sticky note' },
-      // File operations
-      { key: 'Ctrl/Cmd + S', description: 'Save workflow' },
-      { key: 'Ctrl/Cmd + E', description: 'Export workflow' },
-      { key: 'Ctrl/Cmd + I', description: 'Import workflow' },
-      // View operations
-      { key: 'Ctrl/Cmd + 0', description: 'Fit to view' },
-      { key: 'Ctrl/Cmd + F', description: 'Zoom to selection' },
-      { key: 'Ctrl/Cmd + +', description: 'Zoom in' },
-      { key: 'Ctrl/Cmd + -', description: 'Zoom out' },
-      { key: 'F', description: 'Fit to view' },
-      { key: 'Escape', description: 'Close panel/modal' },
-      { key: '?', description: 'Show shortcuts help' },
-    ],
+    shortcuts: SHORTCUTS,
     isShortcutsHelpOpen,
     setIsShortcutsHelpOpen,
   };

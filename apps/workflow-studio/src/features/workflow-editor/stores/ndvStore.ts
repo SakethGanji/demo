@@ -38,6 +38,15 @@ function savePreferences(prefs: Partial<NDVPreferences>) {
   }
 }
 
+let debouncedSaveTimer: ReturnType<typeof setTimeout> | null = null;
+function debouncedSavePreferences(prefs: Partial<NDVPreferences>) {
+  if (debouncedSaveTimer) clearTimeout(debouncedSaveTimer);
+  debouncedSaveTimer = setTimeout(() => {
+    savePreferences(prefs);
+    debouncedSaveTimer = null;
+  }, 300);
+}
+
 const defaults = loadPreferences();
 
 interface NDVState {
@@ -74,7 +83,7 @@ export const useNDVStore = create<NDVState>((set) => ({
   closeNDV: () => set({ isOpen: false, activeNodeId: null }),
 
   setPanelSizes: (input, output) => {
-    savePreferences({ inputPanelSize: input, outputPanelSize: output });
+    debouncedSavePreferences({ inputPanelSize: input, outputPanelSize: output });
     set({ inputPanelSize: input, outputPanelSize: output });
   },
 

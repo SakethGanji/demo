@@ -48,6 +48,17 @@ function persist(key: string, value: unknown) {
   localStorage.setItem(`${STORAGE_PREFIX}:${key}`, JSON.stringify(value));
 }
 
+// Debounced persist for continuous drag operations (panel resizing)
+const debouncedTimers = new Map<string, ReturnType<typeof setTimeout>>();
+function debouncedPersist(key: string, value: unknown) {
+  const existing = debouncedTimers.get(key);
+  if (existing) clearTimeout(existing);
+  debouncedTimers.set(key, setTimeout(() => {
+    persist(key, value);
+    debouncedTimers.delete(key);
+  }, 300));
+}
+
 interface DropPosition {
   x: number;
   y: number;
@@ -123,7 +134,7 @@ export const useEditorLayoutStore = create<EditorLayoutState>((set, get) => ({
     }),
 
   setRightPanelSize: (size) => {
-    persist('right-size', size);
+    debouncedPersist('right-size', size);
     set({ rightPanelSize: size });
   },
 
@@ -162,7 +173,7 @@ export const useEditorLayoutStore = create<EditorLayoutState>((set, get) => ({
     }),
 
   setBottomPanelSize: (size) => {
-    persist('bottom-size', size);
+    debouncedPersist('bottom-size', size);
     set({ bottomPanelSize: size });
   },
 

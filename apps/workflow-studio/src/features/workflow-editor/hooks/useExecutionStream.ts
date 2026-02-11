@@ -52,28 +52,9 @@ interface UseExecutionStreamResult {
 
 
 export function useExecutionStream(): UseExecutionStreamResult {
-  const {
-    nodes,
-    edges,
-    workflowName,
-    workflowId,
-    setNodeExecutionData,
-    setSubworkflowNodeExecutionData,
-    clearExecutionData,
-  } = useWorkflowStore();
-
-  const setHtmlContent = useUIModeStore((s) => s.setHtmlContent);
-  const setMarkdownContent = useUIModeStore((s) => s.setMarkdownContent);
-
   const [isExecuting, setIsExecuting] = useState(false);
   const [progress, setProgress] = useState<{ completed: number; total: number } | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
-
-  // Build name-to-id mapping for translating backend node names to UI node IDs
-  const getNameToIdMap = useCallback(
-    () => buildNameToIdMap(nodes as Node<WorkflowNodeData>[]),
-    [nodes],
-  );
 
   const cancelExecution = useCallback(() => {
     if (abortControllerRef.current) {
@@ -85,6 +66,18 @@ export function useExecutionStream(): UseExecutionStreamResult {
   }, []);
 
   const executeWorkflow = useCallback(async (inputData?: Record<string, unknown>) => {
+    const {
+      nodes,
+      edges,
+      workflowName,
+      workflowId,
+      setNodeExecutionData,
+      setSubworkflowNodeExecutionData,
+      clearExecutionData,
+    } = useWorkflowStore.getState();
+
+    const { setHtmlContent, setMarkdownContent } = useUIModeStore.getState();
+
     // Clear previous execution data
     clearExecutionData();
     setIsExecuting(true);
@@ -100,7 +93,7 @@ export function useExecutionStream(): UseExecutionStreamResult {
       });
     });
 
-    const nameToId = getNameToIdMap();
+    const nameToId = buildNameToIdMap(nodes as Node<WorkflowNodeData>[]);
     const nodeOutputs: Record<string, Array<{ json: Record<string, unknown> }>> = {};
 
     try {
@@ -167,7 +160,7 @@ export function useExecutionStream(): UseExecutionStreamResult {
 
         // Mark all nodes as error
         workflowNodes.forEach((node) => {
-          setNodeExecutionData(node.id, {
+          useWorkflowStore.getState().setNodeExecutionData(node.id, {
             input: null,
             output: { items: [], error: message },
             status: 'error',
@@ -185,6 +178,8 @@ export function useExecutionStream(): UseExecutionStreamResult {
       nameToId: Map<string, string>,
       nodeOutputs: Record<string, Array<{ json: Record<string, unknown> }>>,
     ) {
+      const store = useWorkflowStore.getState();
+
       switch (event.type) {
         case 'execution:start':
           setProgress(event.progress || null);
@@ -195,7 +190,7 @@ export function useExecutionStream(): UseExecutionStreamResult {
           if (event.subworkflowParentNode) {
             const parentNodeId = nameToId.get(event.subworkflowParentNode);
             if (parentNodeId && event.nodeName) {
-              setSubworkflowNodeExecutionData(parentNodeId, event.nodeName, {
+              store.setSubworkflowNodeExecutionData(parentNodeId, event.nodeName, {
                 input: null,
                 output: null,
                 status: 'running',
@@ -205,7 +200,7 @@ export function useExecutionStream(): UseExecutionStreamResult {
           } else {
             const nodeId = nameToId.get(event.nodeName || '');
             if (nodeId) {
-              setNodeExecutionData(nodeId, {
+              store.setNodeExecutionData(nodeId, {
                 input: null,
                 output: null,
                 status: 'running',
@@ -222,7 +217,7 @@ export function useExecutionStream(): UseExecutionStreamResult {
           if (event.subworkflowParentNode) {
             const parentNodeId = nameToId.get(event.subworkflowParentNode);
             if (parentNodeId && event.nodeName) {
-              setSubworkflowNodeExecutionData(parentNodeId, event.nodeName, {
+              store.setSubworkflowNodeExecutionData(parentNodeId, event.nodeName, {
                 input: null,
                 output: { items: event.data?.map((d) => d.json) || [] },
                 status: 'success',
@@ -238,22 +233,24 @@ export function useExecutionStream(): UseExecutionStreamResult {
                 nodeOutputs[event.nodeName] = event.data;
 
                 // Check for UI output content (HTML/Markdown)
+                const uiStore = useUIModeStore.getState();
                 for (const item of event.data) {
                   const data = item.json;
                   if (data._renderAs === 'html' && data.html) {
-                    setHtmlContent(String(data.html));
+                    uiStore.setHtmlContent(String(data.html));
                   }
                   if (data._renderAs === 'markdown' && data.markdown) {
-                    setMarkdownContent(String(data.markdown));
+                    uiStore.setMarkdownContent(String(data.markdown));
                   }
                 }
               }
 
-              // Find input from upstream node
-              const inputNodeName = findUpstreamNodeName(event.nodeName, nameToId, edges);
+              // Find input from upstream node — read edges from store at event time
+              const currentEdges = useWorkflowStore.getState().edges;
+              const inputNodeName = findUpstreamNodeName(event.nodeName, nameToId, currentEdges);
               const inputData = inputNodeName ? nodeOutputs[inputNodeName] : null;
 
-              setNodeExecutionData(nodeId, {
+              store.setNodeExecutionData(nodeId, {
                 input: inputData ? { items: inputData.map((d) => d.json) } : null,
                 output: { items: event.data?.map((d) => d.json) || [] },
                 status: 'success',
@@ -271,7 +268,7 @@ export function useExecutionStream(): UseExecutionStreamResult {
           if (event.subworkflowParentNode) {
             const parentNodeId = nameToId.get(event.subworkflowParentNode);
             if (parentNodeId && event.nodeName) {
-              setSubworkflowNodeExecutionData(parentNodeId, event.nodeName, {
+              store.setSubworkflowNodeExecutionData(parentNodeId, event.nodeName, {
                 input: null,
                 output: { items: [], error: event.error },
                 status: 'error',
@@ -281,7 +278,7 @@ export function useExecutionStream(): UseExecutionStreamResult {
           } else {
             const nodeId = nameToId.get(event.nodeName || '');
             if (nodeId) {
-              setNodeExecutionData(nodeId, {
+              store.setNodeExecutionData(nodeId, {
                 input: null,
                 output: { items: [], error: event.error },
                 status: 'error',
@@ -321,18 +318,7 @@ export function useExecutionStream(): UseExecutionStreamResult {
           break;
       }
     }
-  }, [
-    nodes,
-    edges,
-    workflowName,
-    workflowId,
-    setNodeExecutionData,
-    setSubworkflowNodeExecutionData,
-    clearExecutionData,
-    getNameToIdMap,
-    setHtmlContent,
-    setMarkdownContent,
-  ]);
+  }, []);
 
   return {
     executeWorkflow,

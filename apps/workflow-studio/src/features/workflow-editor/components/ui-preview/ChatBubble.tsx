@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { cn } from '@/shared/lib/utils';
 import type { UIMessage } from '../../stores/uiModeStore';
 
@@ -5,7 +6,7 @@ interface ChatBubbleProps {
   message: UIMessage;
 }
 
-export function ChatBubble({ message }: ChatBubbleProps) {
+export const ChatBubble = memo(function ChatBubble({ message }: ChatBubbleProps) {
   const isUser = message.type === 'user';
   const isSystem = message.type === 'system';
 
@@ -35,4 +36,4 @@ export function ChatBubble({ message }: ChatBubbleProps) {
       </div>
     </div>
   );
-}
+});

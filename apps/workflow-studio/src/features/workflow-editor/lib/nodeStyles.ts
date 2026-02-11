@@ -11,7 +11,7 @@ import type { NodeGroup } from './nodeConfig';
 // Re-export NodeGroup type for convenience
 export type { NodeGroup };
 
-interface NodeStyleConfig {
+export interface NodeStyleConfig {
   group: NodeGroup;
   bgColor: string;
   borderColor: string;

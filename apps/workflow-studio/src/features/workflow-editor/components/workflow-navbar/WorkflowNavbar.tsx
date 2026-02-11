@@ -45,17 +45,15 @@ import WorkflowPickerDialog from './WorkflowPickerDialog';
 export default function WorkflowNavbar() {
   const workflowName = useWorkflowStore((s) => s.workflowName);
   const workflowId = useWorkflowStore((s) => s.workflowId);
-  const nodes = useWorkflowStore((s) => s.nodes);
-  const edges = useWorkflowStore((s) => s.edges);
   const isActive = useWorkflowStore((s) => s.isActive);
   const setWorkflowName = useWorkflowStore((s) => s.setWorkflowName);
   const undo = useWorkflowStore((s) => s.undo);
   const redo = useWorkflowStore((s) => s.redo);
-  const canUndo = useWorkflowStore((s) => s.canUndo);
-  const canRedo = useWorkflowStore((s) => s.canRedo);
+  const _canUndo = useWorkflowStore((s) => s._canUndo);
+  const _canRedo = useWorkflowStore((s) => s._canRedo);
   const addSubworkflowNode = useWorkflowStore((s) => s.addSubworkflowNode);
   const copyWorkflowNodes = useWorkflowStore((s) => s.copyWorkflowNodes);
-  const isDirty = useWorkflowStore((s) => s.isDirty);
+  const _isDirty = useWorkflowStore((s) => s._isDirty);
 
   const { saveWorkflow, isSaving } = useSaveWorkflow();
   const { toggleActive, isToggling } = useToggleWorkflowActive();
@@ -179,7 +177,7 @@ export default function WorkflowNavbar() {
             {workflowName}
           </button>
         )}
-        {isDirty() && (
+        {_isDirty && (
           <span
             className="w-1.5 h-1.5 rounded-full bg-[var(--warning)] flex-shrink-0"
             title="Unsaved changes"
@@ -190,10 +188,10 @@ export default function WorkflowNavbar() {
         <div className="flex-1" />
 
         <div className="flex bg-muted/50 rounded-md px-0.5 py-0.5">
-          <button onClick={() => undo()} disabled={!canUndo()} className={btnClass} title="Undo">
+          <button onClick={() => undo()} disabled={!_canUndo} className={btnClass} title="Undo">
             <Undo2 size={14} />
           </button>
-          <button onClick={() => redo()} disabled={!canRedo()} className={btnClass} title="Redo">
+          <button onClick={() => redo()} disabled={!_canRedo} className={btnClass} title="Redo">
             <Redo2 size={14} />
           </button>
         </div>
@@ -345,16 +343,17 @@ export default function WorkflowNavbar() {
               Duplicate
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => {
+              const { nodes, edges, workflowName: wfName, workflowId: wfId, isActive: active } = useWorkflowStore.getState();
               const backendWorkflow = toBackendWorkflow(
                 nodes as Node<WorkflowNodeData>[],
                 edges,
-                workflowName,
-                workflowId
+                wfName,
+                wfId
               );
               const exportData = {
-                name: workflowName,
+                name: wfName,
                 description: '',
-                active: isActive,
+                active,
                 nodes: backendWorkflow.nodes,
                 connections: backendWorkflow.connections,
               };
@@ -362,7 +361,7 @@ export default function WorkflowNavbar() {
               const url = URL.createObjectURL(blob);
               const a = document.createElement('a');
               a.href = url;
-              a.download = `${workflowName.replace(/\s+/g, '-').toLowerCase()}.json`;
+              a.download = `${wfName.replace(/\s+/g, '-').toLowerCase()}.json`;
               a.click();
               URL.revokeObjectURL(url);
             }}>

@@ -1,4 +1,4 @@
-import type { DragEvent } from 'react';
+import { memo, type DragEvent } from 'react';
 import type { NodeDefinition } from '../../types/workflow';
 import { getNodeStyles } from '../../lib/nodeStyles';
 import { normalizeNodeGroup, type NodeGroup } from '../../lib/nodeConfig';
@@ -10,7 +10,7 @@ interface NodeItemProps {
   onClick: () => void;
 }
 
-export default function NodeItem({ node, onClick }: NodeItemProps) {
+function NodeItem({ node, onClick }: NodeItemProps) {
   const IconComponent = getIconForNode(node.icon, node.type);
   const setDraggedNodeType = useWorkflowStore((s) => s.setDraggedNodeType);
 
@@ -59,3 +59,5 @@ export default function NodeItem({ node, onClick }: NodeItemProps) {
     </button>
   );
 }
+
+export default memo(NodeItem);

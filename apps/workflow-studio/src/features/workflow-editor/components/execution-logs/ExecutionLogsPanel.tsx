@@ -5,7 +5,7 @@
  * Used inside the BottomPanel's Logs tab.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Trash2,
   CheckCircle2,
@@ -36,27 +36,30 @@ export default function ExecutionLogsPanel() {
   const clearExecutionData = useWorkflowStore((s) => s.clearExecutionData);
 
   // Convert execution data to logs format
-  const logs: ExecutionLog[] = Object.entries(executionData)
-    .map(([nodeId, data]): ExecutionLog | null => {
-      const node = nodes.find((n) => n.id === nodeId);
-      if (!node || node.type !== 'workflowNode') return null;
+  const logs: ExecutionLog[] = useMemo(() =>
+    Object.entries(executionData)
+      .map(([nodeId, data]): ExecutionLog | null => {
+        const node = nodes.find((n) => n.id === nodeId);
+        if (!node || node.type !== 'workflowNode') return null;
 
-      return {
-        id: nodeId,
-        nodeName: node.data.name || nodeId,
-        nodeLabel: node.data.label || node.data.name || 'Unknown',
-        status: data.status,
-        timestamp: data.startTime || Date.now(),
-        duration:
-          data.startTime && data.endTime
-            ? data.endTime - data.startTime
-            : undefined,
-        itemCount: data.output?.items?.length,
-        error: data.output?.error,
-      };
-    })
-    .filter((log): log is ExecutionLog => log !== null)
-    .sort((a, b) => a.timestamp - b.timestamp);
+        return {
+          id: nodeId,
+          nodeName: node.data.name || nodeId,
+          nodeLabel: node.data.label || node.data.name || 'Unknown',
+          status: data.status,
+          timestamp: data.startTime || Date.now(),
+          duration:
+            data.startTime && data.endTime
+              ? data.endTime - data.startTime
+              : undefined,
+          itemCount: data.output?.items?.length,
+          error: data.output?.error,
+        };
+      })
+      .filter((log): log is ExecutionLog => log !== null)
+      .sort((a, b) => a.timestamp - b.timestamp),
+    [executionData, nodes]
+  );
 
   const hasLogs = logs.length > 0;
   const isRunning = logs.some((l) => l.status === 'running');

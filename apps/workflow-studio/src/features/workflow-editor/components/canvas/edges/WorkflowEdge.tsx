@@ -1,4 +1,4 @@
-import { memo, useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { memo, useState, useMemo, useRef, useEffect } from 'react';
 import {
   EdgeLabelRenderer,
   getSmoothStepPath,
@@ -8,6 +8,7 @@ import {
 import { Plus } from 'lucide-react';
 import { useEditorLayoutStore } from '../../../stores/editorLayoutStore';
 import { useWorkflowStore } from '../../../stores/workflowStore';
+import { useNodeExecStatus } from '../../../hooks/useWorkflowSelectors';
 import type { WorkflowNodeData } from '../../../types/workflow';
 
 type Point = { x: number; y: number };
@@ -144,7 +145,9 @@ function WorkflowEdge({
 
   const openForConnection = useEditorLayoutStore((s) => s.openForConnection);
   const { getNode, screenToFlowPosition } = useReactFlow();
-  const executionData = useWorkflowStore((s) => s.executionData);
+  const sourceExecStatus = useNodeExecStatus(source);
+  const targetExecStatus = useNodeExecStatus(target);
+  const isAnyNodeRunning = useWorkflowStore((s) => s.isAnyNodeRunning);
   const draggedNodeType = useWorkflowStore((s) => s.draggedNodeType);
 
   // Debounced hover: prevents flicker when mouse moves between SVG path and HTML overlays
@@ -172,19 +175,14 @@ function WorkflowEdge({
   const isDragging = !!draggedNodeType;
 
   const edgeStatus = useMemo(() => {
-    const sourceExec = executionData[source];
-    const targetExec = executionData[target];
-    if (targetExec?.status === 'running') return 'running';
-    if (targetExec?.status === 'success') return 'success';
-    if (targetExec?.status === 'error') return 'error';
-    if (sourceExec?.status === 'success' && !targetExec) {
-      const hasRunningNodes = Object.values(executionData).some(
-        (exec) => exec?.status === 'running'
-      );
-      return hasRunningNodes ? 'running' : 'default';
+    if (targetExecStatus === 'running') return 'running';
+    if (targetExecStatus === 'success') return 'success';
+    if (targetExecStatus === 'error') return 'error';
+    if (sourceExecStatus === 'success' && !targetExecStatus) {
+      return isAnyNodeRunning ? 'running' : 'default';
     }
     return 'default';
-  }, [source, target, executionData]);
+  }, [sourceExecStatus, targetExecStatus, isAnyNodeRunning]);
 
   const outputLabel = useMemo(() => {
     const sourceNode = getNode(source);

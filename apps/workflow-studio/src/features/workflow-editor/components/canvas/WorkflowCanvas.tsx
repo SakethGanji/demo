@@ -59,6 +59,37 @@ const edgeTypes: any = {
 // Distance threshold for detecting drop near a node (in pixels)
 const DROP_PROXIMITY_THRESHOLD = 100;
 
+// Hoisted constants to avoid re-creating objects on each render
+const DEFAULT_EDGE_OPTIONS = { type: 'workflowEdge' };
+const FIT_VIEW_OPTIONS = { padding: 0.2, maxZoom: 1 };
+const SNAP_GRID: [number, number] = [20, 20];
+const DELETE_KEY_CODE = ['Backspace', 'Delete'];
+const CONNECTION_LINE_STYLE = { stroke: '#9ca3af', strokeWidth: 1.5, strokeDasharray: '6 4' };
+const PRO_OPTIONS = { hideAttribution: true };
+const CONTROLS_STYLE = { marginBottom: 8, marginLeft: 8 };
+const CONTROLS_FIT_VIEW_OPTIONS = { padding: 0.2, maxZoom: 1 };
+const MINIMAP_STYLE = { marginBottom: 8, marginRight: 8 };
+
+function getMinimapNodeColor(node: Node) {
+  if (node.type === 'addNodes') return 'var(--muted)';
+  if (node.type === 'subworkflowNode') return getMiniMapColor('flow');
+  if (node.type === 'stickyNote') {
+    const color = node.data?.color || 'yellow';
+    const colors: Record<string, string> = {
+      yellow: '#fef08a',
+      blue: '#93c5fd',
+      green: '#86efac',
+      pink: '#f9a8d4',
+      purple: '#c4b5fd',
+    };
+    return colors[color] || colors.yellow;
+  }
+  const nodeGroup = normalizeNodeGroup(
+    node.data?.group ? [node.data.group] : undefined
+  );
+  return getMiniMapColor(nodeGroup);
+}
+
 // Extended node definition for drag data
 interface DraggedNodeData {
   type: string;
@@ -78,18 +109,16 @@ interface DraggedNodeData {
 }
 
 export default function WorkflowCanvas() {
-  const {
-    nodes,
-    edges,
-    onEdgesChange,
-    onConnect,
-    addNode,
-    setSelectedNode,
-    isValidConnection,
-    isInputConnected,
-    setDraggedNodeType,
-    clearDropTarget,
-  } = useWorkflowStore();
+  const nodes = useWorkflowStore((s) => s.nodes);
+  const edges = useWorkflowStore((s) => s.edges);
+  const onEdgesChange = useWorkflowStore((s) => s.onEdgesChange);
+  const onConnect = useWorkflowStore((s) => s.onConnect);
+  const addNode = useWorkflowStore((s) => s.addNode);
+  const setSelectedNode = useWorkflowStore((s) => s.setSelectedNode);
+  const isValidConnection = useWorkflowStore((s) => s.isValidConnection);
+  const isInputConnected = useWorkflowStore((s) => s.isInputConnected);
+  const setDraggedNodeType = useWorkflowStore((s) => s.setDraggedNodeType);
+  const clearDropTarget = useWorkflowStore((s) => s.clearDropTarget);
 
   const storeOnNodesChange = useWorkflowStore((s) => s.onNodesChange);
   const validateConnection = useWorkflowStore((s) => s.validateConnection);
@@ -538,17 +567,12 @@ export default function WorkflowCanvas() {
         isValidConnection={handleIsValidConnection}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
-        defaultEdgeOptions={{
-          type: 'workflowEdge',
-        }}
+        defaultEdgeOptions={DEFAULT_EDGE_OPTIONS}
         fitView
-        fitViewOptions={{
-          padding: 0.2,
-          maxZoom: 1,
-        }}
+        fitViewOptions={FIT_VIEW_OPTIONS}
         snapToGrid
-        snapGrid={[20, 20]}
-        deleteKeyCode={['Backspace', 'Delete']}
+        snapGrid={SNAP_GRID}
+        deleteKeyCode={DELETE_KEY_CODE}
         multiSelectionKeyCode="Shift"
         selectionMode={SelectionMode.Partial}
         connectionRadius={20}
@@ -558,11 +582,7 @@ export default function WorkflowCanvas() {
         onEdgeUpdateStart={handleEdgeUpdateStart}
         onEdgeUpdateEnd={handleEdgeUpdateEnd}
         connectionLineType={ConnectionLineType.SmoothStep}
-        connectionLineStyle={{
-          stroke: '#9ca3af',
-          strokeWidth: 1.5,
-          strokeDasharray: '6 4',
-        }}
+        connectionLineStyle={CONNECTION_LINE_STYLE}
         panOnScroll={false}
         zoomOnScroll
         panOnDrag
@@ -571,7 +591,7 @@ export default function WorkflowCanvas() {
         nodesDraggable
         nodesConnectable
         elementsSelectable
-        proOptions={{ hideAttribution: true }}
+        proOptions={PRO_OPTIONS}
         className="bg-background"
       >
         <Background
@@ -591,27 +611,8 @@ export default function WorkflowCanvas() {
         {/* MiniMap - colored by node group, positioned to avoid sidebar */}
         <MiniMap
           position="bottom-right"
-          style={{ marginBottom: 8, marginRight: 8 }}
-          nodeColor={(node) => {
-            if (node.type === 'addNodes') return 'var(--muted)';
-            if (node.type === 'subworkflowNode') return getMiniMapColor('flow');
-            if (node.type === 'stickyNote') {
-              const color = node.data?.color || 'yellow';
-              const colors: Record<string, string> = {
-                yellow: '#fef08a',
-                blue: '#93c5fd',
-                green: '#86efac',
-                pink: '#f9a8d4',
-                purple: '#c4b5fd',
-              };
-              return colors[color] || colors.yellow;
-            }
-            // Get group-based color for workflow nodes
-            const nodeGroup = normalizeNodeGroup(
-              node.data?.group ? [node.data.group] : undefined
-            );
-            return getMiniMapColor(nodeGroup);
-          }}
+          style={MINIMAP_STYLE}
+          nodeColor={getMinimapNodeColor}
           maskColor="color-mix(in srgb, var(--canvas-float) 80%, transparent)"
           className="!bg-[var(--canvas-float)] !shadow-md !rounded-lg !border !border-[var(--canvas-float-border)]"
         />
@@ -621,8 +622,8 @@ export default function WorkflowCanvas() {
           showInteractive={false}
           showZoom
           showFitView
-          fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
-          style={{ marginBottom: 8, marginLeft: 8 }}
+          fitViewOptions={CONTROLS_FIT_VIEW_OPTIONS}
+          style={CONTROLS_STYLE}
         />
       </ReactFlow>
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useRef, useMemo } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import {
   X,
   ArrowLeft,
@@ -28,6 +28,7 @@ import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 
 import { useNDVStore } from '../../stores/ndvStore';
 import { useWorkflowStore } from '../../stores/workflowStore';
+import { useNodeById, useNodeExecution } from '../../hooks/useWorkflowSelectors';
 import { useExecuteWorkflow } from '../../hooks/useWorkflowApi';
 import InputPanel from './InputPanel';
 import OutputPanel from './OutputPanel';
@@ -53,20 +54,18 @@ const iconMap: Record<string, LucideIcon> = {
 };
 
 export default function NodeDetailsModal() {
-  const { isOpen, activeNodeId, closeNDV, inputPanelSize, outputPanelSize, setPanelSizes } = useNDVStore();
+  const isOpen = useNDVStore((s) => s.isOpen);
+  const activeNodeId = useNDVStore((s) => s.activeNodeId);
+  const closeNDV = useNDVStore((s) => s.closeNDV);
+  const inputPanelSize = useNDVStore((s) => s.inputPanelSize);
+  const outputPanelSize = useNDVStore((s) => s.outputPanelSize);
+  const setPanelSizes = useNDVStore((s) => s.setPanelSizes);
 
   // Individual selectors — only re-render when the specific data we need changes
   const deleteNode = useWorkflowStore((s) => s.deleteNode);
   const updateNodeData = useWorkflowStore((s) => s.updateNodeData);
-  const activeNode = useWorkflowStore(
-    useCallback((s) => s.nodes.find((n) => n.id === activeNodeId) ?? null, [activeNodeId])
-  );
-  const nodeExecution = useWorkflowStore(
-    useCallback(
-      (s) => (activeNodeId ? s.executionData[activeNodeId] ?? null : null),
-      [activeNodeId]
-    )
-  );
+  const activeNode = useNodeById(activeNodeId);
+  const nodeExecution = useNodeExecution(activeNodeId);
 
   const { executeWorkflow, isExecuting } = useExecuteWorkflow();
 

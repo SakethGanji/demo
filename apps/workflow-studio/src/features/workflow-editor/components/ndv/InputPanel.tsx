@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { memo, useState, useMemo, useCallback } from 'react';
 import { Database, Code, ChevronDown, ChevronUp, Copy, Check, Settings } from 'lucide-react';
 import type { Node, Edge } from 'reactflow';
 import type { NodeExecutionData } from '../../types/workflow';
@@ -68,12 +68,14 @@ const SYSTEM_VARIABLES = [
   { path: '$env.VARIABLE', description: 'Environment variable' },
 ];
 
-export default function InputPanel({ nodeId, executionData }: InputPanelProps) {
+const InputPanel = memo(function InputPanel({ nodeId, executionData }: InputPanelProps) {
   const [displayMode, setDisplayMode] = useState<DisplayMode>('schema');
   const [showSystemVars, setShowSystemVars] = useState(false);
 
   // Get edges and execution data from store to find upstream node's output
-  const { edges, executionData: allExecutionData, nodes } = useWorkflowStore();
+  const edges = useWorkflowStore((s) => s.edges);
+  const allExecutionData = useWorkflowStore((s) => s.executionData);
+  const nodes = useWorkflowStore((s) => s.nodes);
 
   // Get node type definitions from API
   const { data: nodeTypes } = useNodeTypes();
@@ -290,7 +292,9 @@ export default function InputPanel({ nodeId, executionData }: InputPanelProps) {
       </div>
     </div>
   );
-}
+});
+
+export default InputPanel;
 
 // System variable row component
 interface SystemVariableRowProps {

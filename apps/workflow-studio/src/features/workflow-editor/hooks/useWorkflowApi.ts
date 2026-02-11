@@ -25,15 +25,6 @@ import type { Node } from 'reactflow';
  * Hook for saving workflows
  */
 export function useSaveWorkflow() {
-  const {
-    nodes,
-    edges,
-    workflowName,
-    workflowId,
-    setWorkflowId,
-    markAsSaved,
-  } = useWorkflowStore();
-
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const isSavingRef = useRef(false);
@@ -57,6 +48,8 @@ export function useSaveWorkflow() {
     // Guard against concurrent saves (e.g. rapid double-click)
     if (isSavingRef.current) return;
     isSavingRef.current = true;
+
+    const { nodes, edges, workflowName, workflowId } = useWorkflowStore.getState();
     const backendWorkflow = toBackendWorkflow(
       nodes as Node<WorkflowNodeData>[],
       edges,
@@ -71,7 +64,7 @@ export function useSaveWorkflow() {
           id: workflowId,
           workflow: backendWorkflow,
         });
-        markAsSaved();
+        useWorkflowStore.getState().markAsSaved();
         toast.success('Workflow saved', {
           description: `"${result.name}" has been updated.`,
         });
@@ -79,14 +72,14 @@ export function useSaveWorkflow() {
       } else {
         // Create new workflow
         const result = await createMutation.mutateAsync(backendWorkflow);
-        setWorkflowId(result.id);
+        useWorkflowStore.getState().setWorkflowId(result.id);
         // Update URL to include the new workflow ID
         navigate({
           to: '/editor',
           search: { workflowId: result.id },
           replace: true,
         });
-        markAsSaved();
+        useWorkflowStore.getState().markAsSaved();
         toast.success('Workflow created', {
           description: `"${result.name}" has been saved.`,
         });
@@ -101,7 +94,7 @@ export function useSaveWorkflow() {
     } finally {
       isSavingRef.current = false;
     }
-  }, [nodes, edges, workflowName, workflowId, updateMutation, createMutation, setWorkflowId, navigate, markAsSaved]);
+  }, [updateMutation, createMutation, navigate]);
 
   return {
     saveWorkflow,
@@ -186,19 +179,14 @@ export function useImportWorkflow() {
  * Hook for executing a workflow
  */
 export function useExecuteWorkflow() {
-  const {
-    nodes,
-    edges,
-    workflowName,
-    setNodeExecutionData,
-    clearExecutionData,
-  } = useWorkflowStore();
-
   const runAdhocMutation = useMutation({
     mutationFn: (workflow: BackendWorkflow) => workflowsApi.runAdhoc(workflow),
   });
 
   const executeWorkflow = async () => {
+    const { nodes, edges, workflowName, setNodeExecutionData, clearExecutionData } =
+      useWorkflowStore.getState();
+
     // Clear previous execution data
     clearExecutionData();
 
@@ -236,7 +224,7 @@ export function useExecuteWorkflow() {
 
             const normalizedOutput = normalizeOutputData(outputData);
 
-            setNodeExecutionData(nodeId, {
+            useWorkflowStore.getState().setNodeExecutionData(nodeId, {
               input: inputData ? { items: normalizeOutputData(inputData) } : null,
               output: { items: normalizedOutput },
               status: 'success',
@@ -252,7 +240,7 @@ export function useExecuteWorkflow() {
         result.errors.forEach((err) => {
           const nodeId = nameToId.get(err.node_name);
           if (nodeId) {
-            setNodeExecutionData(nodeId, {
+            useWorkflowStore.getState().setNodeExecutionData(nodeId, {
               input: null,
               output: { items: [], error: err.error },
               status: 'error',
@@ -274,7 +262,7 @@ export function useExecuteWorkflow() {
     } catch (error) {
       // Mark all nodes as error
       workflowNodes.forEach((node) => {
-        setNodeExecutionData(node.id, {
+        useWorkflowStore.getState().setNodeExecutionData(node.id, {
           input: null,
           output: { items: [], error: error instanceof Error ? error.message : 'Unknown error' },
           status: 'error',
@@ -300,14 +288,13 @@ export function useExecuteWorkflow() {
  * Hook for toggling workflow active state
  */
 export function useToggleWorkflowActive() {
-  const { workflowId, setIsActive } = useWorkflowStore();
-
   const setActiveMutation = useMutation({
     mutationFn: ({ id, active }: { id: string; active: boolean }) =>
       workflowsApi.setActive(id, active),
   });
 
   const toggleActive = async (active: boolean) => {
+    const { workflowId } = useWorkflowStore.getState();
     if (!workflowId) {
       toast.error('Save workflow first', {
         description: 'You need to save the workflow before activating it.',
@@ -320,7 +307,7 @@ export function useToggleWorkflowActive() {
         id: workflowId,
         active,
       });
-      setIsActive(result.active);
+      useWorkflowStore.getState().setIsActive(result.active);
       toast.success(active ? 'Workflow activated' : 'Workflow deactivated');
       return result;
     } catch (error) {

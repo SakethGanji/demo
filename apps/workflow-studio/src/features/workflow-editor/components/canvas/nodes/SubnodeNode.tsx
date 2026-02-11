@@ -1,28 +1,13 @@
-import { memo, useMemo } from 'react';
+import { memo } from 'react';
 import { Handle, Position, type NodeProps } from 'reactflow';
 import type { WorkflowNodeData } from '../../../types/workflow';
 import { getNodeStyles } from '../../../lib/nodeStyles';
-import { normalizeNodeGroup } from '../../../lib/nodeConfig';
 import { getIconForNode } from '../../../lib/nodeIcons';
-import { useWorkflowStore } from '../../../stores/workflowStore';
+import { useParentStyles } from '../../../hooks/useWorkflowSelectors';
 import { cn } from '@/shared/lib/utils';
 
 function SubnodeNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
-  const edges = useWorkflowStore((s) => s.edges);
-  const allNodes = useWorkflowStore((s) => s.nodes);
-
-  // Find parent node via subnodeEdge to inherit its colors
-  const parentStyles = useMemo(() => {
-    const parentEdge = edges.find(
-      (e) => e.source === id && e.data?.isSubnodeEdge
-    );
-    if (!parentEdge) return null;
-    const parentNode = allNodes.find((n) => n.id === parentEdge.target);
-    if (!parentNode) return null;
-    const parentData = parentNode.data as WorkflowNodeData;
-    const group = normalizeNodeGroup(parentData.group ? [parentData.group] : undefined);
-    return getNodeStyles(group);
-  }, [edges, allNodes, id]);
+  const parentStyles = useParentStyles(id);
 
   // Fallback to ai styles if parent not found
   const styles = parentStyles ?? getNodeStyles('ai');

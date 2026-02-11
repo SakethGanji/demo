@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { Database, Code, Pin, Clock, ArrowUp } from 'lucide-react';
 import type { NodeExecutionData } from '../../types/workflow';
 import { useWorkflowStore } from '../../stores/workflowStore';
@@ -11,7 +11,7 @@ interface OutputPanelProps {
 
 type DisplayMode = 'json' | 'schema';
 
-export default function OutputPanel({ nodeId, executionData }: OutputPanelProps) {
+const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputPanelProps) {
   const [displayMode, setDisplayMode] = useState<DisplayMode>('schema');
 
   const hasPinned = useWorkflowStore((s) => s.hasPinnedData(nodeId));
@@ -171,4 +171,6 @@ export default function OutputPanel({ nodeId, executionData }: OutputPanelProps)
 
     </div>
   );
-}
+});
+
+export default OutputPanel;

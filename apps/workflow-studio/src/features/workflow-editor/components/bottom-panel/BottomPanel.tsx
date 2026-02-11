@@ -3,10 +3,11 @@ import { X, ScrollText, Monitor, Maximize2, Minimize2 } from 'lucide-react';
 import { useEditorLayoutStore, type BottomPanelTab } from '../../stores/editorLayoutStore';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { detectUINodes } from '../ui-preview/detectUINodes';
-import { ChatPanel } from '../ui-preview/ChatPanel';
 import { ChatInput } from '../ui-preview/ChatInput';
-import { HTMLPanel } from '../ui-preview/HTMLPanel';
-import { MarkdownPanel } from '../ui-preview/MarkdownPanel';
+
+const ChatPanel = lazy(() => import('../ui-preview/ChatPanel').then((m) => ({ default: m.ChatPanel })));
+const HTMLPanel = lazy(() => import('../ui-preview/HTMLPanel').then((m) => ({ default: m.HTMLPanel })));
+const MarkdownPanel = lazy(() => import('../ui-preview/MarkdownPanel').then((m) => ({ default: m.MarkdownPanel })));
 import { MessageSquare } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
 import type { WorkflowNodeData } from '../../types/workflow';

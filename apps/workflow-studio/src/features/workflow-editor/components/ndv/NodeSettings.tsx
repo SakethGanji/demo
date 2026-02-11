@@ -1,5 +1,12 @@
 import { useState, useMemo, useCallback } from 'react';
 import {
+  useUpstreamNodeId,
+  useNodeById,
+  useUpstreamSampleData,
+  useAllNodeExecData,
+  useConnectedSubnodes,
+} from '../../hooks/useWorkflowSelectors';
+import {
   Settings,
   Info,
   ChevronDown,
@@ -56,22 +63,11 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
   const updateNodeData = useWorkflowStore((s) => s.updateNodeData);
   const deleteNode = useWorkflowStore((s) => s.deleteNode);
   const workflowId = useWorkflowStore((s) => s.workflowId);
-  const edges = useWorkflowStore((s) => s.edges);
-  const executionData = useWorkflowStore((s) => s.executionData);
 
-  // Targeted selector: only returns the upstream node object (stable ref unless that node changes)
-  const upstreamNodeId = useMemo(
-    () => edges.find((e) => e.target === node.id)?.source,
-    [edges, node.id]
-  );
-  const upstreamNode = useWorkflowStore(
-    useCallback(
-      (s) => (upstreamNodeId ? s.nodes.find((n) => n.id === upstreamNodeId) ?? null : null),
-      [upstreamNodeId]
-    )
-  );
+  const upstreamNodeId = useUpstreamNodeId(node.id);
+  const upstreamNode = useNodeById(upstreamNodeId);
 
-  const { closeNDV } = useNDVStore();
+  const closeNDV = useNDVStore((s) => s.closeNDV);
   const openForSubnode = useEditorLayoutStore((s) => s.openForSubnode);
 
   // Webhook URL for Webhook nodes
@@ -124,55 +120,11 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
   // Get the output schema from the upstream node's first output
   const upstreamOutputSchema = upstreamNodeSchema?.outputs?.[0]?.schema as OutputSchema | undefined;
 
-  // Get sample data from upstream node's execution output
-  const upstreamSampleData = useMemo(() => {
-    if (!upstreamNodeId) return undefined;
-    const upstreamExecution = executionData[upstreamNodeId];
-    if (!upstreamExecution?.output?.items) return undefined;
-    return upstreamExecution.output.items as Record<string, unknown>[];
-  }, [upstreamNodeId, executionData]);
-
-  // Build a map of node name -> execution data for all nodes (for $node["Name"].json expressions)
-  // Uses a store selector so it only recalculates when store changes, and the result
-  // is stable unless execution data or node names actually change.
-  const allNodeData = useWorkflowStore(
-    useCallback((s) => {
-      const result: Record<string, Record<string, unknown>[]> = {};
-      for (const n of s.nodes) {
-        const nodeName = n.data?.name || n.data?.label;
-        if (nodeName && s.executionData[n.id]?.output?.items) {
-          result[nodeName] = s.executionData[n.id].output.items as Record<string, unknown>[];
-        }
-      }
-      return result;
-    }, [])
-  );
-
-  // Get connected subnodes for each slot — uses store selector to avoid subscribing to full nodes array
-  const connectedSubnodes = useWorkflowStore(
-    useCallback((s) => {
-      const slots = node.data.subnodeSlots as SubnodeSlotDefinition[] | undefined;
-      if (!slots || slots.length === 0) return null;
-
-      const subnodeEdges = s.edges.filter(
-        (e) => e.target === node.id && e.data?.isSubnodeEdge
-      );
-
-      const slotMap: Record<string, Node<WorkflowNodeData>[]> = {};
-      for (const slot of slots) {
-        slotMap[slot.name] = [];
-      }
-
-      for (const edge of subnodeEdges) {
-        const slotName = edge.data?.slotName || edge.targetHandle;
-        const subnodeNode = s.nodes.find((n) => n.id === edge.source);
-        if (subnodeNode && slotName && slotMap[slotName]) {
-          slotMap[slotName].push(subnodeNode as Node<WorkflowNodeData>);
-        }
-      }
-
-      return { slots, slotMap };
-    }, [node.id, node.data.subnodeSlots])
+  const upstreamSampleData = useUpstreamSampleData(upstreamNodeId);
+  const allNodeData = useAllNodeExecData();
+  const connectedSubnodes = useConnectedSubnodes(
+    node.id,
+    node.data.subnodeSlots as SubnodeSlotDefinition[] | undefined
   );
 
   const toggleSection = (section: string) => {
@@ -580,7 +532,7 @@ interface SubnodeInlineFormProps {
 }
 
 function SubnodeInlineForm({ subnode, nodeTypes }: SubnodeInlineFormProps) {
-  const { updateNodeData } = useWorkflowStore((s) => ({ updateNodeData: s.updateNodeData }));
+  const updateNodeData = useWorkflowStore((s) => s.updateNodeData);
   const subnodeSchema = nodeTypes?.find((n) => n.type === subnode.data.type);
 
   if (!subnodeSchema?.properties?.length) {
