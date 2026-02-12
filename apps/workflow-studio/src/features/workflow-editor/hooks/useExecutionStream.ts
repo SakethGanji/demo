@@ -38,6 +38,8 @@ interface ExecutionEvent {
   // For execution:result event
   status?: 'success' | 'failed';
   errors?: Array<{ nodeName: string; error: string; timestamp: string }>;
+  // Node execution metrics
+  metrics?: Record<string, unknown>;
   // Subworkflow event fields
   subworkflowParentNode?: string;
   subworkflowId?: string;
@@ -256,6 +258,7 @@ export function useExecutionStream(): UseExecutionStreamResult {
                 status: 'success',
                 startTime: Date.now(),
                 endTime: Date.now(),
+                metrics: event.metrics as import('../types/workflow').NodeMetrics | undefined,
               });
             }
           }
@@ -283,6 +286,7 @@ export function useExecutionStream(): UseExecutionStreamResult {
                 output: { items: [], error: event.error },
                 status: 'error',
                 endTime: Date.now(),
+                metrics: event.metrics as import('../types/workflow').NodeMetrics | undefined,
               });
             }
           }

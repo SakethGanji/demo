@@ -115,6 +115,9 @@ class LLMChatNode(BaseNode):
         max_tokens = self.get_parameter(node_definition, "maxTokens", 1024)
 
         results: list[NodeData] = []
+        total_input_tokens = 0
+        total_output_tokens = 0
+        llm_response_time_ms = 0.0
 
         for idx, item in enumerate(input_data if input_data else [NodeData(json={})]):
             # Resolve expression against current item's data
@@ -135,16 +138,29 @@ class LLMChatNode(BaseNode):
             if model == "mock":
                 result = self._mock_response(user_message)
             else:
-                result = await self._call_llm(
+                result, usage_info = await self._call_llm(
                     model=model,
                     system_prompt=system_prompt,
                     user_message=user_message,
                     temperature=temperature,
                     max_tokens=max_tokens,
                 )
+                if usage_info:
+                    total_input_tokens += usage_info.get("inputTokens", 0)
+                    total_output_tokens += usage_info.get("outputTokens", 0)
+                    llm_response_time_ms += usage_info.get("llmResponseTimeMs", 0)
             results.append(NodeData(json=result))
 
-        return self.output(results)
+        metadata: dict[str, Any] = {"model": model}
+        if total_input_tokens or total_output_tokens:
+            metadata.update({
+                "inputTokens": total_input_tokens,
+                "outputTokens": total_output_tokens,
+                "totalTokens": total_input_tokens + total_output_tokens,
+                "llmResponseTimeMs": round(llm_response_time_ms, 2),
+            })
+
+        return self.output(results, metadata=metadata)
 
     def _mock_response(self, user_message: str) -> dict[str, Any]:
         """Generate a mock response for testing."""
@@ -208,8 +224,8 @@ class LLMChatNode(BaseNode):
         user_message: str,
         temperature: float,
         max_tokens: int,
-    ) -> dict[str, Any]:
-        """Call LLM via the unified provider."""
+    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        """Call LLM via the unified provider. Returns (result_dict, usage_info)."""
         from ...engine.llm_provider import call_llm
 
         messages: list[dict[str, str]] = []
@@ -224,7 +240,18 @@ class LLMChatNode(BaseNode):
             max_tokens=max_tokens,
         )
 
-        return {
+        result = {
             "response": response.text or "",
             "model": model,
         }
+
+        usage_info: dict[str, Any] | None = None
+        if response.usage:
+            usage_info = {
+                "inputTokens": response.usage.input_tokens,
+                "outputTokens": response.usage.output_tokens,
+                "totalTokens": response.usage.total_tokens,
+                "llmResponseTimeMs": response.response_time_ms or 0,
+            }
+
+        return result, usage_info

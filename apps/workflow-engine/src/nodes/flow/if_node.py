@@ -135,10 +135,23 @@ class IfNode(BaseNode):
             else:
                 false_output.append(item)
 
-        return self.outputs({
-            "true": true_output if true_output else None,
-            "false": false_output if false_output else None,
-        })
+        true_count = len(true_output)
+        false_count = len(false_output)
+        branch = "true" if true_count > 0 else "false"
+        if true_count > 0 and false_count > 0:
+            branch = "both"
+
+        return self.outputs(
+            {
+                "true": true_output if true_output else None,
+                "false": false_output if false_output else None,
+            },
+            metadata={
+                "branchDecision": branch,
+                "trueCount": true_count,
+                "falseCount": false_count,
+            },
+        )
 
     def _evaluate(self, field_value: Any, operation: str, compare_value: Any) -> bool:
         """Evaluate the condition."""

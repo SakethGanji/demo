@@ -99,6 +99,43 @@ export interface SubnodeSlotContext {
   slotType: SubnodeType;
 }
 
+// Node execution metrics from backend
+export interface NodeMetrics {
+  // Common timing
+  startedAt?: string;
+  completedAt?: string;
+  executionTimeMs?: number;
+  executionOrder?: number;
+  inputItemCount?: number;
+  outputItemCount?: number;
+  retries?: number;
+  maxRetries?: number;
+  activeOutputs?: string[];
+  inputDataSizeBytes?: number;
+  outputDataSizeBytes?: number;
+  status?: string;
+  // LLM-specific
+  model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  llmResponseTimeMs?: number;
+  agentIterations?: number;
+  toolCallCount?: number;
+  // HTTP-specific
+  requestUrl?: string;
+  requestMethod?: string;
+  responseStatusCode?: number;
+  responseTimeMs?: number;
+  responseSizeBytes?: number;
+  // Flow-specific
+  branchDecision?: string;
+  trueCount?: number;
+  falseCount?: number;
+  // Extensibility
+  [key: string]: unknown;
+}
+
 // Execution data
 interface ExecutionData {
   items: Record<string, unknown>[];
@@ -111,6 +148,7 @@ export interface NodeExecutionData {
   startTime?: number;
   endTime?: number;
   status: 'idle' | 'running' | 'success' | 'error';
+  metrics?: NodeMetrics;
 }
 
 // Subnode edge data

@@ -207,10 +207,21 @@ class SwitchNode(BaseNode):
 
         # Convert empty lists to None for NO_OUTPUT signal
         result: dict[str, list[NodeData] | None] = {}
+        active_outputs: list[str] = []
         for key, data in outputs.items():
-            result[key] = data if data else None
+            if data:
+                result[key] = data
+                active_outputs.append(key)
+            else:
+                result[key] = None
 
-        return self.outputs(result)
+        return self.outputs(
+            result,
+            metadata={
+                "branchDecision": ", ".join(active_outputs) if active_outputs else "none",
+                "activeOutputs": active_outputs,
+            },
+        )
 
     def _evaluate_rule(self, rule: dict[str, Any], json_data: dict[str, Any], expr_context: Any) -> bool:
         """Evaluate a single rule against JSON data."""

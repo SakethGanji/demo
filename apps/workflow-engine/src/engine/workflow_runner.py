@@ -7,9 +7,11 @@ Uses a queue-based BFS approach for node execution.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
 from datetime import datetime
+from time import perf_counter
 from typing import Any, TYPE_CHECKING, Literal
 
 import httpx
@@ -190,6 +192,7 @@ class WorkflowRunner:
                                     node_type=node_def.type,
                                     data=context.node_states.get(job.node_name),
                                     progress={"completed": completed_nodes, "total": total_nodes},
+                                    metrics=context.node_metrics.get(job.node_name),
                                 ),
                             )
 
@@ -398,6 +401,7 @@ class WorkflowRunner:
                                 node_type=node_def.type,
                                 data=context.node_states.get(job.node_name),
                                 progress={"completed": completed_nodes, "total": total_nodes},
+                                metrics=context.node_metrics.get(job.node_name),
                             ),
                         )
 
@@ -527,6 +531,14 @@ class WorkflowRunner:
         max_retries = node_def.retry_on_fail
         retry_delay = node_def.retry_delay
         last_error: Exception | None = None
+        retries_used = 0
+
+        # Track execution order
+        context.execution_order += 1
+        execution_order = context.execution_order
+
+        node_start = perf_counter()
+        started_at = datetime.now()
 
         for attempt in range(max_retries + 1):
             try:
@@ -539,6 +551,7 @@ class WorkflowRunner:
                 else:
                     result = await node.execute(context, resolved_node_def, job.input_data)
                 last_error = None
+                retries_used = attempt
                 break  # Success, exit retry loop
             except WorkflowStopSignal as stop:
                 # Handle graceful workflow stop
@@ -559,9 +572,13 @@ class WorkflowRunner:
                 return stop.error_type == "error"  # Return True if error, False if warning
             except Exception as e:
                 last_error = e
+                retries_used = attempt
                 if attempt < max_retries:
                     await asyncio.sleep(retry_delay / 1000)
                     continue
+
+        completed_at = datetime.now()
+        execution_time_ms = round((perf_counter() - node_start) * 1000, 2)
 
         # Handle final error after all retries exhausted
         if last_error or not result:
@@ -575,6 +592,19 @@ class WorkflowRunner:
                 )
             )
 
+            # Build error metrics
+            error_metrics: dict[str, Any] = {
+                "startedAt": started_at.isoformat(),
+                "completedAt": completed_at.isoformat(),
+                "executionTimeMs": execution_time_ms,
+                "executionOrder": execution_order,
+                "retries": retries_used,
+                "maxRetries": max_retries,
+                "inputItemCount": len(job.input_data),
+                "status": "error",
+            }
+            context.node_metrics[job.node_name] = error_metrics
+
             self._emit_event(
                 on_event,
                 ExecutionEvent(
@@ -584,6 +614,7 @@ class WorkflowRunner:
                     node_name=job.node_name,
                     node_type=node_def.type,
                     error=error_msg,
+                    metrics=error_metrics,
                 ),
             )
 
@@ -608,6 +639,46 @@ class WorkflowRunner:
         if main_output:
             context.node_states[job.node_name] = main_output
             context.last_completed_node = job.node_name
+
+        # Build success metrics
+        output_item_count = sum(
+            len(items) for items in result.outputs.values() if items
+        )
+        active_outputs = [k for k, v in result.outputs.items() if v]
+        # Estimate data sizes
+        input_size = 0
+        for item in job.input_data:
+            try:
+                input_size += len(json.dumps(item.json))
+            except (TypeError, ValueError):
+                pass
+        output_size = 0
+        for items in result.outputs.values():
+            if items:
+                for item in items:
+                    try:
+                        output_size += len(json.dumps(item.json))
+                    except (TypeError, ValueError):
+                        pass
+
+        node_metrics: dict[str, Any] = {
+            "startedAt": started_at.isoformat(),
+            "completedAt": completed_at.isoformat(),
+            "executionTimeMs": execution_time_ms,
+            "executionOrder": execution_order,
+            "retries": retries_used,
+            "maxRetries": max_retries,
+            "inputItemCount": len(job.input_data),
+            "outputItemCount": output_item_count,
+            "activeOutputs": active_outputs,
+            "inputDataSizeBytes": input_size,
+            "outputDataSizeBytes": output_size,
+            "status": "success",
+        }
+        # Merge node-provided metadata (tokens, HTTP status, branch info, etc.)
+        if result.metadata:
+            node_metrics.update(result.metadata)
+        context.node_metrics[job.node_name] = node_metrics
 
         # Queue next nodes based on outputs
         self._queue_next_nodes(context, node_def, result, queue, node_map, job.run_index)

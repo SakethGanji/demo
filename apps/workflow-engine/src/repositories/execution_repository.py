@@ -99,6 +99,9 @@ class ExecutionRepository:
             for e in context.errors
         ]
 
+        # Serialize node metrics
+        db_execution.node_metrics = context.node_metrics
+
         await self._session.commit()
         await self._session.refresh(db_execution)
 
@@ -190,4 +193,5 @@ class ExecutionRepository:
             end_time=db_execution.end_time,
             node_data=node_data,
             errors=errors,
+            node_metrics=db_execution.node_metrics,
         )

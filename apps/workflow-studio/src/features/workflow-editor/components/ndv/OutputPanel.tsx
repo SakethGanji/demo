@@ -1,5 +1,5 @@
 import { memo, useState } from 'react';
-import { Database, Code, Pin, Clock, ArrowUp } from 'lucide-react';
+import { Database, Code, Pin, Clock, ArrowUp, Zap, Globe, GitBranch } from 'lucide-react';
 import type { NodeExecutionData } from '../../types/workflow';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import RunDataDisplay from './RunDataDisplay';
@@ -42,10 +42,13 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
   const hasData = executionData?.output?.items && executionData.output.items.length > 0;
   const hasError = executionData?.output?.error;
   const itemCount = executionData?.output?.items?.length ?? 0;
+  const metrics = executionData?.metrics;
 
-  // Calculate execution time
-  const executionTime = executionData?.startTime && executionData?.endTime
-    ? `${((executionData.endTime - executionData.startTime) / 1000).toFixed(2)}s`
+  // Use server-accurate execution time
+  const executionTime = metrics?.executionTimeMs != null
+    ? metrics.executionTimeMs < 1000
+      ? `${Math.round(metrics.executionTimeMs)}ms`
+      : `${(metrics.executionTimeMs / 1000).toFixed(2)}s`
     : null;
 
   return (
@@ -71,6 +74,31 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
             <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
               <Clock size={11} />
               {executionTime}
+            </span>
+          )}
+          {/* LLM token badge */}
+          {metrics?.totalTokens != null && (
+            <span className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium bg-purple-500/10 text-purple-500" title={`In: ${metrics.inputTokens ?? 0} / Out: ${metrics.outputTokens ?? 0}`}>
+              <Zap size={10} />
+              {metrics.totalTokens.toLocaleString()} tok
+            </span>
+          )}
+          {/* HTTP status badge */}
+          {metrics?.responseStatusCode != null && (
+            <span className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium ${
+              metrics.responseStatusCode < 400
+                ? 'bg-[var(--success)]/10 text-[var(--success)]'
+                : 'bg-destructive/10 text-destructive'
+            }`}>
+              <Globe size={10} />
+              {metrics.responseStatusCode}
+            </span>
+          )}
+          {/* Branch decision badge */}
+          {metrics?.branchDecision != null && (
+            <span className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium bg-blue-500/10 text-blue-500">
+              <GitBranch size={10} />
+              {metrics.branchDecision}
             </span>
           )}
           {isPinned && (

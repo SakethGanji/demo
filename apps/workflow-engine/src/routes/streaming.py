@@ -63,6 +63,8 @@ def _event_to_dict(event: ExecutionEvent) -> dict[str, Any]:
         result["error"] = event.error
     if event.progress:
         result["progress"] = event.progress
+    if event.metrics:
+        result["metrics"] = event.metrics
     if event.subworkflow_parent_node:
         result["subworkflowParentNode"] = event.subworkflow_parent_node
     if event.subworkflow_id:

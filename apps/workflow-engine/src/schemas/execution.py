@@ -58,5 +58,6 @@ class ExecutionDetailResponse(BaseModel):
     end_time: str | None
     errors: list[ExecutionErrorSchema]
     node_data: dict[str, Any]
+    node_metrics: dict[str, Any] = {}
 
 

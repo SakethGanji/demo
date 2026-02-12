@@ -70,6 +70,7 @@ class ExecutionService:
                 name: [{"json": d.json} for d in data]
                 for name, data in execution.node_data.items()
             },
+            node_metrics=execution.node_metrics,
         )
 
     async def delete_execution(self, execution_id: str) -> bool:

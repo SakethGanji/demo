@@ -102,6 +102,12 @@ class ExecutionContext:
     # Track the actual last successfully completed node
     last_completed_node: str | None = None
 
+    # Per-node execution metrics
+    node_metrics: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    # Execution order counter
+    execution_order: int = 0
+
     # Subworkflow input data (set by ExecuteWorkflow node)
     subworkflow_input: list[NodeData] | None = None
 
@@ -128,6 +134,7 @@ class NodeExecutionResult:
     """
 
     outputs: dict[str, list[NodeData] | None]
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -154,6 +161,7 @@ class ExecutionRecord:
     end_time: datetime | None = None
     node_data: dict[str, list[NodeData]] = field(default_factory=dict)
     errors: list[ExecutionError] = field(default_factory=list)
+    node_metrics: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass
@@ -196,6 +204,7 @@ class ExecutionEvent:
     data: list[NodeData] | None = None
     error: str | None = None
     progress: dict[str, int] | None = None
+    metrics: dict[str, Any] | None = None
     subworkflow_parent_node: str | None = None
     subworkflow_id: str | None = None
 

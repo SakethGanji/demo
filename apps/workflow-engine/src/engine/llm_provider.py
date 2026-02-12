@@ -36,11 +36,22 @@ class ToolCall:
 
 
 @dataclass
+class LLMUsage:
+    """Token usage from an LLM call."""
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+
+
+@dataclass
 class LLMResponse:
     """Standardized response from call_llm."""
 
     text: Optional[str] = None
     tool_calls: List[ToolCall] = field(default_factory=list)
+    usage: Optional[LLMUsage] = None
+    response_time_ms: Optional[float] = None
 
     def get_assistant_message(self) -> Dict:
         """Return the model's response as an OpenAI-format message dict."""
@@ -440,6 +451,8 @@ async def _call_gemini_vertex(
             model=model, contents=contents, config=config,
         )
 
+    from time import perf_counter as _pc
+    _t0 = _pc()
     try:
         response = await asyncio.to_thread(do_sync_call)
     except (google_exceptions.Unauthenticated, google_exceptions.PermissionDenied):
@@ -451,8 +464,21 @@ async def _call_gemini_vertex(
             )
 
         response = await asyncio.to_thread(do_retry)
+    _elapsed = round((_pc() - _t0) * 1000, 2)
 
-    return _parse_gemini_response(response)
+    result = _parse_gemini_response(response)
+    result.response_time_ms = _elapsed
+
+    # Extract usage metadata
+    usage_meta = getattr(response, "usage_metadata", None)
+    if usage_meta:
+        result.usage = LLMUsage(
+            input_tokens=getattr(usage_meta, "prompt_token_count", 0) or 0,
+            output_tokens=getattr(usage_meta, "candidates_token_count", 0) or 0,
+            total_tokens=getattr(usage_meta, "total_token_count", 0) or 0,
+        )
+
+    return result
 
 
 def _parse_gemini_response(response: Any) -> LLMResponse:
@@ -538,9 +564,22 @@ async def _call_openai_compat(
     if rf and rf.get("type") == "json_object":
         completion_kwargs["response_format"] = {"type": "json_object"}
 
+    from time import perf_counter as _pc
+    _t0 = _pc()
     completion = await client.chat.completions.create(**completion_kwargs)
+    _elapsed = round((_pc() - _t0) * 1000, 2)
 
     resp = LLMResponse()
+    resp.response_time_ms = _elapsed
+
+    # Extract usage
+    if completion.usage:
+        resp.usage = LLMUsage(
+            input_tokens=completion.usage.prompt_tokens or 0,
+            output_tokens=completion.usage.completion_tokens or 0,
+            total_tokens=completion.usage.total_tokens or 0,
+        )
+
     choice = completion.choices[0] if completion.choices else None
     if not choice:
         return resp
@@ -602,9 +641,22 @@ async def _call_anthropic(
     if temperature is not None:
         call_kwargs["temperature"] = temperature
 
+    from time import perf_counter as _pc
+    _t0 = _pc()
     response = await client.messages.create(**call_kwargs)
+    _elapsed = round((_pc() - _t0) * 1000, 2)
 
     resp = LLMResponse()
+    resp.response_time_ms = _elapsed
+
+    # Extract usage
+    if response.usage:
+        resp.usage = LLMUsage(
+            input_tokens=response.usage.input_tokens or 0,
+            output_tokens=response.usage.output_tokens or 0,
+            total_tokens=(response.usage.input_tokens or 0) + (response.usage.output_tokens or 0),
+        )
+
     text_parts: list[str] = []
     for block in response.content:
         if block.type == "text":

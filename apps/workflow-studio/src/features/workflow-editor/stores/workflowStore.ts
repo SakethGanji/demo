@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import { createWithEqualityFn as create } from 'zustand/traditional';
 import type { Node, Edge, Connection, NodeChange, EdgeChange } from 'reactflow';
 import { addEdge, applyNodeChanges, applyEdgeChanges } from 'reactflow';
 import type { WorkflowNodeData, NodeExecutionData, StickyNoteData, SubnodeEdgeData, SubnodeType, OutputStrategy } from '../types/workflow';

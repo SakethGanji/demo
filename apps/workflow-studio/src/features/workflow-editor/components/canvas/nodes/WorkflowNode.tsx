@@ -51,6 +51,7 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
   const openNDV = useNDVStore((s) => s.openNDV);
   const executionData = useNodeExecution(id);
   const isDragging = useWorkflowStore((s) => s.draggedNodeType !== null);
+  const isExecActive = useWorkflowStore((s) => s.isAnyNodeRunning);
   const updateNodeData = useWorkflowStore((s) => s.updateNodeData);
 
   const hasInputConnection = useHasInputConnection(id);
@@ -136,6 +137,7 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
   const isRunning = executionData?.status === 'running';
   const isSuccess = executionData?.status === 'success';
   const isError = executionData?.status === 'error';
+  const isIdle = isExecActive && (!executionData || executionData.status === 'idle');
 
   // Check if this node can be a drop target (has unconnected input and something is being dragged)
   const canBeDropTarget = useMemo(() => {
@@ -394,8 +396,11 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
 
   return (
     <div
-      className="relative flex flex-col items-center"
-      style={subnodeSlotCount > 0 ? { paddingBottom: 38 } : undefined}
+      className={`relative flex flex-col items-center ${isIdle ? 'node-exec-idle' : ''}`}
+      style={{
+        ...(subnodeSlotCount > 0 ? { paddingBottom: 38 } : {}),
+        transition: 'opacity 0.4s ease',
+      }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
@@ -413,7 +418,6 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
         className={`
           relative cursor-grab border transition-all duration-300 flex items-center justify-center
           ${selected ? 'ring-2 ring-offset-1' : ''}
-          ${isRunning ? 'animate-pulse' : ''}
           ${canBeDropTarget ? 'ring-2 ring-[var(--success)]/50 ring-offset-1' : ''}
         `}
         style={{
@@ -426,12 +430,43 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
           boxShadow: canBeDropTarget
             ? '0 0 15px var(--success)'
             : isHovered
-              ? '0 4px 12px rgba(0,0,0,0.12)'
-              : (selected ? `0 4px 12px ${styles.accentColor}40` : '0 1px 3px rgba(0,0,0,0.08)'),
+              ? '0 8px 24px rgba(0,0,0,0.25), 0 2px 8px rgba(0,0,0,0.15)'
+              : (selected ? `0 6px 20px ${styles.accentColor}30, 0 2px 6px rgba(0,0,0,0.15)` : '0 2px 8px rgba(0,0,0,0.2), 0 1px 3px rgba(0,0,0,0.1)'),
           // @ts-expect-error CSS custom property
           '--tw-ring-color': canBeDropTarget ? 'var(--success)' : styles.accentColor,
         }}
       >
+        {/* Execution ring overlays — clean box-shadow animations, no blur */}
+        {isRunning && (
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              borderRadius: shapeConfig.borderRadius,
+              // @ts-expect-error CSS custom property
+              '--ring-color': styles.accentColor,
+              animation: 'node-running-ring 2s ease-in-out infinite',
+            }}
+          />
+        )}
+        {isSuccess && (
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              borderRadius: shapeConfig.borderRadius,
+              animation: 'node-success-ring 0.6s ease-out forwards',
+            }}
+          />
+        )}
+        {isError && (
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              borderRadius: shapeConfig.borderRadius,
+              animation: 'node-error-ring 0.5s ease-out forwards',
+            }}
+          />
+        )}
+
         {/* Input Handles */}
         {renderInputHandles()}
 

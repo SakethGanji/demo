@@ -45,5 +45,8 @@ class ExecutionModel(SQLModel, table=True):
     # Store errors as JSON array
     errors: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(JSON))
 
+    # Per-node execution metrics
+    node_metrics: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+
     start_time: datetime = Field(default_factory=datetime.now, index=True)
     end_time: datetime | None = Field(default=None)

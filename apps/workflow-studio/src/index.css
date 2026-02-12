@@ -76,34 +76,34 @@
   --canvas-float-hover: #383838;
   --canvas-float-border: #383838;
 
-  /* Node group colors */
-  --node-trigger: #d97706;
-  --node-trigger-light: #383838;
-  --node-trigger-border: #4a4a4a;
-  --node-trigger-icon-bg: #d97706;
+  /* Node group colors — bg matches sidebar/canvas-float for cohesion */
+  --node-trigger: #a3e635;
+  --node-trigger-light: #2c2c2c;
+  --node-trigger-border: #3d3d3d;
+  --node-trigger-icon-bg: #65a30d;
   --node-transform: #2563eb;
-  --node-transform-light: #383838;
-  --node-transform-border: #4a4a4a;
+  --node-transform-light: #2c2c2c;
+  --node-transform-border: #3d3d3d;
   --node-transform-icon-bg: #2563eb;
   --node-flow: #7c3aed;
-  --node-flow-light: #383838;
-  --node-flow-border: #4a4a4a;
+  --node-flow-light: #2c2c2c;
+  --node-flow-border: #3d3d3d;
   --node-flow-icon-bg: #7c3aed;
   --node-ai: #6b7280;
-  --node-ai-light: #383838;
-  --node-ai-border: #4a4a4a;
+  --node-ai-light: #2c2c2c;
+  --node-ai-border: #3d3d3d;
   --node-ai-icon-bg: #6b7280;
   --node-action: #059669;
-  --node-action-light: #383838;
-  --node-action-border: #4a4a4a;
+  --node-action-light: #2c2c2c;
+  --node-action-border: #3d3d3d;
   --node-action-icon-bg: #059669;
   --node-output: #0d9488;
-  --node-output-light: #383838;
-  --node-output-border: #4a4a4a;
+  --node-output-light: #2c2c2c;
+  --node-output-border: #3d3d3d;
   --node-output-icon-bg: #0d9488;
   --node-subworkflow: #6b7280;
-  --node-subworkflow-light: #383838;
-  --node-subworkflow-border: #4a4a4a;
+  --node-subworkflow-light: #2c2c2c;
+  --node-subworkflow-border: #3d3d3d;
   --node-subworkflow-icon-bg: #6b7280;
   --node-handle: #a8a29e;
   --subnode-model: #4b5563;
@@ -160,13 +160,13 @@
   --chart-3: #14ae5c;
   --chart-4: #f24822;
   --chart-5: #d4a053;
-  --sidebar: #1a1a1a;
+  --sidebar: #2c2c2c;
   --sidebar-foreground: #e5e5e5;
   --sidebar-primary: #18a0fb;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #333333;
+  --sidebar-accent: #383838;
   --sidebar-accent-foreground: #e5e5e5;
-  --sidebar-border: #333333;
+  --sidebar-border: #3d3d3d;
   --sidebar-ring: #18a0fb;
   --shadow-2xs: 0 1px 2px 0 rgb(0 0 0 / 0.1);
   --shadow-xs: 0 1px 3px 0 rgb(0 0 0 / 0.15);
@@ -177,40 +177,40 @@
   --shadow-xl: 0 20px 30px -5px rgb(0 0 0 / 0.35);
   --shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.5);
 
-  /* Canvas floating surfaces — lighter in dark mode for contrast */
-  --canvas-float: #383838;
+  /* Canvas floating surfaces — matches card/sidebar for cohesion */
+  --canvas-float: #2c2c2c;
   --canvas-float-foreground: #e5e5e5;
-  --canvas-float-hover: #484848;
-  --canvas-float-border: #4a4a4a;
+  --canvas-float-hover: #383838;
+  --canvas-float-border: #3d3d3d;
 
-  /* Node group colors - dark mode (elevated from bg for contrast) */
-  --node-trigger: #fbbf24;
-  --node-trigger-light: #484848;
-  --node-trigger-border: #5c5c5c;
-  --node-trigger-icon-bg: #b4891c;
+  /* Node group colors - dark mode (matches --card for cohesion) */
+  --node-trigger: #a3e635;
+  --node-trigger-light: #2c2c2c;
+  --node-trigger-border: #3d3d3d;
+  --node-trigger-icon-bg: #65a30d;
   --node-transform: #60a5fa;
-  --node-transform-light: #484848;
-  --node-transform-border: #5c5c5c;
+  --node-transform-light: #2c2c2c;
+  --node-transform-border: #3d3d3d;
   --node-transform-icon-bg: #3b7ac7;
   --node-flow: #a78bfa;
-  --node-flow-light: #484848;
-  --node-flow-border: #5c5c5c;
+  --node-flow-light: #2c2c2c;
+  --node-flow-border: #3d3d3d;
   --node-flow-icon-bg: #7a5fc7;
   --node-ai: #9ca3af;
-  --node-ai-light: #484848;
-  --node-ai-border: #5c5c5c;
+  --node-ai-light: #2c2c2c;
+  --node-ai-border: #3d3d3d;
   --node-ai-icon-bg: #6b7280;
   --node-action: #34d399;
-  --node-action-light: #484848;
-  --node-action-border: #5c5c5c;
+  --node-action-light: #2c2c2c;
+  --node-action-border: #3d3d3d;
   --node-action-icon-bg: #25a070;
   --node-output: #2dd4bf;
-  --node-output-light: #484848;
-  --node-output-border: #5c5c5c;
+  --node-output-light: #2c2c2c;
+  --node-output-border: #3d3d3d;
   --node-output-icon-bg: #22a090;
   --node-subworkflow: #9ca3af;
-  --node-subworkflow-light: #484848;
-  --node-subworkflow-border: #5c5c5c;
+  --node-subworkflow-light: #2c2c2c;
+  --node-subworkflow-border: #3d3d3d;
   --node-subworkflow-icon-bg: #6b7280;
   --node-handle: #6e6e6e;
   --subnode-model: #d1d5db;
@@ -472,7 +472,7 @@
 }
 
 .dark .editor-chrome {
-  --background: #151515;
+  --background: #242424;
   --muted-foreground: #999;
 }
 
@@ -638,4 +638,48 @@ textarea,
   to {
     stroke-dashoffset: 0;
   }
+}
+
+/* ── Node execution state animations (clean ring-based, no blur) ── */
+@keyframes node-running-ring {
+  0%, 100% {
+    box-shadow: 0 0 0 2px var(--ring-color);
+    opacity: 0.35;
+  }
+  50% {
+    box-shadow: 0 0 0 4px var(--ring-color);
+    opacity: 0.7;
+  }
+}
+
+@keyframes node-success-ring {
+  0% {
+    box-shadow: 0 0 0 0 var(--success);
+    opacity: 0.6;
+  }
+  100% {
+    box-shadow: 0 0 0 8px var(--success);
+    opacity: 0;
+  }
+}
+
+@keyframes node-error-ring {
+  0% {
+    box-shadow: 0 0 0 0 var(--destructive);
+    opacity: 0.5;
+  }
+  50% {
+    box-shadow: 0 0 0 3px var(--destructive);
+    opacity: 0.3;
+  }
+  100% {
+    box-shadow: 0 0 0 0 var(--destructive);
+    opacity: 0;
+  }
+}
+
+/* Execution idle dimming */
+.node-exec-idle {
+  opacity: 0.4;
+  transition: opacity 0.4s ease;
 }

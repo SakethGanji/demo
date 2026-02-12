@@ -313,6 +313,11 @@ class AIAgentNode(BaseNode):
             tools = tools + self._build_spawn_tools()
 
         results: list[NodeData] = []
+        total_input_tokens = 0
+        total_output_tokens = 0
+        total_llm_time_ms = 0.0
+        total_iterations = 0
+        total_tool_calls = 0
 
         # Get chat history as structured messages if memory is connected
         chat_history: list[dict[str, str]] = []
@@ -342,6 +347,15 @@ class AIAgentNode(BaseNode):
                 agent_context=agent_context,
             )
 
+            # Accumulate agent metrics from result
+            total_iterations += result.get("iterations", 0)
+            total_tool_calls += len(result.get("toolCalls", []))
+            if "_usage" in result:
+                usage = result.pop("_usage")
+                total_input_tokens += usage.get("inputTokens", 0)
+                total_output_tokens += usage.get("outputTokens", 0)
+                total_llm_time_ms += usage.get("llmResponseTimeMs", 0)
+
             # Save to memory if connected
             if memory_config and "addMessage" in memory_config:
                 await asyncio.to_thread(memory_config["addMessage"], "user", task)
@@ -350,7 +364,20 @@ class AIAgentNode(BaseNode):
 
             results.append(NodeData(json=result))
 
-        return self.output(results)
+        metadata: dict[str, Any] = {
+            "model": model,
+            "agentIterations": total_iterations,
+            "toolCallCount": total_tool_calls,
+        }
+        if total_input_tokens or total_output_tokens:
+            metadata.update({
+                "inputTokens": total_input_tokens,
+                "outputTokens": total_output_tokens,
+                "totalTokens": total_input_tokens + total_output_tokens,
+                "llmResponseTimeMs": round(total_llm_time_ms, 2),
+            })
+
+        return self.output(results, metadata=metadata)
 
     def _get_model_config(self, subnode_context: SubnodeContext | None) -> dict[str, Any] | None:
         """Get model configuration from connected model subnode."""
@@ -724,6 +751,9 @@ class AIAgentNode(BaseNode):
         tool_calls_list: list[dict[str, Any]] = []
         iterations = 0
         consecutive_failures = 0
+        _total_input_tokens = 0
+        _total_output_tokens = 0
+        _total_llm_time_ms = 0.0
 
         while iterations < max_iterations:
             iterations += 1
@@ -739,6 +769,13 @@ class AIAgentNode(BaseNode):
                 tools=tools if tools else None,
                 max_tokens=4096,
             )
+
+            # Accumulate token usage
+            if response.usage:
+                _total_input_tokens += response.usage.input_tokens
+                _total_output_tokens += response.usage.output_tokens
+            if response.response_time_ms:
+                _total_llm_time_ms += response.response_time_ms
 
             if response.tool_calls:
                 # Emit thinking event if the LLM included text alongside tool calls
@@ -818,6 +855,7 @@ class AIAgentNode(BaseNode):
                         "response": f"Agent stopped: tools failed {MAX_CONSECUTIVE_TOOL_FAILURES} consecutive iterations",
                         "toolCalls": tool_calls_list,
                         "iterations": iterations,
+                        "_usage": {"inputTokens": _total_input_tokens, "outputTokens": _total_output_tokens, "llmResponseTimeMs": _total_llm_time_ms},
                     }
 
                 continue
@@ -842,6 +880,12 @@ class AIAgentNode(BaseNode):
                         max_tokens=4096,
                         response_format=response_format,
                     )
+                    if struct_response.usage:
+                        _total_input_tokens += struct_response.usage.input_tokens
+                        _total_output_tokens += struct_response.usage.output_tokens
+                    if struct_response.response_time_ms:
+                        _total_llm_time_ms += struct_response.response_time_ms
+
                     struct_text = struct_response.text or ""
                     try:
                         parsed = json.loads(struct_text)
@@ -850,6 +894,7 @@ class AIAgentNode(BaseNode):
                             "structured": parsed,
                             "toolCalls": tool_calls_list,
                             "iterations": iterations,
+                            "_usage": {"inputTokens": _total_input_tokens, "outputTokens": _total_output_tokens, "llmResponseTimeMs": _total_llm_time_ms},
                         }
                     except json.JSONDecodeError:
                         pass
@@ -858,12 +903,14 @@ class AIAgentNode(BaseNode):
                     "response": final_response,
                     "toolCalls": tool_calls_list,
                     "iterations": iterations,
+                    "_usage": {"inputTokens": _total_input_tokens, "outputTokens": _total_output_tokens, "llmResponseTimeMs": _total_llm_time_ms},
                 }
 
         return {
             "response": "Agent reached maximum iterations",
             "toolCalls": tool_calls_list,
             "iterations": iterations,
+            "_usage": {"inputTokens": _total_input_tokens, "outputTokens": _total_output_tokens, "llmResponseTimeMs": _total_llm_time_ms},
         }
 
     async def _execute_tool(

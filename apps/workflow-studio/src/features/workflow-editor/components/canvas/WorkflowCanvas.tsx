@@ -2,7 +2,6 @@ import { useCallback, useMemo, useEffect, useRef, useState, type DragEvent, type
 import ReactFlow, {
   Background,
   MiniMap,
-  Controls,
   type OnConnect,
   type OnConnectStart,
   type Connection,
@@ -66,8 +65,6 @@ const SNAP_GRID: [number, number] = [20, 20];
 const DELETE_KEY_CODE = ['Backspace', 'Delete'];
 const CONNECTION_LINE_STYLE = { stroke: '#9ca3af', strokeWidth: 1.5, strokeDasharray: '6 4' };
 const PRO_OPTIONS = { hideAttribution: true };
-const CONTROLS_STYLE = { marginBottom: 8, marginLeft: 8 };
-const CONTROLS_FIT_VIEW_OPTIONS = { padding: 0.2, maxZoom: 1 };
 const MINIMAP_STYLE = { marginBottom: 8, marginRight: 8 };
 
 function getMinimapNodeColor(node: Node) {
@@ -617,14 +614,6 @@ export default function WorkflowCanvas() {
           className="!bg-[var(--canvas-float)] !shadow-md !rounded-lg !border !border-[var(--canvas-float-border)]"
         />
 
-        <Controls
-          position="bottom-left"
-          showInteractive={false}
-          showZoom
-          showFitView
-          fitViewOptions={CONTROLS_FIT_VIEW_OPTIONS}
-          style={CONTROLS_STYLE}
-        />
       </ReactFlow>
 
 

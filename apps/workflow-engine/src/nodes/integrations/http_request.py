@@ -151,10 +151,18 @@ class HttpRequestNode(BaseNode):
         headers_param = self.get_parameter(node_definition, "headers", [])
         body_template = node_definition.parameters.get("body", "")
 
+        from time import perf_counter
+
         results: list[NodeData] = []
         items = input_data if input_data else [NodeData(json={})]
+        # Track metrics across all requests
+        last_url = ""
+        last_status = 0
+        total_response_time_ms = 0.0
+        total_response_size = 0
 
         async def make_requests(client: httpx.AsyncClient) -> None:
+            nonlocal last_url, last_status, total_response_time_ms, total_response_size
             for idx, item in enumerate(items):
                 # Create expression context for this item
                 expr_context = ExpressionEngine.create_context(
@@ -166,6 +174,7 @@ class HttpRequestNode(BaseNode):
 
                 # Resolve URL expressions
                 url = expression_engine.resolve(url_template, expr_context)
+                last_url = url
 
                 # Process and resolve headers
                 headers: dict[str, str] = {"Content-Type": "application/json"}
@@ -197,6 +206,7 @@ class HttpRequestNode(BaseNode):
                         except json.JSONDecodeError:
                             body = resolved_body  # Keep as string
 
+                req_start = perf_counter()
                 response = await client.request(
                     method=method,
                     url=url,
@@ -204,6 +214,11 @@ class HttpRequestNode(BaseNode):
                     json=body if isinstance(body, dict) else None,
                     content=body if isinstance(body, str) else None,
                 )
+                req_elapsed = round((perf_counter() - req_start) * 1000, 2)
+                total_response_time_ms += req_elapsed
+                response_size = len(response.content)
+                total_response_size += response_size
+                last_status = response.status_code
 
                 response_data: Any
                 if response_type == "text":
@@ -211,7 +226,7 @@ class HttpRequestNode(BaseNode):
                 elif response_type == "binary":
                     response_data = {
                         "_binary": True,
-                        "size": len(response.content),
+                        "size": response_size,
                     }
                 else:
                     try:
@@ -233,4 +248,12 @@ class HttpRequestNode(BaseNode):
              async with httpx.AsyncClient(follow_redirects=True) as client:
                  await make_requests(client)
 
-        return self.output(results)
+        metadata = {
+            "requestUrl": last_url,
+            "requestMethod": method,
+            "responseStatusCode": last_status,
+            "responseTimeMs": round(total_response_time_ms, 2),
+            "responseSizeBytes": total_response_size,
+        }
+
+        return self.output(results, metadata=metadata)

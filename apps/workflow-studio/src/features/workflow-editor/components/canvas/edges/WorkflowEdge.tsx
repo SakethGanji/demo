@@ -302,7 +302,34 @@ function WorkflowEdge({
     return isHovered ? EDGE_COLORS.hover : EDGE_COLORS.default;
   }, [edgeStatus, isHovered, isDragging]);
 
-  const isAnimated = edgeStatus === 'running';
+  // Track transitions — only show particles when status *changes*, not on stale remounts
+  const prevEdgeStatusRef = useRef<string | null>(null);
+  const [liveRunning, setLiveRunning] = useState(false);
+  const [liveSuccess, setLiveSuccess] = useState(false);
+
+  useEffect(() => {
+    const prev = prevEdgeStatusRef.current;
+    prevEdgeStatusRef.current = edgeStatus;
+
+    if (prev === null) return; // skip initial mount — avoids replaying stale animations
+
+    if (edgeStatus === 'running' && prev !== 'running') {
+      setLiveRunning(true);
+    } else if (edgeStatus !== 'running') {
+      setLiveRunning(false);
+    }
+
+    if (edgeStatus === 'success' && prev !== 'success') {
+      setLiveSuccess(true);
+      const t = setTimeout(() => setLiveSuccess(false), 600);
+      return () => clearTimeout(t);
+    } else if (edgeStatus !== 'success') {
+      setLiveSuccess(false);
+    }
+  }, [edgeStatus]);
+
+  const isAnimated = liveRunning;
+  const isEdgeIdle = edgeStatus === 'default' && isAnyNodeRunning;
   const gradientId = `edge-gradient-${id}`;
 
   return (
@@ -313,7 +340,7 @@ function WorkflowEdge({
           <stop offset="100%" stopColor={edgeColors.end} />
         </linearGradient>
         <marker id={`arrow-${id}`} markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
-          <path d="M2,2 L10,6 L2,10 L4,6 Z" fill={edgeColors.end} />
+          <path d="M2,2 L10,6 L2,10 L4,6 Z" fill={edgeColors.end} opacity={isEdgeIdle ? 0.25 : 1} />
         </marker>
       </defs>
 
@@ -330,13 +357,36 @@ function WorkflowEdge({
         fill="none"
         stroke={`url(#${gradientId})`}
         strokeWidth={edgeStatus !== 'default' ? 2.5 : (isHovered ? 2 : 1.5)}
+        strokeOpacity={isEdgeIdle ? 0.25 : 1}
         markerEnd={`url(#arrow-${id})`}
         style={{
           ...style,
           strokeDasharray: isAnimated ? '8 4' : 'none',
           animation: isAnimated ? 'flowAnimation 0.5s linear infinite' : 'none',
+          transition: 'stroke-opacity 0.4s ease',
         }}
       />
+
+      {/* Animated particles — data flowing through edges (only on live transitions) */}
+      {liveRunning && [0, 0.67, 1.33].map((delay, i) => (
+        <g key={`particle-${i}`}>
+          <circle r={7} fill="var(--warning)" opacity={0.12} />
+          <circle r={i === 0 ? 3 : 2} fill="var(--warning)" opacity={i === 0 ? 0.9 : 0.7} />
+          <animateMotion dur="2s" repeatCount="indefinite" begin={`${delay}s`}>
+            <mpath href={`#${id}`} />
+          </animateMotion>
+        </g>
+      ))}
+
+      {/* Success completion particle (only on live transition to success) */}
+      {liveSuccess && (
+        <circle r={4} fill="var(--success)">
+          <animateMotion dur="0.5s" fill="freeze">
+            <mpath href={`#${id}`} />
+          </animateMotion>
+          <animate attributeName="opacity" values="0.9;0.9;0" keyTimes="0;0.7;1" dur="0.5s" fill="freeze" />
+        </circle>
+      )}
 
       {/* Invisible interaction path — wider for reliable hover/double-click */}
       <path

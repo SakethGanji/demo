@@ -165,14 +165,14 @@ class BaseNode(ABC):
             return value.lower() in ("true", "1", "yes")
         return value
 
-    def output(self, data: list[NodeData]) -> NodeExecutionResult:
+    def output(self, data: list[NodeData], metadata: dict[str, Any] | None = None) -> NodeExecutionResult:
         """Helper to create single-output result."""
         from ..engine.types import NodeExecutionResult
 
-        return NodeExecutionResult(outputs={"main": data})
+        return NodeExecutionResult(outputs={"main": data}, metadata=metadata or {})
 
-    def outputs(self, outputs: dict[str, list[NodeData] | None]) -> NodeExecutionResult:
+    def outputs(self, outputs: dict[str, list[NodeData] | None], metadata: dict[str, Any] | None = None) -> NodeExecutionResult:
         """Helper to create multi-output result."""
         from ..engine.types import NodeExecutionResult
 
-        return NodeExecutionResult(outputs=outputs)
+        return NodeExecutionResult(outputs=outputs, metadata=metadata or {})
