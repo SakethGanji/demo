@@ -19,12 +19,20 @@ interface UIModeState {
   // Markdown panel state
   markdownContent: string | null;
 
+  // PDF panel state
+  pdfBase64: string | null;
+
+  // Table panel state
+  tableData: Record<string, unknown>[] | null;
+
   // Actions
   addMessage: (message: Omit<UIMessage, 'id' | 'timestamp'>) => void;
   clearMessages: () => void;
   setExecuting: (executing: boolean) => void;
   setHtmlContent: (html: string | null) => void;
   setMarkdownContent: (markdown: string | null) => void;
+  setPdfBase64: (pdf: string | null) => void;
+  setTableData: (data: Record<string, unknown>[] | null) => void;
   reset: () => void;
 }
 
@@ -33,6 +41,8 @@ export const useUIModeStore = create<UIModeState>((set) => ({
   isExecuting: false,
   htmlContent: null,
   markdownContent: null,
+  pdfBase64: null,
+  tableData: null,
 
   addMessage: (message) =>
     set((state) => ({
@@ -46,7 +56,7 @@ export const useUIModeStore = create<UIModeState>((set) => ({
       ],
     })),
 
-  clearMessages: () => set({ messages: [], htmlContent: null, markdownContent: null }),
+  clearMessages: () => set({ messages: [], htmlContent: null, markdownContent: null, pdfBase64: null, tableData: null }),
 
   setExecuting: (executing) => set({ isExecuting: executing }),
 
@@ -54,11 +64,17 @@ export const useUIModeStore = create<UIModeState>((set) => ({
 
   setMarkdownContent: (markdown) => set({ markdownContent: markdown }),
 
+  setPdfBase64: (pdf) => set({ pdfBase64: pdf }),
+
+  setTableData: (data) => set({ tableData: data }),
+
   reset: () =>
     set({
       messages: [],
       isExecuting: false,
       htmlContent: null,
       markdownContent: null,
+      pdfBase64: null,
+      tableData: null,
     }),
 }));

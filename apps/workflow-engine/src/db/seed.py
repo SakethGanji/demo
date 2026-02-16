@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 import time
 from datetime import datetime
 
@@ -24,11 +23,11 @@ def generate_workflow_id(name: str) -> str:
 
 EXAMPLE_WORKFLOWS = [
     # ========================================
-    # 1. RESEARCH AGENT - Multi-tool agent with code + calculator + time
+    # 1. CSV TABLE DISPLAY — test tabular file via analytics service
     # ========================================
     {
-        "name": "Research Agent",
-        "description": "AI agent with calculator, code execution, and time tools. Solves analytical tasks autonomously. POST with {\"task\": \"Calculate compound interest on $10,000 at 5% for 10 years, then write Python code to generate an amortization schedule\"}",
+        "name": "CSV Table Display",
+        "description": "Displays a CSV file as a table. Edit the Output node's filePath to point at your .csv, .xlsx, .tsv, or .parquet file.",
         "active": True,
         "definition": {
             "nodes": [
@@ -39,73 +38,27 @@ EXAMPLE_WORKFLOWS = [
                     "position": {"x": 100, "y": 300},
                 },
                 {
-                    "name": "Extract Task",
-                    "type": "Set",
+                    "name": "Table Output",
+                    "type": "Output",
                     "parameters": {
-                        "mode": "manual",
-                        "fields": [
-                            {"name": "task", "value": "{{ $json.body.task }}"},
-                        ],
+                        "source": "file",
+                        "filePath": "/tmp/sample.csv",
                     },
-                    "position": {"x": 300, "y": 300},
-                },
-                {
-                    "name": "Calculator",
-                    "type": "CalculatorTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 100},
-                },
-                {
-                    "name": "Code Runner",
-                    "type": "CodeTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 300},
-                },
-                {
-                    "name": "Clock",
-                    "type": "CurrentTimeTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 500},
-                },
-                {
-                    "name": "Agent",
-                    "type": "AIAgent",
-                    "parameters": {
-                        "model": "gemini-2.0-flash",
-                        "systemPrompt": "You are a research analyst agent. Use your tools to solve problems step by step. Use the calculator for arithmetic, the code tool for complex computations or data processing, and the time tool when you need current date/time. Always show your work.",
-                        "task": "{{ $json.task }}",
-                        "temperature": 0.3,
-                        "maxIterations": 15,
-                    },
-                    "position": {"x": 750, "y": 300},
-                },
-                {
-                    "name": "Respond",
-                    "type": "RespondToWebhook",
-                    "parameters": {
-                        "statusCode": "200",
-                        "responseMode": "lastNode",
-                    },
-                    "position": {"x": 1000, "y": 300},
+                    "position": {"x": 400, "y": 300},
                 },
             ],
             "connections": [
-                {"source_node": "Webhook", "target_node": "Extract Task"},
-                {"source_node": "Extract Task", "target_node": "Agent"},
-                {"source_node": "Calculator", "target_node": "Agent", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "Code Runner", "target_node": "Agent", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "Clock", "target_node": "Agent", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "Agent", "target_node": "Respond"},
+                {"source_node": "Webhook", "target_node": "Table Output"},
             ],
             "settings": {},
         },
     },
     # ========================================
-    # 2. DATA ANALYST AGENT - Code-heavy agent for data tasks
+    # 2. PDF DISPLAY — test PDF file rendering
     # ========================================
     {
-        "name": "Data Analyst Agent",
-        "description": "AI agent that writes and executes Python code to analyze data. POST with {\"task\": \"Generate a dataset of 50 employees with name, department, salary, and years of experience. Then calculate average salary by department and find the top 3 highest paid employees.\"}",
+        "name": "PDF Display",
+        "description": "Displays a PDF file. Edit the Output node's filePath to point at your .pdf file.",
         "active": True,
         "definition": {
             "nodes": [
@@ -116,66 +69,27 @@ EXAMPLE_WORKFLOWS = [
                     "position": {"x": 100, "y": 300},
                 },
                 {
-                    "name": "Extract Task",
-                    "type": "Set",
+                    "name": "PDF Output",
+                    "type": "Output",
                     "parameters": {
-                        "mode": "manual",
-                        "fields": [
-                            {"name": "task", "value": "{{ $json.body.task }}"},
-                        ],
+                        "source": "file",
+                        "filePath": "/tmp/sample.pdf",
                     },
-                    "position": {"x": 300, "y": 300},
-                },
-                {
-                    "name": "Code Executor",
-                    "type": "CodeTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 200},
-                },
-                {
-                    "name": "Calculator",
-                    "type": "CalculatorTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 400},
-                },
-                {
-                    "name": "Agent",
-                    "type": "AIAgent",
-                    "parameters": {
-                        "model": "gemini-2.0-flash",
-                        "systemPrompt": "You are a senior data analyst. Write Python code to solve data analysis tasks. Use the code tool to execute Python. You can use standard library modules like random, statistics, collections, json, math, datetime. Structure your output clearly with headers and formatted numbers. When presenting results, use the code tool to format them nicely.",
-                        "task": "{{ $json.task }}",
-                        "temperature": 0.2,
-                        "maxIterations": 20,
-                    },
-                    "position": {"x": 750, "y": 300},
-                },
-                {
-                    "name": "Respond",
-                    "type": "RespondToWebhook",
-                    "parameters": {
-                        "statusCode": "200",
-                        "responseMode": "lastNode",
-                    },
-                    "position": {"x": 1000, "y": 300},
+                    "position": {"x": 400, "y": 300},
                 },
             ],
             "connections": [
-                {"source_node": "Webhook", "target_node": "Extract Task"},
-                {"source_node": "Extract Task", "target_node": "Agent"},
-                {"source_node": "Code Executor", "target_node": "Agent", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "Calculator", "target_node": "Agent", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "Agent", "target_node": "Respond"},
+                {"source_node": "Webhook", "target_node": "PDF Output"},
             ],
             "settings": {},
         },
     },
     # ========================================
-    # 3. MULTI-AGENT COORDINATOR - Sub-agent spawning
+    # 3. HTML FILE DISPLAY — test HTML file rendering
     # ========================================
     {
-        "name": "Multi-Agent Coordinator",
-        "description": "Manager agent that spawns specialized sub-agents. POST with {\"task\": \"I need a comprehensive analysis of a $500,000 commercial real estate investment. Analyze the financial viability, market risks, and regulatory considerations.\"}",
+        "name": "HTML File Display",
+        "description": "Reads an .html file from disk and renders it. Edit the Output node's filePath to point at your .html file.",
         "active": True,
         "definition": {
             "nodes": [
@@ -186,69 +100,27 @@ EXAMPLE_WORKFLOWS = [
                     "position": {"x": 100, "y": 300},
                 },
                 {
-                    "name": "Extract Task",
-                    "type": "Set",
+                    "name": "HTML Output",
+                    "type": "Output",
                     "parameters": {
-                        "mode": "manual",
-                        "fields": [
-                            {"name": "task", "value": "{{ $json.body.task }}"},
-                        ],
+                        "source": "file",
+                        "filePath": "/tmp/sample.html",
                     },
-                    "position": {"x": 300, "y": 300},
-                },
-                {
-                    "name": "Calculator",
-                    "type": "CalculatorTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 200},
-                },
-                {
-                    "name": "Code Runner",
-                    "type": "CodeTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 400},
-                },
-                {
-                    "name": "Coordinator",
-                    "type": "AIAgent",
-                    "parameters": {
-                        "model": "gemini-2.0-flash",
-                        "systemPrompt": "You are a senior manager AI that coordinates complex tasks by delegating to specialized sub-agents. For each task:\n\n1. Break the task into 2-3 sub-tasks\n2. Use spawn_agents_parallel to delegate sub-tasks to specialist agents simultaneously\n3. Synthesize the results from all sub-agents into a comprehensive final report\n\nWhen spawning agents, give each a clear role and specific task. You can also use calculator and code tools directly for quick computations.",
-                        "task": "{{ $json.task }}",
-                        "temperature": 0.4,
-                        "maxIterations": 15,
-                        "enableSubAgents": True,
-                        "maxAgentDepth": 2,
-                        "allowRecursiveSpawn": False,
-                    },
-                    "position": {"x": 750, "y": 300},
-                },
-                {
-                    "name": "Respond",
-                    "type": "RespondToWebhook",
-                    "parameters": {
-                        "statusCode": "200",
-                        "responseMode": "lastNode",
-                    },
-                    "position": {"x": 1000, "y": 300},
+                    "position": {"x": 400, "y": 300},
                 },
             ],
             "connections": [
-                {"source_node": "Webhook", "target_node": "Extract Task"},
-                {"source_node": "Extract Task", "target_node": "Coordinator"},
-                {"source_node": "Calculator", "target_node": "Coordinator", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "Code Runner", "target_node": "Coordinator", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "Coordinator", "target_node": "Respond"},
+                {"source_node": "Webhook", "target_node": "HTML Output"},
             ],
             "settings": {},
         },
     },
     # ========================================
-    # 4. STRUCTURED OUTPUT AGENT - JSON schema enforcement
+    # 4. MARKDOWN FILE DISPLAY — test Markdown file rendering
     # ========================================
     {
-        "name": "Structured Output Agent",
-        "description": "Agent that returns structured JSON matching a schema. POST with {\"task\": \"Analyze the sentiment and key topics in this text: The new banking app is fantastic for transfers but the loan application process is confusing and slow. Customer support was helpful though.\"}",
+        "name": "Markdown File Display",
+        "description": "Reads a .md file from disk and renders it as Markdown. Edit the Output node's filePath to point at your .md file.",
         "active": True,
         "definition": {
             "nodes": [
@@ -259,178 +131,117 @@ EXAMPLE_WORKFLOWS = [
                     "position": {"x": 100, "y": 300},
                 },
                 {
-                    "name": "Extract Task",
+                    "name": "Markdown Output",
+                    "type": "Output",
+                    "parameters": {
+                        "source": "file",
+                        "filePath": "/tmp/sample.md",
+                    },
+                    "position": {"x": 400, "y": 300},
+                },
+            ],
+            "connections": [
+                {"source_node": "Webhook", "target_node": "Markdown Output"},
+            ],
+            "settings": {},
+        },
+    },
+    # ========================================
+    # 5. DYNAMIC FILE VIEWER — filePath from expression
+    # ========================================
+    {
+        "name": "Dynamic File Viewer",
+        "description": "File path comes from upstream Set node via expression. Edit the Set node's file_path value, then run. Auto-detects format from extension.",
+        "active": True,
+        "definition": {
+            "nodes": [
+                {
+                    "name": "Webhook",
+                    "type": "Webhook",
+                    "parameters": {"method": "POST"},
+                    "position": {"x": 100, "y": 300},
+                },
+                {
+                    "name": "Set Path",
                     "type": "Set",
                     "parameters": {
                         "mode": "manual",
                         "fields": [
-                            {"name": "task", "value": "{{ $json.body.task }}"},
+                            {"name": "file_path", "value": "/tmp/sample.csv"},
                         ],
                     },
-                    "position": {"x": 300, "y": 300},
+                    "position": {"x": 350, "y": 300},
                 },
                 {
-                    "name": "Agent",
-                    "type": "AIAgent",
+                    "name": "Display",
+                    "type": "Output",
                     "parameters": {
-                        "model": "gemini-2.0-flash",
-                        "systemPrompt": "You are a text analysis AI. Analyze the given text and return structured results. Be precise and thorough.",
-                        "task": "{{ $json.task }}",
-                        "temperature": 0.1,
-                        "maxIterations": 5,
-                        "outputSchema": json.dumps({
-                            "type": "object",
-                            "properties": {
-                                "overall_sentiment": {
-                                    "type": "string",
-                                    "enum": ["very_positive", "positive", "neutral", "negative", "very_negative"],
-                                },
-                                "confidence": {"type": "number"},
-                                "topics": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "object",
-                                        "properties": {
-                                            "topic": {"type": "string"},
-                                            "sentiment": {"type": "string"},
-                                            "keywords": {
-                                                "type": "array",
-                                                "items": {"type": "string"},
-                                            },
-                                        },
-                                    },
-                                },
-                                "summary": {"type": "string"},
+                        "source": "file",
+                        "filePath": "{{ $json.file_path }}",
+                    },
+                    "position": {"x": 650, "y": 300},
+                },
+            ],
+            "connections": [
+                {"source_node": "Webhook", "target_node": "Set Path"},
+                {"source_node": "Set Path", "target_node": "Display"},
+            ],
+            "settings": {},
+        },
+    },
+    # ========================================
+    # 6. INLINE OUTPUT DEMO — test source=input (existing behavior)
+    # ========================================
+    {
+        "name": "Inline Output Demo",
+        "description": "Tests the original source=input behavior. Generates inline HTML from upstream Set node — no file path needed.",
+        "active": True,
+        "definition": {
+            "nodes": [
+                {
+                    "name": "Webhook",
+                    "type": "Webhook",
+                    "parameters": {"method": "POST"},
+                    "position": {"x": 100, "y": 300},
+                },
+                {
+                    "name": "Build HTML",
+                    "type": "Set",
+                    "parameters": {
+                        "mode": "manual",
+                        "fields": [
+                            {
+                                "name": "html",
+                                "value": "<h1>Inline Output Test</h1><p>This HTML was generated inline from upstream data, not from a file.</p><ul><li>source = input</li><li>format = html</li></ul>",
                             },
-                        }),
-                    },
-                    "position": {"x": 550, "y": 300},
-                },
-                {
-                    "name": "Respond",
-                    "type": "RespondToWebhook",
-                    "parameters": {
-                        "statusCode": "200",
-                        "responseMode": "lastNode",
-                    },
-                    "position": {"x": 800, "y": 300},
-                },
-            ],
-            "connections": [
-                {"source_node": "Webhook", "target_node": "Extract Task"},
-                {"source_node": "Extract Task", "target_node": "Agent"},
-                {"source_node": "Agent", "target_node": "Respond"},
-            ],
-            "settings": {},
-        },
-    },
-    # ========================================
-    # 5. FULL-STACK AGENT - All tools + memory + sub-agents
-    # ========================================
-    {
-        "name": "Full-Stack Agent",
-        "description": "Agent with every capability enabled: calculator, code, HTTP, time, text, memory, and sub-agent spawning. POST with {\"task\": \"Fetch the top 10 HackerNews stories from the API (https://hacker-news.firebaseio.com/v0/topstories.json gives IDs, then https://hacker-news.firebaseio.com/v0/item/{id}.json for each). Summarize them and calculate the average score.\"}",
-        "active": True,
-        "definition": {
-            "nodes": [
-                {
-                    "name": "Webhook",
-                    "type": "Webhook",
-                    "parameters": {"method": "POST"},
-                    "position": {"x": 100, "y": 350},
-                },
-                {
-                    "name": "Extract Task",
-                    "type": "Set",
-                    "parameters": {
-                        "mode": "manual",
-                        "fields": [
-                            {"name": "task", "value": "{{ $json.body.task }}"},
                         ],
                     },
-                    "position": {"x": 300, "y": 350},
+                    "position": {"x": 350, "y": 300},
                 },
                 {
-                    "name": "Calculator",
-                    "type": "CalculatorTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 100},
-                },
-                {
-                    "name": "Code Runner",
-                    "type": "CodeTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 250},
-                },
-                {
-                    "name": "HTTP Client",
-                    "type": "HttpRequestTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 400},
-                },
-                {
-                    "name": "Clock",
-                    "type": "CurrentTimeTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 550},
-                },
-                {
-                    "name": "Text Utils",
-                    "type": "TextTool",
-                    "parameters": {},
-                    "position": {"x": 700, "y": 100},
-                },
-                {
-                    "name": "Memory",
-                    "type": "SQLiteMemory",
-                    "parameters": {"sessionId": "full-stack-agent"},
-                    "position": {"x": 700, "y": 550},
-                },
-                {
-                    "name": "Agent",
-                    "type": "AIAgent",
+                    "name": "HTML Display",
+                    "type": "Output",
                     "parameters": {
-                        "model": "gemini-2.0-flash",
-                        "systemPrompt": "You are a powerful full-stack AI agent with access to many tools:\n- Calculator: for math\n- Code: execute Python for data processing\n- HTTP: make API requests to fetch data\n- Time: get current date/time\n- Text: word count, character count, text manipulation\n- Sub-agents: spawn specialized agents for parallel work\n\nUse the right tool for each sub-task. For API calls, use the http_request tool. For data processing, use the code tool. Be resourceful and chain tools together to accomplish complex tasks.",
-                        "task": "{{ $json.task }}",
-                        "temperature": 0.3,
-                        "maxIterations": 25,
-                        "enableSubAgents": True,
-                        "maxAgentDepth": 2,
-                        "allowRecursiveSpawn": False,
+                        "source": "input",
+                        "format": "html",
+                        "content": "{{ $json.html }}",
                     },
-                    "position": {"x": 900, "y": 350},
-                },
-                {
-                    "name": "Respond",
-                    "type": "RespondToWebhook",
-                    "parameters": {
-                        "statusCode": "200",
-                        "responseMode": "lastNode",
-                    },
-                    "position": {"x": 1150, "y": 350},
+                    "position": {"x": 650, "y": 300},
                 },
             ],
             "connections": [
-                {"source_node": "Webhook", "target_node": "Extract Task"},
-                {"source_node": "Extract Task", "target_node": "Agent"},
-                {"source_node": "Calculator", "target_node": "Agent", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "Code Runner", "target_node": "Agent", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "HTTP Client", "target_node": "Agent", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "Clock", "target_node": "Agent", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "Text Utils", "target_node": "Agent", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "Memory", "target_node": "Agent", "connection_type": "subnode", "slot_name": "memory"},
-                {"source_node": "Agent", "target_node": "Respond"},
+                {"source_node": "Webhook", "target_node": "Build HTML"},
+                {"source_node": "Build HTML", "target_node": "HTML Display"},
             ],
             "settings": {},
         },
     },
     # ========================================
-    # 6. LOAN DECISION AGENT - Banking-specific agentic workflow
+    # 7. SAMPLE → TABLE — data pipeline: sample rows then display as table
     # ========================================
     {
-        "name": "Loan Decision Agent",
-        "description": "AI agent that autonomously evaluates loan applications using tools. POST with {\"task\": \"Evaluate this loan application: Applicant Sarah Johnson, requesting $250,000 for home purchase. Annual income $95,000, employment 5 years at TechCorp, credit score 720. Calculate DTI, risk score, and provide a detailed underwriting recommendation.\"}",
+        "name": "Sample → Table",
+        "description": "Samples 20 random rows from a CSV file and displays them as a table. Edit the Sample node's filePath to point at your CSV.",
         "active": True,
         "definition": {
             "nodes": [
@@ -441,66 +252,42 @@ EXAMPLE_WORKFLOWS = [
                     "position": {"x": 100, "y": 300},
                 },
                 {
-                    "name": "Extract Task",
-                    "type": "Set",
+                    "name": "Sample Data",
+                    "type": "Sample",
                     "parameters": {
-                        "mode": "manual",
-                        "fields": [
-                            {"name": "task", "value": "{{ $json.body.task }}"},
-                        ],
+                        "sourceType": "file",
+                        "fileLocation": "local",
+                        "filePath": "/tmp/sample.csv",
+                        "method": "random",
+                        "sampleSize": 20,
+                        "returnData": True,
                     },
-                    "position": {"x": 300, "y": 300},
+                    "position": {"x": 400, "y": 300},
                 },
                 {
-                    "name": "Calculator",
-                    "type": "CalculatorTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 150},
-                },
-                {
-                    "name": "Code Runner",
-                    "type": "CodeTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 450},
-                },
-                {
-                    "name": "Agent",
-                    "type": "AIAgent",
+                    "name": "Show Table",
+                    "type": "Output",
                     "parameters": {
-                        "model": "gemini-2.0-flash",
-                        "systemPrompt": "You are a senior loan underwriter AI at a major bank. Evaluate loan applications thoroughly:\n\n1. Use the calculator to compute: DTI ratio, loan-to-income ratio, monthly payment estimates (assume 6.5% APR for 30yr fixed)\n2. Use the code tool to run a risk scoring model:\n   - Credit score: 750+ = 30pts, 700-749 = 20pts, 650-699 = 10pts, <650 = 0pts\n   - DTI: <28% = 30pts, 28-36% = 20pts, 36-43% = 10pts, >43% = 0pts\n   - Employment: 5+ yrs = 25pts, 2-4 yrs = 15pts, <2 yrs = 5pts\n   - LTI ratio: <3x = 15pts, 3-4x = 10pts, >4x = 0pts\n3. Make a decision: 80+ APPROVED, 60-79 APPROVED WITH CONDITIONS, 40-59 REFER TO UNDERWRITER, <40 DECLINED\n4. Provide a professional assessment with specific recommendations",
-                        "task": "{{ $json.task }}",
-                        "temperature": 0.2,
-                        "maxIterations": 15,
+                        "source": "input",
+                        "format": "table",
+                        "contentField": "data",
                     },
-                    "position": {"x": 750, "y": 300},
-                },
-                {
-                    "name": "Respond",
-                    "type": "RespondToWebhook",
-                    "parameters": {
-                        "statusCode": "200",
-                        "responseMode": "lastNode",
-                    },
-                    "position": {"x": 1000, "y": 300},
+                    "position": {"x": 700, "y": 300},
                 },
             ],
             "connections": [
-                {"source_node": "Webhook", "target_node": "Extract Task"},
-                {"source_node": "Extract Task", "target_node": "Agent"},
-                {"source_node": "Calculator", "target_node": "Agent", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "Code Runner", "target_node": "Agent", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "Agent", "target_node": "Respond"},
+                {"source_node": "Webhook", "target_node": "Sample Data"},
+                {"source_node": "Sample Data", "target_node": "Show Table"},
             ],
             "settings": {},
         },
     },
     # ========================================
-    # 7. COMPETITIVE INTEL AGENT - HTTP + Code + Sub-agents
+    # 8. REPORT → HTML — data pipeline: generate HTML report then display
     # ========================================
     {
-        "name": "Competitive Intel Agent",
-        "description": "Agent that fetches public API data and analyzes it. POST with {\"task\": \"Fetch the current Bitcoin price from https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana&vs_currencies=usd,eur and analyze the prices. Calculate price ratios between the coins and write a brief market summary.\"}",
+        "name": "Report → HTML",
+        "description": "Generates a full HTML data report from a CSV and renders it. Edit the Report node's filePath to point at your CSV.",
         "active": True,
         "definition": {
             "nodes": [
@@ -511,63 +298,82 @@ EXAMPLE_WORKFLOWS = [
                     "position": {"x": 100, "y": 300},
                 },
                 {
-                    "name": "Extract Task",
-                    "type": "Set",
+                    "name": "Generate Report",
+                    "type": "Report",
                     "parameters": {
-                        "mode": "manual",
-                        "fields": [
-                            {"name": "task", "value": "{{ $json.body.task }}"},
-                        ],
+                        "sourceType": "file",
+                        "fileLocation": "local",
+                        "filePath": "/tmp/sample.csv",
+                        "title": "Employee Data Report",
+                        "previewRows": 10,
                     },
-                    "position": {"x": 300, "y": 300},
+                    "position": {"x": 400, "y": 300},
                 },
                 {
-                    "name": "HTTP Client",
-                    "type": "HttpRequestTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 150},
+                    "name": "Show Report",
+                    "type": "Output",
+                    "parameters": {
+                        "source": "input",
+                        "format": "html",
+                        "contentField": "html",
+                    },
+                    "position": {"x": 700, "y": 300},
                 },
+            ],
+            "connections": [
+                {"source_node": "Webhook", "target_node": "Generate Report"},
+                {"source_node": "Generate Report", "target_node": "Show Report"},
+            ],
+            "settings": {},
+        },
+    },
+    # ========================================
+    # 9. AGENT → FILE → DISPLAY — AI generates CSV, Output displays it
+    # ========================================
+    {
+        "name": "Agent → File → Display",
+        "description": "AI agent generates a CSV file with Python, then the Output node displays it as a table. One-click demo of the full AI-to-visual pipeline.",
+        "active": True,
+        "definition": {
+            "nodes": [
                 {
-                    "name": "Code Runner",
-                    "type": "CodeTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 300},
-                },
-                {
-                    "name": "Calculator",
-                    "type": "CalculatorTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 450},
+                    "name": "Webhook",
+                    "type": "Webhook",
+                    "parameters": {"method": "POST"},
+                    "position": {"x": 100, "y": 300},
                 },
                 {
                     "name": "Agent",
                     "type": "AIAgent",
                     "parameters": {
                         "model": "gemini-2.0-flash",
-                        "systemPrompt": "You are a market intelligence analyst. Use the http_request tool to fetch data from APIs, then use calculator and code tools to analyze the results. Present findings in a clear, professional format with numbers and percentages.",
-                        "task": "{{ $json.task }}",
+                        "systemPrompt": "You are a data generation assistant. Use the code tool to write Python that generates a CSV file at /tmp/agent_output.csv. The CSV should have realistic-looking data. After writing the file, return ONLY a JSON object: {\"file_path\": \"/tmp/agent_output.csv\"}",
+                        "task": "Generate a CSV with 30 rows of sales data: columns Date, Product, Region, Units, Revenue, Profit. Use realistic values for a tech company selling 3 products across 4 regions. Save to /tmp/agent_output.csv.",
                         "temperature": 0.3,
-                        "maxIterations": 15,
+                        "maxIterations": 10,
                     },
-                    "position": {"x": 750, "y": 300},
+                    "position": {"x": 400, "y": 300},
                 },
                 {
-                    "name": "Respond",
-                    "type": "RespondToWebhook",
+                    "name": "Code Runner",
+                    "type": "CodeTool",
+                    "parameters": {},
+                    "position": {"x": 400, "y": 100},
+                },
+                {
+                    "name": "Display CSV",
+                    "type": "Output",
                     "parameters": {
-                        "statusCode": "200",
-                        "responseMode": "lastNode",
+                        "source": "file",
+                        "filePath": "/tmp/agent_output.csv",
                     },
-                    "position": {"x": 1000, "y": 300},
+                    "position": {"x": 700, "y": 300},
                 },
             ],
             "connections": [
-                {"source_node": "Webhook", "target_node": "Extract Task"},
-                {"source_node": "Extract Task", "target_node": "Agent"},
-                {"source_node": "HTTP Client", "target_node": "Agent", "connection_type": "subnode", "slot_name": "tools"},
+                {"source_node": "Webhook", "target_node": "Agent"},
                 {"source_node": "Code Runner", "target_node": "Agent", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "Calculator", "target_node": "Agent", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "Agent", "target_node": "Respond"},
+                {"source_node": "Agent", "target_node": "Display CSV"},
             ],
             "settings": {},
         },

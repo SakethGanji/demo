@@ -8,6 +8,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { useWorkflowStore } from '../stores/workflowStore';
 import { useUIModeStore } from '../stores/uiModeStore';
+import { useEditorLayoutStore } from '../stores/editorLayoutStore';
 import { toBackendWorkflow, findUpstreamNodeName, buildNameToIdMap } from '../lib/workflowTransform';
 import { consumeSSEStream } from '../lib/sseParser';
 import { backends } from '@/shared/lib/config';
@@ -78,9 +79,8 @@ export function useExecutionStream(): UseExecutionStreamResult {
       clearExecutionData,
     } = useWorkflowStore.getState();
 
-    const { setHtmlContent, setMarkdownContent } = useUIModeStore.getState();
-
-    // Clear previous execution data
+    // Clear previous execution and UI data
+    useUIModeStore.getState().reset();
     clearExecutionData();
     setIsExecuting(true);
     setProgress(null);
@@ -234,15 +234,33 @@ export function useExecutionStream(): UseExecutionStreamResult {
               if (event.data) {
                 nodeOutputs[event.nodeName] = event.data;
 
-                // Check for UI output content (HTML/Markdown)
+                // Check for UI output content (HTML/Markdown/PDF/Table)
                 const uiStore = useUIModeStore.getState();
+                let hasUIContent = false;
                 for (const item of event.data) {
                   const data = item.json;
                   if (data._renderAs === 'html' && data.html) {
                     uiStore.setHtmlContent(String(data.html));
+                    hasUIContent = true;
                   }
                   if (data._renderAs === 'markdown' && data.markdown) {
                     uiStore.setMarkdownContent(String(data.markdown));
+                    hasUIContent = true;
+                  }
+                  if (data._renderAs === 'pdf' && data.pdf_base64) {
+                    uiStore.setPdfBase64(String(data.pdf_base64));
+                    hasUIContent = true;
+                  }
+                  if (data._renderAs === 'table' && Array.isArray(data.data)) {
+                    uiStore.setTableData(data.data as Record<string, unknown>[]);
+                    hasUIContent = true;
+                  }
+                }
+                // Ensure bottom panel is open on UI tab when output content arrives
+                if (hasUIContent) {
+                  const layout = useEditorLayoutStore.getState();
+                  if (!layout.bottomPanelOpen || layout.bottomPanelTab !== 'ui') {
+                    layout.openBottomPanel('ui');
                   }
                 }
               }

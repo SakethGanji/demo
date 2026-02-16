@@ -27,6 +27,11 @@ const OUTPUT_NODE_TYPES: Record<string, OutputType> = {
   TextDisplay: 'text',
 };
 
+// The unified Output node's format is dynamic (depends on parameters / file
+// extension at runtime), so it is tracked as a UI node but doesn't contribute
+// a static output type — the bottom panel reacts to store state instead.
+const UI_NODE_TYPES = new Set([...Object.keys(OUTPUT_NODE_TYPES), 'Output']);
+
 /**
  * Scans workflow nodes to detect UI nodes and build configuration
  * for the dynamic UI preview panel.
@@ -36,9 +41,11 @@ export function detectUINodes(nodes: Node<WorkflowNodeData>[]): UIConfig {
   const inputNode = nodes.find((n) => INPUT_NODE_TYPES[n.data.type]) ?? null;
   const inputType = inputNode ? INPUT_NODE_TYPES[inputNode.data.type] : null;
 
-  // Find explicit output nodes (HTMLDisplay, MarkdownDisplay, etc.)
-  const outputNodes = nodes.filter((n) => OUTPUT_NODE_TYPES[n.data.type]);
-  const outputTypes: OutputType[] = outputNodes.map((n) => OUTPUT_NODE_TYPES[n.data.type]);
+  // Find explicit output nodes (HTMLDisplay, MarkdownDisplay, Output, etc.)
+  const outputNodes = nodes.filter((n) => UI_NODE_TYPES.has(n.data.type));
+  const outputTypes: OutputType[] = outputNodes
+    .map((n) => OUTPUT_NODE_TYPES[n.data.type])
+    .filter(Boolean);
 
   // ChatInput auto-displays last node's output (n8n-style)
   // Enable chat output when we have ChatInput

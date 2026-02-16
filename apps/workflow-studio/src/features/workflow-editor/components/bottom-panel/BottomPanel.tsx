@@ -2,12 +2,15 @@ import { lazy, Suspense, useMemo } from 'react';
 import { X, ScrollText, Monitor, Maximize2, Minimize2 } from 'lucide-react';
 import { useEditorLayoutStore, type BottomPanelTab } from '../../stores/editorLayoutStore';
 import { useWorkflowStore } from '../../stores/workflowStore';
+import { useUIModeStore } from '../../stores/uiModeStore';
 import { detectUINodes } from '../ui-preview/detectUINodes';
 import { ChatInput } from '../ui-preview/ChatInput';
 
 const ChatPanel = lazy(() => import('../ui-preview/ChatPanel').then((m) => ({ default: m.ChatPanel })));
 const HTMLPanel = lazy(() => import('../ui-preview/HTMLPanel').then((m) => ({ default: m.HTMLPanel })));
 const MarkdownPanel = lazy(() => import('../ui-preview/MarkdownPanel').then((m) => ({ default: m.MarkdownPanel })));
+const PDFPanel = lazy(() => import('../ui-preview/PDFPanel').then((m) => ({ default: m.PDFPanel })));
+const TablePanel = lazy(() => import('../ui-preview/TablePanel').then((m) => ({ default: m.TablePanel })));
 import { MessageSquare } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
 import type { WorkflowNodeData } from '../../types/workflow';
@@ -81,11 +84,15 @@ export default function BottomPanel() {
 
 function UIContent({ uiConfig }: { uiConfig: ReturnType<typeof detectUINodes> }) {
   const hasChat = uiConfig.outputTypes.includes('chat');
-  const hasHTML = uiConfig.outputTypes.includes('html');
-  const hasMarkdown = uiConfig.outputTypes.includes('markdown');
-  const hasAnyOutput = hasChat || hasHTML || hasMarkdown;
+  // Content panels are driven by store state so they react to whatever the
+  // Output node actually produces (html, markdown, pdf, or table).
+  const hasHTML = useUIModeStore((s) => s.htmlContent) !== null;
+  const hasMarkdown = useUIModeStore((s) => s.markdownContent) !== null;
+  const hasPdf = useUIModeStore((s) => s.pdfBase64) !== null;
+  const hasTable = useUIModeStore((s) => s.tableData) !== null;
+  const hasAnyOutput = hasChat || hasHTML || hasMarkdown || hasPdf || hasTable;
 
-  if (!uiConfig.inputNode && uiConfig.outputNodes.length === 0) {
+  if (!uiConfig.inputNode && uiConfig.outputNodes.length === 0 && !hasAnyOutput) {
     return (
       <div className="flex-1 flex items-center justify-center p-4 h-full">
         <div className="text-center text-muted-foreground max-w-[200px]">
@@ -105,6 +112,8 @@ function UIContent({ uiConfig }: { uiConfig: ReturnType<typeof detectUINodes> })
         {hasChat && <ChatPanel />}
         {hasMarkdown && <MarkdownPanel />}
         {hasHTML && <HTMLPanel />}
+        {hasPdf && <PDFPanel />}
+        {hasTable && <TablePanel />}
         {!hasAnyOutput && (
           <div className="h-full flex items-center justify-center text-muted-foreground text-xs">
             No output nodes configured

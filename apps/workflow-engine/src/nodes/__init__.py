@@ -36,6 +36,9 @@ from .data.object_read import ObjectReadNode
 from .data.object_write import ObjectWriteNode
 from .data.read_file import ReadFileNode
 from .data.sample import SampleNode
+from .data.profile import ProfileNode
+from .data.aggregate import AggregateNode
+from .data.report import ReportNode
 from .data.set_node import SetNode
 from .data.write_file import WriteFileNode
 
@@ -54,6 +57,7 @@ from .ai.llm_chat import LLMChatNode
 # Output nodes — display and response.
 from .output.html_display import HTMLDisplayNode
 from .output.markdown_display import MarkdownDisplayNode
+from .output.output_display import OutputDisplayNode
 from .output.pandas_explore import PandasExploreNode
 from .output.respond_to_webhook import RespondToWebhookNode
 
@@ -87,6 +91,9 @@ __all__ = [
     "ObjectWriteNode",
     "ReadFileNode",
     "SampleNode",
+    "ProfileNode",
+    "AggregateNode",
+    "ReportNode",
     "SetNode",
     "WriteFileNode",
     "HttpRequestNode",
@@ -99,6 +106,7 @@ __all__ = [
     "LLMChatNode",
     "HTMLDisplayNode",
     "MarkdownDisplayNode",
+    "OutputDisplayNode",
     "PandasExploreNode",
     "RespondToWebhookNode",
     "triggers",

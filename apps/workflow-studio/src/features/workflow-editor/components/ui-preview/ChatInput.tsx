@@ -91,6 +91,16 @@ export function ChatInput({ config }: ChatInputProps) {
             if (data._renderAs === 'markdown' && data.markdown) {
               setMarkdownContent(String(data.markdown));
             }
+
+            // Handle PDF output
+            if (data._renderAs === 'pdf' && data.pdf_base64) {
+              useUIModeStore.getState().setPdfBase64(String(data.pdf_base64));
+            }
+
+            // Handle Table output
+            if (data._renderAs === 'table' && Array.isArray(data.data)) {
+              useUIModeStore.getState().setTableData(data.data as Record<string, unknown>[]);
+            }
           }
         }
 
