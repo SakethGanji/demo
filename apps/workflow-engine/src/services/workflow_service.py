@@ -159,21 +159,36 @@ class WorkflowService:
                 "No start node found in workflow", workflow_id=workflow_id
             )
 
-        # Build initial data - merge user input with trigger metadata
-        base_data = {
-            "triggeredAt": datetime.now().isoformat(),
-            "mode": "manual",
-        }
+        # Build initial data - wrap in webhook-style format for consistency
         if input_data:
-            base_data.update(input_data)
-
-        initial_data = [NodeData(json=base_data)]
+            initial_data = [
+                NodeData(
+                    json={
+                        "body": input_data,
+                        "headers": {},
+                        "query": {},
+                        "method": "POST",
+                        "triggeredAt": datetime.now().isoformat(),
+                    }
+                )
+            ]
+            mode = "webhook"
+        else:
+            initial_data = [
+                NodeData(
+                    json={
+                        "triggeredAt": datetime.now().isoformat(),
+                        "mode": "manual",
+                    }
+                )
+            ]
+            mode = "manual"
 
         context = await runner.run(
             stored.workflow,
             start_node.name,
             initial_data,
-            "manual",
+            mode,
             workflow_repository=self._workflow_repo,
         )
         await self._execution_repo.complete(context, stored.id, stored.name)
@@ -191,21 +206,36 @@ class WorkflowService:
         if not start_node:
             raise WorkflowExecutionError("No start node found in workflow")
 
-        # Build initial data - merge user input with trigger metadata
-        base_data: dict[str, Any] = {
-            "triggeredAt": datetime.now().isoformat(),
-            "mode": "manual",
-        }
+        # Build initial data - wrap in webhook-style format for consistency
         if request.input_data:
-            base_data.update(request.input_data)
-
-        initial_data = [NodeData(json=base_data)]
+            initial_data = [
+                NodeData(
+                    json={
+                        "body": request.input_data,
+                        "headers": {},
+                        "query": {},
+                        "method": "POST",
+                        "triggeredAt": datetime.now().isoformat(),
+                    }
+                )
+            ]
+            mode = "webhook"
+        else:
+            initial_data = [
+                NodeData(
+                    json={
+                        "triggeredAt": datetime.now().isoformat(),
+                        "mode": "manual",
+                    }
+                )
+            ]
+            mode = "manual"
 
         context = await runner.run(
             internal_workflow,
             start_node.name,
             initial_data,
-            "manual",
+            mode,
             workflow_repository=self._workflow_repo,
         )
         await self._execution_repo.complete(

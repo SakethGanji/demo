@@ -196,6 +196,10 @@ class ExpressionEngine:
         """Transform n8n-style expressions to Python-compatible syntax."""
         result = expression
 
+        # Unescape JSON-escaped quotes so $node["Name"] regexes match
+        # (inside JSON strings, quotes arrive as \" which breaks the patterns)
+        result = result.replace('\\"', '"').replace("\\'", "'")
+
         # Handle JavaScript booleans -> Python booleans
         # Use word boundaries to avoid replacing inside strings
         result = re.sub(r'\bfalse\b', 'False', result)

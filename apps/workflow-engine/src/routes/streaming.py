@@ -177,7 +177,7 @@ async def stream_adhoc_execution(
     if not start_node:
         raise HTTPException(status_code=400, detail="No start node found in workflow")
 
-    # Build initial data - if input_data provided, format as webhook-style input
+    # Build initial data - wrap in webhook-style format for consistency
     if workflow.input_data:
         initial_data = [
             NodeData(
@@ -274,7 +274,7 @@ async def stream_workflow_execution_with_input(
     if not start_node:
         raise HTTPException(status_code=400, detail="No start node found in workflow")
 
-    # Build initial data based on whether input_data is provided
+    # Build initial data - wrap in webhook-style format for consistency
     if request.input_data:
         initial_data = [
             NodeData(
