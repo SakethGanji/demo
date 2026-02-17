@@ -26,7 +26,7 @@ import { useNDVStore } from '../../stores/ndvStore';
 import { useEditorLayoutStore } from '../../stores/editorLayoutStore';
 import DynamicNodeForm, { type NodeProperty, type OutputSchema } from './DynamicNodeForm';
 import { useNodeTypes } from '../../hooks/useNodeTypes';
-import { getNodeExtensions } from './extensions/nodeExtensions';
+import { getNodeExtensions } from './extensions/NodeExtensions';
 
 interface NodeSettingsProps {
   node: Node<WorkflowNodeData>;
@@ -112,21 +112,19 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
       <div className="flex border-b border-border">
         <button
           onClick={() => setActiveTab('parameters')}
-          className={`flex-1 px-3 py-2 text-[13px] font-medium transition-colors ${
-            activeTab === 'parameters'
+          className={`flex-1 px-3 py-2 text-[13px] font-medium transition-colors ${activeTab === 'parameters'
               ? 'border-b-2 border-primary text-foreground'
               : 'text-muted-foreground hover:text-foreground'
-          }`}
+            }`}
         >
           Parameters
         </button>
         <button
           onClick={() => setActiveTab('settings')}
-          className={`flex-1 px-3 py-2 text-[13px] font-medium transition-colors ${
-            activeTab === 'settings'
+          className={`flex-1 px-3 py-2 text-[13px] font-medium transition-colors ${activeTab === 'settings'
               ? 'border-b-2 border-primary text-foreground'
               : 'text-muted-foreground hover:text-foreground'
-          }`}
+            }`}
         >
           <Settings size={12} className="mr-1 inline" />
           Settings
