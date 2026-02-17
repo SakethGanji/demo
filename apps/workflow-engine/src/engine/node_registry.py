@@ -275,6 +275,7 @@ def register_all_nodes() -> None:
         HttpRequestToolNode,
         CodeToolNode,
         WorkflowToolNode,
+        Neo4jQueryToolNode,
     )
 
     # All node classes (regular nodes + subnodes)
@@ -338,6 +339,7 @@ def register_all_nodes() -> None:
         HttpRequestToolNode,
         CodeToolNode,
         WorkflowToolNode,
+        Neo4jQueryToolNode,
     ]
 
     for node_class in all_node_classes:

@@ -7,6 +7,7 @@ from .text_tool import TextToolNode
 from .http_request_tool import HttpRequestToolNode
 from .code_tool import CodeToolNode
 from .workflow_tool import WorkflowToolNode
+from .neo4j_query_tool import Neo4jQueryToolNode
 
 __all__ = [
     "CalculatorToolNode",
@@ -16,4 +17,5 @@ __all__ = [
     "HttpRequestToolNode",
     "CodeToolNode",
     "WorkflowToolNode",
+    "Neo4jQueryToolNode",
 ]

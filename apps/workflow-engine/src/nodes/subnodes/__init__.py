@@ -24,6 +24,7 @@ from .tools.text_tool import TextToolNode
 from .tools.http_request_tool import HttpRequestToolNode
 from .tools.code_tool import CodeToolNode
 from .tools.workflow_tool import WorkflowToolNode
+from .tools.neo4j_query_tool import Neo4jQueryToolNode
 
 __all__ = [
     "BaseSubnode",
@@ -51,4 +52,5 @@ __all__ = [
     "HttpRequestToolNode",
     "CodeToolNode",
     "WorkflowToolNode",
+    "Neo4jQueryToolNode",
 ]
