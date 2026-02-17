@@ -646,6 +646,127 @@ EXAMPLE_WORKFLOWS = [
             "settings": {},
         },
     },
+    # ========================================
+    # 9. NEO4J AGENT — AI Agent with Neo4j graph query tool
+    # ========================================
+    {
+        "name": "Neo4j Org Chart Agent",
+        "description": "AI Agent that queries a company org chart stored in Neo4j. Ask about people, projects, teams, and technologies. Requires Neo4j at bolt://localhost:7687.",
+        "active": True,
+        "definition": {
+            "nodes": [
+                {
+                    "name": "Start",
+                    "type": "Start",
+                    "parameters": {},
+                    "position": {"x": 100, "y": 300},
+                },
+                {
+                    "name": "AI Agent",
+                    "type": "AIAgent",
+                    "parameters": {
+                        "model": "gemini-2.0-flash",
+                        "systemPrompt": (
+                            "You are a helpful assistant with access to a company org chart "
+                            "stored in Neo4j. Use the neo4j_query tool to answer questions "
+                            "about people, projects, teams, and technologies. "
+                            "Always use the tool to look up data — never guess."
+                        ),
+                        "task": "Give me a full overview of the engineering organization: who leads it, the active projects, and what tech stacks they use.",
+                        "maxIterations": 8,
+                        "temperature": 0.2,
+                    },
+                    "position": {"x": 500, "y": 300},
+                },
+                {
+                    "name": "Neo4j Tool",
+                    "type": "Neo4jQueryTool",
+                    "parameters": {
+                        "uri": "bolt://localhost:7687",
+                        "username": "neo4j",
+                        "password": "testpassword",
+                        "database": "neo4j",
+                        "toolName": "neo4j_query",
+                        "description": "Query the company org chart in Neo4j. Use this to find people, projects, teams, and technologies.",
+                        "queryRegistry": json.dumps({
+                            "list_people": {
+                                "description": "List all people with their roles and departments",
+                                "query": "MATCH (p:Person) RETURN p.name AS name, p.role AS role, p.department AS department ORDER BY p.name",
+                                "parameters": {},
+                            },
+                            "find_person": {
+                                "description": "Find a person by name",
+                                "query": "MATCH (p:Person) WHERE toLower(p.name) CONTAINS toLower($name) RETURN p.name AS name, p.role AS role, p.department AS department, p.email AS email",
+                                "parameters": {
+                                    "name": {"type": "string", "required": True},
+                                },
+                            },
+                            "person_reports": {
+                                "description": "Find who reports to (is managed by) a given person",
+                                "query": "MATCH (mgr:Person)-[:MANAGES]->(report:Person) WHERE toLower(mgr.name) CONTAINS toLower($manager_name) RETURN report.name AS name, report.role AS role",
+                                "parameters": {
+                                    "manager_name": {"type": "string", "required": True},
+                                },
+                            },
+                            "person_projects": {
+                                "description": "Find all projects a person is working on",
+                                "query": "MATCH (p:Person)-[w:WORKS_ON]->(proj:Project) WHERE toLower(p.name) CONTAINS toLower($name) RETURN proj.name AS project, w.role AS role, proj.status AS status, proj.priority AS priority",
+                                "parameters": {
+                                    "name": {"type": "string", "required": True},
+                                },
+                            },
+                            "project_team": {
+                                "description": "Find all people working on a given project",
+                                "query": "MATCH (p:Person)-[w:WORKS_ON]->(proj:Project) WHERE toLower(proj.name) CONTAINS toLower($project_name) RETURN p.name AS person, w.role AS project_role, proj.name AS project, proj.status AS status",
+                                "parameters": {
+                                    "project_name": {"type": "string", "required": True},
+                                },
+                            },
+                            "project_tech_stack": {
+                                "description": "Get the technology stack used by a project",
+                                "query": "MATCH (proj:Project)-[:USES]->(t:Technology) WHERE toLower(proj.name) CONTAINS toLower($project_name) RETURN t.name AS technology, t.category AS category",
+                                "parameters": {
+                                    "project_name": {"type": "string", "required": True},
+                                },
+                            },
+                            "person_skills": {
+                                "description": "Get the skills/technologies a person knows",
+                                "query": "MATCH (p:Person)-[:SKILLED_IN]->(t:Technology) WHERE toLower(p.name) CONTAINS toLower($name) RETURN t.name AS skill, t.category AS category",
+                                "parameters": {
+                                    "name": {"type": "string", "required": True},
+                                },
+                            },
+                            "active_projects": {
+                                "description": "List all active projects",
+                                "query": "MATCH (proj:Project) WHERE proj.status = 'active' RETURN proj.name AS name, proj.description AS description, proj.priority AS priority",
+                                "parameters": {},
+                            },
+                            "team_members": {
+                                "description": "List members of a team",
+                                "query": "MATCH (p:Person)-[:MEMBER_OF]->(t:Team) WHERE toLower(t.name) CONTAINS toLower($team_name) RETURN p.name AS person, p.role AS role",
+                                "parameters": {
+                                    "team_name": {"type": "string", "required": True},
+                                },
+                            },
+                        }, indent=2),
+                        "resultLimit": 50,
+                        "queryTimeout": 15,
+                    },
+                    "position": {"x": 500, "y": 100},
+                },
+            ],
+            "connections": [
+                {"source_node": "Start", "target_node": "AI Agent"},
+                {
+                    "source_node": "Neo4j Tool",
+                    "target_node": "AI Agent",
+                    "connection_type": "subnode",
+                    "slot_name": "tools",
+                },
+            ],
+            "settings": {},
+        },
+    },
 ]
 
 
