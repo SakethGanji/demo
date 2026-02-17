@@ -331,6 +331,13 @@
     font-size: 13px;
   }
 
+  /* Ensure form elements use themed text color */
+  input,
+  textarea,
+  select {
+    color: var(--foreground);
+  }
+
   html,
   body,
   #root {

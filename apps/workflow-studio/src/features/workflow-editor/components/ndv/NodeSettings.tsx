@@ -18,9 +18,6 @@ import {
   Database,
   Wrench,
   X,
-  Copy,
-  Check,
-  Link,
 } from 'lucide-react';
 import type { Node } from 'reactflow';
 import type { WorkflowNodeData, SubnodeSlotDefinition, SubnodeType } from '../../types/workflow';
@@ -29,7 +26,7 @@ import { useNDVStore } from '../../stores/ndvStore';
 import { useEditorLayoutStore } from '../../stores/editorLayoutStore';
 import DynamicNodeForm, { type NodeProperty, type OutputSchema } from './DynamicNodeForm';
 import { useNodeTypes } from '../../hooks/useNodeTypes';
-import { backends } from '@/shared/lib/config';
+import { getNodeExtensions } from './extensions/nodeExtensions';
 
 interface NodeSettingsProps {
   node: Node<WorkflowNodeData>;
@@ -57,41 +54,16 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
     subnodes: true,
     options: false,
   });
-  const [copiedUrl, setCopiedUrl] = useState(false);
   const [expandedSubnodes, setExpandedSubnodes] = useState<Record<string, boolean>>({});
   // Individual selectors — actions are stable refs, data only triggers re-render when it changes
   const updateNodeData = useWorkflowStore((s) => s.updateNodeData);
   const deleteNode = useWorkflowStore((s) => s.deleteNode);
-  const workflowId = useWorkflowStore((s) => s.workflowId);
 
   const upstreamNodeId = useUpstreamNodeId(node.id);
   const upstreamNode = useNodeById(upstreamNodeId);
 
   const closeNDV = useNDVStore((s) => s.closeNDV);
   const openForSubnode = useEditorLayoutStore((s) => s.openForSubnode);
-
-  // Webhook URL for Webhook nodes
-  const isWebhookNode = node.data.type === 'Webhook';
-  const webhookUrl = workflowId ? `${backends.workflow}/webhook/${workflowId}` : null;
-  const webhookPath = (node.data.parameters as Record<string, unknown>)?.path as string | undefined;
-  const webhookPathUrl = webhookPath ? `${backends.workflow}/webhook/p/${webhookPath}` : null;
-  const [copiedPathUrl, setCopiedPathUrl] = useState(false);
-
-  const copyWebhookUrl = useCallback(() => {
-    if (webhookUrl) {
-      navigator.clipboard.writeText(webhookUrl);
-      setCopiedUrl(true);
-      setTimeout(() => setCopiedUrl(false), 2000);
-    }
-  }, [webhookUrl]);
-
-  const copyWebhookPathUrl = useCallback(() => {
-    if (webhookPathUrl) {
-      navigator.clipboard.writeText(webhookPathUrl);
-      setCopiedPathUrl(true);
-      setTimeout(() => setCopiedPathUrl(false), 2000);
-    }
-  }, [webhookPathUrl]);
 
   // Stable params reference and onChange callback — prevents DynamicNodeForm re-renders
   const nodeParams = useMemo(
@@ -165,62 +137,10 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
       <div className="flex-1 overflow-auto p-3">
         {activeTab === 'parameters' ? (
           <div className="space-y-3">
-            {/* Webhook URL Section - only for Webhook nodes */}
-            {isWebhookNode && (
-              <div className="rounded-md border border-border bg-muted/30">
-                <div className="px-3 py-2">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Link size={14} className="text-muted-foreground" />
-                    <span className="text-sm font-medium text-foreground">Webhook URL</span>
-                  </div>
-                  {webhookUrl ? (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <code className="flex-1 text-xs bg-muted px-2 py-1.5 rounded border border-border truncate">
-                          {webhookUrl}
-                        </code>
-                        <button
-                          onClick={copyWebhookUrl}
-                          className="flex items-center justify-center size-8 rounded-md border border-border bg-muted hover:bg-accent transition-colors shrink-0"
-                          title="Copy URL"
-                        >
-                          {copiedUrl ? (
-                            <Check size={14} className="text-[var(--success)]" />
-                          ) : (
-                            <Copy size={14} className="text-muted-foreground" />
-                          )}
-                        </button>
-                      </div>
-                      {webhookPathUrl && (
-                        <div className="flex items-center gap-2">
-                          <code className="flex-1 text-xs bg-muted px-2 py-1.5 rounded border border-border truncate">
-                            {webhookPathUrl}
-                          </code>
-                          <button
-                            onClick={copyWebhookPathUrl}
-                            className="flex items-center justify-center size-8 rounded-md border border-border bg-muted hover:bg-accent transition-colors shrink-0"
-                            title="Copy custom path URL"
-                          >
-                            {copiedPathUrl ? (
-                              <Check size={14} className="text-[var(--success)]" />
-                            ) : (
-                              <Copy size={14} className="text-muted-foreground" />
-                            )}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      Save workflow to generate webhook URL
-                    </p>
-                  )}
-                  <p className="text-xs text-muted-foreground mt-2">
-                    Workflow must be <span className="font-medium text-[var(--success)]">active</span> to receive webhooks
-                  </p>
-                </div>
-              </div>
-            )}
+            {/* Node-specific extensions (cURL import, webhook URL, etc.) */}
+            {getNodeExtensions(node.data.type).map((Extension, i) => (
+              <Extension key={i} node={node} />
+            ))}
 
             {/* Main Parameters Section */}
             <div className="rounded-md border border-border">

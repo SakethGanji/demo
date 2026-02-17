@@ -123,6 +123,7 @@ export default function WorkflowCanvas() {
 
   const closePanel = useEditorLayoutStore((s) => s.closeCreatorPanel);
   const openForConnection = useEditorLayoutStore((s) => s.openForConnection);
+  const canvasMode = useEditorLayoutStore((s) => s.canvasMode);
   const { fitView, screenToFlowPosition, getNodes, getEdges } = useReactFlow();
 
   // Track the current connection being dragged
@@ -582,9 +583,9 @@ export default function WorkflowCanvas() {
         connectionLineStyle={CONNECTION_LINE_STYLE}
         panOnScroll={false}
         zoomOnScroll
-        panOnDrag
-        selectionOnDrag
-        selectionKeyCode="Control"
+        panOnDrag={canvasMode === 'hand'}
+        selectionOnDrag={canvasMode === 'pointer'}
+        selectionKeyCode={canvasMode === 'hand' ? ['Control', 'Meta'] : null}
         nodesDraggable
         nodesConnectable
         elementsSelectable

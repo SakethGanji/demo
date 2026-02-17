@@ -20,6 +20,8 @@ import {
   Blocks,
   ScrollText,
   Monitor,
+  MousePointer2,
+  Hand,
 } from 'lucide-react';
 import { Link } from '@tanstack/react-router';
 import { useReactFlow } from 'reactflow';
@@ -68,6 +70,8 @@ export default function WorkflowNavbar() {
   const openBottomPanel = useEditorLayoutStore((s) => s.openBottomPanel);
 
   const ensureRightPanelOpen = useEditorLayoutStore((s) => s.ensureRightPanelOpen);
+  const canvasMode = useEditorLayoutStore((s) => s.canvasMode);
+  const toggleCanvasMode = useEditorLayoutStore((s) => s.toggleCanvasMode);
 
   const { zoomIn, zoomOut } = useReactFlow();
 
@@ -193,6 +197,18 @@ export default function WorkflowNavbar() {
           </button>
           <button onClick={() => redo()} disabled={!_canRedo} className={btnClass} title="Redo">
             <Redo2 size={14} />
+          </button>
+        </div>
+
+        <div className={dividerClass} />
+
+        <div className="flex bg-muted/50 rounded-md px-0.5 py-0.5">
+          <button
+            onClick={toggleCanvasMode}
+            className={btnClass + (canvasMode === 'pointer' ? ' !text-primary' : '')}
+            title={canvasMode === 'pointer' ? 'Switch to hand (pan) mode' : 'Switch to pointer (select) mode'}
+          >
+            {canvasMode === 'pointer' ? <MousePointer2 size={14} /> : <Hand size={14} />}
           </button>
         </div>
 

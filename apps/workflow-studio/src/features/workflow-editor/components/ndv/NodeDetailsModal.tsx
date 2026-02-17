@@ -150,7 +150,7 @@ export default function NodeDetailsModal() {
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-background/60 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-background/60"
         onClick={closeNDV}
       />
 

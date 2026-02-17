@@ -1,6 +1,6 @@
 import * as React from "react"
 import { Link, useMatchRoute } from "@tanstack/react-router"
-import { Moon, Sun, Hexagon, Workflow, FolderOpen } from "lucide-react"
+import { Moon, Sun, Workflow, FolderOpen, Network } from "lucide-react"
 
 import { Avatar, AvatarFallback } from "@/shared/components/ui/avatar"
 import { useTheme } from "@/shared/components/theme-provider"
@@ -33,7 +33,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" tooltip="Command Studio">
               <div className="flex aspect-square size-7 items-center justify-center rounded-md bg-sidebar-primary">
-                <Hexagon className="size-3.5 text-sidebar-primary-foreground" strokeWidth={2.5} fill="currentColor" fillOpacity={0.2} />
+                <Network className="size-4 text-sidebar-primary-foreground" strokeWidth={2.5} />
               </div>
               <div className="grid flex-1 text-left leading-tight">
                 <div className="flex items-center gap-1">

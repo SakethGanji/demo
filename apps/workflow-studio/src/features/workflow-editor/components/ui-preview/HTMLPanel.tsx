@@ -8,7 +8,7 @@ export function HTMLPanel() {
     <div className="flex flex-col h-full rounded-lg border bg-background">
       <div className="px-4 py-2 border-b flex items-center gap-2">
         <Code className="h-4 w-4 text-muted-foreground" />
-        <h3 className="text-sm font-medium">Preview</h3>
+        <h3 className="text-sm font-medium text-foreground">Preview</h3>
       </div>
       <div className="flex-1 overflow-auto">
         {htmlContent ? (

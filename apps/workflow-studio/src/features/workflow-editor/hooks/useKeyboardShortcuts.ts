@@ -69,8 +69,10 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
         useEditorLayoutStore.getState().closeCreatorPanel();
       }
 
-      // Don't handle other shortcuts when typing
+      // Don't handle other shortcuts when typing or when NDV modal is open
+      // (allow native copy/paste/cut in inputs, code editors, and NDV content)
       if (isInputFocused) return;
+      if (isNDVOpen) return;
 
       const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
       const modifierKey = isMac ? event.metaKey : event.ctrlKey;

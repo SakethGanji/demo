@@ -1,6 +1,6 @@
 import { memo, useState, useMemo, useRef, useEffect } from 'react';
-import { Handle, Position, NodeToolbar, type NodeProps } from 'reactflow';
-import { Plus, Play, MoreHorizontal, Check, X } from 'lucide-react';
+import { Handle, Position, type NodeProps } from 'reactflow';
+import { Plus, Check, X } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/shared/components/ui/popover';
 import { useEditorLayoutStore } from '../../../stores/editorLayoutStore';
 import { useNDVStore } from '../../../stores/ndvStore';
@@ -517,33 +517,6 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
         </span>
       )}
 
-      {/* Quick Actions - shows on hover or when selected (NodeToolbar doesn't scale with zoom) */}
-      <NodeToolbar
-        isVisible={showActions}
-        position={Position.Top}
-        offset={8}
-        className="nodrag flex gap-0.5 rounded-md bg-[var(--canvas-float)] p-0.5 shadow-md border border-[var(--canvas-float-border)]"
-      >
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            openNDV(id);
-          }}
-          className="rounded p-1 hover:bg-[var(--canvas-float-hover)] transition-colors"
-          title="Open settings"
-        >
-          <Play size={12} className="text-[var(--canvas-float-foreground)]" />
-        </button>
-        <button
-          className="rounded p-1 hover:bg-[var(--canvas-float-hover)] transition-colors"
-          title="More options"
-          onClick={(e) => {
-            e.stopPropagation();
-          }}
-        >
-          <MoreHorizontal size={12} className="text-[var(--canvas-float-foreground)]" />
-        </button>
-      </NodeToolbar>
     </div>
   );
 }

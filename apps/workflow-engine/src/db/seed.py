@@ -1,4 +1,4 @@
-"""Seed database with demo workflows for management presentation."""
+"""Seed database with demo workflows."""
 
 from __future__ import annotations
 
@@ -22,552 +22,286 @@ def generate_workflow_id(name: str) -> str:
     return f"wf_{timestamp}_{hash_suffix}"
 
 
+# ── HTML Template ────────────────────────────────────────────────────
+# Single template — all dynamic values come from {{ $json.xxx }}
+# resolved by the expression engine at runtime.
+
+ACTION_CARD_HTML = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            background-color: #f8fafc;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+        .card {
+            width: 100%;
+            max-width: 380px;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+            overflow: hidden;
+            border: 1px solid #e2e8f0;
+        }
+        .card-header {
+            background-color: #cbd5e1;
+            padding: 20px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .card-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #1e293b;
+            margin: 0;
+        }
+        .badge {
+            background-color: #1e4d46;
+            color: #fff;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .badge svg { width: 14px; height: 14px; }
+        .card-body {
+            background: #f1f5f9;
+            padding: 16px;
+            margin: 0 12px 12px;
+            border-radius: 10px;
+            border: 1px solid #e2e8f0;
+        }
+        .bullet-list {
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+        .bullet-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 4px 0;
+            color: #334155;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        .bullet-dot {
+            width: 6px;
+            height: 6px;
+            background-color: #1d4ed8;
+            border-radius: 50%;
+            margin-top: 7px;
+            flex-shrink: 0;
+        }
+        .card-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 11px;
+            font-weight: 700;
+            color: #64748b;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            margin-top: 14px;
+        }
+        .card-label svg { width: 16px; height: 16px; }
+        .card-btn {
+            display: block;
+            box-sizing: border-box;
+            background-color: #1d4ed8;
+            color: #fff;
+            width: 100%;
+            padding: 12px 0;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            text-align: center;
+            border: none;
+            margin-top: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">{{ $json.title }}</h2>
+            <div class="badge">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                <span>{{ $json.accountId }}</span>
+            </div>
+        </div>
+        <div class="card-body">
+            <!-- bullets injected as pre-built HTML -->
+            <ul class="bullet-list">{{ $json.bulletsHtml }}</ul>
+            <div class="card-label">
+                <svg fill="#f59e0b" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M11.3 1.046A1 1 0 0111 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clip-rule="evenodd"/></svg>
+                <span>{{ $json.actionLabel }}</span>
+            </div>
+            <div class="card-btn">{{ $json.buttonText }}</div>
+        </div>
+    </div>
+
+    <!--
+        ══════════════════════════════════════════
+        VARIABLES (resolved by expression engine):
+          $json.title       — card header title
+          $json.accountId   — badge account ID
+          $json.actionLabel — action label text
+          $json.buttonText  — button text
+          $json.bulletsHtml — bullet list items (pre-built HTML)
+        ══════════════════════════════════════════
+    -->
+</body>
+</html>
+"""
+
+
 EXAMPLE_WORKFLOWS = [
     # ========================================
-    # 1. RESEARCH AGENT - Multi-tool agent with code + calculator + time
+    # INTENT-BASED UI ROUTER
     # ========================================
     {
-        "name": "Research Agent",
-        "description": "AI agent with calculator, code execution, and time tools. Solves analytical tasks autonomously. POST with {\"task\": \"Calculate compound interest on $10,000 at 5% for 10 years, then write Python code to generate an amortization schedule\"}",
+        "name": "Intent UI Router",
+        "description": "Classifies user query intent (cards, transactions, or balance) and renders a different HTML UI for each. Run with manual trigger or test with input data.",
         "active": True,
         "definition": {
             "nodes": [
                 {
-                    "name": "Webhook",
-                    "type": "Webhook",
-                    "parameters": {"method": "POST"},
+                    "name": "Start",
+                    "type": "Start",
+                    "parameters": {},
                     "position": {"x": 100, "y": 300},
                 },
                 {
-                    "name": "Extract Task",
-                    "type": "Set",
+                    "name": "Classify Intent",
+                    "type": "Code",
                     "parameters": {
-                        "mode": "manual",
-                        "fields": [
-                            {"name": "task", "value": "{{ $json.body.task }}"},
-                        ],
+                        "code": (
+                            'def make_bullets(items):\n'
+                            '    return "".join(\n'
+                            '        \'<li class="bullet-item"><div class="bullet-dot"></div><span>\' + t + \'</span></li>\'\n'
+                            '        for t in items\n'
+                            '    )\n'
+                            '\n'
+                            'raw = json_data.get("query", "")\n'
+                            'query = str(raw).lower() if raw else ""\n'
+                            '\n'
+                            'if "card" in query or "credit" in query or "debit" in query:\n'
+                            '    return [{"json": {\n'
+                            '        "intent": "cards",\n'
+                            '        "title": "Lock / Unlock",\n'
+                            '        "accountId": "1258",\n'
+                            '        "actionLabel": "Next Best Action",\n'
+                            '        "buttonText": "Lock / Unlock Account",\n'
+                            '        "bulletsHtml": make_bullets([\n'
+                            '            "Card ending 7891 temporarily locked",\n'
+                            '            "Last transaction: $45.00 at Amazon",\n'
+                            '            "Unlock requires SMS verification"\n'
+                            '        ])\n'
+                            '    }}]\n'
+                            'elif "transaction" in query or "history" in query or "payment" in query:\n'
+                            '    return [{"json": {\n'
+                            '        "intent": "transactions",\n'
+                            '        "title": "Recent Activity",\n'
+                            '        "accountId": "1258",\n'
+                            '        "actionLabel": "Next Best Action",\n'
+                            '        "buttonText": "View Transactions",\n'
+                            '        "bulletsHtml": make_bullets([\n'
+                            '            "Payment of $45.00 processed successfully",\n'
+                            '            "New login detected from unknown device",\n'
+                            '            "Wire transfer of $200.00 pending approval"\n'
+                            '        ])\n'
+                            '    }}]\n'
+                            'else:\n'
+                            '    return [{"json": {\n'
+                            '        "intent": "balance",\n'
+                            '        "title": "Account Balance",\n'
+                            '        "accountId": "1258",\n'
+                            '        "actionLabel": "Next Best Action",\n'
+                            '        "buttonText": "Check Balance",\n'
+                            '        "bulletsHtml": make_bullets([\n'
+                            '            "Current balance: $24,580.50",\n'
+                            '            "Last deposit: $4,500.00 on Feb 14",\n'
+                            '            "Monthly spending: $1,842.30 across 16 transactions"\n'
+                            '        ])\n'
+                            '    }}]'
+                        ),
                     },
-                    "position": {"x": 300, "y": 300},
+                    "position": {"x": 350, "y": 300},
                 },
                 {
-                    "name": "Calculator",
-                    "type": "CalculatorTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 100},
-                },
-                {
-                    "name": "Code Runner",
-                    "type": "CodeTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 300},
-                },
-                {
-                    "name": "Clock",
-                    "type": "CurrentTimeTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 500},
-                },
-                {
-                    "name": "Agent",
-                    "type": "AIAgent",
+                    "name": "Route by Intent",
+                    "type": "Switch",
                     "parameters": {
-                        "model": "gemini-2.0-flash",
-                        "systemPrompt": "You are a research analyst agent. Use your tools to solve problems step by step. Use the calculator for arithmetic, the code tool for complex computations or data processing, and the time tool when you need current date/time. Always show your work.",
-                        "task": "{{ $json.task }}",
-                        "temperature": 0.3,
-                        "maxIterations": 15,
-                    },
-                    "position": {"x": 750, "y": 300},
-                },
-                {
-                    "name": "Respond",
-                    "type": "RespondToWebhook",
-                    "parameters": {
-                        "statusCode": "200",
-                        "responseMode": "lastNode",
-                    },
-                    "position": {"x": 1000, "y": 300},
-                },
-            ],
-            "connections": [
-                {"source_node": "Webhook", "target_node": "Extract Task"},
-                {"source_node": "Extract Task", "target_node": "Agent"},
-                {"source_node": "Calculator", "target_node": "Agent", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "Code Runner", "target_node": "Agent", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "Clock", "target_node": "Agent", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "Agent", "target_node": "Respond"},
-            ],
-            "settings": {},
-        },
-    },
-    # ========================================
-    # 2. DATA ANALYST AGENT - Code-heavy agent for data tasks
-    # ========================================
-    {
-        "name": "Data Analyst Agent",
-        "description": "AI agent that writes and executes Python code to analyze data. POST with {\"task\": \"Generate a dataset of 50 employees with name, department, salary, and years of experience. Then calculate average salary by department and find the top 3 highest paid employees.\"}",
-        "active": True,
-        "definition": {
-            "nodes": [
-                {
-                    "name": "Webhook",
-                    "type": "Webhook",
-                    "parameters": {"method": "POST"},
-                    "position": {"x": 100, "y": 300},
-                },
-                {
-                    "name": "Extract Task",
-                    "type": "Set",
-                    "parameters": {
-                        "mode": "manual",
-                        "fields": [
-                            {"name": "task", "value": "{{ $json.body.task }}"},
-                        ],
-                    },
-                    "position": {"x": 300, "y": 300},
-                },
-                {
-                    "name": "Code Executor",
-                    "type": "CodeTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 200},
-                },
-                {
-                    "name": "Calculator",
-                    "type": "CalculatorTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 400},
-                },
-                {
-                    "name": "Agent",
-                    "type": "AIAgent",
-                    "parameters": {
-                        "model": "gemini-2.0-flash",
-                        "systemPrompt": "You are a senior data analyst. Write Python code to solve data analysis tasks. Use the code tool to execute Python. You can use standard library modules like random, statistics, collections, json, math, datetime. Structure your output clearly with headers and formatted numbers. When presenting results, use the code tool to format them nicely.",
-                        "task": "{{ $json.task }}",
-                        "temperature": 0.2,
-                        "maxIterations": 20,
-                    },
-                    "position": {"x": 750, "y": 300},
-                },
-                {
-                    "name": "Respond",
-                    "type": "RespondToWebhook",
-                    "parameters": {
-                        "statusCode": "200",
-                        "responseMode": "lastNode",
-                    },
-                    "position": {"x": 1000, "y": 300},
-                },
-            ],
-            "connections": [
-                {"source_node": "Webhook", "target_node": "Extract Task"},
-                {"source_node": "Extract Task", "target_node": "Agent"},
-                {"source_node": "Code Executor", "target_node": "Agent", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "Calculator", "target_node": "Agent", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "Agent", "target_node": "Respond"},
-            ],
-            "settings": {},
-        },
-    },
-    # ========================================
-    # 3. MULTI-AGENT COORDINATOR - Sub-agent spawning
-    # ========================================
-    {
-        "name": "Multi-Agent Coordinator",
-        "description": "Manager agent that spawns specialized sub-agents. POST with {\"task\": \"I need a comprehensive analysis of a $500,000 commercial real estate investment. Analyze the financial viability, market risks, and regulatory considerations.\"}",
-        "active": True,
-        "definition": {
-            "nodes": [
-                {
-                    "name": "Webhook",
-                    "type": "Webhook",
-                    "parameters": {"method": "POST"},
-                    "position": {"x": 100, "y": 300},
-                },
-                {
-                    "name": "Extract Task",
-                    "type": "Set",
-                    "parameters": {
-                        "mode": "manual",
-                        "fields": [
-                            {"name": "task", "value": "{{ $json.body.task }}"},
-                        ],
-                    },
-                    "position": {"x": 300, "y": 300},
-                },
-                {
-                    "name": "Calculator",
-                    "type": "CalculatorTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 200},
-                },
-                {
-                    "name": "Code Runner",
-                    "type": "CodeTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 400},
-                },
-                {
-                    "name": "Coordinator",
-                    "type": "AIAgent",
-                    "parameters": {
-                        "model": "gemini-2.0-flash",
-                        "systemPrompt": "You are a senior manager AI that coordinates complex tasks by delegating to specialized sub-agents. For each task:\n\n1. Break the task into 2-3 sub-tasks\n2. Use spawn_agents_parallel to delegate sub-tasks to specialist agents simultaneously\n3. Synthesize the results from all sub-agents into a comprehensive final report\n\nWhen spawning agents, give each a clear role and specific task. You can also use calculator and code tools directly for quick computations.",
-                        "task": "{{ $json.task }}",
-                        "temperature": 0.4,
-                        "maxIterations": 15,
-                        "enableSubAgents": True,
-                        "maxAgentDepth": 2,
-                        "allowRecursiveSpawn": False,
-                    },
-                    "position": {"x": 750, "y": 300},
-                },
-                {
-                    "name": "Respond",
-                    "type": "RespondToWebhook",
-                    "parameters": {
-                        "statusCode": "200",
-                        "responseMode": "lastNode",
-                    },
-                    "position": {"x": 1000, "y": 300},
-                },
-            ],
-            "connections": [
-                {"source_node": "Webhook", "target_node": "Extract Task"},
-                {"source_node": "Extract Task", "target_node": "Coordinator"},
-                {"source_node": "Calculator", "target_node": "Coordinator", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "Code Runner", "target_node": "Coordinator", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "Coordinator", "target_node": "Respond"},
-            ],
-            "settings": {},
-        },
-    },
-    # ========================================
-    # 4. STRUCTURED OUTPUT AGENT - JSON schema enforcement
-    # ========================================
-    {
-        "name": "Structured Output Agent",
-        "description": "Agent that returns structured JSON matching a schema. POST with {\"task\": \"Analyze the sentiment and key topics in this text: The new banking app is fantastic for transfers but the loan application process is confusing and slow. Customer support was helpful though.\"}",
-        "active": True,
-        "definition": {
-            "nodes": [
-                {
-                    "name": "Webhook",
-                    "type": "Webhook",
-                    "parameters": {"method": "POST"},
-                    "position": {"x": 100, "y": 300},
-                },
-                {
-                    "name": "Extract Task",
-                    "type": "Set",
-                    "parameters": {
-                        "mode": "manual",
-                        "fields": [
-                            {"name": "task", "value": "{{ $json.body.task }}"},
-                        ],
-                    },
-                    "position": {"x": 300, "y": 300},
-                },
-                {
-                    "name": "Agent",
-                    "type": "AIAgent",
-                    "parameters": {
-                        "model": "gemini-2.0-flash",
-                        "systemPrompt": "You are a text analysis AI. Analyze the given text and return structured results. Be precise and thorough.",
-                        "task": "{{ $json.task }}",
-                        "temperature": 0.1,
-                        "maxIterations": 5,
-                        "outputSchema": json.dumps({
-                            "type": "object",
-                            "properties": {
-                                "overall_sentiment": {
-                                    "type": "string",
-                                    "enum": ["very_positive", "positive", "neutral", "negative", "very_negative"],
-                                },
-                                "confidence": {"type": "number"},
-                                "topics": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "object",
-                                        "properties": {
-                                            "topic": {"type": "string"},
-                                            "sentiment": {"type": "string"},
-                                            "keywords": {
-                                                "type": "array",
-                                                "items": {"type": "string"},
-                                            },
-                                        },
-                                    },
-                                },
-                                "summary": {"type": "string"},
+                        "numberOfOutputs": 3,
+                        "mode": "rules",
+                        "rules": [
+                            {
+                                "output": 0,
+                                "field": "intent",
+                                "operation": "equals",
+                                "value": "cards",
                             },
-                        }),
-                    },
-                    "position": {"x": 550, "y": 300},
-                },
-                {
-                    "name": "Respond",
-                    "type": "RespondToWebhook",
-                    "parameters": {
-                        "statusCode": "200",
-                        "responseMode": "lastNode",
-                    },
-                    "position": {"x": 800, "y": 300},
-                },
-            ],
-            "connections": [
-                {"source_node": "Webhook", "target_node": "Extract Task"},
-                {"source_node": "Extract Task", "target_node": "Agent"},
-                {"source_node": "Agent", "target_node": "Respond"},
-            ],
-            "settings": {},
-        },
-    },
-    # ========================================
-    # 5. FULL-STACK AGENT - All tools + memory + sub-agents
-    # ========================================
-    {
-        "name": "Full-Stack Agent",
-        "description": "Agent with every capability enabled: calculator, code, HTTP, time, text, memory, and sub-agent spawning. POST with {\"task\": \"Fetch the top 10 HackerNews stories from the API (https://hacker-news.firebaseio.com/v0/topstories.json gives IDs, then https://hacker-news.firebaseio.com/v0/item/{id}.json for each). Summarize them and calculate the average score.\"}",
-        "active": True,
-        "definition": {
-            "nodes": [
-                {
-                    "name": "Webhook",
-                    "type": "Webhook",
-                    "parameters": {"method": "POST"},
-                    "position": {"x": 100, "y": 350},
-                },
-                {
-                    "name": "Extract Task",
-                    "type": "Set",
-                    "parameters": {
-                        "mode": "manual",
-                        "fields": [
-                            {"name": "task", "value": "{{ $json.body.task }}"},
+                            {
+                                "output": 1,
+                                "field": "intent",
+                                "operation": "equals",
+                                "value": "transactions",
+                            },
+                            {
+                                "output": 2,
+                                "field": "intent",
+                                "operation": "equals",
+                                "value": "balance",
+                            },
                         ],
                     },
-                    "position": {"x": 300, "y": 350},
+                    "position": {"x": 600, "y": 300},
                 },
                 {
-                    "name": "Calculator",
-                    "type": "CalculatorTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 100},
-                },
-                {
-                    "name": "Code Runner",
-                    "type": "CodeTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 250},
-                },
-                {
-                    "name": "HTTP Client",
-                    "type": "HttpRequestTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 400},
-                },
-                {
-                    "name": "Clock",
-                    "type": "CurrentTimeTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 550},
-                },
-                {
-                    "name": "Text Utils",
-                    "type": "TextTool",
-                    "parameters": {},
-                    "position": {"x": 700, "y": 100},
-                },
-                {
-                    "name": "Memory",
-                    "type": "SQLiteMemory",
-                    "parameters": {"sessionId": "full-stack-agent"},
-                    "position": {"x": 700, "y": 550},
-                },
-                {
-                    "name": "Agent",
-                    "type": "AIAgent",
+                    "name": "Cards UI",
+                    "type": "HTMLDisplay",
                     "parameters": {
-                        "model": "gemini-2.0-flash",
-                        "systemPrompt": "You are a powerful full-stack AI agent with access to many tools:\n- Calculator: for math\n- Code: execute Python for data processing\n- HTTP: make API requests to fetch data\n- Time: get current date/time\n- Text: word count, character count, text manipulation\n- Sub-agents: spawn specialized agents for parallel work\n\nUse the right tool for each sub-task. For API calls, use the http_request tool. For data processing, use the code tool. Be resourceful and chain tools together to accomplish complex tasks.",
-                        "task": "{{ $json.task }}",
-                        "temperature": 0.3,
-                        "maxIterations": 25,
-                        "enableSubAgents": True,
-                        "maxAgentDepth": 2,
-                        "allowRecursiveSpawn": False,
+                        "content": ACTION_CARD_HTML,
                     },
-                    "position": {"x": 900, "y": 350},
+                    "position": {"x": 900, "y": 100},
                 },
                 {
-                    "name": "Respond",
-                    "type": "RespondToWebhook",
+                    "name": "Transactions UI",
+                    "type": "HTMLDisplay",
                     "parameters": {
-                        "statusCode": "200",
-                        "responseMode": "lastNode",
+                        "content": ACTION_CARD_HTML,
                     },
-                    "position": {"x": 1150, "y": 350},
+                    "position": {"x": 900, "y": 300},
+                },
+                {
+                    "name": "Balance UI",
+                    "type": "HTMLDisplay",
+                    "parameters": {
+                        "content": ACTION_CARD_HTML,
+                    },
+                    "position": {"x": 900, "y": 500},
                 },
             ],
             "connections": [
-                {"source_node": "Webhook", "target_node": "Extract Task"},
-                {"source_node": "Extract Task", "target_node": "Agent"},
-                {"source_node": "Calculator", "target_node": "Agent", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "Code Runner", "target_node": "Agent", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "HTTP Client", "target_node": "Agent", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "Clock", "target_node": "Agent", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "Text Utils", "target_node": "Agent", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "Memory", "target_node": "Agent", "connection_type": "subnode", "slot_name": "memory"},
-                {"source_node": "Agent", "target_node": "Respond"},
-            ],
-            "settings": {},
-        },
-    },
-    # ========================================
-    # 6. LOAN DECISION AGENT - Banking-specific agentic workflow
-    # ========================================
-    {
-        "name": "Loan Decision Agent",
-        "description": "AI agent that autonomously evaluates loan applications using tools. POST with {\"task\": \"Evaluate this loan application: Applicant Sarah Johnson, requesting $250,000 for home purchase. Annual income $95,000, employment 5 years at TechCorp, credit score 720. Calculate DTI, risk score, and provide a detailed underwriting recommendation.\"}",
-        "active": True,
-        "definition": {
-            "nodes": [
-                {
-                    "name": "Webhook",
-                    "type": "Webhook",
-                    "parameters": {"method": "POST"},
-                    "position": {"x": 100, "y": 300},
-                },
-                {
-                    "name": "Extract Task",
-                    "type": "Set",
-                    "parameters": {
-                        "mode": "manual",
-                        "fields": [
-                            {"name": "task", "value": "{{ $json.body.task }}"},
-                        ],
-                    },
-                    "position": {"x": 300, "y": 300},
-                },
-                {
-                    "name": "Calculator",
-                    "type": "CalculatorTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 150},
-                },
-                {
-                    "name": "Code Runner",
-                    "type": "CodeTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 450},
-                },
-                {
-                    "name": "Agent",
-                    "type": "AIAgent",
-                    "parameters": {
-                        "model": "gemini-2.0-flash",
-                        "systemPrompt": "You are a senior loan underwriter AI at a major bank. Evaluate loan applications thoroughly:\n\n1. Use the calculator to compute: DTI ratio, loan-to-income ratio, monthly payment estimates (assume 6.5% APR for 30yr fixed)\n2. Use the code tool to run a risk scoring model:\n   - Credit score: 750+ = 30pts, 700-749 = 20pts, 650-699 = 10pts, <650 = 0pts\n   - DTI: <28% = 30pts, 28-36% = 20pts, 36-43% = 10pts, >43% = 0pts\n   - Employment: 5+ yrs = 25pts, 2-4 yrs = 15pts, <2 yrs = 5pts\n   - LTI ratio: <3x = 15pts, 3-4x = 10pts, >4x = 0pts\n3. Make a decision: 80+ APPROVED, 60-79 APPROVED WITH CONDITIONS, 40-59 REFER TO UNDERWRITER, <40 DECLINED\n4. Provide a professional assessment with specific recommendations",
-                        "task": "{{ $json.task }}",
-                        "temperature": 0.2,
-                        "maxIterations": 15,
-                    },
-                    "position": {"x": 750, "y": 300},
-                },
-                {
-                    "name": "Respond",
-                    "type": "RespondToWebhook",
-                    "parameters": {
-                        "statusCode": "200",
-                        "responseMode": "lastNode",
-                    },
-                    "position": {"x": 1000, "y": 300},
-                },
-            ],
-            "connections": [
-                {"source_node": "Webhook", "target_node": "Extract Task"},
-                {"source_node": "Extract Task", "target_node": "Agent"},
-                {"source_node": "Calculator", "target_node": "Agent", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "Code Runner", "target_node": "Agent", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "Agent", "target_node": "Respond"},
-            ],
-            "settings": {},
-        },
-    },
-    # ========================================
-    # 7. COMPETITIVE INTEL AGENT - HTTP + Code + Sub-agents
-    # ========================================
-    {
-        "name": "Competitive Intel Agent",
-        "description": "Agent that fetches public API data and analyzes it. POST with {\"task\": \"Fetch the current Bitcoin price from https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana&vs_currencies=usd,eur and analyze the prices. Calculate price ratios between the coins and write a brief market summary.\"}",
-        "active": True,
-        "definition": {
-            "nodes": [
-                {
-                    "name": "Webhook",
-                    "type": "Webhook",
-                    "parameters": {"method": "POST"},
-                    "position": {"x": 100, "y": 300},
-                },
-                {
-                    "name": "Extract Task",
-                    "type": "Set",
-                    "parameters": {
-                        "mode": "manual",
-                        "fields": [
-                            {"name": "task", "value": "{{ $json.body.task }}"},
-                        ],
-                    },
-                    "position": {"x": 300, "y": 300},
-                },
-                {
-                    "name": "HTTP Client",
-                    "type": "HttpRequestTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 150},
-                },
-                {
-                    "name": "Code Runner",
-                    "type": "CodeTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 300},
-                },
-                {
-                    "name": "Calculator",
-                    "type": "CalculatorTool",
-                    "parameters": {},
-                    "position": {"x": 500, "y": 450},
-                },
-                {
-                    "name": "Agent",
-                    "type": "AIAgent",
-                    "parameters": {
-                        "model": "gemini-2.0-flash",
-                        "systemPrompt": "You are a market intelligence analyst. Use the http_request tool to fetch data from APIs, then use calculator and code tools to analyze the results. Present findings in a clear, professional format with numbers and percentages.",
-                        "task": "{{ $json.task }}",
-                        "temperature": 0.3,
-                        "maxIterations": 15,
-                    },
-                    "position": {"x": 750, "y": 300},
-                },
-                {
-                    "name": "Respond",
-                    "type": "RespondToWebhook",
-                    "parameters": {
-                        "statusCode": "200",
-                        "responseMode": "lastNode",
-                    },
-                    "position": {"x": 1000, "y": 300},
-                },
-            ],
-            "connections": [
-                {"source_node": "Webhook", "target_node": "Extract Task"},
-                {"source_node": "Extract Task", "target_node": "Agent"},
-                {"source_node": "HTTP Client", "target_node": "Agent", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "Code Runner", "target_node": "Agent", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "Calculator", "target_node": "Agent", "connection_type": "subnode", "slot_name": "tools"},
-                {"source_node": "Agent", "target_node": "Respond"},
+                {"source_node": "Start", "target_node": "Classify Intent"},
+                {"source_node": "Classify Intent", "target_node": "Route by Intent"},
+                {"source_node": "Route by Intent", "target_node": "Cards UI", "source_output": "output0"},
+                {"source_node": "Route by Intent", "target_node": "Transactions UI", "source_output": "output1"},
+                {"source_node": "Route by Intent", "target_node": "Balance UI", "source_output": "output2"},
             ],
             "settings": {},
         },

@@ -3,6 +3,7 @@ import type { NodeCreatorView, SubnodeSlotContext, SubnodeType } from '../types/
 
 export type BottomPanelTab = 'logs' | 'ui';
 export type RightPanelTab = 'nodes' | 'ai';
+export type CanvasMode = 'pointer' | 'hand';
 
 const STORAGE_PREFIX = 'workflow-studio:editor-layout';
 
@@ -76,6 +77,11 @@ interface EditorLayoutState {
   bottomPanelTab: BottomPanelTab;
   bottomPanelMaximized: boolean;
 
+  // Canvas mode
+  canvasMode: CanvasMode;
+  setCanvasMode: (mode: CanvasMode) => void;
+  toggleCanvasMode: () => void;
+
   // Node creator
   nodeCreatorView: NodeCreatorView;
   nodeCreatorSearch: string;
@@ -117,6 +123,11 @@ export const useEditorLayoutStore = create<EditorLayoutState>((set, get) => ({
   bottomPanelSize: loadNumber('bottom-size', 30),
   bottomPanelTab: loadBottomTab('logs'),
   bottomPanelMaximized: false,
+
+  // Canvas mode
+  canvasMode: 'hand' as CanvasMode,
+  setCanvasMode: (mode) => set({ canvasMode: mode }),
+  toggleCanvasMode: () => set((s) => ({ canvasMode: s.canvasMode === 'hand' ? 'pointer' : 'hand' })),
 
   // Node creator state
   nodeCreatorView: 'trigger' as NodeCreatorView,

@@ -339,8 +339,8 @@ function WorkflowEdge({
           <stop offset="0%" stopColor={edgeColors.start} />
           <stop offset="100%" stopColor={edgeColors.end} />
         </linearGradient>
-        <marker id={`arrow-${id}`} markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
-          <path d="M2,2 L10,6 L2,10 L4,6 Z" fill={edgeColors.end} opacity={isEdgeIdle ? 0.25 : 1} />
+        <marker id={`arrow-${id}`} markerWidth="16" markerHeight="16" refX="13" refY="8" orient="auto" markerUnits="userSpaceOnUse">
+          <path d="M2,3 L13,8 L2,13 L5,8 Z" fill={edgeStatus !== 'default' ? edgeColors.end : 'var(--muted-foreground)'} opacity={isEdgeIdle ? 0.3 : 1} />
         </marker>
       </defs>
 
@@ -408,9 +408,8 @@ function WorkflowEdge({
               position: 'absolute',
               transform: `translate(0, -50%) translate(${sourceX + 14}px, ${sourceY}px)`,
               pointerEvents: 'none',
-              color: edgeColors.end,
             }}
-            className="text-[10px] font-medium bg-background/90 px-1.5 py-0.5 rounded"
+            className="text-[10px] font-medium text-muted-foreground bg-background/90 px-1.5 py-0.5 rounded"
           >
             {outputLabel}
           </div>
