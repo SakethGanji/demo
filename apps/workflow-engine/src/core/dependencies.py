@@ -89,3 +89,13 @@ def get_ai_chat_service(
     from ..services.ai_chat_service import AIChatService
 
     return AIChatService(node_registry, workflow_service)
+
+
+def get_ai_chat_service_adk(
+    node_registry=Depends(get_node_registry),
+    workflow_service=Depends(get_workflow_service),
+):
+    """Get ADK-based AI chat service instance."""
+    from ..services.ai_chat_service_adk import AIChatServiceADK
+
+    return AIChatServiceADK(node_registry, workflow_service)

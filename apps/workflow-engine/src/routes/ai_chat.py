@@ -2,22 +2,26 @@
 
 from __future__ import annotations
 
-from typing import Annotated, AsyncGenerator
+from typing import AsyncGenerator
 
 from fastapi import APIRouter, Depends
 from sse_starlette.sse import EventSourceResponse, ServerSentEvent
 
-from ..core.dependencies import get_ai_chat_service
+from ..core.dependencies import get_ai_chat_service, get_ai_chat_service_adk
 from ..schemas.ai_chat import AIChatRequest
-from ..services.ai_chat_service import AIChatService
 
 router = APIRouter(prefix="/ai")
+
+# Toggle: "default" | "adk"
+_BACKEND = "default"
+
+_get_service = get_ai_chat_service if _BACKEND == "default" else get_ai_chat_service_adk
 
 
 @router.post("/chat")
 async def ai_chat(
     request: AIChatRequest,
-    service: Annotated[AIChatService, Depends(get_ai_chat_service)],
+    service=Depends(_get_service),
 ) -> EventSourceResponse:
     """Stream AI chat response as SSE events."""
 
