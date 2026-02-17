@@ -1,0 +1,201 @@
+EmpID,Department,Level,YearsExp,Salary,Bonus,Rating,Remote,City
+EMP-100,Engineering,Mid,3,94998,12209.8,4.1,Yes,Tokyo
+EMP-101,Support,Junior,2,56142,3625.87,3.9,No,Toronto
+EMP-102,Engineering,Lead,12,129967,24695.16,4.8,Yes,Singapore
+EMP-103,Legal,Mid,2,97585,20843.7,3.7,No,São Paulo
+EMP-104,HR,Mid,2,102563,14556.55,4.4,Yes,Tokyo
+EMP-105,Engineering,Manager,14,165664,31106.48,3.7,No,Mumbai
+EMP-106,Marketing,Junior,0,76083,8486.77,3.8,No,New York
+EMP-107,Engineering,Mid,2,96866,14977.8,4.9,Yes,Dubai
+EMP-108,Finance,Manager,8,174726,40816.66,2.6,Yes,New York
+EMP-109,Marketing,Senior,8,107095,22871.21,2.8,No,Dubai
+EMP-110,Finance,Junior,0,58958,14454.77,3.9,Yes,São Paulo
+EMP-111,Finance,Senior,7,109628,22091.14,2.9,No,Singapore
+EMP-112,Marketing,Mid,2,75512,17060.08,2.7,Yes,Tokyo
+EMP-113,Sales,Senior,8,111755,8785.91,3.2,No,Sydney
+EMP-114,Finance,Manager,15,147884,25944.52,4.5,No,Sydney
+EMP-115,Engineering,Senior,9,121631,11415.71,4.4,Yes,Berlin
+EMP-116,Engineering,Junior,0,56412,3430.16,3.4,Yes,Sydney
+EMP-117,HR,Mid,2,80763,6591.0,2.6,Yes,London
+EMP-118,Finance,Senior,8,130525,9401.27,3.1,Yes,Sydney
+EMP-119,Finance,Mid,2,104179,14290.55,3.0,No,Tokyo
+EMP-120,Support,Mid,3,86006,6488.5,4.2,Yes,Berlin
+EMP-121,Marketing,Junior,1,84045,9163.62,2.9,Yes,Dubai
+EMP-122,Finance,Junior,2,64147,3393.43,3.6,Yes,Mumbai
+EMP-123,Product,Mid,3,76312,18944.81,4.3,Yes,Sydney
+EMP-124,Support,Mid,2,93300,18717.45,4.2,No,Mumbai
+EMP-125,Marketing,Mid,2,98045,13908.33,3.9,Yes,Toronto
+EMP-126,Legal,Senior,6,105044,23327.81,2.7,No,Singapore
+EMP-127,Engineering,Mid,3,91866,21961.89,4.2,Yes,London
+EMP-128,Support,Mid,2,93310,17819.85,3.9,Yes,Tokyo
+EMP-129,Product,Junior,0,65500,7895.52,3.2,No,Berlin
+EMP-130,Engineering,Junior,1,78259,12238.21,4.6,No,Toronto
+EMP-131,Product,Senior,6,117801,27045.83,3.2,Yes,London
+EMP-132,Marketing,Mid,3,95554,5211.33,3.5,Yes,Toronto
+EMP-133,Product,Mid,2,103566,21790.06,4.6,No,Sydney
+EMP-134,Product,Senior,9,114964,18790.9,4.7,No,Tokyo
+EMP-135,HR,Junior,1,69939,16872.28,4.0,Yes,Singapore
+EMP-136,HR,Junior,0,65375,10780.67,3.6,No,Tokyo
+EMP-137,Finance,Senior,7,122690,30070.48,3.8,Yes,New York
+EMP-138,Support,Manager,8,161626,18790.01,4.3,No,Berlin
+EMP-139,Marketing,Senior,7,134496,7802.94,4.2,Yes,Berlin
+EMP-140,Engineering,Mid,5,94927,16921.93,4.0,Yes,Berlin
+EMP-141,Finance,Junior,2,67924,6037.76,3.3,Yes,São Paulo
+EMP-142,Support,Junior,1,66302,7974.21,4.9,Yes,Mumbai
+EMP-143,Legal,Senior,7,109573,23788.55,4.0,Yes,Mumbai
+EMP-144,HR,Mid,4,75216,9920.4,4.8,No,Tokyo
+EMP-145,Legal,Senior,6,121075,7076.42,4.6,No,Toronto
+EMP-146,Legal,Junior,0,76424,13999.55,3.2,Yes,Toronto
+EMP-147,Finance,Junior,1,70744,11539.4,4.7,No,London
+EMP-148,Product,Mid,2,85475,12155.3,4.2,No,Tokyo
+EMP-149,Engineering,Mid,4,95936,22762.1,3.8,Yes,London
+EMP-150,Marketing,Mid,4,92511,15357.69,4.6,Yes,Tokyo
+EMP-151,HR,Mid,5,80064,12063.77,4.6,Yes,Sydney
+EMP-152,Legal,Manager,13,167644,20538.69,4.5,No,Tokyo
+EMP-153,HR,Junior,0,65073,4884.95,2.8,Yes,Sydney
+EMP-154,Sales,Junior,1,80986,14736.03,4.0,No,London
+EMP-155,HR,Junior,1,84529,7608.02,4.2,Yes,London
+EMP-156,Marketing,Lead,8,143685,9148.05,4.5,Yes,Singapore
+EMP-157,Finance,Senior,9,121521,26766.14,3.7,Yes,Toronto
+EMP-158,Sales,Junior,1,58697,11873.34,3.3,No,London
+EMP-159,Marketing,Mid,4,85751,12754.82,3.5,No,Dubai
+EMP-160,HR,Senior,9,111186,24611.55,4.7,No,São Paulo
+EMP-161,Marketing,Junior,2,72126,13105.99,2.7,Yes,Sydney
+EMP-162,Support,Senior,5,111562,18853.1,5.0,Yes,Mumbai
+EMP-163,Support,Senior,10,126845,21643.95,3.5,No,Singapore
+EMP-164,HR,Junior,1,62563,10990.71,2.8,Yes,New York
+EMP-165,Sales,Mid,3,84920,14809.48,2.7,Yes,Singapore
+EMP-166,Legal,Senior,10,113574,18000.07,4.5,Yes,New York
+EMP-167,Support,Lead,9,140062,8011.02,2.9,No,Tokyo
+EMP-168,Legal,Mid,5,93146,17425.27,3.9,No,Singapore
+EMP-169,Marketing,Mid,4,97167,11713.75,4.9,No,New York
+EMP-170,Engineering,Senior,7,116182,14652.26,3.6,No,Sydney
+EMP-171,Product,Junior,0,57783,13410.15,2.7,No,London
+EMP-172,Product,Junior,2,71867,16549.67,3.2,No,Dubai
+EMP-173,Engineering,Director,17,183278,34487.93,3.0,No,Singapore
+EMP-174,Product,Junior,1,82765,20262.65,2.7,Yes,Berlin
+EMP-175,HR,Junior,2,58104,9783.14,3.2,No,Sydney
+EMP-176,Finance,Mid,4,92693,10443.78,3.5,No,Dubai
+EMP-177,Legal,Senior,5,121357,11236.51,4.9,No,Berlin
+EMP-178,Support,Manager,13,149841,14695.62,4.4,No,Sydney
+EMP-179,Support,Mid,3,80262,8129.68,4.0,No,Mumbai
+EMP-180,Sales,Junior,0,69291,9312.98,4.8,Yes,Tokyo
+EMP-181,HR,Junior,1,82935,4847.26,4.3,Yes,New York
+EMP-182,Sales,Mid,2,102518,19975.31,2.9,Yes,Dubai
+EMP-183,Sales,Mid,4,79006,16167.64,3.3,No,Mumbai
+EMP-184,Support,Junior,0,63333,14096.66,2.6,No,London
+EMP-185,Product,Mid,3,98451,12163.41,3.3,Yes,New York
+EMP-186,Finance,Mid,4,78999,12401.43,3.1,No,Sydney
+EMP-187,Engineering,Manager,11,151893,33702.53,2.9,No,São Paulo
+EMP-188,Support,Senior,8,128507,17280.75,4.8,Yes,Tokyo
+EMP-189,HR,Mid,5,97780,5423.87,2.6,Yes,Toronto
+EMP-190,Marketing,Junior,0,60171,6012.33,4.3,Yes,Dubai
+EMP-191,Support,Senior,8,110684,20752.52,4.6,No,Mumbai
+EMP-192,Sales,Mid,5,75752,17773.12,4.1,Yes,London
+EMP-193,Legal,Junior,2,63524,5072.41,4.9,Yes,Dubai
+EMP-194,Sales,Junior,2,62355,12016.6,3.0,No,Berlin
+EMP-195,Legal,Mid,3,81205,10854.36,3.5,Yes,New York
+EMP-196,HR,Director,11,180338,25928.33,4.7,No,Mumbai
+EMP-197,Support,Senior,5,115907,27378.73,3.7,No,Dubai
+EMP-198,Engineering,Junior,2,84236,13638.83,4.0,No,Tokyo
+EMP-199,Legal,Manager,14,153532,11264.4,2.6,Yes,Toronto
+EMP-200,HR,Senior,7,115256,15807.95,2.9,No,Tokyo
+EMP-201,Legal,Junior,0,63527,5254.38,3.7,Yes,Toronto
+EMP-202,Engineering,Mid,5,79051,9479.86,3.0,No,Tokyo
+EMP-203,Marketing,Senior,9,107517,10669.07,3.7,Yes,São Paulo
+EMP-204,Engineering,Mid,2,80038,4464.11,3.7,No,Toronto
+EMP-205,HR,Senior,5,128971,32238.14,4.8,Yes,Mumbai
+EMP-206,Engineering,Lead,12,144735,18276.87,3.5,Yes,Mumbai
+EMP-207,Support,Junior,0,79659,19188.78,2.9,No,Toronto
+EMP-208,Support,Senior,7,121798,10958.68,3.6,No,Toronto
+EMP-209,HR,Senior,8,125666,16990.47,2.6,No,Toronto
+EMP-210,Finance,Senior,8,120342,16543.55,4.8,No,Berlin
+EMP-211,Marketing,Director,14,198629,11827.49,2.7,Yes,Singapore
+EMP-212,Sales,Mid,2,83351,13929.08,4.4,Yes,London
+EMP-213,Legal,Junior,0,65287,10931.76,3.6,No,Dubai
+EMP-214,HR,Mid,3,78484,10733.45,2.5,No,London
+EMP-215,Engineering,Junior,1,75266,16003.55,4.0,No,Berlin
+EMP-216,Sales,Junior,0,61856,9044.8,2.9,Yes,Sydney
+EMP-217,Finance,Junior,1,60442,13930.86,4.3,No,Toronto
+EMP-218,Legal,Junior,1,65939,3400.79,4.1,No,Sydney
+EMP-219,Legal,Senior,5,121821,20491.25,4.0,No,Mumbai
+EMP-220,Engineering,Mid,4,88668,20201.06,2.8,No,Toronto
+EMP-221,Support,Junior,1,71634,6729.33,4.8,No,Dubai
+EMP-222,Legal,Junior,1,81206,19829.56,2.9,Yes,Berlin
+EMP-223,Sales,Senior,6,131000,17448.79,5.0,No,Mumbai
+EMP-224,Finance,Senior,7,132130,29318.63,3.8,Yes,São Paulo
+EMP-225,Support,Junior,0,66151,13691.75,4.4,No,Tokyo
+EMP-226,Sales,Senior,5,106375,16111.68,2.9,Yes,Mumbai
+EMP-227,Product,Junior,1,76203,9353.72,4.5,Yes,Mumbai
+EMP-228,Legal,Manager,12,150611,10097.98,3.4,No,São Paulo
+EMP-229,Finance,Junior,2,68412,15708.29,4.9,No,New York
+EMP-230,Legal,Junior,0,80309,6654.8,2.7,Yes,Tokyo
+EMP-231,Engineering,Director,15,209793,24930.01,4.6,Yes,Sydney
+EMP-232,Legal,Senior,10,133867,14766.37,2.6,No,Sydney
+EMP-233,Marketing,Mid,4,86164,17354.23,2.9,Yes,Singapore
+EMP-234,HR,Junior,1,63511,11139.7,3.4,Yes,London
+EMP-235,Legal,Mid,2,93533,18045.27,4.8,Yes,São Paulo
+EMP-236,HR,Mid,3,85742,13143.42,3.0,No,Toronto
+EMP-237,Sales,Junior,1,84114,6393.73,3.0,Yes,São Paulo
+EMP-238,Support,Senior,7,118874,29635.57,4.2,No,Sydney
+EMP-239,Marketing,Junior,0,83287,12978.47,4.2,No,Toronto
+EMP-240,Engineering,Senior,5,108960,13502.02,3.2,Yes,London
+EMP-241,Product,Mid,4,79657,16469.76,3.6,No,Berlin
+EMP-242,Finance,Junior,2,83522,4922.49,3.7,No,Dubai
+EMP-243,Legal,Manager,10,161540,28639.76,4.4,No,Tokyo
+EMP-244,Product,Junior,2,72727,4302.82,4.2,No,Berlin
+EMP-245,Sales,Lead,12,146140,10924.89,3.9,Yes,Dubai
+EMP-246,Engineering,Manager,8,166569,39516.22,2.9,Yes,Berlin
+EMP-247,Finance,Junior,2,74296,4383.22,4.7,Yes,São Paulo
+EMP-248,Support,Junior,0,58254,9224.86,3.2,Yes,Berlin
+EMP-249,Sales,Junior,1,55890,10767.77,3.2,Yes,São Paulo
+EMP-250,Marketing,Mid,4,82851,16605.56,4.0,No,Singapore
+EMP-251,Support,Manager,14,160865,8973.26,4.1,Yes,Berlin
+EMP-252,Sales,Junior,2,57749,12661.79,3.8,Yes,São Paulo
+EMP-253,Marketing,Senior,9,131628,18813.64,4.6,No,Tokyo
+EMP-254,Engineering,Junior,1,82605,14574.94,4.0,No,New York
+EMP-255,Marketing,Senior,7,132213,10303.37,3.9,No,Sydney
+EMP-256,Finance,Senior,10,113058,20628.04,3.3,Yes,Toronto
+EMP-257,Product,Junior,2,84538,4388.85,2.9,No,Sydney
+EMP-258,Sales,Senior,9,109044,13150.59,4.5,No,Sydney
+EMP-259,Marketing,Lead,10,139567,7239.71,4.4,No,São Paulo
+EMP-260,Finance,Junior,2,66894,3836.99,3.7,Yes,New York
+EMP-261,Finance,Director,12,198080,17580.4,4.3,Yes,London
+EMP-262,Marketing,Senior,9,132776,24642.66,5.0,No,Singapore
+EMP-263,Legal,Junior,1,58988,10973.81,3.7,No,Singapore
+EMP-264,Engineering,Lead,10,125169,16068.17,3.3,Yes,Mumbai
+EMP-265,Support,Manager,12,165512,28974.36,2.6,No,New York
+EMP-266,Product,Lead,8,151923,17732.1,4.5,Yes,Dubai
+EMP-267,Legal,Senior,9,106092,13312.32,4.7,Yes,Tokyo
+EMP-268,Engineering,Manager,14,148336,27518.24,3.9,No,Sydney
+EMP-269,Support,Junior,1,67580,9653.25,3.6,Yes,São Paulo
+EMP-270,Engineering,Mid,3,98373,6247.56,4.5,Yes,Dubai
+EMP-271,Marketing,Senior,8,112967,8758.84,2.6,Yes,Berlin
+EMP-272,Support,Mid,4,90385,10099.16,3.4,No,New York
+EMP-273,Marketing,Junior,2,75989,17606.65,4.5,No,Mumbai
+EMP-274,Legal,Senior,9,114818,15355.65,2.9,No,New York
+EMP-275,Legal,Junior,0,61984,6062.27,4.3,No,Sydney
+EMP-276,Finance,Mid,4,93176,6805.38,3.2,Yes,Dubai
+EMP-277,Product,Junior,0,84012,8602.81,2.9,Yes,Tokyo
+EMP-278,Finance,Junior,1,76458,15863.72,2.8,Yes,Berlin
+EMP-279,Legal,Junior,1,58882,4644.99,4.8,Yes,Mumbai
+EMP-280,Support,Senior,10,124245,10911.25,3.8,Yes,São Paulo
+EMP-281,Finance,Junior,1,78832,5225.11,3.7,Yes,Tokyo
+EMP-282,Support,Senior,8,115545,22242.11,3.8,No,Toronto
+EMP-283,Legal,Mid,2,103284,10005.84,3.0,No,Sydney
+EMP-284,Marketing,Manager,10,154668,21483.55,3.4,Yes,Toronto
+EMP-285,Product,Mid,5,83946,10617.0,2.9,Yes,Berlin
+EMP-286,Sales,Mid,4,82462,5746.1,2.7,Yes,Singapore
+EMP-287,Finance,Mid,4,98122,16759.91,2.8,No,New York
+EMP-288,HR,Mid,5,96433,14708.87,4.4,Yes,Sydney
+EMP-289,Finance,Junior,2,66162,13787.03,3.3,Yes,Sydney
+EMP-290,Support,Junior,1,79176,4112.1,4.5,No,São Paulo
+EMP-291,Finance,Mid,5,94233,5149.64,4.5,Yes,Tokyo
+EMP-292,Product,Senior,8,122514,15594.41,3.7,No,Dubai
+EMP-293,Legal,Senior,6,132081,24805.46,3.7,Yes,Mumbai
+EMP-294,Sales,Manager,12,162183,10379.04,2.6,Yes,Tokyo
+EMP-295,Product,Lead,7,138710,20203.14,2.7,Yes,Tokyo
+EMP-296,Finance,Mid,5,81651,12288.07,4.2,No,Mumbai
+EMP-297,Engineering,Director,18,190777,44271.81,4.7,No,Toronto
+EMP-298,Engineering,Senior,7,125087,26854.42,4.6,No,Mumbai
+EMP-299,Marketing,Lead,10,128130,16491.65,4.9,Yes,Tokyo

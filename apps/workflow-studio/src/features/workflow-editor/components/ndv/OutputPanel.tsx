@@ -1,5 +1,5 @@
-import { memo, useState } from 'react';
-import { Database, Code, Pin, Clock, ArrowUp, Zap, Globe, GitBranch } from 'lucide-react';
+import { memo, useState, useMemo, useCallback } from 'react';
+import { Database, Code, Pin, Clock, ArrowUp, Zap, Globe, GitBranch, Table2, Download } from 'lucide-react';
 import type { NodeExecutionData } from '../../types/workflow';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import RunDataDisplay from './RunDataDisplay';
@@ -9,7 +9,7 @@ interface OutputPanelProps {
   executionData: NodeExecutionData | null;
 }
 
-type DisplayMode = 'json' | 'schema';
+type DisplayMode = 'json' | 'schema' | 'table';
 
 const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputPanelProps) {
   const [displayMode, setDisplayMode] = useState<DisplayMode>('schema');
@@ -43,6 +43,45 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
   const hasError = executionData?.output?.error;
   const itemCount = executionData?.output?.items?.length ?? 0;
   const metrics = executionData?.metrics;
+
+  // Detect tabular data: first output item has a `data` field that's an array of objects
+  const tabularData = useMemo(() => {
+    const items = displayData;
+    if (!items || items.length === 0) return null;
+    const first = items[0] as Record<string, unknown>;
+    if (first && Array.isArray(first.data)) {
+      const arr = first.data as unknown[];
+      if (arr.length > 0 && typeof arr[0] === 'object' && arr[0] !== null && !Array.isArray(arr[0])) {
+        return arr as Record<string, unknown>[];
+      }
+    }
+    return null;
+  }, [displayData]);
+
+  // Detect PDF base64 in output
+  const pdfBase64 = useMemo(() => {
+    const items = displayData;
+    if (!items || items.length === 0) return null;
+    const first = items[0] as Record<string, unknown>;
+    if (first && typeof first.pdf_base64 === 'string' && first.pdf_base64.length > 0) {
+      return first.pdf_base64;
+    }
+    return null;
+  }, [displayData]);
+
+  const handleDownloadPdf = useCallback(() => {
+    if (!pdfBase64) return;
+    const byteChars = atob(pdfBase64);
+    const byteNumbers = new Uint8Array(byteChars.length);
+    for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
+    const blob = new Blob([byteNumbers], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'report.pdf';
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [pdfBase64]);
 
   // Use server-accurate execution time
   const executionTime = metrics?.executionTimeMs != null
@@ -123,6 +162,17 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
             <Pin size={13} />
           </button>
 
+          {/* PDF download button */}
+          {pdfBase64 && (
+            <button
+              onClick={handleDownloadPdf}
+              className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              title="Download PDF"
+            >
+              <Download size={13} />
+            </button>
+          )}
+
           {/* Display mode toggle */}
           <div className="bg-muted rounded-md p-0.5 flex items-center">
             <button
@@ -147,6 +197,19 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
             >
               <Code size={13} />
             </button>
+            {tabularData && (
+              <button
+                onClick={() => setDisplayMode('table')}
+                className={`rounded p-1.5 transition-colors ${
+                  displayMode === 'table'
+                    ? 'bg-card shadow-xs text-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+                title="Table view"
+              >
+                <Table2 size={13} />
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -181,6 +244,7 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
           <RunDataDisplay
             data={displayData}
             mode={displayMode}
+            tabularData={tabularData}
           />
         ) : (
           <div className="flex h-full flex-col items-center justify-center text-center px-6">

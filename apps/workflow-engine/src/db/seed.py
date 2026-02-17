@@ -169,6 +169,10 @@ ACTION_CARD_HTML = """\
 """
 
 
+import os as _os
+_SAMPLE_DIR = _os.path.join(_os.path.dirname(__file__), "..", "..", "..", "..", "demo-workflows", "sample-data")
+_SAMPLE_DIR = _os.path.abspath(_SAMPLE_DIR)
+
 EXAMPLE_WORKFLOWS = [
     # ========================================
     # INTENT-BASED UI ROUTER
@@ -302,6 +306,342 @@ EXAMPLE_WORKFLOWS = [
                 {"source_node": "Route by Intent", "target_node": "Cards UI", "source_output": "output0"},
                 {"source_node": "Route by Intent", "target_node": "Transactions UI", "source_output": "output1"},
                 {"source_node": "Route by Intent", "target_node": "Balance UI", "source_output": "output2"},
+            ],
+            "settings": {},
+        },
+    },
+    # ========================================
+    # 2. SALES REPORT — File → Report → Output (HTML)
+    # ========================================
+    {
+        "name": "Sales Report",
+        "description": "Reads sales_data.csv, generates a full HTML report with stats, distributions, and data preview, then displays it.",
+        "active": True,
+        "definition": {
+            "nodes": [
+                {
+                    "name": "Start",
+                    "type": "Start",
+                    "parameters": {},
+                    "position": {"x": 100, "y": 300},
+                },
+                {
+                    "name": "Generate Report",
+                    "type": "Report",
+                    "parameters": {
+                        "sourceType": "file",
+                        "filePath": f"{_SAMPLE_DIR}/sales_data.csv",
+                        "title": "Q1–Q4 Sales Report",
+                        "previewRows": 15,
+                        "topN": 10,
+                        "showOverview": True,
+                        "showColumnStats": True,
+                        "showDistributions": True,
+                        "showTopValues": True,
+                        "showCorrelations": True,
+                        "showDataPreview": True,
+                        "outputFormat": "html",
+                    },
+                    "position": {"x": 400, "y": 300},
+                },
+                {
+                    "name": "Show Report",
+                    "type": "Output",
+                    "parameters": {
+                        "source": "input",
+                        "format": "html",
+                        "contentField": "html",
+                    },
+                    "position": {"x": 700, "y": 300},
+                },
+            ],
+            "connections": [
+                {"source_node": "Start", "target_node": "Generate Report"},
+                {"source_node": "Generate Report", "target_node": "Show Report"},
+            ],
+            "settings": {},
+        },
+    },
+    # ========================================
+    # 3. CUSTOMER PROFILE — File → Profile → Output (table)
+    # ========================================
+    {
+        "name": "Customer Profile",
+        "description": "Profiles customers.csv — shows column stats, distributions, and top values for every column.",
+        "active": True,
+        "definition": {
+            "nodes": [
+                {
+                    "name": "Start",
+                    "type": "Start",
+                    "parameters": {},
+                    "position": {"x": 100, "y": 300},
+                },
+                {
+                    "name": "Profile Data",
+                    "type": "Profile",
+                    "parameters": {
+                        "sourceType": "file",
+                        "filePath": f"{_SAMPLE_DIR}/customers.csv",
+                        "columns": "",
+                        "includeHistograms": True,
+                        "includeCorrelations": True,
+                        "topN": 10,
+                    },
+                    "position": {"x": 400, "y": 300},
+                },
+            ],
+            "connections": [
+                {"source_node": "Start", "target_node": "Profile Data"},
+            ],
+            "settings": {},
+        },
+    },
+    # ========================================
+    # 4. SALES AGGREGATE — File → Aggregate → Output (table)
+    # ========================================
+    {
+        "name": "Sales by Region",
+        "description": "Aggregates sales_data.csv by Region — sums Revenue, counts orders, computes avg Profit. Displays result as a table.",
+        "active": True,
+        "definition": {
+            "nodes": [
+                {
+                    "name": "Start",
+                    "type": "Start",
+                    "parameters": {},
+                    "position": {"x": 100, "y": 300},
+                },
+                {
+                    "name": "Aggregate",
+                    "type": "Aggregate",
+                    "parameters": {
+                        "sourceType": "file",
+                        "filePath": f"{_SAMPLE_DIR}/sales_data.csv",
+                        "groupBy": "Region",
+                        "aggregations": [
+                            {"column": "Revenue", "function": "sum", "alias": "Total Revenue"},
+                            {"column": "Profit", "function": "sum", "alias": "Total Profit"},
+                            {"column": "Units", "function": "sum", "alias": "Units Sold"},
+                            {"column": "Revenue", "function": "mean", "alias": "Avg Order Value"},
+                            {"column": "Revenue", "function": "count", "alias": "Order Count"},
+                        ],
+                        "sortBy": "Total Revenue",
+                        "sortOrder": "desc",
+                    },
+                    "position": {"x": 400, "y": 300},
+                },
+                {
+                    "name": "Show Table",
+                    "type": "Output",
+                    "parameters": {
+                        "source": "input",
+                        "format": "table",
+                    },
+                    "position": {"x": 700, "y": 300},
+                },
+            ],
+            "connections": [
+                {"source_node": "Start", "target_node": "Aggregate"},
+                {"source_node": "Aggregate", "target_node": "Show Table"},
+            ],
+            "settings": {},
+        },
+    },
+    # ========================================
+    # 5. EMPLOYEE SAMPLE — File → Sample → Output (table)
+    # ========================================
+    {
+        "name": "Employee Sample",
+        "description": "Takes a stratified sample of employees.csv by Department (50 rows), then displays the sampled data as a table.",
+        "active": True,
+        "definition": {
+            "nodes": [
+                {
+                    "name": "Start",
+                    "type": "Start",
+                    "parameters": {},
+                    "position": {"x": 100, "y": 300},
+                },
+                {
+                    "name": "Sample",
+                    "type": "Sample",
+                    "parameters": {
+                        "sourceType": "file",
+                        "filePath": f"{_SAMPLE_DIR}/employees.csv",
+                        "method": "stratified",
+                        "sampleSize": 50,
+                        "stratifyColumn": "Department",
+                        "seed": 42,
+                    },
+                    "position": {"x": 400, "y": 300},
+                },
+                {
+                    "name": "Show Sample",
+                    "type": "Output",
+                    "parameters": {
+                        "source": "input",
+                        "format": "table",
+                    },
+                    "position": {"x": 700, "y": 300},
+                },
+            ],
+            "connections": [
+                {"source_node": "Start", "target_node": "Sample"},
+                {"source_node": "Sample", "target_node": "Show Sample"},
+            ],
+            "settings": {},
+        },
+    },
+    # ========================================
+    # 6. CSV TABLE DISPLAY — File → Output (auto-detect)
+    # ========================================
+    {
+        "name": "CSV Table Display",
+        "description": "Displays a CSV file directly as a sortable table. Edit the Output node's filePath to point at any .csv, .xlsx, .tsv, or .parquet file.",
+        "active": True,
+        "definition": {
+            "nodes": [
+                {
+                    "name": "Start",
+                    "type": "Start",
+                    "parameters": {},
+                    "position": {"x": 100, "y": 300},
+                },
+                {
+                    "name": "Display CSV",
+                    "type": "Output",
+                    "parameters": {
+                        "source": "file",
+                        "filePath": f"{_SAMPLE_DIR}/sales_data.csv",
+                    },
+                    "position": {"x": 400, "y": 300},
+                },
+            ],
+            "connections": [
+                {"source_node": "Start", "target_node": "Display CSV"},
+            ],
+            "settings": {},
+        },
+    },
+    # ========================================
+    # 7. PRODUCT DEEP DIVE — Aggregate by Product+Channel → Report
+    # ========================================
+    {
+        "name": "Product Deep Dive",
+        "description": "Multi-group aggregation (Product × Channel) on sales data, piped into a Report node for a full visual breakdown.",
+        "active": True,
+        "definition": {
+            "nodes": [
+                {
+                    "name": "Start",
+                    "type": "Start",
+                    "parameters": {},
+                    "position": {"x": 100, "y": 300},
+                },
+                {
+                    "name": "Aggregate",
+                    "type": "Aggregate",
+                    "parameters": {
+                        "sourceType": "file",
+                        "filePath": f"{_SAMPLE_DIR}/sales_data.csv",
+                        "groupBy": "Product,Channel",
+                        "aggregations": [
+                            {"column": "Revenue", "function": "sum", "alias": "Revenue"},
+                            {"column": "Profit", "function": "sum", "alias": "Profit"},
+                            {"column": "Units", "function": "sum", "alias": "Units"},
+                            {"column": "Discount", "function": "mean", "alias": "Avg Discount %"},
+                        ],
+                        "sortBy": "Revenue",
+                        "sortOrder": "desc",
+                        "limit": 20,
+                    },
+                    "position": {"x": 400, "y": 300},
+                },
+                {
+                    "name": "Build Report",
+                    "type": "Report",
+                    "parameters": {
+                        "sourceType": "input",
+                        "dataField": "data",
+                        "title": "Product × Channel Breakdown",
+                        "showOverview": True,
+                        "showColumnStats": True,
+                        "showDistributions": True,
+                        "showCorrelations": True,
+                        "showDataPreview": True,
+                        "previewRows": 20,
+                        "outputFormat": "html",
+                    },
+                    "position": {"x": 700, "y": 300},
+                },
+                {
+                    "name": "Show Report",
+                    "type": "Output",
+                    "parameters": {
+                        "source": "input",
+                        "format": "html",
+                        "contentField": "html",
+                    },
+                    "position": {"x": 1000, "y": 300},
+                },
+            ],
+            "connections": [
+                {"source_node": "Start", "target_node": "Aggregate"},
+                {"source_node": "Aggregate", "target_node": "Build Report"},
+                {"source_node": "Build Report", "target_node": "Show Report"},
+            ],
+            "settings": {},
+        },
+    },
+    # ========================================
+    # 8. HR SALARY REPORT — Employees → Report with correlations
+    # ========================================
+    {
+        "name": "HR Salary Report",
+        "description": "Full profiling report on employee data — salary distributions, experience correlations, department breakdowns.",
+        "active": True,
+        "definition": {
+            "nodes": [
+                {
+                    "name": "Start",
+                    "type": "Start",
+                    "parameters": {},
+                    "position": {"x": 100, "y": 300},
+                },
+                {
+                    "name": "Report",
+                    "type": "Report",
+                    "parameters": {
+                        "sourceType": "file",
+                        "filePath": f"{_SAMPLE_DIR}/employees.csv",
+                        "title": "HR Salary & Headcount Report",
+                        "previewRows": 15,
+                        "topN": 8,
+                        "showOverview": True,
+                        "showColumnStats": True,
+                        "showDistributions": True,
+                        "showTopValues": True,
+                        "showCorrelations": True,
+                        "showDataPreview": True,
+                        "outputFormat": "html",
+                    },
+                    "position": {"x": 400, "y": 300},
+                },
+                {
+                    "name": "Display",
+                    "type": "Output",
+                    "parameters": {
+                        "source": "input",
+                        "format": "html",
+                        "contentField": "html",
+                    },
+                    "position": {"x": 700, "y": 300},
+                },
+            ],
+            "connections": [
+                {"source_node": "Start", "target_node": "Report"},
+                {"source_node": "Report", "target_node": "Display"},
             ],
             "settings": {},
         },

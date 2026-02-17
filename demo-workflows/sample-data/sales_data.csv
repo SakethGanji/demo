@@ -1,0 +1,501 @@
+Date,Product,Region,Channel,SalesRep,Units,UnitPrice,Revenue,Cost,Profit,Discount
+2024-11-23,Wireless Mouse,Europe,Retail,Bob Smith,1,49,41.65,21.61,20.04,15
+2024-12-12,Wireless Mouse,North America,Retail,Diana Park,19,49,884.45,405.03,479.42,5
+2024-09-15,Laptop Pro,Latin America,Retail,Hana Kim,18,1299,23382.0,14707.39,8674.61,0
+2024-10-28,Keyboard MX,Asia Pacific,Enterprise,Carlos Diaz,1,129,129.0,80.56,48.44,0
+2024-04-20,Webcam HD,Asia Pacific,Enterprise,Erik Muller,4,89,356.0,194.01,161.99,0
+2024-01-23,SSD 1TB,Latin America,Online,Erik Muller,18,109,1962.0,1360.21,601.79,0
+2024-11-17,Webcam HD,North America,Retail,Erik Muller,19,89,1691.0,1058.81,632.19,0
+2024-02-10,Monitor 27in,Asia Pacific,Retail,Fatima Ali,4,449,1706.2,886.36,819.84,5
+2024-06-30,Monitor 27in,North America,Retail,Diana Park,9,449,3434.85,2350.0,1084.85,15
+2024-03-24,SSD 1TB,Europe,Enterprise,Alice Chen,13,109,1417.0,988.19,428.81,0
+2024-04-27,Laptop Pro,Europe,Enterprise,Diana Park,11,1299,13574.55,7017.16,6557.39,5
+2024-12-01,SSD 1TB,Asia Pacific,Retail,Diana Park,13,109,1204.45,680.17,524.28,15
+2024-10-14,Keyboard MX,Latin America,Enterprise,Diana Park,19,129,2328.45,1570.44,758.01,5
+2024-03-11,SSD 1TB,Europe,Retail,Greg Johnson,3,109,327.0,217.55,109.45,0
+2024-11-01,Wireless Mouse,Latin America,Enterprise,Alice Chen,13,49,605.15,362.47,242.68,5
+2024-12-14,Wireless Mouse,Asia Pacific,Online,Erik Muller,18,49,882.0,566.38,315.62,0
+2024-08-10,USB-C Hub,Asia Pacific,Retail,Bob Smith,15,79,1185.0,815.82,369.18,0
+2024-11-16,Keyboard MX,Asia Pacific,Retail,Alice Chen,17,129,1973.7,986.31,987.39,10
+2024-11-02,Webcam HD,Asia Pacific,Enterprise,Diana Park,16,89,1424.0,680.62,743.38,0
+2024-01-30,Monitor 27in,Latin America,Online,Carlos Diaz,19,449,8531.0,4021.63,4509.37,0
+2024-03-06,SSD 1TB,Latin America,Retail,Diana Park,18,109,1962.0,1012.91,949.09,0
+2024-06-08,Headset Pro,Latin America,Online,Diana Park,12,199,2268.6,1531.09,737.51,5
+2024-04-25,Wireless Mouse,Europe,Retail,Alice Chen,11,49,539.0,321.82,217.18,0
+2024-02-06,Laptop Pro,Asia Pacific,Online,Diana Park,8,1299,10392.0,7028.68,3363.32,0
+2024-05-22,SSD 1TB,Latin America,Retail,Hana Kim,7,109,686.7,331.73,354.97,10
+2024-07-27,Monitor 27in,Asia Pacific,Partner,Greg Johnson,4,449,1796.0,1104.08,691.92,0
+2024-08-27,Laptop Pro,Asia Pacific,Online,Diana Park,4,1299,5196.0,2861.21,2334.79,0
+2024-04-08,Monitor 27in,Europe,Enterprise,Hana Kim,18,449,7677.9,3724.13,3953.77,5
+2024-05-07,Wireless Mouse,North America,Online,Diana Park,15,49,661.5,313.87,347.63,10
+2024-03-26,Headset Pro,Latin America,Online,Carlos Diaz,16,199,3024.8,1522.8,1502.0,5
+2024-07-13,Laptop Pro,Latin America,Enterprise,Greg Johnson,13,1299,16887.0,11510.68,5376.32,0
+2024-12-22,SSD 1TB,North America,Online,Fatima Ali,5,109,545.0,285.68,259.32,0
+2024-01-30,Laptop Pro,Europe,Online,Bob Smith,19,1299,23446.95,13498.7,9948.25,5
+2024-04-05,Wireless Mouse,Europe,Partner,Bob Smith,20,49,980.0,606.43,373.57,0
+2024-10-18,Monitor 27in,North America,Partner,Fatima Ali,19,449,7677.9,3531.34,4146.56,10
+2024-05-13,Monitor 27in,Europe,Enterprise,Hana Kim,11,449,4939.0,2550.52,2388.48,0
+2024-06-10,Wireless Mouse,North America,Online,Diana Park,1,49,46.55,28.18,18.37,5
+2024-09-16,Keyboard MX,Europe,Enterprise,Erik Muller,5,129,645.0,432.29,212.71,0
+2024-03-21,SSD 1TB,North America,Enterprise,Bob Smith,18,109,1667.7,876.59,791.11,15
+2024-03-09,Keyboard MX,Europe,Enterprise,Erik Muller,4,129,516.0,327.97,188.03,0
+2024-11-05,Monitor 27in,Asia Pacific,Partner,Erik Muller,11,449,4939.0,3071.44,1867.56,0
+2024-01-27,Wireless Mouse,Asia Pacific,Retail,Erik Muller,14,49,686.0,316.26,369.74,0
+2024-03-23,SSD 1TB,North America,Online,Bob Smith,18,109,1667.7,928.78,738.92,15
+2024-12-19,USB-C Hub,Europe,Partner,Carlos Diaz,18,79,1422.0,936.6,485.4,0
+2024-01-22,Keyboard MX,Europe,Retail,Bob Smith,12,129,1548.0,1044.48,503.52,0
+2024-06-30,Headset Pro,Europe,Retail,Carlos Diaz,20,199,3383.0,1653.06,1729.94,15
+2024-07-30,Laptop Pro,Latin America,Retail,Erik Muller,6,1299,6624.9,4512.36,2112.54,15
+2024-03-22,Wireless Mouse,Europe,Retail,Hana Kim,13,49,637.0,423.38,213.62,0
+2024-06-28,Keyboard MX,Europe,Partner,Fatima Ali,8,129,1032.0,470.51,561.49,0
+2024-05-22,Wireless Mouse,Latin America,Enterprise,Alice Chen,9,49,441.0,269.17,171.83,0
+2024-02-29,Keyboard MX,Asia Pacific,Online,Bob Smith,6,129,696.6,481.1,215.5,10
+2024-11-01,Headset Pro,Latin America,Online,Greg Johnson,12,199,2029.8,1312.48,717.32,15
+2024-10-22,Monitor 27in,North America,Retail,Fatima Ali,9,449,4041.0,2534.5,1506.5,0
+2024-08-08,Wireless Mouse,North America,Enterprise,Erik Muller,11,49,485.1,256.37,228.73,10
+2024-12-07,Headset Pro,Europe,Retail,Greg Johnson,11,199,2079.55,1298.27,781.28,5
+2024-12-06,Headset Pro,Latin America,Online,Erik Muller,6,199,1074.6,636.46,438.14,10
+2024-05-26,Monitor 27in,Asia Pacific,Partner,Hana Kim,14,449,5657.4,3403.86,2253.54,10
+2024-08-14,Monitor 27in,Europe,Online,Erik Muller,17,449,7251.35,4702.02,2549.33,5
+2024-09-20,Webcam HD,Europe,Retail,Carlos Diaz,3,89,267.0,165.06,101.94,0
+2024-01-13,Laptop Pro,North America,Partner,Greg Johnson,8,1299,9872.4,5951.27,3921.13,5
+2024-11-18,Monitor 27in,Europe,Online,Bob Smith,13,449,5545.15,3049.35,2495.8,5
+2024-08-05,Monitor 27in,North America,Retail,Bob Smith,6,449,2289.9,1326.97,962.93,15
+2024-08-21,USB-C Hub,Asia Pacific,Partner,Greg Johnson,15,79,1007.25,587.01,420.24,15
+2024-10-07,SSD 1TB,Latin America,Enterprise,Diana Park,6,109,555.9,369.88,186.02,15
+2024-11-22,Keyboard MX,Asia Pacific,Partner,Bob Smith,17,129,2083.35,1263.94,819.41,5
+2024-05-26,Monitor 27in,North America,Retail,Carlos Diaz,9,449,4041.0,2141.44,1899.56,0
+2024-04-28,Headset Pro,Latin America,Partner,Fatima Ali,5,199,845.75,425.83,419.92,15
+2024-10-04,SSD 1TB,Latin America,Partner,Alice Chen,14,109,1526.0,765.61,760.39,0
+2024-10-21,Headset Pro,Asia Pacific,Partner,Greg Johnson,16,199,3184.0,2183.22,1000.78,0
+2024-10-02,Monitor 27in,Latin America,Online,Greg Johnson,16,449,7184.0,3722.99,3461.01,0
+2024-06-21,Headset Pro,North America,Partner,Alice Chen,6,199,1134.3,771.19,363.11,5
+2024-02-12,Headset Pro,Asia Pacific,Partner,Fatima Ali,5,199,945.25,468.31,476.94,5
+2024-04-18,SSD 1TB,Latin America,Enterprise,Greg Johnson,11,109,1199.0,767.73,431.27,0
+2024-05-09,Wireless Mouse,North America,Enterprise,Diana Park,16,49,784.0,499.61,284.39,0
+2024-11-28,Wireless Mouse,Europe,Online,Carlos Diaz,2,49,98.0,67.37,30.63,0
+2024-05-02,USB-C Hub,Europe,Partner,Erik Muller,16,79,1074.4,514.21,560.19,15
+2024-07-07,USB-C Hub,North America,Retail,Erik Muller,20,79,1422.0,982.51,439.49,10
+2024-02-25,Laptop Pro,Latin America,Partner,Diana Park,10,1299,11691.0,7240.67,4450.33,10
+2024-02-08,Monitor 27in,North America,Online,Fatima Ali,4,449,1526.6,981.79,544.81,15
+2024-09-29,Headset Pro,Asia Pacific,Online,Greg Johnson,12,199,2388.0,1376.66,1011.34,0
+2024-09-07,Wireless Mouse,Latin America,Retail,Greg Johnson,14,49,686.0,417.7,268.3,0
+2024-03-31,Keyboard MX,Latin America,Partner,Erik Muller,20,129,2322.0,1494.58,827.42,10
+2024-06-14,Monitor 27in,Europe,Partner,Greg Johnson,3,449,1347.0,903.04,443.96,0
+2024-06-21,Laptop Pro,Europe,Enterprise,Erik Muller,16,1299,20784.0,10297.64,10486.36,0
+2024-06-23,Keyboard MX,North America,Retail,Bob Smith,20,129,2193.0,1469.37,723.63,15
+2024-05-03,Headset Pro,Latin America,Partner,Hana Kim,16,199,2865.6,1832.67,1032.93,10
+2024-01-09,Wireless Mouse,Europe,Enterprise,Fatima Ali,10,49,490.0,270.04,219.96,0
+2024-08-30,Webcam HD,Asia Pacific,Partner,Erik Muller,14,89,1059.1,622.32,436.78,15
+2024-06-05,Keyboard MX,Asia Pacific,Online,Carlos Diaz,8,129,1032.0,650.49,381.51,0
+2024-04-08,Monitor 27in,Asia Pacific,Online,Diana Park,16,449,7184.0,4534.15,2649.85,0
+2024-05-31,Monitor 27in,Europe,Enterprise,Alice Chen,12,449,5388.0,2831.75,2556.25,0
+2024-01-28,Keyboard MX,Latin America,Online,Alice Chen,5,129,548.25,365.75,182.5,15
+2024-10-20,Keyboard MX,Europe,Online,Erik Muller,16,129,1960.8,1098.28,862.52,5
+2024-09-01,Wireless Mouse,North America,Retail,Carlos Diaz,3,49,139.65,80.01,59.64,5
+2024-10-15,Keyboard MX,Latin America,Retail,Greg Johnson,3,129,387.0,185.61,201.39,0
+2024-08-18,SSD 1TB,Asia Pacific,Online,Bob Smith,10,109,981.0,684.26,296.74,10
+2024-04-16,Monitor 27in,Europe,Retail,Bob Smith,9,449,3434.85,1615.4,1819.45,15
+2024-03-21,Laptop Pro,Latin America,Enterprise,Alice Chen,14,1299,17276.7,10752.03,6524.67,5
+2024-04-28,Keyboard MX,North America,Retail,Erik Muller,10,129,1096.5,729.06,367.44,15
+2024-11-16,Monitor 27in,Europe,Enterprise,Carlos Diaz,14,449,6286.0,3684.48,2601.52,0
+2024-02-06,Laptop Pro,Asia Pacific,Partner,Bob Smith,6,1299,7794.0,4666.74,3127.26,0
+2024-08-27,Keyboard MX,Latin America,Partner,Bob Smith,13,129,1677.0,964.47,712.53,0
+2024-11-02,Laptop Pro,Asia Pacific,Online,Bob Smith,14,1299,15458.1,8201.76,7256.34,15
+2024-04-27,Laptop Pro,Europe,Partner,Hana Kim,9,1299,10521.9,4840.68,5681.22,10
+2024-05-22,USB-C Hub,Latin America,Online,Hana Kim,19,79,1425.95,867.97,557.98,5
+2024-06-27,Headset Pro,Europe,Enterprise,Greg Johnson,11,199,2189.0,1351.78,837.22,0
+2024-12-21,SSD 1TB,North America,Partner,Bob Smith,10,109,926.5,635.86,290.64,15
+2024-06-10,Keyboard MX,Latin America,Online,Hana Kim,11,129,1419.0,982.72,436.28,0
+2024-07-30,Laptop Pro,Latin America,Partner,Alice Chen,7,1299,8183.7,4422.84,3760.86,10
+2024-04-14,Keyboard MX,Latin America,Partner,Bob Smith,18,129,2322.0,1583.41,738.59,0
+2024-01-15,Monitor 27in,Latin America,Online,Diana Park,6,449,2694.0,1583.29,1110.71,0
+2024-02-28,SSD 1TB,Latin America,Enterprise,Erik Muller,4,109,370.6,243.87,126.73,15
+2024-07-31,SSD 1TB,Europe,Partner,Diana Park,16,109,1744.0,983.96,760.04,0
+2024-11-02,USB-C Hub,Latin America,Enterprise,Erik Muller,3,79,237.0,152.43,84.57,0
+2024-01-02,Keyboard MX,Latin America,Retail,Hana Kim,10,129,1161.0,690.77,470.23,10
+2024-10-02,SSD 1TB,Latin America,Partner,Fatima Ali,12,109,1308.0,769.08,538.92,0
+2024-04-06,Monitor 27in,Latin America,Online,Fatima Ali,19,449,8104.45,4120.23,3984.22,5
+2024-08-30,Headset Pro,Europe,Partner,Alice Chen,13,199,2198.95,1425.14,773.81,15
+2024-03-05,Webcam HD,Latin America,Online,Carlos Diaz,4,89,338.2,160.62,177.58,5
+2024-07-28,USB-C Hub,Asia Pacific,Enterprise,Greg Johnson,3,79,225.15,145.31,79.84,5
+2024-11-28,Wireless Mouse,Latin America,Enterprise,Hana Kim,11,49,458.15,304.59,153.56,15
+2024-10-04,Laptop Pro,Asia Pacific,Retail,Bob Smith,20,1299,25980.0,13215.83,12764.17,0
+2024-08-10,Wireless Mouse,Asia Pacific,Online,Alice Chen,4,49,186.2,91.53,94.67,5
+2024-06-15,Laptop Pro,Europe,Retail,Greg Johnson,10,1299,12990.0,7062.8,5927.2,0
+2024-10-16,USB-C Hub,Latin America,Retail,Hana Kim,6,79,474.0,222.66,251.34,0
+2024-10-25,USB-C Hub,Latin America,Enterprise,Alice Chen,8,79,600.4,365.93,234.47,5
+2024-08-26,Keyboard MX,Asia Pacific,Enterprise,Greg Johnson,18,129,2322.0,1087.78,1234.22,0
+2024-12-19,Keyboard MX,Latin America,Partner,Bob Smith,15,129,1935.0,967.12,967.88,0
+2024-05-01,Headset Pro,Asia Pacific,Online,Greg Johnson,19,199,3781.0,2244.79,1536.21,0
+2024-05-20,Laptop Pro,North America,Partner,Erik Muller,19,1299,20978.85,13522.5,7456.35,15
+2024-04-27,Webcam HD,Asia Pacific,Retail,Bob Smith,8,89,605.2,301.11,304.09,15
+2024-11-17,Laptop Pro,Asia Pacific,Retail,Bob Smith,10,1299,12340.5,5656.16,6684.34,5
+2024-05-31,Webcam HD,Asia Pacific,Enterprise,Carlos Diaz,14,89,1246.0,623.25,622.75,0
+2024-05-11,SSD 1TB,North America,Partner,Bob Smith,10,109,926.5,618.53,307.97,15
+2024-03-13,Monitor 27in,Latin America,Online,Erik Muller,13,449,5253.3,2844.37,2408.93,10
+2024-10-01,Wireless Mouse,Asia Pacific,Partner,Fatima Ali,15,49,735.0,454.38,280.62,0
+2024-02-25,Monitor 27in,Asia Pacific,Retail,Bob Smith,16,449,7184.0,4345.51,2838.49,0
+2024-11-21,SSD 1TB,Europe,Online,Alice Chen,10,109,926.5,511.5,415.0,15
+2024-06-04,SSD 1TB,Europe,Partner,Hana Kim,4,109,436.0,221.79,214.21,0
+2024-07-08,Headset Pro,Latin America,Online,Hana Kim,19,199,3213.85,2030.03,1183.82,15
+2024-11-11,Headset Pro,Europe,Partner,Hana Kim,9,199,1791.0,1115.02,675.98,0
+2024-04-30,Webcam HD,Asia Pacific,Online,Greg Johnson,4,89,302.6,163.96,138.64,15
+2024-05-21,Monitor 27in,Europe,Online,Alice Chen,4,449,1706.2,806.89,899.31,5
+2024-06-19,Monitor 27in,Europe,Retail,Diana Park,5,449,2020.5,1012.88,1007.62,10
+2024-06-17,USB-C Hub,Europe,Retail,Erik Muller,20,79,1580.0,820.52,759.48,0
+2024-03-30,Wireless Mouse,Europe,Enterprise,Alice Chen,1,49,49.0,22.23,26.77,0
+2024-03-30,Keyboard MX,North America,Online,Hana Kim,2,129,258.0,163.94,94.06,0
+2024-08-17,Webcam HD,Europe,Online,Erik Muller,17,89,1361.7,649.89,711.81,10
+2024-08-22,Laptop Pro,Latin America,Online,Hana Kim,2,1299,2468.1,1633.45,834.65,5
+2024-12-30,SSD 1TB,Europe,Online,Carlos Diaz,3,109,327.0,173.48,153.52,0
+2024-05-20,Webcam HD,Latin America,Partner,Bob Smith,13,89,1041.3,606.7,434.6,10
+2024-12-25,Wireless Mouse,Latin America,Partner,Diana Park,18,49,749.7,499.58,250.12,15
+2024-07-30,Webcam HD,North America,Enterprise,Greg Johnson,15,89,1268.25,702.61,565.64,5
+2024-06-09,Keyboard MX,Latin America,Online,Bob Smith,12,129,1548.0,962.4,585.6,0
+2024-02-13,Wireless Mouse,Asia Pacific,Retail,Alice Chen,14,49,686.0,436.4,249.6,0
+2024-10-27,Webcam HD,Latin America,Online,Erik Muller,4,89,338.2,182.09,156.11,5
+2024-11-03,Keyboard MX,Europe,Retail,Hana Kim,12,129,1548.0,920.25,627.75,0
+2024-04-24,Wireless Mouse,Asia Pacific,Retail,Greg Johnson,12,49,529.2,286.77,242.43,10
+2024-10-14,Laptop Pro,Asia Pacific,Online,Carlos Diaz,20,1299,22083.0,14516.6,7566.4,15
+2024-05-19,Keyboard MX,Europe,Partner,Bob Smith,11,129,1419.0,640.72,778.28,0
+2024-03-13,Laptop Pro,Latin America,Partner,Hana Kim,3,1299,3312.45,1929.9,1382.55,15
+2024-06-23,USB-C Hub,North America,Online,Carlos Diaz,12,79,948.0,597.62,350.38,0
+2024-03-21,Laptop Pro,Latin America,Partner,Hana Kim,3,1299,3897.0,2185.35,1711.65,0
+2024-07-31,Keyboard MX,Latin America,Online,Erik Muller,7,129,812.7,388.84,423.86,10
+2024-12-13,SSD 1TB,Europe,Partner,Alice Chen,17,109,1575.05,830.22,744.83,15
+2024-01-04,Monitor 27in,Asia Pacific,Enterprise,Fatima Ali,10,449,4490.0,2881.85,1608.15,0
+2024-03-02,Laptop Pro,Europe,Partner,Diana Park,16,1299,17666.4,9851.91,7814.49,15
+2024-09-13,Webcam HD,North America,Partner,Alice Chen,3,89,253.65,168.79,84.86,5
+2024-08-23,Wireless Mouse,Latin America,Partner,Erik Muller,11,49,485.1,270.36,214.74,10
+2024-02-28,Headset Pro,Latin America,Enterprise,Bob Smith,1,199,199.0,98.1,100.9,0
+2024-08-11,Wireless Mouse,North America,Partner,Erik Muller,8,49,372.4,222.4,150.0,5
+2024-06-22,Monitor 27in,North America,Retail,Fatima Ali,11,449,4939.0,2316.86,2622.14,0
+2024-06-28,USB-C Hub,Europe,Retail,Carlos Diaz,8,79,632.0,307.54,324.46,0
+2024-12-01,Wireless Mouse,Latin America,Enterprise,Fatima Ali,6,49,249.9,143.32,106.58,15
+2024-03-18,SSD 1TB,Asia Pacific,Enterprise,Alice Chen,3,109,310.65,174.14,136.51,5
+2024-06-29,Wireless Mouse,North America,Enterprise,Erik Muller,10,49,465.5,262.07,203.43,5
+2024-02-09,Wireless Mouse,Latin America,Online,Hana Kim,20,49,882.0,508.71,373.29,10
+2024-10-19,Monitor 27in,Europe,Online,Hana Kim,11,449,4445.1,2528.85,1916.25,10
+2024-02-22,Webcam HD,North America,Retail,Hana Kim,3,89,240.3,146.95,93.35,10
+2024-08-12,USB-C Hub,Latin America,Partner,Fatima Ali,12,79,948.0,644.15,303.85,0
+2024-12-13,Laptop Pro,Latin America,Enterprise,Erik Muller,11,1299,14289.0,7607.79,6681.21,0
+2024-12-02,USB-C Hub,Europe,Enterprise,Erik Muller,11,79,869.0,517.65,351.35,0
+2024-12-01,Headset Pro,North America,Enterprise,Greg Johnson,5,199,895.5,561.67,333.83,10
+2024-11-25,Webcam HD,North America,Partner,Fatima Ali,5,89,378.25,236.67,141.58,15
+2024-01-10,Webcam HD,Asia Pacific,Partner,Diana Park,10,89,890.0,612.14,277.86,0
+2024-04-25,USB-C Hub,North America,Online,Fatima Ali,5,79,395.0,206.96,188.04,0
+2024-11-12,USB-C Hub,Europe,Retail,Hana Kim,20,79,1501.0,733.33,767.67,5
+2024-01-23,Headset Pro,Latin America,Enterprise,Hana Kim,12,199,2029.8,1278.56,751.24,15
+2024-04-29,Monitor 27in,Europe,Enterprise,Hana Kim,10,449,4265.5,2883.45,1382.05,5
+2024-08-24,Keyboard MX,Europe,Retail,Carlos Diaz,13,129,1509.3,878.21,631.09,10
+2024-05-08,Laptop Pro,North America,Online,Erik Muller,16,1299,20784.0,12234.19,8549.81,0
+2024-02-12,USB-C Hub,Europe,Partner,Bob Smith,9,79,675.45,456.82,218.63,5
+2024-04-23,SSD 1TB,Latin America,Enterprise,Diana Park,12,109,1308.0,724.27,583.73,0
+2024-07-16,Wireless Mouse,North America,Enterprise,Carlos Diaz,12,49,588.0,268.74,319.26,0
+2024-03-11,Laptop Pro,Europe,Partner,Hana Kim,10,1299,12340.5,7700.69,4639.81,5
+2024-11-11,Laptop Pro,Europe,Partner,Bob Smith,3,1299,3897.0,2002.98,1894.02,0
+2024-05-27,Monitor 27in,Latin America,Partner,Bob Smith,10,449,4490.0,2074.1,2415.9,0
+2024-02-26,SSD 1TB,Europe,Retail,Erik Muller,20,109,1962.0,890.96,1071.04,10
+2024-08-07,Laptop Pro,Latin America,Retail,Bob Smith,20,1299,25980.0,13253.46,12726.54,0
+2024-09-25,Webcam HD,North America,Partner,Hana Kim,3,89,240.3,140.82,99.48,10
+2024-01-23,Headset Pro,Asia Pacific,Online,Fatima Ali,12,199,2388.0,1520.75,867.25,0
+2024-05-03,Wireless Mouse,Europe,Online,Fatima Ali,19,49,791.35,505.81,285.54,15
+2024-10-06,Webcam HD,Latin America,Retail,Carlos Diaz,6,89,453.9,256.98,196.92,15
+2024-02-02,SSD 1TB,Europe,Online,Fatima Ali,2,109,218.0,109.09,108.91,0
+2024-06-07,Headset Pro,Europe,Enterprise,Fatima Ali,18,199,3402.9,1746.81,1656.09,5
+2024-01-25,Webcam HD,Latin America,Partner,Hana Kim,9,89,801.0,520.52,280.48,0
+2024-07-16,Webcam HD,Asia Pacific,Enterprise,Bob Smith,6,89,507.3,316.06,191.24,5
+2024-08-05,Wireless Mouse,Europe,Enterprise,Fatima Ali,14,49,617.4,431.42,185.98,10
+2024-02-22,Wireless Mouse,Latin America,Partner,Carlos Diaz,11,49,458.15,240.03,218.12,15
+2024-12-19,SSD 1TB,Asia Pacific,Partner,Erik Muller,12,109,1242.6,572.33,670.27,5
+2024-11-23,Laptop Pro,Asia Pacific,Retail,Alice Chen,3,1299,3312.45,2018.53,1293.92,15
+2024-03-14,SSD 1TB,Asia Pacific,Enterprise,Greg Johnson,2,109,218.0,101.76,116.24,0
+2024-10-17,Laptop Pro,Asia Pacific,Enterprise,Hana Kim,20,1299,25980.0,16101.51,9878.49,0
+2024-02-09,USB-C Hub,Asia Pacific,Retail,Bob Smith,17,79,1343.0,737.99,605.01,0
+2024-01-14,USB-C Hub,North America,Enterprise,Erik Muller,16,79,1137.6,621.98,515.62,10
+2024-12-26,SSD 1TB,Latin America,Retail,Bob Smith,7,109,686.7,358.04,328.66,10
+2024-03-10,Wireless Mouse,Latin America,Online,Fatima Ali,15,49,735.0,495.88,239.12,0
+2024-12-07,Webcam HD,Asia Pacific,Retail,Carlos Diaz,3,89,240.3,140.71,99.59,10
+2024-07-04,Monitor 27in,Europe,Partner,Alice Chen,4,449,1796.0,1163.84,632.16,0
+2024-07-03,Webcam HD,North America,Online,Erik Muller,15,89,1201.5,579.66,621.84,10
+2024-07-22,SSD 1TB,North America,Retail,Fatima Ali,17,109,1760.35,1130.66,629.69,5
+2024-11-24,Wireless Mouse,Asia Pacific,Retail,Carlos Diaz,15,49,698.25,432.93,265.32,5
+2024-03-07,Headset Pro,Europe,Enterprise,Carlos Diaz,17,199,3383.0,2225.5,1157.5,0
+2024-03-23,Webcam HD,Asia Pacific,Online,Erik Muller,8,89,712.0,489.05,222.95,0
+2024-04-10,Keyboard MX,North America,Retail,Carlos Diaz,5,129,548.25,288.22,260.03,15
+2024-03-28,Webcam HD,North America,Online,Alice Chen,19,89,1691.0,1109.82,581.18,0
+2024-11-24,Keyboard MX,North America,Partner,Erik Muller,7,129,812.7,450.36,362.34,10
+2024-11-24,Keyboard MX,Latin America,Enterprise,Hana Kim,16,129,2064.0,1344.02,719.98,0
+2024-02-07,Laptop Pro,Latin America,Retail,Fatima Ali,6,1299,7404.3,4101.28,3303.02,5
+2024-11-06,USB-C Hub,Asia Pacific,Partner,Carlos Diaz,11,79,738.65,391.36,347.29,15
+2024-07-08,Wireless Mouse,Asia Pacific,Partner,Diana Park,11,49,539.0,305.41,233.59,0
+2024-03-13,Wireless Mouse,Latin America,Retail,Carlos Diaz,2,49,98.0,67.26,30.74,0
+2024-06-16,Webcam HD,Latin America,Partner,Erik Muller,7,89,623.0,357.95,265.05,0
+2024-09-11,Laptop Pro,Europe,Retail,Fatima Ali,3,1299,3702.15,2133.78,1568.37,5
+2024-01-25,Laptop Pro,Latin America,Enterprise,Alice Chen,10,1299,12340.5,7396.65,4943.85,5
+2024-02-25,Headset Pro,Latin America,Enterprise,Alice Chen,5,199,995.0,628.72,366.28,0
+2024-07-24,Laptop Pro,Asia Pacific,Online,Greg Johnson,19,1299,22212.9,11076.77,11136.13,10
+2024-09-15,SSD 1TB,North America,Retail,Bob Smith,18,109,1962.0,1287.72,674.28,0
+2024-07-20,Webcam HD,Europe,Retail,Greg Johnson,11,89,881.1,603.32,277.78,10
+2024-09-13,Laptop Pro,Asia Pacific,Partner,Hana Kim,2,1299,2598.0,1258.11,1339.89,0
+2024-03-17,USB-C Hub,Latin America,Enterprise,Fatima Ali,11,79,782.1,414.23,367.87,10
+2024-09-16,SSD 1TB,North America,Enterprise,Fatima Ali,19,109,2071.0,1177.83,893.17,0
+2024-12-10,Wireless Mouse,North America,Partner,Erik Muller,14,49,617.4,325.32,292.08,10
+2024-12-01,Monitor 27in,Latin America,Retail,Diana Park,2,449,808.2,460.76,347.44,10
+2024-01-17,Wireless Mouse,Latin America,Retail,Greg Johnson,7,49,343.0,192.17,150.83,0
+2024-12-19,Monitor 27in,Latin America,Online,Carlos Diaz,14,449,5657.4,3641.91,2015.49,10
+2024-09-22,Monitor 27in,Latin America,Partner,Fatima Ali,18,449,8082.0,5653.61,2428.39,0
+2024-03-29,SSD 1TB,Asia Pacific,Partner,Diana Park,18,109,1962.0,1150.85,811.15,0
+2024-05-06,Keyboard MX,Asia Pacific,Enterprise,Diana Park,18,129,2322.0,1175.44,1146.56,0
+2024-12-19,SSD 1TB,Asia Pacific,Enterprise,Bob Smith,11,109,1139.05,611.9,527.15,5
+2024-10-20,Headset Pro,Europe,Enterprise,Alice Chen,13,199,2587.0,1781.54,805.46,0
+2024-05-27,Wireless Mouse,Latin America,Retail,Diana Park,12,49,558.6,342.98,215.62,5
+2024-10-02,Keyboard MX,North America,Retail,Diana Park,18,129,1973.7,1022.19,951.51,15
+2024-01-26,Monitor 27in,Asia Pacific,Partner,Bob Smith,8,449,3592.0,1706.38,1885.62,0
+2024-12-14,USB-C Hub,Europe,Partner,Hana Kim,1,79,71.1,49.38,21.72,10
+2024-09-01,Monitor 27in,North America,Online,Diana Park,10,449,4490.0,2340.88,2149.12,0
+2024-09-30,Laptop Pro,Europe,Online,Greg Johnson,6,1299,7404.3,4965.04,2439.26,5
+2024-09-10,USB-C Hub,North America,Enterprise,Erik Muller,10,79,790.0,357.33,432.67,0
+2024-08-20,SSD 1TB,Europe,Online,Fatima Ali,5,109,490.5,278.12,212.38,10
+2024-03-24,SSD 1TB,Asia Pacific,Enterprise,Diana Park,9,109,833.85,414.05,419.8,15
+2024-03-30,Headset Pro,Latin America,Online,Carlos Diaz,14,199,2507.4,1333.89,1173.51,10
+2024-03-12,SSD 1TB,Latin America,Retail,Hana Kim,11,109,1199.0,541.6,657.4,0
+2024-05-16,Webcam HD,North America,Enterprise,Fatima Ali,10,89,801.0,505.21,295.79,10
+2024-12-20,Monitor 27in,Asia Pacific,Retail,Greg Johnson,2,449,763.3,366.05,397.25,15
+2024-12-17,Keyboard MX,Asia Pacific,Enterprise,Diana Park,4,129,438.6,297.82,140.78,15
+2024-04-22,USB-C Hub,Asia Pacific,Partner,Hana Kim,16,79,1264.0,712.57,551.43,0
+2024-10-02,Monitor 27in,North America,Partner,Fatima Ali,8,449,3053.2,1950.03,1103.17,15
+2024-02-09,Wireless Mouse,Europe,Retail,Carlos Diaz,2,49,88.2,59.6,28.6,10
+2024-06-16,SSD 1TB,Latin America,Online,Hana Kim,4,109,370.6,185.8,184.8,15
+2024-01-29,SSD 1TB,North America,Partner,Erik Muller,5,109,490.5,271.67,218.83,10
+2024-01-12,Headset Pro,North America,Online,Greg Johnson,9,199,1791.0,1139.88,651.12,0
+2024-06-25,Wireless Mouse,North America,Partner,Alice Chen,18,49,882.0,602.98,279.02,0
+2024-05-26,Headset Pro,Latin America,Enterprise,Greg Johnson,6,199,1194.0,765.9,428.1,0
+2024-08-17,Headset Pro,Europe,Enterprise,Bob Smith,13,199,2587.0,1605.71,981.29,0
+2024-04-01,Headset Pro,Europe,Online,Alice Chen,17,199,3383.0,2137.94,1245.06,0
+2024-06-01,SSD 1TB,Europe,Retail,Hana Kim,18,109,1863.9,1086.62,777.28,5
+2024-06-26,USB-C Hub,North America,Online,Greg Johnson,9,79,711.0,486.57,224.43,0
+2024-11-10,Laptop Pro,North America,Partner,Alice Chen,8,1299,10392.0,4851.22,5540.78,0
+2024-05-05,Laptop Pro,Europe,Online,Carlos Diaz,13,1299,16042.65,8159.05,7883.6,5
+2024-09-14,Keyboard MX,Asia Pacific,Retail,Erik Muller,8,129,877.2,521.08,356.12,15
+2024-03-14,Monitor 27in,Europe,Partner,Hana Kim,14,449,6286.0,3261.1,3024.9,0
+2024-01-25,Webcam HD,Latin America,Partner,Carlos Diaz,13,89,1041.3,551.56,489.74,10
+2024-06-02,Headset Pro,Europe,Enterprise,Carlos Diaz,6,199,1074.6,610.78,463.82,10
+2024-08-25,Laptop Pro,Europe,Partner,Diana Park,18,1299,22212.9,15370.14,6842.76,5
+2024-05-10,Monitor 27in,Latin America,Enterprise,Bob Smith,11,449,4198.15,1972.15,2226.0,15
+2024-10-01,Monitor 27in,North America,Online,Diana Park,2,449,898.0,488.77,409.23,0
+2024-10-27,Monitor 27in,Asia Pacific,Enterprise,Alice Chen,16,449,7184.0,4794.38,2389.62,0
+2024-04-18,Monitor 27in,Latin America,Retail,Diana Park,4,449,1526.6,1068.46,458.14,15
+2024-07-22,Monitor 27in,Latin America,Partner,Fatima Ali,18,449,8082.0,5203.83,2878.17,0
+2024-06-06,Keyboard MX,Latin America,Online,Hana Kim,12,129,1393.2,934.42,458.78,10
+2024-06-12,Monitor 27in,Europe,Retail,Alice Chen,12,449,5388.0,2982.16,2405.84,0
+2024-05-13,Headset Pro,Europe,Partner,Diana Park,10,199,1990.0,993.11,996.89,0
+2024-09-12,Webcam HD,Latin America,Partner,Carlos Diaz,9,89,760.95,526.29,234.66,5
+2024-06-29,USB-C Hub,Europe,Online,Alice Chen,5,79,335.75,196.96,138.79,15
+2024-02-08,Laptop Pro,Europe,Online,Carlos Diaz,1,1299,1234.05,597.74,636.31,5
+2024-01-05,Monitor 27in,Latin America,Partner,Alice Chen,17,449,7251.35,3939.66,3311.69,5
+2024-01-04,Headset Pro,Asia Pacific,Enterprise,Alice Chen,1,199,199.0,115.89,83.11,0
+2024-09-14,Headset Pro,Europe,Retail,Diana Park,6,199,1194.0,811.34,382.66,0
+2024-11-13,Keyboard MX,North America,Enterprise,Greg Johnson,12,129,1548.0,1004.24,543.76,0
+2024-08-23,Monitor 27in,North America,Online,Bob Smith,8,449,3592.0,2230.67,1361.33,0
+2024-07-26,Headset Pro,North America,Retail,Bob Smith,13,199,2328.3,1324.81,1003.49,10
+2024-09-12,Headset Pro,North America,Online,Diana Park,11,199,1970.1,1367.9,602.2,10
+2024-04-18,SSD 1TB,Asia Pacific,Online,Carlos Diaz,9,109,981.0,668.1,312.9,0
+2024-06-10,Laptop Pro,Latin America,Online,Erik Muller,7,1299,8183.7,3977.67,4206.03,10
+2024-03-24,Monitor 27in,Asia Pacific,Partner,Carlos Diaz,19,449,8104.45,5018.75,3085.7,5
+2024-12-18,Wireless Mouse,North America,Online,Greg Johnson,17,49,708.05,491.09,216.96,15
+2024-04-28,Wireless Mouse,Latin America,Enterprise,Alice Chen,11,49,485.1,311.56,173.54,10
+2024-11-20,Keyboard MX,Latin America,Partner,Carlos Diaz,15,129,1838.25,932.06,906.19,5
+2024-12-14,Headset Pro,Europe,Online,Bob Smith,3,199,537.3,281.46,255.84,10
+2024-05-17,USB-C Hub,Europe,Partner,Fatima Ali,13,79,872.95,563.9,309.05,15
+2024-07-03,Wireless Mouse,Latin America,Enterprise,Erik Muller,3,49,147.0,100.8,46.2,0
+2024-02-22,USB-C Hub,Latin America,Online,Alice Chen,3,79,237.0,132.19,104.81,0
+2024-02-15,Webcam HD,Asia Pacific,Partner,Alice Chen,18,89,1602.0,959.97,642.03,0
+2024-05-29,Headset Pro,Europe,Retail,Greg Johnson,13,199,2587.0,1632.94,954.06,0
+2024-03-27,USB-C Hub,Europe,Online,Carlos Diaz,9,79,711.0,367.66,343.34,0
+2024-08-10,Keyboard MX,North America,Enterprise,Erik Muller,14,129,1806.0,1031.33,774.67,0
+2024-05-06,SSD 1TB,North America,Retail,Erik Muller,20,109,1962.0,978.82,983.18,10
+2024-01-04,Headset Pro,Asia Pacific,Partner,Fatima Ali,11,199,1970.1,1073.65,896.45,10
+2024-08-08,USB-C Hub,Europe,Partner,Fatima Ali,10,79,790.0,474.63,315.37,0
+2024-03-31,Headset Pro,Latin America,Retail,Fatima Ali,11,199,2189.0,1387.21,801.79,0
+2024-07-11,Keyboard MX,Europe,Retail,Alice Chen,13,129,1677.0,802.4,874.6,0
+2024-08-24,Monitor 27in,North America,Partner,Hana Kim,15,449,6735.0,4430.42,2304.58,0
+2024-03-12,Keyboard MX,Latin America,Partner,Bob Smith,8,129,1032.0,634.34,397.66,0
+2024-08-17,SSD 1TB,Latin America,Online,Fatima Ali,19,109,1967.45,1148.19,819.26,5
+2024-12-25,Wireless Mouse,Asia Pacific,Retail,Alice Chen,4,49,196.0,120.42,75.58,0
+2024-10-15,Headset Pro,North America,Enterprise,Diana Park,11,199,2079.55,990.88,1088.67,5
+2024-09-18,Monitor 27in,Europe,Enterprise,Alice Chen,15,449,6735.0,3689.32,3045.68,0
+2024-09-04,Wireless Mouse,North America,Online,Carlos Diaz,10,49,465.5,316.6,148.9,5
+2024-06-27,Keyboard MX,Latin America,Enterprise,Hana Kim,11,129,1348.05,870.93,477.12,5
+2024-02-19,SSD 1TB,North America,Online,Alice Chen,15,109,1635.0,763.21,871.79,0
+2024-06-24,Wireless Mouse,Europe,Retail,Fatima Ali,6,49,249.9,127.69,122.21,15
+2024-10-13,Headset Pro,Europe,Retail,Greg Johnson,15,199,2985.0,1938.58,1046.42,0
+2024-07-21,Laptop Pro,Latin America,Partner,Alice Chen,20,1299,25980.0,14610.99,11369.01,0
+2024-12-26,Monitor 27in,North America,Online,Carlos Diaz,7,449,3143.0,2005.49,1137.51,0
+2024-07-06,Webcam HD,Latin America,Enterprise,Greg Johnson,7,89,591.85,283.19,308.66,5
+2024-11-08,Headset Pro,Latin America,Retail,Erik Muller,19,199,3781.0,2030.33,1750.67,0
+2024-11-10,Wireless Mouse,Asia Pacific,Online,Carlos Diaz,5,49,245.0,117.47,127.53,0
+2024-07-10,USB-C Hub,Europe,Partner,Greg Johnson,17,79,1275.85,707.54,568.31,5
+2024-04-05,SSD 1TB,Europe,Retail,Hana Kim,18,109,1667.7,1133.69,534.01,15
+2024-05-27,USB-C Hub,North America,Enterprise,Alice Chen,6,79,474.0,313.08,160.92,0
+2024-09-05,USB-C Hub,Latin America,Partner,Hana Kim,7,79,525.35,362.99,162.36,5
+2024-07-31,SSD 1TB,North America,Retail,Erik Muller,16,109,1744.0,820.84,923.16,0
+2024-01-17,Keyboard MX,Latin America,Partner,Bob Smith,8,129,928.8,484.99,443.81,10
+2024-10-20,Wireless Mouse,Asia Pacific,Online,Hana Kim,9,49,396.9,260.3,136.6,10
+2024-10-06,Monitor 27in,Europe,Enterprise,Alice Chen,14,449,6286.0,3985.31,2300.69,0
+2024-08-18,Keyboard MX,North America,Retail,Diana Park,12,129,1548.0,866.52,681.48,0
+2024-10-28,Webcam HD,Europe,Retail,Diana Park,20,89,1513.0,842.8,670.2,15
+2024-01-31,Webcam HD,Europe,Enterprise,Erik Muller,18,89,1602.0,959.94,642.06,0
+2024-05-28,Keyboard MX,Europe,Partner,Alice Chen,17,129,1864.05,1218.71,645.34,15
+2024-05-21,USB-C Hub,Asia Pacific,Retail,Greg Johnson,5,79,395.0,192.19,202.81,0
+2024-09-07,USB-C Hub,Latin America,Partner,Hana Kim,19,79,1275.85,659.84,616.01,15
+2024-02-08,Wireless Mouse,Asia Pacific,Partner,Hana Kim,13,49,573.3,365.45,207.85,10
+2024-06-16,Laptop Pro,Asia Pacific,Online,Greg Johnson,3,1299,3312.45,2295.65,1016.8,15
+2024-04-21,Headset Pro,Asia Pacific,Enterprise,Carlos Diaz,7,199,1323.35,684.35,639.0,5
+2024-10-16,SSD 1TB,North America,Online,Hana Kim,11,109,1019.15,652.83,366.32,15
+2024-01-09,Wireless Mouse,Latin America,Retail,Carlos Diaz,6,49,279.3,157.56,121.74,5
+2024-11-28,Keyboard MX,Asia Pacific,Enterprise,Bob Smith,6,129,774.0,366.36,407.64,0
+2024-07-09,USB-C Hub,Europe,Partner,Bob Smith,2,79,150.1,91.02,59.08,5
+2024-12-26,Wireless Mouse,Europe,Retail,Hana Kim,1,49,49.0,27.89,21.11,0
+2024-01-05,Laptop Pro,Latin America,Retail,Hana Kim,11,1299,14289.0,9959.99,4329.01,0
+2024-02-06,Monitor 27in,North America,Online,Fatima Ali,13,449,5837.0,3693.02,2143.98,0
+2024-07-07,Keyboard MX,Europe,Retail,Bob Smith,5,129,612.75,394.22,218.53,5
+2024-09-28,Laptop Pro,Asia Pacific,Retail,Carlos Diaz,20,1299,22083.0,10843.4,11239.6,15
+2024-07-29,SSD 1TB,Europe,Online,Greg Johnson,7,109,763.0,514.38,248.62,0
+2024-06-28,Headset Pro,North America,Retail,Erik Muller,11,199,2189.0,1120.65,1068.35,0
+2024-12-19,Laptop Pro,Europe,Partner,Erik Muller,10,1299,12990.0,7526.89,5463.11,0
+2024-11-26,Laptop Pro,Europe,Partner,Bob Smith,8,1299,9872.4,5394.98,4477.42,5
+2024-09-27,Laptop Pro,Latin America,Enterprise,Carlos Diaz,12,1299,15588.0,7528.94,8059.06,0
+2024-08-29,Wireless Mouse,Asia Pacific,Retail,Alice Chen,1,49,44.1,20.59,23.51,10
+2024-01-31,Headset Pro,Latin America,Partner,Greg Johnson,17,199,3383.0,2053.96,1329.04,0
+2024-02-12,USB-C Hub,Europe,Retail,Fatima Ali,9,79,711.0,375.04,335.96,0
+2024-07-19,Wireless Mouse,Europe,Online,Diana Park,10,49,416.5,232.98,183.52,15
+2024-02-14,Headset Pro,North America,Enterprise,Carlos Diaz,4,199,756.2,456.04,300.16,5
+2024-03-02,Laptop Pro,Latin America,Enterprise,Erik Muller,5,1299,5520.75,2500.0,3020.75,15
+2024-03-26,Webcam HD,Asia Pacific,Online,Alice Chen,5,89,378.25,244.08,134.17,15
+2024-06-20,Headset Pro,North America,Partner,Hana Kim,9,199,1611.9,751.09,860.81,10
+2024-09-18,Webcam HD,Europe,Enterprise,Carlos Diaz,2,89,169.1,112.42,56.68,5
+2024-05-10,Wireless Mouse,Europe,Online,Alice Chen,19,49,791.35,499.1,292.25,15
+2024-01-07,Monitor 27in,Europe,Retail,Alice Chen,2,449,853.1,461.52,391.58,5
+2024-10-10,Headset Pro,Asia Pacific,Enterprise,Bob Smith,8,199,1592.0,815.21,776.79,0
+2024-10-19,Webcam HD,North America,Retail,Diana Park,4,89,320.4,198.11,122.29,10
+2024-09-21,Laptop Pro,Asia Pacific,Enterprise,Fatima Ali,13,1299,16887.0,11301.59,5585.41,0
+2024-02-14,SSD 1TB,Asia Pacific,Retail,Hana Kim,1,109,109.0,54.52,54.48,0
+2024-07-07,SSD 1TB,Europe,Retail,Alice Chen,7,109,648.55,437.84,210.71,15
+2024-07-28,Laptop Pro,North America,Enterprise,Alice Chen,8,1299,9352.8,5018.77,4334.03,10
+2024-12-02,Headset Pro,Europe,Partner,Hana Kim,10,199,1990.0,997.58,992.42,0
+2024-01-31,USB-C Hub,Europe,Partner,Fatima Ali,9,79,711.0,327.75,383.25,0
+2024-08-22,Wireless Mouse,Latin America,Online,Alice Chen,19,49,931.0,536.59,394.41,0
+2024-08-10,USB-C Hub,Asia Pacific,Partner,Fatima Ali,8,79,632.0,325.64,306.36,0
+2024-06-11,SSD 1TB,Europe,Retail,Bob Smith,9,109,981.0,459.77,521.23,0
+2024-03-20,Wireless Mouse,Latin America,Online,Fatima Ali,6,49,279.3,158.23,121.07,5
+2024-04-16,SSD 1TB,North America,Online,Carlos Diaz,10,109,1035.5,534.58,500.92,5
+2024-12-17,Keyboard MX,Asia Pacific,Retail,Bob Smith,20,129,2580.0,1299.69,1280.31,0
+2024-12-30,Monitor 27in,Asia Pacific,Enterprise,Carlos Diaz,12,449,5118.6,2960.42,2158.18,5
+2024-01-16,Headset Pro,Europe,Online,Hana Kim,15,199,2686.5,1711.35,975.15,10
+2024-02-22,USB-C Hub,Europe,Retail,Diana Park,4,79,316.0,147.07,168.93,0
+2024-07-24,Webcam HD,North America,Online,Bob Smith,3,89,240.3,143.35,96.95,10
+2024-04-11,SSD 1TB,Asia Pacific,Online,Alice Chen,5,109,545.0,368.57,176.43,0
+2024-08-24,Laptop Pro,Latin America,Partner,Alice Chen,6,1299,7014.6,3916.17,3098.43,10
+2024-07-14,Headset Pro,Europe,Enterprise,Erik Muller,6,199,1194.0,601.39,592.61,0
+2024-08-16,USB-C Hub,Europe,Enterprise,Hana Kim,2,79,142.2,86.0,56.2,10
+2024-07-29,SSD 1TB,Europe,Partner,Diana Park,2,109,218.0,113.35,104.65,0
+2024-11-25,Monitor 27in,Asia Pacific,Partner,Hana Kim,18,449,8082.0,5635.99,2446.01,0
+2024-06-25,Webcam HD,Asia Pacific,Retail,Alice Chen,13,89,1157.0,572.66,584.34,0
+2024-05-23,Laptop Pro,Europe,Retail,Bob Smith,16,1299,18705.6,10089.02,8616.58,10
+2024-05-06,Monitor 27in,North America,Retail,Greg Johnson,9,449,3636.9,2378.79,1258.11,10
+2024-06-30,USB-C Hub,Asia Pacific,Online,Fatima Ali,6,79,474.0,283.51,190.49,0
+2024-10-17,USB-C Hub,Latin America,Enterprise,Carlos Diaz,19,79,1501.0,989.42,511.58,0
+2024-09-08,Laptop Pro,Europe,Online,Hana Kim,3,1299,3897.0,1980.28,1916.72,0
+2024-01-01,Webcam HD,Asia Pacific,Retail,Fatima Ali,20,89,1780.0,1159.87,620.13,0
+2024-01-31,Laptop Pro,Europe,Online,Fatima Ali,5,1299,5845.5,3660.3,2185.2,10
+2024-02-07,Webcam HD,Asia Pacific,Enterprise,Carlos Diaz,13,89,1041.3,494.89,546.41,10
+2024-03-21,Headset Pro,Asia Pacific,Retail,Carlos Diaz,16,199,2706.4,1432.55,1273.85,15
+2024-07-12,Keyboard MX,North America,Partner,Alice Chen,10,129,1290.0,637.81,652.19,0
+2024-04-03,Webcam HD,North America,Partner,Carlos Diaz,20,89,1780.0,1085.64,694.36,0
+2024-06-18,Wireless Mouse,Europe,Online,Fatima Ali,8,49,392.0,272.67,119.33,0
+2024-08-16,Laptop Pro,North America,Enterprise,Erik Muller,9,1299,11691.0,5990.3,5700.7,0
+2024-02-25,Laptop Pro,Latin America,Retail,Greg Johnson,2,1299,2468.1,1381.04,1087.06,5
+2024-09-09,Headset Pro,Latin America,Retail,Carlos Diaz,12,199,2149.2,1168.81,980.39,10
+2024-08-19,Wireless Mouse,Asia Pacific,Online,Bob Smith,2,49,98.0,44.59,53.41,0
+2024-06-24,USB-C Hub,North America,Enterprise,Hana Kim,13,79,1027.0,650.09,376.91,0
+2024-12-26,Laptop Pro,Latin America,Retail,Alice Chen,14,1299,15458.1,7593.78,7864.32,15
+2024-02-21,Webcam HD,Asia Pacific,Enterprise,Erik Muller,7,89,623.0,344.1,278.9,0
+2024-05-01,Wireless Mouse,Latin America,Retail,Alice Chen,2,49,93.1,55.2,37.9,5
+2024-07-03,Laptop Pro,Latin America,Retail,Bob Smith,14,1299,18186.0,9522.87,8663.13,0
+2024-01-14,Monitor 27in,North America,Partner,Bob Smith,6,449,2289.9,1197.51,1092.39,15
+2024-06-06,Headset Pro,Asia Pacific,Online,Greg Johnson,16,199,3024.8,2037.87,986.93,5
+2024-04-04,Webcam HD,North America,Enterprise,Hana Kim,13,89,1157.0,574.62,582.38,0
+2024-08-26,Keyboard MX,Europe,Online,Bob Smith,8,129,1032.0,609.98,422.02,0
+2024-12-08,Webcam HD,Europe,Online,Greg Johnson,18,89,1521.9,1054.18,467.72,5
+2024-09-24,Headset Pro,Latin America,Retail,Hana Kim,18,199,3044.7,2029.97,1014.73,15
+2024-06-02,Wireless Mouse,Europe,Online,Hana Kim,13,49,541.45,248.35,293.1,15
+2024-03-29,USB-C Hub,Latin America,Online,Greg Johnson,7,79,553.0,266.3,286.7,0
+2024-04-13,USB-C Hub,North America,Online,Greg Johnson,20,79,1580.0,837.3,742.7,0
+2024-10-11,Headset Pro,Latin America,Online,Greg Johnson,18,199,3582.0,2379.01,1202.99,0
+2024-02-27,Headset Pro,North America,Online,Bob Smith,5,199,995.0,588.69,406.31,0
+2024-05-26,Webcam HD,Latin America,Partner,Alice Chen,14,89,1246.0,680.02,565.98,0
+2024-03-29,Keyboard MX,Latin America,Online,Greg Johnson,13,129,1677.0,1013.85,663.15,0
+2024-06-18,Monitor 27in,Asia Pacific,Enterprise,Alice Chen,2,449,763.3,434.17,329.13,15
+2024-06-21,Keyboard MX,North America,Retail,Carlos Diaz,10,129,1290.0,852.32,437.68,0
+2024-06-02,SSD 1TB,North America,Retail,Hana Kim,11,109,1199.0,758.01,440.99,0
+2024-04-18,Headset Pro,North America,Retail,Bob Smith,16,199,2865.6,1910.77,954.83,10
+2024-06-08,Headset Pro,North America,Retail,Diana Park,5,199,895.5,599.84,295.66,10
+2024-04-12,Laptop Pro,Asia Pacific,Retail,Erik Muller,8,1299,10392.0,5862.25,4529.75,0
+2024-07-07,SSD 1TB,North America,Online,Diana Park,17,109,1760.35,1071.79,688.56,5
+2024-07-09,SSD 1TB,Latin America,Enterprise,Fatima Ali,20,109,2071.0,1023.89,1047.11,5
+2024-03-24,Keyboard MX,North America,Retail,Diana Park,3,129,387.0,176.81,210.19,0
+2024-04-23,Monitor 27in,North America,Online,Hana Kim,7,449,3143.0,1926.33,1216.67,0
+2024-03-08,USB-C Hub,Asia Pacific,Enterprise,Greg Johnson,20,79,1580.0,799.39,780.61,0
+2024-07-11,Webcam HD,Asia Pacific,Partner,Bob Smith,15,89,1335.0,673.58,661.42,0
+2024-01-04,Webcam HD,Asia Pacific,Enterprise,Bob Smith,18,89,1361.7,814.9,546.8,15
+2024-09-03,Wireless Mouse,Asia Pacific,Enterprise,Erik Muller,11,49,539.0,328.87,210.13,0
+2024-04-06,USB-C Hub,Latin America,Enterprise,Carlos Diaz,17,79,1343.0,906.42,436.58,0
+2024-01-14,SSD 1TB,Latin America,Partner,Alice Chen,10,109,1090.0,737.63,352.37,0
+2024-10-25,Monitor 27in,Latin America,Enterprise,Erik Muller,11,449,4198.15,2637.88,1560.27,15
+2024-03-28,USB-C Hub,Asia Pacific,Retail,Fatima Ali,10,79,790.0,448.48,341.52,0
+2024-12-01,Wireless Mouse,Asia Pacific,Partner,Fatima Ali,8,49,392.0,198.29,193.71,0
+2024-07-09,Keyboard MX,North America,Partner,Alice Chen,19,129,2451.0,1387.12,1063.88,0
+2024-11-20,Wireless Mouse,Latin America,Enterprise,Greg Johnson,16,49,784.0,450.89,333.11,0
+2024-01-28,USB-C Hub,Latin America,Retail,Fatima Ali,5,79,395.0,211.59,183.41,0
+2024-04-02,Wireless Mouse,Europe,Enterprise,Alice Chen,16,49,784.0,476.48,307.52,0
+2024-01-03,SSD 1TB,Europe,Retail,Hana Kim,9,109,981.0,628.13,352.87,0
+2024-02-15,USB-C Hub,Latin America,Partner,Hana Kim,20,79,1501.0,913.17,587.83,5
+2024-07-15,Laptop Pro,Asia Pacific,Online,Fatima Ali,2,1299,2338.2,1168.76,1169.44,10
+2024-09-28,Monitor 27in,Europe,Retail,Fatima Ali,1,449,381.65,172.14,209.51,15
+2024-06-08,USB-C Hub,Asia Pacific,Retail,Bob Smith,4,79,300.2,172.87,127.33,5
+2024-01-24,Keyboard MX,Asia Pacific,Partner,Carlos Diaz,10,129,1225.5,774.46,451.04,5
+2024-06-24,SSD 1TB,Latin America,Online,Diana Park,12,109,1308.0,642.52,665.48,0
+2024-04-24,USB-C Hub,Europe,Online,Fatima Ali,7,79,470.05,214.1,255.95,15
+2024-12-30,Laptop Pro,North America,Online,Bob Smith,13,1299,14353.95,7377.17,6976.78,15
+2024-11-30,Laptop Pro,Latin America,Partner,Bob Smith,2,1299,2208.3,1057.66,1150.64,15
+2024-10-07,Keyboard MX,North America,Enterprise,Greg Johnson,16,129,1754.4,856.64,897.76,15
+2024-12-04,Wireless Mouse,Europe,Partner,Bob Smith,17,49,833.0,504.55,328.45,0
+2024-09-18,Wireless Mouse,Latin America,Retail,Diana Park,10,49,490.0,316.63,173.37,0
+2024-05-14,Monitor 27in,Europe,Online,Hana Kim,12,449,4579.8,2530.06,2049.74,15
+2024-04-16,SSD 1TB,North America,Online,Hana Kim,11,109,1199.0,540.37,658.63,0
+2024-03-17,Wireless Mouse,North America,Enterprise,Diana Park,17,49,833.0,525.53,307.47,0
+2024-08-21,Keyboard MX,Europe,Online,Erik Muller,9,129,1102.95,510.14,592.81,5
+2024-07-03,Webcam HD,North America,Online,Carlos Diaz,14,89,1059.1,507.28,551.82,15
+2024-12-05,USB-C Hub,Asia Pacific,Online,Fatima Ali,11,79,869.0,585.39,283.61,0
+2024-06-24,USB-C Hub,Latin America,Enterprise,Greg Johnson,4,79,300.2,165.13,135.07,5
+2024-12-19,SSD 1TB,Europe,Online,Carlos Diaz,14,109,1297.1,871.04,426.06,15
+2024-12-22,Laptop Pro,Latin America,Partner,Carlos Diaz,6,1299,7794.0,4317.93,3476.07,0
+2024-11-08,Headset Pro,Europe,Partner,Hana Kim,12,199,2149.2,982.62,1166.58,10
+2024-02-27,Headset Pro,Asia Pacific,Online,Diana Park,15,199,2985.0,1390.51,1594.49,0
+2024-12-08,Webcam HD,North America,Partner,Diana Park,17,89,1361.7,847.06,514.64,10
+2024-09-03,Webcam HD,North America,Online,Carlos Diaz,13,89,1157.0,763.34,393.66,0
+2024-09-15,SSD 1TB,Latin America,Enterprise,Diana Park,16,109,1744.0,817.44,926.56,0
+2024-06-18,Keyboard MX,Latin America,Partner,Diana Park,2,129,232.2,117.42,114.78,10
+2024-02-10,SSD 1TB,Latin America,Partner,Fatima Ali,15,109,1471.5,827.02,644.48,10
+2024-03-01,SSD 1TB,North America,Online,Bob Smith,1,109,109.0,60.04,48.96,0
+2024-11-05,Keyboard MX,Latin America,Enterprise,Fatima Ali,17,129,1973.7,990.23,983.47,10
+2024-01-28,Monitor 27in,Latin America,Enterprise,Hana Kim,15,449,6735.0,3973.9,2761.1,0
+2024-02-28,Wireless Mouse,Asia Pacific,Enterprise,Bob Smith,8,49,392.0,209.85,182.15,0
+2024-01-24,USB-C Hub,Latin America,Online,Erik Muller,16,79,1264.0,828.5,435.5,0
+2024-11-08,Monitor 27in,Latin America,Retail,Hana Kim,7,449,3143.0,2145.27,997.73,0
+2024-04-07,Webcam HD,North America,Partner,Hana Kim,4,89,338.2,156.12,182.08,5
+2024-12-03,USB-C Hub,North America,Partner,Hana Kim,16,79,1264.0,736.4,527.6,0
+2024-09-17,USB-C Hub,Europe,Online,Greg Johnson,19,79,1501.0,949.57,551.43,0
+2024-12-02,Webcam HD,Europe,Enterprise,Greg Johnson,17,89,1437.35,797.25,640.1,5

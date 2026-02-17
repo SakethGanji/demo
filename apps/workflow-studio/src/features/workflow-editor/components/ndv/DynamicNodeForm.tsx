@@ -362,15 +362,25 @@ const PropertyField = memo(function PropertyField({ property, value, onChange, o
         />
       );
 
-    case 'collection':
+    case 'collection': {
+      // Normalise: backend may store collection as {values:[…]} or plain array
+      let collectionValue: unknown[] = [];
+      if (Array.isArray(value)) {
+        collectionValue = value;
+      } else if (value && typeof value === 'object' && !Array.isArray(value)) {
+        const obj = value as Record<string, unknown>;
+        const inner = obj.values ?? Object.values(obj).find(Array.isArray);
+        if (Array.isArray(inner)) collectionValue = inner;
+      }
       return (
         <CollectionField
           property={property}
-          value={(value as unknown[]) || []}
+          value={collectionValue}
           onChange={onChange}
           allValues={allValues}
         />
       );
+    }
 
     case 'workflowSelector':
       return (

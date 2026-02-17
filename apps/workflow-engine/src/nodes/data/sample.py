@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any, TYPE_CHECKING
 
 import httpx
@@ -40,6 +41,9 @@ class SampleNode(BaseNode):
                         "sampled_count": {"type": "number", "description": "Sampled row count"},
                         "method": {"type": "string", "description": "Sampling method used"},
                         "data": {"type": "array", "description": "Sampled data rows"},
+                        "rounds_completed": {"type": "number", "description": "Number of sampling rounds completed"},
+                        "round_counts": {"type": "array", "description": "Per-round row counts", "items": {"type": "number"}},
+                        "clusters_selected": {"type": "array", "description": "Selected cluster names", "items": {"type": "string"}},
                     },
                 },
             )
@@ -137,6 +141,11 @@ class SampleNode(BaseNode):
                         description="Every nth row",
                     ),
                     NodePropertyOption(
+                        name="Cluster",
+                        value="cluster",
+                        description="Select whole clusters randomly",
+                    ),
+                    NodePropertyOption(
                         name="First N",
                         value="first_n",
                         description="First N rows (head)",
@@ -164,6 +173,14 @@ class SampleNode(BaseNode):
                 description="Fraction of rows to sample (0-1). Used if sample size is not set.",
             ),
             NodeProperty(
+                display_name="With Replacement",
+                name="replace",
+                type="boolean",
+                default=False,
+                description="Sample with replacement (allows duplicates)",
+                display_options={"show": {"method": ["random", "stratified"]}},
+            ),
+            NodeProperty(
                 display_name="Stratify Column",
                 name="stratifyColumn",
                 type="string",
@@ -173,13 +190,76 @@ class SampleNode(BaseNode):
                 display_options={"show": {"method": ["stratified"]}},
             ),
             NodeProperty(
+                display_name="Cluster Column",
+                name="clusterColumn",
+                type="string",
+                default="",
+                placeholder="region",
+                description="Column name that defines clusters",
+                display_options={"show": {"method": ["cluster"]}},
+            ),
+            NodeProperty(
+                display_name="Number of Clusters",
+                name="numClusters",
+                type="number",
+                default=None,
+                placeholder="3",
+                description="Number of clusters to randomly select",
+                display_options={"show": {"method": ["cluster"]}},
+            ),
+            NodeProperty(
                 display_name="Random Seed",
                 name="seed",
                 type="number",
                 default=None,
                 placeholder="42",
-                description="Random seed for reproducibility (only applies to random and stratified methods)",
-                display_options={"show": {"method": ["random", "stratified"]}},
+                description="Random seed for reproducibility",
+                display_options={"show": {"method": ["random", "stratified", "cluster"]}},
+            ),
+            NodeProperty(
+                display_name="Sampling Rounds",
+                name="rounds",
+                type="number",
+                default=1,
+                description="Number of sampling rounds (each round draws from remaining rows)",
+                display_options={"show": {"method": ["random", "stratified", "systematic"]}},
+            ),
+            NodeProperty(
+                display_name="Per-Round Sample Size",
+                name="roundSampleSize",
+                type="number",
+                default=None,
+                placeholder="10",
+                description="Number of rows per round (overrides sample size when rounds > 1)",
+                display_options={"show": {"method": ["random", "stratified", "systematic"]}},
+            ),
+            NodeProperty(
+                display_name="Per-Round Fraction",
+                name="roundSampleFraction",
+                type="number",
+                default=None,
+                placeholder="0.1",
+                description="Fraction of rows per round",
+                display_options={"show": {"method": ["random", "stratified", "systematic"]}},
+            ),
+            NodeProperty(
+                display_name="Output Path",
+                name="outputPath",
+                type="string",
+                default="",
+                placeholder="/output/sampled.csv",
+                description="Save sampled data to this file path (leave empty to skip file export)",
+            ),
+            NodeProperty(
+                display_name="Output Format",
+                name="outputFormat",
+                type="options",
+                default="csv",
+                options=[
+                    NodePropertyOption(name="CSV", value="csv", description="Comma-separated values"),
+                    NodePropertyOption(name="Excel", value="xlsx", description="Excel spreadsheet"),
+                    NodePropertyOption(name="Parquet", value="parquet", description="Apache Parquet"),
+                ],
             ),
         ],
     )
@@ -201,8 +281,7 @@ class SampleNode(BaseNode):
         from ...engine.types import NodeData as ND
         from ...engine.expression_engine import ExpressionEngine, expression_engine
 
-        # Hardcoded analytics service URL
-        service_url = "http://localhost:8001"
+        service_url = os.getenv("ANALYTICS_SERVICE_URL", "http://localhost:8001")
 
         # Get parameters
         source_type = self.get_parameter(node_definition, "sourceType", "input")
@@ -213,8 +292,16 @@ class SampleNode(BaseNode):
         method = self.get_parameter(node_definition, "method", "random")
         sample_size = self.get_parameter(node_definition, "sampleSize")
         sample_fraction = self.get_parameter(node_definition, "sampleFraction")
+        replace = self.get_parameter(node_definition, "replace", False)
         stratify_column = self.get_parameter(node_definition, "stratifyColumn", "")
+        cluster_column = self.get_parameter(node_definition, "clusterColumn", "")
+        num_clusters = self.get_parameter(node_definition, "numClusters")
         seed = self.get_parameter(node_definition, "seed")
+        rounds = self.get_parameter(node_definition, "rounds", 1)
+        round_sample_size = self.get_parameter(node_definition, "roundSampleSize")
+        round_sample_fraction = self.get_parameter(node_definition, "roundSampleFraction")
+        output_path = self.get_parameter(node_definition, "outputPath", "")
+        output_format = self.get_parameter(node_definition, "outputFormat", "csv")
 
         # Build request payload
         payload: dict[str, Any] = {"method": method}
@@ -224,11 +311,27 @@ class SampleNode(BaseNode):
         elif sample_fraction is not None:
             payload["sample_fraction"] = float(sample_fraction)
 
+        if method in ("random", "stratified"):
+            payload["replace"] = bool(replace)
+
         if method == "stratified" and stratify_column:
             payload["stratify_column"] = stratify_column
 
+        if method == "cluster":
+            if cluster_column:
+                payload["cluster_column"] = cluster_column
+            if num_clusters is not None:
+                payload["num_clusters"] = int(num_clusters)
+
         if seed is not None:
             payload["seed"] = int(seed)
+
+        if rounds is not None and int(rounds) > 1:
+            payload["rounds"] = int(rounds)
+            if round_sample_size is not None:
+                payload["round_sample_size"] = int(round_sample_size)
+            if round_sample_fraction is not None:
+                payload["round_sample_fraction"] = float(round_sample_fraction)
 
         results: list[ND] = []
         items = input_data if input_data else [ND(json={})]
@@ -289,6 +392,12 @@ class SampleNode(BaseNode):
                         data_to_sample = [item_json] if item_json else []
 
                     item_payload["data"] = data_to_sample
+
+                if output_path:
+                    resolved_op = expression_engine.resolve(output_path, expr_context)
+                    if resolved_op:
+                        item_payload["output_path"] = str(resolved_op)
+                        item_payload["output_format"] = output_format or "csv"
 
                 response_data = await make_request(client, item_payload)
                 results.append(ND(json=response_data))
