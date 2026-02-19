@@ -16,6 +16,7 @@ export interface NodeStyleConfig {
   bgColor: string;
   borderColor: string;
   iconBgColor: string;
+  iconFgColor: string;
   accentColor: string;
   handleColor: string;
 }
@@ -46,6 +47,7 @@ export function getNodeStyles(group: NodeGroup): NodeStyleConfig {
       bgColor: 'var(--node-trigger-light)',
       borderColor: 'var(--node-trigger-border)',
       iconBgColor: 'var(--node-trigger-icon-bg)',
+      iconFgColor: 'var(--node-trigger-icon-fg)',
       accentColor: 'var(--node-trigger)',
       handleColor: 'var(--node-handle)',
     },
@@ -54,6 +56,7 @@ export function getNodeStyles(group: NodeGroup): NodeStyleConfig {
       bgColor: 'var(--node-transform-light)',
       borderColor: 'var(--node-transform-border)',
       iconBgColor: 'var(--node-transform-icon-bg)',
+      iconFgColor: 'var(--node-transform-icon-fg)',
       accentColor: 'var(--node-transform)',
       handleColor: 'var(--node-handle)',
     },
@@ -62,6 +65,7 @@ export function getNodeStyles(group: NodeGroup): NodeStyleConfig {
       bgColor: 'var(--node-flow-light)',
       borderColor: 'var(--node-flow-border)',
       iconBgColor: 'var(--node-flow-icon-bg)',
+      iconFgColor: 'var(--node-flow-icon-fg)',
       accentColor: 'var(--node-flow)',
       handleColor: 'var(--node-handle)',
     },
@@ -70,6 +74,7 @@ export function getNodeStyles(group: NodeGroup): NodeStyleConfig {
       bgColor: 'var(--node-ai-light)',
       borderColor: 'var(--node-ai-border)',
       iconBgColor: 'var(--node-ai-icon-bg)',
+      iconFgColor: 'var(--node-ai-icon-fg)',
       accentColor: 'var(--node-ai)',
       handleColor: 'var(--node-handle)',
     },
@@ -78,6 +83,7 @@ export function getNodeStyles(group: NodeGroup): NodeStyleConfig {
       bgColor: 'var(--node-action-light)',
       borderColor: 'var(--node-action-border)',
       iconBgColor: 'var(--node-action-icon-bg)',
+      iconFgColor: 'var(--node-action-icon-fg)',
       accentColor: 'var(--node-action)',
       handleColor: 'var(--node-handle)',
     },
@@ -86,6 +92,7 @@ export function getNodeStyles(group: NodeGroup): NodeStyleConfig {
       bgColor: 'var(--node-output-light)',
       borderColor: 'var(--node-output-border)',
       iconBgColor: 'var(--node-output-icon-bg)',
+      iconFgColor: 'var(--node-output-icon-fg)',
       accentColor: 'var(--node-output)',
       handleColor: 'var(--node-handle)',
     },

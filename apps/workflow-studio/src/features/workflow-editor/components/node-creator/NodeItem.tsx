@@ -47,7 +47,7 @@ function NodeItem({ node, onClick }: NodeItemProps) {
         `}
         style={{
           backgroundColor: styles.iconBgColor,
-          color: '#ffffff',
+          color: styles.iconFgColor,
         }}
       >
         <IconComponent size={16} />

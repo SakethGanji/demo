@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import httpx
 
@@ -118,8 +118,8 @@ class OutputDisplayNode(BaseNode):
                 name="content",
                 type="string",
                 default="",
-                description="Content expression (e.g. {{ $json.html }}). If empty, uses field lookup.",
-                display_options={"show": {"source": ["input"], "format": ["html", "markdown"]}},
+                description="Content expression (e.g. {{ $json.html }}, {{ $json.data }}). If empty, uses field lookup.",
+                display_options={"show": {"source": ["input"]}},
             ),
             NodeProperty(
                 display_name="Content Field",
@@ -169,9 +169,9 @@ class OutputDisplayNode(BaseNode):
             elif fmt == "markdown":
                 results.append(self._handle_markdown(item, raw_content, content_field, context))
             elif fmt == "pdf":
-                results.append(self._handle_pdf(item, content_field))
+                results.append(self._handle_pdf(item, raw_content, content_field, context))
             elif fmt == "table":
-                results.append(self._handle_table(item, content_field))
+                results.append(self._handle_table(item, raw_content, content_field, context))
             else:
                 raise ValueError(f"Unknown output format: {fmt}")
 
@@ -259,21 +259,79 @@ class OutputDisplayNode(BaseNode):
     # Per-format handlers (inline / input source)
     # ------------------------------------------------------------------
 
-    def _resolve_expression(
+    @staticmethod
+    def _looks_like_expression(value: str) -> bool:
+        """Check if a string looks like an expression rather than a plain field name."""
+        s = value.strip()
+        return "{{" in s or s.startswith("$")
+
+    def _resolve_value(
         self,
         raw: str,
         item: NodeData,
         context: ExecutionContext,
-    ) -> str | None:
+    ) -> Any:
+        """Resolve a user-provided value — handles {{ expr }}, bare $json.x, or plain strings.
+
+        Returns the typed result (list, dict, str, etc.) so callers get the
+        actual data structure, not a stringified version.
+        """
         from ...engine.expression_engine import ExpressionEngine, expression_engine
 
-        if raw and isinstance(raw, str) and "{{" in raw:
+        if not raw or not isinstance(raw, str):
+            return None
+
+        s = raw.strip()
+
+        # Already wrapped in {{ }} — resolve directly
+        if "{{" in s:
             expr_ctx = ExpressionEngine.create_context(
                 [item], context.node_states, context.execution_id,
             )
-            return expression_engine.resolve(raw, expr_ctx, skip_json=False)
-        if raw:
-            return raw
+            return expression_engine.resolve(s, expr_ctx, skip_json=False)
+
+        # Bare expression like $json.data, $node["X"].json.field, $input, etc.
+        if s.startswith("$"):
+            expr_ctx = ExpressionEngine.create_context(
+                [item], context.node_states, context.execution_id,
+            )
+            return expression_engine.resolve("{{ " + s + " }}", expr_ctx, skip_json=False)
+
+        # Plain string (not an expression) — return as-is
+        return s
+
+    def _get_content(
+        self,
+        item: NodeData,
+        raw_content: str,
+        field: str,
+        context: ExecutionContext,
+    ) -> Any:
+        """Unified content resolution used by all format handlers.
+
+        Priority:
+        1. ``content`` parameter — resolve as expression
+        2. ``contentField`` parameter — resolve as expression if it looks
+           like one ($json.x, {{ ... }}), otherwise plain field lookup
+        3. Return None so the caller can apply format-specific fallbacks
+        """
+        # 1. Try the explicit content parameter
+        if raw_content:
+            result = self._resolve_value(raw_content, item, context)
+            if result is not None:
+                return result
+
+        # 2. Try contentField — expression-aware
+        if field:
+            if self._looks_like_expression(field):
+                result = self._resolve_value(field, item, context)
+                if result is not None:
+                    return result
+            else:
+                result = item.json.get(field)
+                if result is not None:
+                    return result
+
         return None
 
     def _handle_html(
@@ -285,9 +343,7 @@ class OutputDisplayNode(BaseNode):
     ) -> NodeData:
         from ...engine.types import NodeData as ND
 
-        html = self._resolve_expression(raw_content, item, context)
-        if not html:
-            html = item.json.get(field)
+        html = self._get_content(item, raw_content, field, context)
         if not html:
             raise ValueError(
                 f'Missing HTML content. Tried "content" parameter and field "{field}".'
@@ -303,9 +359,7 @@ class OutputDisplayNode(BaseNode):
     ) -> NodeData:
         from ...engine.types import NodeData as ND
 
-        md = self._resolve_expression(raw_content, item, context)
-        if not md:
-            md = item.json.get(field)
+        md = self._get_content(item, raw_content, field, context)
         if not md:
             for fb in _MARKDOWN_FALLBACKS:
                 val = item.json.get(fb)
@@ -319,18 +373,32 @@ class OutputDisplayNode(BaseNode):
             )
         return ND(json={"markdown": md, "_renderAs": "markdown"})
 
-    def _handle_pdf(self, item: NodeData, field: str) -> NodeData:
+    def _handle_pdf(
+        self,
+        item: NodeData,
+        raw_content: str,
+        field: str,
+        context: ExecutionContext,
+    ) -> NodeData:
         from ...engine.types import NodeData as ND
 
-        pdf = item.json.get(field)
+        pdf = self._get_content(item, raw_content, field, context)
         if not pdf:
-            raise ValueError(f'Missing PDF base64 content in field "{field}".')
+            raise ValueError(
+                f'Missing PDF base64 content. Tried "content" parameter and field "{field}".'
+            )
         return ND(json={"pdf_base64": pdf, "_renderAs": "pdf"})
 
-    def _handle_table(self, item: NodeData, field: str) -> NodeData:
+    def _handle_table(
+        self,
+        item: NodeData,
+        raw_content: str,
+        field: str,
+        context: ExecutionContext,
+    ) -> NodeData:
         from ...engine.types import NodeData as ND
 
-        data = item.json.get(field)
+        data = self._get_content(item, raw_content, field, context)
         if data is None:
             # If the whole item looks like tabular data, pass it through
             data = [item.json]

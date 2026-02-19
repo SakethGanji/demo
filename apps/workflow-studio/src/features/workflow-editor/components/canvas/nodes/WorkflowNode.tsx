@@ -301,7 +301,7 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
                                 height: 26,
                                 backgroundColor: styles.iconBgColor,
                                 borderColor: styles.borderColor,
-                                color: '#ffffff',
+                                color: styles.iconFgColor,
                                 marginLeft: i > 0 ? -8 : 0,
                                 zIndex: 3 - i,
                                 position: 'relative',
@@ -478,7 +478,7 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
           `}
           style={{
             backgroundColor: styles.iconBgColor,
-            color: '#ffffff',
+            color: styles.iconFgColor,
           }}
         >
           <IconComponent size={20} />

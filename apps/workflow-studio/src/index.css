@@ -5,24 +5,24 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: #f5f5f5;
-  --foreground: #1a1a1a;
+  --background: #f8f9fa;
+  --foreground: #1e1e1e;
   --card: #ffffff;
-  --card-foreground: #1a1a1a;
+  --card-foreground: #1e1e1e;
   --popover: #ffffff;
-  --popover-foreground: #1a1a1a;
+  --popover-foreground: #1e1e1e;
   --primary: #18a0fb;
   --primary-foreground: #ffffff;
-  --secondary: #f0f0f0;
-  --secondary-foreground: #1a1a1a;
-  --muted: #f5f5f5;
-  --muted-foreground: #8c8c8c;
-  --accent: #f0f0f0;
-  --accent-foreground: #1a1a1a;
+  --secondary: #f1f3f5;
+  --secondary-foreground: #1e1e1e;
+  --muted: #f1f3f5;
+  --muted-foreground: #868e96;
+  --accent: #f1f3f5;
+  --accent-foreground: #1e1e1e;
   --destructive: #f24822;
   --destructive-foreground: #ffffff;
-  --border: #e6e6e6;
-  --input: #e0e0e0;
+  --border: #dee2e6;
+  --input: #ced4da;
   --ring: #18a0fb;
   --success: #14ae5c;
   --warning: #c4841d;
@@ -31,13 +31,13 @@
   --chart-3: #14ae5c;
   --chart-4: #f24822;
   --chart-5: #c4841d;
-  --sidebar: #2c2c2c;
-  --sidebar-foreground: #ffffff;
+  --sidebar: #f1f3f5;
+  --sidebar-foreground: #343a40;
   --sidebar-primary: #18a0fb;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #383838;
-  --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: #383838;
+  --sidebar-accent: #e9ecef;
+  --sidebar-accent-foreground: #343a40;
+  --sidebar-border: #dee2e6;
   --sidebar-ring: #18a0fb;
   --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-serif: Georgia, serif;
@@ -70,42 +70,49 @@
   --space-inline: var(--space-xs);      /* Inline element spacing */
   --space-card: var(--space-md);        /* Card internal padding */
 
-  /* Canvas floating surfaces — always dark-accented */
-  --canvas-float: #2c2c2c;
-  --canvas-float-foreground: #e5e5e5;
-  --canvas-float-hover: #383838;
-  --canvas-float-border: #383838;
+  /* Canvas floating surfaces */
+  --canvas-float: #ffffff;
+  --canvas-float-foreground: #343a40;
+  --canvas-float-hover: #f1f3f5;
+  --canvas-float-border: #dee2e6;
 
-  /* Node group colors — bg matches sidebar/canvas-float for cohesion */
+  /* Node group colors — light mode: colored body, gray icon circle, colored icon SVG */
   --node-trigger: #a3e635;
-  --node-trigger-light: #2c2c2c;
-  --node-trigger-border: #3d3d3d;
-  --node-trigger-icon-bg: #65a30d;
+  --node-trigger-light: #a3e635;
+  --node-trigger-border: #65a30d;
+  --node-trigger-icon-bg: #e9ecef;
+  --node-trigger-icon-fg: #65a30d;
   --node-transform: #2563eb;
-  --node-transform-light: #2c2c2c;
-  --node-transform-border: #3d3d3d;
-  --node-transform-icon-bg: #2563eb;
+  --node-transform-light: #2563eb;
+  --node-transform-border: #1d4ed8;
+  --node-transform-icon-bg: #e9ecef;
+  --node-transform-icon-fg: #2563eb;
   --node-flow: #7c3aed;
-  --node-flow-light: #2c2c2c;
-  --node-flow-border: #3d3d3d;
-  --node-flow-icon-bg: #7c3aed;
+  --node-flow-light: #7c3aed;
+  --node-flow-border: #6d28d9;
+  --node-flow-icon-bg: #e9ecef;
+  --node-flow-icon-fg: #7c3aed;
   --node-ai: #6b7280;
-  --node-ai-light: #2c2c2c;
-  --node-ai-border: #3d3d3d;
-  --node-ai-icon-bg: #6b7280;
+  --node-ai-light: #6b7280;
+  --node-ai-border: #4b5563;
+  --node-ai-icon-bg: #e9ecef;
+  --node-ai-icon-fg: #6b7280;
   --node-action: #059669;
-  --node-action-light: #2c2c2c;
-  --node-action-border: #3d3d3d;
-  --node-action-icon-bg: #059669;
+  --node-action-light: #059669;
+  --node-action-border: #047857;
+  --node-action-icon-bg: #e9ecef;
+  --node-action-icon-fg: #059669;
   --node-output: #0d9488;
-  --node-output-light: #2c2c2c;
-  --node-output-border: #3d3d3d;
-  --node-output-icon-bg: #0d9488;
+  --node-output-light: #0d9488;
+  --node-output-border: #0f766e;
+  --node-output-icon-bg: #e9ecef;
+  --node-output-icon-fg: #0d9488;
   --node-subworkflow: #6b7280;
-  --node-subworkflow-light: #2c2c2c;
-  --node-subworkflow-border: #3d3d3d;
-  --node-subworkflow-icon-bg: #6b7280;
-  --node-handle: #a8a29e;
+  --node-subworkflow-light: #6b7280;
+  --node-subworkflow-border: #4b5563;
+  --node-subworkflow-icon-bg: #e9ecef;
+  --node-subworkflow-icon-fg: #6b7280;
+  --node-handle: #9ca3af;
   --subnode-model: #4b5563;
   --subnode-memory: #4b5563;
   --subnode-tool: #4b5563;
@@ -188,30 +195,37 @@
   --node-trigger-light: #2c2c2c;
   --node-trigger-border: #3d3d3d;
   --node-trigger-icon-bg: #65a30d;
+  --node-trigger-icon-fg: #ffffff;
   --node-transform: #60a5fa;
   --node-transform-light: #2c2c2c;
   --node-transform-border: #3d3d3d;
   --node-transform-icon-bg: #3b7ac7;
+  --node-transform-icon-fg: #ffffff;
   --node-flow: #a78bfa;
   --node-flow-light: #2c2c2c;
   --node-flow-border: #3d3d3d;
   --node-flow-icon-bg: #7a5fc7;
+  --node-flow-icon-fg: #ffffff;
   --node-ai: #9ca3af;
   --node-ai-light: #2c2c2c;
   --node-ai-border: #3d3d3d;
   --node-ai-icon-bg: #6b7280;
+  --node-ai-icon-fg: #ffffff;
   --node-action: #34d399;
   --node-action-light: #2c2c2c;
   --node-action-border: #3d3d3d;
   --node-action-icon-bg: #25a070;
+  --node-action-icon-fg: #ffffff;
   --node-output: #2dd4bf;
   --node-output-light: #2c2c2c;
   --node-output-border: #3d3d3d;
   --node-output-icon-bg: #22a090;
+  --node-output-icon-fg: #ffffff;
   --node-subworkflow: #9ca3af;
   --node-subworkflow-light: #2c2c2c;
   --node-subworkflow-border: #3d3d3d;
   --node-subworkflow-icon-bg: #6b7280;
+  --node-subworkflow-icon-fg: #ffffff;
   --node-handle: #6e6e6e;
   --subnode-model: #d1d5db;
   --subnode-memory: #d1d5db;
@@ -459,28 +473,44 @@
   }
 }
 
-/* ── Editor chrome — dark-panel treatment (reuses sidebar palette) ── */
-.editor-chrome {
-  --background: #242424;
-  --foreground: var(--sidebar-foreground);
-  --card: var(--sidebar);
-  --card-foreground: var(--sidebar-foreground);
-  --popover: var(--sidebar);
-  --popover-foreground: var(--sidebar-foreground);
-  --muted: var(--sidebar-accent);
-  --muted-foreground: #aaa;
-  --accent: var(--sidebar-accent);
-  --accent-foreground: var(--sidebar-accent-foreground);
-  --secondary: var(--sidebar-accent);
-  --secondary-foreground: var(--sidebar-accent-foreground);
-  --border: var(--sidebar-border);
-  --input: var(--sidebar-border);
-  --ring: var(--sidebar-ring);
+/* ── Editor chrome — light mode (clean VS Code / Figma inspired) ── */
+:root .editor-chrome {
+  --background: #ffffff;
+  --foreground: #343a40;
+  color: var(--foreground);
+  --card: #f8f9fa;
+  --card-foreground: #343a40;
+  --popover: #ffffff;
+  --popover-foreground: #343a40;
+  --muted: #f1f3f5;
+  --muted-foreground: #868e96;
+  --accent: #f1f3f5;
+  --accent-foreground: #343a40;
+  --secondary: #f1f3f5;
+  --secondary-foreground: #343a40;
+  --border: #dee2e6;
+  --input: #dee2e6;
+  --ring: #18a0fb;
 }
 
+/* ── Editor chrome — dark mode (reuses sidebar palette) ── */
 .dark .editor-chrome {
   --background: #242424;
+  --foreground: #e5e5e5;
+  color: var(--foreground);
+  --card: #2c2c2c;
+  --card-foreground: #e5e5e5;
+  --popover: #2c2c2c;
+  --popover-foreground: #e5e5e5;
+  --muted: #383838;
   --muted-foreground: #999;
+  --accent: #383838;
+  --accent-foreground: #e5e5e5;
+  --secondary: #383838;
+  --secondary-foreground: #e5e5e5;
+  --border: #3d3d3d;
+  --input: #3d3d3d;
+  --ring: #18a0fb;
 }
 
 /* Prose inside chrome always needs light-on-dark text */

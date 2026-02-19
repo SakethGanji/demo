@@ -591,7 +591,7 @@ class AIAgentNode(BaseNode):
             )
             child_tools = child_tools + self._build_spawn_tools()
 
-        return await self._run_agent_loop(
+        result = await self._run_agent_loop(
             model=child_model,
             system_prompt=child_system_prompt,
             task=task,
@@ -604,6 +604,13 @@ class AIAgentNode(BaseNode):
             max_context_tokens=max_context_tokens,
             agent_context=child_agent_context,
         )
+
+        # Only return the summary to the parent — keep raw toolCalls out of
+        # the parent's context window so sub-agents provide true isolation.
+        return {
+            "response": result.get("response", ""),
+            "iterations": result.get("iterations", 0),
+        }
 
     async def _handle_spawn_agents_parallel(
         self,
