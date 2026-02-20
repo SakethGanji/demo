@@ -52,6 +52,7 @@ class LLMResponse:
     tool_calls: List[ToolCall] = field(default_factory=list)
     usage: Optional[LLMUsage] = None
     response_time_ms: Optional[float] = None
+    malformed_tool_call: bool = False
 
     def get_assistant_message(self) -> Dict:
         """Return the model's response as an OpenAI-format message dict."""
@@ -486,7 +487,20 @@ def _parse_gemini_response(response: Any) -> LLMResponse:
         return LLMResponse(text="[Model returned no candidates]")
 
     candidate = response.candidates[0]
-    parts = candidate.content.parts if candidate.content else []
+    finish = getattr(candidate, "finish_reason", None)
+    finish_name = getattr(finish, "name", None)
+
+    # Gemini returns MALFORMED_FUNCTION_CALL when function call output is
+    # garbled — signal to the agent loop so it can retry the turn.
+    if finish_name == "MALFORMED_FUNCTION_CALL":
+        text = None
+        try:
+            text = response.text
+        except (ValueError, AttributeError):
+            pass
+        return LLMResponse(text=text or "", malformed_tool_call=True)
+
+    parts = (candidate.content.parts if candidate.content else None) or []
     has_fc = any(getattr(p, "function_call", None) for p in parts)
 
     if has_fc:
@@ -508,10 +522,9 @@ def _parse_gemini_response(response: Any) -> LLMResponse:
         pass
 
     if not text:
-        finish = getattr(candidate, "finish_reason", None)
         text = "[Model returned an empty response]"
-        if finish and getattr(finish, "name", None) != "STOP":
-            text += f" Finish Reason: {finish.name}"
+        if finish_name and finish_name != "STOP":
+            text += f" Finish Reason: {finish_name}"
 
     return LLMResponse(text=text)
 

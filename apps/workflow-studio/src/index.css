@@ -77,11 +77,11 @@
   --canvas-float-border: #dee2e6;
 
   /* Node group colors — light mode: colored body, gray icon circle, colored icon SVG */
-  --node-trigger: #a3e635;
-  --node-trigger-light: #a3e635;
-  --node-trigger-border: #65a30d;
+  --node-trigger: #f59e0b;
+  --node-trigger-light: #f59e0b;
+  --node-trigger-border: #d97706;
   --node-trigger-icon-bg: #e9ecef;
-  --node-trigger-icon-fg: #65a30d;
+  --node-trigger-icon-fg: #b45309;
   --node-transform: #2563eb;
   --node-transform-light: #2563eb;
   --node-transform-border: #1d4ed8;
@@ -191,10 +191,10 @@
   --canvas-float-border: #3d3d3d;
 
   /* Node group colors - dark mode (matches --card for cohesion) */
-  --node-trigger: #a3e635;
+  --node-trigger: #f59e0b;
   --node-trigger-light: #2c2c2c;
   --node-trigger-border: #3d3d3d;
-  --node-trigger-icon-bg: #65a30d;
+  --node-trigger-icon-bg: #b45309;
   --node-trigger-icon-fg: #ffffff;
   --node-transform: #60a5fa;
   --node-transform-light: #2c2c2c;
@@ -641,29 +641,6 @@ textarea,
 
 .animate-badge-pop {
   animation: badge-pop 0.3s ease-out forwards;
-}
-
-@keyframes shimmer {
-
-  0%,
-  100% {
-    background-position: 0% 50%;
-  }
-
-  50% {
-    background-position: 100% 50%;
-  }
-}
-
-.node-ai-shimmer {
-  background: linear-gradient(135deg, var(--node-ai-icon-bg) 0%, rgba(107, 114, 128, 0.6) 50%, var(--node-ai-icon-bg) 100%);
-  background-size: 200% 200%;
-  animation: shimmer 3s ease-in-out infinite;
-}
-
-.dark .node-ai-shimmer {
-  background: linear-gradient(135deg, var(--node-ai-icon-bg) 0%, rgba(156, 163, 175, 0.5) 50%, var(--node-ai-icon-bg) 100%);
-  background-size: 200% 200%;
 }
 
 /* Edge flow animation for running edges */

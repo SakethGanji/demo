@@ -41,10 +41,7 @@ function NodeItem({ node, onClick }: NodeItemProps) {
       className="group flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-accent cursor-grab active:cursor-grabbing"
     >
       <div
-        className={`
-          flex h-8 w-8 shrink-0 items-center justify-center rounded-full
-          ${nodeGroup === 'ai' ? 'node-ai-shimmer' : ''}
-        `}
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
         style={{
           backgroundColor: styles.iconBgColor,
           color: styles.iconFgColor,

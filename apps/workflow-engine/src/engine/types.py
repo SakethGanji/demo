@@ -190,6 +190,11 @@ class ExecutionEventType(str, Enum):
     AGENT_TOOL_CALL = "agent:tool_call"
     AGENT_TOOL_RESULT = "agent:tool_result"
     AGENT_TOKEN = "agent:token"
+    AGENT_PLAN = "agent:plan"
+    AGENT_REFLECT = "agent:reflect"
+    AGENT_SPAWN = "agent:spawn"
+    AGENT_CHILD_COMPLETE = "agent:child_complete"
+    AGENT_OUTPUT_VALIDATION = "agent:output_validation"
 
 
 @dataclass

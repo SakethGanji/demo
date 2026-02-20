@@ -472,10 +472,7 @@ function WorkflowNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
 
         {/* Node Content - Icon only, centered */}
         <div
-          className={`
-            flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors duration-300
-            ${nodeGroup === 'ai' ? 'node-ai-shimmer' : ''}
-          `}
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors duration-300"
           style={{
             backgroundColor: styles.iconBgColor,
             color: styles.iconFgColor,
