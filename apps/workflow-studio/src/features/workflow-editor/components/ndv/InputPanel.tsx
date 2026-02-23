@@ -3,6 +3,7 @@ import { Database, Code, ChevronDown, ChevronUp, Copy, Check, Settings } from 'l
 import type { Node, Edge } from 'reactflow';
 import type { NodeExecutionData } from '../../types/workflow';
 import { useWorkflowStore } from '../../stores/workflowStore';
+import { useNDVStore } from '../../stores/ndvStore';
 import { useNodeTypes } from '../../hooks/useNodeTypes';
 import RunDataDisplay from './RunDataDisplay';
 import SchemaDisplay from './SchemaDisplay';
@@ -69,7 +70,10 @@ const SYSTEM_VARIABLES = [
 ];
 
 const InputPanel = memo(function InputPanel({ nodeId, executionData }: InputPanelProps) {
-  const [displayMode, setDisplayMode] = useState<DisplayMode>('schema');
+  const storedInputMode = useNDVStore((s) => s.inputDisplayMode);
+  const [displayMode, setDisplayMode] = useState<DisplayMode>(
+    storedInputMode === 'table' ? 'schema' : storedInputMode as DisplayMode
+  );
   const [showSystemVars, setShowSystemVars] = useState(false);
 
   // Get edges and execution data from store to find upstream node's output
@@ -152,14 +156,14 @@ const InputPanel = memo(function InputPanel({ nodeId, executionData }: InputPane
   return (
     <div className="flex h-full flex-col">
       {/* Header with node selector and view toggle */}
-      <div className="flex items-center justify-between border-b border-border bg-card px-3 py-2 gap-2">
+      <div className="flex items-center justify-between border-b border-border/50 bg-muted/30 px-3 py-1.5 gap-2">
         {/* Node selector dropdown */}
         <div className="flex-1 min-w-0">
           {upstreamNodes.length > 0 ? (
             <select
               value={effectiveSelectedNode?.id || ''}
               onChange={(e) => setSelectedNodeId(e.target.value || null)}
-              className="w-full text-[13px] font-medium bg-card border border-input rounded-md px-2 h-7 focus:outline-none focus:ring-2 focus:ring-ring/20 focus:border-ring truncate"
+              className="w-full text-[12px] font-medium bg-background border border-border/60 rounded px-2 h-6 focus:outline-none focus:ring-1 focus:ring-ring/30 focus:border-ring truncate"
             >
               {upstreamNodes.map((node) => (
                 <option key={node.id} value={node.id}>
@@ -177,18 +181,18 @@ const InputPanel = memo(function InputPanel({ nodeId, executionData }: InputPane
 
         {/* Item count badge */}
         {hasData && (
-          <span className="bg-muted border border-border rounded px-1.5 py-0.5 text-[11px] font-medium flex-shrink-0">
+          <span className="bg-muted/60 text-muted-foreground rounded-sm px-1.5 py-px text-[10px] font-medium flex-shrink-0">
             {itemCount} items
           </span>
         )}
 
         {/* Display mode toggle */}
-        <div className="bg-muted rounded-md p-0.5 flex items-center flex-shrink-0">
+        <div className="bg-muted/60 rounded p-px flex items-center flex-shrink-0">
           <button
-            onClick={() => setDisplayMode('schema')}
-            className={`rounded p-1.5 transition-colors ${
+            onClick={() => { setDisplayMode('schema'); useNDVStore.getState().setInputDisplayMode('schema'); }}
+            className={`rounded-sm p-1.5 transition-colors ${
               displayMode === 'schema'
-                ? 'bg-card shadow-xs text-foreground'
+                ? 'bg-background shadow-xs text-foreground'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
             title="Schema view"
@@ -196,10 +200,10 @@ const InputPanel = memo(function InputPanel({ nodeId, executionData }: InputPane
             <Database size={13} />
           </button>
           <button
-            onClick={() => setDisplayMode('json')}
-            className={`rounded p-1.5 transition-colors ${
+            onClick={() => { setDisplayMode('json'); useNDVStore.getState().setInputDisplayMode('json'); }}
+            className={`rounded-sm p-1.5 transition-colors ${
               displayMode === 'json'
-                ? 'bg-card shadow-xs text-foreground'
+                ? 'bg-background shadow-xs text-foreground'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
             title="JSON view"
@@ -211,7 +215,7 @@ const InputPanel = memo(function InputPanel({ nodeId, executionData }: InputPane
 
       {/* Expression path indicator */}
       {effectiveSelectedNode && (
-        <div className="px-3 py-1.5 bg-primary/5 border-b border-border flex items-center justify-between">
+        <div className="px-3 py-1 bg-primary/5 border-b border-border/30 flex items-center justify-between">
           <code className="text-[11px] text-primary font-mono font-medium">{basePath}</code>
           {!effectiveSelectedNode.isImmediate && (
             <span className="text-[11px] text-muted-foreground">from {effectiveSelectedNode.label}</span>
@@ -267,7 +271,7 @@ const InputPanel = memo(function InputPanel({ nodeId, executionData }: InputPane
       <div className="border-t border-border">
         <button
           onClick={() => setShowSystemVars(!showSystemVars)}
-          className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-accent/50 transition-colors"
+          className="flex w-full items-center justify-between px-3 py-1.5 text-left hover:bg-accent/40 transition-colors"
         >
           <div className="flex items-center gap-1.5">
             <Settings size={12} className="text-muted-foreground" />
@@ -282,7 +286,7 @@ const InputPanel = memo(function InputPanel({ nodeId, executionData }: InputPane
 
         {showSystemVars && (
           <div className="px-3 pb-3">
-            <div className="rounded-md border border-border bg-card overflow-hidden">
+            <div className="rounded border border-border/40 bg-card/50 overflow-hidden">
               {SYSTEM_VARIABLES.map((variable) => (
                 <SystemVariableRow key={variable.path} {...variable} />
               ))}

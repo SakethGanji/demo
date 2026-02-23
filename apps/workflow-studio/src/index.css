@@ -76,42 +76,42 @@
   --canvas-float-hover: #f1f3f5;
   --canvas-float-border: #dee2e6;
 
-  /* Node group colors — light mode: colored body, gray icon circle, colored icon SVG */
+  /* Node group colors — light mode: soft pastel body, white icon circle, saturated icon SVG */
   --node-trigger: #f59e0b;
-  --node-trigger-light: #f59e0b;
-  --node-trigger-border: #d97706;
-  --node-trigger-icon-bg: #e9ecef;
+  --node-trigger-light: #fde68a;
+  --node-trigger-border: #fcd34d;
+  --node-trigger-icon-bg: #ffffff;
   --node-trigger-icon-fg: #b45309;
   --node-transform: #2563eb;
-  --node-transform-light: #2563eb;
-  --node-transform-border: #1d4ed8;
-  --node-transform-icon-bg: #e9ecef;
-  --node-transform-icon-fg: #2563eb;
+  --node-transform-light: #bfdbfe;
+  --node-transform-border: #93c5fd;
+  --node-transform-icon-bg: #ffffff;
+  --node-transform-icon-fg: #1d4ed8;
   --node-flow: #7c3aed;
-  --node-flow-light: #7c3aed;
-  --node-flow-border: #6d28d9;
-  --node-flow-icon-bg: #e9ecef;
-  --node-flow-icon-fg: #7c3aed;
+  --node-flow-light: #ddd6fe;
+  --node-flow-border: #c4b5fd;
+  --node-flow-icon-bg: #ffffff;
+  --node-flow-icon-fg: #6d28d9;
   --node-ai: #6b7280;
-  --node-ai-light: #6b7280;
-  --node-ai-border: #4b5563;
-  --node-ai-icon-bg: #e9ecef;
-  --node-ai-icon-fg: #6b7280;
+  --node-ai-light: #e5e7eb;
+  --node-ai-border: #d1d5db;
+  --node-ai-icon-bg: #ffffff;
+  --node-ai-icon-fg: #4b5563;
   --node-action: #059669;
-  --node-action-light: #059669;
-  --node-action-border: #047857;
-  --node-action-icon-bg: #e9ecef;
-  --node-action-icon-fg: #059669;
+  --node-action-light: #a7f3d0;
+  --node-action-border: #6ee7b7;
+  --node-action-icon-bg: #ffffff;
+  --node-action-icon-fg: #047857;
   --node-output: #0d9488;
-  --node-output-light: #0d9488;
-  --node-output-border: #0f766e;
-  --node-output-icon-bg: #e9ecef;
-  --node-output-icon-fg: #0d9488;
+  --node-output-light: #99f6e4;
+  --node-output-border: #5eead4;
+  --node-output-icon-bg: #ffffff;
+  --node-output-icon-fg: #0f766e;
   --node-subworkflow: #6b7280;
-  --node-subworkflow-light: #6b7280;
-  --node-subworkflow-border: #4b5563;
-  --node-subworkflow-icon-bg: #e9ecef;
-  --node-subworkflow-icon-fg: #6b7280;
+  --node-subworkflow-light: #e5e7eb;
+  --node-subworkflow-border: #d1d5db;
+  --node-subworkflow-icon-bg: #ffffff;
+  --node-subworkflow-icon-fg: #4b5563;
   --node-handle: #9ca3af;
   --subnode-model: #4b5563;
   --subnode-memory: #4b5563;
@@ -543,6 +543,17 @@ textarea,
   transition-property: color, background-color, border-color, box-shadow, opacity, transform;
   transition-duration: 0.15s;
   transition-timing-function: ease;
+}
+
+/* ── NDV resize handle hit area (wider invisible target) ── */
+[data-slot="dialog-content"] [data-panel-resize-handle-id] {
+  position: relative;
+}
+[data-slot="dialog-content"] [data-panel-resize-handle-id]::before {
+  content: '';
+  position: absolute;
+  inset: 0 -3px;
+  cursor: col-resize;
 }
 
 /* ── Panel resize handles (react-resizable-panels) ── */

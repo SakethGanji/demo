@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import {
   X,
   ArrowLeft,
@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 
+import { Dialog, DialogContent, DialogOverlay, DialogPortal, DialogTitle } from '@/shared/components/ui/dialog';
 import { useNDVStore } from '../../stores/ndvStore';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useNodeById, useNodeExecution } from '../../hooks/useWorkflowSelectors';
@@ -33,6 +34,7 @@ import { useExecuteWorkflow } from '../../hooks/useWorkflowApi';
 import InputPanel from './InputPanel';
 import OutputPanel from './OutputPanel';
 import NodeSettings from './NodeSettings';
+import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
 
 // Icon mapping
 const iconMap: Record<string, LucideIcon> = {
@@ -59,7 +61,6 @@ export default function NodeDetailsModal() {
   const closeNDV = useNDVStore((s) => s.closeNDV);
   const inputPanelSize = useNDVStore((s) => s.inputPanelSize);
   const outputPanelSize = useNDVStore((s) => s.outputPanelSize);
-  const setPanelSizes = useNDVStore((s) => s.setPanelSizes);
 
   // Individual selectors — only re-render when the specific data we need changes
   const deleteNode = useWorkflowStore((s) => s.deleteNode);
@@ -78,26 +79,12 @@ export default function NodeDetailsModal() {
   // Get icon component
   const IconComponent = activeNode ? (iconMap[activeNode.data.icon || 'code'] || Code) : Code;
 
-  // Close on Escape
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        if (isEditingName) {
-          setIsEditingName(false);
-          return;
-        }
-        closeNDV();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, closeNDV, isEditingName]);
-
-  // Focus input when editing starts
-  useEffect(() => {
-    if (isEditingName && nameInputRef.current) {
-      nameInputRef.current.focus();
-      nameInputRef.current.select();
+  // Focus input when editing starts — handled via ref callback
+  const handleNameInputRef = useCallback((el: HTMLInputElement | null) => {
+    (nameInputRef as React.MutableRefObject<HTMLInputElement | null>).current = el;
+    if (el && isEditingName) {
+      el.focus();
+      el.select();
     }
   }, [isEditingName]);
 
@@ -144,175 +131,183 @@ export default function NodeDetailsModal() {
     }
   };
 
-  if (!isOpen || !activeNode) return null;
+  // Handle Escape: if editing name, cancel edit instead of closing dialog
+  const handleEscapeKeyDown = useCallback((e: KeyboardEvent) => {
+    if (isEditingName) {
+      e.preventDefault();
+      handleCancelEdit();
+    }
+  }, [isEditingName, handleCancelEdit]);
+
+  if (!activeNode) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-background/60"
-        onClick={closeNDV}
-      />
+    <Dialog open={isOpen} onOpenChange={(open) => { if (!open) closeNDV(); }}>
+      <DialogPortal>
+        <DialogOverlay />
+        <DialogContent onEscapeKeyDown={handleEscapeKeyDown} className="editor-chrome">
+          {/* Accessible title (visually hidden — header is custom) */}
+          <VisuallyHidden>
+            <DialogTitle>{activeNode.data.label} - Node Details</DialogTitle>
+          </VisuallyHidden>
 
-      {/* Modal */}
-      <div className="relative z-10 flex flex-col overflow-hidden rounded-lg border border-border bg-card shadow-xl" style={{ position: 'absolute', inset: 16 }}>
-        {/* Consolidated Header - Node identity + controls */}
-        <div className="flex items-center justify-between border-b border-border px-3 h-11 shrink-0">
-          {/* Left: Back button */}
-          <button
-            onClick={closeNDV}
-            className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[13px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-          >
-            <ArrowLeft size={14} />
-            <span className="hidden sm:inline">Back</span>
-          </button>
-
-          {/* Center: Node icon + name + status */}
-          <div className="flex items-center gap-2 min-w-0 flex-1 justify-center">
-            {/* Node icon */}
-            <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded bg-primary/10 text-primary">
-              <IconComponent size={14} />
-            </div>
-
-            {/* Editable node name */}
-            {isEditingName ? (
-              <div className="flex items-center gap-1">
-                <input
-                  ref={nameInputRef}
-                  type="text"
-                  value={editedName}
-                  onChange={(e) => setEditedName(e.target.value)}
-                  onKeyDown={handleNameKeyDown}
-                  onBlur={handleSaveName}
-                  className="text-[13px] font-semibold text-foreground bg-background rounded-md px-2 py-0.5 border border-ring focus:outline-none focus:ring-1 focus:ring-ring/40 min-w-[120px] max-w-[200px]"
-                />
-                <button
-                  onClick={handleSaveName}
-                  className="p-1 rounded-md hover:bg-accent text-primary"
-                  title="Save"
-                >
-                  <Check size={12} />
-                </button>
-                <button
-                  onClick={handleCancelEdit}
-                  className="p-1 rounded-md hover:bg-accent text-muted-foreground"
-                  title="Cancel"
-                >
-                  <X size={12} />
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1 group min-w-0">
-                <span className="text-[13px] font-semibold text-foreground truncate max-w-[200px]">
-                  {activeNode.data.label}
-                </span>
-                <button
-                  onClick={() => setIsEditingName(true)}
-                  className="p-0.5 rounded hover:bg-accent text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                  title="Rename node"
-                >
-                  <Pencil size={11} />
-                </button>
-              </div>
-            )}
-
-            {/* Status badge */}
-            {nodeExecution?.status === 'running' && (
-              <span className="flex-shrink-0 rounded bg-[var(--warning)]/10 px-1.5 py-0.5 text-[11px] font-medium text-[var(--warning)]">
-                Running
-              </span>
-            )}
-            {nodeExecution?.status === 'success' && (
-              <span className="flex-shrink-0 rounded bg-[var(--success)]/10 px-1.5 py-0.5 text-[11px] font-medium text-[var(--success)]">
-                Success
-              </span>
-            )}
-            {nodeExecution?.status === 'error' && (
-              <span className="flex-shrink-0 rounded bg-destructive/10 px-1.5 py-0.5 text-[11px] font-medium text-destructive">
-                Error
-              </span>
-            )}
-          </div>
-
-          {/* Right: Action buttons */}
-          <div className="flex items-center gap-1">
-            <button
-              onClick={handleExecute}
-              disabled={isExecuting}
-              className="flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1 text-[13px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
-            >
-              {isExecuting ? (
-                <>
-                  <Loader2 size={13} className="animate-spin" />
-                  <span className="hidden sm:inline">Running...</span>
-                </>
-              ) : (
-                <>
-                  <Play size={13} />
-                  <span className="hidden sm:inline">Test</span>
-                </>
-              )}
-            </button>
-            <button
-              onClick={handleDelete}
-              className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
-              title="Delete node"
-            >
-              <Trash2 size={14} />
-            </button>
+          {/* Consolidated Header - Node identity + controls */}
+          <div className="flex items-center justify-between px-3 h-10 bg-muted/40 shrink-0">
+            {/* Left: Back button */}
             <button
               onClick={closeNDV}
-              className="rounded-md p-1.5 text-muted-foreground hover:bg-accent transition-colors"
-              title="Close"
+              className="flex items-center gap-1 rounded px-1.5 py-1 text-[13px] text-muted-foreground hover:bg-accent/70 hover:text-foreground transition-colors"
             >
-              <X size={14} />
+              <ArrowLeft size={14} />
+              <span className="hidden sm:inline">Back</span>
             </button>
+
+            {/* Center: Node icon + name + status */}
+            <div className="flex items-center gap-2 min-w-0 flex-1 justify-center">
+              {/* Node icon */}
+              <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded bg-primary/10 text-primary">
+                <IconComponent size={14} />
+              </div>
+
+              {/* Editable node name */}
+              {isEditingName ? (
+                <div className="flex items-center gap-1">
+                  <input
+                    ref={handleNameInputRef}
+                    type="text"
+                    value={editedName}
+                    onChange={(e) => setEditedName(e.target.value)}
+                    onKeyDown={handleNameKeyDown}
+                    onBlur={handleSaveName}
+                    className="text-[13px] font-semibold text-foreground bg-background rounded-md px-2 py-0.5 border border-ring focus:outline-none focus:ring-1 focus:ring-ring/40 min-w-[120px] max-w-[200px]"
+                  />
+                  <button
+                    onClick={handleSaveName}
+                    className="p-1 rounded-md hover:bg-accent text-primary"
+                    title="Save"
+                  >
+                    <Check size={12} />
+                  </button>
+                  <button
+                    onClick={handleCancelEdit}
+                    className="p-1 rounded-md hover:bg-accent text-muted-foreground"
+                    title="Cancel"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1 group min-w-0">
+                  <span className="text-[13px] font-medium text-foreground truncate max-w-[200px]">
+                    {activeNode.data.label}
+                  </span>
+                  <button
+                    onClick={() => setIsEditingName(true)}
+                    className="p-0.5 rounded hover:bg-accent text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                    title="Rename node"
+                  >
+                    <Pencil size={11} />
+                  </button>
+                </div>
+              )}
+
+              {/* Status badge */}
+              {nodeExecution?.status === 'running' && (
+                <span className="flex-shrink-0 rounded-sm bg-[var(--warning)]/10 px-1.5 py-px text-[10px] font-medium text-[var(--warning)]">
+                  Running
+                </span>
+              )}
+              {nodeExecution?.status === 'success' && (
+                <span className="flex-shrink-0 rounded-sm bg-[var(--success)]/10 px-1.5 py-px text-[10px] font-medium text-[var(--success)]">
+                  Success
+                </span>
+              )}
+              {nodeExecution?.status === 'error' && (
+                <span className="flex-shrink-0 rounded-sm bg-destructive/10 px-1.5 py-px text-[10px] font-medium text-destructive">
+                  Error
+                </span>
+              )}
+            </div>
+
+            {/* Right: Action buttons */}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={handleExecute}
+                disabled={isExecuting}
+                className="flex items-center gap-1.5 rounded-md bg-primary/90 px-2 py-1 text-[12px] font-medium text-primary-foreground hover:bg-primary disabled:opacity-50 transition-colors"
+              >
+                {isExecuting ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin" />
+                    <span className="hidden sm:inline">Running...</span>
+                  </>
+                ) : (
+                  <>
+                    <Play size={13} />
+                    <span className="hidden sm:inline">Test</span>
+                  </>
+                )}
+              </button>
+              <button
+                onClick={handleDelete}
+                className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                title="Delete node"
+              >
+                <Trash2 size={14} />
+              </button>
+              <button
+                onClick={closeNDV}
+                className="rounded p-1 text-muted-foreground hover:bg-accent transition-colors"
+                title="Close"
+              >
+                <X size={14} />
+              </button>
+            </div>
           </div>
-        </div>
 
-        {/* Three Panel Layout */}
-        <div className="flex-1 overflow-hidden">
-          <PanelGroup direction="horizontal">
-            {/* Input Panel */}
-            <Panel
-              defaultSize={inputPanelSize}
-              minSize={15}
-              maxSize={40}
-              onResize={(size) => setPanelSizes(size, outputPanelSize)}
-            >
-              <InputPanel
-                nodeId={activeNodeId!}
-                executionData={nodeExecution}
-              />
-            </Panel>
+          {/* Three Panel Layout */}
+          <div className="flex-1 overflow-hidden">
+            <PanelGroup direction="horizontal">
+              {/* Input Panel */}
+              <Panel
+                defaultSize={inputPanelSize}
+                minSize={15}
+                maxSize={40}
+                onResize={(size) => useNDVStore.getState().setPanelSizes(size, useNDVStore.getState().outputPanelSize)}
+              >
+                <InputPanel
+                  nodeId={activeNodeId!}
+                  executionData={nodeExecution}
+                />
+              </Panel>
 
-            <PanelResizeHandle className="w-1 bg-border hover:bg-primary transition-colors" />
+              <PanelResizeHandle className="w-px bg-border/50 hover:bg-primary/50 active:bg-primary transition-colors" />
 
-            {/* Settings Panel */}
-            <Panel defaultSize={100 - inputPanelSize - outputPanelSize} minSize={30}>
-              <NodeSettings
-                node={activeNode}
-                onExecute={handleExecute}
-              />
-            </Panel>
+              {/* Settings Panel */}
+              <Panel defaultSize={100 - inputPanelSize - outputPanelSize} minSize={30}>
+                <NodeSettings
+                  node={activeNode}
+                />
+              </Panel>
 
-            <PanelResizeHandle className="w-1 bg-border hover:bg-primary transition-colors" />
+              <PanelResizeHandle className="w-px bg-border/50 hover:bg-primary/50 active:bg-primary transition-colors" />
 
-            {/* Output Panel */}
-            <Panel
-              defaultSize={outputPanelSize}
-              minSize={15}
-              maxSize={40}
-              onResize={(size) => setPanelSizes(inputPanelSize, size)}
-            >
-              <OutputPanel
-                nodeId={activeNodeId!}
-                executionData={nodeExecution}
-              />
-            </Panel>
-          </PanelGroup>
-        </div>
-      </div>
-    </div>
+              {/* Output Panel */}
+              <Panel
+                defaultSize={outputPanelSize}
+                minSize={15}
+                maxSize={40}
+                onResize={(size) => useNDVStore.getState().setPanelSizes(useNDVStore.getState().inputPanelSize, size)}
+              >
+                <OutputPanel
+                  nodeId={activeNodeId!}
+                  executionData={nodeExecution}
+                />
+              </Panel>
+            </PanelGroup>
+          </div>
+        </DialogContent>
+      </DialogPortal>
+    </Dialog>
   );
 }

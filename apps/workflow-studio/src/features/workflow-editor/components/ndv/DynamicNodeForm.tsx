@@ -6,7 +6,7 @@
  */
 
 import { useState, useId, useMemo, useCallback, useEffect, useRef, memo } from 'react';
-import { Eye, EyeOff, Plus, Trash2, ChevronDown, ChevronUp, Info } from 'lucide-react';
+import { Eye, EyeOff, Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
 import ExpressionEditor from './ExpressionEditor';
 import CodeEditor from '@/shared/components/ui/code-editor';
 import { WorkflowSelectorField } from './WorkflowSelectorField';
@@ -116,10 +116,7 @@ export type { NodeProperty, OutputSchema };
 function FieldDescription({ text }: { text?: string }) {
   if (!text) return null;
   return (
-    <div className="mt-1.5 flex items-start gap-1.5">
-      <Info size={12} className="mt-0.5 flex-shrink-0 text-muted-foreground" />
-      <p className="text-xs text-muted-foreground leading-relaxed">{text}</p>
-    </div>
+    <p className="mt-1 text-[11px] text-muted-foreground/70 leading-relaxed">{text}</p>
   );
 }
 
@@ -203,7 +200,7 @@ export default memo(function DynamicNodeForm({
   );
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3.5">
       {visibleProperties.map((property, index) => (
         <div key={property.name}>
           {/* Field grouping divider after 6th field when form is long */}
@@ -303,6 +300,7 @@ const PropertyField = memo(function PropertyField({ property, value, onChange, o
             sampleData={sampleData}
             allNodeData={allNodeData}
             onBlur={onBlur}
+            rows={property.typeOptions.rows}
           />
           <FieldDescription text={property.description} />
           <FieldErrorMessage error={error} />
@@ -436,9 +434,9 @@ function StringField({
 
   return (
     <div>
-      <label htmlFor={fieldId} className="mb-1 block text-sm font-medium text-foreground">
+      <label htmlFor={fieldId} className="mb-1 block text-xs font-medium text-foreground/80">
         {property.displayName}
-        {property.required && <span className="text-destructive ml-1">*</span>}
+        {property.required && <span className="text-destructive ml-0.5">*</span>}
       </label>
       <ExpressionEditor
         id={fieldId}
@@ -474,9 +472,9 @@ function PasswordField({
 
   return (
     <div>
-      <label htmlFor={fieldId} className="mb-1 block text-sm font-medium text-foreground">
+      <label htmlFor={fieldId} className="mb-1 block text-xs font-medium text-foreground/80">
         {property.displayName}
-        {property.required && <span className="text-destructive ml-1">*</span>}
+        {property.required && <span className="text-destructive ml-0.5">*</span>}
       </label>
       <div className="relative">
         <input
@@ -486,8 +484,8 @@ function PasswordField({
           onChange={(e) => onChange(e.target.value)}
           onBlur={onBlur}
           placeholder={property.placeholder}
-          className={`w-full rounded-lg border bg-background px-3 py-2 pr-10 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring ${
-            error ? 'border-[var(--destructive)]' : 'border-input'
+          className={`w-full rounded border bg-background px-2.5 py-1.5 text-[13px] focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring/50 ${
+            error ? 'border-[var(--destructive)]' : 'border-border/60'
           }`}
         />
         <button
@@ -560,9 +558,9 @@ function NumberField({
 
   return (
     <div>
-      <label htmlFor={fieldId} className="mb-1 block text-sm font-medium text-foreground">
+      <label htmlFor={fieldId} className="mb-1 block text-xs font-medium text-foreground/80">
         {property.displayName}
-        {property.required && <span className="text-destructive ml-1">*</span>}
+        {property.required && <span className="text-destructive ml-0.5">*</span>}
       </label>
       <input
         id={fieldId}
@@ -573,8 +571,8 @@ function NumberField({
         min={min}
         max={max}
         step={step}
-        className={`w-full rounded-lg border bg-background px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring ${
-          displayError ? 'border-[var(--destructive)]' : 'border-input'
+        className={`w-full rounded border bg-background px-2.5 py-1.5 text-[13px] focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring/50 ${
+          displayError ? 'border-[var(--destructive)]' : 'border-border/60'
         }`}
       />
       <FieldDescription text={property.description} />
@@ -601,10 +599,10 @@ function BooleanField({
         type="checkbox"
         checked={value}
         onChange={(e) => onChange(e.target.checked)}
-        className="h-4 w-4 rounded border-input text-primary focus:ring-ring"
+        className="h-3.5 w-3.5 rounded border-border/60 text-primary focus:ring-ring/50"
       />
       <div>
-        <span className="text-sm text-foreground">{property.displayName}</span>
+        <span className="text-[13px] text-foreground">{property.displayName}</span>
         <FieldDescription text={property.description} />
       </div>
     </label>
@@ -629,9 +627,9 @@ function OptionsField({
 
   return (
     <div>
-      <label htmlFor={fieldId} className="mb-1 block text-sm font-medium text-foreground">
+      <label htmlFor={fieldId} className="mb-1 block text-xs font-medium text-foreground/80">
         {property.displayName}
-        {property.required && <span className="text-destructive ml-1">*</span>}
+        {property.required && <span className="text-destructive ml-0.5">*</span>}
       </label>
       <select
         id={fieldId}
@@ -642,8 +640,8 @@ function OptionsField({
           onChange(selectedOption?.value ?? e.target.value);
         }}
         onBlur={onBlur}
-        className={`w-full rounded-lg border bg-background px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring ${
-          error ? 'border-[var(--destructive)]' : 'border-input'
+        className={`w-full rounded border bg-background px-2.5 py-1.5 text-[13px] focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring/50 ${
+          error ? 'border-[var(--destructive)]' : 'border-border/60'
         }`}
       >
         {options.map((option) => (
@@ -705,9 +703,9 @@ function JsonField({
 
   return (
     <div onBlur={onBlur}>
-      <label className="mb-1 block text-sm font-medium text-foreground">
+      <label className="mb-1 block text-xs font-medium text-foreground/80">
         {property.displayName}
-        {property.required && <span className="text-destructive ml-1">*</span>}
+        {property.required && <span className="text-destructive ml-0.5">*</span>}
       </label>
       <CodeEditor
         value={stringValue}
@@ -798,11 +796,11 @@ function CollectionField({
 
   return (
     <div>
-      <label htmlFor={fieldId} className="mb-2 block text-sm font-medium text-foreground">
+      <label htmlFor={fieldId} className="mb-1.5 block text-xs font-medium text-foreground/80">
         {property.displayName}
       </label>
 
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         {value.map((item, index) => {
           const itemValues = item as Record<string, unknown>;
           const isExpanded = expandedItems[index] ?? true;
@@ -811,18 +809,18 @@ function CollectionField({
           return (
             <div
               key={index}
-              className="rounded-lg border border-border bg-muted/50"
+              className="rounded border border-border/40 bg-muted/30"
             >
-              <div className="flex items-center justify-between px-3 py-2">
+              <div className="flex items-center justify-between px-2.5 py-1.5">
                 <button
                   type="button"
                   onClick={() => toggleItem(index)}
-                  className="flex items-center gap-2 text-sm font-medium text-foreground min-w-0"
+                  className="flex items-center gap-1.5 text-[12px] font-medium text-foreground/80 min-w-0"
                 >
-                  {isExpanded ? <ChevronUp size={16} className="flex-shrink-0" /> : <ChevronDown size={16} className="flex-shrink-0" />}
+                  {isExpanded ? <ChevronUp size={13} className="flex-shrink-0 text-muted-foreground" /> : <ChevronDown size={13} className="flex-shrink-0 text-muted-foreground" />}
                   <span>Item {index + 1}</span>
                   {preview && (
-                    <span className="text-xs text-muted-foreground truncate">
+                    <span className="text-[11px] text-muted-foreground truncate">
                       — {preview}
                     </span>
                   )}
@@ -832,32 +830,32 @@ function CollectionField({
                     type="button"
                     onClick={() => moveItem(index, 'up')}
                     disabled={index === 0}
-                    className="p-1 text-muted-foreground hover:text-foreground rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                    className="p-0.5 text-muted-foreground hover:text-foreground rounded disabled:opacity-30 disabled:cursor-not-allowed"
                     title="Move up"
                   >
-                    <ChevronUp size={14} />
+                    <ChevronUp size={12} />
                   </button>
                   <button
                     type="button"
                     onClick={() => moveItem(index, 'down')}
                     disabled={index === value.length - 1}
-                    className="p-1 text-muted-foreground hover:text-foreground rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                    className="p-0.5 text-muted-foreground hover:text-foreground rounded disabled:opacity-30 disabled:cursor-not-allowed"
                     title="Move down"
                   >
-                    <ChevronDown size={14} />
+                    <ChevronDown size={12} />
                   </button>
                   <button
                     type="button"
                     onClick={() => removeItem(index)}
-                    className="p-1 text-muted-foreground hover:text-destructive rounded"
+                    className="p-0.5 text-muted-foreground hover:text-destructive rounded"
                   >
-                    <Trash2 size={14} />
+                    <Trash2 size={12} />
                   </button>
                 </div>
               </div>
 
               {isExpanded && (
-                <div className="border-t border-border px-3 py-3 space-y-3">
+                <div className="border-t border-border/30 px-2.5 py-2.5 space-y-3">
                   {nestedProperties.map((nestedProp) => (
                     <PropertyField
                       key={nestedProp.name}
@@ -878,9 +876,9 @@ function CollectionField({
         <button
           type="button"
           onClick={addItem}
-          className="mt-2 flex items-center gap-1 text-sm text-primary hover:underline"
+          className="mt-1.5 flex items-center gap-1 text-[12px] text-primary hover:underline"
         >
-          <Plus size={14} />
+          <Plus size={12} />
           Add {property.displayName}
         </button>
       )}

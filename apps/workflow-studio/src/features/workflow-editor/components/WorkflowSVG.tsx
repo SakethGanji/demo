@@ -196,7 +196,7 @@ function WorkflowSVG({ nodes, edges, executionData, showIcons, showDotGrid, clas
                 strokeWidth={1.5}
               />
               {showIcons && (
-                <SubnodeIcon data={data} cx={cx} cy={cy} color="#ffffff" />
+                <SubnodeIcon data={data} cx={cx} cy={cy} color={parentNodeStyles?.iconFgColor ?? styles.iconFgColor} />
               )}
               {nodeExec && <ExecutionBadge status={nodeExec.status} cx={cx + r - 4} cy={cy - r + 4} />}
             </g>
@@ -243,7 +243,7 @@ function WorkflowSVG({ nodes, edges, executionData, showIcons, showDotGrid, clas
                   r={14}
                   fill={styles.iconBgColor}
                 />
-                <NodeIcon data={data} x={x} y={y} dims={dims} color="#ffffff" />
+                <NodeIcon data={data} x={x} y={y} dims={dims} color={styles.iconFgColor} />
               </>
             )}
             {nodeExec && <ExecutionBadge status={nodeExec.status} cx={x + dims.width - 4} cy={y + 4} />}

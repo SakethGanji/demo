@@ -7,7 +7,6 @@ import {
   useConnectedSubnodes,
 } from '../../hooks/useWorkflowSelectors';
 import {
-  Settings,
   Info,
   ChevronDown,
   ChevronUp,
@@ -18,19 +17,27 @@ import {
   Database,
   Wrench,
   X,
+  AlertTriangle,
 } from 'lucide-react';
 import type { Node } from 'reactflow';
 import type { WorkflowNodeData, SubnodeSlotDefinition, SubnodeType } from '../../types/workflow';
 import { useWorkflowStore } from '../../stores/workflowStore';
-import { useNDVStore } from '../../stores/ndvStore';
-import { useEditorLayoutStore } from '../../stores/editorLayoutStore';
 import DynamicNodeForm, { type NodeProperty, type OutputSchema } from './DynamicNodeForm';
 import { useNodeTypes } from '../../hooks/useNodeTypes';
+import { cn } from '@/shared/lib/utils';
 import { getNodeExtensions } from './extensions/NodeExtensions';
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+} from '@/shared/components/ui/alert-dialog';
 
 interface NodeSettingsProps {
   node: Node<WorkflowNodeData>;
-  onExecute: () => void;
 }
 
 // Icon mapping for subnode types
@@ -55,15 +62,20 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
     options: false,
   });
   const [expandedSubnodes, setExpandedSubnodes] = useState<Record<string, boolean>>({});
+  // Inline subnode picker state
+  const [subnodePickerSlot, setSubnodePickerSlot] = useState<{
+    parentId: string;
+    slotName: string;
+    slotType: SubnodeType;
+    displayName: string;
+  } | null>(null);
+
   // Individual selectors — actions are stable refs, data only triggers re-render when it changes
   const updateNodeData = useWorkflowStore((s) => s.updateNodeData);
   const deleteNode = useWorkflowStore((s) => s.deleteNode);
 
   const upstreamNodeId = useUpstreamNodeId(node.id);
   const upstreamNode = useNodeById(upstreamNodeId);
-
-  const closeNDV = useNDVStore((s) => s.closeNDV);
-  const openForSubnode = useEditorLayoutStore((s) => s.openForSubnode);
 
   // Stable params reference and onChange callback — prevents DynamicNodeForm re-renders
   const nodeParams = useMemo(
@@ -99,6 +111,14 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
     node.data.subnodeSlots as SubnodeSlotDefinition[] | undefined
   );
 
+  // Compatible subnodes for the picker dialog
+  const compatibleSubnodes = useMemo(() => {
+    if (!subnodePickerSlot || !nodeTypes) return [];
+    return nodeTypes.filter(
+      (n) => (n as Record<string, unknown>).subnodeType === subnodePickerSlot.slotType
+    );
+  }, [subnodePickerSlot, nodeTypes]);
+
   const toggleSection = (section: string) => {
     setExpandedSections((prev) => ({
       ...prev,
@@ -107,26 +127,29 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
   };
 
   return (
-    <div className="flex h-full flex-col bg-card">
+    <div className="flex h-full flex-col">
       {/* Compact Tabs */}
-      <div className="flex border-b border-border">
+      <div className="flex border-b border-border/50 px-1">
         <button
           onClick={() => setActiveTab('parameters')}
-          className={`flex-1 px-3 py-2 text-[13px] font-medium transition-colors ${activeTab === 'parameters'
-              ? 'border-b-2 border-primary text-foreground'
+          className={cn(
+            'relative flex-1 px-3 py-1.5 text-[12px] font-medium transition-colors',
+            activeTab === 'parameters'
+              ? 'text-foreground after:absolute after:bottom-0 after:left-1 after:right-1 after:h-0.5 after:bg-primary after:rounded-full'
               : 'text-muted-foreground hover:text-foreground'
-            }`}
+          )}
         >
           Parameters
         </button>
         <button
           onClick={() => setActiveTab('settings')}
-          className={`flex-1 px-3 py-2 text-[13px] font-medium transition-colors ${activeTab === 'settings'
-              ? 'border-b-2 border-primary text-foreground'
+          className={cn(
+            'relative flex-1 px-3 py-1.5 text-[12px] font-medium transition-colors',
+            activeTab === 'settings'
+              ? 'text-foreground after:absolute after:bottom-0 after:left-1 after:right-1 after:h-0.5 after:bg-primary after:rounded-full'
               : 'text-muted-foreground hover:text-foreground'
-            }`}
+          )}
         >
-          <Settings size={12} className="mr-1 inline" />
           Settings
         </button>
       </div>
@@ -141,12 +164,12 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
             ))}
 
             {/* Main Parameters Section */}
-            <div className="rounded-md border border-border">
+            <div className="rounded border border-border/40">
               <button
                 onClick={() => toggleSection('main')}
-                className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-accent transition-colors"
+                className="flex w-full items-center justify-between px-3 py-1.5 text-left hover:bg-accent/50 transition-colors"
               >
-                <span className="text-[13px] font-medium text-foreground">
+                <span className="text-[12px] font-medium text-foreground/80">
                   Main Parameters
                 </span>
                 {expandedSections.main ? (
@@ -156,7 +179,7 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
                 )}
               </button>
               {expandedSections.main && (
-                <div className="border-t border-border px-3 py-3">
+                <div className="border-t border-border/30 px-3 py-2.5">
                   {/* Dynamic form based on node schema from API */}
                   {isLoadingSchema ? (
                     <div className="flex items-center justify-center py-4">
@@ -178,8 +201,8 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
                       <span>No configurable parameters.</span>
                     </div>
                   ) : (
-                    <div className="flex items-center gap-2 rounded-md bg-primary/10 px-3 py-2 text-xs text-primary">
-                      <Info size={14} />
+                    <div className="flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                      <AlertTriangle size={14} />
                       <span>Unable to load schema.</span>
                     </div>
                   )}
@@ -189,12 +212,12 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
 
             {/* Connected Subnodes Section - only show if node has subnode slots */}
             {connectedSubnodes && (
-              <div className="rounded-md border border-border">
+              <div className="rounded border border-border/40">
                 <button
                   onClick={() => toggleSection('subnodes')}
-                  className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-accent transition-colors"
+                  className="flex w-full items-center justify-between px-3 py-1.5 text-left hover:bg-accent/50 transition-colors"
                 >
-                  <span className="text-[13px] font-medium text-foreground">
+                  <span className="text-[12px] font-medium text-foreground/80">
                     Connected Subnodes
                   </span>
                   {expandedSections.subnodes ? (
@@ -204,7 +227,7 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
                   )}
                 </button>
                 {expandedSections.subnodes && (
-                  <div className="border-t border-border px-3 py-3 space-y-3">
+                  <div className="border-t border-border/30 px-3 py-2.5 space-y-3">
                     {connectedSubnodes.slots.map((slot) => {
                       const slotSubnodes = connectedSubnodes.slotMap[slot.name] || [];
                       const SlotIcon = subnodeTypeIcons[slot.slotType as SubnodeType] || Wrench;
@@ -225,8 +248,12 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
                             {canAddMore && (
                               <button
                                 onClick={() => {
-                                  closeNDV();
-                                  openForSubnode(node.id, slot.name, slot.slotType as SubnodeType);
+                                  setSubnodePickerSlot({
+                                    parentId: node.id,
+                                    slotName: slot.name,
+                                    slotType: slot.slotType as SubnodeType,
+                                    displayName: slot.displayName,
+                                  });
                                 }}
                                 className="flex items-center gap-1 px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent rounded transition-colors"
                               >
@@ -292,12 +319,12 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
             )}
 
             {/* Options Section - Error Handling */}
-            <div className="rounded-md border border-border">
+            <div className="rounded border border-border/40">
               <button
                 onClick={() => toggleSection('options')}
-                className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-accent transition-colors"
+                className="flex w-full items-center justify-between px-3 py-1.5 text-left hover:bg-accent/50 transition-colors"
               >
-                <span className="text-[13px] font-medium text-foreground">Error Handling</span>
+                <span className="text-[12px] font-medium text-foreground/80">Error Handling</span>
                 {expandedSections.options ? (
                   <ChevronUp size={14} className="text-muted-foreground" />
                 ) : (
@@ -305,7 +332,7 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
                 )}
               </button>
               {expandedSections.options && (
-                <div className="border-t border-border px-3 py-3">
+                <div className="border-t border-border/30 px-3 py-2.5">
                   <div className="space-y-3">
                     <label className="flex items-start gap-2 cursor-pointer">
                       <input
@@ -391,7 +418,7 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
             {/* Node Settings */}
             <div>
               <label className="mb-1 block text-xs font-medium text-foreground">
-                Node ID
+                Display Name
               </label>
               <input
                 type="text"
@@ -400,7 +427,7 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
                 className="w-full rounded-md border border-input bg-muted px-2 py-1.5 text-sm text-muted-foreground cursor-not-allowed"
               />
               <p className="mt-1 text-xs text-muted-foreground">
-                Unique identifier. Edit name in header.
+                Edit in the header above.
               </p>
             </div>
 
@@ -438,6 +465,81 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
           </div>
         )}
       </div>
+
+      {/* Inline Subnode Picker Dialog */}
+      <AlertDialog open={!!subnodePickerSlot} onOpenChange={(open) => { if (!open) setSubnodePickerSlot(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Add {subnodePickerSlot?.displayName}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Choose a {subnodePickerSlot?.slotType} to connect.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="mt-3 space-y-1.5 max-h-64 overflow-auto">
+            {compatibleSubnodes.map((subnodeDef) => {
+              const defAny = subnodeDef as Record<string, unknown>;
+              const SlotIcon = subnodeTypeIcons[subnodePickerSlot?.slotType as SubnodeType] || Wrench;
+              const slotColor = subnodeTypeColors[subnodePickerSlot?.slotType as SubnodeType] || 'var(--muted-foreground)';
+              return (
+                <button
+                  key={subnodeDef.type}
+                  onClick={() => {
+                    if (!subnodePickerSlot) return;
+                    const defaultParams: Record<string, unknown> = {};
+                    if (subnodeDef.properties) {
+                      for (const prop of subnodeDef.properties) {
+                        if ((prop as Record<string, unknown>).default !== undefined) {
+                          defaultParams[(prop as Record<string, unknown>).name as string] = (prop as Record<string, unknown>).default;
+                        }
+                      }
+                    }
+                    useWorkflowStore.getState().addSubnode(
+                      subnodePickerSlot.parentId,
+                      subnodePickerSlot.slotName,
+                      {
+                        type: subnodeDef.type,
+                        label: (defAny.displayName as string) || subnodeDef.type,
+                        icon: defAny.icon as string | undefined,
+                        subnodeType: subnodePickerSlot.slotType,
+                        properties: defaultParams,
+                      }
+                    );
+                    setSubnodePickerSlot(null);
+                  }}
+                  className="w-full flex items-center gap-3 rounded-md border border-border px-3 py-2.5 text-left hover:bg-accent transition-colors"
+                >
+                  <div
+                    className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
+                    style={{ backgroundColor: `${slotColor}20`, color: slotColor }}
+                  >
+                    <SlotIcon size={14} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-foreground truncate">
+                      {(defAny.displayName as string) || subnodeDef.type}
+                    </div>
+                    {defAny.description && (
+                      <div className="text-xs text-muted-foreground truncate">
+                        {defAny.description as string}
+                      </div>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+            {compatibleSubnodes.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No compatible {subnodePickerSlot?.slotType} types available.
+              </p>
+            )}
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

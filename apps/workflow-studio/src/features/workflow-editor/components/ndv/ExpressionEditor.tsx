@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo, memo, useCallback } from 'react';
-import { Code2, X, ChevronDown, Eye, EyeOff } from 'lucide-react';
+import { X, ChevronDown, Eye, EyeOff, Maximize2 } from 'lucide-react';
+import FullscreenExpressionEditor from './FullscreenExpressionEditor';
 
 // Type definitions for output schema (matching workflow-engine)
 interface OutputSchemaProperty {
@@ -32,6 +33,10 @@ interface ExpressionEditorProps {
   sampleData?: Record<string, unknown>[];
   /** All node execution data keyed by node name - for resolving $node["NodeName"].json expressions */
   allNodeData?: Record<string, Record<string, unknown>[]>;
+  /** Minimum visible rows when expanded (default 2) */
+  rows?: number;
+  /** Maximum rows before scrolling (default 15) */
+  maxRows?: number;
 }
 
 // Simple expression syntax highlighting
@@ -191,6 +196,8 @@ export default memo(function ExpressionEditor({
   outputSchema,
   sampleData,
   allNodeData,
+  rows = 2,
+  maxRows = 15,
 }: ExpressionEditorProps) {
   // Local state for responsive typing — prevents parent re-renders from resetting input
   const [localValue, setLocalValue] = useState(value);
@@ -213,8 +220,31 @@ export default memo(function ExpressionEditor({
   const [isDragOver, setIsDragOver] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [showFullscreen, setShowFullscreen] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
+
+  // Line height in px for row calculations
+  const lineHeight = 20;
+  const minHeight = rows * lineHeight;
+  const maxHeight = maxRows * lineHeight;
+
+  // Auto-grow textarea to fit content
+  const adjustTextareaHeight = useCallback(() => {
+    const textarea = inputRef.current;
+    if (!textarea) return;
+    textarea.style.height = 'auto';
+    textarea.style.height = Math.max(minHeight, Math.min(textarea.scrollHeight, maxHeight)) + 'px';
+  }, [minHeight, maxHeight]);
+
+  // Re-adjust height when expanded state or value changes externally
+  useEffect(() => {
+    if (isExpanded) {
+      // Small delay to allow DOM to settle after expand
+      requestAnimationFrame(adjustTextareaHeight);
+    }
+  }, [isExpanded, localValue, adjustTextareaHeight]);
 
   const hasExpression = localValue.includes('{{');
   // Can preview if we have expressions AND either sample data or allNodeData
@@ -325,13 +355,6 @@ export default memo(function ExpressionEditor({
     }, 0);
   };
 
-  const toggleExpressionMode = () => {
-    if (!hasExpression) {
-      handleChange(`{{ ${localValue || '$json'} }}`);
-    }
-    setIsExpanded(!isExpanded);
-  };
-
   // Reset activeIndex when suggestions open
   useEffect(() => {
     if (showSuggestions) {
@@ -378,6 +401,7 @@ export default memo(function ExpressionEditor({
         break;
       case 'Escape':
         e.preventDefault();
+        e.nativeEvent.stopImmediatePropagation();
         setShowSuggestions(false);
         break;
     }
@@ -400,36 +424,31 @@ export default memo(function ExpressionEditor({
   return (
     <div className="space-y-1">
       {label && (
-        <label htmlFor={id} className="text-xs font-medium text-foreground">{label}</label>
+        <label htmlFor={id} className="text-xs font-medium text-foreground/80">{label}</label>
       )}
 
       <div className="relative">
         {/* Main input with drop zone */}
         <div
+          ref={containerRef}
           onDragEnter={handleDragEnter}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
+          onBlur={(e) => {
+            // Collapse when focus leaves the entire container (not when clicking buttons inside it)
+            if (!containerRef.current?.contains(e.relatedTarget as Node)) {
+              setIsExpanded(false);
+              setShowSuggestions(false);
+              onBlur?.();
+            }
+          }}
           className={`
-            flex items-start gap-1 rounded-md border bg-background transition-all
-            ${isExpanded ? 'border-primary ring-1 ring-primary' : 'border-input'}
-            ${hasExpression ? 'bg-primary/5' : ''}
+            flex items-start rounded border bg-background transition-all
+            ${isExpanded ? 'border-primary/70 ring-1 ring-primary/40' : 'border-border/60'}
             ${isDragOver ? 'border-primary ring-2 ring-primary/50 bg-primary/10' : ''}
           `}
         >
-          {/* Expression toggle button */}
-          <button
-            type="button"
-            onClick={toggleExpressionMode}
-            className={`
-              flex-shrink-0 p-1.5 rounded-l-md transition-colors
-              ${hasExpression ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground'}
-            `}
-            title={hasExpression ? 'Expression mode' : 'Enable expression mode'}
-          >
-            <Code2 size={14} />
-          </button>
-
           {/* Input area */}
           {isExpanded ? (
             <textarea
@@ -437,18 +456,18 @@ export default memo(function ExpressionEditor({
               id={id}
               value={localValue}
               onChange={(e) => handleChange(e.target.value)}
+              onInput={adjustTextareaHeight}
               onSelect={(e) =>
                 setCursorPosition((e.target as HTMLTextAreaElement).selectionStart)
               }
-              onBlur={onBlur}
               onKeyDown={handleTextareaKeyDown}
               placeholder={placeholder}
-              rows={2}
-              className="flex-1 bg-transparent py-1.5 pr-6 text-sm focus:outline-none resize-none font-mono"
+              style={{ minHeight: `${minHeight}px`, maxHeight: `${maxHeight}px` }}
+              className="flex-1 bg-transparent px-2.5 py-1.5 pr-6 text-[13px] focus:outline-none resize-y font-mono"
             />
           ) : (
             <div
-              className="flex-1 py-1.5 pr-6 text-sm cursor-text min-h-[30px] flex items-center"
+              className="flex-1 px-2.5 py-1.5 pr-6 text-[13px] cursor-text min-h-[28px] flex items-center"
               onClick={() => {
                 setIsExpanded(true);
                 // Focus textarea after expansion
@@ -456,7 +475,7 @@ export default memo(function ExpressionEditor({
               }}
             >
               {localValue ? (
-                <span className="truncate text-xs">
+                <span className="line-clamp-2 text-xs">
                   {hasExpression ? highlightExpression(localValue) : localValue}
                 </span>
               ) : (
@@ -482,6 +501,14 @@ export default memo(function ExpressionEditor({
                 {showPreview ? <EyeOff size={12} /> : <Eye size={12} />}
               </button>
             )}
+            <button
+              type="button"
+              onClick={() => setShowFullscreen(true)}
+              className="p-0.5 text-muted-foreground hover:text-foreground rounded"
+              title="Edit fullscreen"
+            >
+              <Maximize2 size={12} />
+            </button>
             {localValue && (
               <button
                 type="button"
@@ -541,7 +568,7 @@ export default memo(function ExpressionEditor({
             {showSuggestions && (
               <div
                 ref={suggestionsRef}
-                className="absolute z-50 mt-1 w-full max-h-48 overflow-auto rounded-md border border-border bg-popover shadow-lg"
+                className="absolute z-50 mt-1 w-full max-h-48 overflow-auto rounded border border-border/50 bg-popover shadow-lg"
                 onClick={(e) => e.stopPropagation()}
               >
                 {flatSuggestions.map((suggestion, idx) => (
@@ -571,6 +598,16 @@ export default memo(function ExpressionEditor({
           </div>
         )}
       </div>
+
+      {/* Fullscreen editor overlay */}
+      <FullscreenExpressionEditor
+        open={showFullscreen}
+        onOpenChange={setShowFullscreen}
+        value={localValue}
+        onChange={handleChange}
+        label={label}
+        placeholder={placeholder}
+      />
     </div>
   );
 });

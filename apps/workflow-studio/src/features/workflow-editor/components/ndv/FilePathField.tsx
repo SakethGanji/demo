@@ -113,41 +113,41 @@ export function FilePathField({ property, value, onChange }: FilePathFieldProps)
 
   return (
     <div>
-      <label htmlFor={fieldId} className="mb-1 block text-sm font-medium text-foreground">
+      <label htmlFor={fieldId} className="mb-1 block text-xs font-medium text-foreground/80">
         {property.displayName}
-        {property.required && <span className="text-destructive ml-1">*</span>}
+        {property.required && <span className="text-destructive ml-0.5">*</span>}
       </label>
 
-      <div className="flex gap-2">
+      <div className="flex gap-1.5">
         <input
           id={fieldId}
           type="text"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={property.placeholder}
-          className="flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+          className="flex-1 rounded border border-border/60 bg-background px-2.5 py-1.5 text-[13px] focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring/50"
         />
         <button
           type="button"
           onClick={() => setIsOpen(true)}
-          className="px-3 py-2 rounded-lg border border-input bg-muted hover:bg-accent text-sm font-medium flex items-center gap-1"
+          className="px-2.5 py-1.5 rounded border border-border/60 bg-muted/50 hover:bg-accent text-[12px] font-medium flex items-center gap-1"
         >
-          <Folder size={16} />
+          <Folder size={13} />
           Browse
         </button>
       </div>
 
       {property.description && (
-        <p className="mt-1 text-xs text-muted-foreground">{property.description}</p>
+        <p className="mt-1 text-[11px] text-muted-foreground/70">{property.description}</p>
       )}
 
       {/* File Browser Modal */}
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-background border border-border rounded-lg shadow-xl w-[600px] max-h-[80vh] flex flex-col">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50">
+          <div className="bg-background border border-border/50 rounded-xl shadow-2xl w-[600px] max-h-[80vh] flex flex-col">
             {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-              <h3 className="font-semibold text-foreground">Select File</h3>
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/50">
+              <h3 className="text-[13px] font-medium text-foreground">Select File</h3>
               <button
                 onClick={() => setIsOpen(false)}
                 className="p-1 hover:bg-accent rounded"
@@ -157,7 +157,7 @@ export function FilePathField({ property, value, onChange }: FilePathFieldProps)
             </div>
 
             {/* Navigation bar */}
-            <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-muted/50">
+            <div className="flex items-center gap-2 px-4 py-1.5 border-b border-border/40 bg-muted/30">
               <button
                 onClick={handleGoHome}
                 className="p-1.5 hover:bg-accent rounded"
@@ -173,13 +173,13 @@ export function FilePathField({ property, value, onChange }: FilePathFieldProps)
               >
                 <ArrowUp size={16} />
               </button>
-              <div className="flex-1 px-2 py-1 bg-background rounded border border-input text-sm truncate">
+              <div className="flex-1 px-2 py-1 bg-background rounded border border-border/50 text-[13px] truncate">
                 {currentPath}
               </div>
             </div>
 
             {/* Search */}
-            <div className="px-4 py-2 border-b border-border">
+            <div className="px-4 py-1.5 border-b border-border/40">
               <div className="relative">
                 <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <input
@@ -187,7 +187,7 @@ export function FilePathField({ property, value, onChange }: FilePathFieldProps)
                   value={searchFilter}
                   onChange={(e) => setSearchFilter(e.target.value)}
                   placeholder="Filter files..."
-                  className="w-full pl-8 pr-3 py-1.5 text-sm rounded border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                  className="w-full pl-8 pr-3 py-1.5 text-[13px] rounded border border-border/60 bg-background focus:outline-none focus:ring-1 focus:ring-ring/50"
                 />
               </div>
             </div>
@@ -212,14 +212,14 @@ export function FilePathField({ property, value, onChange }: FilePathFieldProps)
                     <button
                       key={entry.path}
                       onClick={() => handleEntryClick(entry)}
-                      className="w-full flex items-center gap-3 px-3 py-2 rounded hover:bg-accent text-left group"
+                      className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded hover:bg-accent text-left group"
                     >
                       {entry.type === 'directory' ? (
                         <Folder size={18} className="text-primary flex-shrink-0" />
                       ) : (
                         <File size={18} className="text-muted-foreground flex-shrink-0" />
                       )}
-                      <span className="flex-1 truncate text-sm">{entry.name}</span>
+                      <span className="flex-1 truncate text-[13px]">{entry.name}</span>
                       {entry.type === 'directory' ? (
                         <ChevronRight size={16} className="text-muted-foreground opacity-0 group-hover:opacity-100" />
                       ) : (
@@ -234,14 +234,14 @@ export function FilePathField({ property, value, onChange }: FilePathFieldProps)
             </div>
 
             {/* Footer */}
-            <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-muted/50">
+            <div className="flex items-center justify-between px-4 py-2.5 border-t border-border/40 bg-muted/30">
               <span className="text-xs text-muted-foreground">
                 {extensions && `Showing: ${extensions}`}
               </span>
               <div className="flex gap-2">
                 <button
                   onClick={() => setIsOpen(false)}
-                  className="px-4 py-1.5 text-sm rounded border border-input hover:bg-accent"
+                  className="px-3 py-1 text-[13px] rounded border border-border/60 hover:bg-accent"
                 >
                   Cancel
                 </button>

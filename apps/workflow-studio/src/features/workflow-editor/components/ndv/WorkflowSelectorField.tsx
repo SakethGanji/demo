@@ -41,16 +41,16 @@ export function WorkflowSelectorField({
 
   return (
     <div>
-      <label htmlFor={fieldId} className="mb-1 block text-sm font-medium text-foreground">
+      <label htmlFor={fieldId} className="mb-1 block text-xs font-medium text-foreground/80">
         {property.displayName}
-        {property.required && <span className="text-destructive ml-1">*</span>}
+        {property.required && <span className="text-destructive ml-0.5">*</span>}
       </label>
       <select
         id={fieldId}
         value={value || ''}
         onChange={(e) => onChange(e.target.value)}
         disabled={isLoading}
-        className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+        className="w-full rounded border border-border/60 bg-background px-2.5 py-1.5 text-[13px] focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring/50 disabled:opacity-50"
       >
         <option value="">
           {isLoading
@@ -67,7 +67,7 @@ export function WorkflowSelectorField({
         ))}
       </select>
       {property.description && (
-        <p className="mt-1 text-xs text-muted-foreground">{property.description}</p>
+        <p className="mt-1 text-[11px] text-muted-foreground/70">{property.description}</p>
       )}
       {error && (
         <p className="mt-1 text-xs text-destructive">

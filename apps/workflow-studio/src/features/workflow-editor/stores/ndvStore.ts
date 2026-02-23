@@ -19,14 +19,14 @@ function loadPreferences(): NDVPreferences {
       return {
         inputPanelSize: parsed.inputPanelSize ?? 25,
         outputPanelSize: parsed.outputPanelSize ?? 25,
-        inputDisplayMode: parsed.inputDisplayMode ?? 'table',
-        outputDisplayMode: parsed.outputDisplayMode ?? 'table',
+        inputDisplayMode: parsed.inputDisplayMode ?? 'schema',
+        outputDisplayMode: parsed.outputDisplayMode ?? 'schema',
       };
     }
   } catch {
     // ignore
   }
-  return { inputPanelSize: 25, outputPanelSize: 25, inputDisplayMode: 'table', outputDisplayMode: 'table' };
+  return { inputPanelSize: 25, outputPanelSize: 25, inputDisplayMode: 'schema', outputDisplayMode: 'schema' };
 }
 
 function savePreferences(prefs: Partial<NDVPreferences>) {
