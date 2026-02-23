@@ -15,10 +15,13 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import logging
 import os
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -186,6 +189,31 @@ def _get_llama_client(model: str) -> Any:
 
 
 # ---------------------------------------------------------------------------
+# Schema normalization
+# ---------------------------------------------------------------------------
+
+
+def _normalize_schema_types(schema: Any, to_case: str = "lower") -> Any:
+    """Recursively normalize 'type' fields in a JSON schema.
+
+    Args:
+        schema: A JSON schema dict (or nested part of one).
+        to_case: "lower" for OpenAI/Anthropic ("object"), "upper" for Gemini ("OBJECT").
+    """
+    if isinstance(schema, dict):
+        result = {}
+        for key, value in schema.items():
+            if key == "type" and isinstance(value, str):
+                result[key] = value.upper() if to_case == "upper" else value.lower()
+            else:
+                result[key] = _normalize_schema_types(value, to_case)
+        return result
+    if isinstance(schema, list):
+        return [_normalize_schema_types(item, to_case) for item in schema]
+    return schema
+
+
+# ---------------------------------------------------------------------------
 # Tool schema extraction (supports both callables and dicts)
 # ---------------------------------------------------------------------------
 
@@ -329,11 +357,13 @@ def _convert_messages_to_gemini_content(
 def _find_tool_name(messages: list[dict], tool_call_id: str | None) -> str:
     """Look up the function name for a tool_call_id in the conversation."""
     if not tool_call_id:
+        logger.warning("_find_tool_name called with no tool_call_id")
         return "unknown"
     for msg in messages:
         for tc in msg.get("tool_calls") or []:
             if tc.get("id") == tool_call_id:
                 return tc.get("function", {}).get("name", "unknown")
+    logger.warning("Could not find tool name for tool_call_id=%s", tool_call_id)
     return "unknown"
 
 
@@ -412,7 +442,11 @@ async def _call_gemini_vertex(
     tools: Optional[list] = None,
     **kwargs: Any,
 ) -> LLMResponse:
-    from google.genai.types import GenerateContentConfig, FunctionDeclaration, Tool
+    from google.genai.types import (
+        GenerateContentConfig, FunctionDeclaration, Tool,
+        AutomaticFunctionCallingConfig,
+        ToolConfig, FunctionCallingConfig, FunctionCallingConfigMode,
+    )
     from google.api_core import exceptions as google_exceptions
 
     client = _get_gemini_client()
@@ -424,16 +458,34 @@ async def _call_gemini_vertex(
         declarations = []
         for t in tools:
             schema = _tool_to_schema(t)
+            params = _normalize_schema_types(
+                schema["parameters"] or {"type": "OBJECT", "properties": {}},
+                to_case="upper",
+            )
             declarations.append(FunctionDeclaration(
                 name=schema["name"],
                 description=schema["description"],
-                parameters=schema["parameters"] or {"type": "OBJECT", "properties": {}},
+                parameters=params,
             ))
         gemini_tools = [Tool(function_declarations=declarations)]
 
-    config_kwargs: dict[str, Any] = {"temperature": temperature}
+    config_kwargs: dict[str, Any] = {
+        "temperature": temperature,
+        "automatic_function_calling": AutomaticFunctionCallingConfig(disable=True),
+    }
     if gemini_tools:
         config_kwargs["tools"] = gemini_tools
+        # Map tool_choice kwarg to Gemini's function_calling_mode
+        _tc = kwargs.get("tool_choice", "auto")
+        _mode_map = {
+            "auto": FunctionCallingConfigMode.AUTO,
+            "required": FunctionCallingConfigMode.ANY,
+            "none": FunctionCallingConfigMode.NONE,
+        }
+        fc_mode = _mode_map.get(_tc, FunctionCallingConfigMode.AUTO)
+        config_kwargs["tool_config"] = ToolConfig(
+            function_calling_config=FunctionCallingConfig(mode=fc_mode),
+        )
     if system_instruction:
         config_kwargs["system_instruction"] = system_instruction
     if kwargs.get("max_tokens"):
@@ -447,24 +499,17 @@ async def _call_gemini_vertex(
 
     config = GenerateContentConfig(**config_kwargs)
 
-    def do_sync_call():
-        return client.models.generate_content(
-            model=model, contents=contents, config=config,
-        )
-
     from time import perf_counter as _pc
     _t0 = _pc()
     try:
-        response = await asyncio.to_thread(do_sync_call)
+        response = await client.aio.models.generate_content(
+            model=model, contents=contents, config=config,
+        )
     except (google_exceptions.Unauthenticated, google_exceptions.PermissionDenied):
         fresh_client = _reset_gemini_client()
-
-        def do_retry():
-            return fresh_client.models.generate_content(
-                model=model, contents=contents, config=config,
-            )
-
-        response = await asyncio.to_thread(do_retry)
+        response = await fresh_client.aio.models.generate_content(
+            model=model, contents=contents, config=config,
+        )
     _elapsed = round((_pc() - _t0) * 1000, 2)
 
     result = _parse_gemini_response(response)
@@ -496,8 +541,9 @@ def _parse_gemini_response(response: Any) -> LLMResponse:
         text = None
         try:
             text = response.text
-        except (ValueError, AttributeError):
-            pass
+        except (ValueError, AttributeError) as exc:
+            logger.debug("Could not extract text from MALFORMED_FUNCTION_CALL response: %s", exc)
+        logger.warning("Gemini returned MALFORMED_FUNCTION_CALL (finish_reason=%s)", finish_name)
         return LLMResponse(text=text or "", malformed_tool_call=True)
 
     parts = (candidate.content.parts if candidate.content else None) or []
@@ -505,6 +551,7 @@ def _parse_gemini_response(response: Any) -> LLMResponse:
 
     if has_fc:
         tool_calls = []
+        text_parts = []
         for part in parts:
             fc = getattr(part, "function_call", None)
             if fc:
@@ -513,18 +560,23 @@ def _parse_gemini_response(response: Any) -> LLMResponse:
                     name=fc.name,
                     args=dict(fc.args) if fc.args else {},
                 ))
-        return LLMResponse(tool_calls=tool_calls)
+            elif getattr(part, "text", None):
+                text_parts.append(part.text)
+        return LLMResponse(
+            text="\n".join(text_parts) if text_parts else None,
+            tool_calls=tool_calls,
+        )
 
     text = None
     try:
         text = response.text
-    except (ValueError, AttributeError):
-        pass
+    except (ValueError, AttributeError) as exc:
+        logger.debug("Could not extract text from Gemini response (finish_reason=%s): %s", finish_name, exc)
 
     if not text:
         text = "[Model returned an empty response]"
         if finish_name and finish_name != "STOP":
-            text += f" Finish Reason: {finish_name}"
+            text += f" (finish_reason={finish_name})"
 
     return LLMResponse(text=text)
 
@@ -547,10 +599,10 @@ async def _call_openai_compat(
         api_tools = []
         for t in tools:
             schema = _tool_to_schema(t)
-            params = schema["parameters"] or {"type": "object", "properties": {}}
-            # Normalize type casing for OpenAI (OBJECT -> object)
-            if isinstance(params.get("type"), str):
-                params["type"] = params["type"].lower()
+            params = _normalize_schema_types(
+                schema["parameters"] or {"type": "object", "properties": {}},
+                to_case="lower",
+            )
             api_tools.append({
                 "type": "function",
                 "function": {
@@ -568,6 +620,7 @@ async def _call_openai_compat(
     if api_tools:
         completion_kwargs["tools"] = api_tools
         completion_kwargs["tool_choice"] = "auto"
+        completion_kwargs["parallel_tool_calls"] = True
     if kwargs.get("max_tokens"):
         completion_kwargs["max_tokens"] = kwargs["max_tokens"]
     if kwargs.get("user"):
@@ -575,7 +628,16 @@ async def _call_openai_compat(
 
     rf = kwargs.get("response_format")
     if rf and rf.get("type") == "json_object":
-        completion_kwargs["response_format"] = {"type": "json_object"}
+        if "schema" in rf:
+            completion_kwargs["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": rf.get("name", "response"),
+                    "schema": rf["schema"],
+                },
+            }
+        else:
+            completion_kwargs["response_format"] = {"type": "json_object"}
 
     from time import perf_counter as _pc
     _t0 = _pc()
@@ -598,17 +660,21 @@ async def _call_openai_compat(
         return resp
 
     msg = choice.message
+    resp.text = msg.content or None
     if msg.tool_calls:
         for tc in msg.tool_calls:
             try:
                 args = json.loads(tc.function.arguments) if tc.function.arguments else {}
             except json.JSONDecodeError:
+                logger.warning(
+                    "Malformed tool call arguments from OpenAI for %s: %s",
+                    tc.function.name, tc.function.arguments[:200] if tc.function.arguments else "",
+                )
                 args = {}
+                resp.malformed_tool_call = True
             resp.tool_calls.append(ToolCall(
                 id=tc.id, name=tc.function.name, args=args,
             ))
-    else:
-        resp.text = msg.content
 
     return resp
 
@@ -633,9 +699,10 @@ async def _call_anthropic(
         api_tools = []
         for t in tools:
             schema = _tool_to_schema(t)
-            params = schema["parameters"] or {"type": "object", "properties": {}}
-            if isinstance(params.get("type"), str):
-                params["type"] = params["type"].lower()
+            params = _normalize_schema_types(
+                schema["parameters"] or {"type": "object", "properties": {}},
+                to_case="lower",
+            )
             api_tools.append({
                 "name": schema["name"],
                 "description": schema["description"],
@@ -723,6 +790,26 @@ async def get_embedding(
     raise ValueError(f"Unknown embedding provider: {provider}")
 
 
+_MAX_RETRIES = 3
+_RETRY_BASE_DELAY = 1.0  # seconds
+
+
+def _is_retryable(exc: Exception) -> bool:
+    """Check if an exception is transient and worth retrying."""
+    # OpenAI / Anthropic SDK errors
+    status = getattr(exc, "status_code", None) or getattr(exc, "status", None)
+    if status in (429, 500, 502, 503, 529):
+        return True
+    # google-genai wraps HTTP errors in google.api_core.exceptions
+    cls_name = type(exc).__name__
+    if cls_name in ("TooManyRequests", "ServiceUnavailable", "InternalServerError", "ResourceExhausted"):
+        return True
+    # Generic connection errors
+    if isinstance(exc, (ConnectionError, TimeoutError, asyncio.TimeoutError)):
+        return True
+    return False
+
+
 async def call_llm(
     model: str,
     messages: list[dict],
@@ -744,6 +831,31 @@ async def call_llm(
     Returns:
         LLMResponse with .text and/or .tool_calls populated.
     """
+    last_exc: Exception | None = None
+    for attempt in range(_MAX_RETRIES):
+        try:
+            return await _call_llm_once(model, messages, temperature, tools=tools, **kwargs)
+        except Exception as exc:
+            last_exc = exc
+            if not _is_retryable(exc) or attempt == _MAX_RETRIES - 1:
+                raise
+            delay = _RETRY_BASE_DELAY * (2 ** attempt)
+            logger.warning(
+                "LLM call failed (attempt %d/%d), retrying in %.1fs: %s",
+                attempt + 1, _MAX_RETRIES, delay, exc,
+            )
+            await asyncio.sleep(delay)
+    raise last_exc  # unreachable, but keeps type checkers happy
+
+
+async def _call_llm_once(
+    model: str,
+    messages: list[dict],
+    temperature: float = 0.2,
+    tools: Optional[list] = None,
+    **kwargs: Any,
+) -> LLMResponse:
+    """Single attempt to call an LLM backend."""
     if model in GEMINI_MODELS or model.startswith("gemini-"):
         return await _call_gemini_vertex(
             model, messages, temperature, tools=tools, **kwargs,

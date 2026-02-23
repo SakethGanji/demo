@@ -37,11 +37,31 @@ if TYPE_CHECKING:
     )
 
 # Max consecutive tool failures before the agent aborts the loop
-MAX_CONSECUTIVE_TOOL_FAILURES = 3
+MAX_CONSECUTIVE_TOOL_FAILURES = 5
 
-# Rough chars-per-token estimate for context window management
-_CHARS_PER_TOKEN = 4
+# Rough chars-per-token fallback for non-OpenAI models
+_CHARS_PER_TOKEN_FALLBACK = 3.5
 _DEFAULT_MAX_CONTEXT_TOKENS = 120_000
+
+# Cached tiktoken encoders
+_tiktoken_encoders: dict[str, Any] = {}
+
+
+def _get_tiktoken_encoder(model: str) -> Any | None:
+    """Get a tiktoken encoder for OpenAI models, None for others."""
+    try:
+        import tiktoken
+    except ImportError:
+        return None
+    if model in _tiktoken_encoders:
+        return _tiktoken_encoders[model]
+    try:
+        enc = tiktoken.encoding_for_model(model)
+    except KeyError:
+        # Default to cl100k_base for unknown OpenAI models
+        enc = tiktoken.get_encoding("cl100k_base")
+    _tiktoken_encoders[model] = enc
+    return enc
 
 # Sub-agent spawn tool names (excluded from inheritance to prevent infinite nesting)
 _SPAWN_TOOL_NAMES = frozenset({"spawn_agent", "spawn_agents_parallel"})
@@ -51,6 +71,9 @@ _SCRATCHPAD_TOOL_NAMES = frozenset({"memory_store", "memory_recall"})
 
 # Max retries for structured output parsing/validation
 MAX_OUTPUT_RETRIES = 2
+
+# Default timeout for individual tool execution (seconds)
+_DEFAULT_TOOL_TIMEOUT = 120
 
 # Plan / reflect extraction patterns
 _PLAN_PATTERN = re.compile(r"<plan>(.*?)</plan>", re.DOTALL)
@@ -86,6 +109,7 @@ class AgentContext:
     inheritable_tools: list[dict[str, Any]] = field(default_factory=list)
     inheritable_tool_executors: dict[str, Any] = field(default_factory=dict)
     allow_recursive_spawn: bool = True
+    enable_scratchpad: bool = False
     # Working memory scratchpad
     scratchpad: dict[str, Any] = field(default_factory=dict)
     parent_scratchpad: dict[str, Any] | None = None
@@ -95,7 +119,6 @@ class AgentContext:
 
 class AIAgentNode(BaseNode):
     """AI Agent node - agentic loop with tool calling capabilities."""
-
     node_description = NodeTypeDescription(
         name="AIAgent",
         display_name="AI Agent",
@@ -136,7 +159,7 @@ class AIAgentNode(BaseNode):
                 display_name="System Prompt",
                 name="systemPrompt",
                 type="string",
-                default="You are a helpful AI assistant with access to tools.",
+                default="You are a helpful AI assistant with access to tools. When multiple tool calls are independent, call them all in the same turn to minimize round-trips.",
                 type_options={"rows": 3},
             ),
             NodeProperty(
@@ -179,8 +202,8 @@ class AIAgentNode(BaseNode):
                 display_name="Max Iterations",
                 name="maxIterations",
                 type="number",
-                default=10,
-                description="Maximum number of agent iterations",
+                default=30,
+                description="Maximum number of LLM round-trips (each tool-call batch counts as one).",
             ),
             NodeProperty(
                 display_name="Temperature",
@@ -194,6 +217,13 @@ class AIAgentNode(BaseNode):
                 type="number",
                 default=120000,
                 description="Approximate token budget for conversation history. Older messages are trimmed when exceeded.",
+            ),
+            NodeProperty(
+                display_name="Max Output Tokens",
+                name="maxOutputTokens",
+                type="number",
+                default=4096,
+                description="Maximum tokens in each LLM response. Increase for models that support longer output (e.g. 8192 for Claude/GPT-4o).",
             ),
             NodeProperty(
                 display_name="Output Schema (JSON)",
@@ -230,8 +260,15 @@ class AIAgentNode(BaseNode):
                 display_name="Enable Planning",
                 name="enablePlanning",
                 type="boolean",
-                default=True,
+                default=False,
                 description="Inject a reasoning protocol that makes the agent plan before acting and reflect before answering.",
+            ),
+            NodeProperty(
+                display_name="Enable Scratchpad",
+                name="enableScratchpad",
+                type="boolean",
+                default=False,
+                description="Give the agent working memory tools (memory_store / memory_recall) for saving intermediate findings across iterations.",
             ),
         ],
         subnode_slots=[
@@ -281,14 +318,16 @@ class AIAgentNode(BaseNode):
         system_prompt = self.get_parameter(node_definition, "systemPrompt", "")
         task = self.get_parameter(node_definition, "task", "")
         tools_config = self.get_parameter(node_definition, "tools", [])
-        max_iterations = self.get_parameter(node_definition, "maxIterations", 10)
+        max_iterations = self.get_parameter(node_definition, "maxIterations", 30)
         temperature = self.get_parameter(node_definition, "temperature", 0.7)
         max_context_tokens = self.get_parameter(node_definition, "maxContextTokens", _DEFAULT_MAX_CONTEXT_TOKENS)
+        max_output_tokens = self.get_parameter(node_definition, "maxOutputTokens", 4096)
         output_schema_raw = self.get_parameter(node_definition, "outputSchema", "")
         enable_sub_agents = self.get_parameter(node_definition, "enableSubAgents", False)
         max_agent_depth = self.get_parameter(node_definition, "maxAgentDepth", 3)
         allow_recursive_spawn = self.get_parameter(node_definition, "allowRecursiveSpawn", True)
-        enable_planning = self.get_parameter(node_definition, "enablePlanning", True)
+        enable_planning = self.get_parameter(node_definition, "enablePlanning", False)
+        enable_scratchpad = self.get_parameter(node_definition, "enableScratchpad", False)
 
         # Parse output schema if provided
         output_schema: dict[str, Any] | None = None
@@ -334,8 +373,7 @@ class AIAgentNode(BaseNode):
         if not tools:
             tools = self._build_tools(tools_config)
 
-        # Always create AgentContext (scratchpad needs it); populate spawn
-        # fields only when sub-agents are enabled.
+        # Create AgentContext; populate spawn/scratchpad fields based on config.
         _excluded = _SPAWN_TOOL_NAMES | _SCRATCHPAD_TOOL_NAMES
         agent_context = AgentContext(
             agent_depth=0,
@@ -348,9 +386,11 @@ class AIAgentNode(BaseNode):
                 k: v for k, v in tool_executors.items() if k not in _excluded
             },
             allow_recursive_spawn=allow_recursive_spawn,
+            enable_scratchpad=enable_scratchpad,
         )
-        # Always inject scratchpad tools
-        tools = tools + self._build_scratchpad_tools()
+        # Inject scratchpad tools only when enabled
+        if enable_scratchpad:
+            tools = tools + self._build_scratchpad_tools()
         if enable_sub_agents:
             tools = tools + self._build_spawn_tools()
 
@@ -367,11 +407,16 @@ class AIAgentNode(BaseNode):
             chat_history = await asyncio.to_thread(memory_config["getHistory"])
 
         for item in input_data if input_data else [NodeData(json={})]:
-            # Build task with input data context
+            # Build task with input data context (exclude internal keys)
             full_task = task
-            context_str = json.dumps(item.json, indent=2) if item.json else ""
-            if context_str:
-                full_task = f"{full_task}\n\nInput data:\n{context_str}"
+            user_data = {k: v for k, v in item.json.items() if not k.startswith("_")}
+            if user_data:
+                try:
+                    context_str = json.dumps(user_data, indent=2, default=str)
+                except (TypeError, ValueError):
+                    context_str = ""
+                if context_str:
+                    full_task = f"{full_task}\n\nInput data:\n{context_str}"
 
             result = await self._run_agent_loop(
                 model=model,
@@ -388,6 +433,7 @@ class AIAgentNode(BaseNode):
                 max_context_tokens=max_context_tokens,
                 agent_context=agent_context,
                 enable_planning=enable_planning,
+                max_output_tokens=max_output_tokens,
             )
 
             # Accumulate agent metrics from result
@@ -690,8 +736,7 @@ class AIAgentNode(BaseNode):
             args.get("tools"), agent_context
         )
 
-        # Always create child agent context (scratchpad needs it).
-        # Spawn tools only added if recursive spawning is allowed and depth permits.
+        # Create child agent context; spawn/scratchpad tools gated by config.
         can_spawn = (
             agent_context.allow_recursive_spawn
             and (agent_context.agent_depth + 1) < agent_context.max_agent_depth
@@ -705,10 +750,12 @@ class AIAgentNode(BaseNode):
             inheritable_tools=child_tools,
             inheritable_tool_executors=child_executors,
             allow_recursive_spawn=agent_context.allow_recursive_spawn,
+            enable_scratchpad=agent_context.enable_scratchpad,
             parent_scratchpad=dict(agent_context.scratchpad),  # snapshot
         )
-        # Always give child scratchpad tools
-        child_tools = child_tools + self._build_scratchpad_tools()
+        # Give child scratchpad tools only if parent has them enabled
+        if agent_context.enable_scratchpad:
+            child_tools = child_tools + self._build_scratchpad_tools()
         if can_spawn:
             child_tools = child_tools + self._build_spawn_tools()
 
@@ -829,16 +876,23 @@ class AIAgentNode(BaseNode):
         ))
 
     @staticmethod
-    def _estimate_tokens(messages: list[dict[str, Any]]) -> int:
-        """Rough token estimate based on character count."""
+    def _estimate_tokens(messages: list[dict[str, Any]], model: str = "") -> int:
+        """Estimate token count. Uses tiktoken for OpenAI models, char-based fallback otherwise."""
+        if model.startswith(("gpt-", "o1-", "o3")):
+            enc = _get_tiktoken_encoder(model)
+            if enc is not None:
+                total = 0
+                for m in messages:
+                    total += len(enc.encode(json.dumps(m, default=str)))
+                return total
         total_chars = sum(
             len(json.dumps(m, default=str)) for m in messages
         )
-        return total_chars // _CHARS_PER_TOKEN
+        return int(total_chars / _CHARS_PER_TOKEN_FALLBACK)
 
     @staticmethod
     def _trim_messages(
-        messages: list[dict[str, Any]], max_tokens: int
+        messages: list[dict[str, Any]], max_tokens: int, model: str = ""
     ) -> list[dict[str, Any]]:
         """Trim conversation history to fit within the token budget.
 
@@ -849,7 +903,8 @@ class AIAgentNode(BaseNode):
 
         Drops the oldest middle messages until under budget.
         """
-        if AIAgentNode._estimate_tokens(messages) <= max_tokens:
+        total = AIAgentNode._estimate_tokens(messages, model)
+        if total <= max_tokens:
             return messages
 
         # Identify protected prefix: system prompt + first user message
@@ -861,18 +916,21 @@ class AIAgentNode(BaseNode):
 
         prefix = messages[:protected_end]
         suffix = messages[protected_end:]
+        current_tokens = total
 
         # Drop oldest messages from suffix until within budget
-        while suffix and AIAgentNode._estimate_tokens(prefix + suffix) > max_tokens:
+        while suffix and current_tokens > max_tokens:
             # Drop in chunks: remove the oldest assistant+tool group together
             # to avoid orphaned tool results without their assistant message
             dropped = suffix.pop(0)
+            current_tokens -= AIAgentNode._estimate_tokens([dropped], model)
             # If we dropped an assistant message with tool_calls, also drop
             # the following tool result messages that reference it
             if dropped.get("tool_calls"):
                 tc_ids = {tc["id"] for tc in dropped.get("tool_calls", [])}
                 while suffix and suffix[0].get("tool_call_id") in tc_ids:
-                    suffix.pop(0)
+                    orphan = suffix.pop(0)
+                    current_tokens -= AIAgentNode._estimate_tokens([orphan], model)
 
         return prefix + suffix
 
@@ -882,16 +940,17 @@ class AIAgentNode(BaseNode):
         return (
             "\n\n## Reasoning Protocol\n"
             "Follow this protocol for every task:\n\n"
-            "PLAN phase: Start your first response with a <plan>...</plan> block listing "
-            "the steps you intend to take.\n\n"
-            "ACT phase: Before each tool call, briefly state which plan step you are executing.\n\n"
+            "PLAN phase: In your FIRST response, include a <plan>...</plan> block listing "
+            "the steps you intend to take, then IMMEDIATELY make your first tool call(s) "
+            "in the same response. Do NOT send a plan-only message with no tool calls.\n\n"
+            "ACT phase: Call multiple independent tools in the same turn when possible.\n\n"
             "REFLECT phase: Before giving your final answer, include a <reflect>...</reflect> "
             "block with:\n"
             "  - Steps completed and evidence gathered\n"
             "  - Remaining gaps or uncertainties\n"
             "  - Confidence level: low / medium / high\n\n"
-            "If your confidence is not high after reflection, continue working. "
-            "Only give your final answer when confidence is high."
+            "Present your best answer with any stated uncertainties. "
+            "Do not fabricate information — if you lack evidence, say so."
         )
 
     @staticmethod
@@ -920,6 +979,7 @@ class AIAgentNode(BaseNode):
         max_context_tokens: int = _DEFAULT_MAX_CONTEXT_TOKENS,
         agent_context: AgentContext | None = None,
         enable_planning: bool = True,
+        max_output_tokens: int = 4096,
     ) -> dict[str, Any]:
         """Thin wrapper: consumes the streaming generator and dispatches events."""
         result: dict[str, Any] = {}
@@ -938,6 +998,7 @@ class AIAgentNode(BaseNode):
             max_context_tokens=max_context_tokens,
             agent_context=agent_context,
             enable_planning=enable_planning,
+            max_output_tokens=max_output_tokens,
         ):
             etype = event.get("type", "")
             if etype in EVENT_TYPE_MAP:
@@ -962,6 +1023,7 @@ class AIAgentNode(BaseNode):
         max_context_tokens: int = _DEFAULT_MAX_CONTEXT_TOKENS,
         agent_context: AgentContext | None = None,
         enable_planning: bool = True,
+        max_output_tokens: int = 4096,
     ) -> AsyncIterator[dict[str, Any]]:
         """Async generator that yields event dicts for the agent loop.
 
@@ -1010,24 +1072,63 @@ class AIAgentNode(BaseNode):
         tool_calls_list: list[dict[str, Any]] = []
         iterations = 0
         consecutive_failures = 0
+        # Per-tool failure history: {tool_name: [(args_snapshot, error), ...]}
+        failure_tracker: dict[str, list[tuple[str, str]]] = {}
+        malformed_retries = 0
+        MAX_MALFORMED_RETRIES = 2
+        base_temperature = temperature
         _total_input_tokens = 0
         _total_output_tokens = 0
         _total_llm_time_ms = 0.0
+        _warned_80 = False
+        _warned_90 = False
 
         while iterations < max_iterations:
             iterations += 1
             yield {"type": "iteration_start", "iteration": iterations}
 
             # Trim context if it's grown too large
-            messages = self._trim_messages(messages, max_context_tokens)
+            messages = self._trim_messages(messages, max_context_tokens, model)
 
-            # Don't mix response_format with tools — Gemini doesn't support it
+            # B5: Budget awareness — inject warnings once as iterations run out
+            budget_used = iterations / max_iterations
+            is_last_iteration = iterations == max_iterations
+            if budget_used >= 0.9 and not is_last_iteration and not _warned_90:
+                _warned_90 = True
+                remaining = max_iterations - iterations
+                messages.append({
+                    "role": "user",
+                    "content": f"FINAL WARNING: Only {remaining} iteration(s) remaining. Provide your answer now.",
+                })
+            elif budget_used >= 0.8 and not _warned_80:
+                _warned_80 = True
+                remaining = max_iterations - iterations
+                messages.append({
+                    "role": "user",
+                    "content": f"Note: {remaining} iterations remaining out of {max_iterations}. Start wrapping up or batch your remaining tool calls.",
+                })
+
+            # B7: Lower temperature after consecutive failures
+            effective_temperature = max(
+                0.1, base_temperature - 0.2 * consecutive_failures
+            ) if consecutive_failures > 0 else base_temperature
+
+            # On last iteration, call LLM without tools to guarantee a text response
+            iter_tools = tools if (tools and not is_last_iteration) else None
+
+            # When no tools and structured output requested, pass response_format
+            # directly so the model generates JSON natively in one shot.
+            iter_kwargs: dict[str, Any] = {}
+            if iter_tools is None and response_format:
+                iter_kwargs["response_format"] = response_format
+
             response = await call_llm(
                 model=model,
                 messages=messages,
-                temperature=temperature,
-                tools=tools if tools else None,
-                max_tokens=4096,
+                temperature=effective_temperature,
+                tools=iter_tools,
+                max_tokens=max_output_tokens,
+                **iter_kwargs,
             )
 
             # Accumulate token usage
@@ -1037,13 +1138,38 @@ class AIAgentNode(BaseNode):
             if response.response_time_ms:
                 _total_llm_time_ms += response.response_time_ms
 
-            # Gemini sometimes returns MALFORMED_FUNCTION_CALL — retry the turn
+            # Gemini sometimes returns MALFORMED_FUNCTION_CALL — retry with a cap
             if response.malformed_tool_call and not response.tool_calls:
-                logger.warning("Malformed tool call on iteration %d, retrying", iterations)
+                malformed_retries += 1
+                logger.warning("Malformed tool call on iteration %d (retry %d/%d)", iterations, malformed_retries, MAX_MALFORMED_RETRIES)
+                if malformed_retries > MAX_MALFORMED_RETRIES:
+                    logger.error("Exceeded malformed tool call retry cap, stopping agent")
+                    yield {"type": "result", "data": {
+                        "response": response.text or "Agent stopped: repeated malformed tool calls",
+                        "toolCalls": tool_calls_list,
+                        "iterations": iterations,
+                        "_usage": {"inputTokens": _total_input_tokens, "outputTokens": _total_output_tokens, "llmResponseTimeMs": _total_llm_time_ms},
+                    }}
+                    return
                 messages.append({"role": "assistant", "content": response.text or ""})
+                # B2: Detailed malformed feedback with available tools & params
+                tool_hints = []
+                for t in tools:
+                    schema = t.get("input_schema") or t.get("parameters") or {}
+                    required = schema.get("required", [])
+                    props = list(schema.get("properties", {}).keys())
+                    tool_hints.append(
+                        f"  - {t['name']}({', '.join(props)})"
+                        + (f"  [required: {', '.join(required)}]" if required else "")
+                    )
+                tools_list = "\n".join(tool_hints) if tool_hints else "  (none)"
                 messages.append({
                     "role": "user",
-                    "content": "Your previous function call was malformed. Please try again with valid function call syntax.",
+                    "content": (
+                        "Your previous function call was malformed. "
+                        "Available tools:\n" + tools_list + "\n\n"
+                        "Please call one of these tools with the correct parameter names and types."
+                    ),
                 })
                 continue
 
@@ -1067,31 +1193,14 @@ class AIAgentNode(BaseNode):
                 messages.append(response.get_assistant_message())
 
                 # Execute all tools in parallel
-                async def _run_one_tool(tc):
-                    # Validate arguments before execution
-                    schema = tool_schema_map.get(tc.name, {})
-                    if schema:
-                        arg_errors = self._validate_tool_args(tc.args or {}, schema)
-                        if arg_errors:
-                            tool_result = {"error": f"Invalid arguments: {'; '.join(arg_errors)}"}
-                            return tc, tool_result, json.dumps(tool_result), True
-
-                    tool_result = await self._execute_tool(
-                        tc.name, tc.args, tool_executors, context,
-                        agent_context=agent_context,
-                        node_name=node_name,
-                        max_context_tokens=max_context_tokens,
-                    )
-                    result_str = (
-                        json.dumps(tool_result)
-                        if not isinstance(tool_result, str)
-                        else tool_result
-                    )
-                    is_error = isinstance(tool_result, dict) and "error" in tool_result
-                    return tc, tool_result, result_str, is_error
-
                 results = await asyncio.gather(
-                    *[_run_one_tool(tc) for tc in response.tool_calls]
+                    *[
+                        self._run_one_tool(
+                            tc, tool_schema_map, tool_executors, context,
+                            agent_context, node_name, max_context_tokens,
+                        )
+                        for tc in response.tool_calls
+                    ]
                 )
 
                 # Process results in order (messages must stay ordered)
@@ -1132,15 +1241,89 @@ class AIAgentNode(BaseNode):
                         "name": tc.name,
                     })
 
-                # Circuit breaker: abort if tools keep failing
+                # B3: Smart failure tracking
                 if iteration_had_failure:
                     consecutive_failures += 1
+                    # Track per-tool failures
+                    for tc, tool_result, result_str, is_error in results:
+                        if is_error:
+                            args_key = json.dumps(tc.args, sort_keys=True, default=str)
+                            err_msg = tool_result.get("error", "") if isinstance(tool_result, dict) else str(tool_result)
+                            failure_tracker.setdefault(tc.name, []).append((args_key, err_msg))
+
+                            tool_failures = failure_tracker[tc.name]
+                            # Detect same-tool-same-args repeated failure
+                            same_args_count = sum(1 for a, _ in tool_failures if a == args_key)
+                            if same_args_count >= 2:
+                                messages.append({
+                                    "role": "user",
+                                    "content": (
+                                        f"Tool '{tc.name}' has failed {same_args_count} times with the same arguments. "
+                                        f"Do NOT retry with the same inputs. Either use different arguments or skip this tool."
+                                    ),
+                                })
+                            # Detect same-tool-different-args repeated failures
+                            elif len(tool_failures) >= 4:
+                                messages.append({
+                                    "role": "user",
+                                    "content": (
+                                        f"Tool '{tc.name}' has failed {len(tool_failures)} times with different arguments. "
+                                        f"Consider an alternative approach that doesn't rely on this tool."
+                                    ),
+                                })
                 else:
                     consecutive_failures = 0
 
+                # B1: Structured error feedback
+                if iteration_had_failure:
+                    error_details = []
+                    for tc, tool_result, result_str, is_error in results:
+                        if is_error:
+                            schema = tool_schema_map.get(tc.name, {})
+                            required = schema.get("required", [])
+                            err_msg = tool_result.get("error", "") if isinstance(tool_result, dict) else str(tool_result)
+                            error_details.append(
+                                f"- {tc.name}(args={json.dumps(tc.args, default=str)}): {err_msg}"
+                                + (f"\n  Required params: {required}" if required else "")
+                            )
+                    if error_details:
+                        messages.append({
+                            "role": "user",
+                            "content": (
+                                "The following tool calls failed this iteration:\n"
+                                + "\n".join(error_details)
+                                + "\n\nCheck that you are using values returned by "
+                                "previous tool calls, not fabricating IDs."
+                            ),
+                        })
+
+                # B3: Circuit breaker — graceful: make one final LLM call without tools
                 if consecutive_failures >= MAX_CONSECUTIVE_TOOL_FAILURES:
+                    logger.warning(
+                        "Circuit breaker hit after %d consecutive failures, forcing text response",
+                        consecutive_failures,
+                    )
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            f"Tools have failed {consecutive_failures} consecutive iterations. "
+                            "Stop calling tools and provide the best answer you can with the information gathered so far."
+                        ),
+                    })
+                    fallback = await call_llm(
+                        model=model,
+                        messages=messages,
+                        temperature=base_temperature,
+                        tools=None,
+                        max_tokens=max_output_tokens,
+                    )
+                    if fallback.usage:
+                        _total_input_tokens += fallback.usage.input_tokens
+                        _total_output_tokens += fallback.usage.output_tokens
+                    if fallback.response_time_ms:
+                        _total_llm_time_ms += fallback.response_time_ms
                     yield {"type": "result", "data": {
-                        "response": f"Agent stopped: tools failed {MAX_CONSECUTIVE_TOOL_FAILURES} consecutive iterations",
+                        "response": fallback.text or f"Agent stopped: tools failed {MAX_CONSECUTIVE_TOOL_FAILURES} consecutive iterations",
                         "toolCalls": tool_calls_list,
                         "iterations": iterations,
                         "_usage": {"inputTokens": _total_input_tokens, "outputTokens": _total_output_tokens, "llmResponseTimeMs": _total_llm_time_ms},
@@ -1162,25 +1345,46 @@ class AIAgentNode(BaseNode):
 
                 yield {"type": "agent_response", "content": final_response}
 
-                # If structured output requested, do call(s) with response_format
-                # and no tools to get clean JSON output, with retry on failure
+                # Structured output: response_format was already passed on the
+                # call above when iter_tools was None, so try parsing directly.
+                # Fall back to a retry loop only if the initial parse/validation fails.
                 if response_format:
+                    best_parsed = None
+                    best_errors: list[str] = []
+
+                    # First, try to parse the response we already have
+                    try:
+                        parsed = json.loads(final_response)
+                        validation_errors = self._validate_against_schema(parsed, output_schema or {})
+                        if not validation_errors:
+                            yield {"type": "agent_output_validation", "status": "success", "retry": 0}
+                            yield {"type": "result", "data": {
+                                "response": final_response,
+                                "structured": parsed,
+                                "toolCalls": tool_calls_list,
+                                "iterations": iterations,
+                                "_usage": {"inputTokens": _total_input_tokens, "outputTokens": _total_output_tokens, "llmResponseTimeMs": _total_llm_time_ms},
+                            }}
+                            return
+                        best_parsed = parsed
+                        best_errors = validation_errors
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+
+                    # Retry loop: ask the model to fix/reformat as JSON
                     messages.append({"role": "assistant", "content": final_response})
                     messages.append({
                         "role": "user",
                         "content": "Now format your answer as JSON matching the required schema.",
                     })
 
-                    best_parsed = None
-                    best_errors: list[str] = []
-
-                    for retry in range(MAX_OUTPUT_RETRIES + 1):
+                    for retry in range(MAX_OUTPUT_RETRIES):
                         struct_response = await call_llm(
                             model=model,
                             messages=messages,
                             temperature=0.0,
                             tools=None,
-                            max_tokens=4096,
+                            max_tokens=max_output_tokens,
                             response_format=response_format,
                         )
                         if struct_response.usage:
@@ -1191,52 +1395,28 @@ class AIAgentNode(BaseNode):
 
                         struct_text = struct_response.text or ""
 
-                        # Step 1: Try to parse JSON
                         try:
                             parsed = json.loads(struct_text)
                         except json.JSONDecodeError as e:
-                            yield {
-                                "type": "agent_output_validation",
-                                "status": "parse_error",
-                                "error": str(e),
-                                "retry": retry,
-                            }
-                            if retry < MAX_OUTPUT_RETRIES:
+                            yield {"type": "agent_output_validation", "status": "parse_error", "error": str(e), "retry": retry + 1}
+                            if retry < MAX_OUTPUT_RETRIES - 1:
                                 messages.append({"role": "assistant", "content": struct_text})
-                                messages.append({
-                                    "role": "user",
-                                    "content": f"JSON parse error: {e}. Please fix and return valid JSON matching the schema.",
-                                })
+                                messages.append({"role": "user", "content": f"JSON parse error: {e}. Please fix and return valid JSON matching the schema."})
                                 continue
                             break
 
-                        # Step 2: Validate against schema
                         validation_errors = self._validate_against_schema(parsed, output_schema or {})
                         best_parsed = parsed
 
                         if validation_errors:
                             best_errors = validation_errors
-                            yield {
-                                "type": "agent_output_validation",
-                                "status": "validation_error",
-                                "errors": validation_errors,
-                                "retry": retry,
-                            }
-                            if retry < MAX_OUTPUT_RETRIES:
+                            yield {"type": "agent_output_validation", "status": "validation_error", "errors": validation_errors, "retry": retry + 1}
+                            if retry < MAX_OUTPUT_RETRIES - 1:
                                 messages.append({"role": "assistant", "content": struct_text})
-                                messages.append({
-                                    "role": "user",
-                                    "content": f"Schema validation errors: {'; '.join(validation_errors)}. Please fix and return valid JSON.",
-                                })
+                                messages.append({"role": "user", "content": f"Schema validation errors: {'; '.join(validation_errors)}. Please fix and return valid JSON."})
                                 continue
-
-                        # Success (or final retry with best effort)
-                        if not validation_errors:
-                            yield {
-                                "type": "agent_output_validation",
-                                "status": "success",
-                                "retry": retry,
-                            }
+                        else:
+                            yield {"type": "agent_output_validation", "status": "success", "retry": retry + 1}
                         break
 
                     if best_parsed is not None:
@@ -1308,15 +1488,54 @@ class AIAgentNode(BaseNode):
         return errors
 
     @staticmethod
+    def _truncate_tool_result(result_str: str, max_chars: int = 16000) -> str:
+        """Truncate a tool result string, keeping head + tail with a marker."""
+        if len(result_str) <= max_chars:
+            return result_str
+        keep = max_chars // 2
+        truncated = len(result_str) - max_chars
+        return (
+            result_str[:keep]
+            + f"\n\n[... truncated {truncated} chars ...]\n\n"
+            + result_str[-keep:]
+        )
+
+    @staticmethod
+    def _check_empty_ids(args: dict[str, Any], schema: dict[str, Any]) -> str | None:
+        """Check if any ID-like string parameter was passed as empty string.
+
+        Returns an error message if found, None otherwise.
+        """
+        properties = schema.get("properties", {})
+        for param_name, param_def in properties.items():
+            if param_name not in args:
+                continue
+            param_type = (param_def.get("type") or "").lower()
+            if param_type != "string":
+                continue
+            desc = (param_def.get("description") or "").lower()
+            name_lower = param_name.lower()
+            is_id_like = any(
+                kw in name_lower or kw in desc
+                for kw in ("id", "identifier", "uuid", "_id")
+            )
+            if is_id_like and args[param_name] == "":
+                return (
+                    f"Field '{param_name}' appears to be an identifier but was "
+                    f"passed as empty string. Use a value returned by a previous "
+                    f"tool call, not a placeholder."
+                )
+        return None
+
+    @staticmethod
     def _validate_against_schema(
-        data: Any, schema: dict[str, Any]
+        data: Any, schema: dict[str, Any], path: str = ""
     ) -> list[str]:
-        """Basic validation of data against a JSON schema. Returns list of errors."""
+        """Validate data against a JSON schema. Supports nested objects, arrays, enums."""
         errors: list[str] = []
         if not schema:
             return errors
 
-        expected_type = schema.get("type")
         type_map = {
             "object": dict,
             "array": list,
@@ -1326,31 +1545,93 @@ class AIAgentNode(BaseNode):
             "boolean": bool,
         }
 
+        prefix = f"'{path}': " if path else ""
+
+        # Type check
+        expected_type = schema.get("type")
         if expected_type and expected_type in type_map:
             py_type = type_map[expected_type]
             if not isinstance(data, py_type):
-                errors.append(f"Expected top-level type '{expected_type}', got {type(data).__name__}")
-                return errors
+                # Allow int for number type
+                if expected_type == "number" and isinstance(data, int):
+                    pass
+                else:
+                    errors.append(f"{prefix}expected {expected_type}, got {type(data).__name__}")
+                    return errors
 
+        # Enum check
+        if "enum" in schema and data not in schema["enum"]:
+            errors.append(f"{prefix}value {data!r} not in enum {schema['enum']}")
+
+        # Object validation
         if isinstance(data, dict):
             required = schema.get("required", [])
             properties = schema.get("properties", {})
             for req in required:
                 if req not in data:
-                    errors.append(f"Missing required field: '{req}'")
+                    errors.append(f"{prefix}missing required field '{req}'")
             for key, value in data.items():
                 if key in properties:
-                    prop_type = properties[key].get("type")
-                    if prop_type and prop_type in type_map:
-                        py_type = type_map[prop_type]
-                        if not isinstance(value, py_type):
-                            if prop_type == "number" and isinstance(value, int):
-                                continue
-                            errors.append(
-                                f"Field '{key}': expected {prop_type}, got {type(value).__name__}"
-                            )
+                    child_path = f"{path}.{key}" if path else key
+                    errors.extend(
+                        AIAgentNode._validate_against_schema(value, properties[key], child_path)
+                    )
+
+        # Array validation
+        if isinstance(data, list):
+            items_schema = schema.get("items")
+            if items_schema:
+                for i, item in enumerate(data):
+                    child_path = f"{path}[{i}]" if path else f"[{i}]"
+                    errors.extend(
+                        AIAgentNode._validate_against_schema(item, items_schema, child_path)
+                    )
+            min_items = schema.get("minItems")
+            max_items = schema.get("maxItems")
+            if min_items is not None and len(data) < min_items:
+                errors.append(f"{prefix}array has {len(data)} items, minimum is {min_items}")
+            if max_items is not None and len(data) > max_items:
+                errors.append(f"{prefix}array has {len(data)} items, maximum is {max_items}")
 
         return errors
+
+    async def _run_one_tool(
+        self,
+        tc: Any,
+        tool_schema_map: dict[str, Any],
+        tool_executors: dict[str, Any],
+        context: ExecutionContext,
+        agent_context: AgentContext | None,
+        node_name: str,
+        max_context_tokens: int,
+    ) -> tuple[Any, Any, str, bool]:
+        """Validate and execute a single tool call, returning (tc, result, result_str, is_error)."""
+        schema = tool_schema_map.get(tc.name, {})
+        if schema:
+            empty_id_err = self._check_empty_ids(tc.args or {}, schema)
+            if empty_id_err:
+                tool_result = {"error": empty_id_err}
+                return tc, tool_result, json.dumps(tool_result), True
+
+            arg_errors = self._validate_tool_args(tc.args or {}, schema)
+            if arg_errors:
+                tool_result = {"error": f"Invalid arguments: {'; '.join(arg_errors)}"}
+                return tc, tool_result, json.dumps(tool_result), True
+
+        tool_result = await self._execute_tool(
+            tc.name, tc.args, tool_executors, context,
+            agent_context=agent_context,
+            node_name=node_name,
+            max_context_tokens=max_context_tokens,
+        )
+        result_str = (
+            json.dumps(tool_result)
+            if not isinstance(tool_result, str)
+            else tool_result
+        )
+        result_str = self._truncate_tool_result(result_str)
+        is_error = isinstance(tool_result, dict) and "error" in tool_result
+        return tc, tool_result, result_str, is_error
 
     async def _execute_tool(
         self,
@@ -1406,10 +1687,13 @@ class AIAgentNode(BaseNode):
             executor = tool_executors[name]
             try:
                 if inspect.iscoroutinefunction(executor):
-                    return await executor(input_data, context)
+                    coro = executor(input_data, context)
                 else:
                     # Run sync executor in a thread to avoid blocking
-                    return await asyncio.to_thread(executor, input_data)
+                    coro = asyncio.to_thread(executor, input_data)
+                return await asyncio.wait_for(coro, timeout=_DEFAULT_TOOL_TIMEOUT)
+            except asyncio.TimeoutError:
+                return {"error": f"Tool '{name}' timed out after {_DEFAULT_TOOL_TIMEOUT}s"}
             except Exception as e:
                 return {"error": str(e)}
 
