@@ -5,7 +5,7 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: #f8f9fa;
+  --background: #ffffff;
   --foreground: #1e1e1e;
   --card: #ffffff;
   --card-foreground: #1e1e1e;
@@ -44,13 +44,13 @@
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
   --radius: 0.5rem;
   --shadow-2xs: 0 1px 2px 0 rgb(0 0 0 / 0.03);
-  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.08), 0 1px 2px -1px rgb(0 0 0 / 0.08);
-  --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.08), 0 1px 2px -1px rgb(0 0 0 / 0.08);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.05);
-  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.08), 0 4px 6px -4px rgb(0 0 0 / 0.05);
-  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.08), 0 8px 10px -6px rgb(0 0 0 / 0.05);
-  --shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.2);
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.04), 0 1px 4px 0 rgb(0 0 0 / 0.02);
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.03), 0 2px 6px 0 rgb(0 0 0 / 0.04), 0 0 1px 0 rgb(0 0 0 / 0.04);
+  --shadow: 0 1px 2px 0 rgb(0 0 0 / 0.03), 0 2px 6px 0 rgb(0 0 0 / 0.04), 0 0 1px 0 rgb(0 0 0 / 0.04);
+  --shadow-md: 0 2px 4px 0 rgb(0 0 0 / 0.02), 0 4px 12px -2px rgb(0 0 0 / 0.06), 0 0 1px 0 rgb(0 0 0 / 0.04);
+  --shadow-lg: 0 2px 4px 0 rgb(0 0 0 / 0.02), 0 8px 24px -4px rgb(0 0 0 / 0.08), 0 0 1px 0 rgb(0 0 0 / 0.04);
+  --shadow-xl: 0 4px 8px 0 rgb(0 0 0 / 0.02), 0 16px 40px -8px rgb(0 0 0 / 0.1), 0 0 1px 0 rgb(0 0 0 / 0.04);
+  --shadow-2xl: 0 8px 16px 0 rgb(0 0 0 / 0.03), 0 24px 56px -12px rgb(0 0 0 / 0.14), 0 0 1px 0 rgb(0 0 0 / 0.04);
   --tracking-normal: 0em;
   --spacing: 0.25rem;
 
@@ -175,14 +175,14 @@
   --sidebar-accent-foreground: #e5e5e5;
   --sidebar-border: #3d3d3d;
   --sidebar-ring: #18a0fb;
-  --shadow-2xs: 0 1px 2px 0 rgb(0 0 0 / 0.1);
-  --shadow-xs: 0 1px 3px 0 rgb(0 0 0 / 0.15);
-  --shadow-sm: 0 2px 4px 0 rgb(0 0 0 / 0.2);
-  --shadow: 0 2px 4px 0 rgb(0 0 0 / 0.2);
-  --shadow-md: 0 4px 8px -1px rgb(0 0 0 / 0.25);
-  --shadow-lg: 0 10px 20px -3px rgb(0 0 0 / 0.3);
-  --shadow-xl: 0 20px 30px -5px rgb(0 0 0 / 0.35);
-  --shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.5);
+  --shadow-2xs: 0 1px 2px 0 rgb(0 0 0 / 0.08);
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.1), 0 1px 4px 0 rgb(0 0 0 / 0.06);
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.08), 0 2px 8px 0 rgb(0 0 0 / 0.1), 0 0 1px 0 rgb(0 0 0 / 0.12);
+  --shadow: 0 1px 2px 0 rgb(0 0 0 / 0.08), 0 2px 8px 0 rgb(0 0 0 / 0.1), 0 0 1px 0 rgb(0 0 0 / 0.12);
+  --shadow-md: 0 2px 4px 0 rgb(0 0 0 / 0.06), 0 4px 16px -2px rgb(0 0 0 / 0.14), 0 0 1px 0 rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 2px 4px 0 rgb(0 0 0 / 0.06), 0 8px 28px -4px rgb(0 0 0 / 0.18), 0 0 1px 0 rgb(0 0 0 / 0.1);
+  --shadow-xl: 0 4px 8px 0 rgb(0 0 0 / 0.06), 0 16px 44px -8px rgb(0 0 0 / 0.22), 0 0 1px 0 rgb(0 0 0 / 0.1);
+  --shadow-2xl: 0 8px 16px 0 rgb(0 0 0 / 0.08), 0 24px 60px -12px rgb(0 0 0 / 0.3), 0 0 1px 0 rgb(0 0 0 / 0.1);
 
   /* Canvas floating surfaces — matches card/sidebar for cohesion */
   --canvas-float: #2c2c2c;
@@ -473,12 +473,13 @@
   }
 }
 
+
 /* ── Editor chrome — light mode (clean VS Code / Figma inspired) ── */
 :root .editor-chrome {
   --background: #ffffff;
   --foreground: #343a40;
   color: var(--foreground);
-  --card: #f8f9fa;
+  --card: #ffffff;
   --card-foreground: #343a40;
   --popover: #ffffff;
   --popover-foreground: #343a40;
@@ -707,4 +708,57 @@ textarea,
 .node-exec-idle {
   opacity: 0.4;
   transition: opacity 0.4s ease;
+}
+
+/* ── Shared Utilities ── */
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.shimmer {
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.08) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: shimmer 3s ease-in-out infinite;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+@keyframes fade-in-up {
+  0% { opacity: 0; transform: translateY(8px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in-up {
+  animation: fade-in-up 0.4s ease-out both;
+}
+
+@keyframes wf-appear {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.wf-stagger {
+  animation: wf-appear 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.label-caps {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  letter-spacing: 0.01em;
 }

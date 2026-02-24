@@ -264,7 +264,7 @@ export function fromBackendWorkflow(api: ApiWorkflowDetail): {
       const data = createWorkflowNodeData(
         {
           type: node.type,
-          icon: getNodeIcon(node.type),
+          icon: getNodeIcon(node.type, node.icon),
           group: node.group,
         },
         {
@@ -290,7 +290,7 @@ export function fromBackendWorkflow(api: ApiWorkflowDetail): {
       const data = createWorkflowNodeData(
         {
           type: node.type,
-          icon: getNodeIcon(node.type),
+          icon: getNodeIcon(node.type, node.icon),
           group: node.group,
           inputs,
           outputs,
@@ -319,7 +319,7 @@ export function fromBackendWorkflow(api: ApiWorkflowDetail): {
     const data = createWorkflowNodeData(
       {
         type: node.type,
-        icon: getNodeIcon(node.type),
+        icon: getNodeIcon(node.type, node.icon),
         group: node.group,
         inputs,
         outputs,

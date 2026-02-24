@@ -8,6 +8,7 @@
 import { useCallback } from 'react';
 import type { Node } from 'reactflow';
 import { useWorkflowStore } from '../stores/workflowStore';
+import { getSubnodeDisplayLabel } from '../lib/nodeConfig';
 import type {
   WorkflowNodeData,
   NodeExecutionData,
@@ -181,7 +182,7 @@ export function useSubnodeSlotData(
               const nd = node.data as WorkflowNodeData;
               return {
                 id: node.id,
-                label: nd.label,
+                label: getSubnodeDisplayLabel(nd),
                 type: nd.subnodeType || 'tool',
                 icon: nd.icon,
                 nodeType: nd.type,

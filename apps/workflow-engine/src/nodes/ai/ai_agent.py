@@ -64,7 +64,7 @@ def _get_tiktoken_encoder(model: str) -> Any | None:
     return enc
 
 # Sub-agent spawn tool names (excluded from inheritance to prevent infinite nesting)
-_SPAWN_TOOL_NAMES = frozenset({"spawn_agent", "spawn_agents_parallel"})
+_SPAWN_TOOL_NAMES = frozenset({"spawn_agent"})
 
 # Scratchpad (working memory) tool names
 _SCRATCHPAD_TOOL_NAMES = frozenset({"memory_store", "memory_recall"})
@@ -582,109 +582,38 @@ class AIAgentNode(BaseNode):
     # ------------------------------------------------------------------
 
     def _build_spawn_tools(self) -> list[dict[str, Any]]:
-        """Return tool definitions for spawn_agent and spawn_agents_parallel."""
+        """Return the spawn_agent tool definition.
+
+        Schema is intentionally flat — just task + name. The handler accepts
+        extra args (model, system_prompt, temperature, max_iterations) that
+        models may include even though they're not in the schema.
+
+        For parallel execution, the model calls spawn_agent multiple times in
+        one turn and the runtime executes them concurrently via asyncio.gather.
+        """
         return [
             {
                 "name": "spawn_agent",
                 "description": (
-                    "Spawn a sub-agent to perform a specific task. The sub-agent runs "
-                    "independently with its own system prompt and model, executes the task, "
-                    "and returns a result. Use this to delegate focused subtasks."
+                    "Spawn a sub-agent to perform a specific task. The sub-agent "
+                    "runs independently, executes the task, and returns a result. "
+                    "Call this tool multiple times in the same turn to run "
+                    "sub-agents concurrently. Include relevant context data "
+                    "directly in the task string."
                 ),
                 "input_schema": {
                     "type": "object",
                     "properties": {
                         "task": {
                             "type": "string",
-                            "description": "The task for the sub-agent to perform",
+                            "description": "The task for the sub-agent. Include any context data inline.",
                         },
-                        "system_prompt": {
+                        "name": {
                             "type": "string",
-                            "description": "System prompt for the sub-agent. Defaults to parent's if omitted.",
-                        },
-                        "model": {
-                            "type": "string",
-                            "description": "Model to use (e.g. 'gemini-2.0-flash', 'gpt-4o'). Defaults to parent's if omitted.",
-                        },
-                        "tools": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Names of tools from the parent to give this sub-agent. Omit to inherit all.",
-                        },
-                        "max_iterations": {
-                            "type": "integer",
-                            "description": "Max tool-calling iterations for the sub-agent. Default 5.",
-                        },
-                        "temperature": {
-                            "type": "number",
-                            "description": "Temperature for the sub-agent. Defaults to parent's.",
-                        },
-                        "context_snippets": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "label": {"type": "string"},
-                                    "content": {"type": "string"},
-                                },
-                                "required": ["label", "content"],
-                            },
-                            "description": "Structured context sections to inject into the sub-agent's task prompt.",
-                        },
-                        "expected_output": {
-                            "type": "object",
-                            "description": "JSON schema for expected structured output. If set, the child's response will be parsed as JSON and returned in a 'data' field.",
+                            "description": "Label for this sub-agent (for identifying results).",
                         },
                     },
                     "required": ["task"],
-                },
-            },
-            {
-                "name": "spawn_agents_parallel",
-                "description": (
-                    "Spawn multiple sub-agents in parallel. Each agent spec defines a "
-                    "separate agent with its own task, model, and tools. All run concurrently "
-                    "and results are returned as an array. Use this when subtasks are independent."
-                ),
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "agents": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "name": {
-                                        "type": "string",
-                                        "description": "Label for this agent (for identifying results)",
-                                    },
-                                    "task": {"type": "string"},
-                                    "system_prompt": {"type": "string"},
-                                    "model": {"type": "string"},
-                                    "tools": {
-                                        "type": "array",
-                                        "items": {"type": "string"},
-                                    },
-                                    "max_iterations": {"type": "integer"},
-                                    "temperature": {"type": "number"},
-                                    "context_snippets": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "object",
-                                            "properties": {
-                                                "label": {"type": "string"},
-                                                "content": {"type": "string"},
-                                            },
-                                        },
-                                    },
-                                    "expected_output": {"type": "object"},
-                                },
-                                "required": ["task"],
-                            },
-                            "description": "Array of agent specifications to run in parallel",
-                        },
-                    },
-                    "required": ["agents"],
                 },
             },
         ]
@@ -699,11 +628,25 @@ class AIAgentNode(BaseNode):
         parent_executors = agent_context.inheritable_tool_executors
 
         if requested_tool_names is None:
+            logger.debug(
+                "[sub-agent] inheriting ALL parent tools: [%s]",
+                ", ".join(t["name"] for t in parent_tools),
+            )
             return list(parent_tools), dict(parent_executors)
 
         requested = set(requested_tool_names)
         child_tools = [t for t in parent_tools if t["name"] in requested]
         child_executors = {k: v for k, v in parent_executors.items() if k in requested}
+        missing = requested - {t["name"] for t in child_tools}
+        if missing:
+            logger.warning(
+                "[sub-agent] requested tools not found in parent: %s", missing,
+            )
+        logger.debug(
+            "[sub-agent] resolved %d/%d requested tools: [%s]",
+            len(child_tools), len(requested),
+            ", ".join(t["name"] for t in child_tools),
+        )
         return child_tools, child_executors
 
     async def _handle_spawn_agent(
@@ -715,7 +658,22 @@ class AIAgentNode(BaseNode):
         max_context_tokens: int = _DEFAULT_MAX_CONTEXT_TOKENS,
     ) -> dict[str, Any]:
         """Handle a spawn_agent tool call by running a child agent loop."""
+        child_depth = agent_context.agent_depth + 1
+        _sd = "  " * agent_context.agent_depth
+        _agent_name = args.get("name") or f"sub-agent[{child_depth}]"
+        print(f"\n{_sd}  SPAWN: {_agent_name} (depth {child_depth}/{agent_context.max_agent_depth})")
+        print(f"{_sd}    task: {(args.get('task') or '')[:150]}{'...' if len(args.get('task', '')) > 150 else ''}")
+        logger.info(
+            "[sub-agent] spawn_agent requested | node=%s depth=%d/%d task=%s",
+            node_name, child_depth, agent_context.max_agent_depth,
+            (args.get("task") or "")[:120],
+        )
+
         if agent_context.agent_depth >= agent_context.max_agent_depth:
+            logger.warning(
+                "[sub-agent] BLOCKED: max depth %d reached | node=%s",
+                agent_context.max_agent_depth, node_name,
+            )
             return {
                 "error": (
                     f"Maximum sub-agent depth ({agent_context.max_agent_depth}) reached. "
@@ -725,6 +683,7 @@ class AIAgentNode(BaseNode):
 
         task = args.get("task", "")
         if not task:
+            logger.warning("[sub-agent] BLOCKED: empty task | node=%s", node_name)
             return {"error": "Task is required for spawn_agent."}
 
         child_model = args.get("model") or agent_context.parent_model
@@ -735,14 +694,25 @@ class AIAgentNode(BaseNode):
         child_tools, child_executors = self._resolve_child_tools(
             args.get("tools"), agent_context
         )
+        logger.info(
+            "[sub-agent] config | model=%s temp=%.2f max_iter=%d tools=[%s] scratchpad=%s",
+            child_model, child_temperature, child_max_iterations,
+            ", ".join(t["name"] for t in child_tools),
+            agent_context.enable_scratchpad,
+        )
 
         # Create child agent context; spawn/scratchpad tools gated by config.
         can_spawn = (
             agent_context.allow_recursive_spawn
-            and (agent_context.agent_depth + 1) < agent_context.max_agent_depth
+            and child_depth < agent_context.max_agent_depth
+        )
+        logger.debug(
+            "[sub-agent] can_spawn=%s (recursive=%s, depth %d < max %d)",
+            can_spawn, agent_context.allow_recursive_spawn,
+            child_depth, agent_context.max_agent_depth,
         )
         child_agent_context = AgentContext(
-            agent_depth=agent_context.agent_depth + 1,
+            agent_depth=child_depth,
             max_agent_depth=agent_context.max_agent_depth,
             parent_model=child_model,
             parent_temperature=child_temperature,
@@ -756,28 +726,47 @@ class AIAgentNode(BaseNode):
         # Give child scratchpad tools only if parent has them enabled
         if agent_context.enable_scratchpad:
             child_tools = child_tools + self._build_scratchpad_tools()
+            logger.debug("[sub-agent] injected scratchpad tools for child (parent keys: %s)",
+                         list(agent_context.scratchpad.keys()))
         if can_spawn:
             child_tools = child_tools + self._build_spawn_tools()
+            logger.debug("[sub-agent] injected spawn tools for child")
 
         # Rich context: inject context_snippets into task
+        # Accepts both [{label, content}] dicts and plain strings
         context_snippets = args.get("context_snippets", [])
         if context_snippets:
             snippet_parts = ["## Context from parent agent:"]
             for snippet in context_snippets:
-                label = snippet.get("label", "Context")
-                content = snippet.get("content", "")
-                snippet_parts.append(f"### {label}\n{content}")
+                if isinstance(snippet, dict):
+                    label = snippet.get("label", "Context")
+                    content = snippet.get("content", "")
+                    snippet_parts.append(f"### {label}\n{content}")
+                elif isinstance(snippet, str):
+                    snippet_parts.append(snippet)
             task = f"{task}\n\n" + "\n\n".join(snippet_parts)
+            logger.debug("[sub-agent] injected %d context snippets", len(context_snippets))
 
         expected_output = args.get("expected_output")
+        # Normalize: model may send expected_output as a JSON string instead of dict
+        if isinstance(expected_output, str):
+            try:
+                expected_output = json.loads(expected_output)
+            except (json.JSONDecodeError, TypeError):
+                expected_output = None  # unparseable, ignore
+        if expected_output:
+            logger.debug("[sub-agent] expected_output schema set: %s", list(expected_output.get("properties", {}).keys()) if isinstance(expected_output, dict) else "non-dict")
 
         # Emit spawn event
         self._emit_event(context, node_name, ExecutionEventType.AGENT_SPAWN, {
             "task": task[:200],
             "model": child_model,
-            "depth": agent_context.agent_depth + 1,
+            "depth": child_depth,
         })
 
+        agent_label = args.get("name") or f"sub-agent[{child_depth}]"
+        child_node_name = f"{node_name}/{agent_label}"
+        logger.info("[sub-agent] STARTING child loop | name=%s", child_node_name)
         try:
             result = await self._run_agent_loop(
                 model=child_model,
@@ -788,11 +777,15 @@ class AIAgentNode(BaseNode):
                 max_iterations=child_max_iterations,
                 temperature=child_temperature,
                 context=context,
-                node_name=f"{node_name}/sub-agent[{agent_context.agent_depth + 1}]",
+                node_name=child_node_name,
                 max_context_tokens=max_context_tokens,
                 agent_context=child_agent_context,
             )
         except Exception as e:
+            logger.error(
+                "[sub-agent] FAILED | name=%s error=%s", child_node_name, e,
+                exc_info=True,
+            )
             return {"error": f"Sub-agent failed: {e}"}
 
         # Build enriched return: response, iterations, evidence, optional data
@@ -807,53 +800,31 @@ class AIAgentNode(BaseNode):
             try:
                 child_return["data"] = json.loads(result.get("response", ""))
                 child_return["parse_error"] = None
+                logger.debug("[sub-agent] parsed structured output successfully")
             except (json.JSONDecodeError, TypeError) as e:
                 child_return["data"] = None
                 child_return["parse_error"] = str(e)
+                logger.warning("[sub-agent] structured output parse failed: %s", e)
+
+        _resp_preview = child_return.get("response", "")[:200]
+        print(f"{_sd}  CHILD DONE: {child_node_name}")
+        print(f"{_sd}    iterations={child_return['iterations']}  scratchpad={list(child_agent_context.scratchpad.keys())}")
+        print(f"{_sd}    response: {_resp_preview}{'...' if len(child_return.get('response', '')) > 200 else ''}")
+        logger.info(
+            "[sub-agent] COMPLETED | name=%s iterations=%d response_len=%d scratchpad_keys=%s",
+            child_node_name, child_return["iterations"],
+            len(child_return.get("response", "")),
+            list(child_agent_context.scratchpad.keys()),
+        )
 
         # Emit child complete event
         self._emit_event(context, node_name, ExecutionEventType.AGENT_CHILD_COMPLETE, {
-            "depth": agent_context.agent_depth + 1,
+            "depth": child_depth,
             "iterations": child_return["iterations"],
             "has_evidence": bool(child_agent_context.scratchpad),
         })
 
         return child_return
-
-    async def _handle_spawn_agents_parallel(
-        self,
-        args: dict[str, Any],
-        agent_context: AgentContext,
-        context: ExecutionContext,
-        node_name: str,
-        max_context_tokens: int = _DEFAULT_MAX_CONTEXT_TOKENS,
-    ) -> dict[str, Any]:
-        """Handle spawn_agents_parallel by running child agents concurrently."""
-        agent_specs = args.get("agents", [])
-        if not agent_specs:
-            return {"error": "At least one agent spec is required."}
-
-        async def _run_one(spec: dict[str, Any]) -> dict[str, Any]:
-            result = await self._handle_spawn_agent(
-                spec, agent_context, context, node_name, max_context_tokens,
-            )
-            label = spec.get("name") or spec.get("task", "")[:40]
-            return {"name": label, **result}
-
-        results = await asyncio.gather(
-            *[_run_one(spec) for spec in agent_specs],
-            return_exceptions=True,
-        )
-
-        output: list[dict[str, Any]] = []
-        for i, r in enumerate(results):
-            if isinstance(r, Exception):
-                label = agent_specs[i].get("name", f"agent_{i}")
-                output.append({"name": label, "error": str(r)})
-            else:
-                output.append(r)
-
-        return {"agents": output}
 
     def _emit_event(
         self,
@@ -982,6 +953,17 @@ class AIAgentNode(BaseNode):
         max_output_tokens: int = 4096,
     ) -> dict[str, Any]:
         """Thin wrapper: consumes the streaming generator and dispatches events."""
+        depth = agent_context.agent_depth if agent_context else 0
+        _d = "  " * depth
+        print(f"\n{_d}{'='*60}")
+        print(f"{_d}AGENT START | {node_name} (depth={depth})")
+        print(f"{_d}  model={model}  max_iter={max_iterations}  tools={len(tools)}  temp={temperature}")
+        print(f"{_d}  task: {task[:150]}{'...' if len(task) > 150 else ''}")
+        print(f"{_d}{'='*60}")
+        logger.info(
+            "[agent-loop] START | node=%s depth=%d model=%s max_iter=%d tools=%d",
+            node_name, depth, model, max_iterations, len(tools),
+        )
         result: dict[str, Any] = {}
         async for event in self._run_agent_loop_stream(
             model=model,
@@ -1005,6 +987,21 @@ class AIAgentNode(BaseNode):
                 self._emit_event(context, node_name, EVENT_TYPE_MAP[etype], event)
             elif etype == "result":
                 result = event["data"]
+        _resp_preview = result.get("response", "")[:200]
+        _structured = result.get("structured")
+        print(f"\n{_d}{'='*60}")
+        print(f"{_d}AGENT END | {node_name} (depth={depth})")
+        print(f"{_d}  iterations={result.get('iterations', 0)}  response_len={len(result.get('response', ''))}")
+        if _structured:
+            print(f"{_d}  structured keys: {list(_structured.keys())}")
+        else:
+            print(f"{_d}  response: {_resp_preview}{'...' if len(result.get('response', '')) > 200 else ''}")
+        print(f"{_d}{'='*60}")
+        logger.info(
+            "[agent-loop] END | node=%s depth=%d iterations=%d response_len=%d",
+            node_name, depth, result.get("iterations", 0),
+            len(result.get("response", "")),
+        )
         return result
 
     async def _run_agent_loop_stream(
@@ -1075,7 +1072,7 @@ class AIAgentNode(BaseNode):
         # Per-tool failure history: {tool_name: [(args_snapshot, error), ...]}
         failure_tracker: dict[str, list[tuple[str, str]]] = {}
         malformed_retries = 0
-        MAX_MALFORMED_RETRIES = 2
+        MAX_MALFORMED_RETRIES = 3
         base_temperature = temperature
         _total_input_tokens = 0
         _total_output_tokens = 0
@@ -1083,8 +1080,10 @@ class AIAgentNode(BaseNode):
         _warned_80 = False
         _warned_90 = False
 
+        _ld = "  " * (agent_context.agent_depth if agent_context else 0)
         while iterations < max_iterations:
             iterations += 1
+            print(f"{_ld}  --- iteration {iterations}/{max_iterations} ({node_name}) ---")
             yield {"type": "iteration_start", "iteration": iterations}
 
             # Trim context if it's grown too large
@@ -1151,6 +1150,7 @@ class AIAgentNode(BaseNode):
                         "_usage": {"inputTokens": _total_input_tokens, "outputTokens": _total_output_tokens, "llmResponseTimeMs": _total_llm_time_ms},
                     }}
                     return
+
                 messages.append({"role": "assistant", "content": response.text or ""})
                 # B2: Detailed malformed feedback with available tools & params
                 tool_hints = []
@@ -1185,8 +1185,10 @@ class AIAgentNode(BaseNode):
                     if enable_planning:
                         plan_text, reflect_text = self._extract_plan_blocks(response.text)
                         if plan_text:
+                            print(f"{_ld}  PLAN: {plan_text[:200]}{'...' if len(plan_text) > 200 else ''}")
                             yield {"type": "agent_plan", "plan": plan_text, "iteration": iterations}
                         if reflect_text:
+                            print(f"{_ld}  REFLECT: {reflect_text[:200]}{'...' if len(reflect_text) > 200 else ''}")
                             yield {"type": "agent_reflect", "reflection": reflect_text, "iteration": iterations}
 
                 # Append assistant message with tool calls
@@ -1206,6 +1208,18 @@ class AIAgentNode(BaseNode):
                 # Process results in order (messages must stay ordered)
                 iteration_had_failure = False
                 for tc, tool_result, result_str, is_error in results:
+                    # Print tool call
+                    _args_preview = json.dumps(tc.args, default=str)
+                    if len(_args_preview) > 200:
+                        _args_preview = _args_preview[:200] + "..."
+                    print(f"{_ld}  TOOL CALL: {tc.name}({_args_preview})")
+                    # Print tool result
+                    _res_preview = str(tool_result)
+                    if len(_res_preview) > 300:
+                        _res_preview = _res_preview[:300] + "..."
+                    _err_marker = " ERROR" if is_error else ""
+                    print(f"{_ld}  TOOL RESULT{_err_marker}: {_res_preview}")
+
                     tool_calls_list.append({
                         "tool": tc.name,
                         "input": tc.args,
@@ -1339,10 +1353,13 @@ class AIAgentNode(BaseNode):
                 if enable_planning and final_response:
                     plan_text, reflect_text = self._extract_plan_blocks(final_response)
                     if plan_text:
+                        print(f"{_ld}  FINAL PLAN: {plan_text[:200]}{'...' if len(plan_text) > 200 else ''}")
                         yield {"type": "agent_plan", "plan": plan_text, "iteration": iterations}
                     if reflect_text:
+                        print(f"{_ld}  FINAL REFLECT: {reflect_text[:200]}{'...' if len(reflect_text) > 200 else ''}")
                         yield {"type": "agent_reflect", "reflection": reflect_text, "iteration": iterations}
 
+                print(f"{_ld}  FINAL RESPONSE ({len(final_response)} chars): {final_response[:300]}{'...' if len(final_response) > 300 else ''}")
                 yield {"type": "agent_response", "content": final_response}
 
                 # Structured output: response_format was already passed on the
@@ -1357,6 +1374,7 @@ class AIAgentNode(BaseNode):
                         parsed = json.loads(final_response)
                         validation_errors = self._validate_against_schema(parsed, output_schema or {})
                         if not validation_errors:
+                            print(f"{_ld}  STRUCTURED OUTPUT: validated OK — keys={list(parsed.keys())}")
                             yield {"type": "agent_output_validation", "status": "success", "retry": 0}
                             yield {"type": "result", "data": {
                                 "response": final_response,
@@ -1649,12 +1667,18 @@ class AIAgentNode(BaseNode):
         asyncio.to_thread to avoid blocking the event loop.
         """
         # Scratchpad (working memory) tools
+        _sd = "  " * (agent_context.agent_depth if agent_context else 0)
         if name == "memory_store" and agent_context is not None:
             key = input_data.get("key", "")
             value = input_data.get("value")
             if not key:
+                logger.warning("[scratchpad] memory_store called with empty key | node=%s", node_name)
                 return {"error": "Key is required for memory_store."}
             agent_context.scratchpad[key] = value
+            _val_preview = str(value)[:200] + ("..." if len(str(value)) > 200 else "")
+            print(f"{_sd}  SCRATCHPAD STORE: [{key}] = {_val_preview}")
+            logger.debug("[scratchpad] stored key=%s | depth=%d total_keys=%d",
+                         key, agent_context.agent_depth, len(agent_context.scratchpad))
             return {"stored": key, "keys": list(agent_context.scratchpad.keys())}
 
         if name == "memory_recall" and agent_context is not None:
@@ -1663,22 +1687,30 @@ class AIAgentNode(BaseNode):
             if key:
                 if key in agent_context.scratchpad:
                     result["value"] = agent_context.scratchpad[key]
+                    _val_preview = str(result["value"])[:200] + ("..." if len(str(result["value"])) > 200 else "")
+                    print(f"{_sd}  SCRATCHPAD RECALL: [{key}] => {_val_preview}")
+                    logger.debug("[scratchpad] recalled key=%s | depth=%d", key, agent_context.agent_depth)
                 else:
                     result["value"] = None
                     result["error"] = f"Key '{key}' not found in scratchpad"
+                    print(f"{_sd}  SCRATCHPAD RECALL: [{key}] => NOT FOUND (available: {list(agent_context.scratchpad.keys())})")
+                    logger.debug("[scratchpad] key=%s NOT FOUND | depth=%d available=%s",
+                                 key, agent_context.agent_depth, list(agent_context.scratchpad.keys()))
             else:
                 result["scratchpad"] = dict(agent_context.scratchpad)
+                print(f"{_sd}  SCRATCHPAD RECALL ALL: keys={list(agent_context.scratchpad.keys())}")
+                logger.debug("[scratchpad] recalled all keys=%s | depth=%d",
+                             list(agent_context.scratchpad.keys()), agent_context.agent_depth)
             if agent_context.parent_scratchpad is not None:
                 result["parent_scratchpad"] = agent_context.parent_scratchpad
+                print(f"{_sd}  SCRATCHPAD (parent): keys={list(agent_context.parent_scratchpad.keys())}")
+                logger.debug("[scratchpad] included parent scratchpad keys=%s",
+                             list(agent_context.parent_scratchpad.keys()))
             return result
 
-        # Sub-agent spawn tools
+        # Sub-agent spawn tool
         if name == "spawn_agent" and agent_context is not None:
             return await self._handle_spawn_agent(
-                input_data, agent_context, context, node_name, max_context_tokens,
-            )
-        if name == "spawn_agents_parallel" and agent_context is not None:
-            return await self._handle_spawn_agents_parallel(
                 input_data, agent_context, context, node_name, max_context_tokens,
             )
 

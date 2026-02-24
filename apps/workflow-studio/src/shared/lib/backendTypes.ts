@@ -109,6 +109,8 @@ export interface ApiWorkflowDetail {
       outputStrategy?: Record<string, unknown>;
       // Node group for styling
       group?: string[];
+      // Icon from node registry (e.g. "fa:bot")
+      icon?: string;
       // Subnode properties
       isSubnode?: boolean;
       subnodeType?: 'model' | 'memory' | 'tool';

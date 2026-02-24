@@ -44,17 +44,18 @@ function RootLayout() {
     )
   }
 
+  // Sidebar commented out — nav folded into page
   return (
     <ThemeProvider defaultTheme="system" storageKey="workflow-studio-theme">
       <ErrorBoundary>
-        <SidebarProvider defaultOpen={false}>
-          <AppSidebar />
-          <main className="relative flex w-full flex-1 flex-col">
+        {/* <SidebarProvider defaultOpen={false}>
+          <AppSidebar /> */}
+          <main className="relative flex w-full flex-1 flex-col h-screen">
             <div className="h-full w-full relative">
               <Outlet />
             </div>
           </main>
-        </SidebarProvider>
+        {/* </SidebarProvider> */}
       </ErrorBoundary>
       <Toaster position="bottom-right" richColors closeButton />
     </ThemeProvider>

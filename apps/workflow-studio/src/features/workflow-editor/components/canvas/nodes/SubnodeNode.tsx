@@ -1,8 +1,9 @@
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import { Handle, Position, type NodeProps } from 'reactflow';
 import type { WorkflowNodeData } from '../../../types/workflow';
 import { getNodeStyles } from '../../../lib/nodeStyles';
 import { getIconForNode } from '../../../lib/nodeIcons';
+import { getSubnodeDisplayLabel } from '../../../lib/nodeConfig';
 import { useParentStyles } from '../../../hooks/useWorkflowSelectors';
 import { cn } from '@/shared/lib/utils';
 
@@ -14,6 +15,9 @@ function SubnodeNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
 
   // Get icon using shared utility
   const IconComponent = getIconForNode(data.icon, data.type);
+
+  // Derive display label from parameters (e.g. "Gemini 2.5 Flash" instead of "LLM Model")
+  const displayLabel = useMemo(() => getSubnodeDisplayLabel(data), [data]);
 
   // When stacked, hide visually but keep in ReactFlow graph
   if (data.stacked) {
@@ -74,9 +78,9 @@ function SubnodeNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
       <div className="mt-1.5 w-[80px] text-center">
         <span
           className="text-[10px] text-muted-foreground font-medium leading-tight block truncate"
-          title={data.label}
+          title={displayLabel}
         >
-          {data.label}
+          {displayLabel}
         </span>
       </div>
     </div>

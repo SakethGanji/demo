@@ -343,6 +343,8 @@ class WorkflowService:
                 "outputStrategy": io_data["outputStrategy"],
                 # Node group for styling
                 "group": io_data["group"],
+                # Icon from node registry
+                **({"icon": node_info.icon} if node_info and node_info.icon else {}),
             }
 
             # Add subnode metadata so frontend doesn't need to guess

@@ -22,1295 +22,1637 @@ def generate_workflow_id(name: str) -> str:
     return f"wf_{timestamp}_{hash_suffix}"
 
 
-# ── HTML Template ────────────────────────────────────────────────────
-# Single template — all dynamic values come from {{ $json.xxx }}
-# resolved by the expression engine at runtime.
+# ── Fraud Investigation & Triage ──────────────────────────────────────
 
-ACTION_CARD_HTML = """\
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        body {
-            background-color: #f8fafc;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-            padding: 20px;
-        }
-        .card {
-            width: 100%;
-            max-width: 380px;
-            background: #fff;
-            border-radius: 12px;
-            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
-            overflow: hidden;
-            border: 1px solid #e2e8f0;
-        }
-        .card-header {
-            background-color: #cbd5e1;
-            padding: 20px 16px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .card-title {
-            font-size: 18px;
-            font-weight: 600;
-            color: #1e293b;
-            margin: 0;
-        }
-        .badge {
-            background-color: #1e4d46;
-            color: #fff;
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-size: 13px;
-            font-weight: 500;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .badge svg { width: 14px; height: 14px; }
-        .card-body {
-            background: #f1f5f9;
-            padding: 16px;
-            margin: 0 12px 12px;
-            border-radius: 10px;
-            border: 1px solid #e2e8f0;
-        }
-        .bullet-list {
-            margin: 0;
-            padding: 0;
-            list-style: none;
-        }
-        .bullet-item {
-            display: flex;
-            align-items: flex-start;
-            gap: 10px;
-            padding: 4px 0;
-            color: #334155;
-            font-size: 14px;
-            line-height: 1.5;
-        }
-        .bullet-dot {
-            width: 6px;
-            height: 6px;
-            background-color: #1d4ed8;
-            border-radius: 50%;
-            margin-top: 7px;
-            flex-shrink: 0;
-        }
-        .card-label {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 11px;
-            font-weight: 700;
-            color: #64748b;
-            letter-spacing: 0.05em;
-            text-transform: uppercase;
-            margin-top: 14px;
-        }
-        .card-label svg { width: 16px; height: 16px; }
-        .card-btn {
-            display: block;
-            box-sizing: border-box;
-            background-color: #1d4ed8;
-            color: #fff;
-            width: 100%;
-            padding: 12px 0;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 600;
-            text-align: center;
-            border: none;
-            margin-top: 12px;
-        }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <div class="card-header">
-            <h2 class="card-title">{{ $json.title }}</h2>
-            <div class="badge">
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-                <span>{{ $json.accountId }}</span>
-            </div>
-        </div>
-        <div class="card-body">
-            <!-- bullets injected as pre-built HTML -->
-            <ul class="bullet-list">{{ $json.bulletsHtml }}</ul>
-            <div class="card-label">
-                <svg fill="#f59e0b" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M11.3 1.046A1 1 0 0111 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clip-rule="evenodd"/></svg>
-                <span>{{ $json.actionLabel }}</span>
-            </div>
-            <div class="card-btn">{{ $json.buttonText }}</div>
-        </div>
-    </div>
-
-    <!--
-        ══════════════════════════════════════════
-        VARIABLES (resolved by expression engine):
-          $json.title       — card header title
-          $json.accountId   — badge account ID
-          $json.actionLabel — action label text
-          $json.buttonText  — button text
-          $json.bulletsHtml — bullet list items (pre-built HTML)
-        ══════════════════════════════════════════
-    -->
-</body>
-</html>
-"""
-
-
-import os as _os
-_SAMPLE_DIR = _os.path.join(_os.path.dirname(__file__), "..", "..", "..", "..", "demo-workflows", "sample-data")
-_SAMPLE_DIR = _os.path.abspath(_SAMPLE_DIR)
-
-EXAMPLE_WORKFLOWS = [
-    # ========================================
-    # INTENT-BASED UI ROUTER
-    # ========================================
-    {
-        "name": "Intent UI Router",
-        "description": "Classifies user query intent (cards, transactions, or balance) and renders a different HTML UI for each. Run with manual trigger or test with input data.",
-        "active": True,
-        "definition": {
-            "nodes": [
-                {
-                    "name": "Start",
-                    "type": "Start",
-                    "parameters": {},
-                    "position": {"x": 100, "y": 300},
-                },
-                {
-                    "name": "Classify Intent",
-                    "type": "Code",
-                    "parameters": {
-                        "code": (
-                            'def make_bullets(items):\n'
-                            '    return "".join(\n'
-                            '        \'<li class="bullet-item"><div class="bullet-dot"></div><span>\' + t + \'</span></li>\'\n'
-                            '        for t in items\n'
-                            '    )\n'
-                            '\n'
-                            'raw = json_data.get("query", "")\n'
-                            'query = str(raw).lower() if raw else ""\n'
-                            '\n'
-                            'if "card" in query or "credit" in query or "debit" in query:\n'
-                            '    return [{"json": {\n'
-                            '        "intent": "cards",\n'
-                            '        "title": "Lock / Unlock",\n'
-                            '        "accountId": "1258",\n'
-                            '        "actionLabel": "Next Best Action",\n'
-                            '        "buttonText": "Lock / Unlock Account",\n'
-                            '        "bulletsHtml": make_bullets([\n'
-                            '            "Card ending 7891 temporarily locked",\n'
-                            '            "Last transaction: $45.00 at Amazon",\n'
-                            '            "Unlock requires SMS verification"\n'
-                            '        ])\n'
-                            '    }}]\n'
-                            'elif "transaction" in query or "history" in query or "payment" in query:\n'
-                            '    return [{"json": {\n'
-                            '        "intent": "transactions",\n'
-                            '        "title": "Recent Activity",\n'
-                            '        "accountId": "1258",\n'
-                            '        "actionLabel": "Next Best Action",\n'
-                            '        "buttonText": "View Transactions",\n'
-                            '        "bulletsHtml": make_bullets([\n'
-                            '            "Payment of $45.00 processed successfully",\n'
-                            '            "New login detected from unknown device",\n'
-                            '            "Wire transfer of $200.00 pending approval"\n'
-                            '        ])\n'
-                            '    }}]\n'
-                            'else:\n'
-                            '    return [{"json": {\n'
-                            '        "intent": "balance",\n'
-                            '        "title": "Account Balance",\n'
-                            '        "accountId": "1258",\n'
-                            '        "actionLabel": "Next Best Action",\n'
-                            '        "buttonText": "Check Balance",\n'
-                            '        "bulletsHtml": make_bullets([\n'
-                            '            "Current balance: $24,580.50",\n'
-                            '            "Last deposit: $4,500.00 on Feb 14",\n'
-                            '            "Monthly spending: $1,842.30 across 16 transactions"\n'
-                            '        ])\n'
-                            '    }}]'
-                        ),
-                    },
-                    "position": {"x": 350, "y": 300},
-                },
-                {
-                    "name": "Route by Intent",
-                    "type": "Switch",
-                    "parameters": {
-                        "numberOfOutputs": 3,
-                        "mode": "rules",
-                        "rules": [
-                            {
-                                "output": 0,
-                                "field": "intent",
-                                "operation": "equals",
-                                "value": "cards",
-                            },
-                            {
-                                "output": 1,
-                                "field": "intent",
-                                "operation": "equals",
-                                "value": "transactions",
-                            },
-                            {
-                                "output": 2,
-                                "field": "intent",
-                                "operation": "equals",
-                                "value": "balance",
-                            },
-                        ],
-                    },
-                    "position": {"x": 600, "y": 300},
-                },
-                {
-                    "name": "Cards UI",
-                    "type": "HTMLDisplay",
-                    "parameters": {
-                        "content": ACTION_CARD_HTML,
-                    },
-                    "position": {"x": 900, "y": 100},
-                },
-                {
-                    "name": "Transactions UI",
-                    "type": "HTMLDisplay",
-                    "parameters": {
-                        "content": ACTION_CARD_HTML,
-                    },
-                    "position": {"x": 900, "y": 300},
-                },
-                {
-                    "name": "Balance UI",
-                    "type": "HTMLDisplay",
-                    "parameters": {
-                        "content": ACTION_CARD_HTML,
-                    },
-                    "position": {"x": 900, "y": 500},
-                },
-            ],
-            "connections": [
-                {"source_node": "Start", "target_node": "Classify Intent"},
-                {"source_node": "Classify Intent", "target_node": "Route by Intent"},
-                {"source_node": "Route by Intent", "target_node": "Cards UI", "source_output": "output0"},
-                {"source_node": "Route by Intent", "target_node": "Transactions UI", "source_output": "output1"},
-                {"source_node": "Route by Intent", "target_node": "Balance UI", "source_output": "output2"},
-            ],
-            "settings": {},
-        },
-    },
-    # ========================================
-    # 2. SALES REPORT — File → Report → Output (HTML)
-    # ========================================
-    {
-        "name": "Sales Report",
-        "description": "Reads sales_data.csv, generates a full HTML report with stats, distributions, and data preview, then displays it.",
-        "active": True,
-        "definition": {
-            "nodes": [
-                {
-                    "name": "Start",
-                    "type": "Start",
-                    "parameters": {},
-                    "position": {"x": 100, "y": 300},
-                },
-                {
-                    "name": "Generate Report",
-                    "type": "Report",
-                    "parameters": {
-                        "sourceType": "file",
-                        "filePath": f"{_SAMPLE_DIR}/sales_data.csv",
-                        "title": "Q1–Q4 Sales Report",
-                        "previewRows": 15,
-                        "topN": 10,
-                        "showOverview": True,
-                        "showColumnStats": True,
-                        "showDistributions": True,
-                        "showTopValues": True,
-                        "showCorrelations": True,
-                        "showDataPreview": True,
-                        "outputFormat": "html",
-                    },
-                    "position": {"x": 400, "y": 300},
-                },
-                {
-                    "name": "Show Report",
-                    "type": "Output",
-                    "parameters": {
-                        "source": "input",
-                        "format": "html",
-                        "contentField": "html",
-                    },
-                    "position": {"x": 700, "y": 300},
-                },
-            ],
-            "connections": [
-                {"source_node": "Start", "target_node": "Generate Report"},
-                {"source_node": "Generate Report", "target_node": "Show Report"},
-            ],
-            "settings": {},
-        },
-    },
-    # ========================================
-    # 3. CUSTOMER PROFILE — File → Profile → Output (table)
-    # ========================================
-    {
-        "name": "Customer Profile",
-        "description": "Profiles customers.csv — shows column stats, distributions, and top values for every column.",
-        "active": True,
-        "definition": {
-            "nodes": [
-                {
-                    "name": "Start",
-                    "type": "Start",
-                    "parameters": {},
-                    "position": {"x": 100, "y": 300},
-                },
-                {
-                    "name": "Profile Data",
-                    "type": "Profile",
-                    "parameters": {
-                        "sourceType": "file",
-                        "filePath": f"{_SAMPLE_DIR}/customers.csv",
-                        "columns": "",
-                        "includeHistograms": True,
-                        "includeCorrelations": True,
-                        "topN": 10,
-                    },
-                    "position": {"x": 400, "y": 300},
-                },
-            ],
-            "connections": [
-                {"source_node": "Start", "target_node": "Profile Data"},
-            ],
-            "settings": {},
-        },
-    },
-    # ========================================
-    # 4. SALES AGGREGATE — File → Aggregate → Output (table)
-    # ========================================
-    {
-        "name": "Sales by Region",
-        "description": "Aggregates sales_data.csv by Region — sums Revenue, counts orders, computes avg Profit. Displays result as a table.",
-        "active": True,
-        "definition": {
-            "nodes": [
-                {
-                    "name": "Start",
-                    "type": "Start",
-                    "parameters": {},
-                    "position": {"x": 100, "y": 300},
-                },
-                {
-                    "name": "Aggregate",
-                    "type": "Aggregate",
-                    "parameters": {
-                        "sourceType": "file",
-                        "filePath": f"{_SAMPLE_DIR}/sales_data.csv",
-                        "groupBy": "Region",
-                        "aggregations": [
-                            {"column": "Revenue", "function": "sum", "alias": "Total Revenue"},
-                            {"column": "Profit", "function": "sum", "alias": "Total Profit"},
-                            {"column": "Units", "function": "sum", "alias": "Units Sold"},
-                            {"column": "Revenue", "function": "mean", "alias": "Avg Order Value"},
-                            {"column": "Revenue", "function": "count", "alias": "Order Count"},
-                        ],
-                        "sortBy": "Total Revenue",
-                        "sortOrder": "desc",
-                    },
-                    "position": {"x": 400, "y": 300},
-                },
-                {
-                    "name": "Show Table",
-                    "type": "Output",
-                    "parameters": {
-                        "source": "input",
-                        "format": "table",
-                    },
-                    "position": {"x": 700, "y": 300},
-                },
-            ],
-            "connections": [
-                {"source_node": "Start", "target_node": "Aggregate"},
-                {"source_node": "Aggregate", "target_node": "Show Table"},
-            ],
-            "settings": {},
-        },
-    },
-    # ========================================
-    # 5. EMPLOYEE SAMPLE — File → Sample → Output (table)
-    # ========================================
-    {
-        "name": "Employee Sample",
-        "description": "Takes a stratified sample of employees.csv by Department (50 rows), then displays the sampled data as a table.",
-        "active": True,
-        "definition": {
-            "nodes": [
-                {
-                    "name": "Start",
-                    "type": "Start",
-                    "parameters": {},
-                    "position": {"x": 100, "y": 300},
-                },
-                {
-                    "name": "Sample",
-                    "type": "Sample",
-                    "parameters": {
-                        "sourceType": "file",
-                        "filePath": f"{_SAMPLE_DIR}/employees.csv",
-                        "method": "stratified",
-                        "sampleSize": 50,
-                        "stratifyColumn": "Department",
-                        "seed": 42,
-                    },
-                    "position": {"x": 400, "y": 300},
-                },
-                {
-                    "name": "Show Sample",
-                    "type": "Output",
-                    "parameters": {
-                        "source": "input",
-                        "format": "table",
-                    },
-                    "position": {"x": 700, "y": 300},
-                },
-            ],
-            "connections": [
-                {"source_node": "Start", "target_node": "Sample"},
-                {"source_node": "Sample", "target_node": "Show Sample"},
-            ],
-            "settings": {},
-        },
-    },
-    # ========================================
-    # 6. CSV TABLE DISPLAY — File → Output (auto-detect)
-    # ========================================
-    {
-        "name": "CSV Table Display",
-        "description": "Displays a CSV file directly as a sortable table. Edit the Output node's filePath to point at any .csv, .xlsx, .tsv, or .parquet file.",
-        "active": True,
-        "definition": {
-            "nodes": [
-                {
-                    "name": "Start",
-                    "type": "Start",
-                    "parameters": {},
-                    "position": {"x": 100, "y": 300},
-                },
-                {
-                    "name": "Display CSV",
-                    "type": "Output",
-                    "parameters": {
-                        "source": "file",
-                        "filePath": f"{_SAMPLE_DIR}/sales_data.csv",
-                    },
-                    "position": {"x": 400, "y": 300},
-                },
-            ],
-            "connections": [
-                {"source_node": "Start", "target_node": "Display CSV"},
-            ],
-            "settings": {},
-        },
-    },
-    # ========================================
-    # 7. PRODUCT DEEP DIVE — Aggregate by Product+Channel → Report
-    # ========================================
-    {
-        "name": "Product Deep Dive",
-        "description": "Multi-group aggregation (Product × Channel) on sales data, piped into a Report node for a full visual breakdown.",
-        "active": True,
-        "definition": {
-            "nodes": [
-                {
-                    "name": "Start",
-                    "type": "Start",
-                    "parameters": {},
-                    "position": {"x": 100, "y": 300},
-                },
-                {
-                    "name": "Aggregate",
-                    "type": "Aggregate",
-                    "parameters": {
-                        "sourceType": "file",
-                        "filePath": f"{_SAMPLE_DIR}/sales_data.csv",
-                        "groupBy": "Product,Channel",
-                        "aggregations": [
-                            {"column": "Revenue", "function": "sum", "alias": "Revenue"},
-                            {"column": "Profit", "function": "sum", "alias": "Profit"},
-                            {"column": "Units", "function": "sum", "alias": "Units"},
-                            {"column": "Discount", "function": "mean", "alias": "Avg Discount %"},
-                        ],
-                        "sortBy": "Revenue",
-                        "sortOrder": "desc",
-                        "limit": 20,
-                    },
-                    "position": {"x": 400, "y": 300},
-                },
-                {
-                    "name": "Build Report",
-                    "type": "Report",
-                    "parameters": {
-                        "sourceType": "input",
-                        "dataField": "data",
-                        "title": "Product × Channel Breakdown",
-                        "showOverview": True,
-                        "showColumnStats": True,
-                        "showDistributions": True,
-                        "showCorrelations": True,
-                        "showDataPreview": True,
-                        "previewRows": 20,
-                        "outputFormat": "html",
-                    },
-                    "position": {"x": 700, "y": 300},
-                },
-                {
-                    "name": "Show Report",
-                    "type": "Output",
-                    "parameters": {
-                        "source": "input",
-                        "format": "html",
-                        "contentField": "html",
-                    },
-                    "position": {"x": 1000, "y": 300},
-                },
-            ],
-            "connections": [
-                {"source_node": "Start", "target_node": "Aggregate"},
-                {"source_node": "Aggregate", "target_node": "Build Report"},
-                {"source_node": "Build Report", "target_node": "Show Report"},
-            ],
-            "settings": {},
-        },
-    },
-    # ========================================
-    # 8. HR SALARY REPORT — Employees → Report with correlations
-    # ========================================
-    {
-        "name": "HR Salary Report",
-        "description": "Full profiling report on employee data — salary distributions, experience correlations, department breakdowns.",
-        "active": True,
-        "definition": {
-            "nodes": [
-                {
-                    "name": "Start",
-                    "type": "Start",
-                    "parameters": {},
-                    "position": {"x": 100, "y": 300},
-                },
-                {
-                    "name": "Report",
-                    "type": "Report",
-                    "parameters": {
-                        "sourceType": "file",
-                        "filePath": f"{_SAMPLE_DIR}/employees.csv",
-                        "title": "HR Salary & Headcount Report",
-                        "previewRows": 15,
-                        "topN": 8,
-                        "showOverview": True,
-                        "showColumnStats": True,
-                        "showDistributions": True,
-                        "showTopValues": True,
-                        "showCorrelations": True,
-                        "showDataPreview": True,
-                        "outputFormat": "html",
-                    },
-                    "position": {"x": 400, "y": 300},
-                },
-                {
-                    "name": "Display",
-                    "type": "Output",
-                    "parameters": {
-                        "source": "input",
-                        "format": "html",
-                        "contentField": "html",
-                    },
-                    "position": {"x": 700, "y": 300},
-                },
-            ],
-            "connections": [
-                {"source_node": "Start", "target_node": "Report"},
-                {"source_node": "Report", "target_node": "Display"},
-            ],
-            "settings": {},
-        },
-    },
-    # ========================================
-    # 9. NEO4J AGENT — AI Agent with Neo4j graph query tool
-    # ========================================
-    {
-        "name": "Neo4j Org Chart Agent",
-        "description": "AI Agent that queries a company org chart stored in Neo4j. Ask about people, projects, teams, and technologies. Requires Neo4j at bolt://localhost:7687.",
-        "active": True,
-        "definition": {
-            "nodes": [
-                {
-                    "name": "Start",
-                    "type": "Start",
-                    "parameters": {},
-                    "position": {"x": 100, "y": 300},
-                },
-                {
-                    "name": "AI Agent",
-                    "type": "AIAgent",
-                    "parameters": {
-                        "model": "gemini-2.0-flash",
-                        "systemPrompt": (
-                            "You are a helpful assistant with access to a company org chart "
-                            "stored in Neo4j. Use the neo4j_query tool to answer questions "
-                            "about people, projects, teams, and technologies. "
-                            "Always use the tool to look up data — never guess."
-                        ),
-                        "task": "Give me a full overview of the engineering organization: who leads it, the active projects, and what tech stacks they use.",
-                        "maxIterations": 8,
-                        "temperature": 0.2,
-                    },
-                    "position": {"x": 500, "y": 300},
-                },
-                {
-                    "name": "Neo4j Tool",
-                    "type": "Neo4jQueryTool",
-                    "parameters": {
-                        "uri": "bolt://localhost:7687",
-                        "username": "neo4j",
-                        "password": "testpassword",
-                        "database": "neo4j",
-                        "toolName": "neo4j_query",
-                        "description": "Query the company org chart in Neo4j. Use this to find people, projects, teams, and technologies.",
-                        "queryRegistry": json.dumps({
-                            "list_people": {
-                                "description": "List all people with their roles and departments",
-                                "query": "MATCH (p:Person) RETURN p.name AS name, p.role AS role, p.department AS department ORDER BY p.name",
-                                "parameters": {},
-                            },
-                            "find_person": {
-                                "description": "Find a person by name",
-                                "query": "MATCH (p:Person) WHERE toLower(p.name) CONTAINS toLower($name) RETURN p.name AS name, p.role AS role, p.department AS department, p.email AS email",
-                                "parameters": {
-                                    "name": {"type": "string", "required": True},
-                                },
-                            },
-                            "person_reports": {
-                                "description": "Find who reports to (is managed by) a given person",
-                                "query": "MATCH (mgr:Person)-[:MANAGES]->(report:Person) WHERE toLower(mgr.name) CONTAINS toLower($manager_name) RETURN report.name AS name, report.role AS role",
-                                "parameters": {
-                                    "manager_name": {"type": "string", "required": True},
-                                },
-                            },
-                            "person_projects": {
-                                "description": "Find all projects a person is working on",
-                                "query": "MATCH (p:Person)-[w:WORKS_ON]->(proj:Project) WHERE toLower(p.name) CONTAINS toLower($name) RETURN proj.name AS project, w.role AS role, proj.status AS status, proj.priority AS priority",
-                                "parameters": {
-                                    "name": {"type": "string", "required": True},
-                                },
-                            },
-                            "project_team": {
-                                "description": "Find all people working on a given project",
-                                "query": "MATCH (p:Person)-[w:WORKS_ON]->(proj:Project) WHERE toLower(proj.name) CONTAINS toLower($project_name) RETURN p.name AS person, w.role AS project_role, proj.name AS project, proj.status AS status",
-                                "parameters": {
-                                    "project_name": {"type": "string", "required": True},
-                                },
-                            },
-                            "project_tech_stack": {
-                                "description": "Get the technology stack used by a project",
-                                "query": "MATCH (proj:Project)-[:USES]->(t:Technology) WHERE toLower(proj.name) CONTAINS toLower($project_name) RETURN t.name AS technology, t.category AS category",
-                                "parameters": {
-                                    "project_name": {"type": "string", "required": True},
-                                },
-                            },
-                            "person_skills": {
-                                "description": "Get the skills/technologies a person knows",
-                                "query": "MATCH (p:Person)-[:SKILLED_IN]->(t:Technology) WHERE toLower(p.name) CONTAINS toLower($name) RETURN t.name AS skill, t.category AS category",
-                                "parameters": {
-                                    "name": {"type": "string", "required": True},
-                                },
-                            },
-                            "active_projects": {
-                                "description": "List all active projects",
-                                "query": "MATCH (proj:Project) WHERE proj.status = 'active' RETURN proj.name AS name, proj.description AS description, proj.priority AS priority",
-                                "parameters": {},
-                            },
-                            "team_members": {
-                                "description": "List members of a team",
-                                "query": "MATCH (p:Person)-[:MEMBER_OF]->(t:Team) WHERE toLower(t.name) CONTAINS toLower($team_name) RETURN p.name AS person, p.role AS role",
-                                "parameters": {
-                                    "team_name": {"type": "string", "required": True},
-                                },
-                            },
-                        }, indent=2),
-                        "resultLimit": 50,
-                        "queryTimeout": 15,
-                    },
-                    "position": {"x": 500, "y": 100},
-                },
-            ],
-            "connections": [
-                {"source_node": "Start", "target_node": "AI Agent"},
-                {
-                    "source_node": "Neo4j Tool",
-                    "target_node": "AI Agent",
-                    "connection_type": "subnode",
-                    "slot_name": "tools",
-                },
-            ],
-            "settings": {},
-        },
-    },
-]
-
-# ── Shared config for Prompt Validator workflows ─────────────────────
-_PROMPT_VALIDATOR_SYSTEM_PROMPT = (
-    "You are a master prompt evaluation engine. Your job is to comprehensively evaluate the quality of LLM prompts.\n\n"
-    "You will receive a prompt to evaluate, and optionally a set of requirements the prompt should satisfy.\n\n"
-    "## Evaluation Process\n\n"
-    "1. Use spawn_agents_parallel to dispatch ALL specialist evaluators at once:\n\n"
-    "   a) **Grammar Analyst** — Analyze grammatical correctness, spelling errors, punctuation, "
-    "sentence structure, readability, and word choice. Score 1-10. List every specific error found "
-    "with the exact text and correction.\n\n"
-    "   b) **Clarity & Structure Analyst** — Evaluate logical flow, ambiguity, instruction clarity, "
-    "completeness, organization, and whether the prompt can be misinterpreted. Score 1-10. "
-    "Identify any vague, contradictory, or incomplete instructions.\n\n"
-    "   c) **Prompt Engineering Analyst** — Check against LLM prompt engineering best practices: "
-    "role/persona definition, specificity of instructions, inclusion of examples (few-shot), "
-    "output format specification, constraint definition, edge case handling, "
-    "chain-of-thought guidance, and appropriate length. Score 1-10.\n\n"
-    "   d) **Requirements Compliance Analyst** (ONLY if requirements are provided) — "
-    "For each requirement, determine if the prompt satisfies it (met/unmet with explanation). Score 1-10.\n\n"
-    "2. After ALL sub-agents complete, synthesize their findings into a comprehensive evaluation.\n\n"
-    "3. Write an improved version of the prompt that fixes all identified issues.\n\n"
+_FRAUD_SYSTEM_PROMPT = (
+    "You are a Lead Fraud Investigator AI for a major financial institution.\n\n"
+    "## Investigation Protocol\n"
+    "When you receive a transaction alert, call spawn_agent three times in the same turn to dispatch ALL three specialist investigators concurrently:\n\n"
+    "a) **Transaction Analyzer** — Perform velocity analysis on the transaction amount vs. historical average. "
+    "Assess amount anomalies (ratio to avg monthly volume), timing patterns (unusual hours, weekend/holiday), "
+    "channel risk (wire transfer vs. ACH vs. card), and transaction frequency in the past 24h/7d/30d. "
+    "Flag specific numeric thresholds breached (e.g., >10x average = critical).\n\n"
+    "b) **Customer Profile Analyst** — Evaluate the sender's account age (new accounts <90 days are higher risk), "
+    "historical transaction behavior and patterns, past fraud alerts or SAR filings, KYC/AML verification status, "
+    "account activity consistency, and any recent profile changes (address, phone, beneficiaries).\n\n"
+    "c) **Network Analyzer** — Assess counterparty risk: recipient jurisdiction (high-risk countries per FATF grey/black list), "
+    "whether this is a first-time transfer to this recipient, beneficial ownership transparency, "
+    "linked accounts or shell company indicators, correspondent banking chain risk, "
+    "and any known adverse media about the counterparty.\n\n"
+    "## Evidence Synthesis\n"
+    "After ALL sub-agents complete:\n"
+    "1. Use your scratchpad to accumulate and cross-reference evidence from each analyst\n"
+    "2. Look for converging signals (e.g., new account + high-risk jurisdiction + 20x normal volume = multiple independent risk indicators)\n"
+    "3. Apply the risk matrix:\n"
+    "   - CRITICAL (80-100): Multiple high-severity indicators converging, likely structuring or laundering\n"
+    "   - HIGH (60-79): Strong anomalies with at least one critical factor\n"
+    "   - MEDIUM (30-59): Notable deviations but explainable patterns exist\n"
+    "   - LOW (0-29): Minor anomalies, consistent with normal behavior variation\n"
+    "4. Produce the structured risk assessment with full evidence chain\n\n"
     "## Sub-Agent Instructions\n"
-    "- Give each sub-agent the full prompt text via context_snippets\n"
-    "- If requirements exist, also pass them as a context snippet to the Requirements Compliance agent\n"
-    "- Use expected_output on each sub-agent to get structured JSON results\n"
-    "- Each sub-agent should return: {score, issues[], suggestions[]}\n"
-    "- Requirements agent should additionally return: {met[], unmet[]}\n"
-    "- If no requirements are provided, spawn only agents a-c (skip requirements compliance)\n"
+    "- Include the full transaction alert JSON directly in each sub-agent's task string\n"
+    "- Each sub-agent should be thorough — missed evidence in fraud investigation has regulatory consequences\n"
 )
 
-_PROMPT_VALIDATOR_OUTPUT_SCHEMA = json.dumps({
+_FRAUD_OUTPUT_SCHEMA = json.dumps({
     "type": "object",
     "properties": {
-        "overall_score": {
+        "risk_score": {
             "type": "number",
-            "description": "Overall prompt quality score from 1 (terrible) to 10 (perfect)",
+            "description": "Overall risk score from 0 (no risk) to 100 (confirmed fraud pattern)",
+        },
+        "risk_level": {
+            "type": "string",
+            "description": "Risk classification: LOW, MEDIUM, HIGH, or CRITICAL",
         },
         "summary": {
             "type": "string",
-            "description": "2-3 sentence overall assessment of the prompt",
+            "description": "2-3 sentence investigation summary for the case file",
         },
-        "dimensions": {
-            "type": "object",
-            "properties": {
-                "grammar": {
-                    "type": "object",
-                    "properties": {
-                        "score": {"type": "number"},
-                        "issues": {"type": "array", "items": {"type": "string"}},
-                        "suggestions": {"type": "array", "items": {"type": "string"}},
-                    },
-                },
-                "clarity": {
-                    "type": "object",
-                    "properties": {
-                        "score": {"type": "number"},
-                        "issues": {"type": "array", "items": {"type": "string"}},
-                        "suggestions": {"type": "array", "items": {"type": "string"}},
-                    },
-                },
-                "prompt_engineering": {
-                    "type": "object",
-                    "properties": {
-                        "score": {"type": "number"},
-                        "issues": {"type": "array", "items": {"type": "string"}},
-                        "suggestions": {"type": "array", "items": {"type": "string"}},
-                    },
-                },
-                "requirements_compliance": {
-                    "type": "object",
-                    "properties": {
-                        "score": {"type": "number"},
-                        "met": {"type": "array", "items": {"type": "string"}},
-                        "unmet": {"type": "array", "items": {"type": "string"}},
-                        "suggestions": {"type": "array", "items": {"type": "string"}},
-                    },
+        "evidence": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string", "description": "Which analyst produced this: transaction/customer/network"},
+                    "finding": {"type": "string", "description": "Specific finding"},
+                    "severity": {"type": "string", "description": "critical/high/medium/low"},
                 },
             },
         },
-        "critical_issues": {
+        "recommended_action": {
+            "type": "string",
+            "description": "APPROVE, HOLD, BLOCK, or ESCALATE",
+        },
+        "regulatory_flags": {
             "type": "array",
             "items": {"type": "string"},
-            "description": "Top issues that must be fixed immediately",
+            "description": "Applicable regulatory flags (e.g., SAR filing required, OFAC screen needed)",
         },
-        "improved_prompt": {
-            "type": "string",
-            "description": "A rewritten version of the prompt with all issues fixed",
+        "confidence": {
+            "type": "number",
+            "description": "Confidence in the assessment from 0.0 to 1.0",
         },
     },
 }, indent=2)
 
-# JSON-only agent config (used by API variant)
-_PROMPT_VALIDATOR_AGENT_BASE = {
+_FRAUD_AGENT_BASE = {
     "model": "gemini-2.5-flash",
-    "systemPrompt": _PROMPT_VALIDATOR_SYSTEM_PROMPT,
-    "maxIterations": 8,
-    "temperature": 0.3,
+    "systemPrompt": _FRAUD_SYSTEM_PROMPT,
+    "maxIterations": 10,
+    "temperature": 0.2,
     "enableSubAgents": True,
     "maxAgentDepth": 2,
     "allowRecursiveSpawn": False,
     "enablePlanning": True,
-    "outputSchema": _PROMPT_VALIDATOR_OUTPUT_SCHEMA,
+    "enableScratchpad": True,
+    "outputSchema": _FRAUD_OUTPUT_SCHEMA,
 }
 
-# ── HTML-direct agent (no Code node, no sub-agents) ──────────────────
-# The agent analyses the prompt directly and outputs an HTML report.
+_FRAUD_SAMPLE = {
+    "alert_id": "FRD-2026-00847",
+    "timestamp": "2026-02-23T02:14:33Z",
+    "transaction": {
+        "id": "TXN-99281374",
+        "type": "wire_transfer",
+        "amount": 247500.00,
+        "currency": "USD",
+        "channel": "online_banking",
+        "initiated_at": "2026-02-23T02:14:33Z",
+        "memo": "Consulting services — Q1 retainer",
+    },
+    "sender": {
+        "account_id": "ACCT-10034821",
+        "name": "Meridian Holdings LLC",
+        "account_type": "business_checking",
+        "account_age_days": 45,
+        "avg_monthly_volume": 12400.00,
+        "kyc_status": "basic_verified",
+        "previous_alerts": 0,
+        "last_address_change": "2026-01-10",
+    },
+    "recipient": {
+        "name": "Greenfield Consulting Group",
+        "bank": "First National Bank of Cyprus",
+        "country": "CY",
+        "account_type": "corporate",
+        "is_first_transfer": True,
+        "swift_code": "FNBCCYNI",
+    },
+    "risk_signals": {
+        "amount_vs_average": 19.96,
+        "unusual_hour": True,
+        "new_recipient": True,
+        "high_risk_jurisdiction": True,
+        "velocity_24h": 1,
+        "velocity_7d": 3,
+    },
+}
 
-_PROMPT_VALIDATOR_HTML_SYSTEM = (
-    "You are a prompt quality evaluator. Analyse the given LLM prompt across four dimensions:\n\n"
-    "1. **Grammar & Language** — spelling, punctuation, sentence structure, readability. Score 1-10. List every error with exact text + fix.\n"
-    "2. **Clarity & Structure** — logical flow, ambiguity, completeness, whether instructions can be misread. Score 1-10.\n"
-    "3. **Prompt Engineering** — role/persona, specificity, examples, output format spec, edge-case handling, chain-of-thought guidance. Score 1-10.\n"
-    "4. **Requirements Compliance** (only if requirements given) — for each requirement state met/unmet + reason. Score 1-10.\n\n"
-    "Compute an overall integer score 1-10 (weighted average). Write a 2-3 sentence summary, list critical issues, "
-    "and produce an improved version of the prompt that fixes every issue.\n\n"
-    "## Output — HTML Report\n"
-    "Your structured output is `{\"html\": \"<full HTML document>\"}`. Rules:\n"
-    "- Start with `<!DOCTYPE html>`. ALL CSS in a `<style>` tag — no external resources.\n"
-    "- Font: system-ui, -apple-system, sans-serif. Background: #f1f5f9. Max-width 720px centered.\n"
-    "- **Header**: dark gradient (#0f172a→#334155), border-radius 20px, white text. "
-    "Left side: title + summary. Right side: SVG donut ring showing the overall score.\n"
-    "- **Critical Issues banner** (red, only if issues exist).\n"
-    "- **Dimension cards** (white, rounded, subtle shadow): header with emoji + title + score bar + number; "
-    "body with ISSUES (red ✕), SUGGESTIONS (blue ▲). Requirements card also has MET (green ✓) / UNMET (red ✕).\n"
-    "- **Improved Prompt** section: green box with monospace inner box.\n"
-    "- **Footer**: centered gray text.\n"
-    "- Score colors: ≥8 #16a34a, 5-7 #d97706, <5 #dc2626. Labels: 9-10 Excellent, 7-8 Good, 5-6 Fair, 3-4 Poor, 1-2 Critical.\n"
+_FRAUD_HTML_CODE = (
+    "d = json_data.get('structured') or json_data\n"
+    "\n"
+    "score = d.get('risk_score', 0)\n"
+    "level = d.get('risk_level', 'MEDIUM')\n"
+    "summary = d.get('summary', '')\n"
+    "evidence = d.get('evidence', [])\n"
+    "action = d.get('recommended_action', 'HOLD')\n"
+    "reg_flags = d.get('regulatory_flags', [])\n"
+    "confidence = d.get('confidence', 0)\n"
+    "\n"
+    "def level_color(lv):\n"
+    "    lv = lv.upper()\n"
+    "    if lv == 'CRITICAL': return '#dc2626'\n"
+    "    if lv == 'HIGH': return '#d97706'\n"
+    "    if lv == 'MEDIUM': return '#2563eb'\n"
+    "    return '#16a34a'\n"
+    "\n"
+    "def sev_color(s):\n"
+    "    s = s.lower()\n"
+    "    if s == 'critical': return '#dc2626'\n"
+    "    if s == 'high': return '#d97706'\n"
+    "    if s == 'medium': return '#2563eb'\n"
+    "    return '#6b7280'\n"
+    "\n"
+    "def action_info(a):\n"
+    "    a = a.upper()\n"
+    "    m = {\n"
+    "        'APPROVE': ('#16a34a', 'Transaction cleared — no action required'),\n"
+    "        'HOLD': ('#2563eb', 'Transaction held for manual review'),\n"
+    "        'BLOCK': ('#d97706', 'Transaction blocked — alert compliance team'),\n"
+    "        'ESCALATE': ('#dc2626', 'Transaction blocked — escalate to BSA officer immediately'),\n"
+    "    }\n"
+    "    return m.get(a, ('#6b7280', 'Unknown action'))\n"
+    "\n"
+    "lc = level_color(level)\n"
+    "ac, a_desc = action_info(action)\n"
+    "\n"
+    "# Group evidence by source\n"
+    "ev_by_source = {}\n"
+    "for e in evidence:\n"
+    "    src = e.get('source', 'other')\n"
+    "    ev_by_source.setdefault(src, []).append(e)\n"
+    "\n"
+    "source_labels = {\n"
+    "    'transaction': ('&#x1F4B8;', 'Transaction Analysis'),\n"
+    "    'customer': ('&#x1F464;', 'Customer Profile'),\n"
+    "    'network': ('&#x1F310;', 'Network Analysis'),\n"
+    "}\n"
+    "\n"
+    "ev_html = ''\n"
+    "for src, items in ev_by_source.items():\n"
+    "    icon, label = source_labels.get(src, ('&#x1F50D;', src.title()))\n"
+    "    items_html = ''\n"
+    "    for e in items:\n"
+    "        sc = sev_color(e.get('severity', 'low'))\n"
+    "        items_html += (\n"
+    "            f'<div style=\"display:flex;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9;align-items:flex-start\">'\n"
+    "            f'<span style=\"background:{sc};color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;text-transform:uppercase;flex-shrink:0\">{e.get(\"severity\",\"low\")}</span>'\n"
+    "            f'<span style=\"font-size:13px;color:#334155\">{e.get(\"finding\",\"\")}</span></div>'\n"
+    "        )\n"
+    "    ev_html += (\n"
+    "        f'<div style=\"margin-bottom:16px\">'\n"
+    "        f'<div style=\"font-weight:700;font-size:14px;color:#1e293b;margin-bottom:6px\">{icon} {label}</div>'\n"
+    "        f'{items_html}</div>'\n"
+    "    )\n"
+    "\n"
+    "# Regulatory flags\n"
+    "flag_html = ''\n"
+    "if reg_flags:\n"
+    "    chips = ''.join(f'<span style=\"background:#fef2f2;color:#dc2626;padding:4px 10px;border-radius:6px;font-size:12px;font-weight:600;border:1px solid #fecaca\">{f}</span>' for f in reg_flags)\n"
+    "    flag_html = (\n"
+    "        f'<div style=\"background:#fff;border-radius:12px;border:1px solid #fecaca;overflow:hidden;margin-bottom:12px\">'\n"
+    "        f'<div style=\"padding:14px 20px;font-weight:700;font-size:14px;color:#dc2626;border-bottom:1px solid #fecaca;background:#fef2f2\">&#x1F6A8; Regulatory Flags</div>'\n"
+    "        f'<div style=\"padding:14px 20px;display:flex;flex-wrap:wrap;gap:8px\">{chips}</div></div>'\n"
+    "    )\n"
+    "\n"
+    "# Score donut SVG\n"
+    "pct = min(score, 100)\n"
+    "circ = 251.2  # 2 * pi * 40\n"
+    "offset = circ - (circ * pct / 100)\n"
+    "donut = (\n"
+    "    f'<svg width=\"100\" height=\"100\" viewBox=\"0 0 100 100\">'\n"
+    "    f'<circle cx=\"50\" cy=\"50\" r=\"40\" fill=\"none\" stroke=\"#334155\" stroke-width=\"8\" opacity=\"0.3\"/>'\n"
+    "    f'<circle cx=\"50\" cy=\"50\" r=\"40\" fill=\"none\" stroke=\"{lc}\" stroke-width=\"8\" '\n"
+    "    f'stroke-dasharray=\"{circ}\" stroke-dashoffset=\"{offset:.1f}\" stroke-linecap=\"round\" '\n"
+    "    f'transform=\"rotate(-90 50 50)\"/>'\n"
+    "    f'<text x=\"50\" y=\"46\" text-anchor=\"middle\" font-size=\"22\" font-weight=\"800\" fill=\"#fff\">{score}</text>'\n"
+    "    f'<text x=\"50\" y=\"62\" text-anchor=\"middle\" font-size=\"10\" font-weight=\"600\" fill=\"{lc}\">{level}</text>'\n"
+    "    f'</svg>'\n"
+    ")\n"
+    "\n"
+    "card_style = 'background:#fff;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden;margin-bottom:12px'\n"
+    "card_hdr = 'padding:16px 20px;font-weight:700;font-size:15px;color:#1e293b;border-bottom:1px solid #f1f5f9'\n"
+    "card_body = 'padding:16px 20px'\n"
+    "\n"
+    "html = (\n"
+    "    '<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1.0\">'\n"
+    "    '<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;background:#f8fafc;padding:32px}</style></head><body>'\n"
+    "    '<div style=\"max-width:780px;margin:0 auto\">'\n"
+    "    # Header with score donut\n"
+    "    f'<div style=\"background:linear-gradient(135deg,#0f172a,#1e293b);border-radius:16px;padding:32px;margin-bottom:20px;color:#fff\">'\n"
+    "    f'<div style=\"display:flex;justify-content:space-between;align-items:center\">'\n"
+    "    f'<div style=\"flex:1\"><div style=\"font-size:24px;font-weight:700\">Fraud Risk Assessment</div>'\n"
+    "    f'<div style=\"font-size:14px;color:#94a3b8;margin-top:6px\">{summary}</div></div>'\n"
+    "    f'<div style=\"flex-shrink:0;margin-left:24px\">{donut}</div></div></div>'\n"
+    "    # Recommended Action\n"
+    "    f'<div style=\"background:{ac};border-radius:12px;padding:16px 20px;margin-bottom:12px;color:#fff;display:flex;align-items:center;gap:12px\">'\n"
+    "    f'<span style=\"font-size:20px\">&#x26A1;</span>'\n"
+    "    f'<div><div style=\"font-weight:700;font-size:15px\">Recommended: {action}</div>'\n"
+    "    f'<div style=\"font-size:13px;opacity:0.9\">{a_desc}</div></div>'\n"
+    "    f'<div style=\"margin-left:auto;font-size:12px;opacity:0.8\">Confidence: {confidence:.0%}</div></div>'\n"
+    "    # Regulatory flags\n"
+    "    f'{flag_html}'\n"
+    "    # Evidence cards\n"
+    "    f'<div style=\"{card_style}\"><div style=\"{card_hdr}\">&#x1F50D; Evidence Chain ({len(evidence)} findings)</div><div style=\"{card_body}\">{ev_html}</div></div>'\n"
+    "    '</div></body></html>'\n"
+    ")\n"
+    "\n"
+    "return [{'json': {'html': html}}]\n"
 )
 
-_PROMPT_VALIDATOR_HTML_SCHEMA = json.dumps({
+# ── Deep Research Agent ──────────────────────────────────────────────
+
+_RESEARCH_SYSTEM_PROMPT = (
+    "You are a Research Director AI coordinating a comprehensive technology research brief.\n\n"
+    "## Research Protocol\n"
+    "When you receive a research brief, call spawn_agent three times in the same turn to dispatch ALL three specialist researchers concurrently:\n\n"
+    "a) **Technology Researcher** — Analyze the current state of the technology landscape. "
+    "Cover core technical capabilities and recent breakthroughs, major platforms and tools (commercial and open-source), "
+    "architecture patterns and implementation approaches, performance benchmarks and limitations, "
+    "and the developer ecosystem maturity (documentation, community, tooling). "
+    "Rate technical maturity on a 1-10 scale with justification.\n\n"
+    "b) **Market Researcher** — Analyze the market dynamics and competitive landscape. "
+    "Cover total addressable market size and growth trajectory, key players and their positioning "
+    "(startups vs. incumbents), funding trends and notable investments in the past 12 months, "
+    "adoption rates across enterprise vs. SMB vs. individual developers, "
+    "geographic distribution of activity, and business model patterns (SaaS, API, open-core). "
+    "Rate market maturity on a 1-10 scale with justification.\n\n"
+    "c) **Academic Researcher** — Analyze the research frontier and emerging directions. "
+    "Cover landmark papers and their key contributions, active research groups and institutions, "
+    "open problems and unsolved challenges, emerging techniques not yet productized, "
+    "safety and alignment research relevant to this domain, and benchmark datasets and evaluation frameworks. "
+    "Rate research maturity on a 1-10 scale with justification.\n\n"
+    "## Synthesis\n"
+    "After ALL sub-agents complete:\n"
+    "1. Use your scratchpad to cross-reference findings from all three domains\n"
+    "2. Compute an overall maturity score (average of the three domain scores, weighted: tech 0.4, market 0.3, academic 0.3)\n"
+    "3. Classify maturity level:\n"
+    "   - EMERGING (1-3): Early research stage, few commercial applications\n"
+    "   - GROWING (4-5): Active development, early adopters, significant investment\n"
+    "   - MATURING (6-7): Mainstream adoption beginning, established players\n"
+    "   - MATURE (8-10): Widespread adoption, commoditized tooling\n"
+    "4. Identify the top opportunities (things to capitalize on) and top risks (things to watch out for)\n"
+    "5. Write a forward-looking 6-12 month outlook\n\n"
+    "## Sub-Agent Instructions\n"
+    "- Include the full research brief text directly in each sub-agent's task string\n"
+    "- Each sub-agent should provide specific examples, names, and data points — not vague generalities\n"
+)
+
+_RESEARCH_OUTPUT_SCHEMA = json.dumps({
     "type": "object",
     "properties": {
-        "html": {
+        "maturity_score": {
+            "type": "number",
+            "description": "Weighted maturity score from 1.0 to 10.0",
+        },
+        "maturity_level": {
             "type": "string",
-            "description": "Complete self-contained HTML document with the prompt quality report",
+            "description": "EMERGING, GROWING, MATURING, or MATURE",
+        },
+        "executive_summary": {
+            "type": "string",
+            "description": "3-4 sentence executive summary of the research landscape",
+        },
+        "key_findings": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "domain": {"type": "string", "description": "technology, market, or academic"},
+                    "finding": {"type": "string", "description": "Key finding from this domain"},
+                    "score": {"type": "number", "description": "Domain maturity score 1-10"},
+                },
+            },
+        },
+        "opportunities": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Top strategic opportunities to capitalize on",
+        },
+        "risks": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Top risks and challenges to monitor",
+        },
+        "outlook": {
+            "type": "string",
+            "description": "6-12 month forward-looking outlook paragraph",
         },
     },
-    "required": ["html"],
 }, indent=2)
 
-_PROMPT_VALIDATOR_HTML_AGENT = {
+_RESEARCH_AGENT_BASE = {
     "model": "gemini-2.5-flash",
-    "systemPrompt": _PROMPT_VALIDATOR_HTML_SYSTEM,
-    "maxIterations": 4,
-    "temperature": 0.3,
-    "enableSubAgents": False,
-    "enablePlanning": False,
-    "outputSchema": _PROMPT_VALIDATOR_HTML_SCHEMA,
+    "systemPrompt": _RESEARCH_SYSTEM_PROMPT,
+    "maxIterations": 10,
+    "temperature": 0.2,
+    "enableSubAgents": True,
+    "maxAgentDepth": 2,
+    "allowRecursiveSpawn": False,
+    "enablePlanning": True,
+    "enableScratchpad": True,
+    "outputSchema": _RESEARCH_OUTPUT_SCHEMA,
 }
 
-_PROMPT_VALIDATOR_SAMPLE = {
-    "prompt": (
-        "You are a helpful assitant. Help me write python code. "
-        "Make sure the code is clean and follows best practices. "
-        "If you dont know something just say so. "
-        "Always provide explanations with your code and handle edge cases. "
-        "Use type hints where possible."
-    ),
-    "requirements": (
-        "1. Must define a clear role/persona for the AI\n"
-        "2. Should include output format instructions\n"
-        "3. Must handle edge cases (unknown topics, ambiguous requests)\n"
-        "4. Should include at least one example of expected behavior\n"
-        "5. Must be under 200 words"
-    ),
+_RESEARCH_SAMPLE = {
+    "topic": "AI Code Generation and Autonomous Software Engineering",
+    "scope": "Comprehensive analysis of AI-powered code generation tools, autonomous coding agents, and their impact on software development workflows.",
+    "focus_areas": [
+        "LLM-based code generation (Copilot, Cursor, Claude Code, etc.)",
+        "Autonomous coding agents (Devin, SWE-Agent, OpenHands, etc.)",
+        "Code review and testing automation",
+        "Enterprise adoption patterns and ROI data",
+        "Impact on developer productivity and software quality",
+    ],
+    "audience": "Technology leadership evaluating AI coding tools for engineering org adoption",
+    "depth": "deep",
 }
 
-EXAMPLE_WORKFLOWS += [
+_RESEARCH_HTML_CODE = (
+    "d = json_data.get('structured') or json_data\n"
+    "\n"
+    "score = d.get('maturity_score', 0)\n"
+    "level = d.get('maturity_level', 'GROWING')\n"
+    "summary = d.get('executive_summary', '')\n"
+    "findings = d.get('key_findings', [])\n"
+    "opps = d.get('opportunities', [])\n"
+    "risks = d.get('risks', [])\n"
+    "outlook = d.get('outlook', '')\n"
+    "\n"
+    "def level_color(lv):\n"
+    "    lv = lv.upper()\n"
+    "    if lv == 'MATURE': return '#16a34a'\n"
+    "    if lv == 'MATURING': return '#2563eb'\n"
+    "    if lv == 'GROWING': return '#d97706'\n"
+    "    return '#8b5cf6'\n"
+    "\n"
+    "def domain_info(d):\n"
+    "    m = {\n"
+    "        'technology': ('&#x1F4BB;', 'Technology', '#2563eb'),\n"
+    "        'market': ('&#x1F4C8;', 'Market', '#d97706'),\n"
+    "        'academic': ('&#x1F393;', 'Academic', '#8b5cf6'),\n"
+    "    }\n"
+    "    return m.get(d, ('&#x1F50D;', d.title(), '#6b7280'))\n"
+    "\n"
+    "lc = level_color(level)\n"
+    "\n"
+    "# Score donut SVG\n"
+    "pct = min(score * 10, 100)\n"
+    "circ = 251.2\n"
+    "offset = circ - (circ * pct / 100)\n"
+    "donut = (\n"
+    "    f'<svg width=\"100\" height=\"100\" viewBox=\"0 0 100 100\">'\n"
+    "    f'<circle cx=\"50\" cy=\"50\" r=\"40\" fill=\"none\" stroke=\"#334155\" stroke-width=\"8\" opacity=\"0.3\"/>'\n"
+    "    f'<circle cx=\"50\" cy=\"50\" r=\"40\" fill=\"none\" stroke=\"{lc}\" stroke-width=\"8\" '\n"
+    "    f'stroke-dasharray=\"{circ}\" stroke-dashoffset=\"{offset:.1f}\" stroke-linecap=\"round\" '\n"
+    "    f'transform=\"rotate(-90 50 50)\"/>'\n"
+    "    f'<text x=\"50\" y=\"46\" text-anchor=\"middle\" font-size=\"20\" font-weight=\"800\" fill=\"#fff\">{score:.1f}</text>'\n"
+    "    f'<text x=\"50\" y=\"62\" text-anchor=\"middle\" font-size=\"9\" font-weight=\"600\" fill=\"{lc}\">{level}</text>'\n"
+    "    f'</svg>'\n"
+    ")\n"
+    "\n"
+    "# Group findings by domain\n"
+    "fd_by_domain = {}\n"
+    "for f in findings:\n"
+    "    dom = f.get('domain', 'other')\n"
+    "    fd_by_domain.setdefault(dom, []).append(f)\n"
+    "\n"
+    "findings_html = ''\n"
+    "for dom, items in fd_by_domain.items():\n"
+    "    icon, label, color = domain_info(dom)\n"
+    "    dom_score = items[0].get('score', 0) if items else 0\n"
+    "    bar_pct = min(dom_score * 10, 100)\n"
+    "    items_html = ''\n"
+    "    for f in items:\n"
+    "        items_html += f'<div style=\"padding:6px 0;border-bottom:1px solid #f1f5f9;font-size:13px;color:#334155\">{f.get(\"finding\",\"\")}</div>'\n"
+    "    findings_html += (\n"
+    "        f'<div style=\"margin-bottom:16px\">'\n"
+    "        f'<div style=\"display:flex;align-items:center;gap:8px;margin-bottom:8px\">'\n"
+    "        f'<span style=\"font-size:16px\">{icon}</span>'\n"
+    "        f'<span style=\"font-weight:700;font-size:14px;color:#1e293b\">{label}</span>'\n"
+    "        f'<span style=\"margin-left:auto;font-weight:700;font-size:14px;color:{color}\">{dom_score:.1f}/10</span></div>'\n"
+    "        f'<div style=\"background:#e2e8f0;border-radius:4px;height:6px;margin-bottom:8px\">'\n"
+    "        f'<div style=\"background:{color};border-radius:4px;height:6px;width:{bar_pct}%\"></div></div>'\n"
+    "        f'{items_html}</div>'\n"
+    "    )\n"
+    "\n"
+    "# Opportunities vs Risks columns\n"
+    "opp_items = ''.join(f'<div style=\"display:flex;gap:8px;padding:8px 0;border-bottom:1px solid #f1f5f9;font-size:13px;color:#334155\"><span style=\"color:#16a34a;flex-shrink:0\">&#x2714;</span>{o}</div>' for o in opps)\n"
+    "risk_items = ''.join(f'<div style=\"display:flex;gap:8px;padding:8px 0;border-bottom:1px solid #f1f5f9;font-size:13px;color:#334155\"><span style=\"color:#dc2626;flex-shrink:0\">&#x26A0;</span>{r}</div>' for r in risks)\n"
+    "\n"
+    "card_style = 'background:#fff;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden;margin-bottom:12px'\n"
+    "card_hdr = 'padding:16px 20px;font-weight:700;font-size:15px;color:#1e293b;border-bottom:1px solid #f1f5f9'\n"
+    "card_body = 'padding:16px 20px'\n"
+    "\n"
+    "html = (\n"
+    "    '<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1.0\">'\n"
+    "    '<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;background:#f8fafc;padding:32px}</style></head><body>'\n"
+    "    '<div style=\"max-width:780px;margin:0 auto\">'\n"
+    "    # Header\n"
+    "    f'<div style=\"background:linear-gradient(135deg,#1e1b4b,#312e81);border-radius:16px;padding:32px;margin-bottom:20px;color:#fff\">'\n"
+    "    f'<div style=\"display:flex;justify-content:space-between;align-items:center\">'\n"
+    "    f'<div style=\"flex:1\"><div style=\"font-size:24px;font-weight:700\">Deep Research Report</div>'\n"
+    "    f'<div style=\"font-size:14px;color:#a5b4fc;margin-top:6px\">{summary}</div></div>'\n"
+    "    f'<div style=\"flex-shrink:0;margin-left:24px\">{donut}</div></div></div>'\n"
+    "    # Findings by domain\n"
+    "    f'<div style=\"{card_style}\"><div style=\"{card_hdr}\">&#x1F50E; Key Findings by Domain</div><div style=\"{card_body}\">{findings_html}</div></div>'\n"
+    "    # Opportunities vs Risks\n"
+    "    f'<div style=\"display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px\">'\n"
+    "    f'<div style=\"{card_style};margin-bottom:0\"><div style=\"{card_hdr};color:#16a34a\">&#x1F680; Opportunities</div><div style=\"{card_body}\">{opp_items}</div></div>'\n"
+    "    f'<div style=\"{card_style};margin-bottom:0\"><div style=\"{card_hdr};color:#dc2626\">&#x26A0; Risks</div><div style=\"{card_body}\">{risk_items}</div></div></div>'\n"
+    "    # Outlook\n"
+    "    f'<div style=\"{card_style}\"><div style=\"{card_hdr}\">&#x1F52E; 6-12 Month Outlook</div>'\n"
+    "    f'<div style=\"{card_body};font-size:14px;color:#334155;line-height:1.7\">{outlook}</div></div>'\n"
+    "    '</div></body></html>'\n"
+    ")\n"
+    "\n"
+    "return [{'json': {'html': html}}]\n"
+)
+
+
+# ── Startup Due Diligence Agent ──────────────────────────────────────
+
+_DILIGENCE_SYSTEM_PROMPT = (
+    "You are a Senior Investment Analyst AI conducting due diligence on a startup for a venture capital fund.\n\n"
+    "## Due Diligence Protocol\n"
+    "When you receive startup data, call spawn_agent three times in the same turn to dispatch ALL three specialist analysts concurrently:\n\n"
+    "a) **Market Opportunity Analyst** — Evaluate the market thesis. "
+    "Analyze total addressable market (TAM) and realistic serviceable obtainable market (SOM), "
+    "market timing (why now?), competitive landscape and differentiation, "
+    "customer pain point severity (vitamin vs. painkiller), "
+    "distribution strategy and go-to-market efficiency, "
+    "and secular tailwinds or headwinds. "
+    "Score market opportunity 1-10 with justification.\n\n"
+    "b) **Team & Execution Analyst** — Evaluate the founding team and execution capability. "
+    "Analyze founder-market fit and relevant domain expertise, "
+    "technical depth of the team (can they build what they claim?), "
+    "execution velocity (product milestones vs. timeline), "
+    "hiring ability and team composition gaps, "
+    "previous startup experience and exits, "
+    "and advisory board and investor quality. "
+    "Score team & execution 1-10 with justification.\n\n"
+    "c) **Financial & Unit Economics Analyst** — Evaluate the financial health and trajectory. "
+    "Analyze revenue growth rate and trajectory (MoM and YoY), "
+    "unit economics (CAC, LTV, LTV:CAC ratio, payback period), "
+    "net dollar retention and churn metrics, "
+    "burn rate and runway at current spend, "
+    "capital efficiency (ARR per dollar raised), "
+    "and realistic path to profitability or next fundraise. "
+    "Score financials 1-10 with justification.\n\n"
+    "## Investment Synthesis\n"
+    "After ALL sub-agents complete:\n"
+    "1. Use your scratchpad to cross-reference findings\n"
+    "2. Compute an overall investment score (weighted: market 0.35, team 0.35, financials 0.30)\n"
+    "3. Classify recommendation:\n"
+    "   - STRONG_PASS (1-3): Fundamental issues, do not invest\n"
+    "   - PASS (4-5): Interesting but too many concerns\n"
+    "   - CONSIDER (6-7): Promising, worth deeper diligence and partner meeting\n"
+    "   - STRONG_BUY (8-9): Compelling opportunity, move to term sheet\n"
+    "   - CONVICTION_BET (10): Exceptional, pre-empt if possible\n"
+    "4. Write a clear investment thesis (2-3 sentences: why invest or why pass)\n"
+    "5. Identify key risks that could break the thesis\n"
+    "6. List concrete next steps for the deal team\n\n"
+    "## Sub-Agent Instructions\n"
+    "- Include the full startup data JSON directly in each sub-agent's task string\n"
+    "- Each sub-agent should cite specific numbers from the data to support conclusions\n"
+)
+
+_DILIGENCE_OUTPUT_SCHEMA = json.dumps({
+    "type": "object",
+    "properties": {
+        "investment_score": {
+            "type": "number",
+            "description": "Overall investment score from 1 to 10",
+        },
+        "recommendation": {
+            "type": "string",
+            "description": "STRONG_PASS, PASS, CONSIDER, STRONG_BUY, or CONVICTION_BET",
+        },
+        "thesis": {
+            "type": "string",
+            "description": "2-3 sentence investment thesis",
+        },
+        "dimension_scores": {
+            "type": "object",
+            "properties": {
+                "market": {"type": "number", "description": "Market opportunity score 1-10"},
+                "team": {"type": "number", "description": "Team & execution score 1-10"},
+                "financials": {"type": "number", "description": "Financial health score 1-10"},
+            },
+        },
+        "findings": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "analyst": {"type": "string", "description": "market, team, or financials"},
+                    "finding": {"type": "string", "description": "Key finding"},
+                    "sentiment": {"type": "string", "description": "positive, neutral, or negative"},
+                },
+            },
+        },
+        "key_risks": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Key risks that could break the investment thesis",
+        },
+        "next_steps": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Concrete next steps for the deal team",
+        },
+    },
+}, indent=2)
+
+_DILIGENCE_AGENT_BASE = {
+    "model": "gemini-2.5-flash",
+    "systemPrompt": _DILIGENCE_SYSTEM_PROMPT,
+    "maxIterations": 10,
+    "temperature": 0.2,
+    "enableSubAgents": True,
+    "maxAgentDepth": 2,
+    "allowRecursiveSpawn": False,
+    "enablePlanning": True,
+    "enableScratchpad": True,
+    "outputSchema": _DILIGENCE_OUTPUT_SCHEMA,
+}
+
+_DILIGENCE_SAMPLE = {
+    "company": "Synthwave AI",
+    "stage": "Series A",
+    "ask": "$18M at $90M pre-money valuation",
+    "sector": "Developer Tools / AI Testing Infrastructure",
+    "founded": "2024-03",
+    "pitch": "AI-native testing infrastructure that automatically generates, maintains, and evolves test suites as codebases change. Replaces brittle hand-written tests with self-healing AI test agents.",
+    "team": {
+        "founders": [
+            {"name": "Maya Chen", "role": "CEO", "background": "Ex-Google Staff Engineer (Chrome DevTools), Stanford CS PhD dropout, 2nd-time founder (prev acquired by DataDog for $12M)"},
+            {"name": "Raj Patel", "role": "CTO", "background": "Ex-Meta AI Research, built internal LLM testing infra used by 2000+ engineers, MIT MS"},
+        ],
+        "headcount": 14,
+        "engineering_pct": 0.78,
+        "open_roles": ["VP Sales", "Senior ML Engineer", "Developer Advocate"],
+    },
+    "metrics": {
+        "arr": 1_200_000,
+        "arr_growth_yoy": 4.2,
+        "mrr": 100_000,
+        "mrr_growth_mom": 0.18,
+        "customers": 34,
+        "enterprise_customers": 6,
+        "net_dollar_retention": 1.42,
+        "gross_churn_monthly": 0.012,
+        "avg_contract_value": 35_300,
+        "cac": 28_000,
+        "ltv": 196_000,
+        "ltv_cac_ratio": 7.0,
+        "payback_months": 8.4,
+        "gross_margin": 0.82,
+    },
+    "financials": {
+        "total_raised": 4_500_000,
+        "last_round": "Seed ($4.5M, Sequoia Scout + angels)",
+        "monthly_burn": 180_000,
+        "runway_months": 11,
+        "arr_per_dollar_raised": 0.27,
+    },
+    "product": {
+        "description": "Drop-in CI/CD integration that uses LLMs to understand code changes, generate targeted tests, and auto-fix broken tests when code evolves.",
+        "integrations": ["GitHub Actions", "GitLab CI", "Jenkins", "CircleCI"],
+        "languages_supported": ["Python", "TypeScript", "Java", "Go"],
+        "key_differentiator": "Self-healing tests — when code changes break tests, Synthwave automatically updates the test rather than just flagging failure. Competitors require human-in-the-loop.",
+    },
+    "market": {
+        "tam_estimate": "$12B (software testing market)",
+        "competitors": ["Codium AI", "QA Wolf", "Mabl", "Testim (acquired by Tricentis)"],
+        "why_now": "LLM costs dropped 10x in 18 months. Code understanding models (Claude, GPT-4) finally good enough for reliable test generation. Engineering orgs under pressure to ship faster with fewer QA resources.",
+    },
+}
+
+_DILIGENCE_HTML_CODE = (
+    "d = json_data.get('structured') or json_data\n"
+    "\n"
+    "score = d.get('investment_score', 0)\n"
+    "rec = d.get('recommendation', 'CONSIDER')\n"
+    "thesis = d.get('thesis', '')\n"
+    "dims = d.get('dimension_scores', {})\n"
+    "findings = d.get('findings', [])\n"
+    "key_risks = d.get('key_risks', [])\n"
+    "next_steps = d.get('next_steps', [])\n"
+    "\n"
+    "def rec_info(r):\n"
+    "    r = r.upper()\n"
+    "    m = {\n"
+    "        'CONVICTION_BET': ('#16a34a', 'Exceptional — pre-empt if possible'),\n"
+    "        'STRONG_BUY': ('#059669', 'Compelling — move to term sheet'),\n"
+    "        'CONSIDER': ('#2563eb', 'Promising — deeper diligence needed'),\n"
+    "        'PASS': ('#d97706', 'Interesting but too many concerns'),\n"
+    "        'STRONG_PASS': ('#dc2626', 'Fundamental issues — do not invest'),\n"
+    "    }\n"
+    "    return m.get(r, ('#6b7280', r))\n"
+    "\n"
+    "def sentiment_color(s):\n"
+    "    s = s.lower()\n"
+    "    if s == 'positive': return '#16a34a'\n"
+    "    if s == 'negative': return '#dc2626'\n"
+    "    return '#6b7280'\n"
+    "\n"
+    "def dim_info(d):\n"
+    "    m = {\n"
+    "        'market': ('&#x1F4C8;', 'Market Opportunity', '#2563eb'),\n"
+    "        'team': ('&#x1F465;', 'Team & Execution', '#8b5cf6'),\n"
+    "        'financials': ('&#x1F4B0;', 'Financials', '#059669'),\n"
+    "    }\n"
+    "    return m.get(d, ('&#x1F50D;', d.title(), '#6b7280'))\n"
+    "\n"
+    "rc, r_desc = rec_info(rec)\n"
+    "\n"
+    "# Score donut\n"
+    "pct = min(score * 10, 100)\n"
+    "circ = 251.2\n"
+    "offset = circ - (circ * pct / 100)\n"
+    "donut = (\n"
+    "    f'<svg width=\"100\" height=\"100\" viewBox=\"0 0 100 100\">'\n"
+    "    f'<circle cx=\"50\" cy=\"50\" r=\"40\" fill=\"none\" stroke=\"#334155\" stroke-width=\"8\" opacity=\"0.3\"/>'\n"
+    "    f'<circle cx=\"50\" cy=\"50\" r=\"40\" fill=\"none\" stroke=\"{rc}\" stroke-width=\"8\" '\n"
+    "    f'stroke-dasharray=\"{circ}\" stroke-dashoffset=\"{offset:.1f}\" stroke-linecap=\"round\" '\n"
+    "    f'transform=\"rotate(-90 50 50)\"/>'\n"
+    "    f'<text x=\"50\" y=\"46\" text-anchor=\"middle\" font-size=\"22\" font-weight=\"800\" fill=\"#fff\">{score:.1f}</text>'\n"
+    "    f'<text x=\"50\" y=\"62\" text-anchor=\"middle\" font-size=\"8\" font-weight=\"600\" fill=\"{rc}\">/ 10</text>'\n"
+    "    f'</svg>'\n"
+    ")\n"
+    "\n"
+    "# Dimension score bars\n"
+    "dim_html = ''\n"
+    "for key in ['market', 'team', 'financials']:\n"
+    "    ds = dims.get(key, 0)\n"
+    "    icon, label, color = dim_info(key)\n"
+    "    bar_pct = min(ds * 10, 100)\n"
+    "    dim_html += (\n"
+    "        f'<div style=\"margin-bottom:12px\">'\n"
+    "        f'<div style=\"display:flex;align-items:center;gap:8px;margin-bottom:4px\">'\n"
+    "        f'<span>{icon}</span><span style=\"font-weight:600;font-size:13px;color:#1e293b\">{label}</span>'\n"
+    "        f'<span style=\"margin-left:auto;font-weight:700;font-size:14px;color:{color}\">{ds:.1f}</span></div>'\n"
+    "        f'<div style=\"background:#e2e8f0;border-radius:4px;height:8px\">'\n"
+    "        f'<div style=\"background:{color};border-radius:4px;height:8px;width:{bar_pct}%\"></div></div></div>'\n"
+    "    )\n"
+    "\n"
+    "# Group findings by analyst\n"
+    "fd_by_analyst = {}\n"
+    "for f in findings:\n"
+    "    a = f.get('analyst', 'other')\n"
+    "    fd_by_analyst.setdefault(a, []).append(f)\n"
+    "\n"
+    "analyst_labels = {\n"
+    "    'market': ('&#x1F4C8;', 'Market Analyst'),\n"
+    "    'team': ('&#x1F465;', 'Team Analyst'),\n"
+    "    'financials': ('&#x1F4B0;', 'Financial Analyst'),\n"
+    "}\n"
+    "\n"
+    "fd_html = ''\n"
+    "for a, items in fd_by_analyst.items():\n"
+    "    icon, label = analyst_labels.get(a, ('&#x1F50D;', a.title()))\n"
+    "    items_html = ''\n"
+    "    for f in items:\n"
+    "        sc = sentiment_color(f.get('sentiment', 'neutral'))\n"
+    "        items_html += (\n"
+    "            f'<div style=\"display:flex;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9;align-items:flex-start\">'\n"
+    "            f'<span style=\"background:{sc};color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;text-transform:uppercase;flex-shrink:0\">{f.get(\"sentiment\",\"neutral\")}</span>'\n"
+    "            f'<span style=\"font-size:13px;color:#334155\">{f.get(\"finding\",\"\")}</span></div>'\n"
+    "        )\n"
+    "    fd_html += (\n"
+    "        f'<div style=\"margin-bottom:16px\">'\n"
+    "        f'<div style=\"font-weight:700;font-size:14px;color:#1e293b;margin-bottom:6px\">{icon} {label}</div>'\n"
+    "        f'{items_html}</div>'\n"
+    "    )\n"
+    "\n"
+    "# Risks\n"
+    "risk_items = ''.join(f'<div style=\"display:flex;gap:8px;padding:8px 0;border-bottom:1px solid #f1f5f9;font-size:13px;color:#334155\"><span style=\"color:#dc2626;flex-shrink:0\">&#x26A0;</span>{r}</div>' for r in key_risks)\n"
+    "\n"
+    "# Next steps\n"
+    "step_items = ''.join(f'<div style=\"display:flex;gap:8px;padding:8px 0;border-bottom:1px solid #f1f5f9;font-size:13px;color:#334155\"><span style=\"color:#2563eb;flex-shrink:0\">&#x27A1;</span>{s}</div>' for s in next_steps)\n"
+    "\n"
+    "card_style = 'background:#fff;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden;margin-bottom:12px'\n"
+    "card_hdr = 'padding:16px 20px;font-weight:700;font-size:15px;color:#1e293b;border-bottom:1px solid #f1f5f9'\n"
+    "card_body = 'padding:16px 20px'\n"
+    "\n"
+    "html = (\n"
+    "    '<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1.0\">'\n"
+    "    '<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;background:#f8fafc;padding:32px}</style></head><body>'\n"
+    "    '<div style=\"max-width:780px;margin:0 auto\">'\n"
+    "    # Header\n"
+    "    f'<div style=\"background:linear-gradient(135deg,#0f172a,#1e3a5f);border-radius:16px;padding:32px;margin-bottom:20px;color:#fff\">'\n"
+    "    f'<div style=\"display:flex;justify-content:space-between;align-items:center\">'\n"
+    "    f'<div style=\"flex:1\"><div style=\"font-size:24px;font-weight:700\">Investment Due Diligence</div>'\n"
+    "    f'<div style=\"font-size:14px;color:#94a3b8;margin-top:6px\">{thesis}</div></div>'\n"
+    "    f'<div style=\"flex-shrink:0;margin-left:24px\">{donut}</div></div></div>'\n"
+    "    # Recommendation banner\n"
+    "    f'<div style=\"background:{rc};border-radius:12px;padding:16px 20px;margin-bottom:12px;color:#fff;display:flex;align-items:center;gap:12px\">'\n"
+    "    f'<span style=\"font-size:20px\">&#x1F3AF;</span>'\n"
+    "    f'<div><div style=\"font-weight:700;font-size:15px\">{rec.replace(\"_\", \" \")}</div>'\n"
+    "    f'<div style=\"font-size:13px;opacity:0.9\">{r_desc}</div></div></div>'\n"
+    "    # Dimension scores\n"
+    "    f'<div style=\"{card_style}\"><div style=\"{card_hdr}\">&#x1F4CA; Dimension Scores</div><div style=\"{card_body}\">{dim_html}</div></div>'\n"
+    "    # Findings\n"
+    "    f'<div style=\"{card_style}\"><div style=\"{card_hdr}\">&#x1F50D; Analyst Findings ({len(findings)} items)</div><div style=\"{card_body}\">{fd_html}</div></div>'\n"
+    "    # Risks & Next Steps\n"
+    "    f'<div style=\"display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px\">'\n"
+    "    f'<div style=\"{card_style};margin-bottom:0\"><div style=\"{card_hdr};color:#dc2626\">&#x1F6A8; Key Risks</div><div style=\"{card_body}\">{risk_items}</div></div>'\n"
+    "    f'<div style=\"{card_style};margin-bottom:0\"><div style=\"{card_hdr};color:#2563eb\">&#x27A1; Next Steps</div><div style=\"{card_body}\">{step_items}</div></div></div>'\n"
+    "    '</div></body></html>'\n"
+    ")\n"
+    "\n"
+    "return [{'json': {'html': html}}]\n"
+)
+
+
+# ── Content Quality Pipeline ─────────────────────────────────────────
+
+_CONTENT_SYSTEM_PROMPT = (
+    "You are a Content Director AI managing a content quality pipeline for publication.\n\n"
+    "## Content Pipeline Protocol\n"
+    "When you receive a content brief, call spawn_agent three times in the same turn to dispatch ALL three specialists concurrently:\n\n"
+    "a) **Writer** — Write the full article based on the brief. "
+    "Follow the specified tone and style guidelines. "
+    "Target the specified audience. "
+    "Cover all key points from the brief. "
+    "Produce a complete, publication-ready draft with a compelling headline, "
+    "strong opening hook, well-structured body with subheadings, "
+    "and a memorable closing. Aim for the specified word count. "
+    "The draft should be engaging, opinionated, and backed by concrete examples.\n\n"
+    "b) **Fact-Checker** — Based on the brief's claims and key points, "
+    "verify each factual claim that will likely appear in the article. "
+    "For each claim, provide: the claim text, a verdict (VERIFIED, PARTIALLY_TRUE, UNVERIFIED, or FALSE), "
+    "a source or reasoning for the verdict, and a suggested correction if needed. "
+    "Focus on statistics, named entities, historical claims, and technical assertions. "
+    "Also flag any claims that are common misconceptions.\n\n"
+    "c) **Editor** — Review the brief and anticipate the article's quality dimensions. "
+    "Provide ratings (1-10) and specific feedback on: headline strength, "
+    "opening hook effectiveness, argument structure and flow, "
+    "evidence usage and specificity, voice consistency with the target tone, "
+    "audience appropriateness, and closing impact. "
+    "List 3-5 specific revision suggestions ranked by priority.\n\n"
+    "## Content Synthesis\n"
+    "After ALL sub-agents complete:\n"
+    "1. Use your scratchpad to integrate the writer's draft with fact-check results and editorial feedback\n"
+    "2. Compute an overall quality score (weighted: writing quality 0.4, factual accuracy 0.3, editorial polish 0.3)\n"
+    "3. Classify status:\n"
+    "   - PUBLISH_READY (8-10): Minor tweaks only, can go live\n"
+    "   - REVISIONS_NEEDED (5-7): Good foundation but needs specific improvements\n"
+    "   - MAJOR_REWRITE (3-4): Significant structural or content issues\n"
+    "   - BRIEF_REJECTED (1-2): Brief is unclear or topic is not viable\n"
+    "4. Compile the final output with the draft, fact-check results, editorial feedback, and priority revisions\n\n"
+    "## Sub-Agent Instructions\n"
+    "- Include the full content brief directly in each sub-agent's task string\n"
+    "- The Writer should produce the actual article text, not an outline\n"
+    "- The Fact-Checker should check claims independently of the Writer's output\n"
+    "- The Editor should evaluate based on the brief's requirements and general quality standards\n"
+)
+
+_CONTENT_OUTPUT_SCHEMA = json.dumps({
+    "type": "object",
+    "properties": {
+        "quality_score": {
+            "type": "number",
+            "description": "Overall quality score from 1 to 10",
+        },
+        "status": {
+            "type": "string",
+            "description": "PUBLISH_READY, REVISIONS_NEEDED, MAJOR_REWRITE, or BRIEF_REJECTED",
+        },
+        "draft": {
+            "type": "string",
+            "description": "The full article draft text with headline",
+        },
+        "fact_check_results": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "claim": {"type": "string", "description": "The factual claim checked"},
+                    "verdict": {"type": "string", "description": "VERIFIED, PARTIALLY_TRUE, UNVERIFIED, or FALSE"},
+                    "source": {"type": "string", "description": "Source or reasoning for the verdict"},
+                    "correction": {"type": "string", "description": "Suggested correction if needed"},
+                },
+            },
+        },
+        "editorial_feedback": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "dimension": {"type": "string", "description": "What aspect is being rated"},
+                    "rating": {"type": "number", "description": "Rating from 1-10"},
+                    "feedback": {"type": "string", "description": "Specific feedback"},
+                },
+            },
+        },
+        "priority_revisions": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Ranked list of specific revision suggestions",
+        },
+    },
+}, indent=2)
+
+_CONTENT_AGENT_BASE = {
+    "model": "gemini-2.5-flash",
+    "systemPrompt": _CONTENT_SYSTEM_PROMPT,
+    "maxIterations": 10,
+    "temperature": 0.2,
+    "enableSubAgents": True,
+    "maxAgentDepth": 2,
+    "allowRecursiveSpawn": False,
+    "enablePlanning": True,
+    "enableScratchpad": True,
+    "outputSchema": _CONTENT_OUTPUT_SCHEMA,
+}
+
+_CONTENT_SAMPLE = {
+    "type": "blog_post",
+    "topic": "The Hidden Cost of AI-Generated Code",
+    "word_count": 1500,
+    "tone": "Thoughtful and provocative — challenges conventional wisdom without being contrarian for its own sake. Data-driven but accessible.",
+    "audience": "Senior software engineers and engineering managers who are actively using AI coding tools and wondering about long-term implications.",
+    "key_points": [
+        "AI-generated code is optimized for passing code review, not for long-term maintainability",
+        "Teams report 30-40% productivity gains initially, but technical debt accumulates silently",
+        "The 'copy-paste at scale' problem: AI amplifies existing patterns, including bad ones",
+        "Junior developers are learning to prompt instead of learning to code — implications for the talent pipeline",
+        "The testing paradox: AI-generated code often lacks edge case coverage because models optimize for happy paths",
+        "Concrete strategies for getting AI productivity gains without the hidden costs",
+    ],
+    "seo_keywords": ["AI code generation", "technical debt", "AI coding tools", "software quality"],
+    "references_to_include": [
+        "GitClear 2024 study on code churn from AI-generated code",
+        "Stack Overflow developer survey data on AI tool adoption",
+        "Google's internal study on code review acceptance rates",
+    ],
+    "do_not": [
+        "Don't be Luddite — acknowledge real benefits before critiquing",
+        "Don't make it about specific tools — focus on the general pattern",
+        "Don't end with 'only time will tell' — provide actionable takeaways",
+    ],
+}
+
+_CONTENT_HTML_CODE = (
+    "d = json_data.get('structured') or json_data\n"
+    "\n"
+    "score = d.get('quality_score', 0)\n"
+    "status = d.get('status', 'REVISIONS_NEEDED')\n"
+    "draft = d.get('draft', '')\n"
+    "fact_checks = d.get('fact_check_results', [])\n"
+    "editorial = d.get('editorial_feedback', [])\n"
+    "revisions = d.get('priority_revisions', [])\n"
+    "\n"
+    "def status_info(s):\n"
+    "    s = s.upper()\n"
+    "    m = {\n"
+    "        'PUBLISH_READY': ('#16a34a', 'Ready for publication'),\n"
+    "        'REVISIONS_NEEDED': ('#d97706', 'Needs targeted revisions'),\n"
+    "        'MAJOR_REWRITE': ('#dc2626', 'Significant rewrite required'),\n"
+    "        'BRIEF_REJECTED': ('#6b7280', 'Brief needs rework'),\n"
+    "    }\n"
+    "    return m.get(s, ('#6b7280', s))\n"
+    "\n"
+    "def verdict_info(v):\n"
+    "    v = v.upper()\n"
+    "    m = {\n"
+    "        'VERIFIED': ('#16a34a', '&#x2714;'),\n"
+    "        'PARTIALLY_TRUE': ('#d97706', '&#x25CB;'),\n"
+    "        'UNVERIFIED': ('#6b7280', '?'),\n"
+    "        'FALSE': ('#dc2626', '&#x2718;'),\n"
+    "    }\n"
+    "    return m.get(v, ('#6b7280', '?'))\n"
+    "\n"
+    "sc, s_desc = status_info(status)\n"
+    "\n"
+    "# Score donut\n"
+    "pct = min(score * 10, 100)\n"
+    "circ = 251.2\n"
+    "offset = circ - (circ * pct / 100)\n"
+    "donut = (\n"
+    "    f'<svg width=\"100\" height=\"100\" viewBox=\"0 0 100 100\">'\n"
+    "    f'<circle cx=\"50\" cy=\"50\" r=\"40\" fill=\"none\" stroke=\"#334155\" stroke-width=\"8\" opacity=\"0.3\"/>'\n"
+    "    f'<circle cx=\"50\" cy=\"50\" r=\"40\" fill=\"none\" stroke=\"{sc}\" stroke-width=\"8\" '\n"
+    "    f'stroke-dasharray=\"{circ}\" stroke-dashoffset=\"{offset:.1f}\" stroke-linecap=\"round\" '\n"
+    "    f'transform=\"rotate(-90 50 50)\"/>'\n"
+    "    f'<text x=\"50\" y=\"46\" text-anchor=\"middle\" font-size=\"22\" font-weight=\"800\" fill=\"#fff\">{score:.1f}</text>'\n"
+    "    f'<text x=\"50\" y=\"62\" text-anchor=\"middle\" font-size=\"8\" font-weight=\"600\" fill=\"{sc}\">/ 10</text>'\n"
+    "    f'</svg>'\n"
+    ")\n"
+    "\n"
+    "# Draft preview (convert newlines to paragraphs)\n"
+    "draft_paras = ''.join(f'<p style=\"margin-bottom:12px\">{p.strip()}</p>' for p in draft.splitlines() if p.strip())\n"
+    "\n"
+    "# Fact-check items\n"
+    "fc_html = ''\n"
+    "for fc in fact_checks:\n"
+    "    vc, vi = verdict_info(fc.get('verdict', 'UNVERIFIED'))\n"
+    "    correction = fc.get('correction', '')\n"
+    "    corr_html = f'<div style=\"font-size:12px;color:#d97706;margin-top:4px\">&#x270F; {correction}</div>' if correction else ''\n"
+    "    fc_html += (\n"
+    "        f'<div style=\"padding:10px 0;border-bottom:1px solid #f1f5f9\">'\n"
+    "        f'<div style=\"display:flex;gap:10px;align-items:flex-start\">'\n"
+    "        f'<span style=\"background:{vc};color:#fff;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0\">{vi}</span>'\n"
+    "        f'<div style=\"flex:1\">'\n"
+    "        f'<div style=\"font-size:13px;color:#1e293b;font-weight:600\">{fc.get(\"claim\",\"\")}</div>'\n"
+    "        f'<div style=\"font-size:12px;color:#64748b;margin-top:2px\">{fc.get(\"source\",\"\")}</div>'\n"
+    "        f'{corr_html}</div></div></div>'\n"
+    "    )\n"
+    "\n"
+    "# Editorial ratings\n"
+    "ed_html = ''\n"
+    "for ef in editorial:\n"
+    "    r = ef.get('rating', 0)\n"
+    "    bar_pct = min(r * 10, 100)\n"
+    "    bar_color = '#16a34a' if r >= 8 else '#d97706' if r >= 5 else '#dc2626'\n"
+    "    ed_html += (\n"
+    "        f'<div style=\"margin-bottom:12px\">'\n"
+    "        f'<div style=\"display:flex;align-items:center;gap:8px;margin-bottom:4px\">'\n"
+    "        f'<span style=\"font-weight:600;font-size:13px;color:#1e293b;flex:1\">{ef.get(\"dimension\",\"\")}</span>'\n"
+    "        f'<span style=\"font-weight:700;font-size:14px;color:{bar_color}\">{r}/10</span></div>'\n"
+    "        f'<div style=\"background:#e2e8f0;border-radius:4px;height:6px;margin-bottom:6px\">'\n"
+    "        f'<div style=\"background:{bar_color};border-radius:4px;height:6px;width:{bar_pct}%\"></div></div>'\n"
+    "        f'<div style=\"font-size:12px;color:#64748b\">{ef.get(\"feedback\",\"\")}</div></div>'\n"
+    "    )\n"
+    "\n"
+    "# Priority revisions\n"
+    "rev_html = ''\n"
+    "for i, rev in enumerate(revisions, 1):\n"
+    "    rev_html += f'<div style=\"display:flex;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9;font-size:13px;color:#334155\"><span style=\"background:#2563eb;color:#fff;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0\">{i}</span>{rev}</div>'\n"
+    "\n"
+    "card_style = 'background:#fff;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden;margin-bottom:12px'\n"
+    "card_hdr = 'padding:16px 20px;font-weight:700;font-size:15px;color:#1e293b;border-bottom:1px solid #f1f5f9'\n"
+    "card_body = 'padding:16px 20px'\n"
+    "\n"
+    "# Count fact-check verdicts\n"
+    "v_counts = {}\n"
+    "for fc in fact_checks:\n"
+    "    v = fc.get('verdict', 'UNVERIFIED').upper()\n"
+    "    v_counts[v] = v_counts.get(v, 0) + 1\n"
+    "v_summary = ', '.join(f'{c} {v.lower()}' for v, c in v_counts.items())\n"
+    "\n"
+    "html = (\n"
+    "    '<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1.0\">'\n"
+    "    '<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;background:#f8fafc;padding:32px}</style></head><body>'\n"
+    "    '<div style=\"max-width:780px;margin:0 auto\">'\n"
+    "    # Header\n"
+    "    f'<div style=\"background:linear-gradient(135deg,#1a1a2e,#16213e);border-radius:16px;padding:32px;margin-bottom:20px;color:#fff\">'\n"
+    "    f'<div style=\"display:flex;justify-content:space-between;align-items:center\">'\n"
+    "    f'<div style=\"flex:1\"><div style=\"font-size:24px;font-weight:700\">Content Quality Report</div>'\n"
+    "    f'<div style=\"font-size:14px;color:#94a3b8;margin-top:6px\">Pipeline: Writer &#x2192; Fact-Checker &#x2192; Editor</div></div>'\n"
+    "    f'<div style=\"flex-shrink:0;margin-left:24px\">{donut}</div></div></div>'\n"
+    "    # Status banner\n"
+    "    f'<div style=\"background:{sc};border-radius:12px;padding:16px 20px;margin-bottom:12px;color:#fff;display:flex;align-items:center;gap:12px\">'\n"
+    "    f'<span style=\"font-size:20px\">&#x1F4DD;</span>'\n"
+    "    f'<div><div style=\"font-weight:700;font-size:15px\">{status.replace(\"_\", \" \")}</div>'\n"
+    "    f'<div style=\"font-size:13px;opacity:0.9\">{s_desc}</div></div></div>'\n"
+    "    # Draft preview\n"
+    "    f'<div style=\"{card_style}\"><div style=\"{card_hdr}\">&#x1F4C4; Article Draft</div>'\n"
+    "    f'<div style=\"{card_body};font-size:14px;color:#334155;line-height:1.7;max-height:400px;overflow-y:auto\">{draft_paras}</div></div>'\n"
+    "    # Fact-check results\n"
+    "    f'<div style=\"{card_style}\"><div style=\"{card_hdr}\">&#x2714; Fact-Check Results ({len(fact_checks)} claims — {v_summary})</div><div style=\"{card_body}\">{fc_html}</div></div>'\n"
+    "    # Editorial feedback\n"
+    "    f'<div style=\"{card_style}\"><div style=\"{card_hdr}\">&#x1F4DD; Editorial Ratings</div><div style=\"{card_body}\">{ed_html}</div></div>'\n"
+    "    # Priority revisions\n"
+    "    f'<div style=\"{card_style}\"><div style=\"{card_hdr}\">&#x1F527; Priority Revisions</div><div style=\"{card_body}\">{rev_html}</div></div>'\n"
+    "    '</div></body></html>'\n"
+    ")\n"
+    "\n"
+    "return [{'json': {'html': html}}]\n"
+)
+
+
+# ── Customer Service Escalation Triage ────────────────────────────────
+
+_ESCALATION_SYSTEM_PROMPT = (
+    "You are an Escalation Director AI for a private banking institution.\n\n"
+    "## Escalation Protocol\n"
+    "When you receive an escalation case, call spawn_agent three times in the same turn to dispatch ALL three specialists concurrently:\n\n"
+    "a) **Sentiment & Intent Analyst** — Analyze the full interaction history chronologically. "
+    "Determine the client's emotional state at each touchpoint and the overall trajectory (escalating, stable, or de-escalating). "
+    "Calculate a churn probability (0-100) based on: number of failed resolution attempts, "
+    "severity of service failures, client tenure and value tier, competitor mentions, and tone progression. "
+    "Identify the client's unstated needs beneath the surface complaints — what do they actually want beyond the specific fixes? "
+    "(e.g., feeling valued, having a dedicated point of contact, confidence their wealth is being managed competently). "
+    "Flag any language indicating imminent action (legal threats, regulatory complaints, media mentions).\n\n"
+    "b) **Customer Value & Retention Analyst** — Calculate the full financial picture. "
+    "Compute lifetime value based on current products, tenure, and growth trajectory. "
+    "Estimate revenue-at-risk if the client leaves (annual fees, interest income, AUM fees, card interchange). "
+    "Calculate total cost-of-loss including acquisition cost to replace, referral network value, and reputational risk. "
+    "Model cost-of-resolution for the specific issues raised. "
+    "Compute ROI of retention (cost-of-loss minus cost-of-resolution). "
+    "Provide a retention offer recommendation calibrated to the client's value tier — "
+    "the offer should be generous enough to retain but justified by the financial math.\n\n"
+    "c) **Resolution Strategist** — Design a comprehensive multi-phase resolution plan. "
+    "Immediate actions (within 24 hours): specific steps, named owner roles, and deadlines. "
+    "Short-term actions (1-2 weeks): follow-up steps to rebuild trust. "
+    "Long-term actions (30-90 days): systemic fixes and relationship strengthening. "
+    "Each action must have a clear owner, timeline, and success metric. "
+    "Flag any compliance considerations (Reg E timelines, fiduciary obligations, fair lending). "
+    "Identify SLA breaches in the interaction history with severity ratings. "
+    "Surface systemic issues that this case reveals about the bank's operations.\n\n"
+    "## Synthesis\n"
+    "After ALL sub-agents complete:\n"
+    "1. Use your scratchpad to cross-reference all three analyses\n"
+    "2. Assign an overall risk score (0-100) and priority level:\n"
+    "   - P1_CRITICAL (85-100): Imminent loss of high-value client, regulatory exposure, or reputational risk\n"
+    "   - P2_HIGH (60-84): Significant flight risk, multiple service failures, escalating sentiment\n"
+    "   - P3_MEDIUM (30-59): Moderate dissatisfaction, containable with prompt action\n"
+    "   - P4_LOW (0-29): Minor issue, standard resolution path\n"
+    "3. Compile the executive escalation memo with all sections populated\n"
+    "4. Write a concise executive summary (2-3 sentences) that a bank CIO could read in 10 seconds\n\n"
+    "## Sub-Agent Instructions\n"
+    "- Include the full escalation case JSON directly in each sub-agent's task string\n"
+    "- Each sub-agent should be thorough — mishandling a high-value private banking client has severe financial and reputational consequences\n"
+)
+
+_ESCALATION_OUTPUT_SCHEMA = json.dumps({
+    "type": "object",
+    "properties": {
+        "priority": {
+            "type": "string",
+            "description": "Priority level: P1_CRITICAL, P2_HIGH, P3_MEDIUM, or P4_LOW",
+        },
+        "overall_risk_score": {
+            "type": "number",
+            "description": "Overall risk score from 0 (low risk) to 100 (critical risk)",
+        },
+        "customer_sentiment": {
+            "type": "object",
+            "properties": {
+                "current_state": {"type": "string", "description": "Current emotional state of the client"},
+                "trajectory": {"type": "string", "description": "ESCALATING, STABLE, or DE_ESCALATING"},
+                "churn_probability": {"type": "number", "description": "Probability of client departure 0-100"},
+            },
+        },
+        "financial_impact": {
+            "type": "object",
+            "properties": {
+                "lifetime_value": {"type": "string", "description": "Estimated client lifetime value"},
+                "revenue_at_risk": {"type": "string", "description": "Annual revenue at risk if client leaves"},
+                "cost_of_loss": {"type": "string", "description": "Total cost including replacement and referral loss"},
+                "cost_of_resolution": {"type": "string", "description": "Cost to resolve all current issues"},
+                "roi_of_retention": {"type": "string", "description": "Return on investment for retention effort"},
+            },
+        },
+        "resolution_plan": {
+            "type": "object",
+            "properties": {
+                "immediate_actions": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "action": {"type": "string"},
+                            "owner": {"type": "string"},
+                            "deadline": {"type": "string"},
+                            "priority": {"type": "string"},
+                        },
+                    },
+                },
+                "short_term": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "action": {"type": "string"},
+                            "owner": {"type": "string"},
+                            "timeline": {"type": "string"},
+                        },
+                    },
+                },
+                "long_term": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "action": {"type": "string"},
+                            "owner": {"type": "string"},
+                            "timeline": {"type": "string"},
+                        },
+                    },
+                },
+            },
+        },
+        "retention_offer": {
+            "type": "object",
+            "properties": {
+                "tier": {"type": "string", "description": "Offer tier based on client value"},
+                "components": {"type": "array", "items": {"type": "string"}, "description": "Individual offer components"},
+                "total_value": {"type": "string", "description": "Total monetary value of the retention offer"},
+                "justification": {"type": "string", "description": "Financial justification for the offer"},
+            },
+        },
+        "compliance_flags": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Regulatory and compliance considerations",
+        },
+        "sla_breaches": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "description": "Type of SLA breach"},
+                    "details": {"type": "string", "description": "Specific details of the breach"},
+                    "severity": {"type": "string", "description": "critical, high, medium, or low"},
+                },
+            },
+        },
+        "systemic_issues": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Systemic operational issues revealed by this case",
+        },
+        "executive_summary": {
+            "type": "string",
+            "description": "2-3 sentence executive summary for bank leadership",
+        },
+    },
+}, indent=2)
+
+_ESCALATION_AGENT_BASE = {
+    "model": "gemini-2.5-flash",
+    "systemPrompt": _ESCALATION_SYSTEM_PROMPT,
+    "maxIterations": 10,
+    "temperature": 0.2,
+    "enableSubAgents": True,
+    "maxAgentDepth": 2,
+    "allowRecursiveSpawn": False,
+    "enablePlanning": True,
+    "enableScratchpad": True,
+    "outputSchema": _ESCALATION_OUTPUT_SCHEMA,
+}
+
+_ESCALATION_SAMPLE = {
+    "case_id": "ESC-2026-04291",
+    "opened": "2026-02-24T09:14:00Z",
+    "source": "CRM_ESCALATION_TRIGGER",
+    "priority_override": "MANAGER_FLAGGED",
+    "customer": {
+        "name": "Margaret Chen-Whitfield",
+        "client_id": "PB-00048217",
+        "tier": "Private Banking — Platinum",
+        "relationship_start": "2018-03-15",
+        "tenure_years": 7.9,
+        "total_relationship_value": 2_420_000,
+        "annual_revenue": 68_400,
+        "products": [
+            {"type": "Premium Checking", "balance": 245_000, "annual_fees": 0, "note": "Fee-waived at Platinum tier"},
+            {"type": "High-Yield Savings", "balance": 520_000, "apy": 4.85},
+            {"type": "Wealth Management", "aum": 1_380_000, "fee_bps": 75, "annual_fee": 10_350, "strategy": "Growth-oriented moderate risk"},
+            {"type": "Mortgage", "balance": 275_000, "rate": 3.125, "term": "30yr fixed", "note": "Originated 2020, excellent payment history"},
+            {"type": "Amex Centurion", "annual_spend": 187_000, "annual_fee": 5_000, "rewards_tier": "5x points on travel"},
+        ],
+        "satisfaction_history": [
+            {"date": "2024-Q4", "nps": 9.2, "comment": "Exceptional service, love my advisor James"},
+            {"date": "2025-Q1", "nps": 8.8, "comment": "Solid as always"},
+            {"date": "2025-Q2", "nps": 7.1, "comment": "Portal redesign is confusing"},
+            {"date": "2025-Q3", "nps": 5.4, "comment": "Hard to reach anyone, long hold times"},
+            {"date": "2025-Q4", "nps": 3.1, "comment": "Seriously considering moving everything to Goldman"},
+        ],
+        "previous_escalations": [
+            {"date": "2023-06", "issue": "Mortgage rate lock dispute", "resolution": "Honored original rate, $500 credit", "outcome": "Satisfied"},
+        ],
+        "competitor_mentions": ["Goldman Sachs Private Wealth Management"],
+        "referral_network": {
+            "clients_referred": 3,
+            "referral_aum": 890_000,
+            "active_referrals": True,
+        },
+    },
+    "interaction_history": [
+        {
+            "date": "2026-01-08T14:22:00Z",
+            "channel": "Phone",
+            "agent": "Sarah Kim (Customer Service Rep)",
+            "duration_minutes": 34,
+            "issue": "Unauthorized $847.00 wire fee on international transfer to Hong Kong (family support payment)",
+            "outcome": "Agent confirmed fee was applied in error due to system migration. Submitted refund request. Told client 5-7 business days.",
+            "client_sentiment": "Annoyed but patient",
+            "resolution": "PENDING",
+        },
+        {
+            "date": "2026-01-18T10:05:00Z",
+            "channel": "Phone",
+            "agent": "Call Center (18 min hold)",
+            "duration_minutes": 12,
+            "issue": "Fee refund still not processed after 10 days. Client also asked to speak with dedicated advisor James Morrison.",
+            "outcome": "Agent could not locate refund request in system. Resubmitted. Informed client James Morrison left the bank 3 weeks ago — no transition plan in place.",
+            "client_sentiment": "Frustrated, voice raised",
+            "resolution": "PENDING",
+        },
+        {
+            "date": "2026-01-29T16:40:00Z",
+            "channel": "Secure Message (Portal)",
+            "agent": "Auto-response",
+            "duration_minutes": 0,
+            "issue": "Client sent detailed message about: (1) still no fee refund, (2) no new advisor assigned, (3) wealth management portal showing incorrect allocation — equities showing 72% when target is 55%",
+            "outcome": "Auto-acknowledgment sent. No human follow-up for 6 business days.",
+            "client_sentiment": "Formal, documented tone — building a paper trail",
+            "resolution": "NO_RESPONSE",
+        },
+        {
+            "date": "2026-02-10T09:30:00Z",
+            "channel": "Phone",
+            "agent": "David Park (Senior Service Rep)",
+            "duration_minutes": 47,
+            "issue": "Client called demanding to speak with a branch manager. Recounted full history of failures. Mentioned she has a meeting scheduled with Goldman Sachs Private Wealth Management next week.",
+            "outcome": "David escalated to branch manager who was unavailable. Promised callback within 2 hours. Callback came 26 hours later from a different agent who was unaware of the case history.",
+            "client_sentiment": "Cold, controlled anger. Used phrases: 'pattern of incompetence', 'fiduciary obligation', 'regulatory complaint'",
+            "resolution": "FAILED_ESCALATION",
+        },
+        {
+            "date": "2026-02-22T11:15:00Z",
+            "channel": "Email to CEO Office",
+            "agent": "Executive Relations (auto-logged)",
+            "duration_minutes": 0,
+            "issue": "Formal complaint letter to CEO. Lists all failures with dates. States intent to move all accounts within 30 days unless 'meaningful corrective action' is taken. Cc'd personal attorney.",
+            "outcome": "Routed to Executive Relations team. Case flagged P1.",
+            "client_sentiment": "Resolved, methodical — has made decision, offering final chance",
+            "resolution": "PENDING_EXECUTIVE_REVIEW",
+        },
+    ],
+    "open_issues": [
+        {"id": "TKT-88201", "type": "Fee Dispute", "amount": 847.00, "status": "UNRESOLVED", "age_days": 47, "sla_target_days": 10},
+        {"id": "TKT-88455", "type": "Advisor Reassignment", "status": "UNRESOLVED", "age_days": 37, "sla_target_days": 5},
+        {"id": "TKT-88902", "type": "Portfolio Display Error", "status": "UNRESOLVED", "age_days": 26, "sla_target_days": 3},
+        {"id": "TKT-89301", "type": "Failed Escalation Callback", "status": "UNRESOLVED", "age_days": 14, "sla_target_days": 2},
+    ],
+    "bank_context": {
+        "institution": "Meridian Private Bank",
+        "advisor_departed": {
+            "name": "James Morrison",
+            "departure_date": "2025-12-20",
+            "clients_orphaned": 24,
+            "handoff_completed": False,
+        },
+        "system_migration": {
+            "name": "CoreBanking v4.2 Migration",
+            "date": "2025-12-01",
+            "known_issues": ["International wire fee calculation errors", "Wealth portal data sync delays"],
+        },
+    },
+}
+
+_ESCALATION_HTML_CODE = (
+    "d = json_data.get('structured') or json_data\n"
+    "\n"
+    "priority = d.get('priority', 'P2_HIGH')\n"
+    "risk_score = d.get('overall_risk_score', 0)\n"
+    "sentiment = d.get('customer_sentiment', {})\n"
+    "financial = d.get('financial_impact', {})\n"
+    "plan = d.get('resolution_plan', {})\n"
+    "offer = d.get('retention_offer', {})\n"
+    "compliance = d.get('compliance_flags', [])\n"
+    "sla_breaches = d.get('sla_breaches', [])\n"
+    "systemic = d.get('systemic_issues', [])\n"
+    "exec_summary = d.get('executive_summary', '')\n"
+    "\n"
+    "def priority_color(p):\n"
+    "    p = p.upper()\n"
+    "    if 'P1' in p or 'CRITICAL' in p: return '#dc2626'\n"
+    "    if 'P2' in p or 'HIGH' in p: return '#d97706'\n"
+    "    if 'P3' in p or 'MEDIUM' in p: return '#2563eb'\n"
+    "    return '#16a34a'\n"
+    "\n"
+    "def traj_color(t):\n"
+    "    t = t.upper()\n"
+    "    if t == 'ESCALATING': return '#dc2626'\n"
+    "    if t == 'STABLE': return '#d97706'\n"
+    "    return '#16a34a'\n"
+    "\n"
+    "def sev_color(s):\n"
+    "    s = s.lower()\n"
+    "    if s == 'critical': return '#dc2626'\n"
+    "    if s == 'high': return '#d97706'\n"
+    "    if s == 'medium': return '#2563eb'\n"
+    "    return '#6b7280'\n"
+    "\n"
+    "pc = priority_color(priority)\n"
+    "\n"
+    "# Risk score donut SVG\n"
+    "pct = min(risk_score, 100)\n"
+    "circ = 251.2\n"
+    "off = circ - (circ * pct / 100)\n"
+    "donut = (\n"
+    "    f'<svg width=\"100\" height=\"100\" viewBox=\"0 0 100 100\">'\n"
+    "    f'<circle cx=\"50\" cy=\"50\" r=\"40\" fill=\"none\" stroke=\"#334155\" stroke-width=\"8\" opacity=\"0.3\"/>'\n"
+    "    f'<circle cx=\"50\" cy=\"50\" r=\"40\" fill=\"none\" stroke=\"{pc}\" stroke-width=\"8\" '\n"
+    "    f'stroke-dasharray=\"{circ}\" stroke-dashoffset=\"{off:.1f}\" stroke-linecap=\"round\" '\n"
+    "    f'transform=\"rotate(-90 50 50)\"/>'\n"
+    "    f'<text x=\"50\" y=\"46\" text-anchor=\"middle\" font-size=\"22\" font-weight=\"800\" fill=\"#fff\">{risk_score}</text>'\n"
+    "    f'<text x=\"50\" y=\"62\" text-anchor=\"middle\" font-size=\"9\" font-weight=\"600\" fill=\"{pc}\">RISK</text>'\n"
+    "    f'</svg>'\n"
+    ")\n"
+    "\n"
+    "# Churn probability bar\n"
+    "churn = sentiment.get('churn_probability', 0)\n"
+    "churn_color = '#dc2626' if churn >= 70 else '#d97706' if churn >= 40 else '#16a34a'\n"
+    "traj = sentiment.get('trajectory', 'STABLE')\n"
+    "tc = traj_color(traj)\n"
+    "traj_arrow = '&#x2191;' if traj == 'ESCALATING' else '&#x2193;' if traj == 'DE_ESCALATING' else '&#x2194;'\n"
+    "\n"
+    "sentiment_html = (\n"
+    "    f'<div style=\"margin-bottom:12px\">'\n"
+    "    f'<div style=\"font-size:13px;color:#64748b;margin-bottom:4px\">Current State</div>'\n"
+    "    f'<div style=\"font-size:15px;font-weight:600;color:#1e293b\">{sentiment.get(\"current_state\", \"Unknown\")}</div></div>'\n"
+    "    f'<div style=\"display:flex;gap:20px;margin-bottom:12px\">'\n"
+    "    f'<div style=\"flex:1\"><div style=\"font-size:12px;color:#64748b;margin-bottom:4px\">Trajectory</div>'\n"
+    "    f'<span style=\"background:{tc};color:#fff;padding:4px 12px;border-radius:6px;font-size:13px;font-weight:600\">{traj_arrow} {traj}</span></div>'\n"
+    "    f'<div style=\"flex:1\"><div style=\"font-size:12px;color:#64748b;margin-bottom:4px\">Churn Probability</div>'\n"
+    "    f'<div style=\"display:flex;align-items:center;gap:8px\">'\n"
+    "    f'<div style=\"flex:1;background:#e2e8f0;border-radius:4px;height:8px\">'\n"
+    "    f'<div style=\"background:{churn_color};border-radius:4px;height:8px;width:{churn}%\"></div></div>'\n"
+    "    f'<span style=\"font-weight:700;font-size:14px;color:{churn_color}\">{churn}%</span></div></div></div>'\n"
+    ")\n"
+    "\n"
+    "# Financial impact\n"
+    "fin_fields = [\n"
+    "    ('Lifetime Value', financial.get('lifetime_value', 'N/A'), '#1e293b'),\n"
+    "    ('Revenue at Risk', financial.get('revenue_at_risk', 'N/A'), '#dc2626'),\n"
+    "    ('Cost of Loss', financial.get('cost_of_loss', 'N/A'), '#d97706'),\n"
+    "    ('Cost of Resolution', financial.get('cost_of_resolution', 'N/A'), '#2563eb'),\n"
+    "    ('ROI of Retention', financial.get('roi_of_retention', 'N/A'), '#16a34a'),\n"
+    "]\n"
+    "fin_html = ''\n"
+    "for label, val, color in fin_fields:\n"
+    "    fin_html += (\n"
+    "        f'<div style=\"display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #f1f5f9\">'\n"
+    "        f'<span style=\"font-size:13px;color:#64748b\">{label}</span>'\n"
+    "        f'<span style=\"font-size:14px;font-weight:700;color:{color}\">{val}</span></div>'\n"
+    "    )\n"
+    "\n"
+    "# SLA breaches table\n"
+    "sla_html = ''\n"
+    "for b in sla_breaches:\n"
+    "    sc = sev_color(b.get('severity', 'medium'))\n"
+    "    sla_html += (\n"
+    "        f'<div style=\"display:flex;gap:10px;padding:10px 0;border-bottom:1px solid #f1f5f9;align-items:flex-start\">'\n"
+    "        f'<span style=\"background:{sc};color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;text-transform:uppercase;flex-shrink:0\">{b.get(\"severity\",\"medium\")}</span>'\n"
+    "        f'<div style=\"flex:1\"><div style=\"font-size:13px;font-weight:600;color:#1e293b\">{b.get(\"type\",\"\")}</div>'\n"
+    "        f'<div style=\"font-size:12px;color:#64748b;margin-top:2px\">{b.get(\"details\",\"\")}</div></div></div>'\n"
+    "    )\n"
+    "\n"
+    "# Resolution plan — three columns\n"
+    "def action_list(items, show_deadline=False):\n"
+    "    h = ''\n"
+    "    for a in items:\n"
+    "        time_field = a.get('deadline', '') if show_deadline else a.get('timeline', '')\n"
+    "        time_html = f'<div style=\"font-size:11px;color:#64748b;margin-top:2px\">{a.get(\"owner\",\"\")} &middot; {time_field}</div>' if time_field else ''\n"
+    "        h += (\n"
+    "            f'<div style=\"padding:8px 0;border-bottom:1px solid #f1f5f9\">'\n"
+    "            f'<div style=\"font-size:13px;color:#1e293b\">{a.get(\"action\",\"\")}</div>'\n"
+    "            f'{time_html}</div>'\n"
+    "        )\n"
+    "    return h\n"
+    "\n"
+    "imm = action_list(plan.get('immediate_actions', []), show_deadline=True)\n"
+    "short = action_list(plan.get('short_term', []))\n"
+    "long = action_list(plan.get('long_term', []))\n"
+    "\n"
+    "# Retention offer\n"
+    "offer_components = offer.get('components', [])\n"
+    "comp_html = ''.join(f'<div style=\"display:flex;gap:8px;padding:6px 0;border-bottom:1px solid #f1f5f9;font-size:13px;color:#334155\"><span style=\"color:#16a34a;flex-shrink:0\">&#x2714;</span>{c}</div>' for c in offer_components)\n"
+    "\n"
+    "# Compliance flags\n"
+    "flag_html = ''\n"
+    "if compliance:\n"
+    "    chips = ''.join(f'<span style=\"background:#fef2f2;color:#dc2626;padding:4px 10px;border-radius:6px;font-size:12px;font-weight:600;border:1px solid #fecaca\">{f}</span>' for f in compliance)\n"
+    "    flag_html = f'<div style=\"display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px\">{chips}</div>'\n"
+    "\n"
+    "# Systemic issues\n"
+    "sys_html = ''.join(f'<div style=\"display:flex;gap:8px;padding:8px 0;border-bottom:1px solid #f1f5f9;font-size:13px;color:#334155\"><span style=\"color:#d97706;flex-shrink:0\">&#x26A0;</span>{s}</div>' for s in systemic)\n"
+    "\n"
+    "card_style = 'background:#fff;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden;margin-bottom:12px'\n"
+    "card_hdr = 'padding:16px 20px;font-weight:700;font-size:15px;color:#1e293b;border-bottom:1px solid #f1f5f9'\n"
+    "card_body = 'padding:16px 20px'\n"
+    "\n"
+    "html = (\n"
+    "    '<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1.0\">'\n"
+    "    '<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;background:#f8fafc;padding:32px}</style></head><body>'\n"
+    "    '<div style=\"max-width:780px;margin:0 auto\">'\n"
+    "    # Header — dark navy gradient with priority badge and risk donut\n"
+    "    f'<div style=\"background:linear-gradient(135deg,#0c1222,#1a2744);border-radius:16px;padding:32px;margin-bottom:20px;color:#fff\">'\n"
+    "    f'<div style=\"display:flex;justify-content:space-between;align-items:center\">'\n"
+    "    f'<div style=\"flex:1\">'\n"
+    "    f'<div style=\"display:flex;align-items:center;gap:12px;margin-bottom:8px\">'\n"
+    "    f'<span style=\"font-size:22px;font-weight:700\">Executive Escalation Memo</span>'\n"
+    "    f'<span style=\"background:{pc};color:#fff;padding:4px 14px;border-radius:6px;font-size:12px;font-weight:700\">{priority.replace(\"_\", \" \")}</span></div>'\n"
+    "    f'<div style=\"font-size:15px;color:#cbd5e1;margin-bottom:4px\">Client: Margaret Chen-Whitfield &middot; PB-00048217</div>'\n"
+    "    f'<div style=\"font-size:13px;color:#64748b\">Private Banking Platinum &middot; 7.9yr tenure &middot; $2.4M relationship</div></div>'\n"
+    "    f'<div style=\"flex-shrink:0;margin-left:24px\">{donut}</div></div></div>'\n"
+    "    # Executive Summary\n"
+    "    f'<div style=\"{card_style}\"><div style=\"{card_hdr}\">&#x1F4CB; Executive Summary</div>'\n"
+    "    f'<div style=\"{card_body};font-size:14px;color:#334155;line-height:1.7\">{exec_summary}</div></div>'\n"
+    "    # Sentiment Analysis\n"
+    "    f'<div style=\"{card_style}\"><div style=\"{card_hdr}\">&#x1F4CA; Sentiment Analysis</div>'\n"
+    "    f'<div style=\"{card_body}\">{sentiment_html}</div></div>'\n"
+    "    # Financial Impact\n"
+    "    f'<div style=\"{card_style}\"><div style=\"{card_hdr}\">&#x1F4B0; Financial Impact</div>'\n"
+    "    f'<div style=\"{card_body}\">{fin_html}</div></div>'\n"
+    "    # SLA Breaches\n"
+    "    f'<div style=\"{card_style}\"><div style=\"{card_hdr};color:#dc2626\">&#x23F0; SLA Breaches ({len(sla_breaches)})</div>'\n"
+    "    f'<div style=\"{card_body}\">{sla_html}</div></div>'\n"
+    "    # Resolution Plan — 3 columns\n"
+    "    f'<div style=\"display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px\">'\n"
+    "    f'<div style=\"{card_style};margin-bottom:0\"><div style=\"{card_hdr};color:#dc2626;font-size:13px\">&#x26A1; Immediate (24h)</div><div style=\"{card_body}\">{imm}</div></div>'\n"
+    "    f'<div style=\"{card_style};margin-bottom:0\"><div style=\"{card_hdr};color:#d97706;font-size:13px\">&#x1F4C5; Short-term (1-2wk)</div><div style=\"{card_body}\">{short}</div></div>'\n"
+    "    f'<div style=\"{card_style};margin-bottom:0\"><div style=\"{card_hdr};color:#2563eb;font-size:13px\">&#x1F3AF; Long-term (30-90d)</div><div style=\"{card_body}\">{long}</div></div></div>'\n"
+    "    # Retention Offer\n"
+    "    f'<div style=\"{card_style}\"><div style=\"{card_hdr}\">&#x1F381; Retention Offer — {offer.get(\"tier\", \"\")}'\n"
+    "    f'<span style=\"float:right;color:#16a34a\">{offer.get(\"total_value\", \"\")}</span></div>'\n"
+    "    f'<div style=\"{card_body}\">{comp_html}'\n"
+    "    f'<div style=\"margin-top:10px;padding:10px;background:#f0fdf4;border-radius:8px;font-size:12px;color:#166534\">{offer.get(\"justification\", \"\")}</div></div></div>'\n"
+    "    # Compliance & Systemic Issues\n"
+    "    f'<div style=\"{card_style}\"><div style=\"{card_hdr}\">&#x1F6A8; Compliance &amp; Systemic Issues</div>'\n"
+    "    f'<div style=\"{card_body}\">{flag_html}{sys_html}</div></div>'\n"
+    "    '</div></body></html>'\n"
+    ")\n"
+    "\n"
+    "return [{'json': {'html': html}}]\n"
+)
+
+
+EXAMPLE_WORKFLOWS = [
     # ========================================
-    # 10. PROMPT VALIDATOR (UI) — Start → Set → Agent (HTML) → Output
+    # FRAUD INVESTIGATION AGENT (UI) — HTML report
     # ========================================
     {
-        "name": "Prompt Validator",
-        "description": "Evaluates LLM prompts for quality across grammar, clarity, prompt engineering best practices, and optional requirements compliance. AI agent generates a styled HTML report directly — no Code node needed. Edit the Input node to change the prompt and requirements.",
+        "name": "Fraud Investigation Agent",
+        "description": "AI Lead Investigator that spawns 3 parallel sub-agents (transaction, customer, network) to investigate a suspicious transaction alert. Produces a styled risk assessment report with evidence chain, regulatory flags, and recommended action.",
         "active": True,
         "definition": {
             "nodes": [
-                {
-                    "name": "Start",
-                    "type": "Start",
-                    "parameters": {},
-                    "position": {"x": 100, "y": 300},
-                },
+                {"name": "Start", "type": "Start", "parameters": {}, "position": {"x": 100, "y": 300}},
                 {
                     "name": "Input",
                     "type": "Set",
                     "parameters": {
                         "mode": "json",
-                        "jsonData": json.dumps(_PROMPT_VALIDATOR_SAMPLE),
+                        "jsonData": json.dumps(_FRAUD_SAMPLE),
                         "keepOnlySet": True,
                     },
                     "position": {"x": 350, "y": 300},
                 },
                 {
-                    "name": "Prompt Evaluator",
+                    "name": "Lead Investigator",
                     "type": "AIAgent",
                     "parameters": {
-                        **_PROMPT_VALIDATOR_HTML_AGENT,
+                        **_FRAUD_AGENT_BASE,
                         "task": (
-                            "Evaluate the following prompt:\n\n"
-                            "---\n"
-                            "{{ $json.prompt }}\n"
-                            "---\n\n"
-                            "Requirements (empty means none provided — skip requirements compliance):\n"
-                            "{{ $json.requirements }}\n\n"
-                            "Run your full evaluation pipeline and generate the HTML quality report."
+                            "Investigate the following transaction alert:\n\n"
+                            "{{ $json }}\n\n"
+                            "Run your full investigation pipeline — dispatch all three specialist "
+                            "analysts in parallel, gather evidence, cross-reference findings, "
+                            "and produce your risk assessment."
                         ),
                     },
                     "position": {"x": 650, "y": 300},
                 },
-                {
-                    "name": "Show Report",
-                    "type": "Output",
-                    "parameters": {
-                        "source": "input",
-                        "format": "html",
-                        "contentField": "{{ $json.structured.html }}",
-                    },
-                    "position": {"x": 1000, "y": 300},
-                },
+                {"name": "Build Report", "type": "Code", "parameters": {"code": _FRAUD_HTML_CODE}, "position": {"x": 950, "y": 300}},
+                {"name": "Show Report", "type": "Output", "parameters": {"source": "input", "format": "html", "contentField": "html"}, "position": {"x": 1250, "y": 300}},
+                # Subnodes for Lead Investigator
+                {"name": "Gemini 2.5 Flash", "type": "LLMModel", "parameters": {"model": "gemini-2.5-flash", "temperature": 0.2, "maxTokens": 8192}, "position": {"x": 650, "y": 500}},
             ],
             "connections": [
                 {"source_node": "Start", "target_node": "Input"},
-                {"source_node": "Input", "target_node": "Prompt Evaluator"},
-                {"source_node": "Prompt Evaluator", "target_node": "Show Report"},
+                {"source_node": "Input", "target_node": "Lead Investigator"},
+                {"source_node": "Lead Investigator", "target_node": "Build Report"},
+                {"source_node": "Build Report", "target_node": "Show Report"},
+                # Subnode connections
+                {"source_node": "Gemini 2.5 Flash", "target_node": "Lead Investigator", "connection_type": "subnode", "slot_name": "chatModel"},
             ],
             "settings": {},
         },
     },
     # ========================================
-    # 11. PROMPT VALIDATOR API — Webhook → Agent → JSON response
+    # FRAUD INVESTIGATION API — Webhook → Switch → 4 branches
     # ========================================
     {
-        "name": "Prompt Validator API",
-        "description": "Webhook API for prompt validation. POST {prompt, requirements?} to /webhook/<id> and receive structured JSON scores. Requirements field is optional.",
+        "name": "Fraud Investigation API",
+        "description": "Webhook API for fraud triage. POST a transaction alert and receive a risk assessment with automatic routing: LOW→auto-clear, MEDIUM→queue review, HIGH→block+alert, CRITICAL→block+escalate.",
         "active": True,
         "definition": {
             "nodes": [
+                {"name": "Webhook", "type": "Webhook", "parameters": {"method": "POST", "responseMode": "lastNode"}, "position": {"x": 100, "y": 300}},
                 {
-                    "name": "Webhook",
-                    "type": "Webhook",
-                    "parameters": {
-                        "method": "POST",
-                        "responseMode": "lastNode",
-                    },
-                    "position": {"x": 100, "y": 300},
-                },
-                {
-                    "name": "Prompt Evaluator",
+                    "name": "Lead Investigator",
                     "type": "AIAgent",
                     "parameters": {
-                        **_PROMPT_VALIDATOR_AGENT_BASE,
+                        **_FRAUD_AGENT_BASE,
                         "task": (
-                            "Evaluate the following prompt:\n\n"
-                            "---\n"
-                            "{{ $json.body.prompt }}\n"
-                            "---\n\n"
-                            "Requirements (empty means none provided — skip requirements compliance):\n"
-                            "{{ $json.body.requirements }}\n\n"
-                            "Run your full evaluation pipeline and provide a comprehensive quality report."
+                            "Investigate the following transaction alert:\n\n"
+                            "{{ $json.body }}\n\n"
+                            "Run your full investigation pipeline — dispatch all three specialist "
+                            "analysts in parallel, gather evidence, cross-reference findings, "
+                            "and produce your risk assessment."
                         ),
                     },
                     "position": {"x": 450, "y": 300},
                 },
                 {
-                    "name": "Respond",
+                    "name": "Route by Risk",
+                    "type": "Switch",
+                    "parameters": {
+                        "numberOfOutputs": 4,
+                        "mode": "rules",
+                        "rules": [
+                            {"output": 0, "field": "structured.risk_level", "operation": "equals", "value": "LOW"},
+                            {"output": 1, "field": "structured.risk_level", "operation": "equals", "value": "MEDIUM"},
+                            {"output": 2, "field": "structured.risk_level", "operation": "equals", "value": "HIGH"},
+                            {"output": 3, "field": "structured.risk_level", "operation": "equals", "value": "CRITICAL"},
+                        ],
+                    },
+                    "position": {"x": 800, "y": 300},
+                },
+                {
+                    "name": "Auto Clear",
                     "type": "RespondToWebhook",
                     "parameters": {
                         "statusCode": "200",
                         "responseMode": "lastNode",
                         "responseField": "structured",
                         "contentType": "application/json",
-                        "wrapResponse": False,
+                        "wrapResponse": True,
+                        "additionalFields": json.dumps({"disposition": "AUTO_CLEARED", "action_taken": "Transaction approved — no risk indicators met threshold."}),
                     },
-                    "position": {"x": 800, "y": 300},
+                    "position": {"x": 1150, "y": 100},
                 },
+                {
+                    "name": "Queue Review",
+                    "type": "RespondToWebhook",
+                    "parameters": {
+                        "statusCode": "200",
+                        "responseMode": "lastNode",
+                        "responseField": "structured",
+                        "contentType": "application/json",
+                        "wrapResponse": True,
+                        "additionalFields": json.dumps({"disposition": "QUEUED_FOR_REVIEW", "action_taken": "Transaction held — queued for analyst manual review within 24h."}),
+                    },
+                    "position": {"x": 1150, "y": 300},
+                },
+                {
+                    "name": "Block Alert",
+                    "type": "RespondToWebhook",
+                    "parameters": {
+                        "statusCode": "200",
+                        "responseMode": "lastNode",
+                        "responseField": "structured",
+                        "contentType": "application/json",
+                        "wrapResponse": True,
+                        "additionalFields": json.dumps({"disposition": "BLOCKED_ALERT_SENT", "action_taken": "Transaction blocked — compliance team alerted for investigation."}),
+                    },
+                    "position": {"x": 1150, "y": 500},
+                },
+                {
+                    "name": "Block Escalate",
+                    "type": "RespondToWebhook",
+                    "parameters": {
+                        "statusCode": "200",
+                        "responseMode": "lastNode",
+                        "responseField": "structured",
+                        "contentType": "application/json",
+                        "wrapResponse": True,
+                        "additionalFields": json.dumps({"disposition": "BLOCKED_ESCALATED", "action_taken": "Transaction blocked — escalated to BSA officer. SAR filing initiated. Account frozen pending review."}),
+                    },
+                    "position": {"x": 1150, "y": 700},
+                },
+                # Subnodes for Lead Investigator
+                {"name": "Gemini 2.5 Flash", "type": "LLMModel", "parameters": {"model": "gemini-2.5-flash", "temperature": 0.2, "maxTokens": 8192}, "position": {"x": 450, "y": 500}},
             ],
             "connections": [
-                {"source_node": "Webhook", "target_node": "Prompt Evaluator"},
-                {"source_node": "Prompt Evaluator", "target_node": "Respond"},
+                {"source_node": "Webhook", "target_node": "Lead Investigator"},
+                {"source_node": "Lead Investigator", "target_node": "Route by Risk"},
+                {"source_node": "Route by Risk", "target_node": "Auto Clear", "source_output": "output0"},
+                {"source_node": "Route by Risk", "target_node": "Queue Review", "source_output": "output1"},
+                {"source_node": "Route by Risk", "target_node": "Block Alert", "source_output": "output2"},
+                {"source_node": "Route by Risk", "target_node": "Block Escalate", "source_output": "output3"},
+                # Subnode connections
+                {"source_node": "Gemini 2.5 Flash", "target_node": "Lead Investigator", "connection_type": "subnode", "slot_name": "chatModel"},
             ],
             "settings": {},
         },
     },
-]
-
-# ── Customer Feedback Analyzer ───────────────────────────────────────
-
-_FEEDBACK_SYSTEM_PROMPT = (
-    "You are a product intelligence engine that analyzes raw customer feedback.\n\n"
-    "## Process\n"
-    "Use spawn_agents_parallel to dispatch ALL analysts at once:\n\n"
-    "a) **Sentiment Analyst** — For each piece of feedback classify sentiment as positive / neutral / negative, "
-    "extract the emotion (frustrated, delighted, confused, etc.), and identify the specific trigger. "
-    "Compute an overall Net Sentiment Score from -100 to +100.\n\n"
-    "b) **Feature Request Extractor** — Identify every feature request or enhancement suggestion, "
-    "whether explicit or implied. Group similar ones. Estimate demand based on frequency and urgency.\n\n"
-    "c) **Bug & Pain Point Detector** — Find every bug report, complaint, friction point, or UX issue. "
-    "Classify severity (critical/major/minor). Note exact quotes as evidence.\n\n"
-    "d) **Theme & Trend Analyst** — Identify overarching themes, recurring patterns, and emerging trends. "
-    "Spot any concerning signals (churn risk, competitor mentions, pricing complaints).\n\n"
-    "After ALL sub-agents complete, synthesize into a prioritized product intelligence report.\n\n"
-    "## Sub-Agent Instructions\n"
-    "- Pass ALL feedback items to each sub-agent via context_snippets\n"
-    "- Use expected_output to get structured JSON from each\n"
-)
-
-_FEEDBACK_OUTPUT_SCHEMA = json.dumps({
-    "type": "object",
-    "properties": {
-        "executive_summary": {"type": "string", "description": "3-4 sentence overview for leadership"},
-        "net_sentiment_score": {"type": "number", "description": "Overall sentiment from -100 (very negative) to +100 (very positive)"},
-        "total_feedback_items": {"type": "number"},
-        "sentiment_breakdown": {
-            "type": "object",
-            "properties": {
-                "positive": {"type": "number"},
-                "neutral": {"type": "number"},
-                "negative": {"type": "number"},
-            },
-        },
-        "top_feature_requests": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "feature": {"type": "string"},
-                    "demand": {"type": "string", "description": "high/medium/low"},
-                    "mentions": {"type": "number"},
-                    "sample_quotes": {"type": "array", "items": {"type": "string"}},
-                },
-            },
-        },
-        "bugs_and_issues": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "issue": {"type": "string"},
-                    "severity": {"type": "string", "description": "critical/major/minor"},
-                    "evidence": {"type": "array", "items": {"type": "string"}},
-                },
-            },
-        },
-        "themes": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "theme": {"type": "string"},
-                    "signal": {"type": "string", "description": "positive/negative/neutral"},
-                    "description": {"type": "string"},
-                },
-            },
-        },
-        "recommended_actions": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "action": {"type": "string"},
-                    "priority": {"type": "string", "description": "P0/P1/P2/P3"},
-                    "rationale": {"type": "string"},
-                },
-            },
-        },
-    },
-}, indent=2)
-
-_FEEDBACK_AGENT_BASE = {
-    "model": "gemini-2.5-flash",
-    "systemPrompt": _FEEDBACK_SYSTEM_PROMPT,
-    "maxIterations": 8,
-    "temperature": 0.2,
-    "enableSubAgents": True,
-    "maxAgentDepth": 2,
-    "allowRecursiveSpawn": False,
-    "enablePlanning": True,
-    "outputSchema": _FEEDBACK_OUTPUT_SCHEMA,
-}
-
-_FEEDBACK_SAMPLE = {
-    "feedback": (
-        "1. Love the new dashboard redesign! So much cleaner. But the export to PDF button is broken — just shows a blank page.\n\n"
-        "2. Why can't I filter by date range on the analytics page? This is basic functionality. Very frustrating.\n\n"
-        "3. The mobile app crashes every time I try to upload a photo. Been happening for 2 weeks now.\n\n"
-        "4. Your customer support team was incredibly helpful — resolved my billing issue in under 5 minutes. Would love to see a live chat option though.\n\n"
-        "5. The API documentation is outdated. Half the endpoints listed don't exist anymore. Wasted 3 hours debugging.\n\n"
-        "6. Just switched from CompetitorX to your product. The onboarding flow is 10x better. Only thing I miss is their Slack integration.\n\n"
-        "7. Performance has degraded significantly since the last update. Pages that used to load in 1s now take 5-6s.\n\n"
-        "8. Would be amazing to have a dark mode. I work late nights and the bright UI is killing my eyes.\n\n"
-        "9. The collaboration features are fantastic — real-time editing is smooth and reliable. Best in class.\n\n"
-        "10. Pricing feels steep for small teams. We're a 3-person startup and the per-seat model is hard to justify. Considering downgrading.\n\n"
-        "11. Scheduled reports feature is a game changer. Saves me 2 hours every Monday morning.\n\n"
-        "12. SSO setup was a nightmare. Took our IT team 3 days. Documentation says '5 minutes'. Please improve the SAML config flow."
-    ),
-}
-
-_FEEDBACK_HTML_CODE = (
-    "d = json_data.get('structured') or json_data\n"
-    "\n"
-    "summary = d.get('executive_summary', '')\n"
-    "nss = d.get('net_sentiment_score', 0)\n"
-    "total = d.get('total_feedback_items', 0)\n"
-    "sb = d.get('sentiment_breakdown', {})\n"
-    "features = d.get('top_feature_requests', [])\n"
-    "bugs = d.get('bugs_and_issues', [])\n"
-    "themes = d.get('themes', [])\n"
-    "actions = d.get('recommended_actions', [])\n"
-    "\n"
-    "def nss_color(s):\n"
-    "    if s >= 30: return '#16a34a'\n"
-    "    if s >= 0: return '#d97706'\n"
-    "    return '#dc2626'\n"
-    "\n"
-    "def nss_label(s):\n"
-    "    if s >= 50: return 'Excellent'\n"
-    "    if s >= 20: return 'Good'\n"
-    "    if s >= 0: return 'Mixed'\n"
-    "    if s >= -30: return 'Concerning'\n"
-    "    return 'Critical'\n"
-    "\n"
-    "def sev_color(s):\n"
-    "    s = s.lower()\n"
-    "    if s == 'critical': return '#dc2626'\n"
-    "    if s == 'major': return '#d97706'\n"
-    "    return '#6b7280'\n"
-    "\n"
-    "def pri_color(p):\n"
-    "    p = p.upper()\n"
-    "    if p == 'P0': return '#dc2626'\n"
-    "    if p == 'P1': return '#d97706'\n"
-    "    if p == 'P2': return '#2563eb'\n"
-    "    return '#6b7280'\n"
-    "\n"
-    "def demand_badge(d):\n"
-    "    colors = {'high': '#dc2626', 'medium': '#d97706', 'low': '#6b7280'}\n"
-    "    c = colors.get(d.lower(), '#6b7280')\n"
-    "    return f'<span style=\"background:{c};color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;text-transform:uppercase\">{d}</span>'\n"
-    "\n"
-    "# Sentiment bar\n"
-    "pos = sb.get('positive', 0)\n"
-    "neu = sb.get('neutral', 0)\n"
-    "neg = sb.get('negative', 0)\n"
-    "t = pos + neu + neg or 1\n"
-    "sent_bar = (\n"
-    "    f'<div style=\"display:flex;height:8px;border-radius:4px;overflow:hidden;margin-top:8px\">'\n"
-    "    f'<div style=\"width:{pos*100//t}%;background:#16a34a\"></div>'\n"
-    "    f'<div style=\"width:{neu*100//t}%;background:#d97706\"></div>'\n"
-    "    f'<div style=\"width:{neg*100//t}%;background:#dc2626\"></div></div>'\n"
-    "    f'<div style=\"display:flex;justify-content:space-between;font-size:12px;color:#64748b;margin-top:4px\">'\n"
-    "    f'<span>Positive: {pos}</span><span>Neutral: {neu}</span><span>Negative: {neg}</span></div>'\n"
-    ")\n"
-    "\n"
-    "# Feature requests\n"
-    "feat_html = ''\n"
-    "for f in features:\n"
-    "    quotes = ''.join(f'<div style=\"font-size:12px;color:#64748b;font-style:italic;padding:2px 0\">&ldquo;{q}&rdquo;</div>' for q in f.get('sample_quotes', [])[:2])\n"
-    "    feat_html += (\n"
-    "        f'<div style=\"padding:12px 0;border-bottom:1px solid #f1f5f9\">'\n"
-    "        f'<div style=\"display:flex;justify-content:space-between;align-items:center\">'\n"
-    "        f'<span style=\"font-weight:600;font-size:14px;color:#1e293b\">{f.get(\"feature\",\"\")}</span>'\n"
-    "        f'<div style=\"display:flex;gap:8px;align-items:center\">{demand_badge(f.get(\"demand\",\"low\"))}'\n"
-    "        f'<span style=\"font-size:12px;color:#64748b\">{f.get(\"mentions\",0)} mentions</span></div></div>'\n"
-    "        f'{quotes}</div>'\n"
-    "    )\n"
-    "\n"
-    "# Bugs\n"
-    "bug_html = ''\n"
-    "for b in bugs:\n"
-    "    sc = sev_color(b.get('severity', 'minor'))\n"
-    "    ev = ''.join(f'<span style=\"font-size:12px;color:#64748b;font-style:italic\">&ldquo;{e}&rdquo;</span>' for e in b.get('evidence', [])[:1])\n"
-    "    bug_html += (\n"
-    "        f'<div style=\"display:flex;gap:12px;padding:10px 0;border-bottom:1px solid #f1f5f9;align-items:flex-start\">'\n"
-    "        f'<span style=\"background:{sc};color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;text-transform:uppercase;flex-shrink:0\">{b.get(\"severity\",\"minor\")}</span>'\n"
-    "        f'<div><div style=\"font-weight:500;font-size:14px;color:#1e293b\">{b.get(\"issue\",\"\")}</div>{ev}</div></div>'\n"
-    "    )\n"
-    "\n"
-    "# Actions\n"
-    "act_html = ''\n"
-    "for a in actions:\n"
-    "    pc = pri_color(a.get('priority', 'P3'))\n"
-    "    act_html += (\n"
-    "        f'<div style=\"display:flex;gap:12px;padding:10px 0;border-bottom:1px solid #f1f5f9;align-items:flex-start\">'\n"
-    "        f'<span style=\"background:{pc};color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;flex-shrink:0\">{a.get(\"priority\",\"P3\")}</span>'\n"
-    "        f'<div><div style=\"font-weight:500;font-size:14px;color:#1e293b\">{a.get(\"action\",\"\")}</div>'\n"
-    "        f'<div style=\"font-size:12px;color:#64748b;margin-top:2px\">{a.get(\"rationale\",\"\")}</div></div></div>'\n"
-    "    )\n"
-    "\n"
-    "# Themes\n"
-    "theme_html = ''\n"
-    "for th in themes:\n"
-    "    sig = th.get('signal', 'neutral')\n"
-    "    sig_c = {'positive': '#16a34a', 'negative': '#dc2626'}.get(sig, '#d97706')\n"
-    "    sig_icon = {'positive': '&#x25B2;', 'negative': '&#x25BC;'}.get(sig, '&#x25CF;')\n"
-    "    theme_html += (\n"
-    "        f'<div style=\"padding:10px 0;border-bottom:1px solid #f1f5f9\">'\n"
-    "        f'<div style=\"display:flex;align-items:center;gap:6px\">'\n"
-    "        f'<span style=\"color:{sig_c};font-size:10px\">{sig_icon}</span>'\n"
-    "        f'<span style=\"font-weight:600;font-size:14px;color:#1e293b\">{th.get(\"theme\",\"\")}</span></div>'\n"
-    "        f'<div style=\"font-size:13px;color:#64748b;margin-top:2px\">{th.get(\"description\",\"\")}</div></div>'\n"
-    "    )\n"
-    "\n"
-    "nc = nss_color(nss)\n"
-    "card_style = 'background:#fff;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden;margin-bottom:12px'\n"
-    "card_hdr = 'padding:16px 20px;font-weight:700;font-size:15px;color:#1e293b;border-bottom:1px solid #f1f5f9'\n"
-    "card_body = 'padding:12px 20px'\n"
-    "\n"
-    "html = (\n"
-    "    '<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1.0\">'\n"
-    "    '<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;background:#f8fafc;padding:32px}</style></head><body>'\n"
-    "    '<div style=\"max-width:780px;margin:0 auto\">'\n"
-    "    # Header\n"
-    "    f'<div style=\"background:linear-gradient(135deg,#1e293b,#334155);border-radius:16px;padding:32px;margin-bottom:20px;color:#fff\">'\n"
-    "    f'<div style=\"display:flex;justify-content:space-between;align-items:center\">'\n"
-    "    f'<div><div style=\"font-size:24px;font-weight:700\">Customer Feedback Analysis</div>'\n"
-    "    f'<div style=\"font-size:14px;color:#94a3b8;margin-top:6px\">{summary}</div></div>'\n"
-    "    f'<div style=\"text-align:center\">'\n"
-    "    f'<div style=\"font-size:48px;font-weight:800;color:{nc}\">{nss:+d}</div>'\n"
-    "    f'<div style=\"font-size:12px;font-weight:600;color:{nc};text-transform:uppercase;letter-spacing:.1em\">{nss_label(nss)}</div>'\n"
-    "    f'<div style=\"font-size:11px;color:#94a3b8;margin-top:4px\">{total} reviews</div>'\n"
-    "    f'</div></div>{sent_bar}</div>'\n"
-    "    # Bugs\n"
-    "    f'<div style=\"{card_style}\"><div style=\"{card_hdr}\">&#x1F41B; Bugs & Issues ({len(bugs)})</div><div style=\"{card_body}\">{bug_html}</div></div>'\n"
-    "    # Feature Requests\n"
-    "    f'<div style=\"{card_style}\"><div style=\"{card_hdr}\">&#x1F4A1; Feature Requests ({len(features)})</div><div style=\"{card_body}\">{feat_html}</div></div>'\n"
-    "    # Themes\n"
-    "    f'<div style=\"{card_style}\"><div style=\"{card_hdr}\">&#x1F4CA; Themes & Trends ({len(themes)})</div><div style=\"{card_body}\">{theme_html}</div></div>'\n"
-    "    # Actions\n"
-    "    f'<div style=\"{card_style}\"><div style=\"{card_hdr}\">&#x1F3AF; Recommended Actions ({len(actions)})</div><div style=\"{card_body}\">{act_html}</div></div>'\n"
-    "    '</div></body></html>'\n"
-    ")\n"
-    "\n"
-    "return [{'json': {'html': html}}]\n"
-)
-
-EXAMPLE_WORKFLOWS += [
     # ========================================
-    # 12. CUSTOMER FEEDBACK ANALYZER (UI) — HTML report
+    # DEEP RESEARCH AGENT — HTML report
     # ========================================
     {
-        "name": "Customer Feedback Analyzer",
-        "description": "Analyzes raw customer reviews using parallel sub-agents for sentiment, feature requests, bugs, and trends. Produces a styled product intelligence report.",
+        "name": "Deep Research Agent",
+        "description": "Research Director that spawns 3 parallel sub-agents (Technology, Market, Academic) to produce a comprehensive research brief. Generates a styled maturity report with domain scores, opportunities vs risks, and forward outlook.",
         "active": True,
         "definition": {
             "nodes": [
@@ -1320,292 +1662,48 @@ EXAMPLE_WORKFLOWS += [
                     "type": "Set",
                     "parameters": {
                         "mode": "json",
-                        "jsonData": json.dumps(_FEEDBACK_SAMPLE),
+                        "jsonData": json.dumps(_RESEARCH_SAMPLE),
                         "keepOnlySet": True,
                     },
                     "position": {"x": 350, "y": 300},
                 },
                 {
-                    "name": "Feedback Analyzer",
+                    "name": "Research Director",
                     "type": "AIAgent",
                     "parameters": {
-                        **_FEEDBACK_AGENT_BASE,
+                        **_RESEARCH_AGENT_BASE,
                         "task": (
-                            "Analyze the following customer feedback:\n\n"
-                            "{{ $json.feedback }}\n\n"
-                            "Run your full analysis pipeline and produce a comprehensive product intelligence report."
+                            "Conduct a deep research analysis on the following brief:\n\n"
+                            "{{ $json }}\n\n"
+                            "Run your full research pipeline — dispatch all three specialist "
+                            "researchers in parallel, gather findings from each domain, "
+                            "cross-reference insights, and produce your comprehensive research report."
                         ),
                     },
                     "position": {"x": 650, "y": 300},
                 },
-                {"name": "Build Report", "type": "Code", "parameters": {"code": _FEEDBACK_HTML_CODE}, "position": {"x": 950, "y": 300}},
+                {"name": "Build Report", "type": "Code", "parameters": {"code": _RESEARCH_HTML_CODE}, "position": {"x": 950, "y": 300}},
                 {"name": "Show Report", "type": "Output", "parameters": {"source": "input", "format": "html", "contentField": "html"}, "position": {"x": 1250, "y": 300}},
+                # Subnodes for Research Director
+                {"name": "Gemini 2.5 Flash", "type": "LLMModel", "parameters": {"model": "gemini-2.5-flash", "temperature": 0.3, "maxTokens": 8192}, "position": {"x": 650, "y": 500}},
             ],
             "connections": [
                 {"source_node": "Start", "target_node": "Input"},
-                {"source_node": "Input", "target_node": "Feedback Analyzer"},
-                {"source_node": "Feedback Analyzer", "target_node": "Build Report"},
+                {"source_node": "Input", "target_node": "Research Director"},
+                {"source_node": "Research Director", "target_node": "Build Report"},
                 {"source_node": "Build Report", "target_node": "Show Report"},
+                # Subnode connections
+                {"source_node": "Gemini 2.5 Flash", "target_node": "Research Director", "connection_type": "subnode", "slot_name": "chatModel"},
             ],
             "settings": {},
         },
     },
     # ========================================
-    # 13. CUSTOMER FEEDBACK ANALYZER API — Webhook JSON
+    # STARTUP DUE DILIGENCE AGENT — HTML report
     # ========================================
     {
-        "name": "Customer Feedback Analyzer API",
-        "description": "Webhook API for feedback analysis. POST {feedback: '...'} and receive structured JSON with sentiment scores, feature requests, bugs, and prioritized actions.",
-        "active": True,
-        "definition": {
-            "nodes": [
-                {"name": "Webhook", "type": "Webhook", "parameters": {"method": "POST", "responseMode": "lastNode"}, "position": {"x": 100, "y": 300}},
-                {
-                    "name": "Feedback Analyzer",
-                    "type": "AIAgent",
-                    "parameters": {
-                        **_FEEDBACK_AGENT_BASE,
-                        "task": (
-                            "Analyze the following customer feedback:\n\n"
-                            "{{ $json.body.feedback }}\n\n"
-                            "Run your full analysis pipeline and produce a comprehensive product intelligence report."
-                        ),
-                    },
-                    "position": {"x": 450, "y": 300},
-                },
-                {"name": "Respond", "type": "RespondToWebhook", "parameters": {"statusCode": "200", "responseMode": "lastNode", "responseField": "structured", "contentType": "application/json", "wrapResponse": False}, "position": {"x": 800, "y": 300}},
-            ],
-            "connections": [
-                {"source_node": "Webhook", "target_node": "Feedback Analyzer"},
-                {"source_node": "Feedback Analyzer", "target_node": "Respond"},
-            ],
-            "settings": {},
-        },
-    },
-]
-
-# ── Meeting Notes → Executive Summary ────────────────────────────────
-
-_MEETING_SYSTEM_PROMPT = (
-    "You are an executive meeting intelligence engine that transforms raw meeting notes into actionable summaries.\n\n"
-    "## Process\n"
-    "Use spawn_agents_parallel to dispatch ALL analysts at once:\n\n"
-    "a) **Decision Tracker** — Identify every decision made during the meeting. "
-    "For each, note what was decided, who decided it, the context/rationale, and any conditions or caveats. "
-    "Flag any decisions that seem incomplete or need follow-up approval.\n\n"
-    "b) **Action Item Extractor** — Find every commitment, task, or follow-up. "
-    "Assign an owner (from context), determine deadline (explicit or inferred), "
-    "and classify priority (P0=urgent/P1=this week/P2=this sprint/P3=backlog). "
-    "Look for implicit actions too (e.g. 'we should think about...' = action for someone).\n\n"
-    "c) **Risk & Blocker Analyst** — Identify risks, blockers, dependencies, concerns, "
-    "and unresolved disagreements. Classify impact (high/medium/low) and note who raised them.\n\n"
-    "d) **Key Topics Summarizer** — Summarize each major topic discussed in 2-3 sentences. "
-    "Note participants involved, time spent (if apparent), and outcome.\n\n"
-    "After ALL sub-agents complete, synthesize into a clean executive summary.\n\n"
-    "## Sub-Agent Instructions\n"
-    "- Pass the full meeting notes to each sub-agent via context_snippets\n"
-    "- Use expected_output to get structured JSON from each\n"
-)
-
-_MEETING_OUTPUT_SCHEMA = json.dumps({
-    "type": "object",
-    "properties": {
-        "meeting_title": {"type": "string", "description": "Inferred meeting title/topic"},
-        "executive_summary": {"type": "string", "description": "3-5 sentence executive summary for people who weren't there"},
-        "participants": {"type": "array", "items": {"type": "string"}, "description": "People mentioned in the notes"},
-        "decisions": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "decision": {"type": "string"},
-                    "decided_by": {"type": "string"},
-                    "rationale": {"type": "string"},
-                    "status": {"type": "string", "description": "final/tentative/needs-approval"},
-                },
-            },
-        },
-        "action_items": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "action": {"type": "string"},
-                    "owner": {"type": "string"},
-                    "deadline": {"type": "string"},
-                    "priority": {"type": "string", "description": "P0/P1/P2/P3"},
-                },
-            },
-        },
-        "risks_and_blockers": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "risk": {"type": "string"},
-                    "impact": {"type": "string", "description": "high/medium/low"},
-                    "raised_by": {"type": "string"},
-                    "mitigation": {"type": "string"},
-                },
-            },
-        },
-        "topics_discussed": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "topic": {"type": "string"},
-                    "summary": {"type": "string"},
-                    "outcome": {"type": "string"},
-                },
-            },
-        },
-    },
-}, indent=2)
-
-_MEETING_AGENT_BASE = {
-    "model": "gemini-2.5-flash",
-    "systemPrompt": _MEETING_SYSTEM_PROMPT,
-    "maxIterations": 8,
-    "temperature": 0.2,
-    "enableSubAgents": True,
-    "maxAgentDepth": 2,
-    "allowRecursiveSpawn": False,
-    "enablePlanning": True,
-    "outputSchema": _MEETING_OUTPUT_SCHEMA,
-}
-
-_MEETING_SAMPLE = {
-    "notes": (
-        "Q1 Product Planning — Jan 15, 2025\n"
-        "Attendees: Sarah (VP Product), Mike (Eng Lead), Priya (Design), James (Data), Lisa (QA)\n\n"
-        "Sarah opened by reviewing Q4 results. Revenue up 15% but churn increased to 8%. "
-        "James showed data indicating churn is concentrated in SMB segment — mostly citing missing integrations and slow support response.\n\n"
-        "Mike proposed prioritizing the API v2 rewrite this quarter. Current API has rate limiting issues causing customer complaints. "
-        "Sarah agreed but wants to see a phased approach — phase 1 by end of Feb, full rollout by March. "
-        "Mike said he needs 2 more backend engineers to hit that timeline. Sarah will discuss with HR.\n\n"
-        "Priya presented the new onboarding flow mockups. Team loved the simplified 3-step wizard. "
-        "James raised concern about data migration — current wizard handles complex imports that the new design drops. "
-        "Decision: keep the simplified flow but add an 'Advanced Import' option behind a toggle. Priya will update designs by Friday.\n\n"
-        "Lisa flagged that the test automation coverage dropped to 62% after the December release. "
-        "She needs dedicated time from Mike's team to write integration tests. Mike committed to allocating 1 engineer (Tom) for 2 weeks starting next Monday.\n\n"
-        "James wants to build a customer health score dashboard. Sarah loves it but says it's P2 — "
-        "focus on API and onboarding first. James should draft a proposal by end of month so we can slot it into Q2.\n\n"
-        "Open concern from Mike: the CI/CD pipeline is fragile. 3 production incidents in December traced back to flaky deployments. "
-        "He wants to invest in infrastructure but it keeps getting deprioritized. Sarah acknowledged it — 'we can't keep kicking this can.' "
-        "Agreed to dedicate 20% of engineering time to infra improvements starting Feb 1.\n\n"
-        "Meeting ended. Next sync: Jan 29."
-    ),
-}
-
-_MEETING_HTML_CODE = (
-    "d = json_data.get('structured') or json_data\n"
-    "\n"
-    "title = d.get('meeting_title', 'Meeting Summary')\n"
-    "summary = d.get('executive_summary', '')\n"
-    "participants = d.get('participants', [])\n"
-    "decisions = d.get('decisions', [])\n"
-    "actions = d.get('action_items', [])\n"
-    "risks = d.get('risks_and_blockers', [])\n"
-    "topics = d.get('topics_discussed', [])\n"
-    "\n"
-    "def pri_color(p):\n"
-    "    p = p.upper()\n"
-    "    if p == 'P0': return '#dc2626'\n"
-    "    if p == 'P1': return '#d97706'\n"
-    "    if p == 'P2': return '#2563eb'\n"
-    "    return '#6b7280'\n"
-    "\n"
-    "def impact_color(i):\n"
-    "    i = i.lower()\n"
-    "    if i == 'high': return '#dc2626'\n"
-    "    if i == 'medium': return '#d97706'\n"
-    "    return '#6b7280'\n"
-    "\n"
-    "def status_badge(s):\n"
-    "    colors = {'final': '#16a34a', 'tentative': '#d97706', 'needs-approval': '#dc2626'}\n"
-    "    c = colors.get(s.lower(), '#6b7280')\n"
-    "    return f'<span style=\"background:{c};color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600\">{s}</span>'\n"
-    "\n"
-    "parts = ', '.join(participants) if participants else 'Not specified'\n"
-    "\n"
-    "# Decisions\n"
-    "dec_html = ''\n"
-    "for dc in decisions:\n"
-    "    dec_html += (\n"
-    "        f'<div style=\"padding:12px 0;border-bottom:1px solid #f1f5f9\">'\n"
-    "        f'<div style=\"display:flex;justify-content:space-between;align-items:center\">'\n"
-    "        f'<span style=\"font-weight:600;font-size:14px;color:#1e293b\">{dc.get(\"decision\",\"\")}</span>'\n"
-    "        f'{status_badge(dc.get(\"status\",\"final\"))}</div>'\n"
-    "        f'<div style=\"font-size:12px;color:#64748b;margin-top:4px\">By: {dc.get(\"decided_by\",\"—\")} | {dc.get(\"rationale\",\"\")}</div></div>'\n"
-    "    )\n"
-    "\n"
-    "# Action items\n"
-    "act_html = ''\n"
-    "for a in actions:\n"
-    "    pc = pri_color(a.get('priority', 'P3'))\n"
-    "    act_html += (\n"
-    "        f'<div style=\"display:flex;gap:12px;padding:10px 0;border-bottom:1px solid #f1f5f9;align-items:flex-start\">'\n"
-    "        f'<span style=\"background:{pc};color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;flex-shrink:0\">{a.get(\"priority\",\"P3\")}</span>'\n"
-    "        f'<div style=\"flex:1\"><div style=\"font-weight:500;font-size:14px;color:#1e293b\">{a.get(\"action\",\"\")}</div>'\n"
-    "        f'<div style=\"font-size:12px;color:#64748b;margin-top:2px\">Owner: <strong>{a.get(\"owner\",\"TBD\")}</strong> | Due: {a.get(\"deadline\",\"TBD\")}</div></div></div>'\n"
-    "    )\n"
-    "\n"
-    "# Risks\n"
-    "risk_html = ''\n"
-    "for r in risks:\n"
-    "    ic = impact_color(r.get('impact', 'low'))\n"
-    "    risk_html += (\n"
-    "        f'<div style=\"display:flex;gap:12px;padding:10px 0;border-bottom:1px solid #f1f5f9;align-items:flex-start\">'\n"
-    "        f'<span style=\"background:{ic};color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;text-transform:uppercase;flex-shrink:0\">{r.get(\"impact\",\"low\")}</span>'\n"
-    "        f'<div><div style=\"font-weight:500;font-size:14px;color:#1e293b\">{r.get(\"risk\",\"\")}</div>'\n"
-    "        f'<div style=\"font-size:12px;color:#64748b;margin-top:2px\">Raised by: {r.get(\"raised_by\",\"—\")} | Mitigation: {r.get(\"mitigation\",\"None identified\")}</div></div></div>'\n"
-    "    )\n"
-    "\n"
-    "# Topics\n"
-    "topic_html = ''\n"
-    "for tp in topics:\n"
-    "    topic_html += (\n"
-    "        f'<div style=\"padding:12px 0;border-bottom:1px solid #f1f5f9\">'\n"
-    "        f'<div style=\"font-weight:600;font-size:14px;color:#1e293b\">{tp.get(\"topic\",\"\")}</div>'\n"
-    "        f'<div style=\"font-size:13px;color:#334155;margin-top:4px\">{tp.get(\"summary\",\"\")}</div>'\n"
-    "        f'<div style=\"font-size:12px;color:#64748b;margin-top:4px\">Outcome: {tp.get(\"outcome\",\"—\")}</div></div>'\n"
-    "    )\n"
-    "\n"
-    "card_style = 'background:#fff;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden;margin-bottom:12px'\n"
-    "card_hdr = 'padding:16px 20px;font-weight:700;font-size:15px;color:#1e293b;border-bottom:1px solid #f1f5f9'\n"
-    "card_body = 'padding:12px 20px'\n"
-    "\n"
-    "html = (\n"
-    "    '<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1.0\">'\n"
-    "    '<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;background:#f8fafc;padding:32px}</style></head><body>'\n"
-    "    '<div style=\"max-width:780px;margin:0 auto\">'\n"
-    "    # Header\n"
-    "    f'<div style=\"background:linear-gradient(135deg,#1e293b,#334155);border-radius:16px;padding:32px;margin-bottom:20px;color:#fff\">'\n"
-    "    f'<div style=\"font-size:24px;font-weight:700\">{title}</div>'\n"
-    "    f'<div style=\"font-size:13px;color:#94a3b8;margin-top:6px\">Participants: {parts}</div>'\n"
-    "    f'<div style=\"font-size:14px;color:#cbd5e1;margin-top:12px;line-height:1.6\">{summary}</div></div>'\n"
-    "    # Action items\n"
-    "    f'<div style=\"{card_style}\"><div style=\"{card_hdr}\">&#x2705; Action Items ({len(actions)})</div><div style=\"{card_body}\">{act_html}</div></div>'\n"
-    "    # Decisions\n"
-    "    f'<div style=\"{card_style}\"><div style=\"{card_hdr}\">&#x2696;&#xFE0F; Decisions ({len(decisions)})</div><div style=\"{card_body}\">{dec_html}</div></div>'\n"
-    "    # Risks\n"
-    "    f'<div style=\"{card_style}\"><div style=\"{card_hdr}\">&#x26A0;&#xFE0F; Risks & Blockers ({len(risks)})</div><div style=\"{card_body}\">{risk_html}</div></div>'\n"
-    "    # Topics\n"
-    "    f'<div style=\"{card_style}\"><div style=\"{card_hdr}\">&#x1F4CB; Topics Discussed ({len(topics)})</div><div style=\"{card_body}\">{topic_html}</div></div>'\n"
-    "    '</div></body></html>'\n"
-    ")\n"
-    "\n"
-    "return [{'json': {'html': html}}]\n"
-)
-
-EXAMPLE_WORKFLOWS += [
-    # ========================================
-    # 14. MEETING NOTES (UI) — HTML report
-    # ========================================
-    {
-        "name": "Meeting Notes Analyzer",
-        "description": "Transforms raw meeting notes into a structured executive summary with decisions, action items, risks, and topic summaries using parallel sub-agents.",
+        "name": "Startup Due Diligence Agent",
+        "description": "Investment Analyst that spawns 3 parallel sub-agents (Market Opportunity, Team & Execution, Financial & Unit Economics) to evaluate a startup pitch. Produces an investment memo with dimension scores, analyst findings, risks, and next steps.",
         "active": True,
         "definition": {
             "nodes": [
@@ -1615,64 +1713,142 @@ EXAMPLE_WORKFLOWS += [
                     "type": "Set",
                     "parameters": {
                         "mode": "json",
-                        "jsonData": json.dumps(_MEETING_SAMPLE),
+                        "jsonData": json.dumps(_DILIGENCE_SAMPLE),
                         "keepOnlySet": True,
                     },
                     "position": {"x": 350, "y": 300},
                 },
                 {
-                    "name": "Meeting Analyzer",
+                    "name": "Investment Analyst",
                     "type": "AIAgent",
                     "parameters": {
-                        **_MEETING_AGENT_BASE,
+                        **_DILIGENCE_AGENT_BASE,
                         "task": (
-                            "Analyze the following meeting notes and produce a comprehensive executive summary:\n\n"
-                            "{{ $json.notes }}\n\n"
-                            "Run your full analysis pipeline."
+                            "Conduct due diligence on the following startup:\n\n"
+                            "{{ $json }}\n\n"
+                            "Run your full due diligence pipeline — dispatch all three specialist "
+                            "analysts in parallel, gather assessments from each dimension, "
+                            "cross-reference findings, and produce your investment recommendation."
                         ),
                     },
                     "position": {"x": 650, "y": 300},
                 },
-                {"name": "Build Report", "type": "Code", "parameters": {"code": _MEETING_HTML_CODE}, "position": {"x": 950, "y": 300}},
+                {"name": "Build Report", "type": "Code", "parameters": {"code": _DILIGENCE_HTML_CODE}, "position": {"x": 950, "y": 300}},
                 {"name": "Show Report", "type": "Output", "parameters": {"source": "input", "format": "html", "contentField": "html"}, "position": {"x": 1250, "y": 300}},
+                # Subnodes for Investment Analyst
+                {"name": "Gemini 2.5 Flash", "type": "LLMModel", "parameters": {"model": "gemini-2.5-flash", "temperature": 0.2, "maxTokens": 8192}, "position": {"x": 650, "y": 500}},
             ],
             "connections": [
                 {"source_node": "Start", "target_node": "Input"},
-                {"source_node": "Input", "target_node": "Meeting Analyzer"},
-                {"source_node": "Meeting Analyzer", "target_node": "Build Report"},
+                {"source_node": "Input", "target_node": "Investment Analyst"},
+                {"source_node": "Investment Analyst", "target_node": "Build Report"},
                 {"source_node": "Build Report", "target_node": "Show Report"},
+                # Subnode connections
+                {"source_node": "Gemini 2.5 Flash", "target_node": "Investment Analyst", "connection_type": "subnode", "slot_name": "chatModel"},
             ],
             "settings": {},
         },
     },
     # ========================================
-    # 15. MEETING NOTES API — Webhook JSON
+    # CONTENT QUALITY PIPELINE — HTML report
     # ========================================
     {
-        "name": "Meeting Notes Analyzer API",
-        "description": "Webhook API for meeting analysis. POST {notes: '...'} and receive structured JSON with decisions, action items, risks, and topic summaries.",
+        "name": "Content Quality Pipeline",
+        "description": "Content Director that spawns 3 parallel sub-agents with fundamentally different roles (Writer, Fact-Checker, Editor) to produce and evaluate a blog post. Generates a content quality dashboard with draft preview, fact-check verdicts, editorial ratings, and priority revisions.",
         "active": True,
         "definition": {
             "nodes": [
-                {"name": "Webhook", "type": "Webhook", "parameters": {"method": "POST", "responseMode": "lastNode"}, "position": {"x": 100, "y": 300}},
+                {"name": "Start", "type": "Start", "parameters": {}, "position": {"x": 100, "y": 300}},
                 {
-                    "name": "Meeting Analyzer",
+                    "name": "Input",
+                    "type": "Set",
+                    "parameters": {
+                        "mode": "json",
+                        "jsonData": json.dumps(_CONTENT_SAMPLE),
+                        "keepOnlySet": True,
+                    },
+                    "position": {"x": 350, "y": 300},
+                },
+                {
+                    "name": "Content Director",
                     "type": "AIAgent",
                     "parameters": {
-                        **_MEETING_AGENT_BASE,
+                        **_CONTENT_AGENT_BASE,
                         "task": (
-                            "Analyze the following meeting notes and produce a comprehensive executive summary:\n\n"
-                            "{{ $json.body.notes }}\n\n"
-                            "Run your full analysis pipeline."
+                            "Run the content quality pipeline for the following brief:\n\n"
+                            "{{ $json }}\n\n"
+                            "Dispatch all three specialists in parallel — Writer, Fact-Checker, "
+                            "and Editor. Synthesize their outputs into a comprehensive quality "
+                            "assessment with the final draft, fact-check results, editorial "
+                            "feedback, and prioritized revisions."
                         ),
                     },
-                    "position": {"x": 450, "y": 300},
+                    "position": {"x": 650, "y": 300},
                 },
-                {"name": "Respond", "type": "RespondToWebhook", "parameters": {"statusCode": "200", "responseMode": "lastNode", "responseField": "structured", "contentType": "application/json", "wrapResponse": False}, "position": {"x": 800, "y": 300}},
+                {"name": "Build Report", "type": "Code", "parameters": {"code": _CONTENT_HTML_CODE}, "position": {"x": 950, "y": 300}},
+                {"name": "Show Report", "type": "Output", "parameters": {"source": "input", "format": "html", "contentField": "html"}, "position": {"x": 1250, "y": 300}},
+                # Subnodes for Content Director
+                {"name": "Gemini 2.5 Flash", "type": "LLMModel", "parameters": {"model": "gemini-2.5-flash", "temperature": 0.4, "maxTokens": 8192}, "position": {"x": 650, "y": 500}},
             ],
             "connections": [
-                {"source_node": "Webhook", "target_node": "Meeting Analyzer"},
-                {"source_node": "Meeting Analyzer", "target_node": "Respond"},
+                {"source_node": "Start", "target_node": "Input"},
+                {"source_node": "Input", "target_node": "Content Director"},
+                {"source_node": "Content Director", "target_node": "Build Report"},
+                {"source_node": "Build Report", "target_node": "Show Report"},
+                # Subnode connections
+                {"source_node": "Gemini 2.5 Flash", "target_node": "Content Director", "connection_type": "subnode", "slot_name": "chatModel"},
+            ],
+            "settings": {},
+        },
+    },
+    # ========================================
+    # CUSTOMER SERVICE ESCALATION TRIAGE — HTML report
+    # ========================================
+    {
+        "name": "Customer Escalation Triage",
+        "description": "Escalation Director that spawns 3 parallel sub-agents (Sentiment & Intent, Customer Value & Retention, Resolution Strategist) to triage a high-stakes private banking escalation. Produces an executive escalation memo with sentiment trajectory, financial impact, SLA breaches, resolution plan, and calibrated retention offer.",
+        "active": True,
+        "definition": {
+            "nodes": [
+                {"name": "Start", "type": "Start", "parameters": {}, "position": {"x": 100, "y": 300}},
+                {
+                    "name": "Input",
+                    "type": "Set",
+                    "parameters": {
+                        "mode": "json",
+                        "jsonData": json.dumps(_ESCALATION_SAMPLE),
+                        "keepOnlySet": True,
+                    },
+                    "position": {"x": 350, "y": 300},
+                },
+                {
+                    "name": "Escalation Director",
+                    "type": "AIAgent",
+                    "parameters": {
+                        **_ESCALATION_AGENT_BASE,
+                        "task": (
+                            "Triage the following customer escalation case:\n\n"
+                            "{{ $json }}\n\n"
+                            "Run your full escalation protocol — dispatch all three specialist "
+                            "analysts in parallel (Sentiment & Intent, Customer Value & Retention, "
+                            "Resolution Strategist), cross-reference their findings, and produce "
+                            "your executive escalation memo."
+                        ),
+                    },
+                    "position": {"x": 650, "y": 300},
+                },
+                {"name": "Build Report", "type": "Code", "parameters": {"code": _ESCALATION_HTML_CODE}, "position": {"x": 950, "y": 300}},
+                {"name": "Show Report", "type": "Output", "parameters": {"source": "input", "format": "html", "contentField": "html"}, "position": {"x": 1250, "y": 300}},
+                # Subnodes for Escalation Director
+                {"name": "Gemini 2.5 Flash", "type": "LLMModel", "parameters": {"model": "gemini-2.5-flash", "temperature": 0.2, "maxTokens": 8192}, "position": {"x": 650, "y": 500}},
+            ],
+            "connections": [
+                {"source_node": "Start", "target_node": "Input"},
+                {"source_node": "Input", "target_node": "Escalation Director"},
+                {"source_node": "Escalation Director", "target_node": "Build Report"},
+                {"source_node": "Build Report", "target_node": "Show Report"},
+                # Subnode connections
+                {"source_node": "Gemini 2.5 Flash", "target_node": "Escalation Director", "connection_type": "subnode", "slot_name": "chatModel"},
             ],
             "settings": {},
         },
@@ -1702,9 +1878,6 @@ async def seed_workflows(reset: bool = False) -> None:
 
             workflow_id = workflow_data.get("id") or generate_workflow_id(workflow_data["name"])
 
-            # Support both formats:
-            # - Backend format: { name, nodes, connections }
-            # - Legacy format: { name, definition: { nodes, connections } }
             if "definition" in workflow_data:
                 definition = workflow_data["definition"]
             else:
