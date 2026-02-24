@@ -1,6 +1,6 @@
 # Workflow Engine — Examples & Usage
 
-Practical examples for running workflows via curl. Covers all 5 seeded workflows, ad-hoc execution, and building your own.
+Practical examples for running workflows via curl. Covers all 6 seeded workflows, ad-hoc execution, and building your own.
 
 > Architecture deep-dive: see [README.md](./README.md)
 
@@ -15,6 +15,7 @@ Practical examples for running workflows via curl. Covers all 5 seeded workflows
 - [Deep Research Agent](#deep-research-agent)
 - [Startup Due Diligence Agent](#startup-due-diligence-agent)
 - [Content Quality Pipeline](#content-quality-pipeline)
+- [Customer Escalation Triage](#customer-escalation-triage)
 - [Simple Data Pipeline (No AI)](#simple-data-pipeline-no-ai)
 - [Conditional Routing](#conditional-routing)
 - [One-Shot LLM Chat](#one-shot-llm-chat)
@@ -34,7 +35,7 @@ pip install -r requirements.txt
 export GEMINI_API_KEY=your-key
 
 python -m src.main                 # start server → http://localhost:8000
-python -m src.db.seed              # seed 5 example workflows
+python -m src.db.seed              # seed 6 example workflows
 ```
 
 ## API Cheatsheet

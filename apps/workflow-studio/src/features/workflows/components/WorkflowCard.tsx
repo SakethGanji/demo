@@ -150,13 +150,13 @@ export function WorkflowCard({ workflow, lastRun }: WorkflowCardProps) {
             </span>
           </div>
 
-          {/* Execution bars + Run */}
+          {/* Execution dots + Run */}
           <div className="flex items-center justify-between">
-            <div className="flex items-end gap-[3px]">
+            <div className="flex items-center gap-[5px]">
               {execHistory.map((bar, i) => (
                 <div
                   key={i}
-                  className={`w-1 rounded-full transition-colors duration-200 ${bar.height} ${
+                  className={`w-1.5 h-1.5 rounded-full transition-colors duration-200 ${
                     bar.success
                       ? 'bg-emerald-500/50 group-hover:bg-emerald-500/80'
                       : 'bg-destructive/30 group-hover:bg-destructive/60'
