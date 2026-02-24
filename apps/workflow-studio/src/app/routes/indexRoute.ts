@@ -1,10 +1,9 @@
-import { createRoute, redirect } from '@tanstack/react-router'
+import { createRoute } from '@tanstack/react-router'
 import { rootRoute } from './__root'
+import LandingPage from './landing'
 
 export const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
-  beforeLoad: () => {
-    throw redirect({ to: '/workflows' })
-  },
+  component: LandingPage,
 })

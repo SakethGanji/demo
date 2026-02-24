@@ -16,6 +16,7 @@ function RootLayout() {
   const closePanel = useEditorLayoutStore((s) => s.closeCreatorPanel)
   const matchRoute = useMatchRoute()
   const isEditorRoute = matchRoute({ to: '/editor', fuzzy: true })
+  const isLandingRoute = matchRoute({ to: '/', fuzzy: false })
 
   // Global keyboard shortcuts
   useEffect(() => {
@@ -29,12 +30,12 @@ function RootLayout() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [closePanel])
 
-  // Editor route: full takeover, no sidebar
-  if (isEditorRoute) {
+  // Editor/landing route: full takeover, no sidebar
+  if (isEditorRoute || isLandingRoute) {
     return (
       <ThemeProvider defaultTheme="system" storageKey="workflow-studio-theme">
         <ErrorBoundary>
-          <main className="h-screen w-screen overflow-hidden">
+          <main className={isEditorRoute ? 'h-screen w-screen overflow-hidden' : 'min-h-screen w-screen'}>
             <Outlet />
           </main>
         </ErrorBoundary>
