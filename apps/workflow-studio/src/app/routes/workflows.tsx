@@ -215,19 +215,19 @@ const TEMPLATES = [
 ];
 
 const TEAM_MEMBERS = [
-  { initials: 'AK', color: 'bg-blue-500' },
-  { initials: 'MR', color: 'bg-purple-500' },
-  { initials: 'JL', color: 'bg-emerald-500' },
-  { initials: 'ST', color: 'bg-amber-500' },
-  { initials: 'DP', color: 'bg-pink-500' },
+  { initials: 'AK', color: 'var(--node-transform)' },
+  { initials: 'MR', color: 'var(--node-flow)' },
+  { initials: 'JL', color: 'var(--node-action)' },
+  { initials: 'ST', color: 'var(--node-trigger)' },
+  { initials: 'DP', color: 'var(--node-output)' },
 ];
 
 const ACTIVITY_FEED = [
-  { user: 'Alex K.', initials: 'AK', action: 'deployed', target: 'Customer Onboarding', time: '3m ago', color: 'bg-blue-500', icon: ArrowUpRight },
-  { user: 'Maya R.', initials: 'MR', action: 'edited', target: 'Weekly Report Gen', time: '12m ago', color: 'bg-purple-500', icon: FileText },
-  { user: 'You', initials: 'SG', action: 'ran', target: 'Slack Digest Bot', time: '28m ago', color: 'bg-primary', icon: Zap },
-  { user: 'James L.', initials: 'JL', action: 'created', target: 'API Health Monitor', time: '1h ago', color: 'bg-emerald-500', icon: Plus },
-  { user: 'System', initials: 'SY', action: 'alert on', target: 'Data Sync Pipeline', time: '2h ago', color: 'bg-amber-500', icon: Bell },
+  { user: 'Alex K.', initials: 'AK', action: 'deployed', target: 'Customer Onboarding', time: '3m ago', color: 'var(--node-transform)', icon: ArrowUpRight },
+  { user: 'Maya R.', initials: 'MR', action: 'edited', target: 'Weekly Report Gen', time: '12m ago', color: 'var(--node-flow)', icon: FileText },
+  { user: 'You', initials: 'SG', action: 'ran', target: 'Slack Digest Bot', time: '28m ago', color: 'var(--node-action)', icon: Zap },
+  { user: 'James L.', initials: 'JL', action: 'created', target: 'API Health Monitor', time: '1h ago', color: 'var(--node-trigger)', icon: Plus },
+  { user: 'System', initials: 'SY', action: 'alert on', target: 'Data Sync Pipeline', time: '2h ago', color: 'var(--node-ai)', icon: Bell },
 ];
 
 const ENVIRONMENTS = [
@@ -921,7 +921,8 @@ function WorkflowsPage() {
                 {TEAM_MEMBERS.slice(0, 4).map((m) => (
                   <div
                     key={m.initials}
-                    className={`w-6 h-6 rounded-full ${m.color} flex items-center justify-center text-[9px] font-bold text-white ring-2 ring-card`}
+                    className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white ring-2 ring-card"
+                    style={{ backgroundColor: m.color }}
                   >
                     {m.initials}
                   </div>
@@ -938,7 +939,8 @@ function WorkflowsPage() {
                   className="flex items-start gap-2.5 p-2 rounded-lg hover:bg-muted/40 transition-colors"
                 >
                   <div
-                    className={`w-7 h-7 rounded-full ${item.color} flex items-center justify-center text-[9px] font-bold text-white shrink-0 mt-0.5`}
+                    className="w-7 h-7 rounded-full flex items-center justify-center text-[9px] font-bold text-white shrink-0 mt-0.5"
+                    style={{ backgroundColor: item.color }}
                   >
                     {item.initials}
                   </div>

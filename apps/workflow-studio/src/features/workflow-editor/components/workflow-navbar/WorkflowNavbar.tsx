@@ -28,8 +28,6 @@ import { useReactFlow } from 'reactflow';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useEditorLayoutStore } from '../../stores/editorLayoutStore';
 import { useExecutionStream } from '../../hooks/useExecutionStream';
-import { Popover, PopoverContent, PopoverTrigger } from '@/shared/components/ui/popover';
-import CodeEditor from '@/shared/components/ui/code-editor';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -78,29 +76,8 @@ export default function WorkflowNavbar() {
   const [isWorkflowPickerOpen, setIsWorkflowPickerOpen] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState(workflowName);
-  const [isRunOpen, setIsRunOpen] = useState(false);
-  const [testInput, setTestInput] = useState(`{
-  "message": "Hello world",
-  "count": 42
-}`);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleRunWithPayload = () => {
-    try {
-      const parsed = JSON.parse(testInput);
-      setIsRunOpen(false);
-      executeWorkflow(parsed);
-    } catch {
-      setIsRunOpen(false);
-      executeWorkflow({});
-    }
-  };
-
-  const handleRunWithoutPayload = () => {
-    setIsRunOpen(false);
-    executeWorkflow({});
-  };
 
   useEffect(() => {
     if (isEditingName && nameInputRef.current) {
@@ -297,43 +274,20 @@ export default function WorkflowNavbar() {
             <Square size={14} fill="currentColor" />
           </button>
         ) : (
-          <Popover open={isRunOpen} onOpenChange={setIsRunOpen}>
-            <PopoverTrigger asChild>
-              <button
-                className={btnClass + ' !text-[var(--success)]'}
-                title="Run workflow"
-              >
-                <Play size={16} fill="currentColor" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-80 p-0 overflow-hidden">
-              <button
-                onClick={handleRunWithoutPayload}
-                className="w-full px-3 py-2 text-[13px] text-left hover:bg-accent flex items-center gap-2 border-b border-border"
-              >
-                <Play size={12} className="text-[var(--success)]" fill="currentColor" />
-                Run without payload
-              </button>
-              <div className="p-3">
-                <div className="text-[11px] font-medium text-muted-foreground mb-2">Or run with payload:</div>
-                <div className="rounded-md border border-border overflow-hidden mb-2">
-                  <CodeEditor
-                    value={testInput}
-                    onChange={setTestInput}
-                    language="json"
-                    height="100px"
-                  />
-                </div>
-                <button
-                  onClick={handleRunWithPayload}
-                  className="w-full h-7 rounded-md bg-[var(--success)] text-white text-[12px] font-medium hover:brightness-110 flex items-center justify-center gap-1.5"
-                >
-                  <Play size={11} fill="currentColor" />
-                  Run with Payload
-                </button>
-              </div>
-            </PopoverContent>
-          </Popover>
+          <button
+            onClick={() => {
+              const raw = useEditorLayoutStore.getState().payloadInput;
+              try {
+                executeWorkflow(JSON.parse(raw));
+              } catch {
+                executeWorkflow({});
+              }
+            }}
+            className={btnClass + ' !text-[var(--success)]'}
+            title="Run workflow"
+          >
+            <Play size={16} fill="currentColor" />
+          </button>
         )}
 
         {/* Save */}

@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { NodeCreatorView, SubnodeSlotContext, SubnodeType } from '../types/workflow';
 
-export type BottomPanelTab = 'logs' | 'ui';
+export type BottomPanelTab = 'logs' | 'ui' | 'input';
 export type RightPanelTab = 'nodes' | 'ai';
 export type CanvasMode = 'pointer' | 'hand';
 
@@ -28,7 +28,7 @@ function loadNumber(key: string, fallback: number): number {
 function loadBottomTab(fallback: BottomPanelTab): BottomPanelTab {
   try {
     const v = localStorage.getItem(`${STORAGE_PREFIX}:bottom-tab`);
-    if (v === '"logs"' || v === '"ui"') return JSON.parse(v);
+    if (v === '"logs"' || v === '"ui"' || v === '"input"') return JSON.parse(v);
     return fallback;
   } catch {
     return fallback;
@@ -77,6 +77,10 @@ interface EditorLayoutState {
   bottomPanelTab: BottomPanelTab;
   bottomPanelMaximized: boolean;
 
+  // Payload input (shared between InputPanel and navbar)
+  payloadInput: string;
+  setPayloadInput: (value: string) => void;
+
   // Canvas mode
   canvasMode: CanvasMode;
   setCanvasMode: (mode: CanvasMode) => void;
@@ -123,6 +127,10 @@ export const useEditorLayoutStore = create<EditorLayoutState>((set, get) => ({
   bottomPanelSize: loadNumber('bottom-size', 30),
   bottomPanelTab: loadBottomTab('logs'),
   bottomPanelMaximized: false,
+
+  // Payload input
+  payloadInput: '{\n  "message": "Hello world",\n  "count": 42\n}',
+  setPayloadInput: (value) => set({ payloadInput: value }),
 
   // Canvas mode
   canvasMode: 'hand' as CanvasMode,

@@ -86,7 +86,14 @@ export default function JsonViewer({ value, className = '', maxHeight = 'calc(10
 
   const formattedJson = useMemo(() => {
     try {
-      return JSON.stringify(value, null, 2);
+      // Truncate very long string values to keep CodeMirror performant
+      const truncated = JSON.parse(JSON.stringify(value, (_key, val) => {
+        if (typeof val === 'string' && val.length > 32768) {
+          return val.slice(0, 32768) + `\n... (${val.length.toLocaleString()} chars truncated)`;
+        }
+        return val;
+      }));
+      return JSON.stringify(truncated, null, 2);
     } catch {
       return String(value);
     }

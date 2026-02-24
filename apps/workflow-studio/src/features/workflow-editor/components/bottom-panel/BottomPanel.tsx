@@ -1,5 +1,5 @@
 import { lazy, Suspense, useMemo } from 'react';
-import { X, ScrollText, Monitor, Maximize2, Minimize2 } from 'lucide-react';
+import { X, ScrollText, Monitor, Maximize2, Minimize2, Play } from 'lucide-react';
 import { useEditorLayoutStore, type BottomPanelTab } from '../../stores/editorLayoutStore';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useUIModeStore } from '../../stores/uiModeStore';
@@ -17,10 +17,12 @@ import type { WorkflowNodeData } from '../../types/workflow';
 import type { Node } from 'reactflow';
 
 const ExecutionLogsPanel = lazy(() => import('../execution-logs/ExecutionLogsPanel'));
+const InputPanel = lazy(() => import('./InputPanel').then((m) => ({ default: m.InputPanel })));
 
 const tabs: { id: BottomPanelTab; label: string; icon: typeof ScrollText }[] = [
   { id: 'logs', label: 'Logs', icon: ScrollText },
   { id: 'ui', label: 'UI', icon: Monitor },
+  { id: 'input', label: 'Input', icon: Play },
 ];
 
 export default function BottomPanel() {
@@ -76,6 +78,7 @@ export default function BottomPanel() {
         <Suspense fallback={<div className="flex-1" />}>
           {activeTab === 'logs' && <ExecutionLogsPanel />}
           {activeTab === 'ui' && <UIContent uiConfig={uiConfig} />}
+          {activeTab === 'input' && <InputPanel />}
         </Suspense>
       </div>
     </div>
