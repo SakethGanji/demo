@@ -162,10 +162,13 @@ function EditorPage() {
     useWorkflowStore.getState().setNodeTypesMap(map)
   }, [nodeTypes])
 
+  const closeBottomPanel = useEditorLayoutStore((s) => s.closeBottomPanel)
+
   useEffect(() => {
     if (!workflowId) {
       if (currentWorkflowId) {
         resetWorkflow()
+        closeBottomPanel()
       }
       return
     }
@@ -173,6 +176,9 @@ function EditorPage() {
     if (workflowId === currentWorkflowId) {
       return
     }
+
+    // Switching to a different workflow — clear stale execution panel
+    closeBottomPanel()
 
     async function fetchWorkflow() {
       try {
@@ -187,7 +193,7 @@ function EditorPage() {
     }
 
     fetchWorkflow()
-  }, [workflowId, currentWorkflowId, loadWorkflow, resetWorkflow])
+  }, [workflowId, currentWorkflowId, loadWorkflow, resetWorkflow, closeBottomPanel])
 
   const rightPanelOpen = useEditorLayoutStore((s) => s.rightPanelOpen)
   const setRightPanelSize = useEditorLayoutStore((s) => s.setRightPanelSize)

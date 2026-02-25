@@ -136,6 +136,32 @@ export interface NodeMetrics {
   [key: string]: unknown;
 }
 
+// Agent trace event from SSE stream
+export interface AgentTraceEvent {
+  type: string;           // 'agent:thinking' | 'agent:tool_call' | etc.
+  timestamp: number;
+  nodeName: string;       // "Banking Agent" or "Banking Agent/skill:fee_calculator"
+  data: Record<string, unknown>;
+}
+
+// Trace tree node — agent-specific now, extensible for all nodes later
+export type TraceNode =
+  // Agent-specific
+  | { kind: 'agent'; name: string; duration?: number; iterations?: number; children: TraceNode[] }
+  | { kind: 'iteration'; number: number; children: TraceNode[] }
+  | { kind: 'thinking'; content: string }
+  | { kind: 'plan'; content: string }
+  | { kind: 'reflect'; content: string }
+  | { kind: 'tool_call'; tool: string; input: unknown; result?: unknown; isError?: boolean; duration?: number; id?: string }
+  | { kind: 'spawn'; skill?: string; task: string; children: TraceNode[] }
+  | { kind: 'validation'; status: string; errors?: string[] }
+  | { kind: 'response'; content: string }
+  // Universal (future — all nodes)
+  | { kind: 'input'; itemCount: number; preview: unknown }
+  | { kind: 'output'; itemCount: number; preview: unknown; error?: string }
+  | { kind: 'processing'; label: string; detail?: string }
+  | { kind: 'branch'; decision: string; output?: string };
+
 // Execution data
 interface ExecutionData {
   items: Record<string, unknown>[];
@@ -149,6 +175,7 @@ export interface NodeExecutionData {
   endTime?: number;
   status: 'idle' | 'running' | 'success' | 'error';
   metrics?: NodeMetrics;
+  agentTrace?: AgentTraceEvent[];
 }
 
 // Subnode edge data

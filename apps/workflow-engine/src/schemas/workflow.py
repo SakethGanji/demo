@@ -105,7 +105,7 @@ class WorkflowCreateRequest(BaseModel):
     description: str | None = Field(None, max_length=1000, description="Workflow description")
     settings: dict[str, Any] = Field(default_factory=dict, description="Workflow settings")
     # For ad-hoc execution with input
-    input_data: dict[str, Any] | None = Field(None, alias="_input_data", description="Input data for ad-hoc execution")
+    input_data: dict[str, Any] | None = Field(None, description="Input data for ad-hoc execution")
 
     def to_workflow(self) -> Workflow:
         """Convert to engine Workflow dataclass."""

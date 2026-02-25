@@ -25,7 +25,16 @@ interface ExecutionEvent {
     | 'node:error'
     | 'execution:complete'
     | 'execution:error'
-    | 'execution:result';
+    | 'execution:result'
+    | 'agent:thinking'
+    | 'agent:tool_call'
+    | 'agent:tool_result'
+    | 'agent:token'
+    | 'agent:plan'
+    | 'agent:reflect'
+    | 'agent:spawn'
+    | 'agent:child_complete'
+    | 'agent:output_validation';
   executionId: string;
   timestamp: string;
   nodeName?: string;
@@ -202,11 +211,13 @@ export function useExecutionStream(): UseExecutionStreamResult {
           } else {
             const nodeId = nameToId.get(event.nodeName || '');
             if (nodeId) {
+              const existing = store.executionData[nodeId];
               store.setNodeExecutionData(nodeId, {
                 input: null,
                 output: null,
                 status: 'running',
                 startTime: Date.now(),
+                agentTrace: existing?.agentTrace,
               });
             }
           }
@@ -270,6 +281,7 @@ export function useExecutionStream(): UseExecutionStreamResult {
               const inputNodeName = findUpstreamNodeName(event.nodeName, nameToId, currentEdges);
               const inputData = inputNodeName ? nodeOutputs[inputNodeName] : null;
 
+              const existingComplete = store.executionData[nodeId];
               store.setNodeExecutionData(nodeId, {
                 input: inputData ? { items: inputData.map((d) => d.json) } : null,
                 output: { items: event.data?.map((d) => d.json) || [] },
@@ -277,6 +289,7 @@ export function useExecutionStream(): UseExecutionStreamResult {
                 startTime: Date.now(),
                 endTime: Date.now(),
                 metrics: event.metrics as import('../types/workflow').NodeMetrics | undefined,
+                agentTrace: existingComplete?.agentTrace,
               });
             }
           }
@@ -299,12 +312,14 @@ export function useExecutionStream(): UseExecutionStreamResult {
           } else {
             const nodeId = nameToId.get(event.nodeName || '');
             if (nodeId) {
+              const existingError = store.executionData[nodeId];
               store.setNodeExecutionData(nodeId, {
                 input: null,
                 output: { items: [], error: event.error },
                 status: 'error',
                 endTime: Date.now(),
                 metrics: event.metrics as import('../types/workflow').NodeMetrics | undefined,
+                agentTrace: existingError?.agentTrace,
               });
             }
           }
@@ -338,6 +353,25 @@ export function useExecutionStream(): UseExecutionStreamResult {
           setIsExecuting(false);
           setProgress(null);
           break;
+
+        default: {
+          // Handle all agent:* events
+          if (event.type.startsWith('agent:') && event.nodeName) {
+            // Extract base node name: "Banking Agent/skill:fee_calc" → "Banking Agent"
+            const baseNodeName = event.nodeName.split('/')[0];
+            const nodeId = nameToId.get(baseNodeName);
+            if (nodeId) {
+              const eventData = event.data?.[0]?.json || {};
+              store.appendAgentTraceEvent(nodeId, {
+                type: event.type,
+                timestamp: Date.parse(event.timestamp) || Date.now(),
+                nodeName: event.nodeName,
+                data: eventData,
+              });
+            }
+          }
+          break;
+        }
       }
     }
   }, []);

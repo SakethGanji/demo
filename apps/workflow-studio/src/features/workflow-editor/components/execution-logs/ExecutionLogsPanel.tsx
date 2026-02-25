@@ -32,6 +32,8 @@ import {
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { cn } from '@/shared/lib/utils';
 import type { NodeMetrics } from '../../types/workflow';
+import ExecutionTrace from './ExecutionTrace';
+import { buildAgentTraceTree } from './buildTraceTree';
 
 // ── Syntax-highlighted JSON viewer ──────────────────────────────────────
 // Safe React-element based highlighting (no dangerouslySetInnerHTML)
@@ -57,7 +59,7 @@ function JsonView({ data, maxHeight = '12rem' }: { data: unknown; maxHeight?: st
         {copied ? <Check size={11} /> : <Copy size={11} />}
       </button>
       <pre
-        className="p-2.5 rounded-lg bg-[#1e1e1e] text-[11px] leading-[1.6] overflow-auto font-mono"
+        className="p-2.5 rounded-lg bg-[#0e0e0e] text-[11px] leading-[1.6] overflow-auto font-mono"
         style={{ maxHeight }}
       >
         {lines.map((line, i) => (
@@ -500,6 +502,22 @@ export default function ExecutionLogsPanel() {
               {selectedLog.error && (
                 <div className="p-2 rounded-lg bg-destructive/10 border border-destructive/20">
                   <p className="text-xs text-destructive">{selectedLog.error}</p>
+                </div>
+              )}
+
+              {/* Agent execution trace */}
+              {selectedNodeData.agentTrace && selectedNodeData.agentTrace.length > 0 && (
+                <div className="space-y-1">
+                  <h4 className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                    Execution Trace
+                  </h4>
+                  <div className="rounded-md border border-border bg-muted/20 overflow-auto" style={{ maxHeight: '24rem' }}>
+                    <div className="p-2">
+                      <ExecutionTrace
+                        tree={buildAgentTraceTree(selectedNodeData.agentTrace, selectedLog.nodeName)}
+                      />
+                    </div>
+                  </div>
                 </div>
               )}
 

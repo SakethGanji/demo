@@ -76,46 +76,46 @@
   --canvas-float-hover: #f1f3f5;
   --canvas-float-border: #dee2e6;
 
-  /* Node group colors — light mode: soft pastel body, white icon circle, saturated icon SVG */
-  --node-trigger: #f59e0b;
-  --node-trigger-light: #fde68a;
-  --node-trigger-border: #fcd34d;
+  /* Node group colors — light mode: tinted pastel body, white icon circle, vivid icon SVG */
+  --node-trigger: #e8264d;
+  --node-trigger-light: #f1f3f5;
+  --node-trigger-border: #ffb3c1;
   --node-trigger-icon-bg: #ffffff;
-  --node-trigger-icon-fg: #b45309;
-  --node-transform: #2563eb;
-  --node-transform-light: #bfdbfe;
-  --node-transform-border: #93c5fd;
+  --node-trigger-icon-fg: #c9183d;
+  --node-transform: #0a6fdb;
+  --node-transform-light: #f1f3f5;
+  --node-transform-border: #a3d0ff;
   --node-transform-icon-bg: #ffffff;
-  --node-transform-icon-fg: #1d4ed8;
-  --node-flow: #7c3aed;
-  --node-flow-light: #ddd6fe;
-  --node-flow-border: #c4b5fd;
+  --node-transform-icon-fg: #0055aa;
+  --node-flow: #9b40e0;
+  --node-flow-light: #f1f3f5;
+  --node-flow-border: #d4a8ff;
   --node-flow-icon-bg: #ffffff;
-  --node-flow-icon-fg: #6d28d9;
-  --node-ai: #6b7280;
-  --node-ai-light: #e5e7eb;
-  --node-ai-border: #d1d5db;
+  --node-flow-icon-fg: #7a2abf;
+  --node-ai: #1aabe0;
+  --node-ai-light: #f1f3f5;
+  --node-ai-border: #a0e0f8;
   --node-ai-icon-bg: #ffffff;
-  --node-ai-icon-fg: #4b5563;
-  --node-action: #059669;
-  --node-action-light: #a7f3d0;
-  --node-action-border: #6ee7b7;
+  --node-ai-icon-fg: #0f8abf;
+  --node-action: #1aad45;
+  --node-action-light: #f1f3f5;
+  --node-action-border: #86efac;
   --node-action-icon-bg: #ffffff;
-  --node-action-icon-fg: #047857;
-  --node-output: #0d9488;
-  --node-output-light: #99f6e4;
-  --node-output-border: #5eead4;
+  --node-action-icon-fg: #128a35;
+  --node-output: #e08a00;
+  --node-output-light: #f1f3f5;
+  --node-output-border: #ffd580;
   --node-output-icon-bg: #ffffff;
-  --node-output-icon-fg: #0f766e;
-  --node-subworkflow: #6b7280;
-  --node-subworkflow-light: #e5e7eb;
-  --node-subworkflow-border: #d1d5db;
+  --node-output-icon-fg: #b36e00;
+  --node-subworkflow: #6b64cc;
+  --node-subworkflow-light: #f1f3f5;
+  --node-subworkflow-border: #c4bfff;
   --node-subworkflow-icon-bg: #ffffff;
-  --node-subworkflow-icon-fg: #4b5563;
+  --node-subworkflow-icon-fg: #4f49a6;
   --node-handle: #9ca3af;
-  --subnode-model: #4b5563;
-  --subnode-memory: #4b5563;
-  --subnode-tool: #4b5563;
+  --subnode-model: #0f8abf;
+  --subnode-memory: #7a2abf;
+  --subnode-tool: #128a35;
 
   /* Sticky note colors */
   --sticky-yellow-bg: #fef9c3;
@@ -141,24 +141,24 @@
 }
 
 .dark {
-  --background: #1e1e1e;
+  --background: #111111;
   --foreground: #e5e5e5;
-  --card: #2c2c2c;
+  --card: #1c1c1c;
   --card-foreground: #e5e5e5;
-  --popover: #2c2c2c;
+  --popover: #1c1c1c;
   --popover-foreground: #e5e5e5;
   --primary: #18a0fb;
   --primary-foreground: #ffffff;
-  --secondary: #383838;
+  --secondary: #262626;
   --secondary-foreground: #e5e5e5;
-  --muted: #333333;
+  --muted: #222222;
   --muted-foreground: #999999;
-  --accent: #383838;
+  --accent: #262626;
   --accent-foreground: #e5e5e5;
   --destructive: #f24822;
   --destructive-foreground: #ffffff;
-  --border: #3d3d3d;
-  --input: #3d3d3d;
+  --border: #2a2a2a;
+  --input: #2a2a2a;
   --ring: #18a0fb;
   --success: #14ae5c;
   --warning: #d4a053;
@@ -167,13 +167,13 @@
   --chart-3: #14ae5c;
   --chart-4: #f24822;
   --chart-5: #d4a053;
-  --sidebar: #2c2c2c;
+  --sidebar: #1c1c1c;
   --sidebar-foreground: #e5e5e5;
   --sidebar-primary: #18a0fb;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #383838;
+  --sidebar-accent: #262626;
   --sidebar-accent-foreground: #e5e5e5;
-  --sidebar-border: #3d3d3d;
+  --sidebar-border: #2a2a2a;
   --sidebar-ring: #18a0fb;
   --shadow-2xs: 0 1px 2px 0 rgb(0 0 0 / 0.08);
   --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.1), 0 1px 4px 0 rgb(0 0 0 / 0.06);
@@ -185,51 +185,51 @@
   --shadow-2xl: 0 8px 16px 0 rgb(0 0 0 / 0.08), 0 24px 60px -12px rgb(0 0 0 / 0.3), 0 0 1px 0 rgb(0 0 0 / 0.1);
 
   /* Canvas floating surfaces — matches card/sidebar for cohesion */
-  --canvas-float: #2c2c2c;
+  --canvas-float: #1c1c1c;
   --canvas-float-foreground: #e5e5e5;
-  --canvas-float-hover: #383838;
-  --canvas-float-border: #3d3d3d;
+  --canvas-float-hover: #262626;
+  --canvas-float-border: #2a2a2a;
 
-  /* Node group colors - dark mode (matches --card for cohesion) */
-  --node-trigger: #f59e0b;
-  --node-trigger-light: #2c2c2c;
-  --node-trigger-border: #3d3d3d;
-  --node-trigger-icon-bg: #b45309;
+  /* Node group colors - dark mode (vibrant neon on near-black) */
+  --node-trigger: #ff2d55;
+  --node-trigger-light: #1c1c1c;
+  --node-trigger-border: #3d1a28;
+  --node-trigger-icon-bg: #d41a45;
   --node-trigger-icon-fg: #ffffff;
-  --node-transform: #60a5fa;
-  --node-transform-light: #2c2c2c;
-  --node-transform-border: #3d3d3d;
-  --node-transform-icon-bg: #3b7ac7;
+  --node-transform: #0a84ff;
+  --node-transform-light: #1c1c1c;
+  --node-transform-border: #1a2d4a;
+  --node-transform-icon-bg: #0066cc;
   --node-transform-icon-fg: #ffffff;
-  --node-flow: #a78bfa;
-  --node-flow-light: #2c2c2c;
-  --node-flow-border: #3d3d3d;
-  --node-flow-icon-bg: #7a5fc7;
+  --node-flow: #bf5af2;
+  --node-flow-light: #1c1c1c;
+  --node-flow-border: #2d1a4a;
+  --node-flow-icon-bg: #9935d6;
   --node-flow-icon-fg: #ffffff;
-  --node-ai: #9ca3af;
-  --node-ai-light: #2c2c2c;
-  --node-ai-border: #3d3d3d;
-  --node-ai-icon-bg: #6b7280;
+  --node-ai: #64d2ff;
+  --node-ai-light: #1c1c1c;
+  --node-ai-border: #1a3040;
+  --node-ai-icon-bg: #40a8d4;
   --node-ai-icon-fg: #ffffff;
-  --node-action: #34d399;
-  --node-action-light: #2c2c2c;
-  --node-action-border: #3d3d3d;
-  --node-action-icon-bg: #25a070;
+  --node-action: #30d158;
+  --node-action-light: #1c1c1c;
+  --node-action-border: #1a3d22;
+  --node-action-icon-bg: #24a643;
   --node-action-icon-fg: #ffffff;
-  --node-output: #2dd4bf;
-  --node-output-light: #2c2c2c;
-  --node-output-border: #3d3d3d;
-  --node-output-icon-bg: #22a090;
+  --node-output: #ff9f0a;
+  --node-output-light: #1c1c1c;
+  --node-output-border: #3d2d1a;
+  --node-output-icon-bg: #cc7e08;
   --node-output-icon-fg: #ffffff;
-  --node-subworkflow: #9ca3af;
-  --node-subworkflow-light: #2c2c2c;
-  --node-subworkflow-border: #3d3d3d;
-  --node-subworkflow-icon-bg: #6b7280;
+  --node-subworkflow: #8e8ce6;
+  --node-subworkflow-light: #1c1c1c;
+  --node-subworkflow-border: #262640;
+  --node-subworkflow-icon-bg: #6664b8;
   --node-subworkflow-icon-fg: #ffffff;
-  --node-handle: #6e6e6e;
-  --subnode-model: #d1d5db;
-  --subnode-memory: #d1d5db;
-  --subnode-tool: #d1d5db;
+  --node-handle: #666666;
+  --subnode-model: #64d2ff;
+  --subnode-memory: #bf5af2;
+  --subnode-tool: #30d158;
 
   /* Sticky note colors - dark mode */
   --sticky-yellow-bg: #422006;
@@ -496,21 +496,21 @@
 
 /* ── Editor chrome — dark mode (reuses sidebar palette) ── */
 .dark .editor-chrome {
-  --background: #242424;
+  --background: #161616;
   --foreground: #e5e5e5;
   color: var(--foreground);
-  --card: #2c2c2c;
+  --card: #1c1c1c;
   --card-foreground: #e5e5e5;
-  --popover: #2c2c2c;
+  --popover: #1c1c1c;
   --popover-foreground: #e5e5e5;
-  --muted: #383838;
+  --muted: #262626;
   --muted-foreground: #999;
-  --accent: #383838;
+  --accent: #262626;
   --accent-foreground: #e5e5e5;
-  --secondary: #383838;
+  --secondary: #262626;
   --secondary-foreground: #e5e5e5;
-  --border: #3d3d3d;
-  --input: #3d3d3d;
+  --border: #2a2a2a;
+  --input: #2a2a2a;
   --ring: #18a0fb;
 }
 

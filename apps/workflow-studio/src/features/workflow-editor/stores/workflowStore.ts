@@ -1,7 +1,7 @@
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import type { Node, Edge, Connection, NodeChange, EdgeChange } from 'reactflow';
 import { addEdge, applyNodeChanges, applyEdgeChanges } from 'reactflow';
-import type { WorkflowNodeData, NodeExecutionData, StickyNoteData, SubnodeEdgeData, SubnodeType, OutputStrategy } from '../types/workflow';
+import type { WorkflowNodeData, NodeExecutionData, AgentTraceEvent, StickyNoteData, SubnodeEdgeData, SubnodeType, OutputStrategy } from '../types/workflow';
 import type { BackendNodeData } from '@/shared/lib/backendTypes';
 import type { NodeIO } from '../lib/nodeStyles';
 import type { NodeTypeMetadata } from '../lib/createNodeData';
@@ -160,6 +160,7 @@ interface WorkflowState {
   // Execution
   setNodeExecutionData: (nodeId: string, data: NodeExecutionData) => void;
   setSubworkflowNodeExecutionData: (parentId: string, innerNodeName: string, data: NodeExecutionData) => void;
+  appendAgentTraceEvent: (nodeId: string, event: AgentTraceEvent) => void;
   clearExecutionData: () => void;
 
   // Pinned data - uses backend format { json: {...} }[]
@@ -841,6 +842,19 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
           ...(current[parentId] || {}),
           [innerNodeName]: data,
         },
+      },
+    });
+  },
+
+  appendAgentTraceEvent: (nodeId, event) => {
+    const current = get().executionData;
+    const nodeData = current[nodeId];
+    if (!nodeData) return;
+    const agentTrace = [...(nodeData.agentTrace || []), event];
+    set({
+      executionData: {
+        ...current,
+        [nodeId]: { ...nodeData, agentTrace },
       },
     });
   },

@@ -69,6 +69,9 @@ _SPAWN_TOOL_NAMES = frozenset({"spawn_agent"})
 # Scratchpad (working memory) tool names
 _SCRATCHPAD_TOOL_NAMES = frozenset({"memory_store", "memory_recall"})
 
+# Skill delegation tool names (excluded from inheritance)
+_SKILL_TOOL_NAMES = frozenset({"delegate_to_skill"})
+
 # Max retries for structured output parsing/validation
 MAX_OUTPUT_RETRIES = 2
 
@@ -115,6 +118,10 @@ class AgentContext:
     parent_scratchpad: dict[str, Any] | None = None
     # Rich context snippets passed from parent
     context_snippets: list[dict[str, Any]] = field(default_factory=list)
+    # Skill delegation: skill configs and parent-level tools for scoped sub-agents
+    skill_configs: dict[str, dict[str, Any]] = field(default_factory=dict)
+    skill_all_tools: list[dict[str, Any]] = field(default_factory=list)
+    skill_all_executors: dict[str, Any] = field(default_factory=dict)
 
 
 class AIAgentNode(BaseNode):
@@ -270,6 +277,52 @@ class AIAgentNode(BaseNode):
                 default=False,
                 description="Give the agent working memory tools (memory_store / memory_recall) for saving intermediate findings across iterations.",
             ),
+            NodeProperty(
+                display_name="Skill Profiles",
+                name="skillProfiles",
+                type="collection",
+                default=[],
+                type_options={"multipleValues": True},
+                description="Pre-defined sub-agent profiles. The agent picks a skill by name and the system wires up the right prompt and scoped tools automatically.",
+                properties=[
+                    NodeProperty(
+                        display_name="Skill Name",
+                        name="name",
+                        type="string",
+                        default="",
+                        description="Unique identifier the LLM uses to invoke this skill",
+                    ),
+                    NodeProperty(
+                        display_name="Description",
+                        name="description",
+                        type="string",
+                        default="",
+                        description="What this skill does — shown to the LLM for intent routing",
+                    ),
+                    NodeProperty(
+                        display_name="System Prompt",
+                        name="systemPrompt",
+                        type="string",
+                        default="",
+                        description="Instructions for the sub-agent handling this skill",
+                        type_options={"rows": 3},
+                    ),
+                    NodeProperty(
+                        display_name="Tool Names",
+                        name="toolNames",
+                        type="string",
+                        default="",
+                        description="Comma-separated tool names this skill can access from the parent's tools",
+                    ),
+                    NodeProperty(
+                        display_name="Output Schema (JSON)",
+                        name="outputSchema",
+                        type="json",
+                        default="",
+                        description="Optional JSON schema for structured sub-agent output",
+                    ),
+                ],
+            ),
         ],
         subnode_slots=[
             SubnodeSlotDefinition(
@@ -328,6 +381,7 @@ class AIAgentNode(BaseNode):
         allow_recursive_spawn = self.get_parameter(node_definition, "allowRecursiveSpawn", True)
         enable_planning = self.get_parameter(node_definition, "enablePlanning", False)
         enable_scratchpad = self.get_parameter(node_definition, "enableScratchpad", False)
+        skill_profiles = self.get_parameter(node_definition, "skillProfiles", [])
 
         # Parse output schema if provided
         output_schema: dict[str, Any] | None = None
@@ -373,8 +427,8 @@ class AIAgentNode(BaseNode):
         if not tools:
             tools = self._build_tools(tools_config)
 
-        # Create AgentContext; populate spawn/scratchpad fields based on config.
-        _excluded = _SPAWN_TOOL_NAMES | _SCRATCHPAD_TOOL_NAMES
+        # Create AgentContext; populate spawn/scratchpad/skill fields based on config.
+        _excluded = _SPAWN_TOOL_NAMES | _SCRATCHPAD_TOOL_NAMES | _SKILL_TOOL_NAMES
         agent_context = AgentContext(
             agent_depth=0,
             max_agent_depth=max_agent_depth,
@@ -393,6 +447,15 @@ class AIAgentNode(BaseNode):
             tools = tools + self._build_scratchpad_tools()
         if enable_sub_agents:
             tools = tools + self._build_spawn_tools()
+
+        # Build skill delegation from inline parameters
+        skill_configs = self._build_skills_from_parameters(skill_profiles)
+        if skill_configs:
+            available_tool_names = {t["name"] for t in tools}
+            tools = tools + [self._build_delegate_to_skill_tool(skill_configs, available_tool_names)]
+            agent_context.skill_configs = skill_configs
+            agent_context.skill_all_tools = [t for t in tools if t["name"] != "delegate_to_skill"]
+            agent_context.skill_all_executors = dict(tool_executors)
 
         results: list[NodeData] = []
         total_input_tokens = 0
@@ -505,6 +568,187 @@ class AIAgentNode(BaseNode):
                 tool_executors[config["name"]] = config["execute"]
 
         return tools, tool_executors
+
+    # ------------------------------------------------------------------
+    # Skill delegation
+    # ------------------------------------------------------------------
+
+    def _build_skills_from_parameters(
+        self, profiles: list[dict[str, Any]],
+    ) -> dict[str, dict[str, Any]]:
+        """Build skill name -> config lookup from inline skillProfiles parameter."""
+        skills: dict[str, dict[str, Any]] = {}
+        for profile in profiles:
+            name = (profile.get("name") or "").strip()
+            if not name:
+                continue
+
+            tool_names_raw = profile.get("toolNames", "")
+            tool_names = [t.strip() for t in tool_names_raw.split(",") if t.strip()]
+
+            output_schema = None
+            output_schema_raw = profile.get("outputSchema", "")
+            if output_schema_raw:
+                if isinstance(output_schema_raw, str):
+                    try:
+                        output_schema = json.loads(output_schema_raw)
+                    except (json.JSONDecodeError, TypeError):
+                        logger.warning("Skill profile '%s': invalid outputSchema JSON, ignoring", name)
+                elif isinstance(output_schema_raw, dict):
+                    output_schema = output_schema_raw
+
+            skills[name] = {
+                "skill_name": name,
+                "description": profile.get("description", ""),
+                "system_prompt": profile.get("systemPrompt", ""),
+                "tool_names": tool_names,
+                "output_schema": output_schema,
+            }
+        return skills
+
+    def _build_delegate_to_skill_tool(
+        self,
+        skill_configs: dict[str, dict[str, Any]],
+        available_tool_names: set[str],
+    ) -> dict[str, Any]:
+        """Build the delegate_to_skill tool definition from resolved skills."""
+        skill_descriptions = []
+        for name, config in skill_configs.items():
+            desc = config.get("description", "")
+            tool_names = config.get("tool_names", [])
+            missing = [t for t in tool_names if t not in available_tool_names]
+            if missing:
+                logger.warning("Skill '%s' references tools not on parent: %s", name, missing)
+            skill_descriptions.append(f"- {name}: {desc}")
+
+        skills_summary = "\n".join(skill_descriptions)
+        skill_names = list(skill_configs.keys())
+
+        return {
+            "name": "delegate_to_skill",
+            "description": (
+                "Delegate a task to a specialized skill. Each skill has its own tools "
+                "and instructions. Call multiple times in the same turn for parallel execution.\n\n"
+                f"Available skills:\n{skills_summary}"
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "skill": {
+                        "type": "string",
+                        "enum": skill_names,
+                        "description": "Name of the skill to delegate to",
+                    },
+                    "task": {
+                        "type": "string",
+                        "description": "The specific task for this skill's sub-agent",
+                    },
+                    "context": {
+                        "type": "object",
+                        "description": "Optional context data to pass to the skill (e.g. customer_id, session data)",
+                    },
+                },
+                "required": ["skill", "task"],
+            },
+        }
+
+    async def _handle_delegate_to_skill(
+        self,
+        args: dict[str, Any],
+        skill_configs: dict[str, dict[str, Any]],
+        all_tools: list[dict[str, Any]],
+        all_executors: dict[str, Any],
+        agent_context: AgentContext,
+        context: ExecutionContext,
+        node_name: str,
+        max_context_tokens: int = _DEFAULT_MAX_CONTEXT_TOKENS,
+    ) -> dict[str, Any]:
+        """Handle delegate_to_skill by spawning a scoped sub-agent."""
+        skill_name = args.get("skill", "")
+        task = args.get("task", "")
+        skill_context = args.get("context", {})
+
+        if skill_name not in skill_configs:
+            return {"error": f"Unknown skill: '{skill_name}'. Available: {list(skill_configs.keys())}"}
+        if not task:
+            return {"error": "Task is required for delegate_to_skill."}
+
+        config = skill_configs[skill_name]
+
+        child_depth = agent_context.agent_depth + 1
+        if child_depth > agent_context.max_agent_depth:
+            return {"error": f"Max agent depth ({agent_context.max_agent_depth}) reached."}
+
+        # Filter parent tools to only those referenced by skill
+        requested_tool_names = set(config.get("tool_names", []))
+        child_tools = [t for t in all_tools if t["name"] in requested_tool_names]
+        child_executors = {k: v for k, v in all_executors.items() if k in requested_tool_names}
+
+        # Inject context into task if provided
+        if skill_context:
+            context_str = json.dumps(skill_context, indent=2, default=str)
+            task = f"{task}\n\nContext data:\n{context_str}"
+
+        child_agent_context = AgentContext(
+            agent_depth=child_depth,
+            max_agent_depth=agent_context.max_agent_depth,
+            parent_model=agent_context.parent_model,
+            parent_temperature=agent_context.parent_temperature,
+            parent_system_prompt=config.get("system_prompt", ""),
+            inheritable_tools=child_tools,
+            inheritable_tool_executors=child_executors,
+            allow_recursive_spawn=False,
+            enable_scratchpad=agent_context.enable_scratchpad,
+            parent_scratchpad=dict(agent_context.scratchpad),
+        )
+
+        self._emit_event(context, node_name, ExecutionEventType.AGENT_SPAWN, {
+            "task": task[:200],
+            "skill": skill_name,
+            "depth": child_depth,
+            "tools": list(requested_tool_names),
+        })
+
+        child_node_name = f"{node_name}/skill:{skill_name}"
+
+        try:
+            result = await self._run_agent_loop(
+                model=agent_context.parent_model,
+                system_prompt=config.get("system_prompt", ""),
+                task=task,
+                tools=child_tools,
+                tool_executors=child_executors,
+                max_iterations=5,
+                temperature=agent_context.parent_temperature,
+                context=context,
+                node_name=child_node_name,
+                output_schema=config.get("output_schema"),
+                max_context_tokens=max_context_tokens,
+                agent_context=child_agent_context,
+            )
+        except Exception as e:
+            return {"error": f"Skill '{skill_name}' failed: {e}"}
+
+        skill_return: dict[str, Any] = {
+            "skill": skill_name,
+            "response": result.get("response", ""),
+            "iterations": result.get("iterations", 0),
+        }
+
+        if config.get("output_schema"):
+            try:
+                skill_return["data"] = json.loads(result.get("response", ""))
+            except (json.JSONDecodeError, TypeError) as e:
+                skill_return["data"] = None
+                skill_return["parse_error"] = str(e)
+
+        self._emit_event(context, node_name, ExecutionEventType.AGENT_CHILD_COMPLETE, {
+            "skill": skill_name,
+            "depth": child_depth,
+            "iterations": skill_return["iterations"],
+        })
+
+        return skill_return
 
     def _build_tools(self, tools_config: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Build tools array from inline parameter config."""
@@ -1707,6 +1951,16 @@ class AIAgentNode(BaseNode):
                 logger.debug("[scratchpad] included parent scratchpad keys=%s",
                              list(agent_context.parent_scratchpad.keys()))
             return result
+
+        # Skill delegation tool
+        if name == "delegate_to_skill" and agent_context is not None and agent_context.skill_configs:
+            return await self._handle_delegate_to_skill(
+                input_data,
+                agent_context.skill_configs,
+                agent_context.skill_all_tools,
+                agent_context.skill_all_executors,
+                agent_context, context, node_name, max_context_tokens,
+            )
 
         # Sub-agent spawn tool
         if name == "spawn_agent" and agent_context is not None:

@@ -833,7 +833,7 @@ function WorkflowsPage() {
         </div>
 
         {/* ── Sidebar ── */}
-        <div className="hidden lg:block bg-muted/40 dark:bg-muted/20 rounded-2xl border border-border/30 p-4 space-y-3 fade-in-up h-fit" style={{ animationDelay: '40ms' }}>
+        <div className="hidden lg:block bg-muted/40 dark:bg-muted/20 rounded-2xl border border-border/30 p-4 space-y-3 fade-in-up" style={{ animationDelay: '40ms' }}>
           {/* Recent Workflows */}
           <div className="bg-card rounded-xl p-5 flex flex-col">
             <div className="flex items-center justify-between mb-4">

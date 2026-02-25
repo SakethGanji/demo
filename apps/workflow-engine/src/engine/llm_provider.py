@@ -537,13 +537,36 @@ def _parse_gemini_response(response: Any) -> LLMResponse:
 
     # Gemini returns MALFORMED_FUNCTION_CALL when function call output is
     # garbled — signal to the agent loop so it can retry the turn.
-    if finish_name == "MALFORMED_FUNCTION_CALL":
+    # UNEXPECTED_TOOL_CALL occurs with thinking models (2.5 Flash) when the
+    # model attempts a tool call during its reasoning phase.
+    if finish_name in ("MALFORMED_FUNCTION_CALL", "UNEXPECTED_TOOL_CALL"):
         text = None
+        # Still try to extract function calls — they may be valid
+        parts = (candidate.content.parts if candidate.content else None) or []
+        tool_calls = []
+        text_parts = []
+        for part in parts:
+            fc = getattr(part, "function_call", None)
+            if fc:
+                tool_calls.append(ToolCall(
+                    id=str(uuid.uuid4()),
+                    name=fc.name,
+                    args=dict(fc.args) if fc.args else {},
+                ))
+            elif getattr(part, "text", None):
+                text_parts.append(part.text)
+        if tool_calls:
+            logger.info("Recovered %d tool call(s) from %s response", len(tool_calls), finish_name)
+            return LLMResponse(
+                text="\n".join(text_parts) if text_parts else None,
+                tool_calls=tool_calls,
+            )
+        # No recoverable tool calls — fall back to malformed signal
         try:
             text = response.text
         except (ValueError, AttributeError) as exc:
-            logger.debug("Could not extract text from MALFORMED_FUNCTION_CALL response: %s", exc)
-        logger.warning("Gemini returned MALFORMED_FUNCTION_CALL (finish_reason=%s)", finish_name)
+            logger.debug("Could not extract text from %s response: %s", finish_name, exc)
+        logger.warning("Gemini returned %s (no recoverable tool calls)", finish_name)
         return LLMResponse(text=text or "", malformed_tool_call=True)
 
     parts = (candidate.content.parts if candidate.content else None) or []
