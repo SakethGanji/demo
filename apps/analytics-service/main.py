@@ -6,8 +6,10 @@ Uses DuckDB for fast analytical queries on CSV, Parquet, and Excel files.
 from __future__ import annotations
 
 import base64
+import hashlib
 import math
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +17,11 @@ import duckdb
 import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+
+DATASETS_DIR = Path("/tmp/analytics/datasets")
+SAMPLES_DIR = Path("/tmp/analytics/samples")
 
 app = FastAPI(
     title="Analytics Service",
@@ -172,6 +178,19 @@ class SampleRequest(BaseModel):
     return_data: bool = Field(default=True, description="Include sampled rows in response (set False for large datasets when using output_path)")
 
 
+class ColumnSummary(BaseModel):
+    """Quick stats for one column of the sampled data."""
+
+    name: str
+    dtype: str
+    nulls: int
+    unique: int
+    top_values: list[Any] | None = None
+    min: Any | None = None
+    max: Any | None = None
+    mean: float | None = None
+
+
 class SampleResponse(BaseModel):
     """Response model for sampling endpoint."""
 
@@ -179,6 +198,9 @@ class SampleResponse(BaseModel):
     original_count: int
     sampled_count: int
     method: str
+    columns: list[ColumnSummary] = []
+    preview: list[dict[str, Any]] = []
+    download_url: str | None = None
     data: list[dict[str, Any]] | None = None
     rounds_completed: int = 1
     round_counts: list[int] | None = None
@@ -500,12 +522,65 @@ async def sample_data(request: SampleRequest) -> SampleResponse:
 
     sampled_count: int = conn.execute("SELECT COUNT(*) FROM sampled").fetchone()[0]
 
-    # Export to file if requested
+    # Export to caller-specified path if requested
     out_path = None
     if request.output_path:
         out_path = _export_dataframe(conn, request.output_path, request.output_format, table_name="sampled")
 
-    # Materialise rows only when caller wants them
+    # Always persist sampled data as parquet and provide a download URL
+    SAMPLES_DIR.mkdir(parents=True, exist_ok=True)
+    ts = int(time.time() * 1000)
+    sample_hash = hashlib.sha256(f"{ts}_{sampled_count}_{method}".encode()).hexdigest()[:8]
+    sample_filename = f"sample_{ts}_{sample_hash}.parquet"
+    sample_path = SAMPLES_DIR / sample_filename
+    conn.execute(f"COPY sampled TO '{sample_path}' (FORMAT PARQUET)")
+    download_url = f"/downloads/{sample_filename}"
+
+    # Build column summaries from the sampled table
+    col_info = conn.execute("PRAGMA table_info('sampled')").fetchall()
+    col_summaries: list[ColumnSummary] = []
+    for c in col_info:
+        col_name, col_dtype = c[1], c[2]
+        qcol = _quote_ident(col_name)
+        stats = conn.execute(
+            f"SELECT COUNT(*) - COUNT({qcol}), COUNT(DISTINCT {qcol}), "
+            f"MIN({qcol}), MAX({qcol}) FROM sampled"
+        ).fetchone()
+        nulls, unique, cmin, cmax = stats
+
+        mean_val = None
+        if col_dtype in ("BIGINT", "INTEGER", "SMALLINT", "TINYINT", "FLOAT", "DOUBLE", "DECIMAL", "HUGEINT"):
+            mean_row = conn.execute(f"SELECT AVG({qcol}) FROM sampled").fetchone()
+            if mean_row and mean_row[0] is not None:
+                mean_val = float(mean_row[0])
+
+        top_vals = None
+        if col_dtype == "VARCHAR" or unique <= 20:
+            top_rows = conn.execute(
+                f"SELECT {qcol}, COUNT(*) AS cnt FROM sampled "
+                f"WHERE {qcol} IS NOT NULL GROUP BY {qcol} ORDER BY cnt DESC LIMIT 5"
+            ).fetchall()
+            top_vals = [_safe_value(r[0]) for r in top_rows]
+
+        col_summaries.append(ColumnSummary(
+            name=col_name,
+            dtype=col_dtype,
+            nulls=nulls,
+            unique=unique,
+            top_values=top_vals,
+            min=_safe_value(cmin),
+            max=_safe_value(cmax),
+            mean=mean_val,
+        ))
+
+    # Preview: first 5 rows
+    preview_df = conn.execute("SELECT * FROM sampled LIMIT 5").fetchdf()
+    preview = [
+        {k: _safe_value(v) for k, v in row.items()}
+        for row in preview_df.to_dict(orient="records")
+    ]
+
+    # Materialise full rows only when explicitly requested
     sampled_data = None
     if request.return_data:
         sampled_df = conn.execute("SELECT * FROM sampled").fetchdf()
@@ -516,12 +591,139 @@ async def sample_data(request: SampleRequest) -> SampleResponse:
         original_count=original_count,
         sampled_count=sampled_count,
         method=method,
+        columns=col_summaries,
+        preview=preview,
+        download_url=download_url,
         data=sampled_data,
         rounds_completed=len(round_counts) if round_counts else 1,
         round_counts=round_counts,
         clusters_selected=clusters_selected,
         output_path=out_path,
     )
+
+
+# =============================================================================
+# Dataset Upload API
+# =============================================================================
+
+
+class UploadRequest(BaseModel):
+    """Request model for dataset upload."""
+
+    data: list[dict[str, Any]] = Field(..., description="Array of row objects")
+
+
+class ColumnInfo(BaseModel):
+    """Column metadata."""
+
+    name: str
+    dtype: str
+
+
+class UploadResponse(BaseModel):
+    """Response model for dataset upload."""
+
+    dataset_id: str
+    file_path: str
+    row_count: int
+    column_count: int
+    columns: list[ColumnInfo]
+    preview: list[dict[str, Any]]
+
+
+@app.post("/upload", response_model=UploadResponse)
+async def upload_dataset(request: UploadRequest) -> UploadResponse:
+    """Upload inline data, persist as Parquet, return dataset_id + metadata."""
+    if not request.data:
+        raise HTTPException(400, "data must be a non-empty array")
+
+    conn = load_data(data=request.data)
+
+    ts = int(time.time() * 1000)
+    hash_suffix = hashlib.sha256(f"{ts}_{len(request.data)}".encode()).hexdigest()[:8]
+    dataset_id = f"ds_{ts}_{hash_suffix}"
+
+    DATASETS_DIR.mkdir(parents=True, exist_ok=True)
+    file_path = DATASETS_DIR / f"{dataset_id}.parquet"
+    conn.execute(f"COPY df TO '{file_path}' (FORMAT PARQUET)")
+
+    row_count: int = conn.execute("SELECT COUNT(*) FROM df").fetchone()[0]
+    col_info = conn.execute("PRAGMA table_info('df')").fetchall()
+    columns = [ColumnInfo(name=c[1], dtype=c[2]) for c in col_info]
+
+    preview_rows = conn.execute("SELECT * FROM df LIMIT 5").fetchdf()
+    preview = [
+        {k: _safe_value(v) for k, v in row.items()}
+        for row in preview_rows.to_dict(orient="records")
+    ]
+
+    conn.close()
+
+    return UploadResponse(
+        dataset_id=dataset_id,
+        file_path=str(file_path),
+        row_count=row_count,
+        column_count=len(columns),
+        columns=columns,
+        preview=preview,
+    )
+
+
+class DatasetMetadataResponse(BaseModel):
+    """Response model for dataset metadata lookup."""
+
+    dataset_id: str
+    file_path: str
+    row_count: int
+    column_count: int
+    columns: list[ColumnInfo]
+    preview: list[dict[str, Any]]
+
+
+@app.get("/datasets/{dataset_id}", response_model=DatasetMetadataResponse)
+async def get_dataset(dataset_id: str) -> DatasetMetadataResponse:
+    """Return metadata for a previously uploaded dataset."""
+    file_path = DATASETS_DIR / f"{dataset_id}.parquet"
+    if not file_path.exists():
+        raise HTTPException(404, f"Dataset not found: {dataset_id}")
+
+    conn = load_data(file_path=str(file_path))
+
+    row_count: int = conn.execute("SELECT COUNT(*) FROM df").fetchone()[0]
+    col_info = conn.execute("PRAGMA table_info('df')").fetchall()
+    columns = [ColumnInfo(name=c[1], dtype=c[2]) for c in col_info]
+
+    preview_rows = conn.execute("SELECT * FROM df LIMIT 5").fetchdf()
+    preview = [
+        {k: _safe_value(v) for k, v in row.items()}
+        for row in preview_rows.to_dict(orient="records")
+    ]
+
+    conn.close()
+
+    return DatasetMetadataResponse(
+        dataset_id=dataset_id,
+        file_path=str(file_path),
+        row_count=row_count,
+        column_count=len(columns),
+        columns=columns,
+        preview=preview,
+    )
+
+
+# =============================================================================
+# File Downloads
+# =============================================================================
+
+
+@app.get("/downloads/{filename}")
+async def download_file(filename: str) -> FileResponse:
+    """Serve a saved sample or export file for download."""
+    # Only allow files from the samples directory
+    path = SAMPLES_DIR / filename
+    if not path.exists():
+        raise HTTPException(404, f"File not found: {filename}")
+    return FileResponse(path, filename=filename, media_type="application/octet-stream")
 
 
 @app.get("/health")

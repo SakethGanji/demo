@@ -34,6 +34,7 @@ interface ExecutionEvent {
     | 'agent:reflect'
     | 'agent:spawn'
     | 'agent:child_complete'
+    | 'agent:response'
     | 'agent:output_validation';
   executionId: string;
   timestamp: string;

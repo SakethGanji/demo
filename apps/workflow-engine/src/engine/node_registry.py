@@ -280,6 +280,10 @@ def register_all_nodes() -> None:
         CodeToolNode,
         WorkflowToolNode,
         Neo4jQueryToolNode,
+        DataProfileToolNode,
+        DataAggregateToolNode,
+        DataSampleToolNode,
+        DataReportToolNode,
     )
 
     # All node classes (regular nodes + subnodes)
@@ -348,6 +352,10 @@ def register_all_nodes() -> None:
         CodeToolNode,
         WorkflowToolNode,
         Neo4jQueryToolNode,
+        DataProfileToolNode,
+        DataAggregateToolNode,
+        DataSampleToolNode,
+        DataReportToolNode,
     ]
 
     for node_class in all_node_classes:

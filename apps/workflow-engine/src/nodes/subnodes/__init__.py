@@ -25,6 +25,10 @@ from .tools.http_request_tool import HttpRequestToolNode
 from .tools.code_tool import CodeToolNode
 from .tools.workflow_tool import WorkflowToolNode
 from .tools.neo4j_query_tool import Neo4jQueryToolNode
+from .tools.data_profile_tool import DataProfileToolNode
+from .tools.data_aggregate_tool import DataAggregateToolNode
+from .tools.data_sample_tool import DataSampleToolNode
+from .tools.data_report_tool import DataReportToolNode
 
 __all__ = [
     "BaseSubnode",
@@ -53,4 +57,9 @@ __all__ = [
     "CodeToolNode",
     "WorkflowToolNode",
     "Neo4jQueryToolNode",
+    # Tools - Analytics
+    "DataProfileToolNode",
+    "DataAggregateToolNode",
+    "DataSampleToolNode",
+    "DataReportToolNode",
 ]

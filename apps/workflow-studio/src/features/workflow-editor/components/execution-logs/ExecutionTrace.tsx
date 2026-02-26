@@ -140,6 +140,13 @@ function TraceRow({ node, depth, isRoot = false }: TraceRowProps) {
         </div>
       )}
 
+      {/* Spawn detail (input/result) — shown when expanded, before child agent subtree */}
+      {node.kind === 'spawn' && expanded && (node.input || node.result) && (
+        <div className="pb-1" style={{ paddingLeft: `${depth * 14 + 22}px`, paddingRight: '4px' }}>
+          <SpawnDetail node={node} />
+        </div>
+      )}
+
       {/* Children */}
       {collapsible && expanded && (
         <div className={cn(isIteration && 'pb-0.5')}>
@@ -202,7 +209,8 @@ function getLabel(node: TraceNode): React.ReactNode {
       return (
         <span>
           <span className="font-medium">{node.skill ? 'delegate_to_skill' : 'spawn_agent'}</span>
-          <span className="text-muted-foreground ml-1">{node.skill || node.task}</span>
+          {node.skill && <span className="text-blue-400 ml-1 font-medium">{node.skill}</span>}
+          <span className="text-muted-foreground ml-1">{node.task}</span>
         </span>
       );
 
@@ -295,6 +303,27 @@ function DetailContent({ node }: { node: TraceNode }) {
     default:
       return null;
   }
+}
+
+// ── Spawn detail ─────────────────────────────────────────────────────────
+
+function SpawnDetail({ node }: { node: TraceNode & { kind: 'spawn' } }) {
+  return (
+    <div className="mt-1 mb-1 space-y-1.5">
+      {node.input && (
+        <div>
+          <span className="text-[10px] text-muted-foreground/70">Input</span>
+          <CodeBlock content={typeof node.input === 'string' ? node.input : JSON.stringify(node.input, null, 2)} />
+        </div>
+      )}
+      {node.result !== undefined && (
+        <div>
+          <span className="text-[10px] text-muted-foreground/70">Result</span>
+          <CodeBlock content={typeof node.result === 'string' ? node.result : JSON.stringify(node.result, null, 2)} />
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── Code block ──────────────────────────────────────────────────────────

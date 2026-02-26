@@ -197,10 +197,20 @@ function buildSpawnNode(
     }
   }
 
+  // Extract input/result/duration from call/result events
+  const input = args;
+  const result = resultEvent ? parseToolResult(resultEvent.data.result) : undefined;
+  const duration = resultEvent
+    ? resultEvent.timestamp - callEvent.timestamp
+    : undefined;
+
   return {
     kind: 'spawn',
     skill,
     task,
+    input,
+    result,
+    duration: duration && duration > 0 ? duration : undefined,
     children: spawnChildren,
   };
 }
@@ -223,6 +233,8 @@ function eventToTraceNode(
       return { kind: 'plan', content: (event.data.plan as string) || '' };
     case 'agent:reflect':
       return { kind: 'reflect', content: (event.data.reflection as string) || '' };
+    case 'agent:response':
+      return { kind: 'response', content: (event.data.content as string) || '' };
     case 'agent:output_validation':
       return {
         kind: 'validation',

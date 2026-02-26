@@ -91,6 +91,7 @@ EVENT_TYPE_MAP: dict[str, str] = {
     "agent_tool_result": ExecutionEventType.AGENT_TOOL_RESULT,
     "agent_spawn": ExecutionEventType.AGENT_SPAWN,
     "agent_child_complete": ExecutionEventType.AGENT_CHILD_COMPLETE,
+    "agent_response": ExecutionEventType.AGENT_RESPONSE,
     "agent_output_validation": ExecutionEventType.AGENT_OUTPUT_VALIDATION,
 }
 
@@ -676,6 +677,11 @@ class AIAgentNode(BaseNode):
         config = skill_configs[skill_name]
 
         child_depth = agent_context.agent_depth + 1
+        _sd = "  " * agent_context.agent_depth
+        print(f"\n{_sd}  SKILL: {skill_name} (depth {child_depth}/{agent_context.max_agent_depth})")
+        print(f"{_sd}    task: {task[:150]}{'...' if len(task) > 150 else ''}")
+        print(f"{_sd}    tools: {config.get('tool_names', [])}")
+
         if child_depth > agent_context.max_agent_depth:
             return {"error": f"Max agent depth ({agent_context.max_agent_depth}) reached."}
 

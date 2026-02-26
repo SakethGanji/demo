@@ -153,7 +153,7 @@ export type TraceNode =
   | { kind: 'plan'; content: string }
   | { kind: 'reflect'; content: string }
   | { kind: 'tool_call'; tool: string; input: unknown; result?: unknown; isError?: boolean; duration?: number; id?: string }
-  | { kind: 'spawn'; skill?: string; task: string; children: TraceNode[] }
+  | { kind: 'spawn'; skill?: string; task: string; input?: unknown; result?: unknown; duration?: number; children: TraceNode[] }
   | { kind: 'validation'; status: string; errors?: string[] }
   | { kind: 'response'; content: string }
   // Universal (future — all nodes)

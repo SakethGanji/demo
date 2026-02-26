@@ -194,6 +194,7 @@ class ExecutionEventType(str, Enum):
     AGENT_REFLECT = "agent:reflect"
     AGENT_SPAWN = "agent:spawn"
     AGENT_CHILD_COMPLETE = "agent:child_complete"
+    AGENT_RESPONSE = "agent:response"
     AGENT_OUTPUT_VALIDATION = "agent:output_validation"
 
 
