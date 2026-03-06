@@ -19,8 +19,10 @@ from ..schemas.workflow import (
     WorkflowResponse,
     WorkflowListItem,
     WorkflowDetailResponse,
-    ActiveToggleRequest,
-    WorkflowActiveResponse,
+    PublishRequest,
+    WorkflowPublishResponse,
+    VersionListItem,
+    VersionDetailResponse,
 )
 from ..schemas.execution import ExecutionResponse, RunWorkflowRequest
 from ..schemas.common import SuccessResponse
@@ -33,9 +35,12 @@ WorkflowServiceDep = Annotated[WorkflowService, Depends(get_workflow_service)]
 
 
 @router.get("", response_model=list[WorkflowListItem])
-async def list_workflows(service: WorkflowServiceDep) -> list[WorkflowListItem]:
-    """List all workflows."""
-    return await service.list_workflows()
+async def list_workflows(
+    service: WorkflowServiceDep,
+    folder_id: str | None = None,
+) -> list[WorkflowListItem]:
+    """List all workflows, optionally filtered by folder."""
+    return await service.list_workflows(folder_id=folder_id)
 
 
 @router.get("/{workflow_id}", response_model=WorkflowDetailResponse)
@@ -90,15 +95,55 @@ async def delete_workflow(
         raise HTTPException(status_code=404, detail=e.message)
 
 
-@router.patch("/{workflow_id}/active", response_model=WorkflowActiveResponse)
-async def toggle_workflow_active(
+@router.post("/{workflow_id}/publish", response_model=WorkflowPublishResponse)
+async def publish_workflow(
     workflow_id: str,
-    body: ActiveToggleRequest,
-    service: WorkflowServiceDep,
-) -> WorkflowActiveResponse:
-    """Toggle workflow active state."""
+    body: PublishRequest | None = None,
+    service: WorkflowServiceDep = None,
+) -> WorkflowPublishResponse:
+    """Publish the current draft as a new immutable version. Enables triggers."""
     try:
-        return await service.set_active(workflow_id, body.active)
+        message = body.message if body else None
+        return await service.publish(workflow_id, message=message)
+    except WorkflowNotFoundError as e:
+        raise HTTPException(status_code=404, detail=e.message)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=e.message)
+
+
+@router.post("/{workflow_id}/unpublish", response_model=WorkflowPublishResponse)
+async def unpublish_workflow(
+    workflow_id: str,
+    service: WorkflowServiceDep = None,
+) -> WorkflowPublishResponse:
+    """Unpublish a workflow. Disables triggers, preserves version history."""
+    try:
+        return await service.unpublish(workflow_id)
+    except WorkflowNotFoundError as e:
+        raise HTTPException(status_code=404, detail=e.message)
+
+
+@router.get("/{workflow_id}/versions", response_model=list[VersionListItem])
+async def list_versions(
+    workflow_id: str,
+    service: WorkflowServiceDep,
+) -> list[VersionListItem]:
+    """List all versions for a workflow."""
+    try:
+        return await service.list_versions(workflow_id)
+    except WorkflowNotFoundError as e:
+        raise HTTPException(status_code=404, detail=e.message)
+
+
+@router.get("/{workflow_id}/versions/{version_id}", response_model=VersionDetailResponse)
+async def get_version(
+    workflow_id: str,
+    version_id: int,
+    service: WorkflowServiceDep,
+) -> VersionDetailResponse:
+    """Get a specific version with its definition."""
+    try:
+        return await service.get_version(workflow_id, version_id)
     except WorkflowNotFoundError as e:
         raise HTTPException(status_code=404, detail=e.message)
 

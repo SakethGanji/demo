@@ -12,6 +12,7 @@ import type {
   ApiCreateResponse,
   ApiExecutionResult,
   ApiExecutionListItem,
+  ApiPublishResponse,
 } from './backendTypes';
 
 // Property definition from API node type
@@ -126,10 +127,16 @@ export const workflowsApi = {
     });
   },
 
-  setActive: (id: string, active: boolean): Promise<{ id: string; active: boolean }> => {
-    return apiFetch(`/workflows/${id}/active`, {
-      method: 'PATCH',
-      body: JSON.stringify({ active }),
+  publish: (id: string, message?: string): Promise<ApiPublishResponse> => {
+    return apiFetch(`/workflows/${id}/publish`, {
+      method: 'POST',
+      body: JSON.stringify(message ? { message } : {}),
+    });
+  },
+
+  unpublish: (id: string): Promise<ApiPublishResponse> => {
+    return apiFetch(`/workflows/${id}/unpublish`, {
+      method: 'POST',
     });
   },
 

@@ -53,6 +53,36 @@ async def delete_execution(
         raise HTTPException(status_code=404, detail=e.message)
 
 
+@router.post("/{execution_id}/cancel", response_model=SuccessResponse)
+async def cancel_execution(
+    execution_id: str,
+    service: ExecutionServiceDep,
+) -> SuccessResponse:
+    """Cancel a running execution."""
+    try:
+        cancelled = await service.cancel_execution(execution_id)
+        if not cancelled:
+            raise HTTPException(status_code=400, detail="Execution is not running or not found")
+        return SuccessResponse(message="Execution cancelled")
+    except ExecutionNotFoundError as e:
+        raise HTTPException(status_code=404, detail=e.message)
+
+
+@router.post("/{execution_id}/retry", response_model=SuccessResponse)
+async def retry_execution(
+    execution_id: str,
+    service: ExecutionServiceDep,
+) -> SuccessResponse:
+    """Retry a failed execution from the point of failure."""
+    try:
+        new_execution_id = await service.retry_from_failure(execution_id)
+        return SuccessResponse(message=f"Retry started: {new_execution_id}")
+    except ExecutionNotFoundError as e:
+        raise HTTPException(status_code=404, detail=e.message)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.delete("", response_model=SuccessResponse)
 async def clear_executions(service: ExecutionServiceDep) -> SuccessResponse:
     """Clear all execution records."""

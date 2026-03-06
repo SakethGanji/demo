@@ -73,6 +73,13 @@ def _event_to_dict(event: ExecutionEvent) -> dict[str, Any]:
     return result
 
 
+def _get_event_bus():
+    """Get PgEventBus for cross-instance event streaming."""
+    from ..db.session import DATABASE_URL
+    from ..engine.pg_event_bus import PgEventBus
+    return PgEventBus(DATABASE_URL)
+
+
 async def _run_workflow_with_events(
     workflow: Workflow,
     start_node_name: str,
@@ -82,12 +89,21 @@ async def _run_workflow_with_events(
     workflow_repo: WorkflowRepository | None = None,
 ) -> AsyncGenerator[str, None]:
     """Run workflow and yield SSE events."""
+    from ..db.session import async_session_factory
+    from ..utils.ids import execution_id as gen_exec_id
+
     event_queue: asyncio.Queue[ExecutionEvent | None] = asyncio.Queue()
 
     def on_event(event: ExecutionEvent) -> None:
         event_queue.put_nowait(event)
 
-    runner = WorkflowRunner()
+    # Pre-create execution row so node_outputs FK is satisfied during run
+    exec_id = gen_exec_id()
+    wf_id = workflow.id or "adhoc"
+    await execution_repo.start(exec_id, wf_id, workflow.name, mode)
+
+    event_bus = _get_event_bus()
+    runner = WorkflowRunner(db_session_factory=async_session_factory, event_bus=event_bus)
 
     async def run_workflow() -> None:
         try:
@@ -98,8 +114,9 @@ async def _run_workflow_with_events(
                 mode,
                 on_event,
                 workflow_repository=workflow_repo,
+                execution_id=exec_id,
             )
-            await execution_repo.complete(context, workflow.id or "adhoc", workflow.name)
+            await execution_repo.complete(context, wf_id, workflow.name)
         except Exception as e:
             on_event(
                 ExecutionEvent(
@@ -171,7 +188,8 @@ async def stream_adhoc_execution(
         settings=workflow.settings,
     )
 
-    runner = WorkflowRunner()
+    from ..db.session import async_session_factory
+    runner = WorkflowRunner(db_session_factory=async_session_factory)
     start_node = runner.find_start_node(internal_workflow)
 
     if not start_node:

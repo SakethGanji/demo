@@ -8,8 +8,8 @@ from .workflow import (
     WorkflowResponse,
     WorkflowListItem,
     WorkflowDetailResponse,
-    ActiveToggleRequest,
-    WorkflowActiveResponse,
+    PublishRequest,
+    WorkflowPublishResponse,
 )
 from .execution import (
     ExecutionResponse,
@@ -37,8 +37,8 @@ __all__ = [
     "WorkflowResponse",
     "WorkflowListItem",
     "WorkflowDetailResponse",
-    "ActiveToggleRequest",
-    "WorkflowActiveResponse",
+    "PublishRequest",
+    "WorkflowPublishResponse",
     # Execution schemas
     "ExecutionResponse",
     "ExecutionListItem",

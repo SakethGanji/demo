@@ -8,7 +8,6 @@ from typing import Annotated, AsyncGenerator
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .config import settings
 
 
 # --- Database Session Dependency ---
@@ -36,7 +35,7 @@ def get_execution_repository(session: AsyncSession = Depends(get_db_session)):
     """Get execution repository instance."""
     from ..repositories import ExecutionRepository
 
-    return ExecutionRepository(session, max_records=settings.max_execution_records)
+    return ExecutionRepository(session, max_records=100)
 
 
 @lru_cache
@@ -79,6 +78,43 @@ def get_execution_service(
     from ..services.execution_service import ExecutionService
 
     return ExecutionService(execution_repo, workflow_repo)
+
+
+def get_folder_repository(session: AsyncSession = Depends(get_db_session)):
+    """Get folder repository instance."""
+    from ..repositories import FolderRepository
+
+    return FolderRepository(session)
+
+
+def get_variable_repository(session: AsyncSession = Depends(get_db_session)):
+    """Get variable repository instance."""
+    from ..repositories import VariableRepository
+
+    return VariableRepository(session)
+
+
+def get_credential_repository(session: AsyncSession = Depends(get_db_session)):
+    """Get credential repository instance."""
+    from ..repositories import CredentialRepository
+
+    return CredentialRepository(session)
+
+
+def get_credential_service(
+    credential_repo=Depends(get_credential_repository),
+):
+    """Get credential service instance."""
+    from ..services.credential_service import CredentialService
+
+    return CredentialService(credential_repo)
+
+
+def get_node_output_repository(session: AsyncSession = Depends(get_db_session)):
+    """Get node output repository instance."""
+    from ..repositories import NodeOutputRepository
+
+    return NodeOutputRepository(session)
 
 
 def get_ai_chat_service(

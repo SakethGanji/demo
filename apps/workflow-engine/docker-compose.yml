@@ -1,0 +1,32 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: workflows
+      POSTGRES_USER: workflow
+      POSTGRES_PASSWORD: workflow
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U workflow -d workflows"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      WORKFLOW_DATABASE_URL: postgresql+asyncpg://workflow:workflow@postgres:5432/workflows
+      WORKFLOW_ENCRYPTION_KEY: ${WORKFLOW_ENCRYPTION_KEY:-}
+      WORKFLOW_DEBUG: "false"
+      WORKFLOW_RELOAD: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:

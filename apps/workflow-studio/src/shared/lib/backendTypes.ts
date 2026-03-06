@@ -71,6 +71,13 @@ export interface ApiExecutionResult {
   errors: Array<{ node_name: string; error: string; timestamp?: string }>;
 }
 
+// Response from POST /api/workflows/{id}/publish or /unpublish
+export interface ApiPublishResponse {
+  id: string;
+  active: boolean;
+  version_id: number | null;
+}
+
 // Execution list item from GET /api/executions
 export interface ApiExecutionListItem {
   id: string;

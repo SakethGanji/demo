@@ -33,14 +33,22 @@ class Settings(BaseSettings):
     cors_allow_methods: list[str] = ["*"]
     cors_allow_headers: list[str] = ["*"]
 
-    # Execution settings
-    max_execution_records: int = 100
-    default_retry_delay: int = 1000
-    max_workflow_iterations: int = 1000
+    # Database (Postgres only)
+    db_host: str = "localhost"
+    db_port: int = 5432
+    db_user: str = "workflow"
+    db_password: str | None = None
+    db_name: str = "workflows"
 
-    # External services (for future use)
+    # NGC secret management (optional — fetches password from NGC if set)
+    db_password_secret_name: str | None = None
+    ngc_csiid: str | None = "179492"
+
+    # Credential encryption (Fernet key, generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+    encryption_key: str | None = None
+
+    # External services
     redis_url: str | None = None
-    database_url: str | None = None
 
     # AI/LLM settings
     gemini_api_key: str | None = None

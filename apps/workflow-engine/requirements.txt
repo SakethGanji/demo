@@ -7,6 +7,10 @@ simpleeval
 sqlmodel
 sse-starlette
 aiosqlite
+asyncpg
+psycopg2-binary
+croniter
+cryptography
 pandas
 openpyxl
 google-genai

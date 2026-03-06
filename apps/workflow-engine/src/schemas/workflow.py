@@ -104,6 +104,7 @@ class WorkflowCreateRequest(BaseModel):
     )
     description: str | None = Field(None, max_length=1000, description="Workflow description")
     settings: dict[str, Any] = Field(default_factory=dict, description="Workflow settings")
+    folder_id: str | None = Field(None, description="Folder to organize this workflow in")
     # For ad-hoc execution with input
     input_data: dict[str, Any] | None = Field(None, description="Input data for ad-hoc execution")
 
@@ -127,12 +128,13 @@ class WorkflowUpdateRequest(BaseModel):
     connections: list[ConnectionSchema] | None = Field(None, description="List of connections")
     description: str | None = Field(None, max_length=1000, description="Workflow description")
     settings: dict[str, Any] | None = Field(None, description="Workflow settings")
+    folder_id: str | None = Field(None, description="Folder ID, or null to move to root")
 
 
-class ActiveToggleRequest(BaseModel):
-    """Request schema for toggling workflow active state."""
+class PublishRequest(BaseModel):
+    """Optional request body for publishing a workflow version."""
 
-    active: bool = Field(..., description="Whether the workflow should be active")
+    message: str | None = Field(None, max_length=500, description="Version message / changelog")
 
 
 class WorkflowResponse(BaseModel):
@@ -169,8 +171,25 @@ class WorkflowDetailResponse(BaseModel):
     updated_at: str
 
 
-class WorkflowActiveResponse(BaseModel):
-    """Response for active toggle."""
+class WorkflowPublishResponse(BaseModel):
+    """Response for publish/unpublish."""
 
     id: str
     active: bool
+    version_id: int | None
+
+
+class VersionListItem(BaseModel):
+    """Schema for version in list response."""
+
+    id: int
+    version_number: int
+    message: str | None
+    created_by: str | None
+    created_at: str
+
+
+class VersionDetailResponse(VersionListItem):
+    """Version detail with full definition."""
+
+    definition: dict[str, Any]

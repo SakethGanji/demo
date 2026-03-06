@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import uuid
 from datetime import datetime
 from time import perf_counter
 from typing import Any, TYPE_CHECKING, Literal
@@ -19,6 +18,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 from .expression_engine import ExpressionEngine, expression_engine
+from .logging import execution_id_var
 from .types import (
     ExecutionContext,
     ExecutionError,
@@ -45,9 +45,11 @@ if TYPE_CHECKING:
 class WorkflowRunner:
     """Executes DAG-based workflows using queue-based processing."""
 
-    def __init__(self) -> None:
+    def __init__(self, db_session_factory=None, event_bus=None) -> None:
         from .node_registry import node_registry
         self._registry: NodeRegistryClass = node_registry
+        self._db_session = db_session_factory  # None = skip persistence
+        self._event_bus = event_bus  # PgEventBus | None
 
     async def run(
         self,
@@ -58,6 +60,8 @@ class WorkflowRunner:
         on_event: ExecutionEventCallback | None = None,
         workflow_repository: Any | None = None,
         execution_id: str | None = None,
+        version_id: int | None = None,
+        pre_populated_states: dict[str, list[NodeData]] | None = None,
     ) -> ExecutionContext:
         """
         Run a workflow from a starting node.
@@ -81,6 +85,13 @@ class WorkflowRunner:
             context.execution_id = execution_id
         context.workflow_repository = workflow_repository
         context.on_event = on_event
+
+        # Set execution_id for structured logging correlation
+        execution_id_var.set(context.execution_id)
+
+        # Pre-populate states for retry-from-failure
+        if pre_populated_states:
+            context.node_states = pre_populated_states
 
         total_nodes = len(workflow.nodes)
         completed_nodes = 0
@@ -440,12 +451,68 @@ class WorkflowRunner:
     def _emit_event(
         self, on_event: ExecutionEventCallback | None, event: ExecutionEvent
     ) -> None:
-        """Helper to emit events safely."""
+        """Helper to emit events safely (local callback + optional PG bus)."""
         if on_event:
             try:
                 on_event(event)
             except Exception:
                 logger.exception("Error in execution event callback")
+
+        # Publish to PgEventBus if available (fire-and-forget)
+        if self._event_bus:
+            try:
+                event_dict = {
+                    "type": event.type.value,
+                    "executionId": event.execution_id,
+                    "timestamp": event.timestamp.isoformat(),
+                }
+                if event.node_name:
+                    event_dict["nodeName"] = event.node_name
+                if event.node_type:
+                    event_dict["nodeType"] = event.node_type
+                if event.error:
+                    event_dict["error"] = event.error
+                if event.progress:
+                    event_dict["progress"] = event.progress
+                if event.data:
+                    event_dict["data"] = [{"json": d.json} for d in event.data]
+                if event.metrics:
+                    event_dict["metrics"] = event.metrics
+                asyncio.create_task(
+                    self._event_bus.publish(event.execution_id, event_dict)
+                )
+            except Exception:
+                logger.debug("Failed to publish event to PG bus", exc_info=True)
+
+    async def _persist_node_output(
+        self,
+        execution_id: str,
+        node_name: str,
+        output: list[NodeData] | None,
+        metrics: dict[str, Any] | None,
+        status: str,
+        run_index: int = 0,
+        error: str | None = None,
+    ) -> None:
+        """Write node output to DB. Non-critical — execution continues on failure."""
+        if not self._db_session:
+            return
+        try:
+            from ..repositories.node_output_repository import NodeOutputRepository
+            async with self._db_session() as session:
+                repo = NodeOutputRepository(session)
+                serialized = [{"json": d.json} for d in output] if output else []
+                await repo.save_output(
+                    execution_id=execution_id,
+                    node_name=node_name,
+                    output=serialized,
+                    metrics=metrics,
+                    status=status,
+                    run_index=run_index,
+                    error=error,
+                )
+        except Exception:
+            logger.warning(f"Failed to persist node output for {node_name}", exc_info=True)
 
     async def _process_job(
         self,
@@ -522,6 +589,26 @@ class WorkflowRunner:
 
         # Resolve expressions in parameters
         resolved_node_def = self._resolve_node_parameters(context, node_def, job.input_data)
+
+        # Resolve credentials if node references one
+        credential_id = resolved_node_def.parameters.get("credentialId")
+        if credential_id and self._db_session:
+            try:
+                cred_data = await self._resolve_credential(credential_id)
+                if cred_data:
+                    resolved_params = {**resolved_node_def.parameters, "_credentials": cred_data}
+                    resolved_node_def = NodeDefinition(
+                        name=resolved_node_def.name,
+                        type=resolved_node_def.type,
+                        parameters=resolved_params,
+                        position=resolved_node_def.position,
+                        pinned_data=resolved_node_def.pinned_data,
+                        retry_on_fail=resolved_node_def.retry_on_fail,
+                        retry_delay=resolved_node_def.retry_delay,
+                        continue_on_fail=resolved_node_def.continue_on_fail,
+                    )
+            except Exception:
+                logger.warning(f"Failed to resolve credential {credential_id}", exc_info=True)
 
         # Resolve subnodes for this node (if it has subnode slots)
         subnode_context = self._resolve_subnodes(context, node_def, node_map)
@@ -618,6 +705,17 @@ class WorkflowRunner:
                 ),
             )
 
+            # Persist error output to DB
+            await self._persist_node_output(
+                execution_id=context.execution_id,
+                node_name=job.node_name,
+                output=None,
+                metrics=error_metrics,
+                status="error",
+                run_index=job.run_index,
+                error=error_msg,
+            )
+
             # Check continueOnFail
             if node_def.continue_on_fail:
                 result = NodeExecutionResult(
@@ -679,6 +777,16 @@ class WorkflowRunner:
         if result.metadata:
             node_metrics.update(result.metadata)
         context.node_metrics[job.node_name] = node_metrics
+
+        # Persist node output to DB (non-blocking, non-critical)
+        await self._persist_node_output(
+            execution_id=context.execution_id,
+            node_name=job.node_name,
+            output=main_output,
+            metrics=node_metrics,
+            status="success",
+            run_index=job.run_index,
+        )
 
         # Queue next nodes based on outputs
         self._queue_next_nodes(context, node_def, result, queue, node_map, job.run_index)
@@ -855,7 +963,8 @@ class WorkflowRunner:
 
     def _generate_id(self) -> str:
         """Generate unique execution ID."""
-        return f"exec_{int(datetime.now().timestamp() * 1000)}_{uuid.uuid4().hex[:7]}"
+        from ..utils.ids import execution_id
+        return execution_id()
 
     def _resolve_subnodes(
         self,
@@ -987,6 +1096,19 @@ class WorkflowRunner:
                 tools.append(resolved)
 
         return SubnodeContext(models=models, memory=memory, tools=tools)
+
+    async def _resolve_credential(self, credential_id: str) -> dict[str, Any] | None:
+        """Load and decrypt a credential by ID."""
+        if not self._db_session:
+            return None
+        from ..services.credential_service import decrypt
+        from ..repositories.credential_repository import CredentialRepository
+        async with self._db_session() as session:
+            repo = CredentialRepository(session)
+            cred = await repo.get(credential_id)
+            if not cred:
+                return None
+            return decrypt(cred.data)
 
     def _is_subnode(self, node_type: str) -> bool:
         """Check if a node type is a subnode."""

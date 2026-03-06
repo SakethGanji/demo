@@ -9,6 +9,9 @@ from .webhooks import router as webhooks_router
 from .streaming import router as streaming_router
 from .files import router as files_router
 from .ai_chat import router as ai_chat_router
+from .credentials import router as credentials_router
+from .folders import router as folders_router
+from .variables import router as variables_router
 
 # Main API router
 api_router = APIRouter(prefix="/api")
@@ -17,6 +20,9 @@ api_router.include_router(executions_router, tags=["Executions"])
 api_router.include_router(nodes_router, tags=["Nodes"])
 api_router.include_router(files_router, tags=["Files"])
 api_router.include_router(ai_chat_router, tags=["AI Chat"])
+api_router.include_router(credentials_router, tags=["Credentials"])
+api_router.include_router(folders_router, tags=["Folders"])
+api_router.include_router(variables_router, tags=["Variables"])
 
 # Non-prefixed routers (for webhooks and streaming)
 webhook_router = webhooks_router

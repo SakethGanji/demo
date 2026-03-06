@@ -59,7 +59,20 @@ class WebhookService:
         query_params: dict[str, str],
         raw_body: bytes = b"",
     ) -> dict[str, Any] | WebhookResponse:
-        """Handle incoming webhook request by custom path."""
+        """Handle incoming webhook request by custom path.
+        Uses active_triggers table if available, falls back to scanning workflows."""
+        from ..repositories.trigger_repository import TriggerRepository
+
+        trigger_repo = TriggerRepository(self._workflow_repo._session)
+        trigger = await trigger_repo.find_webhook_trigger(path, method)
+
+        if trigger:
+            stored = await self._workflow_repo.get(trigger.workflow_id)
+            if not stored:
+                raise WorkflowNotFoundError(f"webhook path '{path}'")
+            return await self._execute_webhook(stored, method, body, headers, query_params, raw_body)
+
+        # Fallback: scan workflows directly (for backward compat / SQLite dev mode)
         stored = await self._workflow_repo.find_by_webhook_path(path)
         if not stored:
             raise WorkflowNotFoundError(f"webhook path '{path}'")
@@ -122,16 +135,19 @@ class WebhookService:
         webhook_data: NodeData,
     ) -> dict[str, Any]:
         """Respond immediately and execute workflow in the background."""
-        execution_id = f"exec_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
+        from ..utils.ids import execution_id
+        exec_id = execution_id()
 
-        # Fire-and-forget background execution
-        asyncio.create_task(
-            self._run_background(stored, webhook_node, webhook_data, execution_id)
+        # Fire-and-forget background execution with registry tracking
+        from ..engine import execution_registry
+        task = asyncio.create_task(
+            self._run_background(stored, webhook_node, webhook_data, exec_id)
         )
+        execution_registry.register(exec_id, task)
 
         return {
             "status": "success",
-            "executionId": execution_id,
+            "executionId": exec_id,
             "message": "Workflow triggered",
         }
 
@@ -145,11 +161,16 @@ class WebhookService:
         """Run workflow in background and save execution with its own DB session."""
         from ..engine.workflow_runner import WorkflowRunner
         from ..engine.types import ExecutionContext, ExecutionError
-        from ..db.session import async_session_factory
+        from ..db.session import async_session_factory  # noqa: F811
         from ..repositories.execution_repository import ExecutionRepository
 
         try:
-            runner = WorkflowRunner()
+            # Pre-create execution row so node_outputs FK is satisfied during run
+            async with async_session_factory() as session:
+                exec_repo = ExecutionRepository(session)
+                await exec_repo.start(execution_id, stored.id, stored.name, "webhook")
+
+            runner = WorkflowRunner(db_session_factory=async_session_factory)
             context = await runner.run(
                 stored.workflow,
                 webhook_node.name,
@@ -198,14 +219,20 @@ class WebhookService:
     ) -> dict[str, Any] | WebhookResponse:
         """Execute workflow synchronously and return last node's output."""
         from ..engine.workflow_runner import WorkflowRunner
+        from ..db.session import async_session_factory
+        from ..utils.ids import execution_id as gen_exec_id
 
-        runner = WorkflowRunner()
+        exec_id = gen_exec_id()
+        await self._execution_repo.start(exec_id, stored.id, stored.name, "webhook")
+
+        runner = WorkflowRunner(db_session_factory=async_session_factory)
         context = await runner.run(
             stored.workflow,
             webhook_node.name,
             [webhook_data],
             "webhook",
             workflow_repository=self._workflow_repo,
+            execution_id=exec_id,
         )
 
         await self._execution_repo.complete(context, stored.id, stored.name)

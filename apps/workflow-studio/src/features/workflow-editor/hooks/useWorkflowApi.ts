@@ -285,43 +285,71 @@ export function useExecuteWorkflow() {
 }
 
 /**
- * Hook for toggling workflow active state
+ * Hook for publishing/unpublishing workflows
  */
-export function useToggleWorkflowActive() {
-  const setActiveMutation = useMutation({
-    mutationFn: ({ id, active }: { id: string; active: boolean }) =>
-      workflowsApi.setActive(id, active),
+export function usePublishWorkflow() {
+  const queryClient = useQueryClient();
+
+  const publishMutation = useMutation({
+    mutationFn: ({ id, message }: { id: string; message?: string }) =>
+      workflowsApi.publish(id, message),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workflows'] });
+    },
   });
 
-  const toggleActive = async (active: boolean) => {
+  const unpublishMutation = useMutation({
+    mutationFn: (id: string) => workflowsApi.unpublish(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workflows'] });
+    },
+  });
+
+  const publish = async (message?: string) => {
     const { workflowId } = useWorkflowStore.getState();
     if (!workflowId) {
       toast.error('Save workflow first', {
-        description: 'You need to save the workflow before activating it.',
+        description: 'You need to save the workflow before publishing.',
       });
       return;
     }
 
     try {
-      const result = await setActiveMutation.mutateAsync({
-        id: workflowId,
-        active,
-      });
+      const result = await publishMutation.mutateAsync({ id: workflowId, message });
       useWorkflowStore.getState().setIsActive(result.active);
-      toast.success(active ? 'Workflow activated' : 'Workflow deactivated');
+      toast.success(`Published v${result.version_id}`, {
+        description: message || 'Workflow is now active.',
+      });
       return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      toast.error('Failed to update workflow status', {
-        description: message,
+      toast.error('Failed to publish', { description: message });
+      throw error;
+    }
+  };
+
+  const unpublish = async () => {
+    const { workflowId } = useWorkflowStore.getState();
+    if (!workflowId) return;
+
+    try {
+      const result = await unpublishMutation.mutateAsync(workflowId);
+      useWorkflowStore.getState().setIsActive(result.active);
+      toast.success('Workflow unpublished', {
+        description: 'Triggers are now disabled.',
       });
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      toast.error('Failed to unpublish', { description: message });
       throw error;
     }
   };
 
   return {
-    toggleActive,
-    isToggling: setActiveMutation.isPending,
+    publish,
+    unpublish,
+    isPublishing: publishMutation.isPending || unpublishMutation.isPending,
   };
 }
 

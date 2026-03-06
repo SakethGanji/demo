@@ -3,23 +3,19 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
-import time
 from datetime import datetime
 
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, text
 
 from .session import async_session_factory, init_db
-from .models import WorkflowModel
+from .models import WorkflowModel, WorkflowVersionModel
 
 
 def generate_workflow_id(name: str) -> str:
     """Generate a unique workflow ID."""
-    timestamp = int(time.time() * 1000)
-    hash_input = f"{timestamp}_{name}"
-    hash_suffix = hashlib.sha256(hash_input.encode()).hexdigest()[:8]
-    return f"wf_{timestamp}_{hash_suffix}"
+    from ..utils.ids import workflow_id
+    return workflow_id()
 
 
 # ── Prompt Evaluator (Hub & Spoke) ────────────────────────────────────
@@ -1432,6 +1428,9 @@ async def seed_workflows(reset: bool = False) -> None:
 
     async with async_session_factory() as session:
         if reset:
+            # Cascade: versions reference workflows, so delete versions first
+            await session.execute(delete(WorkflowVersionModel))
+            await session.execute(text("UPDATE workflows SET published_version_id = NULL"))
             await session.execute(delete(WorkflowModel))
             await session.commit()
             print("Cleared existing workflows.")
@@ -1446,7 +1445,8 @@ async def seed_workflows(reset: bool = False) -> None:
                 skipped += 1
                 continue
 
-            workflow_id = workflow_data.get("id") or generate_workflow_id(workflow_data["name"])
+            wf_id = workflow_data.get("id") or generate_workflow_id(workflow_data["name"])
+            is_active = workflow_data.get("active", False)
 
             if "definition" in workflow_data:
                 definition = workflow_data["definition"]
@@ -1457,19 +1457,37 @@ async def seed_workflows(reset: bool = False) -> None:
                     "settings": workflow_data.get("settings", {}),
                 }
 
+            # Create workflow (initially inactive — we'll publish below if needed)
             workflow = WorkflowModel(
-                id=workflow_id,
+                id=wf_id,
                 name=workflow_data["name"],
                 description=workflow_data.get("description", ""),
-                active=workflow_data.get("active", False),
-                definition=definition,
+                active=False,
+                draft_definition=definition,
                 created_at=datetime.now(),
                 updated_at=datetime.now(),
             )
             session.add(workflow)
+            await session.flush()
+
+            # For active workflows, create a published version
+            if is_active:
+                version = WorkflowVersionModel(
+                    workflow_id=wf_id,
+                    version_number=1,
+                    definition=definition,
+                    message="Initial seed",
+                    created_at=datetime.now(),
+                )
+                session.add(version)
+                await session.flush()
+
+                workflow.published_version_id = version.id
+                workflow.active = True
+
             added += 1
-            status = "ACTIVE" if workflow_data.get("active") else "inactive"
-            print(f"Added [{status}]: {workflow_data['name']}")
+            status = "PUBLISHED v1" if is_active else "draft"
+            print(f"  Added [{status}]: {workflow_data['name']}")
 
         await session.commit()
         print(f"\nSeeding complete. Added {added} workflows" + (f", skipped {skipped} existing." if skipped else "."))

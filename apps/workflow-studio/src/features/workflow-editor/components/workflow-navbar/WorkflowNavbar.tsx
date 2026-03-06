@@ -35,9 +35,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/shared/components/ui/dropdown-menu';
-import { useSaveWorkflow, useToggleWorkflowActive, useImportWorkflow } from '../../hooks/useWorkflowApi';
+import { useSaveWorkflow, usePublishWorkflow, useImportWorkflow } from '../../hooks/useWorkflowApi';
 import { toBackendWorkflow } from '../../lib/workflowTransform';
-import { Switch } from '@/shared/components/ui/switch';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/components/ui/tooltip';
 import type { WorkflowNodeData } from '../../types/workflow';
 import type { Node } from 'reactflow';
 import WorkflowPickerDialog from './WorkflowPickerDialog';
@@ -56,7 +56,7 @@ export default function WorkflowNavbar() {
   const _isDirty = useWorkflowStore((s) => s._isDirty);
 
   const { saveWorkflow, isSaving } = useSaveWorkflow();
-  const { toggleActive, isToggling } = useToggleWorkflowActive();
+  const { publish, unpublish, isPublishing } = usePublishWorkflow();
   const { importWorkflow } = useImportWorkflow();
   const { executeWorkflow, isExecuting, cancelExecution } = useExecutionStream();
 
@@ -254,15 +254,36 @@ export default function WorkflowNavbar() {
 
         <div className={dividerClass} />
 
-        {/* Active toggle */}
-        <div className="px-1 flex items-center">
-          <Switch
-            checked={isActive}
-            onCheckedChange={(checked) => toggleActive(checked)}
-            disabled={isToggling || !workflowId}
-            className="data-[state=checked]:bg-[var(--success)]"
-          />
-        </div>
+        {/* Publish / Unpublish */}
+        {isActive ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => unpublish()}
+                disabled={isPublishing || !workflowId}
+                className="h-7 px-2.5 flex items-center gap-1.5 rounded-md text-xs font-medium bg-[var(--success)]/15 text-[var(--success)] hover:bg-[var(--success)]/25 transition-colors disabled:opacity-40"
+              >
+                {isPublishing ? <Loader2 size={12} className="animate-spin" /> : <div className="w-1.5 h-1.5 rounded-full bg-[var(--success)]" />}
+                <span>Live</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Click to unpublish</TooltipContent>
+          </Tooltip>
+        ) : (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => publish()}
+                disabled={isPublishing || !workflowId}
+                className="h-7 px-2.5 flex items-center gap-1.5 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-40"
+              >
+                {isPublishing ? <Loader2 size={12} className="animate-spin" /> : <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50" />}
+                <span>Publish</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Publish a new version and enable triggers</TooltipContent>
+          </Tooltip>
+        )}
 
         {/* Run/Stop */}
         {isExecuting ? (
