@@ -36,14 +36,10 @@ async_session_factory = sessionmaker(
 
 
 async def init_db() -> None:
-    """Test connection, then apply pending SQL migrations on startup."""
+    """Test database connection on startup."""
     async with engine.connect() as conn:
         result = await conn.execute(text("SELECT 1"))
         logger.info("Postgres connection OK: %s", result.scalar())
-
-    from .migrate import cmd_apply
-
-    await asyncio.to_thread(cmd_apply)
 
 
 async def dispose_engine() -> None:

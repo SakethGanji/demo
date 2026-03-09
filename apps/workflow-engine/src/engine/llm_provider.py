@@ -13,13 +13,12 @@ Routing:
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 import logging
 import os
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +35,7 @@ class ToolCall:
     id: str
     name: str
     args: Dict[str, Any]
+    raw_args: Optional[str] = None  # Preserved on repair failure for diagnostics
 
 
 @dataclass
@@ -189,101 +189,23 @@ def _get_llama_client(model: str) -> Any:
 
 
 # ---------------------------------------------------------------------------
-# Schema normalization
+# Schema helpers (delegated to tool_schema module)
 # ---------------------------------------------------------------------------
 
+from .tool_schema import (
+    _tool_to_schema,
+    _function_to_schema,
+    _normalize_schema_types,
+    prepare_tools_for_provider,
+    safe_repair_json,
+)
 
-def _normalize_schema_types(schema: Any, to_case: str = "lower") -> Any:
-    """Recursively normalize 'type' fields in a JSON schema.
-
-    Args:
-        schema: A JSON schema dict (or nested part of one).
-        to_case: "lower" for OpenAI/Anthropic ("object"), "upper" for Gemini ("OBJECT").
-    """
-    if isinstance(schema, dict):
-        result = {}
-        for key, value in schema.items():
-            if key == "type" and isinstance(value, str):
-                result[key] = value.upper() if to_case == "upper" else value.lower()
-            else:
-                result[key] = _normalize_schema_types(value, to_case)
-        return result
-    if isinstance(schema, list):
-        return [_normalize_schema_types(item, to_case) for item in schema]
-    return schema
-
-
-# ---------------------------------------------------------------------------
-# Tool schema extraction (supports both callables and dicts)
-# ---------------------------------------------------------------------------
-
-
-def _tool_to_schema(tool: Any) -> dict[str, Any]:
-    """Convert a tool (callable or dict) to {name, description, parameters}."""
-    if isinstance(tool, dict):
-        return {
-            "name": tool["name"],
-            "description": tool.get("description", ""),
-            "parameters": (
-                tool.get("parameters")
-                or tool.get("input_schema")
-                or {}
-            ),
-        }
-    if callable(tool):
-        return _function_to_schema(tool)
-    raise TypeError(f"Tool must be a callable or dict, got {type(tool)}")
-
-
-def _function_to_schema(func: Callable) -> dict[str, Any]:
-    """Extract tool schema from a function's docstring and type hints."""
-    try:
-        from docstring_parser import parse as parse_docstring
-    except ImportError:
-        # Fallback when docstring_parser is not installed
-        return {
-            "name": func.__name__,
-            "description": (func.__doc__ or "").strip().split("\n")[0],
-            "parameters": {"type": "OBJECT", "properties": {}},
-        }
-
-    docstring = parse_docstring(func.__doc__ or "")
-    type_map = {
-        "str": "STRING", "int": "INTEGER",
-        "float": "NUMBER", "bool": "BOOLEAN",
-    }
-
-    properties: dict[str, Any] = {}
-    required: list[str] = []
-
-    sig = inspect.signature(func)
-    for param_name, param in sig.parameters.items():
-        if param.default is inspect.Parameter.empty:
-            required.append(param_name)
-
-    for param_info in docstring.params:
-        param_name = param_info.arg_name
-        param_type = "STRING"
-        if param_name in func.__annotations__:
-            type_name = (
-                str(func.__annotations__[param_name])
-                .split("[")[0].split(".")[0].split("|")[-1].lower()
-            )
-            param_type = type_map.get(type_name, "STRING")
-        properties[param_name] = {
-            "type": param_type,
-            "description": param_info.description or "",
-        }
-
-    return {
-        "name": func.__name__,
-        "description": docstring.short_description or "",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": properties,
-            "required": required,
-        },
-    }
+# Models where OpenAI strict mode is safe to use
+_OPENAI_STRICT_MODELS = frozenset({
+    "gpt-4o", "gpt-4o-mini", "gpt-4o-2024-05-13", "gpt-4o-2024-08-06",
+    "gpt-4o-mini-2024-07-18", "o1", "o1-mini", "o1-preview",
+    "o3", "o3-mini", "o4-mini",
+})
 
 
 # ---------------------------------------------------------------------------
@@ -455,17 +377,13 @@ async def _call_gemini_vertex(
     # Build tools — wrap in Tool(function_declarations=...)
     gemini_tools = None
     if tools:
+        prepared = prepare_tools_for_provider(tools, "gemini")
         declarations = []
-        for t in tools:
-            schema = _tool_to_schema(t)
-            params = _normalize_schema_types(
-                schema["parameters"] or {"type": "OBJECT", "properties": {}},
-                to_case="upper",
-            )
+        for schema in prepared:
             declarations.append(FunctionDeclaration(
                 name=schema["name"],
                 description=schema["description"],
-                parameters=params,
+                parameters=schema["parameters"],
             ))
         gemini_tools = [Tool(function_declarations=declarations)]
 
@@ -561,7 +479,20 @@ def _parse_gemini_response(response: Any) -> LLMResponse:
                 text="\n".join(text_parts) if text_parts else None,
                 tool_calls=tool_calls,
             )
-        # No recoverable tool calls — fall back to malformed signal
+        # No recoverable tool calls — try JSON repair on text parts
+        if text_parts:
+            combined_text = "\n".join(text_parts)
+            repaired = safe_repair_json(combined_text)
+            if repaired and "name" in repaired:
+                logger.info("Repaired tool call from %s text: %s", finish_name, repaired.get("name"))
+                return LLMResponse(
+                    tool_calls=[ToolCall(
+                        id=str(uuid.uuid4()),
+                        name=repaired["name"],
+                        args=repaired.get("args") or repaired.get("arguments") or {},
+                    )],
+                )
+        # Fall back to malformed signal
         try:
             text = response.text
         except (ValueError, AttributeError) as exc:
@@ -615,24 +546,29 @@ async def _call_openai_compat(
     messages: list[dict],
     temperature: float = 0.2,
     tools: Optional[list] = None,
+    is_strict: bool = False,
     **kwargs: Any,
 ) -> LLMResponse:
     api_tools = None
+    # Build schema lookup for JSON repair
+    _tool_schema_lookup: dict[str, dict] = {}
     if tools:
+        prepared = prepare_tools_for_provider(
+            tools, "openai" if is_strict else "llama",
+        )
         api_tools = []
-        for t in tools:
-            schema = _tool_to_schema(t)
-            params = _normalize_schema_types(
-                schema["parameters"] or {"type": "object", "properties": {}},
-                to_case="lower",
-            )
+        for schema in prepared:
+            _tool_schema_lookup[schema["name"]] = schema["parameters"]
+            func_def: dict[str, Any] = {
+                "name": schema["name"],
+                "description": schema["description"],
+                "parameters": schema["parameters"],
+            }
+            if is_strict:
+                func_def["strict"] = True
             api_tools.append({
                 "type": "function",
-                "function": {
-                    "name": schema["name"],
-                    "description": schema["description"],
-                    "parameters": params,
-                },
+                "function": func_def,
             })
 
     completion_kwargs: dict[str, Any] = {
@@ -686,17 +622,31 @@ async def _call_openai_compat(
     resp.text = msg.content or None
     if msg.tool_calls:
         for tc in msg.tool_calls:
+            raw_args_str = tc.function.arguments or ""
+            raw_args_saved: str | None = None
             try:
-                args = json.loads(tc.function.arguments) if tc.function.arguments else {}
+                args = json.loads(raw_args_str) if raw_args_str else {}
             except json.JSONDecodeError:
-                logger.warning(
-                    "Malformed tool call arguments from OpenAI for %s: %s",
-                    tc.function.name, tc.function.arguments[:200] if tc.function.arguments else "",
-                )
-                args = {}
-                resp.malformed_tool_call = True
+                # Try JSON repair before giving up
+                tool_params = _tool_schema_lookup.get(tc.function.name)
+                repaired = safe_repair_json(raw_args_str, schema=tool_params)
+                if repaired is not None:
+                    logger.info(
+                        "Repaired malformed args for %s via json-repair",
+                        tc.function.name,
+                    )
+                    args = repaired
+                else:
+                    logger.warning(
+                        "Malformed tool call arguments from OpenAI for %s: %s",
+                        tc.function.name, raw_args_str[:200],
+                    )
+                    args = {}
+                    raw_args_saved = raw_args_str
+                    resp.malformed_tool_call = True
             resp.tool_calls.append(ToolCall(
                 id=tc.id, name=tc.function.name, args=args,
+                raw_args=raw_args_saved,
             ))
 
     return resp
@@ -719,17 +669,13 @@ async def _call_anthropic(
 
     api_tools = None
     if tools:
+        prepared = prepare_tools_for_provider(tools, "anthropic")
         api_tools = []
-        for t in tools:
-            schema = _tool_to_schema(t)
-            params = _normalize_schema_types(
-                schema["parameters"] or {"type": "object", "properties": {}},
-                to_case="lower",
-            )
+        for schema in prepared:
             api_tools.append({
                 "name": schema["name"],
                 "description": schema["description"],
-                "input_schema": params,
+                "input_schema": schema["parameters"],
             })
 
     call_kwargs: dict[str, Any] = {
@@ -887,7 +833,7 @@ async def _call_llm_once(
     if model in LLAMA_MODELS:
         return await _call_openai_compat(
             _get_llama_client(model), model, messages, temperature,
-            tools=tools, **kwargs,
+            tools=tools, is_strict=False, **kwargs,
         )
 
     if model.startswith("claude-"):
@@ -896,7 +842,9 @@ async def _call_llm_once(
         )
 
     # Default: OpenAI (gpt-*, o1-*, o3-*, etc.)
+    # Enable strict mode for known OpenAI models
+    use_strict = model in _OPENAI_STRICT_MODELS or model.startswith(("gpt-", "o1-", "o3", "o4"))
     return await _call_openai_compat(
         _get_openai_client(), model, messages, temperature,
-        tools=tools, **kwargs,
+        tools=tools, is_strict=use_strict, **kwargs,
     )

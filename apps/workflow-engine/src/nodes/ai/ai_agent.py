@@ -72,8 +72,17 @@ _SCRATCHPAD_TOOL_NAMES = frozenset({"memory_store", "memory_recall"})
 # Skill delegation tool names (excluded from inheritance)
 _SKILL_TOOL_NAMES = frozenset({"delegate_to_skill"})
 
+# Programmatic tool calling tool names
+_PTC_TOOL_NAMES = frozenset({"run_script"})
+
+# Default PTC script timeout (seconds)
+_PTC_SCRIPT_TIMEOUT = 60
+
 # Max retries for structured output parsing/validation
 MAX_OUTPUT_RETRIES = 2
+
+# Max retries for malformed tool calls
+MAX_MALFORMED_RETRIES = 3
 
 # Default timeout for individual tool execution (seconds)
 _DEFAULT_TOOL_TIMEOUT = 120
@@ -114,11 +123,17 @@ class AgentContext:
     inheritable_tool_executors: dict[str, Any] = field(default_factory=dict)
     allow_recursive_spawn: bool = True
     enable_scratchpad: bool = False
-    # Working memory scratchpad
+    # Working memory scratchpad (per-agent, isolated)
     scratchpad: dict[str, Any] = field(default_factory=dict)
     parent_scratchpad: dict[str, Any] | None = None
+    # Shared memory store — single dict reference shared across the entire agent
+    # tree. Any agent can read/write. Data never enters LLM context until an
+    # agent explicitly calls memory_recall('shared:<key>').
+    shared_store: dict[str, Any] = field(default_factory=dict)
     # Rich context snippets passed from parent
     context_snippets: list[dict[str, Any]] = field(default_factory=list)
+    # Read-only context store for parent→child data passing (lazy retrieval)
+    context_store: dict[str, Any] = field(default_factory=dict)
     # Skill delegation: skill configs and parent-level tools for scoped sub-agents
     skill_configs: dict[str, dict[str, Any]] = field(default_factory=dict)
     skill_all_tools: list[dict[str, Any]] = field(default_factory=list)
@@ -279,6 +294,13 @@ class AIAgentNode(BaseNode):
                 description="Give the agent working memory tools (memory_store / memory_recall) for saving intermediate findings across iterations.",
             ),
             NodeProperty(
+                display_name="Enable Scripting",
+                name="enablePtc",
+                type="boolean",
+                default=False,
+                description="Give the agent a run_script tool for programmatic tool calling — batch multiple tool calls in a Python script with loops, conditionals, and error handling.",
+            ),
+            NodeProperty(
                 display_name="Skill Profiles",
                 name="skillProfiles",
                 type="collection",
@@ -382,6 +404,7 @@ class AIAgentNode(BaseNode):
         allow_recursive_spawn = self.get_parameter(node_definition, "allowRecursiveSpawn", True)
         enable_planning = self.get_parameter(node_definition, "enablePlanning", False)
         enable_scratchpad = self.get_parameter(node_definition, "enableScratchpad", False)
+        enable_ptc = self.get_parameter(node_definition, "enablePtc", False)
         skill_profiles = self.get_parameter(node_definition, "skillProfiles", [])
 
         # Parse output schema if provided
@@ -429,7 +452,7 @@ class AIAgentNode(BaseNode):
             tools = self._build_tools(tools_config)
 
         # Create AgentContext; populate spawn/scratchpad/skill fields based on config.
-        _excluded = _SPAWN_TOOL_NAMES | _SCRATCHPAD_TOOL_NAMES | _SKILL_TOOL_NAMES
+        _excluded = _SPAWN_TOOL_NAMES | _SCRATCHPAD_TOOL_NAMES | _SKILL_TOOL_NAMES | _PTC_TOOL_NAMES
         agent_context = AgentContext(
             agent_depth=0,
             max_agent_depth=max_agent_depth,
@@ -448,6 +471,10 @@ class AIAgentNode(BaseNode):
             tools = tools + self._build_scratchpad_tools()
         if enable_sub_agents:
             tools = tools + self._build_spawn_tools()
+        if enable_ptc and tools:
+            # Give the agent a run_script tool listing available tool names
+            tool_names = [t["name"] for t in tools]
+            tools = tools + self._build_ptc_tools(tool_names)
 
         # Build skill delegation from inline parameters
         skill_configs = self._build_skills_from_parameters(skill_profiles)
@@ -457,6 +484,8 @@ class AIAgentNode(BaseNode):
             agent_context.skill_configs = skill_configs
             agent_context.skill_all_tools = [t for t in tools if t["name"] != "delegate_to_skill"]
             agent_context.skill_all_executors = dict(tool_executors)
+            # Inject full skill descriptions into system prompt (sent once)
+            system_prompt = (system_prompt or "") + self._build_skill_descriptions_for_system_prompt(skill_configs)
 
         results: list[NodeData] = []
         total_input_tokens = 0
@@ -612,17 +641,17 @@ class AIAgentNode(BaseNode):
         skill_configs: dict[str, dict[str, Any]],
         available_tool_names: set[str],
     ) -> dict[str, Any]:
-        """Build the delegate_to_skill tool definition from resolved skills."""
-        skill_descriptions = []
+        """Build the delegate_to_skill tool definition from resolved skills.
+
+        Keeps only skill names in the tool description to reduce per-iteration
+        token cost. Full descriptions should go in the system prompt.
+        """
         for name, config in skill_configs.items():
-            desc = config.get("description", "")
             tool_names = config.get("tool_names", [])
             missing = [t for t in tool_names if t not in available_tool_names]
             if missing:
                 logger.warning("Skill '%s' references tools not on parent: %s", name, missing)
-            skill_descriptions.append(f"- {name}: {desc}")
 
-        skills_summary = "\n".join(skill_descriptions)
         skill_names = list(skill_configs.keys())
 
         return {
@@ -630,7 +659,7 @@ class AIAgentNode(BaseNode):
             "description": (
                 "Delegate a task to a specialized skill. Each skill has its own tools "
                 "and instructions. Call multiple times in the same turn for parallel execution.\n\n"
-                f"Available skills:\n{skills_summary}"
+                f"Available skills: {', '.join(skill_names)}"
             ),
             "input_schema": {
                 "type": "object",
@@ -652,6 +681,22 @@ class AIAgentNode(BaseNode):
                 "required": ["skill", "task"],
             },
         }
+
+    @staticmethod
+    def _build_skill_descriptions_for_system_prompt(
+        skill_configs: dict[str, dict[str, Any]],
+    ) -> str:
+        """Build full skill descriptions for inclusion in the system prompt."""
+        if not skill_configs:
+            return ""
+        parts = ["\n## Available Skills"]
+        for name, config in skill_configs.items():
+            desc = config.get("description", "")
+            tool_names = config.get("tool_names", [])
+            parts.append(f"- **{name}**: {desc}")
+            if tool_names:
+                parts.append(f"  Tools: {', '.join(tool_names)}")
+        return "\n".join(parts)
 
     async def _handle_delegate_to_skill(
         self,
@@ -690,10 +735,15 @@ class AIAgentNode(BaseNode):
         child_tools = [t for t in all_tools if t["name"] in requested_tool_names]
         child_executors = {k: v for k, v in all_executors.items() if k in requested_tool_names}
 
-        # Inject context into task if provided
+        # Build context_store for lazy retrieval instead of inlining context
+        child_context_store: dict[str, Any] = {}
         if skill_context:
-            context_str = json.dumps(skill_context, indent=2, default=str)
-            task = f"{task}\n\nContext data:\n{context_str}"
+            child_context_store["skill_context"] = skill_context
+            task = f"{task}\n\nContext data available via memory_recall('skill_context')."
+
+        # Inject scratchpad tools if parent has them enabled
+        if agent_context.enable_scratchpad:
+            child_tools = child_tools + self._build_scratchpad_tools()
 
         child_agent_context = AgentContext(
             agent_depth=child_depth,
@@ -706,6 +756,8 @@ class AIAgentNode(BaseNode):
             allow_recursive_spawn=False,
             enable_scratchpad=agent_context.enable_scratchpad,
             parent_scratchpad=dict(agent_context.scratchpad),
+            shared_store=agent_context.shared_store,  # same reference — shared across tree
+            context_store=child_context_store,
         )
 
         self._emit_event(context, node_name, ExecutionEventType.AGENT_SPAWN, {
@@ -758,6 +810,8 @@ class AIAgentNode(BaseNode):
 
     def _build_tools(self, tools_config: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Build tools array from inline parameter config."""
+        from ...engine.tool_schema import validate_tool_definition
+
         tools = []
 
         for tool in tools_config:
@@ -771,11 +825,18 @@ class AIAgentNode(BaseNode):
                 except json.JSONDecodeError:
                     params = {}
 
-            tools.append({
+            tool_def = {
                 "name": tool["name"],
                 "description": tool.get("description", ""),
                 "input_schema": params,
-            })
+            }
+
+            # Build-time validation
+            warnings = validate_tool_definition(tool_def)
+            for w in warnings:
+                logger.warning("[tool-validation] %s", w)
+
+            tools.append(tool_def)
 
         return tools
 
@@ -785,13 +846,16 @@ class AIAgentNode(BaseNode):
 
     def _build_scratchpad_tools(self) -> list[dict[str, Any]]:
         """Return tool definitions for memory_store and memory_recall."""
-        return [
+        tools = [
             {
                 "name": "memory_store",
                 "description": (
-                    "Store a value in your working memory scratchpad. Use this to save "
-                    "intermediate findings, partial results, or anything you need to "
-                    "remember across iterations."
+                    "Store a value in memory. Use this to save intermediate findings, "
+                    "partial results, or anything you need to remember across iterations.\n\n"
+                    "Prefix key with 'shared:' to write to the shared store visible to ALL "
+                    "agents in the tree (parent, siblings, children). Example: "
+                    "memory_store(key='shared:customer_data', value=...). "
+                    "Without the prefix, the value is private to this agent."
                 ),
                 "input_schema": {
                     "type": "object",
@@ -801,6 +865,7 @@ class AIAgentNode(BaseNode):
                             "description": "Key to store the value under",
                         },
                         "value": {
+                            "type": "string",
                             "description": "Value to store (any JSON-serializable type)",
                         },
                     },
@@ -810,10 +875,12 @@ class AIAgentNode(BaseNode):
             {
                 "name": "memory_recall",
                 "description": (
-                    "Recall values from your working memory scratchpad. Call with a key "
-                    "to get a specific value, or without a key to get all stored values. "
-                    "If you are a sub-agent, this also returns read-only context from the "
-                    "parent agent's scratchpad."
+                    "Recall values from memory. Call with a key to get a specific value, "
+                    "or without a key to list all stored values.\n\n"
+                    "Prefix key with 'shared:' to read from the shared store visible to ALL "
+                    "agents. Example: memory_recall(key='shared:customer_data'). "
+                    "Without the prefix, checks: private scratchpad → context store → "
+                    "shared store (fallback)."
                 ),
                 "input_schema": {
                     "type": "object",
@@ -826,6 +893,11 @@ class AIAgentNode(BaseNode):
                 },
             },
         ]
+        from ...engine.tool_schema import validate_tool_definition
+        for t in tools:
+            for w in validate_tool_definition(t):
+                logger.warning("[tool-validation] %s", w)
+        return tools
 
     # ------------------------------------------------------------------
     # Sub-agent spawn tools
@@ -867,6 +939,199 @@ class AIAgentNode(BaseNode):
                 },
             },
         ]
+
+    # ------------------------------------------------------------------
+    # Programmatic Tool Calling (PTC)
+    # ------------------------------------------------------------------
+
+    def _build_ptc_tools(
+        self, tool_names: list[str],
+    ) -> list[dict[str, Any]]:
+        """Return the run_script tool definition for programmatic tool calling.
+
+        Allows the agent to write a Python script that calls multiple tools
+        in a single turn with loops, conditionals, and error handling — more
+        robust than relying on the LLM to produce perfect structured output.
+        """
+        tool_list = ", ".join(f'"{n}"' for n in tool_names)
+        return [
+            {
+                "name": "run_script",
+                "description": (
+                    "Execute a Python script that can call multiple tools programmatically. "
+                    "Use this when you need to: batch multiple tool calls with loops, "
+                    "apply conditional logic based on tool results, or handle errors in code.\n\n"
+                    "Your script has access to:\n"
+                    "  - `call_tool(name: str, args: dict) -> dict` — call any available tool\n"
+                    "  - `results` — a list that collects return values; append your outputs\n"
+                    "  - Standard Python (json, re, math, itertools, collections)\n\n"
+                    f"Available tools: [{tool_list}]\n\n"
+                    "Example:\n"
+                    "```python\n"
+                    "# Fetch 3 items and process them\n"
+                    "ids = ['a', 'b', 'c']\n"
+                    "for item_id in ids:\n"
+                    "    result = call_tool('get_item', {'id': item_id})\n"
+                    "    if 'error' not in result:\n"
+                    "        call_tool('process_item', {'data': result})\n"
+                    "        results.append({'id': item_id, 'status': 'ok'})\n"
+                    "    else:\n"
+                    "        results.append({'id': item_id, 'status': 'failed'})\n"
+                    "```"
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "script": {
+                            "type": "string",
+                            "description": "Python script to execute. Use call_tool(name, args) to invoke tools.",
+                        },
+                    },
+                    "required": ["script"],
+                },
+            },
+        ]
+
+    async def _execute_ptc_script(
+        self,
+        script: str,
+        tool_executors: dict[str, Any],
+        tool_schema_map: dict[str, Any],
+        context: ExecutionContext,
+        agent_context: AgentContext | None,
+        node_name: str,
+        max_context_tokens: int,
+    ) -> dict[str, Any]:
+        """Execute a PTC script in a sandboxed environment with tool access.
+
+        The script gets a `call_tool(name, args)` function that synchronously
+        invokes tools and returns their results. The script runs in a thread
+        with a restricted global namespace.
+        """
+        import textwrap
+
+        # Collect tool call logs for the agent
+        tool_call_log: list[dict[str, Any]] = []
+        results_collector: list[Any] = []
+        _sd = "  " * (agent_context.agent_depth if agent_context else 0)
+
+        # Create synchronous bridge to async tool execution
+        loop = asyncio.get_running_loop()
+
+        def call_tool_sync(name: str, args: dict | None = None) -> Any:
+            """Synchronous wrapper for tool execution (called from script thread)."""
+            args = args or {}
+
+            # Schema-based coercion
+            schema = tool_schema_map.get(name, {})
+            if schema:
+                args = self._coerce_args(args, schema)
+                arg_errors = self._validate_tool_args(args, schema)
+                if arg_errors:
+                    error = {"error": f"Invalid arguments: {'; '.join(arg_errors)}"}
+                    tool_call_log.append({"tool": name, "args": args, "result": error, "is_error": True})
+                    return error
+
+            # Run the async executor from the sync thread
+            future = asyncio.run_coroutine_threadsafe(
+                self._execute_tool(
+                    name, args, tool_executors, context,
+                    agent_context=agent_context,
+                    node_name=f"{node_name}/ptc",
+                    max_context_tokens=max_context_tokens,
+                ),
+                loop,
+            )
+            try:
+                result = future.result(timeout=_DEFAULT_TOOL_TIMEOUT)
+            except TimeoutError:
+                result = {"error": f"Tool '{name}' timed out"}
+            except Exception as e:
+                result = {"error": f"Tool '{name}' failed: {e}"}
+
+            is_error = isinstance(result, dict) and "error" in result
+            tool_call_log.append({"tool": name, "args": args, "result": result, "is_error": is_error})
+
+            _res_preview = str(result)[:200]
+            print(f"{_sd}    PTC call_tool({name}) => {_res_preview}")
+
+            return result
+
+        # Build restricted namespace
+        import collections
+        import itertools
+        import math
+
+        safe_globals = {
+            "__builtins__": {
+                # Safe builtins only
+                "len": len, "range": range, "enumerate": enumerate,
+                "zip": zip, "map": map, "filter": filter, "sorted": sorted,
+                "reversed": reversed, "list": list, "dict": dict, "set": set,
+                "tuple": tuple, "str": str, "int": int, "float": float,
+                "bool": bool, "type": type, "isinstance": isinstance,
+                "print": lambda *a, **kw: None,  # suppress prints
+                "min": min, "max": max, "sum": sum, "abs": abs, "round": round,
+                "any": any, "all": all, "hasattr": hasattr, "getattr": getattr,
+                "KeyError": KeyError, "ValueError": ValueError,
+                "TypeError": TypeError, "IndexError": IndexError,
+                "Exception": Exception, "StopIteration": StopIteration,
+                "True": True, "False": False, "None": None,
+            },
+            "call_tool": call_tool_sync,
+            "results": results_collector,
+            "json": json,
+            "re": re,
+            "math": math,
+            "itertools": itertools,
+            "collections": collections,
+        }
+
+        # Clean the script (strip markdown fences if present)
+        clean_script = script.strip()
+        if clean_script.startswith("```"):
+            # Remove opening fence (with optional language tag)
+            first_newline = clean_script.index("\n")
+            clean_script = clean_script[first_newline + 1:]
+        if clean_script.endswith("```"):
+            clean_script = clean_script[:-3]
+        clean_script = textwrap.dedent(clean_script).strip()
+
+        print(f"{_sd}  PTC SCRIPT ({len(clean_script)} chars, {clean_script.count(chr(10))+1} lines)")
+
+        # Execute in thread with timeout
+        def run_in_thread():
+            exec(compile(clean_script, "<ptc_script>", "exec"), safe_globals)
+
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(run_in_thread),
+                timeout=_PTC_SCRIPT_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            return {
+                "error": f"Script timed out after {_PTC_SCRIPT_TIMEOUT}s",
+                "tool_calls": tool_call_log,
+                "partial_results": results_collector,
+            }
+        except Exception as e:
+            # Extract the relevant error from the script
+            import traceback
+            tb_lines = traceback.format_exception(type(e), e, e.__traceback__)
+            # Filter to only show the ptc_script frames
+            script_lines = [l for l in tb_lines if "<ptc_script>" in l or not l.startswith("  File")]
+            error_msg = "".join(script_lines[-3:]).strip() if script_lines else str(e)
+            return {
+                "error": f"Script error: {error_msg}",
+                "tool_calls": tool_call_log,
+                "partial_results": results_collector,
+            }
+
+        return {
+            "results": results_collector,
+            "tool_calls": tool_call_log,
+            "tool_calls_count": len(tool_call_log),
+        }
 
     def _resolve_child_tools(
         self,
@@ -972,6 +1237,7 @@ class AIAgentNode(BaseNode):
             allow_recursive_spawn=agent_context.allow_recursive_spawn,
             enable_scratchpad=agent_context.enable_scratchpad,
             parent_scratchpad=dict(agent_context.scratchpad),  # snapshot
+            shared_store=agent_context.shared_store,  # same reference — shared across tree
         )
         # Give child scratchpad tools only if parent has them enabled
         if agent_context.enable_scratchpad:
@@ -982,20 +1248,24 @@ class AIAgentNode(BaseNode):
             child_tools = child_tools + self._build_spawn_tools()
             logger.debug("[sub-agent] injected spawn tools for child")
 
-        # Rich context: inject context_snippets into task
-        # Accepts both [{label, content}] dicts and plain strings
+        # Rich context: store context_snippets in context_store for lazy retrieval
         context_snippets = args.get("context_snippets", [])
         if context_snippets:
-            snippet_parts = ["## Context from parent agent:"]
-            for snippet in context_snippets:
+            ctx_keys = []
+            for i, snippet in enumerate(context_snippets):
+                ctx_key = f"ctx_{i}"
                 if isinstance(snippet, dict):
-                    label = snippet.get("label", "Context")
-                    content = snippet.get("content", "")
-                    snippet_parts.append(f"### {label}\n{content}")
+                    child_agent_context.context_store[ctx_key] = snippet.get("content", "")
+                    label = snippet.get("label", f"Context {i}")
+                    ctx_keys.append(f"- memory_recall('{ctx_key}'): {label}")
                 elif isinstance(snippet, str):
-                    snippet_parts.append(snippet)
-            task = f"{task}\n\n" + "\n\n".join(snippet_parts)
-            logger.debug("[sub-agent] injected %d context snippets", len(context_snippets))
+                    child_agent_context.context_store[ctx_key] = snippet
+                    ctx_keys.append(f"- memory_recall('{ctx_key}')")
+            task = (
+                f"{task}\n\nContext available via memory_recall:\n"
+                + "\n".join(ctx_keys)
+            )
+            logger.debug("[sub-agent] stored %d context snippets in context_store", len(context_snippets))
 
         expected_output = args.get("expected_output")
         # Normalize: model may send expected_output as a JSON string instead of dict
@@ -1098,31 +1368,77 @@ class AIAgentNode(BaseNode):
 
     @staticmethod
     def _estimate_tokens(messages: list[dict[str, Any]], model: str = "") -> int:
-        """Estimate token count. Uses tiktoken for OpenAI models, char-based fallback otherwise."""
-        if model.startswith(("gpt-", "o1-", "o3")):
+        """Estimate token count for a list of messages.
+
+        Uses tiktoken for OpenAI models (accurate). For other providers,
+        uses a calibrated chars-per-token ratio:
+          - Gemini: ~3.2 chars/token (slightly more aggressive tokenizer)
+          - Claude: ~3.5 chars/token
+          - Llama:  ~3.5 chars/token
+        JSON overhead (keys, braces, quotes) is counted in chars.
+        """
+        if model.startswith(("gpt-", "o1-", "o3", "o4")):
             enc = _get_tiktoken_encoder(model)
             if enc is not None:
                 total = 0
                 for m in messages:
-                    total += len(enc.encode(json.dumps(m, default=str)))
+                    # Per-message overhead: ~4 tokens for role/name/etc
+                    total += 4
+                    content = m.get("content", "")
+                    if isinstance(content, str):
+                        total += len(enc.encode(content))
+                    # Tool calls in assistant messages
+                    for tc in m.get("tool_calls", []):
+                        total += len(enc.encode(json.dumps(tc, default=str)))
                 return total
-        total_chars = sum(
-            len(json.dumps(m, default=str)) for m in messages
-        )
-        return int(total_chars / _CHARS_PER_TOKEN_FALLBACK)
+
+        # Provider-specific chars-per-token ratios
+        if model.startswith("gemini"):
+            cpt = 3.2
+        else:
+            cpt = _CHARS_PER_TOKEN_FALLBACK
+
+        total_chars = 0
+        for m in messages:
+            content = m.get("content", "")
+            if isinstance(content, str):
+                total_chars += len(content)
+            # Count tool call args
+            for tc in m.get("tool_calls", []):
+                total_chars += len(json.dumps(tc, default=str))
+            # Per-message overhead: role key, braces ~20 chars
+            total_chars += 20
+        return int(total_chars / cpt)
 
     @staticmethod
-    def _trim_messages(
+    def _estimate_tools_tokens(tools: list[dict[str, Any]] | None, model: str = "") -> int:
+        """Estimate tokens consumed by tool definitions sent alongside messages.
+
+        Tool schemas are serialized to JSON and sent with every LLM call,
+        so they eat into the available context budget.
+        """
+        if not tools:
+            return 0
+        tools_json = json.dumps(tools, default=str)
+        if model.startswith(("gpt-", "o1-", "o3", "o4")):
+            enc = _get_tiktoken_encoder(model)
+            if enc is not None:
+                return len(enc.encode(tools_json))
+        cpt = 3.2 if model.startswith("gemini") else _CHARS_PER_TOKEN_FALLBACK
+        return int(len(tools_json) / cpt)
+
+    @staticmethod
+    def _compact_messages(
         messages: list[dict[str, Any]], max_tokens: int, model: str = ""
     ) -> list[dict[str, Any]]:
-        """Trim conversation history to fit within the token budget.
+        """Compact conversation history to fit within the token budget.
 
-        Preserves:
-          - The system prompt (index 0 if role == system)
-          - The original user task (first user message)
-          - The most recent messages
+        Two-pass approach:
+        1. First pass: Summarize old tool results (older than last 3 iterations)
+           into one-line placeholders to preserve conversation flow.
+        2. Second pass: Drop oldest compressed groups if still over budget.
 
-        Drops the oldest middle messages until under budget.
+        Never drops: system message, first user message, last 2 iterations.
         """
         total = AIAgentNode._estimate_tokens(messages, model)
         if total <= max_tokens:
@@ -1136,24 +1452,63 @@ class AIAgentNode(BaseNode):
                 break
 
         prefix = messages[:protected_end]
-        suffix = messages[protected_end:]
-        current_tokens = total
+        middle = list(messages[protected_end:])
 
-        # Drop oldest messages from suffix until within budget
-        while suffix and current_tokens > max_tokens:
-            # Drop in chunks: remove the oldest assistant+tool group together
-            # to avoid orphaned tool results without their assistant message
-            dropped = suffix.pop(0)
-            current_tokens -= AIAgentNode._estimate_tokens([dropped], model)
-            # If we dropped an assistant message with tool_calls, also drop
-            # the following tool result messages that reference it
-            if dropped.get("tool_calls"):
-                tc_ids = {tc["id"] for tc in dropped.get("tool_calls", [])}
-                while suffix and suffix[0].get("tool_call_id") in tc_ids:
-                    orphan = suffix.pop(0)
-                    current_tokens -= AIAgentNode._estimate_tokens([orphan], model)
+        # Count iteration boundaries (assistant messages with tool_calls)
+        iteration_starts = [
+            i for i, m in enumerate(middle)
+            if m.get("role") == "assistant" and m.get("tool_calls")
+        ]
 
-        return prefix + suffix
+        # Protect last 2 iterations
+        protect_from = len(middle)
+        if len(iteration_starts) >= 2:
+            protect_from = iteration_starts[-2]
+        elif len(iteration_starts) >= 1:
+            protect_from = iteration_starts[-1]
+
+        # First pass: summarize old tool result messages
+        for i in range(protect_from):
+            m = middle[i]
+            if m.get("role") == "tool" and m.get("content"):
+                content = m["content"]
+                tool_name = m.get("name", "unknown")
+                # Summarize: detect type and create brief
+                brief = ""
+                try:
+                    parsed = json.loads(content) if isinstance(content, str) else content
+                    if isinstance(parsed, list):
+                        brief = f"array[{len(parsed)} items]"
+                    elif isinstance(parsed, dict):
+                        if "error" in parsed:
+                            brief = f"error: {str(parsed['error'])[:80]}"
+                        else:
+                            brief = f"object with keys: {list(parsed.keys())[:5]}"
+                    else:
+                        brief = f"{type(parsed).__name__}: {str(parsed)[:60]}"
+                except (json.JSONDecodeError, TypeError):
+                    brief = f"text[{len(content)} chars]"
+                middle[i] = dict(m, content=f"[{tool_name} returned {brief}]")
+
+        result = prefix + middle
+        current_tokens = AIAgentNode._estimate_tokens(result, model)
+
+        # Second pass: drop oldest groups if still over budget
+        if current_tokens > max_tokens:
+            droppable = result[protected_end:]
+            kept_suffix = []
+            # Rebuild from the end, keeping what fits
+            for m in reversed(droppable):
+                test = prefix + [m] + kept_suffix
+                test_tokens = AIAgentNode._estimate_tokens(test, model)
+                if test_tokens <= max_tokens:
+                    kept_suffix.insert(0, m)
+                else:
+                    # Drop orphan tool results if we drop their assistant
+                    break
+            result = prefix + kept_suffix
+
+        return result
 
     @staticmethod
     def _build_planning_prompt() -> str:
@@ -1322,7 +1677,6 @@ class AIAgentNode(BaseNode):
         # Per-tool failure history: {tool_name: [(args_snapshot, error), ...]}
         failure_tracker: dict[str, list[tuple[str, str]]] = {}
         malformed_retries = 0
-        MAX_MALFORMED_RETRIES = 3
         base_temperature = temperature
         _total_input_tokens = 0
         _total_output_tokens = 0
@@ -1337,7 +1691,9 @@ class AIAgentNode(BaseNode):
             yield {"type": "iteration_start", "iteration": iterations}
 
             # Trim context if it's grown too large
-            messages = self._trim_messages(messages, max_context_tokens, model)
+            # Reserve budget for tool schemas (sent alongside messages every call)
+            tools_budget = self._estimate_tools_tokens(tools, model)
+            messages = self._compact_messages(messages, max_context_tokens - tools_budget, model)
 
             # B5: Budget awareness — inject warnings once as iterations run out
             budget_used = iterations / max_iterations
@@ -1357,13 +1713,49 @@ class AIAgentNode(BaseNode):
                     "content": f"Note: {remaining} iterations remaining out of {max_iterations}. Start wrapping up or batch your remaining tool calls.",
                 })
 
-            # B7: Lower temperature after consecutive failures
+            # B7: Lower temperature after consecutive failures or malformed retries
+            temp_penalty = 0.2 * consecutive_failures + 0.15 * malformed_retries
             effective_temperature = max(
-                0.1, base_temperature - 0.2 * consecutive_failures
-            ) if consecutive_failures > 0 else base_temperature
+                0.1, base_temperature - temp_penalty,
+            ) if (consecutive_failures > 0 or malformed_retries > 0) else base_temperature
 
             # On last iteration, call LLM without tools to guarantee a text response
-            iter_tools = tools if (tools and not is_last_iteration) else None
+            # Dynamic tool filtering: after warmup iterations, only send tools
+            # that the model has used or that are "meta" tools (scratchpad, spawn, etc.)
+            iter_tools: list[dict[str, Any]] | None = None
+            if tools and not is_last_iteration:
+                _ALWAYS_INCLUDE = _SCRATCHPAD_TOOL_NAMES | _SPAWN_TOOL_NAMES | _SKILL_TOOL_NAMES | _PTC_TOOL_NAMES
+                _WARMUP_ITERATIONS = 3
+                if iterations > _WARMUP_ITERATIONS and tool_calls_list:
+                    # Collect tools actually used so far
+                    _used_tools = {tc_entry["tool"] for tc_entry in tool_calls_list}
+                    # Always include meta tools + used tools
+                    _relevant = _used_tools | _ALWAYS_INCLUDE
+                    # Filter: keep used tools + meta tools + any tool not yet tried
+                    # (so the model can still discover new tools, but seen-and-unused
+                    # tools don't clutter context)
+                    _all_tool_names = {t["name"] for t in tools}
+                    # "Seen" = mentioned in assistant text or tool results
+                    _mentioned_in_context = set()
+                    for msg in messages[-6:]:  # check recent messages
+                        content = msg.get("content", "")
+                        if isinstance(content, str):
+                            for tn in _all_tool_names:
+                                if tn in content:
+                                    _mentioned_in_context.add(tn)
+                    _relevant |= _mentioned_in_context
+                    filtered = [t for t in tools if t["name"] in _relevant]
+                    # Only filter if it actually reduces the list meaningfully
+                    if len(filtered) >= 2 and len(filtered) < len(tools):
+                        iter_tools = filtered
+                        logger.debug(
+                            "Dynamic tool filter: %d/%d tools (used=%s)",
+                            len(filtered), len(tools), _used_tools,
+                        )
+                    else:
+                        iter_tools = tools
+                else:
+                    iter_tools = tools
 
             # When no tools and structured output requested, pass response_format
             # directly so the model generates JSON natively in one shot.
@@ -1402,25 +1794,11 @@ class AIAgentNode(BaseNode):
                     return
 
                 messages.append({"role": "assistant", "content": response.text or ""})
-                # B2: Detailed malformed feedback with available tools & params
-                tool_hints = []
-                for t in tools:
-                    schema = t.get("input_schema") or t.get("parameters") or {}
-                    required = schema.get("required", [])
-                    props = list(schema.get("properties", {}).keys())
-                    tool_hints.append(
-                        f"  - {t['name']}({', '.join(props)})"
-                        + (f"  [required: {', '.join(required)}]" if required else "")
-                    )
-                tools_list = "\n".join(tool_hints) if tool_hints else "  (none)"
-                messages.append({
-                    "role": "user",
-                    "content": (
-                        "Your previous function call was malformed. "
-                        "Available tools:\n" + tools_list + "\n\n"
-                        "Please call one of these tools with the correct parameter names and types."
-                    ),
-                })
+                # Detailed malformed feedback with schema hints and examples
+                feedback = self._build_malformed_feedback(
+                    response.text, tools, malformed_retries,
+                )
+                messages.append({"role": "user", "content": feedback})
                 continue
 
             if response.tool_calls:
@@ -1444,7 +1822,7 @@ class AIAgentNode(BaseNode):
                 # Append assistant message with tool calls
                 messages.append(response.get_assistant_message())
 
-                # Execute all tools in parallel
+                # Execute all tools in parallel (with result caching)
                 results = await asyncio.gather(
                     *[
                         self._run_one_tool(
@@ -1756,10 +2134,60 @@ class AIAgentNode(BaseNode):
         return errors
 
     @staticmethod
-    def _truncate_tool_result(result_str: str, max_chars: int = 16000) -> str:
-        """Truncate a tool result string, keeping head + tail with a marker."""
+    def _compress_tool_result(
+        result_str: str, tool_name: str = "", max_chars: int = 8000,
+    ) -> str:
+        """Compress a tool result, preserving structure over raw data.
+
+        - JSON arrays: keep first 3 items + count + schema of first item
+        - JSON objects: keep all keys, truncate long string values
+        - Non-JSON: head+tail fallback
+        """
         if len(result_str) <= max_chars:
             return result_str
+
+        # Try structured compression for JSON
+        try:
+            data = json.loads(result_str)
+        except (json.JSONDecodeError, TypeError):
+            # Non-JSON fallback: head + tail
+            keep = max_chars // 2
+            truncated = len(result_str) - max_chars
+            return (
+                result_str[:keep]
+                + f"\n\n[... truncated {truncated} chars ...]\n\n"
+                + result_str[-keep:]
+            )
+
+        if isinstance(data, list) and len(data) > 3:
+            # Keep first 3 items + summary
+            sample = data[:3]
+            schema_hint = {}
+            if data and isinstance(data[0], dict):
+                schema_hint = {k: type(v).__name__ for k, v in data[0].items()}
+            compressed = {
+                "_compressed": True,
+                "total_items": len(data),
+                "sample": sample,
+                "item_schema": schema_hint or None,
+            }
+            out = json.dumps(compressed, default=str)
+            if len(out) <= max_chars:
+                return out
+
+        if isinstance(data, dict):
+            # Truncate long string values
+            compressed_dict = {}
+            for k, v in data.items():
+                if isinstance(v, str) and len(v) > 500:
+                    compressed_dict[k] = v[:500] + f"...[{len(v)} chars]"
+                else:
+                    compressed_dict[k] = v
+            out = json.dumps(compressed_dict, default=str)
+            if len(out) <= max_chars:
+                return out
+
+        # Final fallback: head + tail
         keep = max_chars // 2
         truncated = len(result_str) - max_chars
         return (
@@ -1767,6 +2195,169 @@ class AIAgentNode(BaseNode):
             + f"\n\n[... truncated {truncated} chars ...]\n\n"
             + result_str[-keep:]
         )
+
+    @staticmethod
+    def _coerce_args(args: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
+        """Coerce tool arguments to match schema types where unambiguous.
+
+        Handles: string→int, string→bool, string→object, value→array.
+        """
+        if not schema or not args:
+            return args
+
+        properties = schema.get("properties", {})
+        coerced = dict(args)
+
+        for key, value in coerced.items():
+            if key not in properties:
+                continue
+            expected = (properties[key].get("type") or "").lower()
+            if not expected:
+                continue
+
+            if expected == "integer" and isinstance(value, str):
+                try:
+                    coerced[key] = int(value)
+                    logger.debug("Coerced '%s' from str to int", key)
+                except (ValueError, TypeError):
+                    pass
+
+            elif expected == "number" and isinstance(value, str):
+                try:
+                    coerced[key] = float(value)
+                    logger.debug("Coerced '%s' from str to number", key)
+                except (ValueError, TypeError):
+                    pass
+
+            elif expected == "boolean" and isinstance(value, str):
+                lower = value.lower().strip()
+                if lower in ("true", "1", "yes"):
+                    coerced[key] = True
+                    logger.debug("Coerced '%s' from str to bool", key)
+                elif lower in ("false", "0", "no"):
+                    coerced[key] = False
+                    logger.debug("Coerced '%s' from str to bool", key)
+
+            elif expected == "object" and isinstance(value, str):
+                try:
+                    parsed = json.loads(value)
+                    if isinstance(parsed, dict):
+                        coerced[key] = parsed
+                        logger.debug("Coerced '%s' from str to object", key)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            elif expected == "array" and not isinstance(value, list):
+                coerced[key] = [value]
+                logger.debug("Coerced '%s' from %s to array", key, type(value).__name__)
+
+        return coerced
+
+    @staticmethod
+    def _fuzzy_match_tool_name(
+        name: str, available: set[str],
+    ) -> str | None:
+        """Try to recover a tool name via case-insensitive or edit-distance match."""
+        if not name or not available:
+            return None
+
+        # Case-insensitive match
+        name_lower = name.lower()
+        for candidate in available:
+            if candidate.lower() == name_lower:
+                logger.info("Fuzzy tool name match: '%s' -> '%s' (case)", name, candidate)
+                return candidate
+
+        # Edit distance ≤ 2 (simple Levenshtein)
+        def _edit_dist(a: str, b: str) -> int:
+            if abs(len(a) - len(b)) > 2:
+                return 3  # early exit
+            m, n = len(a), len(b)
+            dp = list(range(n + 1))
+            for i in range(1, m + 1):
+                prev, dp[0] = dp[0], i
+                for j in range(1, n + 1):
+                    temp = dp[j]
+                    dp[j] = min(
+                        dp[j] + 1, dp[j - 1] + 1,
+                        prev + (0 if a[i - 1] == b[j - 1] else 1),
+                    )
+                    prev = temp
+            return dp[n]
+
+        close_matches = [
+            c for c in available if _edit_dist(name.lower(), c.lower()) <= 2
+        ]
+        if len(close_matches) == 1:
+            logger.info("Fuzzy tool name match: '%s' -> '%s' (edit dist)", name, close_matches[0])
+            return close_matches[0]
+
+        return None
+
+    @staticmethod
+    def _build_malformed_feedback(
+        response_text: str | None,
+        tools: list[dict[str, Any]],
+        malformed_retries: int,
+    ) -> str:
+        """Build detailed feedback for malformed tool call retries."""
+        parts = ["Your previous function call was malformed."]
+
+        # Show the model its broken output (truncated)
+        if response_text:
+            preview = response_text[:500]
+            if len(response_text) > 500:
+                preview += "..."
+            parts.append(f"\nYour output was:\n```\n{preview}\n```")
+
+        # Show available tools with schemas
+        tool_hints = []
+        best_match_schema = None
+        for t in tools:
+            schema = t.get("input_schema") or t.get("parameters") or {}
+            required = schema.get("required", [])
+            props = schema.get("properties", {})
+            prop_details = []
+            for pname, pdef in props.items():
+                ptype = pdef.get("type", "any")
+                marker = " (required)" if pname in required else ""
+                prop_details.append(f"{pname}: {ptype}{marker}")
+            tool_hints.append(
+                f"  - {t['name']}({', '.join(prop_details)})"
+            )
+            # Fuzzy match: pick tool most likely intended
+            if response_text and t["name"].lower() in (response_text or "").lower():
+                best_match_schema = (t["name"], schema)
+
+        parts.append("\nAvailable tools:\n" + "\n".join(tool_hints))
+
+        # On 2nd+ retry, show example
+        if malformed_retries >= 2 and best_match_schema:
+            name, schema = best_match_schema
+            example_args = {}
+            for pname, pdef in schema.get("properties", {}).items():
+                ptype = pdef.get("type", "string")
+                if ptype == "string":
+                    example_args[pname] = f"<{pname}>"
+                elif ptype in ("integer", "number"):
+                    example_args[pname] = 0
+                elif ptype == "boolean":
+                    example_args[pname] = True
+                elif ptype == "object":
+                    example_args[pname] = {}
+                elif ptype == "array":
+                    example_args[pname] = []
+            parts.append(
+                f"\nExample correct call for {name}:\n"
+                f"```json\n{json.dumps(example_args, indent=2)}\n```"
+            )
+
+        parts.append(
+            "\nDo not wrap arguments in markdown code fences. "
+            "Call one of the tools above with correct parameter names and types."
+        )
+
+        return "\n".join(parts)
 
     @staticmethod
     def _check_empty_ids(args: dict[str, Any], schema: dict[str, Any]) -> str | None:
@@ -1874,14 +2465,56 @@ class AIAgentNode(BaseNode):
         max_context_tokens: int,
     ) -> tuple[Any, Any, str, bool]:
         """Validate and execute a single tool call, returning (tc, result, result_str, is_error)."""
-        schema = tool_schema_map.get(tc.name, {})
+        # Programmatic Tool Calling: run_script is handled here because it
+        # needs access to tool_schema_map and tool_executors
+        if tc.name == "run_script":
+            script = (tc.args or {}).get("script", "")
+            if not script:
+                tool_result = {"error": "Script is required for run_script."}
+                return tc, tool_result, json.dumps(tool_result), True
+            tool_result = await self._execute_ptc_script(
+                script, tool_executors, tool_schema_map, context,
+                agent_context, node_name, max_context_tokens,
+            )
+            result_str = json.dumps(tool_result, default=str)
+            result_str = self._compress_tool_result(result_str, "run_script")
+            is_error = isinstance(tool_result, dict) and "error" in tool_result
+            return tc, tool_result, result_str, is_error
+
+        # Guard: if raw_args is set, repair failed — skip execution
+        if getattr(tc, "raw_args", None) is not None:
+            tool_result = {
+                "error": (
+                    f"Could not parse arguments for '{tc.name}'. "
+                    f"Raw args: {tc.raw_args[:500]}"
+                ),
+            }
+            return tc, tool_result, json.dumps(tool_result), True
+
+        # Fuzzy tool name recovery
+        tool_name = tc.name
+        schema = tool_schema_map.get(tool_name)
+        if schema is None:
+            recovered = self._fuzzy_match_tool_name(
+                tool_name, set(tool_schema_map.keys()),
+            )
+            if recovered:
+                tc.name = recovered
+                tool_name = recovered
+                schema = tool_schema_map.get(tool_name, {})
+            else:
+                schema = {}
+
+        # Coerce arguments to match schema types
         if schema:
-            empty_id_err = self._check_empty_ids(tc.args or {}, schema)
+            tc.args = self._coerce_args(tc.args or {}, schema)
+
+            empty_id_err = self._check_empty_ids(tc.args, schema)
             if empty_id_err:
                 tool_result = {"error": empty_id_err}
                 return tc, tool_result, json.dumps(tool_result), True
 
-            arg_errors = self._validate_tool_args(tc.args or {}, schema)
+            arg_errors = self._validate_tool_args(tc.args, schema)
             if arg_errors:
                 tool_result = {"error": f"Invalid arguments: {'; '.join(arg_errors)}"}
                 return tc, tool_result, json.dumps(tool_result), True
@@ -1897,7 +2530,7 @@ class AIAgentNode(BaseNode):
             if not isinstance(tool_result, str)
             else tool_result
         )
-        result_str = self._truncate_tool_result(result_str)
+        result_str = self._compress_tool_result(result_str, tool_name)
         is_error = isinstance(tool_result, dict) and "error" in tool_result
         return tc, tool_result, result_str, is_error
 
@@ -1924,6 +2557,19 @@ class AIAgentNode(BaseNode):
             if not key:
                 logger.warning("[scratchpad] memory_store called with empty key | node=%s", node_name)
                 return {"error": "Key is required for memory_store."}
+
+            # shared:<key> writes to the shared store (visible to all agents in tree)
+            if key.startswith("shared:"):
+                shared_key = key[7:]  # strip "shared:" prefix
+                if not shared_key:
+                    return {"error": "Shared key name cannot be empty (use 'shared:<name>')."}
+                agent_context.shared_store[shared_key] = value
+                _val_preview = str(value)[:200] + ("..." if len(str(value)) > 200 else "")
+                print(f"{_sd}  SHARED STORE: [{shared_key}] = {_val_preview}")
+                logger.debug("[shared_store] stored key=%s | depth=%d total_keys=%d",
+                             shared_key, agent_context.agent_depth, len(agent_context.shared_store))
+                return {"stored": f"shared:{shared_key}", "shared_keys": list(agent_context.shared_store.keys())}
+
             agent_context.scratchpad[key] = value
             _val_preview = str(value)[:200] + ("..." if len(str(value)) > 200 else "")
             print(f"{_sd}  SCRATCHPAD STORE: [{key}] = {_val_preview}")
@@ -1935,22 +2581,62 @@ class AIAgentNode(BaseNode):
             key = input_data.get("key")
             result: dict[str, Any] = {}
             if key:
+                # shared:<key> reads from the shared store
+                if key.startswith("shared:"):
+                    shared_key = key[7:]
+                    if not shared_key:
+                        # List all shared keys
+                        result["shared_keys"] = list(agent_context.shared_store.keys())
+                        print(f"{_sd}  SHARED RECALL ALL: keys={result['shared_keys']}")
+                    elif shared_key in agent_context.shared_store:
+                        result["value"] = agent_context.shared_store[shared_key]
+                        _val_preview = str(result["value"])[:200] + ("..." if len(str(result["value"])) > 200 else "")
+                        print(f"{_sd}  SHARED RECALL: [{shared_key}] => {_val_preview}")
+                        logger.debug("[shared_store] recalled key=%s | depth=%d", shared_key, agent_context.agent_depth)
+                    else:
+                        result["value"] = None
+                        result["error"] = f"Key '{shared_key}' not found in shared store"
+                        result["shared_keys"] = list(agent_context.shared_store.keys())
+                        print(f"{_sd}  SHARED RECALL: [{shared_key}] => NOT FOUND (available: {result['shared_keys']})")
+                    return result
+
+                # Check scratchpad first, then context_store, then shared_store
                 if key in agent_context.scratchpad:
                     result["value"] = agent_context.scratchpad[key]
                     _val_preview = str(result["value"])[:200] + ("..." if len(str(result["value"])) > 200 else "")
                     print(f"{_sd}  SCRATCHPAD RECALL: [{key}] => {_val_preview}")
                     logger.debug("[scratchpad] recalled key=%s | depth=%d", key, agent_context.agent_depth)
+                elif key in agent_context.context_store:
+                    result["value"] = agent_context.context_store[key]
+                    _val_preview = str(result["value"])[:200] + ("..." if len(str(result["value"])) > 200 else "")
+                    print(f"{_sd}  CONTEXT_STORE RECALL: [{key}] => {_val_preview}")
+                    logger.debug("[context_store] recalled key=%s | depth=%d", key, agent_context.agent_depth)
+                elif key in agent_context.shared_store:
+                    result["value"] = agent_context.shared_store[key]
+                    _val_preview = str(result["value"])[:200] + ("..." if len(str(result["value"])) > 200 else "")
+                    print(f"{_sd}  SHARED RECALL (implicit): [{key}] => {_val_preview}")
+                    logger.debug("[shared_store] recalled key=%s (implicit) | depth=%d", key, agent_context.agent_depth)
                 else:
                     result["value"] = None
-                    result["error"] = f"Key '{key}' not found in scratchpad"
-                    print(f"{_sd}  SCRATCHPAD RECALL: [{key}] => NOT FOUND (available: {list(agent_context.scratchpad.keys())})")
-                    logger.debug("[scratchpad] key=%s NOT FOUND | depth=%d available=%s",
-                                 key, agent_context.agent_depth, list(agent_context.scratchpad.keys()))
+                    all_keys = (
+                        list(agent_context.scratchpad.keys())
+                        + list(agent_context.context_store.keys())
+                        + [f"shared:{k}" for k in agent_context.shared_store.keys()]
+                    )
+                    result["error"] = f"Key '{key}' not found"
+                    result["available_keys"] = all_keys
+                    print(f"{_sd}  RECALL: [{key}] => NOT FOUND (available: {all_keys})")
+                    logger.debug("[memory] key=%s NOT FOUND | depth=%d available=%s",
+                                 key, agent_context.agent_depth, all_keys)
             else:
                 result["scratchpad"] = dict(agent_context.scratchpad)
-                print(f"{_sd}  SCRATCHPAD RECALL ALL: keys={list(agent_context.scratchpad.keys())}")
-                logger.debug("[scratchpad] recalled all keys=%s | depth=%d",
-                             list(agent_context.scratchpad.keys()), agent_context.agent_depth)
+                if agent_context.shared_store:
+                    result["shared"] = dict(agent_context.shared_store)
+                print(f"{_sd}  RECALL ALL: scratchpad={list(agent_context.scratchpad.keys())} shared={list(agent_context.shared_store.keys())}")
+                logger.debug("[memory] recalled all | depth=%d scratchpad=%s shared=%s",
+                             agent_context.agent_depth,
+                             list(agent_context.scratchpad.keys()),
+                             list(agent_context.shared_store.keys()))
             if agent_context.parent_scratchpad is not None:
                 result["parent_scratchpad"] = agent_context.parent_scratchpad
                 print(f"{_sd}  SCRATCHPAD (parent): keys={list(agent_context.parent_scratchpad.keys())}")

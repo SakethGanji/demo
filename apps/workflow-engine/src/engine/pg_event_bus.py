@@ -43,7 +43,8 @@ class PgEventBus:
 
         conn = await asyncpg.connect(self._dsn)
         try:
-            await conn.execute(f"NOTIFY {self.CHANNEL}, $1", payload)
+            # NOTIFY doesn't support $1 params — use pg_notify() function instead
+            await conn.execute("SELECT pg_notify($1, $2)", self.CHANNEL, payload)
         finally:
             await conn.close()
 
