@@ -733,9 +733,247 @@ else
 fi
 
 # =============================================================================
-# Phase 10: Cleanup
+# Phase 10: Apps CRUD
 # =============================================================================
-section "Phase 10: Cleanup"
+section "Phase 10: Apps CRUD"
+
+# --- App definition (opaque JSONB, no node/connection validation) ---
+read -r -d '' APP_DEF <<'APPJSON' || true
+{
+  "name": "Test App",
+  "definition": {
+    "nodes": {
+      "ROOT": {
+        "id": "ROOT",
+        "type": "Container",
+        "parentId": null,
+        "childIds": ["btn1"],
+        "linkedNodes": {},
+        "props": {"flexDirection": "column", "gap": "12"},
+        "isCanvas": true,
+        "hidden": false
+      },
+      "btn1": {
+        "id": "btn1",
+        "type": "Button",
+        "parentId": "ROOT",
+        "childIds": [],
+        "linkedNodes": {},
+        "props": {"label": "Click me", "variant": "default"},
+        "isCanvas": false,
+        "hidden": false
+      }
+    },
+    "rootNodeId": "ROOT",
+    "storeDefinitions": [
+      {"id": "store1", "name": "counter", "initialValue": 0}
+    ],
+    "webhookDefinitions": []
+  }
+}
+APPJSON
+
+# --- Create ---
+api_call POST "/api/apps" "$APP_DEF"
+assert_status "Create app" 201
+APP1_ID=$(echo "$RESPONSE_BODY" | jq -r '.id')
+assert_json_not_null "App has ID" ".id"
+assert_json "App name" ".name" "Test App"
+assert_json "App not active" ".active" "false"
+assert_json "Definition has rootNodeId" ".definition.rootNodeId" "ROOT"
+assert_json "Definition has storeDefinitions" ".definition.storeDefinitions[0].name" "counter"
+
+# --- List ---
+api_call GET "/api/apps"
+assert_status "List apps" 200
+assert_json_gte "At least 1 app" '. | length' 1
+
+# Verify apps have expected fields
+assert_json_not_null "App list item has id" '.[0].id'
+assert_json_not_null "App list item has name" '.[0].name'
+assert_json_not_null "App list item has created_at" '.[0].created_at'
+
+# --- Get ---
+api_call GET "/api/apps/$APP1_ID"
+assert_status "Get app" 200
+assert_json "Get returns correct name" ".name" "Test App"
+assert_json "Get returns definition" ".definition.rootNodeId" "ROOT"
+# Verify the full tree is preserved
+APP_NODE_COUNT=$(echo "$RESPONSE_BODY" | jq '.definition.nodes | length')
+TOTAL_COUNT=$((TOTAL_COUNT + 1))
+if [[ "$APP_NODE_COUNT" == "2" ]]; then
+  PASS_COUNT=$((PASS_COUNT + 1))
+  echo -e "  ${GREEN}✓${NC} #${TOTAL_COUNT} App definition has 2 nodes (ROOT + btn1)"
+else
+  FAIL_COUNT=$((FAIL_COUNT + 1))
+  echo -e "  ${RED}✗${NC} #${TOTAL_COUNT} Expected 2 nodes, got ${APP_NODE_COUNT}"
+fi
+
+# --- Update name only ---
+api_call PUT "/api/apps/$APP1_ID" '{"name": "Renamed App"}'
+assert_status "Update app name" 200
+assert_json "Name updated" ".name" "Renamed App"
+assert_json "Definition preserved after name-only update" ".definition.rootNodeId" "ROOT"
+
+# --- Update definition ---
+read -r -d '' APP_DEF_V2 <<'APPJSON' || true
+{
+  "definition": {
+    "nodes": {
+      "ROOT": {
+        "id": "ROOT",
+        "type": "Container",
+        "parentId": null,
+        "childIds": ["btn1", "input1"],
+        "linkedNodes": {},
+        "props": {"flexDirection": "column"},
+        "isCanvas": true,
+        "hidden": false
+      },
+      "btn1": {
+        "id": "btn1",
+        "type": "Button",
+        "parentId": "ROOT",
+        "childIds": [],
+        "linkedNodes": {},
+        "props": {"label": "Submit", "variant": "default"},
+        "isCanvas": false,
+        "hidden": false
+      },
+      "input1": {
+        "id": "input1",
+        "type": "Input",
+        "parentId": "ROOT",
+        "childIds": [],
+        "linkedNodes": {},
+        "props": {"placeholder": "Type here...", "type": "text"},
+        "isCanvas": false,
+        "hidden": false
+      }
+    },
+    "rootNodeId": "ROOT",
+    "storeDefinitions": [
+      {"id": "store1", "name": "counter", "initialValue": 0},
+      {"id": "store2", "name": "greeting", "initialValue": "hello"}
+    ],
+    "webhookDefinitions": [
+      {"id": "wh1", "name": "myApi", "url": "https://httpbin.org/post", "method": "POST", "headers": {}, "body": "{}"}
+    ]
+  }
+}
+APPJSON
+
+api_call PUT "/api/apps/$APP1_ID" "$APP_DEF_V2"
+assert_status "Update app definition" 200
+UPDATED_NODE_COUNT=$(echo "$RESPONSE_BODY" | jq '.definition.nodes | length')
+TOTAL_COUNT=$((TOTAL_COUNT + 1))
+if [[ "$UPDATED_NODE_COUNT" == "3" ]]; then
+  PASS_COUNT=$((PASS_COUNT + 1))
+  echo -e "  ${GREEN}✓${NC} #${TOTAL_COUNT} Updated definition has 3 nodes"
+else
+  FAIL_COUNT=$((FAIL_COUNT + 1))
+  echo -e "  ${RED}✗${NC} #${TOTAL_COUNT} Expected 3 nodes, got ${UPDATED_NODE_COUNT}"
+fi
+assert_json "Updated storeDefinitions count" ".definition.storeDefinitions | length" "2"
+assert_json "Updated webhookDefinitions count" ".definition.webhookDefinitions | length" "1"
+assert_json "Webhook name" ".definition.webhookDefinitions[0].name" "myApi"
+
+# --- Publish ---
+api_call POST "/api/apps/$APP1_ID/publish"
+assert_status "Publish app" 200
+assert_json "Published app is active" ".active" "true"
+assert_json_not_null "Publish returns version_id" ".version_id"
+PUB_VERSION_ID=$(echo "$RESPONSE_BODY" | jq -r '.version_id')
+
+# Verify app is now active
+api_call GET "/api/apps/$APP1_ID"
+assert_status "Get published app" 200
+assert_json "App is active after publish" ".active" "true"
+
+# --- Isolation: apps vs workflows ---
+echo -e "  ${YELLOW}--- Isolation ---${NC}"
+
+api_call GET "/api/workflows"
+assert_status "List workflows (isolation check)" 200
+# Count how many workflows have our app name
+APP_IN_WF=$(echo "$RESPONSE_BODY" | jq '[.[] | select(.name == "Renamed App")] | length')
+TOTAL_COUNT=$((TOTAL_COUNT + 1))
+if [[ "$APP_IN_WF" == "0" ]]; then
+  PASS_COUNT=$((PASS_COUNT + 1))
+  echo -e "  ${GREEN}✓${NC} #${TOTAL_COUNT} App does NOT appear in workflow list"
+else
+  FAIL_COUNT=$((FAIL_COUNT + 1))
+  echo -e "  ${RED}✗${NC} #${TOTAL_COUNT} App leaked into workflow list!"
+fi
+
+# --- Create a second app for list verification ---
+api_call POST "/api/apps" '{"name": "Second App", "definition": {"nodes": {}, "rootNodeId": "ROOT"}}'
+assert_status "Create second app" 201
+APP2_ID=$(echo "$RESPONSE_BODY" | jq -r '.id')
+
+api_call GET "/api/apps"
+assert_status "List apps after second create" 200
+assert_json_gte "At least 2 apps" '. | length' 2
+
+# --- Error cases ---
+echo -e "  ${YELLOW}--- Error Cases ---${NC}"
+
+api_call GET "/api/apps/nonexistent-app-000"
+assert_status "Get nonexistent app → 404" 404
+
+api_call PUT "/api/apps/nonexistent-app-000" '{"name": "nope"}'
+assert_status "Update nonexistent app → 404" 404
+
+api_call DELETE "/api/apps/nonexistent-app-000"
+assert_status "Delete nonexistent app → 404" 404
+
+api_call POST "/api/apps/nonexistent-app-000/publish"
+assert_status "Publish nonexistent app → 404" 404
+
+# --- Folder scoping ---
+echo -e "  ${YELLOW}--- Folder Scoping ---${NC}"
+
+api_call POST "/api/apps" "{\"name\": \"Folder App\", \"definition\": {\"nodes\": {}, \"rootNodeId\": \"ROOT\"}, \"folder_id\": \"$CHILD_FOLDER_ID\"}"
+assert_status "Create app in folder" 201
+APP3_ID=$(echo "$RESPONSE_BODY" | jq -r '.id')
+
+api_call GET "/api/apps?folder_id=$CHILD_FOLDER_ID"
+assert_status "List apps in folder" 200
+assert_json "Folder has 1 app" '. | length' "1"
+assert_json "Folder app name" '.[0].name' "Folder App"
+
+# --- Delete ---
+echo -e "  ${YELLOW}--- Delete ---${NC}"
+
+api_call DELETE "/api/apps/$APP1_ID"
+assert_status "Delete first app" 200
+
+api_call GET "/api/apps/$APP1_ID"
+assert_status "Get deleted app → 404" 404
+
+api_call DELETE "/api/apps/$APP2_ID"
+assert_status "Delete second app" 200
+
+api_call DELETE "/api/apps/$APP3_ID"
+assert_status "Delete folder app" 200
+
+# Verify all cleaned up
+api_call GET "/api/apps"
+assert_status "List apps after cleanup" 200
+APP_COUNT_FINAL=$(echo "$RESPONSE_BODY" | jq '. | length')
+TOTAL_COUNT=$((TOTAL_COUNT + 1))
+if [[ "$APP_COUNT_FINAL" == "0" ]]; then
+  PASS_COUNT=$((PASS_COUNT + 1))
+  echo -e "  ${GREEN}✓${NC} #${TOTAL_COUNT} All apps deleted — list is empty"
+else
+  FAIL_COUNT=$((FAIL_COUNT + 1))
+  echo -e "  ${RED}✗${NC} #${TOTAL_COUNT} Expected 0 apps, got ${APP_COUNT_FINAL}"
+fi
+
+# =============================================================================
+# Phase 11: Cleanup
+# =============================================================================
+section "Phase 11: Cleanup"
 
 if [[ "$CLEANUP" == "0" ]]; then
   echo -e "  ${YELLOW}Skipping cleanup (CLEANUP=0)${NC}"

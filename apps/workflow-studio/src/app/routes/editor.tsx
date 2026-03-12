@@ -4,13 +4,13 @@ import { ReactFlowProvider, useViewport } from 'reactflow'
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 import type { ImperativePanelHandle } from 'react-resizable-panels'
 import { Loader2, X, Blocks, Sparkles, CheckCircle2, XCircle, Clock } from 'lucide-react'
+import { EditorTabList, EditorTab } from '@/shared/components/ui/editor-tabs'
 import { rootRoute } from './__root'
 import { useWorkflowStore } from '@/features/workflow-editor/stores/workflowStore'
 import { useEditorLayoutStore, type RightPanelTab } from '@/features/workflow-editor/stores/editorLayoutStore'
 import { useExecSummary } from '@/features/workflow-editor/hooks/useWorkflowSelectors'
 import { fromBackendWorkflow } from '@/features/workflow-editor/lib/workflowTransform'
 import { backends } from '@/shared/lib/config'
-import { cn } from '@/shared/lib/utils'
 import { useNodeTypes } from '@/features/workflow-editor/hooks/useNodeTypes'
 import type { NodeTypeMetadata } from '@/features/workflow-editor/lib/createNodeData'
 // Lazy load heavy components
@@ -34,24 +34,17 @@ function RightPanel() {
 
   return (
     <div className="editor-chrome h-full flex flex-col bg-card">
-      <div className="flex items-center h-9 px-2 border-b border-border shrink-0">
-        <div className="flex gap-0.5">
-          {rightPanelTabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setTab(tab.id)}
-              className={cn(
-                'relative inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-none transition-colors',
-                activeTab === tab.id
-                  ? 'text-foreground after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-primary'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
-              )}
-            >
-              <tab.icon size={11} />
-              {tab.label}
-            </button>
-          ))}
-        </div>
+      <EditorTabList>
+        {rightPanelTabs.map((tab) => (
+          <EditorTab
+            key={tab.id}
+            active={activeTab === tab.id}
+            icon={tab.icon}
+            onClick={() => setTab(tab.id)}
+          >
+            {tab.label}
+          </EditorTab>
+        ))}
         <div className="flex-1" />
         <button
           onClick={closeRightPanel}
@@ -60,7 +53,7 @@ function RightPanel() {
         >
           <X size={12} />
         </button>
-      </div>
+      </EditorTabList>
       <div className="flex-1 overflow-hidden min-h-0">
         <Suspense fallback={<div className="flex-1" />}>
           {activeTab === 'nodes' && <NodeCreatorPanel />}

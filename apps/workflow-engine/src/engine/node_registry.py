@@ -222,8 +222,8 @@ def register_all_nodes() -> None:
         SwitchNode,
         MergeNode,
         WaitNode,
-        SplitInBatchesNode,
         LoopNode,
+        PollNode,
         ExecuteWorkflowNode,
         StopAndErrorNode,
         # Transform
@@ -299,8 +299,8 @@ def register_all_nodes() -> None:
         SwitchNode,
         MergeNode,
         WaitNode,
-        SplitInBatchesNode,
         LoopNode,
+        PollNode,
         ExecuteWorkflowNode,
         StopAndErrorNode,
         # Transform

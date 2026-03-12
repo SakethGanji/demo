@@ -388,11 +388,12 @@ class AIAgentNode(BaseNode):
         subnode_context: SubnodeContext | None = None,
     ) -> NodeExecutionResult:
         from ...engine.types import NodeData
+        from ...engine.expression_engine import ExpressionEngine, expression_engine
 
         # Get parameters with defaults
         model = self.get_parameter(node_definition, "model", "gemini-2.0-flash")
-        system_prompt = self.get_parameter(node_definition, "systemPrompt", "")
-        task = self.get_parameter(node_definition, "task", "")
+        system_prompt_template = self.get_parameter(node_definition, "systemPrompt", "")
+        task_template = self.get_parameter(node_definition, "task", "")
         tools_config = self.get_parameter(node_definition, "tools", [])
         max_iterations = self.get_parameter(node_definition, "maxIterations", 30)
         temperature = self.get_parameter(node_definition, "temperature", 0.7)
@@ -427,7 +428,7 @@ class AIAgentNode(BaseNode):
         # Get memory functions if connected
         memory_config = self._get_memory_config(subnode_context)
 
-        if not task:
+        if not task_template:
             raise ValueError("Task is required")
 
         # Build tools from connected subnodes first, then from config
@@ -458,7 +459,7 @@ class AIAgentNode(BaseNode):
             max_agent_depth=max_agent_depth,
             parent_model=model,
             parent_temperature=temperature,
-            parent_system_prompt=system_prompt,
+            parent_system_prompt=system_prompt_template,
             inheritable_tools=[t for t in tools if t["name"] not in _excluded],
             inheritable_tool_executors={
                 k: v for k, v in tool_executors.items() if k not in _excluded
@@ -484,8 +485,8 @@ class AIAgentNode(BaseNode):
             agent_context.skill_configs = skill_configs
             agent_context.skill_all_tools = [t for t in tools if t["name"] != "delegate_to_skill"]
             agent_context.skill_all_executors = dict(tool_executors)
-            # Inject full skill descriptions into system prompt (sent once)
-            system_prompt = (system_prompt or "") + self._build_skill_descriptions_for_system_prompt(skill_configs)
+            # Inject full skill descriptions into system prompt template (sent once)
+            system_prompt_template = (system_prompt_template or "") + self._build_skill_descriptions_for_system_prompt(skill_configs)
 
         results: list[NodeData] = []
         total_input_tokens = 0
@@ -499,17 +500,30 @@ class AIAgentNode(BaseNode):
         if memory_config and "getHistory" in memory_config:
             chat_history = await asyncio.to_thread(memory_config["getHistory"])
 
-        for item in input_data if input_data else [NodeData(json={})]:
+        effective_input = input_data if input_data else [NodeData(json={})]
+        for idx, item in enumerate(effective_input):
+            # Resolve $json expressions against current item's data
+            expr_context = ExpressionEngine.create_context(
+                effective_input,
+                context.node_states,
+                context.execution_id,
+                idx,
+            )
+            task = expression_engine.resolve(task_template, expr_context)
+            system_prompt = expression_engine.resolve(system_prompt_template, expr_context)
+
             # Build task with input data context (exclude internal keys)
+            # Only append raw data if the task template didn't already reference $json
             full_task = task
-            user_data = {k: v for k, v in item.json.items() if not k.startswith("_")}
-            if user_data:
-                try:
-                    context_str = json.dumps(user_data, indent=2, default=str)
-                except (TypeError, ValueError):
-                    context_str = ""
-                if context_str:
-                    full_task = f"{full_task}\n\nInput data:\n{context_str}"
+            if "$json" not in str(task_template):
+                user_data = {k: v for k, v in item.json.items() if not k.startswith("_")}
+                if user_data:
+                    try:
+                        context_str = json.dumps(user_data, indent=2, default=str)
+                    except (TypeError, ValueError):
+                        context_str = ""
+                    if context_str:
+                        full_task = f"{full_task}\n\nInput data:\n{context_str}"
 
             result = await self._run_agent_loop(
                 model=model,

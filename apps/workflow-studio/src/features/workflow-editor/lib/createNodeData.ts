@@ -106,6 +106,13 @@ export function getDefaultIO(nodeType: string): {
         { name: 'done', displayName: 'Done' },
       ];
       break;
+    case 'Poll':
+      outputs = [
+        { name: 'loop', displayName: 'Loop' },
+        { name: 'done', displayName: 'Done' },
+        { name: 'timeout', displayName: 'Timeout' },
+      ];
+      break;
     default:
       outputs = [{ name: 'main', displayName: 'Main' }];
   }

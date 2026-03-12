@@ -67,5 +67,9 @@ def tag_id() -> str:
     return generate_id("tag")
 
 
+def app_id() -> str:
+    return generate_id("app")
+
+
 def data_table_id() -> str:
     return generate_id("dt")

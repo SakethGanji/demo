@@ -45,9 +45,9 @@ const FALLBACK_ICONS: Record<string, string> = {
   Switch: 'route',
   Merge: 'git-merge',
   Loop: 'sync',
+  Poll: 'hourglass-half',
   Wait: 'clock',
   StopAndError: 'stop-circle',
-  SplitInBatches: 'layers',
   ExecuteWorkflow: 'sitemap',
   // Integrations
   MongoDB: 'leaf',

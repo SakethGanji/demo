@@ -1,1 +1,5 @@
 workflows.db
+apps/craft.js-main/
+apps/tweakcn-main/
+__pycache__/
+*.pyc

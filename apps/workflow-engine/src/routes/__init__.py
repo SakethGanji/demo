@@ -12,10 +12,12 @@ from .ai_chat import router as ai_chat_router
 from .credentials import router as credentials_router
 from .folders import router as folders_router
 from .variables import router as variables_router
+from .apps import router as apps_router
 
 # Main API router
 api_router = APIRouter(prefix="/api")
 api_router.include_router(workflows_router, tags=["Workflows"])
+api_router.include_router(apps_router, tags=["Apps"])
 api_router.include_router(executions_router, tags=["Executions"])
 api_router.include_router(nodes_router, tags=["Nodes"])
 api_router.include_router(files_router, tags=["Files"])

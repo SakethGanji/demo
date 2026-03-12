@@ -5,6 +5,9 @@
 
 -- migrate:up
 
+CREATE SCHEMA IF NOT EXISTS "workflow-app";
+SET search_path TO "workflow-app";
+
 -- Identity & access
 CREATE TABLE IF NOT EXISTS users (
     id          TEXT PRIMARY KEY,
@@ -113,6 +116,46 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_versions_workflow ON workflow_versions (wo
 ALTER TABLE workflows
     ADD CONSTRAINT fk_workflows_published_version
     FOREIGN KEY (published_version_id) REFERENCES workflow_versions(id) ON DELETE SET NULL;
+
+-- Apps (visual UI builder — separate from workflows)
+CREATE TABLE IF NOT EXISTS apps (
+    id                   TEXT PRIMARY KEY,
+    team_id              TEXT NOT NULL DEFAULT 'default' REFERENCES teams(id) ON DELETE CASCADE,
+    folder_id            TEXT REFERENCES folders(id) ON DELETE SET NULL,
+    name                 TEXT NOT NULL,
+    description          TEXT,
+    slug                 TEXT UNIQUE,
+    active               BOOLEAN NOT NULL DEFAULT FALSE,
+    draft_definition     JSONB,
+    published_version_id INTEGER,
+    settings             JSONB,
+    access               TEXT NOT NULL DEFAULT 'private',
+    access_password      TEXT,
+    published_at         TIMESTAMP,
+    embed_enabled        BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by           TEXT,
+    updated_by           TEXT,
+    created_at           TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at           TIMESTAMP NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_apps_team_id ON apps (team_id);
+CREATE INDEX IF NOT EXISTS ix_apps_folder_id ON apps (folder_id);
+CREATE INDEX IF NOT EXISTS ix_apps_slug ON apps (slug) WHERE slug IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS app_versions (
+    id              SERIAL PRIMARY KEY,
+    app_id          TEXT NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+    version_number  INTEGER NOT NULL,
+    definition      JSONB NOT NULL,
+    message         TEXT,
+    created_by      TEXT,
+    created_at      TIMESTAMP NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_app_versions_app ON app_versions (app_id, version_number);
+
+ALTER TABLE apps
+    ADD CONSTRAINT fk_apps_published_version
+    FOREIGN KEY (published_version_id) REFERENCES app_versions(id) ON DELETE SET NULL;
 
 -- Executions
 CREATE TABLE IF NOT EXISTS executions (
@@ -245,20 +288,4 @@ CREATE TABLE IF NOT EXISTS data_table_rows (
 CREATE INDEX IF NOT EXISTS idx_data_table_rows_table ON data_table_rows (table_id);
 
 -- migrate:down
-DROP TABLE IF EXISTS data_table_rows;
-DROP TABLE IF EXISTS data_tables;
-DROP TABLE IF EXISTS variables;
-DROP TABLE IF EXISTS shared_credentials;
-DROP TABLE IF EXISTS credentials;
-DROP TABLE IF EXISTS active_triggers;
-DROP TABLE IF EXISTS node_outputs;
-DROP TABLE IF EXISTS executions;
-ALTER TABLE workflows DROP CONSTRAINT IF EXISTS fk_workflows_published_version;
-DROP TABLE IF EXISTS workflow_versions;
-DROP TABLE IF EXISTS workflow_tags;
-DROP TABLE IF EXISTS workflows;
-DROP TABLE IF EXISTS tags;
-DROP TABLE IF EXISTS folders;
-DROP TABLE IF EXISTS team_members;
-DROP TABLE IF EXISTS teams;
-DROP TABLE IF EXISTS users;
+DROP SCHEMA IF EXISTS "workflow-app" CASCADE;

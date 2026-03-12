@@ -38,6 +38,8 @@ import {
 import { useSaveWorkflow, usePublishWorkflow, useImportWorkflow } from '../../hooks/useWorkflowApi';
 import { toBackendWorkflow } from '../../lib/workflowTransform';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/components/ui/tooltip';
+import { Switch } from '@/shared/components/ui/switch';
+import { ToolbarGroup, ToolbarSeparator } from '@/shared/components/ui/toolbar';
 import type { WorkflowNodeData } from '../../types/workflow';
 import type { Node } from 'reactflow';
 import WorkflowPickerDialog from './WorkflowPickerDialog';
@@ -109,7 +111,6 @@ export default function WorkflowNavbar() {
   };
 
   const btnClass = "h-8 w-8 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed";
-  const dividerClass = "w-px h-4 bg-border";
 
   const isBottomTabActive = (tab: string) => bottomPanelOpen && bottomPanelTab === tab;
   const isRightTabActive = (tab: string) => rightPanelOpen && rightPanelTab === tab;
@@ -127,7 +128,7 @@ export default function WorkflowNavbar() {
           <span className="hidden sm:inline">Workflows</span>
         </Link>
 
-        <div className={dividerClass} />
+        <ToolbarSeparator />
 
         {/* Workflow name */}
         {isEditingName ? (
@@ -168,18 +169,18 @@ export default function WorkflowNavbar() {
         {/* Center section: Undo/Redo + Zoom */}
         <div className="flex-1" />
 
-        <div className="flex bg-muted/50 rounded-md px-0.5 py-0.5">
+        <ToolbarGroup>
           <button onClick={() => undo()} disabled={!_canUndo} className={btnClass} title="Undo">
             <Undo2 size={14} />
           </button>
           <button onClick={() => redo()} disabled={!_canRedo} className={btnClass} title="Redo">
             <Redo2 size={14} />
           </button>
-        </div>
+        </ToolbarGroup>
 
-        <div className={dividerClass} />
+        <ToolbarSeparator />
 
-        <div className="flex bg-muted/50 rounded-md px-0.5 py-0.5">
+        <ToolbarGroup>
           <button
             onClick={toggleCanvasMode}
             className={btnClass + (canvasMode === 'pointer' ? ' !text-primary' : '')}
@@ -187,24 +188,24 @@ export default function WorkflowNavbar() {
           >
             {canvasMode === 'pointer' ? <MousePointer2 size={14} /> : <Hand size={14} />}
           </button>
-        </div>
+        </ToolbarGroup>
 
-        <div className={dividerClass} />
+        <ToolbarSeparator />
 
-        <div className="flex bg-muted/50 rounded-md px-0.5 py-0.5">
+        <ToolbarGroup>
           <button onClick={() => zoomOut()} className={btnClass} title="Zoom out">
             <ZoomOut size={14} />
           </button>
           <button onClick={() => zoomIn()} className={btnClass} title="Zoom in">
             <ZoomIn size={14} />
           </button>
-        </div>
+        </ToolbarGroup>
 
         {/* Right section */}
         <div className="flex-1" />
 
         {/* Bottom panel tabs */}
-        <div className="flex bg-muted/50 rounded-md px-0.5 py-0.5">
+        <ToolbarGroup>
           <button
             onClick={() => openBottomPanel('logs')}
             className={btnClass + (isBottomTabActive('logs') ? ' !text-primary' : '')}
@@ -219,12 +220,12 @@ export default function WorkflowNavbar() {
           >
             <Monitor size={14} />
           </button>
-        </div>
+        </ToolbarGroup>
 
-        <div className={dividerClass} />
+        <ToolbarSeparator />
 
         {/* Right panel tabs */}
-        <div className="flex bg-muted/50 rounded-md px-0.5 py-0.5">
+        <ToolbarGroup>
           <button
             onClick={() => openRightPanel('nodes')}
             className={btnClass + (isRightTabActive('nodes') ? ' !text-primary' : '')}
@@ -239,9 +240,9 @@ export default function WorkflowNavbar() {
           >
             <Sparkles size={14} />
           </button>
-        </div>
+        </ToolbarGroup>
 
-        <div className={dividerClass} />
+        <ToolbarSeparator />
 
         {/* Add node */}
         <button
@@ -252,7 +253,7 @@ export default function WorkflowNavbar() {
           <Plus size={16} strokeWidth={2.5} />
         </button>
 
-        <div className={dividerClass} />
+        <ToolbarSeparator />
 
         {/* Publish / Unpublish */}
         {isActive ? (

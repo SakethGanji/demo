@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-DATASETS_DIR = "/tmp/analytics/datasets"
+DATASETS_DIR = "/tmp/accelerator/datasets"
 
 
 def resolve_dataset_ref(input_data: dict[str, Any]) -> dict[str, Any]:

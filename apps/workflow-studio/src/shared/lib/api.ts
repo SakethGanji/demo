@@ -155,6 +155,68 @@ export const workflowsApi = {
 };
 
 // ============================================================================
+// Apps API
+// ============================================================================
+
+export interface ApiAppListItem {
+  id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApiAppDetail {
+  id: string;
+  name: string;
+  definition: Record<string, unknown>;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApiAppPublishResponse {
+  id: string;
+  active: boolean;
+  version_id: number | null;
+}
+
+export const appsApi = {
+  list: (): Promise<ApiAppListItem[]> => {
+    return apiFetch('/apps');
+  },
+
+  get: (id: string): Promise<ApiAppDetail> => {
+    return apiFetch(`/apps/${id}`);
+  },
+
+  create: (data: { name: string; definition: Record<string, unknown> }): Promise<ApiAppDetail> => {
+    return apiFetch('/apps', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  update: (id: string, data: { name?: string; definition?: Record<string, unknown> }): Promise<ApiAppDetail> => {
+    return apiFetch(`/apps/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  delete: (id: string): Promise<{ success: boolean }> => {
+    return apiFetch(`/apps/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  publish: (id: string): Promise<ApiAppPublishResponse> => {
+    return apiFetch(`/apps/${id}/publish`, {
+      method: 'POST',
+    });
+  },
+};
+
+// ============================================================================
 // Executions API
 // ============================================================================
 

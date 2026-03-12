@@ -239,7 +239,7 @@ class OutputDisplayNode(BaseNode):
         return self.output([ND(json=result)])
 
     async def _read_table_file(self, file_path: str) -> dict:
-        analytics_url = os.getenv("ANALYTICS_SERVICE_URL", "http://localhost:8001")
+        analytics_url = os.getenv("ACCELERATOR_SERVICE_URL", "http://localhost:8001")
         async with httpx.AsyncClient() as client:
             resp = await client.post(
                 f"{analytics_url}/sample",

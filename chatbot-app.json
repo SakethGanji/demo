@@ -1,0 +1,210 @@
+{
+  "name": "AI Chatbot",
+  "definition": {
+    "rootNodeId": "ROOT",
+    "storeDefinitions": [
+      {
+        "id": "store_messages",
+        "name": "messages",
+        "initialValue": [
+          { "role": "assistant", "content": "Hello! How can I help you today?" }
+        ]
+      },
+      {
+        "id": "store_chat_response",
+        "name": "chatResponse",
+        "initialValue": null
+      }
+    ],
+    "webhookDefinitions": [
+      {
+        "id": "webhook_chat_llm",
+        "name": "Chat LLM",
+        "url": "http://localhost:8000/webhook/wf_019cdee3-24ba-748e-8dc0-94260e2f9cf8",
+        "method": "POST",
+        "headers": { "Content-Type": "application/json" },
+        "body": "{{ {\"message\": stores.messages.filter(m => m.role === 'user').slice(-1)[0]?.content} }}",
+        "steps": [{ "type": "pick", "path": "data.0" }]
+      }
+    ],
+    "styleClasses": [],
+    "nodes": {
+      "ROOT": {
+        "id": "ROOT",
+        "type": "Container",
+        "parentId": null,
+        "childIds": ["chat_scroll", "chat_input_bar"],
+        "linkedNodes": {},
+        "props": {
+          "height": "100%",
+          "fillSpace": "yes",
+          "overflow": "hidden",
+          "gap": "0",
+          "paddingTop": "0",
+          "paddingRight": "0",
+          "paddingBottom": "0",
+          "paddingLeft": "0",
+          "background": "var(--background)"
+        },
+        "isCanvas": true,
+        "hidden": false
+      },
+      "chat_scroll": {
+        "id": "chat_scroll",
+        "type": "ScrollArea",
+        "parentId": "ROOT",
+        "childIds": ["chat_list"],
+        "linkedNodes": {},
+        "props": {
+          "paddingTop": "24",
+          "paddingRight": "24",
+          "paddingBottom": "24",
+          "paddingLeft": "24",
+          "maxHeight": ""
+        },
+        "isCanvas": true,
+        "hidden": false
+      },
+      "chat_list": {
+        "id": "chat_list",
+        "type": "List",
+        "parentId": "chat_scroll",
+        "childIds": ["chat_msg_row"],
+        "linkedNodes": {},
+        "props": {
+          "data": "{{ stores.messages }}"
+        },
+        "isCanvas": true,
+        "hidden": false
+      },
+      "chat_msg_row": {
+        "id": "chat_msg_row",
+        "type": "Container",
+        "parentId": "chat_list",
+        "childIds": ["chat_bubble"],
+        "linkedNodes": {},
+        "props": {
+          "flexDirection": "row",
+          "justifyContent": "{{ item.role === 'user' ? 'flex-end' : 'flex-start' }}",
+          "alignItems": "flex-start",
+          "gap": "0",
+          "paddingTop": "4",
+          "paddingRight": "0",
+          "paddingBottom": "4",
+          "paddingLeft": "0"
+        },
+        "isCanvas": true,
+        "hidden": false
+      },
+      "chat_bubble": {
+        "id": "chat_bubble",
+        "type": "Card",
+        "parentId": "chat_msg_row",
+        "childIds": ["chat_msg_text"],
+        "linkedNodes": {},
+        "props": {
+          "paddingTop": "10",
+          "paddingRight": "14",
+          "paddingBottom": "10",
+          "paddingLeft": "14",
+          "background": "{{ item.role === 'user' ? 'var(--muted)' : 'var(--background)' }}",
+          "color": "var(--foreground)",
+          "borderRadius": "18",
+          "borderWidth": "{{ item.role === 'user' ? '0' : '1' }}",
+          "borderColor": "var(--border)",
+          "borderStyle": "solid",
+          "shadow": "0",
+          "maxWidth": "75%",
+          "gap": "0",
+          "customStyles": "{\"width\":\"fit-content\"}"
+        },
+        "isCanvas": true,
+        "hidden": false
+      },
+      "chat_msg_text": {
+        "id": "chat_msg_text",
+        "type": "Text",
+        "parentId": "chat_bubble",
+        "childIds": [],
+        "linkedNodes": {},
+        "props": {
+          "content": "{{ item.content }}",
+          "format": "markdown",
+          "lineHeight": "1.5"
+        },
+        "isCanvas": false,
+        "hidden": false
+      },
+      "chat_input_bar": {
+        "id": "chat_input_bar",
+        "type": "Container",
+        "parentId": "ROOT",
+        "childIds": ["chat_input", "chat_send"],
+        "linkedNodes": {},
+        "props": {
+          "flexDirection": "row",
+          "gap": "8",
+          "paddingTop": "12",
+          "paddingRight": "24",
+          "paddingBottom": "20",
+          "paddingLeft": "24",
+          "alignItems": "center",
+          "background": "var(--background)",
+          "customStyles": "{\"borderTop\":\"1px solid var(--border)\"}"
+        },
+        "isCanvas": true,
+        "hidden": false
+      },
+      "chat_input": {
+        "id": "chat_input",
+        "type": "Input",
+        "parentId": "chat_input_bar",
+        "childIds": [],
+        "linkedNodes": {},
+        "props": {
+          "placeholder": "Message ChatGPT...",
+          "fillSpace": "yes",
+          "__eventHandlers": [
+            {
+              "event": "onSubmit",
+              "actions": [
+                { "type": "appendArray", "storeId": "messages", "path": "", "value": "{{ {\"role\": \"user\", \"content\": components.chat_input.value} }}" },
+                { "type": "setComponentState", "nodeId": "chat_input", "property": "value", "value": "" },
+                { "type": "appendArray", "storeId": "messages", "path": "", "value": "{{ {\"role\": \"assistant\", \"content\": \"...\"} }}" },
+                { "type": "runWebhook", "webhookId": "webhook_chat_llm", "resultStore": "chatResponse" },
+                { "type": "setProperty", "storeId": "messages", "path": "{{ (stores.messages.length - 1) + \".content\" }}", "value": "{{ stores.chatResponse.response }}" }
+              ]
+            }
+          ]
+        },
+        "isCanvas": false,
+        "hidden": false
+      },
+      "chat_send": {
+        "id": "chat_send",
+        "type": "Button",
+        "parentId": "chat_input_bar",
+        "childIds": [],
+        "linkedNodes": {},
+        "props": {
+          "label": "",
+          "icon": "Send",
+          "__eventHandlers": [
+            {
+              "event": "onClick",
+              "actions": [
+                { "type": "appendArray", "storeId": "messages", "path": "", "value": "{{ {\"role\": \"user\", \"content\": components.chat_input.value} }}" },
+                { "type": "setComponentState", "nodeId": "chat_input", "property": "value", "value": "" },
+                { "type": "appendArray", "storeId": "messages", "path": "", "value": "{{ {\"role\": \"assistant\", \"content\": \"...\"} }}" },
+                { "type": "runWebhook", "webhookId": "webhook_chat_llm", "resultStore": "chatResponse" },
+                { "type": "setProperty", "storeId": "messages", "path": "{{ (stores.messages.length - 1) + \".content\" }}", "value": "{{ stores.chatResponse.response }}" }
+              ]
+            }
+          ]
+        },
+        "isCanvas": false,
+        "hidden": false
+      }
+    }
+  }
+}

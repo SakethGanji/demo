@@ -8,17 +8,25 @@ Features:
   - Checksum verification (detects tampered migrations)
   - Rollback support via `-- migrate:down` sections
 
-Usage:
-  python -m src.db.migrate                           # apply pending migrations
+Commands:
+  python -m src.db.migrate                           # apply pending migrations (default)
+  python -m src.db.migrate apply                     # same as above
+  python -m src.db.migrate status                    # show applied/pending migrations
+  python -m src.db.migrate dry-run                   # show what would be applied without running
+  python -m src.db.migrate rollback                  # rollback the last applied migration
+  python -m src.db.migrate rollback 20260307191500   # rollback to a specific version
+  python -m src.db.migrate reset                     # drop schema and re-apply all from scratch
   python -m src.db.migrate new "create_users"        # create a new migration file
-  python -m src.db.migrate status                    # show applied/pending
-  python -m src.db.migrate rollback                  # rollback last migration
-  python -m src.db.migrate rollback 20260307191500   # rollback specific version
-  python -m src.db.migrate dry-run                   # show what would be applied
+
+Connection overrides (forremote access):
+  python -m src.db.migrate apply --admin-user postgres --admin-password secret
+  python -m src.db.migrate apply --host db.prod --port 5432 --dbname workflows --admin-user postgres --admin-password secret
+  python -m src.db.migrate status --host db.prod --dbname workflows --admin-user postgres --admin-password secret
 """
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import os
 import sys
@@ -32,17 +40,34 @@ from ..core.secrets import resolve_database_url
 
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 LOCK_ID = 839201  # project-specific advisory lock ID
+DB_SCHEMA = '"workflow-app"'
+
+# Populated by argparse in admin mode; None otherwise.
+_cli_args: argparse.Namespace | None = None
 
 
 def _get_conn():
-    url = resolve_database_url(settings)
-    if not url:
-        print("ERROR: No database URL configured.")
-        print("  Set WORKFLOW_DATABASE_URL or individual WORKFLOW_POSTGRESQL_* vars.")
-        sys.exit(1)
-    # Convert async URL to sync: postgresql+asyncpg:// → postgresql://
-    sync_url = url.replace("postgresql+asyncpg://", "postgresql://")
-    conn = psycopg2.connect(sync_url)
+    """Get a migration connection. Uses CLI overrides if provided, else app config."""
+    args = _cli_args
+    if args and (args.admin_user or args.host or args.port or args.dbname):
+        # Build connection from CLI args with app config as defaults
+        host = args.host or settings.db_host
+        port = args.port or settings.db_port
+        user = args.admin_user or settings.db_user
+        password = args.admin_password or settings.db_password or ""
+        dbname = args.dbname or settings.db_name
+        conn = psycopg2.connect(
+            host=host, port=int(port), user=user, password=password, dbname=dbname,
+            options=f"-c search_path={DB_SCHEMA}",
+        )
+    else:
+        url = resolve_database_url(settings)
+        if not url:
+            print("ERROR: No database URL configured.")
+            print("  Set WORKFLOW_DATABASE_URL or individual WORKFLOW_POSTGRESQL_* vars.")
+            sys.exit(1)
+        sync_url = url.replace("postgresql+asyncpg://", "postgresql://")
+        conn = psycopg2.connect(sync_url, options=f"-c search_path={DB_SCHEMA}")
     conn.autocommit = False
     return conn
 
@@ -254,7 +279,7 @@ def cmd_reset():
 
     try:
         with conn.cursor() as cur:
-            cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+            cur.execute(f"DROP SCHEMA IF EXISTS {DB_SCHEMA} CASCADE; CREATE SCHEMA {DB_SCHEMA};")
             conn.commit()
             print("  Dropped all tables.")
 
@@ -315,31 +340,58 @@ def cmd_new(description: str):
 # -- Main -------------------------------------------------------------------
 
 
-def main():
-    args = sys.argv[1:]
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="python -m src.db.migrate",
+        description="SQL migration runner",
+    )
+    sub = parser.add_subparsers(dest="command")
 
-    if not args or args[0] == "apply":
+    # Commands
+    sub.add_parser("apply", help="Apply pending migrations (default)")
+    sub.add_parser("status", help="Show applied/pending migrations")
+    sub.add_parser("dry-run", help="Show what would be applied")
+    sub.add_parser("reset", help="Drop schema and re-apply from scratch")
+
+    rb = sub.add_parser("rollback", help="Rollback last (or specific) migration")
+    rb.add_argument("target", nargs="?", default=None, help="Version to rollback to")
+
+    nw = sub.add_parser("new", help="Create a new migration file")
+    nw.add_argument("description", nargs="+", help="Migration description")
+
+    # Connection overrides
+    parser.add_argument("--host", default=None, help=f"DB host (default: {settings.db_host})")
+    parser.add_argument("--port", default=None, help=f"DB port (default: {settings.db_port})")
+    parser.add_argument("--dbname", default=None, help=f"DB name (default: {settings.db_name})")
+    parser.add_argument("--admin-user", default=None, help="DB user override (default: app user)")
+    parser.add_argument("--admin-password", default=None, help="DB password override")
+
+    return parser
+
+
+def main():
+    global _cli_args
+
+    parser = _build_parser()
+    args = parser.parse_args()
+    _cli_args = args
+
+    command = args.command or "apply"
+
+    if command == "apply":
         print("\n  Running migrations...")
         cmd_apply()
-    elif args[0] == "status":
+    elif command == "status":
         cmd_status()
-    elif args[0] == "rollback":
-        target = args[1] if len(args) > 1 else None
-        cmd_rollback(target)
-    elif args[0] == "reset":
+    elif command == "rollback":
+        cmd_rollback(args.target)
+    elif command == "reset":
         print("\n  Resetting database...")
         cmd_reset()
-    elif args[0] == "dry-run":
+    elif command == "dry-run":
         cmd_dry_run()
-    elif args[0] == "new":
-        if len(args) < 2:
-            print("  Usage: python -m src.db.migrate new <description>")
-            sys.exit(1)
-        cmd_new(" ".join(args[1:]))
-    else:
-        print(f"  Unknown command: {args[0]}")
-        print("  Commands: apply, status, rollback, reset, new, dry-run")
-        sys.exit(1)
+    elif command == "new":
+        cmd_new(" ".join(args.description))
 
 
 if __name__ == "__main__":

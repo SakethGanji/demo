@@ -23,7 +23,7 @@ from .flow.execute_workflow import ExecuteWorkflowNode
 from .flow.if_node import IfNode
 from .flow.loop import LoopNode
 from .flow.merge import MergeNode
-from .flow.split_in_batches import SplitInBatchesNode
+from .flow.poll import PollNode
 from .flow.stop_and_error import StopAndErrorNode
 from .flow.switch import SwitchNode
 from .flow.wait import WaitNode
@@ -80,7 +80,7 @@ __all__ = [
     "IfNode",
     "LoopNode",
     "MergeNode",
-    "SplitInBatchesNode",
+    "PollNode",
     "StopAndErrorNode",
     "SwitchNode",
     "WaitNode",

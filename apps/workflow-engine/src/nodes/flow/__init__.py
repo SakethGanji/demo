@@ -4,7 +4,7 @@ from .execute_workflow import ExecuteWorkflowNode
 from .if_node import IfNode
 from .loop import LoopNode
 from .merge import MergeNode
-from .split_in_batches import SplitInBatchesNode
+from .poll import PollNode
 from .stop_and_error import StopAndErrorNode
 from .switch import SwitchNode
 from .wait import WaitNode
@@ -14,7 +14,7 @@ __all__ = [
     "IfNode",
     "LoopNode",
     "MergeNode",
-    "SplitInBatchesNode",
+    "PollNode",
     "StopAndErrorNode",
     "SwitchNode",
     "WaitNode",

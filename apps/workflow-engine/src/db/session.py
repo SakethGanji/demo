@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 
 DATABASE_URL = resolve_database_url(settings)
 
+DB_SCHEMA = '"workflow-app"'
+
 engine = create_async_engine(
     DATABASE_URL,
     echo=settings.debug,
@@ -26,6 +28,7 @@ engine = create_async_engine(
     pool_pre_ping=True,
     pool_timeout=30,
     pool_recycle=1800,
+    connect_args={"server_settings": {"search_path": DB_SCHEMA}},
 )
 
 async_session_factory = sessionmaker(

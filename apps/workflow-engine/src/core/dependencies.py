@@ -117,6 +117,13 @@ def get_node_output_repository(session: AsyncSession = Depends(get_db_session)):
     return NodeOutputRepository(session)
 
 
+def get_app_service(session: AsyncSession = Depends(get_db_session)):
+    """Get app service instance."""
+    from ..services.app_service import AppService
+
+    return AppService(session)
+
+
 def get_ai_chat_service(
     node_registry=Depends(get_node_registry),
     workflow_service=Depends(get_workflow_service),

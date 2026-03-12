@@ -79,7 +79,7 @@ class ExecutionContext:
         default_factory=dict
     )
 
-    # For SplitInBatches: stateful node data
+    # For stateful nodes (Loop forEach, etc.)
     node_internal_state: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     # Error tracking

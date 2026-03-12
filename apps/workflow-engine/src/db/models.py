@@ -159,6 +159,61 @@ class WorkflowVersionModel(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.now)
 
 
+# ---------------------------------------------------------------------------
+# Apps (visual UI builder)
+# ---------------------------------------------------------------------------
+
+
+class AppModel(SQLModel, table=True):
+    """App database model — visual UI definitions built in the app builder."""
+
+    __tablename__ = "apps"
+
+    id: str = Field(primary_key=True)
+    team_id: str = Field(default="default", foreign_key="teams.id", index=True)
+    folder_id: str | None = Field(default=None, foreign_key="folders.id", index=True)
+    name: str
+    description: str | None = Field(default=None)
+    slug: str | None = Field(default=None, unique=True)
+    active: bool = Field(default=False)
+
+    draft_definition: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+    published_version_id: int | None = Field(default=None, foreign_key="app_versions.id")
+    settings: dict[str, Any] | None = Field(default=None, sa_column=Column(JSONB))
+
+    access: str = Field(default="private")  # private, public, password
+    access_password: str | None = Field(default=None)
+    published_at: datetime | None = Field(default=None)
+    embed_enabled: bool = Field(default=False)
+
+    created_by: str | None = Field(default=None)
+    updated_by: str | None = Field(default=None)
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+
+
+class AppVersionModel(SQLModel, table=True):
+    """Immutable app version snapshot."""
+
+    __tablename__ = "app_versions"
+    __table_args__ = (
+        Index("idx_app_versions_app", "app_id", "version_number", unique=True),
+    )
+
+    id: int | None = Field(default=None, sa_column=Column(Integer, primary_key=True, autoincrement=True))
+    app_id: str = Field(foreign_key="apps.id", index=True)
+    version_number: int
+    definition: dict[str, Any] = Field(sa_column=Column(JSONB, nullable=False))
+    message: str | None = Field(default=None)
+    created_by: str | None = Field(default=None)
+    created_at: datetime = Field(default_factory=datetime.now)
+
+
+# ---------------------------------------------------------------------------
+# Executions
+# ---------------------------------------------------------------------------
+
+
 class ExecutionModel(SQLModel, table=True):
     """Execution history database model."""
 
