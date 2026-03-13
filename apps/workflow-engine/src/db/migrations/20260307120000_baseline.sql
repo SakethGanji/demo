@@ -127,12 +127,15 @@ CREATE TABLE IF NOT EXISTS apps (
     slug                 TEXT UNIQUE,
     active               BOOLEAN NOT NULL DEFAULT FALSE,
     draft_definition     JSONB,
+    draft_source_code    TEXT,
+    current_version_id   INTEGER,
     published_version_id INTEGER,
     settings             JSONB,
     access               TEXT NOT NULL DEFAULT 'private',
     access_password      TEXT,
     published_at         TIMESTAMP,
     embed_enabled        BOOLEAN NOT NULL DEFAULT FALSE,
+    workflow_ids         JSONB NOT NULL DEFAULT '[]'::jsonb,
     created_by           TEXT,
     updated_by           TEXT,
     created_at           TIMESTAMP NOT NULL DEFAULT now(),
@@ -143,19 +146,29 @@ CREATE INDEX IF NOT EXISTS ix_apps_folder_id ON apps (folder_id);
 CREATE INDEX IF NOT EXISTS ix_apps_slug ON apps (slug) WHERE slug IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS app_versions (
-    id              SERIAL PRIMARY KEY,
-    app_id          TEXT NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
-    version_number  INTEGER NOT NULL,
-    definition      JSONB NOT NULL,
-    message         TEXT,
-    created_by      TEXT,
-    created_at      TIMESTAMP NOT NULL DEFAULT now()
+    id                SERIAL PRIMARY KEY,
+    app_id            TEXT NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+    version_number    INTEGER NOT NULL,
+    parent_version_id INTEGER REFERENCES app_versions(id) ON DELETE SET NULL,
+    definition        JSONB NOT NULL,
+    source_code       TEXT NOT NULL,
+    trigger           TEXT NOT NULL DEFAULT 'ai',
+    label             TEXT,
+    prompt            TEXT,
+    message           TEXT,
+    created_by        TEXT,
+    created_at        TIMESTAMP NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_app_versions_app ON app_versions (app_id, version_number);
+CREATE INDEX IF NOT EXISTS idx_app_versions_parent ON app_versions (parent_version_id);
 
 ALTER TABLE apps
     ADD CONSTRAINT fk_apps_published_version
     FOREIGN KEY (published_version_id) REFERENCES app_versions(id) ON DELETE SET NULL;
+
+ALTER TABLE apps
+    ADD CONSTRAINT fk_apps_current_version
+    FOREIGN KEY (current_version_id) REFERENCES app_versions(id) ON DELETE SET NULL;
 
 -- Executions
 CREATE TABLE IF NOT EXISTS executions (

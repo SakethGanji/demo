@@ -165,11 +165,29 @@ export interface ApiAppListItem {
   updated_at: string;
 }
 
+export interface ApiAppVersion {
+  id: number;
+  version_number: number;
+  parent_version_id: number | null;
+  trigger: string;
+  label: string | null;
+  prompt: string | null;
+  message: string | null;
+  created_at: string;
+}
+
+export interface ApiAppVersionDetail extends ApiAppVersion {
+  source_code: string;
+}
+
 export interface ApiAppDetail {
   id: string;
   name: string;
   definition: Record<string, unknown>;
   active: boolean;
+  workflow_ids: string[];
+  source_code: string | null;
+  current_version: ApiAppVersion | null;
   created_at: string;
   updated_at: string;
 }
@@ -196,7 +214,17 @@ export const appsApi = {
     });
   },
 
-  update: (id: string, data: { name?: string; definition?: Record<string, unknown> }): Promise<ApiAppDetail> => {
+  update: (
+    id: string,
+    data: {
+      name?: string;
+      definition?: Record<string, unknown>;
+      source_code?: string;
+      create_version?: boolean;
+      version_trigger?: string;
+      version_prompt?: string;
+    },
+  ): Promise<ApiAppDetail> => {
     return apiFetch(`/apps/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
@@ -212,6 +240,39 @@ export const appsApi = {
   publish: (id: string): Promise<ApiAppPublishResponse> => {
     return apiFetch(`/apps/${id}/publish`, {
       method: 'POST',
+    });
+  },
+
+  // ── Version endpoints ──────────────────────────────────────────────────
+
+  listVersions: (appId: string): Promise<ApiAppVersion[]> => {
+    return apiFetch(`/apps/${appId}/versions`);
+  },
+
+  getVersion: (appId: string, versionId: number): Promise<ApiAppVersionDetail> => {
+    return apiFetch(`/apps/${appId}/versions/${versionId}`);
+  },
+
+  createVersion: (
+    appId: string,
+    data: { source_code: string; trigger?: string; label?: string; prompt?: string; message?: string },
+  ): Promise<ApiAppVersionDetail> => {
+    return apiFetch(`/apps/${appId}/versions`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  revertToVersion: (appId: string, versionId: number): Promise<ApiAppDetail> => {
+    return apiFetch(`/apps/${appId}/versions/${versionId}/revert`, {
+      method: 'POST',
+    });
+  },
+
+  updateVersionLabel: (appId: string, versionId: number, label: string | null): Promise<ApiAppVersion> => {
+    return apiFetch(`/apps/${appId}/versions/${versionId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ label }),
     });
   },
 };

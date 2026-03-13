@@ -14,6 +14,7 @@ class AppCreateRequest(BaseModel):
     definition: dict[str, Any] = Field(..., description="App definition (nodes, rootNodeId, etc.)")
     description: str | None = Field(None, max_length=1000, description="App description")
     folder_id: str | None = Field(None, description="Folder to organize this app in")
+    workflow_ids: list[str] = Field(default_factory=list, description="Linked workflow IDs for data binding")
 
 
 class AppUpdateRequest(BaseModel):
@@ -22,6 +23,11 @@ class AppUpdateRequest(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=255, description="App name")
     definition: dict[str, Any] | None = Field(None, description="App definition")
     description: str | None = Field(None, max_length=1000, description="App description")
+    workflow_ids: list[str] | None = Field(None, description="Linked workflow IDs for data binding")
+    source_code: str | None = Field(None, description="TSX source code")
+    create_version: bool = Field(False, description="Atomically create a version with this save")
+    version_trigger: str = Field("manual", description="Version trigger type: ai, manual, publish")
+    version_prompt: str | None = Field(None, description="User message that triggered AI generation")
 
 
 class AppListItem(BaseModel):
@@ -33,6 +39,41 @@ class AppListItem(BaseModel):
     updated_at: str
 
 
+# ── Version schemas ──────────────────────────────────────────────────────────
+
+
+class AppVersionResponse(BaseModel):
+    """Version info returned inline with app detail."""
+
+    id: int
+    version_number: int
+    parent_version_id: int | None = None
+    trigger: str
+    label: str | None = None
+    prompt: str | None = None
+    message: str | None = None
+    created_at: str
+
+
+class AppVersionDetail(AppVersionResponse):
+    """Single version with source_code (for fetching a specific version)."""
+
+    source_code: str
+
+
+class AppVersionListItem(BaseModel):
+    """Lightweight version for history list (no source_code)."""
+
+    id: int
+    version_number: int
+    parent_version_id: int | None = None
+    trigger: str
+    label: str | None = None
+    prompt: str | None = None
+    message: str | None = None
+    created_at: str
+
+
 class AppDetailResponse(BaseModel):
     """Detailed app response."""
 
@@ -40,6 +81,9 @@ class AppDetailResponse(BaseModel):
     name: str
     definition: dict[str, Any]
     active: bool
+    workflow_ids: list[str] = []
+    source_code: str | None = None
+    current_version: AppVersionResponse | None = None
     created_at: str
     updated_at: str
 
@@ -50,3 +94,19 @@ class AppPublishResponse(BaseModel):
     id: str
     active: bool
     version_id: int | None = None
+
+
+class CreateVersionRequest(BaseModel):
+    """Request for manually creating a version."""
+
+    source_code: str
+    trigger: str = "manual"
+    label: str | None = None
+    prompt: str | None = None
+    message: str | None = None
+
+
+class UpdateVersionLabelRequest(BaseModel):
+    """Request for renaming a version."""
+
+    label: str | None = None

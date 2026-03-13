@@ -181,6 +181,28 @@ class ExecutionRepository:
             records.append(self._to_execution_record(e, node_outputs, node_metrics))
         return records
 
+    async def find_latest_successful(
+        self, workflow_id: str
+    ) -> ExecutionRecord | None:
+        """Find the latest successful execution for a workflow."""
+        statement = (
+            select(ExecutionModel)
+            .where(
+                ExecutionModel.workflow_id == workflow_id,
+                ExecutionModel.status == "success",
+            )
+            .order_by(ExecutionModel.start_time.desc())
+            .limit(1)
+        )
+        result = await self._session.execute(statement)
+        db_execution = result.scalar_one_or_none()
+        if not db_execution:
+            return None
+
+        node_outputs = await self._get_node_outputs(db_execution.id)
+        _, node_metrics = self._outputs_to_dicts(node_outputs)
+        return self._to_execution_record(db_execution, node_outputs, node_metrics)
+
     async def delete(self, execution_id: str) -> bool:
         """Delete an execution record."""
         db_execution = await self._session.get(ExecutionModel, execution_id)

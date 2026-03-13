@@ -176,8 +176,11 @@ class AppModel(SQLModel, table=True):
     description: str | None = Field(default=None)
     slug: str | None = Field(default=None, unique=True)
     active: bool = Field(default=False)
+    workflow_ids: list[str] = Field(default_factory=list, sa_column=Column(JSONB, server_default="[]"))
 
     draft_definition: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+    draft_source_code: str | None = Field(default=None)
+    current_version_id: int | None = Field(default=None, foreign_key="app_versions.id")
     published_version_id: int | None = Field(default=None, foreign_key="app_versions.id")
     settings: dict[str, Any] | None = Field(default=None, sa_column=Column(JSONB))
 
@@ -198,12 +201,18 @@ class AppVersionModel(SQLModel, table=True):
     __tablename__ = "app_versions"
     __table_args__ = (
         Index("idx_app_versions_app", "app_id", "version_number", unique=True),
+        Index("idx_app_versions_parent", "parent_version_id"),
     )
 
     id: int | None = Field(default=None, sa_column=Column(Integer, primary_key=True, autoincrement=True))
     app_id: str = Field(foreign_key="apps.id", index=True)
     version_number: int
+    parent_version_id: int | None = Field(default=None, foreign_key="app_versions.id")
     definition: dict[str, Any] = Field(sa_column=Column(JSONB, nullable=False))
+    source_code: str = Field(sa_column=SAColumn(String, nullable=False))
+    trigger: str = Field(default="ai")  # ai, manual, publish
+    label: str | None = Field(default=None)
+    prompt: str | None = Field(default=None)
     message: str | None = Field(default=None)
     created_by: str | None = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.now)

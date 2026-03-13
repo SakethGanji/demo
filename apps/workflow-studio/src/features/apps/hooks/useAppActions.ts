@@ -7,50 +7,7 @@ import type { AppSummary } from './useApps'
 
 /** Default blank definition for a new app. */
 const BLANK_DEFINITION = {
-  nodes: {
-    ROOT: {
-      id: 'ROOT',
-      type: 'Container',
-      parentId: null,
-      childIds: [],
-      linkedNodes: {},
-      props: {
-        display: 'flex',
-        width: '',
-        height: '',
-        minHeight: '100%',
-        flexDirection: 'column',
-        alignItems: 'stretch',
-        justifyContent: 'flex-start',
-        fillSpace: 'no',
-        paddingTop: '16',
-        paddingRight: '16',
-        paddingBottom: '16',
-        paddingLeft: '16',
-        marginTop: '0',
-        marginRight: '0',
-        marginBottom: '0',
-        marginLeft: '0',
-        gap: '12',
-        overflow: 'visible',
-        position: 'static',
-        background: 'transparent',
-        color: '',
-        opacity: '100',
-        borderRadius: '0',
-        borderWidth: '0',
-        borderStyle: 'none',
-        shadow: '0',
-        cursor: 'default',
-        customStyles: '',
-      },
-      isCanvas: true,
-      hidden: false,
-    },
-  },
-  rootNodeId: 'ROOT',
-  storeDefinitions: [],
-  webhookDefinitions: [],
+  sourceCode: null,
 }
 
 export function useCreateApp() {

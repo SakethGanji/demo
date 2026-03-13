@@ -293,7 +293,7 @@ async def stream_workflow_execution_with_input(
         raise HTTPException(status_code=400, detail="No start node found in workflow")
 
     # Build initial data - wrap in webhook-style format for consistency
-    if request.input_data:
+    if request.input_data is not None:
         initial_data = [
             NodeData(
                 json={

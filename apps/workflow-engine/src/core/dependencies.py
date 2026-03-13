@@ -124,6 +124,18 @@ def get_app_service(session: AsyncSession = Depends(get_db_session)):
     return AppService(session)
 
 
+def get_app_builder_ai_service(
+    workflow_repo=Depends(get_workflow_repository),
+    execution_repo=Depends(get_execution_repository),
+    node_output_repo=Depends(get_node_output_repository),
+    app_service=Depends(get_app_service),
+):
+    """Get App Builder AI service."""
+    from ..services.app_builder_ai_service import AppBuilderAIService
+
+    return AppBuilderAIService(workflow_repo, execution_repo, node_output_repo, app_service)
+
+
 def get_ai_chat_service(
     node_registry=Depends(get_node_registry),
     workflow_service=Depends(get_workflow_service),
