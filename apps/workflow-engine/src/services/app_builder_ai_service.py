@@ -7,6 +7,7 @@ React with useState/useEffect/useCallback and native HTML elements.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -22,13 +23,21 @@ from ..schemas.app_builder import (
     NodeSchema,
     WorkflowSchemaResponse,
 )
-from .schema_analyzer import analyze_schema, format_field_catalog
+from .schema_analyzer import analyze_schema_cached, format_field_catalog as _format_field_catalog
 from .schema_inference import infer_json_schema, truncate_sample
 
 logger = logging.getLogger(__name__)
 
 _GENERATOR_MODEL = "gemini-2.5-pro"
 _MAX_HISTORY = 20
+
+# ---------------------------------------------------------------------------
+# Module-level cache for extract_workflow_schema results.
+# Keyed by (workflow_id, latest_exec_id) — invalidated automatically when
+# a new execution succeeds.  Avoids redundant DB + LLM work across chat turns.
+# ---------------------------------------------------------------------------
+_SCHEMA_CACHE: dict[tuple[str, str], WorkflowSchemaResponse] = {}
+_SCHEMA_CACHE_MAX = 32
 _MAX_MESSAGE_CHARS = 4000
 
 
@@ -102,7 +111,7 @@ class AppBuilderAIService:
                 model=_GENERATOR_MODEL,
                 messages=messages,
                 temperature=0.3,
-                max_tokens=65_000,
+                max_tokens=20_000,
             )
             full_text = response.text or ""
             logger.info("App builder: got %d chars from LLM", len(full_text))
@@ -122,14 +131,15 @@ class AppBuilderAIService:
             len(text_content),
         )
 
-        # 7. Emit text explanation
-        if text_content:
-            yield _sse("message", {"type": "text", "content": text_content})
+        # 7. Emit code (preferred) or text fallback — never both.
+        # Emitting both causes the frontend to receive split events that
+        # break iframe embedding.
 
-        # 8. Emit code
         if source_code:
             yield _sse("message", {"type": "code", "source": source_code})
-        elif not text_content:
+        elif text_content:
+            yield _sse("message", {"type": "text", "content": text_content})
+        else:
             yield _sse("message", {
                 "type": "text",
                 "content": "I wasn't able to generate an app from that request. Please try again with more detail.",
@@ -144,9 +154,22 @@ class AppBuilderAIService:
         self, workflow_id: str
     ) -> WorkflowSchemaResponse:
         """Pull schema from the latest successful execution of a workflow."""
-        stored = await self._workflow_repo.get(workflow_id)
+
+        # Parallel DB lookups — workflow definition + latest execution ID
+        stored, latest_exec_id = await asyncio.gather(
+            self._workflow_repo.get(workflow_id),
+            self._execution_repo.find_latest_successful_id(workflow_id),
+        )
+
         if not stored:
             raise ValueError(f"Workflow {workflow_id} not found")
+
+        # Check module-level cache — keyed by (workflow_id, exec_id) so it
+        # auto-invalidates when a new execution succeeds.
+        cache_key = (workflow_id, latest_exec_id or "")
+        if cache_key in _SCHEMA_CACHE:
+            logger.debug("Schema extraction cache hit for %s", workflow_id)
+            return _SCHEMA_CACHE[cache_key]
 
         workflow = stored.workflow
         node_type_map = {n.name: n.type for n in workflow.nodes}
@@ -159,13 +182,8 @@ class AppBuilderAIService:
         webhook_path = _extract_webhook_path(workflow.nodes, workflow_id)
         webhook_response_mode = _extract_webhook_response_mode(workflow.nodes)
 
-        # Find latest successful execution efficiently
-        latest_exec = await self._execution_repo.find_latest_successful(
-            workflow_id=workflow_id
-        )
-
-        if not latest_exec:
-            return WorkflowSchemaResponse(
+        if not latest_exec_id:
+            response = WorkflowSchemaResponse(
                 workflow_id=workflow_id,
                 workflow_name=stored.name,
                 input_schema=input_schema,
@@ -182,12 +200,16 @@ class AppBuilderAIService:
                     if ntype not in ("Start", "Webhook")
                 ],
             )
+            # Don't cache no-execution responses — next call may find one
+            return response
 
-        node_outputs = await self._node_output_repo.get_outputs(latest_exec.id)
+        node_outputs = await self._node_output_repo.get_outputs(latest_exec_id)
 
         node_schemas = []
         webhook_body_schema = None
         webhook_body_sample = None
+        # Track the last successful non-webhook output in a single pass
+        last_raw_output: Any = None
 
         for output in node_outputs:
             if output.status != "success" or not output.output:
@@ -196,7 +218,6 @@ class AppBuilderAIService:
             ntype = node_type_map.get(output.node_name, "Unknown")
 
             # Extract the webhook body shape from the Webhook node's output
-            # Output format: [{"json": {"body": {...}, "headers": {...}, ...}, "binary": null}]
             if ntype == "Webhook":
                 webhook_json = _unwrap_node_output(output.output)
                 if isinstance(webhook_json, dict):
@@ -212,24 +233,20 @@ class AppBuilderAIService:
                     node_type=ntype,
                     parameters=_sanitize_params(node_params_map.get(output.node_name, {})),
                     output_schema=infer_json_schema(output.output),
-                    sample_data=truncate_sample(output.output, max_items=3),
+                    # Defer sample_data — only compute for the last node (prompt only uses it)
                 )
             )
+            # Keep overwriting — last iteration wins (single pass, no second loop)
+            last_raw_output = output.output
 
-        # Run schema analyzer on the last node (the one the UI will render)
-        if node_schemas:
-            last = node_schemas[-1]
-            last_output = None
-            for output in node_outputs:
-                if output.node_name == last.node_name and output.status == "success":
-                    last_output = output.output
-                    break
-            if last_output is not None:
-                catalog = await analyze_schema(last_output)
-                if catalog:
-                    last.field_catalog = catalog
+        # Only the last node needs sample_data + field_catalog (prompt only uses these)
+        if node_schemas and last_raw_output is not None:
+            node_schemas[-1].sample_data = truncate_sample(last_raw_output, max_items=3)
+            catalog = await analyze_schema_cached(last_raw_output)
+            if catalog:
+                node_schemas[-1].field_catalog = catalog
 
-        return WorkflowSchemaResponse(
+        response = WorkflowSchemaResponse(
             workflow_id=workflow_id,
             workflow_name=stored.name,
             input_schema=input_schema,
@@ -239,6 +256,14 @@ class AppBuilderAIService:
             webhook_body_sample=webhook_body_sample,
             node_schemas=node_schemas,
         )
+
+        # Populate cache (evict oldest if full)
+        if len(_SCHEMA_CACHE) >= _SCHEMA_CACHE_MAX:
+            oldest = next(iter(_SCHEMA_CACHE))
+            del _SCHEMA_CACHE[oldest]
+        _SCHEMA_CACHE[cache_key] = response
+
+        return response
 
     # ── System Prompt ─────────────────────────────────────────────────
 
@@ -282,202 +307,80 @@ class AppBuilderAIService:
             "Use `window.__apiFetch()` (provided in the sandbox) to call the workflow.\n"
         )
 
+        # -- API call snippet (kept compact — one example per mode) --
         if is_webhook:
             response_mode = ws.webhook_response_mode or "lastNode"
 
-            lines.append(
-                "**IMPORTANT**: Send the request body directly — do NOT wrap it in any envelope.\n"
-                "The workflow receives the POST body as-is.\n"
-            )
-            # Show the expected body shape from past execution
+            lines.append("\nSend the request body directly (no envelope wrapper).")
             if ws.webhook_body_schema:
                 lines.append(
-                    f"### Expected Request Body\n\n"
-                    f"```json\n{json.dumps(ws.webhook_body_schema, indent=2)}\n```"
-                )
-            if ws.webhook_body_sample is not None:
-                lines.append(
-                    f"\nExample request body:\n```json\n{json.dumps(ws.webhook_body_sample, indent=2)}\n```"
+                    f"\nRequest body schema:\n```json\n{json.dumps(ws.webhook_body_schema, separators=(',', ':'))}\n```"
                 )
 
             if response_mode == "onReceived":
-                # Async mode — no data in response, workflow runs in background
-                lines.append(f"""
-### Calling the Workflow
-
-```tsx
-const result = await window.__apiFetch('{api_path}', {{
-  method: 'POST',
-  headers: {{ 'Content-Type': 'application/json' }},
-  body: JSON.stringify({{ /* match the request body schema above */ }})
-}});
-// Response (immediate, workflow runs in background):
-// {{ status: "success", executionId: "...", message: "Workflow triggered" }}
-```
-
-**Note**: This webhook responds immediately and runs the workflow in the background. The response does NOT contain the workflow output. If you need the workflow output in the response, suggest the user switch the webhook response mode to "Last Node".""")
+                lines.append(
+                    f"\nCall: `await window.__apiFetch('{api_path}', "
+                    f"{{ method: 'POST', headers: {{ 'Content-Type': 'application/json' }}, "
+                    f"body: JSON.stringify(yourBody) }})`"
+                    f"\nResponse (async): `{{ status, executionId, message }}` — workflow runs in background."
+                )
             else:
-                # lastNode mode — synchronous, returns data
-                lines.append(f"""
-### Calling the Workflow
-
-```tsx
-const result = await window.__apiFetch('{api_path}', {{
-  method: 'POST',
-  headers: {{ 'Content-Type': 'application/json' }},
-  body: JSON.stringify({{ /* match the request body schema above */ }})
-}});
-// Response format:
-// {{ status: "success", executionId: "...", data: [ ...items ] }}
-// Access the result items via result.data
-```""")
+                lines.append(
+                    f"\nCall: `await window.__apiFetch('{api_path}', "
+                    f"{{ method: 'POST', headers: {{ 'Content-Type': 'application/json' }}, "
+                    f"body: JSON.stringify(yourBody) }})`"
+                    f"\nResponse: `{{ status, executionId, data: [...items] }}` — access items via `result.data`."
+                )
         else:
             lines.append(
-                "**IMPORTANT**: The request body MUST be wrapped in `input_data`:\n"
+                f"\nWrap body in `input_data`: `await window.__apiFetch('{api_path}', "
+                f"{{ method: 'POST', headers: {{ 'Content-Type': 'application/json' }}, "
+                f"body: JSON.stringify({{ input_data: {{ ... }} }}) }})`"
+                f"\nResponse: `{{ data: {{ \"{last_name}\": <output>, ... }}, status: \"success\" }}`"
             )
-            lines.append(f"""```tsx
-const result = await window.__apiFetch('{api_path}', {{
-  method: 'POST',
-  headers: {{ 'Content-Type': 'application/json' }},
-  body: JSON.stringify({{ input_data: {{ /* your input fields here */ }} }})
-}});
-// result shape: {{ data: {{ "{last_name}": <output>, ... }}, status: "success" }}
-```""")
 
+        # -- Response fields --
         if last_node:
             if last_node.field_catalog:
-                # Use the analyzed field catalog — compact, with rendering hints
-                lines.append(f'\n### Response Fields (from node "{last_name}")\n')
-                lines.append(
-                    "Each field below includes its content type and recommended rendering approach:\n"
-                )
-                lines.append(format_field_catalog(last_node.field_catalog))
-                lines.append(
-                    "\nUse these render hints to build the UI. For example:\n"
-                    "- `collapsible` → expandable/accordion section\n"
-                    "- `code_block` → `<pre><code>` with monospace\n"
-                    "- `markdown` content → render as formatted HTML (headings, lists, bold, etc.)\n"
-                    "- `badge` → small colored label\n"
-                    "- `hidden` → don't display to user\n"
-                    "- `table_cell` → good for data tables/grids\n"
-                )
+                lines.append(f"\n### Response Fields (\"{last_name}\")\n")
+                lines.append(_format_field_catalog(last_node.field_catalog))
             else:
-                # Fallback to raw schema + sample
-                lines.append(f'\n### Response Data Shape (from node "{last_name}")\n')
-                lines.append(f"```json\n{json.dumps(last_node.output_schema, indent=2)}\n```")
+                lines.append(f"\n### Response Schema (\"{last_name}\")\n")
+                lines.append(f"```json\n{json.dumps(last_node.output_schema, separators=(',', ':'))}\n```")
                 if last_node.sample_data is not None:
-                    lines.append(f"\nSample data:\n```json\n{json.dumps(last_node.sample_data, indent=2)}\n```")
+                    lines.append(f"\nSample:\n```json\n{json.dumps(last_node.sample_data, separators=(',', ':'))}\n```")
 
         return "\n".join(lines)
 
 
 # ── Constants ─────────────────────────────────────────────────────────
 
-_BASE_PROMPT = """\
+_BASE_PROMPT = """
 You are an expert React developer. You generate complete, self-contained React components as TSX.
 
-## Output Format
+## CRITICAL — Output Rules
 
-Return a single React component wrapped in ```tsx fences:
+Your response MUST contain ONLY a single ```tsx fenced code block.
+Do NOT include any text, explanation, or commentary before or after the code block.
+No preambles, no summaries, no "Here's what I built." Code block only.
 
 ```tsx
 export default function App() {
-  // your component code here
-  return (
-    <div>...</div>
-  );
+  return <div>...</div>;
 }
 ```
 
-## Rules
+## Component Rules
 
-- Generate a SINGLE default-exported React function component.
-- Use raw HTML elements (`<div>`, `<button>`, `<input>`, `<table>`, etc.) — NOT custom component imports.
-- Use Tailwind CSS classes for ALL styling. No inline styles unless absolutely necessary.
-- Use `useState`, `useEffect`, `useCallback`, `useMemo`, `useRef`, `useReducer` for state and effects. These are available as globals (no import needed).
-- Do NOT import anything. React, useState, useEffect, etc. are pre-loaded globals.
-- For API calls to connected workflows, use `window.__apiFetch(url, opts)` which returns a Promise with the JSON response. It accepts `/api/...` and `/webhook/...` paths.
+- SINGLE default-exported React function component.
+- Raw HTML elements only (`<div>`, `<button>`, `<input>`, `<table>`, etc.) — no custom component imports.
+- Tailwind CSS classes for all styling. No inline styles unless absolutely necessary.
+- `useState`, `useEffect`, `useCallback`, `useMemo`, `useRef`, `useReducer` are available as globals — do NOT import anything.
+- For API calls use `window.__apiFetch(url, opts)` — returns a Promise with JSON. Accepts `/api/...` and `/webhook/...` paths.
 - Always return the COMPLETE component — never partial code or diffs.
-- Keep the UI clean, modern, and functional with good Tailwind styling.
-- Use semantic HTML and accessible patterns (labels, aria attributes where appropriate).
-- Handle loading and error states for any async operations.
-- When displaying text that may contain markdown (e.g. LLM responses, rich descriptions), render it as HTML elements with Tailwind classes — NOT raw markdown strings. For example, render `**bold**` as `<strong>`, `# Heading` as `<h1>`, bullet lists as `<ul><li>`, code blocks as `<pre><code>`, etc. No markdown parsing library is available in the sandbox — you must convert markdown content to JSX elements yourself using a simple parser function or pre-render it as HTML.
-
-## Complete Example — Todo App
-
-```tsx
-export default function TodoApp() {
-  const [todos, setTodos] = useState([
-    { id: 1, text: 'Buy groceries', done: false },
-    { id: 2, text: 'Read docs', done: true },
-  ]);
-  const [input, setInput] = useState('');
-  const nextId = useRef(3);
-
-  const remaining = todos.filter(t => !t.done).length;
-
-  const addTodo = () => {
-    if (!input.trim()) return;
-    setTodos(prev => [...prev, { id: nextId.current++, text: input.trim(), done: false }]);
-    setInput('');
-  };
-
-  const toggleTodo = (id: number) => {
-    setTodos(prev => prev.map(t => t.id === id ? { ...t, done: !t.done } : t));
-  };
-
-  const removeTodo = (id: number) => {
-    setTodos(prev => prev.filter(t => t.id !== id));
-  };
-
-  return (
-    <div className="max-w-md mx-auto p-6 mt-10">
-      <h1 className="text-2xl font-bold mb-1">My Todos</h1>
-      <p className="text-sm text-gray-500 mb-4">{remaining} remaining</p>
-
-      <div className="flex gap-2 mb-4">
-        <input
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && addTodo()}
-          placeholder="Add a todo..."
-          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-        <button
-          onClick={addTodo}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
-        >
-          Add
-        </button>
-      </div>
-
-      <ul className="space-y-1">
-        {todos.map(todo => (
-          <li key={todo.id} className="flex items-center gap-2 p-2 rounded-lg bg-gray-50">
-            <input
-              type="checkbox"
-              checked={todo.done}
-              onChange={() => toggleTodo(todo.id)}
-              className="h-4 w-4 rounded"
-            />
-            <span className={`flex-1 text-sm ${todo.done ? 'line-through text-gray-400' : ''}`}>
-              {todo.text}
-            </span>
-            <button
-              onClick={() => removeTodo(todo.id)}
-              className="text-xs text-gray-400 hover:text-red-500 transition-colors"
-            >
-              Delete
-            </button>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-```
-
-This example shows: useState for state, event handlers, conditional classes, list rendering, keyboard events, and clean Tailwind styling."""
+- Handle loading and error states for async operations.
+- Use semantic HTML and accessible patterns.
+- Convert markdown into JSX elements (e.g. `**bold**` → `<strong>`, `# Heading` → `<h1>`, lists → `<ul><li>`)."""
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
@@ -487,26 +390,53 @@ def _sse(event: str, data: Any) -> dict[str, Any]:
     return {"event": event, "data": json.dumps(data)}
 
 
-# Match ```tsx or ```typescript fenced blocks
-_TSX_BLOCK_RE = re.compile(r"```(?:tsx|typescript)\s*\n(.*?)```", re.DOTALL)
-_ANY_CODE_BLOCK_RE = re.compile(r"```(?:tsx|typescript)\s*\n.*?```", re.DOTALL)
+# Opening fence pattern — matches ```tsx or ```typescript at the start of a line
+_TSX_OPEN_RE = re.compile(r"^```(?:tsx|typescript)\s*$", re.MULTILINE)
 
 
 def _parse_llm_output(text: str) -> tuple[str | None, str]:
-    """Parse LLM output into (source_code, text_content).
-
-    Extracts TSX code from ```tsx fences and returns the text explanation.
     """
+    Parse LLM output into (source_code, text_content).
+
+    Extracts TSX code from the outermost ```tsx ... ``` fences. The closing
+    fence is found by scanning "backwards" from the end of the text so that
+    triple-backtick strings inside the generated code (e.g.
+    "line.startsWith('```')") are not mistakenly treated as the closing
+    fence.
+    """
+
     source_code: str | None = None
+    block_start: int | None = None
+    block_end: int | None = None
 
-    # Find the last ```tsx block (in case the LLM explains with code snippets first)
-    matches = list(_TSX_BLOCK_RE.finditer(text))
-    if matches:
-        # Use the last match — that's typically the complete component
-        source_code = matches[-1].group(1).strip()
+    try:
+        # Step 1: Find the first ```tsx opening fence.
+        open_match = _TSX_OPEN_RE.search(text)
+        if open_match:
+            block_start = open_match.start()
+            # Skip past the fence + trailing newline (if present)
+            code_start = open_match.end()
+            if code_start < len(text) and text[code_start] == "\n":
+                code_start += 1
 
-    # Strip all code blocks from text to get explanation only
-    text_content = _ANY_CODE_BLOCK_RE.sub("", text).strip()
+            # Step 2: Find the LAST ``` in the entire text — this is the
+            # outermost closing fence and avoids false matches inside code.
+            close_pos = text.rfind("```")
+            if close_pos > code_start:
+                block_end = close_pos + 3
+                source_code = text[code_start:close_pos].strip()
+    except Exception:
+        logger.warning("App builder: failed to parse TSX block from LLM output", exc_info=True)
+        source_code = None
+
+    # Step 3: Derive leftover text (everything outside the code block).
+    if source_code is not None and block_start is not None and block_end is not None:
+        before = text[:block_start].strip()
+        after = text[block_end:].strip()
+        parts = [p for p in (before, after) if p]
+        text_content = "\n\n".join(parts)
+    else:
+        text_content = text.strip()
 
     return source_code, text_content
 

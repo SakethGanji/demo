@@ -4,12 +4,17 @@ from __future__ import annotations
 
 from typing import Any
 
+_MAX_DEPTH = 20
 
-def infer_json_schema(value: Any) -> dict[str, Any]:
+
+def infer_json_schema(value: Any, *, _depth: int = 0) -> dict[str, Any]:
     """Walk a JSON value and produce a JSON-Schema-like descriptor.
 
     Handles the n8n-style item wrapper: [{"json": {...}}, ...].
+    Stops recursing beyond _MAX_DEPTH to avoid stack overflow on deeply nested data.
     """
+    if _depth > _MAX_DEPTH:
+        return {"type": "unknown"}
     if value is None:
         return {"type": "null"}
     if isinstance(value, bool):
@@ -26,12 +31,12 @@ def infer_json_schema(value: Any) -> dict[str, Any]:
         first = value[0]
         # Unwrap n8n-style [{"json": {...}}] items
         if isinstance(first, dict) and "json" in first and len(first) <= 2:
-            return {"type": "array", "items": infer_json_schema(first["json"])}
-        return {"type": "array", "items": infer_json_schema(first)}
+            return {"type": "array", "items": infer_json_schema(first["json"], _depth=_depth + 1)}
+        return {"type": "array", "items": infer_json_schema(first, _depth=_depth + 1)}
     if isinstance(value, dict):
         return {
             "type": "object",
-            "properties": {k: infer_json_schema(v) for k, v in value.items()},
+            "properties": {k: infer_json_schema(v, _depth=_depth + 1) for k, v in value.items()},
         }
     return {"type": "unknown"}
 

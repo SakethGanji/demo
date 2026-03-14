@@ -859,7 +859,7 @@ After successfully completing the entire lifecycle, provide a concise summary th
     # Context trimming (same strategy as AIAgentNode, with pinned tools)
     # ------------------------------------------------------------------
 
-    _PINNED_TOOLS = {"save_workflow", "execute_workflow", "get_workflow"}
+    _PINNED_TOOLS = {"save_workflow", "execute_workflow", "get_workflow", "get_node_schemas"}
 
     @staticmethod
     def _estimate_tokens(messages: list[dict[str, Any]]) -> int:

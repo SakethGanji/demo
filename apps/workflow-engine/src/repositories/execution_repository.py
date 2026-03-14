@@ -174,9 +174,27 @@ class ExecutionRepository:
         result = await self._session.execute(statement)
         executions = result.scalars().all()
 
+        if not executions:
+            return []
+
+        # Batch-fetch all node outputs in one query instead of N+1
+        exec_ids = [e.id for e in executions]
+        outputs_stmt = (
+            select(NodeOutputModel)
+            .where(NodeOutputModel.execution_id.in_(exec_ids))
+            .order_by(NodeOutputModel.created_at)
+        )
+        outputs_result = await self._session.execute(outputs_stmt)
+        all_outputs = outputs_result.scalars().all()
+
+        # Group by execution_id
+        outputs_by_exec: dict[str, list[NodeOutputModel]] = {}
+        for o in all_outputs:
+            outputs_by_exec.setdefault(o.execution_id, []).append(o)
+
         records = []
         for e in executions:
-            node_outputs = await self._get_node_outputs(e.id)
+            node_outputs = outputs_by_exec.get(e.id, [])
             _, node_metrics = self._outputs_to_dicts(node_outputs)
             records.append(self._to_execution_record(e, node_outputs, node_metrics))
         return records
@@ -202,6 +220,22 @@ class ExecutionRepository:
         node_outputs = await self._get_node_outputs(db_execution.id)
         _, node_metrics = self._outputs_to_dicts(node_outputs)
         return self._to_execution_record(db_execution, node_outputs, node_metrics)
+
+    async def find_latest_successful_id(
+        self, workflow_id: str
+    ) -> str | None:
+        """Find the latest successful execution ID (lightweight — no node outputs)."""
+        statement = (
+            select(ExecutionModel.id)
+            .where(
+                ExecutionModel.workflow_id == workflow_id,
+                ExecutionModel.status == "success",
+            )
+            .order_by(ExecutionModel.start_time.desc())
+            .limit(1)
+        )
+        result = await self._session.execute(statement)
+        return result.scalar_one_or_none()
 
     async def delete(self, execution_id: str) -> bool:
         """Delete an execution record."""
