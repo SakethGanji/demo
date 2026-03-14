@@ -15,19 +15,21 @@ import {
   Plus,
   Square,
   Sparkles,
-  GitBranch,
   ChevronLeft,
   Blocks,
   ScrollText,
-  Monitor,
   MousePointer2,
   Hand,
+  CheckCircle2,
+  XCircle,
+  Clock,
 } from 'lucide-react';
 import { Link } from '@tanstack/react-router';
-import { useReactFlow } from 'reactflow';
+import { useReactFlow, useViewport } from '@xyflow/react';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useEditorLayoutStore } from '../../stores/editorLayoutStore';
 import { useExecutionStream } from '../../hooks/useExecutionStream';
+import { useExecSummary } from '../../hooks/useWorkflowSelectors';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,12 +40,9 @@ import {
 import { useSaveWorkflow, usePublishWorkflow, useImportWorkflow } from '../../hooks/useWorkflowApi';
 import { toBackendWorkflow } from '../../lib/workflowTransform';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/components/ui/tooltip';
-import { Switch } from '@/shared/components/ui/switch';
 import { ToolbarGroup, ToolbarSeparator } from '@/shared/components/ui/toolbar';
 import type { WorkflowNodeData } from '../../types/workflow';
-import type { Node } from 'reactflow';
-import WorkflowPickerDialog from './WorkflowPickerDialog';
-
+import type { Node } from '@xyflow/react';
 export default function WorkflowNavbar() {
   const workflowName = useWorkflowStore((s) => s.workflowName);
   const workflowId = useWorkflowStore((s) => s.workflowId);
@@ -53,8 +52,6 @@ export default function WorkflowNavbar() {
   const redo = useWorkflowStore((s) => s.redo);
   const _canUndo = useWorkflowStore((s) => s._canUndo);
   const _canRedo = useWorkflowStore((s) => s._canRedo);
-  const addSubworkflowNode = useWorkflowStore((s) => s.addSubworkflowNode);
-  const copyWorkflowNodes = useWorkflowStore((s) => s.copyWorkflowNodes);
   const _isDirty = useWorkflowStore((s) => s._isDirty);
 
   const { saveWorkflow, isSaving } = useSaveWorkflow();
@@ -74,8 +71,14 @@ export default function WorkflowNavbar() {
   const toggleCanvasMode = useEditorLayoutStore((s) => s.toggleCanvasMode);
 
   const { zoomIn, zoomOut } = useReactFlow();
+  const { zoom } = useViewport();
+  const nodeCount = useWorkflowStore((s) => s.nodeCount);
+  const edgeCount = useWorkflowStore((s) => s.edgeCount);
+  const isRunning = useWorkflowStore((s) => s.isAnyNodeRunning);
+  const execSummary = useExecSummary();
+  const { hasErrors, hasLogs, totalDuration } = execSummary;
+  const allSuccess = hasLogs && !isRunning && !hasErrors;
 
-  const [isWorkflowPickerOpen, setIsWorkflowPickerOpen] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState(workflowName);
   const nameInputRef = useRef<HTMLInputElement>(null);
@@ -117,15 +120,15 @@ export default function WorkflowNavbar() {
 
   return (
     <>
-      <div className="editor-chrome flex items-center h-11 px-3 bg-card border-b border-border shrink-0 gap-1">
+      <div className="flex items-center h-11 px-3 bg-[var(--surface)]/80 backdrop-blur-xl rounded-xl shadow-lg border border-border/30 gap-1">
         {/* Left section: Back + Name */}
         <Link
-          to="/workflows"
+          to="/projects"
           className="h-8 px-1.5 flex items-center gap-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors text-xs"
-          title="Back to workflows"
+          title="Back to projects"
         >
           <ChevronLeft size={14} />
-          <span className="hidden sm:inline">Workflows</span>
+          <span className="hidden sm:inline">Projects</span>
         </Link>
 
         <ToolbarSeparator />
@@ -213,13 +216,6 @@ export default function WorkflowNavbar() {
           >
             <ScrollText size={14} />
           </button>
-          <button
-            onClick={() => openBottomPanel('ui')}
-            className={btnClass + (isBottomTabActive('ui') ? ' !text-primary' : '')}
-            title="Toggle UI"
-          >
-            <Monitor size={14} />
-          </button>
         </ToolbarGroup>
 
         <ToolbarSeparator />
@@ -258,7 +254,7 @@ export default function WorkflowNavbar() {
         {/* Publish / Unpublish */}
         {isActive ? (
           <Tooltip>
-            <TooltipTrigger asChild>
+            <TooltipTrigger>
               <button
                 onClick={() => unpublish()}
                 disabled={isPublishing || !workflowId}
@@ -272,7 +268,7 @@ export default function WorkflowNavbar() {
           </Tooltip>
         ) : (
           <Tooltip>
-            <TooltipTrigger asChild>
+            <TooltipTrigger>
               <button
                 onClick={() => publish()}
                 disabled={isPublishing || !workflowId}
@@ -322,12 +318,37 @@ export default function WorkflowNavbar() {
           {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
         </button>
 
+        <ToolbarSeparator />
+
+        {/* Status info */}
+        <span className="text-[11px] text-muted-foreground select-none whitespace-nowrap">
+          {nodeCount} nodes · {edgeCount} edges
+        </span>
+        {isRunning && (
+          <span className="flex items-center gap-1 text-[11px] text-[var(--warning)]">
+            <Loader2 size={11} className="animate-spin" />
+            Running
+          </span>
+        )}
+        {!isRunning && hasErrors && (
+          <span className="flex items-center gap-1 text-[11px] text-destructive">
+            <XCircle size={11} />
+            Failed
+          </span>
+        )}
+        {allSuccess && (
+          <span className="flex items-center gap-1 text-[11px] text-[var(--success)]">
+            <CheckCircle2 size={11} />
+            <Clock size={10} />
+            {totalDuration}ms
+          </span>
+        )}
+        <span className="text-[11px] text-muted-foreground select-none">{Math.round(zoom * 100)}%</span>
+
         {/* More options */}
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className={btnClass}>
-              <MoreHorizontal size={14} />
-            </button>
+          <DropdownMenuTrigger className={btnClass}>
+            <MoreHorizontal size={14} />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem>
@@ -364,10 +385,6 @@ export default function WorkflowNavbar() {
               <Upload size={14} className="mr-2" />
               Import
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setIsWorkflowPickerOpen(true)}>
-              <GitBranch size={14} className="mr-2" />
-              Embed Subworkflow
-            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem className="text-destructive focus:text-destructive">
               <Trash2 size={14} className="mr-2" />
@@ -386,14 +403,6 @@ export default function WorkflowNavbar() {
         onChange={handleImport}
       />
 
-      {/* Workflow picker dialog for embedding subworkflows */}
-      <WorkflowPickerDialog
-        open={isWorkflowPickerOpen}
-        onClose={() => setIsWorkflowPickerOpen(false)}
-        onEmbed={(id, name) => addSubworkflowNode(id, name)}
-        onCopy={(name, definition) => copyWorkflowNodes(name, definition)}
-        currentWorkflowId={workflowId}
-      />
     </>
   );
 }

@@ -104,31 +104,6 @@ export function isTriggerType(type: string, nodeTypesMap?: Map<string, { inputCo
 }
 
 // ============================================================================
-// Subnode Slot Names
-// ============================================================================
-
-/**
- * Target handle names that identify subnode connections.
- * Used for connection validation and edge filtering.
- */
-export const SUBNODE_SLOT_NAMES = ['chatModel', 'memory', 'tools'] as const;
-
-// ============================================================================
-// Subnode Display Labels
-// ============================================================================
-
-/**
- * Display label for subnodes. Shows the primary parameter value
- * (e.g. model id) instead of the generic type name.
- */
-export function getSubnodeDisplayLabel(data: { label: string; subnodeType?: string; parameters?: Record<string, unknown> }): string {
-  if (data.subnodeType === 'model' && data.parameters?.model) {
-    return String(data.parameters.model);
-  }
-  return data.label;
-}
-
-// ============================================================================
 // Node Groups (for styling)
 // ============================================================================
 

@@ -30,8 +30,6 @@ export interface BackendConnection {
   source_output: string;
   target_node: string;
   target_input: string;
-  connection_type?: 'normal' | 'subnode';
-  slot_name?: string;
   waypoints?: Array<{ x: number; y: number }>;
 }
 
@@ -118,24 +116,12 @@ export interface ApiWorkflowDetail {
       group?: string[];
       // Icon from node registry (e.g. "fa:bot")
       icon?: string;
-      // Subnode properties
-      isSubnode?: boolean;
-      subnodeType?: 'model' | 'memory' | 'tool';
-      subnodeSlots?: Array<{
-        name: string;
-        displayName: string;
-        slotType: 'model' | 'memory' | 'tool';
-        required: boolean;
-        multiple: boolean;
-      }>;
     }>;
     connections: Array<{
       source_node: string;
       target_node: string;
       source_output: string;
       target_input: string;
-      connection_type?: 'normal' | 'subnode';
-      slot_name?: string;
       waypoints?: Array<{ x: number; y: number }>;
     }>;
   };

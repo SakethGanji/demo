@@ -25,11 +25,6 @@ class NodeTypeInfo:
     outputs: list[dict[str, Any]] | None = None
     input_strategy: dict[str, Any] | None = None
     output_strategy: dict[str, Any] | None = None
-    # Subnode fields
-    is_subnode: bool = False
-    subnode_type: str | None = None
-    provides_to_slot: str | None = None
-    subnode_slots: list[dict[str, Any]] | None = None
 
 
 class NodeRegistryClass:
@@ -124,20 +119,6 @@ class NodeRegistryClass:
         # Convert properties to dict format
         properties = self._convert_properties(desc.properties) if desc else []
 
-        # Build subnode slots list
-        subnode_slots = None
-        if desc and desc.subnode_slots:
-            subnode_slots = [
-                {
-                    "name": slot.name,
-                    "displayName": slot.display_name,
-                    "slotType": slot.slot_type,
-                    "required": slot.required,
-                    "multiple": slot.multiple,
-                }
-                for slot in desc.subnode_slots
-            ]
-
         return NodeTypeInfo(
             type=instance.type,
             display_name=desc.display_name if desc else instance.type,
@@ -151,11 +132,6 @@ class NodeRegistryClass:
             outputs=outputs if output_count != "dynamic" else None,
             input_strategy=desc.input_strategy if desc else None,
             output_strategy=desc.output_strategy if desc else None,
-            # Subnode fields
-            is_subnode=desc.is_subnode if desc else False,
-            subnode_type=desc.subnode_type if desc else None,
-            provides_to_slot=desc.provides_to_slot if desc else None,
-            subnode_slots=subnode_slots,
         )
 
     def _convert_properties(self, properties: list) -> list[dict[str, Any]]:
@@ -256,37 +232,6 @@ def register_all_nodes() -> None:
         ChatInputNode,
     )
 
-    # Import subnode types
-    from ..nodes.subnodes import (
-        LLMModelNode,
-        # Memory subnodes
-        SimpleMemoryNode,
-        SQLiteMemoryNode,
-        BufferMemoryNode,
-        TokenBufferMemoryNode,
-        ConversationWindowMemoryNode,
-        SummaryMemoryNode,
-        SummaryBufferMemoryNode,
-        ProgressiveSummaryMemoryNode,
-        VectorMemoryNode,
-        EntityMemoryNode,
-        KnowledgeGraphMemoryNode,
-        # Tool subnodes
-        CalculatorToolNode,
-        CurrentTimeToolNode,
-        RandomNumberToolNode,
-        TextToolNode,
-        HttpRequestToolNode,
-        CodeToolNode,
-        WorkflowToolNode,
-        Neo4jQueryToolNode,
-        DataProfileToolNode,
-        DataAggregateToolNode,
-        DataSampleToolNode,
-        DataReportToolNode,
-    )
-
-    # All node classes (regular nodes + subnodes)
     all_node_classes: list[type[BaseNode]] = [
         # Triggers
         StartNode,
@@ -331,31 +276,6 @@ def register_all_nodes() -> None:
         AIAgentNode,
         # UI
         ChatInputNode,
-        # Subnodes
-        LLMModelNode,
-        SimpleMemoryNode,
-        SQLiteMemoryNode,
-        BufferMemoryNode,
-        TokenBufferMemoryNode,
-        ConversationWindowMemoryNode,
-        SummaryMemoryNode,
-        SummaryBufferMemoryNode,
-        ProgressiveSummaryMemoryNode,
-        VectorMemoryNode,
-        EntityMemoryNode,
-        KnowledgeGraphMemoryNode,
-        CalculatorToolNode,
-        CurrentTimeToolNode,
-        RandomNumberToolNode,
-        TextToolNode,
-        HttpRequestToolNode,
-        CodeToolNode,
-        WorkflowToolNode,
-        Neo4jQueryToolNode,
-        DataProfileToolNode,
-        DataAggregateToolNode,
-        DataSampleToolNode,
-        DataReportToolNode,
     ]
 
     for node_class in all_node_classes:

@@ -1,5 +1,5 @@
 import { memo, useState, useMemo, useCallback } from 'react';
-import { Database, Code, Pin, Clock, Zap, Globe, GitBranch, Table2, Download } from 'lucide-react';
+import { Database, Code, Pin, Clock, Zap, Globe, GitBranch, Download } from 'lucide-react';
 import type { NodeExecutionData } from '../../types/workflow';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useNDVStore } from '../../stores/ndvStore';
@@ -10,7 +10,7 @@ interface OutputPanelProps {
   executionData: NodeExecutionData | null;
 }
 
-type DisplayMode = 'json' | 'schema' | 'table';
+type DisplayMode = 'json' | 'schema';
 
 const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputPanelProps) {
   const storedOutputMode = useNDVStore((s) => s.outputDisplayMode);
@@ -45,20 +45,6 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
   const hasError = executionData?.output?.error;
   const itemCount = executionData?.output?.items?.length ?? 0;
   const metrics = executionData?.metrics;
-
-  // Detect tabular data: first output item has a `data` field that's an array of objects
-  const tabularData = useMemo(() => {
-    const items = displayData;
-    if (!items || items.length === 0) return null;
-    const first = items[0] as Record<string, unknown>;
-    if (first && Array.isArray(first.data)) {
-      const arr = first.data as unknown[];
-      if (arr.length > 0 && typeof arr[0] === 'object' && arr[0] !== null && !Array.isArray(arr[0])) {
-        return arr as Record<string, unknown>[];
-      }
-    }
-    return null;
-  }, [displayData]);
 
   // Detect PDF base64 in output
   const pdfBase64 = useMemo(() => {
@@ -178,7 +164,7 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
               onClick={() => { setDisplayMode('schema'); useNDVStore.getState().setOutputDisplayMode('schema'); }}
               className={`rounded-sm p-1.5 transition-colors ${
                 displayMode === 'schema'
-                  ? 'bg-background shadow-xs text-foreground'
+                  ? 'bg-[var(--surface)] shadow-xs text-foreground'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
               title="Schema view"
@@ -189,26 +175,13 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
               onClick={() => { setDisplayMode('json'); useNDVStore.getState().setOutputDisplayMode('json'); }}
               className={`rounded-sm p-1.5 transition-colors ${
                 displayMode === 'json'
-                  ? 'bg-background shadow-xs text-foreground'
+                  ? 'bg-[var(--surface)] shadow-xs text-foreground'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
               title="JSON view"
             >
               <Code size={13} />
             </button>
-            {tabularData && (
-              <button
-                onClick={() => { setDisplayMode('table'); useNDVStore.getState().setOutputDisplayMode('table'); }}
-                className={`rounded-sm p-1.5 transition-colors ${
-                  displayMode === 'table'
-                    ? 'bg-background shadow-xs text-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-                title="Table view"
-              >
-                <Table2 size={13} />
-              </button>
-            )}
           </div>
         </div>
       </div>
@@ -243,7 +216,6 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
           <RunDataDisplay
             data={displayData}
             mode={displayMode}
-            tabularData={tabularData}
           />
         ) : (
           <div className="flex h-full flex-col items-center justify-center text-center px-6">

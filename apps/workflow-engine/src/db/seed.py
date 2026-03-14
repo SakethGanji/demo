@@ -395,14 +395,11 @@ EXAMPLE_WORKFLOWS = [
                     },
                     "position": {"x": 1000, "y": 300},
                 },
-                # Model subnode
-                {"name": "Gemini Flash", "type": "LLMModel", "parameters": {"model": "gemini-2.0-flash", "temperature": 0.3, "maxTokens": 8192}, "position": {"x": 650, "y": 500}},
             ],
             "connections": [
                 {"source_node": "Webhook", "target_node": "Input"},
                 {"source_node": "Input", "target_node": "Prompt Evaluator"},
                 {"source_node": "Prompt Evaluator", "target_node": "Respond"},
-                {"source_node": "Gemini Flash", "target_node": "Prompt Evaluator", "connection_type": "subnode", "slot_name": "chatModel"},
             ],
             "settings": {},
         },

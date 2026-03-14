@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { ScrollText, Trash2 } from 'lucide-react'
 import { cn } from '@/shared/lib/utils'
-import { ValueInspector } from '@/shared/components/ui/value-inspector'
 import { useConsoleStore, type ConsoleEntry } from './stores'
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -33,8 +32,8 @@ function ConsoleEntryRow({ entry }: { entry: ConsoleEntry }) {
       <span className="text-muted-foreground shrink-0">[{entry.source}]</span>
       <span className="text-foreground break-all">{entry.message}</span>
       {entry.detail !== undefined && (
-        <span className="ml-auto shrink-0">
-          <ValueInspector value={entry.detail} defaultExpandDepth={0} size="compact" />
+        <span className="ml-auto shrink-0 text-muted-foreground">
+          {JSON.stringify(entry.detail)}
         </span>
       )}
     </div>
@@ -84,7 +83,7 @@ function ConsoleTab() {
 
 export function BottomPanel() {
   return (
-    <div className="editor-chrome h-full flex flex-col bg-card">
+    <div className="h-full flex flex-col bg-card">
       <ConsoleTab />
     </div>
   )

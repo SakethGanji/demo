@@ -63,10 +63,6 @@ class ConnectionSchema(BaseModel):
     target_node: str = Field(..., description="Target node name")
     source_output: str = Field("main", description="Source output name")
     target_input: str = Field("main", description="Target input name")
-    connection_type: Literal["normal", "subnode"] = Field(
-        "normal", description="Connection type: normal for data flow, subnode for configuration"
-    )
-    slot_name: str | None = Field(None, description="Slot name for subnode connections")
     waypoints: list[dict[str, float]] | None = Field(None, description="Manual edge routing waypoints [{x, y}]")
 
     class Config:
@@ -76,7 +72,6 @@ class ConnectionSchema(BaseModel):
                 "target_node": "http_request_1",
                 "source_output": "main",
                 "target_input": "main",
-                "connection_type": "normal",
             }
         }
 
@@ -88,8 +83,6 @@ class ConnectionSchema(BaseModel):
             target_node=self.target_node,
             source_output=self.source_output,
             target_input=self.target_input,
-            connection_type=self.connection_type,
-            slot_name=self.slot_name,
             waypoints=self.waypoints,
         )
 

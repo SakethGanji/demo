@@ -1,6 +1,6 @@
 import { memo, useState, useMemo, useCallback } from 'react';
 import { Database, Code, ChevronDown, ChevronUp, Copy, Check, Settings } from 'lucide-react';
-import type { Node, Edge } from 'reactflow';
+import type { Node, Edge } from '@xyflow/react';
 import type { NodeExecutionData } from '../../types/workflow';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useNDVStore } from '../../stores/ndvStore';
@@ -20,24 +20,23 @@ function getAllUpstreamNodes(nodeId: string, nodes: Node[], edges: Edge[]): Upst
   const result: UpstreamNode[] = [];
   const visited = new Set<string>();
   const immediateSourceId = edges.find(
-    (e) => e.target === nodeId && !e.data?.isSubnodeEdge
-  )?.source;
+    (e) => e.target === nodeId   )?.source;
 
   function traverse(currentId: string) {
     if (visited.has(currentId)) return;
     visited.add(currentId);
     const incomingEdges = edges.filter(
-      (e) => e.target === currentId && !e.data?.isSubnodeEdge
-    );
+      (e) => e.target === currentId     );
     for (const edge of incomingEdges) {
       const sourceNode = nodes.find((n) => n.id === edge.source);
       if (sourceNode && sourceNode.type === 'workflowNode') {
         traverse(sourceNode.id);
         if (!result.find((n) => n.id === sourceNode.id)) {
+          const d = sourceNode.data as { name?: string; label?: string };
           result.push({
             id: sourceNode.id,
-            name: sourceNode.data.name || sourceNode.data.label,
-            label: sourceNode.data.label,
+            name: d.name || d.label || '',
+            label: d.label || '',
             isImmediate: sourceNode.id === immediateSourceId,
           });
         }
@@ -72,7 +71,7 @@ const SYSTEM_VARIABLES = [
 const InputPanel = memo(function InputPanel({ nodeId, executionData }: InputPanelProps) {
   const storedInputMode = useNDVStore((s) => s.inputDisplayMode);
   const [displayMode, setDisplayMode] = useState<DisplayMode>(
-    storedInputMode === 'table' ? 'schema' : storedInputMode as DisplayMode
+    storedInputMode as DisplayMode
   );
   const [showSystemVars, setShowSystemVars] = useState(false);
 
@@ -163,7 +162,7 @@ const InputPanel = memo(function InputPanel({ nodeId, executionData }: InputPane
             <select
               value={effectiveSelectedNode?.id || ''}
               onChange={(e) => setSelectedNodeId(e.target.value || null)}
-              className="w-full text-[12px] font-medium bg-background border border-border/60 rounded px-2 h-6 focus:outline-none focus:ring-1 focus:ring-ring/30 focus:border-ring truncate"
+              className="w-full text-[12px] font-medium bg-[var(--surface)] border border-border/60 rounded px-2 h-6 focus:outline-none focus:ring-1 focus:ring-ring/30 focus:border-ring truncate"
             >
               {upstreamNodes.map((node) => (
                 <option key={node.id} value={node.id}>
@@ -192,7 +191,7 @@ const InputPanel = memo(function InputPanel({ nodeId, executionData }: InputPane
             onClick={() => { setDisplayMode('schema'); useNDVStore.getState().setInputDisplayMode('schema'); }}
             className={`rounded-sm p-1.5 transition-colors ${
               displayMode === 'schema'
-                ? 'bg-background shadow-xs text-foreground'
+                ? 'bg-[var(--surface)] shadow-xs text-foreground'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
             title="Schema view"
@@ -203,7 +202,7 @@ const InputPanel = memo(function InputPanel({ nodeId, executionData }: InputPane
             onClick={() => { setDisplayMode('json'); useNDVStore.getState().setInputDisplayMode('json'); }}
             className={`rounded-sm p-1.5 transition-colors ${
               displayMode === 'json'
-                ? 'bg-background shadow-xs text-foreground'
+                ? 'bg-[var(--surface)] shadow-xs text-foreground'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
             title="JSON view"
@@ -286,7 +285,7 @@ const InputPanel = memo(function InputPanel({ nodeId, executionData }: InputPane
 
         {showSystemVars && (
           <div className="px-3 pb-3">
-            <div className="rounded border border-border/40 bg-card/50 overflow-hidden">
+            <div className="rounded border border-border/40 bg-[var(--surface)]/50 overflow-hidden">
               {SYSTEM_VARIABLES.map((variable) => (
                 <SystemVariableRow key={variable.path} {...variable} />
               ))}

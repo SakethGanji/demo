@@ -4,75 +4,35 @@ import {
   useNodeById,
   useUpstreamSampleData,
   useAllNodeExecData,
-  useConnectedSubnodes,
 } from '../../hooks/useWorkflowSelectors';
 import {
   Info,
   ChevronDown,
   ChevronUp,
-  ChevronRight,
   Loader2,
-  Plus,
-  Bot,
-  Database,
-  Wrench,
-  X,
   AlertTriangle,
 } from 'lucide-react';
-import type { Node } from 'reactflow';
-import type { WorkflowNodeData, SubnodeSlotDefinition, SubnodeType } from '../../types/workflow';
+import type { Node } from '@xyflow/react';
+import type { WorkflowNodeData } from '../../types/workflow';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import DynamicNodeForm, { type NodeProperty, type OutputSchema } from './DynamicNodeForm';
 import { useNodeTypes } from '../../hooks/useNodeTypes';
 import { cn } from '@/shared/lib/utils';
 import { getNodeExtensions } from './extensions/NodeExtensions';
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogCancel,
-} from '@/shared/components/ui/alert-dialog';
 
 interface NodeSettingsProps {
   node: Node<WorkflowNodeData>;
 }
 
-// Icon mapping for subnode types
-const subnodeTypeIcons: Record<SubnodeType, typeof Bot> = {
-  model: Bot,
-  memory: Database,
-  tool: Wrench,
-};
-
-// Accent colors for subnode types — uses CSS custom properties from theme
-const subnodeTypeColors: Record<SubnodeType, string> = {
-  model: 'var(--subnode-model)',
-  memory: 'var(--subnode-memory)',
-  tool: 'var(--subnode-tool)',
-};
-
 export default function NodeSettings({ node }: NodeSettingsProps) {
   const [activeTab, setActiveTab] = useState<'parameters' | 'settings'>('parameters');
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     main: true,
-    subnodes: true,
     options: false,
   });
-  const [expandedSubnodes, setExpandedSubnodes] = useState<Record<string, boolean>>({});
-  // Inline subnode picker state
-  const [subnodePickerSlot, setSubnodePickerSlot] = useState<{
-    parentId: string;
-    slotName: string;
-    slotType: SubnodeType;
-    displayName: string;
-  } | null>(null);
 
   // Individual selectors — actions are stable refs, data only triggers re-render when it changes
   const updateNodeData = useWorkflowStore((s) => s.updateNodeData);
-  const deleteNode = useWorkflowStore((s) => s.deleteNode);
 
   const upstreamNodeId = useUpstreamNodeId(node.id);
   const upstreamNode = useNodeById(upstreamNodeId);
@@ -106,18 +66,6 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
 
   const upstreamSampleData = useUpstreamSampleData(upstreamNodeId);
   const allNodeData = useAllNodeExecData();
-  const connectedSubnodes = useConnectedSubnodes(
-    node.id,
-    node.data.subnodeSlots as SubnodeSlotDefinition[] | undefined
-  );
-
-  // Compatible subnodes for the picker dialog
-  const compatibleSubnodes = useMemo(() => {
-    if (!subnodePickerSlot || !nodeTypes) return [];
-    return nodeTypes.filter(
-      (n) => (n as Record<string, unknown>).subnodeType === subnodePickerSlot.slotType
-    );
-  }, [subnodePickerSlot, nodeTypes]);
 
   const toggleSection = (section: string) => {
     setExpandedSections((prev) => ({
@@ -210,114 +158,6 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
               )}
             </div>
 
-            {/* Connected Subnodes Section - only show if node has subnode slots */}
-            {connectedSubnodes && (
-              <div className="rounded border border-border/40">
-                <button
-                  onClick={() => toggleSection('subnodes')}
-                  className="flex w-full items-center justify-between px-3 py-1.5 text-left hover:bg-accent/50 transition-colors"
-                >
-                  <span className="text-[12px] font-medium text-foreground/80">
-                    Connected Subnodes
-                  </span>
-                  {expandedSections.subnodes ? (
-                    <ChevronUp size={14} className="text-muted-foreground" />
-                  ) : (
-                    <ChevronDown size={14} className="text-muted-foreground" />
-                  )}
-                </button>
-                {expandedSections.subnodes && (
-                  <div className="border-t border-border/30 px-3 py-2.5 space-y-3">
-                    {connectedSubnodes.slots.map((slot) => {
-                      const slotSubnodes = connectedSubnodes.slotMap[slot.name] || [];
-                      const SlotIcon = subnodeTypeIcons[slot.slotType as SubnodeType] || Wrench;
-                      const slotColor = subnodeTypeColors[slot.slotType as SubnodeType] || 'var(--muted-foreground)';
-                      const canAddMore = slot.multiple || slotSubnodes.length === 0;
-
-                      return (
-                        <div key={slot.name} className="space-y-2">
-                          {/* Slot header */}
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <SlotIcon size={14} style={{ color: slotColor }} />
-                              <span className="text-xs font-medium text-foreground">
-                                {slot.displayName}
-                                {slot.required && <span className="text-destructive ml-0.5">*</span>}
-                              </span>
-                            </div>
-                            {canAddMore && (
-                              <button
-                                onClick={() => {
-                                  setSubnodePickerSlot({
-                                    parentId: node.id,
-                                    slotName: slot.name,
-                                    slotType: slot.slotType as SubnodeType,
-                                    displayName: slot.displayName,
-                                  });
-                                }}
-                                className="flex items-center gap-1 px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent rounded transition-colors"
-                              >
-                                <Plus size={12} />
-                                Add
-                              </button>
-                            )}
-                          </div>
-
-                          {/* Connected subnodes list */}
-                          {slotSubnodes.length > 0 ? (
-                            <div className="space-y-1.5 ml-5">
-                              {slotSubnodes.map((subnode) => {
-                                const isExpanded = expandedSubnodes[subnode.id] || false;
-                                return (
-                                  <div key={subnode.id} className="space-y-0">
-                                    <div
-                                      className="flex items-center justify-between rounded-md border border-border/50 bg-muted/30 px-2.5 py-1.5 group"
-                                    >
-                                      <button
-                                        onClick={() => setExpandedSubnodes(prev => ({ ...prev, [subnode.id]: !prev[subnode.id] }))}
-                                        className="flex items-center gap-2 text-xs text-foreground hover:text-primary transition-colors"
-                                      >
-                                        {isExpanded ? (
-                                          <ChevronDown size={12} className="text-muted-foreground" />
-                                        ) : (
-                                          <ChevronRight size={12} className="text-muted-foreground" />
-                                        )}
-                                        <div
-                                          className="w-5 h-5 rounded-full flex items-center justify-center"
-                                          style={{ backgroundColor: `${slotColor}20`, color: slotColor }}
-                                        >
-                                          <SlotIcon size={10} />
-                                        </div>
-                                        <span>{subnode.data.label}</span>
-                                      </button>
-                                      <button
-                                        onClick={() => deleteNode(subnode.id)}
-                                        className="p-1 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-all"
-                                        title="Remove subnode"
-                                      >
-                                        <X size={12} />
-                                      </button>
-                                    </div>
-                                    {isExpanded && (
-                                      <SubnodeInlineForm subnode={subnode} nodeTypes={nodeTypes} />
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          ) : (
-                            <div className="ml-5 text-xs text-muted-foreground/60 italic">
-                              No {slot.displayName.toLowerCase()} connected
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-
             {/* Options Section - Error Handling */}
             <div className="rounded border border-border/40">
               <button
@@ -386,7 +226,7 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
                                 const val = Math.min(10, Math.max(1, parseInt(e.target.value) || 1));
                                 updateNodeData(node.id, { retryOnFail: val });
                               }}
-                              className="w-16 rounded-md border border-input bg-background px-2 py-1 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+                              className="w-16 rounded-md border border-input bg-[var(--surface)] px-2 py-1 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
                             />
                           </div>
                           <div>
@@ -402,7 +242,7 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
                                 const val = Math.max(0, parseInt(e.target.value) || 1000);
                                 updateNodeData(node.id, { retryDelay: val });
                               }}
-                              className="w-24 rounded-md border border-input bg-background px-2 py-1 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+                              className="w-24 rounded-md border border-input bg-[var(--surface)] px-2 py-1 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
                             />
                           </div>
                         </div>
@@ -442,7 +282,7 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
                 onChange={(e) => {
                   updateNodeData(node.id, { notes: e.target.value });
                 }}
-                className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+                className="w-full rounded-md border border-input bg-[var(--surface)] px-2 py-1.5 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
               />
             </div>
 
@@ -465,116 +305,6 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
           </div>
         )}
       </div>
-
-      {/* Inline Subnode Picker Dialog */}
-      <AlertDialog open={!!subnodePickerSlot} onOpenChange={(open) => { if (!open) setSubnodePickerSlot(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              Add {subnodePickerSlot?.displayName}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              Choose a {subnodePickerSlot?.slotType} to connect.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="mt-3 space-y-1.5 max-h-64 overflow-auto">
-            {compatibleSubnodes.map((subnodeDef) => {
-              const defAny = subnodeDef as Record<string, unknown>;
-              const SlotIcon = subnodeTypeIcons[subnodePickerSlot?.slotType as SubnodeType] || Wrench;
-              const slotColor = subnodeTypeColors[subnodePickerSlot?.slotType as SubnodeType] || 'var(--muted-foreground)';
-              return (
-                <button
-                  key={subnodeDef.type}
-                  onClick={() => {
-                    if (!subnodePickerSlot) return;
-                    const defaultParams: Record<string, unknown> = {};
-                    if (subnodeDef.properties) {
-                      for (const prop of subnodeDef.properties) {
-                        if ((prop as Record<string, unknown>).default !== undefined) {
-                          defaultParams[(prop as Record<string, unknown>).name as string] = (prop as Record<string, unknown>).default;
-                        }
-                      }
-                    }
-                    useWorkflowStore.getState().addSubnode(
-                      subnodePickerSlot.parentId,
-                      subnodePickerSlot.slotName,
-                      {
-                        type: subnodeDef.type,
-                        label: (defAny.displayName as string) || subnodeDef.type,
-                        icon: defAny.icon as string | undefined,
-                        subnodeType: subnodePickerSlot.slotType,
-                        properties: defaultParams,
-                      }
-                    );
-                    setSubnodePickerSlot(null);
-                  }}
-                  className="w-full flex items-center gap-3 rounded-md border border-border px-3 py-2.5 text-left hover:bg-accent transition-colors"
-                >
-                  <div
-                    className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
-                    style={{ backgroundColor: `${slotColor}20`, color: slotColor }}
-                  >
-                    <SlotIcon size={14} />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium text-foreground truncate">
-                      {(defAny.displayName as string) || subnodeDef.type}
-                    </div>
-                    {defAny.description && (
-                      <div className="text-xs text-muted-foreground truncate">
-                        {defAny.description as string}
-                      </div>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
-            {compatibleSubnodes.length === 0 && (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                No compatible {subnodePickerSlot?.slotType} types available.
-              </p>
-            )}
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
-  );
-}
-
-// --- Inline subnode configuration form ---
-
-interface SubnodeInlineFormProps {
-  subnode: Node<WorkflowNodeData>;
-  nodeTypes: { type: string; properties: { name: string; displayName: string; type: string; default?: unknown; required?: boolean; description?: string; options?: { name: string; value: unknown }[] }[] }[] | undefined;
-}
-
-function SubnodeInlineForm({ subnode, nodeTypes }: SubnodeInlineFormProps) {
-  const updateNodeData = useWorkflowStore((s) => s.updateNodeData);
-  const subnodeSchema = nodeTypes?.find((n) => n.type === subnode.data.type);
-
-  if (!subnodeSchema?.properties?.length) {
-    return (
-      <div className="ml-3 mt-1 rounded-md border border-border/40 bg-muted/20 px-3 py-2">
-        <p className="text-xs text-muted-foreground">No configurable parameters.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="ml-3 mt-1 rounded-md border border-border/40 bg-muted/20 px-3 py-3">
-      <DynamicNodeForm
-        properties={subnodeSchema.properties as NodeProperty[]}
-        values={(subnode.data.parameters as Record<string, unknown>) || {}}
-        onChange={(key, value) => {
-          updateNodeData(subnode.id, {
-            parameters: { ...subnode.data.parameters, [key]: value },
-          });
-        }}
-        allValues={(subnode.data.parameters as Record<string, unknown>) || {}}
-      />
     </div>
   );
 }

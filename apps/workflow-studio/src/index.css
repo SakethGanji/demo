@@ -24,6 +24,7 @@
   --border: #dee2e6;
   --input: #ced4da;
   --ring: #18a0fb;
+  --surface: #f1f3f5;
   --success: #14ae5c;
   --warning: #c4841d;
   --chart-1: #18a0fb;
@@ -54,68 +55,33 @@
   --tracking-normal: 0em;
   --spacing: 0.25rem;
 
-  /* Spacing scale */
-  --space-xs: 0.25rem;     /* 4px */
-  --space-sm: 0.5rem;      /* 8px */
-  --space-md: 0.75rem;     /* 12px */
-  --space-lg: 1rem;        /* 16px */
-  --space-xl: 1.5rem;      /* 24px */
-  --space-2xl: 2rem;       /* 32px */
-  --space-3xl: 3rem;       /* 48px */
-
-  /* Semantic spacing */
-  --space-panel: var(--space-md);       /* Panel inner padding */
-  --space-section: var(--space-xl);     /* Between major sections */
-  --space-element: var(--space-sm);     /* Between related elements */
-  --space-inline: var(--space-xs);      /* Inline element spacing */
-  --space-card: var(--space-md);        /* Card internal padding */
-
-  /* Canvas floating surfaces */
-  --canvas-float: #ffffff;
-  --canvas-float-foreground: #343a40;
-  --canvas-float-hover: #f1f3f5;
-  --canvas-float-border: #dee2e6;
-
-  /* Node group colors — light mode: tinted pastel body, white icon circle, vivid icon SVG */
+  /* Node colors */
+  --node-bg: var(--surface);
   --node-trigger: #e8264d;
-  --node-trigger-light: #f1f3f5;
   --node-trigger-border: #ffb3c1;
   --node-trigger-icon-bg: #ffffff;
   --node-trigger-icon-fg: #c9183d;
   --node-transform: #0a6fdb;
-  --node-transform-light: #f1f3f5;
   --node-transform-border: #a3d0ff;
   --node-transform-icon-bg: #ffffff;
   --node-transform-icon-fg: #0055aa;
   --node-flow: #9b40e0;
-  --node-flow-light: #f1f3f5;
   --node-flow-border: #d4a8ff;
   --node-flow-icon-bg: #ffffff;
   --node-flow-icon-fg: #7a2abf;
   --node-ai: #1aabe0;
-  --node-ai-light: #f1f3f5;
   --node-ai-border: #a0e0f8;
   --node-ai-icon-bg: #ffffff;
   --node-ai-icon-fg: #0f8abf;
   --node-action: #1aad45;
-  --node-action-light: #f1f3f5;
   --node-action-border: #86efac;
   --node-action-icon-bg: #ffffff;
   --node-action-icon-fg: #128a35;
   --node-output: #e08a00;
-  --node-output-light: #f1f3f5;
   --node-output-border: #ffd580;
   --node-output-icon-bg: #ffffff;
   --node-output-icon-fg: #b36e00;
-  --node-subworkflow: #6b64cc;
-  --node-subworkflow-light: #f1f3f5;
-  --node-subworkflow-border: #c4bfff;
-  --node-subworkflow-icon-bg: #ffffff;
-  --node-subworkflow-icon-fg: #4f49a6;
   --node-handle: #9ca3af;
-  --subnode-model: #0f8abf;
-  --subnode-memory: #7a2abf;
-  --subnode-tool: #128a35;
 
   /* Sticky note colors */
   --sticky-yellow-bg: #fef9c3;
@@ -160,6 +126,7 @@
   --border: #2a2a2a;
   --input: #2a2a2a;
   --ring: #18a0fb;
+  --surface: #1a1a1a;
   --success: #14ae5c;
   --warning: #d4a053;
   --chart-1: #18a0fb;
@@ -184,54 +151,35 @@
   --shadow-xl: 0 4px 8px 0 rgb(0 0 0 / 0.06), 0 16px 44px -8px rgb(0 0 0 / 0.22), 0 0 1px 0 rgb(0 0 0 / 0.1);
   --shadow-2xl: 0 8px 16px 0 rgb(0 0 0 / 0.08), 0 24px 60px -12px rgb(0 0 0 / 0.3), 0 0 1px 0 rgb(0 0 0 / 0.1);
 
-  /* Canvas floating surfaces — matches card/sidebar for cohesion */
-  --canvas-float: #1c1c1c;
-  --canvas-float-foreground: #e5e5e5;
-  --canvas-float-hover: #262626;
-  --canvas-float-border: #2a2a2a;
-
-  /* Node group colors - dark mode (vibrant neon on near-black) */
+  /* Node colors — dark mode */
+  --node-bg: var(--surface);
   --node-trigger: #ff2d55;
-  --node-trigger-light: #1c1c1c;
   --node-trigger-border: #3d1a28;
   --node-trigger-icon-bg: #d41a45;
   --node-trigger-icon-fg: #ffffff;
   --node-transform: #0a84ff;
-  --node-transform-light: #1c1c1c;
   --node-transform-border: #1a2d4a;
   --node-transform-icon-bg: #0066cc;
   --node-transform-icon-fg: #ffffff;
   --node-flow: #bf5af2;
-  --node-flow-light: #1c1c1c;
   --node-flow-border: #2d1a4a;
   --node-flow-icon-bg: #9935d6;
   --node-flow-icon-fg: #ffffff;
   --node-ai: #64d2ff;
-  --node-ai-light: #1c1c1c;
   --node-ai-border: #1a3040;
   --node-ai-icon-bg: #40a8d4;
   --node-ai-icon-fg: #ffffff;
   --node-action: #30d158;
-  --node-action-light: #1c1c1c;
   --node-action-border: #1a3d22;
   --node-action-icon-bg: #24a643;
   --node-action-icon-fg: #ffffff;
   --node-output: #ff9f0a;
-  --node-output-light: #1c1c1c;
   --node-output-border: #3d2d1a;
   --node-output-icon-bg: #cc7e08;
   --node-output-icon-fg: #ffffff;
-  --node-subworkflow: #8e8ce6;
-  --node-subworkflow-light: #1c1c1c;
-  --node-subworkflow-border: #262640;
-  --node-subworkflow-icon-bg: #6664b8;
-  --node-subworkflow-icon-fg: #ffffff;
   --node-handle: #666666;
-  --subnode-model: #64d2ff;
-  --subnode-memory: #bf5af2;
-  --subnode-tool: #30d158;
 
-  /* Sticky note colors - dark mode */
+  /* Sticky note colors — dark mode */
   --sticky-yellow-bg: #422006;
   --sticky-yellow-border: #854d0e;
   --sticky-yellow-text: #fef9c3;
@@ -297,20 +245,6 @@
   --radius-lg: calc(var(--radius) + 2px);
   --radius-xl: calc(var(--radius) + 4px);
 
-  /* Semantic spacing — usable as p-panel, gap-section, m-element, etc. */
-  --spacing-xs: var(--space-xs);
-  --spacing-sm: var(--space-sm);
-  --spacing-md: var(--space-md);
-  --spacing-lg: var(--space-lg);
-  --spacing-xl: var(--space-xl);
-  --spacing-2xl: var(--space-2xl);
-  --spacing-3xl: var(--space-3xl);
-  --spacing-panel: var(--space-panel);
-  --spacing-section: var(--space-section);
-  --spacing-element: var(--space-element);
-  --spacing-inline: var(--space-inline);
-  --spacing-card: var(--space-card);
-
   --shadow-2xs: var(--shadow-2xs);
   --shadow-xs: var(--shadow-xs);
   --shadow-sm: var(--shadow-sm);
@@ -345,519 +279,120 @@
     font-size: 13px;
   }
 
-  /* Ensure form elements use themed text color */
-  input,
-  textarea,
-  select {
+  input, textarea, select {
     color: var(--foreground);
   }
 
-  html,
-  body,
-  #root {
+  html, body, #root {
     height: 100%;
     width: 100%;
     margin: 0;
     padding: 0;
   }
 
-  /* ── Branded text selection ── */
   ::selection {
-    background-color: rgba(24, 160, 251, 0.2);
+    background-color: color-mix(in srgb, var(--primary) 20%, transparent);
     color: inherit;
   }
 
-  /* ── Custom scrollbars (Figma-style thin, auto-fading) ── */
-  ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
+  /* Scrollbars */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--foreground) 12%, transparent); border-radius: 3px; transition: background 0.2s; }
+  ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--foreground) 22%, transparent); }
+  * { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--foreground) 12%, transparent) transparent; }
 
-  ::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  ::-webkit-scrollbar-thumb {
-    background: rgba(0, 0, 0, 0.15);
-    border-radius: 3px;
-  }
-
-  ::-webkit-scrollbar-thumb:hover {
-    background: rgba(0, 0, 0, 0.25);
-  }
-
-  .dark ::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.12);
-  }
-
-  .dark ::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.2);
-  }
-
-  /* Hide scrollbar on scroll containers until hovered */
-  ::-webkit-scrollbar-thumb {
-    transition: background 0.2s;
-  }
-
-  /* Firefox scrollbar */
-  * {
-    scrollbar-width: thin;
-    scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
-  }
-
-  .dark * {
-    scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
-  }
-
-  /* ── Button micro-interactions ── */
-  button:not(:disabled):active,
-  [role="button"]:not(:disabled):active {
-    transform: scale(0.98);
-  }
-
-  /* ── Styled native form controls ── */
-  input[type="checkbox"] {
-    accent-color: var(--primary);
-    border-radius: 3px;
-  }
-
-  input[type="radio"] {
-    accent-color: var(--primary);
-  }
-
-  /* Hide number input spinners for cleaner look */
-  input[type="number"]::-webkit-inner-spin-button,
-  input[type="number"]::-webkit-outer-spin-button {
-    -webkit-appearance: none;
-    margin: 0;
-  }
-
-  input[type="number"] {
-    -moz-appearance: textfield;
-  }
-
-  /* ── Consistent textarea styling ── */
-  textarea {
-    font-family: var(--font-sans);
-    font-size: 13px;
-  }
-
-  /* ── Select element styling ── */
-  select {
-    font-family: var(--font-sans);
-    font-size: 13px;
-    cursor: pointer;
-  }
-
-  /* ── Inline code styling ── */
-  code:not(pre code) {
-    font-family: var(--font-mono);
-    font-size: 0.9em;
-  }
-
-  /* ── Kbd (keyboard shortcut) styling ── */
-  kbd {
-    font-family: var(--font-sans);
-    font-weight: 500;
-  }
-
-  /* ── Smooth focus transitions everywhere ── */
-  *:focus-visible {
-    transition: box-shadow 0.15s ease, border-color 0.15s ease;
-  }
-
-  /* ── Placeholder consistency ── */
-  ::placeholder {
-    color: var(--muted-foreground);
-    opacity: 0.6;
-  }
+  /* Micro-interactions */
+  button:not(:disabled):active, [role="button"]:not(:disabled):active { transform: scale(0.98); }
+  input[type="checkbox"] { accent-color: var(--primary); border-radius: 3px; }
+  input[type="radio"] { accent-color: var(--primary); }
+  input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type="number"] { -moz-appearance: textfield; }
+  textarea { font-family: var(--font-sans); font-size: 13px; }
+  select { font-family: var(--font-sans); font-size: 13px; cursor: pointer; }
+  code:not(pre code) { font-family: var(--font-mono); font-size: 0.9em; }
+  kbd { font-family: var(--font-sans); font-weight: 500; }
+  *:focus-visible { transition: box-shadow 0.15s ease, border-color 0.15s ease; }
+  ::placeholder { color: var(--muted-foreground); opacity: 0.6; }
 }
 
-
-/* ── Editor chrome — light mode (clean VS Code / Figma inspired) ── */
-:root .editor-chrome {
-  --background: #ffffff;
-  --foreground: #343a40;
-  color: var(--foreground);
-  --card: #ffffff;
-  --card-foreground: #343a40;
-  --popover: #ffffff;
-  --popover-foreground: #343a40;
-  --muted: #f1f3f5;
-  --muted-foreground: #868e96;
-  --accent: #f1f3f5;
-  --accent-foreground: #343a40;
-  --secondary: #f1f3f5;
-  --secondary-foreground: #343a40;
-  --border: #dee2e6;
-  --input: #dee2e6;
-  --ring: #18a0fb;
-}
-
-/* ── Editor chrome — dark mode (reuses sidebar palette) ── */
-.dark .editor-chrome {
-  --background: #161616;
-  --foreground: #e5e5e5;
-  color: var(--foreground);
-  --card: #1c1c1c;
-  --card-foreground: #e5e5e5;
-  --popover: #1c1c1c;
-  --popover-foreground: #e5e5e5;
-  --muted: #262626;
-  --muted-foreground: #999;
-  --accent: #262626;
-  --accent-foreground: #e5e5e5;
-  --secondary: #262626;
-  --secondary-foreground: #e5e5e5;
-  --border: #2a2a2a;
-  --input: #2a2a2a;
-  --ring: #18a0fb;
-}
-
-/* Prose inside chrome always needs light-on-dark text */
-.editor-chrome :where(.prose) {
-  --tw-prose-body: var(--foreground);
-  --tw-prose-headings: var(--foreground);
-  --tw-prose-lead: var(--muted-foreground);
-  --tw-prose-links: var(--primary);
-  --tw-prose-bold: var(--foreground);
-  --tw-prose-counters: var(--muted-foreground);
-  --tw-prose-bullets: var(--muted-foreground);
-  --tw-prose-hr: var(--border);
-  --tw-prose-quotes: var(--foreground);
-  --tw-prose-quote-borders: var(--border);
-  --tw-prose-captions: var(--muted-foreground);
-  --tw-prose-code: var(--foreground);
-  --tw-prose-pre-code: var(--foreground);
-  --tw-prose-pre-bg: var(--muted);
-  --tw-prose-th-borders: var(--border);
-  --tw-prose-td-borders: var(--border);
-}
-
-/* ── Global smooth transitions ── */
-button,
-a,
-input,
-select,
-textarea,
-[role="button"] {
+/* ── Global transitions ── */
+button, a, input, select, textarea, [role="button"] {
   transition-property: color, background-color, border-color, box-shadow, opacity, transform;
   transition-duration: 0.15s;
   transition-timing-function: ease;
 }
 
-/* ── NDV resize handle hit area (wider invisible target) ── */
-[data-slot="dialog-content"] [data-panel-resize-handle-id] {
-  position: relative;
-}
-[data-slot="dialog-content"] [data-panel-resize-handle-id]::before {
-  content: '';
-  position: absolute;
-  inset: 0 -3px;
-  cursor: col-resize;
-}
+/* ── Panel resize handles ── */
+[data-panel-resize-handle-id] { transition: background-color 0.15s ease; }
+[data-panel-resize-handle-id]:hover { background-color: var(--primary) !important; opacity: 0.5; }
+[data-panel-resize-handle-id]:active, [data-panel-resize-handle-id][data-resize-handle-active] { background-color: var(--primary) !important; opacity: 1; }
 
-/* ── Panel resize handles (react-resizable-panels) ── */
-[data-panel-resize-handle-id] {
-  transition: background-color 0.15s ease;
-}
+/* NDV resize handle hit area */
+[data-slot="dialog-content"] [data-panel-resize-handle-id] { position: relative; }
+[data-slot="dialog-content"] [data-panel-resize-handle-id]::before { content: ''; position: absolute; inset: 0 -3px; cursor: col-resize; }
 
-[data-panel-resize-handle-id]:hover {
-  background-color: var(--primary) !important;
-  opacity: 0.5;
-}
-
-[data-panel-resize-handle-id]:active,
-[data-panel-resize-handle-id][data-resize-handle-active] {
-  background-color: var(--primary) !important;
-  opacity: 1;
-}
-
-/* React Flow overrides */
-.react-flow__node {
-  cursor: pointer;
-}
-
-.react-flow__node.react-flow__node-addNodes {
-  cursor: default;
-}
-
-.react-flow__node .nodrag {
-  cursor: pointer;
-}
+/* ── React Flow overrides ── */
+.react-flow__node { cursor: pointer; }
+.react-flow__node.react-flow__node-addNodes { cursor: default; }
+.react-flow__node .nodrag { cursor: pointer; }
+.react-flow__node.selected { outline: none !important; }
+.react-flow__node-addNodes { pointer-events: all !important; }
 
 .react-flow__selection {
-  background: rgba(24, 160, 251, 0.06) !important;
-  border: 1px dashed rgba(24, 160, 251, 0.4) !important;
+  background: color-mix(in srgb, var(--primary) 8%, transparent) !important;
+  border: 1px dashed color-mix(in srgb, var(--primary) 40%, transparent) !important;
   border-radius: var(--radius);
-}
-
-.dark .react-flow__selection {
-  background: rgba(24, 160, 251, 0.1) !important;
-  border: 1px dashed rgba(24, 160, 251, 0.4) !important;
-  border-radius: var(--radius);
-}
-
-.react-flow__node.selected {
-  outline: none !important;
 }
 
 .react-flow__controls {
   box-shadow: var(--shadow-md) !important;
   border-radius: var(--radius-lg) !important;
-  border: 1px solid var(--canvas-float-border) !important;
+  border: 1px solid var(--border) !important;
   overflow: hidden;
 }
-
 .react-flow__controls-button {
-  background-color: var(--canvas-float) !important;
-  color: var(--canvas-float-foreground) !important;
-  border-bottom: 1px solid var(--canvas-float-border) !important;
+  background-color: var(--card) !important;
+  color: var(--foreground) !important;
+  border-bottom: 1px solid var(--border) !important;
 }
-
-.react-flow__controls-button:hover {
-  background-color: var(--canvas-float-hover) !important;
-}
-
-.react-flow__controls-button svg {
-  fill: currentColor !important;
-}
+.react-flow__controls-button:hover { background-color: var(--muted) !important; }
+.react-flow__controls-button svg { fill: currentColor !important; }
 
 .react-flow__minimap {
   box-shadow: var(--shadow-md) !important;
   border-radius: var(--radius-lg) !important;
-  border: 1px solid var(--canvas-float-border) !important;
+  border: 1px solid var(--border) !important;
   overflow: hidden;
 }
 
-.react-flow__node-addNodes {
-  pointer-events: all !important;
-}
-
-/* Animations */
+/* ── Animations ── */
 @keyframes badge-pop {
-  0% {
-    transform: scale(0);
-    opacity: 0;
-  }
-
-  50% {
-    transform: scale(1.2);
-  }
-
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
+  0% { transform: scale(0); opacity: 0; }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); opacity: 1; }
 }
+.animate-badge-pop { animation: badge-pop 0.3s ease-out forwards; }
 
-.animate-badge-pop {
-  animation: badge-pop 0.3s ease-out forwards;
-}
-
-/* Edge flow animation for running edges */
 @keyframes flowAnimation {
-  from {
-    stroke-dashoffset: 24;
-  }
-
-  to {
-    stroke-dashoffset: 0;
-  }
+  from { stroke-dashoffset: 24; }
+  to { stroke-dashoffset: 0; }
 }
 
-/* ── Node execution state animations (clean ring-based, no blur) ── */
 @keyframes node-running-ring {
-  0%, 100% {
-    box-shadow: 0 0 0 2px var(--ring-color);
-    opacity: 0.35;
-  }
-  50% {
-    box-shadow: 0 0 0 4px var(--ring-color);
-    opacity: 0.7;
-  }
+  0%, 100% { box-shadow: 0 0 0 2px var(--ring-color); opacity: 0.35; }
+  50% { box-shadow: 0 0 0 4px var(--ring-color); opacity: 0.7; }
 }
 
 @keyframes node-success-ring {
-  0% {
-    box-shadow: 0 0 0 0 var(--success);
-    opacity: 0.6;
-  }
-  100% {
-    box-shadow: 0 0 0 8px var(--success);
-    opacity: 0;
-  }
+  0% { box-shadow: 0 0 0 0 var(--success); opacity: 0.6; }
+  100% { box-shadow: 0 0 0 8px var(--success); opacity: 0; }
 }
 
 @keyframes node-error-ring {
-  0% {
-    box-shadow: 0 0 0 0 var(--destructive);
-    opacity: 0.5;
-  }
-  50% {
-    box-shadow: 0 0 0 3px var(--destructive);
-    opacity: 0.3;
-  }
-  100% {
-    box-shadow: 0 0 0 0 var(--destructive);
-    opacity: 0;
-  }
+  0% { box-shadow: 0 0 0 0 var(--destructive); opacity: 0.5; }
+  50% { box-shadow: 0 0 0 3px var(--destructive); opacity: 0.3; }
+  100% { box-shadow: 0 0 0 0 var(--destructive); opacity: 0; }
 }
 
-/* Execution idle dimming */
-.node-exec-idle {
-  opacity: 0.4;
-  transition: opacity 0.4s ease;
-}
-
-/* ── Shared Utilities ── */
-
-@keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
-
-.shimmer {
-  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.08) 50%, transparent 100%);
-  background-size: 200% 100%;
-  animation: shimmer 3s ease-in-out infinite;
-}
-
-.scrollbar-hide {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-
-.scrollbar-hide::-webkit-scrollbar {
-  display: none;
-}
-
-@keyframes fade-in-up {
-  0% { opacity: 0; transform: translateY(8px); }
-  100% { opacity: 1; transform: translateY(0); }
-}
-
-.fade-in-up {
-  animation: fade-in-up 0.4s ease-out both;
-}
-
-@keyframes wf-appear {
-  from {
-    opacity: 0;
-    transform: translateY(6px) scale(0.98);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-.wf-stagger {
-  animation: wf-appear 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.label-caps {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--muted-foreground);
-  letter-spacing: 0.01em;
-}
-
-/* ── App Builder ── */
-
-/* Smooth easing for all app-builder transitions */
-.app-builder-ease {
-  transition-timing-function: cubic-bezier(0.19, 1, 0.22, 1);
-  transition-duration: 0.4s;
-}
-
-/* Range slider styling */
-.app-builder-slider {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--border);
-  outline: none;
-  cursor: pointer;
-}
-
-.app-builder-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--primary);
-  cursor: pointer;
-  border: 2px solid white;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-  transition: transform 0.15s ease;
-}
-
-.app-builder-slider::-webkit-slider-thumb:hover {
-  transform: scale(1.15);
-}
-
-.app-builder-slider::-webkit-slider-thumb:active {
-  transform: scale(0.95);
-}
-
-.app-builder-slider::-moz-range-thumb {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--primary);
-  cursor: pointer;
-  border: 2px solid white;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-}
-
-.app-builder-slider::-moz-range-track {
-  height: 4px;
-  border-radius: 2px;
-  background: var(--border);
-}
-
-/* Selection indicator — dashed border via pseudo-element (CraftJS style) */
-/* Uses #18a0fb (editor primary) directly so it's not affected by canvas theme */
-[data-node-wrapper][data-selected="true"]::after {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  border: 2px dashed #18a0fb;
-  border-radius: 4px;
-  pointer-events: none;
-  animation: selection-appear 0.15s ease-out;
-}
-
-[data-node-wrapper][data-hovered="true"]:not([data-selected="true"])::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border: 1px dashed color-mix(in srgb, #18a0fb 50%, transparent);
-  border-radius: 4px;
-  pointer-events: none;
-}
-
-@keyframes selection-appear {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-/* Floating toolbar entrance */
-@keyframes toolbar-fade-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.app-builder-toolbar-enter {
-  animation: toolbar-fade-in 0.15s ease-out;
-}
-
-/* Distribute children equally in a flex container */
-.distribute-equal > * {
-  flex: 1;
-  min-width: 0;
-}
+.node-exec-idle { opacity: 0.4; transition: opacity 0.4s ease; }

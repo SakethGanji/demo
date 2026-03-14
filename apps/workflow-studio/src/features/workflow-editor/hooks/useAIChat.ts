@@ -8,11 +8,11 @@ import { useWorkflowStore } from '../stores/workflowStore';
 import { useAIChatStore } from '../stores/aiChatStore';
 import { applyAIResponse } from '../lib/aiOperationApplier';
 import { toBackendWorkflow } from '../lib/workflowTransform';
-import { consumeSSEStream } from '../lib/sseParser';
+import { consumeSSEStream } from '@/shared/lib/sseParser';
 import { backends } from '@/shared/lib/config';
-import type { Node } from 'reactflow';
+import type { Node } from '@xyflow/react';
 import type { WorkflowNodeData } from '../types/workflow';
-import type { AIChatRequest, AIResponsePayload } from '../types/aiChat';
+import type { AIChatRequest, AIResponsePayload } from '../types/workflow';
 
 export function useAIChat() {
   const abortRef = useRef<AbortController | null>(null);

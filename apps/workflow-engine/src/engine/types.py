@@ -245,44 +245,7 @@ class Connection:
     target_node: str
     source_output: str = "main"
     target_input: str = "main"
-    connection_type: Literal["normal", "subnode"] = "normal"
-    slot_name: str | None = None  # For subnode connections
     waypoints: list[dict[str, float]] | None = None  # Manual edge routing
-
-
-# --- Subnode Types ---
-
-
-@dataclass
-class SubnodeSlotDefinition:
-    """Defines a slot on a parent node that can accept subnodes."""
-
-    name: str  # "chatModel", "memory", "tools"
-    display_name: str  # "Chat Model", "Memory", "Tools"
-    slot_type: str  # "model", "memory", "tool"
-    required: bool = False  # Is at least one subnode required?
-    multiple: bool = False  # Can accept multiple subnodes? (tools=True)
-    accepted_node_types: list[str] | None = None  # Restrict to specific types
-
-
-@dataclass
-class ResolvedSubnode:
-    """A subnode resolved for execution."""
-
-    node_name: str
-    node_type: str
-    slot_name: str
-    slot_type: str
-    config: dict[str, Any]  # Resolved parameters from subnode
-
-
-@dataclass
-class SubnodeContext:
-    """All subnodes resolved for a parent node."""
-
-    models: list[ResolvedSubnode] = field(default_factory=list)
-    memory: list[ResolvedSubnode] = field(default_factory=list)
-    tools: list[ResolvedSubnode] = field(default_factory=list)
 
 
 @dataclass

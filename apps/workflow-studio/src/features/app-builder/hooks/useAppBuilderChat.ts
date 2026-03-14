@@ -1,7 +1,7 @@
 import { useRef, useCallback } from 'react'
 import { useAppBuilderChatStore } from '../stores/appBuilderChatStore'
 import { useAppDocumentStore } from '../stores'
-import { consumeSSEStream } from '@/features/workflow-editor/lib/sseParser'
+import { consumeSSEStream } from '@/shared/lib/sseParser'
 import { backends } from '@/shared/lib/config'
 import { appsApi } from '@/shared/lib/api'
 

@@ -1,19 +1,23 @@
-import { useCallback, useMemo, useEffect, useRef, useState, type DragEvent, type MouseEvent } from 'react';
-import ReactFlow, {
+import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
+import {
+  ReactFlow,
   Background,
   MiniMap,
   type OnConnect,
   type OnConnectStart,
+  type OnConnectEnd,
   type Connection,
   type Node,
   type NodeChange,
+  type NodeRemoveChange,
   type Edge,
   BackgroundVariant,
   SelectionMode,
   useReactFlow,
-  ConnectionLineType,
-} from 'reactflow';
-import 'reactflow/dist/style.css';
+} from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
+import { Connection as ConnectionLine } from './ConnectionLine';
+import { Controls } from './Controls';
 
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useEditorLayoutStore } from '../../stores/editorLayoutStore';
@@ -22,10 +26,7 @@ import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { useSaveWorkflow } from '../../hooks/useWorkflowApi';
 import AddNodesButton from './nodes/AddNodesButton';
 import WorkflowNode from './nodes/WorkflowNode';
-import SubworkflowNode from './nodes/SubworkflowNode';
-import SubnodeNode from './nodes/SubnodeNode';
 import WorkflowEdge from './edges/WorkflowEdge';
-import SubnodeEdge from './edges/SubnodeEdge';
 import StickyNote from './nodes/StickyNote';
 import NodeContextMenu from './NodeContextMenu';
 import { KeyboardShortcutsHelp } from '../KeyboardShortcutsHelp';
@@ -34,7 +35,7 @@ import { normalizeNodeGroup, type NodeGroup } from '../../lib/nodeConfig';
 import { generateNodeName, getExistingNodeNames } from '../../lib/workflowTransform';
 import { isTriggerType } from '../../lib/nodeConfig';
 import { createWorkflowNodeData } from '../../lib/createNodeData';
-import type { WorkflowNodeData, SubnodeSlotDefinition, OutputStrategy } from '../../types/workflow';
+import type { WorkflowNodeData, OutputStrategy } from '../../types/workflow';
 import type { NodeIO } from '../../lib/nodeStyles';
 import type { ApiProperty } from '@/shared/lib/api';
 
@@ -43,8 +44,6 @@ import type { ApiProperty } from '@/shared/lib/api';
 const nodeTypes: any = {
   addNodes: AddNodesButton,
   workflowNode: WorkflowNode,
-  subworkflowNode: SubworkflowNode,
-  subnodeNode: SubnodeNode,
   stickyNote: StickyNote,
 };
 
@@ -52,7 +51,6 @@ const nodeTypes: any = {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const edgeTypes: any = {
   workflowEdge: WorkflowEdge,
-  subnodeEdge: SubnodeEdge,
 };
 
 // Distance threshold for detecting drop near a node (in pixels)
@@ -63,26 +61,25 @@ const DEFAULT_EDGE_OPTIONS = { type: 'workflowEdge' };
 const FIT_VIEW_OPTIONS = { padding: 0.2, maxZoom: 1 };
 const SNAP_GRID: [number, number] = [20, 20];
 const DELETE_KEY_CODE = ['Backspace', 'Delete'];
-const CONNECTION_LINE_STYLE = { stroke: '#9ca3af', strokeWidth: 1.5, strokeDasharray: '6 4' };
 const PRO_OPTIONS = { hideAttribution: true };
 const MINIMAP_STYLE = { marginBottom: 8, marginRight: 8 };
 
 function getMinimapNodeColor(node: Node) {
   if (node.type === 'addNodes') return 'var(--muted)';
-  if (node.type === 'subworkflowNode') return getMiniMapColor('flow');
+  const data = node.data as WorkflowNodeData;
   if (node.type === 'stickyNote') {
-    const color = node.data?.color || 'yellow';
+    const color = data?.color || 'yellow';
     const colors: Record<string, string> = {
-      yellow: '#fef08a',
-      blue: '#93c5fd',
-      green: '#86efac',
-      pink: '#f9a8d4',
-      purple: '#c4b5fd',
+      yellow: 'var(--sticky-yellow-border)',
+      blue: 'var(--sticky-blue-border)',
+      green: 'var(--sticky-green-border)',
+      pink: 'var(--sticky-pink-border)',
+      purple: 'var(--sticky-purple-border)',
     };
     return colors[color] || colors.yellow;
   }
   const nodeGroup = normalizeNodeGroup(
-    node.data?.group ? [node.data.group] : undefined
+    data?.group ? [data.group] : undefined
   );
   return getMiniMapColor(nodeGroup);
 }
@@ -100,7 +97,6 @@ interface DraggedNodeData {
   outputCount?: number;
   inputs?: NodeIO[];
   outputs?: NodeIO[];
-  subnodeSlots?: SubnodeSlotDefinition[];
   outputStrategy?: OutputStrategy;
   properties?: ApiProperty[];
 }
@@ -146,7 +142,7 @@ export default function WorkflowCanvas() {
 
   // Fit view on initial load when nodes change from placeholder to real nodes
   useEffect(() => {
-    const hasRealNodes = nodes.some((n) => n.type === 'workflowNode' || n.type === 'subworkflowNode');
+    const hasRealNodes = nodes.some((n) => n.type === 'workflowNode');
     if (hasRealNodes) {
       // Small delay to ensure nodes are rendered
       const timer = setTimeout(() => {
@@ -172,8 +168,8 @@ export default function WorkflowCanvas() {
   );
 
   // Handle when a connection drag ends (either connected or dropped in empty space)
-  const handleConnectEnd = useCallback(
-    (event: MouseEvent | TouchEvent) => {
+  const handleConnectEnd: OnConnectEnd = useCallback(
+    (event) => {
       const connecting = connectingRef.current;
       connectingRef.current = null;
 
@@ -203,16 +199,16 @@ export default function WorkflowCanvas() {
 
   // Connection validation callback for ReactFlow
   const handleIsValidConnection = useCallback(
-    (connection: Connection) => {
-      return isValidConnection(connection);
+    (connection: Edge | Connection) => {
+      return isValidConnection(connection as Connection);
     },
     [isValidConnection]
   );
 
-  // Intercept node removals to protect trigger nodes (v11 alternative to onBeforeDelete)
+  // Intercept node removals to protect trigger nodes
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
-      const removals = changes.filter((c) => c.type === 'remove');
+      const removals = changes.filter((c): c is NodeRemoveChange => c.type === 'remove');
       if (removals.length === 0) {
         storeOnNodesChange(changes);
         return;
@@ -221,7 +217,8 @@ export default function WorkflowCanvas() {
       const { nodes: currentNodes, nodeTypesMap } = useWorkflowStore.getState();
       const triggerRemovals = removals.filter((r) => {
         const node = currentNodes.find((n) => n.id === r.id);
-        return node && isTriggerType(node.data?.type || '', nodeTypesMap);
+        const data = node?.data as WorkflowNodeData | undefined;
+        return node && isTriggerType(data?.type || '', nodeTypesMap);
       });
 
       if (triggerRemovals.length > 0) {
@@ -259,7 +256,7 @@ export default function WorkflowCanvas() {
     [openNDV]
   );
 
-  // Edge reconnection handlers (v11 API: edgesUpdatable + onEdgeUpdate)
+  // Edge reconnection handlers (v12 API: edgesReconnectable + onReconnect)
   const handleEdgeUpdate = useCallback(
     (oldEdge: Edge, newConnection: Connection) => {
       const validation = validateConnection(newConnection);
@@ -323,21 +320,22 @@ export default function WorkflowCanvas() {
       let nearestDistance = DROP_PROXIMITY_THRESHOLD;
 
       for (const node of flowNodes) {
-        // Skip placeholder, sticky notes, and subnodes
-        if (node.type !== 'workflowNode' && node.type !== 'subworkflowNode') continue;
+        // Skip placeholder and sticky notes
+        if (node.type !== 'workflowNode') continue;
 
         // Skip trigger nodes (they have no inputs)
-        if (isTriggerType(node.data?.type || '', useWorkflowStore.getState().nodeTypesMap)) continue;
+        const nodeData = node.data as WorkflowNodeData;
+
+        // Skip trigger nodes (they have no inputs)
+        if (isTriggerType(nodeData?.type || '', useWorkflowStore.getState().nodeTypesMap)) continue;
 
         // Skip nodes that already have an input connection
         if (isInputConnected(node.id)) continue;
 
         // Calculate node dimensions
-        const nodeData = node.data as WorkflowNodeData;
         const inputCount = Math.max(1, nodeData.inputCount ?? nodeData.inputs?.length ?? 1);
         const outputCount = Math.max(1, nodeData.outputCount ?? nodeData.outputs?.length ?? 1);
-        const subnodeSlotCount = nodeData.subnodeSlots?.length ?? 0;
-        const dimensions = calculateNodeDimensions(inputCount, outputCount, subnodeSlotCount);
+        const dimensions = calculateNodeDimensions(inputCount, outputCount);
 
         // Calculate distance to the left edge of the node (where inputs are)
         const nodeLeftX = node.position.x;
@@ -369,9 +367,6 @@ export default function WorkflowCanvas() {
       let nearestDistance = DROP_PROXIMITY_THRESHOLD;
 
       for (const edge of currentEdges) {
-        // Skip subnode edges
-        if (edge.data?.isSubnodeEdge) continue;
-
         // Get source and target nodes
         const sourceNode = currentNodes.find((n) => n.id === edge.source);
         const targetNode = currentNodes.find((n) => n.id === edge.target);
@@ -450,7 +445,6 @@ export default function WorkflowCanvas() {
           inputs: draggedNode.inputs,
           outputs: draggedNode.outputs,
           outputStrategy: draggedNode.outputStrategy,
-          subnodeSlots: draggedNode.subnodeSlots,
           properties: draggedNode.properties,
         },
         { name: nodeName },
@@ -575,12 +569,11 @@ export default function WorkflowCanvas() {
         selectionMode={SelectionMode.Partial}
         connectionRadius={20}
         elevateEdgesOnSelect
-        edgesUpdatable
-        onEdgeUpdate={handleEdgeUpdate}
-        onEdgeUpdateStart={handleEdgeUpdateStart}
-        onEdgeUpdateEnd={handleEdgeUpdateEnd}
-        connectionLineType={ConnectionLineType.SmoothStep}
-        connectionLineStyle={CONNECTION_LINE_STYLE}
+        edgesReconnectable
+        onReconnect={handleEdgeUpdate}
+        onReconnectStart={handleEdgeUpdateStart}
+        onReconnectEnd={handleEdgeUpdateEnd}
+        connectionLineComponent={ConnectionLine}
         panOnScroll={false}
         zoomOnScroll
         panOnDrag={canvasMode === 'hand'}
@@ -596,23 +589,19 @@ export default function WorkflowCanvas() {
           id="grid-1"
           variant={BackgroundVariant.Dots}
           gap={20}
-          size={2}
-          className="text-muted-foreground/50 [&>pattern>circle]:fill-current"
+          size={1}
+          className="text-muted-foreground/20 [&>pattern>circle]:fill-current"
         />
-        <Background
-          id="grid-2"
-          variant={BackgroundVariant.Lines}
-          gap={100}
-          className="text-border/40 [&>pattern>path]:stroke-current"
-        />
+
+        <Controls showInteractive={false} />
 
         {/* MiniMap - colored by node group, positioned to avoid sidebar */}
         <MiniMap
           position="bottom-right"
           style={MINIMAP_STYLE}
           nodeColor={getMinimapNodeColor}
-          maskColor="color-mix(in srgb, var(--canvas-float) 80%, transparent)"
-          className="!bg-[var(--canvas-float)] !shadow-md !rounded-lg !border !border-[var(--canvas-float-border)]"
+          maskColor="color-mix(in srgb, var(--card) 80%, transparent)"
+          className="!bg-[var(--card)] !shadow-md !rounded-lg !border !border-[var(--border)]"
         />
 
       </ReactFlow>

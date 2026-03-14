@@ -19,7 +19,7 @@ import {
 } from '../lib/workflowTransform';
 import { toast } from 'sonner';
 import type { WorkflowNodeData } from '../types/workflow';
-import type { Node } from 'reactflow';
+import type { Node } from '@xyflow/react';
 
 /**
  * Hook for saving workflows

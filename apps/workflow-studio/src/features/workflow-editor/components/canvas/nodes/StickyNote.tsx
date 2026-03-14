@@ -1,5 +1,5 @@
 import { memo, useState, useRef, useEffect } from 'react';
-import { type NodeProps, NodeResizer } from 'reactflow';
+import { type NodeProps, type Node, NodeResizer } from '@xyflow/react';
 import { Trash2 } from 'lucide-react';
 import { useWorkflowStore } from '../../../stores/workflowStore';
 import type { StickyNoteData } from '../../../types/workflow';
@@ -37,7 +37,7 @@ const colorClasses: Record<string, { bg: string; border: string; text: string; r
   },
 };
 
-function StickyNote({ id, data, selected }: NodeProps<StickyNoteData>) {
+function StickyNote({ id, data, selected }: NodeProps<Node<StickyNoteData>>) {
   const [isEditing, setIsEditing] = useState(false);
   const [content, setContent] = useState(data.content || '');
   const textareaRef = useRef<HTMLTextAreaElement>(null);

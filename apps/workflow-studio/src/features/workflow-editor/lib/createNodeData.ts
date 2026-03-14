@@ -6,8 +6,7 @@
  * field population.
  */
 
-import type { Node } from 'reactflow';
-import type { WorkflowNodeData, SubnodeSlotDefinition, OutputStrategy, SubnodeType } from '../types/workflow';
+import type { WorkflowNodeData, OutputStrategy } from '../types/workflow';
 import type { NodeGroup, NodeIO } from './nodeStyles';
 import { getNodeIcon, normalizeNodeGroup, isTriggerType } from './nodeConfig';
 import { generateNodeName } from './workflowTransform';
@@ -39,34 +38,22 @@ export interface NodeTypeMetadata {
   outputs?: NodeIO[];
   outputStrategy?: OutputStrategy;
 
-  // Subnode support
-  isSubnode?: boolean;
-  subnodeType?: SubnodeType;
-  providesToSlot?: string;
-  subnodeSlots?: SubnodeSlotDefinition[];
-
   // Properties with defaults (for extracting default params)
   properties?: Array<{ name: string; default?: unknown; [k: string]: unknown }>;
 }
 
 /**
  * Per-instance overrides that differ between individual node instances
- * (e.g. name, position, parameters, subworkflowId).
+ * (e.g. name, position, parameters).
  */
 interface NodeDataOverrides {
   name?: string;
   label?: string;
   parameters?: Record<string, unknown>;
-  subworkflowId?: string;
   continueOnFail?: boolean;
   retryOnFail?: number;
   retryDelay?: number;
   pinnedData?: Array<{ json: Record<string, unknown> }>;
-  // Subnode-specific
-  isSubnode?: boolean;
-  subnodeType?: SubnodeType;
-  nodeShape?: 'rectangular' | 'circular';
-  stacked?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -194,45 +181,9 @@ export function createWorkflowNodeData(
     inputs,
     outputs,
     outputStrategy: meta.outputStrategy,
-    ...(meta.subnodeSlots ? { subnodeSlots: meta.subnodeSlots } : {}),
-    ...(overrides?.subworkflowId ? { subworkflowId: overrides.subworkflowId } : {}),
     ...(overrides?.pinnedData ? { pinnedData: overrides.pinnedData } : {}),
-    // Subnode fields
-    ...(overrides?.isSubnode ? { isSubnode: overrides.isSubnode } : {}),
-    ...(overrides?.subnodeType ?? meta.subnodeType ? { subnodeType: overrides?.subnodeType ?? meta.subnodeType } : {}),
-    ...(overrides?.nodeShape ? { nodeShape: overrides.nodeShape } : {}),
-    ...(overrides?.stacked !== undefined ? { stacked: overrides.stacked } : {}),
   };
 
   return data;
 }
 
-// ---------------------------------------------------------------------------
-// Factory: ReactFlow Node
-// ---------------------------------------------------------------------------
-
-interface CreateNodeOptions {
-  id?: string;
-  /** 'workflowNode' | 'subworkflowNode' | 'subnodeNode' */
-  nodeType?: string;
-  position?: { x: number; y: number };
-  overrides?: NodeDataOverrides;
-  existingNames?: string[];
-}
-
-/**
- * Wraps createWorkflowNodeData into a full ReactFlow Node object.
- */
-export function createReactFlowNode(
-  meta: NodeTypeMetadata,
-  options?: CreateNodeOptions,
-): Node<WorkflowNodeData> {
-  const data = createWorkflowNodeData(meta, options?.overrides, options?.existingNames);
-
-  return {
-    id: options?.id ?? `node-${Date.now()}`,
-    type: options?.nodeType ?? 'workflowNode',
-    position: options?.position ?? { x: 250, y: 200 },
-    data,
-  };
-}

@@ -3,10 +3,9 @@ import { rootRoute } from './__root'
 import { editorRoute } from './editor'
 import { builderRoute } from './builder'
 import { indexRoute } from './indexRoute'
-import { workflowsRoute } from './workflows'
-import { appsRoute } from './apps'
+import { projectsRoute } from './projects'
 
-const routeTree = rootRoute.addChildren([indexRoute, editorRoute, builderRoute, workflowsRoute, appsRoute])
+const routeTree = rootRoute.addChildren([indexRoute, editorRoute, builderRoute, projectsRoute])
 
 export const router = createRouter({ routeTree })
 

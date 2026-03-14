@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useState } from 'react';
-import { useReactFlow } from 'reactflow';
+import { useReactFlow } from '@xyflow/react';
 import { useWorkflowStore } from '../stores/workflowStore';
 import { useEditorLayoutStore } from '../stores/editorLayoutStore';
 import { useNDVStore } from '../stores/ndvStore';
@@ -65,7 +65,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
           event.preventDefault();
           return;
         }
-        // Reset node creator context (connection/subnode mode)
+        // Reset node creator context (connection mode)
         useEditorLayoutStore.getState().closeCreatorPanel();
       }
 

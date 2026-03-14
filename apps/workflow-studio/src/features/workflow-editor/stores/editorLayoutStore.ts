@@ -1,9 +1,9 @@
 import { create } from 'zustand';
-import type { NodeCreatorView, SubnodeSlotContext, SubnodeType } from '../types/workflow';
+import type { NodeCreatorView } from '../types/workflow';
 
-export type BottomPanelTab = 'logs' | 'ui' | 'input';
+export type BottomPanelTab = 'logs' | 'input';
 export type RightPanelTab = 'nodes' | 'ai';
-export type CanvasMode = 'pointer' | 'hand';
+type CanvasMode = 'pointer' | 'hand';
 
 const STORAGE_PREFIX = 'workflow-studio:editor-layout';
 
@@ -16,19 +16,10 @@ function loadBool(key: string, fallback: boolean): boolean {
   }
 }
 
-function loadNumber(key: string, fallback: number): number {
-  try {
-    const v = localStorage.getItem(`${STORAGE_PREFIX}:${key}`);
-    return v !== null ? JSON.parse(v) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
 function loadBottomTab(fallback: BottomPanelTab): BottomPanelTab {
   try {
     const v = localStorage.getItem(`${STORAGE_PREFIX}:bottom-tab`);
-    if (v === '"logs"' || v === '"ui"' || v === '"input"') return JSON.parse(v);
+    if (v === '"logs"' || v === '"input"') return JSON.parse(v);
     return fallback;
   } catch {
     return fallback;
@@ -49,17 +40,6 @@ function persist(key: string, value: unknown) {
   localStorage.setItem(`${STORAGE_PREFIX}:${key}`, JSON.stringify(value));
 }
 
-// Debounced persist for continuous drag operations (panel resizing)
-const debouncedTimers = new Map<string, ReturnType<typeof setTimeout>>();
-function debouncedPersist(key: string, value: unknown) {
-  const existing = debouncedTimers.get(key);
-  if (existing) clearTimeout(existing);
-  debouncedTimers.set(key, setTimeout(() => {
-    persist(key, value);
-    debouncedTimers.delete(key);
-  }, 300));
-}
-
 interface DropPosition {
   x: number;
   y: number;
@@ -68,12 +48,10 @@ interface DropPosition {
 interface EditorLayoutState {
   // Right panel
   rightPanelOpen: boolean;
-  rightPanelSize: number;
   rightPanelTab: RightPanelTab;
 
   // Bottom panel
   bottomPanelOpen: boolean;
-  bottomPanelSize: number;
   bottomPanelTab: BottomPanelTab;
   bottomPanelMaximized: boolean;
 
@@ -92,17 +70,14 @@ interface EditorLayoutState {
   sourceNodeId: string | null;
   sourceHandleId: string | null;
   dropPosition: DropPosition | null;
-  subnodeSlotContext: SubnodeSlotContext | null;
 
   // Layout actions
   toggleRightPanel: () => void;
-  setRightPanelSize: (size: number) => void;
   setRightPanelTab: (tab: RightPanelTab) => void;
   openRightPanel: (tab?: RightPanelTab) => void;
   ensureRightPanelOpen: (tab: RightPanelTab) => void;
   closeRightPanel: () => void;
   toggleBottomPanel: () => void;
-  setBottomPanelSize: (size: number) => void;
   setBottomPanelTab: (tab: BottomPanelTab) => void;
   openBottomPanel: (tab?: BottomPanelTab) => void;
   closeBottomPanel: () => void;
@@ -115,16 +90,12 @@ interface EditorLayoutState {
   setCreatorSearch: (search: string) => void;
   openForConnection: (sourceNodeId: string, sourceHandleId: string, dropPosition?: DropPosition) => void;
   clearConnectionContext: () => void;
-  openForSubnode: (parentNodeId: string, slotName: string, slotType: SubnodeType) => void;
-  clearSubnodeContext: () => void;
 }
 
 export const useEditorLayoutStore = create<EditorLayoutState>((set, get) => ({
   rightPanelOpen: loadBool('right-open', true),
-  rightPanelSize: loadNumber('right-size', 20),
   rightPanelTab: loadRightTab('nodes'),
   bottomPanelOpen: loadBool('bottom-open', false),
-  bottomPanelSize: loadNumber('bottom-size', 30),
   bottomPanelTab: loadBottomTab('logs'),
   bottomPanelMaximized: false,
 
@@ -143,7 +114,6 @@ export const useEditorLayoutStore = create<EditorLayoutState>((set, get) => ({
   sourceNodeId: null,
   sourceHandleId: null,
   dropPosition: null,
-  subnodeSlotContext: null,
 
   toggleRightPanel: () =>
     set((s) => {
@@ -151,11 +121,6 @@ export const useEditorLayoutStore = create<EditorLayoutState>((set, get) => ({
       persist('right-open', next);
       return { rightPanelOpen: next };
     }),
-
-  setRightPanelSize: (size) => {
-    debouncedPersist('right-size', size);
-    set({ rightPanelSize: size });
-  },
 
   setRightPanelTab: (tab) => {
     persist('right-tab', tab);
@@ -190,11 +155,6 @@ export const useEditorLayoutStore = create<EditorLayoutState>((set, get) => ({
       persist('bottom-open', next);
       return { bottomPanelOpen: next };
     }),
-
-  setBottomPanelSize: (size) => {
-    debouncedPersist('bottom-size', size);
-    set({ bottomPanelSize: size });
-  },
 
   setBottomPanelTab: (tab) => {
     persist('bottom-tab', tab);
@@ -231,7 +191,6 @@ export const useEditorLayoutStore = create<EditorLayoutState>((set, get) => ({
     sourceNodeId: null,
     sourceHandleId: null,
     dropPosition: null,
-    subnodeSlotContext: null,
   }),
 
   setCreatorView: (view) => set({ nodeCreatorView: view, nodeCreatorSearch: '' }),
@@ -245,24 +204,9 @@ export const useEditorLayoutStore = create<EditorLayoutState>((set, get) => ({
       sourceNodeId,
       sourceHandleId,
       dropPosition: dropPosition ?? null,
-      subnodeSlotContext: null,
     });
   },
 
   clearConnectionContext: () =>
     set({ sourceNodeId: null, sourceHandleId: null, dropPosition: null }),
-
-  openForSubnode: (parentNodeId, slotName, slotType) => {
-    get().ensureRightPanelOpen('nodes');
-    set({
-      nodeCreatorView: 'subnode',
-      nodeCreatorSearch: '',
-      sourceNodeId: null,
-      sourceHandleId: null,
-      subnodeSlotContext: { parentNodeId, slotName, slotType },
-    });
-  },
-
-  clearSubnodeContext: () =>
-    set({ subnodeSlotContext: null }),
 }));

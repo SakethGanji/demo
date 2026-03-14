@@ -1,8 +1,8 @@
-"""Shared utilities for memory subnodes.
+"""Shared utilities for memory providers.
 
 General-purpose helpers for chat history formatting, token counting,
 embeddings, similarity, LLM summarization/extraction, and SQLite
-connection management used across all memory subnode implementations.
+connection management used across all memory provider implementations.
 """
 
 from __future__ import annotations

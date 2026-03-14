@@ -148,11 +148,6 @@ class NodeService:
             "outputStrategy": io_data["outputStrategy"],
             # Properties (frontend uses these for forms and dynamic recalculation)
             "properties": info.properties,
-            # Subnode fields
-            "isSubnode": info.is_subnode,
-            "subnodeType": info.subnode_type,
-            "providesToSlot": info.provides_to_slot,
-            "subnodeSlots": info.subnode_slots,
         }
 
     def list_nodes(self) -> list[dict[str, Any]]:

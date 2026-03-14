@@ -1,5 +1,5 @@
 import { memo, useId, useMemo } from 'react';
-import { getSmoothStepPath, Position, type Node, type Edge } from 'reactflow';
+import { getSmoothStepPath, Position, type Node, type Edge } from '@xyflow/react';
 import { Check, X } from 'lucide-react';
 import type { WorkflowNodeData, NodeExecutionData } from '../types/workflow';
 import { getNodeStyles, calculateNodeDimensions } from '../lib/nodeStyles';
@@ -24,23 +24,16 @@ const PADDING = 40;
 function getNodeDims(data: WorkflowNodeData) {
   const inputCount = data.inputCount ?? 1;
   const outputCount = data.outputCount ?? 1;
-  const subnodeSlotCount = data.subnodeSlots?.length ?? 0;
-  return calculateNodeDimensions(inputCount, outputCount, subnodeSlotCount);
+  return calculateNodeDimensions(inputCount, outputCount);
 }
 
-/** Filter to only visible nodes (exclude stacked subnodes) */
-function visibleNodes(nodes: Node<WorkflowNodeData>[]): Node<WorkflowNodeData>[] {
-  return nodes.filter((n) => !n.data.stacked);
-}
-
-/** Compute the SVG viewBox from visible node positions and dimensions */
+/** Compute the SVG viewBox from node positions and dimensions */
 function computeViewBox(nodes: Node<WorkflowNodeData>[]): string {
-  const visible = visibleNodes(nodes);
-  if (visible.length === 0) return '0 0 200 120';
+  if (nodes.length === 0) return '0 0 200 120';
 
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
-  for (const node of visible) {
+  for (const node of nodes) {
     const dims = getNodeDims(node.data);
     const x = node.position.x;
     const y = node.position.y;
@@ -51,19 +44,6 @@ function computeViewBox(nodes: Node<WorkflowNodeData>[]): string {
   }
 
   return `${minX - PADDING} ${minY - PADDING} ${maxX - minX + PADDING * 2} ${maxY - minY + PADDING * 2}`;
-}
-
-/** Find parent node group for a subnode by looking up subnodeEdges */
-function getSubnodeParentStyles(nodeId: string, edges: Edge[], nodeMap: Map<string, Node<WorkflowNodeData>>) {
-  const parentEdge = edges.find(
-    (e) => e.source === nodeId && e.data?.isSubnodeEdge
-  );
-  if (!parentEdge) return null;
-  const parentNode = nodeMap.get(parentEdge.target);
-  if (!parentNode) return null;
-  const parentData = parentNode.data as WorkflowNodeData;
-  const group = normalizeNodeGroup(parentData.group ? [parentData.group] : undefined);
-  return getNodeStyles(group);
 }
 
 function WorkflowSVG({ nodes, edges, executionData, showIcons, showDotGrid, className, style, width, height }: WorkflowSVGProps) {
@@ -106,42 +86,23 @@ function WorkflowSVG({ nodes, edges, executionData, showIcons, showDotGrid, clas
         const sourceNode = nodeMap.get(edge.source);
         const targetNode = nodeMap.get(edge.target);
         if (!sourceNode || !targetNode) return null;
-        // Skip edges connecting to stacked (hidden) subnodes
-        if (sourceNode.data.stacked || targetNode.data.stacked) return null;
 
-        const isSubnodeEdge = edge.type === 'subnodeEdge';
         const sourceDims = getNodeDims(sourceNode.data);
         const targetDims = getNodeDims(targetNode.data);
 
-        // Determine source/target connection points
-        let sourceX: number, sourceY: number, targetX: number, targetY: number;
-        let sourcePosition: Position, targetPosition: Position;
-
-        if (isSubnodeEdge) {
-          // Subnode edges: source top-center -> target bottom-center
-          sourceX = sourceNode.position.x + sourceDims.width / 2;
-          sourceY = sourceNode.position.y;
-          targetX = targetNode.position.x + targetDims.width / 2;
-          targetY = targetNode.position.y + targetDims.height;
-          sourcePosition = Position.Top;
-          targetPosition = Position.Bottom;
-        } else {
-          // Normal edges: source right-center -> target left-center
-          sourceX = sourceNode.position.x + sourceDims.width;
-          sourceY = sourceNode.position.y + sourceDims.height / 2;
-          targetX = targetNode.position.x;
-          targetY = targetNode.position.y + targetDims.height / 2;
-          sourcePosition = Position.Right;
-          targetPosition = Position.Left;
-        }
+        // Normal edges: source right-center -> target left-center
+        const sourceX = sourceNode.position.x + sourceDims.width;
+        const sourceY = sourceNode.position.y + sourceDims.height / 2;
+        const targetX = targetNode.position.x;
+        const targetY = targetNode.position.y + targetDims.height / 2;
 
         const [edgePath] = getSmoothStepPath({
           sourceX,
           sourceY,
-          sourcePosition,
+          sourcePosition: Position.Right,
           targetX,
           targetY,
-          targetPosition,
+          targetPosition: Position.Left,
           borderRadius: 8,
         });
 
@@ -153,7 +114,6 @@ function WorkflowSVG({ nodes, edges, executionData, showIcons, showDotGrid, clas
             stroke="var(--border)"
             strokeWidth={1.5}
             strokeOpacity={0.5}
-            strokeDasharray={isSubnodeEdge ? '4 3' : undefined}
           />
         );
       })}
@@ -161,10 +121,6 @@ function WorkflowSVG({ nodes, edges, executionData, showIcons, showDotGrid, clas
       {/* Nodes */}
       {nodes.map((node) => {
         const data = node.data;
-        // Skip stacked subnodes (they're hidden in the real canvas too)
-        if (data.stacked) return null;
-
-        const isSubnode = data.isSubnode && node.type === 'subnodeNode';
         const group = normalizeNodeGroup(data.group ? [data.group] : undefined);
         const dims = getNodeDims(data);
         const x = node.position.x;
@@ -172,38 +128,7 @@ function WorkflowSVG({ nodes, edges, executionData, showIcons, showDotGrid, clas
         const styles = getNodeStyles(group);
         const nodeExec = executionData?.[data.name];
 
-        if (isSubnode) {
-          // Render as circle — inherit parent node's colors
-          const cx = x + dims.width / 2;
-          const cy = y + dims.height / 2;
-          const r = 36;
-          const parentNodeStyles = getSubnodeParentStyles(node.id, edges, nodeMap);
-          const subnodeFill = showIcons
-            ? (parentNodeStyles?.iconBgColor ?? styles.iconBgColor)
-            : (parentNodeStyles?.accentColor ?? styles.accentColor);
-          const subnodeStroke = showIcons
-            ? (parentNodeStyles?.borderColor ?? styles.borderColor)
-            : subnodeFill;
-
-          return (
-            <g key={node.id}>
-              <circle
-                cx={cx}
-                cy={cy}
-                r={r}
-                fill={subnodeFill}
-                stroke={subnodeStroke}
-                strokeWidth={1.5}
-              />
-              {showIcons && (
-                <SubnodeIcon data={data} cx={cx} cy={cy} color={parentNodeStyles?.iconFgColor ?? styles.iconFgColor} />
-              )}
-              {nodeExec && <ExecutionBadge status={nodeExec.status} cx={cx + r - 4} cy={cy - r + 4} />}
-            </g>
-          );
-        }
-
-        // Render as rect (workflowNode or subworkflowNode)
+        // Render as rect
 
         return (
           <g key={node.id}>
@@ -272,24 +197,6 @@ function NodeIcon({ data, x, y, dims, color }: { data: WorkflowNodeData; x: numb
   );
 }
 
-/** Icon inside a circle subnode via foreignObject */
-function SubnodeIcon({ data, cx, cy, color }: { data: WorkflowNodeData; cx: number; cy: number; color: string }) {
-  const IconComponent = getIconForNode(data.icon, data.type);
-  return (
-    <foreignObject
-      x={cx - 10}
-      y={cy - 10}
-      width={20}
-      height={20}
-      className="pointer-events-none overflow-visible"
-    >
-      <div className="flex items-center justify-center w-full h-full" style={{ color }}>
-        <IconComponent size={12} />
-      </div>
-    </foreignObject>
-  );
-}
-
 /** Small status badge rendered at a given position */
 function ExecutionBadge({ status, cx, cy }: { status: string; cx: number; cy: number }) {
   if (status === 'success') {
@@ -297,7 +204,7 @@ function ExecutionBadge({ status, cx, cy }: { status: string; cx: number; cy: nu
       <g>
         <circle cx={cx} cy={cy} r={7} fill="var(--success)" />
         <foreignObject x={cx - 5} y={cy - 5} width={10} height={10} className="pointer-events-none">
-          <div className="flex items-center justify-center w-full h-full text-white">
+          <div className="flex items-center justify-center w-full h-full text-primary-foreground">
             <Check size={8} strokeWidth={3} />
           </div>
         </foreignObject>
@@ -309,7 +216,7 @@ function ExecutionBadge({ status, cx, cy }: { status: string; cx: number; cy: nu
       <g>
         <circle cx={cx} cy={cy} r={7} fill="var(--destructive)" />
         <foreignObject x={cx - 5} y={cy - 5} width={10} height={10} className="pointer-events-none">
-          <div className="flex items-center justify-center w-full h-full text-white">
+          <div className="flex items-center justify-center w-full h-full text-primary-foreground">
             <X size={8} strokeWidth={3} />
           </div>
         </foreignObject>

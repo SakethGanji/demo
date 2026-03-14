@@ -2,10 +2,8 @@ import { useEffect } from 'react'
 import { createRootRoute, Outlet, useMatchRoute } from '@tanstack/react-router'
 import { Toaster } from 'sonner'
 
-import { AppSidebar } from '@/shared/components/app-sidebar'
 import { ThemeProvider } from '@/shared/components/theme-provider'
 import { ErrorBoundary } from '@/shared/components/ErrorBoundary'
-import { SidebarProvider } from '@/shared/components/ui/sidebar'
 import { useEditorLayoutStore } from '@/features/workflow-editor/stores/editorLayoutStore'
 
 export const rootRoute = createRootRoute({
@@ -17,6 +15,7 @@ function RootLayout() {
   const matchRoute = useMatchRoute()
   const isEditorRoute = matchRoute({ to: '/editor', fuzzy: true })
   const isBuilderRoute = matchRoute({ to: '/builder', fuzzy: true })
+  const isProjectsRoute = matchRoute({ to: '/projects', fuzzy: true })
   const isLandingRoute = matchRoute({ to: '/', fuzzy: false })
 
   // Global keyboard shortcuts
@@ -31,12 +30,14 @@ function RootLayout() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [closePanel])
 
-  // Editor/builder/landing route: full takeover, no sidebar
-  if (isEditorRoute || isBuilderRoute || isLandingRoute) {
+  const isFullScreen = isEditorRoute || isBuilderRoute || isProjectsRoute
+
+  // Full takeover layout (editor, builder, projects, landing)
+  if (isFullScreen || isLandingRoute) {
     return (
       <ThemeProvider defaultTheme="system" storageKey="workflow-studio-theme">
         <ErrorBoundary>
-          <main className={isEditorRoute || isBuilderRoute ? 'h-screen w-screen overflow-hidden' : 'min-h-screen w-screen'}>
+          <main className={isFullScreen ? 'h-screen w-screen overflow-hidden' : 'min-h-screen w-screen'}>
             <Outlet />
           </main>
         </ErrorBoundary>
@@ -45,18 +46,15 @@ function RootLayout() {
     )
   }
 
-  // Sidebar commented out — nav folded into page
+  // Fallback layout
   return (
     <ThemeProvider defaultTheme="system" storageKey="workflow-studio-theme">
       <ErrorBoundary>
-        {/* <SidebarProvider defaultOpen={false}>
-          <AppSidebar /> */}
-          <main className="relative flex w-full flex-1 flex-col h-screen">
-            <div className="h-full w-full relative">
-              <Outlet />
-            </div>
-          </main>
-        {/* </SidebarProvider> */}
+        <main className="relative flex w-full flex-1 flex-col h-screen">
+          <div className="h-full w-full relative">
+            <Outlet />
+          </div>
+        </main>
       </ErrorBoundary>
       <Toaster position="bottom-right" richColors closeButton />
     </ThemeProvider>

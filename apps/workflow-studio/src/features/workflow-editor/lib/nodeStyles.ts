@@ -11,7 +11,7 @@ import type { NodeGroup } from './nodeConfig';
 // Re-export NodeGroup type for convenience
 export type { NodeGroup };
 
-export interface NodeStyleConfig {
+interface NodeStyleConfig {
   group: NodeGroup;
   bgColor: string;
   borderColor: string;
@@ -44,7 +44,7 @@ export function getNodeStyles(group: NodeGroup): NodeStyleConfig {
   const styles: Record<NodeGroup, NodeStyleConfig> = {
     trigger: {
       group: 'trigger',
-      bgColor: 'var(--node-trigger-light)',
+      bgColor: 'var(--node-bg)',
       borderColor: 'var(--node-trigger-border)',
       iconBgColor: 'var(--node-trigger-icon-bg)',
       iconFgColor: 'var(--node-trigger-icon-fg)',
@@ -53,7 +53,7 @@ export function getNodeStyles(group: NodeGroup): NodeStyleConfig {
     },
     transform: {
       group: 'transform',
-      bgColor: 'var(--node-transform-light)',
+      bgColor: 'var(--node-bg)',
       borderColor: 'var(--node-transform-border)',
       iconBgColor: 'var(--node-transform-icon-bg)',
       iconFgColor: 'var(--node-transform-icon-fg)',
@@ -62,7 +62,7 @@ export function getNodeStyles(group: NodeGroup): NodeStyleConfig {
     },
     flow: {
       group: 'flow',
-      bgColor: 'var(--node-flow-light)',
+      bgColor: 'var(--node-bg)',
       borderColor: 'var(--node-flow-border)',
       iconBgColor: 'var(--node-flow-icon-bg)',
       iconFgColor: 'var(--node-flow-icon-fg)',
@@ -71,7 +71,7 @@ export function getNodeStyles(group: NodeGroup): NodeStyleConfig {
     },
     ai: {
       group: 'ai',
-      bgColor: 'var(--node-ai-light)',
+      bgColor: 'var(--node-bg)',
       borderColor: 'var(--node-ai-border)',
       iconBgColor: 'var(--node-ai-icon-bg)',
       iconFgColor: 'var(--node-ai-icon-fg)',
@@ -80,7 +80,7 @@ export function getNodeStyles(group: NodeGroup): NodeStyleConfig {
     },
     action: {
       group: 'action',
-      bgColor: 'var(--node-action-light)',
+      bgColor: 'var(--node-bg)',
       borderColor: 'var(--node-action-border)',
       iconBgColor: 'var(--node-action-icon-bg)',
       iconFgColor: 'var(--node-action-icon-fg)',
@@ -89,7 +89,7 @@ export function getNodeStyles(group: NodeGroup): NodeStyleConfig {
     },
     output: {
       group: 'output',
-      bgColor: 'var(--node-output-light)',
+      bgColor: 'var(--node-bg)',
       borderColor: 'var(--node-output-border)',
       iconBgColor: 'var(--node-output-icon-bg)',
       iconFgColor: 'var(--node-output-icon-fg)',
@@ -193,13 +193,11 @@ export function getNodeShapeConfig(group: NodeGroup): NodeShapeConfig {
  * Handles different node types:
  * - Standard nodes (1 input, 1 output): 64x64 square
  * - If/Switch nodes (multiple outputs): Height grows, width proportional
- * - AI Agent with subnodes: Wider to fit slot labels
  * - Many-output nodes (10+): Scales dynamically with balanced aspect ratio
  */
 export function calculateNodeDimensions(
   inputCount: number,
   outputCount: number,
-  subnodeSlotCount: number = 0
 ): NodeDimensions {
   const baseSize = 64; // Square base for icon-only node
   const maxHandles = Math.max(inputCount, outputCount);
@@ -211,15 +209,6 @@ export function calculateNodeDimensions(
   // Calculate height based on max handles (always applies)
   const extraHandles = Math.max(0, maxHandles - 1);
   const baseHeight = baseSize + (extraHandles * handleSpacing);
-
-  // If node has subnode slots, it needs to be wider to accommodate them
-  if (subnodeSlotCount > 0) {
-    // Width: slots need ~55px each + padding
-    const slotWidth = Math.max(180, subnodeSlotCount * 55 + 20);
-    // Height: base + extra for slot labels area
-    const height = Math.max(baseHeight, 80);
-    return { width: slotWidth, height, minWidth: slotWidth };
-  }
 
   // Single handle nodes stay square
   if (maxHandles <= 1) {

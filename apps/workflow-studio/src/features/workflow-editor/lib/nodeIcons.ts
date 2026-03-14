@@ -230,7 +230,7 @@ const iconMap: Record<string, LucideIconComponent> = {
   'fa:reply': Reply,
   respondtowebhook: Reply,
 
-  // ── Subnode tools ──────────────────────────────────────────────────
+  // ── Tools ─────────────────────────────────────────────────────────
   calculator: Calculator,
   'fa:calculator': Calculator,
   calculatortool: Calculator,
@@ -245,13 +245,13 @@ const iconMap: Record<string, LucideIconComponent> = {
   codetool: SquareFunction,
   workflowtool: Workflow,
 
-  // ── Subnode models ─────────────────────────────────────────────────
+  // ── Models ────────────────────────────────────────────────────────
   google: Sparkles,
   'fa:google': Sparkles,
   geminimodel: Sparkles,
   llmmodelnode: SlidersHorizontal,
 
-  // ── Subnode memory ─────────────────────────────────────────────────
+  // ── Memory ────────────────────────────────────────────────────────
   database: Database,
   simplememory: Database,
   memory: Database,

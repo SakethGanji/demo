@@ -8,11 +8,11 @@ import { cn } from '@/shared/lib/utils'
 function EditorTabList({ className, children, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn('h-9 border-b border-border shrink-0 overflow-x-auto', className)}
+      className={cn('h-9 border-b border-border/50 shrink-0 overflow-x-auto', className)}
       style={{ scrollbarWidth: 'none' }}
       {...props}
     >
-      <div className="inline-flex items-center h-full gap-0.5 px-2">
+      <div className="flex items-center h-full gap-0.5 px-2">
         {children}
       </div>
     </div>

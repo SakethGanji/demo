@@ -1,15 +1,12 @@
 import { useMemo, useState, memo, useCallback } from 'react';
 import { GripVertical, ChevronRight, ChevronDown, Copy, Check } from 'lucide-react';
 import JsonViewer from '@/shared/components/ui/json-viewer';
-import DataTable from './DataTable';
 
 interface RunDataDisplayProps {
   data: Record<string, unknown>[];
-  mode: 'json' | 'schema' | 'table';
+  mode: 'json' | 'schema';
   /** Base path for expression generation. Default: '$json' */
   basePath?: string;
-  /** Pre-extracted tabular data for table mode */
-  tabularData?: Record<string, unknown>[] | null;
 }
 
 // Type for nested schema structure
@@ -19,7 +16,7 @@ interface SchemaNode {
   path: string;
 }
 
-export default function RunDataDisplay({ data, mode, basePath = '$json', tabularData }: RunDataDisplayProps) {
+export default function RunDataDisplay({ data, mode, basePath = '$json' }: RunDataDisplayProps) {
   // Generate nested schema from data for tree view
   const schema = useMemo(() => {
     const buildSchema = (
@@ -77,10 +74,6 @@ export default function RunDataDisplay({ data, mode, basePath = '$json', tabular
     e.dataTransfer.effectAllowed = 'copy';
     // Use native drag ghost (the element itself) - much smoother than custom drag image
   }, []);
-
-  if (mode === 'table' && tabularData) {
-    return <DataTable data={tabularData} />;
-  }
 
   if (mode === 'json') {
     return (

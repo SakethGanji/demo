@@ -65,7 +65,7 @@ export default function NodeDetailsModal() {
   // Individual selectors — only re-render when the specific data we need changes
   const deleteNode = useWorkflowStore((s) => s.deleteNode);
   const updateNodeData = useWorkflowStore((s) => s.updateNodeData);
-  const activeNode = useNodeById(activeNodeId);
+  const activeNode = useNodeById(activeNodeId) as import('@xyflow/react').Node<import('../../types/workflow').WorkflowNodeData> | null;
   const nodeExecution = useNodeExecution(activeNodeId);
 
   const { executeWorkflow, isExecuting } = useExecuteWorkflow();
@@ -145,14 +145,14 @@ export default function NodeDetailsModal() {
     <Dialog open={isOpen} onOpenChange={(open) => { if (!open) closeNDV(); }}>
       <DialogPortal>
         <DialogOverlay />
-        <DialogContent onEscapeKeyDown={handleEscapeKeyDown} className="editor-chrome">
+        <DialogContent onEscapeKeyDown={handleEscapeKeyDown} showCloseButton={false} className="!max-w-[90vw] !w-[90vw] !h-[85vh] !p-0 !gap-0 flex flex-col !bg-background">
           {/* Accessible title (visually hidden — header is custom) */}
           <VisuallyHidden>
             <DialogTitle>{activeNode.data.label} - Node Details</DialogTitle>
           </VisuallyHidden>
 
           {/* Consolidated Header - Node identity + controls */}
-          <div className="flex items-center justify-between px-3 h-10 bg-muted/40 shrink-0">
+          <div className="flex items-center justify-between px-3 h-10 bg-background/50 border-b border-border/30 shrink-0">
             {/* Left: Back button */}
             <button
               onClick={closeNDV}

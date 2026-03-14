@@ -407,13 +407,7 @@ class WorkflowService:
         skip_types = trigger_types | {"StickyNote"}
         for node in workflow.nodes:
             if node.name not in connected_nodes and node.type not in skip_types:
-                # Check if it's a subnode (connected via subnode connections)
-                is_subnode = any(
-                    c.target_node == node.name and c.connection_type == "subnode"
-                    for c in workflow.connections
-                )
-                if not is_subnode:
-                    errors.append(f"Orphan node: {node.name}")
+                errors.append(f"Orphan node: {node.name}")
 
         return errors
 
@@ -494,7 +488,7 @@ class WorkflowService:
             # Compute dynamic I/O based on node type and parameters
             io_data = self._node_service.compute_node_io(n.type, n.parameters or {})
 
-            # Get subnode metadata from node registry
+            # Get node metadata from registry
             node_info = self._node_service._node_registry.get_node_type_info(n.type)
 
             node_dict: dict[str, Any] = {
@@ -520,13 +514,6 @@ class WorkflowService:
                 **({"icon": node_info.icon} if node_info and node_info.icon else {}),
             }
 
-            # Add subnode metadata so frontend doesn't need to guess
-            if node_info:
-                node_dict["isSubnode"] = node_info.is_subnode
-                node_dict["subnodeType"] = node_info.subnode_type
-                if node_info.subnode_slots:
-                    node_dict["subnodeSlots"] = node_info.subnode_slots
-
             enriched_nodes.append(node_dict)
 
         return {
@@ -540,8 +527,6 @@ class WorkflowService:
                     "target_node": c.target_node,
                     "source_output": c.source_output,
                     "target_input": c.target_input,
-                    **({"connection_type": c.connection_type} if c.connection_type else {}),
-                    **({"slot_name": c.slot_name} if c.slot_name else {}),
                     **({"waypoints": c.waypoints} if c.waypoints else {}),
                 }
                 for c in workflow.connections

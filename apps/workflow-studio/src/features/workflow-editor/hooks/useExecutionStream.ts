@@ -7,14 +7,12 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { useWorkflowStore } from '../stores/workflowStore';
-import { useUIModeStore } from '../stores/uiModeStore';
-import { useEditorLayoutStore } from '../stores/editorLayoutStore';
 import { toBackendWorkflow, findUpstreamNodeName, buildNameToIdMap } from '../lib/workflowTransform';
-import { consumeSSEStream } from '../lib/sseParser';
+import { consumeSSEStream } from '@/shared/lib/sseParser';
 import { backends } from '@/shared/lib/config';
 import { toast } from 'sonner';
 import type { WorkflowNodeData } from '../types/workflow';
-import type { Node } from 'reactflow';
+import type { Node } from '@xyflow/react';
 
 // Event types from backend
 interface ExecutionEvent {
@@ -85,18 +83,15 @@ export function useExecutionStream(): UseExecutionStreamResult {
       workflowName,
       workflowId,
       setNodeExecutionData,
-      setSubworkflowNodeExecutionData,
       clearExecutionData,
     } = useWorkflowStore.getState();
 
-    // Clear previous execution and UI data
-    useUIModeStore.getState().reset();
     clearExecutionData();
     setIsExecuting(true);
     setProgress(null);
 
     // Mark all workflow nodes as pending initially
-    const workflowNodes = nodes.filter((n) => n.type === 'workflowNode' || n.type === 'subworkflowNode');
+    const workflowNodes = nodes.filter((n) => n.type === 'workflowNode');
     workflowNodes.forEach((node) => {
       setNodeExecutionData(node.id, {
         input: null,
@@ -198,18 +193,8 @@ export function useExecutionStream(): UseExecutionStreamResult {
           break;
 
         case 'node:start': {
-          // Check if this is a subworkflow inner node event
-          if (event.subworkflowParentNode) {
-            const parentNodeId = nameToId.get(event.subworkflowParentNode);
-            if (parentNodeId && event.nodeName) {
-              store.setSubworkflowNodeExecutionData(parentNodeId, event.nodeName, {
-                input: null,
-                output: null,
-                status: 'running',
-                startTime: Date.now(),
-              });
-            }
-          } else {
+          // Skip subworkflow inner node events (only track the parent ExecuteWorkflow node)
+          if (!event.subworkflowParentNode) {
             const nodeId = nameToId.get(event.nodeName || '');
             if (nodeId) {
               const existing = store.executionData[nodeId];
@@ -227,54 +212,13 @@ export function useExecutionStream(): UseExecutionStreamResult {
         }
 
         case 'node:complete': {
-          // Check if this is a subworkflow inner node event
-          if (event.subworkflowParentNode) {
-            const parentNodeId = nameToId.get(event.subworkflowParentNode);
-            if (parentNodeId && event.nodeName) {
-              store.setSubworkflowNodeExecutionData(parentNodeId, event.nodeName, {
-                input: null,
-                output: { items: event.data?.map((d) => d.json) || [] },
-                status: 'success',
-                startTime: Date.now(),
-                endTime: Date.now(),
-              });
-            }
-          } else {
+          // Skip subworkflow inner node events
+          if (!event.subworkflowParentNode) {
             const nodeId = nameToId.get(event.nodeName || '');
             if (nodeId && event.nodeName) {
               // Store output for later use as input to downstream nodes
               if (event.data) {
                 nodeOutputs[event.nodeName] = event.data;
-
-                // Check for UI output content (HTML/Markdown/PDF/Table)
-                const uiStore = useUIModeStore.getState();
-                let hasUIContent = false;
-                for (const item of event.data) {
-                  const data = item.json;
-                  if (data._renderAs === 'html' && data.html) {
-                    uiStore.setHtmlContent(String(data.html));
-                    hasUIContent = true;
-                  }
-                  if (data._renderAs === 'markdown' && data.markdown) {
-                    uiStore.setMarkdownContent(String(data.markdown));
-                    hasUIContent = true;
-                  }
-                  if (data._renderAs === 'pdf' && data.pdf_base64) {
-                    uiStore.setPdfBase64(String(data.pdf_base64));
-                    hasUIContent = true;
-                  }
-                  if (data._renderAs === 'table' && Array.isArray(data.data)) {
-                    uiStore.setTableData(data.data as Record<string, unknown>[]);
-                    hasUIContent = true;
-                  }
-                }
-                // Ensure bottom panel is open on UI tab when output content arrives
-                if (hasUIContent) {
-                  const layout = useEditorLayoutStore.getState();
-                  if (!layout.bottomPanelOpen || layout.bottomPanelTab !== 'ui') {
-                    layout.openBottomPanel('ui');
-                  }
-                }
               }
 
               // Find input from upstream node — read edges from store at event time
@@ -299,18 +243,8 @@ export function useExecutionStream(): UseExecutionStreamResult {
         }
 
         case 'node:error': {
-          // Check if this is a subworkflow inner node event
-          if (event.subworkflowParentNode) {
-            const parentNodeId = nameToId.get(event.subworkflowParentNode);
-            if (parentNodeId && event.nodeName) {
-              store.setSubworkflowNodeExecutionData(parentNodeId, event.nodeName, {
-                input: null,
-                output: { items: [], error: event.error },
-                status: 'error',
-                endTime: Date.now(),
-              });
-            }
-          } else {
+          // Skip subworkflow inner node events
+          if (!event.subworkflowParentNode) {
             const nodeId = nameToId.get(event.nodeName || '');
             if (nodeId) {
               const existingError = store.executionData[nodeId];

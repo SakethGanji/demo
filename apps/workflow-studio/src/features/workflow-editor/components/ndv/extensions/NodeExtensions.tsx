@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { Link, Copy, Check, Terminal } from 'lucide-react';
-import type { Node } from 'reactflow';
+import type { Node } from '@xyflow/react';
 import type { WorkflowNodeData } from '../../../types/workflow';
 import { useWorkflowStore } from '../../../stores/workflowStore';
 import { backends } from '@/shared/lib/config';
@@ -9,11 +9,11 @@ import ImportCurlDialog from '../ImportCurlDialog';
 
 // --- Shared interface ---
 
-export interface NodeExtensionProps {
+interface NodeExtensionProps {
   node: Node<WorkflowNodeData>;
 }
 
-export type NodeExtensionComponent = React.ComponentType<NodeExtensionProps>;
+type NodeExtensionComponent = React.ComponentType<NodeExtensionProps>;
 
 // --- Registry ---
 

@@ -1,13 +1,14 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, memo, type DragEvent } from 'react';
 import { Search, X, Loader2 } from 'lucide-react';
 import { useEditorLayoutStore } from '../../stores/editorLayoutStore';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { generateNodeName, getExistingNodeNames } from '../../lib/workflowTransform';
 import { useNodeTypes } from '../../hooks/useNodeTypes';
-import { getNodeIcon } from '../../lib/nodeConfig';
+import { getNodeIcon, normalizeNodeGroup } from '../../lib/nodeConfig';
+import { getNodeStyles } from '../../lib/nodeStyles';
+import { getIconForNode } from '../../lib/nodeIcons';
 import { createWorkflowNodeData } from '../../lib/createNodeData';
-import NodeItem from './NodeItem';
-import type { NodeDefinition, SubnodeType, SubnodeSlotDefinition, OutputStrategy } from '../../types/workflow';
+import type { NodeDefinition, OutputStrategy } from '../../types/workflow';
 import type { NodeGroup, NodeIO } from '../../lib/nodeStyles';
 import type { ApiProperty } from '@/shared/lib/api';
 
@@ -18,12 +19,6 @@ interface ExtendedNodeDefinition extends NodeDefinition {
   outputCount?: number;
   inputs?: NodeIO[];
   outputs?: NodeIO[];
-  // Subnode metadata (for subnodes themselves)
-  isSubnode?: boolean;
-  subnodeType?: SubnodeType;
-  providesToSlot?: string;
-  // Subnode slots (for parent nodes like AI Agent)
-  subnodeSlots?: SubnodeSlotDefinition[];
   // Output strategy for dynamic output nodes
   outputStrategy?: OutputStrategy;
   // Properties with defaults
@@ -36,15 +31,12 @@ export default function NodeCreatorPanel() {
   const sourceNodeId = useEditorLayoutStore((s) => s.sourceNodeId);
   const sourceHandleId = useEditorLayoutStore((s) => s.sourceHandleId);
   const dropPosition = useEditorLayoutStore((s) => s.dropPosition);
-  const subnodeSlotContext = useEditorLayoutStore((s) => s.subnodeSlotContext);
   const closePanel = useEditorLayoutStore((s) => s.closeCreatorPanel);
   const setView = useEditorLayoutStore((s) => s.setCreatorView);
   const setSearch = useEditorLayoutStore((s) => s.setCreatorSearch);
   const clearConnectionContext = useEditorLayoutStore((s) => s.clearConnectionContext);
-  const clearSubnodeContext = useEditorLayoutStore((s) => s.clearSubnodeContext);
 
   const addNode = useWorkflowStore((s) => s.addNode);
-  const addSubnode = useWorkflowStore((s) => s.addSubnode);
   const nodes = useWorkflowStore((s) => s.nodes);
   const onConnect = useWorkflowStore((s) => s.onConnect);
 
@@ -52,16 +44,14 @@ export default function NodeCreatorPanel() {
   const { data: apiNodes, isLoading, isError } = useNodeTypes();
 
   // Transform API nodes to ExtendedNodeDefinition format with dynamic UI metadata
-  const { triggerNodes, regularNodes, subnodeNodes } = useMemo(() => {
-    if (!apiNodes) return { triggerNodes: [], regularNodes: [], subnodeNodes: [] };
+  const { triggerNodes, regularNodes } = useMemo(() => {
+    if (!apiNodes) return { triggerNodes: [], regularNodes: [] };
 
     const triggers: ExtendedNodeDefinition[] = [];
     const regular: ExtendedNodeDefinition[] = [];
-    const subnodes: ExtendedNodeDefinition[] = [];
 
     apiNodes.forEach((node) => {
       const isTrigger = node.group?.includes('trigger');
-      const isSubnode = node.isSubnode === true;
       const category = node.group?.[0] || 'other';
 
       // Map API category to UI category
@@ -105,29 +95,20 @@ export default function NodeCreatorPanel() {
         outputCount,
         inputs,
         outputs,
-        // Subnode metadata (for subnodes)
-        isSubnode,
-        subnodeType: node.subnodeType as SubnodeType | undefined,
-        providesToSlot: node.providesToSlot,
-        // Subnode slots (for parent nodes like AI Agent)
-        subnodeSlots: node.subnodeSlots as SubnodeSlotDefinition[] | undefined,
         // Output strategy for dynamic output nodes (like Switch)
         outputStrategy: node.outputStrategy as OutputStrategy | undefined,
         // Properties with defaults
         properties: node.properties as ApiProperty[] | undefined,
       };
 
-      if (isSubnode) {
-        subnodes.push(nodeDef);
-      } else if (isTrigger) {
+      if (isTrigger) {
         triggers.push(nodeDef);
-      } else if (node.type !== 'ExecuteWorkflow') {
-        // ExecuteWorkflow is added via "Embed Subworkflow" toolbar action, not the panel
+      } else {
         regular.push(nodeDef);
       }
     });
 
-    return { triggerNodes: triggers, regularNodes: regular, subnodeNodes: subnodes };
+    return { triggerNodes: triggers, regularNodes: regular };
   }, [apiNodes]);
 
   // Get the right nodes based on view
@@ -135,12 +116,9 @@ export default function NodeCreatorPanel() {
     if (view === 'trigger') {
       return triggerNodes;
     }
-    if (view === 'subnode' && subnodeSlotContext) {
-      return subnodeNodes.filter((node) => node.subnodeType === subnodeSlotContext.slotType);
-    }
-    // Default: show all non-subnode nodes (triggers + regular)
+    // Default: show all nodes (triggers + regular)
     return [...triggerNodes, ...regularNodes];
-  }, [view, triggerNodes, regularNodes, subnodeNodes, subnodeSlotContext]);
+  }, [view, triggerNodes, regularNodes]);
 
   // Filter nodes by search
   const filteredNodes = useMemo(() => {
@@ -219,7 +197,6 @@ export default function NodeCreatorPanel() {
           inputs: nodeDef.inputs,
           outputs: nodeDef.outputs,
           outputStrategy: nodeDef.outputStrategy,
-          subnodeSlots: nodeDef.subnodeSlots,
           properties: nodeDef.properties,
         },
         { name: nodeName },
@@ -262,64 +239,14 @@ export default function NodeCreatorPanel() {
     ]
   );
 
-  // Handle subnode selection (from slot + button)
-  const handleSubnodeSelect = useCallback(
-    (nodeDef: ExtendedNodeDefinition) => {
-      if (!subnodeSlotContext || !nodeDef.subnodeType) return;
-
-      const defaultParams: Record<string, unknown> = {};
-      if (nodeDef.properties) {
-        for (const prop of nodeDef.properties) {
-          if (prop.default !== undefined) {
-            defaultParams[prop.name] = prop.default;
-          }
-        }
-      }
-
-      addSubnode(
-        subnodeSlotContext.parentNodeId,
-        subnodeSlotContext.slotName,
-        {
-          type: nodeDef.name,
-          label: nodeDef.displayName,
-          icon: nodeDef.icon,
-          subnodeType: nodeDef.subnodeType,
-          properties: defaultParams,
-        }
-      );
-
-      clearSubnodeContext();
-    },
-    [addSubnode, clearSubnodeContext, subnodeSlotContext]
-  );
-
-  // Choose the right handler based on view
-  const handleNodeClick = useCallback(
-    (nodeDef: ExtendedNodeDefinition) => {
-      if (view === 'subnode') {
-        handleSubnodeSelect(nodeDef);
-      } else {
-        handleNodeSelect(nodeDef);
-      }
-    },
-    [view, handleNodeSelect, handleSubnodeSelect]
-  );
-
   // Context banner info
-  const hasContext = !!sourceNodeId || !!subnodeSlotContext;
-  const slotTypeLabels: Record<string, string> = {
-    model: 'Chat Model',
-    memory: 'Memory',
-    tool: 'Tool',
-  };
-  const contextLabel = subnodeSlotContext
-    ? `Selecting ${slotTypeLabels[subnodeSlotContext.slotType] || 'subnode'}`
-    : sourceNodeId
+  const hasContext = !!sourceNodeId;
+  const contextLabel = sourceNodeId
     ? 'Adding connected node'
     : '';
 
   return (
-    <div className="h-full flex flex-col bg-card">
+    <div className="h-full flex flex-col">
       {/* Context banner */}
       {hasContext && (
         <div className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 border-b border-primary/20 shrink-0">
@@ -371,7 +298,7 @@ export default function NodeCreatorPanel() {
               <NodeItem
                 key={node.type}
                 node={node}
-                onClick={() => handleNodeClick(node)}
+                onClick={() => handleNodeSelect(node)}
               />
             ))}
             {filteredNodes.length === 0 && (
@@ -391,7 +318,7 @@ export default function NodeCreatorPanel() {
                   <NodeItem
                     key={node.type}
                     node={node}
-                    onClick={() => handleNodeClick(node)}
+                    onClick={() => handleNodeSelect(node)}
                   />
                 ))}
               </div>
@@ -417,3 +344,55 @@ function getCategoryLabel(category: string): string {
   };
   return labels[category] || category.charAt(0).toUpperCase() + category.slice(1);
 }
+
+// ---------------------------------------------------------------------------
+// NodeItem (inlined)
+// ---------------------------------------------------------------------------
+
+const NodeItem = memo(function NodeItem({
+  node,
+  onClick,
+}: {
+  node: NodeDefinition & { group?: NodeGroup };
+  onClick: () => void;
+}) {
+  const IconComponent = getIconForNode(node.icon, node.type);
+  const setDraggedNodeType = useWorkflowStore((s) => s.setDraggedNodeType);
+
+  const nodeGroup = normalizeNodeGroup(node.group ? [node.group] : (node.category ? [node.category] : undefined));
+  const styles = getNodeStyles(nodeGroup);
+
+  const handleDragStart = (e: DragEvent<HTMLButtonElement>) => {
+    e.dataTransfer.setData('application/reactflow-node', JSON.stringify(node));
+    e.dataTransfer.effectAllowed = 'move';
+    setDraggedNodeType(node.type);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedNodeType(null);
+  };
+
+  return (
+    <button
+      onClick={onClick}
+      draggable
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+      className="group flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-accent cursor-grab active:cursor-grabbing"
+    >
+      <div
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
+        style={{
+          backgroundColor: styles.iconBgColor,
+          color: styles.iconFgColor,
+        }}
+      >
+        <IconComponent size={16} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-[13px] font-medium text-foreground">{node.displayName}</p>
+        <p className="truncate text-[12px] text-muted-foreground leading-tight">{node.description}</p>
+      </div>
+    </button>
+  );
+});

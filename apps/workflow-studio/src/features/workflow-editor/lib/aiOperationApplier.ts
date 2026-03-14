@@ -6,14 +6,12 @@
  * - incremental: Applies individual add/update/remove operations
  */
 
-import type { Node, Edge } from 'reactflow';
-import type { AIResponsePayload, AIOperation } from '../types/aiChat';
-import type { WorkflowNodeData } from '../types/workflow';
+import type { Node } from '@xyflow/react';
+import type { AIResponsePayload, AIOperation, WorkflowNodeData } from '../types/workflow';
 import type { NodeTypeMetadata } from './createNodeData';
 import { useWorkflowStore } from '../stores/workflowStore';
 import { fromBackendWorkflow, generateNodeName, getExistingNodeNames } from './workflowTransform';
-import { createWorkflowNodeData, getDefaultIO } from './createNodeData';
-import { SUBNODE_SLOT_NAMES } from './nodeConfig';
+import { createWorkflowNodeData } from './createNodeData';
 import { toast } from 'sonner';
 
 /**
@@ -112,20 +110,14 @@ function applyFullWorkflow(
           ...(meta?.inputCount !== undefined ? { inputCount: meta.inputCount } : {}),
           ...(meta?.outputCount !== undefined ? { outputCount: meta.outputCount } : {}),
           ...(meta?.outputStrategy ? { outputStrategy: meta.outputStrategy } : {}),
-          ...(meta?.subnodeSlots ? { subnodeSlots: meta.subnodeSlots } : {}),
         };
       }),
-      connections: workflow.connections.map((c) => {
-        const targetInput = c.target_input || 'main';
-        const isSubnode = (SUBNODE_SLOT_NAMES as readonly string[]).includes(targetInput);
-        return {
-          source_node: c.source_node,
-          target_node: c.target_node,
-          source_output: c.source_output || 'main',
-          target_input: targetInput,
-          ...(isSubnode ? { connection_type: 'subnode' as const, slot_name: targetInput } : {}),
-        };
-      }),
+      connections: workflow.connections.map((c) => ({
+        source_node: c.source_node,
+        target_node: c.target_node,
+        source_output: c.source_output || 'main',
+        target_input: c.target_input || 'main',
+      })),
     },
   };
 
@@ -325,33 +317,12 @@ function applyAddConnection(op: Extract<AIOperation, { op: 'addConnection' }>): 
     return;
   }
 
-  const targetInput = op.target_input || 'main';
-  const isSubnode = (SUBNODE_SLOT_NAMES as readonly string[]).includes(targetInput);
-
-  if (isSubnode) {
-    // For subnode connections, create a properly typed subnodeEdge
-    const subnodeEdge: Edge = {
-      id: `${sourceNode.id}-${targetNode.id}-${targetInput}`,
-      source: sourceNode.id,
-      target: targetNode.id,
-      sourceHandle: 'config',
-      targetHandle: targetInput,
-      type: 'subnodeEdge',
-      data: {
-        isSubnodeEdge: true,
-        slotName: targetInput,
-        slotType: (sourceNode.data as WorkflowNodeData)?.subnodeType || 'tool',
-      },
-    };
-    store.setEdges([...store.edges, subnodeEdge]);
-  } else {
-    store.onConnect({
-      source: sourceNode.id,
-      target: targetNode.id,
-      sourceHandle: op.source_output || 'main',
-      targetHandle: targetInput,
-    });
-  }
+  store.onConnect({
+    source: sourceNode.id,
+    target: targetNode.id,
+    sourceHandle: op.source_output || 'main',
+    targetHandle: op.target_input || 'main',
+  });
 }
 
 function applyRemoveConnection(op: Extract<AIOperation, { op: 'removeConnection' }>): void {

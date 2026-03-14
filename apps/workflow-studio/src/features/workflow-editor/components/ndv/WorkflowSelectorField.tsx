@@ -5,7 +5,7 @@
  */
 
 import { useId } from 'react';
-import { useWorkflows } from '@/features/workflows/hooks/useWorkflows';
+import { useWorkflows } from '@/features/projects/hooks/useWorkflows';
 
 interface NodeProperty {
   displayName: string;

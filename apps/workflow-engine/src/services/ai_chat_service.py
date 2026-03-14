@@ -175,8 +175,6 @@ class AIChatService:
 
         groups: dict[str, list[str]] = {}
         for info in infos:
-            if info.is_subnode:
-                continue
             group = (info.group or ["other"])[0]
             entry_parts = [f"- **{info.type}**: {info.description}"]
 
@@ -272,8 +270,6 @@ class AIChatService:
                             "target_node": c.get("target_node"),
                             "source_output": c.get("source_output", "main"),
                             "target_input": c.get("target_input", "main"),
-                            "connection_type": c.get("connection_type", "normal"),
-                            "slot_name": c.get("slot_name"),
                         }
                         for c in connections
                     ],
@@ -392,9 +388,7 @@ You must execute the following steps in sequence. Do not deviate.
 {context_section}
 ### **Workflow JSON Structure**
 - **Node**: `{{"name": "...", "type": "...", "parameters": {{...}}, "position": {{"x": 0, "y": 0}}}}`
-- **Normal connection**: `{{"source_node": "...", "target_node": "...", "source_output": "main", "target_input": "main", "connection_type": "normal"}}`
-- **Subnode connection**: `{{"source_node": "...", "target_node": "...", "connection_type": "subnode", "slot_name": "<slot>"}}`
-  (omit source_output/target_input for subnode connections)
+- **Connection**: `{{"source_node": "...", "target_node": "...", "source_output": "main", "target_input": "main"}}`
 
 ### **CRITICAL: Expression Syntax**
 The workflow engine uses a **Python-based expression language**, NOT JavaScript. All expressions must be wrapped in `{{{{ }}}}`. Using JavaScript syntax will cause a hard failure.
@@ -445,7 +439,7 @@ After successfully completing the entire lifecycle, provide a concise summary th
                     "properties": {
                         "category": {
                             "type": "string",
-                            "description": "Optional category filter (e.g. 'triggers', 'flow', 'data', 'integrations', 'ai', 'output', 'subnode')",
+                            "description": "Optional category filter (e.g. 'triggers', 'flow', 'data', 'integrations', 'ai', 'output')",
                         }
                     },
                     "required": [],
@@ -453,7 +447,7 @@ After successfully completing the entire lifecycle, provide a concise summary th
             },
             {
                 "name": "get_node_schema",
-                "description": "Get the full property schema for a specific node type, including all parameters, types, defaults, options, and subnode slots.",
+                "description": "Get the full property schema for a specific node type, including all parameters, types, defaults, and options.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -467,7 +461,7 @@ After successfully completing the entire lifecycle, provide a concise summary th
             },
             {
                 "name": "validate_workflow",
-                "description": "Validate a workflow definition for structural correctness: node types exist, unique names, connections valid, subnode slots correct. Returns {valid: bool, errors: [...]}.",
+                "description": "Validate a workflow definition for structural correctness: node types exist, unique names, connections valid. Returns {valid: bool, errors: [...]}.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -630,8 +624,6 @@ After successfully completing the entire lifecycle, provide a concise summary th
                 target_node=c["target_node"],
                 source_output=c.get("source_output", "main"),
                 target_input=c.get("target_input", "main"),
-                connection_type=c.get("connection_type", "normal"),
-                slot_name=c.get("slot_name"),
             )
             for c in workflow_def.get("connections", [])
         ]
@@ -644,9 +636,7 @@ After successfully completing the entire lifecycle, provide a concise summary th
         groups: dict[str, list[dict[str, Any]]] = {}
         for info in infos:
             group = (info.group or ["other"])[0]
-            label = "subnode" if info.is_subnode else group
-
-            if category_filter and label != category_filter.lower():
+            if category_filter and group != category_filter.lower():
                 continue
 
             entry: dict[str, Any] = {
@@ -654,13 +644,8 @@ After successfully completing the entire lifecycle, provide a concise summary th
                 "description": info.description,
                 "display_name": info.display_name,
             }
-            if info.subnode_slots:
-                entry["subnode_slots"] = [s["name"] for s in info.subnode_slots]
-            if info.is_subnode:
-                entry["subnode_type"] = info.subnode_type
-                entry["provides_to_slot"] = info.provides_to_slot
 
-            groups.setdefault(label, []).append(entry)
+            groups.setdefault(group, []).append(entry)
 
         return {"categories": groups}
 
@@ -681,13 +666,6 @@ After successfully completing the entire lifecycle, provide a concise summary th
             "input_count": info.input_count,
             "output_count": info.output_count,
         }
-        if info.subnode_slots:
-            result["subnode_slots"] = info.subnode_slots
-        if info.is_subnode:
-            result["is_subnode"] = True
-            result["subnode_type"] = info.subnode_type
-            result["provides_to_slot"] = info.provides_to_slot
-
         return result
 
     async def _tool_validate_workflow(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -722,13 +700,9 @@ After successfully completing the entire lifecycle, provide a concise summary th
                     if info:
                         node_type_map[ntype] = info
 
-        # Track filled subnode slots: target_node_name -> set of slot_names
-        filled_subnode_slots: dict[str, set[str]] = {}
-
         for conn in connections:
             src = conn.get("source_node", "")
             tgt = conn.get("target_node", "")
-            conn_type = conn.get("connection_type", "normal")
 
             if src not in name_set:
                 errors.append(f"Connection references unknown source node: '{src}'")
@@ -742,78 +716,25 @@ After successfully completing the entire lifecycle, provide a concise summary th
             src_info = node_type_map.get(src_type)
             tgt_info = node_type_map.get(tgt_type)
 
-            if conn_type == "subnode":
-                # Subnode connection validation
-                slot_name = conn.get("slot_name", "")
-                if src_info and not src_info.is_subnode:
+            # Output port existence check
+            source_output = conn.get("source_output", "main")
+            if src_info and src_info.outputs is not None:
+                output_names = {o["name"] for o in src_info.outputs}
+                if source_output not in output_names:
                     errors.append(
-                        f"Subnode connection source '{src}' (type '{src_type}') is not a subnode."
-                    )
-                if tgt_info and tgt_info.subnode_slots:
-                    slot_names = {s["name"] for s in tgt_info.subnode_slots}
-                    if slot_name not in slot_names:
-                        errors.append(
-                            f"Subnode connection to '{tgt}' references unknown slot '{slot_name}'. "
-                            f"Available slots: {sorted(slot_names)}"
-                        )
-                    else:
-                        # Check provides_to_slot matches the slot name
-                        if src_info and src_info.provides_to_slot:
-                            if src_info.provides_to_slot != slot_name:
-                                errors.append(
-                                    f"Subnode '{src}' provides to slot '{src_info.provides_to_slot}' "
-                                    f"but is connected to slot '{slot_name}' on node '{tgt}'."
-                                )
-                        filled_subnode_slots.setdefault(tgt, set()).add(slot_name)
-                elif tgt_info and not tgt_info.subnode_slots:
-                    errors.append(
-                        f"Node '{tgt}' (type '{tgt_type}') has no subnode slots but received a subnode connection."
-                    )
-            else:
-                # Normal connection validation
-                # Check source node is not a subnode
-                if src_info and src_info.is_subnode:
-                    errors.append(
-                        f"Subnode '{src}' (type '{src_type}') should not be the source of a normal connection."
-                    )
-                # Check target node is not a subnode
-                if tgt_info and tgt_info.is_subnode:
-                    errors.append(
-                        f"Subnode '{tgt}' (type '{tgt_type}') should not be the target of a normal connection."
+                        f"Connection from '{src}': output port '{source_output}' does not exist "
+                        f"on node type '{src_type}'. Available outputs: {sorted(output_names)}"
                     )
 
-                # Output port existence check
-                source_output = conn.get("source_output", "main")
-                if src_info and src_info.outputs is not None:
-                    output_names = {o["name"] for o in src_info.outputs}
-                    if source_output not in output_names:
-                        errors.append(
-                            f"Connection from '{src}': output port '{source_output}' does not exist "
-                            f"on node type '{src_type}'. Available outputs: {sorted(output_names)}"
-                        )
-
-                # Input port existence check
-                target_input = conn.get("target_input", "main")
-                if tgt_info and tgt_info.inputs is not None:
-                    input_names = {i["name"] for i in tgt_info.inputs}
-                    if target_input not in input_names:
-                        errors.append(
-                            f"Connection to '{tgt}': input port '{target_input}' does not exist "
-                            f"on node type '{tgt_type}'. Available inputs: {sorted(input_names)}"
-                        )
-
-        # Required subnode slot validation
-        for node in nodes:
-            ntype = node.get("type", "")
-            nname = node.get("name", "")
-            info = node_type_map.get(ntype)
-            if info and info.subnode_slots:
-                for slot in info.subnode_slots:
-                    if slot.get("required") and slot["name"] not in filled_subnode_slots.get(nname, set()):
-                        errors.append(
-                            f"Node '{nname}' (type '{ntype}') has required subnode slot "
-                            f"'{slot['name']}' that is not filled."
-                        )
+            # Input port existence check
+            target_input = conn.get("target_input", "main")
+            if tgt_info and tgt_info.inputs is not None:
+                input_names = {i["name"] for i in tgt_info.inputs}
+                if target_input not in input_names:
+                    errors.append(
+                        f"Connection to '{tgt}': input port '{target_input}' does not exist "
+                        f"on node type '{tgt_type}'. Available inputs: {sorted(input_names)}"
+                    )
 
         types = [n.get("type", "") for n in nodes]
         if "Start" not in types:

@@ -4,7 +4,7 @@ import {
   getSmoothStepPath,
   useReactFlow,
   type EdgeProps,
-} from 'reactflow';
+} from '@xyflow/react';
 import { Plus } from 'lucide-react';
 import { useEditorLayoutStore } from '../../../stores/editorLayoutStore';
 import { useWorkflowStore } from '../../../stores/workflowStore';
@@ -302,10 +302,9 @@ function WorkflowEdge({
     return isHovered ? EDGE_COLORS.hover : EDGE_COLORS.default;
   }, [edgeStatus, isHovered, isDragging]);
 
-  // Track transitions — only show particles when status *changes*, not on stale remounts
+  // Track transitions — only animate when status *changes* to running, not on stale remounts
   const prevEdgeStatusRef = useRef<string | null>(null);
   const [liveRunning, setLiveRunning] = useState(false);
-  const [liveSuccess, setLiveSuccess] = useState(false);
 
   useEffect(() => {
     const prev = prevEdgeStatusRef.current;
@@ -317,14 +316,6 @@ function WorkflowEdge({
       setLiveRunning(true);
     } else if (edgeStatus !== 'running') {
       setLiveRunning(false);
-    }
-
-    if (edgeStatus === 'success' && prev !== 'success') {
-      setLiveSuccess(true);
-      const t = setTimeout(() => setLiveSuccess(false), 600);
-      return () => clearTimeout(t);
-    } else if (edgeStatus !== 'success') {
-      setLiveSuccess(false);
     }
   }, [edgeStatus]);
 
@@ -355,7 +346,7 @@ function WorkflowEdge({
         className="react-flow__edge-path"
         d={edgePath}
         fill="none"
-        stroke={`url(#${gradientId})`}
+        stroke={isAnimated ? 'var(--warning)' : `url(#${gradientId})`}
         strokeWidth={edgeStatus !== 'default' ? 2.5 : (isHovered ? 2 : 1.5)}
         strokeOpacity={isEdgeIdle ? 0.25 : 1}
         markerEnd={`url(#arrow-${id})`}
@@ -367,26 +358,6 @@ function WorkflowEdge({
         }}
       />
 
-      {/* Animated particles — data flowing through edges (only on live transitions) */}
-      {liveRunning && [0, 0.67, 1.33].map((delay, i) => (
-        <g key={`particle-${i}`}>
-          <circle r={7} fill="var(--warning)" opacity={0.12} />
-          <circle r={i === 0 ? 3 : 2} fill="var(--warning)" opacity={i === 0 ? 0.9 : 0.7} />
-          <animateMotion dur="2s" repeatCount="indefinite" begin={`${delay}s`}>
-            <mpath href={`#${id}`} />
-          </animateMotion>
-        </g>
-      ))}
-
-      {/* Success completion particle (only on live transition to success) */}
-      {liveSuccess && (
-        <circle r={4} fill="var(--success)">
-          <animateMotion dur="0.5s" fill="freeze">
-            <mpath href={`#${id}`} />
-          </animateMotion>
-          <animate attributeName="opacity" values="0.9;0.9;0" keyTimes="0;0.7;1" dur="0.5s" fill="freeze" />
-        </circle>
-      )}
 
       {/* Invisible interaction path — wider for reliable hover/double-click */}
       <path

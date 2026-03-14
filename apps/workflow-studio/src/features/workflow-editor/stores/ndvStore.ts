@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-type DisplayMode = 'table' | 'json' | 'schema';
+type DisplayMode = 'json' | 'schema';
 
 const STORAGE_KEY = 'ndv-preferences';
 

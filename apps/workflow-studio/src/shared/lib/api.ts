@@ -42,18 +42,6 @@ interface NodeTypeInfo {
   properties: ApiProperty[];
   inputs: { name: string; displayName: string; type: string; required?: boolean }[];
   outputs: { name: string; displayName: string; type: string; schema?: unknown }[];
-  // Subnode metadata
-  isSubnode?: boolean;
-  subnodeType?: 'model' | 'memory' | 'tool';
-  providesToSlot?: string;
-  // Parent node subnode slots
-  subnodeSlots?: Array<{
-    name: string;
-    displayName: string;
-    slotType: 'model' | 'memory' | 'tool';
-    required: boolean;
-    multiple: boolean;
-  }>;
   // Dynamic output strategy
   outputStrategy?: {
     type: 'dynamicFromCollection' | 'dynamicFromParameter' | 'static';

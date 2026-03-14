@@ -484,7 +484,7 @@ function PasswordField({
           onChange={(e) => onChange(e.target.value)}
           onBlur={onBlur}
           placeholder={property.placeholder}
-          className={`w-full rounded border bg-background px-2.5 py-1.5 text-[13px] focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring/50 ${
+          className={`w-full rounded border bg-[var(--surface)] px-2.5 py-1.5 text-[13px] focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring/50 ${
             error ? 'border-[var(--destructive)]' : 'border-border/60'
           }`}
         />
@@ -571,7 +571,7 @@ function NumberField({
         min={min}
         max={max}
         step={step}
-        className={`w-full rounded border bg-background px-2.5 py-1.5 text-[13px] focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring/50 ${
+        className={`w-full rounded border bg-[var(--surface)] px-2.5 py-1.5 text-[13px] focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring/50 ${
           displayError ? 'border-[var(--destructive)]' : 'border-border/60'
         }`}
       />
@@ -640,7 +640,7 @@ function OptionsField({
           onChange(selectedOption?.value ?? e.target.value);
         }}
         onBlur={onBlur}
-        className={`w-full rounded border bg-background px-2.5 py-1.5 text-[13px] focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring/50 ${
+        className={`w-full rounded border bg-[var(--surface)] px-2.5 py-1.5 text-[13px] focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring/50 ${
           error ? 'border-[var(--destructive)]' : 'border-border/60'
         }`}
       >

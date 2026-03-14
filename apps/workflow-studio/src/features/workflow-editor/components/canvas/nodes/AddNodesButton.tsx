@@ -1,13 +1,14 @@
 import { memo } from 'react';
-import type { NodeProps } from 'reactflow';
+import type { NodeProps, Node } from '@xyflow/react';
 import { Plus } from 'lucide-react';
 import { useEditorLayoutStore } from '../../../stores/editorLayoutStore';
 
 interface AddNodesButtonData {
   label: string;
+  [key: string]: unknown;
 }
 
-function AddNodesButton({ data }: NodeProps<AddNodesButtonData>) {
+function AddNodesButton({ data }: NodeProps<Node<AddNodesButtonData>>) {
   const openPanel = useEditorLayoutStore((s) => s.openCreatorPanel);
 
   return (

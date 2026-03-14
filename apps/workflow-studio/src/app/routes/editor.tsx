@@ -1,14 +1,11 @@
-import { lazy, Suspense, useEffect, useRef } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { createRoute } from '@tanstack/react-router'
-import { ReactFlowProvider, useViewport } from 'reactflow'
-import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
-import type { ImperativePanelHandle } from 'react-resizable-panels'
-import { Loader2, X, Blocks, Sparkles, CheckCircle2, XCircle, Clock } from 'lucide-react'
+import { ReactFlowProvider } from '@xyflow/react'
+import { Loader2, X, Blocks, Sparkles } from 'lucide-react'
 import { EditorTabList, EditorTab } from '@/shared/components/ui/editor-tabs'
 import { rootRoute } from './__root'
 import { useWorkflowStore } from '@/features/workflow-editor/stores/workflowStore'
 import { useEditorLayoutStore, type RightPanelTab } from '@/features/workflow-editor/stores/editorLayoutStore'
-import { useExecSummary } from '@/features/workflow-editor/hooks/useWorkflowSelectors'
 import { fromBackendWorkflow } from '@/features/workflow-editor/lib/workflowTransform'
 import { backends } from '@/shared/lib/config'
 import { useNodeTypes } from '@/features/workflow-editor/hooks/useNodeTypes'
@@ -19,7 +16,11 @@ const WorkflowCanvas = lazy(() => import('@/features/workflow-editor/components/
 const NodeDetailsModal = lazy(() => import('@/features/workflow-editor/components/ndv/NodeDetailsModal'))
 const WorkflowNavbar = lazy(() => import('@/features/workflow-editor/components/workflow-navbar/WorkflowNavbar'))
 const BottomPanel = lazy(() => import('@/features/workflow-editor/components/bottom-panel/BottomPanel'))
-const AIChatSidePanel = lazy(() => import('@/features/workflow-editor/components/ai-chat/AIChatSidePanel'))
+const AIChatPanel = lazy(() => import('@/features/workflow-editor/components/ai-chat/AIChatPanel'))
+
+// --- Floating panel shared styles ---
+const floatingPanel = 'bg-[var(--surface)]/80 backdrop-blur-xl rounded-xl shadow-lg border border-border/30 overflow-hidden'
+const panelTransition = 'transition-all duration-300 ease-out'
 
 // --- Inlined from RightPanel.tsx ---
 const rightPanelTabs: { id: RightPanelTab; label: string; icon: typeof Blocks }[] = [
@@ -33,7 +34,7 @@ function RightPanel() {
   const closeRightPanel = useEditorLayoutStore((s) => s.closeRightPanel)
 
   return (
-    <div className="editor-chrome h-full flex flex-col bg-card">
+    <div className="h-full flex flex-col">
       <EditorTabList>
         {rightPanelTabs.map((tab) => (
           <EditorTab
@@ -57,51 +58,9 @@ function RightPanel() {
       <div className="flex-1 overflow-hidden min-h-0">
         <Suspense fallback={<div className="flex-1" />}>
           {activeTab === 'nodes' && <NodeCreatorPanel />}
-          {activeTab === 'ai' && <AIChatSidePanel />}
+          {activeTab === 'ai' && <AIChatPanel />}
         </Suspense>
       </div>
-    </div>
-  )
-}
-
-// --- Inlined from StatusBar.tsx ---
-function StatusBar() {
-  const nodeCount = useWorkflowStore((s) => s.nodeCount)
-  const edgeCount = useWorkflowStore((s) => s.edgeCount)
-  const isRunning = useWorkflowStore((s) => s.isAnyNodeRunning)
-  const execSummary = useExecSummary()
-  const { zoom } = useViewport()
-
-  const { hasErrors, hasLogs, totalDuration } = execSummary
-  const allSuccess = hasLogs && !isRunning && !hasErrors
-
-  return (
-    <div className="editor-chrome flex items-center h-6 px-3 bg-card border-t border-border text-[11px] text-muted-foreground shrink-0 select-none gap-3">
-      <span>{nodeCount} nodes</span>
-      <span className="text-border">·</span>
-      <span>{edgeCount} edges</span>
-      <div className="flex-1" />
-      {isRunning && (
-        <span className="flex items-center gap-1 text-[var(--warning)]">
-          <Loader2 size={11} className="animate-spin" />
-          Running
-        </span>
-      )}
-      {!isRunning && hasErrors && (
-        <span className="flex items-center gap-1 text-destructive">
-          <XCircle size={11} />
-          Failed
-        </span>
-      )}
-      {allSuccess && (
-        <span className="flex items-center gap-1 text-[var(--success)]">
-          <CheckCircle2 size={11} />
-          <Clock size={10} />
-          {totalDuration}ms
-        </span>
-      )}
-      <div className="flex-1" />
-      <span>{Math.round(zoom * 100)}%</span>
     </div>
   )
 }
@@ -147,9 +106,6 @@ function EditorPage() {
         inputs: nt.inputs,
         outputs: nt.outputs,
         outputStrategy: nt.outputStrategy,
-        subnodeSlots: nt.subnodeSlots,
-        isSubnode: nt.isSubnode,
-        subnodeType: nt.subnodeType,
       }])
     )
     useWorkflowStore.getState().setNodeTypesMap(map)
@@ -189,88 +145,47 @@ function EditorPage() {
   }, [workflowId, currentWorkflowId, loadWorkflow, resetWorkflow, closeBottomPanel])
 
   const rightPanelOpen = useEditorLayoutStore((s) => s.rightPanelOpen)
-  const setRightPanelSize = useEditorLayoutStore((s) => s.setRightPanelSize)
   const bottomPanelOpen = useEditorLayoutStore((s) => s.bottomPanelOpen)
-  const setBottomPanelSize = useEditorLayoutStore((s) => s.setBottomPanelSize)
   const bottomPanelMaximized = useEditorLayoutStore((s) => s.bottomPanelMaximized)
-
-  const canvasPanelRef = useRef<ImperativePanelHandle>(null)
-  const prevCanvasSizeRef = useRef(70)
-
-  useEffect(() => {
-    const panel = canvasPanelRef.current
-    if (!panel || !bottomPanelOpen) return
-
-    if (bottomPanelMaximized) {
-      const currentSize = panel.getSize()
-      if (currentSize > 0) {
-        prevCanvasSizeRef.current = currentSize
-      }
-      panel.collapse()
-    } else {
-      panel.resize(prevCanvasSizeRef.current || 70)
-    }
-  }, [bottomPanelMaximized, bottomPanelOpen])
 
   return (
     <ReactFlowProvider>
       <Suspense fallback={<EditorLoadingFallback />}>
-        <div className="h-full w-full flex flex-col bg-background">
-          {/* Integrated toolbar */}
-          <WorkflowNavbar />
+        <div className="h-full w-full relative bg-background">
+          {/* Layer 0: Full-viewport canvas */}
+          <WorkflowCanvas />
 
-          {/* Main content area */}
-          <PanelGroup direction="horizontal" className="flex-1 min-h-0">
-            {/* Center — canvas + bottom panel */}
-            <Panel defaultSize={rightPanelOpen ? 80 : 100} minSize={50}>
-              <PanelGroup direction="vertical">
-                {/* Canvas */}
-                <Panel
-                  ref={canvasPanelRef}
-                  defaultSize={bottomPanelOpen ? 70 : 100}
-                  minSize={20}
-                  collapsible
-                  collapsedSize={0}
-                >
-                  <div className="h-full w-full relative">
-                    <WorkflowCanvas />
-                  </div>
-                </Panel>
+          {/* Layer 2: Floating navbar */}
+          <div className="absolute top-3 left-3 right-3 z-20">
+            <WorkflowNavbar />
+          </div>
 
-                {/* Bottom panel */}
-                {bottomPanelOpen && (
-                  <>
-                    <PanelResizeHandle className="h-px bg-border hover:bg-primary/50 transition-colors data-[resize-handle-active]:bg-primary/50" />
-                    <Panel
-                      defaultSize={30}
-                      minSize={15}
-                      onResize={setBottomPanelSize}
-                    >
-                      <BottomPanel />
-                    </Panel>
-                  </>
-                )}
-              </PanelGroup>
-            </Panel>
+          {/* Layer 1: Floating right panel */}
+          <div
+            className={[
+              'absolute right-3 bottom-3 z-10',
+              floatingPanel,
+              panelTransition,
+              rightPanelOpen ? 'translate-x-0 opacity-100' : 'translate-x-[calc(100%+12px)] opacity-0 pointer-events-none',
+            ].join(' ')}
+            style={{ width: 'min(384px, 50vw - 24px)', top: 'calc(0.75rem + 44px + 0.75rem)' }}
+          >
+            <RightPanel />
+          </div>
 
-            {/* Right panel — node browser + AI chat */}
-            {rightPanelOpen && (
-              <>
-                <PanelResizeHandle className="w-px bg-border hover:bg-primary/50 transition-colors data-[resize-handle-active]:bg-primary/50" />
-                <Panel
-                  defaultSize={20}
-                  minSize={15}
-                  maxSize={35}
-                  onResize={setRightPanelSize}
-                >
-                  <RightPanel />
-                </Panel>
-              </>
-            )}
-          </PanelGroup>
-
-          {/* Status bar */}
-          <StatusBar />
+          {/* Layer 1: Floating bottom panel */}
+          <div
+            className={[
+              'absolute left-3 bottom-3 z-10',
+              floatingPanel,
+              panelTransition,
+              bottomPanelMaximized ? 'h-[calc(100%-80px)]' : 'h-[min(280px,50vh)]',
+              bottomPanelOpen ? 'translate-y-0 opacity-100' : 'translate-y-[calc(100%+12px)] opacity-0 pointer-events-none',
+            ].join(' ')}
+            style={{ right: rightPanelOpen ? 'calc(min(384px, 50vw - 24px) + 24px)' : 12 }}
+          >
+            <BottomPanel />
+          </div>
 
           {/* Overlays */}
           <NodeDetailsModal />

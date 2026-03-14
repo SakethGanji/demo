@@ -30,9 +30,6 @@ from .types import (
     NodeDefinition,
     NodeExecutionResult,
     RecursionLimitError,
-    ResolvedSubnode,
-    SubnodeContext,
-    SubnodeSlotDefinition,
     Workflow,
     WorkflowStopSignal,
     NO_OUTPUT_SIGNAL,
@@ -552,11 +549,6 @@ class WorkflowRunner:
 
         node = self._registry.get(node_def.type)
 
-        # Skip execution for subnodes - they only provide configuration
-        if self._is_subnode(node_def.type):
-            logger.debug(f"Skipping subnode '{job.node_name}' - subnodes don't execute directly")
-            return False
-
         input_count = getattr(node, "input_count", 1)
 
         # Handle multi-input nodes (like Merge)
@@ -610,9 +602,6 @@ class WorkflowRunner:
             except Exception:
                 logger.warning(f"Failed to resolve credential {credential_id}", exc_info=True)
 
-        # Resolve subnodes for this node (if it has subnode slots)
-        subnode_context = self._resolve_subnodes(context, node_def, node_map)
-
         # Execute node with retry and error handling
         result: NodeExecutionResult | None = None
         max_retries = node_def.retry_on_fail
@@ -629,14 +618,7 @@ class WorkflowRunner:
 
         for attempt in range(max_retries + 1):
             try:
-                # Pass subnode_context to nodes that support it
-                if subnode_context:
-                    result = await node.execute(
-                        context, resolved_node_def, job.input_data,
-                        subnode_context=subnode_context
-                    )
-                else:
-                    result = await node.execute(context, resolved_node_def, job.input_data)
+                result = await node.execute(context, resolved_node_def, job.input_data)
                 last_error = None
                 retries_used = attempt
                 break  # Success, exit retry loop
@@ -817,11 +799,11 @@ class WorkflowRunner:
 
         pending[input_key] = input_data
 
-        # Get unique connection keys (only normal connections, not subnodes)
+        # Get unique connection keys
         expected_connections = [
             f"{c.source_node}:{c.source_output}"
             for c in context.workflow.connections
-            if c.target_node == node_def.name and c.connection_type == "normal"
+            if c.target_node == node_def.name
         ]
 
         unique_expected_inputs = len(set(expected_connections))
@@ -840,13 +822,11 @@ class WorkflowRunner:
     ) -> None:
         """Queue next nodes based on node outputs."""
         for output_name, output_data in result.outputs.items():
-            # Find normal connections from this output (not subnode connections)
             connections = [
                 c
                 for c in context.workflow.connections
                 if c.source_node == node_def.name
                 and c.source_output == output_name
-                and c.connection_type == "normal"
             ]
 
             for conn in connections:
@@ -951,151 +931,18 @@ class WorkflowRunner:
 
     def find_start_node(self, workflow: Workflow) -> NodeDefinition | None:
         """Find start node in workflow."""
-        # Filter out subnodes first
-        main_nodes = [n for n in workflow.nodes if not self._is_subnode(n.type)]
-
         # Priority: Webhook > Cron > ExecuteWorkflowTrigger > Start > first node
         for node_type in ["Webhook", "Cron", "ExecuteWorkflowTrigger", "Start"]:
-            node = next((n for n in main_nodes if n.type == node_type), None)
+            node = next((n for n in workflow.nodes if n.type == node_type), None)
             if node:
                 return node
-        return main_nodes[0] if main_nodes else None
+        return workflow.nodes[0] if workflow.nodes else None
 
     def _generate_id(self) -> str:
         """Generate unique execution ID."""
         from ..utils.ids import execution_id
         return execution_id()
 
-    def _resolve_subnodes(
-        self,
-        context: ExecutionContext,
-        node_def: NodeDefinition,
-        node_map: dict[str, NodeDefinition],
-    ) -> SubnodeContext | None:
-        """
-        Resolve all subnodes connected to a parent node.
-
-        Returns SubnodeContext with resolved model, memory, and tool configs.
-        Validates connections and logs warnings for invalid configurations.
-        """
-        node_instance = self._registry.get(node_def.type)
-        desc = node_instance.node_description
-
-        # Only resolve for nodes with subnode slots
-        if not desc or not desc.subnode_slots:
-            return None
-
-        # Find subnode connections (connection_type == "subnode")
-        subnode_connections = [
-            c for c in context.workflow.connections
-            if c.target_node == node_def.name and c.connection_type == "subnode"
-        ]
-
-        if not subnode_connections:
-            return None
-
-        models: list[ResolvedSubnode] = []
-        memory: list[ResolvedSubnode] = []
-        tools: list[ResolvedSubnode] = []
-
-        # Track connections per slot for multiplicity validation
-        slot_connection_counts: dict[str, int] = {}
-
-        for conn in subnode_connections:
-            subnode_def = node_map.get(conn.source_node)
-            if not subnode_def:
-                logger.warning(f"Subnode '{conn.source_node}' not found")
-                continue
-
-            subnode_instance = self._registry.get(subnode_def.type)
-            subnode_desc = subnode_instance.node_description
-
-            if not subnode_desc or not subnode_desc.is_subnode:
-                logger.warning(f"Node '{conn.source_node}' is not a subnode")
-                continue
-
-            # Get the target slot
-            target_slot_name = conn.slot_name or conn.target_input
-            slot = self._get_slot_for_connection(desc.subnode_slots, target_slot_name)
-
-            if not slot:
-                logger.warning(
-                    f"Slot '{target_slot_name}' not found on node '{node_def.name}'"
-                )
-                continue
-
-            # Validate subnode connection
-            subnode_slot_type = subnode_desc.subnode_type or "unknown"
-            validation_errors = self._validate_subnode_connection(
-                slot=slot,
-                subnode_type=subnode_def.type,
-                subnode_slot_type=subnode_slot_type,
-                subnode_name=subnode_def.name,
-            )
-
-            if validation_errors:
-                for error in validation_errors:
-                    logger.warning(f"Subnode validation: {error}")
-                continue
-
-            # Check multiplicity constraint
-            slot_connection_counts[target_slot_name] = slot_connection_counts.get(target_slot_name, 0) + 1
-            if not slot.multiple and slot_connection_counts[target_slot_name] > 1:
-                logger.warning(
-                    f"Slot '{slot.name}' on node '{node_def.name}' does not accept multiple "
-                    f"subnodes, but {slot_connection_counts[target_slot_name]} are connected. "
-                    f"Only the first will be used."
-                )
-                continue
-
-            # Resolve expressions in subnode parameters before get_config
-            try:
-                expr_context = ExpressionEngine.create_context(
-                    [],  # subnodes don't have input data
-                    context.node_states,
-                    context.execution_id,
-                    0,
-                )
-                resolved_params = expression_engine.resolve(
-                    subnode_def.parameters, expr_context, skip_json=False
-                )
-                resolved_subnode_def = NodeDefinition(
-                    name=subnode_def.name,
-                    type=subnode_def.type,
-                    parameters=resolved_params,
-                    position=subnode_def.position,
-                    retry_on_fail=subnode_def.retry_on_fail,
-                    retry_delay=subnode_def.retry_delay,
-                    continue_on_fail=subnode_def.continue_on_fail,
-                )
-            except Exception as e:
-                logger.warning(f"Error resolving subnode '{conn.source_node}' parameters: {e}")
-                resolved_subnode_def = subnode_def
-
-            # Get config from subnode
-            try:
-                config = subnode_instance.get_config(resolved_subnode_def)
-            except Exception as e:
-                logger.error(f"Error getting config from subnode '{conn.source_node}': {e}")
-                continue
-
-            resolved = ResolvedSubnode(
-                node_name=subnode_def.name,
-                node_type=subnode_def.type,
-                slot_name=target_slot_name,
-                slot_type=subnode_slot_type,
-                config=config,
-            )
-
-            # Categorize by slot type
-            if resolved.slot_type == "model":
-                models.append(resolved)
-            elif resolved.slot_type == "memory":
-                memory.append(resolved)
-            elif resolved.slot_type == "tool":
-                tools.append(resolved)
-
-        return SubnodeContext(models=models, memory=memory, tools=tools)
 
     async def _resolve_credential(self, credential_id: str) -> dict[str, Any] | None:
         """Load and decrypt a credential by ID."""
@@ -1110,49 +957,3 @@ class WorkflowRunner:
                 return None
             return decrypt(cred.data)
 
-    def _is_subnode(self, node_type: str) -> bool:
-        """Check if a node type is a subnode."""
-        try:
-            node_instance = self._registry.get(node_type)
-            desc = node_instance.node_description
-            return desc.is_subnode if desc else False
-        except ValueError:
-            return False
-
-    def _validate_subnode_connection(
-        self,
-        slot: SubnodeSlotDefinition,
-        subnode_type: str,
-        subnode_slot_type: str,
-        subnode_name: str,
-    ) -> list[str]:
-        """
-        Validate a subnode connection against its target slot.
-
-        Returns a list of validation errors (empty if valid).
-        """
-        errors: list[str] = []
-
-        # Check slot type matches
-        if slot.slot_type != subnode_slot_type:
-            errors.append(
-                f"Subnode '{subnode_name}' has type '{subnode_slot_type}' but slot "
-                f"'{slot.name}' expects type '{slot.slot_type}'"
-            )
-
-        # Check accepted node types if specified
-        if slot.accepted_node_types and subnode_type not in slot.accepted_node_types:
-            errors.append(
-                f"Subnode type '{subnode_type}' is not accepted by slot '{slot.name}'. "
-                f"Accepted types: {slot.accepted_node_types}"
-            )
-
-        return errors
-
-    def _get_slot_for_connection(
-        self,
-        slots: list[SubnodeSlotDefinition],
-        slot_name: str,
-    ) -> SubnodeSlotDefinition | None:
-        """Find a slot definition by name."""
-        return next((s for s in slots if s.name == slot_name), None)

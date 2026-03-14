@@ -153,14 +153,11 @@ export default function LandingPage() {
 
       {/* Header */}
       <header className="relative z-10 flex items-center justify-between px-8 py-4">
-        <div className="flex items-center gap-2">
-          <span className="text-[15px] font-semibold tracking-tight text-white">Command</span>
-          <span className="rounded bg-[#18a0fb] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">Studio</span>
-        </div>
+        <span className="text-[15px] font-semibold tracking-tight text-white">luna</span>
 
         <div className="flex items-center gap-3">
           <Link
-            to="/workflows"
+            to="/projects"
             className="px-4 py-2 rounded-md transition-all font-medium flex items-center gap-2 text-slate-400 hover:text-white hover:bg-white/5"
           >
             Workflows
@@ -203,7 +200,7 @@ export default function LandingPage() {
           {/* CTA buttons */}
           <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Link
-              to="/workflows"
+              to="/projects"
               className="landing-cta-button group inline-flex items-center gap-3 rounded-xl px-10 py-4 text-base font-bold shadow-[0_0_40px_rgba(24,160,251,0.15)]"
             >
               Get Started

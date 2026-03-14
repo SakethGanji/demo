@@ -444,7 +444,7 @@ export default memo(function ExpressionEditor({
             }
           }}
           className={`
-            flex items-start rounded border bg-background transition-all
+            flex items-start rounded border bg-[var(--surface)] transition-all
             ${isExpanded ? 'border-primary/70 ring-1 ring-primary/40' : 'border-border/60'}
             ${isDragOver ? 'border-primary ring-2 ring-primary/50 bg-primary/10' : ''}
           `}

@@ -24,7 +24,6 @@ from ..base import (
 from ...engine.types import (
     ExecutionEvent,
     ExecutionEventType,
-    SubnodeSlotDefinition,
 )
 
 if TYPE_CHECKING:
@@ -33,7 +32,6 @@ if TYPE_CHECKING:
         NodeData,
         NodeDefinition,
         NodeExecutionResult,
-        SubnodeContext,
     )
 
 # Max consecutive tool failures before the agent aborts the loop
@@ -346,28 +344,158 @@ class AIAgentNode(BaseNode):
                     ),
                 ],
             ),
-        ],
-        subnode_slots=[
-            SubnodeSlotDefinition(
-                name="chatModel",
-                display_name="Model",
-                slot_type="model",
-                required=False,
-                multiple=False,
+            # --- Memory Configuration ---
+            NodeProperty(
+                display_name="Memory Type",
+                name="memoryType",
+                type="options",
+                default="none",
+                description="Chat memory strategy for multi-turn conversations.",
+                options=[
+                    NodePropertyOption(name="None", value="none"),
+                    NodePropertyOption(name="Simple (In-Memory)", value="simple"),
+                    NodePropertyOption(name="Buffer Memory", value="buffer"),
+                    NodePropertyOption(name="Token Buffer", value="tokenBuffer"),
+                    NodePropertyOption(name="Conversation Window", value="conversationWindow"),
+                    NodePropertyOption(name="Summary Memory", value="summary"),
+                    NodePropertyOption(name="Summary Buffer", value="summaryBuffer"),
+                    NodePropertyOption(name="Progressive Summary", value="progressiveSummary"),
+                    NodePropertyOption(name="SQLite (Persistent)", value="sqlite"),
+                    NodePropertyOption(name="Vector Memory", value="vector"),
+                    NodePropertyOption(name="Entity Memory", value="entity"),
+                    NodePropertyOption(name="Knowledge Graph", value="knowledgeGraph"),
+                ],
             ),
-            SubnodeSlotDefinition(
-                name="memory",
-                display_name="Memory",
-                slot_type="memory",
-                required=False,
-                multiple=False,
+            NodeProperty(
+                display_name="Session ID",
+                name="memorySessionId",
+                type="string",
+                default="default",
+                description="Unique session identifier for chat history. Supports expressions.",
+                display_options={"hide": {"memoryType": ["none"]}},
             ),
-            SubnodeSlotDefinition(
-                name="tools",
-                display_name="Tools",
-                slot_type="tool",
-                required=False,
-                multiple=True,
+            NodeProperty(
+                display_name="Max Messages",
+                name="memoryMaxMessages",
+                type="number",
+                default=20,
+                description="Maximum messages to keep in history.",
+                display_options={"show": {"memoryType": ["simple", "buffer", "sqlite", "conversationWindow"]}},
+            ),
+            NodeProperty(
+                display_name="Max Tokens",
+                name="memoryMaxTokens",
+                type="number",
+                default=4000,
+                description="Maximum tokens for history window.",
+                display_options={"show": {"memoryType": ["tokenBuffer"]}},
+            ),
+            NodeProperty(
+                display_name="Max Turns",
+                name="memoryMaxTurns",
+                type="number",
+                default=10,
+                description="Maximum conversation turns (1 turn = user + assistant pair).",
+                display_options={"show": {"memoryType": ["conversationWindow"]}},
+            ),
+            NodeProperty(
+                display_name="Summary Model",
+                name="memorySummaryModel",
+                type="options",
+                default="gemini-2.0-flash",
+                description="Model used for summarization.",
+                options=[
+                    NodePropertyOption(name="Gemini 2.0 Flash", value="gemini-2.0-flash"),
+                    NodePropertyOption(name="Gemini 1.5 Flash", value="gemini-1.5-flash"),
+                    NodePropertyOption(name="GPT-4o Mini", value="gpt-4o-mini"),
+                ],
+                display_options={"show": {"memoryType": ["summary", "summaryBuffer", "progressiveSummary", "entity", "knowledgeGraph"]}},
+            ),
+            NodeProperty(
+                display_name="Recent Messages",
+                name="memoryRecentMessages",
+                type="number",
+                default=5,
+                description="Number of recent messages to keep alongside summary.",
+                display_options={"show": {"memoryType": ["summary", "summaryBuffer", "entity"]}},
+            ),
+            NodeProperty(
+                display_name="Summary Threshold",
+                name="memorySummaryThreshold",
+                type="number",
+                default=15,
+                description="Number of messages before triggering summarization.",
+                display_options={"show": {"memoryType": ["summary"]}},
+            ),
+            NodeProperty(
+                display_name="Update Frequency",
+                name="memoryUpdateFrequency",
+                type="number",
+                default=2,
+                description="Update summary every N messages.",
+                display_options={"show": {"memoryType": ["progressiveSummary"]}},
+            ),
+            NodeProperty(
+                display_name="Top K Results",
+                name="memoryTopK",
+                type="number",
+                default=5,
+                description="Number of semantically similar messages to retrieve.",
+                display_options={"show": {"memoryType": ["vector"]}},
+            ),
+            NodeProperty(
+                display_name="Embedding Provider",
+                name="memoryEmbeddingProvider",
+                type="options",
+                default="openai",
+                options=[
+                    NodePropertyOption(name="OpenAI", value="openai"),
+                    NodePropertyOption(name="Gemini", value="gemini"),
+                ],
+                display_options={"show": {"memoryType": ["vector"]}},
+            ),
+            NodeProperty(
+                display_name="Neo4j Connection String",
+                name="memoryNeo4jUri",
+                type="string",
+                default="bolt://localhost:7687",
+                display_options={"show": {"memoryType": ["knowledgeGraph"]}},
+            ),
+            NodeProperty(
+                display_name="Neo4j Username",
+                name="memoryNeo4jUsername",
+                type="string",
+                default="neo4j",
+                display_options={"show": {"memoryType": ["knowledgeGraph"]}},
+            ),
+            NodeProperty(
+                display_name="Neo4j Password",
+                name="memoryNeo4jPassword",
+                type="string",
+                default="",
+                display_options={"show": {"memoryType": ["knowledgeGraph"]}},
+            ),
+            # --- Built-in Tools ---
+            NodeProperty(
+                display_name="Built-in Tools",
+                name="builtinTools",
+                type="multiOptions",
+                default=[],
+                description="Select built-in tools to give the agent.",
+                options=[
+                    NodePropertyOption(name="Calculator", value="calculator"),
+                    NodePropertyOption(name="Current Time", value="currentTime"),
+                    NodePropertyOption(name="Random Number", value="randomNumber"),
+                    NodePropertyOption(name="Text Utils", value="text"),
+                    NodePropertyOption(name="HTTP Request", value="httpRequest"),
+                    NodePropertyOption(name="Run Code", value="code"),
+                    NodePropertyOption(name="Run Workflow", value="workflow"),
+                    NodePropertyOption(name="Neo4j Query", value="neo4jQuery"),
+                    NodePropertyOption(name="Data Profile", value="dataProfile"),
+                    NodePropertyOption(name="Data Aggregate", value="dataAggregate"),
+                    NodePropertyOption(name="Data Sample", value="dataSample"),
+                    NodePropertyOption(name="Data Report", value="dataReport"),
+                ],
             ),
         ],
     )
@@ -385,10 +513,10 @@ class AIAgentNode(BaseNode):
         context: ExecutionContext,
         node_definition: NodeDefinition,
         input_data: list[NodeData],
-        subnode_context: SubnodeContext | None = None,
     ) -> NodeExecutionResult:
         from ...engine.types import NodeData
         from ...engine.expression_engine import ExpressionEngine, expression_engine
+        from .inline_config import resolve_memory, resolve_tools
 
         # Get parameters with defaults
         model = self.get_parameter(node_definition, "model", "gemini-2.0-flash")
@@ -419,20 +547,33 @@ class AIAgentNode(BaseNode):
             elif isinstance(output_schema_raw, dict):
                 output_schema = output_schema_raw
 
-        # Override with model subnode config if connected
-        model_config = self._get_model_config(subnode_context)
-        if model_config:
-            model = model_config.get("model", model)
-            temperature = model_config.get("temperature", temperature)
-
-        # Get memory functions if connected
-        memory_config = self._get_memory_config(subnode_context)
+        # Resolve inline memory configuration
+        memory_type = self.get_parameter(node_definition, "memoryType", "none")
+        memory_config = None
+        if memory_type and memory_type != "none":
+            memory_params = {
+                "sessionId": self.get_parameter(node_definition, "memorySessionId", "default"),
+                "maxMessages": self.get_parameter(node_definition, "memoryMaxMessages", 20),
+                "maxTokens": self.get_parameter(node_definition, "memoryMaxTokens", 4000),
+                "maxTurns": self.get_parameter(node_definition, "memoryMaxTurns", 10),
+                "summaryModel": self.get_parameter(node_definition, "memorySummaryModel", "gemini-2.0-flash"),
+                "recentMessages": self.get_parameter(node_definition, "memoryRecentMessages", 5),
+                "summaryThreshold": self.get_parameter(node_definition, "memorySummaryThreshold", 15),
+                "updateFrequency": self.get_parameter(node_definition, "memoryUpdateFrequency", 2),
+                "topK": self.get_parameter(node_definition, "memoryTopK", 5),
+                "embeddingProvider": self.get_parameter(node_definition, "memoryEmbeddingProvider", "openai"),
+                "connectionString": self.get_parameter(node_definition, "memoryNeo4jUri", "bolt://localhost:7687"),
+                "username": self.get_parameter(node_definition, "memoryNeo4jUsername", "neo4j"),
+                "password": self.get_parameter(node_definition, "memoryNeo4jPassword", ""),
+            }
+            memory_config = resolve_memory(memory_type, memory_params)
 
         if not task_template:
             raise ValueError("Task is required")
 
-        # Build tools from connected subnodes first, then from config
-        tools, tool_executors = self._build_tools_from_subnodes(subnode_context)
+        # Build tools from inline built-in tool selections
+        builtin_tool_names = self.get_parameter(node_definition, "builtinTools", [])
+        tools, tool_executors = resolve_tools(builtin_tool_names)
 
         # Merge runtime tools from input data (dynamic tool binding)
         for item in (input_data or []):
@@ -448,9 +589,9 @@ class AIAgentNode(BaseNode):
                     if "execute" in rt:
                         tool_executors[rt["name"]] = rt["execute"]
 
-        # Add tools from parameter config if no subnodes / runtime tools connected
-        if not tools:
-            tools = self._build_tools(tools_config)
+        # Add tools from the manual tools parameter config
+        if tools_config:
+            tools = tools + self._build_tools(tools_config)
 
         # Create AgentContext; populate spawn/scratchpad/skill fields based on config.
         _excluded = _SPAWN_TOOL_NAMES | _SCRATCHPAD_TOOL_NAMES | _SKILL_TOOL_NAMES | _PTC_TOOL_NAMES
@@ -574,44 +715,6 @@ class AIAgentNode(BaseNode):
             })
 
         return self.output(results, metadata=metadata)
-
-    def _get_model_config(self, subnode_context: SubnodeContext | None) -> dict[str, Any] | None:
-        """Get model configuration from connected model subnode."""
-        if not subnode_context or not subnode_context.models:
-            return None
-        return subnode_context.models[0].config
-
-    def _get_memory_config(self, subnode_context: SubnodeContext | None) -> dict[str, Any] | None:
-        """Get memory configuration from connected memory subnode."""
-        if not subnode_context or not subnode_context.memory:
-            return None
-        return subnode_context.memory[0].config
-
-    def _build_tools_from_subnodes(
-        self, subnode_context: SubnodeContext | None
-    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        """Build tools from connected tool subnodes."""
-        tools = []
-        tool_executors: dict[str, Any] = {}
-
-        if not subnode_context or not subnode_context.tools:
-            return tools, tool_executors
-
-        for resolved_tool in subnode_context.tools:
-            config = resolved_tool.config
-            if not config.get("name"):
-                continue
-
-            tools.append({
-                "name": config["name"],
-                "description": config.get("description", ""),
-                "input_schema": config.get("input_schema", {}),
-            })
-
-            if "execute" in config:
-                tool_executors[config["name"]] = config["execute"]
-
-        return tools, tool_executors
 
     # ------------------------------------------------------------------
     # Skill delegation
@@ -2674,7 +2777,7 @@ class AIAgentNode(BaseNode):
                 input_data, agent_context, context, node_name, max_context_tokens,
             )
 
-        # Custom executor (from connected subnodes)
+        # Custom executor (from inline tool config)
         if name in tool_executors:
             executor = tool_executors[name]
             try:

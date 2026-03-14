@@ -1,17 +1,58 @@
 import type { NodeGroup, NodeIO } from '../lib/nodeStyles';
 
-// Subnode slot definition (from backend)
-export interface SubnodeSlotDefinition {
-  name: string;                        // "chatModel", "memory", "tools"
-  displayName: string;                 // "Chat Model", "Memory", "Tool"
-  slotType: 'model' | 'memory' | 'tool';
-  required: boolean;
-  multiple: boolean;                   // Can accept multiple subnodes (tools=true)
-  acceptedNodeTypes?: string[];        // Restrict to specific node types
+// ---------------------------------------------------------------------------
+// AI Chat types
+// ---------------------------------------------------------------------------
+
+export interface AIChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
+  operations?: AIResponsePayload;
 }
 
-// Subnode type identifier
-export type SubnodeType = 'model' | 'memory' | 'tool';
+export interface AIChatRequest {
+  message: string;
+  session_id: string;
+  workflow_context: WorkflowContextPayload | null;
+  conversation_history: { role: 'user' | 'assistant'; content: string }[];
+  mode_hint: 'auto' | 'generate' | 'modify' | 'explain' | 'fix';
+}
+
+interface WorkflowContextPayload {
+  name: string;
+  nodes: Array<{ name: string; type: string; parameters: Record<string, unknown> }>;
+  connections: Array<{
+    source_node: string;
+    target_node: string;
+    source_output: string;
+    target_input: string;
+  }>;
+}
+
+export interface AIResponsePayload {
+  mode: 'full_workflow' | 'incremental' | 'explanation';
+  workflow: {
+    name: string;
+    nodes: Array<{ name: string; type: string; parameters: Record<string, unknown> }>;
+    connections: Array<{
+      source_node: string;
+      target_node: string;
+      source_output?: string;
+      target_input?: string;
+    }>;
+  } | null;
+  operations: AIOperation[] | null;
+  summary: string;
+}
+
+export type AIOperation =
+  | { op: 'addNode'; type: string; name: string; parameters: Record<string, unknown>; connect_after?: string }
+  | { op: 'updateNode'; name: string; parameters: Record<string, unknown> }
+  | { op: 'removeNode'; name: string }
+  | { op: 'addConnection'; source_node: string; target_node: string; source_output?: string; target_input?: string }
+  | { op: 'removeConnection'; source_node: string; target_node: string };
 
 // Output strategy for dynamic output nodes (like Switch)
 export interface OutputStrategy {
@@ -59,16 +100,8 @@ export interface WorkflowNodeData {
   outputs?: NodeIO[];                   // Output handle definitions with names
   outputStrategy?: OutputStrategy;      // How to calculate dynamic outputs
 
-  // Subnode support
-  isSubnode?: boolean;                  // True if this is a subnode type
-  subnodeType?: SubnodeType;            // "model" | "memory" | "tool"
-  providesToSlot?: string;              // Which slot this subnode provides to
-  subnodeSlots?: SubnodeSlotDefinition[];  // Slots for subnodes (parent nodes only)
-  nodeShape?: 'rectangular' | 'circular';  // Visual shape variant
-  stacked?: boolean;                         // True when subnode is visually stacked inside parent badge
-
-  // Subworkflow embedding
-  subworkflowId?: string;  // workflow ID being embedded (for ExecuteWorkflow nodes)
+  // Index signature required by @xyflow/react v12 Node<T> constraint
+  [key: string]: unknown;
 }
 
 export interface StickyNoteData {
@@ -76,6 +109,7 @@ export interface StickyNoteData {
   color: 'yellow' | 'blue' | 'green' | 'pink' | 'purple';
   width?: number;
   height?: number;
+  [key: string]: unknown;
 }
 
 // Node definition for the node creator panel
@@ -90,14 +124,7 @@ export interface NodeDefinition {
 }
 
 // Node creator view types
-export type NodeCreatorView = 'trigger' | 'regular' | 'ai' | 'subnode';
-
-// Subnode slot context for node creator
-export interface SubnodeSlotContext {
-  parentNodeId: string;
-  slotName: string;
-  slotType: SubnodeType;
-}
+export type NodeCreatorView = 'trigger' | 'regular' | 'ai';
 
 // Node execution metrics from backend
 export interface NodeMetrics {
@@ -178,10 +205,4 @@ export interface NodeExecutionData {
   agentTrace?: AgentTraceEvent[];
 }
 
-// Subnode edge data
-export interface SubnodeEdgeData {
-  isSubnodeEdge: true;
-  slotName: string;           // "chatModel", "memory", "tools"
-  slotType: SubnodeType;      // "model", "memory", "tool"
-}
 

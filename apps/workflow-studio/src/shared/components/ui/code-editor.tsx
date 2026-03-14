@@ -1,4 +1,4 @@
-import { useEffect, useRef, useMemo, useCallback } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { EditorView, keymap, placeholder as placeholderExt } from '@codemirror/view';
 import { EditorState, Compartment } from '@codemirror/state';
 import { json } from '@codemirror/lang-json';
@@ -6,7 +6,6 @@ import { javascript } from '@codemirror/lang-javascript';
 import { defaultKeymap, indentWithTab } from '@codemirror/commands';
 import { syntaxHighlighting, HighlightStyle, indentOnInput, bracketMatching, foldGutter, foldKeymap } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
-import { oneDark } from '@codemirror/theme-one-dark';
 import { lineNumbers, highlightActiveLineGutter, highlightActiveLine } from '@codemirror/view';
 import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { history, historyKeymap } from '@codemirror/commands';
@@ -21,102 +20,65 @@ interface CodeEditorProps {
   className?: string;
 }
 
-// Light theme highlighting
-const lightHighlightStyle = HighlightStyle.define([
-  { tag: tags.string, color: '#22863a' },
-  { tag: tags.number, color: '#005cc5' },
-  { tag: tags.bool, color: '#6f42c1' },
-  { tag: tags.null, color: '#6a737d' },
-  { tag: tags.propertyName, color: '#005cc5' },
-  { tag: tags.punctuation, color: '#24292e' },
-  { tag: tags.keyword, color: '#d73a49' },
-  { tag: tags.function(tags.variableName), color: '#6f42c1' },
-  { tag: tags.variableName, color: '#24292e' },
-  { tag: tags.comment, color: '#6a737d', fontStyle: 'italic' },
-  { tag: tags.operator, color: '#d73a49' },
-  { tag: tags.className, color: '#6f42c1' },
-  { tag: tags.definition(tags.variableName), color: '#e36209' },
-]);
+// Maps syntax tokens to existing theme CSS variables so the editor
+// automatically follows whatever palette is defined in index.css.
+function buildTheme() {
+  const s = getComputedStyle(document.documentElement);
+  const v = (name: string) => s.getPropertyValue(name).trim();
 
-// Light theme base styles
-const lightTheme = EditorView.theme({
-  '&': {
-    backgroundColor: 'var(--secondary)',
-    color: '#24292e',
-  },
-  '.cm-content': {
-    caretColor: '#24292e',
-    fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
-    fontSize: '13px',
-    lineHeight: '1.5',
-    padding: '8px 0',
-  },
-  '.cm-gutters': {
-    backgroundColor: 'var(--secondary)',
-    borderRight: '1px solid var(--border)',
-    color: '#6a737d',
-  },
-  '.cm-lineNumbers .cm-gutterElement': {
-    padding: '0 8px 0 12px',
-    minWidth: '32px',
-  },
-  '.cm-activeLine': {
-    backgroundColor: 'rgba(0, 0, 0, 0.04)',
-  },
-  '.cm-activeLineGutter': {
-    backgroundColor: 'rgba(0, 0, 0, 0.04)',
-  },
-  '&.cm-focused': {
-    outline: 'none',
-  },
-  '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': {
-    backgroundColor: '#b3d4fc !important',
-  },
-  '.cm-placeholder': {
-    color: '#6a737d',
-    fontStyle: 'italic',
-  },
-  '.cm-foldGutter': {
-    width: '12px',
-  },
-});
+  const fg = v('--foreground');
+  const muted = v('--muted-foreground');
+  const bg = v('--secondary');
+  const border = v('--border');
+  const primary = v('--primary');
+  const success = v('--success');
+  const warning = v('--warning');
+  const destructive = v('--destructive');
+  const purple = v('--chart-2');
 
-// Dark theme base styles (complementing oneDark)
-const darkTheme = EditorView.theme({
-  '&': {
-    backgroundColor: 'var(--secondary)',
-  },
-  '.cm-content': {
-    fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
-    fontSize: '13px',
-    lineHeight: '1.5',
-    padding: '8px 0',
-  },
-  '.cm-gutters': {
-    backgroundColor: 'var(--secondary)',
-    borderRight: '1px solid var(--border)',
-  },
-  '.cm-lineNumbers .cm-gutterElement': {
-    padding: '0 8px 0 12px',
-    minWidth: '32px',
-  },
-  '.cm-activeLine': {
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-  },
-  '.cm-activeLineGutter': {
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-  },
-  '&.cm-focused': {
-    outline: 'none',
-  },
-  '.cm-placeholder': {
-    color: '#6a737d',
-    fontStyle: 'italic',
-  },
-  '.cm-foldGutter': {
-    width: '12px',
-  },
-});
+  const highlight = HighlightStyle.define([
+    { tag: tags.string, color: success },
+    { tag: tags.number, color: warning },
+    { tag: tags.bool, color: purple },
+    { tag: tags.null, color: muted },
+    { tag: tags.propertyName, color: primary },
+    { tag: tags.punctuation, color: fg },
+    { tag: tags.keyword, color: destructive },
+    { tag: tags.function(tags.variableName), color: purple },
+    { tag: tags.variableName, color: fg },
+    { tag: tags.comment, color: muted, fontStyle: 'italic' },
+    { tag: tags.operator, color: destructive },
+    { tag: tags.className, color: purple },
+    { tag: tags.definition(tags.variableName), color: warning },
+  ]);
+
+  const base = EditorView.theme({
+    '&': { backgroundColor: bg, color: fg },
+    '.cm-content': {
+      caretColor: fg,
+      fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
+      fontSize: '13px',
+      lineHeight: '1.5',
+      padding: '8px 0',
+    },
+    '.cm-gutters': {
+      backgroundColor: bg,
+      borderRight: `1px solid ${border}`,
+      color: muted,
+    },
+    '.cm-lineNumbers .cm-gutterElement': { padding: '0 8px 0 12px', minWidth: '32px' },
+    '.cm-activeLine': { backgroundColor: `color-mix(in srgb, ${fg} 4%, transparent)` },
+    '.cm-activeLineGutter': { backgroundColor: `color-mix(in srgb, ${fg} 4%, transparent)` },
+    '&.cm-focused': { outline: 'none' },
+    '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': {
+      backgroundColor: `color-mix(in srgb, ${primary} 25%, transparent) !important`,
+    },
+    '.cm-placeholder': { color: muted, fontStyle: 'italic' },
+    '.cm-foldGutter': { width: '12px' },
+  });
+
+  return [base, syntaxHighlighting(highlight)];
+}
 
 export default function CodeEditor({
   value,
@@ -132,24 +94,7 @@ export default function CodeEditor({
   const themeCompartment = useRef(new Compartment());
   const onChangeRef = useRef(onChange);
 
-  // Keep onChange ref up to date
-  useEffect(() => {
-    onChangeRef.current = onChange;
-  }, [onChange]);
-
-  // Detect current theme
-  const isDark = useMemo(() => {
-    if (typeof window !== 'undefined') {
-      return document.documentElement.classList.contains('dark');
-    }
-    return false;
-  }, []);
-
-  const getThemeExtensions = useCallback((dark: boolean) => {
-    return dark
-      ? [darkTheme, oneDark]
-      : [lightTheme, syntaxHighlighting(lightHighlightStyle)];
-  }, []);
+  useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
 
   const getLanguageExtension = useCallback(() => {
     return language === 'javascript' ? javascript() : json();
@@ -157,13 +102,6 @@ export default function CodeEditor({
 
   useEffect(() => {
     if (!containerRef.current) return;
-
-    const updateListener = EditorView.updateListener.of((update) => {
-      if (update.docChanged) {
-        const newValue = update.state.doc.toString();
-        onChangeRef.current(newValue);
-      }
-    });
 
     const state = EditorState.create({
       doc: value,
@@ -177,58 +115,36 @@ export default function CodeEditor({
         indentOnInput(),
         bracketMatching(),
         closeBrackets(),
-        keymap.of([
-          ...closeBracketsKeymap,
-          ...defaultKeymap,
-          ...historyKeymap,
-          ...foldKeymap,
-          indentWithTab,
-        ]),
+        keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap, ...foldKeymap, indentWithTab]),
         EditorView.lineWrapping,
-        themeCompartment.current.of(getThemeExtensions(isDark)),
-        updateListener,
+        themeCompartment.current.of(buildTheme()),
+        EditorView.updateListener.of((update) => {
+          if (update.docChanged) onChangeRef.current(update.state.doc.toString());
+        }),
         ...(placeholder ? [placeholderExt(placeholder)] : []),
       ],
     });
 
-    const view = new EditorView({
-      state,
-      parent: containerRef.current,
-    });
-
+    const view = new EditorView({ state, parent: containerRef.current });
     viewRef.current = view;
 
-    // Watch for theme changes
+    // Rebuild theme when light/dark class changes
     const observer = new MutationObserver((mutations) => {
-      mutations.forEach((mutation) => {
-        if (mutation.attributeName === 'class') {
-          const dark = document.documentElement.classList.contains('dark');
-          view.dispatch({
-            effects: themeCompartment.current.reconfigure(getThemeExtensions(dark)),
-          });
+      for (const m of mutations) {
+        if (m.attributeName === 'class') {
+          view.dispatch({ effects: themeCompartment.current.reconfigure(buildTheme()) });
         }
-      });
+      }
     });
-
     observer.observe(document.documentElement, { attributes: true });
 
-    return () => {
-      observer.disconnect();
-      view.destroy();
-    };
-  }, [isDark, getThemeExtensions, getLanguageExtension, placeholder]);
+    return () => { observer.disconnect(); view.destroy(); };
+  }, [getLanguageExtension, placeholder]);
 
-  // Update editor content when value prop changes externally
   useEffect(() => {
     const view = viewRef.current;
     if (view && value !== view.state.doc.toString()) {
-      view.dispatch({
-        changes: {
-          from: 0,
-          to: view.state.doc.length,
-          insert: value,
-        },
-      });
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value } });
     }
   }, [value]);
 
