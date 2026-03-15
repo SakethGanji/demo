@@ -218,6 +218,25 @@ class AppVersionModel(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.now)
 
 
+class AppFileModel(SQLModel, table=True):
+    """Individual file in a multi-file app version."""
+
+    __tablename__ = "app_files"
+    __table_args__ = (
+        Index("idx_app_files_version", "version_id"),
+        Index("idx_app_files_version_path", "version_id", "path", unique=True),
+    )
+
+    id: int | None = Field(default=None, sa_column=Column(Integer, primary_key=True, autoincrement=True))
+    version_id: int = Field(foreign_key="app_versions.id", index=True)
+    path: str
+    content: str
+    file_type: str = Field(default="tsx")
+    parsed_index: dict[str, Any] | None = Field(default=None, sa_column=Column(JSONB))
+    size_bytes: int = Field(default=0)
+    created_at: datetime = Field(default_factory=datetime.now)
+
+
 # ---------------------------------------------------------------------------
 # Executions
 # ---------------------------------------------------------------------------

@@ -19,5 +19,7 @@ openai
 anthropic
 tiktoken>=0.5.0  # Token counting for memory providers
 numpy>=1.24.0    # Vector operations for semantic memory
+tree-sitter>=0.23.0         # AST parsing for TSX file indexing
+tree-sitter-typescript>=0.23.0
 neo4j>=5.0.0     # Knowledge graph memory (Neo4j driver)
 # aiosmtplib  # Uncomment if using SMTP for email

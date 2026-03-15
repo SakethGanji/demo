@@ -101,6 +101,18 @@ async def create_version(
     return result
 
 
+@router.get("/{app_id}/versions/{version_id}/files")
+async def get_version_files(
+    app_id: str,
+    version_id: int,
+    service: AppService = Depends(get_app_service),
+):
+    files = await service.get_version_files(app_id, version_id)
+    if files is None:
+        raise HTTPException(status_code=404, detail="Version not found")
+    return files
+
+
 @router.get("/{app_id}/versions/{version_id}")
 async def get_version(
     app_id: str,

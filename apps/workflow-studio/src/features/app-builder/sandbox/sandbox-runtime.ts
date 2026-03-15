@@ -2,33 +2,33 @@
  * Self-contained JavaScript that runs inside the sandboxed iframe.
  * Exported as a string constant to be inlined into the iframe HTML template.
  *
+ * The iframe receives a pre-bundled IIFE from esbuild-wasm (bundled in the
+ * parent window).  The bundle sets `window.__AppModule` with a `.default`
+ * export that is the root React component.
+ *
  * Responsibilities:
- * - Listen for `render(source)` messages from parent (pre-compiled JS, not TSX)
- * - Render the default-exported component via createRoot()
+ * - Execute the bundle and mount the default-exported component
  * - Patch console.* to forward to parent
- * - Provide window.__apiFetch() for proxied API calls
+ * - Override fetch() to proxy /api/ and /webhook/ calls through parent
  * - ErrorBoundary for runtime errors
  * - ResizeObserver to report content height
- *
- * Note: Transpilation (sucrase) happens in the PARENT window, not here.
- * The iframe receives already-compiled JS code.
  */
 
 export const SANDBOX_RUNTIME_CODE = `
 (function() {
   'use strict';
 
-  const React = window.React;
-  const ReactDOM = window.ReactDOM;
-  const createRoot = ReactDOM.createRoot;
-  let root = null;
-  const mountEl = document.getElementById('root');
+  var React = window.React;
+  var ReactDOM = window.ReactDOM;
+  var createRoot = ReactDOM.createRoot;
+  var root = null;
+  var mountEl = document.getElementById('root');
 
   // ── Console patching ─────────────────────────────────────────────
-  const origConsole = { log: console.log, info: console.info, warn: console.warn, error: console.error };
+  var origConsole = { log: console.log, info: console.info, warn: console.warn, error: console.error };
   ['log', 'info', 'warn', 'error'].forEach(function(level) {
     console[level] = function() {
-      const args = Array.from(arguments).map(function(a) {
+      var args = Array.from(arguments).map(function(a) {
         try { return typeof a === 'object' ? JSON.parse(JSON.stringify(a)) : a; }
         catch(e) { return String(a); }
       });
@@ -38,21 +38,24 @@ export const SANDBOX_RUNTIME_CODE = `
   });
 
   // ── API fetch bridge ─────────────────────────────────────────────
-  const pendingRequests = new Map();
-  let reqCounter = 0;
+  var pendingRequests = new Map();
+  var reqCounter = 0;
 
-  window.__apiFetch = function(url, opts) {
+  function proxyFetch(url, opts) {
     return new Promise(function(resolve, reject) {
-      const reqId = 'req_' + (++reqCounter) + '_' + Date.now();
-      pendingRequests.set(reqId, { resolve: resolve, reject: reject });
+      var reqId = 'req_' + (++reqCounter) + '_' + Date.now();
+      pendingRequests.set(reqId, {
+        resolve: function(result) {
+          resolve(new Response(JSON.stringify(result), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          }));
+        },
+        reject: reject
+      });
       parent.postMessage({
-        type: 'apiRequest',
-        reqId: reqId,
-        url: url,
-        opts: opts || {}
+        type: 'apiRequest', reqId: reqId, url: url, opts: opts || {}
       }, '*');
-
-      // Timeout after 8 minutes (POC — workflows with LLM calls can be slow)
       setTimeout(function() {
         if (pendingRequests.has(reqId)) {
           pendingRequests.delete(reqId);
@@ -60,6 +63,20 @@ export const SANDBOX_RUNTIME_CODE = `
         }
       }, 480000);
     });
+  }
+
+  // Override fetch — proxy API/webhook calls through parent, pass everything else through
+  var originalFetch = window.fetch.bind(window);
+  window.fetch = function(url, opts) {
+    if (typeof url === 'string' && (url.startsWith('/api/') || url.startsWith('/webhook/'))) {
+      return proxyFetch(url, opts);
+    }
+    return originalFetch(url, opts);
+  };
+
+  // Keep __apiFetch for backwards compatibility
+  window.__apiFetch = function(url, opts) {
+    return proxyFetch(url, opts);
   };
 
   // ── Error Boundary ───────────────────────────────────────────────
@@ -95,25 +112,26 @@ export const SANDBOX_RUNTIME_CODE = `
     }
   }
 
-  // ── Render pre-compiled JS ───────────────────────────────────────
-  function renderSource(compiledCode) {
+  // ── Render bundled code ───────────────────────────────────────────
+  function renderSource(bundledCode) {
     try {
-      // The parent has already transpiled TSX → JS and handled
-      // export default → __DefaultExport__ conversion.
-      // We just wrap it to inject React hooks as locals and eval.
-      var wrappedCode =
-        '(function(React, useState, useEffect, useCallback, useMemo, useRef, useReducer) {\\n' +
-        compiledCode + '\\n' +
-        'return __DefaultExport__;\\n' +
-        '})(React, React.useState, React.useEffect, React.useCallback, React.useMemo, React.useRef, React.useReducer)';
+      window.__AppModule = undefined;
 
-      var Component = eval(wrappedCode);
+      // esbuild IIFE produces: var __AppModule = (()=>{...})();
+      // new Function() scopes var locally, so we rewrite to window assignment
+      var patchedCode = bundledCode.replace('var __AppModule', 'window.__AppModule');
+      (new Function(patchedCode))();
 
-      if (typeof Component !== 'function') {
-        throw new Error('Module did not export a React component. Make sure you have "export default function ComponentName() { ... }"');
+      var mod = window.__AppModule;
+      if (!mod || typeof mod.default !== 'function') {
+        throw new Error(
+          'App.tsx must export a default React component.\\n' +
+          'Example: export default function App() { return <div>Hello</div> }'
+        );
       }
 
-      // Reset error boundary by remounting with new key
+      var Component = mod.default;
+
       if (!root) {
         root = createRoot(mountEl);
       }
@@ -131,7 +149,6 @@ export const SANDBOX_RUNTIME_CODE = `
         stack: err.stack || ''
       }, '*');
 
-      // Show error in iframe
       if (!root) {
         root = createRoot(mountEl);
       }
@@ -150,6 +167,17 @@ export const SANDBOX_RUNTIME_CODE = `
     }
   }
 
+  // ── Inject CSS (from esbuild CSS output) ─────────────────────────
+  function injectCSS(css) {
+    var existing = document.getElementById('__app-css');
+    if (existing) existing.remove();
+    if (!css) return;
+    var style = document.createElement('style');
+    style.id = '__app-css';
+    style.textContent = css;
+    document.head.appendChild(style);
+  }
+
   // ── ResizeObserver ───────────────────────────────────────────────
   var resizeObserver = new ResizeObserver(function(entries) {
     for (var i = 0; i < entries.length; i++) {
@@ -165,6 +193,7 @@ export const SANDBOX_RUNTIME_CODE = `
     if (!data || !data.type) return;
 
     if (data.type === 'render') {
+      if (data.css) injectCSS(data.css);
       renderSource(data.source);
     } else if (data.type === 'themeUpdate') {
       var vars = data.vars;

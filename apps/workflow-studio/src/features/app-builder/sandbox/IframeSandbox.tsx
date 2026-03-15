@@ -1,72 +1,65 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
-import { transform } from 'sucrase'
 import { Loader2, AlertTriangle, RefreshCw } from 'lucide-react'
 import { useConsoleStore } from '../stores'
 import { postToIframe, isIframeMessage } from './bridge'
 import type { IframeMessage } from './bridge'
 import { SANDBOX_RUNTIME_CODE } from './sandbox-runtime'
+import { bundleFiles } from './esbuild-bundler'
+import type { AppFile } from './esbuild-bundler'
 import { backends } from '@/shared/lib/config'
 
 interface IframeSandboxProps {
-  source: string | null
+  files: AppFile[] | null
   onError?: (error: { message: string; stack?: string }) => void
 }
 
 /**
- * Transpile TSX source to plain JS in the parent window using sucrase.
- * Returns the transpiled code or throws on syntax error.
+ * Sandbox renderer — creates a sandboxed iframe with React, ReactDOM,
+ * and Tailwind pre-loaded. Bundles project files with esbuild-wasm in the
+ * parent window, then sends the compiled bundle to iframe via postMessage.
  */
-function transpileTSX(source: string): string {
-  const result = transform(source, {
-    transforms: ['jsx', 'typescript'],
-    jsxRuntime: 'classic',
-    jsxPragma: 'React.createElement',
-    jsxFragmentPragma: 'React.Fragment',
-    production: true,
-  })
-
-  let code = result.code
-
-  // Replace 'export default function Name' → 'function Name' so we can capture it
-  const fnMatch = source.match(/export\s+default\s+function\s+(\w+)/)
-  if (fnMatch) {
-    code = code.replace(/export\s+default\s+function\s+(\w+)/, 'function $1')
-    code += `\nvar __DefaultExport__ = ${fnMatch[1]};`
-  } else {
-    code = code.replace(/export\s+default\s+/, 'var __DefaultExport__ = ')
-  }
-
-  return code
+/** Simple content hash to avoid redundant re-bundles. */
+function hashFiles(files: AppFile[]): string {
+  return files.map((f) => f.path + '\0' + f.content).join('\x01')
 }
 
-/**
- * Sandbox renderer — creates a sandboxed iframe with React, ReactDOM,
- * and Tailwind pre-loaded. Transpiles TSX in the parent window using
- * sucrase (npm), then sends compiled JS to iframe via postMessage.
- */
-export function IframeSandbox({ source, onError }: IframeSandboxProps) {
+export function IframeSandbox({ files, onError }: IframeSandboxProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const pendingSourceRef = useRef<string | null>(null)
+  const pendingFilesRef = useRef<AppFile[] | null>(null)
   const blobUrlRef = useRef<string | null>(null)
+  const lastHashRef = useRef<string | null>(null)
 
   const log = useConsoleStore.getState().log
 
-  // Transpile + send to iframe
-  const sendToIframe = useCallback((tsxSource: string) => {
-    try {
-      const compiled = transpileTSX(tsxSource)
-      if (iframeRef.current) {
-        postToIframe(iframeRef.current, { type: 'render', source: compiled })
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Transpile failed'
-      setError(message)
-      log('error', 'transpile', message)
-      onError?.({ message })
-    }
+  // Bundle files + send to iframe
+  const sendToIframe = useCallback((appFiles: AppFile[]) => {
+    // Skip if content hasn't changed
+    const hash = hashFiles(appFiles)
+    if (hash === lastHashRef.current) return
+    lastHashRef.current = hash
+
+    bundleFiles(appFiles)
+      .then(({ code, css, errors }) => {
+        if (errors.length > 0) {
+          const message = errors.join('\n')
+          setError(message)
+          log('error', 'bundle', message)
+          onError?.({ message })
+          return
+        }
+        if (iframeRef.current) {
+          postToIframe(iframeRef.current, { type: 'render', source: code, css: css || undefined })
+        }
+      })
+      .catch((err) => {
+        const message = err instanceof Error ? err.message : 'Bundle failed'
+        setError(message)
+        log('error', 'bundle', message)
+        onError?.({ message })
+      })
   }, [log, onError])
 
   // Handle messages from iframe
@@ -80,10 +73,9 @@ export function IframeSandbox({ source, onError }: IframeSandboxProps) {
       case 'ready':
         setReady(true)
         setLoading(false)
-        // Send any pending source
-        if (pendingSourceRef.current) {
-          sendToIframe(pendingSourceRef.current)
-          pendingSourceRef.current = null
+        if (pendingFilesRef.current) {
+          sendToIframe(pendingFilesRef.current)
+          pendingFilesRef.current = null
         }
         break
 
@@ -156,20 +148,20 @@ export function IframeSandbox({ source, onError }: IframeSandboxProps) {
     }
   }, [handleMessage])
 
-  // Send source to iframe when it changes
+  // Send files to iframe when they change
   useEffect(() => {
-    if (!source) return
+    if (!files || files.length === 0) return
 
     setError(null)
 
     if (ready) {
-      sendToIframe(source)
+      sendToIframe(files)
     } else {
-      pendingSourceRef.current = source
+      pendingFilesRef.current = files
     }
-  }, [source, ready, sendToIframe])
+  }, [files, ready, sendToIframe])
 
-  if (!source) {
+  if (!files || files.length === 0) {
     return null
   }
 
@@ -188,7 +180,8 @@ export function IframeSandbox({ source, onError }: IframeSandboxProps) {
           <button
             onClick={() => {
               setError(null)
-              if (source) sendToIframe(source)
+              lastHashRef.current = null // force re-bundle on retry
+              if (files) sendToIframe(files)
             }}
             className="shrink-0 p-0.5 hover:bg-destructive/10 rounded"
             title="Retry"
@@ -210,7 +203,6 @@ export function IframeSandbox({ source, onError }: IframeSandboxProps) {
 }
 
 // ── HTML Template ──────────────────────────────────────────────────────────
-// Only React, ReactDOM, and Tailwind — no sucrase needed in iframe.
 
 function buildIframeHTML(): string {
   return `<!DOCTYPE html>

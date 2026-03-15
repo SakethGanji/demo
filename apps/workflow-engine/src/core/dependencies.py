@@ -117,11 +117,21 @@ def get_node_output_repository(session: AsyncSession = Depends(get_db_session)):
     return NodeOutputRepository(session)
 
 
-def get_app_service(session: AsyncSession = Depends(get_db_session)):
+def get_file_storage(session: AsyncSession = Depends(get_db_session)):
+    """Get file storage backend."""
+    from ..services.file_storage import PostgresFileStorage
+
+    return PostgresFileStorage(session)
+
+
+def get_app_service(
+    session: AsyncSession = Depends(get_db_session),
+    file_storage=Depends(get_file_storage),
+):
     """Get app service instance."""
     from ..services.app_service import AppService
 
-    return AppService(session)
+    return AppService(session, file_storage)
 
 
 def get_app_builder_ai_service(

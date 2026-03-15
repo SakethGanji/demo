@@ -368,6 +368,7 @@ async def _call_gemini_vertex(
         GenerateContentConfig, FunctionDeclaration, Tool,
         AutomaticFunctionCallingConfig,
         ToolConfig, FunctionCallingConfig, FunctionCallingConfigMode,
+        ThinkingConfig,
     )
     from google.api_core import exceptions as google_exceptions
 
@@ -391,6 +392,12 @@ async def _call_gemini_vertex(
         "temperature": temperature,
         "automatic_function_calling": AutomaticFunctionCallingConfig(disable=True),
     }
+    # Disable thinking for 2.5 models — thinking + tool calls causes
+    # intermittent MALFORMED_FUNCTION_CALL with empty responses.
+    # Flash supports budget=0 (fully off), Pro requires minimum 1.
+    if "2.5" in model:
+        budget = 1 if "pro" in model else 0
+        config_kwargs["thinking_config"] = ThinkingConfig(thinking_budget=budget)
     if gemini_tools:
         config_kwargs["tools"] = gemini_tools
         # Map tool_choice kwarg to Gemini's function_calling_mode

@@ -164,8 +164,16 @@ export interface ApiAppVersion {
   created_at: string;
 }
 
+export interface ApiAppFile {
+  path: string;
+  content: string;
+  file_type?: string;
+  parsed_index?: Record<string, unknown> | null;
+}
+
 export interface ApiAppVersionDetail extends ApiAppVersion {
   source_code: string;
+  files?: ApiAppFile[];
 }
 
 export interface ApiAppDetail {
@@ -175,6 +183,7 @@ export interface ApiAppDetail {
   active: boolean;
   workflow_ids: string[];
   source_code: string | null;
+  files?: ApiAppFile[];
   current_version: ApiAppVersion | null;
   created_at: string;
   updated_at: string;
@@ -208,6 +217,7 @@ export const appsApi = {
       name?: string;
       definition?: Record<string, unknown>;
       source_code?: string;
+      files?: ApiAppFile[];
       create_version?: boolean;
       version_trigger?: string;
       version_prompt?: string;

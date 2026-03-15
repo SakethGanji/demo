@@ -7,6 +7,15 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+class AppFilePayload(BaseModel):
+    """A single file in a multi-file app."""
+
+    path: str
+    content: str
+    file_type: str = "tsx"
+    parsed_index: dict[str, Any] | None = None
+
+
 class AppCreateRequest(BaseModel):
     """Request schema for creating an app."""
 
@@ -28,6 +37,7 @@ class AppUpdateRequest(BaseModel):
     create_version: bool = Field(False, description="Atomically create a version with this save")
     version_trigger: str = Field("manual", description="Version trigger type: ai, manual, publish")
     version_prompt: str | None = Field(None, description="User message that triggered AI generation")
+    files: list[AppFilePayload] = Field(default_factory=list, description="Multi-file app contents")
 
 
 class AppListItem(BaseModel):
@@ -59,6 +69,7 @@ class AppVersionDetail(AppVersionResponse):
     """Single version with source_code (for fetching a specific version)."""
 
     source_code: str
+    files: list[AppFilePayload] = Field(default_factory=list)
 
 
 class AppVersionListItem(BaseModel):
@@ -83,6 +94,7 @@ class AppDetailResponse(BaseModel):
     active: bool
     workflow_ids: list[str] = []
     source_code: str | None = None
+    files: list[AppFilePayload] = Field(default_factory=list)
     current_version: AppVersionResponse | None = None
     created_at: str
     updated_at: str

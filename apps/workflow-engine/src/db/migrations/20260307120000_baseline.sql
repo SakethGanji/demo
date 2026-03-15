@@ -170,6 +170,19 @@ ALTER TABLE apps
     ADD CONSTRAINT fk_apps_current_version
     FOREIGN KEY (current_version_id) REFERENCES app_versions(id) ON DELETE SET NULL;
 
+CREATE TABLE IF NOT EXISTS app_files (
+    id          SERIAL PRIMARY KEY,
+    version_id  INTEGER NOT NULL REFERENCES app_versions(id) ON DELETE CASCADE,
+    path        TEXT NOT NULL,
+    content     TEXT NOT NULL,
+    file_type   TEXT NOT NULL DEFAULT 'tsx',
+    parsed_index JSONB,
+    size_bytes  INTEGER NOT NULL DEFAULT 0,
+    created_at  TIMESTAMP NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_app_files_version ON app_files (version_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_app_files_version_path ON app_files (version_id, path);
+
 -- Executions
 CREATE TABLE IF NOT EXISTS executions (
     id                    TEXT PRIMARY KEY,

@@ -13,7 +13,7 @@ import { toast } from 'sonner'
 import { ToolbarSeparator } from '@/shared/components/ui/toolbar'
 import { useAppDocumentStore } from '../stores'
 import { useAppBuilderChatStore } from '../stores/appBuilderChatStore'
-import { IframeSandbox } from '../sandbox/IframeSandbox'
+import { AppPreviewPanel } from './AppPreviewPanel'
 import { AppBuilderChatPanel } from './AppBuilderChatPanel'
 import { BottomPanel } from '../panels'
 import { useAppBuilderChat } from '../hooks/useAppBuilderChat'
@@ -33,6 +33,7 @@ const panelTransition = 'transition-all duration-300 ease-out'
  *   - Bottom: Console (floating)
  */
 export function AppBuilderShell({ appId }: { appId?: string }) {
+  const files = useAppDocumentStore((s) => s.files)
   const sourceCode = useAppDocumentStore((s) => s.sourceCode)
   const setSourceCode = useAppDocumentStore((s) => s.setSourceCode)
   const setCurrentVersion = useAppDocumentStore((s) => s.setCurrentVersion)
@@ -76,39 +77,38 @@ export function AppBuilderShell({ appId }: { appId?: string }) {
     setIsEditingName(false)
   }, [editedName, appName, appId])
 
-  // Reset stores on mount and whenever appId changes (navigating between apps)
+  // Reset stores + load app whenever appId changes
   useEffect(() => {
     useAppDocumentStore.getState().reset()
     useAppBuilderChatStore.getState().clearHistory()
-  }, [appId])
+    setLoaded(false)
+    setError(null)
 
-  // Load app — read source_code + current_version + name from API
-  useEffect(() => {
-    if (appId) {
-      let cancelled = false
-      appsApi.get(appId).then((data) => {
-        if (cancelled) return
-        setAppName(data.name)
-        // Load source code from the new top-level field, fallback to legacy definition.sourceCode
-        if (data.source_code) {
-          setSourceCode(data.source_code)
-        } else {
-          const def = data.definition as Record<string, unknown>
-          if (def?.sourceCode && typeof def.sourceCode === 'string') {
-            setSourceCode(def.sourceCode)
-          }
-        }
-        if (data.current_version) {
-          setCurrentVersion(data.current_version)
-        }
-        setLoaded(true)
-      }).catch((err) => {
-        setError(err instanceof Error ? err.message : 'Failed to load app')
-      })
-      return () => { cancelled = true }
+    if (!appId) {
+      setLoaded(true)
+      return
     }
 
-    setLoaded(true)
+    let cancelled = false
+    appsApi.get(appId).then((data) => {
+      if (cancelled) return
+      setAppName(data.name)
+      const setFiles = useAppDocumentStore.getState().setFiles
+      if (data.files && data.files.length > 0) {
+        setFiles(data.files)
+      } else if (data.source_code) {
+        setSourceCode(data.source_code)
+      }
+      if (data.current_version) {
+        setCurrentVersion(data.current_version)
+      }
+      setLoaded(true)
+    }).catch((err) => {
+      if (cancelled) return
+      setError(err instanceof Error ? err.message : 'Failed to load app')
+      setLoaded(true)
+    })
+    return () => { cancelled = true }
   }, [appId, setSourceCode, setCurrentVersion])
 
   // Manual save — creates a version with trigger='manual'
@@ -116,8 +116,10 @@ export function AppBuilderShell({ appId }: { appId?: string }) {
     if (!appId || isSaving) return
     setIsSaving(true)
     try {
+      const currentFiles = useAppDocumentStore.getState().files
       const result = await appsApi.update(appId, {
         source_code: sourceCode ?? '',
+        files: currentFiles ?? undefined,
         create_version: true,
         version_trigger: 'manual',
       })
@@ -144,7 +146,10 @@ export function AppBuilderShell({ appId }: { appId?: string }) {
     if (!appId) return
     try {
       const result = await appsApi.revertToVersion(appId, versionId)
-      if (result.source_code) {
+      const setFiles = useAppDocumentStore.getState().setFiles
+      if (result.files && result.files.length > 0) {
+        setFiles(result.files)
+      } else if (result.source_code) {
         setSourceCode(result.source_code)
       }
       if (result.current_version) {
@@ -198,7 +203,7 @@ export function AppBuilderShell({ appId }: { appId?: string }) {
     }
 
     return (
-      <IframeSandbox source={sourceCode} onError={handleSandboxError} />
+      <AppPreviewPanel files={files} onError={handleSandboxError} />
     )
   }
 

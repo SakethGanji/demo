@@ -1,12 +1,16 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Link2, Check, Plus, Trash2 } from 'lucide-react'
+import { Link2, Check, Plus, Trash2, Brain } from 'lucide-react'
 import { ChatMessageList, ChatInput, ChatPanel, ChatPanelFooter } from '@/shared/components/chat'
-import { useAppBuilderChatStore, type AppChatMessage } from '../stores/appBuilderChatStore'
+import { useAppBuilderChatStore, type AppChatMessage, type ToolCallEntry } from '../stores/appBuilderChatStore'
 import { useAppBuilderChat } from '../hooks/useAppBuilderChat'
 import { workflowsApi } from '@/shared/lib/api'
 import type { ApiWorkflowSummary } from '@/shared/lib/backendTypes'
+import { Tool, ToolHeader, ToolContent, ToolInput, ToolOutput } from '@/components/ai-elements/tool'
+import { Task, TaskTrigger, TaskContent, TaskItem, TaskItemFile } from '@/components/ai-elements/task'
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/shared/components/ui/collapsible'
+import type { ToolPart } from '@/components/ai-elements/tool'
 
 export interface ApiEndpoint {
   curl: string
@@ -14,6 +18,126 @@ export interface ApiEndpoint {
 }
 
 type ContextMode = 'workflows' | 'api'
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+const FRIENDLY_NAMES: Record<string, string> = {
+  write_files: 'Write Files',
+  read_files: 'Read Files',
+  edit_files: 'Edit Files',
+  delete_file: 'Delete File',
+  list_files: 'List Files',
+  search_files: 'Search Files',
+  escalate: 'Escalate',
+}
+
+function friendlyName(tool: string): string {
+  return FRIENDLY_NAMES[tool] ?? tool.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+function toolStatusToState(status: ToolCallEntry['status']): ToolPart['state'] {
+  switch (status) {
+    case 'running': return 'input-available'
+    case 'completed': return 'output-available'
+    case 'error': return 'output-error'
+  }
+}
+
+// ── Tool Call Rendering ──────────────────────────────────────────────────────
+
+function renderToolCalls(msg: AppChatMessage) {
+  if (!msg.toolCalls?.length) return null
+
+  return (
+    <div className="space-y-2">
+      {msg.toolCalls.map((tc) => {
+        // search_files gets a compact Task treatment
+        if (tc.tool === 'search_files') {
+          return (
+            <Task key={tc.id} defaultOpen={false}>
+              <TaskTrigger title={`Search: ${tc.args.pattern ?? '...'}`} />
+              <TaskContent>
+                {tc.result && (
+                  <TaskItem>
+                    <pre className="whitespace-pre-wrap text-xs text-muted-foreground font-mono">
+                      {tc.result.slice(0, 500)}
+                    </pre>
+                  </TaskItem>
+                )}
+              </TaskContent>
+            </Task>
+          )
+        }
+
+        // All other tools → full Tool component
+        return (
+          <Tool key={tc.id} defaultOpen={false}>
+            <ToolHeader
+              type="dynamic-tool"
+              toolName={friendlyName(tc.tool)}
+              state={toolStatusToState(tc.status)}
+            />
+            <ToolContent>
+              <ToolInput input={tc.args} />
+              {(tc.status === 'completed' || tc.status === 'error') && (
+                <ToolOutput
+                  output={tc.result ?? null}
+                  errorText={tc.status === 'error' ? tc.result ?? 'Unknown error' : undefined}
+                />
+              )}
+            </ToolContent>
+          </Tool>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Reasoning Rendering ──────────────────────────────────────────────────────
+
+function renderReasoning(msg: AppChatMessage, isStreaming: boolean) {
+  if (!msg.thinking?.length) return null
+
+  return (
+    <Collapsible defaultOpen={isStreaming}>
+      <CollapsibleTrigger className="group flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer mb-2">
+        <Brain size={12} />
+        <span>Reasoning</span>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="mb-3 space-y-1 border-l-2 border-muted pl-3">
+          {msg.thinking.map((t, i) => (
+            <p key={i} className="text-xs text-muted-foreground leading-relaxed">
+              {t}
+            </p>
+          ))}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  )
+}
+
+// ── Extra Rendering (app updated badge with file list) ───────────────────────
+
+function renderExtra(msg: AppChatMessage) {
+  if (!msg.appPayload) return null
+
+  const payload = msg.appPayload as { type?: string; files?: { path: string }[] }
+  const files = payload?.files
+
+  return (
+    <div className="rounded-md border border-border/50 bg-muted/50 px-2.5 py-1.5 flex items-center gap-2 flex-wrap">
+      <span className="text-xs text-muted-foreground">App updated</span>
+      {files?.map((f) => (
+        <TaskItemFile key={f.path}>
+          {f.path.split('/').pop()}
+        </TaskItemFile>
+      ))}
+    </div>
+  )
+}
+
+// ── Chat Panel ───────────────────────────────────────────────────────────────
 
 export function AppBuilderChatPanel({
   appId,
@@ -82,19 +206,17 @@ export function AppBuilderChatPanel({
         isStreaming={isStreaming}
         emptyTitle="App Builder"
         emptyDescription="Describe the app you want to build and I'll generate it for you."
-        filterMessage={(msg) => !(msg.role === 'assistant' && !msg.content && !msg.appPayload)}
+        filterMessage={(msg) =>
+          !(msg.role === 'assistant' && !msg.content && !msg.appPayload && !msg.toolCalls?.length && !msg.thinking?.length)
+        }
+        renderReasoning={renderReasoning}
+        renderToolCalls={renderToolCalls}
         renderAssistantContent={(msg) => (
           <div className="prose prose-sm prose-neutral dark:prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_pre]:bg-background/50 [&_pre]:rounded [&_pre]:p-2 [&_pre]:text-xs [&_code]:text-xs [&_code]:bg-background/50 [&_code]:px-1 [&_code]:rounded [&_p]:my-1.5 [&_ul]:my-1.5 [&_ol]:my-1.5 [&_li]:my-0.5">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
           </div>
         )}
-        renderExtra={(msg) =>
-          msg.appPayload ? (
-            <div className="rounded-md border border-border/50 bg-muted/50 px-2.5 py-1.5 text-xs text-muted-foreground">
-              App updated
-            </div>
-          ) : null
-        }
+        renderExtra={renderExtra}
       />
 
       <ChatPanelFooter>

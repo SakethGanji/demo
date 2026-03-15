@@ -1,5 +1,6 @@
 workflows.db
-apps/craft.js-main/
+apps/gemini-cli-main/
 apps/tweakcn-main/
 __pycache__/
 *.pyc
+apps/workflow-studio/public/esbuild.wasm

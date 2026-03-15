@@ -10,40 +10,36 @@ interface AppBuilderChatOptions {
   workflowIds?: string[]
 }
 
-const MAX_AUTO_RETRIES = 2
-
 export function useAppBuilderChat(options: AppBuilderChatOptions = {}) {
   const abortRef = useRef<AbortController | null>(null)
-  const retryCountRef = useRef(0)
-
-  const sendMessage = useCallback(async (message: string, isAutoRetry = false) => {
-    const { addMessage, updateLastMessage, setStreaming, messages, sessionId } =
+  const sendMessage = useCallback(async (message: string) => {
+    const { addMessage, updateLastMessage, setStreaming, messages } =
       useAppBuilderChatStore.getState()
-    const setSourceCode = useAppDocumentStore.getState().setSourceCode
-    const setCurrentVersion = useAppDocumentStore.getState().setCurrentVersion
-    const currentVersionId = useAppDocumentStore.getState().currentVersion?.id ?? null
+    const { setFiles, setSourceCode, setCurrentVersion, currentVersion } =
+      useAppDocumentStore.getState()
+    const currentVersionId = currentVersion?.id ?? null
 
     // Add user message + placeholder assistant message
     addMessage({ role: 'user', content: message })
     addMessage({ role: 'assistant', content: '' })
     setStreaming(true)
 
-    if (!isAutoRetry) {
-      retryCountRef.current = 0
-    }
-
-    const conversationHistory = messages.map((m) => ({
+    // Build conversation history — last 3 user/assistant pairs (6 entries)
+    // Only include completed messages (skip the placeholder we just added)
+    const completedMessages = messages.filter(
+      (m) => (m.role === 'user' || m.role === 'assistant') && m.content.trim() !== ''
+    )
+    const conversationHistory = completedMessages.slice(-6).map((m) => ({
       role: m.role,
       content: m.content,
     }))
 
     const body = {
       message,
-      session_id: sessionId,
-      conversation_history: conversationHistory,
       app_id: options.appId ?? undefined,
       current_version_id: currentVersionId ?? undefined,
       workflow_ids: options.workflowIds ?? [],
+      conversation_history: conversationHistory,
     }
 
     const controller = new AbortController()
@@ -60,7 +56,7 @@ export function useAppBuilderChat(options: AppBuilderChatOptions = {}) {
       if (!response.ok) {
         const errText = await response.text()
         updateLastMessage({
-          content: `Error: ${response.status} — ${errText.slice(0, 200)}`,
+          content: `Something went wrong (${response.status}). Could you try again?\n\n${errText.slice(0, 200)}`,
         })
         setStreaming(false)
         return
@@ -68,7 +64,7 @@ export function useAppBuilderChat(options: AppBuilderChatOptions = {}) {
 
       const reader = response.body?.getReader()
       if (!reader) {
-        updateLastMessage({ content: 'Error: No response stream' })
+        updateLastMessage({ content: "I couldn't connect to the server. Try again in a moment." })
         setStreaming(false)
         return
       }
@@ -81,16 +77,26 @@ export function useAppBuilderChat(options: AppBuilderChatOptions = {}) {
 
           if (data.type === 'text') {
             updateLastMessage({ content: data.content })
+
           } else if (data.type === 'code') {
-            const source = data.source as string
-            updateLastMessage({ appPayload: { type: 'code' } })
-            setSourceCode(source)
+            // Multi-file output
+            if (data.files && Array.isArray(data.files)) {
+              setFiles(data.files)
+            } else if (data.source) {
+              setSourceCode(data.source)
+            }
+            updateLastMessage({ appPayload: { type: 'code', files: data.files } })
 
             // Auto-save version to backend
             if (options.appId) {
+              const entryContent = data.files
+                ? (data.files.find((f: { path: string }) => f.path === 'App.tsx')?.content ?? data.files[0]?.content ?? '')
+                : (data.source ?? '')
+
               appsApi
                 .update(options.appId, {
-                  source_code: source,
+                  source_code: entryContent,
+                  files: data.files ?? undefined,
                   create_version: true,
                   version_trigger: 'ai',
                   version_prompt: message,
@@ -104,8 +110,53 @@ export function useAppBuilderChat(options: AppBuilderChatOptions = {}) {
                   console.warn('[App Builder] Failed to auto-save version:', err)
                 })
             }
+
+          } else if (data.type === 'phase') {
+            updateLastMessage({ phase: data.phase || data.message })
+
+          } else if (data.type === 'thinking') {
+            const last = useAppBuilderChatStore.getState().messages.at(-1)
+            const existing = last?.thinking ?? []
+            updateLastMessage({ thinking: [...existing, data.content] })
+
+          } else if (data.type === 'tool_call') {
+            const last = useAppBuilderChatStore.getState().messages.at(-1)
+            const existing = last?.toolCalls ?? []
+            updateLastMessage({
+              toolCalls: [
+                ...existing,
+                {
+                  id: data.id || `tc-${Date.now()}-${existing.length}`,
+                  tool: data.tool,
+                  args: data.args ?? {},
+                  status: 'running',
+                },
+              ],
+            })
+
+          } else if (data.type === 'tool_result') {
+            const last = useAppBuilderChatStore.getState().messages.at(-1)
+            const existing = last?.toolCalls ?? []
+            const isError = data.result?.startsWith?.('Error:') ?? false
+            // Match by id if available, otherwise fall back to tool name
+            const idx = data.id
+              ? existing.findIndex((tc) => tc.id === data.id)
+              : existing.findLastIndex((tc) => tc.tool === data.tool && tc.status === 'running')
+            if (idx >= 0) {
+              const updated = [...existing]
+              updated[idx] = {
+                ...updated[idx],
+                status: isError ? 'error' : 'completed',
+                result: data.result,
+              }
+              updateLastMessage({ toolCalls: updated })
+            }
+
           } else if (data.type === 'error') {
-            updateLastMessage({ content: `\n\n**Error:** ${data.message}` })
+            updateLastMessage({ content: `Something went wrong: ${data.message}. You can try again.` })
+
+          } else if (data.type === 'plan') {
+            updateLastMessage({ content: data.content })
           }
         } catch (parseErr) {
           console.warn('[App Builder Chat] Failed to process SSE event:', dataStr, parseErr)
@@ -116,7 +167,7 @@ export function useAppBuilderChat(options: AppBuilderChatOptions = {}) {
         // User cancelled
       } else {
         updateLastMessage({
-          content: `\n\nConnection error: ${err instanceof Error ? err.message : 'Unknown error'}`,
+          content: 'The connection was interrupted. You can send your message again.',
         })
       }
     } finally {
@@ -126,16 +177,12 @@ export function useAppBuilderChat(options: AppBuilderChatOptions = {}) {
   }, [options.appId, options.workflowIds])
 
   /**
-   * Called when the iframe reports an error. Automatically sends
-   * it back to the LLM for self-correction (up to MAX_AUTO_RETRIES).
+   * Called when the iframe reports an error. Logs it but does NOT
+   * auto-retry — the user can manually ask the LLM to fix it.
    */
-  const reportError = useCallback((error: { message: string; stack?: string }) => {
-    if (retryCountRef.current >= MAX_AUTO_RETRIES) return
-    retryCountRef.current++
-
-    const errorMessage = `The generated code failed with this error:\n\n\`\`\`\n${error.message}\n\`\`\`\n\nPlease fix the code.`
-    void sendMessage(errorMessage, true)
-  }, [sendMessage])
+  const reportError = useCallback((_error: { message: string; stack?: string }) => {
+    // No-op: auto-retry removed to avoid error loops
+  }, [])
 
   const cancelStream = useCallback(() => {
     abortRef.current?.abort()

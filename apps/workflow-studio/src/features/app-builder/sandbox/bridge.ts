@@ -1,11 +1,11 @@
 /**
- * PostMessage protocol types for parent ↔ iframe communication.
+ * PostMessage protocol types for parent <-> iframe communication.
  */
 
 // ── Messages from parent → iframe ────────────────────────────────────────────
 
 export type ParentMessage =
-  | { type: 'render'; source: string }
+  | { type: 'render'; source: string; css?: string }
   | { type: 'themeUpdate'; vars: Record<string, string> }
 
 // ── Messages from iframe → parent ────────────────────────────────────────────

@@ -11,6 +11,7 @@ from ..db.models import AppModel, AppVersionModel
 from ..schemas.app import (
     AppCreateRequest,
     AppDetailResponse,
+    AppFilePayload,
     AppListItem,
     AppPublishResponse,
     AppUpdateRequest,
@@ -18,14 +19,16 @@ from ..schemas.app import (
     AppVersionListItem,
     AppVersionResponse,
 )
+from ..services.file_storage import FileStorageBackend
 from ..utils.ids import app_id
 
 
 class AppService:
     """Handles app persistence using the dedicated apps table."""
 
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: AsyncSession, file_storage: FileStorageBackend) -> None:
         self._session = session
+        self._file_storage = file_storage
 
     # ── List / Get / Create / Update / Delete ────────────────────────────────
 
@@ -89,11 +92,13 @@ class AppService:
         # Atomically create a version alongside the save
         version = None
         if req.create_version and req.source_code is not None:
+            files_dicts = [f.model_dump() for f in req.files] if req.files else None
             version = await self._create_version_row(
                 row,
                 source_code=req.source_code,
                 trigger=req.version_trigger,
                 prompt=req.version_prompt,
+                files=files_dicts,
             )
 
         await self._session.commit()
@@ -187,7 +192,24 @@ class AppService:
         version = result.scalar_one_or_none()
         if not version:
             return None
-        return self._version_to_detail(version)
+        detail = self._version_to_detail(version)
+        # Populate files
+        file_dicts = await self._file_storage.get_files(version.id)  # type: ignore[arg-type]
+        detail.files = [AppFilePayload(**f) for f in file_dicts]
+        return detail
+
+    async def get_version_files(self, aid: str, version_id: int) -> list[dict] | None:
+        """Get files for a specific version."""
+        stmt = (
+            select(AppVersionModel)
+            .where(AppVersionModel.app_id == aid, AppVersionModel.id == version_id)
+        )
+        result = await self._session.execute(stmt)
+        version = result.scalar_one_or_none()
+        if not version:
+            return None
+
+        return await self._file_storage.get_files(version.id)  # type: ignore[arg-type]
 
     async def revert_to_version(self, aid: str, version_id: int) -> AppDetailResponse | None:
         row = await self._session.get(AppModel, aid)
@@ -257,6 +279,7 @@ class AppService:
         label: str | None = None,
         prompt: str | None = None,
         message: str | None = None,
+        files: list[dict[str, str]] | None = None,
     ) -> AppVersionModel:
         next_num = await self._next_version_number(app.id)
         version = AppVersionModel(
@@ -272,6 +295,9 @@ class AppService:
         )
         self._session.add(version)
         await self._session.flush()  # get version.id
+
+        if files:
+            await self._file_storage.save_files(version.id, files)  # type: ignore[arg-type]
 
         app.current_version_id = version.id
         app.draft_source_code = source_code
@@ -296,6 +322,11 @@ class AppService:
 
     async def _to_detail(self, row: AppModel) -> AppDetailResponse:
         current_version = await self._get_current_version(row)
+        # Populate files from current version
+        files: list[AppFilePayload] = []
+        if row.current_version_id:
+            file_dicts = await self._file_storage.get_files(row.current_version_id)
+            files = [AppFilePayload(**f) for f in file_dicts]
         return AppDetailResponse(
             id=row.id,
             name=row.name,
@@ -303,6 +334,7 @@ class AppService:
             active=row.active,
             workflow_ids=row.workflow_ids or [],
             source_code=row.draft_source_code,
+            files=files,
             current_version=current_version,
             created_at=row.created_at.isoformat(),
             updated_at=row.updated_at.isoformat(),

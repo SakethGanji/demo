@@ -7,23 +7,14 @@ from typing import Any, Literal
 from pydantic import BaseModel
 
 
-class AppBuilderChatMessage(BaseModel):
-    """A single message in the app builder conversation."""
-
-    role: Literal["user", "assistant"]
-    content: str
-
-
 class AppBuilderChatRequest(BaseModel):
     """Request body for POST /api/ai/app-builder/chat."""
 
     message: str
-    session_id: str | None = None
-    conversation_history: list[AppBuilderChatMessage] = []
     app_id: str | None = None
     current_version_id: int | None = None
     workflow_ids: list[str] = []
-    current_code: str | None = None  # deprecated — prefer app_id + current_version_id
+    conversation_history: list[dict[str, str]] = []  # [{role: "user", content: "..."}, {role: "assistant", content: "..."}]
 
 
 class NodeSchema(BaseModel):
