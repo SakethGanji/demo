@@ -77,7 +77,7 @@ interface DisplayOptions {
 }
 
 // Type for property field types
-type NodePropertyType = 'string' | 'number' | 'boolean' | 'options' | 'json' | 'collection' | 'workflowSelector' | 'filePath';
+type NodePropertyType = 'string' | 'number' | 'boolean' | 'options' | 'multiOptions' | 'json' | 'collection' | 'workflowSelector' | 'filePath';
 
 interface NodeProperty {
   displayName: string;
@@ -346,6 +346,15 @@ const PropertyField = memo(function PropertyField({ property, value, onChange, o
           onChange={onChange}
           onBlur={onBlur}
           error={error}
+        />
+      );
+
+    case 'multiOptions':
+      return (
+        <MultiOptionsField
+          property={property}
+          value={(Array.isArray(value) ? value : []) as string[]}
+          onChange={onChange}
         />
       );
 
@@ -652,6 +661,105 @@ function OptionsField({
       </select>
       <FieldDescription text={property.description} />
       <FieldErrorMessage error={error} />
+    </div>
+  );
+}
+
+function MultiOptionsField({
+  property,
+  value,
+  onChange,
+}: {
+  property: NodeProperty;
+  value: string[];
+  onChange: (value: string[]) => void;
+}) {
+  const [search, setSearch] = useState('');
+  const options = property.options || [];
+  const selected = new Set(value);
+  const selectedCount = selected.size;
+
+  const filtered = search
+    ? options.filter((o) => o.name.toLowerCase().includes(search.toLowerCase()))
+    : options;
+
+  const toggle = (optValue: string) => {
+    const next = new Set(selected);
+    if (next.has(optValue)) {
+      next.delete(optValue);
+    } else {
+      next.add(optValue);
+    }
+    onChange(Array.from(next));
+  };
+
+  const selectAll = () => onChange(options.map((o) => String(o.value)));
+  const clearAll = () => onChange([]);
+
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between">
+        <label className="block text-xs font-medium text-foreground/80">
+          {property.displayName}
+          {selectedCount > 0 && (
+            <span className="ml-1.5 text-[11px] text-muted-foreground">
+              {selectedCount} selected
+            </span>
+          )}
+        </label>
+        <div className="flex gap-2 text-[11px]">
+          <button type="button" onClick={selectAll} className="text-muted-foreground hover:text-foreground transition-colors">
+            All
+          </button>
+          <button type="button" onClick={clearAll} className="text-muted-foreground hover:text-foreground transition-colors">
+            None
+          </button>
+        </div>
+      </div>
+      {options.length > 8 && (
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search tools…"
+          className="mb-1.5 w-full rounded border border-border/60 bg-[var(--surface)] px-2.5 py-1 text-[12px] placeholder:text-muted-foreground/50 focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring/50"
+        />
+      )}
+      <div className="max-h-[180px] overflow-y-auto rounded border border-border/60 bg-[var(--surface)]">
+        {filtered.length === 0 ? (
+          <div className="px-2.5 py-2 text-[12px] text-muted-foreground">No matches</div>
+        ) : (
+          filtered.map((option) => {
+            const active = selected.has(String(option.value));
+            return (
+              <button
+                key={String(option.value)}
+                type="button"
+                onClick={() => toggle(String(option.value))}
+                className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12px] transition-colors hover:bg-muted/50 ${
+                  active ? 'text-foreground' : 'text-muted-foreground'
+                }`}
+              >
+                <span
+                  className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border transition-colors ${
+                    active
+                      ? 'border-ring bg-ring text-white'
+                      : 'border-border/80 bg-transparent'
+                  }`}
+                >
+                  {active && (
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                      <path d="M2 5L4.5 7.5L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </span>
+                <span className="truncate">{option.name}</span>
+              </button>
+            );
+          })
+        )}
+      </div>
+      <FieldDescription text={property.description} />
     </div>
   );
 }

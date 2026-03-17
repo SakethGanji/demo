@@ -192,156 +192,26 @@ class AIAgentNode(BaseNode):
                 description="Task for the agent. Supports expressions.",
                 type_options={"rows": 5},
             ),
+            # --- Tools ---
             NodeProperty(
                 display_name="Tools",
-                name="tools",
-                type="collection",
+                name="builtinTools",
+                type="multiOptions",
                 default=[],
-                type_options={"multipleValues": True},
-                properties=[
-                    NodeProperty(
-                        display_name="Tool Name",
-                        name="name",
-                        type="string",
-                        default="",
-                    ),
-                    NodeProperty(
-                        display_name="Description",
-                        name="description",
-                        type="string",
-                        default="",
-                    ),
-                    NodeProperty(
-                        display_name="Parameters (JSON Schema)",
-                        name="parameters",
-                        type="json",
-                        default="{}",
-                    ),
-                ],
-            ),
-            NodeProperty(
-                display_name="Max Iterations",
-                name="maxIterations",
-                type="number",
-                default=30,
-                description="Maximum number of LLM round-trips (each tool-call batch counts as one).",
-            ),
-            NodeProperty(
-                display_name="Temperature",
-                name="temperature",
-                type="number",
-                default=0.7,
-            ),
-            NodeProperty(
-                display_name="Max Context Tokens",
-                name="maxContextTokens",
-                type="number",
-                default=120000,
-                description="Approximate token budget for conversation history. Older messages are trimmed when exceeded.",
-            ),
-            NodeProperty(
-                display_name="Max Output Tokens",
-                name="maxOutputTokens",
-                type="number",
-                default=4096,
-                description="Maximum tokens in each LLM response. Increase for models that support longer output (e.g. 8192 for Claude/GPT-4o).",
-            ),
-            NodeProperty(
-                display_name="Output Schema (JSON)",
-                name="outputSchema",
-                type="json",
-                default="",
-                description="Optional JSON schema to force structured output. When set, the agent's final response will be valid JSON matching this schema.",
-                type_options={"rows": 5},
-            ),
-            NodeProperty(
-                display_name="Enable Sub-Agents",
-                name="enableSubAgents",
-                type="boolean",
-                default=False,
-                description="Allow the agent to spawn sub-agents dynamically at runtime.",
-            ),
-            NodeProperty(
-                display_name="Max Agent Depth",
-                name="maxAgentDepth",
-                type="number",
-                default=3,
-                description="Maximum depth of nested sub-agent spawning.",
-                display_options={"show": {"enableSubAgents": [True]}},
-            ),
-            NodeProperty(
-                display_name="Allow Recursive Spawning",
-                name="allowRecursiveSpawn",
-                type="boolean",
-                default=True,
-                description="Whether sub-agents can themselves spawn sub-agents.",
-                display_options={"show": {"enableSubAgents": [True]}},
-            ),
-            NodeProperty(
-                display_name="Enable Planning",
-                name="enablePlanning",
-                type="boolean",
-                default=False,
-                description="Inject a reasoning protocol that makes the agent plan before acting and reflect before answering.",
-            ),
-            NodeProperty(
-                display_name="Enable Scratchpad",
-                name="enableScratchpad",
-                type="boolean",
-                default=False,
-                description="Give the agent working memory tools (memory_store / memory_recall) for saving intermediate findings across iterations.",
-            ),
-            NodeProperty(
-                display_name="Enable Scripting",
-                name="enablePtc",
-                type="boolean",
-                default=False,
-                description="Give the agent a run_script tool for programmatic tool calling — batch multiple tool calls in a Python script with loops, conditionals, and error handling.",
-            ),
-            NodeProperty(
-                display_name="Skill Profiles",
-                name="skillProfiles",
-                type="collection",
-                default=[],
-                type_options={"multipleValues": True},
-                description="Pre-defined sub-agent profiles. The agent picks a skill by name and the system wires up the right prompt and scoped tools automatically.",
-                properties=[
-                    NodeProperty(
-                        display_name="Skill Name",
-                        name="name",
-                        type="string",
-                        default="",
-                        description="Unique identifier the LLM uses to invoke this skill",
-                    ),
-                    NodeProperty(
-                        display_name="Description",
-                        name="description",
-                        type="string",
-                        default="",
-                        description="What this skill does — shown to the LLM for intent routing",
-                    ),
-                    NodeProperty(
-                        display_name="System Prompt",
-                        name="systemPrompt",
-                        type="string",
-                        default="",
-                        description="Instructions for the sub-agent handling this skill",
-                        type_options={"rows": 3},
-                    ),
-                    NodeProperty(
-                        display_name="Tool Names",
-                        name="toolNames",
-                        type="string",
-                        default="",
-                        description="Comma-separated tool names this skill can access from the parent's tools",
-                    ),
-                    NodeProperty(
-                        display_name="Output Schema (JSON)",
-                        name="outputSchema",
-                        type="json",
-                        default="",
-                        description="Optional JSON schema for structured sub-agent output",
-                    ),
+                description="Select tools to give the agent.",
+                options=[
+                    NodePropertyOption(name="Calculator", value="calculator"),
+                    NodePropertyOption(name="Current Time", value="currentTime"),
+                    NodePropertyOption(name="Random Number", value="randomNumber"),
+                    NodePropertyOption(name="Text Utils", value="text"),
+                    NodePropertyOption(name="HTTP Request", value="httpRequest"),
+                    NodePropertyOption(name="Run Code", value="code"),
+                    NodePropertyOption(name="Run Workflow", value="workflow"),
+                    NodePropertyOption(name="Neo4j Query", value="neo4jQuery"),
+                    NodePropertyOption(name="Data Profile", value="dataProfile"),
+                    NodePropertyOption(name="Data Aggregate", value="dataAggregate"),
+                    NodePropertyOption(name="Data Sample", value="dataSample"),
+                    NodePropertyOption(name="Data Report", value="dataReport"),
                 ],
             ),
             # --- Memory Configuration ---
@@ -475,26 +345,130 @@ class AIAgentNode(BaseNode):
                 default="",
                 display_options={"show": {"memoryType": ["knowledgeGraph"]}},
             ),
-            # --- Built-in Tools ---
+            # --- Advanced ---
             NodeProperty(
-                display_name="Built-in Tools",
-                name="builtinTools",
-                type="multiOptions",
+                display_name="Max Iterations",
+                name="maxIterations",
+                type="number",
+                default=30,
+                description="Maximum number of LLM round-trips (each tool-call batch counts as one).",
+            ),
+            NodeProperty(
+                display_name="Temperature",
+                name="temperature",
+                type="number",
+                default=0.7,
+            ),
+            NodeProperty(
+                display_name="Max Context Tokens",
+                name="maxContextTokens",
+                type="number",
+                default=120000,
+                description="Approximate token budget for conversation history. Older messages are trimmed when exceeded.",
+            ),
+            NodeProperty(
+                display_name="Max Output Tokens",
+                name="maxOutputTokens",
+                type="number",
+                default=4096,
+                description="Maximum tokens in each LLM response. Increase for models that support longer output (e.g. 8192 for Claude/GPT-4o).",
+            ),
+            NodeProperty(
+                display_name="Output Schema (JSON)",
+                name="outputSchema",
+                type="json",
+                default="",
+                description="Optional JSON schema to force structured output. When set, the agent's final response will be valid JSON matching this schema.",
+                type_options={"rows": 5},
+            ),
+            NodeProperty(
+                display_name="Enable Sub-Agents",
+                name="enableSubAgents",
+                type="boolean",
+                default=False,
+                description="Allow the agent to spawn sub-agents dynamically at runtime.",
+            ),
+            NodeProperty(
+                display_name="Max Agent Depth",
+                name="maxAgentDepth",
+                type="number",
+                default=3,
+                description="Maximum depth of nested sub-agent spawning.",
+                display_options={"show": {"enableSubAgents": [True]}},
+            ),
+            NodeProperty(
+                display_name="Allow Recursive Spawning",
+                name="allowRecursiveSpawn",
+                type="boolean",
+                default=True,
+                description="Whether sub-agents can themselves spawn sub-agents.",
+                display_options={"show": {"enableSubAgents": [True]}},
+            ),
+            NodeProperty(
+                display_name="Enable Planning",
+                name="enablePlanning",
+                type="boolean",
+                default=False,
+                description="Inject a reasoning protocol that makes the agent plan before acting and reflect before answering.",
+            ),
+            NodeProperty(
+                display_name="Enable Scratchpad",
+                name="enableScratchpad",
+                type="boolean",
+                default=False,
+                description="Give the agent working memory tools (memory_store / memory_recall) for saving intermediate findings across iterations.",
+            ),
+            NodeProperty(
+                display_name="Enable Scripting",
+                name="enablePtc",
+                type="boolean",
+                default=False,
+                description="Give the agent a run_script tool for programmatic tool calling — batch multiple tool calls in a Python script with loops, conditionals, and error handling.",
+            ),
+            NodeProperty(
+                display_name="Skill Profiles",
+                name="skillProfiles",
+                type="collection",
                 default=[],
-                description="Select built-in tools to give the agent.",
-                options=[
-                    NodePropertyOption(name="Calculator", value="calculator"),
-                    NodePropertyOption(name="Current Time", value="currentTime"),
-                    NodePropertyOption(name="Random Number", value="randomNumber"),
-                    NodePropertyOption(name="Text Utils", value="text"),
-                    NodePropertyOption(name="HTTP Request", value="httpRequest"),
-                    NodePropertyOption(name="Run Code", value="code"),
-                    NodePropertyOption(name="Run Workflow", value="workflow"),
-                    NodePropertyOption(name="Neo4j Query", value="neo4jQuery"),
-                    NodePropertyOption(name="Data Profile", value="dataProfile"),
-                    NodePropertyOption(name="Data Aggregate", value="dataAggregate"),
-                    NodePropertyOption(name="Data Sample", value="dataSample"),
-                    NodePropertyOption(name="Data Report", value="dataReport"),
+                type_options={"multipleValues": True},
+                description="Pre-defined sub-agent profiles. The agent picks a skill by name and the system wires up the right prompt and scoped tools automatically.",
+                properties=[
+                    NodeProperty(
+                        display_name="Skill Name",
+                        name="name",
+                        type="string",
+                        default="",
+                        description="Unique identifier the LLM uses to invoke this skill",
+                    ),
+                    NodeProperty(
+                        display_name="Description",
+                        name="description",
+                        type="string",
+                        default="",
+                        description="What this skill does — shown to the LLM for intent routing",
+                    ),
+                    NodeProperty(
+                        display_name="System Prompt",
+                        name="systemPrompt",
+                        type="string",
+                        default="",
+                        description="Instructions for the sub-agent handling this skill",
+                        type_options={"rows": 3},
+                    ),
+                    NodeProperty(
+                        display_name="Tool Names",
+                        name="toolNames",
+                        type="string",
+                        default="",
+                        description="Comma-separated tool names this skill can access from the parent's tools",
+                    ),
+                    NodeProperty(
+                        display_name="Output Schema (JSON)",
+                        name="outputSchema",
+                        type="json",
+                        default="",
+                        description="Optional JSON schema for structured sub-agent output",
+                    ),
                 ],
             ),
         ],
@@ -522,7 +496,7 @@ class AIAgentNode(BaseNode):
         model = self.get_parameter(node_definition, "model", "gemini-2.0-flash")
         system_prompt_template = self.get_parameter(node_definition, "systemPrompt", "")
         task_template = self.get_parameter(node_definition, "task", "")
-        tools_config = self.get_parameter(node_definition, "tools", [])
+
         max_iterations = self.get_parameter(node_definition, "maxIterations", 30)
         temperature = self.get_parameter(node_definition, "temperature", 0.7)
         max_context_tokens = self.get_parameter(node_definition, "maxContextTokens", _DEFAULT_MAX_CONTEXT_TOKENS)
@@ -588,10 +562,6 @@ class AIAgentNode(BaseNode):
                     })
                     if "execute" in rt:
                         tool_executors[rt["name"]] = rt["execute"]
-
-        # Add tools from the manual tools parameter config
-        if tools_config:
-            tools = tools + self._build_tools(tools_config)
 
         # Create AgentContext; populate spawn/scratchpad/skill fields based on config.
         _excluded = _SPAWN_TOOL_NAMES | _SCRATCHPAD_TOOL_NAMES | _SKILL_TOOL_NAMES | _PTC_TOOL_NAMES
@@ -924,38 +894,6 @@ class AIAgentNode(BaseNode):
         })
 
         return skill_return
-
-    def _build_tools(self, tools_config: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Build tools array from inline parameter config."""
-        from ...engine.tool_schema import validate_tool_definition
-
-        tools = []
-
-        for tool in tools_config:
-            if not tool.get("name"):
-                continue
-
-            params = tool.get("parameters", {})
-            if isinstance(params, str):
-                try:
-                    params = json.loads(params)
-                except json.JSONDecodeError:
-                    params = {}
-
-            tool_def = {
-                "name": tool["name"],
-                "description": tool.get("description", ""),
-                "input_schema": params,
-            }
-
-            # Build-time validation
-            warnings = validate_tool_definition(tool_def)
-            for w in warnings:
-                logger.warning("[tool-validation] %s", w)
-
-            tools.append(tool_def)
-
-        return tools
 
     # ------------------------------------------------------------------
     # Scratchpad (working memory) tools

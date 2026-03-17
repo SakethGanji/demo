@@ -1,0 +1,252 @@
+{
+  "name": "Prompt Analyzer",
+  "description": "",
+  "active": true,
+  "nodes": [
+    {
+      "name": "webhook_trigger",
+      "type": "Webhook",
+      "label": "Receive Prompt",
+      "parameters": {
+        "path": "prompt-analyzer",
+        "method": "POST",
+        "responseMode": "lastNode"
+      },
+      "position": {
+        "x": 0,
+        "y": 400
+      },
+      "continue_on_fail": false,
+      "retry_on_fail": 0,
+      "retry_delay": 1000
+    },
+    {
+      "name": "route_mode",
+      "type": "Switch",
+      "label": "Route by Mode",
+      "parameters": {
+        "mode": "rules",
+        "rules": [
+          {
+            "field": "body.mode",
+            "value": "chat",
+            "output": 0,
+            "operation": "equals"
+          },
+          {
+            "field": "body.mode",
+            "value": "optimize",
+            "output": 1,
+            "operation": "equals"
+          },
+          {
+            "field": "body.mode",
+            "value": "clarity",
+            "output": 2,
+            "operation": "equals"
+          },
+          {
+            "field": "body.mode",
+            "value": "structure",
+            "output": 3,
+            "operation": "equals"
+          },
+          {
+            "field": "body.mode",
+            "value": "examples",
+            "output": 4,
+            "operation": "equals"
+          },
+          {
+            "field": "body.mode",
+            "value": "efficiency",
+            "output": 5,
+            "operation": "equals"
+          }
+        ],
+        "numberOfOutputs": 6
+      },
+      "position": {
+        "x": 300,
+        "y": 400
+      },
+      "continue_on_fail": false,
+      "retry_on_fail": 0,
+      "retry_delay": 1000
+    },
+    {
+      "name": "chat_agent",
+      "type": "AIAgent",
+      "label": "Chat (Memory)",
+      "parameters": {
+        "task": "{{ $json.body.prompt or $json.body.message }}",
+        "model": "gemini-2.0-flash",
+        "memoryType": "simple",
+        "temperature": 0.5,
+        "builtinTools": [],
+        "systemPrompt": "You are an expert prompt engineer having a conversation about the user's prompt. You help them understand their prompt deeply — what works, what's confusing, what could break.\n\nYou can:\n- Explain why specific sections might confuse an LLM\n- Point out contradictions between rules and examples\n- Suggest targeted rewrites for specific sentences\n- Answer questions about prompt engineering best practices\n- Compare alternative phrasings\n- Identify implicit assumptions\n\nAlways reference the actual text from their prompt when discussing it. Be specific, not generic.\n\nYou have memory of prior messages in this session, so build on previous discussion.",
+        "maxIterations": 10,
+        "enablePlanning": false,
+        "enableSubAgents": false,
+        "maxOutputTokens": 4096,
+        "memorySessionId": "{{ $json.body.session_id or 'default' }}",
+        "enableScratchpad": true,
+        "memoryMaxMessages": 30
+      },
+      "position": {
+        "x": 650,
+        "y": 0
+      },
+      "continue_on_fail": false,
+      "retry_on_fail": 0,
+      "retry_delay": 1000
+    },
+    {
+      "name": "optimize_agent",
+      "type": "AIAgent",
+      "label": "Optimize (Sub-Agents)",
+      "parameters": {
+        "task": "Analyze and optimize this prompt. Use sub-agents to parallelize the 4 analysis dimensions (clarity, structure, examples, efficiency), then synthesize results and produce an optimized rewrite.\n\nPROMPT TO ANALYZE:\n\n{{ $json.body.prompt }}",
+        "model": "gemini-2.0-flash",
+        "memoryType": "none",
+        "temperature": 0.3,
+        "builtinTools": [],
+        "systemPrompt": "You are a senior prompt optimization system. You analyze prompts across multiple dimensions and produce a comprehensive analysis with an optimized rewrite.\n\nYou have access to sub-agents. Use them to parallelize your analysis:\n\n1. Spawn a sub-agent for CLARITY analysis — find ambiguity, vague terms, contradictions, undefined terms, implicit assumptions\n2. Spawn a sub-agent for STRUCTURE analysis — section ordering, redundancy, formatting consistency, logical grouping\n3. Spawn a sub-agent for EXAMPLES analysis — contradictory/redundant/missing examples, coverage gaps, quality\n4. Spawn a sub-agent for EFFICIENCY analysis — verbosity, filler, token waste, compression opportunities\n\nAfter all sub-agents return, synthesize their findings into a single report.\n\nYour final output MUST follow this exact structure:\n\n# Prompt Analysis Report\n\n## Scorecard\n| Dimension | Score | Key Issue |\n|-----------|-------|-----------|\n| Clarity | X/10 | ... |\n| Structure | X/10 | ... |\n| Examples | X/10 | ... |\n| Efficiency | X/10 | ... |\n| **Overall** | **X/10** | ... |\n\n## Critical Issues\nThe most impactful problems. Quote problematic text. Explain the fix.\n\n## Quick Wins (< 5 min each)\nEasy improvements with high payoff.\n\n## Optimized Prompt\nProvide the full rewritten prompt with all improvements applied. Preserve the original intent and all critical rules.\n\n## Changelog\nBullet list of every change made and why.",
+        "maxAgentDepth": 2,
+        "maxIterations": 15,
+        "enablePlanning": true,
+        "enableSubAgents": true,
+        "maxOutputTokens": 8192,
+        "enableScratchpad": true,
+        "allowRecursiveSpawn": false
+      },
+      "position": {
+        "x": 650,
+        "y": 160
+      },
+      "continue_on_fail": false,
+      "retry_on_fail": 0,
+      "retry_delay": 1000
+    },
+    {
+      "name": "clarity_critic",
+      "type": "LLMChat",
+      "label": "Clarity Critic",
+      "parameters": {
+        "model": "gemini-2.0-flash",
+        "maxTokens": 2048,
+        "temperature": 0.3,
+        "userMessage": "Analyze this prompt for CLARITY issues. For each issue found, quote the problematic text and explain the problem.\n\nLook for:\n- Ambiguous instructions (could be interpreted multiple ways)\n- Vague terms (\"appropriate\", \"good\", \"properly\", \"as needed\")\n- Contradictory rules (one section says X, another implies not-X)\n- Unclear scope (when does a rule apply? to what inputs?)\n- Missing definitions (terms used but never defined)\n- Implicit assumptions the model might not share\n\nRate overall clarity 1-10 and list issues by severity (critical/major/minor).\n\n---\n\nPROMPT TO ANALYZE:\n\n{{ $json.body.prompt }}",
+        "systemPrompt": "You are a prompt clarity expert. Be specific — quote the problematic text and explain exactly why it's unclear. Use markdown formatting."
+      },
+      "position": {
+        "x": 650,
+        "y": 360
+      },
+      "continue_on_fail": false,
+      "retry_on_fail": 0,
+      "retry_delay": 1000
+    },
+    {
+      "name": "structure_analyzer",
+      "type": "LLMChat",
+      "label": "Structure Analyzer",
+      "parameters": {
+        "model": "gemini-2.0-flash",
+        "maxTokens": 2048,
+        "temperature": 0.3,
+        "userMessage": "Analyze this prompt for STRUCTURE issues.\n\nLook for:\n- Poor section ordering (dependencies referenced before defined)\n- Redundant sections (same instruction repeated in different words)\n- Missing sections (common patterns that should be present but aren't)\n- Inconsistent formatting (some rules as bullets, others as prose)\n- Information buried in wrong sections\n- Overly nested or deeply indented content\n- Sections that are too long without breaks\n- Logical grouping problems\n\nRate overall structure 1-10 and provide a suggested reorganization if score < 7.\n\n---\n\nPROMPT TO ANALYZE:\n\n{{ $json.body.prompt }}",
+        "systemPrompt": "You are a prompt architecture expert. Focus on information flow, section ordering, and redundancy. Use markdown formatting."
+      },
+      "position": {
+        "x": 650,
+        "y": 520
+      },
+      "continue_on_fail": false,
+      "retry_on_fail": 0,
+      "retry_delay": 1000
+    },
+    {
+      "name": "example_auditor",
+      "type": "LLMChat",
+      "label": "Example Auditor",
+      "parameters": {
+        "model": "gemini-2.0-flash",
+        "maxTokens": 2048,
+        "temperature": 0.3,
+        "userMessage": "Analyze the EXAMPLES in this prompt.\n\nLook for:\n- Contradictory examples (example A shows one behavior, example B contradicts it)\n- Redundant examples (multiple examples teaching the same thing)\n- Missing coverage (important edge cases with no example)\n- Weak examples (too simple, don't demonstrate the hard parts)\n- Examples that contradict the rules/instructions\n- Too many examples (diminishing returns, wasting tokens)\n- Too few examples (model will hallucinate behavior)\n- Example formatting inconsistencies\n\nIf no examples found, note that and recommend what examples should be added.\n\nRate example quality 1-10.\n\n---\n\nPROMPT TO ANALYZE:\n\n{{ $json.body.prompt }}",
+        "systemPrompt": "You are a prompt examples expert. Analyze examples in AI prompts for quality, coverage, and consistency. Use markdown formatting."
+      },
+      "position": {
+        "x": 650,
+        "y": 680
+      },
+      "continue_on_fail": false,
+      "retry_on_fail": 0,
+      "retry_delay": 1000
+    },
+    {
+      "name": "efficiency_optimizer",
+      "type": "LLMChat",
+      "label": "Efficiency Optimizer",
+      "parameters": {
+        "model": "gemini-2.0-flash",
+        "maxTokens": 2048,
+        "temperature": 0.3,
+        "userMessage": "Analyze this prompt for EFFICIENCY.\n\nLook for:\n- Verbose phrasing (\"In order to\" → \"To\")\n- Repeated instructions (same rule stated multiple times)\n- Unnecessary hedging (\"Please try to\", \"If possible\")\n- Over-specified obvious behavior\n- Filler words and phrases that add no information\n- Sections that could be tables or lists instead of prose\n- Examples that could be shorter while teaching the same thing\n- Boilerplate that models already know\n\nEstimate potential token savings (% reduction possible).\nRate overall efficiency 1-10.\n\nProvide a \"quick wins\" list — the top 5 easiest changes for biggest token savings.\n\n---\n\nPROMPT TO ANALYZE:\n\n{{ $json.body.prompt }}",
+        "systemPrompt": "You are a prompt efficiency expert. Find ways to reduce token usage without losing meaning. Use markdown formatting."
+      },
+      "position": {
+        "x": 650,
+        "y": 840
+      },
+      "continue_on_fail": false,
+      "retry_on_fail": 0,
+      "retry_delay": 1000
+    }
+  ],
+  "connections": [
+    {
+      "source_node": "webhook_trigger",
+      "source_output": "main",
+      "target_node": "route_mode",
+      "target_input": "main"
+    },
+    {
+      "source_node": "route_mode",
+      "source_output": "output0",
+      "target_node": "chat_agent",
+      "target_input": "main"
+    },
+    {
+      "source_node": "route_mode",
+      "source_output": "output1",
+      "target_node": "optimize_agent",
+      "target_input": "main"
+    },
+    {
+      "source_node": "route_mode",
+      "source_output": "output2",
+      "target_node": "clarity_critic",
+      "target_input": "main"
+    },
+    {
+      "source_node": "route_mode",
+      "source_output": "output3",
+      "target_node": "structure_analyzer",
+      "target_input": "main"
+    },
+    {
+      "source_node": "route_mode",
+      "source_output": "output4",
+      "target_node": "example_auditor",
+      "target_input": "main"
+    },
+    {
+      "source_node": "route_mode",
+      "source_output": "output5",
+      "target_node": "efficiency_optimizer",
+      "target_input": "main"
+    }
+  ]
+}

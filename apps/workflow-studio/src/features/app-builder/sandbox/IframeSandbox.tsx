@@ -215,8 +215,9 @@ function buildIframeHTML(): string {
   <script src="https://cdn.tailwindcss.com"><\/script>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
-    body { margin: 0; padding: 0; font-family: ui-sans-serif, system-ui, sans-serif; }
-    #root { min-height: 100vh; }
+    html, body { margin: 0 !important; padding: 0 !important; height: 100% !important; overflow: clip !important; }
+    body { font-family: ui-sans-serif, system-ui, sans-serif; }
+    #root { height: 100% !important; overflow: clip !important; }
   </style>
 </head>
 <body>
