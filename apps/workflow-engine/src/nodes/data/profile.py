@@ -37,6 +37,7 @@ class ProfileNode(BaseNode):
                 schema={
                     "type": "object",
                     "properties": {
+                        "success": {"type": "boolean"},
                         "row_count": {"type": "number", "description": "Total row count"},
                         "column_count": {"type": "number", "description": "Total column count"},
                         "columns": {"type": "array", "description": "Per-column profile data"},
@@ -65,6 +66,11 @@ class ProfileNode(BaseNode):
                         value="file",
                         description="Read from a file",
                     ),
+                    NodePropertyOption(
+                        name="From Dataset",
+                        value="dataset",
+                        description="Use a dataset uploaded to the analytics service",
+                    ),
                 ],
             ),
             NodeProperty(
@@ -74,16 +80,8 @@ class ProfileNode(BaseNode):
                 default="local",
                 required=True,
                 options=[
-                    NodePropertyOption(
-                        name="Local File System",
-                        value="local",
-                        description="File on local machine",
-                    ),
-                    NodePropertyOption(
-                        name="S3",
-                        value="s3",
-                        description="File in S3 bucket (coming soon)",
-                    ),
+                    NodePropertyOption(name="Local File System", value="local", description="File on local machine"),
+                    NodePropertyOption(name="S3", value="s3", description="File in S3 bucket (coming soon)"),
                 ],
                 display_options={"show": {"sourceType": ["file"]}},
             ),
@@ -94,9 +92,7 @@ class ProfileNode(BaseNode):
                 default="",
                 placeholder="/path/to/data.csv",
                 description="Path to CSV, Parquet, or Excel file",
-                type_options={
-                    "extensions": ".csv,.parquet,.xlsx,.xls",
-                },
+                type_options={"extensions": ".csv,.parquet,.xlsx,.xls"},
                 display_options={"show": {"sourceType": ["file"], "fileLocation": ["local"]}},
             ),
             NodeProperty(
@@ -107,6 +103,42 @@ class ProfileNode(BaseNode):
                 placeholder="s3://bucket-name/path/to/file.csv",
                 description="S3 URI to the file",
                 display_options={"show": {"sourceType": ["file"], "fileLocation": ["s3"]}},
+            ),
+            NodeProperty(
+                display_name="Dataset ID",
+                name="datasetId",
+                type="string",
+                default="",
+                placeholder="dataset-uuid",
+                description="ID of the dataset in the analytics service",
+                display_options={"show": {"sourceType": ["dataset"]}},
+            ),
+            NodeProperty(
+                display_name="Version",
+                name="versionNumber",
+                type="number",
+                default=None,
+                placeholder="1",
+                description="Dataset version number (leave empty for latest)",
+                display_options={"show": {"sourceType": ["dataset"]}},
+            ),
+            NodeProperty(
+                display_name="Tag",
+                name="tag",
+                type="string",
+                default="",
+                placeholder="production",
+                description="Version tag name (alternative to version number)",
+                display_options={"show": {"sourceType": ["dataset"]}},
+            ),
+            NodeProperty(
+                display_name="Sheet",
+                name="sheet",
+                type="string",
+                default="",
+                placeholder="Sheet1",
+                description="Sheet name for multi-sheet datasets",
+                display_options={"show": {"sourceType": ["dataset"]}},
             ),
             NodeProperty(
                 display_name="Data Field",
@@ -138,6 +170,13 @@ class ProfileNode(BaseNode):
                 type="boolean",
                 default=False,
                 description="Include correlation matrix for numeric columns",
+            ),
+            NodeProperty(
+                display_name="Include Duplicates",
+                name="includeDuplicates",
+                type="boolean",
+                default=True,
+                description="Count duplicate rows (can be expensive on large datasets)",
             ),
             NodeProperty(
                 display_name="Top N Values",
@@ -172,18 +211,23 @@ class ProfileNode(BaseNode):
         file_location = self.get_parameter(node_definition, "fileLocation", "local")
         file_path = self.get_parameter(node_definition, "filePath", "")
         s3_uri = self.get_parameter(node_definition, "s3Uri", "")
+        dataset_id = self.get_parameter(node_definition, "datasetId", "")
+        version_number = self.get_parameter(node_definition, "versionNumber")
+        tag = self.get_parameter(node_definition, "tag", "")
+        sheet = self.get_parameter(node_definition, "sheet", "")
         data_field = self.get_parameter(node_definition, "dataField", "data")
         columns_str = self.get_parameter(node_definition, "columns", "")
         include_histograms = self.get_parameter(node_definition, "includeHistograms", True)
         include_correlations = self.get_parameter(node_definition, "includeCorrelations", False)
+        include_duplicates = self.get_parameter(node_definition, "includeDuplicates", True)
         top_n = self.get_parameter(node_definition, "topN", 10)
 
-        # Parse comma-separated columns
         columns = [c.strip() for c in columns_str.split(",") if c.strip()] if columns_str else None
 
         payload: dict[str, Any] = {
             "include_histograms": bool(include_histograms),
             "include_correlations": bool(include_correlations),
+            "include_duplicates": bool(include_duplicates),
             "top_n": int(top_n) if top_n is not None else 10,
         }
         if columns:
@@ -201,18 +245,30 @@ class ProfileNode(BaseNode):
                     idx,
                 )
 
-                item_payload = payload.copy()
+                item_payload = {**payload}
 
-                if source_type == "file":
+                if source_type == "dataset":
+                    resolved_id = expression_engine.resolve(dataset_id, expr_context)
+                    if not resolved_id:
+                        raise ValueError("Dataset ID is required when source type is 'dataset'")
+                    item_payload["dataset_id"] = str(resolved_id)
+                    if version_number is not None:
+                        item_payload["version_number"] = int(version_number)
+                    if tag:
+                        resolved_tag = expression_engine.resolve(tag, expr_context)
+                        if resolved_tag:
+                            item_payload["tag"] = str(resolved_tag)
+                    if sheet:
+                        resolved_sheet = expression_engine.resolve(sheet, expr_context)
+                        if resolved_sheet:
+                            item_payload["sheet"] = str(resolved_sheet)
+                elif source_type == "file":
                     if file_location == "local":
                         resolved_path = expression_engine.resolve(file_path, expr_context)
                         if not resolved_path:
                             raise ValueError("File path is required when source type is 'file'")
                         item_payload["file_path"] = str(resolved_path)
                     elif file_location == "s3":
-                        resolved_uri = expression_engine.resolve(s3_uri, expr_context)
-                        if not resolved_uri:
-                            raise ValueError("S3 URI is required when file location is 's3'")
                         raise NotImplementedError("S3 file support is not yet implemented.")
                 else:
                     item_json = item.json if item.json else {}

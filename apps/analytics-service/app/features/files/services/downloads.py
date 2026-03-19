@@ -16,7 +16,7 @@ from app.infra.db.storage import DatasetLayout, get_storage, sample_key
 from app.shared.data_io import export_dataframe, load_data
 from app.shared.datasets import resolve_dataset_path
 from app.shared.repo import get_current_version
-from app.shared.utils.sql import quote_ident, sanitize_filter_expr
+from app.shared.utils.sql import quote_ident, safe_value, sanitize_filter_expr
 
 logger = logging.getLogger(__name__)
 
@@ -192,6 +192,81 @@ async def download_dataset_version(
             "Content-Length": str(Path(tmp.name).stat().st_size),
         },
     )
+
+
+def read_sample_data(
+    filename: str,
+    offset: int = 0,
+    limit: int = 100,
+    columns: list[str] | None = None,
+    filter_expr: str | None = None,
+    sort_by: str | None = None,
+    sort_order: str = "asc",
+) -> dict:
+    """Read paginated data from a sample/result parquet file via DuckDB."""
+    storage = get_storage()
+    key = sample_key(filename)
+    if not storage.exists(key):
+        raise HTTPException(404, f"File not found: {filename}")
+    path = storage.resolve(key)
+
+    conn = load_data(file_path=path)
+    try:
+        # Total row count (unfiltered)
+        total_count = conn.execute("SELECT COUNT(*) FROM df").fetchone()[0]
+
+        # Column metadata
+        desc = conn.execute("DESCRIBE df").fetchall()
+        all_columns = [{"name": r[0], "dtype": r[1]} for r in desc]
+
+        # Build SELECT
+        if columns:
+            available = {r[0] for r in desc}
+            missing = [c for c in columns if c not in available]
+            if missing:
+                raise HTTPException(400, f"Columns not found: {missing}")
+            select_cols = ", ".join(quote_ident(c) for c in columns)
+        else:
+            select_cols = "*"
+
+        # Build WHERE
+        where = ""
+        if filter_expr:
+            sanitize_filter_expr(filter_expr)
+            where = f" WHERE {filter_expr}"
+
+        # Count after filter
+        filtered_count = conn.execute(f"SELECT COUNT(*) FROM df{where}").fetchone()[0]
+
+        # Build ORDER BY
+        order = ""
+        if sort_by:
+            available = {r[0] for r in desc}
+            if sort_by not in available:
+                raise HTTPException(400, f"Sort column not found: {sort_by}")
+            direction = "DESC" if sort_order.lower() == "desc" else "ASC"
+            order = f" ORDER BY {quote_ident(sort_by)} {direction}"
+
+        # Query with pagination
+        query = f"SELECT {select_cols} FROM df{where}{order} LIMIT {limit} OFFSET {offset}"
+        result = conn.execute(query)
+        col_names = [d[0] for d in result.description]
+        rows = [
+            {col_names[i]: safe_value(v) for i, v in enumerate(row)}
+            for row in result.fetchall()
+        ]
+    finally:
+        conn.close()
+
+    return {
+        "filename": filename,
+        "total_count": total_count,
+        "filtered_count": filtered_count,
+        "offset": offset,
+        "limit": limit,
+        "columns": all_columns,
+        "data": rows,
+    }
 
 
 def download_sample_file(filename: str) -> StreamingResponse:

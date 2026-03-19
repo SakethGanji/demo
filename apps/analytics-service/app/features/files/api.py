@@ -17,6 +17,7 @@ Downloads:
   GET    /files/datasets/{id}/versions/{v}/download  Download specific version
   GET    /files/samples                              List sample files
   GET    /files/samples/{filename}                   Download sample file
+  GET    /files/samples/{filename}/data              Paginated JSON data read
 
 Storage:
   GET    /files/storage/usage             Storage usage breakdown
@@ -69,6 +70,7 @@ from .services.downloads import (
     download_dataset_version,
     download_sample_file,
     list_sample_files,
+    read_sample_data,
 )
 from .services.management import get_storage_usage
 
@@ -567,6 +569,34 @@ async def list_samples():
 async def download_sample(filename: str):
     """Download a sample or export file."""
     return download_sample_file(filename)
+
+
+@router.get("/samples/{filename}/data")
+async def read_sample(
+    filename: str,
+    offset: int = Query(0, ge=0, description="Row offset for pagination"),
+    limit: int = Query(100, ge=1, le=10000, description="Max rows to return"),
+    columns: str | None = Query(None, description="Comma-separated column names to include"),
+    filter_expr: str | None = Query(None, description="SQL WHERE filter expression"),
+    sort_by: str | None = Query(None, description="Column to sort by"),
+    sort_order: str = Query("asc", description="Sort order: asc or desc"),
+):
+    """Read paginated data from a sample or result file.
+
+    Returns JSON rows with pagination metadata. Use this to display
+    results in a table UI or to pull slices without downloading the
+    whole file.
+    """
+    col_list = [c.strip() for c in columns.split(",") if c.strip()] if columns else None
+    return read_sample_data(
+        filename,
+        offset=offset,
+        limit=limit,
+        columns=col_list,
+        filter_expr=filter_expr,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -37,11 +37,12 @@ class AggregateNode(BaseNode):
                 schema={
                     "type": "object",
                     "properties": {
+                        "success": {"type": "boolean"},
                         "original_count": {"type": "number", "description": "Original row count"},
                         "group_count": {"type": "number", "description": "Number of groups"},
                         "columns": {"type": "array", "description": "Result column names"},
-                        "data": {"type": "array", "description": "Aggregated data rows"},
                         "totals": {"type": "object", "description": "Grand totals"},
+                        "result_file": {"type": "string", "description": "Filename to fetch via GET /files/samples/{filename}"},
                     },
                 },
             )
@@ -64,6 +65,11 @@ class AggregateNode(BaseNode):
                         value="file",
                         description="Read from a file",
                     ),
+                    NodePropertyOption(
+                        name="From Dataset",
+                        value="dataset",
+                        description="Use a dataset uploaded to the analytics service",
+                    ),
                 ],
             ),
             NodeProperty(
@@ -73,16 +79,8 @@ class AggregateNode(BaseNode):
                 default="local",
                 required=True,
                 options=[
-                    NodePropertyOption(
-                        name="Local File System",
-                        value="local",
-                        description="File on local machine",
-                    ),
-                    NodePropertyOption(
-                        name="S3",
-                        value="s3",
-                        description="File in S3 bucket (coming soon)",
-                    ),
+                    NodePropertyOption(name="Local File System", value="local", description="File on local machine"),
+                    NodePropertyOption(name="S3", value="s3", description="File in S3 bucket (coming soon)"),
                 ],
                 display_options={"show": {"sourceType": ["file"]}},
             ),
@@ -93,9 +91,7 @@ class AggregateNode(BaseNode):
                 default="",
                 placeholder="/path/to/data.csv",
                 description="Path to CSV, Parquet, or Excel file",
-                type_options={
-                    "extensions": ".csv,.parquet,.xlsx,.xls",
-                },
+                type_options={"extensions": ".csv,.parquet,.xlsx,.xls"},
                 display_options={"show": {"sourceType": ["file"], "fileLocation": ["local"]}},
             ),
             NodeProperty(
@@ -106,6 +102,42 @@ class AggregateNode(BaseNode):
                 placeholder="s3://bucket-name/path/to/file.csv",
                 description="S3 URI to the file",
                 display_options={"show": {"sourceType": ["file"], "fileLocation": ["s3"]}},
+            ),
+            NodeProperty(
+                display_name="Dataset ID",
+                name="datasetId",
+                type="string",
+                default="",
+                placeholder="dataset-uuid",
+                description="ID of the dataset in the analytics service",
+                display_options={"show": {"sourceType": ["dataset"]}},
+            ),
+            NodeProperty(
+                display_name="Version",
+                name="versionNumber",
+                type="number",
+                default=None,
+                placeholder="1",
+                description="Dataset version number (leave empty for latest)",
+                display_options={"show": {"sourceType": ["dataset"]}},
+            ),
+            NodeProperty(
+                display_name="Tag",
+                name="tag",
+                type="string",
+                default="",
+                placeholder="production",
+                description="Version tag name (alternative to version number)",
+                display_options={"show": {"sourceType": ["dataset"]}},
+            ),
+            NodeProperty(
+                display_name="Sheet",
+                name="sheet",
+                type="string",
+                default="",
+                placeholder="Sheet1",
+                description="Sheet name for multi-sheet datasets",
+                display_options={"show": {"sourceType": ["dataset"]}},
             ),
             NodeProperty(
                 display_name="Data Field",
@@ -203,26 +235,7 @@ class AggregateNode(BaseNode):
                 type="string",
                 default="",
                 placeholder="revenue > 1000",
-                description="Pandas query expression to filter data before aggregation",
-            ),
-            NodeProperty(
-                display_name="Output Path",
-                name="outputPath",
-                type="string",
-                default="",
-                placeholder="/output/aggregated.csv",
-                description="Save aggregated data to this file path (leave empty to skip file export)",
-            ),
-            NodeProperty(
-                display_name="Output Format",
-                name="outputFormat",
-                type="options",
-                default="csv",
-                options=[
-                    NodePropertyOption(name="CSV", value="csv", description="Comma-separated values"),
-                    NodePropertyOption(name="Excel", value="xlsx", description="Excel spreadsheet"),
-                    NodePropertyOption(name="Parquet", value="parquet", description="Apache Parquet"),
-                ],
+                description="SQL WHERE expression to filter data before aggregation",
             ),
         ],
     )
@@ -250,6 +263,10 @@ class AggregateNode(BaseNode):
         file_location = self.get_parameter(node_definition, "fileLocation", "local")
         file_path = self.get_parameter(node_definition, "filePath", "")
         s3_uri = self.get_parameter(node_definition, "s3Uri", "")
+        dataset_id = self.get_parameter(node_definition, "datasetId", "")
+        version_number = self.get_parameter(node_definition, "versionNumber")
+        tag = self.get_parameter(node_definition, "tag", "")
+        sheet = self.get_parameter(node_definition, "sheet", "")
         data_field = self.get_parameter(node_definition, "dataField", "data")
         group_by_str = self.get_parameter(node_definition, "groupBy", "")
         aggregations_raw = self.get_parameter(node_definition, "aggregations", {})
@@ -257,8 +274,6 @@ class AggregateNode(BaseNode):
         sort_order = self.get_parameter(node_definition, "sortOrder", "desc")
         limit = self.get_parameter(node_definition, "limit")
         filter_expr = self.get_parameter(node_definition, "filterExpr", "")
-        output_path = self.get_parameter(node_definition, "outputPath", "")
-        output_format = self.get_parameter(node_definition, "outputFormat", "csv")
 
         # Parse group_by
         group_by = [c.strip() for c in group_by_str.split(",") if c.strip()]
@@ -268,7 +283,6 @@ class AggregateNode(BaseNode):
         # Extract aggregation items from collection
         agg_items: list[dict[str, Any]] = []
         if isinstance(aggregations_raw, dict):
-            # Collection with multipleValues stores items in a list under a key
             for key, val in aggregations_raw.items():
                 if isinstance(val, list):
                     for item in val:
@@ -299,6 +313,7 @@ class AggregateNode(BaseNode):
         payload: dict[str, Any] = {
             "group_by": group_by,
             "aggregations": agg_items,
+            "return_data": False,
         }
         if sort_by:
             payload["sort_by"] = sort_by
@@ -320,18 +335,30 @@ class AggregateNode(BaseNode):
                     idx,
                 )
 
-                item_payload = payload.copy()
+                item_payload = {**payload}
 
-                if source_type == "file":
+                if source_type == "dataset":
+                    resolved_id = expression_engine.resolve(dataset_id, expr_context)
+                    if not resolved_id:
+                        raise ValueError("Dataset ID is required when source type is 'dataset'")
+                    item_payload["dataset_id"] = str(resolved_id)
+                    if version_number is not None:
+                        item_payload["version_number"] = int(version_number)
+                    if tag:
+                        resolved_tag = expression_engine.resolve(tag, expr_context)
+                        if resolved_tag:
+                            item_payload["tag"] = str(resolved_tag)
+                    if sheet:
+                        resolved_sheet = expression_engine.resolve(sheet, expr_context)
+                        if resolved_sheet:
+                            item_payload["sheet"] = str(resolved_sheet)
+                elif source_type == "file":
                     if file_location == "local":
                         resolved_path = expression_engine.resolve(file_path, expr_context)
                         if not resolved_path:
                             raise ValueError("File path is required when source type is 'file'")
                         item_payload["file_path"] = str(resolved_path)
                     elif file_location == "s3":
-                        resolved_uri = expression_engine.resolve(s3_uri, expr_context)
-                        if not resolved_uri:
-                            raise ValueError("S3 URI is required when file location is 's3'")
                         raise NotImplementedError("S3 file support is not yet implemented.")
                 else:
                     item_json = item.json if item.json else {}
@@ -353,15 +380,19 @@ class AggregateNode(BaseNode):
 
                     item_payload["data"] = data_to_agg
 
-                if output_path:
-                    resolved_op = expression_engine.resolve(output_path, expr_context)
-                    if resolved_op:
-                        item_payload["output_path"] = str(resolved_op)
-                        item_payload["output_format"] = output_format or "csv"
-
                 url = f"{service_url.rstrip('/')}/aggregate"
                 response = await client.post(url, json=item_payload, timeout=60.0)
                 response.raise_for_status()
-                results.append(ND(json=response.json()))
+                resp = response.json()
+
+                # Return metadata only — no full data
+                results.append(ND(json={
+                    "success": resp.get("success"),
+                    "original_count": resp.get("original_count"),
+                    "group_count": resp.get("group_count"),
+                    "columns": resp.get("columns", []),
+                    "totals": resp.get("totals"),
+                    "result_file": resp.get("result_file"),
+                }))
 
         return self.output(results)

@@ -37,13 +37,14 @@ class SampleNode(BaseNode):
                 schema={
                     "type": "object",
                     "properties": {
+                        "success": {"type": "boolean"},
                         "original_count": {"type": "number", "description": "Original row count"},
                         "sampled_count": {"type": "number", "description": "Sampled row count"},
-                        "method": {"type": "string", "description": "Sampling method used"},
-                        "data": {"type": "array", "description": "Sampled data rows"},
-                        "rounds_completed": {"type": "number", "description": "Number of sampling rounds completed"},
-                        "round_counts": {"type": "array", "description": "Per-round row counts", "items": {"type": "number"}},
-                        "clusters_selected": {"type": "array", "description": "Selected cluster names", "items": {"type": "string"}},
+                        "sample_file": {"type": "string", "description": "Filename to fetch via GET /files/samples/{filename}"},
+                        "columns": {"type": "array", "description": "Column summaries"},
+                        "preview": {"type": "array", "description": "Preview rows"},
+                        "steps_summary": {"type": "array", "description": "Per-step execution summary"},
+                        "goal_validation": {"type": "object", "description": "Distribution goal validation result"},
                     },
                 },
             )
@@ -66,6 +67,11 @@ class SampleNode(BaseNode):
                         value="file",
                         description="Read from a CSV or Parquet file",
                     ),
+                    NodePropertyOption(
+                        name="From Dataset",
+                        value="dataset",
+                        description="Use a dataset uploaded to the analytics service",
+                    ),
                 ],
             ),
             NodeProperty(
@@ -75,16 +81,8 @@ class SampleNode(BaseNode):
                 default="local",
                 required=True,
                 options=[
-                    NodePropertyOption(
-                        name="Local File System",
-                        value="local",
-                        description="File on local machine",
-                    ),
-                    NodePropertyOption(
-                        name="S3",
-                        value="s3",
-                        description="File in S3 bucket (coming soon)",
-                    ),
+                    NodePropertyOption(name="Local File System", value="local", description="File on local machine"),
+                    NodePropertyOption(name="S3", value="s3", description="File in S3 bucket (coming soon)"),
                 ],
                 display_options={"show": {"sourceType": ["file"]}},
             ),
@@ -95,9 +93,7 @@ class SampleNode(BaseNode):
                 default="",
                 placeholder="/path/to/data.csv",
                 description="Path to CSV or Parquet file",
-                type_options={
-                    "extensions": ".csv,.parquet",
-                },
+                type_options={"extensions": ".csv,.parquet"},
                 display_options={"show": {"sourceType": ["file"], "fileLocation": ["local"]}},
             ),
             NodeProperty(
@@ -106,8 +102,44 @@ class SampleNode(BaseNode):
                 type="string",
                 default="",
                 placeholder="s3://bucket-name/path/to/file.csv",
-                description="S3 URI to the file (e.g., s3://my-bucket/data/file.csv)",
+                description="S3 URI to the file",
                 display_options={"show": {"sourceType": ["file"], "fileLocation": ["s3"]}},
+            ),
+            NodeProperty(
+                display_name="Dataset ID",
+                name="datasetId",
+                type="string",
+                default="",
+                placeholder="dataset-uuid",
+                description="ID of the dataset in the analytics service",
+                display_options={"show": {"sourceType": ["dataset"]}},
+            ),
+            NodeProperty(
+                display_name="Version",
+                name="versionNumber",
+                type="number",
+                default=None,
+                placeholder="1",
+                description="Dataset version number (leave empty for latest)",
+                display_options={"show": {"sourceType": ["dataset"]}},
+            ),
+            NodeProperty(
+                display_name="Tag",
+                name="tag",
+                type="string",
+                default="",
+                placeholder="production",
+                description="Version tag name (alternative to version number)",
+                display_options={"show": {"sourceType": ["dataset"]}},
+            ),
+            NodeProperty(
+                display_name="Sheet",
+                name="sheet",
+                type="string",
+                default="",
+                placeholder="Sheet1",
+                description="Sheet name for multi-sheet datasets",
+                display_options={"show": {"sourceType": ["dataset"]}},
             ),
             NodeProperty(
                 display_name="Data Field",
@@ -115,8 +147,16 @@ class SampleNode(BaseNode):
                 type="string",
                 default="data",
                 placeholder="data",
-                description="Field name containing array data from previous node (e.g., 'data', 'items', 'rows')",
+                description="Field name containing array data from previous node",
                 display_options={"show": {"sourceType": ["input"]}},
+            ),
+            NodeProperty(
+                display_name="Target Total Volume",
+                name="targetTotalVolume",
+                type="number",
+                default=100,
+                required=True,
+                description="Target total number of rows in the final sample",
             ),
             NodeProperty(
                 display_name="Sampling Method",
@@ -125,44 +165,22 @@ class SampleNode(BaseNode):
                 default="random",
                 required=True,
                 options=[
-                    NodePropertyOption(
-                        name="Random",
-                        value="random",
-                        description="Simple random sampling",
-                    ),
-                    NodePropertyOption(
-                        name="Stratified",
-                        value="stratified",
-                        description="Proportional sampling by a column",
-                    ),
-                    NodePropertyOption(
-                        name="Systematic",
-                        value="systematic",
-                        description="Every nth row",
-                    ),
-                    NodePropertyOption(
-                        name="Cluster",
-                        value="cluster",
-                        description="Select whole clusters randomly",
-                    ),
-                    NodePropertyOption(
-                        name="First N",
-                        value="first_n",
-                        description="First N rows (head)",
-                    ),
-                    NodePropertyOption(
-                        name="Last N",
-                        value="last_n",
-                        description="Last N rows (tail)",
-                    ),
+                    NodePropertyOption(name="Random", value="random", description="Simple random sampling"),
+                    NodePropertyOption(name="Stratified", value="stratified", description="Proportional sampling by a column"),
+                    NodePropertyOption(name="Systematic", value="systematic", description="Every nth row"),
+                    NodePropertyOption(name="Cluster", value="cluster", description="Select whole clusters randomly"),
+                    NodePropertyOption(name="Weighted", value="weighted", description="Sample weighted by a numeric column"),
+                    NodePropertyOption(name="Time-Stratified", value="time_stratified", description="Equal sampling across time bins"),
+                    NodePropertyOption(name="Deduplicate", value="deduplicate", description="Remove duplicate rows"),
                 ],
             ),
             NodeProperty(
                 display_name="Sample Size",
                 name="sampleSize",
                 type="number",
-                default=100,
-                description="Number of rows to sample (takes precedence over fraction)",
+                default=None,
+                placeholder="100",
+                description="Number of rows to sample in this step (takes precedence over fraction)",
             ),
             NodeProperty(
                 display_name="Sample Fraction",
@@ -208,58 +226,85 @@ class SampleNode(BaseNode):
                 display_options={"show": {"method": ["cluster"]}},
             ),
             NodeProperty(
+                display_name="Weight Column",
+                name="weightColumn",
+                type="string",
+                default="",
+                placeholder="weight",
+                description="Column with numeric weights (higher = more likely)",
+                display_options={"show": {"method": ["weighted"]}},
+            ),
+            NodeProperty(
+                display_name="Time Column",
+                name="timeColumn",
+                type="string",
+                default="",
+                placeholder="created_at",
+                description="Date/datetime column for time-stratified sampling",
+                display_options={"show": {"method": ["time_stratified"]}},
+            ),
+            NodeProperty(
+                display_name="Time Bins",
+                name="timeBins",
+                type="number",
+                default=10,
+                description="Number of equal time bins to stratify across",
+                display_options={"show": {"method": ["time_stratified"]}},
+            ),
+            NodeProperty(
+                display_name="Deduplicate Columns",
+                name="deduplicateColumns",
+                type="string",
+                default="",
+                placeholder="col1, col2",
+                description="Columns to deduplicate on (empty = all columns)",
+                display_options={"show": {"method": ["deduplicate"]}},
+            ),
+            NodeProperty(
+                display_name="Filter Expression",
+                name="filterExpr",
+                type="string",
+                default="",
+                placeholder="region = 'US'",
+                description="SQL WHERE filter applied before sampling",
+            ),
+            NodeProperty(
+                display_name="Rounds",
+                name="rounds",
+                type="number",
+                default=1,
+                description="Number of sampling rounds (each draws from remaining pool)",
+                display_options={"show": {"method": ["random", "stratified", "systematic"]}},
+            ),
+            NodeProperty(
                 display_name="Random Seed",
                 name="seed",
                 type="number",
                 default=None,
                 placeholder="42",
                 description="Random seed for reproducibility",
-                display_options={"show": {"method": ["random", "stratified", "cluster"]}},
             ),
             NodeProperty(
-                display_name="Sampling Rounds",
-                name="rounds",
-                type="number",
-                default=1,
-                description="Number of sampling rounds (each round draws from remaining rows)",
-                display_options={"show": {"method": ["random", "stratified", "systematic"]}},
+                display_name="Shuffle Output",
+                name="shuffle",
+                type="boolean",
+                default=False,
+                description="Randomly shuffle the final output rows",
             ),
             NodeProperty(
-                display_name="Per-Round Sample Size",
-                name="roundSampleSize",
-                type="number",
-                default=None,
-                placeholder="10",
-                description="Number of rows per round (overrides sample size when rounds > 1)",
-                display_options={"show": {"method": ["random", "stratified", "systematic"]}},
-            ),
-            NodeProperty(
-                display_name="Per-Round Fraction",
-                name="roundSampleFraction",
-                type="number",
-                default=None,
-                placeholder="0.1",
-                description="Fraction of rows per round",
-                display_options={"show": {"method": ["random", "stratified", "systematic"]}},
-            ),
-            NodeProperty(
-                display_name="Output Path",
-                name="outputPath",
+                display_name="Sort By",
+                name="sortBy",
                 type="string",
                 default="",
-                placeholder="/output/sampled.csv",
-                description="Save sampled data to this file path (leave empty to skip file export)",
+                placeholder="created_at",
+                description="Column to sort the final output by",
             ),
             NodeProperty(
-                display_name="Output Format",
-                name="outputFormat",
-                type="options",
-                default="csv",
-                options=[
-                    NodePropertyOption(name="CSV", value="csv", description="Comma-separated values"),
-                    NodePropertyOption(name="Excel", value="xlsx", description="Excel spreadsheet"),
-                    NodePropertyOption(name="Parquet", value="parquet", description="Apache Parquet"),
-                ],
+                display_name="Sort Descending",
+                name="sortDescending",
+                type="boolean",
+                default=False,
+                description="Sort in descending order",
             ),
         ],
     )
@@ -288,7 +333,13 @@ class SampleNode(BaseNode):
         file_location = self.get_parameter(node_definition, "fileLocation", "local")
         file_path = self.get_parameter(node_definition, "filePath", "")
         s3_uri = self.get_parameter(node_definition, "s3Uri", "")
+        dataset_id = self.get_parameter(node_definition, "datasetId", "")
+        version_number = self.get_parameter(node_definition, "versionNumber")
+        tag = self.get_parameter(node_definition, "tag", "")
+        sheet = self.get_parameter(node_definition, "sheet", "")
         data_field = self.get_parameter(node_definition, "dataField", "data")
+
+        target_total_volume = self.get_parameter(node_definition, "targetTotalVolume", 100)
         method = self.get_parameter(node_definition, "method", "random")
         sample_size = self.get_parameter(node_definition, "sampleSize")
         sample_fraction = self.get_parameter(node_definition, "sampleFraction")
@@ -296,55 +347,67 @@ class SampleNode(BaseNode):
         stratify_column = self.get_parameter(node_definition, "stratifyColumn", "")
         cluster_column = self.get_parameter(node_definition, "clusterColumn", "")
         num_clusters = self.get_parameter(node_definition, "numClusters")
-        seed = self.get_parameter(node_definition, "seed")
+        weight_column = self.get_parameter(node_definition, "weightColumn", "")
+        time_column = self.get_parameter(node_definition, "timeColumn", "")
+        time_bins = self.get_parameter(node_definition, "timeBins", 10)
+        deduplicate_columns_str = self.get_parameter(node_definition, "deduplicateColumns", "")
+        filter_expr = self.get_parameter(node_definition, "filterExpr", "")
         rounds = self.get_parameter(node_definition, "rounds", 1)
-        round_sample_size = self.get_parameter(node_definition, "roundSampleSize")
-        round_sample_fraction = self.get_parameter(node_definition, "roundSampleFraction")
-        output_path = self.get_parameter(node_definition, "outputPath", "")
-        output_format = self.get_parameter(node_definition, "outputFormat", "csv")
+        seed = self.get_parameter(node_definition, "seed")
+        shuffle = self.get_parameter(node_definition, "shuffle", False)
+        sort_by = self.get_parameter(node_definition, "sortBy", "")
+        sort_descending = self.get_parameter(node_definition, "sortDescending", False)
 
-        # Build request payload
-        payload: dict[str, Any] = {"method": method}
+        # Build sampling step
+        step: dict[str, Any] = {"method": method}
 
         if sample_size is not None:
-            payload["sample_size"] = int(sample_size)
+            step["sample_size"] = int(sample_size)
         elif sample_fraction is not None:
-            payload["sample_fraction"] = float(sample_fraction)
+            step["sample_fraction"] = float(sample_fraction)
 
         if method in ("random", "stratified"):
-            payload["replace"] = bool(replace)
-
+            step["replace"] = bool(replace)
         if method == "stratified" and stratify_column:
-            payload["stratify_column"] = stratify_column
-
+            step["stratify_column"] = stratify_column
         if method == "cluster":
             if cluster_column:
-                payload["cluster_column"] = cluster_column
+                step["cluster_column"] = cluster_column
             if num_clusters is not None:
-                payload["num_clusters"] = int(num_clusters)
+                step["num_clusters"] = int(num_clusters)
+        if method == "weighted" and weight_column:
+            step["weight_column"] = weight_column
+        if method == "time_stratified":
+            if time_column:
+                step["time_column"] = time_column
+            step["time_bins"] = int(time_bins) if time_bins else 10
+        if method == "deduplicate" and deduplicate_columns_str:
+            step["deduplicate_columns"] = [c.strip() for c in deduplicate_columns_str.split(",") if c.strip()]
 
+        if filter_expr:
+            step["filter_expr"] = filter_expr
+        if rounds is not None and int(rounds) > 1:
+            step["rounds"] = int(rounds)
+
+        # Build request payload (matches SampleRequest schema)
+        payload: dict[str, Any] = {
+            "target_total_volume": int(target_total_volume),
+            "sampling_steps": [step],
+            "return_data": False,
+        }
         if seed is not None:
             payload["seed"] = int(seed)
-
-        if rounds is not None and int(rounds) > 1:
-            payload["rounds"] = int(rounds)
-            if round_sample_size is not None:
-                payload["round_sample_size"] = int(round_sample_size)
-            if round_sample_fraction is not None:
-                payload["round_sample_fraction"] = float(round_sample_fraction)
+        if shuffle:
+            payload["shuffle"] = True
+        if sort_by:
+            payload["sort_by"] = sort_by
+            payload["sort_descending"] = bool(sort_descending)
 
         results: list[ND] = []
         items = input_data if input_data else [ND(json={})]
 
-        async def make_request(client: httpx.AsyncClient, request_payload: dict[str, Any]) -> dict[str, Any]:
-            url = f"{service_url.rstrip('/')}/sample"
-            response = await client.post(url, json=request_payload, timeout=60.0)
-            response.raise_for_status()
-            return response.json()
-
         async with httpx.AsyncClient() as client:
             for idx, item in enumerate(items):
-                # Create expression context for this item
                 expr_context = ExpressionEngine.create_context(
                     input_data,
                     context.node_states,
@@ -352,28 +415,36 @@ class SampleNode(BaseNode):
                     idx,
                 )
 
-                item_payload = payload.copy()
+                item_payload = {k: v for k, v in payload.items()}
+                # Deep copy the step
+                item_payload["sampling_steps"] = [{**step}]
 
-                if source_type == "file":
+                if source_type == "dataset":
+                    resolved_id = expression_engine.resolve(dataset_id, expr_context)
+                    if not resolved_id:
+                        raise ValueError("Dataset ID is required when source type is 'dataset'")
+                    item_payload["dataset_id"] = str(resolved_id)
+                    if version_number is not None:
+                        item_payload["version_number"] = int(version_number)
+                    if tag:
+                        resolved_tag = expression_engine.resolve(tag, expr_context)
+                        if resolved_tag:
+                            item_payload["tag"] = str(resolved_tag)
+                    if sheet:
+                        resolved_sheet = expression_engine.resolve(sheet, expr_context)
+                        if resolved_sheet:
+                            item_payload["sheet"] = str(resolved_sheet)
+                elif source_type == "file":
                     if file_location == "local":
-                        # Resolve file path expressions for local files
                         resolved_path = expression_engine.resolve(file_path, expr_context)
                         if not resolved_path:
                             raise ValueError("File path is required when source type is 'file'")
                         item_payload["file_path"] = str(resolved_path)
                     elif file_location == "s3":
-                        # S3 support - not yet implemented
-                        resolved_uri = expression_engine.resolve(s3_uri, expr_context)
-                        if not resolved_uri:
-                            raise ValueError("S3 URI is required when file location is 's3'")
-                        raise NotImplementedError(
-                            "S3 file support is not yet implemented. Please use local file system."
-                        )
+                        raise NotImplementedError("S3 file support is not yet implemented.")
                 else:
-                    # Use data from input
+                    # Input data from previous node
                     item_json = item.json if item.json else {}
-
-                    # Try to get data from the specified field, or use the whole item
                     data_to_sample: list[dict[str, Any]] | None = None
 
                     if data_field and data_field in item_json:
@@ -388,18 +459,26 @@ class SampleNode(BaseNode):
                             data_to_sample = data_value
 
                     if not data_to_sample:
-                        # If no array data found, wrap the item in a list
                         data_to_sample = [item_json] if item_json else []
 
                     item_payload["data"] = data_to_sample
 
-                if output_path:
-                    resolved_op = expression_engine.resolve(output_path, expr_context)
-                    if resolved_op:
-                        item_payload["output_path"] = str(resolved_op)
-                        item_payload["output_format"] = output_format or "csv"
+                url = f"{service_url.rstrip('/')}/sample"
+                response = await client.post(url, json=item_payload, timeout=60.0)
+                response.raise_for_status()
+                resp = response.json()
 
-                response_data = await make_request(client, item_payload)
-                results.append(ND(json=response_data))
+                # Return metadata only — no full data
+                results.append(ND(json={
+                    "success": resp.get("success"),
+                    "original_count": resp.get("original_count"),
+                    "sampled_count": resp.get("sampled_count"),
+                    "sample_file": resp.get("sample_file"),
+                    "columns": resp.get("columns", []),
+                    "preview": resp.get("preview", []),
+                    "steps_summary": resp.get("steps_summary", []),
+                    "goal_validation": resp.get("goal_validation"),
+                    "reproducibility": resp.get("reproducibility"),
+                }))
 
         return self.output(results)
