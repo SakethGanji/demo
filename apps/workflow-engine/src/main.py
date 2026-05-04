@@ -14,7 +14,7 @@ import os
 from .core.config import settings
 from .engine.node_registry import register_all_nodes
 from .engine.logging import setup_logging
-from .routes import api_router, webhook_router, stream_router
+from .routes import api_router, webhook_router, stream_router, public_app_router
 from .schemas.common import RootResponse, HealthResponse
 from .db import init_db
 
@@ -106,6 +106,8 @@ def create_app() -> FastAPI:
     app.include_router(api_router)
     app.include_router(webhook_router, tags=["Webhooks"])
     app.include_router(stream_router, tags=["Streaming"])
+    # Public deployed-apps surface — owns /a/{slug} at the root of the host.
+    app.include_router(public_app_router, tags=["Public Apps"])
 
     # Root endpoints
     @app.get("/", response_model=RootResponse)

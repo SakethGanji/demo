@@ -12,22 +12,15 @@ React with useState/useEffect/useCallback and native HTML elements.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from typing import Any, AsyncGenerator
 
 from ..engine.llm_provider import call_llm
-from ..repositories.execution_repository import ExecutionRepository
-from ..repositories.node_output_repository import NodeOutputRepository
-from ..repositories.workflow_repository import WorkflowRepository
+from ..repositories.api_test_repository import ApiTestRepository
 from .app_service import AppService
-from ..schemas.app_builder import (
-    AppBuilderChatRequest,
-    NodeSchema,
-    WorkflowSchemaResponse,
-)
-from .schema_analyzer import analyze_schema_cached, format_field_catalog as _format_field_catalog
+from ..db.models import ApiTestExecutionModel
+from ..schemas.app_builder import AppBuilderChatRequest
 from .schema_inference import infer_json_schema, truncate_sample
 from .tsx_parser import parse_tsx_file
 
@@ -37,14 +30,6 @@ _HEAVY_MODEL = "claude-sonnet-4-6"
 _LIGHT_MODEL = "claude-sonnet-4-6"
 MAX_AGENT_TURNS = 25
 MAX_CONSECUTIVE_ERRORS = 3
-
-# ---------------------------------------------------------------------------
-# Module-level cache for extract_workflow_schema results.
-# Keyed by (workflow_id, latest_exec_id) — invalidated automatically when
-# a new execution succeeds.  Avoids redundant DB + LLM work across chat turns.
-# ---------------------------------------------------------------------------
-_SCHEMA_CACHE: dict[tuple[str, str], WorkflowSchemaResponse] = {}
-_SCHEMA_CACHE_MAX = 32
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
@@ -81,68 +66,6 @@ def _truncate_for_display(result: str) -> str:
     return result
 
 
-_SENSITIVE_PARAM_KEYS = {"password", "token", "secret", "api_key", "apikey", "authorization"}
-
-
-def _sanitize_params(params: dict[str, Any]) -> dict[str, Any]:
-    """Return node parameters with sensitive values redacted."""
-    sanitized = {}
-    for key, value in params.items():
-        if key.lower() in _SENSITIVE_PARAM_KEYS:
-            sanitized[key] = "***"
-        elif isinstance(value, dict):
-            sanitized[key] = _sanitize_params(value)
-        else:
-            sanitized[key] = value
-    return sanitized
-
-
-def _extract_input_schema(nodes: list) -> dict[str, Any]:
-    """Extract input parameter schema from the Start/Trigger node."""
-    for node in nodes:
-        if node.type == "Start":
-            schema = node.parameters.get("input_schema", {})
-            if schema:
-                return schema
-    return {}
-
-
-def _extract_webhook_path(nodes: list, workflow_id: str) -> str | None:
-    """Return the webhook path if the workflow has a Webhook trigger node."""
-    for node in nodes:
-        if node.type == "Webhook":
-            custom_path = node.parameters.get("path", "")
-            if custom_path:
-                return f"/webhook/p/{custom_path}"
-            return f"/webhook/{workflow_id}"
-    return None
-
-
-def _extract_webhook_response_mode(nodes: list) -> str | None:
-    """Return the webhook response mode if a Webhook trigger exists."""
-    for node in nodes:
-        if node.type == "Webhook":
-            return node.parameters.get("responseMode", "onReceived")
-    return None
-
-
-def _unwrap_node_output(output: Any) -> Any:
-    """Unwrap n8n-style node output list to get the first item's json data.
-
-    Node outputs are stored as: [{"json": {...}, "binary": null}]
-    This returns the inner json dict.
-    """
-    if isinstance(output, list) and output:
-        first = output[0]
-        if isinstance(first, dict) and "json" in first:
-            return first["json"]
-        if isinstance(first, dict):
-            return first
-    if isinstance(output, dict):
-        return output
-    return None
-
-
 # ── Agent System Prompt ───────────────────────────────────────────────
 
 _AGENT_SYSTEM_PROMPT = """\
@@ -156,7 +79,7 @@ Do NOT create index.html, index.tsx, index.css, or bootstrap code.
 ## Rules
 - `App.tsx` is the entry point — use `export default function App()` (NOT a separate `export default App` at the bottom).
 - Standard `import`/`export` between files. Tailwind classes for styling.
-- Use `fetch()` for API calls. The exact URL is provided in the workflow context below.
+- Use `fetch()` for API calls. If an "Attached Endpoint" section is provided below, use that EXACT url, method, headers, and body shape — do not invent paths or parameters.
 - No npm packages beyond React. Raw HTML elements only.
 - Handle loading/error states for async operations.
 - You MUST use tools to create/modify files. If the user asks a question (not requesting changes), respond with text only.
@@ -171,19 +94,19 @@ No `position:fixed` for layout — use flex. Only `fixed inset-0 z-50` for modal
 
 **Scrolling:** Use `ref.current.scrollTop = ref.current.scrollHeight` — NEVER `scrollIntoView()`, `window.scrollTo()`, or `document.scrollTop`.
 
-**Banned APIs (use alternatives):**
-- `localStorage`/`sessionStorage`/`document.cookie` → `useState`/refs
-- `window.history`/`window.location`/`popstate` → `useState` for routing
-- `alert()`/`confirm()`/`prompt()`/`window.open()` → React UI
-- `navigator.clipboard` → hidden textarea + `document.execCommand('copy')`
-- `document.body.style`/`document.documentElement.style` → don't touch
-- `requestFullscreen()` → `absolute inset-0 z-50`
-- `ReactDOM.createPortal(x, document.body)` → inline overlay in `relative` container
-- `document.title` → render as heading
-- `Worker`/`ServiceWorker`/`EventSource`/`WebSocket` → use polling with `fetch`
+**Available browser APIs (free to use):**
+`navigator.clipboard.{readText,writeText}` (works in click handlers), `requestFullscreen()`, `document.title`, `ReactDOM.createPortal`, `Worker`, `localStorage`/`sessionStorage`, `getUserMedia` (camera/mic), `geolocation`, `<a download>`, `Blob` + `URL.createObjectURL`. The sandbox grants these.
 
-**Fetch:** Only `/api/` and `/webhook/` paths work (proxied). Returns complete JSON only. \
-No streaming/ReadableStream. No `AbortController` signal. No `FormData`/`Blob` bodies — read files with `FileReader`, send as JSON. External URLs fail CORS.
+**Things that still don't work (use alternatives):**
+- `window.history.pushState` / `popstate` → use `useState` for in-app routing (no real navigation in the iframe)
+- `alert()`/`confirm()`/`prompt()` → React UI is better; native dialogs work but are ugly
+- `EventSource` / `WebSocket` to external hosts → not proxied; use `fetch` polling instead
+- `window.open(url)` to a different origin → may be blocked; prefer in-app navigation
+
+**Fetch:** All `fetch()` calls (any absolute URL, including external hosts) are proxied through the parent and bypass CORS — call them as you normally would. Both JSON and binary responses are supported: use `response.json()` for JSON, `response.blob()` / `response.arrayBuffer()` for files. \
+No streaming/ReadableStream. No `AbortController` signal. No `FormData` request bodies — read files with `FileReader`, send as JSON.
+
+**File downloads:** When the response is a file (e.g. xlsx, pdf, image), use `const blob = await res.blob(); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = '<name>'; a.click(); URL.revokeObjectURL(url);` to trigger the download.
 
 **Assets:** All URLs must be absolute (`https://...`). Use inline SVG or `https://placehold.co/` for placeholders. \
 Audio/video `play()` only in click handlers. Canvas external images need `crossOrigin='anonymous'`.
@@ -224,14 +147,10 @@ class AppBuilderAIService:
 
     def __init__(
         self,
-        workflow_repo: WorkflowRepository,
-        execution_repo: ExecutionRepository,
-        node_output_repo: NodeOutputRepository,
+        api_test_repo: ApiTestRepository,
         app_service: AppService,
     ) -> None:
-        self._workflow_repo = workflow_repo
-        self._execution_repo = execution_repo
-        self._node_output_repo = node_output_repo
+        self._api_test_repo = api_test_repo
         self._app_service = app_service
 
     # ── Public ────────────────────────────────────────────────────────
@@ -246,21 +165,27 @@ class AppBuilderAIService:
         if resolve_warning:
             yield _sse("message", {"type": "text", "content": resolve_warning})
 
-        # 2. Extract workflow schemas for all linked workflows
-        workflow_schemas: list[WorkflowSchemaResponse] = []
-        for wf_id in request.workflow_ids:
-            try:
-                schema = await self.extract_workflow_schema(wf_id)
-                workflow_schemas.append(schema)
-            except Exception:
-                logger.warning("Failed to extract schema for workflow %s", wf_id, exc_info=True)
+        # 2. Load attached API test executions for context
+        api_executions: list[ApiTestExecutionModel] = []
+        if request.api_execution_ids:
+            api_executions = await self._api_test_repo.get_many(request.api_execution_ids)
+            # Auto-add to the app's allow-list so the published page can replay
+            # them. Only when an app_id is set — fresh apps with no row yet
+            # will pick this up on the next chat after they save.
+            if request.app_id:
+                try:
+                    await self._app_service.grant_api_executions(
+                        request.app_id, [e.id for e in api_executions]
+                    )
+                except Exception:
+                    logger.warning("grant_api_executions failed", exc_info=True)
 
         # 3. Snapshot initial state to detect if agent modified anything
         initial_snapshot = {f["path"]: f["content"] for f in working_set}
 
         # 4. Run agent loop
         async for event in self._run_agent_loop(
-            working_set, workflow_schemas, request.message,
+            working_set, api_executions, request.message,
             request.conversation_history,
         ):
             yield event
@@ -292,127 +217,12 @@ class AppBuilderAIService:
 
         yield _sse("done", {"type": "done"})
 
-    # ── Workflow Schema Extraction ────────────────────────────────────
-
-    async def extract_workflow_schema(
-        self, workflow_id: str
-    ) -> WorkflowSchemaResponse:
-        """Pull schema from the latest successful execution of a workflow."""
-
-        # Sequential DB lookups — same session can't run concurrent queries
-        stored = await self._workflow_repo.get(workflow_id)
-        latest_exec_id = await self._execution_repo.find_latest_successful_id(workflow_id)
-
-        if not stored:
-            raise ValueError(f"Workflow {workflow_id} not found")
-
-        # Check module-level cache — keyed by (workflow_id, exec_id) so it
-        # auto-invalidates when a new execution succeeds.
-        cache_key = (workflow_id, latest_exec_id or "")
-        if cache_key in _SCHEMA_CACHE:
-            logger.debug("Schema extraction cache hit for %s", workflow_id)
-            return _SCHEMA_CACHE[cache_key]
-
-        workflow = stored.workflow
-        node_type_map = {n.name: n.type for n in workflow.nodes}
-        node_params_map = {n.name: n.parameters for n in workflow.nodes}
-
-        # Extract input schema from Start node parameters
-        input_schema = _extract_input_schema(workflow.nodes)
-
-        # Detect webhook trigger and response mode
-        webhook_path = _extract_webhook_path(workflow.nodes, workflow_id)
-        webhook_response_mode = _extract_webhook_response_mode(workflow.nodes)
-
-        if not latest_exec_id:
-            response = WorkflowSchemaResponse(
-                workflow_id=workflow_id,
-                workflow_name=stored.name,
-                input_schema=input_schema,
-                webhook_path=webhook_path,
-                webhook_response_mode=webhook_response_mode,
-                node_schemas=[
-                    NodeSchema(
-                        node_name=name,
-                        node_type=ntype,
-                        parameters=_sanitize_params(node_params_map.get(name, {})),
-                        output_schema={"type": "unknown"},
-                    )
-                    for name, ntype in node_type_map.items()
-                    if ntype not in ("Start", "Webhook")
-                ],
-            )
-            # Don't cache no-execution responses — next call may find one
-            return response
-
-        node_outputs = await self._node_output_repo.get_outputs(latest_exec_id)
-
-        node_schemas = []
-        webhook_body_schema = None
-        webhook_body_sample = None
-        # Track the last successful non-webhook output in a single pass
-        last_raw_output: Any = None
-
-        for output in node_outputs:
-            if output.status != "success" or not output.output:
-                continue
-
-            ntype = node_type_map.get(output.node_name, "Unknown")
-
-            # Extract the webhook body shape from the Webhook node's output
-            if ntype == "Webhook":
-                webhook_json = _unwrap_node_output(output.output)
-                if isinstance(webhook_json, dict):
-                    body = webhook_json.get("body")
-                    if body is not None:
-                        webhook_body_schema = infer_json_schema(body)
-                        webhook_body_sample = truncate_sample(body, max_items=3)
-                continue  # Don't include Webhook node in node_schemas
-
-            node_schemas.append(
-                NodeSchema(
-                    node_name=output.node_name,
-                    node_type=ntype,
-                    parameters=_sanitize_params(node_params_map.get(output.node_name, {})),
-                    output_schema=infer_json_schema(output.output),
-                    # Defer sample_data — only compute for the last node (prompt only uses it)
-                )
-            )
-            # Keep overwriting — last iteration wins (single pass, no second loop)
-            last_raw_output = output.output
-
-        # Only the last node needs sample_data + field_catalog (prompt only uses these)
-        if node_schemas and last_raw_output is not None:
-            node_schemas[-1].sample_data = truncate_sample(last_raw_output, max_items=3)
-            catalog = await analyze_schema_cached(last_raw_output)
-            if catalog:
-                node_schemas[-1].field_catalog = catalog
-
-        response = WorkflowSchemaResponse(
-            workflow_id=workflow_id,
-            workflow_name=stored.name,
-            input_schema=input_schema,
-            webhook_path=webhook_path,
-            webhook_response_mode=webhook_response_mode,
-            webhook_body_schema=webhook_body_schema,
-            webhook_body_sample=webhook_body_sample,
-            node_schemas=node_schemas,
-        )
-
-        # Populate cache (evict oldest if full)
-        if len(_SCHEMA_CACHE) >= _SCHEMA_CACHE_MAX:
-            oldest = next(iter(_SCHEMA_CACHE))
-            del _SCHEMA_CACHE[oldest]
-        _SCHEMA_CACHE[cache_key] = response
-
-        return response
-
     # ── Agent Loop ────────────────────────────────────────────────────
 
     async def _run_agent_loop(
         self,
         working_set: list[dict[str, str]],
-        workflow_schemas: list[WorkflowSchemaResponse],
+        api_executions: list[ApiTestExecutionModel],
         user_message: str,
         conversation_history: list[dict[str, str]] | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
@@ -425,7 +235,7 @@ class AppBuilderAIService:
         """
 
         # Build system prompt
-        system_prompt = self._build_agent_system_prompt(workflow_schemas)
+        system_prompt = self._build_agent_system_prompt(api_executions)
 
         # Build initial user message — project index prepended to first user content
         project_preamble = ""
@@ -861,10 +671,10 @@ class AppBuilderAIService:
                 trimmed.append(m)
         return trimmed
 
-    def _build_agent_system_prompt(self, workflow_schemas: list[WorkflowSchemaResponse]) -> str:
+    def _build_agent_system_prompt(self, api_executions: list[ApiTestExecutionModel]) -> str:
         parts = [_AGENT_SYSTEM_PROMPT]
-        for ws in workflow_schemas:
-            parts.append(self._workflow_context_section(ws))
+        for ex in api_executions:
+            parts.append(self._api_execution_context(ex))
         return "\n\n".join(parts)
 
     # ── Context Building ─────────────────────────────────────────────
@@ -895,66 +705,91 @@ class AppBuilderAIService:
             lines.append("")
         return "\n".join(lines)
 
-    def _workflow_context_section(self, ws: WorkflowSchemaResponse) -> str:
+    def _api_execution_context(self, ex: ApiTestExecutionModel) -> str:
+        """Render a captured API test execution as system-prompt context.
+
+        The generated app must reproduce this request verbatim — same URL,
+        method, headers, and body shape. Response sample helps the LLM
+        infer how to render the result.
+        """
+        import base64
+
+        label = ex.name or f"{ex.method} {ex.url}"
         lines = [
-            f'## Connected Workflow: "{ws.workflow_name}"',
+            f'## Attached Endpoint: "{label}"',
             "",
-            "This app is connected to a workflow. Use the data below to make API calls.",
+            "Use the **exact** url, method, headers, and body shape below in your generated `fetch()` call.",
+            "",
+            "### Request",
+            "```typescript",
+            f'const res = await fetch("{ex.url}", {{',
+            f'  method: "{ex.method}",',
         ]
 
-        # Show the last node's output as the response shape
-        last_node = ws.node_schemas[-1] if ws.node_schemas else None
-        last_name = last_node.node_name if last_node else "output"
+        headers = ex.request_headers or {}
+        if headers:
+            header_pairs = ", ".join(f'"{k}": {json.dumps(v)}' for k, v in headers.items())
+            lines.append(f"  headers: {{ {header_pairs} }},")
 
-        # Determine the API endpoint
-        api_path = ws.webhook_path or f"/api/workflows/{ws.workflow_id}/run"
-        is_webhook = ws.webhook_path is not None
+        if ex.request_body_text is not None and ex.method.upper() not in ("GET", "HEAD"):
+            # Quote the body verbatim. The LLM can substitute placeholders if
+            # the user wants the UI to control the inputs.
+            lines.append(f"  body: {json.dumps(ex.request_body_text)},")
 
-        lines.append("\n### API Request\n")
+        lines.append("});")
+        lines.append("```")
 
-        if is_webhook:
-            response_mode = ws.webhook_response_mode or "lastNode"
+        # ── Response info ────────────────────────────────────────────
+        ctype = (ex.response_content_type or "").lower()
+        lines.append("")
+        lines.append("### Response")
+        lines.append(f"- **Status:** {ex.response_status}")
+        if ex.response_content_type:
+            lines.append(f"- **Content-Type:** `{ex.response_content_type}`")
+        lines.append(f"- **Size:** {ex.response_size} bytes")
 
-            body_hint = "{ /* your data */ }"
-            if ws.webhook_body_schema:
-                lines.append(
-                    f"Request body schema:\n```json\n{json.dumps(ws.webhook_body_schema, separators=(',', ':'))}\n```\n"
-                )
+        is_json = "json" in ctype
+        # OOXML mimes (xlsx, docx, pptx) embed "spreadsheetml" / "wordprocessingml"
+        # / "presentationml" — they are binary zips, not text.
+        is_text = (
+            is_json
+            or ctype.startswith("text/")
+            or ctype.startswith("application/xml")
+            or ctype.endswith("+xml")
+            or "yaml" in ctype
+        )
 
-            lines.append("```typescript")
-            lines.append(f'const res = await fetch("{api_path}", {{')
-            lines.append('  method: "POST",')
-            lines.append('  headers: { "Content-Type": "application/json" },')
-            lines.append(f"  body: JSON.stringify({body_hint}),")
-            lines.append("});")
-            lines.append("const result = await res.json();")
-            lines.append("```\n")
-
-            if response_mode == "onReceived":
-                lines.append("Response shape: `{ status, executionId, message }` — workflow runs in background.")
-            else:
-                lines.append("Response shape: `{ status, executionId, data: [...items] }` — access items via `result.data`.")
-        else:
-            lines.append("```typescript")
-            lines.append(f'const res = await fetch("{api_path}", {{')
-            lines.append('  method: "POST",')
-            lines.append('  headers: { "Content-Type": "application/json" },')
-            lines.append("  body: JSON.stringify({ input_data: { /* your params */ } }),")
-            lines.append("});")
-            lines.append("const result = await res.json();")
-            lines.append("```\n")
-            lines.append(f'Response shape: `{{ data: {{ "{last_name}": <output>, ... }}, status: "success" }}`')
-
-        # -- Response fields --
-        if last_node:
-            if last_node.field_catalog:
-                lines.append(f"\n### Response Fields (\"{last_name}\")\n")
-                lines.append(_format_field_catalog(last_node.field_catalog))
-            else:
-                lines.append(f"\n### Response Schema (\"{last_name}\")\n")
-                lines.append(f"```json\n{json.dumps(last_node.output_schema, separators=(',', ':'))}\n```")
-                if last_node.sample_data is not None:
-                    lines.append(f"\nSample:\n```json\n{json.dumps(last_node.sample_data, separators=(',', ':'))}\n```")
+        if ex.response_body_b64 and is_text:
+            try:
+                decoded = base64.b64decode(ex.response_body_b64).decode("utf-8", errors="replace")
+            except Exception:
+                decoded = ""
+            if decoded:
+                if is_json:
+                    try:
+                        parsed = json.loads(decoded)
+                        schema = infer_json_schema(parsed)
+                        sample = truncate_sample(parsed, max_items=3)
+                        lines.append("")
+                        lines.append("### Response Schema")
+                        lines.append(f"```json\n{json.dumps(schema, indent=2)}\n```")
+                        lines.append("")
+                        lines.append("### Response Sample")
+                        lines.append(f"```json\n{json.dumps(sample, indent=2)}\n```")
+                    except Exception:
+                        lines.append("")
+                        lines.append(f"```\n{decoded[:2000]}\n```")
+                else:
+                    lines.append("")
+                    lines.append(f"```\n{decoded[:2000]}\n```")
+        elif ex.response_body_b64:
+            disp = (ex.response_headers or {}).get("content-disposition", "")
+            lines.append("")
+            lines.append(
+                f"Binary response — render as a file download via `res.blob()` + `URL.createObjectURL()`."
+            )
+            if disp:
+                lines.append(f"Content-Disposition: `{disp}`")
 
         return "\n".join(lines)
 

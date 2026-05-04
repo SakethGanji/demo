@@ -132,10 +132,11 @@ CREATE TABLE IF NOT EXISTS apps (
     published_version_id INTEGER,
     settings             JSONB,
     access               TEXT NOT NULL DEFAULT 'private',
-    access_password      TEXT,
+    access_password_hash TEXT,
     published_at         TIMESTAMP,
     embed_enabled        BOOLEAN NOT NULL DEFAULT FALSE,
     workflow_ids         JSONB NOT NULL DEFAULT '[]'::jsonb,
+    api_execution_ids    JSONB NOT NULL DEFAULT '[]'::jsonb,
     created_by           TEXT,
     updated_by           TEXT,
     created_at           TIMESTAMP NOT NULL DEFAULT now(),
@@ -157,10 +158,18 @@ CREATE TABLE IF NOT EXISTS app_versions (
     prompt            TEXT,
     message           TEXT,
     created_by        TEXT,
-    created_at        TIMESTAMP NOT NULL DEFAULT now()
+    created_at        TIMESTAMP NOT NULL DEFAULT now(),
+    -- Production bundle artifact (populated on publish). Pluggable storage:
+    -- Postgres TEXT today, swap to S3 later via BundleStorageBackend.
+    bundle_js         TEXT,
+    bundle_css        TEXT,
+    bundle_hash       TEXT,
+    bundled_at        TIMESTAMP
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_app_versions_app ON app_versions (app_id, version_number);
 CREATE INDEX IF NOT EXISTS idx_app_versions_parent ON app_versions (parent_version_id);
+CREATE INDEX IF NOT EXISTS idx_app_versions_bundle_hash
+    ON app_versions (bundle_hash) WHERE bundle_hash IS NOT NULL;
 
 ALTER TABLE apps
     ADD CONSTRAINT fk_apps_published_version
@@ -312,6 +321,30 @@ CREATE TABLE IF NOT EXISTS data_table_rows (
     updated_at  TIMESTAMP NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_data_table_rows_table ON data_table_rows (table_id);
+
+-- API tester captured executions — used as LLM context for the app builder
+-- and replayed by published apps via the public-app proxy.
+CREATE TABLE IF NOT EXISTS api_test_executions (
+    id                     TEXT PRIMARY KEY,
+    team_id                TEXT NOT NULL DEFAULT 'default' REFERENCES teams(id) ON DELETE CASCADE,
+    name                   TEXT,
+    method                 TEXT NOT NULL,
+    url                    TEXT NOT NULL,
+    request_headers        JSONB NOT NULL DEFAULT '{}'::jsonb,
+    request_body_text      TEXT,
+    response_status        INTEGER,
+    response_headers       JSONB NOT NULL DEFAULT '{}'::jsonb,
+    response_content_type  TEXT,
+    response_size          INTEGER NOT NULL DEFAULT 0,
+    response_body_b64      TEXT,
+    response_truncated     BOOLEAN NOT NULL DEFAULT FALSE,
+    latency_ms             DOUBLE PRECISION,
+    error                  TEXT,
+    created_at             TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at             TIMESTAMP NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_api_test_executions_team_id ON api_test_executions (team_id);
+CREATE INDEX IF NOT EXISTS ix_api_test_executions_created_at ON api_test_executions (created_at DESC);
 
 -- migrate:down
 DROP SCHEMA IF EXISTS "workflow-app" CASCADE;

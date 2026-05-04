@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from ..core.config import settings
 from ..core.dependencies import get_app_service
-from ..schemas.app import AppCreateRequest, AppUpdateRequest, CreateVersionRequest, UpdateVersionLabelRequest
-from ..services.app_service import AppService
+from ..schemas.app import (
+    AppCreateRequest,
+    AppPublishRequest,
+    AppUpdateRequest,
+    CreateVersionRequest,
+    UpdateVersionLabelRequest,
+)
+from ..services.app_service import AppPublishError, AppService
 
 router = APIRouter(prefix="/apps")
 
@@ -63,12 +70,42 @@ async def delete_app(
 @router.post("/{app_id}/publish")
 async def publish_app(
     app_id: str,
+    request: Request,
+    req: AppPublishRequest | None = None,
     service: AppService = Depends(get_app_service),
 ):
-    result = await service.publish_app(app_id)
-    if not result:
-        raise HTTPException(status_code=404, detail="App not found")
+    try:
+        result = await service.publish_app(app_id, req)
+    except AppPublishError as e:
+        msg = str(e)
+        if msg == "app not found":
+            raise HTTPException(status_code=404, detail=msg) from e
+        # Bad slug, missing source, bundle error etc. — all client-actionable.
+        raise HTTPException(status_code=400, detail=msg) from e
+
+    # Build the absolute public URL. Prefer the configured public_base_url;
+    # fall back to the request's own scheme+host so dev / single-host setups
+    # work without extra config.
+    if result.slug:
+        base = settings.public_base_url
+        if not base:
+            base = f"{request.url.scheme}://{request.url.netloc}"
+        result.public_url = f"{base.rstrip('/')}/a/{result.slug}"
     return result
+
+
+@router.post("/{app_id}/unpublish")
+async def unpublish_app(
+    app_id: str,
+    service: AppService = Depends(get_app_service),
+):
+    try:
+        return await service.unpublish_app(app_id)
+    except AppPublishError as e:
+        msg = str(e)
+        if msg == "app not found":
+            raise HTTPException(status_code=404, detail=msg) from e
+        raise HTTPException(status_code=400, detail=msg) from e
 
 
 # ── Version endpoints ────────────────────────────────────────────────────────

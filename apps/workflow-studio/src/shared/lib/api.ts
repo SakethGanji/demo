@@ -176,23 +176,42 @@ export interface ApiAppVersionDetail extends ApiAppVersion {
   files?: ApiAppFile[];
 }
 
+export type ApiAppAccess = 'private' | 'public' | 'password';
+
 export interface ApiAppDetail {
   id: string;
   name: string;
   definition: Record<string, unknown>;
   active: boolean;
   workflow_ids: string[];
+  api_execution_ids: string[];
   source_code: string | null;
   files?: ApiAppFile[];
   current_version: ApiAppVersion | null;
   created_at: string;
   updated_at: string;
+  // Publishing fields.
+  slug: string | null;
+  access: ApiAppAccess;
+  access_password_set: boolean;
+  embed_enabled: boolean;
+  published_at: string | null;
+  published_version: ApiAppVersion | null;
 }
 
 export interface ApiAppPublishResponse {
   id: string;
   active: boolean;
   version_id: number | null;
+  slug: string | null;
+  bundle_hash: string | null;
+  public_url: string | null;
+}
+
+export interface ApiAppPublishRequest {
+  slug?: string;
+  access?: ApiAppAccess;
+  access_password?: string;
 }
 
 export const appsApi = {
@@ -216,11 +235,16 @@ export const appsApi = {
     data: {
       name?: string;
       definition?: Record<string, unknown>;
+      api_execution_ids?: string[];
       source_code?: string;
       files?: ApiAppFile[];
       create_version?: boolean;
       version_trigger?: string;
       version_prompt?: string;
+      slug?: string;
+      access?: ApiAppAccess;
+      access_password?: string;
+      embed_enabled?: boolean;
     },
   ): Promise<ApiAppDetail> => {
     return apiFetch(`/apps/${id}`, {
@@ -235,8 +259,15 @@ export const appsApi = {
     });
   },
 
-  publish: (id: string): Promise<ApiAppPublishResponse> => {
+  publish: (id: string, opts?: ApiAppPublishRequest): Promise<ApiAppPublishResponse> => {
     return apiFetch(`/apps/${id}/publish`, {
+      method: 'POST',
+      body: opts ? JSON.stringify(opts) : undefined,
+    });
+  },
+
+  unpublish: (id: string): Promise<ApiAppPublishResponse> => {
+    return apiFetch(`/apps/${id}/unpublish`, {
       method: 'POST',
     });
   },
@@ -297,5 +328,77 @@ export const nodesApi = {
 
   get: (type: string): Promise<NodeTypeInfo> => {
     return apiFetch(`/nodes/${type}`);
+  },
+};
+
+// ============================================================================
+// API Tester
+// ============================================================================
+
+export interface ApiTestExecuteBody {
+  name?: string | null;
+  method: string;
+  url: string;
+  headers?: Record<string, string>;
+  body?: string | null;
+}
+
+export interface ApiTestExecution {
+  id: string;
+  name: string | null;
+  method: string;
+  url: string;
+  request_headers: Record<string, unknown>;
+  request_body_text: string | null;
+  response_status: number | null;
+  response_headers: Record<string, unknown>;
+  response_content_type: string | null;
+  response_size: number;
+  response_body_b64: string | null;
+  response_truncated: boolean;
+  latency_ms: number | null;
+  error: string | null;
+  created_at: string;
+}
+
+export interface ApiTestExecutionListItem {
+  id: string;
+  name: string | null;
+  method: string;
+  url: string;
+  response_status: number | null;
+  response_content_type: string | null;
+  latency_ms: number | null;
+  error: string | null;
+  created_at: string;
+}
+
+export const apiTesterApi = {
+  execute: (body: ApiTestExecuteBody): Promise<ApiTestExecution> => {
+    return apiFetch('/api-tester/execute', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+
+  list: (): Promise<ApiTestExecutionListItem[]> => {
+    return apiFetch('/api-tester/executions');
+  },
+
+  get: (id: string): Promise<ApiTestExecution> => {
+    return apiFetch(`/api-tester/executions/${id}`);
+  },
+
+  rename: (id: string, name: string | null): Promise<ApiTestExecution> => {
+    return apiFetch(`/api-tester/executions/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    });
+  },
+
+  delete: (id: string): Promise<{ success: boolean }> => {
+    return apiFetch(`/api-tester/executions/${id}`, {
+      method: 'DELETE',
+    });
   },
 };

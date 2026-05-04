@@ -47,6 +47,16 @@ class Settings(BaseSettings):
     # Credential encryption (Fernet key, generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
     encryption_key: str | None = None
 
+    # Public-app settings.
+    # public_base_url is the externally-visible base where /a/{slug} is served
+    # (e.g. https://apps.example.com). Used to build the URL returned from publish.
+    # Falls back to the request's own scheme+host if unset.
+    public_base_url: str | None = None
+    # HMAC secret used to sign in-page tokens issued by /a/{slug}. If unset
+    # the engine derives a per-process secret on startup — fine for single-pod
+    # POC, but set this in production to keep tokens valid across restarts.
+    public_token_secret: str | None = None
+
     # External services
     redis_url: str | None = None
 

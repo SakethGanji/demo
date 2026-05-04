@@ -9,9 +9,10 @@
  * Responsibilities:
  * - Execute the bundle and mount the default-exported component
  * - Patch console.* to forward to parent
- * - Override fetch() to proxy /api/ and /webhook/ calls through parent
+ * - Override fetch() to proxy ALL calls through parent (bypasses iframe CORS).
+ *   Returns a real Response so .json() / .blob() / .arrayBuffer() all work,
+ *   including for binary file downloads.
  * - ErrorBoundary for runtime errors
- * - ResizeObserver to report content height
  */
 
 export const SANDBOX_RUNTIME_CODE = `
@@ -38,24 +39,29 @@ export const SANDBOX_RUNTIME_CODE = `
   });
 
   // ── API fetch bridge ─────────────────────────────────────────────
+  // All fetches are proxied through the parent so the generated app can call
+  // any URL (relative or absolute) without hitting iframe CORS. The parent
+  // returns the raw body bytes + headers; we reconstruct a real Response.
   var pendingRequests = new Map();
   var reqCounter = 0;
 
   function proxyFetch(url, opts) {
     return new Promise(function(resolve, reject) {
       var reqId = 'req_' + (++reqCounter) + '_' + Date.now();
-      pendingRequests.set(reqId, {
-        resolve: function(result) {
-          resolve(new Response(JSON.stringify(result), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' }
-          }));
-        },
-        reject: reject
-      });
+      pendingRequests.set(reqId, { resolve: resolve, reject: reject });
+
+      // postMessage can clone strings/arraybuffers but not Streams/FormData
+      // reliably across browsers — keep the LLM-generated path on plain types.
+      var safeOpts = opts ? {
+        method: opts.method,
+        headers: opts.headers,
+        body: typeof opts.body === 'string' ? opts.body : undefined,
+      } : {};
+
       parent.postMessage({
-        type: 'apiRequest', reqId: reqId, url: url, opts: opts || {}
+        type: 'apiRequest', reqId: reqId, url: url, opts: safeOpts
       }, '*');
+
       setTimeout(function() {
         if (pendingRequests.has(reqId)) {
           pendingRequests.delete(reqId);
@@ -65,18 +71,9 @@ export const SANDBOX_RUNTIME_CODE = `
     });
   }
 
-  // Override fetch — proxy API/webhook calls through parent, pass everything else through
-  var originalFetch = window.fetch.bind(window);
+  // Override fetch — every call goes through the parent bridge.
   window.fetch = function(url, opts) {
-    if (typeof url === 'string' && (url.startsWith('/api/') || url.startsWith('/webhook/'))) {
-      return proxyFetch(url, opts);
-    }
-    return originalFetch(url, opts);
-  };
-
-  // Keep __apiFetch for backwards compatibility
-  window.__apiFetch = function(url, opts) {
-    return proxyFetch(url, opts);
+    return proxyFetch(typeof url === 'string' ? url : String(url), opts);
   };
 
   // ── Error Boundary ───────────────────────────────────────────────
@@ -178,15 +175,6 @@ export const SANDBOX_RUNTIME_CODE = `
     document.head.appendChild(style);
   }
 
-  // ── ResizeObserver ───────────────────────────────────────────────
-  var resizeObserver = new ResizeObserver(function(entries) {
-    for (var i = 0; i < entries.length; i++) {
-      var height = entries[i].contentRect.height;
-      parent.postMessage({ type: 'resize', height: height }, '*');
-    }
-  });
-  resizeObserver.observe(mountEl);
-
   // ── Message Handler ──────────────────────────────────────────────
   window.addEventListener('message', function(event) {
     var data = event.data;
@@ -195,12 +183,6 @@ export const SANDBOX_RUNTIME_CODE = `
     if (data.type === 'render') {
       if (data.css) injectCSS(data.css);
       renderSource(data.source);
-    } else if (data.type === 'themeUpdate') {
-      var vars = data.vars;
-      var rootEl = document.documentElement;
-      for (var key in vars) {
-        rootEl.style.setProperty('--' + key, vars[key]);
-      }
     } else if (data.type === 'apiResponse') {
       var pending = pendingRequests.get(data.reqId);
       if (pending) {
@@ -208,7 +190,13 @@ export const SANDBOX_RUNTIME_CODE = `
         if (data.error) {
           pending.reject(new Error(data.error));
         } else {
-          pending.resolve(data.result);
+          var bodyInit = data.body == null ? null : data.body;
+          var resp = new Response(bodyInit, {
+            status: data.status || 200,
+            statusText: data.statusText || '',
+            headers: data.headers || {},
+          });
+          pending.resolve(resp);
         }
       }
     }

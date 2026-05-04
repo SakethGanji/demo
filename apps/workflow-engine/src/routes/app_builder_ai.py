@@ -6,7 +6,7 @@ import asyncio
 import logging
 from typing import AsyncGenerator
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from sse_starlette.sse import EventSourceResponse, ServerSentEvent
 
 from ..core.dependencies import get_app_builder_ai_service
@@ -39,15 +39,3 @@ async def app_builder_chat(
             return
 
     return EventSourceResponse(event_generator())
-
-
-@router.get("/workflow-schema/{workflow_id}")
-async def get_workflow_schema(
-    workflow_id: str,
-    service: AppBuilderAIService = Depends(get_app_builder_ai_service),
-):
-    """Extract schema from a workflow's latest execution for UI binding."""
-    try:
-        return await service.extract_workflow_schema(workflow_id)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))

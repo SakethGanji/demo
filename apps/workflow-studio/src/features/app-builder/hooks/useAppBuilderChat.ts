@@ -7,7 +7,7 @@ import { appsApi } from '@/shared/lib/api'
 
 interface AppBuilderChatOptions {
   appId?: string
-  workflowIds?: string[]
+  apiExecutionIds?: string[]
 }
 
 export function useAppBuilderChat(options: AppBuilderChatOptions = {}) {
@@ -38,7 +38,7 @@ export function useAppBuilderChat(options: AppBuilderChatOptions = {}) {
       message,
       app_id: options.appId ?? undefined,
       current_version_id: currentVersionId ?? undefined,
-      workflow_ids: options.workflowIds ?? [],
+      api_execution_ids: options.apiExecutionIds ?? [],
       conversation_history: conversationHistory,
     }
 
@@ -111,9 +111,6 @@ export function useAppBuilderChat(options: AppBuilderChatOptions = {}) {
                 })
             }
 
-          } else if (data.type === 'phase') {
-            updateLastMessage({ phase: data.phase || data.message })
-
           } else if (data.type === 'thinking') {
             const last = useAppBuilderChatStore.getState().messages.at(-1)
             const existing = last?.thinking ?? []
@@ -174,15 +171,7 @@ export function useAppBuilderChat(options: AppBuilderChatOptions = {}) {
       setStreaming(false)
       abortRef.current = null
     }
-  }, [options.appId, options.workflowIds])
-
-  /**
-   * Called when the iframe reports an error. Logs it but does NOT
-   * auto-retry — the user can manually ask the LLM to fix it.
-   */
-  const reportError = useCallback((_error: { message: string; stack?: string }) => {
-    // No-op: auto-retry removed to avoid error loops
-  }, [])
+  }, [options.appId, options.apiExecutionIds])
 
   const cancelStream = useCallback(() => {
     abortRef.current?.abort()
@@ -191,5 +180,5 @@ export function useAppBuilderChat(options: AppBuilderChatOptions = {}) {
 
   const isStreaming = useAppBuilderChatStore((s) => s.isStreaming)
 
-  return { sendMessage, isStreaming, cancelStream, reportError }
+  return { sendMessage, isStreaming, cancelStream }
 }

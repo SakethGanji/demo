@@ -124,26 +124,39 @@ def get_file_storage(session: AsyncSession = Depends(get_db_session)):
     return PostgresFileStorage(session)
 
 
+def get_bundle_storage(session: AsyncSession = Depends(get_db_session)):
+    """Get bundle storage backend. Postgres today, S3 later — same Protocol."""
+    from ..services.bundle_storage import PostgresBundleStorage
+
+    return PostgresBundleStorage(session)
+
+
 def get_app_service(
     session: AsyncSession = Depends(get_db_session),
     file_storage=Depends(get_file_storage),
+    bundle_storage=Depends(get_bundle_storage),
 ):
     """Get app service instance."""
     from ..services.app_service import AppService
 
-    return AppService(session, file_storage)
+    return AppService(session, file_storage, bundle_storage)
+
+
+def get_api_test_repository(session: AsyncSession = Depends(get_db_session)):
+    """Get API tester repository instance."""
+    from ..repositories import ApiTestRepository
+
+    return ApiTestRepository(session)
 
 
 def get_app_builder_ai_service(
-    workflow_repo=Depends(get_workflow_repository),
-    execution_repo=Depends(get_execution_repository),
-    node_output_repo=Depends(get_node_output_repository),
+    api_test_repo=Depends(get_api_test_repository),
     app_service=Depends(get_app_service),
 ):
     """Get App Builder AI service."""
     from ..services.app_builder_ai_service import AppBuilderAIService
 
-    return AppBuilderAIService(workflow_repo, execution_repo, node_output_repo, app_service)
+    return AppBuilderAIService(api_test_repo, app_service)
 
 
 def get_ai_chat_service(

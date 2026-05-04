@@ -1,23 +1,15 @@
-import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Link2, Check, Plus, Trash2, Brain } from 'lucide-react'
+import { Link2, Check, Brain, Send } from 'lucide-react'
 import { ChatMessageList, ChatInput, ChatPanel, ChatPanelFooter } from '@/shared/components/chat'
 import { useAppBuilderChatStore, type AppChatMessage, type ToolCallEntry } from '../stores/appBuilderChatStore'
 import { useAppBuilderChat } from '../hooks/useAppBuilderChat'
-import { workflowsApi } from '@/shared/lib/api'
-import type { ApiWorkflowSummary } from '@/shared/lib/backendTypes'
+import { apiTesterApi, appsApi, type ApiTestExecutionListItem } from '@/shared/lib/api'
 import { Tool, ToolHeader, ToolContent, ToolInput, ToolOutput } from '@/components/ai-elements/tool'
 import { Task, TaskTrigger, TaskContent, TaskItem, TaskItemFile } from '@/components/ai-elements/task'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/shared/components/ui/collapsible'
 import type { ToolPart } from '@/components/ai-elements/tool'
-
-export interface ApiEndpoint {
-  curl: string
-  response: string
-}
-
-type ContextMode = 'workflows' | 'api'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -51,7 +43,6 @@ function renderToolCalls(msg: AppChatMessage) {
   return (
     <div className="space-y-2">
       {msg.toolCalls.map((tc) => {
-        // search_files gets a compact Task treatment
         if (tc.tool === 'search_files') {
           return (
             <Task key={tc.id} defaultOpen={false}>
@@ -69,7 +60,6 @@ function renderToolCalls(msg: AppChatMessage) {
           )
         }
 
-        // All other tools → full Tool component
         return (
           <Tool key={tc.id} defaultOpen={false}>
             <ToolHeader
@@ -147,18 +137,51 @@ export function AppBuilderChatPanel({
   onClose?: () => void
 }) {
   const messages = useAppBuilderChatStore((s) => s.messages)
-  const [contextMode, setContextMode] = useState<ContextMode>('workflows')
-  const [selectedWorkflowIds, setSelectedWorkflowIds] = useState<string[]>([])
-  const [apiEndpoints, setApiEndpoints] = useState<ApiEndpoint[]>([])
+  const [selectedExecutionIds, setSelectedExecutionIds] = useState<string[]>([])
   const [contextOpen, setContextOpen] = useState(false)
 
+  // Track whether selectedExecutionIds has been initialized from the app row.
+  // Without this, the empty-array initial render would PATCH and clobber any
+  // existing allow-list before we've loaded it.
+  const initializedRef = useRef(false)
+
+  // Load existing allow-list when the app changes — so the popover shows the
+  // saved selection, and so we don't overwrite it on first render.
+  useEffect(() => {
+    if (!appId) {
+      initializedRef.current = true
+      return
+    }
+    initializedRef.current = false
+    let cancelled = false
+    appsApi.get(appId).then((app) => {
+      if (cancelled) return
+      setSelectedExecutionIds(app.api_execution_ids ?? [])
+      initializedRef.current = true
+    }).catch(() => {
+      if (cancelled) return
+      initializedRef.current = true
+    })
+    return () => { cancelled = true }
+  }, [appId])
+
+  // Persist the allow-list whenever the selection changes — so the published
+  // app's runtime gets the captured-URL → execution-id map without requiring
+  // the user to send a chat message first.
+  useEffect(() => {
+    if (!appId || !initializedRef.current) return
+    appsApi.update(appId, { api_execution_ids: selectedExecutionIds }).catch(() => {
+      // Silent — the next chat send will retry via auto-grant.
+    })
+  }, [appId, selectedExecutionIds])
+
   const chatOptions = useMemo(
-    () => ({ appId, workflowIds: selectedWorkflowIds }),
-    [appId, selectedWorkflowIds],
+    () => ({ appId, apiExecutionIds: selectedExecutionIds }),
+    [appId, selectedExecutionIds],
   )
   const { sendMessage, isStreaming, cancelStream } = useAppBuilderChat(chatOptions)
 
-  const contextCount = contextMode === 'workflows' ? selectedWorkflowIds.length : apiEndpoints.length
+  const contextCount = selectedExecutionIds.length
 
   return (
     <ChatPanel
@@ -172,7 +195,7 @@ export function AppBuilderChatPanel({
                 ? 'text-primary hover:bg-primary/10'
                 : 'text-muted-foreground hover:text-foreground hover:bg-accent'
             }`}
-            title="Add context"
+            title="Attach saved API endpoint"
           >
             <Link2 size={14} />
             {contextCount > 0 && (
@@ -183,18 +206,9 @@ export function AppBuilderChatPanel({
           </button>
 
           {contextOpen && (
-            <ContextPopover
-              mode={contextMode}
-              onModeChange={(m) => {
-                setContextMode(m)
-                // Clear the other when switching
-                if (m === 'workflows') setApiEndpoints([])
-                else setSelectedWorkflowIds([])
-              }}
-              selectedWorkflowIds={selectedWorkflowIds}
-              onWorkflowsChange={setSelectedWorkflowIds}
-              apiEndpoints={apiEndpoints}
-              onApiEndpointsChange={setApiEndpoints}
+            <EndpointPopover
+              selectedIds={selectedExecutionIds}
+              onChange={setSelectedExecutionIds}
               onClose={() => setContextOpen(false)}
             />
           )}
@@ -231,40 +245,42 @@ export function AppBuilderChatPanel({
   )
 }
 
-// ── Context Popover ──────────────────────────────────────────────────────────
-// Absolute popover anchored to the link icon. Either workflows OR api, not both.
+// ── Endpoint Popover ─────────────────────────────────────────────────────────
+// Lists saved API tester executions. Selecting one attaches its captured
+// request/response as context for the LLM.
 
-function ContextPopover({
-  mode,
-  onModeChange,
-  selectedWorkflowIds,
-  onWorkflowsChange,
-  apiEndpoints,
-  onApiEndpointsChange,
+function EndpointPopover({
+  selectedIds,
+  onChange,
   onClose,
 }: {
-  mode: ContextMode
-  onModeChange: (mode: ContextMode) => void
-  selectedWorkflowIds: string[]
-  onWorkflowsChange: (ids: string[]) => void
-  apiEndpoints: ApiEndpoint[]
-  onApiEndpointsChange: (endpoints: ApiEndpoint[]) => void
+  selectedIds: string[]
+  onChange: (ids: string[]) => void
   onClose: () => void
 }) {
-  const [workflows, setWorkflows] = useState<ApiWorkflowSummary[]>([])
+  const [executions, setExecutions] = useState<ApiTestExecutionListItem[]>([])
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (mode !== 'workflows') return
     let cancelled = false
     setLoading(true)
-    workflowsApi.list().then((data) => {
-      if (!cancelled) { setWorkflows(data); setLoading(false) }
-    }).catch(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
-  }, [mode])
+    apiTesterApi
+      .list()
+      .then((data) => {
+        if (!cancelled) {
+          setExecutions(data)
+          setLoading(false)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -276,148 +292,96 @@ function ContextPopover({
     return () => document.removeEventListener('mousedown', handler)
   }, [onClose])
 
-  const toggleWorkflow = (id: string) => {
-    onWorkflowsChange(
-      selectedWorkflowIds.includes(id)
-        ? selectedWorkflowIds.filter((s) => s !== id)
-        : [...selectedWorkflowIds, id],
+  const toggle = (id: string) => {
+    onChange(
+      selectedIds.includes(id)
+        ? selectedIds.filter((s) => s !== id)
+        : [...selectedIds, id],
     )
   }
 
-  const addEndpoint = useCallback(() => {
-    onApiEndpointsChange([...apiEndpoints, { curl: '', response: '' }])
-  }, [apiEndpoints, onApiEndpointsChange])
-
-  const updateEndpoint = useCallback((index: number, updates: Partial<ApiEndpoint>) => {
-    const next = [...apiEndpoints]
-    next[index] = { ...next[index], ...updates }
-    onApiEndpointsChange(next)
-  }, [apiEndpoints, onApiEndpointsChange])
-
-  const removeEndpoint = useCallback((index: number) => {
-    onApiEndpointsChange(apiEndpoints.filter((_, i) => i !== index))
-  }, [apiEndpoints, onApiEndpointsChange])
-
   const filtered = search
-    ? workflows.filter((w) => w.name.toLowerCase().includes(search.toLowerCase()))
-    : workflows
-
-  const modeBtn = (m: ContextMode, label: string) => (
-    <button
-      onClick={() => onModeChange(m)}
-      className={`flex-1 py-1.5 text-[11px] font-medium rounded-md transition-colors ${
-        mode === m
-          ? 'bg-accent text-foreground'
-          : 'text-muted-foreground hover:text-foreground'
-      }`}
-    >
-      {label}
-    </button>
-  )
+    ? executions.filter(
+        (e) =>
+          (e.name || '').toLowerCase().includes(search.toLowerCase()) ||
+          e.url.toLowerCase().includes(search.toLowerCase()),
+      )
+    : executions
 
   return (
     <div
       ref={containerRef}
       className="absolute left-0 top-full mt-1 w-80 rounded-lg border border-border bg-popover shadow-lg z-50"
     >
-      {/* Mode toggle */}
-      <div className="flex gap-0.5 p-1.5 border-b border-border/50 bg-muted/30">
-        {modeBtn('workflows', 'Workflows')}
-        {modeBtn('api', 'API Schema')}
+      <div className="px-2 py-1.5 border-b border-border/50 flex items-center justify-between">
+        <span className="text-[11px] font-medium text-muted-foreground">Saved endpoints</span>
+        <a
+          href="/api-tester"
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
+        >
+          <Send size={10} />
+          Open tester
+        </a>
       </div>
 
-      {/* Workflows mode */}
-      {mode === 'workflows' && (
-        <>
-          <div className="p-2">
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search workflows..."
-              className="w-full h-7 rounded-md border border-border bg-background px-2 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-              autoFocus
-            />
-          </div>
-          <div className="max-h-48 overflow-y-auto px-2 pb-2">
-            {loading ? (
-              <div className="py-3 text-center text-xs text-muted-foreground">Loading...</div>
-            ) : filtered.length === 0 ? (
-              <div className="py-3 text-center text-xs text-muted-foreground">
-                {search ? 'No matches' : 'No workflows found'}
-              </div>
-            ) : (
-              <div className="space-y-0.5">
-                {filtered.map((wf) => {
-                  const isSelected = selectedWorkflowIds.includes(wf.id)
-                  return (
-                    <button
-                      key={wf.id}
-                      onClick={() => toggleWorkflow(wf.id)}
-                      className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-left transition-colors ${
-                        isSelected ? 'bg-primary/10 text-primary' : 'text-foreground hover:bg-accent'
-                      }`}
-                    >
-                      <div className={`h-3.5 w-3.5 rounded-sm border flex items-center justify-center shrink-0 ${
-                        isSelected ? 'border-primary bg-primary text-primary-foreground' : 'border-border'
-                      }`}>
-                        {isSelected && <Check size={10} />}
-                      </div>
-                      <span className="truncate flex-1">{wf.name}</span>
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-        </>
-      )}
+      <div className="p-2">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search..."
+          className="w-full h-7 rounded-md border border-border bg-background px-2 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          autoFocus
+        />
+      </div>
 
-      {/* API Schema mode */}
-      {mode === 'api' && (
-        <div className="p-2 space-y-2">
-          {apiEndpoints.map((ep, i) => (
-            <div key={i} className="rounded-md border border-border p-2 space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">curl</span>
+      <div className="max-h-64 overflow-y-auto px-2 pb-2">
+        {loading ? (
+          <div className="py-3 text-center text-xs text-muted-foreground">Loading...</div>
+        ) : filtered.length === 0 ? (
+          <div className="py-3 text-center text-xs text-muted-foreground">
+            {search
+              ? 'No matches'
+              : 'No saved endpoints. Use the API Tester to capture one first.'}
+          </div>
+        ) : (
+          <div className="space-y-0.5">
+            {filtered.map((ex) => {
+              const isSelected = selectedIds.includes(ex.id)
+              return (
                 <button
-                  onClick={() => removeEndpoint(i)}
-                  className="h-5 w-5 flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-colors"
+                  key={ex.id}
+                  onClick={() => toggle(ex.id)}
+                  className={`w-full flex items-start gap-2 px-2 py-1.5 rounded-md text-xs text-left transition-colors ${
+                    isSelected ? 'bg-primary/10 text-primary' : 'text-foreground hover:bg-accent'
+                  }`}
                 >
-                  <Trash2 size={10} />
+                  <div
+                    className={`mt-0.5 h-3.5 w-3.5 rounded-sm border flex items-center justify-center shrink-0 ${
+                      isSelected
+                        ? 'border-primary bg-primary text-primary-foreground'
+                        : 'border-border'
+                    }`}
+                  >
+                    {isSelected && <Check size={10} />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono font-bold text-[10px]">{ex.method}</span>
+                      <span className="truncate">{ex.name || ex.url}</span>
+                    </div>
+                    {ex.name && (
+                      <div className="text-[10px] text-muted-foreground truncate">{ex.url}</div>
+                    )}
+                  </div>
                 </button>
-              </div>
-              <textarea
-                value={ep.curl}
-                onChange={(e) => updateEndpoint(i, { curl: e.target.value })}
-                placeholder={'curl -X POST https://api.example.com/users \\\n  -H "Content-Type: application/json" \\\n  -d \'{"name": "..."}\''}
-                rows={3}
-                className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-[11px] font-mono placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
-              />
-              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Response</span>
-              <textarea
-                value={ep.response}
-                onChange={(e) => updateEndpoint(i, { response: e.target.value })}
-                placeholder={'{"id": 1, "name": "...", "email": "..."}'}
-                rows={3}
-                className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-[11px] font-mono placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
-              />
-            </div>
-          ))}
-          <button
-            onClick={addEndpoint}
-            className="w-full h-7 flex items-center justify-center gap-1 rounded-md border border-dashed border-border text-xs text-muted-foreground hover:text-foreground hover:border-border hover:bg-accent transition-colors"
-          >
-            <Plus size={11} />
-            Add endpoint
-          </button>
-          {apiEndpoints.length === 0 && (
-            <p className="text-[10px] text-muted-foreground text-center py-1">
-              Paste a curl command and its response so the AI knows how to wire up your app.
-            </p>
-          )}
-        </div>
-      )}
+              )
+            })}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

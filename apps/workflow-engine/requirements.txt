@@ -11,6 +11,8 @@ asyncpg
 psycopg2-binary
 croniter
 cryptography
+argon2-cffi>=23.1.0  # Password hashing for published-app password protection
+python-multipart  # Required by FastAPI's Form() — used by /a/{slug}/_unlock
 pandas
 openpyxl
 google-genai

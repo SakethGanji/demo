@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Eye, Code2, Sparkles } from 'lucide-react'
 import { IframeSandbox } from '../sandbox/IframeSandbox'
 import type { AppFile } from '../sandbox/esbuild-bundler'
@@ -21,7 +21,6 @@ type Tab = 'preview' | 'code'
 
 interface AppPreviewPanelProps {
   files: AppFile[] | null
-  onError: (err: { message: string; stack?: string }) => void
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -106,7 +105,7 @@ function TreeNodes({ nodes }: { nodes: TreeNode[] }) {
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-export function AppPreviewPanel({ files, onError }: AppPreviewPanelProps) {
+export function AppPreviewPanel({ files }: AppPreviewPanelProps) {
   const [activeTab, setActiveTab] = useState<Tab>('preview')
 
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
@@ -169,7 +168,7 @@ export function AppPreviewPanel({ files, onError }: AppPreviewPanelProps) {
       {/* Tab content */}
       <div className="flex-1 min-h-0 overflow-hidden">
         {activeTab === 'preview' ? (
-          <IframeSandbox files={files} onError={onError} />
+          <IframeSandbox files={files} />
         ) : (
           <div className="h-full flex overflow-hidden">
             {/* File tree sidebar */}

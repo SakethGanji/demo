@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from 'react'
-import { ScrollText, Trash2 } from 'lucide-react'
+import { useRef, useEffect } from 'react'
+import { Trash2 } from 'lucide-react'
 import { cn } from '@/shared/lib/utils'
 import { useConsoleStore, type ConsoleEntry } from './stores'
 

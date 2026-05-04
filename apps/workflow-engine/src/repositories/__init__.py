@@ -8,6 +8,7 @@ from .trigger_repository import TriggerRepository
 from .credential_repository import CredentialRepository
 from .folder_repository import FolderRepository
 from .variable_repository import VariableRepository
+from .api_test_repository import ApiTestRepository
 
 __all__ = [
     "WorkflowRepository",
@@ -18,4 +19,5 @@ __all__ = [
     "CredentialRepository",
     "FolderRepository",
     "VariableRepository",
+    "ApiTestRepository",
 ]

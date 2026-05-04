@@ -8,6 +8,8 @@ import {
   ScrollText,
   History,
   MessageSquare,
+  Globe,
+  Send,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { ToolbarSeparator } from '@/shared/components/ui/toolbar'
@@ -15,10 +17,24 @@ import { useAppDocumentStore } from '../stores'
 import { useAppBuilderChatStore } from '../stores/appBuilderChatStore'
 import { AppPreviewPanel } from './AppPreviewPanel'
 import { AppBuilderChatPanel } from './AppBuilderChatPanel'
+import { ApiTesterPanel, SavedQueriesPanel } from './ApiTesterPanel'
 import { BottomPanel } from '../panels'
-import { useAppBuilderChat } from '../hooks/useAppBuilderChat'
-import { appsApi } from '@/shared/lib/api'
+import { appsApi, type ApiAppDetail } from '@/shared/lib/api'
+import { backends } from '@/shared/lib/config'
 import { VersionHistory } from './VersionHistory'
+import { PublishDialog } from './PublishDialog'
+
+/**
+ * Build the absolute public URL for a published app. Uses the same engine
+ * origin the rest of the studio talks to (`backends.workflow`) so dev and
+ * deployed environments both work without extra config. Falls back to the
+ * current document origin so a misconfigured backends.workflow doesn't
+ * produce a broken `/a/...` link.
+ */
+function buildPublicUrl(slug: string): string {
+  const base = backends.workflow || window.location.origin
+  return `${base.replace(/\/+$/, '')}/a/${slug}`
+}
 
 const btnClass =
   'h-8 w-8 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed'
@@ -48,9 +64,9 @@ export function AppBuilderShell({ appId }: { appId?: string }) {
   const [bottomPanelOpen, setBottomPanelOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(true)
-
-  // Get reportError from the chat hook so we can auto-retry on sandbox errors
-  const { reportError } = useAppBuilderChat({ appId })
+  const [testerOpen, setTesterOpen] = useState(false)
+  const [publishOpen, setPublishOpen] = useState(false)
+  const [appDetail, setAppDetail] = useState<ApiAppDetail | null>(null)
 
   // Auto-focus name input when editing
   useEffect(() => {
@@ -93,6 +109,7 @@ export function AppBuilderShell({ appId }: { appId?: string }) {
     appsApi.get(appId).then((data) => {
       if (cancelled) return
       setAppName(data.name)
+      setAppDetail(data)
       const setFiles = useAppDocumentStore.getState().setFiles
       if (data.files && data.files.length > 0) {
         setFiles(data.files)
@@ -135,11 +152,6 @@ export function AppBuilderShell({ appId }: { appId?: string }) {
       setIsSaving(false)
     }
   }, [appId, isSaving, sourceCode, setCurrentVersion])
-
-  // Handle sandbox errors — auto-retry via LLM
-  const handleSandboxError = useCallback((err: { message: string; stack?: string }) => {
-    reportError(err)
-  }, [reportError])
 
   // Handle version revert from history panel
   const handleRevert = useCallback(async (versionId: number) => {
@@ -203,13 +215,14 @@ export function AppBuilderShell({ appId }: { appId?: string }) {
     }
 
     return (
-      <AppPreviewPanel files={files} onError={handleSandboxError} />
+      <AppPreviewPanel files={files} />
     )
   }
 
   // CSS expressions for responsive panel widths
   const chatWidth = 'min(384px, 45vw)'
   const historyWidth = 'min(220px, 20vw)'
+  const savedWidth = 'min(260px, 24vw)'
 
   // Build bottom panel right offset using CSS calc so it adapts to viewport
   let bottomRight = '12px'
@@ -279,11 +292,36 @@ export function AppBuilderShell({ appId }: { appId?: string }) {
             </button>
           )}
 
-          {/* Version indicator */}
-          {currentVersion && (
-            <span className="ml-2 text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded font-mono">
-              v{currentVersion.version_number}
-            </span>
+          {/* Version indicator — distinguishes the version being edited from
+              the version live at /a/{slug}. Collapses to a single label when
+              they're the same. */}
+          {currentVersion && (() => {
+            const liveVersion = appDetail?.published_version
+            const liveDiffers = liveVersion && liveVersion.id !== currentVersion.id
+            return (
+              <span className="ml-2 text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded font-mono whitespace-nowrap">
+                {liveDiffers ? (
+                  <>editing v{currentVersion.version_number} · live v{liveVersion.version_number}</>
+                ) : (
+                  <>v{currentVersion.version_number}</>
+                )}
+              </span>
+            )
+          })()}
+
+          {/* Live-URL pill — persistent affordance for the public link. Only
+              shown when the app is currently published with a slug. */}
+          {appDetail?.active && appDetail.slug && (
+            <a
+              href={buildPublicUrl(appDetail.slug)}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="ml-1.5 inline-flex items-center gap-1 h-6 px-2 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[11px] font-medium hover:bg-emerald-500/15 transition-colors max-w-[180px]"
+              title={`Open ${buildPublicUrl(appDetail.slug)}`}
+            >
+              <Globe size={10} className="shrink-0" />
+              <span className="truncate font-mono">/a/{appDetail.slug}</span>
+            </a>
           )}
 
           <div className="flex-1" />
@@ -298,6 +336,15 @@ export function AppBuilderShell({ appId }: { appId?: string }) {
               <History size={14} />
             </button>
           )}
+
+          {/* API Tester toggle */}
+          <button
+            onClick={() => setTesterOpen(!testerOpen)}
+            className={btnClass + (testerOpen ? ' !text-primary' : '')}
+            title="API Tester"
+          >
+            <Send size={14} />
+          </button>
 
           {/* AI Chat toggle */}
           <button
@@ -330,8 +377,30 @@ export function AppBuilderShell({ appId }: { appId?: string }) {
               {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
             </button>
           )}
+
+          {/* Publish */}
+          {appId && appDetail && sourceCode && (
+            <button
+              onClick={() => setPublishOpen(true)}
+              className="ml-1 h-8 px-2.5 flex items-center gap-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors"
+              title="Publish app"
+            >
+              <Globe size={12} />
+              {appDetail.active ? 'Republish' : 'Publish'}
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Publish dialog */}
+      {appId && appDetail && publishOpen && (
+        <PublishDialog
+          appId={appId}
+          app={appDetail}
+          onClose={() => setPublishOpen(false)}
+          onPublished={(updated) => setAppDetail(updated)}
+        />
+      )}
 
       {/* Layer 1: Floating AI Chat panel (right) */}
       <div
@@ -363,11 +432,43 @@ export function AppBuilderShell({ appId }: { appId?: string }) {
           <VersionHistory
             appId={appId}
             currentVersionId={currentVersion?.id ?? null}
+            publishedVersionId={appDetail?.published_version?.id ?? null}
             onRevert={handleRevert}
             onClose={() => setHistoryOpen(false)}
           />
         </div>
       )}
+
+      {/* Layer 1: Saved queries — its own floating panel on the left,
+          mirroring the app-builder top-bar glass treatment. */}
+      <div
+        className={[
+          'absolute top-[68px] left-3 bottom-3 z-10',
+          floatingPanel,
+          panelTransition,
+          testerOpen ? 'translate-x-0 opacity-100' : '-translate-x-[calc(100%+12px)] opacity-0 pointer-events-none',
+        ].join(' ')}
+        style={{ width: savedWidth }}
+      >
+        {testerOpen && <SavedQueriesPanel onClose={() => setTesterOpen(false)} />}
+      </div>
+
+      {/* Layer 1: API Tester overlay — covers the preview area while open,
+          shifted right of the saved-queries rail. */}
+      <div
+        className={[
+          'absolute top-[68px] bottom-3 z-10',
+          floatingPanel,
+          panelTransition,
+          testerOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
+        ].join(' ')}
+        style={{
+          left: `calc(${savedWidth} + 24px)`,
+          right: chatOpen ? `calc(${chatWidth} + 24px)` : '12px',
+        }}
+      >
+        {testerOpen && <ApiTesterPanel onClose={() => setTesterOpen(false)} />}
+      </div>
 
       {/* Layer 1: Floating bottom panel (console) */}
       <div

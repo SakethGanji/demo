@@ -13,6 +13,8 @@ import { appsApi, type ApiAppVersion } from '@/shared/lib/api'
 interface VersionHistoryProps {
   appId: string
   currentVersionId: number | null
+  /** Version currently live at /a/{slug}, or null when not published. */
+  publishedVersionId: number | null
   onRevert: (versionId: number) => void
   onClose: () => void
 }
@@ -35,7 +37,7 @@ function formatTime(iso: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-export function VersionHistory({ appId, currentVersionId, onRevert, onClose }: VersionHistoryProps) {
+export function VersionHistory({ appId, currentVersionId, publishedVersionId, onRevert, onClose }: VersionHistoryProps) {
   const [versions, setVersions] = useState<ApiAppVersion[]>([])
   const [loading, setLoading] = useState(true)
   const [editingId, setEditingId] = useState<number | null>(null)
@@ -93,6 +95,7 @@ export function VersionHistory({ appId, currentVersionId, onRevert, onClose }: V
           <div className="py-1">
             {[...versions].reverse().map((v) => {
               const isCurrent = v.id === currentVersionId
+              const isLive = v.id === publishedVersionId
               const Icon = triggerIcon[v.trigger] ?? Save
 
               // Detect branching: parent isn't the immediately previous version
@@ -124,6 +127,15 @@ export function VersionHistory({ appId, currentVersionId, onRevert, onClose }: V
                       </span>
                       {isCurrent && (
                         <span className="text-[10px] text-primary font-medium">current</span>
+                      )}
+                      {isLive && (
+                        <span
+                          className="inline-flex items-center gap-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1 py-0.5 rounded"
+                          title="This version is live at the public URL"
+                        >
+                          <Globe size={9} />
+                          live
+                        </span>
                       )}
                       <span className="ml-auto text-[10px] text-muted-foreground">
                         {formatTime(v.created_at)}

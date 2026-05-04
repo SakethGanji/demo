@@ -177,6 +177,7 @@ class AppModel(SQLModel, table=True):
     slug: str | None = Field(default=None, unique=True)
     active: bool = Field(default=False)
     workflow_ids: list[str] = Field(default_factory=list, sa_column=Column(JSONB, server_default="[]"))
+    api_execution_ids: list[str] = Field(default_factory=list, sa_column=Column(JSONB, server_default="[]"))
 
     draft_definition: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
     draft_source_code: str | None = Field(default=None)
@@ -185,7 +186,7 @@ class AppModel(SQLModel, table=True):
     settings: dict[str, Any] | None = Field(default=None, sa_column=Column(JSONB))
 
     access: str = Field(default="private")  # private, public, password
-    access_password: str | None = Field(default=None)
+    access_password_hash: str | None = Field(default=None)
     published_at: datetime | None = Field(default=None)
     embed_enabled: bool = Field(default=False)
 
@@ -216,6 +217,13 @@ class AppVersionModel(SQLModel, table=True):
     message: str | None = Field(default=None)
     created_by: str | None = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.now)
+
+    # Bundle artifact (set on publish; pluggable storage backend writes here today,
+    # could write to object storage in the future without schema change).
+    bundle_js: str | None = Field(default=None)
+    bundle_css: str | None = Field(default=None)
+    bundle_hash: str | None = Field(default=None, index=True)
+    bundled_at: datetime | None = Field(default=None)
 
 
 class AppFileModel(SQLModel, table=True):
@@ -425,5 +433,39 @@ class DataTableRowModel(SQLModel, table=True):
     id: int | None = Field(default=None, sa_column=Column(BigInteger, primary_key=True, autoincrement=True))
     table_id: str = Field(foreign_key="data_tables.id", index=True)
     data: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB, nullable=False))
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+
+
+class ApiTestExecutionModel(SQLModel, table=True):
+    """Captured HTTP request/response snapshot from the API Tester.
+
+    Used as context for the app-builder LLM — the generated app reproduces
+    exactly the URL, method, headers, and body shape recorded here.
+    """
+
+    __tablename__ = "api_test_executions"
+
+    id: str = Field(primary_key=True)
+    team_id: str = Field(default="default", foreign_key="teams.id", index=True)
+    name: str | None = Field(default=None)
+    method: str
+    url: str
+    request_headers: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB, nullable=False, server_default="{}"),
+    )
+    request_body_text: str | None = Field(default=None)
+    response_status: int | None = Field(default=None)
+    response_headers: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB, nullable=False, server_default="{}"),
+    )
+    response_content_type: str | None = Field(default=None)
+    response_size: int = Field(default=0)
+    response_body_b64: str | None = Field(default=None)
+    response_truncated: bool = Field(default=False)
+    latency_ms: float | None = Field(default=None)
+    error: str | None = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)

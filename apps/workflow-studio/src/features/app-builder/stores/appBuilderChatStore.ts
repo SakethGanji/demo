@@ -16,8 +16,6 @@ export interface AppChatMessage extends BaseChatMessage {
   toolCalls?: ToolCallEntry[]
   /** Thinking/reasoning steps from the LLM */
   thinking?: string[]
-  /** Current agent phase (metadata, not displayed as content) */
-  phase?: string
 }
 
 export const useAppBuilderChatStore = createChatStore<AppChatMessage>({ prefix: 'app' })

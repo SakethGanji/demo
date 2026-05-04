@@ -10,7 +10,6 @@ import { backends } from '@/shared/lib/config'
 
 interface IframeSandboxProps {
   files: AppFile[] | null
-  onError?: (error: { message: string; stack?: string }) => void
 }
 
 /**
@@ -23,7 +22,7 @@ function hashFiles(files: AppFile[]): string {
   return files.map((f) => f.path + '\0' + f.content).join('\x01')
 }
 
-export function IframeSandbox({ files, onError }: IframeSandboxProps) {
+export function IframeSandbox({ files }: IframeSandboxProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -47,7 +46,6 @@ export function IframeSandbox({ files, onError }: IframeSandboxProps) {
           const message = errors.join('\n')
           setError(message)
           log('error', 'bundle', message)
-          onError?.({ message })
           return
         }
         if (iframeRef.current) {
@@ -58,9 +56,8 @@ export function IframeSandbox({ files, onError }: IframeSandboxProps) {
         const message = err instanceof Error ? err.message : 'Bundle failed'
         setError(message)
         log('error', 'bundle', message)
-        onError?.({ message })
       })
-  }, [log, onError])
+  }, [log])
 
   // Handle messages from iframe
   const handleMessage = useCallback((event: MessageEvent) => {
@@ -82,7 +79,6 @@ export function IframeSandbox({ files, onError }: IframeSandboxProps) {
       case 'error':
         setError(msg.message)
         log('error', 'sandbox', msg.message, msg.stack)
-        onError?.({ message: msg.message, stack: msg.stack })
         break
 
       case 'console':
@@ -96,32 +92,45 @@ export function IframeSandbox({ files, onError }: IframeSandboxProps) {
       case 'apiRequest':
         handleApiRequest(msg.reqId, msg.url, msg.opts)
         break
-
-      case 'resize':
-        break
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onError, sendToIframe])
+  }, [sendToIframe])
 
-  // API bridge: proxy requests from iframe
+  // API bridge: proxy any fetch from the iframe (bypasses iframe CORS).
+  // Returns raw body bytes + status + headers so the iframe can reconstruct
+  // a real Response, including for binary downloads (xlsx, pdf, images).
   const handleApiRequest = useCallback(async (reqId: string, url: string, opts: RequestInit) => {
     const iframe = iframeRef.current
     if (!iframe?.contentWindow) return
 
     try {
-      const fullUrl = url.startsWith('http') ? url : (backends.workflow || window.location.origin) + url
+      const isAbsolute = /^https?:\/\//i.test(url)
+      const fullUrl = isAbsolute ? url : (backends.workflow || window.location.origin) + url
+
       const response = await fetch(fullUrl, {
-        ...opts,
-        headers: {
-          'Content-Type': 'application/json',
-          ...(opts.headers as Record<string, string> || {}),
-        },
+        method: opts.method,
+        headers: opts.headers,
+        body: typeof opts.body === 'string' ? opts.body : undefined,
       })
 
-      const contentType = response.headers.get('content-type') || ''
-      const result = contentType.includes('json') ? await response.json() : await response.text()
+      const headers: Record<string, string> = {}
+      response.headers.forEach((v, k) => {
+        headers[k] = v
+      })
+      const body = await response.arrayBuffer()
 
-      iframe.contentWindow.postMessage({ type: 'apiResponse', reqId, result }, '*')
+      iframe.contentWindow.postMessage(
+        {
+          type: 'apiResponse',
+          reqId,
+          status: response.status,
+          statusText: response.statusText,
+          headers,
+          body,
+        },
+        '*',
+        [body],
+      )
     } catch (err) {
       iframe.contentWindow.postMessage(
         { type: 'apiResponse', reqId, error: err instanceof Error ? err.message : 'Fetch failed' },
@@ -194,7 +203,10 @@ export function IframeSandbox({ files, onError }: IframeSandboxProps) {
       <iframe
         ref={iframeRef}
         src={blobUrlRef.current || undefined}
-        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
+        // Permissive sandbox + permissions policy — generated apps may use
+        // anything from clipboard to fullscreen to media capture during demos.
+        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads allow-pointer-lock allow-orientation-lock allow-presentation allow-storage-access-by-user-activation allow-top-navigation-by-user-activation"
+        allow="clipboard-read; clipboard-write; fullscreen; autoplay; encrypted-media; picture-in-picture; geolocation; camera; microphone; display-capture; accelerometer; gyroscope; magnetometer"
         className="w-full h-full border-0"
         title="App Preview"
       />
