@@ -39,7 +39,7 @@ function buildPublicUrl(slug: string): string {
 const btnClass =
   'h-8 w-8 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed'
 
-const floatingPanel = 'bg-card/80 backdrop-blur-xl rounded-xl shadow-lg border border-border/30 overflow-hidden'
+const floatingPanel = 'bg-card rounded-xl shadow-lg border border-border overflow-hidden'
 const panelTransition = 'transition-all duration-300 ease-out'
 
 /**
@@ -406,7 +406,7 @@ export function AppBuilderShell({ appId }: { appId?: string }) {
       <div
         className={[
           'absolute top-[68px] right-3 bottom-3 z-10',
-          'bg-card/80 backdrop-blur-xl rounded-xl shadow-lg border border-border/30',
+          floatingPanel,
           panelTransition,
           chatOpen ? 'translate-x-0 opacity-100' : 'translate-x-[calc(100%+12px)] opacity-0 pointer-events-none',
         ].join(' ')}
@@ -439,32 +439,32 @@ export function AppBuilderShell({ appId }: { appId?: string }) {
         </div>
       )}
 
-      {/* Layer 1: Saved queries — its own floating panel on the left,
-          mirroring the app-builder top-bar glass treatment. */}
+      {/* Layer 1: Saved queries — docked rail on the left, flush against
+          the navbar/viewport edges. Border on the right marks the seam. */}
       <div
         className={[
-          'absolute top-[68px] left-3 bottom-3 z-10',
-          floatingPanel,
+          'absolute top-[68px] left-0 bottom-0 z-10',
+          'bg-card border-r border-border overflow-hidden',
           panelTransition,
-          testerOpen ? 'translate-x-0 opacity-100' : '-translate-x-[calc(100%+12px)] opacity-0 pointer-events-none',
+          testerOpen ? 'translate-x-0 opacity-100' : '-translate-x-full opacity-0 pointer-events-none',
         ].join(' ')}
         style={{ width: savedWidth }}
       >
         {testerOpen && <SavedQueriesPanel onClose={() => setTesterOpen(false)} />}
       </div>
 
-      {/* Layer 1: API Tester overlay — covers the preview area while open,
-          shifted right of the saved-queries rail. */}
+      {/* Layer 1: API Tester — docked, flat. Sits to the right of the saved
+          rail and left of the chat panel (when open). */}
       <div
         className={[
-          'absolute top-[68px] bottom-3 z-10',
-          floatingPanel,
+          'absolute top-[68px] bottom-0 z-10',
+          'bg-card border-l border-border overflow-hidden',
           panelTransition,
           testerOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
         ].join(' ')}
         style={{
-          left: `calc(${savedWidth} + 24px)`,
-          right: chatOpen ? `calc(${chatWidth} + 24px)` : '12px',
+          left: savedWidth,
+          right: chatOpen ? `calc(${chatWidth} + 24px)` : '0',
         }}
       >
         {testerOpen && <ApiTesterPanel onClose={() => setTesterOpen(false)} />}

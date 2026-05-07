@@ -21,7 +21,7 @@ from ..repositories.api_test_repository import ApiTestRepository
 from .app_service import AppService
 from ..db.models import ApiTestExecutionModel
 from ..schemas.app_builder import AppBuilderChatRequest
-from .schema_inference import infer_json_schema, truncate_sample
+from .schema_inference import summarize_response
 from .tsx_parser import parse_tsx_file
 
 logger = logging.getLogger(__name__)
@@ -37,6 +37,85 @@ MAX_CONSECUTIVE_ERRORS = 3
 
 def _sse(event: str, data: Any) -> dict[str, Any]:
     return {"event": event, "data": json.dumps(data)}
+
+
+def _format_response_summary(summary: dict[str, Any] | None, lines: list[str]) -> None:
+    """Append the response-summary section to `lines` for an api execution.
+
+    Mirrors the kinds emitted by `summarize_response`. Tolerant of missing
+    fields so a future schema bump doesn't break old rows.
+    """
+    if not summary:
+        return
+    kind = summary.get("kind")
+    partial = " (body was truncated at capture)" if summary.get("partial") else ""
+
+    if kind == "binary":
+        lines.append("")
+        lines.append(
+            f"Binary response{partial} — render as a file download via "
+            "`res.blob()` + `URL.createObjectURL()`."
+        )
+        if summary.get("filename"):
+            lines.append(f"Suggested filename: `{summary['filename']}`")
+        if summary.get("decode_error"):
+            lines.append(f"_Note: {summary['decode_error']}_")
+        return
+
+    if kind == "json":
+        schema = summary.get("schema", {})
+        sample = summary.get("sample")
+        lines.append("")
+        lines.append(f"### Response Schema{partial}")
+        lines.append(f"```json\n{json.dumps(schema, indent=2)}\n```")
+        if sample is not None:
+            lines.append("")
+            lines.append("### Response Sample (truncated)")
+            lines.append(f"```json\n{json.dumps(sample, indent=2)}\n```")
+        if summary.get("note"):
+            lines.append(f"_Note: {summary['note']}_")
+        return
+
+    if kind == "csv":
+        delim = summary.get("delimiter", ",")
+        label = "TSV" if delim == "\t" else "CSV"
+        lines.append("")
+        lines.append(f"### Response Template ({label}){partial}")
+        if summary.get("header"):
+            lines.append(f"- Header: `{summary['header']}`")
+        lines.append(f"- Approx rows: {summary.get('row_count', 0)}")
+        return
+
+    if kind == "xml":
+        lines.append("")
+        lines.append(f"### Response Template (XML){partial}")
+        if summary.get("root"):
+            lines.append(f"- Root: `<{summary['root']}>`")
+        tags = summary.get("tags") or []
+        if tags:
+            lines.append(f"- Tags seen: {', '.join(f'`<{t}>`' for t in tags)}")
+        return
+
+    if kind == "yaml":
+        lines.append("")
+        lines.append(f"### Response Template (YAML){partial}")
+        keys = summary.get("top_keys") or []
+        if keys:
+            lines.append(f"- Top-level keys: {', '.join(f'`{k}`' for k in keys)}")
+        else:
+            lines.append("- (no top-level keys detected)")
+        return
+
+    if kind == "text":
+        snippet = summary.get("snippet", "")
+        if snippet:
+            lines.append("")
+            lines.append(f"```\n{snippet}\n```")
+        if summary.get("decode_error"):
+            lines.append(f"_Note: {summary['decode_error']}_")
+        return
+
+    # Unknown kind — emit nothing rather than raw JSON dump.
 
 
 def _tool_call_signature(tool_calls: list) -> str:
@@ -708,17 +787,16 @@ class AppBuilderAIService:
     def _api_execution_context(self, ex: ApiTestExecutionModel) -> str:
         """Render a captured API test execution as system-prompt context.
 
-        The generated app must reproduce this request verbatim — same URL,
-        method, headers, and body shape. Response sample helps the LLM
-        infer how to render the result.
+        Reads the persisted `response_summary` if available; falls back to
+        live computation for old rows that pre-date the column. Either way,
+        no raw body bytes go into the prompt.
         """
-        import base64
-
         label = ex.name or f"{ex.method} {ex.url}"
         lines = [
             f'## Attached Endpoint: "{label}"',
             "",
             "Use the **exact** url, method, headers, and body shape below in your generated `fetch()` call.",
+            "If the schema doesn't tell you what you need (enum values, auth, date format, etc.), ask the user before guessing.",
             "",
             "### Request",
             "```typescript",
@@ -732,15 +810,12 @@ class AppBuilderAIService:
             lines.append(f"  headers: {{ {header_pairs} }},")
 
         if ex.request_body_text is not None and ex.method.upper() not in ("GET", "HEAD"):
-            # Quote the body verbatim. The LLM can substitute placeholders if
-            # the user wants the UI to control the inputs.
             lines.append(f"  body: {json.dumps(ex.request_body_text)},")
 
         lines.append("});")
         lines.append("```")
 
         # ── Response info ────────────────────────────────────────────
-        ctype = (ex.response_content_type or "").lower()
         lines.append("")
         lines.append("### Response")
         lines.append(f"- **Status:** {ex.response_status}")
@@ -748,49 +823,18 @@ class AppBuilderAIService:
             lines.append(f"- **Content-Type:** `{ex.response_content_type}`")
         lines.append(f"- **Size:** {ex.response_size} bytes")
 
-        is_json = "json" in ctype
-        # OOXML mimes (xlsx, docx, pptx) embed "spreadsheetml" / "wordprocessingml"
-        # / "presentationml" — they are binary zips, not text.
-        is_text = (
-            is_json
-            or ctype.startswith("text/")
-            or ctype.startswith("application/xml")
-            or ctype.endswith("+xml")
-            or "yaml" in ctype
-        )
-
-        if ex.response_body_b64 and is_text:
-            try:
-                decoded = base64.b64decode(ex.response_body_b64).decode("utf-8", errors="replace")
-            except Exception:
-                decoded = ""
-            if decoded:
-                if is_json:
-                    try:
-                        parsed = json.loads(decoded)
-                        schema = infer_json_schema(parsed)
-                        sample = truncate_sample(parsed, max_items=3)
-                        lines.append("")
-                        lines.append("### Response Schema")
-                        lines.append(f"```json\n{json.dumps(schema, indent=2)}\n```")
-                        lines.append("")
-                        lines.append("### Response Sample")
-                        lines.append(f"```json\n{json.dumps(sample, indent=2)}\n```")
-                    except Exception:
-                        lines.append("")
-                        lines.append(f"```\n{decoded[:2000]}\n```")
-                else:
-                    lines.append("")
-                    lines.append(f"```\n{decoded[:2000]}\n```")
-        elif ex.response_body_b64:
-            disp = (ex.response_headers or {}).get("content-disposition", "")
-            lines.append("")
-            lines.append(
-                f"Binary response — render as a file download via `res.blob()` + `URL.createObjectURL()`."
+        summary = ex.response_summary
+        if summary is None and ex.response_body_b64:
+            # Back-compat: old rows captured before response_summary existed.
+            # Compute live (and cheaply — same logic, just not persisted).
+            summary = summarize_response(
+                response_body_b64=ex.response_body_b64,
+                content_type=ex.response_content_type,
+                response_truncated=ex.response_truncated,
+                response_headers=ex.response_headers,
             )
-            if disp:
-                lines.append(f"Content-Disposition: `{disp}`")
 
+        _format_response_summary(summary, lines)
         return "\n".join(lines)
 
     # ── File Resolution ───────────────────────────────────────────────

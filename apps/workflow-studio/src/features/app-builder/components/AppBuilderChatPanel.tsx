@@ -116,7 +116,7 @@ function renderExtra(msg: AppChatMessage) {
   const files = payload?.files
 
   return (
-    <div className="rounded-md border border-border/50 bg-muted/50 px-2.5 py-1.5 flex items-center gap-2 flex-wrap">
+    <div className="rounded-md border border-border bg-muted px-2.5 py-1.5 flex items-center gap-2 flex-wrap">
       <span className="text-xs text-muted-foreground">App updated</span>
       {files?.map((f) => (
         <TaskItemFile key={f.path}>
@@ -226,7 +226,7 @@ export function AppBuilderChatPanel({
         renderReasoning={renderReasoning}
         renderToolCalls={renderToolCalls}
         renderAssistantContent={(msg) => (
-          <div className="prose prose-sm prose-neutral dark:prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_pre]:bg-background/50 [&_pre]:rounded [&_pre]:p-2 [&_pre]:text-xs [&_code]:text-xs [&_code]:bg-background/50 [&_code]:px-1 [&_code]:rounded [&_p]:my-1.5 [&_ul]:my-1.5 [&_ol]:my-1.5 [&_li]:my-0.5">
+          <div className="prose prose-sm prose-neutral dark:prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_pre]:bg-muted [&_pre]:rounded [&_pre]:p-2 [&_pre]:text-xs [&_code]:text-xs [&_code]:bg-muted [&_code]:px-1 [&_code]:rounded [&_p]:my-1.5 [&_ul]:my-1.5 [&_ol]:my-1.5 [&_li]:my-0.5">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
           </div>
         )}

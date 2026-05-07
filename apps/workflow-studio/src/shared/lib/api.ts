@@ -374,10 +374,11 @@ export interface ApiTestExecutionListItem {
 }
 
 export const apiTesterApi = {
-  execute: (body: ApiTestExecuteBody): Promise<ApiTestExecution> => {
+  execute: (body: ApiTestExecuteBody, signal?: AbortSignal): Promise<ApiTestExecution> => {
     return apiFetch('/api-tester/execute', {
       method: 'POST',
       body: JSON.stringify(body),
+      signal,
     });
   },
 

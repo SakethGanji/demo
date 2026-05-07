@@ -338,6 +338,10 @@ CREATE TABLE IF NOT EXISTS api_test_executions (
     response_size          INTEGER NOT NULL DEFAULT 0,
     response_body_b64      TEXT,
     response_truncated     BOOLEAN NOT NULL DEFAULT FALSE,
+    -- Pre-computed compact view of the response (schema/template/snippet)
+    -- for the LLM context renderer — avoids re-decoding b64 each chat turn.
+    -- See services.schema_inference.summarize_response for the shape.
+    response_summary       JSONB,
     latency_ms             DOUBLE PRECISION,
     error                  TEXT,
     created_at             TIMESTAMP NOT NULL DEFAULT now(),

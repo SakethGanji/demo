@@ -465,6 +465,13 @@ class ApiTestExecutionModel(SQLModel, table=True):
     response_size: int = Field(default=0)
     response_body_b64: str | None = Field(default=None)
     response_truncated: bool = Field(default=False)
+    # Pre-computed compact view of the response (schema/template/snippet)
+    # for the LLM context renderer — avoids re-decoding b64 each chat turn.
+    # See `services.schema_inference.summarize_response` for the shape.
+    response_summary: dict[str, Any] | None = Field(
+        default=None,
+        sa_column=Column(JSONB, nullable=True),
+    )
     latency_ms: float | None = Field(default=None)
     error: str | None = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.now)

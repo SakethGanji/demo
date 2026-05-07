@@ -25,6 +25,7 @@ from ..schemas.api_tester import (
     ApiTestExecutionResponse,
 )
 from ..schemas.common import SuccessResponse
+from ..services.schema_inference import summarize_response
 from ..utils.ids import generate_id
 
 logger = logging.getLogger(__name__)
@@ -113,6 +114,18 @@ async def execute(body: ApiTestExecuteRequest, repo: ApiTestRepoDep) -> ApiTestE
         row.response_body_b64 = base64.b64encode(stored).decode("ascii")
         row.response_truncated = truncated
         row.latency_ms = elapsed_ms
+        # Pre-compute the LLM-context summary once, here, instead of redoing
+        # the decode/parse work on every app-builder chat turn.
+        try:
+            row.response_summary = summarize_response(
+                response_body_b64=row.response_body_b64,
+                content_type=row.response_content_type,
+                response_truncated=row.response_truncated,
+                response_headers=row.response_headers,
+            )
+        except Exception as e:  # never fail capture due to summary issues
+            logger.warning("response_summary computation failed: %s", e)
+            row.response_summary = None
     except httpx.HTTPError as e:
         row.latency_ms = round((perf_counter() - start) * 1000, 2)
         row.error = f"{type(e).__name__}: {e}"

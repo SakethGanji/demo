@@ -53,7 +53,7 @@ function ConsoleTab() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="flex items-center px-3 py-1 border-b border-border/50 bg-muted/30 shrink-0">
+      <div className="flex items-center px-3 py-1 border-b border-border bg-muted shrink-0">
         <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
           Console ({entries.length})
         </span>
