@@ -157,7 +157,8 @@ async def run_workflow(
     """Run a saved workflow with optional input data."""
     try:
         input_data = body.input_data if body else None
-        return await service.run_workflow(workflow_id, input_data)
+        environment = body.environment if body else "default"
+        return await service.run_workflow(workflow_id, input_data, environment=environment)
     except WorkflowNotFoundError as e:
         raise HTTPException(status_code=404, detail=e.message)
     except WorkflowExecutionError as e:

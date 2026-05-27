@@ -15,18 +15,37 @@ services:
       timeout: 3s
       retries: 5
 
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin
+    volumes:
+      - mongodata:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   app:
     build: .
     ports:
       - "8000:8000"
     environment:
       WORKFLOW_DATABASE_URL: postgresql+asyncpg://workflow:workflow@postgres:5432/workflows
+      WORKFLOW_MONGO_URL: mongodb://admin:admin@mongo:27017
       WORKFLOW_ENCRYPTION_KEY: ${WORKFLOW_ENCRYPTION_KEY:-}
       WORKFLOW_DEBUG: "false"
       WORKFLOW_RELOAD: "false"
     depends_on:
       postgres:
         condition: service_healthy
+      mongo:
+        condition: service_healthy
 
 volumes:
   pgdata:
+  mongodata:

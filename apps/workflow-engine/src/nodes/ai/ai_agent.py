@@ -2461,17 +2461,29 @@ class AIAgentNode(BaseNode):
 
         prefix = f"'{path}': " if path else ""
 
-        # Type check
+        # Type check — handle JSON Schema's single-type strings and list-of-types (nullable)
         expected_type = schema.get("type")
-        if expected_type and expected_type in type_map:
-            py_type = type_map[expected_type]
-            if not isinstance(data, py_type):
+        type_candidates: list[str] = []
+        if isinstance(expected_type, str):
+            type_candidates = [expected_type]
+        elif isinstance(expected_type, list):
+            type_candidates = [t for t in expected_type if isinstance(t, str)]
+        if type_candidates:
+            def _matches(t: str) -> bool:
+                if t == "null":
+                    return data is None
+                py = type_map.get(t)
+                if py is None:
+                    return True  # unknown type — skip
+                if isinstance(data, py):
+                    return True
                 # Allow int for number type
-                if expected_type == "number" and isinstance(data, int):
-                    pass
-                else:
-                    errors.append(f"{prefix}expected {expected_type}, got {type(data).__name__}")
-                    return errors
+                if t == "number" and isinstance(data, int):
+                    return True
+                return False
+            if not any(_matches(t) for t in type_candidates):
+                errors.append(f"{prefix}expected {expected_type}, got {type(data).__name__}")
+                return errors
 
         # Enum check
         if "enum" in schema and data not in schema["enum"]:

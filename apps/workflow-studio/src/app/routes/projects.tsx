@@ -13,6 +13,7 @@ import {
   FolderOpen,
   AppWindow,
   Workflow,
+  Upload,
 } from 'lucide-react';
 import { useState, useMemo, useEffect } from 'react';
 
@@ -34,7 +35,8 @@ import { AppListRow } from '@/features/projects/components/AppListRow';
 import { useWorkflows } from '@/features/projects/hooks/useWorkflows';
 import { useLatestExecutions } from '@/features/projects/hooks/useLatestExecutions';
 import { useApps } from '@/features/projects/hooks/useApps';
-import { useCreateApp } from '@/features/projects/hooks/useAppActions';
+import { useCreateApp, useImportApp } from '@/features/projects/hooks/useAppActions';
+import { useImportWorkflow } from '@/features/workflow-editor/hooks/useWorkflowApi';
 import { useWorkflowStore } from '@/features/workflow-editor/stores/workflowStore';
 import { useTheme } from '@/shared/components/theme-provider';
 
@@ -75,6 +77,26 @@ function ProjectsPage() {
   const { data: latestExecutions } = useLatestExecutions();
   const { data: apps, isLoading: appsLoading } = useApps();
   const { isCreating, handleCreate: handleCreateApp } = useCreateApp();
+  const { isImporting: isImportingApp, promptForFileAndImport: promptImportApp } = useImportApp();
+  const { importWorkflow, isImporting: isImportingWorkflow } = useImportWorkflow();
+
+  // Opens a file picker, reads JSON, then hands the contents to `importWorkflow`.
+  // Mirrors the app-side `promptForFileAndImport`, but workflow's hook expects
+  // a JSON string instead of doing the dialog itself.
+  const promptImportWorkflow = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json,.json';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const text = await file.text();
+      await importWorkflow(text);
+    };
+    input.click();
+  };
+
+  const isImporting = isImportingApp || isImportingWorkflow;
 
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<SortBy>('newest');
@@ -238,6 +260,32 @@ function ProjectsPage() {
             <Sun className="h-3.5 w-3.5 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
             <Moon className="absolute h-3.5 w-3.5 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
           </button>
+
+          {/* Import dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              className={btnClass}
+              title={isImporting ? 'Importing…' : 'Import from JSON'}
+            >
+              <Upload size={14} strokeWidth={2.25} />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onClick={promptImportWorkflow}
+                disabled={isImportingWorkflow}
+              >
+                <Workflow className="h-4 w-4 mr-2" />
+                {isImportingWorkflow ? 'Importing…' : 'Import Workflow'}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={promptImportApp}
+                disabled={isImportingApp}
+              >
+                <AppWindow className="h-4 w-4 mr-2" />
+                {isImportingApp ? 'Importing…' : 'Import App'}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           {/* New dropdown */}
           <DropdownMenu>

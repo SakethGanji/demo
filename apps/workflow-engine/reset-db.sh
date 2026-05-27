@@ -11,7 +11,7 @@ docker run -d --name "$NAME" \
   -e POSTGRES_USER=workflow \
   -e POSTGRES_PASSWORD=workflow \
   -e POSTGRES_DB=workflows \
-  -p 5433:5432 \
+  -p 5432:5432 \
   postgres:16
 
 echo "Waiting for PostgreSQL to be ready..."

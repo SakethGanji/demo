@@ -108,6 +108,20 @@ class WebhookService:
                 stored.id,
             )
 
+        # Resolve {{ $vars.X }} in caller payload (body + headers + query)
+        # before the workflow sees it. Env selected from X-Env header / ?env=
+        # query param; both are stripped from the workflow's view so they don't
+        # leak into $json.headers / $json.query.
+        from .variable_loader import load_run_variables, load_run_secrets
+        from .vars_substitution import substitute_vars
+
+        env = headers.pop("x-env", None) or query_params.pop("env", None) or "default"
+        variables = await load_run_variables(environment=env)
+        secrets = await load_run_secrets(environment=env)
+        body = substitute_vars(body, variables)
+        headers = substitute_vars(headers, variables)
+        query_params = substitute_vars(query_params, variables)
+
         # Build webhook data (includes raw body for signature verification etc.)
         webhook_data = NodeData(
             json={
@@ -124,15 +138,17 @@ class WebhookService:
         response_mode = webhook_node.parameters.get("responseMode", "onReceived")
 
         if response_mode == "onReceived":
-            return await self._handle_on_received(stored, webhook_node, webhook_data)
+            return await self._handle_on_received(stored, webhook_node, webhook_data, variables, secrets)
         else:
-            return await self._handle_last_node(stored, webhook_node, webhook_data)
+            return await self._handle_last_node(stored, webhook_node, webhook_data, variables, secrets)
 
     async def _handle_on_received(
         self,
         stored: StoredWorkflow,
         webhook_node: NodeDefinition,
         webhook_data: NodeData,
+        variables: dict[str, str],
+        secrets: set[str],
     ) -> dict[str, Any]:
         """Respond immediately and execute workflow in the background."""
         from ..utils.ids import execution_id
@@ -141,7 +157,7 @@ class WebhookService:
         # Fire-and-forget background execution with registry tracking
         from ..engine import execution_registry
         task = asyncio.create_task(
-            self._run_background(stored, webhook_node, webhook_data, exec_id)
+            self._run_background(stored, webhook_node, webhook_data, exec_id, variables, secrets)
         )
         execution_registry.register(exec_id, task)
 
@@ -157,6 +173,8 @@ class WebhookService:
         webhook_node: NodeDefinition,
         webhook_data: NodeData,
         execution_id: str,
+        variables: dict[str, str],
+        secrets: set[str],
     ) -> None:
         """Run workflow in background and save execution with its own DB session."""
         from ..engine.workflow_runner import WorkflowRunner
@@ -178,6 +196,8 @@ class WebhookService:
                 "webhook",
                 workflow_repository=self._workflow_repo,
                 execution_id=execution_id,
+                variables=variables,
+                secret_values=secrets,
             )
 
             # Use a fresh DB session for background persistence
@@ -216,6 +236,8 @@ class WebhookService:
         stored: StoredWorkflow,
         webhook_node: NodeDefinition,
         webhook_data: NodeData,
+        variables: dict[str, str],
+        secrets: set[str],
     ) -> dict[str, Any] | WebhookResponse:
         """Execute workflow synchronously and return last node's output."""
         from ..engine.workflow_runner import WorkflowRunner
@@ -233,6 +255,8 @@ class WebhookService:
             "webhook",
             workflow_repository=self._workflow_repo,
             execution_id=exec_id,
+            variables=variables,
+            secret_values=secrets,
         )
 
         await self._execution_repo.complete(context, stored.id, stored.name)

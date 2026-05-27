@@ -12,6 +12,10 @@ class RunWorkflowRequest(BaseModel):
         default=None,
         description="Initial input data to pass to the workflow",
     )
+    environment: str = Field(
+        default="default",
+        description="Which variable environment to resolve $vars against",
+    )
 
 
 class ExecutionErrorSchema(BaseModel):

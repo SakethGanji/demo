@@ -9,6 +9,7 @@ class VariableCreateRequest(BaseModel):
     type: str = Field(default="string", description="string, secret, or number")
     description: str | None = Field(default=None, max_length=500)
     team_id: str = Field(default="default")
+    environment: str = Field(default="default")
 
 
 class VariableUpdateRequest(BaseModel):
@@ -19,7 +20,8 @@ class VariableUpdateRequest(BaseModel):
 class VariableResponse(BaseModel):
     id: int
     key: str
-    value: str
+    environment: str
+    value: str | None  # null when type='secret' — values are write-only via the API
     type: str
     description: str | None
     created_at: str
@@ -29,6 +31,7 @@ class VariableResponse(BaseModel):
 class VariableListItem(BaseModel):
     id: int
     key: str
-    value: str
+    environment: str
+    value: str | None  # null when type='secret'
     type: str
     description: str | None

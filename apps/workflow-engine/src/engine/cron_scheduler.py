@@ -88,12 +88,18 @@ class CronScheduler:
                     )
                 ]
 
+                from ..services.variable_loader import load_run_variables, load_run_secrets
+                variables = await load_run_variables(environment="default")
+                secrets = await load_run_secrets(environment="default")
+
                 context = await runner.run(
                     stored.workflow,
                     start_node.name,
                     initial_data,
                     "cron",
                     workflow_repository=workflow_repo,
+                    variables=variables,
+                    secret_values=secrets,
                 )
 
                 exec_repo = ExecutionRepository(session)

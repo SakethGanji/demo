@@ -268,7 +268,10 @@ class WorkflowService:
         await self._workflow_repo._session.commit()
 
     async def run_workflow(
-        self, workflow_id: str, input_data: dict[str, Any] | None = None
+        self,
+        workflow_id: str,
+        input_data: dict[str, Any] | None = None,
+        environment: str = "default",
     ) -> ExecutionResponse:
         """Run a saved workflow with optional input data.
         Uses published version if available, falls back to draft."""
@@ -277,8 +280,15 @@ class WorkflowService:
             raise WorkflowNotFoundError(workflow_id)
 
         from ..db.session import async_session_factory
+        from .variable_loader import load_run_variables, load_run_secrets
+        from .vars_substitution import substitute_vars
         runner = WorkflowRunner(db_session_factory=async_session_factory)
         start_node = runner.find_start_node(stored.workflow)
+        variables = await load_run_variables(environment=environment)
+        secrets = await load_run_secrets(environment=environment)
+        # Resolve any {{ $vars.X }} placeholders in the caller's payload before
+        # the workflow sees it — secret never leaves the backend.
+        input_data = substitute_vars(input_data, variables)
 
         if not start_node:
             raise WorkflowExecutionError(
@@ -322,6 +332,8 @@ class WorkflowService:
             mode,
             workflow_repository=self._workflow_repo,
             execution_id=exec_id,
+            variables=variables,
+            secret_values=secrets,
         )
         await self._execution_repo.complete(context, stored.id, stored.name)
 
@@ -332,8 +344,15 @@ class WorkflowService:
         self._validate_workflow(request)
         internal_workflow = self._request_to_workflow(request)
 
+        from .variable_loader import load_run_variables, load_run_secrets
+        from .vars_substitution import substitute_vars
         runner = WorkflowRunner()
         start_node = runner.find_start_node(internal_workflow)
+        variables = await load_run_variables(environment=request.environment)
+        secrets = await load_run_secrets(environment=request.environment)
+        # Resolve {{ $vars.X }} in the caller payload before the workflow runs.
+        if request.input_data is not None:
+            request.input_data = substitute_vars(request.input_data, variables)
 
         if not start_node:
             raise WorkflowExecutionError("No start node found in workflow")
@@ -376,6 +395,8 @@ class WorkflowService:
             mode,
             workflow_repository=self._workflow_repo,
             execution_id=exec_id,
+            variables=variables,
+            secret_values=secrets,
         )
         await self._execution_repo.complete(context, wf_id, internal_workflow.name)
 

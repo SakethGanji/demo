@@ -23,6 +23,7 @@ from ..schemas.api_tester import (
     ApiTestExecutionListItem,
     ApiTestExecutionRenameRequest,
     ApiTestExecutionResponse,
+    ApiTestFileMeta,
 )
 from ..schemas.common import SuccessResponse
 from ..services.schema_inference import summarize_response
@@ -41,6 +42,9 @@ ApiTestRepoDep = Annotated[ApiTestRepository, Depends(get_api_test_repository)]
 
 
 def _to_response(row: ApiTestExecutionModel) -> ApiTestExecutionResponse:
+    files_meta = (
+        [ApiTestFileMeta(**f) for f in row.request_files] if row.request_files else None
+    )
     return ApiTestExecutionResponse(
         id=row.id,
         name=row.name,
@@ -48,6 +52,7 @@ def _to_response(row: ApiTestExecutionModel) -> ApiTestExecutionResponse:
         url=row.url,
         request_headers=row.request_headers or {},
         request_body_text=row.request_body_text,
+        request_files=files_meta,
         response_status=row.response_status,
         response_headers=row.response_headers or {},
         response_content_type=row.response_content_type,
@@ -86,20 +91,56 @@ async def execute(body: ApiTestExecuteRequest, repo: ApiTestRepoDep) -> ApiTestE
 
     headers = {k: v for k, v in (body.headers or {}).items() if k and v is not None}
 
+    # Multipart: decode each file, hand httpx files=/data= so it generates the
+    # correct boundary header. Drop any user-supplied Content-Type — keeping it
+    # would override httpx's boundary and produce an unparseable request.
+    is_multipart = bool(body.files)
+    httpx_files: list[tuple[str, tuple[str, bytes, str]]] | None = None
+    files_meta: list[dict[str, Any]] | None = None
+    if is_multipart:
+        httpx_files = []
+        files_meta = []
+        for f in body.files:
+            try:
+                raw = base64.b64decode(f.content_b64)
+            except Exception as e:
+                raise HTTPException(
+                    status_code=400, detail=f"Invalid base64 for file {f.filename!r}: {e}"
+                ) from e
+            ctype = f.content_type or "application/octet-stream"
+            httpx_files.append((f.field, (f.filename, raw, ctype)))
+            files_meta.append(
+                {"field": f.field, "filename": f.filename, "size": len(raw), "content_type": ctype}
+            )
+        for k in list(headers):
+            if k.lower() == "content-type":
+                headers.pop(k)
+
     row = ApiTestExecutionModel(
         id=generate_id("apit"),
         name=body.name,
         method=method,
         url=body.url,
         request_headers=headers,
-        request_body_text=body.body,
+        # Persist only the text part for replay; file bytes are not stored.
+        request_body_text=body.body if not is_multipart else None,
+        request_files=files_meta,
     )
 
     start = perf_counter()
     try:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
-            content = body.body.encode("utf-8") if body.body is not None else None
-            resp = await client.request(method, body.url, headers=headers, content=content)
+            if is_multipart:
+                resp = await client.request(
+                    method,
+                    body.url,
+                    headers=headers,
+                    files=httpx_files,
+                    data=body.form_fields or None,
+                )
+            else:
+                content = body.body.encode("utf-8") if body.body is not None else None
+                resp = await client.request(method, body.url, headers=headers, content=content)
 
         elapsed_ms = round((perf_counter() - start) * 1000, 2)
 

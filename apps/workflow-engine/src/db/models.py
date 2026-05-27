@@ -381,17 +381,19 @@ class SharedCredentialModel(SQLModel, table=True):
 
 
 class VariableModel(SQLModel, table=True):
-    """Team-scoped key-value variables (like env vars for workflows)."""
+    """Team-scoped key-value variables (like env vars for workflows), scoped per environment."""
 
     __tablename__ = "variables"
     __table_args__ = (
-        Index("idx_variables_team_key", "team_id", "key", unique=True),
+        Index("idx_variables_team_env_key", "team_id", "environment", "key", unique=True),
+        Index("ix_variables_team_env", "team_id", "environment"),
     )
 
     id: int | None = Field(default=None, sa_column=Column(Integer, primary_key=True, autoincrement=True))
     team_id: str = Field(foreign_key="teams.id", index=True)
+    environment: str = Field(default="default")
     key: str
-    value: str
+    value: str  # Fernet ciphertext when type='secret', otherwise plaintext.
     type: str = Field(default="string")  # string, secret, number
     description: str | None = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.now)
@@ -456,6 +458,13 @@ class ApiTestExecutionModel(SQLModel, table=True):
         sa_column=Column(JSONB, nullable=False, server_default="{}"),
     )
     request_body_text: str | None = Field(default=None)
+    # Multipart upload metadata (no bytes): list of
+    # {field, filename, size, content_type}. Null when the request is not
+    # multipart. Replays require the user to re-attach files.
+    request_files: list[dict[str, Any]] | None = Field(
+        default=None,
+        sa_column=Column(JSONB, nullable=True),
+    )
     response_status: int | None = Field(default=None)
     response_headers: dict[str, Any] = Field(
         default_factory=dict,

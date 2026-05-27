@@ -12,12 +12,13 @@ import logging
 import math
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
 from simpleeval import EvalWithCompoundTypes, DEFAULT_FUNCTIONS, DEFAULT_OPERATORS
 
+from .logging import execution_variables_var
 from .types import NodeData
 
 logger = logging.getLogger(__name__)
@@ -30,9 +31,10 @@ class ExpressionContext:
     json_data: dict[str, Any]  # $json
     input_data: list[NodeData]  # $input
     node_data: dict[str, dict[str, Any]]  # $node
-    env: dict[str, str | None]  # $env
+    env: dict[str, str | None]  # $env (OS env)
     execution: dict[str, str]  # $execution
     item_index: int  # $itemIndex
+    vars: dict[str, str] = field(default_factory=dict)  # $vars (team-defined, env-scoped)
 
 
 class ExpressionEngine:
@@ -266,6 +268,10 @@ class ExpressionEngine:
         result = re.sub(r"\$env\.(\w+)", r'env.get("\1")', result)
         result = result.replace("$env", "env")
 
+        # Handle $vars.KEY -> vars.get("KEY") (team-defined, env-scoped secrets/values)
+        result = re.sub(r"\$vars\.(\w+)", r'vars.get("\1")', result)
+        result = result.replace("$vars", "vars")
+
         # Handle $execution -> execution
         result = result.replace("$execution", "execution")
 
@@ -282,6 +288,7 @@ class ExpressionEngine:
             "env": context.env,
             "execution": context.execution,
             "item_index": context.item_index,
+            "vars": context.vars,
         }
 
         # Flatten $node access: node_NodeName_json
@@ -400,6 +407,7 @@ class ExpressionEngine:
         node_states: dict[str, list[NodeData]],
         execution_id: str,
         item_index: int = 0,
+        variables: dict[str, str] | None = None,
     ) -> ExpressionContext:
         """Create expression context from execution state."""
         current_item = current_data[item_index] if item_index < len(current_data) else NodeData(json={})
@@ -412,6 +420,11 @@ class ExpressionEngine:
                 "data": [d.json for d in data],
             }
 
+        # Fall back to the run-scoped contextvar so per-node call sites
+        # (HTTP, Set, Filter, Switch, etc.) inherit $vars without needing
+        # to pass it explicitly.
+        resolved_vars = variables if variables is not None else execution_variables_var.get({})
+
         return ExpressionContext(
             json_data=current_item.json,
             input_data=current_data,
@@ -419,6 +432,7 @@ class ExpressionEngine:
             env=dict(os.environ),
             execution={"id": execution_id, "mode": "manual"},
             item_index=item_index,
+            vars=resolved_vars,
         )
 
 

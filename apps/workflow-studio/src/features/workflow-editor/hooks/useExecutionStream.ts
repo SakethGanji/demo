@@ -7,6 +7,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { useWorkflowStore } from '../stores/workflowStore';
+import { useEnvProfilesStore } from '../stores/envProfilesStore';
 import { toBackendWorkflow, findUpstreamNodeName, buildNameToIdMap } from '../lib/workflowTransform';
 import { consumeSSEStream } from '@/shared/lib/sseParser';
 import { backends } from '@/shared/lib/config';
@@ -109,10 +110,12 @@ export function useExecutionStream(): UseExecutionStreamResult {
       let url: string;
       let body: string;
 
+      const environment = useEnvProfilesStore.getState().activeEnvironment;
+
       if (workflowId) {
         // Execute saved workflow via POST with optional input data
         url = `${backends.workflow}/execution-stream/${workflowId}`;
-        body = JSON.stringify({ input_data: inputData || null });
+        body = JSON.stringify({ input_data: inputData || null, environment });
       } else {
         // Execute ad-hoc workflow via POST
         const backendWorkflow = toBackendWorkflow(
@@ -124,6 +127,7 @@ export function useExecutionStream(): UseExecutionStreamResult {
         body = JSON.stringify({
           ...backendWorkflow,
           input_data: inputData || null,
+          environment,
         });
       }
 

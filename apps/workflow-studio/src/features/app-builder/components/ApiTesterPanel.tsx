@@ -16,9 +16,11 @@ import {
   Download,
   FileDown,
   FileText,
+  FileUp,
   HardDrive,
   Inbox,
   Loader2,
+  Paperclip,
   Pencil,
   Plus,
   Send,
@@ -37,6 +39,7 @@ import {
   type ApiTestExecuteBody,
   type ApiTestExecution,
   type ApiTestExecutionListItem,
+  type ApiTestFilePart,
 } from '@/shared/lib/api'
 
 // ── Cross-panel state ─────────────────────────────────────────────────────
@@ -69,7 +72,7 @@ const useApiTesterStore = create<ApiTesterStore>((set) => ({
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'] as const
 type Method = (typeof METHODS)[number]
-type BodyMode = 'json' | 'text' | 'form' | 'none'
+type BodyMode = 'json' | 'text' | 'form' | 'multipart' | 'none'
 type RequestTab = 'params' | 'auth' | 'headers' | 'body'
 type ResponseTab = 'pretty' | 'raw' | 'headers'
 type AuthType = 'none' | 'bearer' | 'basic' | 'apikey'
@@ -78,6 +81,31 @@ interface KV {
   key: string
   value: string
   on?: boolean // disable a row without deleting it
+}
+
+/** One row in the multipart/form-data composer. Either a plain text field
+ *  (key/value) or a file field (key + attached file or replay placeholder).
+ *
+ *  `file` is set when the user has just attached a file and we have its bytes
+ *  in memory (base64). `meta` is set when a saved execution has been loaded —
+ *  we only have metadata, not the bytes, so the user must re-attach to resend.
+ *  Both can never be set at once. */
+interface MultipartRow {
+  kind: 'text' | 'file'
+  key: string
+  value: string  // text value when kind === 'text'
+  on?: boolean
+  file?: {
+    name: string
+    size: number
+    type: string
+    content_b64: string
+  }
+  meta?: {
+    filename: string
+    size: number
+    content_type: string | null
+  }
 }
 
 interface AuthState {
@@ -139,6 +167,20 @@ function isText(ctype: string | null | undefined) {
 
 function isJson(ctype: string | null | undefined) {
   return !!ctype && ctype.toLowerCase().includes('json')
+}
+
+/** Read a File into a base64 string (no `data:` prefix), suitable for the
+ *  `content_b64` field on an ApiTestFilePart. Uses a chunked encoder to avoid
+ *  call-stack overflow on large files. */
+async function fileToBase64(file: File): Promise<string> {
+  const buf = await file.arrayBuffer()
+  const bytes = new Uint8Array(buf)
+  let binary = ''
+  const chunk = 0x8000
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
+  }
+  return btoa(binary)
 }
 
 function decodeB64(b64: string): { text: string; bytes: Uint8Array } {
@@ -425,6 +467,9 @@ export function ApiTesterPanel({ onClose }: { onClose?: () => void }) {
     '{\n  "filename": "report",\n  "rows": 10,\n  "title": "Test"\n}',
   )
   const [formRows, setFormRows] = useState<KV[]>([{ key: '', value: '', on: true }])
+  const [multipartRows, setMultipartRows] = useState<MultipartRow[]>([
+    { kind: 'file', key: 'file', value: '', on: true },
+  ])
 
   // Auth (merged into headers/params at send-time, not in `headers` state)
   const [auth, setAuth] = useState<AuthState>(EMPTY_AUTH)
@@ -480,6 +525,8 @@ export function ApiTesterPanel({ onClose }: { onClose?: () => void }) {
     }
 
     let bodyToSend: string | null = null
+    let filesToSend: ApiTestFilePart[] | undefined
+    let formFieldsToSend: Record<string, string> | undefined
     if (!['GET', 'HEAD'].includes(method)) {
       if (bodyMode === 'json' || bodyMode === 'text') {
         bodyToSend = bodyText || null
@@ -490,6 +537,34 @@ export function ApiTesterPanel({ onClose }: { onClose?: () => void }) {
           .map((r) => `${encodeURIComponent(r.key.trim())}=${encodeURIComponent(r.value)}`)
           .join('&')
         if (!headerObj['Content-Type']) headerObj['Content-Type'] = 'application/x-www-form-urlencoded'
+      } else if (bodyMode === 'multipart') {
+        // Backend handles boundary — strip user-supplied Content-Type so it
+        // isn't double-set.
+        for (const k of Object.keys(headerObj)) {
+          if (k.toLowerCase() === 'content-type') delete headerObj[k]
+        }
+        const live = multipartRows.filter((r) => r.on !== false && r.key.trim())
+        const placeholders = live.filter((r) => r.kind === 'file' && !r.file && r.meta)
+        if (placeholders.length > 0) {
+          return toast.error(
+            `Re-attach ${placeholders.length} file${placeholders.length > 1 ? 's' : ''} — bytes aren't stored on save`,
+          )
+        }
+        const fileRows = live.filter((r) => r.kind === 'file' && r.file)
+        if (fileRows.length === 0) {
+          return toast.error('Attach at least one file or switch body mode')
+        }
+        filesToSend = fileRows.map((r) => ({
+          field: r.key.trim(),
+          filename: r.file!.name,
+          content_type: r.file!.type || null,
+          content_b64: r.file!.content_b64,
+        }))
+        const fields: Record<string, string> = {}
+        for (const r of live) {
+          if (r.kind === 'text' && r.key.trim()) fields[r.key.trim()] = r.value
+        }
+        if (Object.keys(fields).length > 0) formFieldsToSend = fields
       }
     }
 
@@ -503,6 +578,8 @@ export function ApiTesterPanel({ onClose }: { onClose?: () => void }) {
           url: urlForSend,
           headers: headerObj,
           body: bodyToSend,
+          files: filesToSend,
+          form_fields: formFieldsToSend,
         },
         signal: ctrl.signal,
       })
@@ -541,9 +618,21 @@ export function ApiTesterPanel({ onClose }: { onClose?: () => void }) {
       setHeaders(
         Object.entries(exec.request_headers || {}).map(([k, v]) => ({ key: k, value: String(v), on: true })),
       )
-      // Try to detect body mode from content-type
+      // Try to detect body mode from content-type or saved file metadata.
+      // request_files takes priority — it's the unambiguous multipart signal.
       const ct = String((exec.request_headers as Record<string, string>)?.['Content-Type'] || '').toLowerCase()
-      if (ct.includes('form')) {
+      if (exec.request_files && exec.request_files.length > 0) {
+        setBodyMode('multipart')
+        setMultipartRows(
+          exec.request_files.map((m) => ({
+            kind: 'file' as const,
+            key: m.field,
+            value: '',
+            on: true,
+            meta: { filename: m.filename, size: m.size, content_type: m.content_type },
+          })),
+        )
+      } else if (ct.includes('form') && !ct.includes('multipart')) {
         setBodyMode('form')
         const rows: KV[] = []
         for (const pair of (exec.request_body_text || '').split('&')) {
@@ -581,7 +670,7 @@ export function ApiTesterPanel({ onClose }: { onClose?: () => void }) {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [method, url, name, headers, params, bodyMode, bodyText, formRows])
+  }, [method, url, name, headers, params, bodyMode, bodyText, formRows, multipartRows])
 
   // Close the name popover on outside click
   useEffect(() => {
@@ -774,6 +863,8 @@ export function ApiTesterPanel({ onClose }: { onClose?: () => void }) {
                   onTextChange={setBodyText}
                   rows={formRows}
                   onRowsChange={setFormRows}
+                  multipartRows={multipartRows}
+                  onMultipartChange={setMultipartRows}
                   method={method}
                 />
               )}
@@ -1051,6 +1142,8 @@ function BodyEditor({
   onTextChange,
   rows,
   onRowsChange,
+  multipartRows,
+  onMultipartChange,
   method,
 }: {
   mode: BodyMode
@@ -1059,6 +1152,8 @@ function BodyEditor({
   onTextChange: (t: string) => void
   rows: KV[]
   onRowsChange: (r: KV[]) => void
+  multipartRows: MultipartRow[]
+  onMultipartChange: (r: MultipartRow[]) => void
   method: string
 }) {
   const noBody = method === 'GET' || method === 'HEAD'
@@ -1077,6 +1172,7 @@ function BodyEditor({
     { key: 'json', label: 'JSON' },
     { key: 'text', label: 'Raw' },
     { key: 'form', label: 'Form' },
+    { key: 'multipart', label: 'Multipart' },
   ]
 
   return (
@@ -1101,10 +1197,12 @@ function BodyEditor({
       {mode === 'none' ? (
         <div className="flex flex-col items-center justify-center text-center py-10 px-3 rounded-md border border-dashed border-border/40">
           <p className="text-[11px] font-medium text-foreground">No body will be sent</p>
-          <p className="text-[10px] text-muted-foreground mt-1">Pick JSON, Raw, or Form to add request data.</p>
+          <p className="text-[10px] text-muted-foreground mt-1">Pick JSON, Raw, Form, or Multipart to add request data.</p>
         </div>
       ) : mode === 'form' ? (
         <KvEditor rows={rows} onChange={onRowsChange} addLabel="Add field" emptyLabel="No form fields yet" />
+      ) : mode === 'multipart' ? (
+        <MultipartEditor rows={multipartRows} onChange={onMultipartChange} />
       ) : (
         <textarea
           value={text}
@@ -1115,6 +1213,264 @@ function BodyEditor({
         />
       )}
     </div>
+  )
+}
+
+// ── Multipart editor ──────────────────────────────────────────────────────
+//
+// Heterogeneous rows: each is either a "text" field (plain key/value) or a
+// "file" field (key + attached File). For replays from a saved execution,
+// file rows show a metadata-only placeholder — the user must re-attach to
+// resend (we never persist file bytes).
+
+function MultipartEditor({
+  rows,
+  onChange,
+}: {
+  rows: MultipartRow[]
+  onChange: (rows: MultipartRow[]) => void
+}) {
+  const update = (i: number, patch: Partial<MultipartRow>) =>
+    onChange(rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)))
+  const remove = (i: number) => onChange(rows.filter((_, idx) => idx !== i))
+  const addText = () =>
+    onChange([...rows, { kind: 'text', key: '', value: '', on: true }])
+  const addFile = () =>
+    onChange([...rows, { kind: 'file', key: '', value: '', on: true }])
+
+  const handleAttach = async (i: number, files: FileList | null) => {
+    if (!files || files.length === 0) return
+    const f = files[0]
+    try {
+      const content_b64 = await fileToBase64(f)
+      update(i, {
+        file: { name: f.name, size: f.size, type: f.type, content_b64 },
+        meta: undefined,
+      })
+    } catch {
+      toast.error('Failed to read file')
+    }
+  }
+
+  if (rows.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center text-center py-8 px-3 rounded-md border border-dashed border-border/40">
+        <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-2">
+          <Paperclip className="h-3.5 w-3.5 text-muted-foreground/70" />
+        </div>
+        <p className="text-[11px] font-medium text-foreground">No fields yet</p>
+        <div className="mt-2 flex items-center gap-1.5">
+          <button
+            onClick={addFile}
+            className="h-7 px-2.5 inline-flex items-center gap-1 rounded-md text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+          >
+            <FileUp className="h-3 w-3" />
+            Add file
+          </button>
+          <button
+            onClick={addText}
+            className="h-7 px-2.5 inline-flex items-center gap-1 rounded-md text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+          >
+            <Plus className="h-3 w-3" />
+            Add text field
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-1.5">
+      {rows.map((row, i) => {
+        const enabled = row.on !== false
+        return (
+          <div key={i} className="group flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => update(i, { on: !enabled })}
+              className={`shrink-0 h-5 w-5 rounded-md border transition-colors inline-flex items-center justify-center ${
+                enabled
+                  ? 'bg-primary border-primary text-primary-foreground'
+                  : 'bg-background border-border text-transparent hover:bg-accent'
+              }`}
+              title={enabled ? 'Disable row' : 'Enable row'}
+              aria-pressed={enabled}
+            >
+              <Check className="h-3 w-3" />
+            </button>
+            {/* Kind toggle — text vs file. Switching kind clears file/value
+                so the row is in a coherent state. */}
+            <button
+              type="button"
+              onClick={() =>
+                update(i, {
+                  kind: row.kind === 'file' ? 'text' : 'file',
+                  file: undefined,
+                  meta: undefined,
+                  value: '',
+                })
+              }
+              className={`shrink-0 h-7 px-1.5 inline-flex items-center gap-1 rounded-md text-[10px] font-mono uppercase tracking-wider transition-colors ${
+                row.kind === 'file'
+                  ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20'
+                  : 'bg-muted text-muted-foreground hover:bg-accent'
+              }`}
+              title={`Switch to ${row.kind === 'file' ? 'text' : 'file'} field`}
+            >
+              {row.kind === 'file' ? <FileUp className="h-3 w-3" /> : <FileText className="h-3 w-3" />}
+              {row.kind}
+            </button>
+            <Input
+              value={row.key}
+              onChange={(e) => update(i, { key: e.target.value })}
+              placeholder="field name"
+              className={`h-7 text-xs w-[28%] font-mono transition-opacity ${
+                enabled ? '' : 'opacity-50 line-through decoration-muted-foreground/40'
+              }`}
+            />
+            {row.kind === 'text' ? (
+              <Input
+                value={row.value}
+                onChange={(e) => update(i, { value: e.target.value })}
+                placeholder="value"
+                className={`h-7 text-xs flex-1 font-mono transition-opacity ${
+                  enabled ? '' : 'opacity-50 line-through decoration-muted-foreground/40'
+                }`}
+              />
+            ) : (
+              <FileSlot
+                row={row}
+                onPick={(files) => handleAttach(i, files)}
+                onClear={() => update(i, { file: undefined, meta: undefined })}
+                disabled={!enabled}
+              />
+            )}
+            <button
+              onClick={() => remove(i)}
+              className={ICON_BTN + ' opacity-0 group-hover:opacity-100 transition-opacity'}
+              title="Remove row"
+            >
+              <Trash2 className="h-3 w-3" />
+            </button>
+          </div>
+        )
+      })}
+      <div className="flex items-center gap-1.5">
+        <button
+          onClick={addFile}
+          className="flex-1 h-7 px-2 inline-flex items-center justify-center gap-1 rounded-md border border-dashed border-border/50 text-[11px] text-muted-foreground hover:text-foreground hover:border-border hover:bg-accent transition-colors"
+        >
+          <FileUp className="h-3 w-3" />
+          Add file
+        </button>
+        <button
+          onClick={addText}
+          className="flex-1 h-7 px-2 inline-flex items-center justify-center gap-1 rounded-md border border-dashed border-border/50 text-[11px] text-muted-foreground hover:text-foreground hover:border-border hover:bg-accent transition-colors"
+        >
+          <Plus className="h-3 w-3" />
+          Add text field
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/** File picker cell for one multipart file row. Renders three states:
+ *  empty (pick), attached (filename + size, with clear), placeholder
+ *  (re-attach prompt for replays from a saved execution). */
+function FileSlot({
+  row,
+  onPick,
+  onClear,
+  disabled,
+}: {
+  row: MultipartRow
+  onPick: (files: FileList | null) => void
+  onClear: () => void
+  disabled?: boolean
+}) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const open = () => inputRef.current?.click()
+
+  const opacity = disabled ? 'opacity-50' : ''
+
+  if (row.file) {
+    return (
+      <div className={`flex-1 h-7 px-2 inline-flex items-center gap-1.5 rounded-md border border-border bg-background text-[11px] min-w-0 ${opacity}`}>
+        <Paperclip className="h-3 w-3 shrink-0 text-blue-500" />
+        <span className="truncate font-mono" title={row.file.name}>{row.file.name}</span>
+        <span className="shrink-0 text-[10px] text-muted-foreground font-mono">
+          {formatBytes(row.file.size)}
+        </span>
+        <div className="flex-1" />
+        <button
+          onClick={open}
+          className="shrink-0 h-5 px-1.5 text-[10px] rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+          title="Replace"
+        >
+          Replace
+        </button>
+        <button
+          onClick={onClear}
+          className="shrink-0 h-5 w-5 inline-flex items-center justify-center rounded text-muted-foreground hover:text-destructive transition-colors"
+          title="Remove file"
+        >
+          <X className="h-3 w-3" />
+        </button>
+        <input
+          ref={inputRef}
+          type="file"
+          className="hidden"
+          onChange={(e) => onPick(e.target.files)}
+        />
+      </div>
+    )
+  }
+
+  if (row.meta) {
+    // Replay placeholder — bytes weren't persisted, user must re-attach.
+    return (
+      <div className={`flex-1 h-7 px-2 inline-flex items-center gap-1.5 rounded-md border border-dashed border-amber-500/50 bg-amber-500/5 text-[11px] min-w-0 ${opacity}`}>
+        <Paperclip className="h-3 w-3 shrink-0 text-amber-500" />
+        <span className="truncate font-mono text-muted-foreground line-through" title={row.meta.filename}>
+          {row.meta.filename}
+        </span>
+        <span className="shrink-0 text-[10px] text-muted-foreground font-mono">
+          {formatBytes(row.meta.size)}
+        </span>
+        <div className="flex-1" />
+        <button
+          onClick={open}
+          className="shrink-0 h-5 px-1.5 text-[10px] rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition-colors"
+          title="Re-attach to resend"
+        >
+          Re-attach
+        </button>
+        <input
+          ref={inputRef}
+          type="file"
+          className="hidden"
+          onChange={(e) => onPick(e.target.files)}
+        />
+      </div>
+    )
+  }
+
+  return (
+    <button
+      onClick={open}
+      disabled={disabled}
+      className={`flex-1 h-7 px-2 inline-flex items-center gap-1.5 rounded-md border border-dashed border-border/50 text-[11px] text-muted-foreground hover:text-foreground hover:border-border hover:bg-accent transition-colors ${opacity}`}
+    >
+      <FileUp className="h-3 w-3" />
+      Choose file
+      <input
+        ref={inputRef}
+        type="file"
+        className="hidden"
+        onChange={(e) => onPick(e.target.files)}
+      />
+    </button>
   )
 }
 

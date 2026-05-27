@@ -109,6 +109,8 @@ def _get_tool_classes() -> dict[str, type]:
     from .tools.data_aggregate_tool import DataAggregateToolNode
     from .tools.data_sample_tool import DataSampleToolNode
     from .tools.data_report_tool import DataReportToolNode
+    from .tools.mongo_query_tool import MongoQueryToolNode
+    from .tools.api_request_tool import ApiRequestToolNode
 
     return {
         "calculator": CalculatorToolNode,
@@ -123,36 +125,54 @@ def _get_tool_classes() -> dict[str, type]:
         "dataAggregate": DataAggregateToolNode,
         "dataSample": DataSampleToolNode,
         "dataReport": DataReportToolNode,
+        "mongoQuery": MongoQueryToolNode,
+        "apiRequest": ApiRequestToolNode,
     }
 
 
 def resolve_tools(
-    tool_names: list[str],
+    tool_specs: list[str | dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Resolve inline tool selections into tool definitions + executors.
 
-    Args:
-        tool_names: List of tool type keys (e.g. ["calculator", "httpRequest"]).
+    Each entry of ``tool_specs`` is either:
+      - a string tool key (e.g. ``"calculator"``) for tools that don't need
+        per-instance configuration; or
+      - a dict of the form ``{"type": "<key>", "parameters": {...}}`` which
+        threads node-level parameters into the tool's ``get_config()``. This
+        is how the workflow definition supplies, e.g., the Mongo connection
+        string and mandatory filter scope for ``mongoQuery``.
 
     Returns:
-        Tuple of (tools_list, tool_executors_dict) matching the format that
-        AIAgent.execute() already consumes.
+        Tuple of ``(tools_list, tool_executors_dict)`` matching the format
+        ``AIAgent.execute()`` already consumes.
     """
     tools: list[dict[str, Any]] = []
     tool_executors: dict[str, Any] = {}
 
-    if not tool_names:
+    if not tool_specs:
         return tools, tool_executors
 
     classes = _get_tool_classes()
 
-    for tool_key in tool_names:
+    for spec in tool_specs:
+        if isinstance(spec, str):
+            tool_key = spec
+            params: dict[str, Any] = {}
+        elif isinstance(spec, dict):
+            tool_key = spec.get("type") or spec.get("key") or ""
+            raw_params = spec.get("parameters") or spec.get("params") or {}
+            params = raw_params if isinstance(raw_params, dict) else {}
+        else:
+            logger.warning("Tool spec is neither str nor dict: %r", spec)
+            continue
+
         cls = classes.get(tool_key)
         if cls is None:
             logger.warning("Unknown tool type: %s", tool_key)
             continue
 
-        node_def = _SyntheticNodeDef()
+        node_def = _SyntheticNodeDef(parameters=params)
         instance = cls()
         try:
             config = instance.get_config(node_def)

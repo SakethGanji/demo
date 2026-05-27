@@ -114,6 +114,10 @@ class ExecutionContext:
     # Event callback for real-time streaming (passed through to subworkflows)
     on_event: ExecutionEventCallback | None = None
 
+    # Team variables for this run, scoped by environment. Resolved into $vars
+    # in the expression engine. Loaded once per execution from VariableRepository.
+    variables: dict[str, str] = field(default_factory=dict)
+
 
 @dataclass
 class ExecutionError:

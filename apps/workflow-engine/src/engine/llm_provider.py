@@ -396,7 +396,8 @@ async def _call_gemini_vertex(
     # intermittent MALFORMED_FUNCTION_CALL with empty responses.
     # Flash supports budget=0 (fully off), Pro requires minimum 1.
     if "2.5" in model:
-        budget = 1 if "pro" in model else 0
+        # Pro requires >=128 (API error otherwise); Flash supports 0 (fully off).
+        budget = 128 if "pro" in model else 0
         config_kwargs["thinking_config"] = ThinkingConfig(thinking_budget=budget)
     if gemini_tools:
         config_kwargs["tools"] = gemini_tools

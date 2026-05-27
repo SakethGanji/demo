@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     db_password: str | None = None
     db_name: str = "accelerator"
 
+    # Mongo (PromptLab sessions / runs / eval_cache)
+    mongo_url: str = "mongodb://localhost:27017"
+    mongo_db: str = "promptlab"
+
     # Storage
     storage_dir: Path = Path("/tmp/accelerator")  # base for datasets/, samples/
     tus_upload_dir: Path = Path("/tmp/accelerator/tus_uploads")  # local-only staging

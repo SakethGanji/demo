@@ -11,6 +11,24 @@ from pydantic import BaseModel, Field
 HTTP_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
 
 
+class ApiTestFilePart(BaseModel):
+    """One file in a multipart/form-data upload, base64-encoded over the wire."""
+
+    field: str
+    filename: str
+    content_type: str | None = None
+    content_b64: str  # Raw bytes b64-encoded by the client.
+
+
+class ApiTestFileMeta(BaseModel):
+    """Metadata-only persisted record of a multipart file (no bytes)."""
+
+    field: str
+    filename: str
+    content_type: str | None = None
+    size: int
+
+
 class ApiTestExecuteRequest(BaseModel):
     """User-supplied request spec to execute and persist."""
 
@@ -18,7 +36,14 @@ class ApiTestExecuteRequest(BaseModel):
     method: str
     url: str
     headers: dict[str, str] = Field(default_factory=dict)
-    body: str | None = None  # Raw body text. JSON should be pre-stringified.
+    # Raw body text. Used when files is empty. JSON pre-stringified.
+    body: str | None = None
+    # When non-empty the request is sent as multipart/form-data; `body` is
+    # ignored and `headers["Content-Type"]` is overwritten by httpx so the
+    # boundary is correct. Text fields go alongside in `form_fields`.
+    files: list[ApiTestFilePart] = Field(default_factory=list)
+    # Plain text fields included in a multipart upload (paired with files).
+    form_fields: dict[str, str] = Field(default_factory=dict)
 
 
 class ApiTestExecutionResponse(BaseModel):
@@ -30,6 +55,7 @@ class ApiTestExecutionResponse(BaseModel):
     url: str
     request_headers: dict[str, Any]
     request_body_text: str | None
+    request_files: list[ApiTestFileMeta] | None = None
     response_status: int | None
     response_headers: dict[str, Any]
     response_content_type: str | None

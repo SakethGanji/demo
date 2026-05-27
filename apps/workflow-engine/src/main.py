@@ -33,8 +33,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await init_db()
     register_all_nodes()
 
-    # Auto-seed demo workflows in dev (SEED=1)
-    if os.environ.get("SEED", "").strip() in ("1", "true"):
+    # Auto-seed demo workflows in dev. On by default; set SEED=0 to disable.
+    if os.environ.get("SEED", "1").strip().lower() not in ("0", "false", "no"):
         from .db.seed import seed_workflows
         await seed_workflows(reset=False)
         logger.info("Dev seed applied")

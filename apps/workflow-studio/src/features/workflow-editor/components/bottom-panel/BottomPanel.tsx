@@ -3,6 +3,7 @@ import { X, ScrollText, Maximize2, Minimize2, Play } from 'lucide-react';
 import { useEditorLayoutStore, type BottomPanelTab } from '../../stores/editorLayoutStore';
 import { useExecutionStream } from '../../hooks/useExecutionStream';
 import CodeEditor from '@/shared/components/ui/code-editor';
+import { toast } from 'sonner';
 import { cn } from '@/shared/lib/utils';
 
 const ExecutionLogsPanel = lazy(() => import('../execution-logs/ExecutionLogsPanel'));
@@ -74,13 +75,71 @@ function InputPanel() {
   const { executeWorkflow } = useExecutionStream();
 
   const handleRunWithPayload = () => {
-    try {
-      const parsed = JSON.parse(payloadInput);
-      executeWorkflow(parsed);
-    } catch {
+    if (!payloadInput || !payloadInput.trim()) {
       executeWorkflow({});
+      return;
     }
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(payloadInput);
+    } catch (e) {
+      // Forgiving retry: pasted JSON often contains raw newlines/tabs inside
+      // string literals (browser wrap on copy, etc.) which JSON.parse rejects
+      // as "Bad control character". Walk a tiny state machine, escape control
+      // chars only inside string literals, and retry once.
+      const fixed = escapeControlCharsInJsonStrings(payloadInput);
+      if (fixed !== payloadInput) {
+        try {
+          parsed = JSON.parse(fixed);
+          toast.warning('Auto-fixed unescaped control chars in JSON strings');
+          executeWorkflow(parsed);
+          return;
+        } catch {
+          // fall through to original error
+        }
+      }
+      toast.error(`Payload JSON invalid: ${(e as Error).message}`);
+      return;
+    }
+    executeWorkflow(parsed);
   };
+
+  // Walk char-by-char; inside a JSON string literal (delimited by unescaped
+  // double-quote), replace raw control chars (CR/LF/TAB/etc.) with their JSON
+  // escape sequence. Outside string literals, control chars are valid whitespace
+  // and are preserved.
+  function escapeControlCharsInJsonStrings(text: string): string {
+    let out = '';
+    let inString = false;
+    let escaped = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (escaped) {
+        out += ch;
+        escaped = false;
+        continue;
+      }
+      if (ch === '\\') {
+        out += ch;
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = !inString;
+        out += ch;
+        continue;
+      }
+      if (inString && ch.charCodeAt(0) < 0x20) {
+        if (ch === '\n') out += '\\n';
+        else if (ch === '\r') out += '\\r';
+        else if (ch === '\t') out += '\\t';
+        else out += `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`;
+        continue;
+      }
+      out += ch;
+    }
+    return out;
+  }
 
   const handleRunWithoutPayload = () => {
     executeWorkflow({});

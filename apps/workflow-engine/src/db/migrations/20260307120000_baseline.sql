@@ -285,10 +285,12 @@ CREATE INDEX IF NOT EXISTS idx_shared_creds_cred ON shared_credentials (credenti
 CREATE INDEX IF NOT EXISTS idx_shared_creds_target ON shared_credentials (share_type, share_target_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_shared_creds_unique ON shared_credentials (credential_id, share_type, share_target_id);
 
--- Variables
+-- Variables (scoped per environment: 'default', 'dev', 'uat', 'prod', or any string)
+-- Secret-typed values are Fernet-encrypted at the app layer; same key as credentials.
 CREATE TABLE IF NOT EXISTS variables (
     id          SERIAL PRIMARY KEY,
     team_id     TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    environment TEXT NOT NULL DEFAULT 'default',
     key         TEXT NOT NULL,
     value       TEXT NOT NULL,
     type        TEXT NOT NULL DEFAULT 'string',
@@ -297,7 +299,8 @@ CREATE TABLE IF NOT EXISTS variables (
     updated_at  TIMESTAMP NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS ix_variables_team_id ON variables (team_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_variables_team_key ON variables (team_id, key);
+CREATE INDEX IF NOT EXISTS ix_variables_team_env ON variables (team_id, environment);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_variables_team_env_key ON variables (team_id, environment, key);
 
 -- Data tables
 CREATE TABLE IF NOT EXISTS data_tables (
@@ -332,6 +335,10 @@ CREATE TABLE IF NOT EXISTS api_test_executions (
     url                    TEXT NOT NULL,
     request_headers        JSONB NOT NULL DEFAULT '{}'::jsonb,
     request_body_text      TEXT,
+    -- Multipart upload metadata (no bytes): list of
+    -- {field, filename, size, content_type}. Null when the request is not
+    -- multipart. Replays require the user to re-attach files.
+    request_files          JSONB,
     response_status        INTEGER,
     response_headers       JSONB NOT NULL DEFAULT '{}'::jsonb,
     response_content_type  TEXT,

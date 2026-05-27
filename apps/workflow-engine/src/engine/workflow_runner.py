@@ -18,7 +18,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 from .expression_engine import ExpressionEngine, expression_engine
-from .logging import execution_id_var
+from .logging import execution_id_var, execution_variables_var, execution_secrets_var
 from .types import (
     ExecutionContext,
     ExecutionError,
@@ -59,6 +59,8 @@ class WorkflowRunner:
         execution_id: str | None = None,
         version_id: int | None = None,
         pre_populated_states: dict[str, list[NodeData]] | None = None,
+        variables: dict[str, str] | None = None,
+        secret_values: set[str] | None = None,
     ) -> ExecutionContext:
         """
         Run a workflow from a starting node.
@@ -82,9 +84,16 @@ class WorkflowRunner:
             context.execution_id = execution_id
         context.workflow_repository = workflow_repository
         context.on_event = on_event
+        if variables:
+            context.variables = variables
 
         # Set execution_id for structured logging correlation
         execution_id_var.set(context.execution_id)
+        # Expose team variables to per-node ExpressionEngine.create_context calls
+        execution_variables_var.set(context.variables)
+        # Expose decrypted secret VALUES for nodes that need to redact them out
+        # of user-visible execution metadata (e.g. HttpRequest.requestUrl).
+        execution_secrets_var.set(secret_values or set())
 
         # Pre-populate states for retry-from-failure
         if pre_populated_states:
@@ -278,6 +287,9 @@ class WorkflowRunner:
 
         # Share HTTP client for efficiency
         child_context.http_client = parent_context.http_client
+
+        # Subworkflows inherit the parent's $vars so secrets resolve identically.
+        child_context.variables = parent_context.variables
 
         # Propagate event callback for nested subworkflows
         child_context.on_event = on_event
@@ -902,6 +914,7 @@ class WorkflowRunner:
             context.node_states,
             context.execution_id,
             0,
+            variables=context.variables,
         )
 
         # Skip $json expressions - let nodes resolve them per-item

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..core.dependencies import get_variable_repository
 from ..repositories.variable_repository import VariableRepository
@@ -21,17 +21,29 @@ router = APIRouter(prefix="/variables")
 VariableRepoDep = Annotated[VariableRepository, Depends(get_variable_repository)]
 
 
+@router.get("/environments", response_model=list[str])
+async def list_environments(
+    repo: VariableRepoDep,
+    team_id: str = Query("default"),
+) -> list[str]:
+    return await repo.list_environments(team_id=team_id)
+
+
 @router.post("", response_model=VariableResponse, status_code=201)
 async def create_variable(
     body: VariableCreateRequest, repo: VariableRepoDep
 ) -> VariableResponse:
-    existing = await repo.get_by_key(body.team_id, body.key)
+    existing = await repo.get_by_key(body.team_id, body.key, environment=body.environment)
     if existing:
-        raise HTTPException(status_code=409, detail=f"Variable '{body.key}' already exists")
+        raise HTTPException(
+            status_code=409,
+            detail=f"Variable '{body.key}' already exists in environment '{body.environment}'",
+        )
     variable = await repo.create(
         key=body.key,
         value=body.value,
         team_id=body.team_id,
+        environment=body.environment,
         type=body.type,
         description=body.description,
     )
@@ -39,13 +51,18 @@ async def create_variable(
 
 
 @router.get("", response_model=list[VariableListItem])
-async def list_variables(repo: VariableRepoDep) -> list[VariableListItem]:
-    variables = await repo.list()
+async def list_variables(
+    repo: VariableRepoDep,
+    team_id: str = Query("default"),
+    environment: str | None = Query(None),
+) -> list[VariableListItem]:
+    variables = await repo.list(team_id=team_id, environment=environment)
     return [
         VariableListItem(
             id=v.id,
             key=v.key,
-            value=v.value,
+            environment=v.environment,
+            value=None if v.type == "secret" else v.value,
             type=v.type,
             description=v.description,
         )
@@ -87,7 +104,8 @@ def _to_response(v) -> VariableResponse:
     return VariableResponse(
         id=v.id,
         key=v.key,
-        value=v.value,
+        environment=v.environment,
+        value=None if v.type == "secret" else v.value,
         type=v.type,
         description=v.description,
         created_at=str(v.created_at),

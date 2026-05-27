@@ -248,8 +248,16 @@ class HttpRequestNode(BaseNode):
              async with httpx.AsyncClient(follow_redirects=True) as client:
                  await make_requests(client)
 
+        # Redact $vars secret values out of the URL before exposing it via
+        # node metadata — otherwise tokens used in URL query params (e.g.
+        # `?api_key={{ $vars.MY_TOKEN }}`) end up in node_outputs and the
+        # execution-log UI.
+        from ...engine.logging import execution_secrets_var
+        from ...services.vars_substitution import redact_secrets
+        displayed_url = redact_secrets(last_url, execution_secrets_var.get(set()))
+
         metadata = {
-            "requestUrl": last_url,
+            "requestUrl": displayed_url,
             "requestMethod": method,
             "responseStatusCode": last_status,
             "responseTimeMs": round(total_response_time_ms, 2),

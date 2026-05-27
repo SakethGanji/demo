@@ -235,6 +235,8 @@ export const appsApi = {
     data: {
       name?: string;
       definition?: Record<string, unknown>;
+      description?: string;
+      workflow_ids?: string[];
       api_execution_ids?: string[];
       source_code?: string;
       files?: ApiAppFile[];
@@ -335,12 +337,28 @@ export const nodesApi = {
 // API Tester
 // ============================================================================
 
+export interface ApiTestFilePart {
+  field: string;
+  filename: string;
+  content_type?: string | null;
+  content_b64: string;
+}
+
+export interface ApiTestFileMeta {
+  field: string;
+  filename: string;
+  content_type: string | null;
+  size: number;
+}
+
 export interface ApiTestExecuteBody {
   name?: string | null;
   method: string;
   url: string;
   headers?: Record<string, string>;
   body?: string | null;
+  files?: ApiTestFilePart[];
+  form_fields?: Record<string, string>;
 }
 
 export interface ApiTestExecution {
@@ -350,6 +368,7 @@ export interface ApiTestExecution {
   url: string;
   request_headers: Record<string, unknown>;
   request_body_text: string | null;
+  request_files: ApiTestFileMeta[] | null;
   response_status: number | null;
   response_headers: Record<string, unknown>;
   response_content_type: string | null;

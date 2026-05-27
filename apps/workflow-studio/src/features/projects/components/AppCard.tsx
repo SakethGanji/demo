@@ -1,4 +1,4 @@
-import { MoreHorizontal, AppWindow, Clock } from 'lucide-react'
+import { MoreHorizontal, AppWindow, Clock, Download } from 'lucide-react'
 
 import { Button } from '@/shared/components/ui/button'
 import {
@@ -29,10 +29,12 @@ interface AppCardProps {
 export function AppCard({ app }: AppCardProps) {
   const {
     isDeleting,
+    isExporting,
     deleteDialogOpen,
     setDeleteDialogOpen,
     handleOpen,
     handleDelete,
+    handleExport,
   } = useAppActions(app)
 
   return (
@@ -60,6 +62,16 @@ export function AppCard({ app }: AppCardProps) {
               <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
                 <DropdownMenuItem onClick={handleOpen}>
                   Open in Builder
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleExport()
+                  }}
+                  disabled={isExporting}
+                >
+                  <Download size={12} className="mr-2" />
+                  {isExporting ? 'Exporting…' : 'Export'}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   className="text-destructive"

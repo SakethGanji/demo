@@ -100,6 +100,7 @@ class WorkflowCreateRequest(BaseModel):
     folder_id: str | None = Field(None, description="Folder to organize this workflow in")
     # For ad-hoc execution with input
     input_data: dict[str, Any] | None = Field(None, description="Input data for ad-hoc execution")
+    environment: str = Field("default", description="Which variable environment to resolve $vars against")
 
     def to_workflow(self) -> Workflow:
         """Convert to engine Workflow dataclass."""

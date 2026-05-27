@@ -146,6 +146,10 @@ class ExecutionService:
             NodeData(json={"triggeredAt": datetime.now().isoformat(), "mode": "retry"})
         ]
 
+        from .variable_loader import load_run_variables, load_run_secrets
+        variables = await load_run_variables(environment="default")
+        secrets = await load_run_secrets(environment="default")
+
         async def _run() -> None:
             try:
                 context = await runner.run(
@@ -154,6 +158,8 @@ class ExecutionService:
                     initial_data,
                     execution.mode,
                     pre_populated_states=pre_populated,
+                    variables=variables,
+                    secret_values=secrets,
                 )
                 async with async_session_factory() as session:
                     from ..repositories.execution_repository import ExecutionRepository

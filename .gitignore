@@ -4,3 +4,5 @@ apps/tweakcn-main/
 __pycache__/
 *.pyc
 apps/workflow-studio/public/esbuild.wasm
+.env
+.env.local

@@ -38,9 +38,11 @@ import {
   DropdownMenuTrigger,
 } from '@/shared/components/ui/dropdown-menu';
 import { useSaveWorkflow, usePublishWorkflow, useImportWorkflow } from '../../hooks/useWorkflowApi';
+import { toast } from 'sonner';
 import { toBackendWorkflow } from '../../lib/workflowTransform';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/components/ui/tooltip';
 import { ToolbarGroup, ToolbarSeparator } from '@/shared/components/ui/toolbar';
+import { EnvProfileSelector } from '@/features/env-profiles/EnvProfileSelector';
 import type { WorkflowNodeData } from '../../types/workflow';
 import type { Node } from '@xyflow/react';
 export default function WorkflowNavbar() {
@@ -251,6 +253,10 @@ export default function WorkflowNavbar() {
 
         <ToolbarSeparator />
 
+        <EnvProfileSelector />
+
+        <ToolbarSeparator />
+
         {/* Publish / Unpublish */}
         {isActive ? (
           <Tooltip>
@@ -295,11 +301,18 @@ export default function WorkflowNavbar() {
           <button
             onClick={() => {
               const raw = useEditorLayoutStore.getState().payloadInput;
-              try {
-                executeWorkflow(JSON.parse(raw));
-              } catch {
+              if (!raw || !raw.trim()) {
                 executeWorkflow({});
+                return;
               }
+              let parsed: Record<string, unknown>;
+              try {
+                parsed = JSON.parse(raw);
+              } catch (e) {
+                toast.error(`Payload JSON invalid: ${(e as Error).message}`);
+                return;
+              }
+              executeWorkflow(parsed);
             }}
             className={btnClass + ' !text-[var(--success)]'}
             title="Run workflow"

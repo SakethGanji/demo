@@ -37,12 +37,14 @@ class AdhocWorkflowRequest(BaseModel):
     description: str | None = None
     settings: dict[str, Any] = {}
     input_data: dict[str, Any] | None = None  # Test input for webhook/trigger
+    environment: str = "default"
 
 
 class WorkflowTestRequest(BaseModel):
     """Request schema for testing a saved workflow with input data."""
 
     input_data: dict[str, Any] | None = None
+    environment: str = "default"
 
 
 def _event_to_dict(event: ExecutionEvent) -> dict[str, Any]:
@@ -87,8 +89,15 @@ async def _run_workflow_with_events(
     mode: str,
     execution_repo: ExecutionRepository,
     workflow_repo: WorkflowRepository | None = None,
+    variables: dict[str, str] | None = None,
+    secret_values: set[str] | None = None,
 ) -> AsyncGenerator[str, None]:
-    """Run workflow and yield SSE events."""
+    """Run workflow and yield SSE events.
+
+    Caller is responsible for loading `variables` and `secret_values`
+    (so it can also do body substitution on the request payload before
+    this is called).
+    """
     from ..db.session import async_session_factory
     from ..utils.ids import execution_id as gen_exec_id
 
@@ -104,6 +113,8 @@ async def _run_workflow_with_events(
 
     event_bus = _get_event_bus()
     runner = WorkflowRunner(db_session_factory=async_session_factory, event_bus=event_bus)
+    variables = variables or {}
+    secret_values = secret_values or set()
 
     async def run_workflow() -> None:
         try:
@@ -115,6 +126,8 @@ async def _run_workflow_with_events(
                 on_event,
                 workflow_repository=workflow_repo,
                 execution_id=exec_id,
+                variables=variables,
+                secret_values=secret_values,
             )
             await execution_repo.complete(context, wf_id, workflow.name)
         except Exception as e:
@@ -187,18 +200,24 @@ async def stream_adhoc_execution(
     )
 
     from ..db.session import async_session_factory
+    from ..services.variable_loader import load_run_variables, load_run_secrets
+    from ..services.vars_substitution import substitute_vars
     runner = WorkflowRunner(db_session_factory=async_session_factory)
     start_node = runner.find_start_node(internal_workflow)
 
     if not start_node:
         raise HTTPException(status_code=400, detail="No start node found in workflow")
 
+    variables = await load_run_variables(environment=workflow.environment)
+    secrets = await load_run_secrets(environment=workflow.environment)
+    resolved_input = substitute_vars(workflow.input_data, variables) if workflow.input_data else None
+
     # Build initial data - wrap in webhook-style format for consistency
-    if workflow.input_data:
+    if resolved_input:
         initial_data = [
             NodeData(
                 json={
-                    "body": workflow.input_data,
+                    "body": resolved_input,
                     "headers": {},
                     "query": {},
                     "method": "POST",
@@ -226,6 +245,8 @@ async def stream_adhoc_execution(
             mode,
             execution_repo,
             workflow_repo=workflow_repo,
+            variables=variables,
+            secret_values=secrets,
         ):
             yield event
 
@@ -237,6 +258,7 @@ async def stream_workflow_execution(
     workflow_id: str,
     workflow_repo: Annotated[WorkflowRepository, Depends(get_workflow_repository)],
     execution_repo: Annotated[ExecutionRepository, Depends(get_execution_repository)],
+    environment: str = "default",
 ) -> EventSourceResponse:
     """Stream workflow execution via SSE for a saved workflow."""
     stored = await workflow_repo.get(workflow_id)
@@ -258,6 +280,10 @@ async def stream_workflow_execution(
         )
     ]
 
+    from ..services.variable_loader import load_run_variables, load_run_secrets
+    variables = await load_run_variables(environment=environment)
+    secrets = await load_run_secrets(environment=environment)
+
     async def event_generator() -> AsyncGenerator[str, None]:
         async for event in _run_workflow_with_events(
             stored.workflow,
@@ -266,6 +292,8 @@ async def stream_workflow_execution(
             "manual",
             execution_repo,
             workflow_repo=workflow_repo,
+            variables=variables,
+            secret_values=secrets,
         ):
             yield event
 
@@ -290,12 +318,20 @@ async def stream_workflow_execution_with_input(
     if not start_node:
         raise HTTPException(status_code=400, detail="No start node found in workflow")
 
+    from ..services.variable_loader import load_run_variables, load_run_secrets
+    from ..services.vars_substitution import substitute_vars
+    variables = await load_run_variables(environment=request.environment)
+    secrets = await load_run_secrets(environment=request.environment)
+    resolved_input = (
+        substitute_vars(request.input_data, variables) if request.input_data is not None else None
+    )
+
     # Build initial data - wrap in webhook-style format for consistency
-    if request.input_data is not None:
+    if resolved_input is not None:
         initial_data = [
             NodeData(
                 json={
-                    "body": request.input_data,
+                    "body": resolved_input,
                     "headers": {},
                     "query": {},
                     "method": "POST",
@@ -323,6 +359,8 @@ async def stream_workflow_execution_with_input(
             mode,
             execution_repo,
             workflow_repo=workflow_repo,
+            variables=variables,
+            secret_values=secrets,
         ):
             yield event
 

@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     # External services
     redis_url: str | None = None
 
+    # MongoDB (PromptLab session/run state)
+    mongo_url: str | None = None
+
     # AI/LLM settings
     gemini_api_key: str | None = None
     openai_api_key: str | None = None
