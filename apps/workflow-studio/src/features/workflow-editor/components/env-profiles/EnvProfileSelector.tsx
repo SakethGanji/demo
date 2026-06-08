@@ -9,8 +9,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/shared/components/ui/dropdown-menu';
-import { useEnvProfilesStore } from '../workflow-editor/stores/envProfilesStore';
-import { useVariableEnvironments } from './useVariablesApi';
+import { useEnvProfilesStore } from '../../stores/envProfilesStore';
+import { useVariableEnvironments } from '../../hooks/useVariablesApi';
 import { EnvVariablesModal } from './EnvVariablesModal';
 
 // Fallback list when the API hasn't surfaced any envs yet (fresh DB / offline).

@@ -1,4 +1,4 @@
-"""PromptLab — single-file standalone service (TEMP).
+"""PromptLab — single-file standalone service (stateless).
 
 Self-contained FastAPI app exposing two routes:
 
@@ -6,8 +6,11 @@ Self-contained FastAPI app exposing two routes:
                               returns dataset_id + sidecar metadata
 
   POST /prompt-lab/evaluate   JSON body — runs a classification eval
-                              against an uploaded dataset, persists
-                              the run to MongoDB, returns metrics
+                              against an uploaded dataset, returns
+                              metrics. STATELESS — no Mongo, no
+                              sessions, no caching. Session state and
+                              run persistence are the workflow's
+                              responsibility.
 
 Run:
   cd apps/workflow-engine
@@ -16,15 +19,12 @@ Run:
   # or: uvicorn prompt_lab_standalone:app --host 127.0.0.1 --port 8001
 
 Env vars:
-  PROMPTLAB_MONGO_URL         default mongodb://localhost:27017
-  PROMPTLAB_MONGO_DB          default promptlab
   PROMPTLAB_STORAGE_DIR       default /tmp/promptlab
   GEMINI_API_KEY              required for gemini-* models
   ANTHROPIC_API_KEY           required for claude-* models
 
 Why standalone: lets you ship/move the prompt-lab capability as one
-artifact during the POC. Sidesteps the analytics-service for now.
-Long-term home is back inside analytics-service with proper modules.
+artifact during the POC. Mirrors analytics-service/app/features/prompt_lab.
 """
 
 from __future__ import annotations
@@ -36,20 +36,18 @@ import json
 import logging
 import os
 import re
-import secrets
 import statistics
 import time
 from collections import Counter, defaultdict
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pandas as pd
 import pyarrow.parquet as pq
 from anthropic import AsyncAnthropic
 from fastapi import APIRouter, FastAPI, File, Form, HTTPException, UploadFile
-from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from pydantic import BaseModel, Field
 from sklearn.metrics import precision_recall_fscore_support
 
@@ -69,8 +67,6 @@ logger.setLevel(_log_level)
 # Config
 # ===========================================================================
 
-MONGO_URL = os.environ.get("PROMPTLAB_MONGO_URL", "mongodb://localhost:27017")
-MONGO_DB = os.environ.get("PROMPTLAB_MONGO_DB", "promptlab")
 STORAGE_DIR = Path(os.environ.get("PROMPTLAB_STORAGE_DIR", "/tmp/promptlab"))
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get(
     "ACCELERATOR_GEMINI_API_KEY"
@@ -78,257 +74,6 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get(
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get(
     "ACCELERATOR_ANTHROPIC_API_KEY"
 ) or os.environ.get("WORKFLOW_ANTHROPIC_API_KEY")
-
-
-# ===========================================================================
-# Mongo client lifecycle
-# ===========================================================================
-
-_mongo_client: AsyncIOMotorClient | None = None
-
-
-def get_db() -> AsyncIOMotorDatabase:
-    if _mongo_client is None:
-        raise RuntimeError("mongo not initialised")
-    return _mongo_client[MONGO_DB]
-
-
-async def init_mongo() -> None:
-    global _mongo_client
-    _mongo_client = AsyncIOMotorClient(MONGO_URL, serverSelectionTimeoutMS=3000)
-    try:
-        await _mongo_client.admin.command("ping")
-        logger.info("mongo connected: %s (db=%s)", MONGO_URL, MONGO_DB)
-    except Exception:
-        logger.exception("mongo ping failed at %s", MONGO_URL)
-
-
-async def dispose_mongo() -> None:
-    global _mongo_client
-    if _mongo_client is not None:
-        _mongo_client.close()
-        _mongo_client = None
-
-
-# ===========================================================================
-# Mongo collections + indexes
-# ===========================================================================
-
-SESSIONS = "sessions"
-RUNS = "prompt_runs"
-EVAL_CACHE = "eval_cache"
-
-SESSION_TTL_S = 7 * 86400
-RUN_TTL_S = 14 * 86400
-CACHE_TTL_S = 86400
-
-
-def _utc_now() -> datetime:
-    return datetime.now(tz=timezone.utc)
-
-
-async def ensure_indexes() -> None:
-    db = get_db()
-    try:
-        await db[SESSIONS].create_index(
-            [("last_accessed_at", 1)],
-            expireAfterSeconds=SESSION_TTL_S,
-            name="ttl_last_accessed_at",
-        )
-        await db[RUNS].create_index(
-            [("created_at", 1)],
-            expireAfterSeconds=RUN_TTL_S,
-            name="ttl_created_at",
-        )
-        await db[RUNS].create_index(
-            [("session_id", 1), ("created_at", -1)],
-            name="ix_session_created",
-        )
-        await db[RUNS].create_index(
-            [("session_id", 1), ("prompt_hash", 1)],
-            name="ix_session_prompt_hash",
-        )
-        # Lets the workflow agent's "last 3 full runs" query stay fast.
-        await db[RUNS].create_index(
-            [("session_id", 1), ("stage", 1), ("created_at", -1)],
-            name="ix_session_stage_created",
-        )
-        await db[RUNS].create_index(
-            [("session_id", 1), ("parent_run_id", 1)],
-            name="ix_session_parent_run",
-        )
-        await db[EVAL_CACHE].create_index(
-            [("created_at", 1)],
-            expireAfterSeconds=CACHE_TTL_S,
-            name="ttl_created_at",
-        )
-        await db[EVAL_CACHE].create_index(
-            [("cache_key", 1)], unique=True, name="ux_cache_key"
-        )
-        logger.info("indexes ensured")
-    except Exception:
-        logger.exception("ensure_indexes failed (probably already exist)")
-
-
-# ===========================================================================
-# Mongo CRUD
-# ===========================================================================
-
-def _new_session_id() -> str:
-    return f"sess_{secrets.token_hex(8)}"
-
-
-def _new_run_id() -> str:
-    return f"run_{secrets.token_hex(8)}"
-
-
-async def upsert_session_minimal(session_id: str, *, max_cost_usd: float) -> dict:
-    now = _utc_now()
-    doc = await get_db()[SESSIONS].find_one_and_update(
-        {"session_id": session_id},
-        {
-            "$setOnInsert": {
-                "session_id": session_id,
-                "name": session_id,
-                "description": "",
-                "max_cost_usd": float(max_cost_usd),
-                "budget_spent_usd": 0.0,
-                "n_runs": 0,
-                "best_run_id": None,
-                "best_macro_f1": None,
-                "status": "active",
-                "created_at": now,
-            },
-            "$set": {"last_accessed_at": now},
-        },
-        upsert=True,
-        return_document=True,
-    )
-    return doc
-
-
-async def get_budget(session_id: str) -> tuple[float, float]:
-    doc = await get_db()[SESSIONS].find_one(
-        {"session_id": session_id},
-        {"budget_spent_usd": 1, "max_cost_usd": 1},
-    )
-    if not doc:
-        return 0.0, 0.0
-    return float(doc.get("budget_spent_usd", 0.0)), float(doc.get("max_cost_usd", 0.0))
-
-
-async def check_budget(session_id: str, projected: float) -> tuple[bool, float, float]:
-    spent, cap = await get_budget(session_id)
-    if cap <= 0:
-        return True, spent, cap
-    return (spent + projected) <= cap, spent, cap
-
-
-async def add_spend(session_id: str, cost: float) -> float:
-    doc = await get_db()[SESSIONS].find_one_and_update(
-        {"session_id": session_id},
-        {"$inc": {"budget_spent_usd": float(cost)},
-         "$set": {"last_accessed_at": _utc_now()}},
-        return_document=True,
-        projection={"budget_spent_usd": 1},
-    )
-    return float(doc.get("budget_spent_usd", 0.0)) if doc else 0.0
-
-
-async def insert_run(
-    *, session_id: str, prompt_hash: str, prompt_system: str,
-    prompt_user_template: str, model: str, response: dict,
-    strategy: str | None = None,
-    parent_run_id: str | None = None,
-    stage: str | None = None,
-) -> dict:
-    now = _utc_now()
-    run_id = _new_run_id()
-    doc = {
-        "run_id": run_id,
-        "session_id": session_id,
-        "prompt_hash": prompt_hash,
-        "prompt_system": prompt_system,
-        "prompt_user_template": prompt_user_template,
-        "model": model,
-        "strategy": strategy,
-        "parent_run_id": parent_run_id,
-        "stage": stage,
-        "response": response,
-        "created_at": now,
-    }
-    await get_db()[RUNS].insert_one(doc)
-    await get_db()[SESSIONS].update_one(
-        {"session_id": session_id},
-        {"$inc": {"n_runs": 1}, "$set": {"last_accessed_at": now}},
-    )
-    logger.debug("insert_run session=%s run_id=%s stage=%s strategy=%s cached=%s",
-                 session_id, run_id, stage, strategy, response.get("cached"))
-    return doc
-
-
-async def update_session_best(session_id: str, *, run_id: str, macro_f1: float) -> None:
-    # Skip degenerate runs — a 0-score run is not a meaningful "best".
-    if macro_f1 <= 0:
-        logger.info("update_session_best skipped session=%s run=%s macro_f1=%.4f (not > 0)",
-                    session_id, run_id, macro_f1)
-        return
-    result = await get_db()[SESSIONS].update_one(
-        {
-            "session_id": session_id,
-            "$or": [
-                {"best_macro_f1": None},
-                {"best_macro_f1": {"$lt": macro_f1}},
-            ],
-        },
-        {"$set": {
-            "best_run_id": run_id,
-            "best_macro_f1": float(macro_f1),
-            "last_accessed_at": _utc_now(),
-        }},
-    )
-    if result.modified_count:
-        logger.info("update_session_best session=%s new_best run=%s macro_f1=%.4f",
-                    session_id, run_id, macro_f1)
-    else:
-        logger.debug("update_session_best session=%s run=%s macro_f1=%.4f (existing best is higher)",
-                     session_id, run_id, macro_f1)
-
-
-def make_cache_key(
-    *, prompt_hash: str, dataset_id: str, model: str,
-    intent_classes: list[str], evaluation_splits: list[str],
-    target_column: str, input_columns: list[str] | None,
-    sample: SampleSpec | None = None, stage: str | None = None,
-) -> str:
-    payload = {
-        "p": prompt_hash, "d": dataset_id, "m": model,
-        "c": sorted(intent_classes), "s": sorted(evaluation_splits),
-        "t": target_column,
-        "i": sorted(input_columns) if input_columns else None,
-        # smoke/quick/full and their sample params must differentiate cache
-        # entries — same prompt at n=10 random sample is NOT the same result
-        # as the same prompt at full dataset.
-        "samp": ({"n": sample.n, "st": sample.strategy, "sd": sample.seed}
-                 if sample else None),
-        "stg": stage,
-    }
-    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
-
-
-async def get_cached_eval(cache_key: str) -> dict | None:
-    doc = await get_db()[EVAL_CACHE].find_one(
-        {"cache_key": cache_key}, {"_id": 0, "response": 1}
-    )
-    return doc.get("response") if doc else None
-
-
-async def put_cached_eval(cache_key: str, response: dict) -> None:
-    await get_db()[EVAL_CACHE].update_one(
-        {"cache_key": cache_key},
-        {"$set": {"cache_key": cache_key, "response": response, "created_at": _utc_now()}},
-        upsert=True,
-    )
 
 
 # ===========================================================================
@@ -937,35 +682,37 @@ class SampleSpec(BaseModel):
 # caller (workflow agents, manual curl, future analytics-service port) uses
 # the SAME numbers — apples-to-apples cross-session comparisons depend on
 # this. Override by passing `sample` explicitly in the request.
+#
+# Smoke is stratified-by-gt (not random) so every configured class is
+# represented even on high-cardinality problems. Random smoke would miss
+# classes on >5-class datasets and crater macro_f1, blocking escalation.
 _STAGE_DEFAULTS: dict[str, SampleSpec | None] = {
-    "smoke": SampleSpec(n=10,  strategy="random",           seed=42),
+    "smoke": SampleSpec(n=10,  strategy="stratified_by_gt", seed=42),
     "quick": SampleSpec(n=100, strategy="stratified_by_gt", seed=42),
     "full":  None,  # no sampling — whole dataset
 }
 
 
 class EvaluateRequest(BaseModel):
+    """Stateless evaluator request.
+
+    Every call evaluates the given prompt against a ``stage``-sized sample
+    of ``dataset_id`` and returns metrics. Session state, run persistence,
+    budget tracking, and caching are the workflow's responsibility — this
+    endpoint has no knowledge of any of them.
+    """
+
     dataset_id: str
     prompt_system: str
     prompt_user_template: str
     intent_classes: list[str]
+    stage: Literal["smoke", "quick", "full"] = "full"
     config: EvalConfig = Field(default_factory=EvalConfig)
-    session_id: str | None = None
     target_column: str | None = None
     input_columns: list[str] | None = None
     evaluation_splits: list[str] = Field(default_factory=list)
-    sample: SampleSpec | None = None
-    # Free-form label persisted with the run. The workflow agent uses these to
-    # filter trend queries: "smoke"/"quick" runs are diagnostic; "full" runs
-    # are the authoritative comparison set.
-    stage: str | None = None
-    # Strategy + parent_run_id are used by the optimizer workflow's decision
-    # agent for anti-repetition and lineage tracking. Persisted as-is.
-    strategy: str | None = None
-    parent_run_id: str | None = None
     scorer: str = "classification_exact"
     task_type: str = "classification"
-    use_cache: bool = True
     max_cost_usd: float = 1.0
 
 
@@ -1012,11 +759,20 @@ async def run_evaluation(request: EvaluateRequest) -> dict:
     target_column = request.target_column or meta.get("target_column")
     input_columns = request.input_columns or meta.get("input_columns")
 
-    # Resolve sampling: explicit `sample` wins; otherwise derive from `stage`
-    # via the canonical mapping. Single source of truth for smoke=10/quick=100.
-    resolved_sample = request.sample
-    if resolved_sample is None and request.stage in _STAGE_DEFAULTS:
-        resolved_sample = _STAGE_DEFAULTS[request.stage]
+    # Derive sampling from `stage` via the canonical mapping. Single source
+    # of truth for smoke=10/quick=100/full=no-sampling. For smoke, scale n
+    # up to max(10, 2*N_classes) so high-cardinality problems still get
+    # multiple samples per class (a fixed 10-row smoke on 8 classes leaves
+    # macro_f1 too noisy to compare against the 0.5 escalation gate).
+    resolved_sample = _STAGE_DEFAULTS.get(request.stage)
+    if request.stage == "smoke" and resolved_sample is not None and intent_classes:
+        target_n = max(resolved_sample.n, 2 * len(intent_classes))
+        if target_n != resolved_sample.n:
+            resolved_sample = SampleSpec(
+                n=target_n,
+                strategy=resolved_sample.strategy,
+                seed=resolved_sample.seed,
+            )
 
     cfg = request.config
     model = cfg.model
@@ -1031,74 +787,19 @@ async def run_evaluation(request: EvaluateRequest) -> dict:
         thinking_budget = 0
 
     logger.info(
-        "eval start dataset=%s model=%s scorer=%s session=%s stage=%s "
-        "strategy=%s classes=%d splits=%s sample=%s max_tokens=%d "
-        "thinking_budget=%s use_cache=%s",
-        dataset_id, model, request.scorer, request.session_id, request.stage,
-        request.strategy, len(intent_classes), request.evaluation_splits or "(all)",
+        "eval start dataset=%s model=%s scorer=%s stage=%s classes=%d "
+        "splits=%s sample=%s max_tokens=%d thinking_budget=%s",
+        dataset_id, model, request.scorer, request.stage, len(intent_classes),
+        request.evaluation_splits or "(all)",
         (f"{resolved_sample.strategy}:{resolved_sample.n}" if resolved_sample else "full"),
-        max_tokens, thinking_budget, request.use_cache,
+        max_tokens, thinking_budget,
     )
-
-    if request.session_id:
-        await upsert_session_minimal(request.session_id, max_cost_usd=request.max_cost_usd)
 
     scorer_fn = SCORERS.get(request.scorer)
     if scorer_fn is None:
         raise HTTPException(400, f"unknown scorer: {request.scorer}")
 
     prompt_hash = _prompt_hash(request.prompt_system, request.prompt_user_template)
-    cache_key = make_cache_key(
-        prompt_hash=prompt_hash, dataset_id=dataset_id, model=model,
-        intent_classes=intent_classes,
-        evaluation_splits=request.evaluation_splits,
-        target_column=target_column or "", input_columns=input_columns,
-        sample=resolved_sample, stage=request.stage,
-    )
-
-    if request.use_cache:
-        cached = await get_cached_eval(cache_key)
-        if cached is not None:
-            logger.info("cache HIT dataset=%s prompt_hash=%s cache_key=%s",
-                        dataset_id, prompt_hash[:10], cache_key[:10])
-            spent, cap = (await get_budget(request.session_id)
-                          if request.session_id else (0.0, request.max_cost_usd))
-            cr = dict(cached)
-            cr.update({
-                "dataset_id": dataset_id, "session_id": request.session_id,
-                "cached": True, "cost_usd": 0.0,
-                "budget_spent_usd": spent, "budget_max_usd": cap,
-            })
-            if request.session_id:
-                rd = await insert_run(
-                    session_id=request.session_id, prompt_hash=prompt_hash,
-                    prompt_system=request.prompt_system,
-                    prompt_user_template=request.prompt_user_template,
-                    model=model, response=cr,
-                    strategy=request.strategy,
-                    parent_run_id=request.parent_run_id,
-                    stage=request.stage,
-                )
-                cr["run_id"] = rd["run_id"]
-                # Cache hit on a full-stage candidate must still update best —
-                # update_session_best is idempotent ($lt guard), so it's safe to
-                # call repeatedly. Without this, sessions whose first run lands
-                # on a primed cache never get best_run_id set.
-                if request.stage in (None, "full"):
-                    cached_metrics = (cr.get("metrics") or {})
-                    cached_overall = (cached_metrics.get("overall") or {})
-                    cached_splits = (cached_metrics.get("by_split") or {})
-                    best = float(cached_overall.get("macro_f1") or 0.0)
-                    for sn in ("Holdout", "holdout", "test", "Test"):
-                        sm = cached_splits.get(sn)
-                        if sm and (sm.get("n_rows") or 0) > 0:
-                            best = float(sm.get("macro_f1") or 0.0); break
-                    await update_session_best(
-                        request.session_id, run_id=rd["run_id"], macro_f1=best
-                    )
-            return cr
-        logger.info("cache MISS dataset=%s prompt_hash=%s cache_key=%s",
-                    dataset_id, prompt_hash[:10], cache_key[:10])
 
     # Load dataset
     p = dataset_path(dataset_id)
@@ -1156,22 +857,12 @@ async def run_evaluation(request: EvaluateRequest) -> dict:
     est_out = est_in
     projected = n_rows * ((est_in / 1_000_000) * in_r + (est_out / 1_000_000) * out_r)
 
-    if request.session_id:
-        allowed, spent, cap = await check_budget(request.session_id, projected)
-        logger.info("budget check session=%s spent=$%.6f projected=$%.6f cap=$%.4f allowed=%s",
-                    request.session_id, spent, projected, cap, allowed)
-        if not allowed:
-            raise HTTPException(
-                429, f"Session {request.session_id} would exceed budget: "
-                f"current=${spent:.4f}, projected=${projected:.4f}, max=${cap:.4f}",
-            )
-    else:
-        cap = request.max_cost_usd
-        logger.info("budget check (no session) projected=$%.6f cap=$%.4f", projected, cap)
-        if projected > cap:
-            raise HTTPException(
-                429, f"Projected ${projected:.4f} exceeds max ${cap:.4f}"
-            )
+    cap = request.max_cost_usd
+    logger.info("budget check projected=$%.6f cap=$%.4f", projected, cap)
+    if projected > cap:
+        raise HTTPException(
+            429, f"Projected ${projected:.4f} exceeds max ${cap:.4f}"
+        )
 
     anthropic_c: AsyncAnthropic | None = None
     gemini_c: Any | None = None
@@ -1206,8 +897,6 @@ async def run_evaluation(request: EvaluateRequest) -> dict:
     p95 = float(lats[int(0.95 * (len(lats) - 1))]) if lats else 0.0
     p99 = float(lats[int(0.99 * (len(lats) - 1))]) if lats else 0.0
     cost = _row_cost_usd(model, t_in_total, t_out_total)
-    new_total = (await add_spend(request.session_id, cost)
-                 if request.session_id else cost)
 
     by_split: dict[str, list[dict]] = defaultdict(list)
     for r in results:
@@ -1292,12 +981,11 @@ async def run_evaluation(request: EvaluateRequest) -> dict:
 
     response = {
         "dataset_id": dataset_id,
-        "session_id": request.session_id,
-        "run_id": None,
         "prompt_hash": prompt_hash,
-        # Echo back the resolved config (after defaults) so the agent can
-        # verify what was actually executed — important on cache hits where
-        # the agent has no other proof of the parameters used.
+        "stage": request.stage,
+        "n_rows_evaluated": n_rows,
+        # Echo back the resolved config (after defaults) so the caller can
+        # verify what was actually executed.
         "config": {
             "model": model,
             "max_tokens": max_tokens,
@@ -1328,9 +1016,6 @@ async def run_evaluation(request: EvaluateRequest) -> dict:
         "latency_p50_ms": p50,
         "latency_p95_ms": p95,
         "latency_p99_ms": p99,
-        "cached": False,
-        "budget_spent_usd": new_total,
-        "budget_max_usd": cap,
         "warnings": warnings_out,
     }
 
@@ -1345,38 +1030,6 @@ async def run_evaluation(request: EvaluateRequest) -> dict:
         t_in_total, t_out_total, cost, p50, p95,
     )
 
-    run_id: str | None = None
-    if request.session_id:
-        rd = await insert_run(
-            session_id=request.session_id, prompt_hash=prompt_hash,
-            prompt_system=request.prompt_system,
-            prompt_user_template=request.prompt_user_template,
-            model=model, response=response,
-            strategy=request.strategy,
-            parent_run_id=request.parent_run_id,
-            stage=request.stage,
-        )
-        run_id = rd["run_id"]
-        response["run_id"] = run_id
-        # Update best — prefer Holdout/test split if present, else overall.
-        # Only consider full-dataset runs as candidates for "best" — a 10-row
-        # smoke run scoring 1.0 must not crown itself as the session's best.
-        if request.stage in (None, "full"):
-            best = overall["macro_f1"]
-            for sn in ("Holdout", "holdout", "test", "Test"):
-                sm = split_metrics.get(sn)
-                if sm and sm["n_rows"] > 0:
-                    best = sm["macro_f1"]; break
-            await update_session_best(request.session_id, run_id=run_id, macro_f1=best)
-        else:
-            logger.debug("skipping best update for stage=%s run=%s", request.stage, run_id)
-
-    cached_payload = dict(response)
-    if run_id:
-        cached_payload["run_id"] = run_id
-    await put_cached_eval(cache_key, cached_payload)
-    logger.debug("cache put cache_key=%s", cache_key[:10])
-
     return response
 
 
@@ -1387,13 +1040,7 @@ async def run_evaluation(request: EvaluateRequest) -> dict:
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     datasets_dir()
-    await init_mongo()
-    try:
-        await ensure_indexes()
-    except Exception:
-        logger.exception("index setup failed; continuing")
     yield
-    await dispose_mongo()
 
 
 app = FastAPI(
@@ -1470,6 +1117,6 @@ if __name__ == "__main__":
     import uvicorn
     # Logging is already configured at module import via PROMPTLAB_LOG_LEVEL.
     port = int(os.environ.get("PROMPTLAB_PORT", "8001"))
-    logger.info("starting PromptLab standalone port=%d log_level=%s storage=%s mongo_db=%s",
-                port, _log_level, STORAGE_DIR, MONGO_DB)
+    logger.info("starting PromptLab standalone port=%d log_level=%s storage=%s",
+                port, _log_level, STORAGE_DIR)
     uvicorn.run(app, host="127.0.0.1", port=port, log_level=_log_level.lower())

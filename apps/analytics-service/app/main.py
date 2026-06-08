@@ -13,20 +13,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.infra.config import settings
-from app.infra.db.mongo import dispose_mongo, init_mongo
 from app.infra.db.postgres import dispose_engine, init_db
 from app.infra.db.storage import get_storage, uploads_dir as _uploads_dir
 from app.features.data_accelerator.api import router as data_accelerator_router
 from app.features.files.api import router as files_router
 from app.features.prompt_lab import router as prompt_lab_router
 from app.features.prompt_lab.services import dataset_files as _promptlab_files
-from app.features.prompt_lab.services import mongo_store as _promptlab_mongo
 
 logger = logging.getLogger(__name__)
 
 
-# PromptLab sweeper interval — Mongo handles its own TTLs server-side; we
-# only need to GC the parquet files on disk.
+# PromptLab uploads parquet files to disk; sweep stale ones periodically.
 _PROMPTLAB_SWEEP_INTERVAL_SEC = 30 * 60   # 30 min
 
 
@@ -58,11 +55,6 @@ async def lifespan(application: FastAPI):
     _promptlab_files.datasets_dir()
 
     await init_db()
-    await init_mongo()
-    try:
-        await _promptlab_mongo.ensure_indexes()
-    except Exception:
-        logger.exception("PromptLab index setup failed; sessions/runs may not be queryable efficiently")
     sweeper_task = asyncio.create_task(_promptlab_dataset_sweeper())
     logger.info("Analytics Service started")
 
@@ -75,7 +67,6 @@ async def lifespan(application: FastAPI):
         except (asyncio.CancelledError, Exception):
             pass
         await dispose_engine()
-        await dispose_mongo()
         logger.info("Analytics Service stopped")
 
 

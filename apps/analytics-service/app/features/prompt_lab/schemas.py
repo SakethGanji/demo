@@ -1,8 +1,8 @@
-"""PromptLab schemas — sessions, runs, evaluator, dataset upload (v5)."""
+"""PromptLab schemas — stateless evaluator I/O + dataset upload (v6)."""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -15,30 +15,24 @@ from pydantic import BaseModel, Field
 class EvaluateRequest(BaseModel):
     """Request body for ``POST /prompt-lab/evaluate`` (JSON only).
 
-    The dataset must be pre-registered via ``POST /prompt-lab/datasets``;
-    pass its ``dataset_id`` here. ``session_id`` is optional — when supplied,
-    runs are grouped under it and budget aggregates across calls (the
-    session doc is lazily upserted). ``target_column`` and ``input_columns``
-    fall back to the dataset's sidecar metadata.
+    Stateless: every call evaluates the given prompt against ``stage``-sized
+    sample of ``dataset_id`` and returns metrics. Session state and run
+    persistence are the workflow's responsibility — this endpoint has no
+    knowledge of either.
     """
 
     dataset_id: str
     prompt_system: str
     prompt_user_template: str
     intent_classes: list[str]
+    stage: Literal["smoke", "quick", "full"] = "full"
     config: dict = Field(default_factory=dict)
-    session_id: str | None = None
     target_column: str | None = None
     input_columns: list[str] | None = None
     evaluation_splits: list[str] = Field(default_factory=list)
     scorer: str = "classification_exact"
     task_type: str = "classification"
-    parent_run_id: str | None = None
-    strategy: str | None = None
-    # Caching / cost controls.
-    use_cache: bool = True
     max_cost_usd: float = 1.0
-    failure_threshold: float = 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -85,9 +79,9 @@ class FailureSummary(BaseModel):
 
 class EvaluateResponse(BaseModel):
     dataset_id: str
-    session_id: str | None = None
-    run_id: str | None = None
     prompt_hash: str
+    stage: Literal["smoke", "quick", "full"]
+    n_rows_evaluated: int
     metrics: MetricsBlock
     failures_sample: list[FailureSampleRow] = Field(default_factory=list)
     failure_summary: FailureSummary
@@ -95,9 +89,6 @@ class EvaluateResponse(BaseModel):
     tokens_out: int
     cost_usd: float
     latency_p50_ms: float
-    cached: bool = False
-    budget_spent_usd: float = 0.0
-    budget_max_usd: float = 0.0
 
 
 # ---------------------------------------------------------------------------

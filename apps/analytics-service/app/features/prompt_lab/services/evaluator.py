@@ -1,16 +1,16 @@
-"""PromptLab evaluator — session-scoped classification eval against parquet datasets.
+"""PromptLab evaluator — stateless classification eval against parquet datasets.
+
+Pure function: ``(prompt, dataset, stage) → metrics``. No Mongo, no session
+state, no cache. Persistence lives in the caller (the workflow).
 
 Flow per call:
 
-1. Resolve session (REQUIRED) — pulls dataset_id, intent_classes, target_column,
-   input_columns, model defaults when not overridden in the request.
-2. Compute cache key over (prompt, dataset, model, splits, target, inputs). On
-   cache hit, return the stored response immediately — no LLM calls, no spend.
-3. Load parquet, restrict to ``evaluation_splits`` if supplied.
-4. Pre-flight budget check against the session's ``max_cost_usd``.
-5. Run LLM concurrently with retry/backoff (rate limits).
-6. Aggregate per-split + overall metrics, sample failures.
-7. Persist run to ``prompt_runs``, update session best, cache the response.
+1. Load parquet, restrict to ``evaluation_splits`` if supplied.
+2. Apply stage sampling: smoke=10 random, quick=100 stratified-by-gt, full=all.
+3. Pre-flight per-request budget check against ``max_cost_usd``.
+4. Run LLM concurrently with retry/backoff.
+5. Aggregate per-split + overall metrics, sample failures.
+6. Return — no side effects.
 """
 
 from __future__ import annotations
@@ -19,10 +19,12 @@ import asyncio
 import hashlib
 import json
 import logging
+import random
 import re
 import statistics
 import time
 from collections import Counter, defaultdict
+from dataclasses import dataclass
 from typing import Any
 
 import pyarrow.parquet as pq
@@ -42,7 +44,6 @@ from ..schemas import (
     PerClassMetric,
     SplitMetrics,
 )
-from . import budget, mongo_store
 from .dataset_files import dataset_path as _dataset_path
 from .dataset_files import load_dataset_meta as _load_dataset_meta
 
@@ -76,6 +77,85 @@ _DEFAULT_COST = (3.0, 15.0)
 # Pre-flight estimate.
 _CHARS_PER_TOKEN = 4
 _ESTIMATED_OUT_TO_IN_RATIO = 1.0
+
+
+# ---------------------------------------------------------------------------
+# Stage sampling — canonical sizes for the smoke/quick/full ladder.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _SampleSpec:
+    n: int
+    strategy: str  # "random" | "stratified_by_gt"
+    seed: int = 42
+
+
+_STAGE_DEFAULTS: dict[str, _SampleSpec | None] = {
+    # Smoke is stratified-by-gt so every configured class is represented even
+    # on high-cardinality problems (the random variant would miss classes and
+    # crater macro_f1 on >5-class datasets, blocking escalation).
+    "smoke": _SampleSpec(n=10, strategy="stratified_by_gt", seed=42),
+    "quick": _SampleSpec(n=100, strategy="stratified_by_gt", seed=42),
+    "full": None,  # no sampling — whole dataset
+}
+
+
+def _sample_rows(
+    rows: list[dict[str, Any]], stage: str, intent_classes: list[str]
+) -> list[dict[str, Any]]:
+    """Deterministically reduce ``rows`` according to the stage's spec.
+
+    Applied AFTER ``evaluation_splits`` filtering so smoke/quick sample from
+    whatever the caller actually wants evaluated. For smoke, ``n`` is scaled
+    up to ``2 * len(intent_classes)`` when needed so every class still gets
+    multiple samples (a fixed 10-row smoke on 8 classes leaves f1 too noisy
+    to compare against the 0.5 escalation gate).
+    """
+    spec = _STAGE_DEFAULTS.get(stage)
+    if spec is None:
+        return rows
+
+    if stage == "smoke" and intent_classes:
+        target_n = max(spec.n, 2 * len(intent_classes))
+        spec = _SampleSpec(n=target_n, strategy=spec.strategy, seed=spec.seed)
+
+    if spec.n >= len(rows):
+        return rows
+
+    rng = random.Random(spec.seed)
+    if spec.strategy == "random":
+        return rng.sample(rows, spec.n)
+    if spec.strategy != "stratified_by_gt":
+        raise HTTPException(400, f"unknown sample.strategy: {spec.strategy!r}")
+
+    by_gt: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for r in rows:
+        by_gt[r["gt"]].append(r)
+    classes = sorted(by_gt.keys())
+    sizes = {c: len(by_gt[c]) for c in classes}
+    total = sum(sizes.values()) or 1
+    n = spec.n
+
+    quota = {c: max(1, int(round(n * sizes[c] / total))) for c in classes}
+    while sum(quota.values()) > n:
+        biggest = max(quota, key=lambda k: (quota[k], -sizes[k]))
+        if quota[biggest] <= 1:
+            break
+        quota[biggest] -= 1
+    while sum(quota.values()) < n:
+        candidates = [c for c in quota if quota[c] < sizes[c]]
+        if not candidates:
+            break
+        smallest = min(candidates, key=lambda k: (quota[k], -sizes[k]))
+        quota[smallest] += 1
+
+    out: list[dict[str, Any]] = []
+    for c in classes:
+        take = min(quota.get(c, 0), sizes[c])
+        if take > 0:
+            out.extend(rng.sample(by_gt[c], take))
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -518,13 +598,7 @@ def _split_metrics(
 # ---------------------------------------------------------------------------
 
 async def run_evaluation(request: EvaluateRequest) -> EvaluateResponse:
-    """Execute a classification evaluation.
-
-    Self-contained: ``dataset_id`` + ``intent_classes`` from the request.
-    ``session_id`` is optional — if provided, a session doc is upserted
-    lazily so budget aggregates across calls. ``target_column`` and
-    ``input_columns`` fall back to the dataset's sidecar metadata.
-    """
+    """Execute a classification evaluation. Stateless — no DB, no cache."""
     if request.task_type != "classification":
         raise HTTPException(
             400,
@@ -538,7 +612,6 @@ async def run_evaluation(request: EvaluateRequest) -> EvaluateResponse:
     dataset_id = request.dataset_id
     intent_classes = list(request.intent_classes)
 
-    # Sidecar metadata fills missing target/inputs (the upload requires them).
     meta = _load_dataset_meta(dataset_id) or {}
     target_column = request.target_column or meta.get("target_column")
     input_columns = request.input_columns or meta.get("input_columns")
@@ -549,13 +622,6 @@ async def run_evaluation(request: EvaluateRequest) -> EvaluateResponse:
     seed = config.get("seed")
     max_tokens = int(config.get("max_tokens", 256))
 
-    # Lazily upsert a session doc when caller supplies an id — gives us
-    # cumulative budget and run grouping without needing a separate POST.
-    if request.session_id:
-        await mongo_store.upsert_session_minimal(
-            request.session_id, max_cost_usd=request.max_cost_usd
-        )
-
     try:
         scorer_fn = get_scorer(request.scorer)
     except KeyError as exc:
@@ -563,50 +629,7 @@ async def run_evaluation(request: EvaluateRequest) -> EvaluateResponse:
 
     prompt_hash = _prompt_hash(request.prompt_system, request.prompt_user_template)
 
-    # Cache lookup — idempotent on (prompt, dataset, model, splits, target, inputs).
-    cache_key = mongo_store.make_cache_key(
-        prompt_hash=prompt_hash,
-        dataset_id=dataset_id,
-        model=model,
-        intent_classes=intent_classes,
-        evaluation_splits=request.evaluation_splits,
-        target_column=target_column or "",
-        input_columns=input_columns,
-    )
-    if request.use_cache:
-        cached = await mongo_store.get_cached_eval(cache_key)
-        if cached is not None:
-            if request.session_id:
-                spent, max_usd = await mongo_store.get_budget(request.session_id)
-            else:
-                spent, max_usd = 0.0, request.max_cost_usd
-            cached_resp = dict(cached)
-            cached_resp.update({
-                "dataset_id": dataset_id,
-                "session_id": request.session_id,
-                "cached": True,
-                "cost_usd": 0.0,
-                "budget_spent_usd": spent,
-                "budget_max_usd": max_usd,
-            })
-            # If a session is in play, still record this iteration as a run
-            # (cost=0, marked cached) so the agent's trend view doesn't have gaps.
-            if request.session_id:
-                run_doc = await mongo_store.insert_run(
-                    session_id=request.session_id,
-                    prompt_hash=prompt_hash,
-                    prompt_system=request.prompt_system,
-                    prompt_user_template=request.prompt_user_template,
-                    model=model,
-                    response=cached_resp,
-                    parent_run_id=request.parent_run_id,
-                    strategy=request.strategy,
-                )
-                cached_resp["run_id"] = run_doc["run_id"]
-            return EvaluateResponse(**cached_resp)
-
-    # Load + split-filter.
-    all_rows, available_splits, resolved_target, resolved_inputs = _load_dataset(
+    all_rows, available_splits, _resolved_target, _resolved_inputs = _load_dataset(
         dataset_id,
         target_column=target_column,
         input_columns=input_columns,
@@ -629,9 +652,9 @@ async def run_evaluation(request: EvaluateRequest) -> EvaluateResponse:
     else:
         rows = all_rows
 
+    rows = _sample_rows(rows, request.stage, intent_classes)
     n_rows = len(rows)
 
-    # Pre-flight budget.
     in_rate, out_rate = _model_rates(model)
     estimated_chars = len(request.prompt_system) + len(request.prompt_user_template)
     est_tokens_in_per_row = max(1, estimated_chars // _CHARS_PER_TOKEN)
@@ -640,31 +663,14 @@ async def run_evaluation(request: EvaluateRequest) -> EvaluateResponse:
         (est_tokens_in_per_row / 1_000_000) * in_rate
         + (est_tokens_out_per_row / 1_000_000) * out_rate
     )
-
-    if request.session_id:
-        allowed, current_spend, max_usd = await mongo_store.check_budget(
-            request.session_id, projected_cost
+    if projected_cost > request.max_cost_usd:
+        raise HTTPException(
+            429,
+            (
+                f"Projected cost ${projected_cost:.4f} exceeds max_cost_usd "
+                f"${request.max_cost_usd:.4f} (stage={request.stage}, n_rows={n_rows})"
+            ),
         )
-        if not allowed:
-            raise HTTPException(
-                429,
-                (
-                    f"Session {request.session_id} would exceed budget: "
-                    f"current=${current_spend:.4f}, projected=${projected_cost:.4f}, "
-                    f"max=${max_usd:.4f}"
-                ),
-            )
-    else:
-        # No session — apply the per-request cap directly.
-        max_usd = request.max_cost_usd
-        if projected_cost > max_usd:
-            raise HTTPException(
-                429,
-                (
-                    f"Projected cost ${projected_cost:.4f} exceeds max_cost_usd "
-                    f"${max_usd:.4f} (no session to aggregate against)"
-                ),
-            )
 
     anthropic_client: AsyncAnthropic | None = None
     gemini_client: Any | None = None
@@ -703,10 +709,6 @@ async def run_evaluation(request: EvaluateRequest) -> EvaluateResponse:
     latencies = [r["latency_ms"] for r in results]
     latency_p50 = float(statistics.median(latencies)) if latencies else 0.0
     actual_cost = _row_cost_usd(model, tokens_in_total, tokens_out_total)
-    if request.session_id:
-        new_total = await budget.add_spend(request.session_id, actual_cost)
-    else:
-        new_total = actual_cost
 
     by_split_rows: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for r in results:
@@ -753,11 +755,11 @@ async def run_evaluation(request: EvaluateRequest) -> EvaluateResponse:
         top_confusion_pairs=top_pairs,
     )
 
-    response_no_run = EvaluateResponse(
+    return EvaluateResponse(
         dataset_id=dataset_id,
-        session_id=request.session_id,
-        run_id=None,
         prompt_hash=prompt_hash,
+        stage=request.stage,
+        n_rows_evaluated=n_rows,
         metrics=metrics_block,
         failures_sample=failures_sample,
         failure_summary=failure_summary,
@@ -765,42 +767,4 @@ async def run_evaluation(request: EvaluateRequest) -> EvaluateResponse:
         tokens_out=tokens_out_total,
         cost_usd=actual_cost,
         latency_p50_ms=latency_p50,
-        cached=False,
-        budget_spent_usd=new_total,
-        budget_max_usd=max_usd,
     )
-
-    response_payload = response_no_run.model_dump(mode="json")
-    run_id: str | None = None
-
-    # Persist run + update session best only when we have a session_id.
-    if request.session_id:
-        run_doc = await mongo_store.insert_run(
-            session_id=request.session_id,
-            prompt_hash=prompt_hash,
-            prompt_system=request.prompt_system,
-            prompt_user_template=request.prompt_user_template,
-            model=model,
-            response=response_payload,
-            parent_run_id=request.parent_run_id,
-            strategy=request.strategy,
-        )
-        run_id = run_doc["run_id"]
-        # Prefer holdout macro_f1 when present; otherwise overall.
-        best_metric = overall.macro_f1
-        for split_name in ("Holdout", "holdout", "test", "Test"):
-            sm = by_split.get(split_name)
-            if sm is not None and sm.n_rows > 0:
-                best_metric = sm.macro_f1
-                break
-        await mongo_store.update_session_best(
-            request.session_id, run_id=run_id, macro_f1=best_metric
-        )
-
-    # Cache regardless of session — same (prompt, dataset, model, ...) is free.
-    cached_payload = dict(response_payload)
-    if run_id:
-        cached_payload["run_id"] = run_id
-    await mongo_store.put_cached_eval(cache_key, cached_payload)
-
-    return EvaluateResponse(**{**response_payload, "run_id": run_id})

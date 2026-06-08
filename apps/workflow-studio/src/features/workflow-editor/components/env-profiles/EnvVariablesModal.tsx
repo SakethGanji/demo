@@ -17,7 +17,7 @@ import {
   useUpdateVariable,
   useDeleteVariable,
   type VariableListItem,
-} from './useVariablesApi';
+} from '../../hooks/useVariablesApi';
 
 interface Props {
   open: boolean;

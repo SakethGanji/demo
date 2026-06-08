@@ -42,7 +42,7 @@ import { toast } from 'sonner';
 import { toBackendWorkflow } from '../../lib/workflowTransform';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/components/ui/tooltip';
 import { ToolbarGroup, ToolbarSeparator } from '@/shared/components/ui/toolbar';
-import { EnvProfileSelector } from '@/features/env-profiles/EnvProfileSelector';
+import { EnvProfileSelector } from '../env-profiles/EnvProfileSelector';
 import type { WorkflowNodeData } from '../../types/workflow';
 import type { Node } from '@xyflow/react';
 export default function WorkflowNavbar() {
