@@ -150,8 +150,10 @@ class WorkflowRunner:
         iteration = 0
         max_iterations = workflow.settings.get("max_iterations", 1000)
 
-        # Shared HTTP client for all nodes
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as http_client:
+        # Shared HTTP client for all nodes. Timeout sized for slow LLM-backed
+        # endpoints (e.g. PromptLab full-stage eval on ~1000-row datasets with
+        # long system prompts can take 60–180s).
+        async with httpx.AsyncClient(timeout=900.0, follow_redirects=True) as http_client:
             context.http_client = http_client
 
             while queue and iteration < max_iterations:
