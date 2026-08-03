@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import shutil
 import tempfile
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -49,6 +48,33 @@ def streaming_file_response(
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
             "Content-Length": str(Path(file_path).stat().st_size),
+        },
+    )
+
+
+def stored_file_response(
+    key: str,
+    filename: str,
+    media_type: str = "application/octet-stream",
+) -> StreamingResponse:
+    """Stream a storage object (local file or S3) as a download response."""
+    storage = get_storage()
+    size = storage.size(key)
+
+    def _chunks():
+        f = storage.open_read(key)
+        try:
+            while chunk := f.read(DOWNLOAD_CHUNK_SIZE):
+                yield chunk
+        finally:
+            f.close()
+
+    return StreamingResponse(
+        _chunks(),
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(size),
         },
     )
 
@@ -161,7 +187,10 @@ async def download_dataset_version(
         source = row.get("source") or {}
         base_name = source.get("filename", f"dataset_{dataset_id[:8]}")
         dl_filename = f"{Path(base_name).stem}_v{version_number}.parquet"
-        return streaming_file_response(file_path, dl_filename)
+        key = get_storage().key_of(file_path)
+        if key:
+            return stored_file_response(key, dl_filename)
+        return streaming_file_response(file_path, dl_filename)  # legacy out-of-storage path
 
     # Convert via DuckDB
     conn = load_data(file_path=file_path)
@@ -275,8 +304,7 @@ def download_sample_file(filename: str) -> StreamingResponse:
     key = sample_key(filename)
     if not storage.exists(key):
         raise HTTPException(404, f"File not found: {filename}")
-    path = storage.resolve(key)
-    return streaming_file_response(path, filename)
+    return stored_file_response(key, filename)
 
 
 async def list_sample_files() -> list[dict]:
@@ -285,15 +313,13 @@ async def list_sample_files() -> list[dict]:
     keys = storage.list_keys("samples")
     files = []
     for key in keys:
-        path = Path(storage.resolve(key))
-        filename = path.name
         try:
-            size = path.stat().st_size
-        except OSError:
+            size = storage.size(key)
+        except Exception:  # vanished between list and stat (local or S3)
             continue
         files.append({
             "key": key,
-            "filename": filename,
+            "filename": key.rsplit("/", 1)[-1],
             "size_bytes": size,
         })
     return files

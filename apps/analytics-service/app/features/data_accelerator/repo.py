@@ -81,32 +81,35 @@ async def delete_tag(dataset_id: str, tag_name: str) -> bool:
 # ---------------------------------------------------------------------------
 
 async def list_datasets(
-    team_id: str = DEFAULT_TEAM_ID,
+    team_ids: list[str] | None = None,
     search: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[dict], int]:
-    """List datasets with optional text search on name + description. Returns (rows, total_count)."""
+    """List datasets, scoped to *team_ids* (None = all teams, for superusers).
+
+    Optional text search on name + description. Returns (rows, total_count).
+    """
     async with async_session_factory() as s:
-        count_sql = """
-            SELECT COUNT(*) FROM datasets
-            WHERE team_id = :tid
-        """
-        params: dict = {"tid": team_id, "limit": limit, "offset": offset}
+        team_clause = "" if team_ids is None else " AND team_id = ANY(:tids)"
+        d_team_clause = "" if team_ids is None else " AND d.team_id = ANY(:tids)"
+        params: dict = {"tids": team_ids, "limit": limit, "offset": offset}
+
+        count_sql = f"SELECT COUNT(*) FROM datasets WHERE true{team_clause}"
         if search:
             count_sql += " AND (name ILIKE '%' || :search || '%' OR COALESCE(description, '') ILIKE '%' || :search || '%')"
             params["search"] = search
         total = (await s.execute(text(count_sql), params)).scalar()
 
-        query_sql = """
-            SELECT d.id::text, d.name, d.description,
+        query_sql = f"""
+            SELECT d.id::text, d.name, d.description, d.classification,
                    dv.version_number AS current_version,
                    dv.row_count, dv.size_bytes,
                    d.created_at::text AS created_at,
                    d.updated_at::text AS updated_at
             FROM datasets d
             LEFT JOIN dataset_versions dv ON d.current_version_id = dv.id
-            WHERE d.team_id = :tid
+            WHERE true{d_team_clause}
         """
         if search:
             query_sql += " AND (d.name ILIKE '%' || :search || '%' OR COALESCE(d.description, '') ILIKE '%' || :search || '%')"
@@ -118,38 +121,38 @@ async def list_datasets(
 
 async def search_datasets(
     query: str,
-    team_id: str = DEFAULT_TEAM_ID,
+    team_ids: list[str] | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> tuple[list[dict], int]:
-    """Search datasets by name/description and return results with versions + tags inline."""
+    """Search datasets, scoped to *team_ids* (None = all teams). Versions + tags inline."""
     async with async_session_factory() as s:
-        # Count matches
+        team_clause = "" if team_ids is None else " AND team_id = ANY(:tids)"
+        d_team_clause = "" if team_ids is None else " AND d.team_id = ANY(:tids)"
+        base = {"tids": team_ids, "q": query}
+
         total = (await s.execute(
-            text("""
+            text(f"""
                 SELECT COUNT(*) FROM datasets
-                WHERE team_id = :tid
-                  AND (name ILIKE '%' || :q || '%'
-                       OR COALESCE(description, '') ILIKE '%' || :q || '%')
+                WHERE (name ILIKE '%' || :q || '%'
+                       OR COALESCE(description, '') ILIKE '%' || :q || '%'){team_clause}
             """),
-            {"tid": team_id, "q": query},
+            base,
         )).scalar()
 
-        # Fetch matching datasets
         ds_rows = (await s.execute(
-            text("""
+            text(f"""
                 SELECT d.id::text, d.name, d.description,
                        d.current_version_id::text,
                        d.created_at::text AS created_at,
                        d.updated_at::text AS updated_at
                 FROM datasets d
-                WHERE d.team_id = :tid
-                  AND (d.name ILIKE '%' || :q || '%'
-                       OR COALESCE(d.description, '') ILIKE '%' || :q || '%')
+                WHERE (d.name ILIKE '%' || :q || '%'
+                       OR COALESCE(d.description, '') ILIKE '%' || :q || '%'){d_team_clause}
                 ORDER BY d.updated_at DESC
                 LIMIT :limit OFFSET :offset
             """),
-            {"tid": team_id, "q": query, "limit": limit, "offset": offset},
+            {**base, "limit": limit, "offset": offset},
         )).mappings().all()
 
         if not ds_rows:
@@ -191,6 +194,47 @@ async def search_datasets(
             results.append(d)
 
         return results, total
+
+
+async def update_dataset(
+    dataset_id: str,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    classification: str | None = None,
+) -> dict | None:
+    """Patch a dataset's name/description/classification. Only provided fields change.
+
+    Returns the updated row, or None if the dataset does not exist.
+    """
+    from app.shared.repo import is_uuid
+    if not is_uuid(dataset_id):
+        return None
+    sets = ["updated_at = now()"]
+    params: dict = {"did": dataset_id}
+    if name is not None:
+        sets.append("name = :name")
+        params["name"] = name
+    if description is not None:
+        sets.append("description = :description")
+        params["description"] = description
+    if classification is not None:
+        sets.append("classification = :classification")
+        params["classification"] = classification
+
+    async with async_session_factory() as s:
+        row = (await s.execute(
+            text(f"""
+                UPDATE datasets SET {', '.join(sets)}
+                WHERE id = :did
+                RETURNING id::text, name, description, classification,
+                          created_at::text AS created_at,
+                          updated_at::text AS updated_at
+            """),
+            params,
+        )).mappings().first()
+        await s.commit()
+        return dict(row) if row else None
 
 
 async def list_versions(dataset_id: str) -> list[dict]:

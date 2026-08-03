@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import tempfile
 import uuid
+from pathlib import Path
 from typing import Any
 
 import duckdb
@@ -99,13 +101,14 @@ async def run_aggregation(request: AggregateRequest) -> AggregateResponse:
                 except duckdb.Error:
                     pass
 
-        # Persist result as parquet
+        # Persist result as parquet (write locally, publish to the storage backend)
         storage = get_storage()
         result_filename = f"agg_{uuid.uuid4().hex}.parquet"
         key = sample_key(result_filename)
-        storage.ensure_dir("samples")
-        result_path = storage.resolve(key)
-        conn.execute(f"COPY agg_result TO '{result_path}' (FORMAT PARQUET)")
+        with tempfile.TemporaryDirectory(prefix="accel_agg_") as td:
+            local_result = Path(td) / result_filename
+            conn.execute(f"COPY agg_result TO '{local_result}' (FORMAT PARQUET)")
+            storage.put_file(key, local_result)
 
         # Materialise rows only when caller wants them
         result_data = None

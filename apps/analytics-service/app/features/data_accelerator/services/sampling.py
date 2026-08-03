@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import tempfile
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import duckdb
@@ -194,8 +196,12 @@ async def execute_step(
             conn.execute("CREATE OR REPLACE TABLE _prev_round AS SELECT * FROM prev")
             src_cols = conn.execute(f"PRAGMA table_info('{source_table}')").fetchall()
             col_names = [c[1] for c in src_cols]
+            # Compare as VARCHAR: rows round-trip through pandas, so DuckDB may
+            # re-infer a column's type from the subset (e.g. an all-numeric-looking
+            # slice of a text column becomes INT), which would make a typed
+            # IS NOT DISTINCT FROM raise a ConversionException against the pool.
             join_conds = " AND ".join(
-                f"s.{quote_ident(c)} IS NOT DISTINCT FROM p.{quote_ident(c)}"
+                f"CAST(s.{quote_ident(c)} AS VARCHAR) IS NOT DISTINCT FROM CAST(p.{quote_ident(c)} AS VARCHAR)"
                 for c in col_names
             )
             # Materialize as table (not view) so we can drop _prev_round
@@ -376,8 +382,10 @@ async def _run_sampling_pipeline_inner(
                 conn.execute("CREATE OR REPLACE TABLE _step_selected AS SELECT * FROM selected_df")
                 pool_cols = conn.execute("PRAGMA table_info('_pool_view')").fetchall()
                 col_names = [c[1] for c in pool_cols]
+                # VARCHAR-cast both sides: see note in execute_step — the sampled
+                # rows come back via pandas and can carry re-inferred column types.
                 join_conds = " AND ".join(
-                    f"p.{quote_ident(c)} IS NOT DISTINCT FROM s.{quote_ident(c)}"
+                    f"CAST(p.{quote_ident(c)} AS VARCHAR) IS NOT DISTINCT FROM CAST(s.{quote_ident(c)} AS VARCHAR)"
                     for c in col_names
                 )
                 conn.execute(f"""
@@ -458,13 +466,14 @@ async def _run_sampling_pipeline_inner(
     )
     sampled_count = len(combined)
 
-    # Persist sample as parquet
+    # Persist sample as parquet (write locally, publish to the storage backend)
     storage = get_storage()
     sample_filename = f"sample_{uuid.uuid4().hex}.parquet"
     key = sample_key(sample_filename)
-    storage.ensure_dir("samples")
-    sample_path = storage.resolve(key)
-    conn.execute(f"COPY sampled TO '{sample_path}' (FORMAT PARQUET)")
+    with tempfile.TemporaryDirectory(prefix="accel_sample_") as td:
+        local_sample = Path(td) / sample_filename
+        conn.execute(f"COPY sampled TO '{local_sample}' (FORMAT PARQUET)")
+        storage.put_file(key, local_sample)
 
     col_summaries = build_column_summaries(conn, "sampled")
 

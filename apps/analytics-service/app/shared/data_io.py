@@ -29,6 +29,41 @@ def _read_expr(path: Path) -> str:
         raise HTTPException(400, f"Unsupported file format: {suffix}")
 
 
+def _connect_s3() -> duckdb.DuckDBPyConnection:
+    """A DuckDB connection with httpfs loaded and S3 credentials configured."""
+    from app.infra.db.storage import duckdb_s3_statements
+
+    conn = duckdb.connect()
+    try:
+        conn.execute("INSTALL httpfs")
+    except duckdb.Error:
+        pass  # offline is fine if the extension is already installed
+    conn.execute("LOAD httpfs")
+    for stmt in duckdb_s3_statements():
+        conn.execute(stmt)
+    return conn
+
+
+def _load_s3(uri: str) -> duckdb.DuckDBPyConnection:
+    """Create view ``df`` over an s3:// parquet/CSV object (lazy, via httpfs)."""
+    suffix = "." + uri.rsplit(".", 1)[-1].lower() if "." in uri.rsplit("/", 1)[-1] else ""
+    escaped = uri.replace("'", "''")
+    if suffix == ".parquet":
+        expr = f"read_parquet('{escaped}')"
+    elif suffix == ".csv":
+        expr = f"read_csv_auto('{escaped}')"
+    else:
+        raise HTTPException(400, f"Unsupported object-store format: {suffix or uri}. Supported: .csv, .parquet")
+
+    conn = _connect_s3()
+    try:
+        conn.execute(f"CREATE VIEW df AS SELECT * FROM {expr}")
+    except duckdb.Error as e:
+        conn.close()
+        raise HTTPException(404, f"File not found or unreadable: {uri} ({type(e).__name__})")
+    return conn
+
+
 def load_data(
     file_path: str | None = None,
     data: list[dict[str, Any]] | None = None,
@@ -36,9 +71,12 @@ def load_data(
     """Load data into a DuckDB connection as view/table ``df``.
 
     CSV and Parquet files are loaded as views (lazy — DuckDB reads only what
-    queries touch). Excel and inline JSON are materialized as tables since they
-    need pandas conversion.
+    queries touch; ``s3://`` URIs stream via httpfs). Excel and inline JSON are
+    materialized as tables since they need pandas conversion.
     """
+    if file_path and file_path.startswith("s3://"):
+        return _load_s3(file_path)
+
     conn = duckdb.connect()
 
     if file_path:

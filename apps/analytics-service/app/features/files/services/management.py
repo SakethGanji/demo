@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import logging
-import shutil
-from pathlib import Path
+import posixpath
 
 from fastapi import HTTPException
 
@@ -26,18 +25,20 @@ async def delete_dataset_with_files(dataset_id: str) -> DeleteResponse:
     storage = get_storage()
     paths = await da_repo.delete_dataset(dataset_id)
 
-    # Clean up storage directories for all versions
+    # Clean up stored artifacts for all versions (works for local FS and S3).
     deleted_keys: list[str] = []
     for path in paths:
-        p = Path(path)
-        # Walk up to the version directory (e.g. .../v000001/)
-        version_dir = p.parent.parent  # parquet/dataset.parquet -> parquet -> v000001
-        if version_dir.exists() and version_dir.is_dir():
-            try:
-                shutil.rmtree(version_dir)
-                deleted_keys.append(str(version_dir))
-            except OSError as e:
-                logger.warning("Failed to remove %s: %s", version_dir, e)
+        key = storage.key_of(str(path))
+        if not key:
+            logger.warning("Stored path %s does not belong to the active backend; skipping", path)
+            continue
+        # Walk up to the version root (…/vNNNNNN/parquet/dataset.parquet -> …/vNNNNNN)
+        version_root = posixpath.dirname(posixpath.dirname(key))
+        try:
+            if storage.delete_prefix(version_root):
+                deleted_keys.append(version_root)
+        except Exception as e:
+            logger.warning("Failed to remove %s: %s", version_root, e)
 
     return DeleteResponse(
         success=True,
@@ -56,7 +57,7 @@ async def get_storage_usage() -> StorageUsageResponse:
         for key in keys:
             try:
                 total += storage.size(key)
-            except OSError:
+            except Exception:  # vanished between list and stat (local or S3)
                 pass
         return total
 

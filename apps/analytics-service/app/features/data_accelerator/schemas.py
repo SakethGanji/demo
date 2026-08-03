@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
 from app.shared.schemas import ColumnInfo, ColumnSummary
+
+Classification = Literal["public", "internal", "confidential", "restricted"]
 
 
 # ---------------------------------------------------------------------------
@@ -19,18 +21,12 @@ class DatasetInfo(BaseModel):
     id: str
     name: str
     description: str | None = None
+    classification: str = "internal"
     current_version: int | None = None
     row_count: int | None = None
     size_bytes: int | None = None
     created_at: str
     updated_at: str
-
-
-class DatasetListResponse(BaseModel):
-    """Paginated dataset listing."""
-
-    datasets: list[DatasetInfo]
-    total_count: int
 
 
 class VersionInfo(BaseModel):
@@ -55,6 +51,27 @@ class DeleteResponse(BaseModel):
     deleted_keys: list[str] = Field(default_factory=list)
 
 
+class UpdateDatasetRequest(BaseModel):
+    """Patch a dataset's mutable metadata. Only provided fields change."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=2000)
+    classification: Classification | None = Field(
+        default=None, description="Data sensitivity: public, internal, confidential, or restricted",
+    )
+
+
+class DatasetPatched(BaseModel):
+    """Result of a dataset metadata patch."""
+
+    id: str
+    name: str
+    description: str | None = None
+    classification: str = "internal"
+    created_at: str
+    updated_at: str
+
+
 class DatasetSearchResult(BaseModel):
     """A dataset with its versions inline, returned from search."""
 
@@ -65,14 +82,6 @@ class DatasetSearchResult(BaseModel):
     created_at: str
     updated_at: str
     versions: list[VersionInfo] = Field(default_factory=list)
-
-
-class DatasetSearchResponse(BaseModel):
-    """Search results with pagination."""
-
-    results: list[DatasetSearchResult]
-    total_count: int
-    query: str
 
 
 # ---------------------------------------------------------------------------
@@ -103,12 +112,6 @@ class SetTagRequest(BaseModel):
         if not v:
             raise ValueError("tag_name cannot be empty")
         return v
-
-
-class TagListResponse(BaseModel):
-    """List of tags for a dataset."""
-
-    tags: list[TagInfo]
 
 
 # ---------------------------------------------------------------------------
@@ -269,7 +272,7 @@ class SampleResponse(BaseModel):
     sampled_count: int
     columns: list[ColumnSummary] = []
     preview: list[dict[str, Any]] = []
-    sample_file: str | None = Field(default=None, description="Saved sample filename — fetch via GET /files/samples/{filename}")
+    sample_file: str | None = Field(default=None, description="Saved sample filename — fetch via GET /api/v1/samples/{filename}")
     data: list[dict[str, Any]] | None = None
     steps_summary: list[StepResult] = []
     goal_validation: GoalValidationResult | None = None
@@ -399,4 +402,4 @@ class AggregateResponse(BaseModel):
     columns: list[str]
     data: list[dict[str, Any]] | None = None
     totals: dict[str, Any] | None = None
-    result_file: str | None = Field(default=None, description="Saved result filename — fetch via GET /files/samples/{filename}")
+    result_file: str | None = Field(default=None, description="Saved result filename — fetch via GET /api/v1/samples/{filename}")

@@ -1,26 +1,30 @@
 """Files API — upload, download, and storage I/O.
 
+All routes are mounted under the service-wide ``/api/v1`` prefix (see app.main),
+so the paths below are relative to that. Dataset uploads/downloads live under the
+``/datasets`` tree alongside the rest of the dataset API.
+
 Upload routes:
-  POST   /files/upload                    Simple multipart or inline JSON upload
-  GET    /files/upload/status/{version_id} Poll processing status
+  POST   /upload                          Simple multipart or inline JSON upload
+  GET    /upload/status/{version_id}      Poll processing status
 
 TUS resumable upload:
-  OPTIONS /files/tus/                     Protocol discovery
-  POST    /files/tus/                     Create upload
-  HEAD    /files/tus/{upload_id}          Check offset
-  PATCH   /files/tus/{upload_id}          Append data
-  DELETE  /files/tus/{upload_id}          Cancel upload
-  GET     /files/tus/{upload_id}/status   Poll status after completion
+  OPTIONS /tus/                           Protocol discovery
+  POST    /tus/                           Create upload
+  HEAD    /tus/{upload_id}                Check offset
+  PATCH   /tus/{upload_id}                Append data
+  DELETE  /tus/{upload_id}                Cancel upload
+  GET     /tus/{upload_id}/status         Poll status after completion
 
 Downloads:
-  GET    /files/datasets/{id}/download              Download current version
-  GET    /files/datasets/{id}/versions/{v}/download  Download specific version
-  GET    /files/samples                              List sample files
-  GET    /files/samples/{filename}                   Download sample file
-  GET    /files/samples/{filename}/data              Paginated JSON data read
+  GET    /datasets/{id}/download                     Download current version
+  GET    /datasets/{id}/versions/{v}/download        Download specific version
+  GET    /samples                                    List sample files
+  GET    /samples/{filename}                         Download sample file
+  GET    /samples/{filename}/data                    Paginated JSON data read
 
 Storage:
-  GET    /files/storage/usage             Storage usage breakdown
+  GET    /storage/usage                   Storage usage breakdown
 """
 
 from __future__ import annotations
@@ -30,13 +34,23 @@ import fcntl
 import hashlib
 import json as _json
 import os
+import tempfile
 import time
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Form, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 
+from app.api.pagination import Page
+from app.features.auth.deps import (
+    Principal,
+    ensure_dataset_permission,
+    get_principal,
+    pick_active_team,
+)
+from app.features.auth.permissions import Permission
+from app.infra.config import settings
 from app.infra.db.storage import DatasetLayout, get_storage, uploads_dir
 from . import repo
 from app.shared.constants import (
@@ -49,7 +63,6 @@ from app.shared.schemas import ColumnInfo
 
 from .schemas import (
     FileEntry,
-    FileListResponse,
     StorageUsageResponse,
     UploadResponse,
 )
@@ -74,20 +87,22 @@ from .services.downloads import (
 )
 from .services.management import get_storage_usage
 
-router = APIRouter(prefix="/files", tags=["files"])
+router = APIRouter()
 
 
 # ---------------------------------------------------------------------------
 # Simple upload
 # ---------------------------------------------------------------------------
 
-@router.post("/upload", response_model=UploadResponse)
+@router.post("/upload", response_model=UploadResponse, tags=["uploads"])
 async def upload_dataset(
     background_tasks: BackgroundTasks,
     file: UploadFile | None = None,
     data: str | None = Form(default=None),
     dataset_id: str | None = Form(default=None),
     sync: bool = Query(default=True),
+    principal: Principal = Depends(get_principal),
+    x_team_id: str | None = Header(default=None, alias="X-Team-Id"),
 ) -> UploadResponse:
     """Unified upload endpoint — accepts either a multipart file or inline JSON.
 
@@ -115,13 +130,14 @@ async def upload_dataset(
                 f"Unsupported file type: {suffix}. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}",
             )
 
-        # Create or reuse dataset in DB
+        # Create or reuse dataset in DB (with authorization)
         if dataset_id:
-            ds = await repo.get_dataset(dataset_id)
-            if not ds:
-                raise HTTPException(404, f"Dataset not found: {dataset_id}")
+            ds = await ensure_dataset_permission(principal, dataset_id, Permission.DATASET_WRITE)
         else:
-            ds = await repo.create_dataset(name=file.filename)
+            team_id = pick_active_team(principal, x_team_id)
+            if not principal.can(team_id, Permission.DATASET_WRITE):
+                raise HTTPException(403, "Insufficient permissions: requires dataset:write")
+            ds = await repo.create_dataset(name=file.filename, team_id=team_id, owner_id=principal.user_id)
             dataset_id = str(ds["id"])
 
         # Create a version row (status=uploading)
@@ -135,11 +151,22 @@ async def upload_dataset(
         version_number = version["version_number"]
         team_id = str(ds.get("team_id", "default"))
 
-        # Stream raw upload to temp staging area (keyed by version_id for concurrency safety)
-        raw_key = f"datasets/_staging/{version_id}_raw{suffix}"
-        raw_path = Path(storage.resolve(raw_key))
-        storage.ensure_dir("datasets/_staging")
+        # Stream raw upload to the local staging area (keyed by version_id for
+        # concurrency safety). Staging is always local, even with S3 storage.
+        staging = uploads_dir() / "_staging"
+        staging.mkdir(parents=True, exist_ok=True)
+        raw_path = staging / f"{version_id}_raw{suffix}"
         file_size = await stream_to_disk(file, raw_path)
+
+        # Enforce the simple-upload size cap (use TUS for very large files).
+        if file_size > settings.max_upload_bytes:
+            raw_path.unlink(missing_ok=True)
+            await repo.fail_version(version_id, "File exceeds max upload size")
+            raise HTTPException(
+                413,
+                f"File too large ({file_size} bytes). Max {settings.max_upload_bytes} bytes "
+                f"for this endpoint — use resumable TUS upload for larger files.",
+            )
 
         processing_status[version_id] = {"status": "uploaded", "dataset_id": dataset_id, "file_size_bytes": file_size}
 
@@ -154,6 +181,7 @@ async def upload_dataset(
                 raise HTTPException(500, f"Processing failed: {info['error']}")
             return UploadResponse(
                 dataset_id=dataset_id,
+                version_id=version_id,
                 status="complete",
                 file_path=info.get("file_path"),
                 file_size_bytes=file_size,
@@ -174,7 +202,7 @@ async def upload_dataset(
             version_id=version_id,
             status="uploaded",
             file_size_bytes=file_size,
-            message="File uploaded. Processing in background — poll /files/upload/status/{version_id}",
+            message=f"File uploaded. Processing in background — poll {settings.api_prefix}/upload/status/{version_id}",
         )
 
     elif data is not None:
@@ -186,13 +214,14 @@ async def upload_dataset(
         if not isinstance(rows, list) or not rows:
             raise HTTPException(400, "data must be a non-empty JSON array of objects")
 
-        # Create dataset + version in DB
+        # Create dataset + version in DB (with authorization)
         if dataset_id:
-            ds = await repo.get_dataset(dataset_id)
-            if not ds:
-                raise HTTPException(404, f"Dataset not found: {dataset_id}")
+            ds = await ensure_dataset_permission(principal, dataset_id, Permission.DATASET_WRITE)
         else:
-            ds = await repo.create_dataset(name=f"inline_{len(rows)}")
+            team_id = pick_active_team(principal, x_team_id)
+            if not principal.can(team_id, Permission.DATASET_WRITE):
+                raise HTTPException(403, "Insufficient permissions: requires dataset:write")
+            ds = await repo.create_dataset(name=f"inline_{len(rows)}", team_id=team_id, owner_id=principal.user_id)
             dataset_id = str(ds["id"])
 
         version = await repo.create_version(
@@ -207,11 +236,14 @@ async def upload_dataset(
         layout = DatasetLayout(team_id, dataset_id, version_number)
         layout.ensure_dirs()
 
+        # Write parquet locally, then publish to the storage backend.
         conn = load_data(data=rows)
+        with tempfile.TemporaryDirectory(prefix="accel_inline_") as td:
+            local_parquet = Path(td) / "dataset.parquet"
+            conn.execute(f"COPY df TO '{local_parquet}' (FORMAT PARQUET)")
+            size_bytes = local_parquet.stat().st_size
+            storage.put_file(layout.canonical_parquet, local_parquet)
         parquet_path = storage.resolve(layout.canonical_parquet)
-        conn.execute(f"COPY df TO '{parquet_path}' (FORMAT PARQUET)")
-
-        size_bytes = storage.size(layout.canonical_parquet)
         row_count = conn.execute("SELECT COUNT(*) FROM df").fetchone()[0]
         col_count = len(conn.execute("DESCRIBE df").fetchall())
         await repo.complete_version(
@@ -226,15 +258,20 @@ async def upload_dataset(
             size_bytes=size_bytes,
         )
 
-        return build_complete_response(dataset_id, conn, parquet_path)
+        return build_complete_response(
+            dataset_id, conn, parquet_path, version_id=str(version["id"]),
+        )
 
     else:
         raise HTTPException(400, "Provide either a 'file' (multipart) or 'data' (JSON string) field")
 
 
-@router.get("/upload/status/{version_id}", response_model=UploadResponse)
-async def upload_status(version_id: str) -> UploadResponse:
+@router.get("/upload/status/{version_id}", response_model=UploadResponse, tags=["uploads"])
+async def upload_status(version_id: str, principal: Principal = Depends(get_principal)) -> UploadResponse:
     """Poll processing status for an async file upload (keyed by version_id)."""
+    ver = await repo.get_version(version_id)
+    if ver:
+        await ensure_dataset_permission(principal, str(ver["dataset_id"]), Permission.DATASET_READ)
     if version_id not in processing_status:
         raise HTTPException(404, f"Unknown version: {version_id}")
     info = processing_status[version_id]
@@ -257,7 +294,7 @@ async def upload_status(version_id: str) -> UploadResponse:
 # TUS resumable upload protocol
 # ---------------------------------------------------------------------------
 
-@router.options("/tus/")
+@router.options("/tus/", tags=["uploads"])
 async def tus_options() -> Response:
     """TUS discovery — tells the client what we support."""
     return Response(
@@ -271,8 +308,12 @@ async def tus_options() -> Response:
     )
 
 
-@router.post("/tus/")
-async def tus_create(request: Request) -> Response:
+@router.post("/tus/", tags=["uploads"])
+async def tus_create(
+    request: Request,
+    principal: Principal = Depends(get_principal),
+    x_team_id: str | None = Header(default=None, alias="X-Team-Id"),
+) -> Response:
     """TUS creation — client announces a new upload, we return a Location URL."""
     upload_length = request.headers.get("Upload-Length")
     if upload_length is None:
@@ -299,14 +340,15 @@ async def tus_create(request: Request) -> Response:
     # Clean up stale uploads opportunistically
     cleanup_stale_uploads()
 
-    # Create or reuse dataset in DB
+    # Create or reuse dataset in DB (with authorization)
     if incoming_dataset_id:
-        ds = await repo.get_dataset(incoming_dataset_id)
-        if not ds:
-            raise HTTPException(404, f"Dataset not found: {incoming_dataset_id}")
+        await ensure_dataset_permission(principal, incoming_dataset_id, Permission.DATASET_WRITE)
         ds_id = incoming_dataset_id
     else:
-        ds = await repo.create_dataset(name=filename)
+        team_id = pick_active_team(principal, x_team_id)
+        if not principal.can(team_id, Permission.DATASET_WRITE):
+            raise HTTPException(403, "Insufficient permissions: requires dataset:write")
+        ds = await repo.create_dataset(name=filename, team_id=team_id, owner_id=principal.user_id)
         ds_id = str(ds["id"])
 
     # Create version row
@@ -335,14 +377,14 @@ async def tus_create(request: Request) -> Response:
     }
     save_tus_meta(upload_id, meta)
 
-    location = f"/files/tus/{upload_id}"
+    location = f"{settings.api_prefix}/tus/{upload_id}"
     return Response(
         status_code=201,
         headers=tus_headers(Location=location),
     )
 
 
-@router.head("/tus/{upload_id}")
+@router.head("/tus/{upload_id}", tags=["uploads"])
 async def tus_head(upload_id: str) -> Response:
     """TUS offset check — client asks 'how much have you received?' to resume."""
     meta = load_tus_meta(upload_id)
@@ -368,7 +410,7 @@ async def tus_head(upload_id: str) -> Response:
     )
 
 
-@router.patch("/tus/{upload_id}")
+@router.patch("/tus/{upload_id}", tags=["uploads"])
 async def tus_patch(
     upload_id: str,
     request: Request,
@@ -464,7 +506,7 @@ async def tus_patch(
     )
 
 
-@router.delete("/tus/{upload_id}")
+@router.delete("/tus/{upload_id}", tags=["uploads"])
 async def tus_terminate(upload_id: str) -> Response:
     """TUS termination — client cancels an in-progress upload."""
     meta = load_tus_meta(upload_id)
@@ -480,7 +522,7 @@ async def tus_terminate(upload_id: str) -> Response:
     return Response(status_code=204, headers=tus_headers())
 
 
-@router.get("/tus/{upload_id}/status")
+@router.get("/tus/{upload_id}/status", tags=["uploads"])
 async def tus_upload_status(upload_id: str) -> UploadResponse:
     """Check processing status after a TUS upload completes."""
     meta = load_tus_meta(upload_id)
@@ -518,7 +560,7 @@ async def tus_upload_status(upload_id: str) -> UploadResponse:
 # Downloads
 # ---------------------------------------------------------------------------
 
-@router.get("/datasets/{dataset_id}/download")
+@router.get("/datasets/{dataset_id}/download", tags=["downloads"])
 async def download_dataset_endpoint(
     dataset_id: str,
     format: str = Query("csv", description="Download format: csv, parquet, xlsx"),
@@ -526,12 +568,14 @@ async def download_dataset_endpoint(
     columns: str | None = Query(None, description="Comma-separated column names to include"),
     limit: int | None = Query(None, ge=1, description="Max rows to include"),
     filter_expr: str | None = Query(None, description="SQL WHERE filter expression"),
+    principal: Principal = Depends(get_principal),
 ):
     """Download the current version of a dataset.
 
     Supports format conversion (csv, parquet, xlsx), column subsetting,
     row limiting, and SQL filtering. Streams the response for large files.
     """
+    await ensure_dataset_permission(principal, dataset_id, Permission.DATASET_READ)
     col_list = [c.strip() for c in columns.split(",") if c.strip()] if columns else None
     return await download_dataset(
         dataset_id, format=format, sheet=sheet,
@@ -539,18 +583,20 @@ async def download_dataset_endpoint(
     )
 
 
-@router.get("/datasets/{dataset_id}/versions/{version_number}/download")
+@router.get("/datasets/{dataset_id}/versions/{version_number}/download", tags=["downloads"])
 async def download_version_endpoint(
     dataset_id: str,
     version_number: int,
     format: str = Query("csv", description="Download format: csv, parquet, xlsx"),
+    principal: Principal = Depends(get_principal),
 ):
     """Download a specific version of a dataset."""
+    await ensure_dataset_permission(principal, dataset_id, Permission.DATASET_READ)
     return await download_dataset_version(dataset_id, version_number, format=format)
 
 
-@router.get("/samples", response_model=FileListResponse)
-async def list_samples():
+@router.get("/samples", response_model=Page[FileEntry], tags=["downloads"])
+async def list_samples() -> Page[FileEntry]:
     """List all sample/export files."""
     files = await list_sample_files()
     entries = [
@@ -562,16 +608,16 @@ async def list_samples():
         )
         for f in files
     ]
-    return FileListResponse(files=entries, total_count=len(entries))
+    return Page(items=entries, total=len(entries), limit=len(entries), offset=0)
 
 
-@router.get("/samples/{filename}")
+@router.get("/samples/{filename}", tags=["downloads"])
 async def download_sample(filename: str):
     """Download a sample or export file."""
     return download_sample_file(filename)
 
 
-@router.get("/samples/{filename}/data")
+@router.get("/samples/{filename}/data", tags=["downloads"])
 async def read_sample(
     filename: str,
     offset: int = Query(0, ge=0, description="Row offset for pagination"),
@@ -603,7 +649,7 @@ async def read_sample(
 # Storage
 # ---------------------------------------------------------------------------
 
-@router.get("/storage/usage", response_model=StorageUsageResponse)
+@router.get("/storage/usage", response_model=StorageUsageResponse, tags=["storage"])
 async def storage_usage() -> StorageUsageResponse:
     """Get storage usage breakdown by category."""
     return await get_storage_usage()

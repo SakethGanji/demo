@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ from app.infra.db.storage import DatasetLayout, get_storage
 from app.shared import jobs
 from .. import repo
 from app.shared.data_io import ConversionResult, convert_to_parquet, extract_metadata
+from app.shared.scanning import scan_upload
 from app.shared.schemas import ColumnInfo
 
 from ..schemas import UploadResponse
@@ -61,23 +63,41 @@ async def process_uploaded_file_async(
         processing_status.setdefault(status_key, {})["status"] = "processing"
         await jobs.update_job_progress(job_id, 10)
 
+        # Malware/content scan before we touch the file (no-op unless configured).
+        scan = await scan_upload(raw_path, filename=source_filename)
+        if not scan.ok:
+            raise ValueError(f"Upload rejected by scanner: {scan.reason or 'infected'}")
+
+        # Build artifacts in a local temp dir, then publish to the storage
+        # backend (local FS or S3) via put_file — conversion, checksumming, and
+        # metadata extraction always run against real local files.
+        with tempfile.TemporaryDirectory(prefix="accel_build_") as build_dir:
+            local_parquet = Path(build_dir) / "dataset.parquet"
+            sheet_locals: dict[str, Path] = {}
+
+            def sheet_path_fn(sheet_name: str) -> str:
+                p = Path(build_dir) / "sheets" / f"sheet_{len(sheet_locals):04d}.parquet"
+                sheet_locals[sheet_name] = p
+                return str(p)
+
+            result: ConversionResult = convert_to_parquet(
+                raw_path, local_parquet, sheet_path_fn=sheet_path_fn,
+            )
+            await jobs.update_job_progress(job_id, 50)
+
+            meta = extract_metadata(result.conn)
+            result.conn.close()
+
+            size_bytes = local_parquet.stat().st_size
+            checksum = _file_checksum(str(local_parquet))
+
+            storage.put_file(layout.canonical_parquet, local_parquet)
+            for sheet_name, local_sheet in sheet_locals.items():
+                if local_sheet.exists():
+                    storage.put_file(layout.sheet_parquet(sheet_name), local_sheet)
+
         parquet_path = storage.resolve(layout.canonical_parquet)
-
-        # Build per-sheet path resolver for Excel files
-        def sheet_path_fn(sheet_name: str) -> str:
-            return storage.resolve(layout.sheet_parquet(sheet_name))
-
-        result: ConversionResult = convert_to_parquet(
-            raw_path, Path(parquet_path), sheet_path_fn=sheet_path_fn,
-        )
-        await jobs.update_job_progress(job_id, 60)
-
-        meta = extract_metadata(result.conn)
-        result.conn.close()
         await jobs.update_job_progress(job_id, 80)
-
-        size_bytes = storage.size(layout.canonical_parquet)
-        checksum = _file_checksum(parquet_path)
 
         # Build sheet info for manifest and DB source
         sheets_meta = None

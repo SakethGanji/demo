@@ -31,18 +31,20 @@ async def create_dataset(
     description: str | None = None,
     team_id: str = DEFAULT_TEAM_ID,
     owner_id: str = DEFAULT_USER_ID,
+    classification: str = "internal",
 ) -> dict:
     """Create a new dataset row."""
     async with async_session_factory() as s:
         row = (await s.execute(
             text("""
-                INSERT INTO datasets (name, description, team_id, owner_id)
-                VALUES (:name, :description, :team_id, :owner_id)
+                INSERT INTO datasets (name, description, team_id, owner_id, classification)
+                VALUES (:name, :description, :team_id, :owner_id, :classification)
                 RETURNING id, name, description, team_id, owner_id,
-                          current_version_id, created_at, updated_at
+                          classification, current_version_id, created_at, updated_at
             """),
             {"name": name, "description": description,
-             "team_id": team_id, "owner_id": owner_id},
+             "team_id": team_id, "owner_id": owner_id,
+             "classification": classification},
         )).mappings().one()
         await s.commit()
         return dict(row)

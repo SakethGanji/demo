@@ -36,13 +36,6 @@ class FileEntry(BaseModel):
     created_at: str | None = None
 
 
-class FileListResponse(BaseModel):
-    """File listing response."""
-
-    files: list[FileEntry]
-    total_count: int
-
-
 class StorageUsageResponse(BaseModel):
     """Storage usage breakdown."""
 

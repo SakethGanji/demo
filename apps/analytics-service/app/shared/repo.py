@@ -6,6 +6,8 @@ a dataset or version should import from here, not duplicate the SQL.
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from sqlalchemy import text
 
 from app.infra.db.postgres import async_session_factory
@@ -14,8 +16,25 @@ DEFAULT_TEAM_ID = "00000000-0000-0000-0000-000000000001"
 DEFAULT_USER_ID = "00000000-0000-0000-0000-000000000001"
 
 
+def is_uuid(value: str | None) -> bool:
+    """True if *value* is a well-formed UUID.
+
+    Guards ID lookups so a malformed path parameter resolves to "not found"
+    (404) instead of blowing up on Postgres's uuid cast (500).
+    """
+    if not value:
+        return False
+    try:
+        UUID(str(value))
+        return True
+    except (ValueError, AttributeError, TypeError):
+        return False
+
+
 async def get_dataset(dataset_id: str) -> dict | None:
     """Fetch a dataset by ID."""
+    if not is_uuid(dataset_id):
+        return None
     async with async_session_factory() as s:
         row = (await s.execute(
             text("SELECT * FROM datasets WHERE id = :id"),
@@ -26,6 +45,8 @@ async def get_dataset(dataset_id: str) -> dict | None:
 
 async def get_version(version_id: str) -> dict | None:
     """Fetch a dataset version by ID."""
+    if not is_uuid(version_id):
+        return None
     async with async_session_factory() as s:
         row = (await s.execute(
             text("SELECT * FROM dataset_versions WHERE id = :id"),
@@ -36,6 +57,8 @@ async def get_version(version_id: str) -> dict | None:
 
 async def get_version_by_number(dataset_id: str, version_number: int) -> dict | None:
     """Fetch a dataset version by dataset ID and version number."""
+    if not is_uuid(dataset_id):
+        return None
     async with async_session_factory() as s:
         row = (await s.execute(
             text("SELECT * FROM dataset_versions WHERE dataset_id = :did AND version_number = :vn"),
@@ -46,6 +69,8 @@ async def get_version_by_number(dataset_id: str, version_number: int) -> dict | 
 
 async def get_current_version(dataset_id: str) -> dict | None:
     """Fetch the current (latest ready) version for a dataset."""
+    if not is_uuid(dataset_id):
+        return None
     async with async_session_factory() as s:
         row = (await s.execute(
             text("""
@@ -93,6 +118,8 @@ async def list_tags_for_version(version_id: str) -> list[str]:
 
 async def get_version_by_tag(dataset_id: str, tag_name: str) -> dict | None:
     """Resolve a tag to the full version row."""
+    if not is_uuid(dataset_id):
+        return None
     async with async_session_factory() as s:
         row = (await s.execute(
             text("""
