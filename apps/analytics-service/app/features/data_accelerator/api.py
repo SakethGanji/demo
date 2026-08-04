@@ -109,12 +109,19 @@ async def search_datasets(
 @router.get("/datasets", response_model=Page[DatasetInfo], tags=["datasets"])
 async def list_datasets(
     q: str | None = Query(None, description="Filter datasets by name/description"),
+    domain: str | None = Query(None, description="Filter by domain"),
+    favorites: bool = Query(False, description="Only your starred datasets"),
+    include_deprecated: bool = Query(True, description="Include deprecated datasets"),
     page: PageParams = Depends(pagination),
     principal: Principal = Depends(get_principal),
 ) -> Page[DatasetInfo]:
-    """List datasets you can access, with optional search and pagination."""
+    """List datasets you can access, with search, facet filters, and favorites."""
     rows, total = await repo.list_datasets(
         team_ids=_scope(principal), search=q, limit=page.limit, offset=page.offset,
+        domain=domain,
+        favorites_user_id=principal.user_id if favorites else None,
+        include_deprecated=include_deprecated,
+        viewer_user_id=principal.user_id,
     )
     return Page.of([DatasetInfo(**r) for r in rows], total, page)
 
@@ -130,14 +137,12 @@ async def get_dataset(dataset_id: str, principal: Principal = Depends(get_princi
 async def update_dataset(
     dataset_id: str, body: UpdateDatasetRequest, principal: Principal = Depends(get_principal),
 ) -> DatasetPatched:
-    """Update a dataset's name and/or description."""
+    """Update a dataset's descriptive + discovery metadata."""
     await ensure_dataset_permission(principal, dataset_id, Permission.DATASET_WRITE)
-    if body.name is None and body.description is None and body.classification is None:
-        raise HTTPException(400, "Provide at least one of: name, description, classification")
-    row = await repo.update_dataset(
-        dataset_id, name=body.name, description=body.description,
-        classification=body.classification,
-    )
+    fields = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not fields:
+        raise HTTPException(400, "Provide at least one field to update")
+    row = await repo.update_dataset(dataset_id, **fields)
     if not row:
         raise HTTPException(404, f"Dataset not found: {dataset_id}")
     return DatasetPatched(**row)

@@ -194,37 +194,59 @@ async def list_datasets(
     search: str | None = None,
     limit: int = 50,
     offset: int = 0,
+    *,
+    domain: str | None = None,
+    favorites_user_id: str | None = None,
+    include_deprecated: bool = True,
+    viewer_user_id: str | None = None,
 ) -> tuple[list[dict], int]:
     """List datasets, scoped to *team_ids* (None = all teams, for superusers).
 
-    Optional text search on name + description. Returns (rows, total_count).
+    Optional text search, domain filter, favorites-only filter, and
+    deprecated exclusion. ``viewer_user_id`` fills the per-row is_favorite
+    flag. Returns (rows, total_count).
     """
     async with async_session_factory() as s:
-        team_clause = "" if team_ids is None else " AND team_id = ANY(:tids)"
-        d_team_clause = "" if team_ids is None else " AND d.team_id = ANY(:tids)"
-        params: dict = {"tids": team_ids, "limit": limit, "offset": offset}
-
-        count_sql = f"SELECT COUNT(*) FROM datasets WHERE true{team_clause}"
+        clauses = [] if team_ids is None else ["d.team_id = ANY(:tids)"]
+        params: dict = {"tids": team_ids, "limit": limit, "offset": offset,
+                        "uid": viewer_user_id or favorites_user_id}
         if search:
-            count_sql += " AND (name ILIKE '%' || :search || '%' OR COALESCE(description, '') ILIKE '%' || :search || '%')"
+            clauses.append("(d.name ILIKE '%' || :search || '%'"
+                           " OR COALESCE(d.description, '') ILIKE '%' || :search || '%')")
             params["search"] = search
-        total = (await s.execute(text(count_sql), params)).scalar()
+        if domain:
+            clauses.append("d.domain = :domain")
+            params["domain"] = domain
+        if not include_deprecated:
+            clauses.append("NOT d.deprecated")
+        if favorites_user_id:
+            clauses.append("EXISTS (SELECT 1 FROM dataset_favorites f "
+                           "WHERE f.dataset_id = d.id AND f.user_id = CAST(:uid AS uuid))")
+        where = " AND ".join(clauses) or "true"
 
-        query_sql = f"""
-            SELECT d.id::text, d.name, d.description, d.classification,
-                   dv.version_number AS current_version,
-                   dv.row_count, dv.size_bytes,
-                   d.created_at::text AS created_at,
-                   d.updated_at::text AS updated_at
-            FROM datasets d
-            LEFT JOIN dataset_versions dv ON d.current_version_id = dv.id
-            WHERE true{d_team_clause}
-        """
-        if search:
-            query_sql += " AND (d.name ILIKE '%' || :search || '%' OR COALESCE(d.description, '') ILIKE '%' || :search || '%')"
-        query_sql += " ORDER BY d.updated_at DESC LIMIT :limit OFFSET :offset"
+        total = (await s.execute(
+            text(f"SELECT COUNT(*) FROM datasets d WHERE {where}"), params,
+        )).scalar()
 
-        rows = (await s.execute(text(query_sql), params)).mappings().all()
+        rows = (await s.execute(
+            text(f"""
+                SELECT d.id::text, d.name, d.description, d.classification,
+                       d.domain, d.source_system, d.refresh_frequency, d.deprecated,
+                       (CAST(:uid AS uuid) IS NOT NULL AND EXISTS (
+                           SELECT 1 FROM dataset_favorites f
+                           WHERE f.dataset_id = d.id AND f.user_id = CAST(:uid AS uuid)
+                       )) AS is_favorite,
+                       dv.version_number AS current_version,
+                       dv.row_count, dv.size_bytes,
+                       d.created_at::text AS created_at,
+                       d.updated_at::text AS updated_at
+                FROM datasets d
+                LEFT JOIN dataset_versions dv ON d.current_version_id = dv.id
+                WHERE {where}
+                ORDER BY d.updated_at DESC LIMIT :limit OFFSET :offset
+            """),
+            params,
+        )).mappings().all()
         return [dict(r) for r in rows], total
 
 
@@ -305,31 +327,29 @@ async def search_datasets(
         return results, total
 
 
-async def update_dataset(
-    dataset_id: str,
-    *,
-    name: str | None = None,
-    description: str | None = None,
-    classification: str | None = None,
-) -> dict | None:
-    """Patch a dataset's name/description/classification. Only provided fields change.
+async def update_dataset(dataset_id: str, **fields) -> dict | None:
+    """Patch a dataset's mutable metadata. Only provided (non-None) fields change.
 
     Returns the updated row, or None if the dataset does not exist.
     """
+    import json as _json
+
     from app.shared.repo import is_uuid
     if not is_uuid(dataset_id):
         return None
+    allowed = {"name", "description", "classification", "domain", "source_system",
+               "refresh_frequency", "deprecated", "deprecation_reason", "metadata"}
     sets = ["updated_at = now()"]
     params: dict = {"did": dataset_id}
-    if name is not None:
-        sets.append("name = :name")
-        params["name"] = name
-    if description is not None:
-        sets.append("description = :description")
-        params["description"] = description
-    if classification is not None:
-        sets.append("classification = :classification")
-        params["classification"] = classification
+    for key, value in fields.items():
+        if key not in allowed or value is None:
+            continue
+        if key == "metadata":
+            sets.append("metadata = CAST(:metadata AS jsonb)")
+            params["metadata"] = _json.dumps(value)
+        else:
+            sets.append(f"{key} = :{key}")
+            params[key] = value
 
     async with async_session_factory() as s:
         row = (await s.execute(
@@ -337,6 +357,8 @@ async def update_dataset(
                 UPDATE datasets SET {', '.join(sets)}
                 WHERE id = :did
                 RETURNING id::text, name, description, classification,
+                          domain, source_system, refresh_frequency,
+                          deprecated, deprecation_reason, metadata,
                           created_at::text AS created_at,
                           updated_at::text AS updated_at
             """),

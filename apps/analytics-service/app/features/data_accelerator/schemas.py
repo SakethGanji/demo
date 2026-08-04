@@ -22,6 +22,11 @@ class DatasetInfo(BaseModel):
     name: str
     description: str | None = None
     classification: str = "internal"
+    domain: str | None = None
+    source_system: str | None = None
+    refresh_frequency: str | None = None
+    deprecated: bool = False
+    is_favorite: bool = False
     current_version: int | None = None
     row_count: int | None = None
     size_bytes: int | None = None
@@ -68,6 +73,14 @@ class UpdateDatasetRequest(BaseModel):
     classification: Classification | None = Field(
         default=None, description="Data sensitivity: public, internal, confidential, or restricted",
     )
+    domain: str | None = Field(default=None, max_length=255)
+    source_system: str | None = Field(default=None, max_length=255)
+    refresh_frequency: str | None = Field(
+        default=None, max_length=100, description='e.g. "daily", "monthly", "ad-hoc"')
+    deprecated: bool | None = None
+    deprecation_reason: str | None = Field(default=None, max_length=2000)
+    metadata: dict[str, Any] | None = Field(
+        default=None, description="Free-form key/value metadata (replaces the whole object)")
 
 
 class DatasetPatched(BaseModel):
@@ -77,6 +90,12 @@ class DatasetPatched(BaseModel):
     name: str
     description: str | None = None
     classification: str = "internal"
+    domain: str | None = None
+    source_system: str | None = None
+    refresh_frequency: str | None = None
+    deprecated: bool = False
+    deprecation_reason: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: str
     updated_at: str
 
