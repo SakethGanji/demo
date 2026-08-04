@@ -26,6 +26,7 @@ from app.features.auth.deps import get_principal
 from app.features.data_accelerator.api import router as data_accelerator_router
 from app.features.discovery.api import router as discovery_router
 from app.features.files.api import router as files_router
+from app.features.jobs.api import router as jobs_router
 from app.features.library.api import router as library_router
 from app.features.quality.api import router as quality_router
 
@@ -119,6 +120,7 @@ def create_app() -> FastAPI:
     protected.include_router(files_router)
     protected.include_router(quality_router)
     protected.include_router(library_router)
+    protected.include_router(jobs_router)
     protected.include_router(audit_router)
     api.include_router(protected)
 

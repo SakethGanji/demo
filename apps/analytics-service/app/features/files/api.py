@@ -304,12 +304,28 @@ async def upload_dataset(
 
 @router.get("/upload/status/{version_id}", response_model=UploadResponse, tags=["uploads"])
 async def upload_status(version_id: str, principal: Principal = Depends(get_principal)) -> UploadResponse:
-    """Poll processing status for an async file upload (keyed by version_id)."""
+    """Poll processing status for an async file upload (keyed by version_id).
+
+    The in-memory cache is fastest, but the DB is authoritative — status
+    survives process restarts and works across instances.
+    """
     ver = await repo.get_version(version_id)
     if ver:
         await ensure_dataset_permission(principal, str(ver["dataset_id"]), Permission.DATASET_READ)
     if version_id not in processing_status:
-        raise HTTPException(404, f"Unknown version: {version_id}")
+        if not ver:
+            raise HTTPException(404, f"Unknown version: {version_id}")
+        # Durable fallback: answer from the version row itself.
+        status_map = {"ready": "complete", "failed": "error", "uploading": "processing"}
+        return UploadResponse(
+            dataset_id=str(ver["dataset_id"]),
+            version_id=version_id,
+            status=status_map.get(ver["status"], ver["status"]),
+            file_path=ver.get("path"),
+            file_size_bytes=ver.get("size_bytes"),
+            row_count=ver.get("row_count"),
+            error=ver.get("error"),
+        )
     info = processing_status[version_id]
     columns = [ColumnInfo(**c) for c in info["columns"]] if info.get("columns") else None
     return UploadResponse(
