@@ -13,7 +13,11 @@ from fastapi.responses import StreamingResponse
 
 from app.infra.db.storage import DatasetLayout, get_storage, sample_key
 from app.shared.data_io import export_dataframe, load_data
-from app.shared.datasets import resolve_dataset_path
+from app.shared.datasets import (
+    get_version_sheet_rows,
+    resolve_dataset_path,
+    sheet_data_path,
+)
 from app.shared.repo import get_current_version
 from app.shared.utils.sql import quote_ident, safe_value, sanitize_filter_expr
 
@@ -79,6 +83,58 @@ def stored_file_response(
     )
 
 
+async def workbook_xlsx_response(ver: dict, base_name: str) -> StreamingResponse:
+    """Reconstruct a full .xlsx workbook from a version's sheet parquets.
+
+    One tab per ready sheet, workbook order, hidden-sheet visibility restored.
+    """
+    import pandas as pd
+
+    sheets = [r for r in await get_version_sheet_rows(ver)
+              if r.get("status", "ready") == "ready"]
+    if not sheets:
+        raise HTTPException(404, "Version has no sheets to reconstruct")
+
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
+    tmp.close()
+    used_titles: set[str] = set()
+    with pd.ExcelWriter(tmp.name, engine="openpyxl") as writer:
+        for row in sorted(sheets, key=lambda r: r["sheet_index"]):
+            conn = load_data(file_path=sheet_data_path(ver, row))
+            try:
+                df = conn.execute("SELECT * FROM df").fetchdf()
+            finally:
+                conn.close()
+            title = (row["sheet_name"] or "Sheet")[:31]
+            for ch in "[]:*?/\\":
+                title = title.replace(ch, "_")
+            n = 1
+            while title in used_titles:
+                n += 1
+                title = f"{title[:28]}_{n}"
+            used_titles.add(title)
+            df.to_excel(writer, sheet_name=title, index=False)
+            if row.get("visibility") in ("hidden", "very_hidden"):
+                writer.book[title].sheet_state = (
+                    "hidden" if row["visibility"] == "hidden" else "veryHidden")
+
+    async def _stream_and_cleanup() -> AsyncIterator[bytes]:
+        try:
+            async for chunk in _file_chunks(tmp.name):
+                yield chunk
+        finally:
+            Path(tmp.name).unlink(missing_ok=True)
+
+    return StreamingResponse(
+        _stream_and_cleanup(),
+        media_type=MEDIA_TYPES["xlsx"],
+        headers={
+            "Content-Disposition": f'attachment; filename="{base_name}.xlsx"',
+            "Content-Length": str(Path(tmp.name).stat().st_size),
+        },
+    )
+
+
 async def download_dataset(
     dataset_id: str,
     format: str = "csv",
@@ -97,6 +153,20 @@ async def download_dataset(
         fmt = "xlsx"
     if fmt not in ("csv", "parquet", "xlsx"):
         raise HTTPException(400, f"Unsupported format: {format}. Use csv, parquet, or xlsx.")
+
+    # xlsx with no sheet on a multi-sheet dataset = reconstruct the workbook.
+    if fmt == "xlsx" and sheet is None:
+        ver = await get_current_version(dataset_id)
+        if ver and ver.get("path"):
+            rows = await get_version_sheet_rows(ver)
+            if len([r for r in rows if r.get("status", "ready") == "ready"]) > 1:
+                if columns or limit or filter_expr:
+                    raise HTTPException(
+                        400, "columns/limit/filter apply to a single sheet — name one, "
+                             "or download the whole workbook without them")
+                source = (ver.get("source") or {})
+                base = Path(source.get("filename", f"dataset_{dataset_id[:8]}")).stem
+                return await workbook_xlsx_response(ver, base)
 
     file_path = await resolve_dataset_path(dataset_id, sheet=sheet)
     conn = load_data(file_path=file_path)
@@ -181,6 +251,14 @@ async def download_dataset_version(
 
     if not row or row.get("status") != "ready" or not row.get("path"):
         raise HTTPException(404, f"Version {version_number} not found for dataset {dataset_id}")
+
+    # xlsx with no sheet on a multi-sheet version = reconstruct the workbook.
+    if fmt == "xlsx" and sheet is None:
+        rows = await get_version_sheet_rows(row)
+        if len([r for r in rows if r.get("status", "ready") == "ready"]) > 1:
+            source = (row.get("source") or {})
+            base = Path(source.get("filename", f"dataset_{dataset_id[:8]}")).stem
+            return await workbook_xlsx_response(row, f"{base}_v{version_number}")
 
     # Enforces sheet-selection-required for multi-sheet versions.
     file_path = await resolve_version_sheet_path(row, sheet)

@@ -30,10 +30,45 @@ async def run_aggregation(request: AggregateRequest) -> AggregateResponse:
         )
     conn = load_data(file_path=file_path, data=request.data)
     try:
-        original_count = conn.execute("SELECT COUNT(*) FROM df").fetchone()[0]
+        source = "df"
+        if request.join:
+            if not request.dataset_id:
+                raise HTTPException(400, "join requires a dataset_id source")
+            join_path = await resolve_dataset_path(
+                request.dataset_id, sheet=request.join.sheet,
+                version_id=request.version_id, version_number=request.version_number,
+                tag=request.tag,
+            )
+            escaped = str(join_path).replace("'", "''")
+            conn.execute(f"CREATE VIEW df_join AS SELECT * FROM read_parquet('{escaped}')")
+
+            left_cols = [r[0] for r in conn.execute("DESCRIBE df").fetchall()]
+            right_cols = [r[0] for r in conn.execute("DESCRIBE df_join").fetchall()]
+            if request.join.left_on not in left_cols:
+                raise HTTPException(400, f"Join column not found on base sheet: {request.join.left_on}")
+            if request.join.right_on not in right_cols:
+                raise HTTPException(400, f"Join column not found on '{request.join.sheet}': {request.join.right_on}")
+
+            # Explicit select list: skip the duplicate join key, prefix any
+            # other colliding columns so the joined view has unique names.
+            select_parts = [f"df.{quote_ident(c)}" for c in left_cols]
+            for c in right_cols:
+                if c == request.join.right_on:
+                    continue
+                alias = c if c not in left_cols else f"{request.join.sheet}_{c}"
+                select_parts.append(f"df_join.{quote_ident(c)} AS {quote_ident(alias)}")
+            how = "LEFT" if request.join.how == "left" else "INNER"
+            conn.execute(
+                f"CREATE VIEW df_joined AS SELECT {', '.join(select_parts)} "
+                f"FROM df {how} JOIN df_join "
+                f"ON df.{quote_ident(request.join.left_on)} = df_join.{quote_ident(request.join.right_on)}"
+            )
+            source = "df_joined"
+
+        original_count = conn.execute(f"SELECT COUNT(*) FROM {source}").fetchone()[0]
 
         # Validate columns exist
-        available = {r[0] for r in conn.execute("DESCRIBE df").fetchall()}
+        available = {r[0] for r in conn.execute(f"DESCRIBE {source}").fetchall()}
 
         missing = [c for c in request.group_by if c not in available]
         if missing:
@@ -64,7 +99,7 @@ async def run_aggregation(request: AggregateRequest) -> AggregateResponse:
             else:
                 agg_parts.append(f"{AGG_SQL_MAP[spec.function]}({qcol}) AS {qalias}")
 
-        sql = f"SELECT {group_cols_sql}, {', '.join(agg_parts)} FROM df"
+        sql = f"SELECT {group_cols_sql}, {', '.join(agg_parts)} FROM {source}"
 
         if request.filter_expr:
             safe_expr = sanitize_filter_expr(request.filter_expr)

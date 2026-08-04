@@ -119,6 +119,7 @@ async def process_uploaded_file_async(
     team_id: str = "default",
     version_number: int = 1,
     source_filename: str | None = None,
+    include_sheets: set[str] | None = None,
 ) -> None:
     """Convert raw upload to Parquet, update status + DB + jobs."""
     storage = get_storage()
@@ -163,6 +164,7 @@ async def process_uploaded_file_async(
 
             result: ConversionResult = convert_to_parquet(
                 raw_path, local_parquet, sheet_path_fn=sheet_path_fn,
+                include_sheets=include_sheets,
             )
             await jobs.update_job_progress(job_id, 50)
 
@@ -176,15 +178,30 @@ async def process_uploaded_file_async(
             # Sheet parquets are keyed by deduplicated sheet_key — sanitized
             # display names can collide ("Q 1" and "Q-1"), keys cannot.
             sheet_keys = normalize_sheet_keys([s.name for s in result.sheets])
-            for key, s in zip(sheet_keys, result.sheets):
-                local_sheet = sheet_locals.get(s.name)
-                if local_sheet is not None and local_sheet.exists():
-                    storage.put_file(layout.sheet_parquet(key), local_sheet)
 
             # Schema + checksum per sheet, while local artifacts still exist.
             sheet_rows = _build_sheet_rows(
                 result, layout, local_parquet, meta, size_bytes, checksum, sheet_keys,
             )
+
+            # Artifact reuse: a sheet whose checksum matches the previous ready
+            # version points at that version's parquet instead of re-uploading.
+            reused_sheets: list[str] = []
+            if version_id:
+                prev = {p["sheet_key"]: p for p in await repo.get_previous_version_sheets(
+                    dataset_id, version_number)}
+                for row in sheet_rows:
+                    p = prev.get(row["sheet_key"])
+                    if (p and p.get("storage_key") and p.get("checksum")
+                            and p["checksum"] == row["checksum"]
+                            and p.get("status", "ready") == "ready"):
+                        row["storage_key"] = p["storage_key"]
+                        reused_sheets.append(row["sheet_name"])
+
+            for key, s in zip(sheet_keys, result.sheets):
+                local_sheet = sheet_locals.get(s.name)
+                if local_sheet is not None and local_sheet.exists() and s.name not in reused_sheets:
+                    storage.put_file(layout.sheet_parquet(key), local_sheet)
 
         parquet_path = storage.resolve(layout.canonical_parquet)
         await jobs.update_job_progress(job_id, 80)
@@ -221,9 +238,15 @@ async def process_uploaded_file_async(
         processing_status[status_key]["row_count"] = total_rows
 
         if version_id:
+            provenance = parsing_provenance(source_format)
+            if include_sheets is not None:
+                provenance["options"]["include_sheets"] = sorted(include_sheets)
+                provenance["options"]["excluded_sheets"] = result.excluded_sheets
+            if reused_sheets:
+                provenance["reused_sheets"] = reused_sheets
             source_update: dict[str, Any] = {
                 "source_format": source_format,
-                "ingest": parsing_provenance(source_format),
+                "ingest": provenance,
             }
             if sheets_meta:
                 source_update["sheets"] = sheets_meta

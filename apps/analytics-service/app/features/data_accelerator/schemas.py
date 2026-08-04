@@ -540,6 +540,19 @@ class AggregationSpec(BaseModel):
     alias: str | None = Field(default=None, description="Output column name (defaults to column_function)")
 
 
+class JoinSpec(BaseModel):
+    """Relationship-based join with another sheet of the same version.
+
+    Not general SQL: one equi-join, keyed by declared columns. Colliding
+    non-key columns from the joined sheet get a ``{sheet}_`` prefix.
+    """
+
+    sheet: str = Field(..., description="Sheet (name or sheet_key) to join with")
+    left_on: str = Field(..., description="Join column on the base sheet")
+    right_on: str = Field(..., description="Join column on the joined sheet")
+    how: Literal["inner", "left"] = "inner"
+
+
 class AggregateRequest(BaseModel):
     """Request model for aggregation endpoint."""
 
@@ -550,6 +563,9 @@ class AggregateRequest(BaseModel):
     tag: str | None = Field(default=None, description="Target a version by tag name (e.g. 'production')")
     sheet: str | None = Field(default=None, description="Sheet name for multi-sheet datasets")
     data: list[dict[str, Any]] | None = Field(default=None, description="Inline JSON array of data")
+    join: JoinSpec | None = Field(
+        default=None,
+        description="Join another sheet of the same dataset version before aggregating")
     group_by: list[str] = Field(description="Columns to group by")
     aggregations: list[AggregationSpec] = Field(description="Aggregation specifications")
     sort_by: str | None = Field(default=None, description="Column to sort results by")

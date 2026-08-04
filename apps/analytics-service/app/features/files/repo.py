@@ -145,6 +145,30 @@ async def complete_version(
         return dict(row)
 
 
+async def get_previous_version_sheets(dataset_id: str, before_version_number: int) -> list[dict]:
+    """Sheet rows of the latest READY version below *before_version_number*.
+
+    Used for checksum-based artifact reuse: an unchanged sheet in a new
+    version points at the previous version's parquet instead of re-uploading.
+    """
+    async with async_session_factory() as s:
+        rows = (await s.execute(
+            text("""
+                SELECT s.sheet_key, s.checksum, s.storage_key, s.status
+                FROM dataset_version_sheets s
+                JOIN dataset_versions dv ON dv.id = s.dataset_version_id
+                WHERE dv.dataset_id = :did AND dv.status = 'ready'
+                  AND dv.version_number = (
+                      SELECT MAX(version_number) FROM dataset_versions
+                      WHERE dataset_id = :did AND status = 'ready'
+                        AND version_number < :vn
+                  )
+            """),
+            {"did": dataset_id, "vn": before_version_number},
+        )).mappings().all()
+        return [dict(r) for r in rows]
+
+
 async def insert_version_sheets(version_id: str, sheets: list[dict]) -> None:
     """Persist per-sheet metadata rows for a freshly processed version.
 

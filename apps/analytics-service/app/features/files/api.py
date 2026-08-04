@@ -108,6 +108,9 @@ async def upload_dataset(
     file: UploadFile | None = None,
     data: str | None = Form(default=None),
     dataset_id: str | None = Form(default=None),
+    include_sheets: str | None = Form(
+        default=None,
+        description="Comma-separated sheet names to ingest (partial-workbook opt-in)"),
     sync: bool = Query(default=True),
     principal: Principal = Depends(get_principal),
     x_team_id: str | None = Header(default=None, alias="X-Team-Id"),
@@ -177,12 +180,14 @@ async def upload_dataset(
             )
 
         processing_status[version_id] = {"status": "uploaded", "dataset_id": dataset_id, "file_size_bytes": file_size}
+        sheet_filter = ({s.strip() for s in include_sheets.split(",") if s.strip()}
+                        if include_sheets else None)
 
         if sync:
             await process_uploaded_file_async(
                 dataset_id, raw_path, version_id=version_id,
                 team_id=team_id, version_number=version_number,
-                source_filename=file.filename,
+                source_filename=file.filename, include_sheets=sheet_filter,
             )
             info = processing_status[version_id]
             if info["status"] == "error":
@@ -203,7 +208,7 @@ async def upload_dataset(
         background_tasks.add_task(
             process_uploaded_file_async, dataset_id, raw_path, version_id,
             team_id=team_id, version_number=version_number,
-            source_filename=file.filename,
+            source_filename=file.filename, include_sheets=sheet_filter,
         )
         return UploadResponse(
             dataset_id=dataset_id,
@@ -585,6 +590,29 @@ async def tus_upload_status(upload_id: str) -> UploadResponse:
         preview=ps.get("preview"),
         error=ps.get("error"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Copy-on-write sheet replacement
+# ---------------------------------------------------------------------------
+
+@router.post("/datasets/{dataset_id}/sheets/{sheet_name}/replace", tags=["sheets"])
+async def replace_sheet_endpoint(
+    dataset_id: str,
+    sheet_name: str,
+    file: UploadFile,
+    principal: Principal = Depends(get_principal),
+) -> dict:
+    """Replace ONE sheet's data in a new immutable version.
+
+    The uploaded file must be single-table (CSV, parquet, or one-sheet Excel).
+    Every other sheet of the current version is reused copy-on-write — no data
+    is duplicated — and lineage records the base version.
+    """
+    from .services.replace import replace_sheet
+
+    ds = await ensure_dataset_permission(principal, dataset_id, Permission.DATASET_WRITE)
+    return await replace_sheet(ds, sheet_name, file, principal)
 
 
 # ---------------------------------------------------------------------------
