@@ -45,6 +45,7 @@ from .services.datasets import (
 from .services.diffs import sheet_diff, workbook_diff
 from .services.profiling import run_profiling
 from .services.sampling import run_sampling_pipeline
+from app.api.errors import ProblemException
 from app.api.pagination import Page, PageParams, pagination
 from app.features.auth.deps import Principal, ensure_dataset_permission, get_principal
 from app.features.auth.permissions import Permission
@@ -108,12 +109,19 @@ async def search_datasets(
 @router.get("/datasets", response_model=Page[DatasetInfo], tags=["datasets"])
 async def list_datasets(
     q: str | None = Query(None, description="Filter datasets by name/description"),
+    domain: str | None = Query(None, description="Filter by domain"),
+    favorites: bool = Query(False, description="Only your starred datasets"),
+    include_deprecated: bool = Query(True, description="Include deprecated datasets"),
     page: PageParams = Depends(pagination),
     principal: Principal = Depends(get_principal),
 ) -> Page[DatasetInfo]:
-    """List datasets you can access, with optional search and pagination."""
+    """List datasets you can access, with search, facet filters, and favorites."""
     rows, total = await repo.list_datasets(
         team_ids=_scope(principal), search=q, limit=page.limit, offset=page.offset,
+        domain=domain,
+        favorites_user_id=principal.user_id if favorites else None,
+        include_deprecated=include_deprecated,
+        viewer_user_id=principal.user_id,
     )
     return Page.of([DatasetInfo(**r) for r in rows], total, page)
 
@@ -129,14 +137,12 @@ async def get_dataset(dataset_id: str, principal: Principal = Depends(get_princi
 async def update_dataset(
     dataset_id: str, body: UpdateDatasetRequest, principal: Principal = Depends(get_principal),
 ) -> DatasetPatched:
-    """Update a dataset's name and/or description."""
+    """Update a dataset's descriptive + discovery metadata."""
     await ensure_dataset_permission(principal, dataset_id, Permission.DATASET_WRITE)
-    if body.name is None and body.description is None and body.classification is None:
-        raise HTTPException(400, "Provide at least one of: name, description, classification")
-    row = await repo.update_dataset(
-        dataset_id, name=body.name, description=body.description,
-        classification=body.classification,
-    )
+    fields = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not fields:
+        raise HTTPException(400, "Provide at least one field to update")
+    row = await repo.update_dataset(dataset_id, **fields)
     if not row:
         raise HTTPException(404, f"Dataset not found: {dataset_id}")
     return DatasetPatched(**row)
@@ -267,6 +273,29 @@ async def promote_tag(
     ver = await _resolve_target_version(dataset_id, body.version_id, body.version_number)
     if ver["status"] != "ready":
         raise HTTPException(409, f"Cannot promote to version {ver['version_number']} (status: {ver['status']})")
+
+    # Promotion gate: if the dataset has enabled quality rules, the target
+    # version needs a completed validation run with zero error-level failures.
+    # (Raw PUT /tags stays ungated as the documented escape hatch; rollback is
+    # the emergency path and is never gated.)
+    from app.features.quality import repo as quality_repo
+    if await quality_repo.count_enabled_rules(dataset_id) > 0:
+        gate = await quality_repo.latest_completed_run(dataset_id, str(ver["id"]))
+        if gate is None:
+            raise ProblemException(
+                409, f"Version {ver['version_number']} has not been validated — run "
+                     f"POST /datasets/{dataset_id}/versions/{ver['version_number']}/validate first",
+                code="validation-required",
+            )
+        if (gate["error_failures"] or 0) > 0:
+            raise ProblemException(
+                409, f"Version {ver['version_number']} failed validation: "
+                     f"{gate['error_failures']} error-level failure(s)",
+                code="validation-failed",
+                validation_run_id=gate["id"],
+                error_failures=gate["error_failures"],
+                warning_failures=gate["warning_failures"],
+            )
 
     tag_row = await repo.set_tag(
         dataset_id, str(ver["id"]), tag_name,

@@ -116,6 +116,45 @@ async def get_job_for_version(dataset_version_id: str) -> dict | None:
         return dict(row) if row else None
 
 
+async def list_jobs(
+    team_ids: list[str] | None = None,
+    *,
+    status: str | None = None,
+    job_type: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    """List jobs, newest first, scoped to *team_ids* (None = all, superusers)."""
+    clauses, params = [], {"tids": team_ids, "limit": limit, "offset": offset}
+    if team_ids is not None:
+        clauses.append("team_id = ANY(:tids)")
+    if status:
+        clauses.append("status = :status")
+        params["status"] = status
+    if job_type:
+        clauses.append("job_type = :jt")
+        params["jt"] = job_type
+    where = " AND ".join(clauses) or "true"
+    async with async_session_factory() as s:
+        total = (await s.execute(
+            text(f"SELECT COUNT(*) FROM jobs WHERE {where}"), params,
+        )).scalar()
+        rows = (await s.execute(
+            text(f"""
+                SELECT id::text, team_id::text, job_type, status,
+                       dataset_id::text, dataset_version_id::text,
+                       progress, error, result,
+                       created_at::text AS created_at,
+                       started_at::text AS started_at,
+                       completed_at::text AS completed_at
+                FROM jobs WHERE {where}
+                ORDER BY created_at DESC LIMIT :limit OFFSET :offset
+            """),
+            params,
+        )).mappings().all()
+        return [dict(r) for r in rows], total
+
+
 async def get_jobs_for_dataset(dataset_id: str) -> list[dict]:
     """Fetch all jobs for a dataset, newest first."""
     async with async_session_factory() as s:

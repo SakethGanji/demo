@@ -2,10 +2,46 @@
 
 ## Current state
 
-**Branch:** `feat/auth-rbac-audit` (not pushed). Auth/RBAC/audit POC committed 2026-08-03;
-Phase 1 (sheets first-class + diffs + tag promotion) + a post-review schema hardening pass
-built 2026-08-04. 30/30 tests passing (incl. two UI-ordered E2E journeys), verified against
-BOTH storage backends (local FS and S3/MinIO).
+**ALL FIVE ROADMAP PHASES COMPLETE** (2026-08-04, branch `feat/phases-2-5`, merged to main).
+39/39 tests passing — each phase has a UI-ordered E2E journey test — verified against BOTH
+storage backends (local FS and S3/MinIO). Eight migrations total; migration runner unchanged.
+
+**Phase 2 — trust (`features/quality/`):** quality_rules (8 rule types across
+dataset/sheet/column/cross-sheet scopes, selectors = sheet_key + normalized column names,
+each compiled to one parameterized DuckDB query in `quality/engine.py`); validation_runs +
+validation_rule_results as durable results (rule snapshot + sample failures) with a jobs row
+per run; promotion gate: datasets with enabled rules refuse promote without a completed
+validation run with zero error-level failures (problem+json `validation-required` /
+`validation-failed`); raw PUT /tags stays ungated as the escape hatch, rollback never gated.
+
+**Phase 3 — reuse (`features/library/`):** analytics_definitions (sample/aggregate/profile,
+version_selector current|tag|version, params = underlying request body) + analytics_runs;
+run outputs registered in the generalized `artifacts` table;
+POST .../analytics/runs/{id}/publish turns an output into a new dataset or new version
+(full version machinery incl. sheet row + checksums); `dataset_lineage`
+(published_from / sheet_replaced_from, denormalized parent labels) + GET .../lineage.
+
+**Phase 4 — discovery (`features/discovery/`):** datasets gained domain/source_system/
+refresh_frequency/deprecated(+reason)/metadata JSONB; listing filters (domain, favorites,
+include_deprecated) + per-row is_favorite; dataset_sheet_metadata (grain + PK columns per
+logical sheet_key); GET /search/columns (team-scoped, zero file I/O — Phase 1 schemas);
+GET /datasets/facets (registered BEFORE /datasets/{id}); favorites; GET .../usage from the
+audit trail.
+
+**Phase 5 — advanced:** format=xlsx with no sheet reconstructs the whole workbook (tab
+order + hidden visibility restored); `include_sheets` upload field = partial-workbook
+ingestion (recorded in provenance); checksum-based artifact reuse (unchanged sheets point at
+the previous ready version's parquet — identical workbooks ⇒ identical manifest_checksum);
+POST /datasets/{id}/sheets/{sheet}/replace = copy-on-write sheet replacement (new immutable
+version, other sheets reuse artifacts, lineage recorded); relationship-based joins in
+/aggregate (JoinSpec, inner|left, collision-safe select). DEFERRED from Phase 5:
+coordinated cross-sheet sampling (sample a driver sheet + filter related sheets by key) —
+the only roadmap item not built.
+
+**Ops hardening:** GET /upload/status/{id} answers from the DB when the in-memory cache is
+gone (restart-safe); GET /jobs + /jobs/{id} (team-scoped, cross-team 404) for observability.
+Still deliberately POC-grade: BackgroundTasks (not a worker pulling the jobs table),
+TUS staging on local disk, header identity until the SSO/JWT swap.
 
 **Schema hardening (2026-08-04, post design review; migration `20260804020000`):**
 - `dataset_versions.row_count` now = TOTAL rows across sheets (was first-sheet-only for

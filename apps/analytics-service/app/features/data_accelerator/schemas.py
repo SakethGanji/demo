@@ -22,6 +22,11 @@ class DatasetInfo(BaseModel):
     name: str
     description: str | None = None
     classification: str = "internal"
+    domain: str | None = None
+    source_system: str | None = None
+    refresh_frequency: str | None = None
+    deprecated: bool = False
+    is_favorite: bool = False
     current_version: int | None = None
     row_count: int | None = None
     size_bytes: int | None = None
@@ -68,6 +73,14 @@ class UpdateDatasetRequest(BaseModel):
     classification: Classification | None = Field(
         default=None, description="Data sensitivity: public, internal, confidential, or restricted",
     )
+    domain: str | None = Field(default=None, max_length=255)
+    source_system: str | None = Field(default=None, max_length=255)
+    refresh_frequency: str | None = Field(
+        default=None, max_length=100, description='e.g. "daily", "monthly", "ad-hoc"')
+    deprecated: bool | None = None
+    deprecation_reason: str | None = Field(default=None, max_length=2000)
+    metadata: dict[str, Any] | None = Field(
+        default=None, description="Free-form key/value metadata (replaces the whole object)")
 
 
 class DatasetPatched(BaseModel):
@@ -77,6 +90,12 @@ class DatasetPatched(BaseModel):
     name: str
     description: str | None = None
     classification: str = "internal"
+    domain: str | None = None
+    source_system: str | None = None
+    refresh_frequency: str | None = None
+    deprecated: bool = False
+    deprecation_reason: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: str
     updated_at: str
 
@@ -521,6 +540,19 @@ class AggregationSpec(BaseModel):
     alias: str | None = Field(default=None, description="Output column name (defaults to column_function)")
 
 
+class JoinSpec(BaseModel):
+    """Relationship-based join with another sheet of the same version.
+
+    Not general SQL: one equi-join, keyed by declared columns. Colliding
+    non-key columns from the joined sheet get a ``{sheet}_`` prefix.
+    """
+
+    sheet: str = Field(..., description="Sheet (name or sheet_key) to join with")
+    left_on: str = Field(..., description="Join column on the base sheet")
+    right_on: str = Field(..., description="Join column on the joined sheet")
+    how: Literal["inner", "left"] = "inner"
+
+
 class AggregateRequest(BaseModel):
     """Request model for aggregation endpoint."""
 
@@ -531,6 +563,9 @@ class AggregateRequest(BaseModel):
     tag: str | None = Field(default=None, description="Target a version by tag name (e.g. 'production')")
     sheet: str | None = Field(default=None, description="Sheet name for multi-sheet datasets")
     data: list[dict[str, Any]] | None = Field(default=None, description="Inline JSON array of data")
+    join: JoinSpec | None = Field(
+        default=None,
+        description="Join another sheet of the same dataset version before aggregating")
     group_by: list[str] = Field(description="Columns to group by")
     aggregations: list[AggregationSpec] = Field(description="Aggregation specifications")
     sort_by: str | None = Field(default=None, description="Column to sort results by")

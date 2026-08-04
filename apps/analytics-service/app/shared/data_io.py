@@ -344,6 +344,7 @@ class ConversionResult:
     """Result of converting an uploaded file to parquet."""
     conn: duckdb.DuckDBPyConnection
     sheets: list[SheetInfo] = field(default_factory=list)
+    excluded_sheets: list[str] = field(default_factory=list)  # skipped via include_sheets
 
     @property
     def is_multi_sheet(self) -> bool:
@@ -366,6 +367,7 @@ def convert_to_parquet(
     dest_path: Path,
     *,
     sheet_path_fn: callable | None = None,
+    include_sheets: set[str] | None = None,
 ) -> ConversionResult:
     """Convert any supported file to Parquet using DuckDB native readers.
 
@@ -390,6 +392,7 @@ def convert_to_parquet(
     conn = duckdb.connect()
     suffix = source_path.suffix.lower()
     sheets: list[SheetInfo] = []
+    excluded: list[str] = []
 
     if suffix in (".csv", ".parquet"):
         read_expr = _read_expr(source_path)
@@ -418,13 +421,19 @@ def convert_to_parquet(
         except Exception:
             pass  # metadata capture must never fail an ingest
 
-        # First pass: read all non-empty sheets into memory
+        # First pass: read all non-empty (and included) sheets into memory
         sheet_frames: list[tuple[str, pd.DataFrame]] = []
         for name in sheet_names:
+            if include_sheets is not None and name not in include_sheets:
+                excluded.append(name)
+                continue
             pdf = pd.read_excel(xls, sheet_name=name, engine="openpyxl")
             if not pdf.empty:
                 sheet_frames.append((name, pdf))
         xls.close()
+        if include_sheets is not None and not sheet_frames:
+            raise ValueError(
+                f"include_sheets matched no non-empty sheets. Workbook has: {sheet_names}")
 
         if not sheet_frames:
             # All sheets empty — write empty canonical parquet
@@ -500,7 +509,7 @@ def convert_to_parquet(
     else:
         raise ValueError(f"Unsupported format: {suffix}")
 
-    return ConversionResult(conn=conn, sheets=sheets)
+    return ConversionResult(conn=conn, sheets=sheets, excluded_sheets=excluded)
 
 
 def extract_metadata(conn: duckdb.DuckDBPyConnection) -> dict[str, Any]:
