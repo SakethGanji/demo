@@ -58,7 +58,15 @@ from app.shared.constants import (
     TUS_EXTENSIONS,
     TUS_MAX_SIZE,
 )
-from app.shared.data_io import DEFAULT_SHEET_NAME, build_sheet_schema, load_data, stream_to_disk
+from app.shared.data_io import (
+    DEFAULT_SHEET_NAME,
+    SCHEMA_EXTRACTOR_VERSION,
+    build_sheet_schema,
+    load_data,
+    manifest_fingerprint,
+    parsing_provenance,
+    stream_to_disk,
+)
 from app.shared.schemas import ColumnInfo
 
 from .schemas import (
@@ -242,28 +250,39 @@ async def upload_dataset(
             local_parquet = Path(td) / "dataset.parquet"
             conn.execute(f"COPY df TO '{local_parquet}' (FORMAT PARQUET)")
             size_bytes = local_parquet.stat().st_size
+            artifact_checksum = hashlib.sha256(local_parquet.read_bytes()).hexdigest()
             storage.put_file(layout.canonical_parquet, local_parquet)
         parquet_path = storage.resolve(layout.canonical_parquet)
         row_count = conn.execute("SELECT COUNT(*) FROM df").fetchone()[0]
         col_count = len(conn.execute("DESCRIBE df").fetchall())
+        schema_cols, fingerprint = build_sheet_schema(conn.execute("DESCRIBE df").fetchall())
+        source_checksum = hashlib.sha256(data.encode()).hexdigest()
+        sheet_row = {
+            "sheet_key": DEFAULT_SHEET_NAME,
+            "sheet_name": DEFAULT_SHEET_NAME,
+            "sheet_index": 0,
+            "is_default": True,
+            "storage_key": layout.canonical_parquet,
+            "row_count": row_count,
+            "column_count": col_count,
+            "size_bytes": size_bytes,
+            "checksum": artifact_checksum,
+            "schema_json": schema_cols,
+            "schema_fingerprint": fingerprint,
+            "schema_extractor_version": SCHEMA_EXTRACTOR_VERSION,
+        }
         await repo.complete_version(
             str(version["id"]),
             path=parquet_path,
             size_bytes=size_bytes,
             row_count=row_count,
+            checksum=artifact_checksum,
+            source_checksum=source_checksum,
+            manifest_checksum=manifest_fingerprint([sheet_row]),
+            sheet_count=1,
+            source={"source_format": "inline_json", "ingest": parsing_provenance("inline_json")},
         )
-        schema_cols, fingerprint = build_sheet_schema(conn.execute("DESCRIBE df").fetchall())
-        await repo.insert_version_sheets(str(version["id"]), [{
-            "sheet_key": DEFAULT_SHEET_NAME,
-            "sheet_name": DEFAULT_SHEET_NAME,
-            "sheet_index": 0,
-            "is_default": True,
-            "row_count": row_count,
-            "column_count": col_count,
-            "size_bytes": size_bytes,
-            "schema_json": schema_cols,
-            "schema_fingerprint": fingerprint,
-        }])
+        await repo.insert_version_sheets(str(version["id"]), [sheet_row])
         layout.write_manifest(
             row_count=row_count,
             column_count=col_count,

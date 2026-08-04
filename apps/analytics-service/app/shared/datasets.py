@@ -16,7 +16,12 @@ from fastapi import HTTPException
 
 from app.api.errors import ProblemException
 from app.infra.db.storage import get_storage
-from app.shared.data_io import build_sheet_schema, describe_parquet, normalize_sheet_key
+from app.shared.data_io import (
+    SCHEMA_EXTRACTOR_VERSION,
+    build_sheet_schema,
+    describe_parquet,
+    normalize_sheet_key,
+)
 from app.shared.repo import (
     get_current_version,
     get_version,
@@ -173,6 +178,7 @@ async def ensure_sheet_schema(ver: dict, sheet_row: dict) -> dict:
             sheet_row["id"],
             schema_json=columns,
             schema_fingerprint=fingerprint,
+            extractor_version=SCHEMA_EXTRACTOR_VERSION,
             column_count=updated["column_count"],
         )
     return updated

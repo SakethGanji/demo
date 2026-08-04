@@ -30,14 +30,23 @@ class DatasetInfo(BaseModel):
 
 
 class VersionInfo(BaseModel):
-    """Summary info for a dataset version."""
+    """Summary info for a dataset version.
+
+    ``row_count`` is the TOTAL across all sheets. ``checksum`` hashes the
+    canonical parquet; ``source_checksum`` the exact uploaded bytes;
+    ``manifest_checksum`` the ordered per-sheet artifact checksums (the
+    version's content identity).
+    """
 
     id: str
     version_number: int
     status: str
     size_bytes: int | None = None
     row_count: int | None = None
+    sheet_count: int | None = None
     checksum: str | None = None
+    source_checksum: str | None = None
+    manifest_checksum: str | None = None
     created_at: str
     processed_at: str | None = None
     tags: list[str] = Field(default_factory=list)
@@ -108,7 +117,9 @@ class SetTagRequest(BaseModel):
     @field_validator("tag_name")
     @classmethod
     def validate_tag_name(cls, v: str) -> str:
-        v = v.strip()
+        # Tags are case-insensitive slugs: 'Production' and 'production' must
+        # be the same tag (enforced by a DB CHECK on the normalized form).
+        v = v.strip().lower()
         if not v:
             raise ValueError("tag_name cannot be empty")
         return v
@@ -149,6 +160,7 @@ class TagHistoryEntry(BaseModel):
     reason: str | None = None
     actor_user_id: str | None = None
     actor_email: str | None = None
+    request_id: str | None = None
     created_at: str
 
 
@@ -176,6 +188,8 @@ class SheetColumn(BaseModel):
     dtype: str
     nullable: bool = True
     position: int
+    header_was_duplicated: bool = False
+    generated_name: bool = False
 
 
 class SheetMetadataResponse(BaseModel):

@@ -93,16 +93,26 @@ async def complete_version(
     size_bytes: int | None = None,
     row_count: int | None = None,
     checksum: str | None = None,
+    source_checksum: str | None = None,
+    manifest_checksum: str | None = None,
+    sheet_count: int | None = None,
     source: dict | None = None,
 ) -> dict:
-    """Mark a version as ready. Updates current_version_id on the dataset."""
+    """Mark a version as ready.
+
+    ``row_count`` is the TOTAL across all sheets. ``current_version_id``
+    advances only if this version outranks the dataset's current one —
+    concurrent uploads finishing out of order can't move "current" backwards.
+    """
     async with async_session_factory() as s:
         row = (await s.execute(
             text("""
                 UPDATE dataset_versions
                 SET status = 'ready', storage_type = 'local',
                     path = :path, size_bytes = :sb,
-                    row_count = :rc, checksum = :cs, processed_at = now(),
+                    row_count = :rc, checksum = :cs,
+                    source_checksum = :scs, manifest_checksum = :mcs,
+                    sheet_count = :shc, processed_at = now(),
                     source = CASE
                         WHEN CAST(:source AS text) IS NOT NULL
                         THEN COALESCE(source, '{}'::jsonb) || CAST(:source AS jsonb)
@@ -113,12 +123,23 @@ async def complete_version(
             """),
             {"id": version_id, "path": path, "sb": size_bytes,
              "rc": row_count, "cs": checksum,
+             "scs": source_checksum, "mcs": manifest_checksum, "shc": sheet_count,
              "source": json.dumps(source) if source else None},
         )).mappings().one()
 
         await s.execute(
-            text("UPDATE datasets SET current_version_id = :vid, updated_at = now() WHERE id = :did"),
-            {"vid": version_id, "did": row["dataset_id"]},
+            text("""
+                UPDATE datasets d
+                SET current_version_id = :vid, updated_at = now()
+                WHERE d.id = :did
+                  AND NOT EXISTS (
+                      SELECT 1 FROM dataset_versions cv
+                      WHERE cv.id = d.current_version_id
+                        AND cv.status = 'ready'
+                        AND cv.version_number > :vn
+                  )
+            """),
+            {"vid": version_id, "did": row["dataset_id"], "vn": row["version_number"]},
         )
         await s.commit()
         return dict(row)
@@ -141,9 +162,11 @@ async def insert_version_sheets(version_id: str, sheets: list[dict]) -> None:
                         (dataset_version_id, sheet_key, sheet_name, sheet_index,
                          visibility, status, is_default, storage_key,
                          row_count, column_count, size_bytes, checksum,
-                         schema_json, schema_fingerprint)
+                         schema_json, schema_fingerprint,
+                         schema_extractor_version, processed_at)
                     VALUES (:vid, :key, :name, :idx, :vis, :status, :dflt, :sk,
-                            :rc, :cc, :sb, :cs, CAST(:schema AS jsonb), :fp)
+                            :rc, :cc, :sb, :cs, CAST(:schema AS jsonb), :fp,
+                            :ev, now())
                     ON CONFLICT (dataset_version_id, sheet_key) DO NOTHING
                 """),
                 {
@@ -161,6 +184,7 @@ async def insert_version_sheets(version_id: str, sheets: list[dict]) -> None:
                     "cs": sh.get("checksum"),
                     "schema": json.dumps(sh["schema_json"]) if sh.get("schema_json") is not None else None,
                     "fp": sh.get("schema_fingerprint"),
+                    "ev": sh.get("schema_extractor_version"),
                 },
             )
         await s.commit()

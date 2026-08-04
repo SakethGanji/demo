@@ -154,6 +154,13 @@ _SYNTHETIC_COLUMN = re.compile(r"^(unnamed(:\s*\d+)?|column\d*)$", re.IGNORECASE
 
 DEFAULT_SHEET_NAME = "data"  # synthetic sheet name for non-Excel sources
 
+# Bumped whenever schema extraction/normalization rules change, so stored
+# schema_json rows can be told apart by the code that produced them.
+SCHEMA_EXTRACTOR_VERSION = "1"
+
+# Bumped whenever conversion behavior changes (recorded in source provenance).
+CONVERSION_VERSION = "2"
+
 
 def normalize_sheet_key(sheet_name: str) -> str:
     """Stable identifier for a sheet — the cross-version diff join key.
@@ -163,6 +170,76 @@ def normalize_sheet_key(sheet_name: str) -> str:
     """
     key = re.sub(r"[^a-z0-9]+", "_", sheet_name.lower()).strip("_")
     return key or "sheet"
+
+
+def normalize_sheet_keys(sheet_names: list[str]) -> list[str]:
+    """Unique sheet keys for a workbook, in order.
+
+    Distinct names can normalize to the same key ("Q-1" and "Q.1" → q_1);
+    collisions get a deterministic ``_2``/``_3`` suffix so no sheet is ever
+    silently unaddressable.
+    """
+    keys: list[str] = []
+    used: set[str] = set()
+    for name in sheet_names:
+        base = normalize_sheet_key(name)
+        candidate, n = base, 1
+        while candidate in used:
+            n += 1
+            candidate = f"{base}_{n}"
+        used.add(candidate)
+        keys.append(candidate)
+    return keys
+
+
+def parsing_provenance(source_format: str) -> dict[str, Any]:
+    """Parser/conversion identity recorded in version ``source`` JSONB.
+
+    Lets two byte-identical uploads that produced different canonical
+    artifacts be explained by parser or option changes.
+    """
+    import openpyxl
+
+    if source_format in ("xlsx", "xls"):
+        parser = {"name": "pandas+openpyxl", "pandas": pd.__version__,
+                  "openpyxl": openpyxl.__version__}
+        options = {
+            "include_hidden_sheets": True,
+            "header_row": 0,
+            "empty_sheet_policy": "skip",
+            "formula_mode": "cached_values",
+            "merged_cell_policy": "pandas_default",
+        }
+    elif source_format == "inline_json":
+        parser = {"name": "pandas+duckdb", "pandas": pd.__version__,
+                  "duckdb": duckdb.__version__}
+        options = {}
+    else:
+        parser = {"name": "duckdb", "duckdb": duckdb.__version__}
+        options = {"csv_dialect": "read_csv_auto"} if source_format == "csv" else {}
+
+    return {
+        "format": source_format,
+        "parser": parser,
+        "conversion_version": CONVERSION_VERSION,
+        "options": options,
+    }
+
+
+def manifest_fingerprint(sheet_rows: list[dict[str, Any]]) -> str | None:
+    """sha256 over the ordered (sheet_key, sheet_index, checksum) manifest.
+
+    This is the version's canonical content identity — two versions with equal
+    manifest checksums hold identical sheet artifacts in identical order.
+    None if any sheet lacks a checksum (identity would be incomplete).
+    """
+    if not sheet_rows or any(not r.get("checksum") for r in sheet_rows):
+        return None
+    entries = [
+        {"sheet_key": r["sheet_key"], "sheet_index": r["sheet_index"], "checksum": r["checksum"]}
+        for r in sorted(sheet_rows, key=lambda r: r["sheet_index"])
+    ]
+    return hashlib.sha256(json.dumps(entries, sort_keys=True).encode()).hexdigest()
 
 
 def normalize_column_names(names: list[Any]) -> list[str]:
@@ -208,14 +285,25 @@ def build_sheet_schema(
         else list(physical)
     )
     normalized = normalize_column_names(originals)
+
+    cleaned = ["" if o is None else str(o).strip() for o in originals]
+    header_counts: dict[str, int] = {}
+    for c in cleaned:
+        if c:
+            header_counts[c] = header_counts.get(c, 0) + 1
+
     columns = [
         {
             "name": physical[i],
-            "original_name": "" if originals[i] is None else str(originals[i]),
+            "original_name": cleaned[i],
             "normalized_name": normalized[i],
             "dtype": described[i][1],
             "nullable": (described[i][2] or "YES") != "NO",
             "position": i,
+            # Flags for diff/UI: was the header duplicated in the source, and
+            # was the name invented because the header was blank/synthetic?
+            "header_was_duplicated": header_counts.get(cleaned[i], 0) > 1,
+            "generated_name": not cleaned[i] or bool(_SYNTHETIC_COLUMN.match(cleaned[i])),
         }
         for i in range(len(physical))
     ]

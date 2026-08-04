@@ -68,6 +68,7 @@ async def _record_tag_history(
     reason: str | None,
     actor_user_id: str | None,
     actor_email: str | None,
+    request_id: str | None = None,
 ) -> None:
     await s.execute(
         text("""
@@ -75,14 +76,15 @@ async def _record_tag_history(
                 (dataset_id, tag_name, action,
                  from_version_id, from_version_number,
                  to_version_id, to_version_number,
-                 reason, actor_user_id, actor_email)
-            VALUES (:did, :tag, :action, :fvid, :fvn, :tvid, :tvn, :reason, :uid, :email)
+                 reason, actor_user_id, actor_email, request_id)
+            VALUES (:did, :tag, :action, :fvid, :fvn, :tvid, :tvn, :reason, :uid, :email, :rid)
         """),
         {"did": dataset_id, "tag": tag_name, "action": action,
          "fvid": from_target["version_id"] if from_target else None,
          "fvn": from_target["version_number"] if from_target else None,
          "tvid": to_version_id, "tvn": to_version_number,
-         "reason": reason, "uid": actor_user_id, "email": actor_email},
+         "reason": reason, "uid": actor_user_id, "email": actor_email,
+         "rid": request_id},
     )
 
 
@@ -96,6 +98,7 @@ async def set_tag(
     reason: str | None = None,
     actor_email: str | None = None,
     version_number: int | None = None,
+    request_id: str | None = None,
 ) -> dict:
     """Create or move a tag. Upserts on (dataset_id, tag_name).
 
@@ -121,6 +124,7 @@ async def set_tag(
             from_target=prev,
             to_version_id=version_id, to_version_number=version_number,
             reason=reason, actor_user_id=created_by, actor_email=actor_email,
+            request_id=request_id,
         )
         await s.commit()
         result = dict(row)
@@ -135,6 +139,7 @@ async def delete_tag(
     actor_user_id: str | None = None,
     actor_email: str | None = None,
     reason: str | None = None,
+    request_id: str | None = None,
 ) -> bool:
     """Remove a tag (recording the deletion). Returns True if a row was deleted."""
     async with async_session_factory() as s:
@@ -148,6 +153,7 @@ async def delete_tag(
                 s, dataset_id, tag_name, "delete",
                 from_target=prev, to_version_id=None, to_version_number=None,
                 reason=reason, actor_user_id=actor_user_id, actor_email=actor_email,
+                request_id=request_id,
             )
         await s.commit()
         return result.rowcount > 0
@@ -167,7 +173,7 @@ async def list_tag_history(
             text("""
                 SELECT id, tag_name, action,
                        from_version_number, to_version_number,
-                       reason, actor_user_id::text, actor_email,
+                       reason, actor_user_id::text, actor_email, request_id,
                        created_at::text AS created_at
                 FROM dataset_tag_history
                 WHERE dataset_id = :did AND tag_name = :tag
@@ -346,7 +352,8 @@ async def list_versions(dataset_id: str) -> list[dict]:
         rows = (await s.execute(
             text("""
                 SELECT dv.id::text, dv.version_number, dv.status,
-                       dv.size_bytes, dv.row_count, dv.checksum,
+                       dv.size_bytes, dv.row_count, dv.sheet_count,
+                       dv.checksum, dv.source_checksum, dv.manifest_checksum,
                        dv.created_at::text AS created_at,
                        dv.processed_at::text AS processed_at,
                        COALESCE(

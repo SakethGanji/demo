@@ -9,7 +9,7 @@ problem+json.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from . import repo
 from .schemas import (
@@ -61,6 +61,17 @@ def _collection(items: list) -> Page:
 def _scope(principal: Principal) -> list[str] | None:
     """Team filter for list queries: None for superusers (all teams)."""
     return None if principal.is_superuser else principal.team_ids
+
+
+def _norm_tag(name: str) -> str:
+    """Tags are case-insensitive slugs — normalize path params the same way
+    the SetTagRequest validator normalizes bodies."""
+    return name.strip().lower()
+
+
+def _rid(request: Request) -> str | None:
+    """The request id assigned by middleware, for history correlation."""
+    return getattr(request.state, "request_id", None)
 
 
 async def _authorize_source(principal: Principal, request) -> None:
@@ -191,7 +202,10 @@ async def list_tags(dataset_id: str, principal: Principal = Depends(get_principa
 
 
 @router.put("/datasets/{dataset_id}/tags", response_model=TagInfo, tags=["tags"])
-async def set_tag(dataset_id: str, body: SetTagRequest, principal: Principal = Depends(get_principal)) -> TagInfo:
+async def set_tag(
+    dataset_id: str, body: SetTagRequest, request: Request,
+    principal: Principal = Depends(get_principal),
+) -> TagInfo:
     """Create or move a tag (e.g. 'production') to a specific version."""
     await ensure_dataset_permission(principal, dataset_id, Permission.DATASET_WRITE)
 
@@ -211,7 +225,7 @@ async def set_tag(dataset_id: str, body: SetTagRequest, principal: Principal = D
     tag_row = await repo.set_tag(
         dataset_id, version_id, body.tag_name,
         created_by=principal.user_id, actor_email=principal.email,
-        version_number=ver["version_number"],
+        version_number=ver["version_number"], request_id=_rid(request),
     )
     return TagInfo(
         tag_name=tag_row["tag_name"],
@@ -241,7 +255,7 @@ async def _resolve_target_version(
 
 @router.post("/datasets/{dataset_id}/tags/{tag_name}/promote", response_model=TagOpResponse, tags=["tags"])
 async def promote_tag(
-    dataset_id: str, tag_name: str, body: PromoteTagRequest,
+    dataset_id: str, tag_name: str, body: PromoteTagRequest, request: Request,
     principal: Principal = Depends(get_principal),
 ) -> TagOpResponse:
     """Promote a tag to a version, recording who did it and why.
@@ -249,6 +263,7 @@ async def promote_tag(
     Unlike the raw PUT, promotion refuses versions that are not ``ready``.
     """
     await ensure_dataset_permission(principal, dataset_id, Permission.DATASET_WRITE)
+    tag_name = _norm_tag(tag_name)
     ver = await _resolve_target_version(dataset_id, body.version_id, body.version_number)
     if ver["status"] != "ready":
         raise HTTPException(409, f"Cannot promote to version {ver['version_number']} (status: {ver['status']})")
@@ -257,6 +272,7 @@ async def promote_tag(
         dataset_id, str(ver["id"]), tag_name,
         created_by=principal.user_id, actor_email=principal.email,
         action="promote", reason=body.reason, version_number=ver["version_number"],
+        request_id=_rid(request),
     )
     return TagOpResponse(
         tag_name=tag_name, action="promote",
@@ -267,11 +283,12 @@ async def promote_tag(
 
 @router.post("/datasets/{dataset_id}/tags/{tag_name}/rollback", response_model=TagOpResponse, tags=["tags"])
 async def rollback_tag(
-    dataset_id: str, tag_name: str, body: RollbackTagRequest | None = None,
+    dataset_id: str, tag_name: str, request: Request, body: RollbackTagRequest | None = None,
     principal: Principal = Depends(get_principal),
 ) -> TagOpResponse:
     """Move a tag back to the previous version it pointed at (from history)."""
     await ensure_dataset_permission(principal, dataset_id, Permission.DATASET_WRITE)
+    tag_name = _norm_tag(tag_name)
     current = await repo.get_version_by_tag(dataset_id, tag_name)
     if not current:
         raise HTTPException(404, f"Tag '{tag_name}' not found on dataset {dataset_id}")
@@ -295,6 +312,7 @@ async def rollback_tag(
         dataset_id, str(ver["id"]), tag_name,
         created_by=principal.user_id, actor_email=principal.email,
         action="rollback", reason=reason, version_number=ver["version_number"],
+        request_id=_rid(request),
     )
     return TagOpResponse(
         tag_name=tag_name, action="rollback",
@@ -311,7 +329,7 @@ async def tag_history(
 ) -> Page[TagHistoryEntry]:
     """Full transition history for a tag (survives tag deletion), newest first."""
     await ensure_dataset_permission(principal, dataset_id, Permission.DATASET_READ)
-    rows, total = await repo.list_tag_history(dataset_id, tag_name, limit=page.limit, offset=page.offset)
+    rows, total = await repo.list_tag_history(dataset_id, _norm_tag(tag_name), limit=page.limit, offset=page.offset)
     if total == 0:
         raise HTTPException(404, f"No history for tag '{tag_name}' on dataset {dataset_id}")
     return Page.of([TagHistoryEntry(**r) for r in rows], total, page)
@@ -321,6 +339,7 @@ async def tag_history(
 async def resolve_tag(dataset_id: str, tag_name: str, principal: Principal = Depends(get_principal)) -> VersionInfo:
     """Resolve a tag to its version metadata."""
     await ensure_dataset_permission(principal, dataset_id, Permission.DATASET_READ)
+    tag_name = _norm_tag(tag_name)
     ver = await repo.get_version_by_tag(dataset_id, tag_name)
     if not ver:
         raise HTTPException(404, f"Tag '{tag_name}' not found on dataset {dataset_id}")
@@ -339,12 +358,17 @@ async def resolve_tag(dataset_id: str, tag_name: str, principal: Principal = Dep
 
 
 @router.delete("/datasets/{dataset_id}/tags/{tag_name}", response_model=DeleteResponse, tags=["tags"])
-async def delete_tag(dataset_id: str, tag_name: str, principal: Principal = Depends(get_principal)) -> DeleteResponse:
+async def delete_tag(
+    dataset_id: str, tag_name: str, request: Request,
+    principal: Principal = Depends(get_principal),
+) -> DeleteResponse:
     """Remove a tag from a dataset."""
     await ensure_dataset_permission(principal, dataset_id, Permission.DATASET_WRITE)
+    tag_name = _norm_tag(tag_name)
     deleted = await repo.delete_tag(
         dataset_id, tag_name,
         actor_user_id=principal.user_id, actor_email=principal.email,
+        request_id=_rid(request),
     )
     if not deleted:
         raise HTTPException(404, f"Tag '{tag_name}' not found on dataset {dataset_id}")

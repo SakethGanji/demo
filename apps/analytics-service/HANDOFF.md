@@ -3,8 +3,30 @@
 ## Current state
 
 **Branch:** `feat/auth-rbac-audit` (not pushed). Auth/RBAC/audit POC committed 2026-08-03;
-Phase 1 (sheets first-class + diffs + tag promotion) built 2026-08-04. 28/28 tests passing,
-verified against BOTH storage backends (local FS and S3/MinIO).
+Phase 1 (sheets first-class + diffs + tag promotion) + a post-review schema hardening pass
+built 2026-08-04. 30/30 tests passing (incl. two UI-ordered E2E journeys), verified against
+BOTH storage backends (local FS and S3/MinIO).
+
+**Schema hardening (2026-08-04, post design review; migration `20260804020000`):**
+- `dataset_versions.row_count` now = TOTAL rows across sheets (was first-sheet-only for
+  workbooks — misleading; historical rows backfilled). New: `sheet_count`,
+  `source_checksum` (sha256 of the exact uploaded bytes), `manifest_checksum` (sha256 over
+  ordered per-sheet checksums = the version's content identity). `checksum` stays as the
+  canonical-parquet hash.
+- `datasets.current_version_id`: composite FK guarantees same-dataset; `complete_version`
+  only advances it to a HIGHER ready version (out-of-order async completions can't move
+  "current" backwards). Semantics: highest ready version = default for unqualified reads.
+- Sheets: every NEW ready sheet row has an explicit `storage_key` (keyed by deduplicated
+  `sheet_key`, so colliding sanitized names like "Q 1"/"Q-1" can't overwrite each other);
+  the NULL⇒version-path fallback remains only for pre-Phase-1 backfilled rows.
+  `UNIQUE(version, sheet_index)`, at most one default sheet per version,
+  `schema_extractor_version` + `schema_backfilled_at` distinguish ingest-time schemas from
+  lazy backfills. Columns gained `header_was_duplicated`/`generated_name` flags.
+- Tags are case-insensitive slugs: lowercased at every entry point, DB CHECK enforces the
+  normalized form. Tag history rows carry `request_id` (correlates with the audit log).
+- Version `source` JSONB now records parsing provenance (parser + versions,
+  conversion_version, options) so identical uploads producing different artifacts are
+  explainable.
 
 **Phase 1 complete (2026-08-04):**
 - `dataset_version_sheets`: one row per sheet per version (sheet_key, name, index,
@@ -118,10 +140,16 @@ streaming, ML training, vector DBs, billing, orchestration, per-sheet independen
 Excel formatting/macro preservation, real auth (header identity stays until SSO/JWT swap).
 
 ### Invariants to preserve
-- Versions immutable, never overwritten. Tags → whole versions only (no mixed-sheet tags).
+- Version contents + source-derived metadata are frozen once processing completes;
+  legacy versions may receive explicitly tracked metadata backfills
+  (`schema_backfilled_at`). Tags → whole versions only (no mixed-sheet tags).
 - Partial workbook processing failure ⇒ version status = failed (atomic publication default).
-- Multi-sheet requests must name a sheet; return problem+json "sheet-selection-required"
-  listing sheets — never silently pick the first sheet. Single-sheet datasets auto-resolve.
+- sheet_count = 1 ⇒ `sheet` may be omitted; sheet_count > 1 ⇒ `sheet` is required —
+  problem+json "sheet-selection-required" listing sheets, never silently pick one.
+- Every NEW ready sheet row has an explicit storage_key, checksum, row_count, and schema.
+- current_version_id: same dataset (DB-enforced), status ready, highest ready version wins.
+- Tag names are lowercase slugs (DB CHECK); every tag mutation appends exactly one
+  history row (same transaction) with actor + request_id.
 - Cross-team existence hiding (404 not 403) must extend to all new endpoints.
 - New write/egress endpoints must land in the audit trail (middleware does this if routed
   under the protected router).

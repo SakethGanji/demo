@@ -134,13 +134,16 @@ async def update_sheet_schema(
     *,
     schema_json: list | dict,
     schema_fingerprint: str,
+    extractor_version: str | None = None,
     row_count: int | None = None,
     column_count: int | None = None,
 ) -> None:
     """Fill in lazily-computed schema metadata on a backfilled sheet row.
 
     Sheet *data* is immutable; this only completes derived metadata that the
-    SQL backfill could not compute (parquet inspection needs DuckDB).
+    SQL backfill could not compute (parquet inspection needs DuckDB). The
+    backfill is explicitly tracked (extractor version + timestamp) so later
+    readers can tell original ingest metadata from enrichment.
     """
     import json as _json
 
@@ -150,12 +153,15 @@ async def update_sheet_schema(
                 UPDATE dataset_version_sheets
                 SET schema_json = CAST(:schema AS jsonb),
                     schema_fingerprint = :fp,
+                    schema_extractor_version = COALESCE(:ev, schema_extractor_version),
+                    schema_backfilled_at = now(),
                     row_count = COALESCE(:rc, row_count),
                     column_count = COALESCE(:cc, column_count)
                 WHERE id = :id
             """),
             {"id": sheet_id, "schema": _json.dumps(schema_json),
-             "fp": schema_fingerprint, "rc": row_count, "cc": column_count},
+             "fp": schema_fingerprint, "ev": extractor_version,
+             "rc": row_count, "cc": column_count},
         )
         await s.commit()
 
@@ -194,9 +200,10 @@ async def list_tags_for_version(version_id: str) -> list[str]:
 
 
 async def get_version_by_tag(dataset_id: str, tag_name: str) -> dict | None:
-    """Resolve a tag to the full version row."""
+    """Resolve a tag to the full version row (tags are case-insensitive slugs)."""
     if not is_uuid(dataset_id):
         return None
+    tag_name = tag_name.strip().lower()
     async with async_session_factory() as s:
         row = (await s.execute(
             text("""
