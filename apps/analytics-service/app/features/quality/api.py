@@ -45,6 +45,8 @@ async def create_rule(
         {**body.model_dump(), "scope_type": body.scope_type},
         created_by=principal.user_id,
     )
+    if not row:
+        raise HTTPException(409, f"A rule named '{body.name}' already exists on this dataset")
     return RuleOut(**row)
 
 

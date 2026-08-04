@@ -25,6 +25,7 @@ async def create_rule(dataset_id: str, fields: dict, created_by: str) -> dict:
                 VALUES (:did, :name, :description, :scope_type, :sheet_selector,
                         :column_selector, :rule_type, CAST(:parameters AS jsonb),
                         :severity, :enabled, :created_by)
+                ON CONFLICT (dataset_id, name) DO NOTHING
                 RETURNING {_RULE_COLS}
             """),
             {"did": dataset_id, "created_by": created_by,
@@ -36,9 +37,9 @@ async def create_rule(dataset_id: str, fields: dict, created_by: str) -> dict:
              "parameters": json.dumps(fields.get("parameters") or {}),
              "severity": fields.get("severity", "error"),
              "enabled": fields.get("enabled", True)},
-        )).mappings().one()
+        )).mappings().first()
         await s.commit()
-        return dict(row)
+        return dict(row) if row else None
 
 
 async def list_rules(dataset_id: str, enabled_only: bool = False) -> list[dict]:
