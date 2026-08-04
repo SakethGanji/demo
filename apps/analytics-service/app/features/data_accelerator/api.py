@@ -45,6 +45,7 @@ from .services.datasets import (
 from .services.diffs import sheet_diff, workbook_diff
 from .services.profiling import run_profiling
 from .services.sampling import run_sampling_pipeline
+from app.api.errors import ProblemException
 from app.api.pagination import Page, PageParams, pagination
 from app.features.auth.deps import Principal, ensure_dataset_permission, get_principal
 from app.features.auth.permissions import Permission
@@ -267,6 +268,29 @@ async def promote_tag(
     ver = await _resolve_target_version(dataset_id, body.version_id, body.version_number)
     if ver["status"] != "ready":
         raise HTTPException(409, f"Cannot promote to version {ver['version_number']} (status: {ver['status']})")
+
+    # Promotion gate: if the dataset has enabled quality rules, the target
+    # version needs a completed validation run with zero error-level failures.
+    # (Raw PUT /tags stays ungated as the documented escape hatch; rollback is
+    # the emergency path and is never gated.)
+    from app.features.quality import repo as quality_repo
+    if await quality_repo.count_enabled_rules(dataset_id) > 0:
+        gate = await quality_repo.latest_completed_run(dataset_id, str(ver["id"]))
+        if gate is None:
+            raise ProblemException(
+                409, f"Version {ver['version_number']} has not been validated — run "
+                     f"POST /datasets/{dataset_id}/versions/{ver['version_number']}/validate first",
+                code="validation-required",
+            )
+        if (gate["error_failures"] or 0) > 0:
+            raise ProblemException(
+                409, f"Version {ver['version_number']} failed validation: "
+                     f"{gate['error_failures']} error-level failure(s)",
+                code="validation-failed",
+                validation_run_id=gate["id"],
+                error_failures=gate["error_failures"],
+                warning_failures=gate["warning_failures"],
+            )
 
     tag_row = await repo.set_tag(
         dataset_id, str(ver["id"]), tag_name,

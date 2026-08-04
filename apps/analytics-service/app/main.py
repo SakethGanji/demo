@@ -25,6 +25,7 @@ from app.features.auth.api import router as auth_router, teams_router
 from app.features.auth.deps import get_principal
 from app.features.data_accelerator.api import router as data_accelerator_router
 from app.features.files.api import router as files_router
+from app.features.quality.api import router as quality_router
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +113,7 @@ def create_app() -> FastAPI:
     protected = APIRouter(dependencies=[Depends(get_principal)])
     protected.include_router(data_accelerator_router)
     protected.include_router(files_router)
+    protected.include_router(quality_router)
     protected.include_router(audit_router)
     api.include_router(protected)
 
