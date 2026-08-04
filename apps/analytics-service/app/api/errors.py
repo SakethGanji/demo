@@ -55,6 +55,23 @@ def _code_for(status: int) -> str:
     return _STATUS_TITLES.get(status, "Error").lower().replace(" ", "_")
 
 
+class ProblemException(StarletteHTTPException):
+    """HTTPException carrying a custom problem+json ``code`` and extra fields.
+
+    Raise where a machine-readable error contract matters, e.g.::
+
+        raise ProblemException(
+            400, "Dataset has 3 sheets — specify one",
+            code="sheet-selection-required", sheets=["Revenue", "Expenses"],
+        )
+    """
+
+    def __init__(self, status_code: int, detail: str, *, code: str | None = None, **extra: object):
+        super().__init__(status_code=status_code, detail=detail)
+        self.code = code
+        self.extra = extra
+
+
 def problem_response(
     status: int,
     detail: str,
@@ -89,7 +106,9 @@ async def _http_exception_handler(request: Request, exc: StarletteHTTPException)
         exc.status_code,
         str(detail),
         request.url.path,
+        code=getattr(exc, "code", None),
         headers=getattr(exc, "headers", None),
+        **getattr(exc, "extra", {}),
     )
 
 

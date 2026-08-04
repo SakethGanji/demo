@@ -22,6 +22,7 @@ __all__ = [
     "create_version",
     "complete_version",
     "fail_version",
+    "insert_version_sheets",
 ]
 
 
@@ -121,6 +122,48 @@ async def complete_version(
         )
         await s.commit()
         return dict(row)
+
+
+async def insert_version_sheets(version_id: str, sheets: list[dict]) -> None:
+    """Persist per-sheet metadata rows for a freshly processed version.
+
+    Each dict carries: sheet_key, sheet_name, sheet_index, visibility, status,
+    is_default, storage_key, row_count, column_count, size_bytes, checksum,
+    schema_json, schema_fingerprint.
+    """
+    if not sheets:
+        return
+    async with async_session_factory() as s:
+        for sh in sheets:
+            await s.execute(
+                text("""
+                    INSERT INTO dataset_version_sheets
+                        (dataset_version_id, sheet_key, sheet_name, sheet_index,
+                         visibility, status, is_default, storage_key,
+                         row_count, column_count, size_bytes, checksum,
+                         schema_json, schema_fingerprint)
+                    VALUES (:vid, :key, :name, :idx, :vis, :status, :dflt, :sk,
+                            :rc, :cc, :sb, :cs, CAST(:schema AS jsonb), :fp)
+                    ON CONFLICT (dataset_version_id, sheet_key) DO NOTHING
+                """),
+                {
+                    "vid": version_id,
+                    "key": sh["sheet_key"],
+                    "name": sh["sheet_name"],
+                    "idx": sh.get("sheet_index", 0),
+                    "vis": sh.get("visibility", "visible"),
+                    "status": sh.get("status", "ready"),
+                    "dflt": sh.get("is_default", False),
+                    "sk": sh.get("storage_key"),
+                    "rc": sh.get("row_count"),
+                    "cc": sh.get("column_count"),
+                    "sb": sh.get("size_bytes"),
+                    "cs": sh.get("checksum"),
+                    "schema": json.dumps(sh["schema_json"]) if sh.get("schema_json") is not None else None,
+                    "fp": sh.get("schema_fingerprint"),
+                },
+            )
+        await s.commit()
 
 
 async def fail_version(version_id: str, error: str | None = None) -> None:

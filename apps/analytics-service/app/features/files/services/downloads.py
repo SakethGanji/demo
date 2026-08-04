@@ -165,8 +165,10 @@ async def download_dataset_version(
     dataset_id: str,
     version_number: int,
     format: str = "csv",
+    sheet: str | None = None,
 ) -> StreamingResponse:
     """Download a specific version of a dataset."""
+    from app.shared.datasets import resolve_version_sheet_path
     from app.shared.repo import get_version_by_number
 
     fmt = format.lower()
@@ -180,7 +182,8 @@ async def download_dataset_version(
     if not row or row.get("status") != "ready" or not row.get("path"):
         raise HTTPException(404, f"Version {version_number} not found for dataset {dataset_id}")
 
-    file_path = row["path"]
+    # Enforces sheet-selection-required for multi-sheet versions.
+    file_path = await resolve_version_sheet_path(row, sheet)
 
     if fmt == "parquet":
         # Stream parquet directly, no conversion needed

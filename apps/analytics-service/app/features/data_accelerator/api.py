@@ -22,13 +22,19 @@ from .schemas import (
     DeleteResponse,
     ProfileRequest,
     ProfileResponse,
+    PromoteTagRequest,
+    RollbackTagRequest,
     SampleRequest,
     SampleResponse,
     SetTagRequest,
+    SheetDiffResponse,
     SheetMetadataResponse,
+    TagHistoryEntry,
     TagInfo,
+    TagOpResponse,
     UpdateDatasetRequest,
     VersionInfo,
+    WorkbookDiffResponse,
 )
 from .services.aggregation import run_aggregation
 from .services.datasets import (
@@ -36,6 +42,7 @@ from .services.datasets import (
     get_dataset_sheets,
     get_sheet_metadata,
 )
+from .services.diffs import sheet_diff, workbook_diff
 from .services.profiling import run_profiling
 from .services.sampling import run_sampling_pipeline
 from app.api.pagination import Page, PageParams, pagination
@@ -143,6 +150,34 @@ async def list_dataset_versions(dataset_id: str, principal: Principal = Depends(
     return _collection([VersionInfo(**r) for r in rows])
 
 
+@router.get(
+    "/datasets/{dataset_id}/versions/{from_version}/diff/{to_version}",
+    response_model=WorkbookDiffResponse, tags=["versions"],
+)
+async def diff_versions(
+    dataset_id: str, from_version: int, to_version: int,
+    principal: Principal = Depends(get_principal),
+) -> WorkbookDiffResponse:
+    """Workbook-level diff between two versions: added/removed/modified/unchanged
+    sheets, plus advisory rename candidates (matching schema fingerprints)."""
+    await ensure_dataset_permission(principal, dataset_id, Permission.DATASET_READ)
+    return await workbook_diff(dataset_id, from_version, to_version)
+
+
+@router.get(
+    "/datasets/{dataset_id}/versions/{from_version}/sheets/{sheet_name}/diff/{to_version}",
+    response_model=SheetDiffResponse, tags=["sheets"],
+)
+async def diff_sheet(
+    dataset_id: str, from_version: int, sheet_name: str, to_version: int,
+    principal: Principal = Depends(get_principal),
+) -> SheetDiffResponse:
+    """Column-level schema diff for one sheet across two versions:
+    adds/removes, type/nullability/order changes, and the row-count delta."""
+    await ensure_dataset_permission(principal, dataset_id, Permission.DATASET_READ)
+    return await sheet_diff(dataset_id, from_version, sheet_name, to_version)
+
+
 # ---------------------------------------------------------------------------
 # Tags
 # ---------------------------------------------------------------------------
@@ -173,7 +208,11 @@ async def set_tag(dataset_id: str, body: SetTagRequest, principal: Principal = D
     if not ver or str(ver["dataset_id"]) != dataset_id:
         raise HTTPException(404, f"Version {version_id} not found for dataset {dataset_id}")
 
-    tag_row = await repo.set_tag(dataset_id, version_id, body.tag_name, created_by=principal.user_id)
+    tag_row = await repo.set_tag(
+        dataset_id, version_id, body.tag_name,
+        created_by=principal.user_id, actor_email=principal.email,
+        version_number=ver["version_number"],
+    )
     return TagInfo(
         tag_name=tag_row["tag_name"],
         version_id=tag_row["version_id"],
@@ -181,6 +220,101 @@ async def set_tag(dataset_id: str, body: SetTagRequest, principal: Principal = D
         created_at=tag_row["created_at"],
         updated_at=tag_row["updated_at"],
     )
+
+
+async def _resolve_target_version(
+    dataset_id: str, version_id: str | None, version_number: int | None,
+) -> dict:
+    """Resolve a promote target to a version row belonging to this dataset."""
+    if version_id:
+        ver = await repo.get_version(version_id)
+        if not ver or str(ver["dataset_id"]) != dataset_id:
+            raise HTTPException(404, f"Version {version_id} not found for dataset {dataset_id}")
+    elif version_number is not None:
+        ver = await repo.get_version_by_number(dataset_id, version_number)
+        if not ver:
+            raise HTTPException(404, f"Version {version_number} not found for dataset {dataset_id}")
+    else:
+        raise HTTPException(400, "Provide either version_id or version_number")
+    return ver
+
+
+@router.post("/datasets/{dataset_id}/tags/{tag_name}/promote", response_model=TagOpResponse, tags=["tags"])
+async def promote_tag(
+    dataset_id: str, tag_name: str, body: PromoteTagRequest,
+    principal: Principal = Depends(get_principal),
+) -> TagOpResponse:
+    """Promote a tag to a version, recording who did it and why.
+
+    Unlike the raw PUT, promotion refuses versions that are not ``ready``.
+    """
+    await ensure_dataset_permission(principal, dataset_id, Permission.DATASET_WRITE)
+    ver = await _resolve_target_version(dataset_id, body.version_id, body.version_number)
+    if ver["status"] != "ready":
+        raise HTTPException(409, f"Cannot promote to version {ver['version_number']} (status: {ver['status']})")
+
+    tag_row = await repo.set_tag(
+        dataset_id, str(ver["id"]), tag_name,
+        created_by=principal.user_id, actor_email=principal.email,
+        action="promote", reason=body.reason, version_number=ver["version_number"],
+    )
+    return TagOpResponse(
+        tag_name=tag_name, action="promote",
+        from_version_number=tag_row["previous_version_number"],
+        to_version_number=ver["version_number"], reason=body.reason,
+    )
+
+
+@router.post("/datasets/{dataset_id}/tags/{tag_name}/rollback", response_model=TagOpResponse, tags=["tags"])
+async def rollback_tag(
+    dataset_id: str, tag_name: str, body: RollbackTagRequest | None = None,
+    principal: Principal = Depends(get_principal),
+) -> TagOpResponse:
+    """Move a tag back to the previous version it pointed at (from history)."""
+    await ensure_dataset_permission(principal, dataset_id, Permission.DATASET_WRITE)
+    current = await repo.get_version_by_tag(dataset_id, tag_name)
+    if not current:
+        raise HTTPException(404, f"Tag '{tag_name}' not found on dataset {dataset_id}")
+
+    history, _ = await repo.list_tag_history(dataset_id, tag_name, limit=100)
+    target_number = next(
+        (h["to_version_number"] for h in history
+         if h["to_version_number"] is not None
+         and h["to_version_number"] != current["version_number"]
+         and h["action"] != "delete"),
+        None,
+    )
+    if target_number is None:
+        raise HTTPException(409, f"No previous version in history for tag '{tag_name}'")
+    ver = await repo.get_version_by_number(dataset_id, target_number)
+    if not ver or ver["status"] != "ready":
+        raise HTTPException(409, f"Previous version {target_number} is no longer available")
+
+    reason = body.reason if body else None
+    await repo.set_tag(
+        dataset_id, str(ver["id"]), tag_name,
+        created_by=principal.user_id, actor_email=principal.email,
+        action="rollback", reason=reason, version_number=ver["version_number"],
+    )
+    return TagOpResponse(
+        tag_name=tag_name, action="rollback",
+        from_version_number=current["version_number"],
+        to_version_number=ver["version_number"], reason=reason,
+    )
+
+
+@router.get("/datasets/{dataset_id}/tags/{tag_name}/history", response_model=Page[TagHistoryEntry], tags=["tags"])
+async def tag_history(
+    dataset_id: str, tag_name: str,
+    page: PageParams = Depends(pagination),
+    principal: Principal = Depends(get_principal),
+) -> Page[TagHistoryEntry]:
+    """Full transition history for a tag (survives tag deletion), newest first."""
+    await ensure_dataset_permission(principal, dataset_id, Permission.DATASET_READ)
+    rows, total = await repo.list_tag_history(dataset_id, tag_name, limit=page.limit, offset=page.offset)
+    if total == 0:
+        raise HTTPException(404, f"No history for tag '{tag_name}' on dataset {dataset_id}")
+    return Page.of([TagHistoryEntry(**r) for r in rows], total, page)
 
 
 @router.get("/datasets/{dataset_id}/tags/{tag_name}", response_model=VersionInfo, tags=["tags"])
@@ -208,7 +342,10 @@ async def resolve_tag(dataset_id: str, tag_name: str, principal: Principal = Dep
 async def delete_tag(dataset_id: str, tag_name: str, principal: Principal = Depends(get_principal)) -> DeleteResponse:
     """Remove a tag from a dataset."""
     await ensure_dataset_permission(principal, dataset_id, Permission.DATASET_WRITE)
-    deleted = await repo.delete_tag(dataset_id, tag_name)
+    deleted = await repo.delete_tag(
+        dataset_id, tag_name,
+        actor_user_id=principal.user_id, actor_email=principal.email,
+    )
     if not deleted:
         raise HTTPException(404, f"Tag '{tag_name}' not found on dataset {dataset_id}")
     return DeleteResponse(success=True, message=f"Tag '{tag_name}' deleted")

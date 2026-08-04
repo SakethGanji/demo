@@ -58,7 +58,7 @@ from app.shared.constants import (
     TUS_EXTENSIONS,
     TUS_MAX_SIZE,
 )
-from app.shared.data_io import load_data, stream_to_disk
+from app.shared.data_io import DEFAULT_SHEET_NAME, build_sheet_schema, load_data, stream_to_disk
 from app.shared.schemas import ColumnInfo
 
 from .schemas import (
@@ -252,6 +252,18 @@ async def upload_dataset(
             size_bytes=size_bytes,
             row_count=row_count,
         )
+        schema_cols, fingerprint = build_sheet_schema(conn.execute("DESCRIBE df").fetchall())
+        await repo.insert_version_sheets(str(version["id"]), [{
+            "sheet_key": DEFAULT_SHEET_NAME,
+            "sheet_name": DEFAULT_SHEET_NAME,
+            "sheet_index": 0,
+            "is_default": True,
+            "row_count": row_count,
+            "column_count": col_count,
+            "size_bytes": size_bytes,
+            "schema_json": schema_cols,
+            "schema_fingerprint": fingerprint,
+        }])
         layout.write_manifest(
             row_count=row_count,
             column_count=col_count,
@@ -588,11 +600,12 @@ async def download_version_endpoint(
     dataset_id: str,
     version_number: int,
     format: str = Query("csv", description="Download format: csv, parquet, xlsx"),
+    sheet: str | None = Query(None, description="Sheet name for multi-sheet datasets"),
     principal: Principal = Depends(get_principal),
 ):
     """Download a specific version of a dataset."""
     await ensure_dataset_permission(principal, dataset_id, Permission.DATASET_READ)
-    return await download_dataset_version(dataset_id, version_number, format=format)
+    return await download_dataset_version(dataset_id, version_number, format=format, sheet=sheet)
 
 
 @router.get("/samples", response_model=Page[FileEntry], tags=["downloads"])

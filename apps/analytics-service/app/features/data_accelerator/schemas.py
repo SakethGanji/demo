@@ -114,6 +114,44 @@ class SetTagRequest(BaseModel):
         return v
 
 
+class PromoteTagRequest(BaseModel):
+    """Promote a tag to a specific (ready) version, with an audit reason."""
+
+    version_id: str | None = Field(default=None, description="Target version UUID")
+    version_number: int | None = Field(default=None, description="Target version number (alternative to version_id)")
+    reason: str | None = Field(default=None, max_length=2000, description="Why this version is being promoted")
+
+
+class RollbackTagRequest(BaseModel):
+    """Roll a tag back to the version it previously pointed at."""
+
+    reason: str | None = Field(default=None, max_length=2000, description="Why the tag is being rolled back")
+
+
+class TagOpResponse(BaseModel):
+    """Result of an explicit tag operation (promote / rollback)."""
+
+    tag_name: str
+    action: str
+    from_version_number: int | None = None
+    to_version_number: int
+    reason: str | None = None
+
+
+class TagHistoryEntry(BaseModel):
+    """One recorded tag transition."""
+
+    id: int
+    tag_name: str
+    action: str
+    from_version_number: int | None = None
+    to_version_number: int | None = None
+    reason: str | None = None
+    actor_user_id: str | None = None
+    actor_email: str | None = None
+    created_at: str
+
+
 # ---------------------------------------------------------------------------
 # Datasets (metadata)
 # ---------------------------------------------------------------------------
@@ -121,19 +159,39 @@ class SetTagRequest(BaseModel):
 class SheetSummary(BaseModel):
     """Summary of a single sheet within a dataset."""
     name: str
-    storage_key: str
+    sheet_key: str | None = None
+    storage_key: str | None = None
     row_count: int
     column_count: int
     is_default: bool = False
+    visibility: str = "visible"
+    status: str = "ready"
+
+
+class SheetColumn(BaseModel):
+    """One column of a sheet's captured schema."""
+    name: str
+    original_name: str | None = None
+    normalized_name: str
+    dtype: str
+    nullable: bool = True
+    position: int
 
 
 class SheetMetadataResponse(BaseModel):
-    """Full metadata for a single sheet."""
+    """Full metadata for a single sheet (schema served from Postgres)."""
     name: str
+    sheet_key: str | None = None
+    visibility: str = "visible"
+    status: str = "ready"
+    is_default: bool = False
     row_count: int
     column_count: int
-    columns: list[ColumnInfo]
-    preview: list[dict[str, Any]]
+    size_bytes: int | None = None
+    checksum: str | None = None
+    schema_fingerprint: str | None = None
+    columns: list[SheetColumn] = Field(default_factory=list)
+    preview: list[dict[str, Any]] | None = None
 
 
 class DatasetMetadataResponse(BaseModel):
@@ -145,6 +203,84 @@ class DatasetMetadataResponse(BaseModel):
     preview: list[dict[str, Any]]
     sheets: list[SheetSummary] | None = None
     default_sheet: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Diffs (workbook-level and sheet-level)
+# ---------------------------------------------------------------------------
+
+class RenameCandidate(BaseModel):
+    """A *suggested* sheet rename — never auto-declared, always advisory."""
+
+    from_sheet: str
+    to_sheet: str
+    confidence: Literal["high", "medium"]
+    reason: str
+
+
+class ModifiedSheet(BaseModel):
+    """A sheet present in both versions whose content or shape changed."""
+
+    sheet_key: str
+    from_sheet: str
+    to_sheet: str
+    schema_changed: bool
+    row_count_delta: int | None = None
+    visibility_changed: bool = False
+
+
+class WorkbookDiffResponse(BaseModel):
+    """Workbook-level diff between two versions of a dataset."""
+
+    dataset_id: str
+    from_version: int
+    to_version: int
+    added: list[SheetSummary] = Field(default_factory=list)
+    removed: list[SheetSummary] = Field(default_factory=list)
+    modified: list[ModifiedSheet] = Field(default_factory=list)
+    unchanged: list[str] = Field(default_factory=list)
+    rename_candidates: list[RenameCandidate] = Field(
+        default_factory=list,
+        description="Advisory only: removed+added pairs with matching schema fingerprints",
+    )
+
+
+class ColumnTypeChange(BaseModel):
+    column: str
+    from_dtype: str
+    to_dtype: str
+
+
+class ColumnNullabilityChange(BaseModel):
+    column: str
+    from_nullable: bool
+    to_nullable: bool
+
+
+class ColumnOrderChange(BaseModel):
+    column: str
+    from_position: int
+    to_position: int
+
+
+class SheetDiffResponse(BaseModel):
+    """Column-level schema diff for one sheet across two versions."""
+
+    dataset_id: str
+    sheet_key: str
+    from_sheet: str
+    to_sheet: str
+    from_version: int
+    to_version: int
+    identical: bool
+    added_columns: list[SheetColumn] = Field(default_factory=list)
+    removed_columns: list[SheetColumn] = Field(default_factory=list)
+    type_changes: list[ColumnTypeChange] = Field(default_factory=list)
+    nullability_changes: list[ColumnNullabilityChange] = Field(default_factory=list)
+    order_changes: list[ColumnOrderChange] = Field(default_factory=list)
+    from_row_count: int | None = None
+    to_row_count: int | None = None
+    row_count_delta: int | None = None
 
 
 # ---------------------------------------------------------------------------

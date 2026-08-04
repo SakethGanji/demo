@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -143,6 +145,100 @@ def export_dataframe(
     return str(path)
 
 
+# ---------------------------------------------------------------------------
+# Column & sheet name normalization + schema capture
+# ---------------------------------------------------------------------------
+
+# Names pandas/DuckDB invent for blank headers ("Unnamed: 3", "column0", …).
+_SYNTHETIC_COLUMN = re.compile(r"^(unnamed(:\s*\d+)?|column\d*)$", re.IGNORECASE)
+
+DEFAULT_SHEET_NAME = "data"  # synthetic sheet name for non-Excel sources
+
+
+def normalize_sheet_key(sheet_name: str) -> str:
+    """Stable identifier for a sheet — the cross-version diff join key.
+
+    Must stay in sync with the SQL backfill in the sheets migration:
+    lowercased, non-alphanumeric runs collapsed to ``_``, trimmed.
+    """
+    key = re.sub(r"[^a-z0-9]+", "_", sheet_name.lower()).strip("_")
+    return key or "sheet"
+
+
+def normalize_column_names(names: list[Any]) -> list[str]:
+    """Normalize raw header cells to unique snake_case column names.
+
+    Blank/synthetic headers become ``column_{position}``; duplicates get a
+    ``_2``/``_3`` suffix in order of appearance. Originals are kept alongside
+    by callers — this never renames data, it is metadata only.
+    """
+    normalized: list[str] = []
+    used: set[str] = set()
+    for pos, raw in enumerate(names):
+        cell = "" if raw is None else str(raw).strip()
+        if not cell or _SYNTHETIC_COLUMN.match(cell):
+            base = f"column_{pos}"
+        else:
+            base = re.sub(r"[^a-z0-9]+", "_", cell.lower()).strip("_") or f"column_{pos}"
+        candidate, n = base, 1
+        while candidate in used:
+            n += 1
+            candidate = f"{base}_{n}"
+        used.add(candidate)
+        normalized.append(candidate)
+    return normalized
+
+
+def build_sheet_schema(
+    described: list[tuple],
+    original_names: list[Any] | None = None,
+) -> tuple[list[dict[str, Any]], str]:
+    """Build (schema columns, fingerprint) from DuckDB DESCRIBE rows.
+
+    ``described`` rows are (column_name, column_type, null, …) as returned by
+    ``DESCRIBE``. ``original_names`` are the raw header cells when the physical
+    parquet names were mangled (pandas dedup, blank headers); falls back to the
+    physical names. The fingerprint hashes the *normalized* schema — equal
+    fingerprints mean identical shape (names, types, nullability, order).
+    """
+    physical = [r[0] for r in described]
+    originals = (
+        list(original_names)
+        if original_names is not None and len(original_names) == len(physical)
+        else list(physical)
+    )
+    normalized = normalize_column_names(originals)
+    columns = [
+        {
+            "name": physical[i],
+            "original_name": "" if originals[i] is None else str(originals[i]),
+            "normalized_name": normalized[i],
+            "dtype": described[i][1],
+            "nullable": (described[i][2] or "YES") != "NO",
+            "position": i,
+        }
+        for i in range(len(physical))
+    ]
+    fingerprint = schema_fingerprint(columns)
+    return columns, fingerprint
+
+
+def schema_fingerprint(columns: list[dict[str, Any]]) -> str:
+    """sha256 over the normalized schema (name, dtype, nullability, in order)."""
+    canonical = [[c["normalized_name"], c["dtype"], c["nullable"]] for c in columns]
+    return hashlib.sha256(json.dumps(canonical).encode()).hexdigest()
+
+
+def describe_parquet(parquet_path: str) -> list[tuple]:
+    """DESCRIBE a parquet file (local path or s3:// URI) with a throwaway connection."""
+    escaped = str(parquet_path).replace("'", "''")
+    conn = _connect_s3() if str(parquet_path).startswith("s3://") else duckdb.connect()
+    try:
+        return conn.execute(f"DESCRIBE SELECT * FROM read_parquet('{escaped}')").fetchall()
+    finally:
+        conn.close()
+
+
 @dataclass
 class SheetInfo:
     """Metadata for a single Excel sheet converted to parquet."""
@@ -151,6 +247,8 @@ class SheetInfo:
     row_count: int
     column_count: int
     is_default: bool = False
+    visibility: str = "visible"  # visible | hidden | very_hidden
+    original_columns: list[Any] | None = None  # raw header cells, pre-mangling
 
 
 @dataclass
@@ -215,6 +313,23 @@ def convert_to_parquet(
         xls = pd.ExcelFile(source_path, engine="openpyxl")
         sheet_names = xls.sheet_names
 
+        # Workbook-level metadata pandas discards: sheet visibility and the raw
+        # header cells (pandas mangles duplicates to "a.1" and blanks to
+        # "Unnamed: N" — we keep the originals as metadata).
+        visibility: dict[str, str] = {}
+        raw_headers: dict[str, list[Any]] = {}
+        try:
+            for ws in xls.book.worksheets:
+                state = getattr(ws, "sheet_state", "visible")
+                visibility[ws.title] = {
+                    "visible": "visible", "hidden": "hidden", "veryHidden": "very_hidden",
+                }.get(state, "visible")
+                for row in ws.iter_rows(min_row=1, max_row=1, values_only=True):
+                    raw_headers[ws.title] = list(row)
+                    break
+        except Exception:
+            pass  # metadata capture must never fail an ingest
+
         # First pass: read all non-empty sheets into memory
         sheet_frames: list[tuple[str, pd.DataFrame]] = []
         for name in sheet_names:
@@ -243,6 +358,8 @@ def convert_to_parquet(
                 row_count=len(pdf),
                 column_count=len(pdf.columns),
                 is_default=True,
+                visibility=visibility.get(name, "visible"),
+                original_columns=raw_headers.get(name),
             ))
         else:
             # Multiple sheets — each gets its own parquet, canonical = first sheet
@@ -270,6 +387,8 @@ def convert_to_parquet(
                     row_count=len(pdf),
                     column_count=len(pdf.columns),
                     is_default=is_first,
+                    visibility=visibility.get(name, "visible"),
+                    original_columns=raw_headers.get(name),
                 ))
 
             # Canonical parquet = copy/symlink of first sheet

@@ -13,7 +13,15 @@ import duckdb
 from app.infra.db.storage import DatasetLayout, get_storage
 from app.shared import jobs
 from .. import repo
-from app.shared.data_io import ConversionResult, convert_to_parquet, extract_metadata
+from app.shared.data_io import (
+    DEFAULT_SHEET_NAME,
+    ConversionResult,
+    build_sheet_schema,
+    convert_to_parquet,
+    describe_parquet,
+    extract_metadata,
+    normalize_sheet_key,
+)
 from app.shared.scanning import scan_upload
 from app.shared.schemas import ColumnInfo
 
@@ -32,6 +40,65 @@ def _file_checksum(path: str) -> str:
         for chunk in iter(lambda: f.read(8192), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def _build_sheet_rows(
+    result: ConversionResult,
+    layout: DatasetLayout,
+    local_parquet: Path,
+    meta: dict[str, Any],
+    canonical_size: int,
+    canonical_checksum: str,
+) -> list[dict[str, Any]]:
+    """Per-sheet metadata rows (schema, fingerprint, checksum) for the DB.
+
+    Must run while the locally-built parquet artifacts still exist — schema
+    extraction and checksumming read the local files, not storage.
+    """
+    rows: list[dict[str, Any]] = []
+    if result.sheets:
+        multi = result.is_multi_sheet
+        for idx, s in enumerate(result.sheets):
+            local = Path(s.parquet_path)
+            columns, fingerprint = build_sheet_schema(
+                describe_parquet(str(local)), s.original_columns,
+            )
+            rows.append({
+                "sheet_key": normalize_sheet_key(s.name),
+                "sheet_name": s.name,
+                "sheet_index": idx,
+                "visibility": s.visibility,
+                "status": "ready",
+                "is_default": s.is_default,
+                # Single-sheet workbooks write straight to the canonical
+                # parquet — NULL storage_key means "use the version path".
+                "storage_key": layout.sheet_parquet(s.name) if multi else None,
+                "row_count": s.row_count,
+                "column_count": s.column_count,
+                "size_bytes": local.stat().st_size,
+                "checksum": _file_checksum(str(local)),
+                "schema_json": columns,
+                "schema_fingerprint": fingerprint,
+            })
+    else:
+        # CSV/parquet source — one synthetic sheet over the canonical parquet.
+        columns, fingerprint = build_sheet_schema(describe_parquet(str(local_parquet)))
+        rows.append({
+            "sheet_key": DEFAULT_SHEET_NAME,
+            "sheet_name": DEFAULT_SHEET_NAME,
+            "sheet_index": 0,
+            "visibility": "visible",
+            "status": "ready",
+            "is_default": True,
+            "storage_key": None,
+            "row_count": meta.get("row_count"),
+            "column_count": meta.get("column_count"),
+            "size_bytes": canonical_size,
+            "checksum": canonical_checksum,
+            "schema_json": columns,
+            "schema_fingerprint": fingerprint,
+        })
+    return rows
 
 
 async def process_uploaded_file_async(
@@ -96,6 +163,11 @@ async def process_uploaded_file_async(
                 if local_sheet.exists():
                     storage.put_file(layout.sheet_parquet(sheet_name), local_sheet)
 
+            # Schema + checksum per sheet, while local artifacts still exist.
+            sheet_rows = _build_sheet_rows(
+                result, layout, local_parquet, meta, size_bytes, checksum,
+            )
+
         parquet_path = storage.resolve(layout.canonical_parquet)
         await jobs.update_job_progress(job_id, 80)
 
@@ -110,6 +182,7 @@ async def process_uploaded_file_async(
                     "row_count": s.row_count,
                     "column_count": s.column_count,
                     "is_default": s.is_default,
+                    "visibility": s.visibility,
                 }
                 for s in result.sheets
             ]
@@ -133,6 +206,7 @@ async def process_uploaded_file_async(
                 checksum=checksum,
                 source=source_update if source_update else None,
             )
+            await repo.insert_version_sheets(version_id, sheet_rows)
 
         layout.write_manifest(
             row_count=meta.get("row_count"),
