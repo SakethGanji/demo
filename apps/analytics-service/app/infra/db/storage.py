@@ -1,26 +1,32 @@
-"""Storage abstraction — local filesystem or S3.
+"""Storage abstraction — local filesystem or any S3-compatible object store.
 
 All persistent data is addressed by *keys* — relative paths like
 ``datasets/default/abc123/v000001/parquet/dataset.parquet``.
 
 The active ``StorageBackend`` resolves keys to full paths (local) or URIs
-(``s3://…``) that DuckDB, pandas, and application code can consume directly.
+(``s3://bucket/…``). DuckDB consumes both directly (``s3://`` via httpfs — see
+:func:`duckdb_s3_statements`). Code that needs real local files (checksums,
+Excel conversion) builds artifacts in a temp dir and publishes them with
+``put_file``; streaming reads go through ``open_read``.
 
-To switch to S3:
-  1. Set ``ANALYTICS_STORAGE_BACKEND=s3`` plus ``S3_BUCKET`` / ``S3_PREFIX``
-  2. The ``S3StorageBackend`` handles resolution and I/O via boto3
+To switch to S3 (MinIO in dev, an internal S3 gateway in prod):
+    ACCELERATOR_STORAGE_BACKEND=s3
+    ACCELERATOR_S3_BUCKET=analytics
+    ACCELERATOR_S3_ENDPOINT_URL=http://localhost:9000   # or the internal gateway
+    ACCELERATOR_S3_ACCESS_KEY_ID=…  ACCELERATOR_S3_SECRET_ACCESS_KEY=…
 
-TUS uploads always stay on the local filesystem (staging area).
+TUS/simple-upload staging always stays on the local filesystem.
 """
 
 from __future__ import annotations
 
 import json
 import re
+import shutil
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 
 # ---------------------------------------------------------------------------
@@ -197,6 +203,29 @@ class StorageBackend(ABC):
     def list_keys(self, prefix: str) -> list[str]:
         """List keys under a prefix."""
 
+    @abstractmethod
+    def put_file(self, key: str, local_path: Path) -> None:
+        """Publish a locally-built file into storage at *key*.
+
+        The source file is left in place (callers use temp dirs that clean up).
+        """
+
+    @abstractmethod
+    def key_of(self, path_or_uri: str) -> str | None:
+        """Inverse of :meth:`resolve` — map a stored path/URI back to its key.
+
+        Returns None if the path does not belong to this backend (e.g. a
+        legacy absolute path from before a backend switch).
+        """
+
+    @abstractmethod
+    def delete_prefix(self, prefix: str) -> int:
+        """Recursively delete everything under *prefix*. Returns objects removed."""
+
+    @abstractmethod
+    def open_read(self, key: str) -> BinaryIO:
+        """Open *key* for streaming reads. Caller must close it."""
+
 
 # ---------------------------------------------------------------------------
 # Local filesystem backend
@@ -253,6 +282,172 @@ class LocalStorageBackend(StorageBackend):
         base_len = len(str(self._base)) + 1  # strip base + separator
         return sorted(str(p)[base_len:] for p in root.rglob("*") if p.is_file())
 
+    def put_file(self, key: str, local_path: Path) -> None:
+        dest = Path(self.resolve(key))
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(local_path, dest)
+
+    def key_of(self, path_or_uri: str) -> str | None:
+        try:
+            return Path(path_or_uri).resolve().relative_to(self._base.resolve()).as_posix()
+        except ValueError:
+            return None
+
+    def delete_prefix(self, prefix: str) -> int:
+        root = Path(self.resolve(prefix))
+        if not root.exists():
+            return 0
+        count = sum(1 for p in root.rglob("*") if p.is_file())
+        shutil.rmtree(root, ignore_errors=True)
+        return count
+
+    def open_read(self, key: str) -> BinaryIO:
+        return open(self.resolve(key), "rb")
+
+
+# ---------------------------------------------------------------------------
+# S3-compatible backend (AWS, MinIO, internal gateways)
+# ---------------------------------------------------------------------------
+
+
+class S3StorageBackend(StorageBackend):
+    """Key-addressed storage on any S3-compatible endpoint via boto3.
+
+    ``resolve`` returns ``s3://bucket/prefix/key`` URIs — DuckDB reads these
+    natively once a connection is configured with :func:`duckdb_s3_statements`.
+    Byte-level I/O (manifests, streaming downloads) goes through boto3.
+    """
+
+    def __init__(
+        self,
+        *,
+        bucket: str,
+        prefix: str = "",
+        endpoint_url: str | None = None,
+        region: str | None = None,
+        access_key_id: str | None = None,
+        secret_access_key: str | None = None,
+        force_path_style: bool = True,
+    ):
+        import boto3  # deferred: only needed when the s3 backend is active
+        from botocore.config import Config
+
+        self._bucket = bucket
+        self._prefix = prefix.strip("/")
+        self._client = boto3.client(
+            "s3",
+            endpoint_url=endpoint_url,
+            region_name=region,
+            # None values fall back to the standard AWS credential chain
+            aws_access_key_id=access_key_id,
+            aws_secret_access_key=secret_access_key,
+            config=Config(s3={"addressing_style": "path" if force_path_style else "auto"}),
+        )
+
+    def _k(self, key: str) -> str:
+        """Full object key including the configured prefix."""
+        return f"{self._prefix}/{key}" if self._prefix else key
+
+    def resolve(self, key: str) -> str:
+        return f"s3://{self._bucket}/{self._k(key)}"
+
+    def ensure_dir(self, key: str) -> None:
+        pass  # object stores have no directories
+
+    def write_text(self, key: str, content: str) -> None:
+        self.write_bytes(key, content.encode("utf-8"))
+
+    def write_bytes(self, key: str, data: bytes) -> None:
+        self._client.put_object(Bucket=self._bucket, Key=self._k(key), Body=data)
+
+    def read_text(self, key: str) -> str:
+        return self.read_bytes(key).decode("utf-8")
+
+    def read_bytes(self, key: str) -> bytes:
+        obj = self._client.get_object(Bucket=self._bucket, Key=self._k(key))
+        return obj["Body"].read()
+
+    def exists(self, key: str) -> bool:
+        from botocore.exceptions import ClientError
+        try:
+            self._client.head_object(Bucket=self._bucket, Key=self._k(key))
+            return True
+        except ClientError:
+            return False
+
+    def delete(self, key: str) -> None:
+        self._client.delete_object(Bucket=self._bucket, Key=self._k(key))
+
+    def size(self, key: str) -> int:
+        head = self._client.head_object(Bucket=self._bucket, Key=self._k(key))
+        return int(head["ContentLength"])
+
+    def list_keys(self, prefix: str) -> list[str]:
+        full_prefix = self._k(prefix).rstrip("/") + "/"
+        strip = len(self._prefix) + 1 if self._prefix else 0
+        keys: list[str] = []
+        paginator = self._client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=self._bucket, Prefix=full_prefix):
+            keys.extend(obj["Key"][strip:] for obj in page.get("Contents", []))
+        return sorted(keys)
+
+    def put_file(self, key: str, local_path: Path) -> None:
+        self._client.upload_file(str(local_path), self._bucket, self._k(key))
+
+    def key_of(self, path_or_uri: str) -> str | None:
+        want = f"s3://{self._bucket}/"
+        if not path_or_uri.startswith(want):
+            return None
+        full_key = path_or_uri[len(want):]
+        if self._prefix:
+            if not full_key.startswith(self._prefix + "/"):
+                return None
+            return full_key[len(self._prefix) + 1:]
+        return full_key
+
+    def delete_prefix(self, prefix: str) -> int:
+        keys = self.list_keys(prefix)
+        for batch_start in range(0, len(keys), 1000):  # delete_objects caps at 1000
+            batch = keys[batch_start:batch_start + 1000]
+            self._client.delete_objects(
+                Bucket=self._bucket,
+                Delete={"Objects": [{"Key": self._k(k)} for k in batch], "Quiet": True},
+            )
+        return len(keys)
+
+    def open_read(self, key: str) -> BinaryIO:
+        obj = self._client.get_object(Bucket=self._bucket, Key=self._k(key))
+        return obj["Body"]  # StreamingBody: read()/close()
+
+
+def duckdb_s3_statements() -> list[str]:
+    """SQL statements configuring a DuckDB connection to read this deployment's S3.
+
+    Uses a DuckDB secret so ``read_parquet('s3://…')`` works against MinIO or
+    an internal gateway. Empty when the local backend is active.
+    """
+    from urllib.parse import urlparse
+
+    from app.infra.config import settings
+
+    if settings.storage_backend != "s3":
+        return []
+
+    parts = [f"REGION '{settings.s3_region}'"]
+    if settings.s3_access_key_id and settings.s3_secret_access_key:
+        parts.append(f"KEY_ID '{settings.s3_access_key_id}'")
+        parts.append(f"SECRET '{settings.s3_secret_access_key}'")
+    if settings.s3_endpoint_url:
+        u = urlparse(settings.s3_endpoint_url)
+        parts.append(f"ENDPOINT '{u.netloc}'")
+        parts.append(f"USE_SSL {'true' if u.scheme == 'https' else 'false'}")
+    if settings.s3_force_path_style:
+        parts.append("URL_STYLE 'path'")
+
+    return [
+        "CREATE OR REPLACE SECRET accelerator_s3 (TYPE s3, " + ", ".join(parts) + ")",
+    ]
+
 
 # ---------------------------------------------------------------------------
 # Singleton
@@ -274,11 +469,21 @@ def get_storage() -> StorageBackend:
         from app.infra.config import settings
 
         if settings.storage_backend == "s3":
-            raise NotImplementedError(
-                "S3 backend not yet implemented. "
-                "Set ANALYTICS_STORAGE_BACKEND=local or implement S3StorageBackend."
+            if not settings.s3_bucket:
+                raise RuntimeError(
+                    "ACCELERATOR_S3_BUCKET must be set when ACCELERATOR_STORAGE_BACKEND=s3"
+                )
+            _backend = S3StorageBackend(
+                bucket=settings.s3_bucket,
+                prefix=settings.s3_prefix,
+                endpoint_url=settings.s3_endpoint_url,
+                region=settings.s3_region,
+                access_key_id=settings.s3_access_key_id,
+                secret_access_key=settings.s3_secret_access_key,
+                force_path_style=settings.s3_force_path_style,
             )
-        _backend = LocalStorageBackend(base_dir=settings.storage_dir)
+        else:
+            _backend = LocalStorageBackend(base_dir=settings.storage_dir)
     return _backend
 
 

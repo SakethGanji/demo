@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     app_version: str = "1.0.0"
     debug: bool = False
 
+    # API
+    api_prefix: str = "/api/v1"  # single versioned mount point for all routes
+
+    # Identity (POC): callers pass X-User-Id; RBAC is enforced server-side.
+    # Set False only for local debugging (requests then run as the system superuser).
+    auth_enabled: bool = True
+
     # CORS settings
     cors_origins: list[str] = ["*"]
     cors_allow_credentials: bool = True
@@ -47,14 +54,23 @@ class Settings(BaseSettings):
     storage_dir: Path = Path("/tmp/accelerator")  # base for datasets/, samples/
     tus_upload_dir: Path = Path("/tmp/accelerator/tus_uploads")  # local-only staging
 
-    # S3 (set storage_backend="s3" to enable)
+    # S3 / object store (set storage_backend="s3" to enable).
+    # Works against any S3-compatible endpoint: AWS, MinIO (dev), or an internal
+    # S3 gateway — point s3_endpoint_url at it and set path-style as needed.
+    # Credentials fall back to the standard AWS chain (env/instance profile)
+    # when the explicit keys are unset.
     storage_backend: str = "local"  # "local" or "s3"
     s3_bucket: str = ""
     s3_prefix: str = ""
     s3_region: str = "us-east-1"
+    s3_endpoint_url: str | None = None      # e.g. http://localhost:9000 (MinIO) or internal gateway
+    s3_access_key_id: str | None = None
+    s3_secret_access_key: str | None = None
+    s3_force_path_style: bool = True        # MinIO/internal gateways typically require path-style
 
     # Upload settings
     upload_chunk_size: int = 8 * 1024 * 1024  # 8MB
+    max_upload_bytes: int = 1024 * 1024 * 1024  # 1GB cap for the simple upload path
 
     # AI/LLM settings
     gemini_api_key: str | None = None

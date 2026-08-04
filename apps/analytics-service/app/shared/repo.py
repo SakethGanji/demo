@@ -6,6 +6,8 @@ a dataset or version should import from here, not duplicate the SQL.
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from sqlalchemy import text
 
 from app.infra.db.postgres import async_session_factory
@@ -14,8 +16,25 @@ DEFAULT_TEAM_ID = "00000000-0000-0000-0000-000000000001"
 DEFAULT_USER_ID = "00000000-0000-0000-0000-000000000001"
 
 
+def is_uuid(value: str | None) -> bool:
+    """True if *value* is a well-formed UUID.
+
+    Guards ID lookups so a malformed path parameter resolves to "not found"
+    (404) instead of blowing up on Postgres's uuid cast (500).
+    """
+    if not value:
+        return False
+    try:
+        UUID(str(value))
+        return True
+    except (ValueError, AttributeError, TypeError):
+        return False
+
+
 async def get_dataset(dataset_id: str) -> dict | None:
     """Fetch a dataset by ID."""
+    if not is_uuid(dataset_id):
+        return None
     async with async_session_factory() as s:
         row = (await s.execute(
             text("SELECT * FROM datasets WHERE id = :id"),
@@ -26,6 +45,8 @@ async def get_dataset(dataset_id: str) -> dict | None:
 
 async def get_version(version_id: str) -> dict | None:
     """Fetch a dataset version by ID."""
+    if not is_uuid(version_id):
+        return None
     async with async_session_factory() as s:
         row = (await s.execute(
             text("SELECT * FROM dataset_versions WHERE id = :id"),
@@ -36,6 +57,8 @@ async def get_version(version_id: str) -> dict | None:
 
 async def get_version_by_number(dataset_id: str, version_number: int) -> dict | None:
     """Fetch a dataset version by dataset ID and version number."""
+    if not is_uuid(dataset_id):
+        return None
     async with async_session_factory() as s:
         row = (await s.execute(
             text("SELECT * FROM dataset_versions WHERE dataset_id = :did AND version_number = :vn"),
@@ -46,6 +69,8 @@ async def get_version_by_number(dataset_id: str, version_number: int) -> dict | 
 
 async def get_current_version(dataset_id: str) -> dict | None:
     """Fetch the current (latest ready) version for a dataset."""
+    if not is_uuid(dataset_id):
+        return None
     async with async_session_factory() as s:
         row = (await s.execute(
             text("""
@@ -56,6 +81,89 @@ async def get_current_version(dataset_id: str) -> dict | None:
             {"did": dataset_id},
         )).mappings().first()
         return dict(row) if row else None
+
+
+# ---------------------------------------------------------------------------
+# Sheets (dataset_version_sheets)
+# ---------------------------------------------------------------------------
+
+async def list_version_sheets(version_id: str) -> list[dict]:
+    """All sheet rows for a version, in workbook order."""
+    if not is_uuid(version_id):
+        return []
+    async with async_session_factory() as s:
+        rows = (await s.execute(
+            text("""
+                SELECT id::text, dataset_version_id::text, sheet_key, sheet_name,
+                       sheet_index, visibility, status, is_default, storage_key,
+                       row_count, column_count, size_bytes, checksum,
+                       schema_json, schema_fingerprint, created_at::text AS created_at
+                FROM dataset_version_sheets
+                WHERE dataset_version_id = :vid
+                ORDER BY sheet_index
+            """),
+            {"vid": version_id},
+        )).mappings().all()
+        return [dict(r) for r in rows]
+
+
+async def get_version_sheet(version_id: str, sheet: str) -> dict | None:
+    """One sheet row by exact name (or normalized sheet_key as fallback)."""
+    if not is_uuid(version_id):
+        return None
+    async with async_session_factory() as s:
+        row = (await s.execute(
+            text("""
+                SELECT id::text, dataset_version_id::text, sheet_key, sheet_name,
+                       sheet_index, visibility, status, is_default, storage_key,
+                       row_count, column_count, size_bytes, checksum,
+                       schema_json, schema_fingerprint, created_at::text AS created_at
+                FROM dataset_version_sheets
+                WHERE dataset_version_id = :vid
+                  AND (sheet_name = :sheet OR sheet_key = :sheet)
+                ORDER BY (sheet_name = :sheet) DESC
+                LIMIT 1
+            """),
+            {"vid": version_id, "sheet": sheet},
+        )).mappings().first()
+        return dict(row) if row else None
+
+
+async def update_sheet_schema(
+    sheet_id: str,
+    *,
+    schema_json: list | dict,
+    schema_fingerprint: str,
+    extractor_version: str | None = None,
+    row_count: int | None = None,
+    column_count: int | None = None,
+) -> None:
+    """Fill in lazily-computed schema metadata on a backfilled sheet row.
+
+    Sheet *data* is immutable; this only completes derived metadata that the
+    SQL backfill could not compute (parquet inspection needs DuckDB). The
+    backfill is explicitly tracked (extractor version + timestamp) so later
+    readers can tell original ingest metadata from enrichment.
+    """
+    import json as _json
+
+    async with async_session_factory() as s:
+        await s.execute(
+            text("""
+                UPDATE dataset_version_sheets
+                SET schema_json = CAST(:schema AS jsonb),
+                    schema_fingerprint = :fp,
+                    schema_extractor_version = COALESCE(:ev, schema_extractor_version),
+                    schema_backfilled_at = now(),
+                    row_count = COALESCE(:rc, row_count),
+                    column_count = COALESCE(:cc, column_count)
+                WHERE id = :id
+            """),
+            {"id": sheet_id, "schema": _json.dumps(schema_json),
+             "fp": schema_fingerprint, "ev": extractor_version,
+             "rc": row_count, "cc": column_count},
+        )
+        await s.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +200,10 @@ async def list_tags_for_version(version_id: str) -> list[str]:
 
 
 async def get_version_by_tag(dataset_id: str, tag_name: str) -> dict | None:
-    """Resolve a tag to the full version row."""
+    """Resolve a tag to the full version row (tags are case-insensitive slugs)."""
+    if not is_uuid(dataset_id):
+        return None
+    tag_name = tag_name.strip().lower()
     async with async_session_factory() as s:
         row = (await s.execute(
             text("""

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
 from app.shared.schemas import ColumnInfo, ColumnSummary
+
+Classification = Literal["public", "internal", "confidential", "restricted"]
 
 
 # ---------------------------------------------------------------------------
@@ -19,6 +21,7 @@ class DatasetInfo(BaseModel):
     id: str
     name: str
     description: str | None = None
+    classification: str = "internal"
     current_version: int | None = None
     row_count: int | None = None
     size_bytes: int | None = None
@@ -26,22 +29,24 @@ class DatasetInfo(BaseModel):
     updated_at: str
 
 
-class DatasetListResponse(BaseModel):
-    """Paginated dataset listing."""
-
-    datasets: list[DatasetInfo]
-    total_count: int
-
-
 class VersionInfo(BaseModel):
-    """Summary info for a dataset version."""
+    """Summary info for a dataset version.
+
+    ``row_count`` is the TOTAL across all sheets. ``checksum`` hashes the
+    canonical parquet; ``source_checksum`` the exact uploaded bytes;
+    ``manifest_checksum`` the ordered per-sheet artifact checksums (the
+    version's content identity).
+    """
 
     id: str
     version_number: int
     status: str
     size_bytes: int | None = None
     row_count: int | None = None
+    sheet_count: int | None = None
     checksum: str | None = None
+    source_checksum: str | None = None
+    manifest_checksum: str | None = None
     created_at: str
     processed_at: str | None = None
     tags: list[str] = Field(default_factory=list)
@@ -55,6 +60,27 @@ class DeleteResponse(BaseModel):
     deleted_keys: list[str] = Field(default_factory=list)
 
 
+class UpdateDatasetRequest(BaseModel):
+    """Patch a dataset's mutable metadata. Only provided fields change."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=2000)
+    classification: Classification | None = Field(
+        default=None, description="Data sensitivity: public, internal, confidential, or restricted",
+    )
+
+
+class DatasetPatched(BaseModel):
+    """Result of a dataset metadata patch."""
+
+    id: str
+    name: str
+    description: str | None = None
+    classification: str = "internal"
+    created_at: str
+    updated_at: str
+
+
 class DatasetSearchResult(BaseModel):
     """A dataset with its versions inline, returned from search."""
 
@@ -65,14 +91,6 @@ class DatasetSearchResult(BaseModel):
     created_at: str
     updated_at: str
     versions: list[VersionInfo] = Field(default_factory=list)
-
-
-class DatasetSearchResponse(BaseModel):
-    """Search results with pagination."""
-
-    results: list[DatasetSearchResult]
-    total_count: int
-    query: str
 
 
 # ---------------------------------------------------------------------------
@@ -99,16 +117,51 @@ class SetTagRequest(BaseModel):
     @field_validator("tag_name")
     @classmethod
     def validate_tag_name(cls, v: str) -> str:
-        v = v.strip()
+        # Tags are case-insensitive slugs: 'Production' and 'production' must
+        # be the same tag (enforced by a DB CHECK on the normalized form).
+        v = v.strip().lower()
         if not v:
             raise ValueError("tag_name cannot be empty")
         return v
 
 
-class TagListResponse(BaseModel):
-    """List of tags for a dataset."""
+class PromoteTagRequest(BaseModel):
+    """Promote a tag to a specific (ready) version, with an audit reason."""
 
-    tags: list[TagInfo]
+    version_id: str | None = Field(default=None, description="Target version UUID")
+    version_number: int | None = Field(default=None, description="Target version number (alternative to version_id)")
+    reason: str | None = Field(default=None, max_length=2000, description="Why this version is being promoted")
+
+
+class RollbackTagRequest(BaseModel):
+    """Roll a tag back to the version it previously pointed at."""
+
+    reason: str | None = Field(default=None, max_length=2000, description="Why the tag is being rolled back")
+
+
+class TagOpResponse(BaseModel):
+    """Result of an explicit tag operation (promote / rollback)."""
+
+    tag_name: str
+    action: str
+    from_version_number: int | None = None
+    to_version_number: int
+    reason: str | None = None
+
+
+class TagHistoryEntry(BaseModel):
+    """One recorded tag transition."""
+
+    id: int
+    tag_name: str
+    action: str
+    from_version_number: int | None = None
+    to_version_number: int | None = None
+    reason: str | None = None
+    actor_user_id: str | None = None
+    actor_email: str | None = None
+    request_id: str | None = None
+    created_at: str
 
 
 # ---------------------------------------------------------------------------
@@ -118,19 +171,41 @@ class TagListResponse(BaseModel):
 class SheetSummary(BaseModel):
     """Summary of a single sheet within a dataset."""
     name: str
-    storage_key: str
+    sheet_key: str | None = None
+    storage_key: str | None = None
     row_count: int
     column_count: int
     is_default: bool = False
+    visibility: str = "visible"
+    status: str = "ready"
+
+
+class SheetColumn(BaseModel):
+    """One column of a sheet's captured schema."""
+    name: str
+    original_name: str | None = None
+    normalized_name: str
+    dtype: str
+    nullable: bool = True
+    position: int
+    header_was_duplicated: bool = False
+    generated_name: bool = False
 
 
 class SheetMetadataResponse(BaseModel):
-    """Full metadata for a single sheet."""
+    """Full metadata for a single sheet (schema served from Postgres)."""
     name: str
+    sheet_key: str | None = None
+    visibility: str = "visible"
+    status: str = "ready"
+    is_default: bool = False
     row_count: int
     column_count: int
-    columns: list[ColumnInfo]
-    preview: list[dict[str, Any]]
+    size_bytes: int | None = None
+    checksum: str | None = None
+    schema_fingerprint: str | None = None
+    columns: list[SheetColumn] = Field(default_factory=list)
+    preview: list[dict[str, Any]] | None = None
 
 
 class DatasetMetadataResponse(BaseModel):
@@ -142,6 +217,84 @@ class DatasetMetadataResponse(BaseModel):
     preview: list[dict[str, Any]]
     sheets: list[SheetSummary] | None = None
     default_sheet: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Diffs (workbook-level and sheet-level)
+# ---------------------------------------------------------------------------
+
+class RenameCandidate(BaseModel):
+    """A *suggested* sheet rename — never auto-declared, always advisory."""
+
+    from_sheet: str
+    to_sheet: str
+    confidence: Literal["high", "medium"]
+    reason: str
+
+
+class ModifiedSheet(BaseModel):
+    """A sheet present in both versions whose content or shape changed."""
+
+    sheet_key: str
+    from_sheet: str
+    to_sheet: str
+    schema_changed: bool
+    row_count_delta: int | None = None
+    visibility_changed: bool = False
+
+
+class WorkbookDiffResponse(BaseModel):
+    """Workbook-level diff between two versions of a dataset."""
+
+    dataset_id: str
+    from_version: int
+    to_version: int
+    added: list[SheetSummary] = Field(default_factory=list)
+    removed: list[SheetSummary] = Field(default_factory=list)
+    modified: list[ModifiedSheet] = Field(default_factory=list)
+    unchanged: list[str] = Field(default_factory=list)
+    rename_candidates: list[RenameCandidate] = Field(
+        default_factory=list,
+        description="Advisory only: removed+added pairs with matching schema fingerprints",
+    )
+
+
+class ColumnTypeChange(BaseModel):
+    column: str
+    from_dtype: str
+    to_dtype: str
+
+
+class ColumnNullabilityChange(BaseModel):
+    column: str
+    from_nullable: bool
+    to_nullable: bool
+
+
+class ColumnOrderChange(BaseModel):
+    column: str
+    from_position: int
+    to_position: int
+
+
+class SheetDiffResponse(BaseModel):
+    """Column-level schema diff for one sheet across two versions."""
+
+    dataset_id: str
+    sheet_key: str
+    from_sheet: str
+    to_sheet: str
+    from_version: int
+    to_version: int
+    identical: bool
+    added_columns: list[SheetColumn] = Field(default_factory=list)
+    removed_columns: list[SheetColumn] = Field(default_factory=list)
+    type_changes: list[ColumnTypeChange] = Field(default_factory=list)
+    nullability_changes: list[ColumnNullabilityChange] = Field(default_factory=list)
+    order_changes: list[ColumnOrderChange] = Field(default_factory=list)
+    from_row_count: int | None = None
+    to_row_count: int | None = None
+    row_count_delta: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -269,7 +422,7 @@ class SampleResponse(BaseModel):
     sampled_count: int
     columns: list[ColumnSummary] = []
     preview: list[dict[str, Any]] = []
-    sample_file: str | None = Field(default=None, description="Saved sample filename — fetch via GET /files/samples/{filename}")
+    sample_file: str | None = Field(default=None, description="Saved sample filename — fetch via GET /api/v1/samples/{filename}")
     data: list[dict[str, Any]] | None = None
     steps_summary: list[StepResult] = []
     goal_validation: GoalValidationResult | None = None
@@ -399,4 +552,4 @@ class AggregateResponse(BaseModel):
     columns: list[str]
     data: list[dict[str, Any]] | None = None
     totals: dict[str, Any] | None = None
-    result_file: str | None = Field(default=None, description="Saved result filename — fetch via GET /files/samples/{filename}")
+    result_file: str | None = Field(default=None, description="Saved result filename — fetch via GET /api/v1/samples/{filename}")

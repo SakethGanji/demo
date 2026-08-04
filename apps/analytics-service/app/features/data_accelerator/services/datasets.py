@@ -8,18 +8,24 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 
-from app.infra.db.storage import get_storage
 from app.shared.datasets import (
-    get_default_sheet,
-    get_sheets,
-    resolve_dataset_path,
+    _find_sheet,
     _get_current_version_or_404,
-    _resolve_sheet_path,
+    ensure_sheet_schema,
+    get_default_sheet_name,
+    get_version_sheet_rows,
+    resolve_dataset_path,
+    sheet_data_path,
 )
 from app.shared.data_io import extract_metadata, load_data
 from app.shared.schemas import ColumnInfo
 
-from ..schemas import DatasetMetadataResponse, SheetMetadataResponse, SheetSummary
+from ..schemas import (
+    DatasetMetadataResponse,
+    SheetColumn,
+    SheetMetadataResponse,
+    SheetSummary,
+)
 
 # Re-export for consumers that import from here
 __all__ = [
@@ -28,6 +34,37 @@ __all__ = [
     "get_dataset_sheets",
     "get_sheet_metadata",
 ]
+
+
+def _sheet_summary(row: dict) -> SheetSummary:
+    return SheetSummary(
+        name=row["sheet_name"],
+        sheet_key=row["sheet_key"],
+        storage_key=row.get("storage_key"),
+        row_count=row.get("row_count") or 0,
+        column_count=row.get("column_count") or 0,
+        is_default=bool(row.get("is_default")),
+        visibility=row.get("visibility", "visible"),
+        status=row.get("status", "ready"),
+    )
+
+
+def _sheet_response(row: dict, preview: list[dict] | None = None) -> SheetMetadataResponse:
+    schema = row.get("schema_json") or []
+    return SheetMetadataResponse(
+        name=row["sheet_name"],
+        sheet_key=row["sheet_key"],
+        visibility=row.get("visibility", "visible"),
+        status=row.get("status", "ready"),
+        is_default=bool(row.get("is_default")),
+        row_count=row.get("row_count") or 0,
+        column_count=row.get("column_count") or len(schema),
+        size_bytes=row.get("size_bytes"),
+        checksum=row.get("checksum"),
+        schema_fingerprint=row.get("schema_fingerprint"),
+        columns=[SheetColumn(**c) for c in schema],
+        preview=preview,
+    )
 
 
 async def get_dataset_metadata(dataset_id: str) -> DatasetMetadataResponse:
@@ -39,10 +76,7 @@ async def get_dataset_metadata(dataset_id: str) -> DatasetMetadataResponse:
     finally:
         conn.close()
 
-    sheets = get_sheets(ver)
-    sheet_summaries = [SheetSummary(**s) for s in sheets] if sheets else None
-    default_sheet = get_default_sheet(ver)
-
+    sheets = await get_version_sheet_rows(ver)
     return DatasetMetadataResponse(
         dataset_id=dataset_id,
         file_path=file_path,
@@ -50,50 +84,38 @@ async def get_dataset_metadata(dataset_id: str) -> DatasetMetadataResponse:
         column_count=meta["column_count"],
         columns=[ColumnInfo(**c) for c in meta["columns"]],
         preview=meta["preview"],
-        sheets=sheet_summaries,
-        default_sheet=default_sheet,
+        sheets=[_sheet_summary(r) for r in sheets] or None,
+        default_sheet=get_default_sheet_name(sheets),
     )
 
 
 async def get_dataset_sheets(dataset_id: str) -> list[SheetMetadataResponse]:
-    """Return full metadata for every sheet in a dataset."""
-    ver = await _get_current_version_or_404(dataset_id)
-    sheets = get_sheets(ver)
-    if not sheets:
-        raise HTTPException(404, "Dataset has no sheets (not an Excel upload)")
+    """Full metadata for every sheet — served from Postgres, no file I/O.
 
-    storage = get_storage()
-    results: list[SheetMetadataResponse] = []
-    for s in sheets:
-        path = storage.resolve(s["storage_key"])
-        conn = load_data(file_path=path)
-        try:
-            meta = extract_metadata(conn)
-        finally:
-            conn.close()
-        results.append(SheetMetadataResponse(
-            name=s["name"],
-            row_count=meta["row_count"],
-            column_count=meta["column_count"],
-            columns=[ColumnInfo(**c) for c in meta["columns"]],
-            preview=meta["preview"],
-        ))
-    return results
+    Legacy versions ingested before schemas were captured get their schema
+    computed and persisted on first read.
+    """
+    ver = await _get_current_version_or_404(dataset_id)
+    rows = await get_version_sheet_rows(ver)
+    if not rows:
+        raise HTTPException(404, "No sheets recorded for this dataset version")
+    return [_sheet_response(await ensure_sheet_schema(ver, r)) for r in rows]
 
 
 async def get_sheet_metadata(dataset_id: str, sheet_name: str) -> SheetMetadataResponse:
-    """Return full metadata for a single sheet."""
+    """Full metadata for a single sheet, including a data preview."""
     ver = await _get_current_version_or_404(dataset_id)
-    path = _resolve_sheet_path(ver, sheet_name)
-    conn = load_data(file_path=path)
+    rows = await get_version_sheet_rows(ver)
+    row = _find_sheet(rows, sheet_name)
+    if not row:
+        raise HTTPException(404, f"Sheet not found: {sheet_name}")
+    row = await ensure_sheet_schema(ver, row)
+
+    conn = load_data(file_path=sheet_data_path(ver, row))
     try:
         meta = extract_metadata(conn)
     finally:
         conn.close()
-    return SheetMetadataResponse(
-        name=sheet_name,
-        row_count=meta["row_count"],
-        column_count=meta["column_count"],
-        columns=[ColumnInfo(**c) for c in meta["columns"]],
-        preview=meta["preview"],
-    )
+    if not row.get("row_count"):
+        row = {**row, "row_count": meta["row_count"]}
+    return _sheet_response(row, preview=meta["preview"])

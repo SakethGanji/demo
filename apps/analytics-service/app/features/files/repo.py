@@ -22,6 +22,7 @@ __all__ = [
     "create_version",
     "complete_version",
     "fail_version",
+    "insert_version_sheets",
 ]
 
 
@@ -31,18 +32,20 @@ async def create_dataset(
     description: str | None = None,
     team_id: str = DEFAULT_TEAM_ID,
     owner_id: str = DEFAULT_USER_ID,
+    classification: str = "internal",
 ) -> dict:
     """Create a new dataset row."""
     async with async_session_factory() as s:
         row = (await s.execute(
             text("""
-                INSERT INTO datasets (name, description, team_id, owner_id)
-                VALUES (:name, :description, :team_id, :owner_id)
+                INSERT INTO datasets (name, description, team_id, owner_id, classification)
+                VALUES (:name, :description, :team_id, :owner_id, :classification)
                 RETURNING id, name, description, team_id, owner_id,
-                          current_version_id, created_at, updated_at
+                          classification, current_version_id, created_at, updated_at
             """),
             {"name": name, "description": description,
-             "team_id": team_id, "owner_id": owner_id},
+             "team_id": team_id, "owner_id": owner_id,
+             "classification": classification},
         )).mappings().one()
         await s.commit()
         return dict(row)
@@ -90,16 +93,26 @@ async def complete_version(
     size_bytes: int | None = None,
     row_count: int | None = None,
     checksum: str | None = None,
+    source_checksum: str | None = None,
+    manifest_checksum: str | None = None,
+    sheet_count: int | None = None,
     source: dict | None = None,
 ) -> dict:
-    """Mark a version as ready. Updates current_version_id on the dataset."""
+    """Mark a version as ready.
+
+    ``row_count`` is the TOTAL across all sheets. ``current_version_id``
+    advances only if this version outranks the dataset's current one —
+    concurrent uploads finishing out of order can't move "current" backwards.
+    """
     async with async_session_factory() as s:
         row = (await s.execute(
             text("""
                 UPDATE dataset_versions
                 SET status = 'ready', storage_type = 'local',
                     path = :path, size_bytes = :sb,
-                    row_count = :rc, checksum = :cs, processed_at = now(),
+                    row_count = :rc, checksum = :cs,
+                    source_checksum = :scs, manifest_checksum = :mcs,
+                    sheet_count = :shc, processed_at = now(),
                     source = CASE
                         WHEN CAST(:source AS text) IS NOT NULL
                         THEN COALESCE(source, '{}'::jsonb) || CAST(:source AS jsonb)
@@ -110,15 +123,71 @@ async def complete_version(
             """),
             {"id": version_id, "path": path, "sb": size_bytes,
              "rc": row_count, "cs": checksum,
+             "scs": source_checksum, "mcs": manifest_checksum, "shc": sheet_count,
              "source": json.dumps(source) if source else None},
         )).mappings().one()
 
         await s.execute(
-            text("UPDATE datasets SET current_version_id = :vid, updated_at = now() WHERE id = :did"),
-            {"vid": version_id, "did": row["dataset_id"]},
+            text("""
+                UPDATE datasets d
+                SET current_version_id = :vid, updated_at = now()
+                WHERE d.id = :did
+                  AND NOT EXISTS (
+                      SELECT 1 FROM dataset_versions cv
+                      WHERE cv.id = d.current_version_id
+                        AND cv.status = 'ready'
+                        AND cv.version_number > :vn
+                  )
+            """),
+            {"vid": version_id, "did": row["dataset_id"], "vn": row["version_number"]},
         )
         await s.commit()
         return dict(row)
+
+
+async def insert_version_sheets(version_id: str, sheets: list[dict]) -> None:
+    """Persist per-sheet metadata rows for a freshly processed version.
+
+    Each dict carries: sheet_key, sheet_name, sheet_index, visibility, status,
+    is_default, storage_key, row_count, column_count, size_bytes, checksum,
+    schema_json, schema_fingerprint.
+    """
+    if not sheets:
+        return
+    async with async_session_factory() as s:
+        for sh in sheets:
+            await s.execute(
+                text("""
+                    INSERT INTO dataset_version_sheets
+                        (dataset_version_id, sheet_key, sheet_name, sheet_index,
+                         visibility, status, is_default, storage_key,
+                         row_count, column_count, size_bytes, checksum,
+                         schema_json, schema_fingerprint,
+                         schema_extractor_version, processed_at)
+                    VALUES (:vid, :key, :name, :idx, :vis, :status, :dflt, :sk,
+                            :rc, :cc, :sb, :cs, CAST(:schema AS jsonb), :fp,
+                            :ev, now())
+                    ON CONFLICT (dataset_version_id, sheet_key) DO NOTHING
+                """),
+                {
+                    "vid": version_id,
+                    "key": sh["sheet_key"],
+                    "name": sh["sheet_name"],
+                    "idx": sh.get("sheet_index", 0),
+                    "vis": sh.get("visibility", "visible"),
+                    "status": sh.get("status", "ready"),
+                    "dflt": sh.get("is_default", False),
+                    "sk": sh.get("storage_key"),
+                    "rc": sh.get("row_count"),
+                    "cc": sh.get("column_count"),
+                    "sb": sh.get("size_bytes"),
+                    "cs": sh.get("checksum"),
+                    "schema": json.dumps(sh["schema_json"]) if sh.get("schema_json") is not None else None,
+                    "fp": sh.get("schema_fingerprint"),
+                    "ev": sh.get("schema_extractor_version"),
+                },
+            )
+        await s.commit()
 
 
 async def fail_version(version_id: str, error: str | None = None) -> None:
