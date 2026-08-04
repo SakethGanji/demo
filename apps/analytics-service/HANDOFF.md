@@ -1,12 +1,43 @@
-# Analytics Service — Handoff (2026-08-03)
+# Analytics Service — Handoff (2026-08-04)
 
 ## Current state
 
-**Branch:** `main`, everything below is UNCOMMITTED (staged deletions + unstaged mods + untracked new files).
-First action for a new session: commit this work on a feature branch (suggested split:
-migrations / auth+RBAC / audit / api envelopes / data-plane RBAC wiring / tests).
+**Branch:** `feat/auth-rbac-audit` (not pushed). Auth/RBAC/audit POC committed 2026-08-03;
+Phase 1 (sheets first-class + diffs + tag promotion) built 2026-08-04. 28/28 tests passing,
+verified against BOTH storage backends (local FS and S3/MinIO).
 
-**What was just built (all tested, 20/20 passing):**
+**Phase 1 complete (2026-08-04):**
+- `dataset_version_sheets`: one row per sheet per version (sheet_key, name, index,
+  visibility, status, storage_key, row/col counts, size, checksum, schema_json,
+  schema_fingerprint). Migration `20260804000000_sheets` backfills from source JSONB;
+  every ready non-Excel version gets one synthetic sheet named `data` (constant name =
+  stable diff key). `storage_key NULL` ⇒ resolve to the version's canonical parquet.
+- Schemas captured at ingest (DuckDB DESCRIBE on each sheet parquet): physical name,
+  original header cell (pre-pandas-mangling, read via openpyxl), normalized_name
+  (lowercase snake, synthetic `column_{i}` for blank/Unnamed, `_2` suffix for dups),
+  dtype, nullability, position. Fingerprint = sha256 of normalized schema. Legacy
+  versions get schema filled lazily on first read (sheets/diff endpoints) and persisted.
+- Hidden-sheet visibility captured (visible/hidden/very_hidden via openpyxl sheet_state).
+- `GET .../versions/{a}/diff/{b}` — workbook diff (added/removed/modified/unchanged +
+  rename candidates as *suggestions only*, matched by schema fingerprint).
+- `GET .../versions/{a}/sheets/{sheet}/diff/{b}` — column adds/removes, type/nullability/
+  order changes (rank-based, so pure adds don't flag downstream cols), row-count delta.
+- `dataset_tag_history` + `POST .../tags/{tag}/promote` (refuses non-ready versions),
+  `/rollback` (walks history to previous distinct version), `GET .../tags/{tag}/history`.
+  Raw PUT/DELETE also record history (actions: set/promote/rollback/delete) with
+  reason + actor, same transaction as the tag mutation.
+- **sheet-selection-required is now ENFORCED** (was aspirational): multi-sheet versions
+  hit via sample/profile/aggregate/download without `sheet` get problem+json 400 with
+  `code: "sheet-selection-required"` and a `sheets` array. Single-sheet auto-resolves.
+  `ProblemException` (api/errors.py) carries custom codes + extra fields.
+- Sheet endpoints (`/datasets/{id}/sheets[...]`) now serve schema from Postgres (no file
+  I/O for the list; single-sheet GET still reads a 5-row preview).
+
+**Local-dev note:** the local DB had applied an earlier draft of the auth migration
+(pre-commit, with password columns). Reconciled 2026-08-04: dropped `users.password_hash`
++ `users.last_login_at`, updated the recorded checksum to match the committed file.
+
+**Auth/RBAC POC (2026-08-03, all tested):**
 - POC header auth: `X-User-Id` names an active user; no passwords/tokens. Swap point
   for real auth is `app/features/auth/deps.py:get_principal` only.
 - Team-scoped RBAC: `viewer < editor < admin < owner` (`auth/permissions.py` matrix),
@@ -29,19 +60,21 @@ on System superuser `00000000-...-0001` seeded by migrations.
 
 ## Key architecture facts (verified, non-obvious)
 
-- **Per-sheet Parquet artifacts already exist physically.** `files/services/processing.py`
-  writes one canonical parquet per Excel sheet via `layout.sheet_parquet(name)`.
-  Only the *metadata* is second-class: sheet names live in `dataset_versions.source` JSONB;
-  schemas live only inside parquet files. Baseline migration comment explicitly anticipates
-  adding a `dataset_sheets` table later.
-- Tags (`dataset_version_tags`) point at whole versions, unique per (dataset, tag). No history.
+- **Sheets are first-class as of Phase 1.** Physical layout unchanged (one parquet per
+  Excel sheet via `layout.sheet_parquet(name)`); metadata now lives in
+  `dataset_version_sheets` (authoritative), with `dataset_versions.source` JSONB still
+  dual-written for provenance/back-compat. Resolution: `app/shared/datasets.py`
+  (`get_version_sheet_rows` → DB first, JSONB fallback for pre-migration versions).
+- Tags (`dataset_version_tags`) point at whole versions, unique per (dataset, tag);
+  every mutation appends to `dataset_tag_history`.
 - `jobs` table + `app/shared/jobs.py` exist and are underused — ready substrate for
   validation runs and saved-analytics runs.
 - Sampling pipeline (`data_accelerator/services/sampling.py`) is sheet-aware and seeded
   (deterministic per-step seeds), 7 methods + dedup/fill/goal stages. No persisted run manifest.
-- Schema extraction already trivially available: DuckDB DESCRIBE in `shared/data_io.py` (~line 303).
-- Excel ingestion is plain `pd.read_excel(openpyxl)`: NO hidden-sheet detection, header-row
-  config, merged-cell policy, or duplicate-column normalization.
+- Per-sheet schemas + fingerprints are captured at ingest and stored in Postgres
+  (`shared/data_io.py`: `build_sheet_schema`/`normalize_column_names`/`describe_parquet`).
+- Excel ingestion (`pd.read_excel(openpyxl)`) now captures hidden-sheet visibility and
+  original-vs-normalized column names. Still NO header-row config or merged-cell policy.
 - Upload scanning is a pluggable no-op (`shared/scanning.py`); file-path source is superuser-only.
 - Storage backend pluggable local/S3 (`infra/db/storage.py`); TUS staging always local.
 
@@ -52,24 +85,10 @@ Corrections applied: (a) validate/compare/approve/promote do NOT exist yet despi
 lifecycle claim; (b) generalized `artifacts` table deferred to Phase 3 (publish is when it
 pays); (c) doc's "Excel policies" are ingestion build-work, not documentation.
 
-### Phase 1 — sheets first-class + diff + promotion basics  ← START HERE
-1. Migration: `dataset_version_sheets` (id, dataset_version_id, sheet_key, sheet_name,
-   sheet_index, visibility, status, row_count, column_count, size_bytes, checksum,
-   schema_json, schema_fingerprint, created_at). Backfill from source JSONB + parquet inspection.
-   Keep version-level row_count/checksum as convenience summaries.
-2. Extract + store per-sheet schema at ingest (DuckDB DESCRIBE; add normalized names,
-   nullability, column order, fingerprint = hash of normalized schema).
-3. Workbook diff endpoint `GET /datasets/{id}/versions/{a}/diff/{b}`:
-   added/removed/modified/unchanged sheets; rename candidates only as suggestions
-   (never auto-declare renames).
-4. Sheet schema diff `.../sheets/{sheet}/diff/{b}`: column add/remove, type/nullability/order
-   changes, row-count delta.
-5. `dataset_tag_history` table + `POST .../tags/{tag}/promote`, `/rollback`,
-   `GET .../tags/{tag}/history` (with reason + actor). Keep raw PUT /tags.
-6. Ingest: hidden-sheet visibility capture + duplicate/synthetic column-name normalization
-   (store original AND normalized names).
+### Phase 1 — sheets first-class + diff + promotion basics  ✅ DONE 2026-08-04
+All six items shipped (see "Current state" above for the as-built details).
 
-### Phase 2 — trust
+### Phase 2 — trust  ← START HERE
 Quality rules CRUD (scopes: version, sheet, column, cross-sheet FK), validation runs on the
 `jobs` table, validation results endpoint, promotion gates (e.g. "validated" tag requires
 zero error-level failures), approval notes. All rules compile to single DuckDB queries.
