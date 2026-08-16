@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<!--
+DESIGN NOTES — INSTRUMENT applied to the Workflows/Apps hub (restyle of the terminal hub; same regions, same rows,
+same columns, same controls). House tokens, grain overlay, backlit vignette, focus ring and scrollbars copied verbatim
+from terminal-quality-instrument.html.
+R1 ACCENT — cyan is a MEANING (scope + liveness), not a count. Three uses: the active route, the ONE workflow running
+   right now, and the LIVE sync lamp. The segmented All/Workflows/Apps filter and the list/grid toggle are repeated
+   local state, so they take value + position + elevation instead.
+R2 KEY — "New" is near-white, not accent.
+R3 BORDERS — every hairline box is gone. The workflow table is the heterogeneous-table exception: exactly ONE vertical
+   rule, splitting definition (graph / name / status / nodes) from outcome (last run / when / team / trend). Kept
+   besides that: the two group seams (a horizontal zone boundary) and the column-header underline. The 7-row apps
+   table is homogeneous enough to be held by space alone, so it gets no vertical rule.
+R4 NUMBERS — KPI figures are 26px/600 tabular over 9.5px eyebrows.
+R5 SENTENCE CASE — group heads are sentence-case; column heads are lowercase mono identifiers.
+R6 STATUS — five states, five shapes, always beside a word: active/success = circle, held = triangle, failed = diamond,
+   inactive = ring, running = the cyan liveness lamp.
+R7 SEVERITY — the published/draft slug lost its green: publication is a property, so it is typographic (t2 vs t3) and
+   the word already sits in the row's sub-line.
+VIZ — TEAM swatches keep categorical hue (identity genuinely needs it) in fixed order, never cycled, always beside the
+   team name. NODE-KIND hues were audited and RE-STEPPED: the old iOS set put "ai" on #64d2ff (inside the cyan accent
+   band, it stole the signal) and put trigger/action/output on #ff2d55/#30d158/#ff9f0a, which impersonate the reserved
+   status hues. All six now sit on the house categorical ramp, fixed per kind, each measured >=4.1:1 on the row
+   surface (olive #747c04 is the floor at 4.19:1). Run-outcome sparklines are status sequences, so they carry a
+   non-hue channel too: success = full-height bar on the baseline, held = half-height on the baseline,
+   failed = short bar hanging from the top, in flight = an open outline.
+-->
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Command Studio · Workflows</title>
+<style>
+  :root {
+    --s0:#080A0E;  --s1:#0D1015;  --s2:#11151B;  --s3:#161B22;
+    --s4:#1C222B;  --s5:#242C37;  --s6:#38424F;  --key:#E9EEF5;
+    --t1:#E7ECF3;  --t2:#B0BAC8;  --t3:#85909F;  --t4:#5C6675; /* t4 = decoration only, never text */
+    --r1:rgba(255,255,255,.042); --r2:rgba(255,255,255,.075); --r3:rgba(255,255,255,.13);
+    --hi:inset 0 1px 0 rgba(255,255,255,.045);
+    --sig:#46D5E8; --sig-dim:rgba(70,213,232,.14); --sig-line:rgba(70,213,232,.40);
+    --st-good:#0ca30c; --st-warn:#fab219; --st-serious:#ec835a; --st-crit:#DC5050;
+    --m1:#CBD3DF; --m2:#A2ACBB; --m3:#7D8797; --m4:#5F6979; --m5:#48515F; --m6:#39414D;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    /* TEAM identity — categorical, fixed order, never cycled. A team swatch always sits beside its name. */
+    --viz-1:#3987e5; --viz-2:#d95926; --viz-3:#199e70; --viz-4:#c98500;
+    --viz-5:#d55181; --viz-6:#747c04; --viz-7:#9085e9; --viz-8:#e66767;
+    /* NODE-KIND identity — re-stepped off the iOS-neon set onto the house ramp (see notes above) */
+    --nk-trigger:#d55181; --nk-transform:#3987e5; --nk-flow:#747c04;
+    --nk-ai:#9085e9; --nk-action:#199e70; --nk-output:#c98500; --nk-edge:#2C3542;
+    /* legacy status aliases kept so inline styles keep resolving */
+    --dot-good:#0ca30c; --dot-warn:#fab219; --dot-serious:#ec835a; --dot-critical:#DC5050;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { height:100%; overflow:hidden; }
+  html { font-size:13px; }
+  body {
+    font-family:var(--sans); color:var(--t2); font-size:12.5px;
+    background:radial-gradient(1180px 560px at 44% -12%, #151B24 0%, rgba(21,27,36,0) 62%), var(--s1);
+    -webkit-font-smoothing:antialiased; line-height:1.4; letter-spacing:-0.004em;
+    display:flex; flex-direction:column;
+  }
+  body::after {
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:200; opacity:.055; mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .mono { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  .tnum { font-variant-numeric:tabular-nums; }
+  ::selection { background:rgba(70,213,232,.26); color:#fff; }
+  :focus-visible { outline:none; box-shadow:0 0 0 1px var(--s0), 0 0 0 3px rgba(70,213,232,.45); border-radius:6px; }
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb { background:#232B35; border-radius:8px; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background:#303945; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-track { background:transparent; }
+
+  /* ===== STATUS: five states, five SHAPES, always beside a word ===== */
+  .g { width:8px; height:8px; flex:none; display:inline-block; vertical-align:-1px; }
+  .g.good    { border-radius:50%; background:var(--st-good); }
+  .g.warn    { width:0; height:0; border-left:4.5px solid transparent; border-right:4.5px solid transparent;
+               border-bottom:8px solid var(--st-warn); vertical-align:0; }
+  .g.serious { width:7px; height:7px; background:var(--st-serious); border-radius:1px; transform:rotate(45deg); margin:0 1px; }
+  .g.crit    { background:var(--st-crit); border-radius:1px; }
+  .g.unknown { border-radius:50%; background:transparent; box-shadow:inset 0 0 0 1.5px var(--t3); }
+  /* SIGNAL 2/3 — the one workflow running RIGHT NOW: liveness, not status */
+  .g.live    { border-radius:50%; background:var(--sig);
+               box-shadow:0 0 0 3px rgba(70,213,232,.10), 0 0 9px -1px var(--sig); animation:pulse 3s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.42} }
+  @media (prefers-reduced-motion:reduce){ .g.live, .live { animation:none } }
+  .status { display:flex; align-items:center; gap:7px; font-size:11.5px; color:var(--t2); }
+
+  /* ---- Fixed shell ---- */
+  .shell { flex:1; min-height:0; display:flex; flex-direction:column; overflow:hidden; }
+
+  /* ---- Top bar ---- */
+  .topbar {
+    height:56px; min-height:56px; display:flex; align-items:center; gap:20px; padding:0 16px; z-index:30;
+    background:linear-gradient(180deg,#141922,#10141A); box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5);
+  }
+  .brand { display:flex; align-items:center; gap:10px; }
+  .logo { width:22px; height:22px; border-radius:6px; position:relative;
+    background:linear-gradient(180deg,#2C3542,#191F28); box-shadow:var(--hi), 0 1px 2px rgba(0,0,0,.5); }
+  .logo::after { content:""; position:absolute; inset:6px; border:1.5px solid var(--t2); border-radius:2px; opacity:.9; }
+  .wordmark { font-weight:600; font-size:12.5px; color:var(--t1); letter-spacing:-0.012em; }
+  .envchip { font-family:var(--mono); font-size:10px; color:var(--t3); letter-spacing:.02em;
+    background:rgba(255,255,255,.045); border-radius:4px; padding:2px 6px; white-space:nowrap; }
+  .nav { display:flex; align-items:center; gap:4px; margin-left:4px; }
+  .nav a { position:relative; padding:0 10px; height:30px; display:inline-flex; align-items:center;
+    color:var(--t3); text-decoration:none; font-size:12.5px; font-weight:450; border-radius:7px; transition:color .14s, background .14s; }
+  .nav a:hover { color:var(--t1); background:rgba(255,255,255,.035); }
+  /* SIGNAL 1/3 — the active route */
+  .nav a.active { color:var(--t1); font-weight:550; }
+  .nav a.active::after {
+    content:""; position:absolute; left:10px; right:10px; bottom:-14px; height:2px;
+    background:var(--sig); border-radius:2px 2px 0 0; box-shadow:0 0 12px -1px var(--sig);
+  }
+  .topright { margin-left:auto; display:flex; align-items:center; gap:6px; }
+  .cmdk {
+    width:340px; height:32px; display:flex; align-items:center; gap:9px; padding:0 10px; border-radius:8px;
+    background:var(--s0); color:var(--t3); font-size:12px; cursor:text;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); transition:box-shadow .16s;
+  }
+  .cmdk:focus-within { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+  .cmdk .kbd {
+    margin-left:auto; font-family:var(--mono); font-size:10px; font-weight:500; color:var(--t2);
+    background:linear-gradient(180deg,#232A34,#1A2028); border-radius:4px; padding:1.5px 5px; line-height:1.4;
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5);
+  }
+  .iconbtn { width:30px; height:30px; display:flex; align-items:center; justify-content:center; border-radius:7px;
+    background:transparent; color:var(--t3); cursor:pointer; transition:color .14s, background .14s; }
+  .iconbtn:hover { color:var(--t1); background:rgba(255,255,255,.05); }
+  .team { height:28px; display:flex; align-items:center; gap:8px; padding:0 10px; border-radius:7px; flex:none;
+    background:var(--s4); box-shadow:var(--hi); cursor:pointer; font-size:12px; color:var(--t1); white-space:nowrap; }
+  .team .caret { color:var(--t3); font-size:9px; }
+  .avatar { width:27px; height:27px; border-radius:7px; background:linear-gradient(180deg,#2A323D,#1D242D);
+    display:flex; align-items:center; justify-content:center; box-shadow:var(--hi);
+    font-size:10px; font-weight:600; color:var(--t2); letter-spacing:.02em; flex:none; }
+  svg.ic { width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
+
+  /* ---- Sub-header ---- */
+  .subhead {
+    height:52px; min-height:52px; display:flex; align-items:center; gap:14px; padding:0 16px;
+    background:linear-gradient(180deg,#131820,#10141B); box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.45);
+  }
+  .subhead h1 { font-size:15px; font-weight:600; color:var(--t1); letter-spacing:-0.02em; }
+  /* repeated state: value + position + elevation, never the accent */
+  .seg { display:flex; align-items:center; gap:1px; height:32px; padding:2px; border-radius:8px;
+    background:rgba(0,0,0,.24); box-shadow:inset 0 1px 2px rgba(0,0,0,.55); }
+  .seg button { height:100%; padding:0 11px; background:transparent; border:0; border-radius:6px; cursor:pointer;
+    color:var(--t3); font-size:12px; font-family:inherit; display:flex; align-items:center; gap:6px; transition:color .14s, background .14s; }
+  .seg button:hover { color:var(--t1); }
+  .seg button.active { background:var(--s4); color:var(--t1); font-weight:550; box-shadow:var(--hi); }
+  .seg button .c { font-family:var(--mono); font-size:10.5px; color:var(--t3); font-variant-numeric:tabular-nums; }
+  .seg button.active .c { color:var(--t2); }
+  .searchbox { width:260px; height:32px; display:flex; align-items:center; gap:8px; padding:0 10px; border-radius:8px;
+    background:var(--s0); color:var(--t3); font-size:12px;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); }
+  .searchbox:focus-within { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+  .searchbox input { background:transparent; border:0; outline:0; color:var(--t1); font-family:inherit; font-size:12px; width:100%; }
+  .searchbox input::placeholder { color:var(--t3); }
+  .spacer { margin-left:auto; }
+  .ctrl { height:30px; display:flex; align-items:center; gap:7px; padding:0 10px; border-radius:7px;
+    background:transparent; box-shadow:inset 0 0 0 1px var(--r2); color:var(--t2); font-size:12px; cursor:pointer; transition:all .14s; }
+  .ctrl:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  .ctrl .caret { font-size:9px; color:var(--t3); }
+  .toggle { display:flex; gap:1px; height:32px; padding:2px; border-radius:8px;
+    background:rgba(0,0,0,.24); box-shadow:inset 0 1px 2px rgba(0,0,0,.55); }
+  .toggle button { width:32px; height:100%; background:transparent; border:0; border-radius:6px;
+    color:var(--t3); cursor:pointer; display:flex; align-items:center; justify-content:center; }
+  .toggle button:hover { color:var(--t1); }
+  .toggle button.active { background:var(--s4); color:var(--t1); box-shadow:var(--hi); }
+  /* rule 2 — the primary action is near-white, which preserves the accent budget */
+  .btn-primary { height:30px; display:flex; align-items:center; gap:7px; padding:0 11px; border:0; border-radius:7px;
+    background:linear-gradient(180deg,#FBFDFF,var(--key)); color:#0B0E13; font-size:12px; font-weight:600;
+    cursor:pointer; font-family:inherit;
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset, 0 2px 8px -3px rgba(0,0,0,.9), 0 0 0 1px rgba(0,0,0,.35); }
+  .btn-primary:hover { background:#fff; }
+
+  /* ---- KPI strip — the first read ---- */
+  .kpis { height:64px; min-height:64px; display:grid; grid-template-columns:repeat(4,1fr);
+    background:linear-gradient(180deg,var(--s3),#12171E);
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.55), 0 10px 24px -20px rgba(0,0,0,.9); }
+  .kpi { position:relative; padding:0 18px; display:flex; flex-direction:column; justify-content:center; gap:1px; }
+  .kpi + .kpi::before { content:""; position:absolute; left:0; top:50%; transform:translateY(-50%);
+    width:1px; height:24px; background:var(--r3); }
+  .kpi .micro { font-size:9.5px; font-weight:500; letter-spacing:.11em; text-transform:uppercase; color:var(--t3); white-space:nowrap; }
+  .kpi .top { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .kpi .val { font-size:26px; font-weight:600; line-height:1.05; color:var(--t1);
+    letter-spacing:-0.032em; font-variant-numeric:tabular-nums; }
+  .kpi .val small { font-size:12px; color:var(--t3); font-weight:400; letter-spacing:0; }
+  .kpi .delta { font-size:10.5px; color:var(--t3); font-variant-numeric:tabular-nums; }
+  .kpi .delta.up, .kpi .delta.down { color:var(--t3); }
+
+  /* ---- List ---- */
+  .listwrap { flex:1; overflow-y:auto; overflow-x:hidden; min-height:0; }
+
+  /* a horizontal zone boundary — one of the three cases a rule survives */
+  .grouphdr { position:sticky; top:0; z-index:2; background:#12161D;
+    display:flex; align-items:center; gap:10px; padding:8px 16px 7px; box-shadow:inset 0 -1px 0 var(--r2); }
+  .grouphdr .micro { font-size:11.5px; font-weight:550; letter-spacing:-0.008em; text-transform:none; color:var(--t2); }
+  .grouphdr .count { font-family:var(--mono); font-size:10px; color:var(--t3); }
+  .grouphdr .rule { flex:1; height:1px; background:var(--r1); }
+
+  /* headers are identifiers, not shouting: lowercase mono */
+  .colhdr { display:grid; align-items:center; height:28px; padding:0 16px; color:var(--t3);
+    font-family:var(--mono); font-size:10px; font-weight:500; letter-spacing:0; text-transform:lowercase;
+    box-shadow:inset 0 -1px 0 var(--r2), inset 0 1px 0 var(--r1); }
+  .wf-grid { grid-template-columns:52px minmax(200px,1.5fr) 96px 70px 146px 140px 188px 78px 34px; gap:12px; }
+  .app-grid { grid-template-columns:minmax(220px,1.6fr) 200px 70px 160px 150px 34px; gap:12px; }
+
+  .row { display:grid; align-items:center; padding:0 16px; gap:12px; cursor:pointer;
+    border-bottom:1px solid rgba(255,255,255,.032); }
+  .row.wf-grid { height:34px; }
+  .row.app-grid { height:44px; }
+  .row:hover { background:rgba(255,255,255,.038); }
+  /* the ruler measure — every sixth workflow reads a touch louder */
+  .row.wf-grid:nth-child(6n+2) { border-bottom-color:rgba(255,255,255,.085); }
+  /* rule 3, heterogeneous-table case: ONE vertical rule, splitting definition from outcome */
+  .wf-grid > :nth-child(5) { align-self:stretch; display:flex; align-items:center; padding-left:12px;
+    box-shadow:inset 1px 0 0 var(--r2); }
+  .row .name { font-size:12.5px; font-weight:500; color:var(--t1); letter-spacing:-0.008em;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .row .sub { font-size:10.5px; color:var(--t3); font-family:var(--mono); margin-top:2px; }
+  .cell-mono { font-family:var(--mono); font-size:11px; font-variant-numeric:tabular-nums; color:var(--t3); }
+  .cell-mono strong { color:var(--t1); font-weight:500; }
+
+  .team-tag { display:inline-flex; align-items:center; gap:7px; font-size:11.5px; color:var(--t2); white-space:nowrap; min-width:0; }
+  .team-tag .swatch { width:8px; height:8px; border-radius:2px; flex:none; }
+
+  .slug { font-family:var(--mono); font-size:11px; }
+  .slug.pub { color:var(--t2); }
+  .slug.draft { color:var(--t3); }
+  .ver { font-family:var(--mono); font-size:10px; color:var(--t3); background:rgba(255,255,255,.045);
+    border-radius:4px; padding:1px 5px; }
+
+  .rolechip { font-family:var(--mono); font-size:9.5px; letter-spacing:0; text-transform:none; color:var(--t3);
+    background:rgba(255,255,255,.045); border-radius:4px; padding:0 5px; margin-left:7px; }
+  .kebab { color:var(--t3); display:flex; align-items:center; justify-content:center; height:24px; border-radius:5px; }
+  .kebab:hover { color:var(--t1); background:rgba(255,255,255,.06); }
+
+  /* ---- Bottom status ---- */
+  .statusbar { height:30px; min-height:30px; display:flex; align-items:center; padding:0 16px; gap:8px;
+    background:var(--s2); box-shadow:inset 0 1px 0 var(--r1); font-size:10.5px; color:var(--t3); }
+  .statusbar .right { margin-left:auto; display:flex; align-items:center; gap:8px; font-family:var(--mono); }
+  .statusbar kbd { font-family:var(--mono); color:var(--t2); }
+  /* SIGNAL 3/3 — the one live indicator on the screen */
+  .live { width:6px; height:6px; border-radius:50%; background:var(--sig); flex:none;
+    box-shadow:0 0 0 3px rgba(70,213,232,.10), 0 0 9px -1px var(--sig); animation:pulse 3s ease-in-out infinite; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- ===== TOP BAR ===== -->
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo"></div>
+      <span class="wordmark">Command Studio</span>
+      <span class="envchip">PROD · US-EAST</span>
+    </div>
+    <nav class="nav">
+      <a href="#" class="active">Workflows</a>
+      <a href="#">Datasets</a>
+      <a href="#">Runs</a>
+      <a href="#">Library</a>
+    </nav>
+    <div class="topright">
+      <div class="cmdk">
+        <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+        <span>Search workflows, apps, run a command…</span>
+        <span class="kbd">⌘K</span>
+      </div>
+      <div class="iconbtn" title="Filters">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M3 5h18M6 12h12M10 19h4"/></svg>
+      </div>
+      <div class="iconbtn" title="Notifications">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg>
+      </div>
+      <div class="iconbtn" title="Theme">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg>
+      </div>
+      <div class="team" title="Switch team">
+        <span class="g good" style="width:7px;height:7px"></span>
+        <span>Growth Analytics</span>
+        <span class="caret">▾</span>
+      </div>
+      <div class="avatar">SG</div>
+    </div>
+  </div>
+
+  <!-- ===== SUB-HEADER ===== -->
+  <div class="subhead">
+    <h1>Workflows</h1>
+    <div class="seg">
+      <button class="active">All <span class="c">53</span></button>
+      <button>Workflows <span class="c">42</span></button>
+      <button>Apps <span class="c">11</span></button>
+    </div>
+    <div class="searchbox">
+      <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px;color:var(--t3)"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+      <input placeholder="Filter by name, team, tag…" />
+    </div>
+    <div class="spacer"></div>
+    <div class="ctrl">Sort: Newest <span class="caret">▾</span></div>
+    <div class="toggle">
+      <button title="List view" class="active">
+        <svg class="ic" viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+      </button>
+      <button title="Grid view">
+        <svg class="ic" viewBox="0 0 24 24" style="width:15px;height:15px"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      </button>
+    </div>
+    <div class="ctrl">
+      <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16"/></svg>
+      Import <span class="caret">▾</span>
+    </div>
+    <button class="btn-primary">
+      <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px;stroke:#0B0E13"><path d="M12 5v14M5 12h14"/></svg>
+      New <span style="opacity:.8">▾</span>
+    </button>
+  </div>
+
+  <!-- ===== KPI STRIP ===== -->
+  <div class="kpis">
+    <div class="kpi">
+      <div class="micro">Active workflows</div>
+      <div class="top">
+        <div class="val">38 <small>/ 42</small></div>
+        <svg width="72" height="22" viewBox="0 0 72 22"><polyline points="0,16 12,14 24,15 36,10 48,11 60,7 72,6" fill="none" stroke="#A2ACBB" stroke-width="1.5"/></svg>
+      </div>
+    </div>
+    <div class="kpi">
+      <div class="micro">Runs today</div>
+      <div class="top">
+        <div class="val">1,284</div>
+        <svg width="72" height="22" viewBox="0 0 72 22"><polyline points="0,14 12,15 24,9 36,12 48,6 60,8 72,4" fill="none" stroke="#A2ACBB" stroke-width="1.5"/></svg>
+      </div>
+      <div class="delta up">▲ 6.2% vs yest.</div>
+    </div>
+    <div class="kpi">
+      <div class="micro">Failed runs</div>
+      <div class="top">
+        <div class="val" style="color:var(--st-serious)">17</div>
+        <svg width="72" height="22" viewBox="0 0 72 22"><polyline points="0,6 12,8 24,7 36,11 48,9 60,13 72,16" fill="none" stroke="#A2ACBB" stroke-width="1.5"/></svg>
+      </div>
+      <div class="delta down">▲ 4 vs yest.</div>
+    </div>
+    <div class="kpi">
+      <div class="micro">Avg runtime</div>
+      <div class="top">
+        <div class="val">1.9<small>s</small></div>
+        <svg width="72" height="22" viewBox="0 0 72 22"><polyline points="0,10 12,11 24,9 36,10 48,8 60,9 72,7" fill="none" stroke="#A2ACBB" stroke-width="1.5"/></svg>
+      </div>
+      <div class="delta up">▼ 120ms faster</div>
+    </div>
+  </div>
+
+  <!-- ===== LIST ===== -->
+  <div class="listwrap">
+
+    <!-- WORKFLOWS GROUP -->
+    <div class="grouphdr">
+      <span class="micro">Workflows</span>
+      <span class="count">42</span>
+      <span class="rule"></span>
+    </div>
+    <div class="colhdr wf-grid">
+      <div>Graph</div><div>Name</div><div>Status</div><div>Nodes</div>
+      <div>Last run</div><div>When</div><div>Team</div><div>Trend</div><div></div>
+    </div>
+
+    <!-- rows -->
+    <!-- Row template uses inline SVG thumbnails + sparklines -->
+
+    <div class="row wf-grid">
+      <div>
+        <svg width="52" height="20" viewBox="0 0 52 20"><line x1="8" y1="10" x2="18" y2="10" stroke="#2C3542"/><line x1="18" y1="10" x2="28" y2="10" stroke="#2C3542"/><line x1="28" y1="10" x2="38" y2="10" stroke="#2C3542"/><line x1="38" y1="10" x2="46" y2="10" stroke="#2C3542"/><circle cx="8" cy="10" r="3.5" fill="#d55181"/><rect x="14.5" y="6.5" width="7" height="7" rx="2" fill="#3987e5"/><rect x="24.5" y="6.5" width="7" height="7" rx="2" fill="#9085e9"/><rect x="34.5" y="6.5" width="7" height="7" rx="2" fill="#199e70"/><rect x="44.5" y="6.5" width="6" height="7" rx="2" fill="#c98500"/></svg>
+      </div>
+      <div><div class="name">Nightly PII redaction</div></div>
+      <div class="status"><span class="g good"></span>Active</div>
+      <div class="cell-mono"><strong>7</strong></div>
+      <div class="status"><span class="g good"></span><span style="color:var(--t1)">Success</span></div>
+      <div class="cell-mono">2m ago · <strong>840ms</strong></div>
+      <div class="team-tag"><span class="swatch" style="background:var(--viz-1)"></span>People Ops<span class="rolechip">admin</span></div>
+      <div><svg width="70" height="18" viewBox="0 0 70 18">
+        <rect x="0" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="9" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="18" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="27" y="9" width="7" height="7" rx="1" fill="#fab219"/><rect x="36" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="45" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="54" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="63" y="2" width="7" height="14" rx="1" fill="#5F6979"/></svg></div>
+      <div class="kebab">⋯</div>
+    </div>
+
+    <div class="row wf-grid">
+      <div>
+        <svg width="52" height="20" viewBox="0 0 52 20"><line x1="8" y1="10" x2="46" y2="10" stroke="#2C3542"/><circle cx="8" cy="10" r="3.5" fill="#d55181"/><rect x="14.5" y="6.5" width="7" height="7" rx="2" fill="#3987e5"/><rect x="24.5" y="6.5" width="7" height="7" rx="2" fill="#747c04"/><rect x="34.5" y="6.5" width="7" height="7" rx="2" fill="#199e70"/></svg>
+      </div>
+      <div><div class="name">Signup → CRM sync</div></div>
+      <div class="status"><span class="g good"></span>Active</div>
+      <div class="cell-mono"><strong>5</strong></div>
+      <div class="status"><span class="g live"></span><span style="color:var(--t1)">Running</span></div>
+      <div class="cell-mono">now · <strong>—</strong></div>
+      <div class="team-tag"><span class="swatch" style="background:var(--viz-2)"></span>Growth Analytics<span class="rolechip">editor</span></div>
+      <div><svg width="70" height="18" viewBox="0 0 70 18"><rect x="0" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="9" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="18" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="27" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="36" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="45" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="54" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="63.6" y="2.6" width="5.8" height="12.8" rx="1" fill="none" stroke="#85909F" stroke-width="1.2"/></svg></div>
+      <div class="kebab">⋯</div>
+    </div>
+
+    <div class="row wf-grid">
+      <div>
+        <svg width="52" height="20" viewBox="0 0 52 20"><line x1="8" y1="10" x2="46" y2="10" stroke="#2C3542"/><circle cx="8" cy="10" r="3.5" fill="#d55181"/><rect x="14.5" y="6.5" width="7" height="7" rx="2" fill="#9085e9"/><rect x="24.5" y="6.5" width="7" height="7" rx="2" fill="#3987e5"/><rect x="34.5" y="6.5" width="7" height="7" rx="2" fill="#199e70"/><rect x="44.5" y="6.5" width="6" height="7" rx="2" fill="#c98500"/></svg>
+      </div>
+      <div><div class="name">Invoice OCR + validate</div></div>
+      <div class="status"><span class="g good"></span>Active</div>
+      <div class="cell-mono"><strong>6</strong></div>
+      <div class="status"><span class="g serious"></span><span style="color:var(--t1)">Failed</span></div>
+      <div class="cell-mono">14m ago · <strong>3.1s</strong></div>
+      <div class="team-tag"><span class="swatch" style="background:var(--viz-3)"></span>Finance<span class="rolechip">viewer</span></div>
+      <div><svg width="70" height="18" viewBox="0 0 70 18"><rect x="0" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="9" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="18" y="9" width="7" height="7" rx="1" fill="#fab219"/><rect x="27" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="36" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="45" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="54" y="0" width="7" height="7" rx="1" fill="#DC5050"/><rect x="63" y="0" width="7" height="7" rx="1" fill="#DC5050"/></svg></div>
+      <div class="kebab">⋯</div>
+    </div>
+
+    <div class="row wf-grid">
+      <div>
+        <svg width="52" height="20" viewBox="0 0 52 20"><line x1="8" y1="10" x2="46" y2="10" stroke="#2C3542"/><circle cx="8" cy="10" r="3.5" fill="#d55181"/><rect x="14.5" y="6.5" width="7" height="7" rx="2" fill="#3987e5"/><rect x="24.5" y="6.5" width="7" height="7" rx="2" fill="#9085e9"/><rect x="34.5" y="6.5" width="7" height="7" rx="2" fill="#c98500"/></svg>
+      </div>
+      <div><div class="name">Churn scorer (weekly)</div></div>
+      <div class="status"><span class="g good"></span>Active</div>
+      <div class="cell-mono"><strong>4</strong></div>
+      <div class="status"><span class="g good"></span><span style="color:var(--t1)">Success</span></div>
+      <div class="cell-mono">1h ago · <strong>12.4s</strong></div>
+      <div class="team-tag"><span class="swatch" style="background:var(--viz-4)"></span>Customer Success<span class="rolechip">editor</span></div>
+      <div><svg width="70" height="18" viewBox="0 0 70 18"><rect x="0" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="9" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="18" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="27" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="36" y="9" width="7" height="7" rx="1" fill="#fab219"/><rect x="45" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="54" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="63" y="2" width="7" height="14" rx="1" fill="#5F6979"/></svg></div>
+      <div class="kebab">⋯</div>
+    </div>
+
+    <div class="row wf-grid">
+      <div>
+        <svg width="52" height="20" viewBox="0 0 52 20"><line x1="8" y1="10" x2="46" y2="10" stroke="#2C3542"/><circle cx="8" cy="10" r="3.5" fill="#d55181"/><rect x="14.5" y="6.5" width="7" height="7" rx="2" fill="#3987e5"/><rect x="24.5" y="6.5" width="7" height="7" rx="2" fill="#199e70"/></svg>
+      </div>
+      <div><div class="name">NPS ingest</div></div>
+      <div class="status"><span class="g good"></span>Active</div>
+      <div class="cell-mono"><strong>3</strong></div>
+      <div class="status"><span class="g good"></span><span style="color:var(--t1)">Success</span></div>
+      <div class="cell-mono">22m ago · <strong>640ms</strong></div>
+      <div class="team-tag"><span class="swatch" style="background:var(--viz-5)"></span>Marketing<span class="rolechip">admin</span></div>
+      <div><svg width="70" height="18" viewBox="0 0 70 18"><rect x="0" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="9" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="18" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="27" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="36" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="45" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="54" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="63" y="2" width="7" height="14" rx="1" fill="#5F6979"/></svg></div>
+      <div class="kebab">⋯</div>
+    </div>
+
+    <div class="row wf-grid">
+      <div>
+        <svg width="52" height="20" viewBox="0 0 52 20"><line x1="8" y1="10" x2="46" y2="10" stroke="#2C3542"/><circle cx="8" cy="10" r="3.5" fill="#d55181"/><rect x="14.5" y="6.5" width="7" height="7" rx="2" fill="#9085e9"/><rect x="24.5" y="6.5" width="7" height="7" rx="2" fill="#747c04"/><rect x="34.5" y="6.5" width="7" height="7" rx="2" fill="#199e70"/><rect x="44.5" y="6.5" width="6" height="7" rx="2" fill="#c98500"/></svg>
+      </div>
+      <div><div class="name">Ticket auto-triage</div></div>
+      <div class="status"><span class="g good"></span>Active</div>
+      <div class="cell-mono"><strong>6</strong></div>
+      <div class="status"><span class="g good"></span><span style="color:var(--t1)">Success</span></div>
+      <div class="cell-mono">4m ago · <strong>1.2s</strong></div>
+      <div class="team-tag"><span class="swatch" style="background:var(--viz-4)"></span>Customer Success<span class="rolechip">editor</span></div>
+      <div><svg width="70" height="18" viewBox="0 0 70 18"><rect x="0" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="9" y="9" width="7" height="7" rx="1" fill="#fab219"/><rect x="18" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="27" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="36" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="45" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="54" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="63" y="2" width="7" height="14" rx="1" fill="#5F6979"/></svg></div>
+      <div class="kebab">⋯</div>
+    </div>
+
+    <div class="row wf-grid">
+      <div>
+        <svg width="52" height="20" viewBox="0 0 52 20"><line x1="8" y1="10" x2="46" y2="10" stroke="#2C3542"/><circle cx="8" cy="10" r="3.5" fill="#d55181"/><rect x="14.5" y="6.5" width="7" height="7" rx="2" fill="#747c04"/><rect x="24.5" y="6.5" width="7" height="7" rx="2" fill="#3987e5"/><rect x="34.5" y="6.5" width="7" height="7" rx="2" fill="#c98500"/></svg>
+      </div>
+      <div><div class="name">Payroll export gate</div></div>
+      <div class="status"><span class="g unknown"></span>Inactive</div>
+      <div class="cell-mono"><strong>5</strong></div>
+      <div class="status"><span class="g warn"></span><span style="color:var(--t1)">Held</span></div>
+      <div class="cell-mono">3h ago · <strong>2.0s</strong></div>
+      <div class="team-tag"><span class="swatch" style="background:var(--viz-3)"></span>Finance<span class="rolechip">admin</span></div>
+      <div><svg width="70" height="18" viewBox="0 0 70 18"><rect x="0" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="9" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="18" y="9" width="7" height="7" rx="1" fill="#fab219"/><rect x="27" y="9" width="7" height="7" rx="1" fill="#fab219"/><rect x="36" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="45" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="54" y="9" width="7" height="7" rx="1" fill="#fab219"/><rect x="63" y="2" width="7" height="14" rx="1" fill="#5F6979"/></svg></div>
+      <div class="kebab">⋯</div>
+    </div>
+
+    <div class="row wf-grid">
+      <div>
+        <svg width="52" height="20" viewBox="0 0 52 20"><line x1="8" y1="10" x2="46" y2="10" stroke="#2C3542"/><circle cx="8" cy="10" r="3.5" fill="#d55181"/><rect x="14.5" y="6.5" width="7" height="7" rx="2" fill="#3987e5"/><rect x="24.5" y="6.5" width="7" height="7" rx="2" fill="#9085e9"/><rect x="34.5" y="6.5" width="7" height="7" rx="2" fill="#747c04"/><rect x="44.5" y="6.5" width="6" height="7" rx="2" fill="#199e70"/></svg>
+      </div>
+      <div><div class="name">Fraud signal enrich</div></div>
+      <div class="status"><span class="g good"></span>Active</div>
+      <div class="cell-mono"><strong>7</strong></div>
+      <div class="status"><span class="g good"></span><span style="color:var(--t1)">Success</span></div>
+      <div class="cell-mono">51s ago · <strong>2.7s</strong></div>
+      <div class="team-tag"><span class="swatch" style="background:var(--viz-6)"></span>Risk &amp; Compliance<span class="rolechip">viewer</span></div>
+      <div><svg width="70" height="18" viewBox="0 0 70 18"><rect x="0" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="9" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="18" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="27" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="36" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="45" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="54" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="63" y="2" width="7" height="14" rx="1" fill="#5F6979"/></svg></div>
+      <div class="kebab">⋯</div>
+    </div>
+
+    <div class="row wf-grid">
+      <div>
+        <svg width="52" height="20" viewBox="0 0 52 20"><line x1="8" y1="10" x2="46" y2="10" stroke="#2C3542"/><circle cx="8" cy="10" r="3.5" fill="#d55181"/><rect x="14.5" y="6.5" width="7" height="7" rx="2" fill="#3987e5"/><rect x="24.5" y="6.5" width="7" height="7" rx="2" fill="#199e70"/></svg>
+      </div>
+      <div><div class="name">Onboarding email drip</div></div>
+      <div class="status"><span class="g good"></span>Active</div>
+      <div class="cell-mono"><strong>3</strong></div>
+      <div class="status"><span class="g good"></span><span style="color:var(--t1)">Success</span></div>
+      <div class="cell-mono">9m ago · <strong>410ms</strong></div>
+      <div class="team-tag"><span class="swatch" style="background:var(--viz-5)"></span>Marketing<span class="rolechip">editor</span></div>
+      <div><svg width="70" height="18" viewBox="0 0 70 18"><rect x="0" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="9" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="18" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="27" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="36" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="45" y="9" width="7" height="7" rx="1" fill="#fab219"/><rect x="54" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="63" y="2" width="7" height="14" rx="1" fill="#5F6979"/></svg></div>
+      <div class="kebab">⋯</div>
+    </div>
+
+    <div class="row wf-grid">
+      <div>
+        <svg width="52" height="20" viewBox="0 0 52 20"><line x1="8" y1="10" x2="46" y2="10" stroke="#2C3542"/><circle cx="8" cy="10" r="3.5" fill="#d55181"/><rect x="14.5" y="6.5" width="7" height="7" rx="2" fill="#9085e9"/><rect x="24.5" y="6.5" width="7" height="7" rx="2" fill="#3987e5"/><rect x="34.5" y="6.5" width="7" height="7" rx="2" fill="#c98500"/></svg>
+      </div>
+      <div><div class="name">Resume screen assist</div></div>
+      <div class="status"><span class="g good"></span>Active</div>
+      <div class="cell-mono"><strong>4</strong></div>
+      <div class="status"><span class="g good"></span><span style="color:var(--t1)">Success</span></div>
+      <div class="cell-mono">38m ago · <strong>5.6s</strong></div>
+      <div class="team-tag"><span class="swatch" style="background:var(--viz-1)"></span>People Ops<span class="rolechip">viewer</span></div>
+      <div><svg width="70" height="18" viewBox="0 0 70 18"><rect x="0" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="9" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="18" y="9" width="7" height="7" rx="1" fill="#fab219"/><rect x="27" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="36" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="45" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="54" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="63" y="2" width="7" height="14" rx="1" fill="#5F6979"/></svg></div>
+      <div class="kebab">⋯</div>
+    </div>
+
+    <div class="row wf-grid">
+      <div>
+        <svg width="52" height="20" viewBox="0 0 52 20"><line x1="8" y1="10" x2="46" y2="10" stroke="#2C3542"/><circle cx="8" cy="10" r="3.5" fill="#d55181"/><rect x="14.5" y="6.5" width="7" height="7" rx="2" fill="#3987e5"/><rect x="24.5" y="6.5" width="7" height="7" rx="2" fill="#747c04"/><rect x="34.5" y="6.5" width="7" height="7" rx="2" fill="#3987e5"/><rect x="44.5" y="6.5" width="6" height="7" rx="2" fill="#c98500"/></svg>
+      </div>
+      <div><div class="name">Revenue recognition roll-up</div></div>
+      <div class="status"><span class="g good"></span>Active</div>
+      <div class="cell-mono"><strong>6</strong></div>
+      <div class="status"><span class="g good"></span><span style="color:var(--t1)">Success</span></div>
+      <div class="cell-mono">2h ago · <strong>8.9s</strong></div>
+      <div class="team-tag"><span class="swatch" style="background:var(--viz-3)"></span>Finance<span class="rolechip">editor</span></div>
+      <div><svg width="70" height="18" viewBox="0 0 70 18"><rect x="0" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="9" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="18" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="27" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="36" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="45" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="54" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="63" y="2" width="7" height="14" rx="1" fill="#5F6979"/></svg></div>
+      <div class="kebab">⋯</div>
+    </div>
+
+    <div class="row wf-grid">
+      <div>
+        <svg width="52" height="20" viewBox="0 0 52 20"><line x1="8" y1="10" x2="46" y2="10" stroke="#2C3542"/><circle cx="8" cy="10" r="3.5" fill="#d55181"/><rect x="14.5" y="6.5" width="7" height="7" rx="2" fill="#3987e5"/><rect x="24.5" y="6.5" width="7" height="7" rx="2" fill="#9085e9"/><rect x="34.5" y="6.5" width="7" height="7" rx="2" fill="#199e70"/></svg>
+      </div>
+      <div><div class="name">Lead score → routing</div></div>
+      <div class="status"><span class="g good"></span>Active</div>
+      <div class="cell-mono"><strong>5</strong></div>
+      <div class="status"><span class="g good"></span><span style="color:var(--t1)">Success</span></div>
+      <div class="cell-mono">6m ago · <strong>980ms</strong></div>
+      <div class="team-tag"><span class="swatch" style="background:var(--viz-2)"></span>Growth Analytics<span class="rolechip">admin</span></div>
+      <div><svg width="70" height="18" viewBox="0 0 70 18"><rect x="0" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="9" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="18" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="27" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="36" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="45" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="54" y="9" width="7" height="7" rx="1" fill="#fab219"/><rect x="63" y="2" width="7" height="14" rx="1" fill="#5F6979"/></svg></div>
+      <div class="kebab">⋯</div>
+    </div>
+
+    <div class="row wf-grid">
+      <div>
+        <svg width="52" height="20" viewBox="0 0 52 20"><line x1="8" y1="10" x2="46" y2="10" stroke="#2C3542"/><circle cx="8" cy="10" r="3.5" fill="#d55181"/><rect x="14.5" y="6.5" width="7" height="7" rx="2" fill="#747c04"/><rect x="24.5" y="6.5" width="7" height="7" rx="2" fill="#3987e5"/><rect x="34.5" y="6.5" width="7" height="7" rx="2" fill="#c98500"/></svg>
+      </div>
+      <div><div class="name">Access review attestation</div></div>
+      <div class="status"><span class="g good"></span>Active</div>
+      <div class="cell-mono"><strong>4</strong></div>
+      <div class="status"><span class="g serious"></span><span style="color:var(--t1)">Failed</span></div>
+      <div class="cell-mono">27m ago · <strong>1.5s</strong></div>
+      <div class="team-tag"><span class="swatch" style="background:var(--viz-6)"></span>Risk &amp; Compliance<span class="rolechip">admin</span></div>
+      <div><svg width="70" height="18" viewBox="0 0 70 18"><rect x="0" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="9" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="18" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="27" y="0" width="7" height="7" rx="1" fill="#DC5050"/><rect x="36" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="45" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="54" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="63" y="0" width="7" height="7" rx="1" fill="#DC5050"/></svg></div>
+      <div class="kebab">⋯</div>
+    </div>
+
+    <div class="row wf-grid">
+      <div>
+        <svg width="52" height="20" viewBox="0 0 52 20"><line x1="8" y1="10" x2="46" y2="10" stroke="#2C3542"/><circle cx="8" cy="10" r="3.5" fill="#d55181"/><rect x="14.5" y="6.5" width="7" height="7" rx="2" fill="#3987e5"/><rect x="24.5" y="6.5" width="7" height="7" rx="2" fill="#199e70"/></svg>
+      </div>
+      <div><div class="name">Headcount snapshot</div></div>
+      <div class="status"><span class="g unknown"></span>Inactive</div>
+      <div class="cell-mono"><strong>3</strong></div>
+      <div class="status"><span class="g good"></span><span style="color:var(--t1)">Success</span></div>
+      <div class="cell-mono">1d ago · <strong>720ms</strong></div>
+      <div class="team-tag"><span class="swatch" style="background:var(--viz-1)"></span>People Ops<span class="rolechip">editor</span></div>
+      <div><svg width="70" height="18" viewBox="0 0 70 18"><rect x="0" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="9" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="18" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="27" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="36" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="45" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="54" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="63" y="2" width="7" height="14" rx="1" fill="#5F6979"/></svg></div>
+      <div class="kebab">⋯</div>
+    </div>
+
+    <div class="row wf-grid">
+      <div>
+        <svg width="52" height="20" viewBox="0 0 52 20"><line x1="8" y1="10" x2="46" y2="10" stroke="#2C3542"/><circle cx="8" cy="10" r="3.5" fill="#d55181"/><rect x="14.5" y="6.5" width="7" height="7" rx="2" fill="#9085e9"/><rect x="24.5" y="6.5" width="7" height="7" rx="2" fill="#747c04"/><rect x="34.5" y="6.5" width="7" height="7" rx="2" fill="#3987e5"/><rect x="44.5" y="6.5" width="6" height="7" rx="2" fill="#c98500"/></svg>
+      </div>
+      <div><div class="name">Campaign attribution merge</div></div>
+      <div class="status"><span class="g good"></span>Active</div>
+      <div class="cell-mono"><strong>7</strong></div>
+      <div class="status"><span class="g good"></span><span style="color:var(--t1)">Success</span></div>
+      <div class="cell-mono">18m ago · <strong>4.3s</strong></div>
+      <div class="team-tag"><span class="swatch" style="background:var(--viz-5)"></span>Marketing<span class="rolechip">viewer</span></div>
+      <div><svg width="70" height="18" viewBox="0 0 70 18"><rect x="0" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="9" y="9" width="7" height="7" rx="1" fill="#fab219"/><rect x="18" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="27" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="36" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="45" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="54" y="2" width="7" height="14" rx="1" fill="#5F6979"/><rect x="63" y="2" width="7" height="14" rx="1" fill="#5F6979"/></svg></div>
+      <div class="kebab">⋯</div>
+    </div>
+
+    <!-- APPS GROUP -->
+    <div class="grouphdr">
+      <span class="micro">Apps</span>
+      <span class="count">11</span>
+      <span class="rule"></span>
+    </div>
+    <div class="colhdr app-grid">
+      <div>Name</div><div>Live URL</div><div>Version</div><div>Team</div><div>Last edited</div><div></div>
+    </div>
+
+    <div class="row app-grid">
+      <div><div class="name">Vendor Portal</div><div class="sub">internal · 3 datasets</div></div>
+      <div class="slug pub">/a/vendor-portal</div>
+      <div><span class="ver">v12</span></div>
+      <div class="team-tag"><span class="swatch" style="background:var(--viz-3)"></span>Finance<span class="rolechip">admin</span></div>
+      <div class="cell-mono">2h ago</div>
+      <div class="kebab">⋯</div>
+    </div>
+
+    <div class="row app-grid">
+      <div><div class="name">Ops Console</div><div class="sub">internal · 5 datasets</div></div>
+      <div class="slug pub">/a/ops-console</div>
+      <div><span class="ver">v34</span></div>
+      <div class="team-tag"><span class="swatch" style="background:var(--viz-2)"></span>Growth Analytics<span class="rolechip">editor</span></div>
+      <div class="cell-mono">40m ago</div>
+      <div class="kebab">⋯</div>
+    </div>
+
+    <div class="row app-grid">
+      <div><div class="name">Survey Viewer</div><div class="sub">internal · 2 datasets</div></div>
+      <div class="slug pub">/a/survey-viewer</div>
+      <div><span class="ver">v8</span></div>
+      <div class="team-tag"><span class="swatch" style="background:var(--viz-5)"></span>Marketing<span class="rolechip">viewer</span></div>
+      <div class="cell-mono">1d ago</div>
+      <div class="kebab">⋯</div>
+    </div>
+
+    <div class="row app-grid">
+      <div><div class="name">Onboarding Tracker</div><div class="sub">draft · 1 dataset</div></div>
+      <div class="slug draft">/a/onboarding-tracker</div>
+      <div><span class="ver">v0</span></div>
+      <div class="team-tag"><span class="swatch" style="background:var(--viz-1)"></span>People Ops<span class="rolechip">editor</span></div>
+      <div class="cell-mono">6m ago</div>
+      <div class="kebab">⋯</div>
+    </div>
+
+    <div class="row app-grid">
+      <div><div class="name">Case Review Board</div><div class="sub">internal · 4 datasets</div></div>
+      <div class="slug pub">/a/case-review</div>
+      <div><span class="ver">v21</span></div>
+      <div class="team-tag"><span class="swatch" style="background:var(--viz-6)"></span>Risk &amp; Compliance<span class="rolechip">admin</span></div>
+      <div class="cell-mono">5h ago</div>
+      <div class="kebab">⋯</div>
+    </div>
+
+    <div class="row app-grid">
+      <div><div class="name">Renewals Cockpit</div><div class="sub">draft · 3 datasets</div></div>
+      <div class="slug draft">/a/renewals-cockpit</div>
+      <div><span class="ver">v2</span></div>
+      <div class="team-tag"><span class="swatch" style="background:var(--viz-4)"></span>Customer Success<span class="rolechip">editor</span></div>
+      <div class="cell-mono">3d ago</div>
+      <div class="kebab">⋯</div>
+    </div>
+
+    <div class="row app-grid">
+      <div><div class="name">Spend Explorer</div><div class="sub">internal · 6 datasets</div></div>
+      <div class="slug pub">/a/spend-explorer</div>
+      <div><span class="ver">v17</span></div>
+      <div class="team-tag"><span class="swatch" style="background:var(--viz-3)"></span>Finance<span class="rolechip">viewer</span></div>
+      <div class="cell-mono">9h ago</div>
+      <div class="kebab">⋯</div>
+    </div>
+
+  </div>
+
+  <!-- ===== BOTTOM STATUS BAR ===== -->
+  <div class="statusbar">
+    <span><kbd>J/K</kbd> move · <kbd>↵</kbd> open · <kbd>N</kbd> new · <kbd>⌘K</kbd> command</span>
+    <span class="right">
+      <span class="live"></span>
+      42 workflows · 11 apps · SYNC 16:41:07 ET
+    </span>
+  </div>
+
+</div>
+
+<script>
+  // Tiny, optional: segmented filter + view toggle active-state only (no data changes)
+  document.querySelectorAll('.seg').forEach(function(seg){
+    seg.querySelectorAll('button').forEach(function(b){
+      b.addEventListener('click', function(){
+        seg.querySelectorAll('button').forEach(function(x){x.classList.remove('active');});
+        b.classList.add('active');
+      });
+    });
+  });
+  document.querySelectorAll('.toggle').forEach(function(t){
+    t.querySelectorAll('button').forEach(function(b){
+      b.addEventListener('click', function(){
+        t.querySelectorAll('button').forEach(function(x){x.classList.remove('active');});
+        b.classList.add('active');
+      });
+    });
+  });
+</script>
+</body>
+</html>

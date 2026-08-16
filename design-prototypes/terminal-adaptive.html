@@ -1,0 +1,884 @@
+<!--
+  DESIGN NOTES — INSTRUMENT applied to the adaptive cockpit (restyle of the shape-conditional datasets screen).
+  Same shell, same three zones, same eleven rules, same register. House tokens, grain, vignette, focus ring and
+  scrollbars copied verbatim from terminal-quality-instrument.html.
+  R1 ACCENT — cyan is a MEANING (scope + liveness), and on this screen its job is almost singular: the column
+     ruler's viewport window, which answers "which 8 of 183 columns am I looking at". The other two uses are the
+     active route and the LIVE lamp. Everything that used to be blue and repeats — 8 rule tags, 4 rail filter
+     chips, 7 lens tabs, 7 pager buttons, 7 "fired" markers in the register, the pinned column, the primary
+     button — moved to value + position + elevation, because at that count an accent stops signalling.
+  R2 KEY — Transform is near-white.
+  R3 BORDERS — the grid's 30 vertical cell rules are gone; the heterogeneous-table exception keeps exactly ONE,
+     splitting the pinned identity block from the data. Horizontal zone seams (topbar / KPI / ruler / grid foot /
+     register / status) keep a rule because a dark seam alone reads as "content ran out".
+  R4 NUMBERS — KPI figures are 23px/600 tabular over 9.5px eyebrows.
+  R5 SENTENCE CASE — every uppercase micro-label is now sentence case; column heads stay lowercase mono.
+  R6/R7 STATUS — five shapes beside words; sign is a property, so negatives stay on the ink ramp, never red.
+  VIZ — coverage bars (80.4/14.9/4.7) and prefix-group coverage are MAGNITUDE, so they wear the neutral value
+     ramp; the unparsed-token markers in the grid keep the reserved amber, beside a glyph and the raw token.
+     The only categorical hue on the screen is the top-8 fold of counterparty_lei, ranked and never cycled, with
+     a genuine graphite residual whose label sits in ink.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Command Studio — Datasets · Adaptive cockpit</title>
+<style>
+  :root {
+    --s0:#080A0E;  --s1:#0D1015;  --s2:#11151B;  --s3:#161B22;
+    --s4:#1C222B;  --s5:#242C37;  --s6:#38424F;  --key:#E9EEF5;
+    --t1:#E7ECF3;  --t2:#B0BAC8;  --t3:#85909F;  --t4:#5C6675; /* t4 = decoration only, never text */
+    --r1:rgba(255,255,255,.042); --r2:rgba(255,255,255,.075); --r3:rgba(255,255,255,.13);
+    --hi:inset 0 1px 0 rgba(255,255,255,.045);
+    --sig:#46D5E8; --sig-dim:rgba(70,213,232,.14); --sig-line:rgba(70,213,232,.40);
+    --st-good:#0ca30c; --st-warn:#fab219; --st-serious:#ec835a; --st-crit:#DC5050;
+    --m1:#CBD3DF; --m2:#A2ACBB; --m3:#7D8797; --m4:#5F6979; --m5:#48515F; --m6:#39414D;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    /* categorical — used in exactly one place on this screen: the top-8 fold of counterparty_lei */
+    --viz-1:#3987e5; --viz-2:#d95926; --viz-3:#199e70; --viz-4:#c98500;
+    --viz-5:#d55181; --viz-6:#747c04; --viz-7:#9085e9; --viz-8:#e66767;
+    /* the residual: graphite, a fold, never a 9th slot */
+    --graphite:#39414D; --graphite-line:#48515F;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html { font-size:13px; }
+  html, body { height:100%; overflow:hidden; }
+  body {
+    font-family:var(--sans); color:var(--t2); font-size:12.5px;
+    background:radial-gradient(1180px 560px at 44% -12%, #151B24 0%, rgba(21,27,36,0) 62%), var(--s1);
+    -webkit-font-smoothing:antialiased; line-height:1.4; letter-spacing:-0.004em;
+    display:flex; flex-direction:column;
+  }
+  body::after {
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:200; opacity:.055; mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .mono { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  .num { font-variant-numeric:tabular-nums; }
+  ::selection { background:rgba(70,213,232,.26); color:#fff; }
+  :focus-visible { outline:none; box-shadow:0 0 0 1px var(--s0), 0 0 0 3px rgba(70,213,232,.45); border-radius:6px; }
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb { background:#232B35; border-radius:8px; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background:#303945; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-track { background:transparent; }
+
+  /* one footnote register absorbs every provenance line: ordinals, paths, caps, ids */
+  .ml { font-size:9.5px; font-weight:500; color:var(--t3); letter-spacing:0; text-transform:none; }
+  .ord { font-family:var(--mono); font-size:9.5px; color:var(--t3); font-variant-numeric:tabular-nums; }
+
+  /* ===== STATUS: five states, five SHAPES, always beside a word ===== */
+  .sdot { width:8px; height:8px; flex:none; display:inline-block; vertical-align:-1px; border-radius:0; }
+  .sdot.good    { border-radius:50%; background:var(--st-good); }
+  .sdot.warn    { width:0; height:0; border-left:4.5px solid transparent; border-right:4.5px solid transparent;
+                  border-bottom:8px solid var(--st-warn); vertical-align:0; }
+  .sdot.serious { width:7px; height:7px; background:var(--st-serious); border-radius:1px; transform:rotate(45deg); margin:0 1px; }
+  .sdot.crit    { background:var(--st-crit); border-radius:1px; }
+  .lockglyph { color:var(--st-warn); display:inline-flex; vertical-align:-2px; flex:none; }
+
+  /* ================= TOPBAR ================= */
+  header.topbar { height:48px; flex:none; display:flex; align-items:center; gap:16px; padding:0 14px; z-index:30;
+    background:linear-gradient(180deg,#141922,#10141A); box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); }
+  .brand { display:flex; align-items:center; gap:9px; }
+  .brand .glyph { width:22px; height:22px; border-radius:6px; background:linear-gradient(180deg,#2C3542,#191F28);
+    display:grid; place-items:center; color:var(--t1); box-shadow:var(--hi), 0 1px 2px rgba(0,0,0,.5); }
+  .brand .name { font-weight:600; font-size:12.5px; color:var(--t1); letter-spacing:-0.012em; white-space:nowrap; }
+  .env-chip { font-family:var(--mono); font-size:10px; color:var(--t3); letter-spacing:.02em; text-transform:none;
+    background:rgba(255,255,255,.045); border-radius:4px; padding:2px 6px; white-space:nowrap; }
+  nav.gnav { display:flex; align-items:center; gap:4px; }
+  nav.gnav a { font-size:12.5px; font-weight:450; color:var(--t3); text-decoration:none; height:30px; padding:0 10px;
+    border-radius:7px; position:relative; display:inline-flex; align-items:center; transition:color .14s, background .14s; }
+  nav.gnav a:hover { color:var(--t1); background:rgba(255,255,255,.035); }
+  /* SIGNAL 1/3 — the active route */
+  nav.gnav a.active { color:var(--t1); font-weight:550; background:transparent; }
+  nav.gnav a.active::after { content:""; position:absolute; left:10px; right:10px; bottom:-10px; height:2px;
+    background:var(--sig); border-radius:2px 2px 0 0; box-shadow:0 0 12px -1px var(--sig); }
+  .cmdk { margin-left:auto; display:flex; align-items:center; gap:9px; width:300px; height:30px; padding:0 10px;
+    border-radius:8px; background:var(--s0); color:var(--t3); cursor:text;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); transition:box-shadow .16s; }
+  .cmdk:focus-within { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+  .cmdk .ph { font-size:12px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .kbd { font-family:var(--mono); font-size:10px; font-weight:500; color:var(--t2);
+    background:linear-gradient(180deg,#232A34,#1A2028); border-radius:4px; padding:1.5px 5px; line-height:1.4;
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); white-space:nowrap; }
+  .iconbtn { width:30px; height:30px; border-radius:7px; border:0; background:transparent; color:var(--t3);
+    display:grid; place-items:center; cursor:pointer; transition:color .14s, background .14s; }
+  .iconbtn:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  .teamsw { display:flex; align-items:center; gap:7px; height:28px; padding:0 10px; border-radius:7px; flex:none;
+    background:var(--s4); box-shadow:var(--hi); font-size:12px; color:var(--t1); cursor:pointer; white-space:nowrap; }
+  .teamsw .tk { font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--t3); font-weight:500; }
+  .avatar { width:27px; height:27px; border-radius:7px; background:linear-gradient(180deg,#2A323D,#1D242D);
+    display:grid; place-items:center; font-size:10px; font-weight:600; color:var(--t2); cursor:pointer;
+    box-shadow:var(--hi); flex:none; }
+
+  /* ================= KPI STRIP — numbers are the hero ================= */
+  .kpistrip { height:62px; flex:none; display:flex; align-items:stretch; padding:0 4px;
+    background:linear-gradient(180deg,var(--s3),#12171E);
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.55), 0 10px 24px -20px rgba(0,0,0,.9); }
+  .kpi { position:relative; display:grid; grid-template-columns:auto auto; align-items:baseline; align-content:center;
+    column-gap:7px; row-gap:1px; padding:0 13px; white-space:nowrap; }
+  .kpi + .kpi::before { content:""; position:absolute; left:0; top:50%; transform:translateY(-50%);
+    width:1px; height:22px; background:var(--r3); }
+  .kpi .lab { grid-column:1 / -1; font-size:9.5px; font-weight:500; letter-spacing:.11em; text-transform:uppercase;
+    color:var(--t3); }
+  .kpi .val { grid-column:1; font-size:23px; font-weight:600; line-height:1.1; color:var(--t1);
+    letter-spacing:-0.03em; font-variant-numeric:tabular-nums; }
+  .kpi .note { grid-column:2; font-size:10.5px; color:var(--t3); display:inline-flex; align-items:center; gap:5px; }
+  .kpi .note.zero { color:var(--st-serious); }
+  .clock { margin-left:auto; display:flex; align-items:center; gap:8px; padding:0 12px; }
+  /* the second sync lamp cannot take the accent (it would become texture) — it becomes a tick */
+  .clock .dot { width:1px; height:9px; border-radius:0; background:var(--t4); box-shadow:none; flex:none; }
+
+  /* ================= WORKSPACE ================= */
+  .workspace { flex:1; min-height:0; display:grid; grid-template-columns:300px 1fr 352px; }
+  .col { display:flex; flex-direction:column; min-width:0; min-height:0; }
+  .col.rail { background:var(--s2); box-shadow:1px 0 0 rgba(0,0,0,.45); z-index:2; }
+  .col.center { background:transparent; }
+  .col.dock { background:var(--s2); box-shadow:-1px 0 0 rgba(0,0,0,.45); z-index:2; }
+  .colhead { min-height:34px; flex:none; display:flex; align-items:center; gap:9px; padding:0 12px;
+    box-shadow:inset 0 -1px 0 var(--r1); }
+  .colhead .t { font-size:12.5px; font-weight:600; letter-spacing:-0.012em; text-transform:none; color:var(--t1); }
+  .colhead .badge { font-family:var(--mono); font-size:10px; font-weight:500; color:var(--t3);
+    background:rgba(255,255,255,.05); border-radius:20px; padding:1px 7px; }
+  .colhead .spacer { margin-left:auto; }
+  /* the rule tags repeat 8 times — repeated labels never take the accent */
+  .rtag { font-family:var(--mono); font-size:9.5px; font-weight:500; color:var(--t3);
+    background:rgba(255,255,255,.05); border-radius:4px; padding:0 5px; white-space:nowrap; }
+  .hintbar { display:flex; align-items:center; gap:12px; padding:5px 12px; flex:none;
+    background:rgba(0,0,0,.18); box-shadow:inset 0 1px 0 var(--r1); font-size:10.5px; color:var(--t3); }
+  .hintbar .h { display:flex; align-items:center; gap:5px; }
+
+  /* ---- RAIL · column manager (R1) ---- */
+  .railsearch { padding:8px 10px 9px; flex:none; box-shadow:inset 0 -1px 0 var(--r1); }
+  .railsearch .box { height:29px; display:flex; align-items:center; gap:7px; padding:0 9px; border-radius:7px;
+    background:var(--s0); color:var(--t3); font-size:12px;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); }
+  .railfilters { display:flex; gap:5px; margin-top:8px; }
+  /* repeated state → value + elevation, not the accent */
+  .fchip { font-size:10.5px; font-weight:450; color:var(--t3); padding:3px 8px; border-radius:6px; border:0;
+    background:transparent; box-shadow:inset 0 0 0 1px var(--r1); cursor:pointer; white-space:nowrap; font-family:inherit; }
+  .fchip:hover { color:var(--t1); }
+  .fchip.on { color:var(--t1); font-weight:550; background:var(--s4); box-shadow:var(--hi); }
+  .railbody { flex:1; overflow-y:auto; overflow-x:hidden; min-height:0; }
+  .sh { display:flex; align-items:center; gap:9px; padding:10px 12px 5px; white-space:nowrap;
+    font-size:11.5px; font-weight:550; letter-spacing:-0.008em; text-transform:none; color:var(--t2); }
+  .sh .line { flex:1; height:1px; background:var(--r1); }
+  .sh .ct { font-family:var(--mono); font-size:10px; font-weight:400; color:var(--t3); letter-spacing:0; }
+  .cmrow { display:grid; grid-template-columns:1fr auto; align-items:center; gap:3px 8px; padding:4px 12px; }
+  .cmrow:hover { background:rgba(255,255,255,.035); }
+  /* the pinned identity column: value + a left rule + elevation. The cyan is spent on the ruler window instead. */
+  .cmrow.pinned { background:rgba(255,255,255,.05); box-shadow:inset 2px 0 0 var(--m2), var(--hi); }
+  .cmrow.pinned .nm { color:var(--t1); font-weight:600; }
+  .cmrow .nm { font-family:var(--mono); font-size:11px; color:var(--t2); display:flex; align-items:center; gap:5px;
+    min-width:0; overflow:hidden; }
+  .cmrow .nm .txt { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .cmrow .rt { display:flex; align-items:center; gap:6px; flex:none; }
+  .cmrow .pct { font-family:var(--mono); font-size:9.5px; color:var(--t3); width:38px; text-align:right; }
+  .cmrow .cov { width:44px; height:5px; border-radius:3px; background:rgba(255,255,255,.06); overflow:hidden; flex:none; }
+  /* coverage is MAGNITUDE — neutral value ramp, never a series hue */
+  .cmrow .cov i { display:block; height:100%; background:var(--m3); }
+  .tchip { font-family:var(--mono); font-size:9px; font-weight:500; color:var(--t3);
+    background:rgba(255,255,255,.05); border-radius:4px; padding:0 4px; white-space:nowrap; }
+  .tchip.mix  { color:var(--st-warn); background:rgba(0,0,0,.36); box-shadow:inset 0 0 0 1px rgba(250,178,25,.34); }
+  .tchip.lock { color:var(--st-warn); background:rgba(0,0,0,.36); box-shadow:inset 0 0 0 1px rgba(250,178,25,.34); }
+  .cmgrp { display:grid; grid-template-columns:1fr auto; align-items:center; gap:8px; padding:5px 12px;
+    box-shadow:inset 0 1px 0 var(--r1); }
+  .cmgrp:hover { background:rgba(255,255,255,.035); }
+  .cmgrp .nm { font-family:var(--mono); font-size:11px; color:var(--t1); font-weight:500; display:flex; align-items:center; gap:6px; }
+  .cmgrp .car { color:var(--t3); font-size:8px; }
+  .cmgrp .rt { display:flex; align-items:center; gap:6px; }
+  .cmgrp .ct { font-family:var(--mono); font-size:9.5px; color:var(--t3); width:38px; text-align:right; }
+  .cmgrp .cov { width:44px; height:5px; border-radius:3px; background:rgba(255,255,255,.06); overflow:hidden; }
+  .cmgrp .cov i { display:block; height:100%; background:var(--m4); }
+  .child .nm { padding-left:15px; color:var(--t3); }
+  /* a note loses its box: a left rule and an indent */
+  .rnote { margin:10px 12px 12px; padding-left:10px; box-shadow:inset 2px 0 0 var(--r2);
+    font-size:10px; line-height:1.5; color:var(--t3); }
+  .rnote b { color:var(--t1); font-weight:600; }
+  .rid { font-family:var(--mono); font-size:9.5px; font-weight:600; color:var(--t2); }
+
+  /* ---- CENTER ---- */
+  .gridhead { display:flex; align-items:center; gap:14px; padding:8px 14px; flex:none;
+    background:linear-gradient(180deg,#131820,#10141B); box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.45); }
+  .gridhead .hgroup { min-width:0; flex:1; }
+  .gridhead .title { font-size:15px; font-weight:600; color:var(--t1); letter-spacing:-0.02em;
+    display:flex; align-items:center; gap:9px; white-space:nowrap; }
+  .gridhead .path { font-size:10.5px; color:var(--t3); margin-top:4px; display:flex; align-items:center; gap:6px;
+    white-space:nowrap; min-width:0; }
+  .gridhead .path .apath { overflow:hidden; text-overflow:ellipsis; min-width:24px; flex:0 1 auto; }
+  .gridhead .path b { color:var(--t2); font-weight:500; }
+  .pill { font-size:10.5px; font-weight:500; padding:2px 7px; border-radius:5px; display:inline-flex; align-items:center;
+    gap:5px; white-space:nowrap; }
+  .pill.ok { color:var(--st-good); background:rgba(0,0,0,.34); box-shadow:inset 0 0 0 1px rgba(12,163,12,.38); }
+  /* classification is a LABEL, not enforcement — so it wears the dashed, unenforced register */
+  .pill.label { color:var(--t3); background:transparent; padding:2px 0 3px; border-radius:0;
+    border-bottom:1px dashed var(--r2); font-weight:400; cursor:help; }
+  .pill.enforced { color:var(--st-warn); background:rgba(250,178,25,.07); box-shadow:inset 0 0 0 1px rgba(250,178,25,.26); }
+  .toolbar { display:flex; align-items:center; gap:6px; flex:none; }
+  .tbtn { height:28px; padding:0 10px; font-size:12px; font-weight:450; color:var(--t2); background:transparent;
+    border:0; border-radius:7px; cursor:pointer; display:inline-flex; align-items:center; gap:6px;
+    box-shadow:inset 0 0 0 1px var(--r2); font-family:inherit; white-space:nowrap; transition:all .14s; }
+  .tbtn:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  .tbtn.iconb { width:28px; padding:0; justify-content:center; }
+  /* rule 2 — the primary action wins on value, not on hue */
+  .tbtn.primary { background:linear-gradient(180deg,#FBFDFF,var(--key)); color:#0B0E13; font-weight:600; padding:0 11px;
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset, 0 2px 8px -3px rgba(0,0,0,.9), 0 0 0 1px rgba(0,0,0,.35); }
+  .tbtn.primary:hover { background:#fff; }
+  .tbtn .k { font-size:10px; color:var(--t3); font-family:var(--mono); }
+  .tbtn.primary .k { color:#4A5462; }
+
+  /* R3 — one header-strip type statement */
+  .typestrip { flex:none; display:flex; align-items:center; gap:9px; padding:5px 14px; font-size:10.5px;
+    color:var(--t3); white-space:nowrap; background:rgba(0,0,0,.2);
+    box-shadow:inset 0 1px 0 var(--r1), inset 0 -1px 0 var(--r1); }
+  .typestrip b { color:var(--t1); font-weight:600; }
+  .typestrip .k { font-family:var(--mono); color:var(--t2); }
+  .typestrip .sep { color:var(--t4); }
+  .typestrip .neg-key { display:inline-flex; align-items:center; gap:5px; margin-left:auto; }
+  .typestrip .neg-key i { font-family:var(--mono); font-style:normal; color:var(--t2); }
+
+  /* R2 — column ruler. THE accent lives here: "which 8 of 183 am I looking at". */
+  .ruler { flex:none; padding:7px 13px 8px; box-shadow:inset 0 -1px 0 var(--r1); }
+  .rulerbar { height:16px; display:flex; gap:2px; position:relative; }
+  .rulerbar .seg { min-width:0; display:flex; align-items:center; justify-content:center; font-family:var(--mono);
+    font-size:8.5px; color:var(--t3); background:rgba(255,255,255,.05); overflow:hidden; white-space:nowrap; border-radius:2px; }
+  .rulerbar .seg.wide { color:var(--t2); }
+  .rulerbar .seg.idseg { background:var(--s5); color:var(--t1); box-shadow:var(--hi); }
+  /* SIGNAL 2/3 — the viewport window */
+  .rulerwin { position:absolute; top:-3px; bottom:-3px; border-radius:3px; pointer-events:none; min-width:16px;
+    border:1.5px solid var(--sig); background:var(--sig-dim); box-shadow:0 0 12px -2px var(--sig); }
+  .rulerlab { display:flex; align-items:center; gap:9px; margin-top:6px; font-family:var(--mono); font-size:9.5px;
+    color:var(--t3); }
+  .rulerlab .win { color:var(--t1); font-weight:600; display:inline-flex; align-items:center; gap:5px; }
+  .rulerlab .win .tick { width:5px; height:5px; border-radius:50%; background:var(--sig); box-shadow:0 0 8px -1px var(--sig); }
+  .rulerlab .grow { margin-left:auto; }
+
+  /* the grid — a heterogeneous table, so ONE vertical rule survives: identity | data */
+  .gridwrap { flex:1; min-height:0; overflow:auto; }
+  table.grid { border-collapse:separate; border-spacing:0; table-layout:fixed; width:3006px; font-size:11.5px; }
+  table.grid thead th { position:sticky; top:0; z-index:5; background:#12161D; text-align:right; vertical-align:top;
+    padding:5px 8px; height:46px; box-shadow:inset 0 -1px 0 var(--r2), inset 0 1px 0 var(--r1); }
+  table.grid thead th .cn { display:block; font-family:var(--mono); font-size:10.5px; font-weight:500; color:var(--t2);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; line-height:1.25; }
+  table.grid thead th .cn.two { white-space:normal; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+    text-align:right; overflow-wrap:anywhere; word-break:break-word; }
+  table.grid thead th .cu { display:flex; align-items:center; gap:5px; justify-content:flex-end; margin-top:4px; }
+  table.grid tbody td { padding:0 8px; height:26px; border-bottom:1px solid rgba(255,255,255,.032);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--t2); text-align:right;
+    font-family:var(--mono); font-variant-numeric:tabular-nums; font-size:11px; }
+  /* the ruler measure — every sixth row reads a touch louder, so the eye can track across 3,006px */
+  table.grid tbody tr:nth-child(6n) td { border-bottom-color:rgba(255,255,255,.085); }
+  table.grid tbody tr:hover td { background:rgba(255,255,255,.038); }
+  table.grid td.l { text-align:left; }
+  table.grid thead th.l { text-align:left; }
+  table.grid thead th.l .cn { text-align:left; }
+  table.grid thead th.l .cu { justify-content:flex-start; }
+  /* sign is a magnitude property, never a status: it stays on the ink ramp */
+  table.grid tbody td.neg { color:var(--m2); }
+  table.grid tbody td.zero { color:var(--t3); }
+  .stk { position:sticky; background:var(--s2) !important; z-index:3; }
+  thead .stk { z-index:7; background:#12161D !important; }
+  .c-rn { left:0; width:40px; color:var(--t3) !important; }
+  .c-id { left:40px; width:118px; box-shadow:inset -1px 0 0 var(--r2); color:var(--t1) !important; font-weight:600; }
+  thead .c-id .cn { color:var(--t1); font-weight:600; }
+  tbody tr:hover .stk { background:#171C24 !important; }
+  /* masked PII sits in a recessed well */
+  .masked { color:var(--t3); letter-spacing:.1em; background:rgba(0,0,0,.34); border-radius:4px; padding:1px 5px;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6); }
+  /* a data-quality signal: reserved hue + a glyph + the raw token beside it */
+  table.grid tbody td.unparsed { color:var(--t2); }
+  .unparsed::before { content:"⌁ "; color:var(--st-warn); }
+  table.grid tbody td.nullc, table.grid tbody td.note-cell.nullc { color:var(--t3); }
+  table.grid tbody td.note-cell { text-align:left; color:var(--t2); font-family:var(--sans); font-size:11px;
+    position:relative; padding-right:20px; }
+  td.note-cell .exp { position:absolute; right:4px; top:5px; font-size:9px; color:var(--t3); border-radius:3px;
+    padding:0 3px; background:rgba(255,255,255,.05); line-height:1.5; }
+  th.tail, table.grid tbody td.tail { width:180px; text-align:center !important; color:var(--t3);
+    background-image:repeating-linear-gradient(135deg,rgba(255,255,255,.035) 0 1px,transparent 1px 7px); }
+  th.tail .cn { text-align:center; color:var(--t3) !important; font-weight:400; }
+  .dupflag { color:var(--st-warn); }
+  .gridfoot { height:30px; flex:none; display:flex; align-items:center; gap:11px; white-space:nowrap; padding:0 14px;
+    background:var(--s2); box-shadow:inset 0 1px 0 var(--r1); font-size:10.5px; color:var(--t3); }
+  .gridfoot b { color:var(--t1); font-weight:600; }
+  .gridfoot .pg { margin-left:auto; display:flex; align-items:center; gap:2px; }
+  .pgbtn { min-width:24px; height:24px; border-radius:6px; border:0; background:transparent; color:var(--t3);
+    cursor:pointer; font-size:10.5px; font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  .pgbtn:hover { color:var(--t1); background:rgba(255,255,255,.06); }
+  /* the current page is repeated state: value + elevation */
+  .pgbtn.on { color:var(--t1); font-weight:600; background:var(--s4); box-shadow:var(--hi); }
+
+  /* ---- DOCK ---- */
+  .lenstabs { display:flex; gap:2px; padding:6px 8px; flex-wrap:wrap; flex:none; box-shadow:inset 0 -1px 0 var(--r1); }
+  .ltab { font-size:11.5px; font-weight:450; color:var(--t3); padding:4px 8px; border-radius:6px; cursor:pointer; }
+  .ltab:hover { color:var(--t1); }
+  /* local state is white; the cyan is reserved for scope + liveness */
+  .ltab.on { color:var(--t1); font-weight:550; background:var(--s4); box-shadow:var(--hi); }
+  .dockbody { overflow-y:auto; overflow-x:hidden; flex:1; min-height:0; padding:11px 12px 14px; }
+  .sect { margin-bottom:15px; }
+  .sect > .h { font-size:11.5px; font-weight:550; letter-spacing:-0.008em; text-transform:none; color:var(--t2);
+    margin-bottom:8px; display:flex; align-items:center; gap:8px; }
+  .sect > .h .line { flex:1; height:1px; background:var(--r1); }
+  /* rule 8 — cards earn a SURFACE, not a border */
+  .card { border-radius:9px; background:var(--s3); box-shadow:var(--hi); padding:9px 10px 10px; margin-bottom:9px; }
+  .card .top { display:flex; align-items:center; gap:7px; margin-bottom:8px; min-width:0; }
+  .card .cname { font-family:var(--mono); font-size:11.5px; font-weight:600; color:var(--t1);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+  .card .right { margin-left:auto; font-size:10px; color:var(--t3); flex:none; white-space:nowrap; }
+  /* coverage = magnitude → three steps of the neutral ramp, not a categorical hue */
+  .covbar { display:flex; height:14px; border-radius:4px; overflow:hidden; gap:1px; margin:2px 0 7px; }
+  .covbar span { display:block; height:100%; }
+  .covbar .parsed { background:var(--m2); }
+  .covbar .unp { background:var(--m5); background-image:repeating-linear-gradient(135deg,rgba(255,255,255,.16) 0 1px,transparent 1px 5px); }
+  .covbar .nul { background:var(--s4); }
+  .covkey { display:flex; gap:10px; font-size:9.5px; color:var(--t3); flex-wrap:wrap; align-items:center; }
+  .covkey .ki { display:inline-flex; align-items:center; gap:5px; }
+  .covkey .sw { width:8px; height:8px; border-radius:2px; flex:none; }
+  .statrow { display:grid; grid-template-columns:56px 1fr; gap:3px 8px; font-size:10.5px; align-items:baseline; margin-top:7px; }
+  .statrow .l { font-family:var(--mono); font-size:9.5px; color:var(--t3); }
+  .statrow .v { font-family:var(--mono); font-size:10.5px; color:var(--t1); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .statrow .v .den { color:var(--st-warn); font-size:9.5px; }
+  /* one of the two consequential callouts that keep a tinted surface */
+  .warnline { display:flex; gap:7px; align-items:flex-start; font-size:10px; line-height:1.5; color:var(--t2);
+    background:rgba(250,178,25,.06); box-shadow:inset 0 0 0 1px rgba(250,178,25,.2); border-radius:7px;
+    padding:7px 9px; margin-top:8px; }
+  .warnline > span:first-child { color:var(--st-warn); flex:none; }
+  .warnline b { color:var(--t1); font-weight:600; }
+  .idrow { display:grid; grid-template-columns:62px 1fr; gap:3px 8px; font-size:10.5px; align-items:baseline; }
+  .idrow .l { font-family:var(--mono); font-size:9.5px; color:var(--t3); }
+  .idrow .v { font-family:var(--mono); font-size:10.5px; color:var(--t2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .lenbars { display:flex; align-items:flex-end; gap:2px; height:30px; margin-top:7px; }
+  .lenbars i { flex:1; background:var(--m4); border-radius:2px 2px 0 0; min-height:2px; display:block; }
+  /* supporting prose: a left rule and an indent, never a nested box */
+  .supp { display:flex; gap:7px; font-size:10px; line-height:1.5; color:var(--t3); margin-top:8px;
+    padding-left:9px; box-shadow:inset 2px 0 0 var(--r2); }
+  .supp b { color:var(--t1); font-weight:600; }
+  .foldbar { display:flex; height:16px; border-radius:4px; overflow:hidden; margin:2px 0 8px; gap:1px; }
+  .foldbar span { display:block; height:100%; }
+  .legend { display:grid; grid-template-columns:1fr 1fr; gap:2px 10px; }
+  .lgi { display:flex; align-items:center; gap:6px; font-size:10px; color:var(--t2); height:16px; }
+  .lgi .sw { width:9px; height:9px; border-radius:2px; flex:none; }
+  .lgi .lb { font-family:var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .lgi .pc { margin-left:auto; font-family:var(--mono); font-size:9.5px; color:var(--t3); flex:none; }
+  .lgi.tail-i { grid-column:1 / -1; }
+  .lgi.tail-i .sw { background:var(--graphite); box-shadow:inset 0 0 0 1px var(--graphite-line); }
+  .lgi.tail-i .lb { color:var(--t1); font-weight:600; }
+  .ratio { display:flex; height:15px; border-radius:4px; overflow:hidden; gap:1px; margin-top:6px; }
+  .shelf { display:flex; align-items:center; gap:8px; min-height:24px; border-radius:6px; padding:3px 8px;
+    background:rgba(255,255,255,.045); font-family:var(--mono); font-size:10px; color:var(--t2); margin-top:5px; }
+  .shelf .lb { color:var(--t3); width:64px; flex:none; }
+  .shelf.empty { color:var(--t3); background:rgba(0,0,0,.3); box-shadow:inset 0 1px 2px rgba(0,0,0,.55); }
+  .offer { display:flex; align-items:flex-start; gap:8px; padding:7px 0; }
+  .offer + .offer { box-shadow:inset 0 1px 0 var(--r1); }
+  .offer .n { font-family:var(--mono); font-size:9.5px; color:var(--t3); flex:none; width:15px; padding-top:1px; }
+  .offer .b { min-width:0; }
+  .offer .b .t { font-size:11px; color:var(--t1); font-weight:600; }
+  .offer .b .d { font-size:9.5px; color:var(--t3); line-height:1.5; margin-top:2px; }
+  .offer .b .d .k { font-family:var(--mono); color:var(--t2); }
+  .gated { display:flex; align-items:center; gap:8px; font-size:9.5px; color:var(--t3); padding:3px 0; }
+  .gated .x { color:var(--st-crit); font-family:var(--mono); flex:none; }
+  .gated .cn2 { font-family:var(--mono); color:var(--t2); width:88px; flex:none; }
+  .qlist { display:flex; flex-direction:column; gap:1px; }
+  .qitem { display:flex; align-items:flex-start; gap:9px; padding:6px 8px; border-radius:7px; }
+  .qitem:hover { background:rgba(255,255,255,.035); }
+  .qitem .ic { width:17px; height:17px; border-radius:5px; display:grid; place-items:center; flex:none;
+    font-size:9px; font-weight:600; margin-top:1px; background:rgba(0,0,0,.34); }
+  .ic.good { color:var(--st-good); box-shadow:inset 0 0 0 1px rgba(12,163,12,.38); }
+  .ic.warn { color:var(--st-warn); box-shadow:inset 0 0 0 1px rgba(250,178,25,.34); }
+  .ic.crit { color:var(--st-crit); box-shadow:inset 0 0 0 1px rgba(220,80,80,.42); }
+  .qitem .qn { font-size:11px; font-weight:600; color:var(--t1); }
+  .qitem .qd { font-size:9.5px; color:var(--t3); line-height:1.45; }
+  .qitem .qv { margin-left:auto; font-family:var(--mono); font-size:10px; font-weight:600; flex:none; }
+
+  /* ================= ADAPTATION REGISTER — the footnote register, legible and unglamorous ================= */
+  .register { flex:none; height:134px; background:var(--s2); display:flex; align-items:stretch; padding:8px 14px 9px; gap:12px;
+    box-shadow:inset 0 1px 0 var(--r2), 0 -10px 24px -22px rgba(0,0,0,1); }
+  .register .rhead { width:132px; flex:none; display:flex; flex-direction:column; justify-content:center; gap:2px;
+    box-shadow:inset -1px 0 0 var(--r1); padding-right:12px; }
+  .register .rhead .t { font-size:11.5px; font-weight:550; letter-spacing:-0.008em; text-transform:none; color:var(--t2); }
+  .register .rhead .v { font-size:22px; font-weight:600; color:var(--t1); letter-spacing:-0.03em;
+    font-variant-numeric:tabular-nums; line-height:1.1; }
+  .register .rhead .s { font-size:9.5px; color:var(--t3); line-height:1.4; }
+  .rgrid { flex:1; min-width:0; display:grid; grid-template-columns:repeat(6,1fr); grid-template-rows:1fr 1fr; gap:6px 10px; }
+  .rc { min-width:0; display:flex; flex-direction:column; gap:1px; padding-left:8px; box-shadow:inset 2px 0 0 var(--s5); }
+  .rc.fired { box-shadow:inset 2px 0 0 var(--m3); }
+  .rc.part { box-shadow:inset 2px 0 0 var(--st-warn); }
+  .rc .rl1 { display:flex; align-items:center; gap:5px; }
+  .rc .rl1 .id { font-family:var(--mono); font-size:10px; font-weight:600; color:var(--t2); }
+  .rc .rl1 .st { font-family:var(--mono); font-size:9.5px; font-weight:400; letter-spacing:0; text-transform:none; color:var(--t3); }
+  .rc.fired .rl1 .id { color:var(--t1); }
+  .rc.fired .rl1 .st { color:var(--t2); }
+  .rc.part .rl1 .st { color:var(--st-warn); }
+  .rc .why { font-size:9.5px; line-height:1.4; color:var(--t3); overflow:hidden; }
+  .rc .why b { color:var(--t2); font-weight:600; }
+  .rc .why .k { font-family:var(--mono); color:var(--t2); }
+
+  /* ================= STATUS BAR ================= */
+  .statusbar { height:26px; flex:none; display:flex; align-items:center; gap:13px; padding:0 14px; background:var(--s2);
+    box-shadow:inset 0 1px 0 var(--r1); font-size:10.5px; color:var(--t3); }
+  .statusbar .h { display:flex; align-items:center; gap:6px; white-space:nowrap; }
+  .statusbar .gate { margin-left:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .statusbar .sclock { margin-left:auto; display:flex; align-items:center; gap:8px; font-family:var(--mono); flex:none; }
+  /* SIGNAL 3/3 — the one live indicator on the screen */
+  .statusbar .sclock .dot { width:6px; height:6px; border-radius:50%; background:var(--sig); flex:none;
+    box-shadow:0 0 0 3px rgba(70,213,232,.10), 0 0 9px -1px var(--sig); animation:pulse 3s ease-in-out infinite; }
+  .statusbar .sclock b { color:var(--t2); font-weight:500; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.42} }
+  @media (prefers-reduced-motion:reduce){ .statusbar .sclock .dot { animation:none } }
+</style>
+</head>
+<body class="dark" data-palette="#3987e5,#d95926,#199e70,#c98500,#d55181,#747c04,#9085e9,#e66767">
+
+<!-- ================= TOPBAR ================= -->
+<header class="topbar">
+  <div class="brand">
+    <span class="glyph"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M4 7l8-4 8 4-8 4-8-4z" fill="#fff" opacity=".95"/><path d="M4 12l8 4 8-4M4 17l8 4 8-4" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity=".8"/></svg></span>
+    <span class="name">Command&nbsp;Studio</span>
+  </div>
+  <span class="env-chip">PROD · US-EAST</span>
+  <nav class="gnav">
+    <a href="#">Workflows</a><a href="#" class="active">Datasets</a><a href="#">Runs</a><a href="#">Library</a>
+  </nav>
+  <div class="cmdk" tabindex="0" title="Command palette">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span class="ph">pin column · fold tail · bin a measure…</span><span class="kbd">⌘K</span>
+  </div>
+  <button class="iconbtn" title="Filters"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M3 5h18M6 12h12M10 19h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+  <button class="iconbtn" title="Alerts"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M6 9a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M10 20a2 2 0 004 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+  <button class="iconbtn" title="Theme"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M20 13a8 8 0 11-9-9 6 6 0 009 9z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></button>
+  <div class="teamsw"><span class="tk">Team</span>Rates &amp; Credit Risk</div>
+  <div class="avatar" title="S. Ganji · role viewer">SG</div>
+</header>
+
+<!-- ================= KPI STRIP ================= -->
+<div class="kpistrip">
+  <div class="kpi"><span class="lab">Rows</span><span class="val num">1.20M</span><span class="note">1,204,880</span></div>
+  <div class="kpi"><span class="lab">Columns</span><span class="val num">183</span><span class="note">&gt; 30</span></div>
+  <div class="kpi" title="174 of 183 columns are float64."><span class="lab">Type mix</span><span class="val num">95.1<span style="font-size:11px">%</span></span><span class="note">float64</span></div>
+  <div class="kpi"><span class="lab">Dimensions</span><span class="val num">4</span></div>
+  <div class="kpi"><span class="lab">Measures</span><span class="val num">175</span></div>
+  <div class="kpi" title="No column parses as a date or timestamp — every time-axis chart is withdrawn."><span class="lab">Temporal</span><span class="val num" style="color:var(--st-serious)">0</span><span class="note zero"><span class="sdot serious"></span>no date column</span></div>
+  <div class="kpi"><span class="lab">Masked</span><span class="val num">1</span><span class="note"><span class="lockglyph" style="color:var(--t3)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span>col</span></div>
+  <div class="kpi clock"><span class="dot"></span><span class="mono" style="font-size:11px;color:var(--t3)">SYNC 16:41:07 ET</span></div>
+</div>
+
+<!-- ================= WORKSPACE ================= -->
+<div class="workspace">
+
+  <!-- ---------- RAIL · column manager (R1) ---------- -->
+  <div class="col rail">
+    <div class="colhead">
+      <span class="t">Columns</span><span class="badge">183</span>
+      <span class="spacer"></span>
+      <span class="rtag" title="R1 — above 30 columns the rail becomes a column manager">R1 column manager</span>
+    </div>
+    <div class="railsearch">
+      <div class="box">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <span style="flex:1">Filter 183 columns…</span><span class="kbd">/</span>
+      </div>
+      <div class="railfilters">
+        <button class="fchip on">All 183</button>
+        <button class="fchip">Pinned 1</button>
+        <button class="fchip">Exceptions 9</button>
+        <button class="fchip">Coverage &lt; 50%</button>
+      </div>
+    </div>
+
+    <div class="railbody">
+      <div class="sh">Pinned <span class="line"></span><span class="ct">1</span></div>
+      <div class="cmrow pinned">
+        <span class="nm"><span style="color:var(--t1);font-size:9px">◧</span><span class="txt">instrument_id</span><span class="ord">⟨1⟩</span></span>
+        <span class="rt"><span class="pct">100%</span><span class="cov"><i style="width:100%"></i></span></span>
+      </div>
+
+      <div class="sh">Type exceptions <span class="line"></span><span class="ct">9</span></div>
+      <div class="cmrow"><span class="nm"><span class="txt">instrument_id</span><span class="ord">⟨1⟩</span></span><span class="rt"><span class="tchip">string</span><span class="cov"><i style="width:100%"></i></span></span></div>
+      <div class="cmrow"><span class="nm"><span class="txt">book</span><span class="ord">⟨2⟩</span></span><span class="rt"><span class="tchip">enum · 12</span><span class="cov"><i style="width:100%"></i></span></span></div>
+      <div class="cmrow"><span class="nm"><span class="txt">desk</span><span class="ord">⟨3⟩</span></span><span class="rt"><span class="tchip">enum · 7</span><span class="cov"><i style="width:100%"></i></span></span></div>
+      <div class="cmrow"><span class="nm"><span class="txt">ccy</span><span class="ord">⟨4⟩</span></span><span class="rt"><span class="tchip">enum · 14</span><span class="cov"><i style="width:100%"></i></span></span></div>
+      <div class="cmrow"><span class="nm"><span class="txt">counterparty_lei</span><span class="ord">⟨5⟩</span></span><span class="rt"><span class="tchip">string · 500</span><span class="cov"><i style="width:99.6%"></i></span></span></div>
+      <div class="cmrow"><span class="nm"><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span><span class="txt">counterparty_name</span><span class="ord">⟨6⟩</span></span><span class="rt"><span class="tchip lock">masked</span><span class="cov"><i style="width:100%"></i></span></span></div>
+      <div class="cmrow"><span class="nm"><span class="txt">trade_status</span><span class="ord">⟨7⟩</span></span><span class="rt"><span class="tchip">enum · 2</span><span class="cov"><i style="width:100%"></i></span></span></div>
+      <div class="cmrow"><span class="nm"><span class="txt">quantity</span><span class="ord">⟨8⟩</span></span><span class="rt"><span class="tchip mix" title="R11 — 80.4% parses as int64; every statistic on this column carries that denominator">int64 · 80%</span><span class="cov"><i style="width:80.4%"></i></span></span></div>
+      <div class="cmrow"><span class="nm"><span class="txt">portfolio_note</span><span class="ord">⟨9⟩</span></span><span class="rt"><span class="tchip">text</span><span class="cov"><i style="width:64.1%"></i></span></span></div>
+
+      <div class="sh">By prefix <span class="line"></span><span class="ct">10 groups · 174 cols</span></div>
+      <div class="cmgrp"><span class="nm"><span class="car">▾</span>dv01_</span><span class="rt"><span class="ct">12</span><span class="cov"><i style="width:99.8%"></i></span></span></div>
+      <div class="cmrow child"><span class="nm"><span class="txt">dv01_1m</span><span class="ord">⟨11⟩</span></span><span class="rt"><span class="pct">99.8%</span><span class="cov"><i style="width:99.8%"></i></span></span></div>
+      <div class="cmrow child"><span class="nm"><span class="txt">dv01_3m</span><span class="ord">⟨12⟩</span></span><span class="rt"><span class="pct">99.8%</span><span class="cov"><i style="width:99.8%"></i></span></span></div>
+      <div class="cmrow child"><span class="nm"><span class="txt">dv01_6m</span><span class="ord">⟨13⟩</span></span><span class="rt"><span class="pct">99.7%</span><span class="cov"><i style="width:99.7%"></i></span></span></div>
+      <div class="cmrow child"><span class="nm" style="color:var(--t3);padding-left:15px">+ 9 more</span><span class="rt"><span class="pct"></span><span class="cov"></span></span></div>
+      <div class="cmgrp"><span class="nm"><span class="car">▸</span>cs01_</span><span class="rt"><span class="ct">9</span><span class="cov"><i style="width:97%"></i></span></span></div>
+      <div class="cmgrp"><span class="nm"><span class="car">▸</span>vega_</span><span class="rt"><span class="ct">36</span><span class="cov"><i style="width:71%"></i></span></span></div>
+      <div class="cmgrp"><span class="nm"><span class="car">▸</span>gamma_</span><span class="rt"><span class="ct">24</span><span class="cov"><i style="width:68%"></i></span></span></div>
+      <div class="cmgrp"><span class="nm"><span class="car">▸</span>theta_</span><span class="rt"><span class="ct">8</span><span class="cov"><i style="width:88%"></i></span></span></div>
+      <div class="cmgrp"><span class="nm"><span class="car">▸</span>pnl_</span><span class="rt"><span class="ct">6</span><span class="cov"><i style="width:100%"></i></span></span></div>
+      <div class="cmgrp"><span class="nm"><span class="car">▸</span>xccy_</span><span class="rt"><span class="ct">18</span><span class="cov"><i style="width:41%"></i></span></span></div>
+      <div class="cmgrp"><span class="nm"><span class="car">▸</span>basis_</span><span class="rt"><span class="ct">22</span><span class="cov"><i style="width:39%"></i></span></span></div>
+      <div class="cmgrp"><span class="nm"><span class="car">▸</span>infl_</span><span class="rt"><span class="ct">14</span><span class="cov"><i style="width:22%"></i></span></span></div>
+      <div class="cmgrp"><span class="nm" style="color:var(--t3)"><span class="car">▸</span>no common prefix</span><span class="rt"><span class="ct">25</span><span class="cov"><i style="width:34%"></i></span></span></div>
+
+      <div class="rnote">
+        <span class="rid">R1</span> The coverage bar replaces the per-column type chip: <b>174 of 183</b> columns are
+        <span class="mono" style="color:var(--t2)">float64</span>, so repeating that badge 174 times is texture, not information.
+        Only the <b>9 exceptions</b> keep a chip. Prefix grouping is lexical only — <b>no semantic model, no inference</b>.
+      </div>
+    </div>
+
+    <div class="hintbar">
+      <span class="h"><span class="kbd">J</span><span class="kbd">K</span> move</span>
+      <span class="h"><span class="kbd">P</span> pin</span>
+      <span class="h"><span class="kbd">/</span> filter</span>
+    </div>
+  </div>
+
+  <!-- ---------- CENTER · grid ---------- -->
+  <div class="col center">
+    <div class="gridhead">
+      <div class="hgroup">
+        <div class="title">
+          <span class="sdot good" style="width:9px;height:9px"></span>
+          EOD Risk Exposure — Rates.parquet
+          <span class="pill ok">✓ Validated</span>
+          <span class="pill label" title="Dataset classification — catalog metadata only. It does not enforce access.">Confidential</span>
+          <span class="pill enforced" title="Enforced: counterparty_name declares sensitivity: pii, so its values are masked for your role."><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span>1 column masked</span>
+        </div>
+        <div class="path">
+          <span class="fixed">team <b>rates-credit-risk</b> ·</span>
+          <span class="apath mono" title="uploads/rates-credit-risk/eod_risk_exposure_rates.parquet">uploads/rates-credit-risk/eod_risk_exposure_rates.parquet</span>
+          <span class="fixed mono">· 1,204,880 rows · 183 cols · v42</span>
+        </div>
+      </div>
+      <div class="toolbar">
+        <button class="tbtn iconb" title="Filter"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M3 5h18M6 12h12M10 19h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+        <button class="tbtn iconb" title="Sort"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M4 12h10M4 17h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+        <button class="tbtn primary">Transform<span class="k">⌘⏎</span></button>
+      </div>
+    </div>
+
+    <!-- R3 — one header-strip type statement, not 174 chips -->
+    <div class="typestrip">
+      <span class="rtag">R3</span>
+      <span><b>174 of 183</b> columns are <span class="k">float64</span> — <b>95.1%</b>. Per-header chips suppressed; <b>9 exceptions</b> keep one.</span>
+      <span class="neg-key" title="Sign is never a status colour — red and amber are reserved for status."><i>−1,204.55</i> minus + graphite, never red</span>
+    </div>
+
+    <!-- R2 — pinned identity + prefix-segmented column ruler -->
+    <div class="ruler">
+      <div class="rulerbar">
+        <span class="seg idseg" style="flex:9" title="identity, enum and text columns 1–9">9</span>
+        <span class="seg wide" style="flex:12">dv01 12</span>
+        <span class="seg" style="flex:9">cs01</span>
+        <span class="seg wide" style="flex:36">vega 36</span>
+        <span class="seg wide" style="flex:24">gamma 24</span>
+        <span class="seg" style="flex:8">theta</span>
+        <span class="seg" style="flex:6">pnl</span>
+        <span class="seg wide" style="flex:18">xccy 18</span>
+        <span class="seg wide" style="flex:22">basis 22</span>
+        <span class="seg" style="flex:14">infl</span>
+        <span class="seg wide" style="flex:25">no prefix 25</span>
+        <span class="rulerwin" style="left:-2px; width:4.4%"></span>
+      </div>
+      <div class="rulerlab">
+        <span class="win"><span class="tick"></span>viewing cols 1–8 of 183</span>
+        <span>· identity <span style="color:var(--t2)">instrument_id ⟨1⟩</span> pinned — 100% distinct, non-float</span>
+        <span class="grow">2,218px of horizontal scroll remains ↔</span>
+      </div>
+    </div>
+
+    <div class="gridwrap">
+      <table class="grid">
+        <thead>
+          <tr>
+            <th class="stk c-rn l"><span class="cn" style="color:var(--t3)">#</span></th>
+            <th class="stk c-id l" style="width:118px"><span class="cn" title="instrument_id">instrument_id</span><span class="cu"><span class="ord">⟨1⟩</span><span class="tchip">string</span></span></th>
+            <th class="l" style="width:80px"><span class="cn" title="book">book</span><span class="cu"><span class="ord">⟨2⟩</span><span class="tchip">enum</span></span></th>
+            <th class="l" style="width:76px"><span class="cn" title="desk">desk</span><span class="cu"><span class="ord">⟨3⟩</span><span class="tchip">enum</span></span></th>
+            <th class="l" style="width:42px"><span class="cn" title="ccy">ccy</span><span class="cu"><span class="ord">⟨4⟩</span></span></th>
+            <th class="l" style="width:106px"><span class="cn" title="counterparty_lei">counterparty_lei</span><span class="cu"><span class="ord">⟨5⟩</span><span class="tchip">500 distinct</span></span></th>
+            <th class="l" style="width:126px"><span class="cn" title="counterparty_name — sensitivity: pii">counterparty_name</span><span class="cu"><span class="ord">⟨6⟩</span><span class="tchip lock">masked</span></span></th>
+            <th class="l" style="width:96px"><span class="cn" title="trade_status">trade_status</span><span class="cu"><span class="ord">⟨7⟩</span><span class="tchip">enum</span></span></th>
+            <th style="width:100px"><span class="cn" title="quantity — 80.4% int64, 14.9% unparsed text, 4.7% null">quantity</span><span class="cu"><span class="ord">⟨8⟩</span><span class="tchip mix">int64 · 80%</span></span></th>
+            <th class="l" style="width:190px"><span class="cn" title="portfolio_note">portfolio_note</span><span class="cu"><span class="ord">⟨9⟩</span><span class="tchip">text</span></span></th>
+            <th style="width:120px"><span class="cn" title="mtm_usd — duplicate name, also at ordinal 27">mtm_usd</span><span class="cu"><span class="ord dupflag">⟨10⟩ dup</span></span></th>
+            <th style="width:92px"><span class="cn">dv01_1m</span><span class="cu"><span class="ord">⟨11⟩</span></span></th>
+            <th style="width:92px"><span class="cn">dv01_3m</span><span class="cu"><span class="ord">⟨12⟩</span></span></th>
+            <th style="width:92px"><span class="cn">dv01_6m</span><span class="cu"><span class="ord">⟨13⟩</span></span></th>
+            <th style="width:92px"><span class="cn">dv01_1y</span><span class="cu"><span class="ord">⟨14⟩</span></span></th>
+            <th style="width:92px"><span class="cn">dv01_2y</span><span class="cu"><span class="ord">⟨15⟩</span></span></th>
+            <th style="width:92px"><span class="cn">dv01_3y</span><span class="cu"><span class="ord">⟨16⟩</span></span></th>
+            <th style="width:92px"><span class="cn">dv01_5y</span><span class="cu"><span class="ord">⟨17⟩</span></span></th>
+            <th style="width:92px"><span class="cn">dv01_7y</span><span class="cu"><span class="ord">⟨18⟩</span></span></th>
+            <th style="width:92px"><span class="cn">dv01_10y</span><span class="cu"><span class="ord">⟨19⟩</span></span></th>
+            <th style="width:92px"><span class="cn">dv01_15y</span><span class="cu"><span class="ord">⟨20⟩</span></span></th>
+            <th style="width:92px"><span class="cn">dv01_20y</span><span class="cu"><span class="ord">⟨21⟩</span></span></th>
+            <th style="width:92px"><span class="cn">dv01_30y</span><span class="cu"><span class="ord">⟨22⟩</span></span></th>
+            <th style="width:92px"><span class="cn">cs01_1y</span><span class="cu"><span class="ord">⟨23⟩</span></span></th>
+            <th style="width:92px"><span class="cn">cs01_3y</span><span class="cu"><span class="ord">⟨24⟩</span></span></th>
+            <th style="width:92px"><span class="cn">cs01_5y</span><span class="cu"><span class="ord">⟨25⟩</span></span></th>
+            <th style="width:132px"><span class="cn two" title="dv01_par_equivalent_shocked_downside_1bp_10y_usd_hedged">dv01_par_equiv…10y_usd_hedged</span><span class="cu"><span class="ord">⟨26⟩</span></span></th>
+            <th style="width:120px"><span class="cn" title="mtm_usd — duplicate name, also at ordinal 10">mtm_usd</span><span class="cu"><span class="ord dupflag">⟨27⟩ dup</span></span></th>
+            <th style="width:100px"><span class="cn">vega_3m_atm</span><span class="cu"><span class="ord">⟨28⟩</span></span></th>
+            <th class="tail"><span class="cn">155 columns beyond this edge</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="stk c-rn l">1</td><td class="stk c-id l">RT-40118822</td><td class="l">RATES-EM</td><td class="l">NYC-RATES</td><td class="l">EUR</td><td class="l">MP6I5Z…LN01</td><td class="l"><span class="masked">••••••••••</span> <span class="lockglyph" style="color:var(--t3)"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></td><td class="l"><span class="sdot good"></span> settled</td><td>100,000</td><td class="note-cell" title="Cleared LCH SwapClear; PAI on SOFR. No independent amount.">Cleared LCH SwapClear; PAI on SOFR. No independent amount.<span class="exp">⤢</span></td><td class="">343,875,875.74</td><td class="">42,278.66</td><td class="">74,800.98</td><td class="">92,643.44</td><td class="">76,136.26</td><td class="">48,556.95</td><td class="">84,878.15</td><td class="">130,679.90</td><td class="">53,781.45</td><td class="">209,801.81</td><td class="">175,366.76</td><td class="zero">0.00</td><td class="">354,225.58</td><td class="">15,409.82</td><td class="">19,702.99</td><td class="neg">−2,282.17</td><td class="neg">−32,317.05</td><td class="">352,515,486.51</td><td class="">6,173.69</td><td class="tail">…</td></tr>
+          <tr><td class="stk c-rn l">2</td><td class="stk c-id l">RT-40118823</td><td class="l">CREDIT-IG</td><td class="l">HKG-RATES</td><td class="l">GBP</td><td class="l">R0MUWS…PA03</td><td class="l"><span class="masked">••••••••••</span> <span class="lockglyph" style="color:var(--t3)"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></td><td class="l"><span class="sdot good"></span> settled</td><td>1,000</td><td class="note-cell" title="Legacy trade migrated from the retired ICE book — economics reconciled but the note field was never normalised, so it still carries free text.">Legacy trade migrated from the retired ICE book — economics reconciled but the note field was never normalised, so it still carries free text.<span class="exp">⤢</span></td><td class="">254,328,055.39</td><td class="neg">−2,397.06</td><td class="neg">−23,733.44</td><td class="">24,008.01</td><td class="">27,315.13</td><td class="zero">0.00</td><td class="neg">−15,048.34</td><td class="">73,396.57</td><td class="">54,278.17</td><td class="">161,923.58</td><td class="">5,068.34</td><td class="">38,606.33</td><td class="">284,829.04</td><td class="neg">−382.28</td><td class="neg">−11,842.33</td><td class="neg">−7,268.88</td><td class="">23,878.22</td><td class="">263,266,732.31</td><td class="neg">−5,369.03</td><td class="tail">…</td></tr>
+          <tr><td class="stk c-rn l">3</td><td class="stk c-id l">RT-40118824</td><td class="l">CREDIT-HY</td><td class="l">LDN-CREDIT</td><td class="l">JPY</td><td class="l">8I5DZW…NY04</td><td class="l"><span class="masked">••••••••••</span> <span class="lockglyph" style="color:var(--t3)"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></td><td class="l"><span class="sdot warn"></span> pending</td><td>1,500</td><td class="note-cell" title="Novation pending counterparty consent; do not net against the sibling leg.">Novation pending counterparty consent; do not net against the sibling leg.<span class="exp">⤢</span></td><td class="">76,881,861.66</td><td class="neg">−20,961.86</td><td class="">89,843.30</td><td class="zero">0.00</td><td class="neg">−15,444.48</td><td class="">88,843.19</td><td class="neg">−65,959.75</td><td class="zero">0.00</td><td class="">137,919.38</td><td class="">55,510.74</td><td class="neg">−24,350.98</td><td class="neg">−128,334.47</td><td class="">207,228.32</td><td class="">9,741.96</td><td class="neg">−7,337.17</td><td class="">32,787.52</td><td class="neg">−3,918.15</td><td class="">79,518,972.97</td><td class="neg">−4,217.79</td><td class="tail">…</td></tr>
+          <tr><td class="stk c-rn l">4</td><td class="stk c-id l">RT-40118825</td><td class="l">INFL-EUR</td><td class="l">NYC-CREDIT</td><td class="l">CHF</td><td class="l">213800…ZH02</td><td class="l"><span class="masked">••••••••••</span> <span class="lockglyph" style="color:var(--t3)"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></td><td class="l"><span class="sdot good"></span> settled</td><td class="unparsed">"TBC"</td><td class="note-cell" title="Hedge designation: fair-value, ASC 815. Effectiveness tested monthly.">Hedge designation: fair-value, ASC 815. Effectiveness tested monthly.<span class="exp">⤢</span></td><td class="">167,078,986.45</td><td class="">10,445.00</td><td class="zero">0.00</td><td class="neg">−25,551.06</td><td class="neg">−875.90</td><td class="">34,305.56</td><td class="">196,090.31</td><td class="">90,841.85</td><td class="">282,034.46</td><td class="">96,245.78</td><td class="">171,868.81</td><td class="neg">−24,671.27</td><td class="">279,657.95</td><td class="">4,519.37</td><td class="neg">−12,632.07</td><td class="">24,212.42</td><td class="neg">−21,200.82</td><td class="">166,835,877.69</td><td class="">3,000.88</td><td class="tail">…</td></tr>
+          <tr><td class="stk c-rn l">5</td><td class="stk c-id l">RT-40118826</td><td class="l">XCCY-USD</td><td class="l">FRA-INFL</td><td class="l">USD</td><td class="l">549300…SG01</td><td class="l"><span class="masked">••••••••••</span> <span class="lockglyph" style="color:var(--t3)"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></td><td class="l"><span class="sdot good"></span> settled</td><td class="unparsed">"N/A"</td><td class="note-cell" title="Collateral disputed 2026-08-12 · 4.1m gap under review by the margin desk.">Collateral disputed 2026-08-12 · 4.1m gap under review by the margin desk.<span class="exp">⤢</span></td><td class="">148,939,395.47</td><td class="">26,779.93</td><td class="">27,060.25</td><td class="zero">0.00</td><td class="">72,790.70</td><td class="neg">−49,763.47</td><td class="neg">−37,255.99</td><td class="">67,511.51</td><td class="neg">−84,381.95</td><td class="">209,029.10</td><td class="">339,350.68</td><td class="neg">−91,786.03</td><td class="neg">−103,696.94</td><td class="zero">0.00</td><td class="zero">0.00</td><td class="">35,907.83</td><td class="neg">−31,320.45</td><td class="">141,758,177.70</td><td class="neg">−6,012.96</td><td class="tail">…</td></tr>
+          <tr><td class="stk c-rn l">6</td><td class="stk c-id l">RT-40118827</td><td class="l">VOL-RATES</td><td class="l">SGP-XCCY</td><td class="l">EUR</td><td class="l">7LTWFZ…FR01</td><td class="l"><span class="masked">••••••••••</span> <span class="lockglyph" style="color:var(--t3)"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></td><td class="l"><span class="sdot warn"></span> pending</td><td>50,000</td><td class="note-cell nullc">— empty<span class="exp">⤢</span></td><td class="">265,893,412.41</td><td class="">38,538.09</td><td class="">22,757.60</td><td class="neg">−29,848.64</td><td class="neg">−49,255.61</td><td class="">57,464.01</td><td class="">133,369.16</td><td class="">123,731.49</td><td class="zero">0.00</td><td class="">18,271.68</td><td class="neg">−27,319.26</td><td class="">340,362.42</td><td class="">104,315.54</td><td class="">2,010.73</td><td class="neg">−3,608.76</td><td class="">48,713.57</td><td class="">78,806.13</td><td class="">270,095,574.46</td><td class="">2,394.97</td><td class="tail">…</td></tr>
+          <tr><td class="stk c-rn l">7</td><td class="stk c-id l">RT-40118828</td><td class="l">RATES-G10</td><td class="l">LDN-RATES</td><td class="l">USD</td><td class="l">IGJSJL…NY02</td><td class="l"><span class="masked">••••••••••</span> <span class="lockglyph" style="color:var(--t3)"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></td><td class="l"><span class="sdot good"></span> settled</td><td>300,000</td><td class="note-cell" title="Client-facing structured note wrapper; risk booked here, cashflows in the SPV book.">Client-facing structured note wrapper; risk booked here, cashflows in the SPV book.<span class="exp">⤢</span></td><td class="">51,872,494.55</td><td class="neg">−17,713.63</td><td class="">90,534.20</td><td class="neg">−24,907.72</td><td class="">143,058.35</td><td class="">31,956.47</td><td class="">125,414.74</td><td class="">202,934.48</td><td class="">23,998.01</td><td class="">8,251.31</td><td class="">201,934.86</td><td class="">49,994.05</td><td class="">174,044.46</td><td class="">4,334.11</td><td class="">30,291.26</td><td class="">46,331.56</td><td class="">91,971.20</td><td class="">49,495,314.35</td><td class="">11,556.14</td><td class="tail">…</td></tr>
+          <tr><td class="stk c-rn l">8</td><td class="stk c-id l">RT-40118829</td><td class="l">CREDIT-IG</td><td class="l">NYC-RATES</td><td class="l">USD</td><td class="l">K6Q0W1…TK07</td><td class="l"><span class="masked">••••••••••</span> <span class="lockglyph" style="color:var(--t3)"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></td><td class="l"><span class="sdot good"></span> settled</td><td>10,000</td><td class="note-cell" title="Bilateral CSA, USD cash only; threshold 0 · MTA 250k. Recouponed 2026-05-11 after the annex rewrite.">Bilateral CSA, USD cash only; threshold 0 · MTA 250k. Recouponed 2026-05-11 after the annex rewrite.<span class="exp">⤢</span></td><td class="">396,447,189.64</td><td class="neg">−4,853.34</td><td class="zero">0.00</td><td class="">36,221.14</td><td class="neg">−17,206.44</td><td class="">22,415.69</td><td class="">79,328.47</td><td class="">173,086.85</td><td class="">209,260.58</td><td class="neg">−75,254.49</td><td class="">223,199.68</td><td class="">102,286.79</td><td class="">371,585.72</td><td class="">9,193.78</td><td class="">31,927.97</td><td class="">18,216.36</td><td class="neg">−6,898.91</td><td class="">414,836,360.78</td><td class="">16,001.64</td><td class="tail">…</td></tr>
+          <tr><td class="stk c-rn l">9</td><td class="stk c-id l">RT-40118830</td><td class="l">RATES-EM</td><td class="l">HKG-RATES</td><td class="l">EUR</td><td class="l">3M5E1G…MI03</td><td class="l"><span class="masked">••••••••••</span> <span class="lockglyph" style="color:var(--t3)"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></td><td class="l"><span class="sdot warn"></span> pending</td><td>2,500</td><td class="note-cell" title="Cleared LCH SwapClear; PAI on SOFR. No independent amount.">Cleared LCH SwapClear; PAI on SOFR. No independent amount.<span class="exp">⤢</span></td><td class="neg">−9,620,498.74</td><td class="neg">−13,884.77</td><td class="">90,080.78</td><td class="">446.32</td><td class="neg">−52,291.14</td><td class="neg">−57,574.64</td><td class="">49,255.43</td><td class="">230,051.74</td><td class="">238,966.60</td><td class="neg">−98,045.38</td><td class="">205,948.89</td><td class="">111,250.89</td><td class="">366,218.92</td><td class="">12,433.22</td><td class="">36,868.36</td><td class="">38,295.52</td><td class="">22,862.66</td><td class="neg">−10,082,771.02</td><td class="">12,650.08</td><td class="tail">…</td></tr>
+          <tr><td class="stk c-rn l">10</td><td class="stk c-id l">RT-40118831</td><td class="l">XCCY-USD</td><td class="l">LDN-CREDIT</td><td class="l">GBP</td><td class="l">549300…NY01</td><td class="l"><span class="masked">••••••••••</span> <span class="lockglyph" style="color:var(--t3)"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></td><td class="l"><span class="sdot good"></span> settled</td><td class="nullc">— null</td><td class="note-cell" title="Legacy trade migrated from the retired ICE book — economics reconciled but the note field was never normalised, so it still carries free text.">Legacy trade migrated from the retired ICE book — economics reconciled but the note field was never normalised, so it still carries free text.<span class="exp">⤢</span></td><td class="">144,559,904.32</td><td class="neg">−222.42</td><td class="">87,323.20</td><td class="">59,564.82</td><td class="neg">−25,352.08</td><td class="">3,551.86</td><td class="">46,116.62</td><td class="neg">−88,580.86</td><td class="zero">0.00</td><td class="">287,850.47</td><td class="">351,892.11</td><td class="neg">−87,418.60</td><td class="">383,498.10</td><td class="">19,647.25</td><td class="">8,607.07</td><td class="">20,829.56</td><td class="">81,423.54</td><td class="">153,176,015.52</td><td class="">11,120.49</td><td class="tail">…</td></tr>
+          <tr><td class="stk c-rn l">11</td><td class="stk c-id l">RT-40118832</td><td class="l">INFL-EUR</td><td class="l">NYC-CREDIT</td><td class="l">JPY</td><td class="l">MP6I5Z…LN01</td><td class="l"><span class="masked">••••••••••</span> <span class="lockglyph" style="color:var(--t3)"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></td><td class="l"><span class="sdot good"></span> settled</td><td>75,000</td><td class="note-cell" title="Novation pending counterparty consent; do not net against the sibling leg.">Novation pending counterparty consent; do not net against the sibling leg.<span class="exp">⤢</span></td><td class="">203,346,397.35</td><td class="neg">−10,513.62</td><td class="neg">−29,689.23</td><td class="neg">−5,443.19</td><td class="">13,484.95</td><td class="">93,443.43</td><td class="">143,258.98</td><td class="">87,496.37</td><td class="neg">−24,172.22</td><td class="">77,645.83</td><td class="">74,289.10</td><td class="neg">−52,402.94</td><td class="">212,462.43</td><td class="">8,029.68</td><td class="">20,935.64</td><td class="neg">−2,370.14</td><td class="">69,953.50</td><td class="">199,495,747.38</td><td class="">2,332.27</td><td class="tail">…</td></tr>
+          <tr><td class="stk c-rn l">12</td><td class="stk c-id l">RT-40118833</td><td class="l">RATES-G10</td><td class="l">FRA-INFL</td><td class="l">CHF</td><td class="l">R0MUWS…PA03</td><td class="l"><span class="masked">••••••••••</span> <span class="lockglyph" style="color:var(--t3)"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></td><td class="l"><span class="sdot warn"></span> pending</td><td>2,500</td><td class="note-cell" title="Hedge designation: fair-value, ASC 815. Effectiveness tested monthly.">Hedge designation: fair-value, ASC 815. Effectiveness tested monthly.<span class="exp">⤢</span></td><td class="">294,304,355.88</td><td class="neg">−13,154.20</td><td class="neg">−15,909.41</td><td class="">21,881.61</td><td class="">146,376.50</td><td class="">115,494.26</td><td class="">112,002.79</td><td class="neg">−56,843.40</td><td class="">38,628.29</td><td class="">44,642.84</td><td class="">180,925.15</td><td class="">389,255.88</td><td class="">310,413.91</td><td class="neg">−6,978.15</td><td class="">21,033.79</td><td class="">19,781.77</td><td class="neg">−18,313.23</td><td class="">282,692,149.29</td><td class="">997.50</td><td class="tail">…</td></tr>
+          <tr><td class="stk c-rn l">13</td><td class="stk c-id l">RT-40118834</td><td class="l">RATES-EM</td><td class="l">SGP-XCCY</td><td class="l">USD</td><td class="l">8I5DZW…NY04</td><td class="l"><span class="masked">••••••••••</span> <span class="lockglyph" style="color:var(--t3)"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></td><td class="l"><span class="sdot good"></span> settled</td><td>250</td><td class="note-cell" title="Collateral disputed 2026-08-12 · 4.1m gap under review by the margin desk.">Collateral disputed 2026-08-12 · 4.1m gap under review by the margin desk.<span class="exp">⤢</span></td><td class="neg">−70,766,700.36</td><td class="neg">−14,713.94</td><td class="">16,525.53</td><td class="">16,212.39</td><td class="">24,447.49</td><td class="neg">−56,604.51</td><td class="">45,166.59</td><td class="">38,638.52</td><td class="">135,774.07</td><td class="">233,173.52</td><td class="neg">−84,068.54</td><td class="">324,517.76</td><td class="">388,500.91</td><td class="neg">−2,028.85</td><td class="">4,853.89</td><td class="">1,804.85</td><td class="">61,383.82</td><td class="neg">−75,111,311.27</td><td class="neg">−5,274.95</td><td class="tail">…</td></tr>
+          <tr><td class="stk c-rn l">14</td><td class="stk c-id l">RT-40118835</td><td class="l">CREDIT-IG</td><td class="l">LDN-RATES</td><td class="l">EUR</td><td class="l">213800…ZH02</td><td class="l"><span class="masked">••••••••••</span> <span class="lockglyph" style="color:var(--t3)"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></td><td class="l"><span class="sdot good"></span> settled</td><td>2,400,000</td><td class="note-cell nullc">— empty<span class="exp">⤢</span></td><td class="">246,950,907.00</td><td class="">40,983.56</td><td class="">58,176.74</td><td class="">14,026.34</td><td class="neg">−53,375.87</td><td class="">98,354.17</td><td class="neg">−8,247.44</td><td class="">141,700.39</td><td class="">157,337.20</td><td class="">119,769.05</td><td class="">356,945.55</td><td class="">232,708.49</td><td class="zero">0.00</td><td class="">10,577.27</td><td class="neg">−155.97</td><td class="neg">−18,604.29</td><td class="">14,773.37</td><td class="">240,188,247.59</td><td class="">27,051.17</td><td class="tail">…</td></tr>
+          <tr><td class="stk c-rn l">15</td><td class="stk c-id l">RT-40118836</td><td class="l">CREDIT-HY</td><td class="l">NYC-RATES</td><td class="l">USD</td><td class="l">549300…SG01</td><td class="l"><span class="masked">••••••••••</span> <span class="lockglyph" style="color:var(--t3)"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></td><td class="l"><span class="sdot warn"></span> pending</td><td>3,600,000</td><td class="note-cell" title="Client-facing structured note wrapper; risk booked here, cashflows in the SPV book.">Client-facing structured note wrapper; risk booked here, cashflows in the SPV book.<span class="exp">⤢</span></td><td class="">88,694,673.76</td><td class="">47,557.17</td><td class="">23,237.39</td><td class="">49,355.59</td><td class="">149,414.58</td><td class="">176,085.97</td><td class="">215,908.74</td><td class="">98,462.47</td><td class="">66,909.84</td><td class="">11,012.25</td><td class="">25,608.56</td><td class="">117,927.24</td><td class="">382,726.91</td><td class="zero">0.00</td><td class="">30,485.79</td><td class="">33,299.64</td><td class="">53,941.37</td><td class="">87,006,701.03</td><td class="">5,796.72</td><td class="tail">…</td></tr>
+          <tr><td class="stk c-rn l">16</td><td class="stk c-id l">RT-40118837</td><td class="l">INFL-EUR</td><td class="l">HKG-RATES</td><td class="l">USD</td><td class="l">7LTWFZ…FR01</td><td class="l"><span class="masked">••••••••••</span> <span class="lockglyph" style="color:var(--t3)"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></td><td class="l"><span class="sdot good"></span> settled</td><td>10,000</td><td class="note-cell" title="Bilateral CSA, USD cash only; threshold 0 · MTA 250k. Recouponed 2026-05-11 after the annex rewrite.">Bilateral CSA, USD cash only; threshold 0 · MTA 250k. Recouponed 2026-05-11 after the annex rewrite.<span class="exp">⤢</span></td><td class="neg">−105,323,071.81</td><td class="">13,790.77</td><td class="">89,631.25</td><td class="">44,923.44</td><td class="">99,485.66</td><td class="">186,510.35</td><td class="">104,600.57</td><td class="">127,125.57</td><td class="neg">−21,843.37</td><td class="">117,590.81</td><td class="">88,488.36</td><td class="">103,348.88</td><td class="">184,436.24</td><td class="">15,405.61</td><td class="">43,859.49</td><td class="">42,324.77</td><td class="neg">−18,450.08</td><td class="neg">−109,742,443.31</td><td class="">15,305.26</td><td class="tail">…</td></tr>
+          <tr><td class="stk c-rn l">17</td><td class="stk c-id l">RT-40118838</td><td class="l">XCCY-USD</td><td class="l">LDN-CREDIT</td><td class="l">EUR</td><td class="l">IGJSJL…NY02</td><td class="l"><span class="masked">••••••••••</span> <span class="lockglyph" style="color:var(--t3)"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></td><td class="l"><span class="sdot good"></span> settled</td><td class="unparsed">"12k"</td><td class="note-cell" title="Cleared LCH SwapClear; PAI on SOFR. No independent amount.">Cleared LCH SwapClear; PAI on SOFR. No independent amount.<span class="exp">⤢</span></td><td class="">6,947,214.63</td><td class="">24,756.12</td><td class="">46,935.78</td><td class="neg">−11,812.39</td><td class="">154,647.08</td><td class="zero">0.00</td><td class="neg">−60,285.99</td><td class="">57,794.71</td><td class="neg">−61,594.82</td><td class="neg">−81,691.63</td><td class="">200,983.18</td><td class="">195,777.01</td><td class="">125,229.12</td><td class="">2,507.91</td><td class="">34,410.10</td><td class="neg">−12,426.84</td><td class="">46,251.65</td><td class="">6,722,898.83</td><td class="">6,909.48</td><td class="tail">…</td></tr>
+          <tr><td class="stk c-rn l">18</td><td class="stk c-id l">RT-40118839</td><td class="l">VOL-RATES</td><td class="l">NYC-CREDIT</td><td class="l">GBP</td><td class="l">K6Q0W1…TK07</td><td class="l"><span class="masked">••••••••••</span> <span class="lockglyph" style="color:var(--t3)"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></td><td class="l"><span class="sdot warn"></span> pending</td><td class="unparsed">"~500"</td><td class="note-cell" title="Legacy trade migrated from the retired ICE book — economics reconciled but the note field was never normalised, so it still carries free text.">Legacy trade migrated from the retired ICE book — economics reconciled but the note field was never normalised, so it still carries free text.<span class="exp">⤢</span></td><td class="">312,200,243.16</td><td class="">31,946.27</td><td class="">8,302.79</td><td class="">82,812.42</td><td class="">36,145.62</td><td class="neg">−42,053.21</td><td class="neg">−54,903.31</td><td class="">106,216.54</td><td class="">167,380.68</td><td class="">225,805.09</td><td class="neg">−22,169.17</td><td class="neg">−93,480.25</td><td class="">265,959.63</td><td class="">702.58</td><td class="">5,853.42</td><td class="">9,545.75</td><td class="">57,106.98</td><td class="">330,748,796.68</td><td class="">28,486.31</td><td class="tail">…</td></tr>
+          <tr><td class="stk c-rn l">19</td><td class="stk c-id l">RT-40118840</td><td class="l">RATES-G10</td><td class="l">FRA-INFL</td><td class="l">JPY</td><td class="l">3M5E1G…MI03</td><td class="l"><span class="masked">••••••••••</span> <span class="lockglyph" style="color:var(--t3)"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></td><td class="l"><span class="sdot good"></span> settled</td><td>300,000</td><td class="note-cell" title="Novation pending counterparty consent; do not net against the sibling leg.">Novation pending counterparty consent; do not net against the sibling leg.<span class="exp">⤢</span></td><td class="">153,629,772.28</td><td class="">16,120.35</td><td class="">88,953.51</td><td class="">43,699.84</td><td class="zero">0.00</td><td class="">108,279.60</td><td class="">163,074.58</td><td class="">37,960.58</td><td class="neg">−41,042.11</td><td class="neg">−35,854.08</td><td class="">94,033.24</td><td class="">290,940.12</td><td class="neg">−115,084.67</td><td class="zero">0.00</td><td class="">34,596.26</td><td class="">28,752.65</td><td class="">36,318.26</td><td class="">149,877,173.17</td><td class="neg">−6,438.78</td><td class="tail">…</td></tr>
+          <tr><td class="stk c-rn l">20</td><td class="stk c-id l">RT-40118841</td><td class="l">CREDIT-IG</td><td class="l">SGP-XCCY</td><td class="l">CHF</td><td class="l">549300…NY01</td><td class="l"><span class="masked">••••••••••</span> <span class="lockglyph" style="color:var(--t3)"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></td><td class="l"><span class="sdot good"></span> settled</td><td>250</td><td class="note-cell" title="Hedge designation: fair-value, ASC 815. Effectiveness tested monthly.">Hedge designation: fair-value, ASC 815. Effectiveness tested monthly.<span class="exp">⤢</span></td><td class="">212,550,585.43</td><td class="">39,409.11</td><td class="neg">−1,733.72</td><td class="">86,086.55</td><td class="">108,494.85</td><td class="">20,361.28</td><td class="">125,487.66</td><td class="">96,855.47</td><td class="">176,343.05</td><td class="">66,198.86</td><td class="">196,383.62</td><td class="">287,810.17</td><td class="">359,411.83</td><td class="">11,316.12</td><td class="">26,779.13</td><td class="">14,465.53</td><td class="neg">−14,348.56</td><td class="">227,180,729.04</td><td class="">4,865.61</td><td class="tail">…</td></tr>
+          <tr><td class="stk c-rn l">21</td><td class="stk c-id l">RT-40118842</td><td class="l">RATES-EM</td><td class="l">LDN-RATES</td><td class="l">USD</td><td class="l">MP6I5Z…LN01</td><td class="l"><span class="masked">••••••••••</span> <span class="lockglyph" style="color:var(--t3)"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></td><td class="l"><span class="sdot warn"></span> pending</td><td>2,500</td><td class="note-cell" title="Collateral disputed 2026-08-12 · 4.1m gap under review by the margin desk.">Collateral disputed 2026-08-12 · 4.1m gap under review by the margin desk.<span class="exp">⤢</span></td><td class="">73,748,421.83</td><td class="">1,197.25</td><td class="">26,639.90</td><td class="">7,525.24</td><td class="">141,770.05</td><td class="zero">0.00</td><td class="">67,377.49</td><td class="">18,561.36</td><td class="">39,308.94</td><td class="">149,051.51</td><td class="">120,174.62</td><td class="">334,465.30</td><td class="">371,992.79</td><td class="">10,914.65</td><td class="">17,294.39</td><td class="">20,092.13</td><td class="">88,377.89</td><td class="">76,721,843.96</td><td class="neg">−6,982.26</td><td class="tail">…</td></tr>
+          <tr><td class="stk c-rn l">22</td><td class="stk c-id l">RT-40118843</td><td class="l">XCCY-USD</td><td class="l">NYC-RATES</td><td class="l">EUR</td><td class="l">R0MUWS…PA03</td><td class="l"><span class="masked">••••••••••</span> <span class="lockglyph" style="color:var(--t3)"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></td><td class="l"><span class="sdot good"></span> settled</td><td>50,000</td><td class="note-cell nullc">— empty<span class="exp">⤢</span></td><td class="neg">−118,816,208.68</td><td class="">43,914.83</td><td class="">33,688.45</td><td class="">2,600.97</td><td class="">85,493.81</td><td class="neg">−64,380.64</td><td class="">34,111.52</td><td class="">158,138.03</td><td class="neg">−40,058.47</td><td class="">27,356.96</td><td class="">293,982.91</td><td class="">198,862.89</td><td class="">4,140.08</td><td class="neg">−3,225.60</td><td class="neg">−15,318.90</td><td class="">52,294.89</td><td class="neg">−22,440.08</td><td class="neg">−122,754,725.38</td><td class="neg">−6,783.56</td><td class="tail">…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="gridfoot">
+      <span>Showing <b class="mono">1–22</b> of <b class="mono">1,204,880</b></span>
+      <span class="mono">· query 118ms</span>
+      <span class="mono">· <span class="lockglyph" style="color:var(--t3);vertical-align:-1px"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span> 1 masked</span>
+      <span class="mono">· row height fixed 26px</span>
+      <span class="pg">
+        <button class="pgbtn">‹</button><button class="pgbtn on">1</button><button class="pgbtn">2</button>
+        <button class="pgbtn">3</button><button class="pgbtn">…</button><button class="pgbtn" style="width:auto;padding:0 5px">54,767</button><button class="pgbtn">›</button>
+      </span>
+    </div>
+  </div>
+
+  <!-- ---------- DOCK · lens ---------- -->
+  <div class="col dock">
+    <div class="colhead">
+      <span class="t">Lens</span>
+      <span class="spacer"></span>
+      <span class="mono" style="font-size:10px;color:var(--t3)">EOD Risk Exposure — Rates</span>
+    </div>
+    <div class="lenstabs">
+      <span class="ltab">Overview</span><span class="ltab">Quality</span><span class="ltab">Versions</span>
+      <span class="ltab on">Analytics</span><span class="ltab">Relations</span><span class="ltab">Transform</span><span class="ltab">Library</span>
+    </div>
+
+    <div class="dockbody">
+
+      <!-- R11 -->
+      <div class="sect">
+        <div class="h">Mixed-type column <span class="line"></span><span class="rtag">R11</span></div>
+        <div class="card">
+          <div class="top">
+            <span class="cname" title="quantity">quantity</span><span class="ord">⟨8⟩</span>
+            <span class="tchip mix">int64 · 80%</span>
+            <span class="right">1,204,880 rows</span>
+          </div>
+          <div class="covbar" role="img" aria-label="80.4% parsed int64, 14.9% unparsed text, 4.7% null">
+            <span class="parsed" style="width:80.4%"></span>
+            <span class="unp" style="width:14.9%"></span>
+            <span class="nul" style="flex:1"></span>
+          </div>
+          <div class="covkey">
+            <span class="ki"><span class="sw" style="background:var(--m2)"></span>parsed int64 80.4%</span>
+            <span class="ki"><span class="sw" style="background:var(--m5);background-image:repeating-linear-gradient(135deg,rgba(255,255,255,.16) 0 1px,transparent 1px 5px)"></span>unparsed text 14.9%</span>
+            <span class="ki"><span class="sw" style="background:var(--s4)"></span>null 4.7%</span>
+          </div>
+          <div class="statrow">
+            <span class="l">sum</span><span class="v">4,118,204,660 <span class="den">over 80.4% · 968,725 rows</span></span>
+            <span class="l">mean</span><span class="v">4,251.13 <span class="den">over 80.4% · 968,725 rows</span></span>
+            <span class="l">p50</span><span class="v">1,000 <span class="den">over 80.4%</span></span>
+            <span class="l">max</span><span class="v">2,400,000 <span class="den">over 80.4%</span></span>
+            <span class="l">unparsed</span><span class="v" style="color:var(--t2)">"N/A" · "1,204" · "12k" · "~500" · "TBC"</span>
+          </div>
+          <div class="warnline">
+            <span>⌁</span>
+            <span>Every statistic prints its denominator. <b>An aggregate that silently narrows its denominator</b> is the one failure mode that produces a wrong number a human acts on — the unqualified <span class="mono">sum</span> here would have dropped <b>19.6%</b> of rows.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- R4 -->
+      <div class="sect">
+        <div class="h">Identity panel <span class="line"></span><span class="rtag">R4</span></div>
+        <div class="card">
+          <div class="top">
+            <span class="cname" title="instrument_id">instrument_id</span><span class="ord">⟨1⟩</span>
+            <span class="tchip">string</span>
+            <span class="right">100.0% distinct</span>
+          </div>
+          <div class="idrow">
+            <span class="l">distinct</span><span class="v">1,204,880 / 1,204,880 · 100.0%</span>
+            <span class="l">null</span><span class="v">0</span>
+            <span class="l">length</span><span class="v">11 · fixed</span>
+            <span class="l">charset</span><span class="v">[A-Z]{2}-[0-9]{8} · 100% conforming</span>
+            <span class="l">sample</span><span class="v">RT-40118822 · RT-40118823 · RT-40118824</span>
+            <span class="l"></span><span class="v">RT-40118825 · RT-40118826</span>
+          </div>
+          <div class="supp">
+            <span><b>Distribution suppressed, not omitted.</b> Above <b>95% distinct</b> a top-values chart is meaningless —
+            every bar would be one row. Suppression is stated here because a column with no card reads as a column with no problem.</span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="top">
+            <span class="cname" title="portfolio_note">portfolio_note</span><span class="ord">⟨9⟩</span>
+            <span class="tchip">text</span><span class="right">99.4% distinct</span>
+          </div>
+          <div class="ml" style="color:var(--t3)">Length distribution — 0 to 1,412 chars</div>
+          <div class="lenbars" role="img" aria-label="Length distribution of portfolio_note, peak near 118 characters">
+            <i style="height:14%"></i><i style="height:38%"></i><i style="height:72%"></i><i style="height:100%"></i>
+            <i style="height:81%"></i><i style="height:54%"></i><i style="height:33%"></i><i style="height:21%"></i>
+            <i style="height:12%"></i><i style="height:8%"></i><i style="height:5%"></i><i style="height:3%"></i>
+            <i style="height:2%"></i><i style="height:2%"></i><i style="height:6%"></i>
+          </div>
+          <div class="covkey" style="margin-top:5px"><span class="ki mono">0</span><span class="ki" style="margin-left:auto">p50 <b style="color:var(--t1)">118</b></span><span class="ki mono" style="margin-left:auto">1,412 · a paragraph</span></div>
+        </div>
+        <div class="supp" style="margin-bottom:2px">
+          <span><b>2 of 183</b> columns have their distribution suppressed by R4:
+          <span class="mono" style="color:var(--t2)">instrument_id ⟨1⟩</span>, <span class="mono" style="color:var(--t2)">portfolio_note ⟨9⟩</span>.</span>
+        </div>
+      </div>
+
+      <!-- R7 -->
+      <div class="sect">
+        <div class="h">Top-8 fold <span class="line"></span><span class="rtag">R7</span></div>
+        <div class="card">
+          <div class="top">
+            <span class="cname" title="counterparty_lei">counterparty_lei</span><span class="ord">⟨5⟩</span>
+            <span class="right">500 distinct</span>
+          </div>
+          <div class="foldbar" role="img" aria-label="Top 8 counterparties by share, with a graphite Other residual of 61.2%">
+            <span style="width:7.8%;background:var(--viz-1)"></span><span style="width:6.4%;background:var(--viz-2)"></span>
+            <span style="width:5.9%;background:var(--viz-3)"></span><span style="width:5.1%;background:var(--viz-4)"></span>
+            <span style="width:4.4%;background:var(--viz-5)"></span><span style="width:3.6%;background:var(--viz-6)"></span>
+            <span style="width:3.1%;background:var(--viz-7)"></span><span style="width:2.5%;background:var(--viz-8)"></span>
+            <span style="flex:1;background:var(--graphite);box-shadow:inset 0 0 0 1px var(--graphite-line)"></span>
+          </div>
+          <div class="legend">
+            <span class="lgi"><span class="sw" style="background:var(--viz-1)"></span><span class="lb">549300NEU…NY01</span><span class="pc">7.8%</span></span>
+            <span class="lgi"><span class="sw" style="background:var(--viz-5)"></span><span class="lb">213800UBS…ZH02</span><span class="pc">4.4%</span></span>
+            <span class="lgi"><span class="sw" style="background:var(--viz-2)"></span><span class="lb">MP6I5ZYZB…LN01</span><span class="pc">6.4%</span></span>
+            <span class="lgi"><span class="sw" style="background:var(--viz-6)"></span><span class="lb">549300SCB…SG01</span><span class="pc">3.6%</span></span>
+            <span class="lgi"><span class="sw" style="background:var(--viz-3)"></span><span class="lb">R0MUWSFP…PA03</span><span class="pc">5.9%</span></span>
+            <span class="lgi"><span class="sw" style="background:var(--viz-7)"></span><span class="lb">7LTWFZYI…FR01</span><span class="pc">3.1%</span></span>
+            <span class="lgi"><span class="sw" style="background:var(--viz-4)"></span><span class="lb">8I5DZWZK…NY04</span><span class="pc">5.1%</span></span>
+            <span class="lgi"><span class="sw" style="background:var(--viz-8)"></span><span class="lb">IGJSJL3JD…NY02</span><span class="pc">2.5%</span></span>
+            <span class="lgi tail-i"><span class="sw"></span><span class="lb">Other · 492 values</span><span class="pc">61.2% · 737,387 rows</span></span>
+          </div>
+          <div class="supp" style="margin-top:8px">
+            <span>Slots are assigned by <b>rank</b>, never cycled, so slot 1 is always the largest and a hue means the same
+            thing in every chart of this column. <b>Other is graphite</b> — a residual, not a category. Labels sit in ink
+            beside a swatch, never in the series hue: <span class="mono" style="color:var(--t2)">--viz-6 #747c04</span> measures
+            <b>3.82:1</b> on this card, and only <b>5 of the 8 slots</b> clear 4.5:1 as text — so no label ever wears one.</span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="top"><span class="cname" title="trade_status">trade_status</span><span class="ord">⟨7⟩</span><span class="right">2 distinct · R7 floor</span></div>
+          <div class="ratio" role="img" aria-label="settled 71.4%, pending 28.6%">
+            <span style="width:71.4%;background:var(--m2)"></span><span style="flex:1;background:var(--m5)"></span>
+          </div>
+          <div class="covkey" style="margin-top:6px">
+            <span class="ki"><span class="sdot good"></span>settled 71.4%</span>
+            <span class="ki"><span class="sdot warn"></span>pending 28.6%</span>
+            <span class="ki" style="margin-left:auto">below 3 distinct a bar chart is a ratio</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- R5 / R6 -->
+      <div class="sect">
+        <div class="h">Capability gate <span class="line"></span><span class="rtag">R5 · R6</span></div>
+        <div class="card">
+          <div class="ml" style="color:var(--t3);margin-bottom:2px">Candidate sets, computed before any chart is offered</div>
+          <div class="shelf"><span class="lb">dimension</span><span>4 of 183 · book, desk, ccy, trade_status</span></div>
+          <div class="shelf"><span class="lb">measure</span><span>175 · 174 float + quantity ⟨8⟩ at 80%</span></div>
+          <div class="shelf empty"><span class="lb">temporal</span><span>0 · no column parses as a date</span></div>
+          <div class="shelf"><span class="lb">high-card</span><span>1 · counterparty_lei ⟨5⟩ · fold required</span></div>
+        </div>
+        <div class="card">
+          <div class="ml" style="color:var(--t3);margin-bottom:2px">Offered — every requirement met</div>
+          <div class="offer"><span class="n">01</span><span class="b"><span class="t">Correlation matrix</span><span class="d">174 × 174, coefficient only. Needs no dimension at all — and it is what this file is actually for.</span></span></div>
+          <div class="offer"><span class="n">02</span><span class="b"><span class="t">Quantile-binned dimension</span><span class="d">Bin a measure into ordered buckets to synthesise a dimension. Parameters visible, applied only on request: <span class="k">mtm_usd ⟨10⟩ → deciles (10) · equal-frequency</span>.</span></span></div>
+          <div class="offer"><span class="n">03</span><span class="b"><span class="t">Distribution comparison</span><span class="d">Small multiples of up to 12 measures on a shared axis — the replacement for a bar chart when there is nothing to group by.</span></span></div>
+          <div class="offer"><span class="n">04</span><span class="b"><span class="t">Column-set aggregate</span><span class="d"><span class="k">dv01_*</span> across 12 tenors is a term structure, not 12 unrelated numbers.</span></span></div>
+          <div class="offer"><span class="n">05</span><span class="b"><span class="t">Bar / stacked bar by dimension</span><span class="d">4 dimensions qualify. <span class="k">counterparty_lei ⟨5⟩</span> is offered only with the R7 fold attached.</span></span></div>
+        </div>
+        <div class="card">
+          <div class="ml" style="color:var(--t3);margin-bottom:4px">Withdrawn — requirement unmet, with the reason</div>
+          <div class="gated"><span class="x">✕</span><span class="cn2">Line chart</span><span>requires a temporal axis · 0 candidates</span></div>
+          <div class="gated"><span class="x">✕</span><span class="cn2">Area / cohort</span><span>requires a temporal axis · 0 candidates</span></div>
+          <div class="gated"><span class="x">✕</span><span class="cn2">Pivot table</span><span>requires 2 dimensions under 24 distinct · 4 qualify, but no measure of the pair is time-keyed</span></div>
+          <div class="gated"><span class="x">✕</span><span class="cn2">Donut</span><span>refused above 8 categories without a fold; offered folded instead</span></div>
+          <div class="supp" style="margin-top:7px"><span>The builder is <b>never opened empty</b>. R6's zero-dimension fallback is offered here as options 01–03 rather than forced, because <b>4 dimensions do exist</b>.</span></div>
+        </div>
+      </div>
+
+      <!-- governance -->
+      <div class="sect">
+        <div class="h">Access &amp; governance <span class="line"></span></div>
+        <div class="qlist">
+          <div class="qitem"><span class="ic warn">&#128274;</span><div><div class="qn">Column sensitivity → masking</div><div class="qd"><span class="mono">counterparty_name ⟨6⟩</span> · sensitivity: pii — masked in the grid, in the profile and in every export</div></div><span class="qv" style="color:var(--st-warn)">1 col</span></div>
+          <div class="qitem"><span class="ic warn">&#128274;</span><div><div class="qn">Your role: viewer</div><div class="qd">read · no unmask · no raw export</div></div><span class="qv" style="color:var(--st-warn)">scoped</span></div>
+          <div class="qitem"><span class="ic good">✓</span><div><div class="qn">Row access: team-locked</div><div class="qd">rates-credit-risk members only</div></div><span class="qv" style="color:var(--st-good)">RBAC</span></div>
+          <div class="qitem"><span class="ic crit">✕</span><div><div class="qn">Raw egress gate</div><div class="qd">download · SQL · transform preview · join</div></div><span class="qv" style="color:var(--st-crit)">DENY</span></div>
+          <div class="qitem"><span class="ic" style="background:var(--muted);color:var(--t3)">#</span><div><div class="qn">Undeclared columns</div><div class="qd">174 columns have no declared sensitivity — nothing is auto-detected, so they are never masked</div></div><span class="qv" style="color:var(--st-serious)">174</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="hintbar">
+      <span class="h"><span class="kbd">1</span>–<span class="kbd">7</span> lens</span>
+      <span class="h"><span class="kbd">⌘E</span> export lens</span>
+      <span class="h" style="margin-left:auto;color:var(--t3)">as-of v42</span>
+    </div>
+  </div>
+</div>
+
+<!-- ================= ADAPTATION REGISTER ================= -->
+<div class="register">
+  <div class="rhead">
+    <span class="t">What adapted</span>
+    <span class="v">9 <span style="font-size:11px;font-weight:500;color:var(--t3)">of 11 rules</span></span>
+    <span class="s">measured from this file, not configured. 1 partial · 2 did not fire.</span>
+  </div>
+  <div class="rgrid">
+    <div class="rc fired"><span class="rl1"><span class="id">R1</span><span class="st">fired</span></span><span class="why"><b>183 &gt; 30 cols</b> → rail is a manager: filter, 1 pin, <span class="k">10</span> prefix groups, coverage bars replace 174 repeat chips.</span></div>
+    <div class="rc fired"><span class="rl1"><span class="id">R2</span><span class="st">fired</span></span><span class="why">identity = <span class="k">instrument_id ⟨1⟩</span> (100% distinct, non-float) pinned; ruler marks cols <b>1–8 of 183</b>.</span></div>
+    <div class="rc fired"><span class="rl1"><span class="id">R3</span><span class="st">fired</span></span><span class="why"><b>95.1% ≥ 95%</b> float64 → one header strip; only the 9 exceptions keep a chip. Sign stays graphite.</span></div>
+    <div class="rc fired"><span class="rl1"><span class="id">R4</span><span class="st">fired</span></span><span class="why"><span class="k">instrument_id</span> 100% and <span class="k">portfolio_note</span> 99.4% distinct → identity panel; suppression <b>stated</b>.</span></div>
+    <div class="rc fired"><span class="rl1"><span class="id">R5</span><span class="st">fired</span></span><span class="why">candidates computed first — <b>4 dim / 175 meas / 0 temporal</b>; 4 charts withdrawn with a reason, none empty.</span></div>
+    <div class="rc part"><span class="rl1"><span class="id">R6</span><span class="st">partial</span></span><span class="why">dimensions are <b>not</b> zero (4 exist) → correlation and quantile-bin are <b>offers, not substitutes</b>.</span></div>
+    <div class="rc fired"><span class="rl1"><span class="id">R7</span><span class="st">fired</span></span><span class="why"><span class="k">counterparty_lei</span> 500 distinct → top 8 by rank + graphite Other <b>61.2%</b>; <span class="k">trade_status</span> 2 → ratio.</span></div>
+    <div class="rc"><span class="rl1"><span class="id">R8</span><span class="st">not fired</span></span><span class="why">183 columns, far above the 4-column floor — the rail stays a rail and the lens stays docked.</span></div>
+    <div class="rc"><span class="rl1"><span class="id">R9</span><span class="st">not fired</span></span><span class="why"><b>1,204,880 rows</b>. Every ratio on this screen has a non-zero denominator; none was printed from 0/0.</span></div>
+    <div class="rc fired"><span class="rl1"><span class="id">R10</span><span class="st">fired</span></span><span class="why">ordinal + name everywhere: <span class="k">mtm_usd ⟨10⟩</span> vs <span class="k">⟨27⟩</span>; 54-char name middle-truncates; row height fixed.</span></div>
+    <div class="rc fired"><span class="rl1"><span class="id">R11</span><span class="st">fired</span></span><span class="why"><span class="k">quantity ⟨8⟩</span> is 80.4% int64 → badge <span class="k">int64 · 80%</span>; every statistic carries that denominator.</span></div>
+    <div class="rc part"><span class="rl1"><span class="id">GOV</span><span class="st">held</span></span><span class="why">team-locked · role <b>viewer</b> · <span class="k">counterparty_name ⟨6⟩</span> masked everywhere. Adaptation never widens access.</span></div>
+  </div>
+</div>
+
+<!-- ================= STATUS BAR ================= -->
+<div class="statusbar">
+  <span class="h"><span class="kbd">P</span> pin column</span>
+  <span class="h"><span class="kbd">F</span> fold tail</span>
+  <span class="h"><span class="kbd">B</span> bin measure</span>
+  <span class="h"><span class="kbd">⌘K</span> commands</span>
+  <span class="gate">shape S1+S5+S6 · adaptive: 9 of 11 rules fired · no statistic on this screen is printed from a zero or narrowed denominator without saying so</span>
+  <span class="sclock"><span class="dot"></span><b>LIVE</b> · SYNC 16:41:07 ET</span>
+</div>
+
+</body>
+</html>

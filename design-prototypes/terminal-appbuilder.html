@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<!--
+DESIGN NOTES — Command Studio · App Builder, restyled into INSTRUMENT.
+Same screen, same regions, same content: floating navbar, centre Preview/Code with the device frame,
+AI-chat panel (reasoning + tool calls + "App updated"), version rail, build console, keyboard strip.
+
+A1 THE SIGNATURE MOMENT IS PROTECTED. The generated "Support Insights" app inside the device frame stays
+   LIGHT and untouched in layout and colour — the bright end-user app inside the dark power tool IS the
+   screen. The only edits inside the frame are contrast repairs on its own light surfaces (six ink values
+   that measured 2.6–4.4:1 on #fff now clear 4.5:1). Everything AROUND the frame was restyled; the frame
+   itself became a graphite raised surface so the light app reads as inset glass, not as a bordered box.
+A2 FLOATING PANELS ARE ELEVATION (rule 3). Every panel drops its 1px border for the graphite ramp
+   (--s2 body, --s3 cards) + --hi inset highlight + a real drop shadow. Rules survive in exactly one role:
+   the horizontal seam under a panel head, where a dark edge would read as "content ran out".
+A3 TOOL-CALL CARDS earn a SURFACE, not a border (rule 8) — heterogeneous, independently actionable, ranked.
+   And nothing nests: the reasoning block was a box inside the assistant bubble, so it became a left-ruled
+   indent instead. The "App updated" block keeps its surface but loses its green frame.
+A4 COLOUR DISCIPLINE. Every --primary blue and --emerald green in the CHROME was borrowed loudness: the
+   Publish button went near-white (rule 2), the four toolbar toggles went to value + elevation (rule 1),
+   the send button and the AI avatar went graphite, and the device's three "traffic light" dots went
+   graphite too — decorative red/amber/green cannot sit on a screen where those hues are reserved status.
+   Console severity is now typographic (rule 7), not tinted.
+A5 CYAN BUDGET = 3, all one meaning (liveness / the object in hand): the live-URL pill, the LIVE version
+   lamp in the rail, and the version being edited. The navbar version chip states the same facts in ink.
+Fixed 1440×1024, panes scroll internally, no page scroll, zero network, renders without JS.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1440, initial-scale=1">
+<title>Command Studio · App Builder · Instrument</title>
+<style>
+  :root{
+    --s0:#080A0E;  --s1:#0D1015;  --s2:#11151B;  --s3:#161B22;
+    --s4:#1C222B;  --s5:#242C37;  --s6:#38424F;  --key:#E9EEF5;
+    --t1:#E7ECF3;  --t2:#B0BAC8;  --t3:#85909F;  --t4:#5C6675; /* t4 = decoration only, never text */
+    --r1:rgba(255,255,255,.042); --r2:rgba(255,255,255,.075); --r3:rgba(255,255,255,.13);
+    --hi:inset 0 1px 0 rgba(255,255,255,.045);
+    --sig:#46D5E8; --sig-dim:rgba(70,213,232,.14); --sig-line:rgba(70,213,232,.40);
+    --st-good:#0ca30c; --st-warn:#fab219; --st-serious:#ec835a; --st-crit:#DC5050;
+    --m1:#CBD3DF; --m2:#A2ACBB; --m3:#7D8797; --m4:#5F6979; --m5:#48515F; --m6:#39414D;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:1440px;height:1024px;overflow:hidden}
+  html{font-size:13px}
+  body{
+    position:relative; font-family:var(--sans); color:var(--t2); font-size:12.5px;
+    background:radial-gradient(1180px 560px at 44% -12%, #151B24 0%, rgba(21,27,36,0) 62%), var(--s1);
+    -webkit-font-smoothing:antialiased; line-height:1.4; letter-spacing:-0.004em;
+  }
+  body::after{
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:200; opacity:.055; mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  ::selection{background:rgba(70,213,232,.26);color:#fff}
+  :focus-visible{outline:none;box-shadow:0 0 0 1px var(--s0), 0 0 0 3px rgba(70,213,232,.45);border-radius:6px}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:#232B35;border-radius:8px;border:3px solid transparent;background-clip:padding-box}
+  ::-webkit-scrollbar-thumb:hover{background:#303945;border:3px solid transparent;background-clip:padding-box}
+  ::-webkit-scrollbar-track{background:transparent}
+  svg{display:block}
+  .icn{width:14px;height:14px;stroke:currentColor;stroke-width:1.6;fill:none;stroke-linecap:round;stroke-linejoin:round}
+
+  /* ===== STATUS: five states, five SHAPES, always beside a word ===== */
+  .g{width:8px;height:8px;flex:none;display:inline-block;vertical-align:-1px}
+  .g.good{border-radius:50%;background:var(--st-good)}
+  .g.warn{width:0;height:0;border-left:4.5px solid transparent;border-right:4.5px solid transparent;
+    border-bottom:8px solid var(--st-warn);vertical-align:0}
+  .g.serious{width:7px;height:7px;background:var(--st-serious);border-radius:1px;transform:rotate(45deg);margin:0 1px}
+  .g.crit{background:var(--st-crit);border-radius:1px}
+  .g.unknown{border-radius:50%;background:transparent;box-shadow:inset 0 0 0 1.5px var(--t3)}
+  /* the liveness lamp is NOT a status shape — it is the accent, and it is spent 3 times */
+  .lamp{width:6px;height:6px;border-radius:50%;background:var(--sig);flex:none;box-shadow:0 0 9px -1px var(--sig)}
+  .stw{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-weight:500;white-space:nowrap}
+  /* the one footnote register — provenance, counts, paths */
+  .fn{font-size:9.5px;color:var(--t3)}
+  .lbl{font-size:10.5px;font-weight:500;color:var(--t3);letter-spacing:-0.004em}
+
+  /* ---- canvas backdrop: the body vignette + grain show through; the grid is the only extra ---- */
+  .canvas{position:absolute;inset:0;z-index:0;
+    background-image:
+      linear-gradient(rgba(255,255,255,.016) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.016) 1px, transparent 1px);
+    background-size:26px 26px,26px 26px;
+  }
+
+  /* ---- floating panel base: elevation replaces the border ---- */
+  .panel{background:var(--s2);border-radius:10px;overflow:hidden;
+    box-shadow:var(--hi), 0 0 0 1px rgba(0,0,0,.55), 0 22px 48px -24px rgba(0,0,0,.95)}
+
+  /* ---- top navbar ---- */
+  .navbar{position:absolute;top:12px;left:12px;right:12px;height:52px;z-index:40;border-radius:11px;
+    background:linear-gradient(180deg,#161C25,#10141A);display:flex;align-items:center;padding:0 11px;gap:11px;
+    box-shadow:var(--hi), 0 0 0 1px rgba(0,0,0,.55), 0 18px 40px -22px rgba(0,0,0,.95)}
+  .nav-left,.nav-right{display:flex;align-items:center;gap:9px}
+  .nav-left{flex:1;min-width:0}
+  .back{display:flex;align-items:center;gap:6px;color:var(--t3);font-size:12px;padding:6px 8px;border-radius:7px;white-space:nowrap}
+  .back:hover{color:var(--t1);background:rgba(255,255,255,.05)}
+  .brand{width:23px;height:23px;border-radius:6px;background:linear-gradient(180deg,#2C3542,#191F28);
+    display:grid;place-items:center;color:var(--t1);font-weight:600;font-size:11.5px;flex:none;
+    box-shadow:var(--hi), 0 1px 2px rgba(0,0,0,.5)}
+  .appname{display:flex;align-items:center;gap:8px;padding:5px 9px;border-radius:7px;background:var(--s4);
+    color:var(--t1);font-weight:600;font-size:13.5px;letter-spacing:-0.018em;white-space:nowrap;box-shadow:var(--hi)}
+  .appname .edit{color:var(--t3)}
+  .chip{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border-radius:6px;
+    background:var(--s4);font-size:11.5px;color:var(--t2);white-space:nowrap;box-shadow:var(--hi)}
+  .chip.owner .av{width:14px;height:14px;border-radius:4px;flex:none;
+    background:linear-gradient(180deg,#2A323D,#1D242D);box-shadow:var(--hi)}
+  .vchip{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:11px;color:var(--t3);
+    border-radius:6px;padding:4px 8px;background:rgba(0,0,0,.28);white-space:nowrap;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.55), inset 0 0 0 1px rgba(255,255,255,.035)}
+  .vchip b{color:var(--t1);font-weight:600}
+  .vchip .live{color:var(--t2);font-weight:600}
+  .sep{width:1px;height:22px;background:var(--r2);flex:none}
+  .tbtn{width:32px;height:30px;border-radius:7px;background:transparent;display:grid;place-items:center;
+    color:var(--t3);position:relative}
+  .tbtn:hover{color:var(--t1);background:rgba(255,255,255,.05)}
+  /* rule 1: repeated toggle state takes VALUE + ELEVATION, never the accent */
+  .tbtn.on{color:var(--t1);background:var(--s5);box-shadow:var(--hi)}
+  .save{display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 11px;border-radius:7px;
+    background:var(--s4);color:var(--t1);font-size:12px;font-weight:500;white-space:nowrap;box-shadow:var(--hi)}
+  .save:hover{background:var(--s5)}
+  /* rule 2: the ONE near-white surface on the screen */
+  .publish{display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 12px;border-radius:7px;
+    background:linear-gradient(180deg,#FBFDFF,var(--key));color:#0B0E13;font-weight:600;font-size:12.5px;white-space:nowrap;
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset, 0 2px 8px -3px rgba(0,0,0,.9), 0 0 0 1px rgba(0,0,0,.35)}
+  .publish:hover{background:#fff}
+  /* SIGNAL 1/3 — the live URL */
+  .urlpill{display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 11px;border-radius:999px;
+    background:rgba(0,0,0,.34);box-shadow:inset 0 0 0 1px var(--sig-line);color:var(--sig);
+    font-family:var(--mono);font-size:11.5px;white-space:nowrap}
+
+  /* ---- workspace grid (unchanged) ---- */
+  .workspace{position:absolute;top:76px;left:12px;right:12px;bottom:34px;display:grid;z-index:10;
+    grid-template-columns:1fr 360px 200px;grid-template-rows:1fr 168px;gap:12px;
+    grid-template-areas:"center chat history" "center chat console"}
+  .center{grid-area:center;display:flex;flex-direction:column;min-height:0}
+  .chat{grid-area:chat;display:flex;flex-direction:column;min-height:0}
+  .history{grid-area:history;display:flex;flex-direction:column;min-height:0}
+  .console{grid-area:console;display:flex;flex-direction:column;min-height:0}
+
+  /* ---- centre preview panel ---- */
+  .tabbar{height:40px;flex:none;display:flex;align-items:center;gap:2px;padding:0 10px;
+    box-shadow:inset 0 -1px 0 var(--r1)}   /* a horizontal zone seam — one of the three rules that earn it */
+  .tab{display:flex;align-items:center;gap:7px;padding:5px 10px;border-radius:7px;font-size:12.5px;color:var(--t3)}
+  .tab.on{color:var(--t1);font-weight:550;background:var(--s4);box-shadow:var(--hi)}
+  .tabbar .spacer{flex:1}
+  .miniflag{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;color:var(--t3);white-space:nowrap}
+  .miniflag b{color:var(--t2);font-weight:600}
+  /* a recessed well: the stage the device sits on */
+  .previewwrap{flex:1;min-height:0;position:relative;overflow:hidden;border-radius:0 0 10px 10px;
+    background:
+      repeating-linear-gradient(45deg, rgba(255,255,255,.011) 0 2px, transparent 2px 9px),
+      rgba(0,0,0,.30);
+    box-shadow:inset 0 2px 5px -2px rgba(0,0,0,.8);
+    display:flex;flex-direction:column;align-items:center;padding:20px 22px}
+  /* device frame: a raised graphite bezel, no border — the light app inside is the only bright thing */
+  .device{width:100%;max-width:720px;flex:1;min-height:0;border-radius:11px;background:#0F131A;
+    display:flex;flex-direction:column;overflow:hidden;
+    box-shadow:var(--hi), 0 0 0 1px rgba(0,0,0,.6), 0 26px 60px -26px rgba(0,0,0,1)}
+  .devbar{height:30px;flex:none;background:linear-gradient(180deg,#1D232C,#161B22);display:flex;align-items:center;
+    gap:8px;padding:0 11px;box-shadow:inset 0 -1px 0 rgba(0,0,0,.5)}
+  /* decorative dots go GRAPHITE — red/amber/green are reserved for status on this screen */
+  .traffic{display:flex;gap:6px}
+  .traffic i{width:9px;height:9px;border-radius:50%;display:block;background:var(--m6);box-shadow:var(--hi)}
+  .addr{flex:1;height:19px;border-radius:5px;background:var(--s0);display:flex;align-items:center;gap:6px;
+    padding:0 8px;font-family:var(--mono);font-size:10.5px;color:var(--t3);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035)}
+  .addr .lock{color:var(--t3);display:inline-flex;align-items:center;flex:none}
+
+  /* ================= THE GENERATED APP — LIGHT, and left alone except for contrast ================= */
+  .app{flex:1;min-height:0;background:#f7f8fa;color:#0f172a;overflow:hidden;display:flex;flex-direction:column;
+    font-family:var(--sans);letter-spacing:0}
+  .apphead{padding:14px 18px 10px;display:flex;align-items:flex-start;justify-content:space-between;border-bottom:1px solid #e6e9ef;background:#fff}
+  .apphead h1{font-size:16px;font-weight:700;letter-spacing:-.01em}
+  .apphead p{font-size:11.5px;color:#5b6879;margin-top:2px}
+  .classcue{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-weight:600;color:#845700;background:#fdf3d6;border:1px solid #f2dfa0;border-radius:999px;padding:3px 9px}
+  .classcue .shieldglyph{display:inline-flex;align-items:center;color:currentColor;flex:none}
+  /* 1.35fr→1.1fr: the ticket table was clipping its Status and Age columns at 1.35fr (a pre-existing
+     overflow). Same two cards, same order — the split just stopped truncating governed data. */
+  .appbody{flex:1;min-height:0;overflow:hidden;padding:14px 18px;display:grid;grid-template-columns:1.1fr 1fr;grid-template-rows:auto 1fr;gap:12px}
+  .tiles{grid-column:1/3;display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .tile{background:#fff;border:1px solid #e6e9ef;border-radius:9px;padding:10px 12px}
+  .tile .k{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#5b6879;font-weight:600}
+  .tile .v{font-size:20px;font-weight:700;margin-top:3px;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .tile .d{font-size:10.5px;font-weight:600;margin-top:1px}
+  .tile .d.up{color:#0a7050}.tile .d.down{color:#c11d1d}
+  .chartcard,.tablecard{background:#fff;border:1px solid #e6e9ef;border-radius:9px;padding:11px 13px;min-height:0;overflow:hidden;display:flex;flex-direction:column}
+  .cardhd{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+  .cardhd h3{font-size:12px;font-weight:700;color:#0f172a}
+  .cardhd .filter{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:#3f4c5f;border:1px solid #dfe4ec;background:#f1f4f9;border-radius:6px;padding:3px 8px;font-weight:600}
+  .cardhd .filter b{color:#1663b3}
+  table.tk{width:100%;border-collapse:collapse;font-size:10.5px}
+  table.tk th{text-align:left;color:#5b6879;font-weight:600;font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;padding:0 4px 6px;border-bottom:1px solid #eef1f6}
+  table.tk td{padding:6px 4px;border-bottom:1px solid #f1f4f8;color:#334155;white-space:nowrap}
+  table.tk td .pri{display:inline-flex;align-items:center;gap:4px;font-weight:600}
+  table.tk td .pri.hi{color:#c11d1d}.pri.md{color:#8a5a00}.pri.lo{color:#0e7a4f}
+  .pill{display:inline-block;font-size:9.5px;font-weight:700;padding:1.5px 6px;border-radius:999px}
+  .pill.open{background:#e0efff;color:#1258a0}.pill.prog{background:#fff0d6;color:#7a5000}.pill.res{background:#dff4e6;color:#0c6b3d}
+  .masked{font-family:var(--mono);font-size:10px;color:#5b6879}
+  .bars{flex:1;min-height:0;display:flex;align-items:flex-end;gap:12px;padding:6px 2px 0}
+  .barcol{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;height:100%;justify-content:flex-end}
+  .bar{width:60%;border-radius:5px 5px 0 0;background:linear-gradient(180deg,#3fb0ff,#18a0fb)}
+  .barcol.alt .bar{background:linear-gradient(180deg,#6fd08a,#30b165)}
+  .barlab{font-size:9.5px;color:#5b6879;font-weight:600}
+  /* ================= end of the generated app ================= */
+
+  /* code tab stub (hidden state hint) */
+  .filetree{position:absolute;left:14px;top:52px;width:186px;border-radius:9px;padding:9px;z-index:5;
+    background:var(--s3);box-shadow:var(--hi), 0 0 0 1px rgba(0,0,0,.55), 0 16px 34px -18px rgba(0,0,0,.95)}
+  .filetree .th{font-size:10px;color:var(--t3);font-weight:500;padding:2px 4px 7px}
+  .ft{font-family:var(--mono);font-size:11px;color:var(--t2);display:flex;align-items:center;gap:7px;padding:3px 5px;border-radius:5px}
+  .ft.dir{color:var(--t3)}
+  .ft.sel{background:var(--s5);color:var(--t1);box-shadow:var(--hi)}
+  .ft.ind{margin-left:14px}
+  .ft .badge{margin-left:auto;font-size:9px;color:var(--t3)}
+
+  /* ---- chat panel ---- */
+  .phead{height:40px;flex:none;display:flex;align-items:center;gap:9px;padding:0 12px;box-shadow:inset 0 -1px 0 var(--r1)}
+  .phead .ttl{font-weight:600;font-size:12.5px;color:var(--t1);letter-spacing:-0.012em;display:flex;align-items:center;gap:8px}
+  .phead .r{margin-left:auto;display:flex;gap:8px;color:var(--t3)}
+  .thread{flex:1;min-height:0;overflow-y:auto;padding:14px 12px;display:flex;flex-direction:column;gap:12px}
+  .msg{display:flex;gap:9px}
+  .msg .who{width:22px;height:22px;border-radius:6px;flex:0 0 auto;display:grid;place-items:center;font-size:10px;font-weight:600}
+  .msg.user .who{background:var(--s4);color:var(--t2);box-shadow:var(--hi)}
+  .msg.ai .who{background:linear-gradient(180deg,#2C3542,#191F28);color:var(--t1);box-shadow:var(--hi), 0 1px 2px rgba(0,0,0,.5)}
+  .bubble{flex:1;min-width:0}
+  .msg.user .bubble{background:var(--s4);border-radius:9px;padding:8px 11px;font-size:12.5px;color:var(--t1);box-shadow:var(--hi)}
+  .msg.ai .bubble{font-size:12.5px;color:var(--t2)}
+  /* rule 8: no container inside a container — the reasoning box becomes a left-ruled indent */
+  .reason{margin-bottom:10px;padding-left:10px;box-shadow:inset 2px 0 0 var(--r2)}
+  .reason .rh{display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:550;color:var(--t2);padding-bottom:3px}
+  .reason .rh .chev{margin-left:auto;color:var(--t3)}
+  .reason .rb{font-size:11px;color:var(--t3);line-height:1.5}
+  .reason .rb .mono{color:var(--t2)}
+  .aitext{margin-bottom:10px;line-height:1.5}
+  /* rule 8: cards earn a SURFACE, not a border */
+  .toolcard{display:flex;align-items:center;gap:9px;background:var(--s3);border-radius:8px;padding:7px 10px;
+    margin-bottom:7px;box-shadow:var(--hi)}
+  .toolcard:hover{background:var(--s4)}
+  .toolcard .op{width:20px;height:20px;border-radius:5px;display:grid;place-items:center;color:var(--t2);flex:0 0 auto;
+    background:rgba(0,0,0,.3);box-shadow:inset 0 1px 2px rgba(0,0,0,.55)}
+  .toolcard .fp{font-family:var(--mono);font-size:11.5px;font-weight:600;color:var(--t1)}
+  .toolcard .act{font-family:var(--mono);font-size:9.5px;color:var(--t3)}
+  .toolcard .tick{margin-left:auto;color:var(--t2);display:flex;align-items:center;gap:6px;font-size:10.5px;font-weight:500}
+  .updbadge{display:flex;flex-direction:column;gap:7px;background:var(--s3);border-radius:8px;padding:9px 11px;
+    margin-top:2px;box-shadow:var(--hi)}
+  .updbadge .top{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--t1)}
+  .updbadge .files{display:flex;flex-wrap:wrap;gap:5px}
+  .updbadge .files span{font-family:var(--mono);font-size:10.5px;color:var(--t2);background:rgba(255,255,255,.05);
+    border-radius:5px;padding:2px 6px}
+  .composer{flex:none;padding:10px;box-shadow:inset 0 1px 0 var(--r1)}
+  .cbox{border-radius:9px;padding:8px 10px;background:var(--s0);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035)}
+  .cbox .inp{font-size:12.5px;color:var(--t3)}
+  .cbox .row{display:flex;align-items:center;margin-top:9px;gap:8px}
+  .attach{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--t3);border-radius:6px;padding:4px 8px;
+    box-shadow:inset 0 0 0 1px var(--r2)}
+  .sendbtn{margin-left:auto;width:30px;height:30px;border-radius:7px;display:grid;place-items:center;color:var(--t1);
+    background:var(--s5);box-shadow:var(--hi), 0 1px 2px rgba(0,0,0,.5)}
+  .kbdmini{margin-left:8px;margin-top:7px;font-family:var(--mono);font-size:9.5px;color:var(--t3)}
+
+  /* ---- history rail ---- */
+  .verlist{flex:1;min-height:0;overflow-y:auto;padding:8px}
+  .ver{display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:8px}
+  .ver:hover{background:rgba(255,255,255,.04)}
+  /* SIGNAL 2/3 — the version in hand */
+  .ver.editing{background:var(--s4);box-shadow:var(--hi), inset 2px 0 0 var(--sig)}
+  .ver.editing .vn{color:var(--t1)}
+  .ver .vn{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:12px;font-weight:600;width:26px;color:var(--t2)}
+  .ver .meta{flex:1;min-width:0}
+  .ver .meta .st{font-size:10.5px;color:var(--t3);display:flex;align-items:center;gap:6px}
+  .ver .meta .ts{font-size:9.5px;color:var(--t3)}
+  .ver .restore{color:var(--t3);opacity:0;flex:0 0 auto}
+  .ver:hover .restore{opacity:1}
+  /* SIGNAL 3/3 — which version is actually serving traffic */
+  .ver.live .meta .st{color:var(--sig);font-weight:600}
+
+  /* ---- console ---- */
+  .clog{flex:1;min-height:0;overflow-y:auto;padding:9px 10px;font-family:var(--mono);
+    font-variant-numeric:tabular-nums;font-size:10px;line-height:1.7}
+  /* a 200px dock cannot hold a flex row of five spans — the line is a paragraph so it wraps in place */
+  .clog .ln{display:block;color:var(--t2);margin-bottom:3px}
+  .clog .ln .g{margin-right:6px}
+  .clog .ln .t{color:var(--t3);margin-right:4px}
+  .clog .ln b{color:var(--t1);font-weight:600}
+  /* rule 7: severity is a PROPERTY — typographic, never tinted */
+  .clog .ln.warnln{color:var(--t3)}
+  .clog .ok{color:var(--t2)}
+  .clog .kb{color:var(--t2)}
+
+  /* ---- bottom kbd strip ---- */
+  .kbdstrip{position:absolute;left:12px;right:12px;bottom:8px;height:20px;z-index:10;display:flex;align-items:center;
+    gap:16px;font-size:10.5px;color:var(--t3);padding:0 6px}
+  .kbdstrip .k{display:inline-flex;align-items:center;gap:6px}
+  .kbdstrip kbd{font-family:var(--mono);font-size:10px;font-weight:500;color:var(--t2);
+    background:linear-gradient(180deg,#232A34,#1A2028);border-radius:4px;padding:1.5px 5px;line-height:1.4;
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5)}
+</style>
+</head>
+<body>
+<div class="canvas"></div>
+
+<!-- ===== FLOATING TOP NAVBAR ===== -->
+<div class="navbar">
+  <div class="nav-left">
+    <div class="back"><svg class="icn" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>Projects</div>
+    <div class="sep"></div>
+    <div class="brand">C</div>
+    <div class="appname">Support Insights <svg class="icn edit" viewBox="0 0 24 24" style="width:12px;height:12px"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></div>
+    <div class="chip owner"><span class="av"></span>Customer Success</div>
+    <div class="vchip">editing <b>v7</b> · live <span class="live">v6</span></div>
+  </div>
+  <div class="nav-right">
+    <div class="tbtn" title="History"><svg class="icn" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+    <div class="tbtn" title="API Tester"><svg class="icn" viewBox="0 0 24 24"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></svg></div>
+    <div class="tbtn on" title="AI Chat"><svg class="icn" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"/></svg></div>
+    <div class="tbtn" title="Console"><svg class="icn" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></svg></div>
+    <div class="sep"></div>
+    <div class="save"><svg class="icn" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>Save</div>
+    <div class="publish"><svg class="icn" viewBox="0 0 24 24" style="width:13px;height:13px;stroke:#0B0E13"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg>Publish ▲</div>
+    <div class="urlpill"><span class="lamp"></span>/a/support-insights</div>
+  </div>
+</div>
+
+<!-- ===== WORKSPACE ===== -->
+<div class="workspace">
+
+  <!-- CENTER: PREVIEW / CODE -->
+  <div class="center panel">
+    <div class="tabbar">
+      <div class="tab on"><svg class="icn" viewBox="0 0 24 24" style="width:13px;height:13px"><rect x="2" y="4" width="20" height="15" rx="2"/><path d="M2 9h20"/></svg>Preview</div>
+      <div class="tab"><svg class="icn" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/></svg>Code</div>
+      <div class="spacer"></div>
+      <div class="miniflag"><span class="g good"></span>build ok · <span class="mono">v7</span></div>
+      <div class="sep" style="margin:0 4px"></div>
+      <div class="miniflag mono" style="font-size:10px">1280 × 800 · 100%</div>
+    </div>
+
+    <div class="previewwrap">
+      <!-- Code-tab file-tree hint (peeking) -->
+      <div class="filetree" aria-hidden="true">
+        <div class="th">Code · <span class="mono">src/</span></div>
+        <div class="ft dir">▾ src</div>
+        <div class="ft ind sel">App.tsx <span class="badge">M</span></div>
+        <div class="ft ind">api.ts</div>
+        <div class="ft ind dir">▾ components</div>
+        <div class="ft ind" style="margin-left:28px">Filter.tsx <span class="badge">＋</span></div>
+        <div class="ft ind" style="margin-left:28px">TicketTable.tsx</div>
+        <div class="ft ind" style="margin-left:28px">StatTile.tsx</div>
+      </div>
+
+      <!-- DEVICE FRAME with LIGHT generated app -->
+      <div class="device">
+        <div class="devbar">
+          <div class="traffic"><i></i><i></i><i></i></div>
+          <div class="addr"><span class="lock"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span>studio.internal/a/support-insights</div>
+        </div>
+        <div class="app">
+          <div class="apphead">
+            <div>
+              <h1>Support Insights</h1>
+              <p>Customer Success · governed tickets dataset · last sync 4m ago</p>
+            </div>
+            <div class="classcue"><span class="shieldglyph"><svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6l7-3z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></span>Restricted · PII masked</div>
+          </div>
+          <div class="appbody">
+            <div class="tiles">
+              <div class="tile"><div class="k">Open tickets</div><div class="v">1,284</div><div class="d down">▲ 6% wk</div></div>
+              <div class="tile"><div class="k">Avg first reply</div><div class="v">2h 14m</div><div class="d up">▼ 11%</div></div>
+              <div class="tile"><div class="k">CSAT</div><div class="v">4.6</div><div class="d up">▲ 0.2</div></div>
+              <div class="tile"><div class="k">SLA breaches</div><div class="v">37</div><div class="d down">▲ 4</div></div>
+            </div>
+
+            <div class="chartcard">
+              <div class="cardhd"><h3>Tickets by priority</h3><span class="filter">Filter: priority <b>All ▾</b></span></div>
+              <div class="bars">
+                <div class="barcol"><div class="bar" style="height:44%"></div><div class="barlab">Mon</div></div>
+                <div class="barcol"><div class="bar" style="height:63%"></div><div class="barlab">Tue</div></div>
+                <div class="barcol alt"><div class="bar" style="height:52%"></div><div class="barlab">Wed</div></div>
+                <div class="barcol"><div class="bar" style="height:78%"></div><div class="barlab">Thu</div></div>
+                <div class="barcol alt"><div class="bar" style="height:88%"></div><div class="barlab">Fri</div></div>
+                <div class="barcol"><div class="bar" style="height:38%"></div><div class="barlab">Sat</div></div>
+                <div class="barcol"><div class="bar" style="height:30%"></div><div class="barlab">Sun</div></div>
+              </div>
+            </div>
+
+            <div class="tablecard">
+              <div class="cardhd"><h3>Recent tickets</h3><span class="filter">Priority: <b>High ▾</b></span></div>
+              <table class="tk">
+                <thead><tr><th>ID</th><th>Requester</th><th>Priority</th><th>Status</th><th>Age</th></tr></thead>
+                <tbody>
+                  <tr><td class="mono">#48213</td><td class="masked">••••••@••••.com</td><td><span class="pri hi">● High</span></td><td><span class="pill open">Open</span></td><td>3h</td></tr>
+                  <tr><td class="mono">#48207</td><td class="masked">••••••@••••.com</td><td><span class="pri hi">● High</span></td><td><span class="pill prog">In prog</span></td><td>5h</td></tr>
+                  <tr><td class="mono">#48198</td><td class="masked">••••••@••••.com</td><td><span class="pri md">● Med</span></td><td><span class="pill open">Open</span></td><td>9h</td></tr>
+                  <tr><td class="mono">#48180</td><td class="masked">••••••@••••.com</td><td><span class="pri lo">● Low</span></td><td><span class="pill res">Resolved</span></td><td>1d</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: AI CHAT -->
+  <div class="chat panel">
+    <div class="phead">
+      <div class="ttl"><svg class="icn" viewBox="0 0 24 24" style="width:15px;height:15px;stroke:var(--t3)"><path d="M12 2a5 5 0 0 1 5 5v1a4 4 0 0 1 2 3 4 4 0 0 1-2 3v1a5 5 0 0 1-10 0v-1a4 4 0 0 1-2-3 4 4 0 0 1 2-3V7a5 5 0 0 1 5-5Z"/></svg>App Builder</div>
+      <div class="r">
+        <svg class="icn" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M12 5v14M5 12h14"/></svg>
+        <svg class="icn" viewBox="0 0 24 24" style="width:14px;height:14px"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+      </div>
+    </div>
+
+    <div class="thread">
+      <div class="msg user">
+        <div class="who">CS</div>
+        <div class="bubble">Add a filter by priority and mask PII in the table.</div>
+      </div>
+
+      <div class="msg ai">
+        <div class="who">C</div>
+        <div class="bubble">
+          <div class="reason">
+            <div class="rh"><svg class="icn" viewBox="0 0 24 24" style="width:13px;height:13px;stroke:var(--t3)"><path d="M12 2a5 5 0 0 1 5 5v1a4 4 0 0 1 2 3 4 4 0 0 1-2 3v1a5 5 0 0 1-10 0v-1a4 4 0 0 1-2-3 4 4 0 0 1 2-3V7a5 5 0 0 1 5-5Z"/></svg>Reasoning<span class="chev">▾</span></div>
+            <div class="rb">Table binds to <span class="mono">tickets</span>; the <span class="mono">requester_email</span> column is governed PII, so I'll render it through the existing mask helper rather than raw. A priority <span class="mono">&lt;Select&gt;</span> drives a client filter over the same query — no new endpoint needed.</div>
+          </div>
+          <div class="aitext">Added a priority filter and routed the email column through PII masking. Chart and table now share the selected priority.</div>
+
+          <div class="toolcard"><div class="op">✎</div><div><div class="fp">App.tsx</div><div class="act">edit</div></div><div class="tick"><span class="g good"></span>done</div></div>
+          <div class="toolcard"><div class="op">＋</div><div><div class="fp">components/Filter.tsx</div><div class="act">write</div></div><div class="tick"><span class="g good"></span>done</div></div>
+          <div class="toolcard"><div class="op">◇</div><div><div class="fp">api.ts</div><div class="act">read</div></div><div class="tick"><span class="g good"></span>done</div></div>
+
+          <div class="updbadge">
+            <div class="top"><span class="g good"></span>App updated · 3 files</div>
+            <div class="files"><span>App.tsx</span><span>components/Filter.tsx</span><span>api.ts</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="composer">
+      <div class="cbox">
+        <div class="inp">Describe a change…</div>
+        <div class="row">
+          <div class="attach"><svg class="icn" viewBox="0 0 24 24" style="width:12px;height:12px"><path d="M18 8l-8 8a3 3 0 0 1-4-4l8-8a4 4 0 0 1 6 6l-8 8"/></svg>attach saved endpoint</div>
+          <div class="sendbtn"><svg class="icn" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></svg></div>
+        </div>
+      </div>
+      <div class="kbdmini">⌘↵ to send</div>
+    </div>
+  </div>
+
+  <!-- HISTORY RAIL -->
+  <div class="history panel">
+    <div class="phead"><div class="ttl"><svg class="icn" viewBox="0 0 24 24" style="width:14px;height:14px;stroke:var(--t3)"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Versions</div></div>
+    <div class="verlist">
+      <div class="ver editing">
+        <div class="vn">v7</div>
+        <div class="meta"><div class="st">Editing · unsaved</div><div class="ts">just now</div></div>
+        <svg class="icn restore" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+      </div>
+      <div class="ver live">
+        <div class="vn">v6</div>
+        <div class="meta"><div class="st"><span class="lamp"></span>Live</div><div class="ts">2h ago</div></div>
+        <svg class="icn restore" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+      </div>
+      <div class="ver">
+        <div class="vn">v5</div>
+        <div class="meta"><div class="st">Published</div><div class="ts">yesterday</div></div>
+        <svg class="icn restore" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+      </div>
+      <div class="ver">
+        <div class="vn">v4</div>
+        <div class="meta"><div class="st">Saved</div><div class="ts">2d ago</div></div>
+        <svg class="icn restore" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+      </div>
+      <div class="ver">
+        <div class="vn">v3</div>
+        <div class="meta"><div class="st">Saved</div><div class="ts">4d ago</div></div>
+        <svg class="icn restore" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+      </div>
+      <div class="ver">
+        <div class="vn">v2</div>
+        <div class="meta"><div class="st">Saved</div><div class="ts">5d ago</div></div>
+        <svg class="icn restore" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONSOLE -->
+  <div class="console panel">
+    <div class="tabbar" style="height:36px;padding:0 8px">
+      <div class="tab on" style="font-size:11.5px;padding:5px 8px"><svg class="icn" viewBox="0 0 24 24" style="width:12px;height:12px"><path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></svg>Console</div>
+      <div class="spacer"></div>
+      <div class="miniflag mono" style="font-size:9.5px">3 events · 1 warn</div>
+    </div>
+    <div class="clog">
+      <div class="ln"><span class="g good"></span><span class="t">12:04:31</span> esbuild <span class="ok">✓ 214ms</span> · bundle <b>84.2 kb</b></div>
+      <div class="ln"><span class="g good"></span><span class="t">12:04:31</span> preview reloaded · <span class="ok">v7</span></div>
+      <div class="ln warnln"><span class="g warn"></span><span class="t">12:04:31</span> warn: Filter.tsx — unused prop <span class="kb">defaultOpen</span></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ===== BOTTOM KBD STRIP ===== -->
+<div class="kbdstrip">
+  <span class="k"><kbd>⌘↵</kbd> send</span>
+  <span class="k"><kbd>⌘S</kbd> save</span>
+  <span class="k"><kbd>⌘⇧P</kbd> publish</span>
+  <span class="k"><kbd>⌘K</kbd> command</span>
+  <span style="margin-left:auto" class="k mono">Command Studio · App Builder</span>
+</div>
+
+</body>
+</html>

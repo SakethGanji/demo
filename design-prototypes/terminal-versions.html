@@ -1,0 +1,1374 @@
+<!--
+  DESIGN NOTES — "INSTRUMENT" applied to the Versions lens (restyle of the TERMINAL pass; same regions,
+  same controls, same words). Tokens, grain, status shapes, scrollbars and focus ring copied verbatim from
+  terminal-quality-instrument.html. What the restyle decided, beyond the shared language:
+  D1 DIFF SEMANTICS keep the reserved status palette — added = good (circle, "+"), removed = critical
+     (square, "−"), changed = warning (triangle, "~") — and every chip carries the glyph AND the word, so the
+     diff survives greyscale. `renamed` is a relink ACTION, not a data delta: it wears INK (--t1 on a raised
+     graphite chip, "↔") rather than the accent, because it recurs 8 times and cyan at that count is texture.
+  D2 GRAPHS are graphite. Lineage nodes take --s3/--s5 fills with the --hi top highlight; "this dataset" is
+     read by elevation + size, not by a tinted stroke. Single-series magnitude (changed cells per column,
+     rows per version, drift sparklines) drops the categorical ramp entirely for --m2/--m5.
+  D3 THE REFUSALS are the honest heart: the 409-refused promote and 409 diff-key-required keep a recessed
+     well + a status ring, with the code as the anchor and the explanation in the 9.5px footnote register.
+  D4 CYAN BUDGET = 4: the active route, the as-of version v42 in the context bar, the version being viewed
+     in the dock, and the LIVE lamp. Version rows, tag chips, A/B pickers and the timeline all moved to
+     value + position + elevation.
+  Original direction note: the Versions lens of the Command Studio datasets cockpit. Same shell, same left
+  dataset rail, same right-dock idiom — but the diff needs room, so the dock demotes itself to a SELECTOR
+  (version history + tags + the quality gate) and the center becomes the DIFF SURFACE.
+  Signature move: the three comparison levels are labelled L1 WORKBOOK → L2 SCHEMA → L3 ROWS in one
+  descending column, so the hierarchy is spatial, not implied. Diff semantics stay in the status palette
+  (added = good, removed = critical, changed = warning); the categorical viz ramp is never used for a diff.
+  Refusals are first-class: a 409-refused promote sits next to the tag it would have moved.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Command Studio — Datasets · Versions · Terminal</title>
+<style>
+  :root {
+    /* ===== INSTRUMENT tokens — verbatim ===== */
+    --s0:#080A0E;  --s1:#0D1015;  --s2:#11151B;  --s3:#161B22;
+    --s4:#1C222B;  --s5:#242C37;  --s6:#38424F;  --key:#E9EEF5;
+    --t1:#E7ECF3;  --t2:#B0BAC8;  --t3:#85909F;  --t4:#5C6675; /* t4 = decoration only, never text */
+    --r1:rgba(255,255,255,.042); --r2:rgba(255,255,255,.075); --r3:rgba(255,255,255,.13);
+    --hi:inset 0 1px 0 rgba(255,255,255,.045);
+    --sig:#46D5E8; --sig-dim:rgba(70,213,232,.14); --sig-line:rgba(70,213,232,.40);
+    --st-good:#0ca30c; --st-warn:#fab219; --st-serious:#ec835a; --st-crit:#DC5050;
+    --st-crit-ink:#EB8A8A; /* crit as TEXT on a raised surface — measured 7.4:1 */
+    --m1:#CBD3DF; --m2:#A2ACBB; --m3:#7D8797; --m4:#5F6979; --m5:#48515F; --m6:#39414D;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+    /* ===== alias layer: the screen's old token names now resolve INTO the graphite ramp,
+       so every inline style inherits the language instead of fighting it ===== */
+    --background:var(--s1); --foreground:var(--t1); --card:var(--s2); --surface:var(--s3);
+    --muted:rgba(255,255,255,.05); --muted-foreground:var(--t3); --border:var(--r2);
+    --secondary:var(--s4); --accent:var(--s4); --popover:var(--s3); --radius:8px;
+    /* the primary action wins on VALUE, not on the accent (rule 2) */
+    --primary:var(--key);
+    /* diff semantics ride the reserved status palette; each is paired with a glyph AND a word.
+       `renamed` is a relink ACTION, not a data delta — so it wears ink, not a hue, and never
+       spends the cyan budget (it recurs 8 times; the accent would become a texture). */
+    --d-add:var(--st-good); --d-rem:var(--st-crit); --d-chg:var(--st-warn);
+    --d-same:var(--t3); --d-ren:var(--t1);
+    /* single-series magnitude never takes a categorical hue */
+    --viz-1:var(--m2); --viz-2:var(--m3); --viz-3:var(--m2); --viz-4:var(--m3);
+    --viz-5:var(--m4); --viz-6:var(--m4); --viz-7:var(--m5); --viz-8:var(--m5);
+  }
+
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { height:100%; overflow:hidden; }
+  html { font-size:13px; }
+  body {
+    font-family:var(--sans); color:var(--t2); font-size:12.5px;
+    background:radial-gradient(1180px 560px at 44% -12%, #151B24 0%, rgba(21,27,36,0) 62%), var(--s1);
+    -webkit-font-smoothing:antialiased; line-height:1.4; letter-spacing:-0.004em;
+    display:flex; flex-direction:column;
+  }
+  body::after {
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:200; opacity:.055; mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .mono { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  .num { font-variant-numeric:tabular-nums; }
+  .muted { color:var(--t3); }
+  ::selection { background:rgba(70,213,232,.26); color:#fff; }
+  :focus-visible { outline:none; box-shadow:0 0 0 1px var(--s0), 0 0 0 3px rgba(70,213,232,.45); border-radius:6px; }
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb { background:#232B35; border-radius:8px; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background:#303945; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-track { background:transparent; }
+
+  /* ===== STATUS: five states, five SHAPES, always beside a word. Pure CSS, no JS. ===== */
+  .g, .sdot { width:8px; height:8px; flex:none; display:inline-block; vertical-align:-1px; }
+  .g.good, .sdot.good       { border-radius:50%; background:var(--st-good); }
+  .g.warn, .sdot.warn       { width:0; height:0; background:none; border-left:4.5px solid transparent;
+                              border-right:4.5px solid transparent; border-bottom:8px solid var(--st-warn); vertical-align:0; }
+  .g.serious, .sdot.serious { width:7px; height:7px; background:var(--st-serious); border-radius:1px;
+                              transform:rotate(45deg); margin:0 1px; }
+  .g.crit, .sdot.crit       { background:var(--st-crit); border-radius:1px; }
+  .g.unknown, .sdot.neu, .sdot.off { border-radius:50%; background:transparent; box-shadow:inset 0 0 0 1.5px var(--t3); }
+  .w-good{color:var(--st-good)} .w-warn{color:var(--st-warn)} .w-serious{color:var(--st-serious)}
+  .w-crit{color:var(--st-crit)} .w-unknown{color:var(--t3)}
+  .stw { display:inline-flex; align-items:center; gap:6px; font-size:10.5px; font-weight:500; white-space:nowrap; }
+  /* the footnote register — every provenance line lands here, which frees t1 for the anchors */
+  .fn { font-size:9.5px; color:var(--t3); line-height:1.5; }
+  .fn b, .fn .k { color:var(--t2); font-weight:600; }
+
+  /* ================= TOPBAR ================= */
+  header.topbar {
+    height:46px; flex:none; display:flex; align-items:center; gap:16px; padding:0 16px;
+    background:linear-gradient(180deg,#141922,#10141A); box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); z-index:30;
+  }
+  .brand { display:flex; align-items:center; gap:10px; }
+  .brand .glyph { width:21px; height:21px; border-radius:5px; background:linear-gradient(180deg,#2C3542,#191F28);
+    display:grid; place-items:center; box-shadow:var(--hi), 0 1px 2px rgba(0,0,0,.5); color:var(--t1); }
+  .brand .name { font-size:12.5px; font-weight:600; color:var(--t1); letter-spacing:-0.012em; white-space:nowrap; }
+  .env-chip { font-family:var(--mono); font-size:10px; color:var(--t3); display:inline-flex; align-items:center;
+    gap:6px; white-space:nowrap; background:none; border:0; padding:0; letter-spacing:0; text-transform:none; font-weight:400; }
+  .env-chip::before { content:""; width:5px; height:5px; border-radius:50%; background:var(--st-warn); flex:none; }
+  nav.gnav { display:flex; align-items:center; gap:4px; }
+  nav.gnav a { font-size:12.5px; font-weight:450; color:var(--t3); text-decoration:none; height:30px; padding:0 10px;
+    border-radius:7px; position:relative; display:inline-flex; align-items:center; transition:color .14s, background .14s; }
+  nav.gnav a:hover { color:var(--t1); background:rgba(255,255,255,.035); }
+  /* SIGNAL 1/4 — the active route */
+  nav.gnav a.active { color:var(--t1); font-weight:550; background:transparent; }
+  nav.gnav a.active::after { content:""; position:absolute; left:10px; right:10px; bottom:-9px; height:2px;
+    background:var(--sig); border-radius:2px 2px 0 0; box-shadow:0 0 12px -1px var(--sig); }
+  .cmdk { margin-left:auto; display:flex; align-items:center; gap:9px; width:290px; height:30px; padding:0 10px;
+    border-radius:8px; cursor:text; color:var(--t3); background:var(--s0); border:0;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); transition:box-shadow .16s; }
+  .cmdk:hover, .cmdk:focus-within { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+  .cmdk svg { flex:none; opacity:.55; }
+  .cmdk .ph { font-size:12px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .kbd { font-family:var(--mono); font-size:10px; font-weight:500; color:var(--t2);
+    background:linear-gradient(180deg,#232A34,#1A2028); border:0; border-radius:4px; padding:1.5px 5px; line-height:1.4;
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); white-space:nowrap; }
+  .hicons { display:flex; align-items:center; gap:2px; }
+  .iconbtn { width:30px; height:30px; border-radius:7px; border:0; background:transparent; color:var(--t3);
+    display:grid; place-items:center; cursor:pointer; transition:color .14s, background .14s; }
+  .iconbtn:hover { background:rgba(255,255,255,.05); color:var(--t1); border-color:transparent; }
+  .teamsw { display:flex; align-items:center; gap:7px; height:28px; padding:0 10px; border-radius:7px; flex:none;
+    background:var(--s4); border:0; box-shadow:var(--hi); cursor:pointer; white-space:nowrap; }
+  .teamsw .tl { font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--t3); font-weight:500; }
+  .teamsw .tv { font-size:12px; font-weight:450; color:var(--t1); }
+  .teamsw .cx { color:var(--t3); font-size:9px; }
+  .avatar { width:27px; height:27px; border-radius:7px; background:linear-gradient(180deg,#2A323D,#1D242D);
+    border:0; display:grid; place-items:center; font-size:10px; font-weight:600; color:var(--t2); cursor:pointer;
+    box-shadow:var(--hi); flex:none; }
+
+  /* ================= CONTEXT BAR ================= */
+  .ctxbar { height:52px; flex:none; display:flex; align-items:center; gap:14px; padding:0 16px;
+    background:linear-gradient(180deg,#131820,#10141B); box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.45); }
+  .ctxid { display:flex; flex-direction:column; gap:3px; min-width:0; }
+  .ctxid .t { font-size:15px; font-weight:600; color:var(--t1); letter-spacing:-0.02em;
+    display:flex; align-items:center; gap:9px; white-space:nowrap; }
+  .ctxid .p { font-size:10.5px; color:var(--t3); display:flex; align-items:center; gap:7px; white-space:nowrap; }
+  .ctxid .p b { color:var(--t2); font-weight:500; }
+  .lenstabs { margin-left:auto; display:flex; align-items:center; gap:1px; flex:none; }
+  .ltab { font-size:11.5px; font-weight:450; color:var(--t3); padding:0 8px; height:24px; cursor:pointer;
+    position:relative; display:inline-flex; align-items:center; border-radius:0; background:none; transition:color .14s; }
+  .ltab:hover { color:var(--t1); background:none; }
+  /* local state is white — the cyan is reserved for global scope + liveness */
+  .ltab.on { color:var(--t1); font-weight:550; background:none; box-shadow:none; }
+  .ltab.on::after { content:""; position:absolute; left:8px; right:8px; bottom:1px; height:1.5px;
+    background:var(--t1); border-radius:2px; }
+  .clock { display:flex; align-items:center; gap:8px; flex:none; padding-left:14px; border:0; }
+  .clock .dot { width:1px; height:9px; border-radius:0; background:var(--t4); box-shadow:none; }
+  /* SIGNAL 2/4 — the as-of version this whole screen is scoped to */
+  .scope { display:inline-flex; align-items:center; gap:5px; font-family:var(--mono); font-size:10.5px;
+    color:var(--t2); cursor:pointer; height:24px; padding:0 6px; border-radius:5px; }
+  .scope:hover { background:rgba(255,255,255,.05); }
+  .scope .tick { width:5px; height:5px; border-radius:50%; background:var(--sig); flex:none; box-shadow:0 0 8px -1px var(--sig); }
+  .scope b { color:var(--t1); font-weight:600; }
+
+  /* ================= CHIPS ================= */
+  .pill { font-size:10.5px; font-weight:500; padding:2px 7px; border-radius:5px; display:inline-flex;
+    align-items:center; gap:5px; border:0; white-space:nowrap; color:var(--t3); background:rgba(255,255,255,.05); }
+  .pill.ok   { color:var(--st-good); background:rgba(0,0,0,.34); box-shadow:inset 0 0 0 1px rgba(12,163,12,.45); }
+  .pill.warn { color:var(--st-warn); background:rgba(0,0,0,.34); box-shadow:inset 0 0 0 1px rgba(250,178,25,.34); }
+  .pill.crit { color:var(--st-crit); background:rgba(0,0,0,.34); box-shadow:inset 0 0 0 1px rgba(220,80,80,.42); }
+  .pill.neu  { color:var(--t3); background:rgba(255,255,255,.05); }
+  .pill.acc  { color:var(--t2); background:var(--s4); box-shadow:var(--hi); }
+  .pill.label{ color:var(--t3); background:transparent; box-shadow:inset 0 0 0 1px var(--r1); }
+  .pill.enforced { color:var(--st-warn); background:rgba(250,178,25,.07); box-shadow:inset 0 0 0 1px rgba(250,178,25,.26); }
+  .lockglyph { color:var(--st-warn); display:inline-flex; vertical-align:-2px; flex:none; }
+  .lockglyph.restr { color:var(--st-crit); }
+  .lockglyph.mut { color:var(--t3); }
+  .cls { font-family:var(--mono); font-size:9.5px; font-weight:500; padding:0 5px; border-radius:4px;
+    border:0; white-space:nowrap; color:var(--t3); background:rgba(255,255,255,.05); }
+  .cls.internal { color:var(--t3); }
+  .cls.conf { color:var(--st-warn); background:rgba(250,178,25,.07); }
+  .cls.restr { color:var(--st-crit-ink); background:rgba(220,80,80,.09); }
+  /* masked PII sits in a recessed well — in diffs, previews and artifacts alike */
+  .masked { color:var(--t3); letter-spacing:.06em; background:rgba(0,0,0,.34); border-radius:4px;
+    padding:1px 5px; box-shadow:inset 0 1px 2px rgba(0,0,0,.6); }
+
+  /* ================= WORKSPACE ================= */
+  .workspace { flex:1; min-height:0; display:grid; grid-template-columns:252px 1fr 372px; }
+  .col { display:flex; flex-direction:column; min-width:0; min-height:0; }
+  .col.rail { background:var(--s2); border:0; box-shadow:1px 0 0 rgba(0,0,0,.45); z-index:2; }
+  .col.center { background:transparent; }
+  .col.dock { background:var(--s2); border:0; box-shadow:-1px 0 0 rgba(0,0,0,.45); z-index:2; }
+  .colhead { height:32px; flex:none; display:flex; align-items:center; gap:9px; padding:0 14px; border:0; }
+  .colhead .t { font-size:12.5px; font-weight:600; letter-spacing:-0.012em; text-transform:none;
+    color:var(--t1); white-space:nowrap; }
+  .colhead .badge { font-family:var(--mono); font-size:10px; font-weight:400; color:var(--t3);
+    background:none; border:0; border-radius:0; padding:0; }
+  .colhead .spacer { margin-left:auto; }
+
+  /* ---- left rail ---- */
+  .railsearch { padding:2px 12px 9px; border:0; flex:none; }
+  .railsearch .box { height:28px; display:flex; align-items:center; gap:8px; padding:0 9px; border:0;
+    background:var(--s0); border-radius:7px; color:var(--t3);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); }
+  .railsearch .box:focus-within { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+  .railsearch .box input { background:none; border:none; outline:none; color:var(--t1); font-size:12px; width:100%; font-family:inherit; }
+  .railsearch .box input::placeholder { color:var(--t3); }
+  .watchlist { overflow-y:auto; overflow-x:hidden; flex:1; min-height:0; }
+  .wlgroup { padding:10px 14px 5px; font-size:11.5px; font-weight:550; letter-spacing:-0.008em;
+    text-transform:none; color:var(--t2); display:flex; align-items:center; gap:9px; }
+  .wlgroup .ct { font-family:var(--mono); font-size:10px; color:var(--t3); font-weight:400; }
+  .wl { display:grid; grid-template-columns:1fr auto; gap:2px 8px; align-items:center;
+    padding:6px 14px; border:0; cursor:pointer; }
+  .wl:hover { background:rgba(255,255,255,.03); }
+  /* selected dataset = elevation + value, not the accent (it is stated in the context bar already) */
+  .wl.sel { background:var(--s4); box-shadow:var(--hi); }
+  .wl.sel .nm { color:var(--t1); }
+  .wl .nm { font-size:12px; font-weight:550; color:var(--t2); display:flex; align-items:center; gap:7px; min-width:0; }
+  .wl .nm .txt { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .wl .meta { grid-column:1; font-size:9.5px; color:var(--t3); display:flex; align-items:center; gap:6px; }
+  .wl .meta .tag { color:var(--t3); }
+  .wl .right { grid-column:2; grid-row:1 / span 2; display:flex; flex-direction:column; align-items:flex-end; gap:2px; }
+  .wl .rows { font-family:var(--mono); font-size:11px; font-weight:600; color:var(--t1); }
+  .verchip { font-family:var(--mono); font-size:9.5px; font-weight:500; color:var(--t2);
+    background:rgba(255,255,255,.05); border:0; border-radius:4px; padding:0 4px; }
+
+  /* ================= CENTER — compare header ================= */
+  .cmphead { flex:none; background:linear-gradient(180deg,var(--s3),#12171E); border:0;
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.55), 0 10px 24px -20px rgba(0,0,0,.9); padding:9px 14px 8px; }
+  .cmprow { display:flex; align-items:center; gap:8px; }
+  .microlab { font-size:9.5px; font-weight:500; letter-spacing:.11em; text-transform:uppercase; color:var(--t3); }
+  .vpick { display:inline-flex; align-items:center; gap:6px; height:28px; padding:0 8px; border-radius:7px;
+    border:0; background:var(--s4); box-shadow:var(--hi); cursor:pointer; white-space:nowrap; }
+  .vpick:hover { background:var(--s5); }
+  /* A vs B separate on VALUE, not on hue: A is graphite, B is the near-white one */
+  .vpick .ab { width:15px; height:15px; border-radius:4px; display:grid; place-items:center; flex:none;
+    font-family:var(--mono); font-size:9px; font-weight:700; color:var(--t2); background:var(--s6); }
+  .vpick .ab.b { background:linear-gradient(180deg,#FBFDFF,var(--key)); color:#0B0E13; }
+  .vpick .vn { font-family:var(--mono); font-size:12px; font-weight:600; color:var(--t1); }
+  .vpick .vd { font-family:var(--mono); font-size:10px; color:var(--t3); }
+  .vpick .cx { color:var(--t3); font-size:9px; }
+  .arrowto { color:var(--t3); font-size:13px; }
+  .tbtn { height:28px; padding:0 10px; font-size:12px; font-weight:450; color:var(--t2); background:transparent;
+    border:0; border-radius:7px; cursor:pointer; font-family:inherit; display:inline-flex; align-items:center;
+    gap:6px; transition:all .14s; white-space:nowrap; box-shadow:inset 0 0 0 1px var(--r2); }
+  .tbtn:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  /* the ONE near-white surface on the screen */
+  .tbtn.primary { background:linear-gradient(180deg,#FBFDFF,var(--key)); color:#0B0E13; font-weight:600; padding:0 11px;
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset, 0 2px 8px -3px rgba(0,0,0,.9), 0 0 0 1px rgba(0,0,0,.35); }
+  .tbtn.primary:hover { background:#fff; }
+  .tbtn.ghost { box-shadow:none; color:var(--t3); }
+  .tbtn.ghost:hover { color:var(--t1); }
+  .tbtn .k { font-size:10px; color:var(--t3); font-family:var(--mono); }
+  .tbtn.sm { height:26px; padding:0 9px; font-size:11.5px; border-radius:6px; }
+  .difflegend { display:flex; align-items:center; gap:14px; margin-top:8px; }
+  .difflegend .li { display:flex; align-items:center; gap:6px; font-size:10px; color:var(--t3); }
+  .difflegend .li b { color:var(--t2); font-family:var(--mono); font-weight:600; }
+  .jumps { margin-left:auto; display:flex; align-items:center; gap:2px; }
+  .jump { font-size:10.5px; font-weight:450; letter-spacing:0; text-transform:none; color:var(--t3);
+    padding:3px 8px; border-radius:6px; border:0; cursor:pointer; white-space:nowrap; }
+  .jump:hover { color:var(--t1); background:rgba(255,255,255,.05); }
+  .jump.on { color:var(--t1); font-weight:550; background:var(--s4); box-shadow:var(--hi); }
+
+  /* ================= CENTER — body ================= */
+  .diffbody { flex:1; overflow-y:auto; overflow-x:hidden; min-height:0; padding:14px 14px 26px; }
+  .lvl { margin-bottom:18px; position:relative; padding-left:34px; }
+  .lvl::before { content:""; position:absolute; left:11px; top:22px; bottom:-18px; width:1px; background:var(--r1); }
+  .lvl.last::before { display:none; }
+  .lvbadge { position:absolute; left:0; top:1px; width:23px; height:20px; border-radius:6px; display:grid;
+    place-items:center; font-family:var(--mono); font-size:10px; font-weight:700; color:var(--t2);
+    background:var(--s4); border:0; box-shadow:var(--hi); }
+  .lvl.plain { padding-left:0; }
+  .lvl.plain::before { display:none; }
+  .lh { display:flex; align-items:center; gap:10px; margin-bottom:9px; flex-wrap:wrap; }
+  .lh .ttl { font-family:var(--sans); font-size:12.5px; font-weight:600; color:var(--t1);
+    letter-spacing:-0.012em; background:none; padding:0; border-radius:0; box-shadow:none; }
+  .lh .sub { font-size:10.5px; color:var(--t3); }
+  .lh .rt { margin-left:auto; display:flex; align-items:center; gap:6px; }
+  /* diff chips: hue + GLYPH + word, so the semantics survive a greyscale print */
+  .dchip { font-family:var(--mono); font-size:10px; font-weight:500; padding:1.5px 6px; border-radius:5px;
+    border:0; white-space:nowrap; display:inline-flex; align-items:center; gap:4px; background:rgba(0,0,0,.3); }
+  .dchip .dg { font-weight:700; font-size:11px; line-height:1; }
+  .dchip.add { color:var(--st-good); box-shadow:inset 0 0 0 1px rgba(12,163,12,.45); }
+  .dchip.rem { color:var(--st-crit); box-shadow:inset 0 0 0 1px rgba(220,80,80,.42); }
+  .dchip.chg { color:var(--st-warn); box-shadow:inset 0 0 0 1px rgba(250,178,25,.34); }
+  .dchip.same{ color:var(--t3); background:rgba(255,255,255,.05); }
+  /* renamed = a relink ACTION. Ink + a ↔ glyph; no hue, no accent. */
+  .dchip.ren { color:var(--t1); background:var(--s4); box-shadow:var(--hi); }
+
+  /* cards earn a SURFACE, not a border */
+  .card { border:0; border-radius:9px; background:var(--s3); box-shadow:var(--hi); overflow:hidden; }
+  table.dt { border-collapse:separate; border-spacing:0; width:100%; font-size:11.5px; }
+  table.dt thead th { text-align:left; background:#12161D; color:var(--t3);
+    font-family:var(--mono); font-size:10px; font-weight:500; letter-spacing:0; text-transform:lowercase;
+    padding:0 10px; height:28px; border:0;
+    box-shadow:inset 0 -1px 0 var(--r2), inset 0 1px 0 var(--r1); white-space:nowrap; }
+  table.dt tbody td { padding:0 10px; height:28px; color:var(--t2);
+    border-bottom:1px solid rgba(255,255,255,.032); white-space:nowrap; }
+  table.dt tbody tr:last-child td { border-bottom:none; }
+  table.dt tbody tr:hover td { background:rgba(255,255,255,.038); }
+  table.dt td.n, table.dt th.n { text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  table.dt td.m { font-family:var(--mono); }
+  .stripe-add { box-shadow:inset 3px 0 0 -1px var(--d-add); }
+  .stripe-rem { box-shadow:inset 3px 0 0 -1px var(--d-rem); }
+  .stripe-chg { box-shadow:inset 3px 0 0 -1px var(--d-chg); }
+  .stripe-ren { box-shadow:inset 3px 0 0 -1px var(--r3); }
+  .stripe-same { box-shadow:inset 3px 0 0 -1px var(--m6); }
+  .vadd { color:var(--st-good); }
+  .vrem { color:var(--st-crit-ink); text-decoration:line-through; text-decoration-color:rgba(220,80,80,.5); }
+  .vchg { color:var(--st-warn); }
+  .cellbefore { color:var(--t3); text-decoration:line-through; text-decoration-color:var(--t4); }
+  .cellafter { color:var(--t1); }
+
+  /* informational notes lose the box entirely — a left rule and an indent */
+  .note { display:flex; align-items:flex-start; gap:9px; font-size:10.5px; line-height:1.5; color:var(--t3);
+    border:0; border-radius:0; padding:0 0 0 10px; margin-top:9px; box-shadow:inset 2px 0 0 var(--r2); background:none; }
+  .note .ci { flex:none; font-family:var(--mono); font-weight:600; font-size:10px; color:var(--t3); margin-top:2px; }
+  .note b { color:var(--t1); font-weight:600; }
+  .note code, .note .mono { font-family:var(--mono); font-size:10px; color:var(--t2); }
+  .note.acc  { box-shadow:inset 2px 0 0 var(--r3); }
+  .note.neu  { box-shadow:inset 2px 0 0 var(--r1); }
+  .note.warn { box-shadow:inset 2px 0 0 rgba(250,178,25,.45); }
+  .note.warn .ci { color:var(--st-warn); }
+  /* the refusals are the honest heart of this screen: a recessed well + a status ring, and the
+     explanation drops into the footnote register so the STATUS CODE stays the anchor */
+  .note.crit { padding:9px 10px; border-radius:7px; background:rgba(0,0,0,.32);
+    box-shadow:inset 0 0 0 1px rgba(220,80,80,.34), inset 0 2px 4px -2px rgba(0,0,0,.8); font-size:10px; }
+  .note.crit .ci { color:var(--st-crit); font-size:11px; font-weight:700; margin-top:0; }
+  .note .rt { margin-left:auto; display:flex; gap:6px; flex:none; }
+
+  /* count tiles — numbers are the hero */
+  .tiles4 { display:grid; grid-template-columns:repeat(4,1fr); gap:9px; }
+  .tile { background:var(--s3); border:0; border-radius:8px; padding:8px 11px 9px; box-shadow:var(--hi); }
+  .tile .k { font-size:9.5px; font-weight:500; letter-spacing:.11em; text-transform:uppercase; color:var(--t3);
+    display:flex; align-items:center; gap:6px; }
+  .tile .v { font-size:22px; font-weight:600; margin-top:3px; letter-spacing:-0.032em; line-height:1.05;
+    color:var(--t1); font-variant-numeric:tabular-nums; }
+  .tile .sub { font-size:10px; color:var(--t3); margin-top:2px; }
+
+  .split2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .split-a { display:grid; grid-template-columns:1.15fr .85fr; gap:14px; }
+  .split2 > *, .split-a > * { min-width:0; }
+  .split2 .card, .split-a .card, .split2 .panel, .split-a .panel { overflow:hidden; }
+  .panel { border:0; border-radius:9px; background:var(--s3); box-shadow:var(--hi); padding:10px 11px 11px; }
+  .panel > .ph { font-size:11.5px; font-weight:550; letter-spacing:-0.008em; text-transform:none;
+    color:var(--t2); margin-bottom:9px; display:flex; align-items:center; gap:9px; }
+  .panel > .ph .line { flex:1; height:1px; background:var(--r1); }
+
+  /* key selector */
+  .keybar { display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
+  .keychip { display:inline-flex; align-items:center; gap:7px; height:26px; padding:0 9px; border-radius:7px;
+    border:0; background:var(--s4); box-shadow:var(--hi); font-size:11px; }
+  .keychip .kn { font-family:var(--mono); font-weight:600; color:var(--t1); }
+  .keyalt { display:inline-flex; align-items:center; gap:6px; height:26px; padding:0 9px; border-radius:7px;
+    border:0; box-shadow:inset 0 0 0 1px var(--r1); font-size:10.5px; color:var(--t3); font-family:var(--mono); }
+  .keyalt.no { color:var(--t3); }
+
+  /* drift — blocks, not boxes: the second border becomes elevation */
+  .driftcard { border:0; border-radius:8px; background:var(--s3); box-shadow:var(--hi); padding:9px 10px; margin-bottom:8px; }
+  .driftcard .dtop { display:flex; align-items:center; gap:8px; margin-bottom:7px; }
+  .driftcard .cn { font-family:var(--mono); font-size:11.5px; font-weight:600; color:var(--t1); }
+  .driftcard .ct { font-family:var(--mono); font-size:9.5px; font-weight:400; letter-spacing:0; text-transform:none;
+    color:var(--t3); border:0; border-radius:4px; padding:0 5px; background:rgba(255,255,255,.05); }
+  .driftcard .sp { margin-left:auto; display:flex; align-items:center; gap:7px; }
+  .drow { display:grid; grid-template-columns:74px 1fr auto; gap:9px; align-items:center; font-size:10.5px; margin:3px 0; }
+  .drow .dk { color:var(--t3); }
+  .drow .dv { font-family:var(--mono); color:var(--t2); }
+  .drow .dd { font-family:var(--mono); font-weight:600; color:var(--t2); }
+  .catchips { display:flex; flex-wrap:wrap; gap:5px; margin-top:7px; }
+  .catchip { font-family:var(--mono); font-size:9.5px; padding:1px 5px; border-radius:4px; border:0;
+    display:inline-flex; align-items:center; gap:4px; background:rgba(0,0,0,.3); }
+  .catchip.add { color:var(--st-good); box-shadow:inset 0 0 0 1px rgba(12,163,12,.4); }
+  .catchip.rem { color:var(--st-crit); box-shadow:inset 0 0 0 1px rgba(220,80,80,.36); }
+
+  /* retention */
+  .retrow > * { min-width:0; }
+  .retrow { display:grid; grid-template-columns:1fr auto auto; gap:9px; align-items:center;
+    padding:6px 0; border-bottom:1px solid rgba(255,255,255,.032); font-size:10.5px; }
+  .retrow:last-child { border-bottom:none; }
+  .retrow .rk { font-family:var(--mono); font-weight:600; color:var(--t1); font-size:11px; }
+  .retrow .rp { font-family:var(--mono); font-size:9.5px; color:var(--t3);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ttl { font-family:var(--mono); font-size:10px; font-weight:500; padding:1px 6px; border-radius:5px;
+    border:0; color:var(--t3); background:rgba(255,255,255,.05); white-space:nowrap; }
+  .ttl.soon { color:var(--st-warn); background:rgba(0,0,0,.3); box-shadow:inset 0 0 0 1px rgba(250,178,25,.3); }
+  .ttl.inf { color:var(--st-good); background:rgba(0,0,0,.3); box-shadow:inset 0 0 0 1px rgba(12,163,12,.4); }
+
+  /* timeline */
+  .tl { display:flex; flex-direction:column; }
+  .tlrow { display:grid; grid-template-columns:118px 128px 1fr 84px; gap:10px; align-items:center;
+    padding:4px 2px; border-bottom:1px solid rgba(255,255,255,.03); font-size:10.5px;
+    font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  .tlrow:last-child { border-bottom:none; }
+  .tlrow:hover { background:rgba(255,255,255,.038); }
+  .tlrow .ts { color:var(--t3); }
+  .tlrow .ev { font-size:10px; font-weight:500; letter-spacing:0; display:inline-flex; align-items:center;
+    gap:6px; color:var(--t2); }
+  .tlrow .ev.muted { color:var(--t3); }
+  .tlrow .de { color:var(--t2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .tlrow .de b { color:var(--t1); font-weight:600; }
+  .tlrow .de span.q { color:var(--t3); }
+  .tlrow .ac { color:var(--t3); text-align:right; }
+
+  /* ================= DOCK ================= */
+  .dockbody { overflow-y:auto; overflow-x:hidden; flex:1; min-height:0; padding:2px 13px 18px; }
+  .sect { margin-bottom:16px; }
+  .sect > .h { font-size:11.5px; font-weight:550; letter-spacing:-0.008em; text-transform:none;
+    color:var(--t2); margin-bottom:9px; display:flex; align-items:center; gap:9px; }
+  .sect > .h .line { flex:1; height:1px; background:var(--r1); min-width:10px; }
+  .vrow { display:grid; grid-template-columns:auto 1fr auto; gap:3px 9px; align-items:center;
+    padding:6px 9px; border-radius:8px; border:0; cursor:pointer; margin-bottom:3px; }
+  .vrow:hover { background:rgba(255,255,255,.035); }
+  /* A and B are repeated state — value + elevation carry them, never a hue */
+  .vrow.selA { background:var(--s3); box-shadow:var(--hi); }
+  .vrow.selB { background:var(--s4); box-shadow:var(--hi); }
+  .vrow.dead { opacity:.62; }
+  .vrow .vab { grid-row:1 / span 2; width:19px; height:19px; border-radius:5px; display:grid; place-items:center;
+    font-size:9px; font-weight:700; font-family:var(--mono); background:rgba(255,255,255,.05);
+    border:0; color:var(--t3); }
+  .vrow .vab.on { background:var(--s6); color:var(--t1); box-shadow:var(--hi); }
+  .vrow.selB .vab.on { background:linear-gradient(180deg,#FBFDFF,var(--key)); color:#0B0E13; }
+  .vrow .vt { display:flex; align-items:center; gap:7px; font-size:11.5px; font-weight:600; color:var(--t1); min-width:0; }
+  .vrow .vt .vv { font-family:var(--mono); }
+  .vrow .vm { grid-column:2; font-size:10px; color:var(--t3); font-family:var(--mono);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .vrow .vr { grid-column:3; grid-row:1 / span 2; text-align:right; display:flex; flex-direction:column;
+    align-items:flex-end; justify-content:center; line-height:1.3; }
+  .vrow .vr .rr { font-size:11.5px; font-weight:600; font-family:var(--mono); color:var(--t1); }
+  .vrow .vr .sz { font-size:9.5px; color:var(--t3); font-family:var(--mono); }
+  .tagpin { font-family:var(--mono); font-size:9.5px; font-weight:500; padding:0 5px; border-radius:4px;
+    border:0; color:var(--t2); background:rgba(255,255,255,.06); }
+  .tagpin.frozen { color:var(--st-serious); background:rgba(236,131,90,.09); }
+
+  .tagcard { border:0; border-radius:8px; background:var(--s3); box-shadow:var(--hi); padding:8px 10px; margin-bottom:7px; }
+  .tagcard .tt { display:flex; align-items:center; gap:8px; }
+  .tagcard .tn { font-family:var(--mono); font-size:11.5px; font-weight:600; color:var(--t1); }
+  .tagcard .to { margin-left:auto; font-family:var(--mono); font-size:11px; font-weight:600; color:var(--t2); }
+  .tagcard .tw { font-size:10px; color:var(--t3); margin-top:4px; display:flex; align-items:center; gap:6px; }
+  .tagcard .tw b { color:var(--t1); font-weight:600; }
+  .tagcard .tx { width:24px; height:24px; flex:none; display:grid; place-items:center; margin-left:4px;
+    font-size:10px; border-radius:5px; border:0; background:transparent; color:var(--t3); cursor:pointer; }
+  .tagcard .tx:hover { color:var(--st-crit-ink); background:rgba(220,80,80,.12); }
+  .delcard { border:0; border-radius:8px; background:var(--s3); padding:10px;  margin-top:9px;
+    box-shadow:var(--hi), inset 0 0 0 1px rgba(220,80,80,.24); }
+  .delcard .dt2 { display:flex; align-items:center; gap:7px; font-size:11.5px; font-weight:600; color:var(--t1); }
+  .delcard .dt2 .dcode { margin-left:auto; font-family:var(--mono); font-size:9.5px; font-weight:500; color:var(--t3); }
+  .delcard .dw { font-size:10px; line-height:1.5; color:var(--t3); margin-top:6px; }
+  .delcard .dw b { color:var(--t1); font-weight:600; }
+  .keeprow { display:grid; grid-template-columns:auto 1fr auto; gap:8px; align-items:center; font-size:10.5px; margin-top:6px; }
+  .keeprow .kn { font-family:var(--mono); color:var(--t2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .keeprow .kn b { color:var(--t1); font-weight:600; }
+  .keeprow .kv { font-family:var(--mono); font-size:9.5px; font-weight:600; white-space:nowrap; }
+  .tbtn.danger { color:var(--st-crit-ink); box-shadow:inset 0 0 0 1px rgba(220,80,80,.4); background:transparent; }
+  .tbtn.danger:hover { color:var(--st-crit-ink); background:rgba(220,80,80,.14); }
+
+  /* the 409-refused promote — raised block, recessed evidence, status ring */
+  .gatecard { border:0; border-radius:8px; background:var(--s3); padding:10px;
+    box-shadow:var(--hi), inset 0 0 0 1px rgba(220,80,80,.28); }
+  .gatecard .gt { display:flex; align-items:center; gap:8px; font-size:12px; font-weight:600; color:var(--t1); }
+  .gatecard .gcode { margin-left:auto; font-family:var(--mono); font-size:10px; font-weight:600; color:var(--st-crit-ink); }
+  .gatecard .tw { font-size:10px; color:var(--t3); }
+  .grule { display:grid; grid-template-columns:auto 1fr auto; gap:8px; align-items:center; font-size:10.5px; margin-top:7px; }
+  .grule .gn { font-family:var(--mono); color:var(--t2); }
+  .grule .gv { font-family:var(--mono); font-weight:600; }
+  .newtag { display:flex; align-items:center; gap:7px; margin-top:8px; }
+  .fakeinput { flex:1; height:26px; display:flex; align-items:center; padding:0 8px; border-radius:7px;
+    border:0; background:var(--s0); font-family:var(--mono); font-size:11px; color:var(--t1);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(220,80,80,.4); }
+  .thist { display:flex; flex-direction:column; }
+  .throw { display:grid; grid-template-columns:auto 1fr auto; gap:9px; align-items:center;
+    font-family:var(--mono); font-size:10px; padding:4px 0; border-bottom:1px solid rgba(255,255,255,.032); }
+  .throw:last-child { border-bottom:none; }
+  .throw .tv { font-weight:600; color:var(--t2); }
+  .throw .tk { color:var(--t3); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .throw .td { color:var(--t3); }
+
+  /* ================= STATUS BAR ================= */
+  .statusbar { height:26px; flex:none; display:flex; align-items:center; gap:14px; padding:0 16px;
+    border:0; background:var(--s2); box-shadow:inset 0 1px 0 var(--r1); font-size:10.5px; color:var(--t3); }
+  .statusbar .h { display:flex; align-items:center; gap:6px; white-space:nowrap; }
+  .statusbar .h b { color:var(--t2); font-weight:500; }
+  .statusbar .rt { margin-left:auto; display:flex; align-items:center; gap:16px; }
+  /* SIGNAL 4/4 — the one live indicator on the screen */
+  .sclock { display:flex; align-items:center; gap:8px; font-family:var(--mono); flex:none; }
+  .sclock .dot { width:6px; height:6px; border-radius:50%; background:var(--sig); flex:none;
+    box-shadow:0 0 0 3px rgba(70,213,232,.10), 0 0 9px -1px var(--sig); animation:pulse 3s ease-in-out infinite; }
+  .sclock b { color:var(--t2); font-weight:500; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.42} }
+  @media (prefers-reduced-motion:reduce){ .sclock .dot { animation:none } }
+</style>
+</head>
+<body class="dark" data-palette="#3987e5,#d95926,#199e70,#c98500,#d55181,#747c04,#9085e9,#e66767">
+<!-- ================= HEADER ================= -->
+<header class="topbar">
+  <div class="brand">
+    <span class="glyph">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M4 7l8-4 8 4-8 4-8-4z" fill="#fff" opacity=".95"/><path d="M4 12l8 4 8-4M4 17l8 4 8-4" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity=".8"/></svg>
+    </span>
+    <span class="name">Command&nbsp;Studio</span>
+  </div>
+  <span class="env-chip">PROD · US-EAST</span>
+  <nav class="gnav">
+    <a href="#">Workflows</a>
+    <a href="#" class="active">Datasets</a>
+    <a href="#">Runs</a>
+    <a href="#">Library</a>
+  </nav>
+
+  <div class="cmdk lit" title="Command palette">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span class="ph">diff v41 v42 · promote prod · rollback…</span>
+    <span class="kbd">⌘K</span>
+  </div>
+
+  <div class="hicons">
+    <button class="iconbtn" title="Filters"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M3 5h18M6 12h12M10 19h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+    <button class="iconbtn" title="Alerts"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M6 9a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M10 20a2 2 0 004 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+    <button class="iconbtn" title="Theme" onclick="document.body.classList.toggle('dark')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M20 13a8 8 0 11-9-9 6 6 0 009 9z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></button>
+  </div>
+  <div class="teamsw" title="Switch team — datasets are team-locked; you only see teams you belong to">
+    <span class="tl">Team</span><span class="tv">Growth Analytics</span><span class="cx">▾</span>
+  </div>
+  <div class="avatar" title="S. Ganji · Growth Analytics · member">SG</div>
+</header>
+
+<!-- ================= CONTEXT BAR ================= -->
+<div class="ctxbar">
+  <div class="ctxid">
+    <div class="t">
+      <span class="sdot good" style="width:9px;height:9px"></span>
+      Q3 Campaign Signups.csv
+      <span class="pill label" title="Dataset classification — catalog metadata only. It does not enforce access.">Confidential</span>
+      <span class="pill enforced" title="Enforced: the email column declares sensitivity: pii, so its values are masked for your role — in previews, in diffs and in the cell-level artifact."><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span> email masked</span>
+      <span class="scope" title="This screen is scoped to one version — v42, the latest"><span class="tick"></span>as-of <b>v42</b> · latest</span>
+    </div>
+    <div class="p">
+      <span>team <b>growth-analytics</b> ·</span>
+      <span class="mono">uploads/growth-analytics/q3_campaign_signups.csv</span>
+      <span class="mono">· 84,213 rows · 9 cols</span>
+    </div>
+  </div>
+  <nav class="lenstabs">
+    <span class="ltab">Overview</span>
+    <span class="ltab">Quality</span>
+    <span class="ltab on">Versions</span>
+    <span class="ltab">Analytics</span>
+    <span class="ltab">Relations</span>
+    <span class="ltab">Transform</span>
+    <span class="ltab">Library</span>
+  </nav>
+  <div class="clock">
+    <span class="dot"></span>
+    <span class="mono" style="font-size:10.5px;color:var(--muted-foreground)">SYNC 16:41:07 ET</span>
+  </div>
+</div>
+<div class="workspace">
+  <!-- ---------- LEFT RAIL ---------- -->
+  <div class="col rail">
+    <div class="colhead">
+      <span class="t">Datasets</span>
+      <span class="badge num">12</span>
+      <span class="spacer"></span>
+      <button class="iconbtn" style="width:24px;height:24px" title="Upload dataset — creates a NEW immutable version, never overwrites"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 19V7m0 0l-4 4m4-4l4 4M5 5h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    </div>
+    <div class="railsearch">
+      <div class="box">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <input placeholder="Filter datasets…" />
+        <span class="kbd">/</span>
+      </div>
+    </div>
+    <div class="watchlist">
+      <div class="wlgroup">Growth Analytics <span class="ct num">2</span></div>
+      <div class="wl sel">
+        <div class="nm"><span class="sdot good"></span><span class="txt">Q3 Campaign Signups.csv</span></div>
+        <div class="meta"><span class="tag mono">GRW</span> · <span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span> <span class="cls conf">Confidential</span></div>
+        <div class="right"><span class="rows num">84.2K</span><span class="verchip">v42</span></div>
+      </div>
+      <div class="wl">
+        <div class="nm"><span class="sdot good"></span><span class="txt">Churn Feature Store</span></div>
+        <div class="meta"><span class="tag mono">GRW</span> · <span class="cls internal">Internal</span></div>
+        <div class="right"><span class="rows num">2.4M</span><span class="verchip">v7</span></div>
+      </div>
+      <div class="wlgroup">People Ops <span class="ct num">3</span></div>
+      <div class="wl">
+        <div class="nm"><span class="sdot warn"></span><span class="txt">Employee Records</span></div>
+        <div class="meta"><span class="tag mono">HR</span> · <span class="lockglyph restr"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span> <span class="cls restr">Restricted</span></div>
+        <div class="right"><span class="rows num">12.4K</span><span class="verchip">v18</span></div>
+      </div>
+      <div class="wl">
+        <div class="nm"><span class="sdot good"></span><span class="txt">Payroll Run 2026-08</span></div>
+        <div class="meta"><span class="tag mono">HR</span> · <span class="lockglyph restr"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span> <span class="cls restr">Restricted</span></div>
+        <div class="right"><span class="rows num">3,142</span><span class="verchip">v3</span></div>
+      </div>
+      <div class="wl">
+        <div class="nm"><span class="sdot warn"></span><span class="txt">Candidate Pipeline</span></div>
+        <div class="meta"><span class="tag mono">HR</span> · <span class="cls conf">Confidential</span></div>
+        <div class="right"><span class="rows num">8,710</span><span class="verchip">v11</span></div>
+      </div>
+      <div class="wlgroup">Finance <span class="ct num">2</span></div>
+      <div class="wl">
+        <div class="nm"><span class="sdot good"></span><span class="txt">Vendor Invoices</span></div>
+        <div class="meta"><span class="tag mono">FIN</span> · <span class="cls conf">Confidential</span></div>
+        <div class="right"><span class="rows num">512K</span><span class="verchip">v64</span></div>
+      </div>
+      <div class="wl">
+        <div class="nm"><span class="sdot warn"></span><span class="txt">Refund Requests</span></div>
+        <div class="meta"><span class="tag mono">FIN</span> · <span class="cls conf">Confidential</span></div>
+        <div class="right"><span class="rows num">88.0K</span><span class="verchip">v29</span></div>
+      </div>
+      <div class="wlgroup">Customer Success <span class="ct num">2</span></div>
+      <div class="wl">
+        <div class="nm"><span class="sdot good"></span><span class="txt">Support Tickets Export</span></div>
+        <div class="meta"><span class="tag mono">CS</span> · <span class="cls internal">Internal</span></div>
+        <div class="right"><span class="rows num">1.2M</span><span class="verchip">v91</span></div>
+      </div>
+      <div class="wl">
+        <div class="nm"><span class="sdot good"></span><span class="txt">NPS Survey Responses</span></div>
+        <div class="meta"><span class="tag mono">CS</span> · <span class="cls internal">Internal</span></div>
+        <div class="right"><span class="rows num">143K</span><span class="verchip">v12</span></div>
+      </div>
+      <div class="wlgroup">Marketing <span class="ct num">2</span></div>
+      <div class="wl">
+        <div class="nm"><span class="sdot good"></span><span class="txt">Web Events — Aug</span></div>
+        <div class="meta"><span class="tag mono">MKT</span> · <span class="cls internal">Internal</span></div>
+        <div class="right"><span class="rows num">402M</span><span class="verchip">v240</span></div>
+      </div>
+      <div class="wl">
+        <div class="nm"><span class="sdot warn"></span><span class="txt">Lead Scores</span></div>
+        <div class="meta"><span class="tag mono">MKT</span> · <span class="cls conf">Confidential</span></div>
+        <div class="right"><span class="rows num">690K</span><span class="verchip">v55</span></div>
+      </div>
+      <div class="wlgroup">Data Platform <span class="ct num">1</span></div>
+      <div class="wl">
+        <div class="nm"><span class="sdot good"></span><span class="txt">Product Usage Daily</span></div>
+        <div class="meta"><span class="tag mono">DP</span> · <span class="cls internal">Internal</span></div>
+        <div class="right"><span class="rows num">311M</span><span class="verchip">v402</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ---------- CENTER / DIFF SURFACE ---------- -->
+  <div class="col center">
+    <div class="cmphead">
+      <div class="cmprow">
+        <span class="microlab">Compare</span>
+        <span class="vpick" title="Base version (A)"><span class="ab">A</span><span class="vn">v41</span><span class="vd">14 Aug 17:48</span><span class="cx">▾</span></span>
+        <span class="arrowto">→</span>
+        <span class="vpick" title="Target version (B)"><span class="ab b">B</span><span class="vn">v42</span><span class="vd">16 Aug 09:12</span><span class="cx">▾</span></span>
+        <span class="pill neu" title="A version is never rewritten. Re-uploading the same file produces a new version.">immutable · read-only</span>
+        <div class="jumps">
+          <button class="tbtn ghost" title="Swap A and B">⇄ Swap</button>
+          <button class="tbtn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Cell artifact</button>
+          <button class="tbtn primary">Re-run diff<span class="k" style="color:#4A5462">⌘⏎</span></button>
+        </div>
+      </div>
+      <div class="difflegend">
+        <span class="li"><span class="g good"></span><b>+</b> added</span>
+        <span class="li"><span class="g crit"></span><b>−</b> removed</span>
+        <span class="li"><span class="g warn"></span><b>~</b> changed</span>
+        <span class="li"><span class="g unknown"></span><b>=</b> unchanged</span>
+        <span class="li"><b>↕</b> renamed / relinked <span class="fn">— an action, not a delta</span></span>
+        <span class="jumps">
+          <span class="jump on">L1 workbook</span><span class="jump">L2 schema</span><span class="jump">L3 rows</span>
+          <span class="jump">drift</span><span class="jump">lineage</span><span class="jump">timeline</span>
+        </span>
+      </div>
+    </div>
+
+    <div class="diffbody">
+
+      <!-- ===== L1 WORKBOOK DIFF ===== -->
+      <div class="lvl">
+        <span class="lvbadge" title="Level 1 — workbook shape">L1</span>
+        <div class="lh">
+          <span class="ttl">Workbook diff</span>
+          <span class="sub">sheet-level shape · v41 → v42</span>
+          <span class="rt">
+            <span class="dchip add">+2 added</span><span class="dchip rem">−2 removed</span>
+            <span class="dchip chg"><span class="dg">~</span>1 modified</span><span class="dchip ren"><span class="dg">↕</span>1 renamed</span>
+            <span class="dchip same"><span class="dg">=</span>1 unchanged</span>
+          </span>
+        </div>
+        <div class="card">
+          <table class="dt">
+            <thead>
+              <tr><th style="width:236px">Sheet</th><th style="width:104px">Change</th><th class="n" style="width:86px">Rows v41</th><th class="n" style="width:86px">Rows v42</th><th class="n" style="width:74px">Δ</th><th>Note</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="m stripe-chg" style="font-weight:600">signups</td>
+                <td><span class="dchip chg"><span class="dg">~</span>modified</span></td>
+                <td class="n">83,940</td><td class="n">84,213</td><td class="n vchg">+273</td>
+                <td class="muted">schema + rows changed · <span style="color:var(--t1)">open in L2 ↓</span></td>
+              </tr>
+              <tr>
+                <td class="m stripe-ren" style="font-weight:600">regions_lookup → region_lookup</td>
+                <td><span class="dchip ren"><span class="dg">↕</span>renamed</span></td>
+                <td class="n">4</td><td class="n">4</td><td class="n muted">0</td>
+                <td class="muted">confirmed by s.ganji · one logical sheet</td>
+              </tr>
+              <tr>
+                <td class="m stripe-add" style="font-weight:600">utm_dictionary</td>
+                <td><span class="dchip add"><span class="dg">+</span>added</span></td>
+                <td class="n muted">—</td><td class="n">41</td><td class="n vadd">+41</td>
+                <td class="muted">new in v42 · 3 cols</td>
+              </tr>
+              <tr>
+                <td class="m stripe-rem" style="font-weight:600">legacy_leads</td>
+                <td><span class="dchip rem"><span class="dg">−</span>removed</span></td>
+                <td class="n">2,904</td><td class="n muted">—</td><td class="n vrem" style="text-decoration:none">−2,904</td>
+                <td class="muted">dropped in v42 · still readable at v41</td>
+              </tr>
+              <tr>
+                <td class="m stripe-rem" style="font-weight:600">channel_costs</td>
+                <td><span class="dchip rem"><span class="dg">−</span>removed</span></td>
+                <td class="n">312</td><td class="n muted">—</td><td class="n vrem" style="text-decoration:none">−312</td>
+                <td style="color:var(--d-ren)">rename candidate ↕ channel_spend</td>
+              </tr>
+              <tr>
+                <td class="m stripe-add" style="font-weight:600">channel_spend</td>
+                <td><span class="dchip add"><span class="dg">+</span>added</span></td>
+                <td class="n muted">—</td><td class="n">318</td><td class="n vadd">+318</td>
+                <td style="color:var(--d-ren)">rename candidate ↕ channel_costs</td>
+              </tr>
+              <tr>
+                <td class="m stripe-same" style="font-weight:600">campaign_map</td>
+                <td><span class="dchip same"><span class="dg">=</span>unchanged</span></td>
+                <td class="n">128</td><td class="n">128</td><td class="n muted">0</td>
+                <td class="muted">content hash identical</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="note acc">
+          <span class="ci">↕</span>
+          <span><b>1 rename candidate awaiting confirmation.</b> <code>channel_costs</code> → <code>channel_spend</code> · 0.94 column-signature similarity. Until you confirm, they stay counted as one <b>removed</b> + one <b>added</b> sheet. Confirming relinks the pair as <b>one logical sheet</b>, so its history, tags and diffs follow it across the rename.</span>
+          <span class="rt"><button class="tbtn ghost">Keep separate</button><button class="tbtn">Confirm rename</button></span>
+        </div>
+      </div>
+
+      <!-- ===== L2 SCHEMA DIFF ===== -->
+      <div class="lvl">
+        <span class="lvbadge" title="Level 2 — per-sheet schema">L2</span>
+        <div class="lh">
+          <span class="ttl">Schema diff</span>
+          <span class="sub">sheet <span class="mono" style="color:var(--foreground)">signups</span> · 9 → 9 cols</span>
+          <span class="rt">
+            <span class="dchip add">+1 col</span><span class="dchip rem">−1 col</span>
+            <span class="dchip chg"><span class="dg">~</span>2 type</span><span class="dchip chg"><span class="dg">~</span>2 nullability</span>
+            <span class="dchip ren"><span class="dg">↕</span>1 order</span><span class="dchip chg"><span class="dg">~</span>+273 rows</span>
+          </span>
+        </div>
+        <div class="card">
+          <table class="dt">
+            <thead>
+              <tr><th style="width:150px">Column</th><th style="width:112px">Change</th><th style="width:128px">Before · v41</th><th style="width:128px">After · v42</th><th>Impact</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="m stripe-add" style="font-weight:600">utm_medium</td>
+                <td><span class="dchip add"><span class="dg">+</span>column added</span></td>
+                <td class="m muted">—</td>
+                <td class="m vadd">string · nullable</td>
+                <td class="muted">pos 10 · no sensitivity declared</td>
+              </tr>
+              <tr>
+                <td class="m stripe-rem" style="font-weight:600">legacy_source</td>
+                <td><span class="dchip rem"><span class="dg">−</span>column removed</span></td>
+                <td class="m vrem" style="text-decoration:none">string · nullable</td>
+                <td class="m muted">—</td>
+                <td class="muted">was pos 8 · 2 downstream refs</td>
+              </tr>
+              <tr>
+                <td class="m stripe-chg" style="font-weight:600">amount</td>
+                <td><span class="dchip chg"><span class="dg">~</span>type</span></td>
+                <td class="m cellbefore">decimal(10,2)</td>
+                <td class="m cellafter">decimal(12,2)</td>
+                <td class="muted">widening · no value loss</td>
+              </tr>
+              <tr>
+                <td class="m stripe-chg" style="font-weight:600">signup_date</td>
+                <td><span class="dchip chg"><span class="dg">~</span>type</span></td>
+                <td class="m cellbefore">string</td>
+                <td class="m cellafter">date</td>
+                <td class="muted">parsed at ingest · 0 unparseable</td>
+              </tr>
+              <tr>
+                <td class="m stripe-chg" style="font-weight:600">plan</td>
+                <td><span class="dchip chg"><span class="dg">~</span>nullability</span></td>
+                <td class="m cellbefore">nullable</td>
+                <td class="m cellafter">not null</td>
+                <td class="muted">tightened</td>
+              </tr>
+              <tr>
+                <td class="m stripe-chg" style="font-weight:600">utm_campaign</td>
+                <td><span class="dchip chg"><span class="dg">~</span>nullability</span></td>
+                <td class="m cellbefore">not null</td>
+                <td class="m cellafter">nullable</td>
+                <td style="color:var(--st-warn)"><span class="sdot warn"></span> loosened · 4.8% null in v42</td>
+              </tr>
+              <tr>
+                <td class="m stripe-ren" style="font-weight:600">region</td>
+                <td><span class="dchip ren"><span class="dg">↕</span>column order</span></td>
+                <td class="m cellbefore">pos 5</td>
+                <td class="m cellafter">pos 4</td>
+                <td class="muted">positional readers affected</td>
+              </tr>
+              <tr>
+                <td class="m stripe-same muted" style="font-weight:600">4 more columns</td>
+                <td><span class="dchip same"><span class="dg">=</span>unchanged</span></td>
+                <td class="m muted" colspan="2">identical name, type, nullability</td>
+                <td class="muted"><span class="lockglyph mut"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span> email still declares pii</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="note neu">
+          <span class="ci mono">Σ</span>
+          <span>Row count <b class="mono">83,940</b> → <b class="mono">84,213</b> · <b class="mono" style="color:var(--st-warn)">+273</b> (+0.33%). Schema diff is computed <b>per sheet</b>; pick another sheet in L1 to re-scope this table.</span>
+        </div>
+      </div>
+
+      <!-- ===== L3 ROW-LEVEL DIFF ===== -->
+      <div class="lvl">
+        <span class="lvbadge" title="Level 3 — keyed row diff">L3</span>
+        <div class="lh">
+          <span class="ttl">Row-level diff</span>
+          <span class="sub">keyed · sheet <span class="mono" style="color:var(--foreground)">signups</span></span>
+          <span class="rt">
+            <span class="dchip add">+402</span><span class="dchip rem">−129</span>
+            <span class="dchip chg"><span class="dg">~</span>1,847 changed</span><span class="dchip same"><span class="dg">=</span>81,964 unchanged</span>
+          </span>
+        </div>
+
+        <div class="card" style="padding:10px">
+          <div class="keybar">
+            <span class="microlab">Diff key</span>
+            <span class="keychip"><span class="kn">signup_id</span><span class="muted">·</span><span style="color:var(--st-good);font-weight:600"><span class="sdot good"></span> unique</span><span class="mono muted" style="font-size:10px">84,213 / 84,213 distinct</span><span class="cx muted">▾</span></span>
+            <span class="muted" style="font-size:10.5px">alternatives</span>
+            <span class="keyalt no" title="A masked column can never be a diff key — the service would have to read raw values to join on it."><span class="lockglyph mut"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span> email · masked</span>
+            <span class="keyalt no">utm_campaign · 41 distinct</span>
+            <span class="keyalt">(signup_id, region) · composite</span>
+          </div>
+          <div class="note crit" style="margin-top:9px">
+            <span class="ci">409</span>
+            <span>A row diff <b>requires a unique key</b>. With no unique column and no composite supplied the API refuses with <code>409 diff-key-required</code> and returns nothing — it will not guess a key, and it will not fall back to positional matching. L1 and L2 still work without a key.</span>
+          </div>
+        </div>
+
+        <div class="tiles4" style="margin-top:10px">
+          <div class="tile">
+            <div class="k"><span class="g good"></span> Added</div>
+            <div class="v" style="color:var(--st-good)">402</div>
+            <div class="sub">rows only in v42</div>
+          </div>
+          <div class="tile">
+            <div class="k"><span class="g crit"></span> Removed</div>
+            <div class="v" style="color:var(--st-crit-ink)">129</div>
+            <div class="sub">rows only in v41</div>
+          </div>
+          <div class="tile">
+            <div class="k"><span class="g warn"></span> Changed</div>
+            <div class="v" style="color:var(--d-chg)">1,847</div>
+            <div class="sub">same key · 3,388 cells differ</div>
+          </div>
+          <div class="tile">
+            <div class="k"><span class="g unknown"></span> Unchanged</div>
+            <div class="v muted">81,964</div>
+            <div class="sub">97.2% of the keyed union</div>
+          </div>
+        </div>
+
+        <div class="split-a" style="margin-top:10px">
+          <div class="panel">
+            <div class="ph">Composition <span class="line"></span><span class="mono" style="letter-spacing:0;text-transform:none;font-size:9.5px">keyed union 84,342 rows</span></div>
+            <svg style="width:100%;height:auto;display:block" viewBox="0 0 440 104" preserveAspectRatio="xMinYMin meet" role="img" aria-label="Row diff composition, full scale and zoomed to the 2,378 differing rows">
+              <defs>
+                <clipPath id="rc1"><rect x="0" y="10" width="440" height="13" rx="4"/></clipPath>
+                <clipPath id="rc2"><rect x="0" y="58" width="440" height="13" rx="4"/></clipPath>
+              </defs>
+              <text x="0" y="6" fill="var(--muted-foreground)" font-size="9" font-family="'JetBrains Mono',ui-monospace,monospace" letter-spacing=".06em">FULL SCALE</text>
+              <g clip-path="url(#rc1)">
+                <rect x="0" y="10" width="440" height="13" fill="#39414D"/>
+                <rect x="0" y="10" width="2.1" height="13" fill="var(--d-add)"/>
+                <rect x="2.1" y="10" width="0.7" height="13" fill="var(--d-rem)"/>
+                <rect x="2.8" y="10" width="9.6" height="13" fill="var(--d-chg)"/>
+              </g>
+              <text x="18" y="20" fill="var(--muted-foreground)" font-size="9.5" font-family="'JetBrains Mono',ui-monospace,monospace">2,378 differ · 81,964 unchanged (97.2%)</text>
+              <line x1="0" y1="40" x2="440" y2="40" stroke="var(--border)" stroke-dasharray="2 3"/>
+              <text x="0" y="54" fill="var(--muted-foreground)" font-size="9" font-family="'JetBrains Mono',ui-monospace,monospace" letter-spacing=".06em">DETAIL ×35 — DIFFERING ROWS ONLY</text>
+              <g clip-path="url(#rc2)">
+                <rect x="0" y="58" width="440" height="13" fill="#39414D"/>
+                <rect x="0" y="58" width="341.8" height="13" fill="var(--d-chg)"/>
+                <rect x="341.8" y="58" width="74.4" height="13" fill="var(--d-add)"/>
+                <rect x="416.2" y="58" width="23.8" height="13" fill="var(--d-rem)"/>
+              </g>
+              <g font-size="9.5" font-family="'JetBrains Mono',ui-monospace,monospace">
+                <path d="M0,88 L4.5,79 L9,88 z" fill="var(--d-chg)"/><text x="14" y="88" fill="var(--muted-foreground)">~ changed 1,847</text>
+                <circle cx="122.5" cy="84" r="4.5" fill="var(--d-add)"/><text x="132" y="88" fill="var(--muted-foreground)">+ added 402</text>
+                <rect x="218" y="79.5" width="9" height="9" rx="1" fill="var(--d-rem)"/><text x="232" y="88" fill="var(--muted-foreground)">− removed 129</text>
+                <circle cx="330.5" cy="84" r="4" fill="none" stroke="#85909F" stroke-width="1.5"/><text x="340" y="88" fill="var(--muted-foreground)">= unchanged</text>
+              </g>
+            </svg>
+          </div>
+          <div class="panel">
+            <div class="ph">Changed cells by column <span class="line"></span><span class="mono" style="letter-spacing:0;text-transform:none;font-size:9.5px">busiest first</span></div>
+            <svg style="width:100%;height:auto;display:block" viewBox="0 0 288 150" preserveAspectRatio="xMinYMin meet" role="img" aria-label="Changed cell counts per column, ranked busiest first">
+              <g font-size="10" font-family="'JetBrains Mono',ui-monospace,monospace">
+                <line x1="92" y1="2" x2="92" y2="146" stroke="rgba(255,255,255,.075)"/>
+                <text x="86" y="14" text-anchor="end" fill="var(--foreground)">amount</text>
+                <path d="M92,7 h146 a4,4 0 0 1 0,8 h-146 z" fill="var(--m2)"/>
+                <text x="246" y="14" fill="var(--muted-foreground)">1,204</text>
+                <text x="86" y="34" text-anchor="end" fill="var(--foreground)">status</text>
+                <path d="M92,27 h109 a4,4 0 0 1 0,8 h-109 z" fill="var(--m3)"/>
+                <text x="209" y="34" fill="var(--muted-foreground)">902</text>
+                <text x="86" y="54" text-anchor="end" fill="var(--foreground)">plan</text>
+                <path d="M92,47 h73 a4,4 0 0 1 0,8 h-73 z" fill="var(--m3)"/>
+                <text x="173" y="54" fill="var(--muted-foreground)">611</text>
+                <text x="86" y="74" text-anchor="end" fill="var(--foreground)">utm_campaign</text>
+                <path d="M92,67 h45 a4,4 0 0 1 0,8 h-45 z" fill="var(--m3)"/>
+                <text x="145" y="74" fill="var(--muted-foreground)">388</text>
+                <text x="86" y="94" text-anchor="end" fill="var(--foreground)">region</text>
+                <path d="M92,87 h13 a4,4 0 0 1 0,8 h-13 z" fill="var(--m3)"/>
+                <text x="113" y="94" fill="var(--muted-foreground)">143</text>
+                <text x="86" y="114" text-anchor="end" fill="var(--foreground)">signup_date</text>
+                <path d="M92,107 h8 a4,4 0 0 1 0,8 h-8 z" fill="var(--m3)"/>
+                <text x="108" y="114" fill="var(--muted-foreground)">96</text>
+                <text x="75" y="134" text-anchor="end" fill="var(--muted-foreground)">email</text><svg x="77" y="126" width="9" height="9" viewBox="0 0 24 24" fill="none" style="color:var(--muted-foreground)"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg>
+                <path d="M92,127 h3 a4,4 0 0 1 0,8 h-3 z" fill="var(--m5)"/>
+                <text x="103" y="134" fill="var(--muted-foreground)">44 · values withheld</text>
+              </g>
+            </svg>
+          </div>
+        </div>
+
+        <div style="margin-top:10px">
+          <div class="panel" style="padding:0;margin-bottom:10px">
+            <div class="ph" style="padding:9px 10px 0;margin-bottom:6px">Inline sample rows <span class="line"></span><span class="mono" style="letter-spacing:0;text-transform:none;font-size:9.5px">3 of 2,378</span></div>
+            <table class="dt">
+              <thead><tr><th style="width:98px">Change</th><th style="width:118px">signup_id</th><th style="width:110px">plan</th><th style="width:96px">region</th><th class="n" style="width:110px">amount</th><th style="width:110px">status</th><th>email</th></tr></thead>
+              <tbody>
+                <tr><td rowspan="2" class="stripe-chg"><span class="dchip chg"><span class="dg">~</span>changed</span></td><td rowspan="2" class="m">SGN-83902</td>
+                    <td class="m cellbefore">pro</td><td class="m muted">US</td><td class="n cellbefore">290.00</td><td class="m cellbefore">active</td><td rowspan="2" class="m masked">••••@••••.com</td></tr>
+                <tr><td class="m vchg">team</td><td class="m muted">US</td><td class="n vchg">349.00</td><td class="m vchg">churned</td></tr>
+                <tr class="stripe-add"><td class="stripe-add"><span class="dchip add"><span class="dg">+</span>added</span></td><td class="m">SGN-84213</td>
+                    <td class="m vadd">enterprise</td><td class="m vadd">EU</td><td class="n vadd">1,499.00</td><td class="m vadd">active</td><td class="m masked">••••@••••.com</td></tr>
+                <tr><td class="stripe-rem"><span class="dchip rem"><span class="dg">−</span>removed</span></td><td class="m">SGN-79004</td>
+                    <td class="m vrem">free</td><td class="m vrem">APAC</td><td class="n vrem">0.00</td><td class="m vrem">trialing</td><td class="m masked">••••@••••.com</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="panel" style="padding:0">
+            <div class="ph" style="padding:9px 10px 0;margin-bottom:6px">Cell-level artifact <span class="line"></span><span class="mono" style="letter-spacing:0;text-transform:none;font-size:9.5px">diff_output · 3,919 rows</span></div>
+            <table class="dt">
+              <thead><tr><th style="width:110px">change_type</th><th style="width:130px">row_key</th><th style="width:170px">column</th><th style="width:170px">before</th><th>after</th></tr></thead>
+              <tbody>
+                <tr><td class="m vchg">changed</td><td class="m">SGN-83902</td><td class="m">amount</td><td class="m cellbefore">290.00</td><td class="m cellafter">349.00</td></tr>
+                <tr><td class="m vchg">changed</td><td class="m">SGN-83902</td><td class="m">status</td><td class="m cellbefore">active</td><td class="m cellafter">churned</td></tr>
+                <tr><td class="m vchg">changed</td><td class="m">SGN-83771</td><td class="m">plan</td><td class="m cellbefore">pro</td><td class="m cellafter">team</td></tr>
+                <tr><td class="m vchg">changed</td><td class="m">SGN-83771</td><td class="m muted">email <span class="lockglyph mut"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></td><td class="m masked">••••</td><td class="m masked">••••</td></tr>
+                <tr><td class="m vadd">added</td><td class="m">SGN-84213</td><td class="m muted">(whole row)</td><td class="m muted">—</td><td class="m cellafter">9 cells</td></tr>
+                <tr><td class="m vrem" style="text-decoration:none">removed</td><td class="m">SGN-79004</td><td class="m muted">(whole row)</td><td class="m cellbefore">9 cells</td><td class="m muted">—</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="note warn">
+          <span class="ci"><span class="lockglyph"><svg width="11" height="11" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span>
+          <span>The artifact is <b>3,919 rows</b> — 3,388 changed cells + 531 whole-row add/remove entries — written to <code>artifacts/growth-analytics/q3-campaign-signups/diff/v41_v42_cells.csv</code>. <b>email</b> is masked in the artifact itself, not just in this view: your role cannot export raw PII, so its before/after are redacted at write time.</span>
+        </div>
+      </div>
+
+      <!-- ===== PROFILE DRIFT + RETENTION ===== -->
+      <div class="lvl plain">
+        <div class="split-a">
+          <div>
+            <div class="lh">
+              <span class="ttl">Profile drift</span>
+              <span class="sub"><span class="mono">?include=profile</span> · v41 → v42</span>
+              <span class="rt"><span class="dchip chg"><span class="dg">~</span>2 columns drifting</span><span class="dchip same"><span class="dg">=</span>7 stable</span></span>
+            </div>
+
+            <div class="driftcard" style="border-color:rgba(250,178,25,.3)">
+              <div class="dtop">
+                <span class="cn">utm_campaign</span><span class="ct">string</span>
+                <span class="pill warn"><span class="sdot warn"></span> drifting</span>
+                <span class="sp">
+                  <svg width="88" height="22" viewBox="0 0 88 22" role="img" aria-label="null percent per version, v35 to v42">
+                    <line x1="0" y1="19" x2="88" y2="19" stroke="rgba(255,255,255,.075)"/>
+                    <polyline points="2,17 14,17 26,16 38,17 50,16 62,16 74,15 86,4" fill="none" stroke="var(--viz-1)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    <circle cx="86" cy="4" r="2" fill="var(--viz-1)"/>
+                  </svg>
+                </span>
+              </div>
+              <div class="drow"><span class="dk">null %</span><span class="dv">1.1% → 4.8%</span><span class="dd" style="color:var(--st-warn)">+3.7 pp</span></div>
+              <div class="drow"><span class="dk">cardinality</span><span class="dv">34 → 41</span><span class="dd" style="color:var(--st-warn)">+7</span></div>
+              <div class="drow"><span class="dk">top value</span><span class="dv">summer_promo 21% → 17%</span><span class="dd muted">−4 pp</span></div>
+              <div class="catchips">
+                <span class="catchip add">+ q4_teaser</span><span class="catchip add">+ apac_launch</span>
+                <span class="catchip add">+ partner_co_v2</span><span class="catchip add">+4 more</span>
+                <span class="catchip rem">− spring_promo</span>
+              </div>
+            </div>
+
+            <div class="driftcard">
+              <div class="dtop">
+                <span class="cn">amount</span><span class="ct">decimal</span>
+                <span class="pill neu">within band</span>
+                <span class="sp">
+                  <svg width="88" height="22" viewBox="0 0 88 22" role="img" aria-label="mean amount per version, v35 to v42">
+                    <line x1="0" y1="19" x2="88" y2="19" stroke="rgba(255,255,255,.075)"/>
+                    <polyline points="2,14 14,13 26,14 38,12 50,12 62,11 74,10 86,7" fill="none" stroke="var(--viz-1)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    <circle cx="86" cy="7" r="2" fill="var(--viz-1)"/>
+                  </svg>
+                </span>
+              </div>
+              <div class="drow"><span class="dk">mean</span><span class="dv">312.40 → 341.08</span><span class="dd" style="color:var(--foreground)">+9.2%</span></div>
+              <div class="drow"><span class="dk">std dev</span><span class="dv">486.2 → 512.7</span><span class="dd" style="color:var(--foreground)">+5.5%</span></div>
+              <div class="drow"><span class="dk">null %</span><span class="dv">0.0% → 0.0%</span><span class="dd muted">0</span></div>
+            </div>
+
+            <div class="driftcard">
+              <div class="dtop">
+                <span class="cn">plan</span><span class="ct">enum</span>
+                <span class="pill warn"><span class="sdot warn"></span> new category</span>
+                <span class="sp"><span class="mono muted" style="font-size:10px">4 → 5 distinct</span></span>
+              </div>
+              <div class="drow"><span class="dk">cardinality</span><span class="dv">4 → 5</span><span class="dd" style="color:var(--st-warn)">+1</span></div>
+              <div class="catchips"><span class="catchip add">+ startup</span></div>
+            </div>
+          </div>
+
+          <div>
+            <div class="lh">
+              <span class="ttl">Retention</span>
+              <span class="sub">artifacts of this dataset</span>
+            </div>
+            <div class="panel">
+              <div class="retrow">
+                <div><div class="rk">diff_output</div><div class="rp">…/diff/v41_v42_cells.csv</div></div>
+                <span class="mono muted">1.8 MB</span><span class="ttl soon">14d · 30 Aug</span>
+              </div>
+              <div class="retrow">
+                <div><div class="rk">profile</div><div class="rp">…/profile/v42_profile.json</div></div>
+                <span class="mono muted">214 KB</span><span class="ttl">30d · 15 Sep</span>
+              </div>
+              <div class="retrow">
+                <div><div class="rk">validation_report</div><div class="rp">…/validation/v42_report.json</div></div>
+                <span class="mono muted">38 KB</span><span class="ttl">30d · 15 Sep</span>
+              </div>
+              <div class="retrow">
+                <div><div class="rk">row_export</div><div class="rp">…/export/v41_rows.csv</div></div>
+                <span class="mono muted">9.9 MB</span><span class="ttl soon">7d · 23 Aug</span>
+              </div>
+              <div class="retrow">
+                <div><div class="rk">published_source</div><div class="rp">…/published/q3_curated.parquet</div></div>
+                <span class="mono muted">11.4 MB</span><span class="ttl inf">∞ never</span>
+              </div>
+            </div>
+            <div class="note neu" style="margin-top:8px">
+              <span class="ci mono">i</span>
+              <span>A sweep deletes the blob <b>and</b> its artifact row together. The artifact row is the only way to resolve a key, so an expired diff is not just stale — it is unreachable. Re-run the diff to regenerate it.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== LINEAGE ===== -->
+      <div class="lvl plain">
+        <div class="lh">
+          <span class="ttl">Lineage</span>
+          <span class="sub">1-hop: 1 upstream · 2 downstream — full DAG below</span>
+          <span class="rt">
+            <span class="dchip same">max_depth 25</span>
+            <span class="dchip chg">truncated at depth 4</span>
+            <span class="dchip same">2 hidden</span>
+          </span>
+        </div>
+        <div class="card" style="padding:10px 12px 6px">
+          <svg style="width:100%;height:auto;display:block" viewBox="0 0 780 196" preserveAspectRatio="xMinYMin meet" role="img" aria-label="Lineage graph: upstream sources, this dataset, and downstream derived datasets">
+            <defs>
+              <marker id="ah" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto">
+                <path d="M0,0 L6,3 L0,6 z" fill="#5F6979"/>
+              </marker>
+            </defs>
+            <g font-family="'JetBrains Mono',ui-monospace,monospace" font-size="8.5" fill="var(--muted-foreground)" letter-spacing=".06em">
+              <text x="4" y="12">DEPTH −2</text><text x="166" y="12">DEPTH −1</text>
+              <text x="326" y="12">THIS DATASET</text><text x="492" y="12">DEPTH +1</text><text x="648" y="12">DEPTH +2</text>
+            </g>
+            <!-- edges -->
+            <g stroke="#5F6979" stroke-width="1.2" fill="none" marker-end="url(#ah)">
+              <path d="M136,96 H160"/>
+              <path d="M298,96 H320"/>
+              <path d="M466,88 C478,88 480,48 486,48"/>
+              <path d="M466,104 C478,104 480,136 486,136"/>
+              <path d="M628,48 H642"/>
+              <path d="M628,136 H642"/>
+            </g>
+            <!-- upstream -->
+            <g>
+              <rect x="4" y="78" width="132" height="36" rx="7" fill="#161B22" stroke="rgba(255,255,255,.075)"/>
+              <text x="14" y="94" font-family="'JetBrains Mono',ui-monospace,monospace" font-size="10.5" fill="var(--foreground)">crm_export_raw</text>
+              <text x="14" y="106" font-size="9" fill="var(--muted-foreground)">Data Platform · source</text>
+            </g>
+            <g>
+              <rect x="166" y="78" width="132" height="36" rx="7" fill="#161B22" stroke="rgba(255,255,255,.075)"/>
+              <text x="176" y="94" font-family="'JetBrains Mono',ui-monospace,monospace" font-size="10.5" fill="var(--foreground)">marketing_site_sign…</text>
+              <text x="176" y="106" font-size="9" fill="var(--muted-foreground)">Marketing · upload</text>
+            </g>
+            <!-- this -->
+            <g>
+              <rect x="326" y="72" width="140" height="48" rx="8" fill="#242C37" stroke="rgba(255,255,255,.13)"/>
+              <circle cx="338" cy="88" r="3.5" fill="var(--st-good)"/>
+              <text x="347" y="91" font-family="'JetBrains Mono',ui-monospace,monospace" font-size="9.5" font-weight="600" fill="var(--foreground)">q3_campaign_signups</text>
+              <text x="336" y="105" font-size="9" fill="var(--muted-foreground)">Growth Analytics · v42 · latest</text>
+              <svg x="336" y="107" width="9" height="9" viewBox="0 0 24 24" fill="none" style="color:var(--st-warn)"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg><text x="348" y="115" font-size="9" fill="var(--st-warn)">email masked</text>
+            </g>
+            <!-- downstream -->
+            <g>
+              <rect x="492" y="30" width="136" height="36" rx="7" fill="#161B22" stroke="rgba(255,255,255,.075)"/>
+              <text x="502" y="46" font-family="'JetBrains Mono',ui-monospace,monospace" font-size="10.5" fill="var(--foreground)">churn_feature_store</text>
+              <text x="502" y="58" font-size="9" fill="var(--muted-foreground)">Growth Analytics · derived_from</text>
+            </g>
+            <g>
+              <rect x="492" y="118" width="136" height="36" rx="7" fill="#161B22" stroke="rgba(255,255,255,.075)"/>
+              <text x="502" y="134" font-family="'JetBrains Mono',ui-monospace,monospace" font-size="10.5" fill="var(--foreground)">q3_signups_curated</text>
+              <text x="502" y="146" font-size="9" fill="var(--muted-foreground)">Marketing · published_to</text>
+            </g>
+            <g>
+              <rect x="648" y="30" width="132" height="36" rx="7" fill="none" stroke="#48515F" stroke-dasharray="3 3"/>
+              <svg x="658" y="37" width="10" height="10" viewBox="0 0 24 24" fill="none" style="color:var(--muted-foreground)"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg><text x="671" y="46" font-family="'JetBrains Mono',ui-monospace,monospace" font-size="10.5" fill="var(--muted-foreground)">2 hidden nodes</text>
+              <text x="658" y="58" font-size="9" fill="var(--muted-foreground)">teams you cannot read</text>
+            </g>
+            <g>
+              <rect x="648" y="118" width="132" height="36" rx="7" fill="#161B22" stroke="rgba(255,255,255,.075)"/>
+              <text x="658" y="134" font-family="'JetBrains Mono',ui-monospace,monospace" font-size="10.5" fill="var(--foreground)">campaign_roi_daily</text>
+              <text x="658" y="146" font-size="9" fill="var(--muted-foreground)">Finance · derived_from</text>
+            </g>
+            <g font-size="9.5" font-family="'JetBrains Mono',ui-monospace,monospace">
+              <text x="4" y="180" fill="var(--st-warn)">truncated=true · walked to depth 4 of max_depth 25 · 2 further levels exist downstream</text>
+            </g>
+          </svg>
+        </div>
+        <div class="note neu">
+          <span class="ci"><span class="lockglyph mut"><svg width="11" height="11" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span>
+          <span><b>hidden_nodes: 2.</b> Two downstream datasets live in teams you are not a member of, so the graph reports a count and nothing else — no name, no team, no owner. Asking for one directly returns <code>404</code>, the same answer you would get if it did not exist. Existence is never disclosed across a tenant boundary.</span>
+        </div>
+      </div>
+
+      <!-- ===== TIMELINE ===== -->
+      <div class="lvl plain last">
+        <div class="lh">
+          <span class="ttl">Timeline</span>
+          <span class="sub">merged activity — versions, tags, runs, lineage, audit</span>
+          <span class="rt"><span class="dchip same">14 of 218 events</span><span class="dchip same">all actors</span></span>
+        </div>
+        <div class="card" style="padding:6px 10px">
+          <div class="tl">
+            <div class="tlrow"><span class="ts">2026-08-16 09:24:11</span><span class="ev"><span class="g unknown"></span>tag_set</span><span class="de"><b>latest</b> → v42 <span class="q">· PUT /tags · pointer set directly, no gate</span></span><span class="ac">s.ganji</span></div>
+            <div class="tlrow"><span class="ts">2026-08-16 09:20:47</span><span class="ev" style="color:var(--st-crit-ink)"><span class="sdot crit"></span>tag_promote</span><span class="de" style="color:var(--st-crit-ink)">REFUSED <b>prod</b> → v42 <span class="q">· 409 validation-failed · error_failures=2</span></span><span class="ac">s.ganji</span></div>
+            <div class="tlrow"><span class="ts">2026-08-16 09:14:02</span><span class="ev muted"><span class="sdot neu"></span>profile_run</span><span class="de">v42 completed <span class="q">· 9 columns · 4.8s · 2 columns drifting</span></span><span class="ac">system</span></div>
+            <div class="tlrow"><span class="ts">2026-08-16 09:13:20</span><span class="ev" style="color:var(--st-warn)"><span class="sdot warn"></span>validation_run</span><span class="de">v42 completed <span class="q">· 2 errors · 14 warnings · 6 rules enabled</span></span><span class="ac">system</span></div>
+            <div class="tlrow"><span class="ts">2026-08-16 09:12:38</span><span class="ev" style="color:var(--st-good)"><span class="sdot good"></span>version_created</span><span class="de">v42 ready <span class="q">· 84,213 rows · 11.4 MB · sheet "signups" selected</span></span><span class="ac">s.ganji</span></div>
+            <div class="tlrow"><span class="ts">2026-08-15 16:31:09</span><span class="ev muted"><span class="sdot neu"></span>published_to</span><span class="de">q3_signups_curated (Marketing) <span class="q">· source = tag prod → v41</span></span><span class="ac">m.okafor</span></div>
+            <div class="tlrow"><span class="ts">2026-08-15 09:02:55</span><span class="ev muted"><span class="sdot neu"></span>audit</span><span class="de">lineage_read depth=4 <span class="q">· 2 nodes withheld · viewer not a member</span></span><span class="ac">s.ganji</span></div>
+            <div class="tlrow"><span class="ts">2026-08-14 18:02:11</span><span class="ev" style="color:var(--st-good)"><span class="sdot good"></span>tag_promote</span><span class="de"><b>prod</b> → v41 <span class="q">· gate passed · 0 errors · 9 warnings ignored</span></span><span class="ac">m.okafor</span></div>
+            <div class="tlrow"><span class="ts">2026-08-14 17:48:30</span><span class="ev" style="color:var(--st-good)"><span class="sdot good"></span>version_created</span><span class="de">v41 ready <span class="q">· 83,940 rows · 11.3 MB</span></span><span class="ac">m.okafor</span></div>
+            <div class="tlrow"><span class="ts">2026-08-14 16:02:12</span><span class="ev" style="color:var(--st-crit-ink)"><span class="sdot crit"></span>version_created</span><span class="de" style="color:var(--st-crit-ink)">v40 failed <span class="q">· parse error row 5,118 · kept, never taggable</span></span><span class="ac">m.okafor</span></div>
+            <div class="tlrow"><span class="ts">2026-08-13 11:20:44</span><span class="ev muted"><span class="sdot neu"></span>derived_from</span><span class="de">churn_feature_store v7 ← this dataset <span class="q">· via tag prod</span></span><span class="ac">j.reyes</span></div>
+            <div class="tlrow"><span class="ts">2026-08-12 10:41:02</span><span class="ev" style="color:var(--st-good)"><span class="sdot good"></span>tag_promote</span><span class="de"><b>prod</b> → v39 <span class="q">· gate passed · 0 errors</span></span><span class="ac">j.reyes</span></div>
+            <div class="tlrow"><span class="ts">2026-08-12 10:04:19</span><span class="ev" style="color:var(--st-serious)"><span class="sdot serious"></span>tag_created</span><span class="de"><b>q3-audit</b> → v39 <span class="q">· audit freeze · still pinned to v39 today</span></span><span class="ac">a.duarte</span></div>
+            <div class="tlrow"><span class="ts">2026-08-11 09:12:03</span><span class="ev" style="color:var(--st-warn)"><span class="sdot warn"></span>tag_rollback</span><span class="de"><b>prod</b> v38 → v37 <span class="q">· previous version in tag history · never gated</span></span><span class="ac">s.ganji</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ---------- RIGHT DOCK / VERSION SELECTOR ---------- -->
+  <div class="col dock">
+    <div class="colhead">
+      <span class="t">Version history</span>
+      <span class="badge num">42</span>
+      <span class="spacer"></span>
+      <span class="pill neu" title="Versions are append-only. Nothing here can be edited or overwritten — a new upload is always a new version.">immutable</span>
+    </div>
+    <div class="dockbody">
+
+      <div class="sect">
+        <div class="h">Rows per version <span class="line"></span><span class="mono" style="letter-spacing:0;text-transform:none">v35 → v42</span></div>
+        <svg width="320" height="58" viewBox="0 0 320 58" role="img" aria-label="Row count per version, v35 to v42, with two failed versions">
+          <line x1="0" y1="42" x2="320" y2="42" stroke="rgba(255,255,255,.075)"/>
+          <path d="M6,42 L6,39 Q6,35 10,35 L26,35 Q30,35 30,39 L30,42 Z" fill="var(--m5)"/>
+          <rect x="46" y="36" width="24" height="6" rx="1" fill="rgba(220,80,80,.22)" stroke="var(--st-crit)" stroke-width="1"/>
+          <path d="M86,42 L86,27 Q86,23 90,23 L106,23 Q110,23 110,27 L110,42 Z" fill="var(--m5)"/>
+          <path d="M126,42 L126,23 Q126,19 130,19 L146,19 Q150,19 150,23 L150,42 Z" fill="var(--m5)"/>
+          <path d="M166,42 L166,19 Q166,15 170,15 L186,15 Q190,15 190,19 L190,42 Z" fill="var(--m5)"/>
+          <rect x="206" y="36" width="24" height="6" rx="1" fill="rgba(220,80,80,.22)" stroke="var(--st-crit)" stroke-width="1"/>
+          <path d="M246,42 L246,14 Q246,10 250,10 L266,10 Q270,10 270,14 L270,42 Z" fill="var(--m2)"/>
+          <path d="M286,42 L286,12 Q286,8 290,8 L306,8 Q310,8 310,12 L310,42 Z" fill="var(--m2)"/>
+          <g font-family="'JetBrains Mono',ui-monospace,monospace" font-size="9" text-anchor="middle" fill="var(--muted-foreground)">
+            <text x="18" y="53">35</text><text x="58" y="53" fill="var(--st-crit)">36</text><text x="98" y="53">37</text>
+            <text x="138" y="53">38</text><text x="178" y="53">39</text><text x="218" y="53" fill="var(--st-crit)">40</text>
+            <text x="258" y="53" fill="#B0BAC8">41 A</text><text x="298" y="53" fill="#E7ECF3">42 B</text>
+          </g>
+        </svg>
+      </div>
+
+      <div class="sect">
+        <div class="h">Versions <span class="line"></span><span class="mono" style="letter-spacing:0;text-transform:none">8 of 42</span></div>
+
+        <div class="vrow selB" title="Currently viewed version">
+          <span class="vab on">B</span>
+          <span class="vt"><span class="sdot good"></span><span class="vv">v42</span><span class="pill ok">ready</span><span class="tagpin">latest</span><span class="scope" style="height:18px;padding:0 5px;font-size:9.5px" title="The version this screen is showing"><span class="tick"></span>viewing</span></span>
+          <span class="vm">s.ganji · 16 Aug 09:12</span>
+          <span class="vr"><span class="rr">84,213</span><span class="sz">11.4 MB</span></span>
+        </div>
+        <div class="vrow selA">
+          <span class="vab on">A</span>
+          <span class="vt"><span class="sdot good"></span><span class="vv">v41</span><span class="pill ok">ready</span><span class="tagpin">prod</span></span>
+          <span class="vm">m.okafor · 14 Aug 17:48</span>
+          <span class="vr"><span class="rr">83,940</span><span class="sz">11.3 MB</span></span>
+        </div>
+        <div class="vrow dead">
+          <span class="vab">·</span>
+          <span class="vt"><span class="sdot crit"></span><span class="vv">v40</span><span class="pill crit">failed</span></span>
+          <span class="vm">parse error row 5,118 · not taggable</span>
+          <span class="vr"><span class="rr muted">—</span><span class="sz">2.1 MB</span></span>
+        </div>
+        <div class="vrow">
+          <span class="vab">·</span>
+          <span class="vt"><span class="sdot good"></span><span class="vv">v39</span><span class="pill ok">ready</span><span class="tagpin frozen">q3-audit</span></span>
+          <span class="vm">j.reyes · 12 Aug 08:30</span>
+          <span class="vr"><span class="rr">83,102</span><span class="sz">11.1 MB</span></span>
+        </div>
+        <div class="vrow">
+          <span class="vab">·</span>
+          <span class="vt"><span class="sdot good"></span><span class="vv">v38</span><span class="pill ok">ready</span></span>
+          <span class="vm">j.reyes · 10 Aug 14:05</span>
+          <span class="vr"><span class="rr">82,455</span><span class="sz">11.0 MB</span></span>
+        </div>
+        <div class="vrow">
+          <span class="vab">·</span>
+          <span class="vt"><span class="sdot good"></span><span class="vv">v37</span><span class="pill ok">ready</span></span>
+          <span class="vm">a.duarte · 07 Aug 11:20</span>
+          <span class="vr"><span class="rr">81,900</span><span class="sz">10.9 MB</span></span>
+        </div>
+        <div class="vrow dead">
+          <span class="vab">·</span>
+          <span class="vt"><span class="sdot crit"></span><span class="vv">v36</span><span class="pill crit">failed</span></span>
+          <span class="vm">sheet selection required · 3 sheets</span>
+          <span class="vr"><span class="rr muted">—</span><span class="sz">0.4 MB</span></span>
+        </div>
+        <div class="vrow">
+          <span class="vab">·</span>
+          <span class="vt"><span class="sdot good"></span><span class="vv">v35</span><span class="pill ok">ready</span></span>
+          <span class="vm">s.ganji · 03 Aug 10:15</span>
+          <span class="vr"><span class="rr">80,013</span><span class="sz">10.6 MB</span></span>
+        </div>
+        <div class="note neu" style="margin-top:6px">
+          <span class="ci mono">i</span>
+          <span>Failed versions are kept for the audit trail but can never be tagged, published or diffed against.</span>
+        </div>
+      </div>
+
+      <div class="sect">
+        <div class="h">Tags <span class="line"></span><span class="mono" style="letter-spacing:0;text-transform:none">whole version only</span></div>
+
+        <div class="tagcard">
+          <div class="tt"><span class="sdot good"></span><span class="tn">prod</span><span class="pill ok">gated</span><span class="to">→ v41</span><span class="tx" title="Delete the tag prod — drops the pointer only; v41 is untouched">✕</span></div>
+          <div class="tw">moved by <b style="color:var(--foreground)">promote</b> · 14 Aug 18:02 · gate passed (0 errors, 9 warnings)</div>
+        </div>
+        <div class="tagcard">
+          <div class="tt"><span class="sdot warn"></span><span class="tn">latest</span><span class="pill warn">ungated</span><span class="to">→ v42</span><span class="tx" title="Delete the tag latest — drops the pointer only; v42 is untouched">✕</span></div>
+          <div class="tw">set by <b style="color:var(--foreground)">PUT /tags</b> · 16 Aug 09:24 · pointer written directly</div>
+        </div>
+        <div class="tagcard">
+          <div class="tt"><span class="sdot serious"></span><span class="tn">q3-audit</span><span class="pill neu">frozen</span><span class="to">→ v39</span><span class="tx" title="Delete the tag q3-audit — drops the pointer only; v39 is untouched">✕</span></div>
+          <div class="tw">held at v39 for the quarter-close audit · 4 versions behind</div>
+        </div>
+
+        <div class="note warn" style="margin-top:2px">
+          <span class="ci">!</span>
+          <span><b><code>PUT /tags</code> is the ungated escape hatch.</b> It sets the pointer straight at a version and skips every gate. <b>promote</b> is the only quality gate in the whole system — upload and publish are ungated too.</span>
+        </div>
+
+        <div class="gatecard" style="margin-top:8px">
+          <div class="gt"><span class="sdot crit"></span> Promote refused <span class="gcode">409 validation-failed</span></div>
+          <div class="tw" style="margin-top:4px">
+            <span class="mono">prod</span> → <span class="mono">v42</span> · requested 16 Aug 09:20 by s.ganji · tag still points at <span class="mono">v41</span>
+          </div>
+          <div class="grule"><span class="sdot crit"></span><span class="gn">email_format · error</span><span class="gv" style="color:var(--st-crit-ink)">2 failures</span></div>
+          <div class="grule"><span class="sdot crit"></span><span class="gn">amount_non_negative · error</span><span class="gv" style="color:var(--st-good)">0</span></div>
+          <div class="grule"><span class="sdot warn"></span><span class="gn">utm_campaign_null · warning</span><span class="gv" style="color:var(--st-warn)">14 · never blocks</span></div>
+          <div class="note crit" style="margin-top:7px;padding:6px 8px">
+            <span class="ci">✕</span>
+            <span><code>error_failures &gt; 0</code>, so promote refuses. The other refusal is <code>409 validation-required</code> — enabled rules exist but no run has completed. Warnings never block either one.</span>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:8px">
+            <button class="tbtn" style="flex:1;justify-content:center">Fix &amp; re-validate</button>
+            <button class="tbtn ghost" style="flex:1;justify-content:center" title="Bypasses the gate entirely — audited">Force via PUT /tags</button>
+          </div>
+        </div>
+
+        <div class="newtag">
+          <span class="fakeinput">q3 audit v2<span class="muted" style="margin-left:auto">▌</span></span>
+          <button class="tbtn" disabled style="opacity:.5;cursor:not-allowed">Create</button>
+        </div>
+        <div class="note crit" style="margin-top:6px">
+          <span class="ci">422</span>
+          <span><code>invalid_tag_name</code> — a tag name may not contain whitespace, <code>/</code> or <code>\</code>. Suggested: <code>q3-audit-v2</code>.</span>
+        </div>
+
+        <!-- ---- DELETE a tag — a pointer goes, a version never does ---- -->
+        <div class="delcard">
+          <div class="dt2"><span class="sdot crit"></span>Delete tag <span class="mono">q3-audit</span>?<span class="dcode">DELETE …/tags/q3-audit</span></div>
+          <div class="dw">This removes a <b>pointer</b> and nothing else. <span class="mono">v39</span> stays exactly where it is — versions are immutable, and there is no verb anywhere in the system that deletes one. Confirm below; the tag name is gone the moment you do.</div>
+          <div class="keeprow"><span class="sdot crit"></span><span class="kn">tag <b>q3-audit</b> → v39</span><span class="kv" style="color:var(--st-crit-ink)">pointer removed</span></div>
+          <div class="keeprow"><span class="sdot good"></span><span class="kn">v39 · 83,102 rows · 11.1 MB</span><span class="kv" style="color:var(--st-good)">kept, untouched</span></div>
+          <div class="keeprow"><span class="sdot good"></span><span class="kn">tag history for q3-audit</span><span class="kv" style="color:var(--st-good)">kept · audited</span></div>
+          <div class="keeprow"><span class="sdot good"></span><span class="kn">the other 2 tags</span><span class="kv" style="color:var(--st-good)">unaffected</span></div>
+          <div class="note warn" style="margin-top:7px;padding:6px 8px">
+            <span class="ci">!</span>
+            <span>Anything that resolves <code>@q3-audit</code> — saved queries, the quarter-close export, two scheduled runs — starts 404-ing the instant the pointer is gone. <b>4 references</b> found. Re-creating the tag later is a <code>PUT /tags</code>, and it can point anywhere.</span>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:8px">
+            <button class="tbtn ghost" style="flex:1;justify-content:center">Cancel</button>
+            <button class="tbtn danger" style="flex:1;justify-content:center">Delete tag<span class="k">⌦</span></button>
+          </div>
+        </div>
+      </div>
+
+      <div class="sect" style="margin-bottom:4px">
+        <div class="h">Tag history · <span class="mono" style="letter-spacing:0;text-transform:none;color:var(--foreground)">prod</span> <span class="line"></span></div>
+        <div class="thist">
+          <div class="throw"><span class="tv" style="color:var(--st-crit-ink)">✕ v42</span><span class="tk">promote refused · 409</span><span class="td">16 Aug</span></div>
+          <div class="throw"><span class="tv" style="color:var(--t1)">→ v41</span><span class="tk">promote · gate passed</span><span class="td">14 Aug</span></div>
+          <div class="throw"><span class="tv">→ v39</span><span class="tk">promote · gate passed</span><span class="td">12 Aug</span></div>
+          <div class="throw"><span class="tv" style="color:var(--st-warn)">↩ v37</span><span class="tk">rollback · never gated</span><span class="td">11 Aug</span></div>
+          <div class="throw"><span class="tv">→ v38</span><span class="tk">promote · gate passed</span><span class="td">10 Aug</span></div>
+          <div class="throw"><span class="tv">→ v35</span><span class="tk">tag created · PUT /tags</span><span class="td">03 Aug</span></div>
+        </div>
+        <div class="note neu" style="margin-top:7px">
+          <span class="ci">↩</span>
+          <span><b>Rollback is never gated.</b> It moves the tag to the previous version <b>in this tag's own history</b> — from v41 that is v39, not v40. Failed versions were never in the history.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+<div class="statusbar">
+  <span class="h"><span class="kbd">J</span><span class="kbd">K</span> version</span>
+  <span class="h"><span class="kbd">[</span><span class="kbd">]</span> set A / B</span>
+  <span class="h"><span class="kbd">D</span> re-run diff</span>
+  <span class="h"><span class="kbd">T</span> tag</span>
+  <span class="h"><span class="kbd">⇧R</span> rollback</span>
+  <span class="h"><span class="kbd">⌦</span> delete tag</span>
+  <span class="h"><span class="kbd">⌘↵</span> promote</span>
+  <span class="h"><span class="kbd">⌘E</span> export artifact</span>
+  <span class="rt">
+    <span class="h"><span class="lockglyph mut"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span> role <b style="color:var(--foreground);font-weight:600">viewer</b> · 1 column masked</span>
+    <span class="h mono">diff 1.9s · 3,919 cells</span>
+    <span class="sclock"><span class="dot"></span><b>LIVE</b> · SYNC 16:41:07 ET</span>
+  </span>
+</div>
+</body>
+</html>

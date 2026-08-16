@@ -1,0 +1,2076 @@
+<!--
+DESIGN NOTES
+Command Studio — LIBRARY tab in the "Terminal" house style: dark-first, hairline-dense, mono tabular numerics.
+Fixed 1440×1024 shell (top bar · sub-header · KPI strip · bottom status bar); only the content pane scrolls internally.
+Left section-nav anchors six surfaces — Saved views · Analytics definitions · Charts · Artifacts · Catalog search · Data dictionary —
+with the saved-work list as the shown state. Every panel carries one architectural truth inline (charts own no query logic;
+an artifact row is the only way to resolve a storage key; sensitivity is human-declared and is the only thing that masks).
+Zero network deps: system-font fallbacks, inline SVG marks only, tiny JS for anchor scroll (renders fine without it).
+-->
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Command Studio · Library</title>
+<style>
+  /* ===== INSTRUMENT tokens — copied verbatim from terminal-quality-instrument.html ===== */
+  :root {
+    --s0:#080A0E;  --s1:#0D1015;  --s2:#11151B;  --s3:#161B22;
+    --s4:#1C222B;  --s5:#242C37;  --s6:#38424F;  --key:#E9EEF5;
+    --t1:#E7ECF3;  --t2:#B0BAC8;  --t3:#85909F;  --t4:#5C6675; /* t4 = decoration only, never text */
+    --r1:rgba(255,255,255,.042); --r2:rgba(255,255,255,.075); --r3:rgba(255,255,255,.13);
+    --hi:inset 0 1px 0 rgba(255,255,255,.045);
+    --sig:#46D5E8; --sig-dim:rgba(70,213,232,.14); --sig-line:rgba(70,213,232,.40);
+    --st-good:#0ca30c; --st-warn:#fab219; --st-serious:#ec835a; --st-crit:#DC5050;
+    --m1:#CBD3DF; --m2:#A2ACBB; --m3:#7D8797; --m4:#5F6979; --m5:#48515F; --m6:#39414D;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    /* legacy names kept as aliases so every inline style resolves into the instrument ramp */
+    --background:var(--s1); --foreground:var(--t1); --card:var(--s3); --popover:var(--s3);
+    --surface:var(--s2); --muted:rgba(255,255,255,.05); --muted-foreground:var(--t3);
+    --secondary:var(--s4); --accent:var(--s4); --border:var(--r2);
+    --primary:var(--t2); --primary-foreground:var(--s0);
+    --destructive:var(--st-crit); --success:var(--st-good); --warning:var(--st-warn);
+    --radius:8px; --font-sans:var(--sans); --font-mono:var(--mono);
+    /* no genuine categorical series on this screen — the viz slots resolve to the neutral value ramp */
+    --viz-1:var(--m2); --viz-2:var(--m4); --viz-3:var(--m3); --viz-4:var(--m5);
+    --viz-5:var(--m4); --viz-6:var(--m3); --viz-7:var(--m3); --viz-8:var(--m4);
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html,body { height:100%; }
+  html { font-size:13px; }
+  body {
+    background:radial-gradient(1180px 560px at 44% -12%, #151B24 0%, rgba(21,27,36,0) 62%), var(--s1);
+    color:var(--t2); font-family:var(--sans); font-size:12.5px; line-height:1.4;
+    -webkit-font-smoothing:antialiased; overflow:hidden;
+    display:flex; align-items:center; justify-content:center;
+    letter-spacing:-0.004em;
+  }
+  body::after {
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:200; opacity:.055; mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .mono { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  .tnum { font-variant-numeric:tabular-nums; }
+  .micro { font-size:9.5px; font-weight:500; letter-spacing:.11em; text-transform:uppercase; color:var(--t3); }
+  .mutedt { color:var(--t3); }
+  ::selection { background:rgba(70,213,232,.26); color:#fff; }
+  :focus-visible { outline:none; box-shadow:0 0 0 1px var(--s0), 0 0 0 3px rgba(70,213,232,.45); border-radius:6px; }
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb { background:#232B35; border-radius:8px; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background:#303945; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-track { background:transparent; }
+  svg.ic { width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
+
+  .shell { width:1440px; height:1024px; background:transparent;
+    display:flex; flex-direction:column; overflow:hidden; }
+
+  /* ---------- top bar ---------- */
+  .topbar { height:56px; min-height:56px; display:flex; align-items:center; gap:20px; padding:0 16px;
+    background:linear-gradient(180deg,#141922,#10141A); box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); z-index:30; }
+  .brand { display:flex; align-items:center; gap:10px; }
+  .logo { width:22px; height:22px; border-radius:6px; position:relative; flex:none;
+    background:linear-gradient(180deg,#2C3542,#191F28); box-shadow:var(--hi), 0 1px 2px rgba(0,0,0,.5); }
+  .logo::after { content:""; position:absolute; inset:6px; border:1.5px solid var(--t1); border-radius:2px; opacity:.72; }
+  .wordmark { font-size:12.5px; font-weight:600; color:var(--t1); letter-spacing:-0.012em; white-space:nowrap; }
+  .envchip { font-family:var(--mono); font-size:10px; color:var(--t3); display:inline-flex; align-items:center; gap:6px;
+    white-space:nowrap; }
+  .envchip::before { content:""; width:5px; height:5px; border-radius:50%; background:var(--st-warn); flex:none; }
+  .nav { display:flex; align-items:center; gap:4px; margin-left:4px; }
+  .nav a { position:relative; padding:0 10px; height:30px; display:inline-flex; align-items:center;
+    color:var(--t3); text-decoration:none; font-size:12.5px; font-weight:450; border-radius:7px;
+    transition:color .14s, background .14s; }
+  .nav a:hover { color:var(--t1); background:rgba(255,255,255,.035); }
+  /* SIGNAL 1/4 — the active route */
+  .nav a.active { color:var(--t1); font-weight:550; background:transparent; }
+  .nav a.active::after { content:""; position:absolute; left:10px; right:10px; bottom:-14px; height:2px;
+    background:var(--sig); border-radius:2px 2px 0 0; box-shadow:0 0 12px -1px var(--sig); }
+  .topright { margin-left:auto; display:flex; align-items:center; gap:8px; }
+  .cmdk { width:320px; height:30px; display:flex; align-items:center; gap:9px; padding:0 10px; border-radius:8px;
+    background:var(--s0); color:var(--t3); font-size:12px; cursor:text;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); }
+  .cmdk:focus-within { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+  .kbd { font-family:var(--mono); font-size:10px; font-weight:500; color:var(--t2);
+    background:linear-gradient(180deg,#232A34,#1A2028); border-radius:4px; padding:1.5px 5px; line-height:1.4;
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); white-space:nowrap; }
+  .cmdk .kbd { margin-left:auto; }
+  .iconbtn { width:30px; height:30px; display:flex; align-items:center; justify-content:center; border:0;
+    border-radius:7px; background:transparent; color:var(--t3); cursor:pointer; transition:color .14s, background .14s; }
+  .iconbtn:hover { color:var(--t1); background:rgba(255,255,255,.05); }
+  .team { height:28px; display:flex; align-items:center; gap:8px; padding:0 10px; border-radius:7px;
+    background:var(--s4); box-shadow:var(--hi); cursor:pointer; font-size:12px; color:var(--t1); white-space:nowrap; }
+  .team .caret { color:var(--t3); font-size:10px; }
+  .avatar { width:27px; height:27px; border-radius:7px; background:linear-gradient(180deg,#2A323D,#1D242D);
+    display:flex; align-items:center; justify-content:center; font-family:var(--mono); font-size:10px;
+    font-weight:600; color:var(--t2); box-shadow:var(--hi); flex:none; }
+
+  /* ---------- sub-header ---------- */
+  .subhead { height:52px; min-height:52px; display:flex; align-items:center; gap:12px; padding:0 16px;
+    background:linear-gradient(180deg,#131820,#10141B); box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.45); }
+  .subhead h1 { font-size:15px; font-weight:600; color:var(--t1); letter-spacing:-0.02em; }
+  /* SIGNAL 2/4 — the scope this whole screen is locked to */
+  .scope { display:flex; align-items:center; gap:7px; font-size:11px; color:var(--t3); height:26px; padding:0 8px;
+    border-radius:6px; background:rgba(255,255,255,.035); white-space:nowrap; }
+  .scope b { color:var(--t1); font-weight:600; }
+  .scope > svg:first-child { color:var(--sig); filter:drop-shadow(0 0 6px rgba(70,213,232,.55)); }
+  .searchbox { width:280px; height:30px; display:flex; align-items:center; gap:8px; padding:0 10px; border-radius:8px;
+    background:var(--s0); color:var(--t3); font-size:12px;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); }
+  .searchbox:focus-within { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+  .searchbox input { background:transparent; border:0; outline:0; color:var(--t1); font-family:inherit;
+    font-size:12px; width:100%; }
+  .searchbox input::placeholder { color:var(--t3); }
+  .spacer { margin-left:auto; }
+  .ctrl { height:28px; display:flex; align-items:center; gap:7px; padding:0 10px; border-radius:7px;
+    background:transparent; box-shadow:inset 0 0 0 1px var(--r2); color:var(--t2); font-size:12px; cursor:pointer;
+    white-space:nowrap; transition:background .14s, color .14s; }
+  .ctrl:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  /* the primary action wins on VALUE, not on the accent */
+  .btn-primary { height:28px; display:flex; align-items:center; gap:7px; padding:0 11px; border:0; border-radius:7px;
+    background:linear-gradient(180deg,#FBFDFF,var(--key)); color:#0B0E13; font-size:12px; font-weight:600;
+    cursor:pointer; font-family:inherit; white-space:nowrap;
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset, 0 2px 8px -3px rgba(0,0,0,.9), 0 0 0 1px rgba(0,0,0,.35); }
+  .btn-primary:hover { background:#fff; }
+  .btn-primary svg { stroke:#0B0E13 !important; }
+
+  /* ---------- KPI strip — the first read ---------- */
+  .kpis { height:78px; min-height:78px; display:grid; grid-template-columns:repeat(6,1fr) 210px;
+    background:linear-gradient(180deg,var(--s3),#12171E);
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.55), 0 10px 24px -20px rgba(0,0,0,.9); }
+  .kpi { padding:12px 16px; display:flex; flex-direction:column; gap:2px; justify-content:center; }
+  .kpi .top { display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+  .kpi .val { font-size:22px; font-weight:600; line-height:1.05; color:var(--t1); letter-spacing:-0.032em;
+    font-variant-numeric:tabular-nums; }
+  .kpi .val small { font-size:11px; color:var(--t3); font-weight:400; letter-spacing:0; }
+  .kpi .sub { font-size:10.5px; color:var(--t3); font-family:var(--mono); }
+  .kpi .sub.good { color:var(--t3); } .kpi .sub.warnc { color:var(--st-serious); }
+  .clockcell { display:flex; align-items:center; justify-content:flex-end; gap:9px; padding:0 16px;
+    font-family:var(--mono); font-size:10.5px; color:var(--t3); }
+  .live { width:6px; height:6px; border-radius:50%; background:var(--sig); flex:none;
+    box-shadow:0 0 0 3px rgba(70,213,232,.10), 0 0 9px -1px var(--sig); animation:pulse 3s ease-in-out infinite; }
+  /* the second lamp would turn the accent into a texture — it becomes a neutral tick */
+  .clockcell .live { width:1px; height:9px; border-radius:0; background:var(--t4); box-shadow:none; animation:none; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.42} }
+  @media (prefers-reduced-motion:reduce){ .live { animation:none } }
+
+  /* ---------- main ---------- */
+  .main { flex:1; display:grid; grid-template-columns:216px 1fr; min-height:0; }
+  .secnav { background:var(--s2); box-shadow:1px 0 0 rgba(0,0,0,.45); display:flex; flex-direction:column;
+    min-height:0; overflow-y:auto; z-index:2; }
+  .secnav .grp { padding:11px 14px 5px; font-size:9.5px; letter-spacing:.11em; text-transform:uppercase;
+    color:var(--t3); font-weight:500; }
+  .snitem { display:grid; grid-template-columns:16px 1fr auto; align-items:center; gap:9px; padding:7px 14px;
+    box-shadow:inset 2px 0 0 transparent; color:var(--t3); text-decoration:none; font-size:12.5px; cursor:pointer; }
+  .snitem:hover { background:rgba(255,255,255,.035); color:var(--t1); }
+  /* SIGNAL 3/4 — the section this stack is parked on */
+  .snitem.on { color:var(--t1); font-weight:550; background:var(--s3); box-shadow:inset 2px 0 0 var(--sig); }
+  .snitem .c { font-family:var(--mono); font-size:10.5px; color:var(--t3); }
+  .snitem.on .c { color:var(--t2); }
+  .navrule { height:1px; background:var(--r1); margin:9px 0; }
+  .retkey { padding:2px 14px 12px; }
+  .retkey .row { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:10px;
+    color:var(--t3); padding:2.5px 0; font-family:var(--mono); border:0; cursor:default; }
+  .retkey .row:hover { background:transparent; }
+  .retkey .row b { color:var(--t2); font-weight:500; }
+  .favlist { padding:0 8px 10px; }
+  .fav { display:flex; align-items:center; gap:7px; padding:4px 6px; border-radius:6px; font-size:11.5px;
+    color:var(--t3); cursor:pointer; }
+  .fav:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  .fav .star { color:var(--t4); flex:none; }
+  .fav .t { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+  .content { min-width:0; min-height:0; overflow-y:auto; overflow-x:hidden; }
+
+  /* ---------- panel ---------- */
+  .panel { box-shadow:inset 0 -1px 0 var(--r2); }
+  .panelhdr { position:sticky; top:0; z-index:5; background:linear-gradient(180deg,#12171E,#101419);
+    display:flex; align-items:center; gap:10px; padding:11px 16px 9px; box-shadow:inset 0 -1px 0 var(--r1); }
+  .panelhdr .n { font-family:var(--mono); font-size:10px; color:var(--t3); }
+  .panelhdr h2 { font-size:12.5px; font-weight:600; color:var(--t1); letter-spacing:-0.012em; text-transform:none; }
+  .panelhdr .count { font-family:var(--mono); font-size:10px; color:var(--t3); }
+  .panelhdr .rule { flex:1; height:1px; background:var(--r1); }
+  .panelhdr .act { display:flex; align-items:center; gap:6px; }
+  .minibtn { height:24px; padding:0 8px; font-size:11px; color:var(--t2); background:transparent; border:0;
+    box-shadow:inset 0 0 0 1px var(--r2); border-radius:6px; cursor:pointer; display:inline-flex;
+    align-items:center; gap:5px; font-family:inherit; white-space:nowrap; transition:background .14s, color .14s; }
+  .minibtn:hover { color:var(--t1); background:rgba(255,255,255,.06); }
+  /* repeated "run" affordance: value + elevation, never the accent */
+  .minibtn.run { color:var(--t1); font-weight:550; background:var(--s4); box-shadow:var(--hi); }
+  .minibtn.run:hover { background:var(--s5); }
+  .panelbody { padding:10px 16px 16px; }
+
+  /* architectural truth note — a left rule and an indent, not a box */
+  .note { display:flex; align-items:flex-start; gap:9px; font-size:10.5px; line-height:1.5; color:var(--t3);
+    padding:1px 0 1px 10px; box-shadow:inset 2px 0 0 var(--r2); margin-bottom:10px; }
+  .note b { color:var(--t1); font-weight:600; }
+  .note .mono { color:var(--t2); }
+  .note svg { color:var(--t3) !important; }
+  .note.gov { box-shadow:inset 2px 0 0 rgba(250,178,25,.45); }
+  .note.gov b { color:var(--t1); }
+  .note.gov > span:first-child { color:var(--st-warn); }
+
+  /* chips */
+  .chip { display:inline-flex; align-items:center; gap:5px; font-size:10.5px; font-weight:500; padding:1px 7px;
+    border-radius:20px; background:rgba(255,255,255,.05); color:var(--t3); white-space:nowrap; }
+  .qchip { font-family:var(--mono); font-size:10.5px; display:inline-flex; align-items:center; gap:5px;
+    padding:1px 7px; border-radius:6px; background:rgba(0,0,0,.32); color:var(--t2); white-space:nowrap;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.5); }
+  .qchip .k { color:var(--t3); }
+  .qchip.sort .k { color:var(--t3); }
+  /* the four definition kinds are identified by their WORD, not by a hue */
+  .kindchip { font-family:var(--mono); font-size:10px; letter-spacing:.02em; padding:1px 7px; border-radius:5px;
+    white-space:nowrap; display:inline-flex; align-items:center; gap:5px;
+    color:var(--t2); background:rgba(255,255,255,.055); }
+  .k-sample, .k-aggregate, .k-profile, .k-pivot, .k-neutral { color:var(--t2); background:rgba(255,255,255,.055); }
+  .pin { font-family:var(--mono); font-size:10px; padding:1px 6px; border-radius:5px;
+    display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
+  .pin.locked { color:var(--t2); background:rgba(255,255,255,.055); }
+  .pin.latest { color:var(--t3); background:transparent; box-shadow:inset 0 0 0 1px var(--r1); }
+  .cls { font-size:9.5px; font-weight:500; padding:1px 5px; border-radius:4px; white-space:nowrap; }
+  .cls.public { color:var(--t3); box-shadow:inset 0 0 0 1px var(--r1); }
+  .cls.internal { color:var(--t2); background:rgba(255,255,255,.05); }
+  .cls.conf { color:var(--t2); background:rgba(255,255,255,.05); }
+  .cls.restr { color:var(--st-crit); background:rgba(0,0,0,.36); box-shadow:inset 0 0 0 1px rgba(220,80,80,.42); }
+  .lock { color:var(--t3); display:inline-flex; vertical-align:-2px; flex:none; }
+  .lock.dim { color:var(--t4); }
+  .lock.restr { color:var(--st-crit); }
+  /* status = five states, five SHAPES, always beside a word */
+  .dot { width:8px; height:8px; flex:none; display:inline-block; vertical-align:-1px; }
+  .dot.good { border-radius:50%; background:var(--st-good); }
+  .dot.warn { width:0; height:0; border-left:4.5px solid transparent; border-right:4.5px solid transparent;
+    border-bottom:8px solid var(--st-warn); vertical-align:0; }
+  .dot.serious { width:7px; height:7px; background:var(--st-serious); border-radius:1px; transform:rotate(45deg); margin:0 1px; }
+  .dot.crit { background:var(--st-crit); border-radius:1px; }
+  .dot.idle { border-radius:50%; background:transparent; box-shadow:inset 0 0 0 1.5px var(--t3); }
+  .stat { display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:500; white-space:nowrap; }
+  .stat.good{color:var(--st-good);} .stat.warn{color:var(--st-warn);}
+  .stat.serious{color:var(--st-serious);} .stat.crit{color:var(--st-crit);} .stat.idle{color:var(--t3);}
+
+  /* generic dense rows */
+  .colhdr { display:grid; align-items:center; padding:0 10px; height:26px;
+    box-shadow:inset 0 -1px 0 var(--r2), inset 0 1px 0 var(--r1);
+    color:var(--t3); font-family:var(--mono); font-size:10px; font-weight:500; text-transform:lowercase; }
+  .row { display:grid; align-items:center; padding:8px 10px; border-bottom:1px solid rgba(255,255,255,.032); cursor:pointer; }
+  .row:last-child { border-bottom:0; }
+  .row:hover { background:rgba(255,255,255,.032); }
+  .nm { font-size:12px; font-weight:550; color:var(--t1); display:flex; align-items:center; gap:7px; min-width:0; }
+  .nm .t { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sub { font-size:9.5px; color:var(--t3); font-family:var(--mono); margin-top:3px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .cellm { font-family:var(--mono); font-size:11px; font-variant-numeric:tabular-nums; color:var(--t3); }
+  .cellm b { color:var(--t2); font-weight:500; }
+  .chiprow { display:flex; align-items:center; gap:5px; margin-top:5px; flex-wrap:nowrap; overflow:hidden; }
+  .acts { display:flex; align-items:center; gap:6px; justify-content:flex-end; }
+
+  /* saved views */
+  .sv-grid { grid-template-columns:minmax(300px,1fr) 132px 118px 116px 226px; gap:12px; }
+  /* definitions */
+  .df-grid { grid-template-columns:minmax(300px,1fr) 128px 78px 322px; gap:12px; }
+  /* artifacts */
+  .ar-grid { grid-template-columns:minmax(210px,1.3fr) 146px 150px 62px 100px 88px 146px 128px; gap:10px; }
+  .fmt { font-family:var(--mono); font-size:10px; color:var(--t3); border-radius:4px; padding:0 5px;
+    background:rgba(255,255,255,.05); }
+  .minitab { width:100%; border-collapse:collapse; font-family:var(--mono); font-size:9.5px; }
+  .minitab th { text-align:left; color:var(--t3); font-weight:500; padding:1px 0; box-shadow:inset 0 -1px 0 var(--r2); }
+  .minitab td { padding:2px 0; color:var(--t2); border-bottom:1px solid rgba(255,255,255,.032); }
+  .minitab td.n, .minitab th.n { text-align:right; }
+  .kpibig { font-size:24px; font-weight:600; color:var(--t1); letter-spacing:-0.032em; font-variant-numeric:tabular-nums; }
+
+  /* retention meter — magnitude, so a neutral value ramp; status only when it is actually expiring */
+  .meter { display:flex; flex-direction:column; gap:4px; }
+  .meter .lab { font-family:var(--mono); font-size:10px; color:var(--t3); display:flex; align-items:center; gap:6px; }
+  .meter .track { height:5px; border-radius:3px; background:rgba(0,0,0,.4); overflow:hidden;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6); }
+  .meter .fill { height:100%; border-radius:0 3px 3px 0; }
+  .meter .lab .dot.good { background:var(--m4); }
+  .meter .lab .dot.warn { border-bottom-color:var(--m4); }
+
+  /* charts gallery — cards earn a surface, not a border */
+  .gallery { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  .ccard { border-radius:9px; background:var(--s3); box-shadow:var(--hi); padding:9px 10px 10px;
+    display:flex; flex-direction:column; gap:7px; cursor:pointer; }
+  .ccard:hover { background:var(--s4); }
+  .ccard .ch { display:flex; align-items:center; gap:7px; }
+  .ccard .ct { font-size:11.5px; font-weight:550; color:var(--t1); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* the thumbnail is a recessed well, never a second bordered box inside the card */
+  .ccard .thumb, .thumb { background:rgba(0,0,0,.26); border:0 !important; border-radius:6px; padding:6px 7px;
+    box-shadow:inset 0 2px 4px -2px rgba(0,0,0,.7); }
+  .bind { font-size:9.5px; font-family:var(--mono); color:var(--t3); display:flex; align-items:center; gap:5px; min-width:0; }
+  .bind .src { color:var(--t2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .bind .arrow { color:var(--t4); flex:none; }
+  .legend { display:flex; flex-wrap:wrap; gap:3px 10px; }
+  .legend .li { display:flex; align-items:center; gap:5px; font-size:10px; color:var(--t3); }
+  .legend .sw { width:8px; height:8px; border-radius:2px; flex:none; }
+
+  /* catalog search */
+  .catwrap { display:grid; grid-template-columns:258px 1fr; gap:12px; }
+  .facets { border-radius:9px; background:var(--s2); box-shadow:var(--hi); padding:9px 10px; }
+  .fgroup { margin-bottom:11px; }
+  .fgroup:last-child { margin-bottom:0; }
+  .fgroup .fh { font-size:9.5px; letter-spacing:.11em; text-transform:uppercase; color:var(--t3); font-weight:500;
+    margin-bottom:5px; display:flex; align-items:center; gap:6px; }
+  .fgroup .fh .ln { flex:1; height:1px; background:var(--r1); }
+  .frow { display:flex; align-items:center; gap:7px; padding:3px 5px; border-radius:5px; font-size:11.5px;
+    color:var(--t3); cursor:pointer; }
+  .frow:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  /* repeated selected state → value + elevation, not the accent */
+  .frow.on { color:var(--t1); background:var(--s4); box-shadow:var(--hi); }
+  .frow .box { width:11px; height:11px; border-radius:3px; flex:none; background:var(--s0);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.08); }
+  .frow.on .box { background:var(--key); box-shadow:0 1px 2px rgba(0,0,0,.6); }
+  .frow .t { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .frow .c { margin-left:auto; font-family:var(--mono); font-size:10px; color:var(--t3); }
+  .searchpanel { display:flex; flex-direction:column; gap:10px; min-width:0; }
+  .sbig { display:flex; align-items:center; gap:9px; height:34px; padding:0 11px; border-radius:8px;
+    background:var(--s0); color:var(--t3); font-size:12px;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); }
+  .sbig.lit { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.14); }
+  .sbig .q { font-family:var(--mono); color:var(--t1); }
+  .sbig .hint { margin-left:auto; font-size:10px; font-family:var(--mono); color:var(--t3); }
+  .sbig svg { color:var(--t3) !important; }
+  .restable { border-radius:9px; overflow:hidden; background:var(--s2); box-shadow:var(--hi); }
+  .restable .rhdr { display:grid; align-items:center; padding:0 10px; height:26px; background:rgba(0,0,0,.22);
+    box-shadow:inset 0 -1px 0 var(--r2); font-family:var(--mono); font-size:10px; font-weight:500;
+    text-transform:lowercase; color:var(--t3); }
+  .restable .rrow { display:grid; align-items:center; padding:6px 10px; font-size:11.5px;
+    border-bottom:1px solid rgba(255,255,255,.032); }
+  .restable .rrow:last-child { border-bottom:0; }
+  .restable .rrow:hover { background:rgba(255,255,255,.032); }
+  .ds-grid { grid-template-columns:20px minmax(240px,1.6fr) 106px 100px 120px 96px; gap:10px; }
+  .cs-grid { grid-template-columns:minmax(170px,1fr) 120px minmax(150px,1fr) 88px 60px 132px; gap:10px; }
+  .star { color:var(--t4); cursor:pointer; display:flex; }
+  .star.on { color:var(--m1); }
+  .dtype { font-family:var(--mono); font-size:10px; color:var(--t3); border-radius:4px; padding:0 4px;
+    background:rgba(255,255,255,.05); }
+  .hl { color:var(--t1); background:rgba(255,255,255,.13); border-radius:2px; padding:0 1px; }
+
+  /* data dictionary */
+  .dictwrap { display:grid; grid-template-columns:296px 1fr; gap:12px; }
+  .card { border-radius:9px; background:var(--s2); box-shadow:var(--hi); padding:10px 11px; }
+  .card .ch { font-size:9.5px; letter-spacing:.11em; text-transform:uppercase; color:var(--t3); font-weight:500;
+    margin-bottom:8px; display:flex; align-items:center; gap:6px; }
+  .card .ch .ln { flex:1; height:1px; background:var(--r1); }
+  .kv { display:grid; grid-template-columns:104px 1fr; gap:5px 9px; font-size:11.5px; align-items:baseline; }
+  .kv .k { color:var(--t3); font-size:10px; }
+  .kv .v { font-family:var(--mono); font-size:11px; color:var(--t2); }
+  .cov { margin-top:10px; }
+  .cov .lab { display:flex; align-items:baseline; justify-content:space-between; font-size:10.5px;
+    color:var(--t3); margin-bottom:5px; }
+  .cov .lab b { font-size:20px; color:var(--t1); font-weight:600; letter-spacing:-0.03em; font-variant-numeric:tabular-nums; }
+  .covbar { height:6px; border-radius:3px; background:rgba(0,0,0,.4); display:flex; overflow:hidden;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6); }
+  .covbar span { height:100%; }
+  .dict-grid { grid-template-columns:116px 124px minmax(160px,1fr) 92px 56px 100px 146px; gap:10px; }
+  .sens { font-family:var(--mono); font-size:10px; padding:1px 6px; border-radius:5px;
+    display:inline-flex; align-items:center; gap:5px; }
+  .sens.pii { color:var(--st-warn); background:rgba(0,0,0,.36); box-shadow:inset 0 0 0 1px rgba(250,178,25,.34); }
+  .sens.none { color:var(--t3); box-shadow:inset 0 0 0 1px var(--r1); }
+  .sens.undecl { color:var(--st-serious); background:rgba(0,0,0,.36); box-shadow:inset 0 0 0 1px rgba(236,131,90,.34); }
+  .verbs { display:flex; flex-direction:column; gap:4px; margin-top:9px; font-size:10px; color:var(--t3); }
+  .verbs code { font-family:var(--mono); color:var(--t2); background:rgba(255,255,255,.05);
+    border-radius:4px; padding:0 5px; }
+
+  /* ---------- create / edit forms (POST · PATCH) ---------- */
+  .create { border-radius:9px; background:var(--s3); box-shadow:var(--hi), 0 10px 24px -22px rgba(0,0,0,1);
+    margin-bottom:10px; overflow:hidden; }
+  .create .chdr { display:flex; align-items:center; gap:9px; padding:8px 11px; box-shadow:inset 0 -1px 0 var(--r1); }
+  .create .chdr .t { font-size:12px; font-weight:600; color:var(--t1); }
+  .create .chdr .ln { flex:1; height:1px; background:var(--r1); }
+  .create .chdr > svg { color:var(--t3) !important; }
+  .create .cbody { padding:10px 11px 11px; display:flex; flex-direction:column; gap:10px; }
+  .verb { font-family:var(--mono); font-size:9.5px; letter-spacing:.02em; padding:1px 6px; border-radius:5px;
+    background:rgba(255,255,255,.05); color:var(--t3); white-space:nowrap; }
+  .verb.patch { color:var(--t3); background:rgba(255,255,255,.05); }
+  .verb.del { color:var(--st-crit); background:rgba(0,0,0,.36); box-shadow:inset 0 0 0 1px rgba(220,80,80,.35); }
+  .verb.none { color:var(--t3); background:transparent; box-shadow:inset 0 0 0 1px var(--r1); text-decoration:line-through; }
+  .frm { display:grid; gap:10px 12px; align-items:start; }
+  .fld { display:flex; flex-direction:column; gap:4px; min-width:0; }
+  /* labels live in the footnote register */
+  .fld .l { font-size:9.5px; font-weight:500; color:var(--t3); display:flex; align-items:center; gap:6px;
+    letter-spacing:0; text-transform:none; flex-wrap:wrap; }
+  .fld .l .req { color:var(--st-serious); }
+  /* every input is a recessed well */
+  .inp { height:28px; display:flex; align-items:center; gap:7px; padding:0 8px; border-radius:6px;
+    background:var(--s0); font-size:12px; color:var(--t1); min-width:0;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); }
+  .inp.lit { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.14); }
+  .inp .t { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .inp .ph { color:var(--t3); }
+  .inp .caret { margin-left:auto; color:var(--t3); font-size:10px; flex:none; }
+  .inp .cnt { margin-left:auto; font-family:var(--mono); font-size:10px; color:var(--t3); flex:none; }
+  .inp.tall { height:auto; min-height:28px; align-items:center; flex-wrap:wrap; gap:5px; padding:5px 8px; }
+  .inp svg { color:var(--t3) !important; }
+  .hint2 { font-size:9.5px; color:var(--t3); font-family:var(--mono); line-height:1.45; }
+  .hint2 b { color:var(--t2); font-weight:500; }
+  .seg { display:inline-flex; border-radius:7px; background:rgba(0,0,0,.28); overflow:hidden; flex-wrap:wrap;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.55); padding:2px; gap:2px; }
+  .seg .opt { padding:4px 9px; font-size:11.5px; color:var(--t3); border-radius:5px;
+    display:inline-flex; align-items:center; gap:6px; cursor:pointer; white-space:nowrap; }
+  .seg .opt:hover { color:var(--t1); }
+  /* selection = value + elevation, never the accent */
+  .seg .opt.on { color:var(--t1); background:var(--s5); box-shadow:var(--hi); }
+  .radio { width:10px; height:10px; border-radius:50%; flex:none; background:var(--s0);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.09); }
+  .opt.on .radio { background:var(--key); box-shadow:0 1px 2px rgba(0,0,0,.6); }
+  .pickrow { display:grid; grid-template-columns:16px 150px minmax(0,1fr) 132px; gap:10px; align-items:center;
+    padding:5px 9px; border-bottom:1px solid rgba(255,255,255,.032); font-size:11.5px; cursor:pointer; }
+  .pickrow:last-child { border-bottom:0; }
+  .pickrow:hover { background:rgba(255,255,255,.032); }
+  .pickrow.on { background:var(--s4); box-shadow:var(--hi); }
+  .pickwrap { border-radius:7px; background:rgba(0,0,0,.26); overflow:hidden;
+    box-shadow:inset 0 2px 4px -2px rgba(0,0,0,.7); }
+  .cactions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding-top:1px; }
+  .cactions .sp { margin-left:auto; }
+  .btn-sm { height:28px; padding:0 11px; font-size:11.5px; border-radius:7px; border:0;
+    background:transparent; box-shadow:inset 0 0 0 1px var(--r2); color:var(--t2); cursor:pointer; font-family:inherit;
+    display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+  .btn-sm:hover { color:var(--t1); background:rgba(255,255,255,.06); }
+  .btn-sm.pri { background:linear-gradient(180deg,#FBFDFF,var(--key)); color:#0B0E13; font-weight:600;
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset, 0 2px 8px -3px rgba(0,0,0,.9), 0 0 0 1px rgba(0,0,0,.35); }
+  .btn-sm.pri:hover { background:#fff; }
+  .btn-sm.pri svg { stroke:#0B0E13 !important; }
+  /* destructive: weight from elevation + a reserved ring, not a wall of red */
+  .btn-sm.dang { background:linear-gradient(180deg,#242C37,#1A2029); color:var(--t1); font-weight:600;
+    box-shadow:var(--hi), inset 0 0 0 1px rgba(220,80,80,.45), 0 2px 8px -4px rgba(0,0,0,.9); }
+  .btn-sm.dang:hover { background:linear-gradient(180deg,#2B333F,#1F2630); }
+  .btn-sm.dang svg { stroke:var(--st-crit) !important; }
+  .btn-sm.off { opacity:.42; cursor:not-allowed; }
+  .btn-sm.off:hover { background:transparent; color:var(--t2); }
+  .minibtn.danger { color:var(--t3); box-shadow:inset 0 0 0 1px var(--r1); background:transparent; }
+  .minibtn.danger:hover { color:var(--st-crit); background:rgba(255,255,255,.06); }
+  .minibtn.xs { height:21px; padding:0 6px; font-size:10.5px; white-space:nowrap; }
+  .depchip { font-family:var(--mono); font-size:9.5px; padding:1px 6px; border-radius:5px; white-space:nowrap;
+    background:rgba(255,255,255,.055); color:var(--t3); display:inline-flex; align-items:center; gap:5px; }
+  .depchip.free { color:var(--t3); background:transparent; box-shadow:inset 0 0 0 1px var(--r1); }
+
+  /* ---------- destructive pattern (DELETE) ---------- */
+  .destroy { border-radius:9px; background:var(--s3); margin:0 0 10px; overflow:hidden;
+    box-shadow:var(--hi), inset 3px 0 0 rgba(220,80,80,.55), 0 12px 26px -24px rgba(0,0,0,1); }
+  .destroy.blocked { box-shadow:var(--hi), inset 3px 0 0 rgba(250,178,25,.55), 0 12px 26px -24px rgba(0,0,0,1); }
+  .destroy .dhdr { display:flex; align-items:center; gap:9px; padding:8px 11px; box-shadow:inset 0 -1px 0 var(--r1); }
+  .destroy .dhdr .t { font-size:12px; font-weight:600; color:var(--t1); }
+  .destroy .dhdr .ln { flex:1; height:1px; background:var(--r1); }
+  .destroy .dbody { padding:10px 11px 11px; display:flex; flex-direction:column; gap:9px; }
+  /* a box inside a card becomes a left-ruled indent */
+  .effect { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .effect .col { padding:0 0 0 10px; background:transparent; }
+  .effect .col:first-child { box-shadow:inset 2px 0 0 rgba(220,80,80,.42); }
+  .effect .col:nth-child(2) { box-shadow:inset 2px 0 0 var(--r2); }
+  .effect .h { font-size:9.5px; letter-spacing:.11em; text-transform:uppercase; font-weight:500; margin-bottom:6px;
+    display:flex; align-items:center; gap:6px; }
+  .effect .h.rm { color:var(--t2); } .effect .h.keep { color:var(--t3); }
+  .effect .h .ln { flex:1; height:1px; background:var(--r1); }
+  .effect ul { list-style:none; display:flex; flex-direction:column; gap:3px; }
+  .effect li { font-size:10.5px; color:var(--t3); display:flex; gap:7px; align-items:flex-start; line-height:1.5; }
+  .effect li .g { flex:none; font-family:var(--mono); font-size:10px; color:var(--t3); margin-top:1px; }
+  .effect li b { color:var(--t1); font-weight:600; }
+  .effect li .mono { color:var(--t2); }
+  .deps { border-radius:7px; background:rgba(0,0,0,.26); overflow:hidden;
+    box-shadow:inset 0 2px 4px -2px rgba(0,0,0,.7); }
+  .deps .dh { display:flex; align-items:center; gap:8px; padding:6px 9px; box-shadow:inset 0 -1px 0 var(--r1);
+    font-size:9.5px; letter-spacing:.11em; text-transform:uppercase; font-weight:500; color:var(--st-warn); }
+  .deps .dh .ln { flex:1; height:1px; background:var(--r1); }
+  .deprow { display:grid; grid-template-columns:54px minmax(150px,1fr) minmax(150px,1fr) 104px 218px; gap:10px;
+    align-items:center; padding:5px 9px; border-bottom:1px solid rgba(255,255,255,.032); font-size:11.5px; }
+  .deprow:last-child { border-bottom:0; }
+  .deprow:hover { background:rgba(255,255,255,.032); }
+  .confirm { display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
+  .cursorbar { display:flex; align-items:center; gap:9px; padding:7px 10px; box-shadow:inset 0 1px 0 var(--r1);
+    font-family:var(--mono); font-size:10px; color:var(--t3); flex-wrap:nowrap; overflow:hidden; }
+  .cursorbar > * { white-space:nowrap; flex:none; }
+  .cursorbar .sp { margin-left:auto; }
+  .cursorbar .hint2 { overflow:hidden; text-overflow:ellipsis; min-width:0; flex:0 1 auto; }
+
+  /* bottom status bar */
+  .statusbar { height:30px; min-height:30px; display:flex; align-items:center; padding:0 16px; gap:9px;
+    background:var(--s2); box-shadow:inset 0 1px 0 var(--r1);
+    font-family:var(--mono); font-size:10px; color:var(--t3); }
+  .statusbar .right { margin-left:auto; display:flex; align-items:center; gap:10px; }
+  .statusbar kbd { font-family:var(--mono); color:var(--t2); }
+  .sep { color:var(--t4); }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- ===================== TOP BAR ===================== -->
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo"></div>
+      <span class="wordmark">Command Studio</span>
+      <span class="envchip">PROD · US-EAST</span>
+    </div>
+    <nav class="nav">
+      <a href="#">Workflows</a>
+      <a href="#">Datasets</a>
+      <a href="#">Runs</a>
+      <a href="#" class="active">Library</a>
+    </nav>
+    <div class="topright">
+      <div class="cmdk" title="Command palette">
+        <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+        <span>Search saved work, columns, artifacts…</span>
+        <span class="kbd">⌘K</span>
+      </div>
+      <div class="iconbtn" title="Filters"><svg class="ic" viewBox="0 0 24 24"><path d="M3 5h18M6 12h12M10 19h4"/></svg></div>
+      <div class="iconbtn" title="Notifications"><svg class="ic" viewBox="0 0 24 24"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg></div>
+      <div class="iconbtn" title="Theme"><svg class="ic" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg></div>
+      <div class="team" title="Switch team">
+        <span class="dot good"></span><span>Growth Analytics</span><span class="caret">▾</span>
+      </div>
+      <div class="avatar" title="S. Ganji · Growth Analytics · member">SG</div>
+    </div>
+  </div>
+
+  <!-- ===================== SUB-HEADER ===================== -->
+  <div class="subhead">
+    <h1>Library</h1>
+    <span class="scope">
+      <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M4 7l8-4 8 4-8 4-8-4z"/><path d="M4 12l8 4 8-4M4 17l8 4 8-4"/></svg>
+      team <b>growth-analytics</b> <span class="sep">·</span> role <b>member</b>
+    </span>
+    <div class="searchbox">
+      <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+      <input placeholder="Filter saved work…" />
+      <span class="kbd">/</span>
+    </div>
+    <div class="spacer"></div>
+    <div class="ctrl">Owner: Anyone <span style="font-size:10px">▾</span></div>
+    <div class="ctrl">Sort: Last run <span style="font-size:10px">▾</span></div>
+    <div class="ctrl">
+      <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16"/></svg>
+      Export <span style="font-size:10px">▾</span>
+    </div>
+    <button class="btn-primary">
+      <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px;stroke:#fff"><path d="M12 5v14M5 12h14"/></svg>
+      New saved view
+    </button>
+  </div>
+
+  <!-- ===================== KPI STRIP ===================== -->
+  <div class="kpis">
+    <div class="kpi">
+      <div class="micro">Saved views</div>
+      <div class="top"><div class="val">6</div>
+        <svg width="58" height="18" viewBox="0 0 58 18"><polyline points="0,13 10,12 20,12 29,9 38,9 48,6 58,5" fill="none" stroke="var(--viz-1)" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </div>
+      <div class="sub">2 pinned · 4 latest</div>
+    </div>
+    <div class="kpi">
+      <div class="micro">Definitions</div>
+      <div class="top"><div class="val">7</div></div>
+      <div class="sub">sample · aggregate · profile · pivot</div>
+    </div>
+    <div class="kpi">
+      <div class="micro">Charts</div>
+      <div class="top"><div class="val">7</div></div>
+      <div class="sub">7 types · no dashboards</div>
+    </div>
+    <div class="kpi">
+      <div class="micro">Artifacts</div>
+      <div class="top"><div class="val">214</div>
+        <svg width="58" height="18" viewBox="0 0 58 18"><polyline points="0,6 10,8 20,7 29,10 38,9 48,12 58,11" fill="none" stroke="var(--muted-foreground)" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </div>
+      <div class="sub">41.2 GB · <span style="color:var(--st-serious)">18 expire &lt; 7d</span></div>
+    </div>
+    <div class="kpi">
+      <div class="micro">Catalog</div>
+      <div class="top"><div class="val">142 <small>datasets</small></div></div>
+      <div class="sub">3,181 columns indexed</div>
+    </div>
+    <div class="kpi">
+      <div class="micro">Documentation</div>
+      <div class="top"><div class="val">67<small>%</small></div></div>
+      <div class="sub warnc">126 undeclared cols</div>
+    </div>
+    <div class="clockcell"><span class="live"></span> SYNC 16:41:07 ET</div>
+  </div>
+
+  <!-- ===================== MAIN ===================== -->
+  <div class="main">
+
+    <!-- ---------- SECTION NAV ---------- -->
+    <div class="secnav">
+      <div class="grp">Saved work</div>
+      <a class="snitem on" href="#sec-views">
+        <svg class="ic" viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M3 6h18M6 12h12M10 18h4"/></svg>
+        <span>Saved views</span><span class="c">6</span>
+      </a>
+      <a class="snitem" href="#sec-defs">
+        <svg class="ic" viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M4 19V5m0 14h16"/><path d="M8 15l3-5 3 3 4-7"/></svg>
+        <span>Definitions</span><span class="c">7</span>
+      </a>
+      <a class="snitem" href="#sec-charts">
+        <svg class="ic" viewBox="0 0 24 24" style="width:15px;height:15px"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        <span>Charts</span><span class="c">7</span>
+      </a>
+      <div class="navrule"></div>
+      <div class="grp">Derived output</div>
+      <a class="snitem" href="#sec-artifacts">
+        <svg class="ic" viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M21 8v11a1 1 0 01-1 1H4a1 1 0 01-1-1V8"/><path d="M2 4h20v4H2z"/><path d="M10 12h4"/></svg>
+        <span>Artifacts</span><span class="c">214</span>
+      </a>
+      <div class="navrule"></div>
+      <div class="grp">Discovery</div>
+      <a class="snitem" href="#sec-catalog">
+        <svg class="ic" viewBox="0 0 24 24" style="width:15px;height:15px"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+        <span>Catalog search</span><span class="c">142</span>
+      </a>
+      <a class="snitem" href="#sec-dict">
+        <svg class="ic" viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M4 5.5A2.5 2.5 0 016.5 3H20v16H6.5A2.5 2.5 0 004 21.5z"/><path d="M9 8h7M9 12h5"/></svg>
+        <span>Data dictionary</span><span class="c">67%</span>
+      </a>
+
+      <div class="navrule"></div>
+      <div class="grp">Favorites</div>
+      <div class="favlist">
+        <div class="fav"><span class="star"><svg class="ic" viewBox="0 0 24 24" style="width:12px;height:12px;fill:currentColor;stroke:none"><path d="M12 3l2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.4l6.1-.9z"/></svg></span><span class="t">Q3 Campaign Signups.csv</span></div>
+        <div class="fav"><span class="star"><svg class="ic" viewBox="0 0 24 24" style="width:12px;height:12px;fill:currentColor;stroke:none"><path d="M12 3l2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.4l6.1-.9z"/></svg></span><span class="t">Product Usage Daily</span></div>
+        <div class="fav"><span class="star"><svg class="ic" viewBox="0 0 24 24" style="width:12px;height:12px;fill:currentColor;stroke:none"><path d="M12 3l2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.4l6.1-.9z"/></svg></span><span class="t">Support Tickets Export</span></div>
+      </div>
+
+      <div class="navrule"></div>
+      <div class="grp">Retention by kind</div>
+      <div class="retkey">
+        <div class="row"><span>published_source</span><b>∞</b></div>
+        <div class="row"><span>validation_failures</span><b>90d</b></div>
+        <div class="row"><span>transform_output</span><b>30d</b></div>
+        <div class="row"><span>join_output</span><b>30d</b></div>
+        <div class="row"><span>sample_output</span><b>30d</b></div>
+        <div class="row"><span>aggregation_output</span><b>30d</b></div>
+        <div class="row"><span>pivot_output</span><b>30d</b></div>
+        <div class="row"><span>diff_output</span><b>14d</b></div>
+        <div class="row"><span>export</span><b>7d</b></div>
+        <div class="row"><span>query_output</span><b>7d</b></div>
+      </div>
+    </div>
+
+    <!-- ---------- CONTENT ---------- -->
+    <div class="content" id="content">
+      <!-- ============ 1. SAVED VIEWS ============ -->
+      <section class="panel" id="sec-views">
+        <div class="panelhdr">
+          <span class="n">01</span>
+          <h2>Saved views</h2>
+          <span class="count">6</span>
+          <span class="rule"></span>
+          <div class="act">
+            <button class="minibtn">Owner ▾</button>
+            <button class="minibtn">Dataset ▾</button>
+            <button class="minibtn run">+ New view</button>
+          </div>
+        </div>
+        <div class="panelbody">
+          <div class="note">
+            <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px;flex:none;margin-top:1px;color:var(--primary)"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+            <span>A saved view is a persisted <b>QuerySpec</b> — <span class="mono">projection · filter · sort · paging</span> — over one <b>logical sheet</b>, plus a <b>version selector</b>. It stores no rows: <b>Run</b> re-executes it server-side against the pinned version, or against latest if unpinned.</span>
+          </div>
+
+          <!-- ---- CREATE: new saved view (open) ---- -->
+          <div class="create" id="new-view">
+            <div class="chdr">
+              <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px;color:var(--primary)"><path d="M12 5v14M5 12h14"/></svg>
+              <span class="t">New saved view</span>
+              <span class="verb">POST /views</span>
+              <span class="ln"></span>
+              <span class="hint2">stores a QuerySpec + a version selector — never rows</span>
+              <button class="minibtn">Collapse ▴</button>
+            </div>
+            <div class="cbody">
+              <div class="frm" style="grid-template-columns:minmax(0,1.05fr) minmax(0,1.5fr) minmax(0,1.05fr) 176px">
+                <div class="fld">
+                  <span class="l">Name <span class="req">*</span></span>
+                  <span class="inp lit"><span class="t">EU enterprise — high value</span><span class="cnt">26/80</span></span>
+                  <span class="hint2">unique per team · <b>409 name-taken</b> otherwise</span>
+                </div>
+                <div class="fld">
+                  <span class="l">Description</span>
+                  <span class="inp"><span class="t">Active EU accounts invoiced over $5k, largest first</span></span>
+                  <span class="hint2">shown in the catalog and in ⌘K results</span>
+                </div>
+                <div class="fld">
+                  <span class="l">Source dataset <span class="req">*</span></span>
+                  <span class="inp">
+                    <svg class="ic" viewBox="0 0 24 24" style="width:12px;height:12px;flex:none;color:var(--muted-foreground)"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/></svg>
+                    <span class="t">Q3 Campaign Signups.csv</span><span class="caret">▾</span>
+                  </span>
+                  <span class="hint2">142 datasets · <span style="color:var(--t2)">Confidential</span></span>
+                </div>
+                <div class="fld">
+                  <span class="l">Logical sheet <span class="req">*</span></span>
+                  <span class="inp"><span class="t">signups</span><span class="caret">▾</span></span>
+                  <span class="hint2">selection required — never inferred</span>
+                </div>
+              </div>
+
+              <div class="frm" style="grid-template-columns:minmax(0,1fr) 452px">
+                <div class="fld">
+                  <span class="l">QuerySpec this view will capture
+                    <span class="hint2" style="text-transform:none;letter-spacing:0">carried over from the Explorer state you came from · editable before save</span>
+                  </span>
+                  <span class="inp tall">
+                    <span class="qchip"><span class="k">projection</span> 6 of 9 cols</span>
+                    <span class="qchip"><span class="k">region</span> eq EU</span>
+                    <span class="qchip"><span class="k">status</span> eq active</span>
+                    <span class="qchip"><span class="k">amount</span> gte 5000</span>
+                    <span class="qchip"><span class="k">plan</span> in (team,enterprise)</span>
+                    <span class="qchip sort"><span class="k">sort</span> amount desc</span>
+                    <span class="qchip"><span class="k">limit</span> 200 · cursor</span>
+                    <button class="minibtn xs">+ condition</button>
+                  </span>
+                  <span class="hint2">36 filter operators available · paging is cursor-based (<b>limit + next_cursor</b>), so a view captures a page size, not a page number</span>
+                </div>
+                <div class="fld">
+                  <span class="l">Version selector <span class="req">*</span></span>
+                  <div class="seg" style="width:100%">
+                    <span class="opt on"><span class="radio"></span>
+                      <span class="pin locked"><svg class="ic" viewBox="0 0 24 24" style="width:10px;height:10px"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3"/></svg> pin to v42</span>
+                      <span class="hint2">84,213 rows · 08-13</span>
+                    </span>
+                    <span class="opt"><span class="radio"></span>
+                      <span class="pin latest">always latest</span>
+                      <span class="hint2">follows v43, v44 …</span>
+                    </span>
+                  </div>
+                  <span class="hint2">Versions are immutable: a pinned view keeps returning the same rows after v43 lands. Unpin later with <span class="verb patch" style="padding:0 4px">PATCH</span> — the pin is the only thing that decides.</span>
+                </div>
+              </div>
+
+              <div class="cactions">
+                <button class="btn-sm pri">
+                  <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px;stroke:#fff"><path d="M5 13l4 4L19 7"/></svg>
+                  Create saved view
+                </button>
+                <button class="btn-sm">Create &amp; run ▶</button>
+                <button class="btn-sm">Cancel</button>
+                <span class="sp"></span>
+                <span class="hint2">creates the view only — no artifact is written until you <b>Run</b></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="colhdr sv-grid">
+            <span>Saved view · source · QuerySpec</span><span>Version</span><span>Owner</span><span>Last run</span><span style="text-align:right">Actions</span>
+          </div>
+
+          <div class="row sv-grid">
+            <div style="min-width:0">
+              <div class="nm"><span class="dot good"></span><span class="t">Enterprise signups — active</span>
+                <span class="lock"><svg class="ic" viewBox="0 0 24 24" style="width:11px;height:11px"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3"/></svg></span>
+                <span class="depchip" title="2 charts bind to this view">◇ 2 charts</span></div>
+              <div class="sub">Q3 Campaign Signups.csv <span class="sep">›</span> sheet <b style="color:var(--t2)">signups</b> <span class="sep">·</span> 6 of 9 cols projected</div>
+              <div class="chiprow">
+                <span class="qchip"><span class="k">plan</span> in (pro,team,ent)</span>
+                <span class="qchip"><span class="k">status</span> = active</span>
+                <span class="qchip"><span class="k">amount</span> &gt; 0</span>
+                <span class="qchip sort"><span class="k">sort</span> amount ▼</span>
+                <span class="qchip"><span class="k">limit</span> 200</span>
+              </div>
+            </div>
+            <div><span class="pin locked"><svg class="ic" viewBox="0 0 24 24" style="width:10px;height:10px"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3"/></svg> pinned v42</span></div>
+            <div class="cellm"><b>S. Ganji</b></div>
+            <div class="cellm">12m ago<div class="sub" style="margin-top:1px">41,908 rows · 71ms</div></div>
+            <div class="acts"><button class="minibtn">Edit</button><button class="minibtn">Duplicate</button><button class="minibtn run">▶ Run</button><button class="minibtn danger" title="DELETE /views/{id}"><svg class="ic" viewBox="0 0 24 24" style="width:11px;height:11px"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button></div>
+          </div>
+
+          <div class="row sv-grid">
+            <div style="min-width:0">
+              <div class="nm"><span class="dot good"></span><span class="t">APAC trialing cohort</span>
+                <span class="lock"><svg class="ic" viewBox="0 0 24 24" style="width:11px;height:11px"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3"/></svg></span></div>
+              <div class="sub">Q3 Campaign Signups.csv <span class="sep">›</span> sheet <b style="color:var(--t2)">signups</b> <span class="sep">·</span> 5 of 9 cols projected</div>
+              <div class="chiprow">
+                <span class="qchip"><span class="k">region</span> = APAC</span>
+                <span class="qchip"><span class="k">status</span> = trialing</span>
+                <span class="qchip sort"><span class="k">sort</span> signup_date ▼</span>
+                <span class="qchip"><span class="k">limit</span> 100</span>
+              </div>
+            </div>
+            <div><span class="pin latest">always latest</span></div>
+            <div class="cellm"><b>M. Ruiz</b></div>
+            <div class="cellm">1h ago<div class="sub" style="margin-top:1px">6,204 rows · 44ms</div></div>
+            <div class="acts"><button class="minibtn">Edit</button><button class="minibtn">Duplicate</button><button class="minibtn run">▶ Run</button><button class="minibtn danger" title="DELETE /views/{id}"><svg class="ic" viewBox="0 0 24 24" style="width:11px;height:11px"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button></div>
+          </div>
+
+          <div class="row sv-grid">
+            <div style="min-width:0">
+              <div class="nm"><span class="dot good"></span><span class="t">Open P1 tickets — 30d</span>
+                <span class="depchip free">◇ no dependents</span></div>
+              <div class="sub">Support Tickets Export <span class="sep">›</span> sheet <b style="color:var(--t2)">tickets</b> <span class="sep">·</span> 7 of 14 cols projected</div>
+              <div class="chiprow">
+                <span class="qchip"><span class="k">priority</span> = P1</span>
+                <span class="qchip"><span class="k">state</span> != closed</span>
+                <span class="qchip"><span class="k">opened_at</span> last_n_days 30</span>
+                <span class="qchip sort"><span class="k">sort</span> opened_at ▲</span>
+              </div>
+            </div>
+            <div><span class="pin latest">always latest</span></div>
+            <div class="cellm"><b>D. Okafor</b></div>
+            <div class="cellm">3h ago<div class="sub" style="margin-top:1px">1,882 rows · 118ms</div></div>
+            <div class="acts"><button class="minibtn">Edit</button><button class="minibtn">Duplicate</button><button class="minibtn run">▶ Run</button><button class="minibtn danger" title="DELETE /views/{id}"><svg class="ic" viewBox="0 0 24 24" style="width:11px;height:11px"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button></div>
+          </div>
+
+          <!-- ---- DELETE: confirm step, nothing depends on it ---- -->
+          <div class="destroy" style="margin:9px 0 11px">
+            <div class="dhdr">
+              <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px;color:var(--st-crit)"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg>
+              <span class="t">Delete saved view “Open P1 tickets — 30d”?</span>
+              <span class="verb del">DELETE /views/sv_7c31</span>
+              <span class="ln"></span>
+              <span class="stat good"><span class="dot good"></span>dependency check passed · 0 dependents</span>
+            </div>
+            <div class="dbody">
+              <div class="effect">
+                <div class="col">
+                  <div class="h rm">Removes <span class="ln"></span></div>
+                  <ul>
+                    <li><span class="g">−</span><span>the saved <b>QuerySpec</b> — <span class="mono">projection · filter · sort · limit</span> — and its version selector</span></li>
+                    <li><span class="g">−</span><span>the view row in this list, for <b>everyone on growth-analytics</b>, not just you</span></li>
+                    <li><span class="g">−</span><span><b>1 favourite</b> reference held by D. Okafor</span></li>
+                  </ul>
+                </div>
+                <div class="col">
+                  <div class="h keep">Does not remove <span class="ln"></span></div>
+                  <ul>
+                    <li><span class="g">+</span><span><b>Support Tickets Export</b> or any of its versions — a view stores no rows and owns no data</span></li>
+                    <li><span class="g">+</span><span>artifacts already produced from it: <span class="mono">tickets_open_p1_2026-08-16.xlsx</span> stays until its own TTL (<span style="color:var(--st-serious)">6d</span>)</span></li>
+                    <li><span class="g">+</span><span>the run history — audit rows are append-only and outlive the object</span></li>
+                  </ul>
+                </div>
+              </div>
+              <div class="confirm">
+                <span class="hint2" style="text-transform:none">Type the view name to confirm</span>
+                <span class="inp lit" style="width:236px"><span class="t mono" style="font-size:11px">Open P1 tickets — 30d</span></span>
+                <button class="btn-sm dang">
+                  <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px;stroke:#fff"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg>
+                  Delete view
+                </button>
+                <button class="btn-sm">Cancel</button>
+                <span class="sp" style="margin-left:auto"></span>
+                <span class="hint2">irreversible · no trash, no undo window <span class="sep">·</span> duplicate it first if you only want to experiment</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="row sv-grid">
+            <div style="min-width:0">
+              <div class="nm"><span class="dot warn"></span><span class="t">Unpaid invoices &gt; 30 days</span></div>
+              <div class="sub">Vendor Invoices <span class="sep">›</span> sheet <b style="color:var(--t2)">invoices</b> <span class="sep">·</span> 8 of 21 cols projected</div>
+              <div class="chiprow">
+                <span class="qchip"><span class="k">paid</span> = false</span>
+                <span class="qchip"><span class="k">age_days</span> &gt; 30</span>
+                <span class="qchip"><span class="k">amount_usd</span> &gt;= 5000</span>
+                <span class="qchip sort"><span class="k">sort</span> amount_usd ▼</span>
+              </div>
+            </div>
+            <div><span class="pin locked"><svg class="ic" viewBox="0 0 24 24" style="width:10px;height:10px"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3"/></svg> pinned v17</span></div>
+            <div class="cellm"><b>A. Bhatt</b></div>
+            <div class="cellm">yesterday<div class="sub" style="margin-top:1px">3,410 rows · 96ms</div></div>
+            <div class="acts"><button class="minibtn">Edit</button><button class="minibtn">Duplicate</button><button class="minibtn run">▶ Run</button><button class="minibtn danger" title="DELETE /views/{id}"><svg class="ic" viewBox="0 0 24 24" style="width:11px;height:11px"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button></div>
+          </div>
+
+          <div class="row sv-grid">
+            <div style="min-width:0">
+              <div class="nm"><span class="dot good"></span><span class="t">Checkout funnel — Aug</span>
+                <span class="depchip" title="1 chart binds to this view">◇ 1 chart</span></div>
+              <div class="sub">Web Events — Aug <span class="sep">›</span> sheet <b style="color:var(--t2)">events</b> <span class="sep">·</span> 4 of 11 cols projected</div>
+              <div class="chiprow">
+                <span class="qchip"><span class="k">event_name</span> in (view,add_cart,checkout)</span>
+                <span class="qchip"><span class="k">ts</span> date_between Aug01–Aug16</span>
+                <span class="qchip sort"><span class="k">sort</span> ts ▲</span>
+              </div>
+            </div>
+            <div><span class="pin latest">always latest</span></div>
+            <div class="cellm"><b>S. Ganji</b></div>
+            <div class="cellm">2d ago<div class="sub" style="margin-top:1px">12.4M rows · 2.1s</div></div>
+            <div class="acts"><button class="minibtn">Edit</button><button class="minibtn">Duplicate</button><button class="minibtn run">▶ Run</button><button class="minibtn danger" title="DELETE /views/{id}"><svg class="ic" viewBox="0 0 24 24" style="width:11px;height:11px"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button></div>
+          </div>
+
+          <div class="row sv-grid">
+            <div style="min-width:0">
+              <div class="nm"><span class="dot idle"></span><span class="t">Headcount by cost centre</span>
+                <span class="lock restr"><svg class="ic" viewBox="0 0 24 24" style="width:11px;height:11px"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3"/></svg></span>
+                <span class="cls restr">Restricted</span></div>
+              <div class="sub">Employee Records <span class="sep">›</span> sheet <b style="color:var(--t2)">roster</b> <span class="sep">·</span> 5 of 32 cols projected <span class="sep">·</span> <span>4 masked</span></div>
+              <div class="chiprow">
+                <span class="qchip"><span class="k">status</span> = active</span>
+                <span class="qchip"><span class="k">cost_centre</span> is not null</span>
+                <span class="qchip sort"><span class="k">sort</span> cost_centre ▲</span>
+              </div>
+            </div>
+            <div><span class="pin locked"><svg class="ic" viewBox="0 0 24 24" style="width:10px;height:10px"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3"/></svg> pinned v8</span></div>
+            <div class="cellm"><b>People Ops</b></div>
+            <div class="cellm">6d ago<div class="sub" style="margin-top:1px">no access · 403</div></div>
+            <div class="acts"><button class="minibtn">Details</button><button class="minibtn" style="color:var(--st-serious);box-shadow:inset 0 0 0 1px rgba(236,131,90,.32)">Request access</button></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 2. SAVED ANALYTICS DEFINITIONS ============ -->
+      <section class="panel" id="sec-defs">
+        <div class="panelhdr">
+          <span class="n">02</span>
+          <h2>Saved analytics definitions</h2>
+          <span class="count">7</span>
+          <span class="rule"></span>
+          <div class="act">
+            <button class="minibtn"><span class="kindchip k-sample">sample</span></button>
+            <button class="minibtn"><span class="kindchip k-aggregate">aggregate</span></button>
+            <button class="minibtn"><span class="kindchip k-profile">profile</span></button>
+            <button class="minibtn"><span class="kindchip k-pivot">pivot</span></button>
+            <button class="minibtn run">+ New definition</button>
+          </div>
+        </div>
+        <div class="panelbody">
+          <div class="note">
+            <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px;flex:none;margin-top:1px;color:var(--primary)"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+            <span>There are exactly <b>four kinds</b> — <span class="mono">sample</span>, <span class="mono">aggregate</span>, <span class="mono">profile</span>, <span class="mono">pivot</span>. A run writes its result as an <b>artifact</b>; <b>Publish</b> promotes that artifact into a real dataset (<span class="mono">published_source</span>, retained ∞) that can then be queried, documented and charted like any upload.</span>
+          </div>
+
+          <!-- ---- CREATE: new analytics definition (open) ---- -->
+          <div class="create" id="new-def">
+            <div class="chdr">
+              <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px;color:var(--primary)"><path d="M12 5v14M5 12h14"/></svg>
+              <span class="t">New analytics definition</span>
+              <span class="verb">POST /definitions</span>
+              <span class="ln"></span>
+              <span class="hint2">the definition is saved config · running it is a separate step</span>
+              <button class="minibtn">Collapse ▴</button>
+            </div>
+            <div class="cbody">
+              <div class="fld">
+                <span class="l">Kind <span class="req">*</span> <span class="hint2" style="text-transform:none;letter-spacing:0">immutable after create — a different kind is a different object</span></span>
+                <div class="seg">
+                  <span class="opt"><span class="radio"></span><span class="kindchip k-sample">sample</span><span class="hint2">n rows, optional seed</span></span>
+                  <span class="opt on"><span class="radio"></span><span class="kindchip k-aggregate">aggregate</span><span class="hint2">group_by + metrics</span></span>
+                  <span class="opt"><span class="radio"></span><span class="kindchip k-profile">profile</span><span class="hint2">per-column statistics</span></span>
+                  <span class="opt"><span class="radio"></span><span class="kindchip k-pivot">pivot</span><span class="hint2">rows × cols × value</span></span>
+                </div>
+              </div>
+
+              <div class="frm" style="grid-template-columns:minmax(0,1.1fr) minmax(0,1fr) 176px 214px">
+                <div class="fld">
+                  <span class="l">Name <span class="req">*</span></span>
+                  <span class="inp lit"><span class="t">Revenue by plan × week</span><span class="cnt">22/80</span></span>
+                </div>
+                <div class="fld">
+                  <span class="l">Source dataset <span class="req">*</span></span>
+                  <span class="inp"><span class="t">Q3 Campaign Signups.csv</span><span class="caret">▾</span></span>
+                </div>
+                <div class="fld">
+                  <span class="l">Logical sheet <span class="req">*</span></span>
+                  <span class="inp"><span class="t">signups</span><span class="caret">▾</span></span>
+                </div>
+                <div class="fld">
+                  <span class="l">Version selector <span class="req">*</span></span>
+                  <div class="seg" style="width:100%">
+                    <span class="opt"><span class="radio"></span><span class="pin locked"><svg class="ic" viewBox="0 0 24 24" style="width:10px;height:10px"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3"/></svg> v42</span></span>
+                    <span class="opt on"><span class="radio"></span><span class="pin latest">always latest</span></span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="fld">
+                <span class="l">Config · <span class="kindchip k-aggregate">aggregate</span>
+                  <span class="hint2" style="text-transform:none;letter-spacing:0">this block swaps with the kind — <span class="mono">sample</span> asks method · n · seed, <span class="mono">profile</span> asks columns · top-k, <span class="mono">pivot</span> asks rows · cols · value · fill</span>
+                </span>
+                <div class="frm" style="grid-template-columns:minmax(0,1fr) minmax(0,1.25fr) minmax(0,1fr)">
+                  <div class="fld">
+                    <span class="l" style="font-size:9.5px">group_by <span class="req">*</span></span>
+                    <span class="inp tall">
+                      <span class="qchip"><span class="k">plan</span> ✕</span>
+                      <span class="qchip"><span class="k">week</span>(signup_date) ✕</span>
+                      <button class="minibtn xs">+ column</button>
+                    </span>
+                  </div>
+                  <div class="fld">
+                    <span class="l" style="font-size:9.5px">metrics <span class="req">*</span></span>
+                    <span class="inp tall">
+                      <span class="qchip"><span class="k">sum</span>(amount) ✕</span>
+                      <span class="qchip"><span class="k">count</span>(*) ✕</span>
+                      <span class="qchip"><span class="k">avg</span>(amount) ✕</span>
+                      <button class="minibtn xs">+ metric</button>
+                    </span>
+                  </div>
+                  <div class="fld">
+                    <span class="l" style="font-size:9.5px">having · filters · sort</span>
+                    <span class="inp tall">
+                      <span class="qchip"><span class="k">count(*)</span> gt 25</span>
+                      <span class="qchip sort"><span class="k">sort</span> sum(amount) desc</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="cactions">
+                <button class="btn-sm pri">
+                  <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px;stroke:#fff"><path d="M5 13l4 4L19 7"/></svg>
+                  Create definition
+                </button>
+                <button class="btn-sm">Create &amp; run ▶</button>
+                <button class="btn-sm">Cancel</button>
+                <span class="sp"></span>
+                <span class="hint2">a run writes an <b>aggregation_output</b> artifact (30d TTL) that <b>Publish</b> can promote to a dataset</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="colhdr df-grid">
+            <span>Definition · config</span><span>Last run</span><span>Duration</span><span style="text-align:right">Actions</span>
+          </div>
+
+          <div class="row df-grid">
+            <div style="min-width:0">
+              <div class="nm"><span class="kindchip k-aggregate">aggregate</span><span class="t">Signups by plan × region</span>
+                <span class="depchip" title="2 charts render this definition">◇ 2 charts</span></div>
+              <div class="sub">Q3 Campaign Signups.csv <span class="sep">›</span> signups <span class="sep">·</span> group_by [plan, region] <span class="sep">·</span> metrics sum(amount), count(*), avg(amount) <span class="sep">·</span> having count(*) &gt; 25</div>
+            </div>
+            <div class="cellm">2026-08-16 09:12</div>
+            <div class="cellm"><b>1.8s</b></div>
+            <div class="acts"><button class="minibtn" title="PATCH /definitions/{id} · name only">Rename</button><button class="minibtn" title="PATCH /definitions/{id} · config">Edit config</button><button class="minibtn">Publish run →</button><button class="minibtn run">▶ Run</button><button class="minibtn danger" title="DELETE /definitions/{id}"><svg class="ic" viewBox="0 0 24 24" style="width:11px;height:11px"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button></div>
+          </div>
+
+          <!-- ---- DELETE: refused, 409 relationship-has-dependents ---- -->
+          <div class="destroy blocked" style="margin:9px 0 11px">
+            <div class="dhdr">
+              <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px;color:var(--st-warn)"><path d="M12 3l9 16H3z"/><path d="M12 9v5M12 17h.01"/></svg>
+              <span class="t">Delete definition “Signups by plan × region”? — <span style="color:var(--st-warn)">refused</span></span>
+              <span class="verb del">DELETE /definitions/df_2a90</span>
+              <span class="chip mono" style="color:var(--st-warn);background:rgba(0,0,0,.36);box-shadow:inset 0 0 0 1px rgba(250,178,25,.34)">409 relationship-has-dependents</span>
+              <span class="ln"></span>
+              <span class="stat warn"><span class="dot warn"></span>2 dependents block this delete</span>
+            </div>
+            <div class="dbody">
+              <div class="effect">
+                <div class="col">
+                  <div class="h rm">Would remove <span class="ln"></span></div>
+                  <ul>
+                    <li><span class="g">−</span><span>the saved <b>aggregate</b> config — <span class="mono">group_by [plan, region] · sum(amount), count(*), avg(amount) · having count(*) gt 25</span></span></li>
+                    <li><span class="g">−</span><span>the ability to re-run it; the <b>2 charts</b> below would be left with no source</span></li>
+                  </ul>
+                </div>
+                <div class="col">
+                  <div class="h keep">Would not remove <span class="ln"></span></div>
+                  <ul>
+                    <li><span class="g">+</span><span><b>Q3 Campaign Signups.csv</b> or any version — a definition owns no data</span></li>
+                    <li><span class="g">+</span><span>past run artifacts: <span class="mono">signups_by_plan_region.parquet</span> keeps its own 30d TTL, and anything already <b>published</b> stays a dataset forever</span></li>
+                  </ul>
+                </div>
+              </div>
+
+              <div class="deps">
+                <div class="dh">
+                  <svg class="ic" viewBox="0 0 24 24" style="width:12px;height:12px"><path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.7-1.7"/></svg>
+                  Dependents · 2 charts bind to this definition <span class="ln"></span>
+                  <span class="hint2">a chart owns no query logic, so it cannot outlive its source</span>
+                </div>
+                <div class="deprow">
+                  <span><span class="kindchip k-neutral">bar</span></span>
+                  <span class="nm" style="font-size:11.5px"><span class="t">Signups by plan</span></span>
+                  <span class="cellm">binds <b>definition</b> → this one</span>
+                  <span class="cellm">S. Ganji</span>
+                  <span class="acts"><button class="minibtn xs">Rebind…</button><button class="minibtn xs">Open</button><button class="minibtn xs danger">Delete chart</button></span>
+                </div>
+                <div class="deprow">
+                  <span><span class="kindchip k-neutral">line</span></span>
+                  <span class="nm" style="font-size:11.5px"><span class="t">Daily signups vs activations</span></span>
+                  <span class="cellm">binds <b>definition</b> → this one</span>
+                  <span class="cellm">M. Ruiz</span>
+                  <span class="acts"><button class="minibtn xs">Rebind…</button><button class="minibtn xs">Open</button><button class="minibtn xs danger">Delete chart</button></span>
+                </div>
+              </div>
+
+              <div class="confirm">
+                <button class="btn-sm dang off" title="blocked while dependents exist">
+                  <svg class="ic" viewBox="0 0 24 24" style="width:12px;height:12px;stroke:#fff"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3"/></svg>
+                  Delete definition
+                </button>
+                <button class="btn-sm pri">Rebind both charts →</button>
+                <button class="btn-sm">Delete the 2 charts first</button>
+                <button class="btn-sm">Cancel</button>
+                <span class="sp" style="margin-left:auto"></span>
+                <span class="hint2">no cascade and no <span class="mono">force</span> flag — clear the dependents, then retry <span class="sep">·</span> same rule the API applies to a relationship with saved joins</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="row df-grid">
+            <div style="min-width:0">
+              <div class="nm"><span class="kindchip k-profile">profile</span><span class="t">Signups column profile — full</span>
+                <span class="lock"><svg class="ic" viewBox="0 0 24 24" style="width:11px;height:11px"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3"/></svg></span></div>
+              <div class="sub">Q3 Campaign Signups.csv <span class="sep">›</span> signups <span class="sep">·</span> all 9 columns <span class="sep">·</span> null/distinct counts, quantiles, top-k = 20 <span class="sep">·</span> <span>pii columns redacted in output</span></div>
+            </div>
+            <div class="cellm">2026-08-16 09:05</div>
+            <div class="cellm"><b>4.2s</b></div>
+            <div class="acts"><button class="minibtn" title="PATCH /definitions/{id} · name only">Rename</button><button class="minibtn" title="PATCH /definitions/{id} · config">Edit config</button><button class="minibtn">Publish run →</button><button class="minibtn run">▶ Run</button><button class="minibtn danger" title="DELETE /definitions/{id}"><svg class="ic" viewBox="0 0 24 24" style="width:11px;height:11px"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button></div>
+          </div>
+
+          <div class="row df-grid">
+            <div style="min-width:0">
+              <div class="nm"><span class="kindchip k-pivot">pivot</span><span class="t">Revenue pivot — region × month</span>
+                <span class="depchip" title="1 chart renders this definition">◇ 1 chart</span></div>
+              <div class="sub">Q3 Campaign Signups.csv <span class="sep">›</span> signups <span class="sep">·</span> rows [region] <span class="sep">·</span> cols [month(signup_date)] <span class="sep">·</span> value sum(amount) <span class="sep">·</span> fill 0</div>
+            </div>
+            <div class="cellm">2026-08-16 08:58</div>
+            <div class="cellm"><b>0.9s</b></div>
+            <div class="acts"><button class="minibtn" title="PATCH /definitions/{id} · name only">Rename</button><button class="minibtn" title="PATCH /definitions/{id} · config">Edit config</button><button class="minibtn">Publish run →</button><button class="minibtn run">▶ Run</button><button class="minibtn danger" title="DELETE /definitions/{id}"><svg class="ic" viewBox="0 0 24 24" style="width:11px;height:11px"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button></div>
+          </div>
+
+          <div class="row df-grid">
+            <div style="min-width:0">
+              <div class="nm"><span class="kindchip k-sample">sample</span><span class="t">Random 5k — seed 42</span>
+                <span class="depchip free">◇ no dependents</span></div>
+              <div class="sub">Q3 Campaign Signups.csv <span class="sep">›</span> signups <span class="sep">·</span> method random <span class="sep">·</span> n = 5,000 <span class="sep">·</span> seed 42 <span class="sep">·</span> reproducible</div>
+            </div>
+            <div class="cellm">2026-08-16 08:40</div>
+            <div class="cellm"><b>0.6s</b></div>
+            <div class="acts"><button class="minibtn" title="PATCH /definitions/{id} · name only">Rename</button><button class="minibtn" title="PATCH /definitions/{id} · config">Edit config</button><button class="minibtn">Publish run →</button><button class="minibtn run">▶ Run</button><button class="minibtn danger" title="DELETE /definitions/{id}"><svg class="ic" viewBox="0 0 24 24" style="width:11px;height:11px"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button></div>
+          </div>
+
+          <div class="row df-grid">
+            <div style="min-width:0">
+              <div class="nm"><span class="kindchip k-aggregate">aggregate</span><span class="t">Ticket volume by priority × week</span>
+                <span class="depchip" title="1 chart renders this definition">◇ 1 chart</span></div>
+              <div class="sub">Support Tickets Export <span class="sep">›</span> tickets <span class="sep">·</span> group_by [priority, week(opened_at)] <span class="sep">·</span> metrics count(*), median(resolve_hours)</div>
+            </div>
+            <div class="cellm">2026-08-15 22:10</div>
+            <div class="cellm"><b>3.4s</b></div>
+            <div class="acts"><button class="minibtn" title="PATCH /definitions/{id} · name only">Rename</button><button class="minibtn" title="PATCH /definitions/{id} · config">Edit config</button><button class="minibtn">Publish run →</button><button class="minibtn run">▶ Run</button><button class="minibtn danger" title="DELETE /definitions/{id}"><svg class="ic" viewBox="0 0 24 24" style="width:11px;height:11px"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button></div>
+          </div>
+
+          <div class="row df-grid">
+            <div style="min-width:0">
+              <div class="nm"><span class="kindchip k-pivot">pivot</span><span class="t">Invoice aging × vendor</span></div>
+              <div class="sub">Vendor Invoices <span class="sep">›</span> invoices <span class="sep">·</span> rows [vendor] <span class="sep">·</span> cols [aging_bucket] <span class="sep">·</span> value sum(amount_usd) <span class="sep">·</span> top 50 vendors</div>
+            </div>
+            <div class="cellm">2026-08-15 19:32</div>
+            <div class="cellm"><b>2.2s</b></div>
+            <div class="acts"><button class="minibtn" title="PATCH /definitions/{id} · name only">Rename</button><button class="minibtn" title="PATCH /definitions/{id} · config">Edit config</button><button class="minibtn">Publish run →</button><button class="minibtn run">▶ Run</button><button class="minibtn danger" title="DELETE /definitions/{id}"><svg class="ic" viewBox="0 0 24 24" style="width:11px;height:11px"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button></div>
+          </div>
+
+          <div class="row df-grid">
+            <div style="min-width:0">
+              <div class="nm"><span class="kindchip k-sample">sample</span><span class="t">Head 1k — Web Events Aug</span></div>
+              <div class="sub">Web Events — Aug <span class="sep">›</span> events <span class="sep">·</span> method head <span class="sep">·</span> n = 1,000 <span class="sep">·</span> no seed (deterministic)</div>
+            </div>
+            <div class="cellm">2026-08-14 11:04</div>
+            <div class="cellm"><b>0.3s</b></div>
+            <div class="acts"><button class="minibtn" title="PATCH /definitions/{id} · name only">Rename</button><button class="minibtn" title="PATCH /definitions/{id} · config">Edit config</button><button class="minibtn">Publish run →</button><button class="minibtn run">▶ Run</button><button class="minibtn danger" title="DELETE /definitions/{id}"><svg class="ic" viewBox="0 0 24 24" style="width:11px;height:11px"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button></div>
+          </div>
+        </div>
+      </section>
+      <!-- ============ 3. CHARTS ============ -->
+      <section class="panel" id="sec-charts">
+        <div class="panelhdr">
+          <span class="n">03</span>
+          <h2>Charts</h2>
+          <span class="count">7 · one per type</span>
+          <span class="rule"></span>
+          <div class="act">
+            <button class="minibtn">Dataset: all ▾</button>
+            <button class="minibtn run">+ New chart</button>
+          </div>
+        </div>
+        <div class="panelbody">
+          <div class="note">
+            <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px;flex:none;margin-top:1px;color:var(--primary)"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+            <span><b>Charts own no query logic.</b> Each chart binds to a saved <span class="mono">definition</span> or a saved <span class="mono">view</span> and renders whatever series that source returns — so filters, grouping and version pinning live upstream, never in the chart. Seven types only: <span class="mono">bar · line · area · scatter · pie · table · kpi</span>. There are <b>no dashboards</b> — charts live per-dataset, ungrouped — and <b>no server-side image rendering</b>: the API returns JSON series, the client draws.</span>
+          </div>
+
+          <!-- ---- CREATE: new chart (open) — the binding is the whole point ---- -->
+          <div class="create" id="new-chart">
+            <div class="chdr">
+              <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px;color:var(--primary)"><path d="M12 5v14M5 12h14"/></svg>
+              <span class="t">New chart</span>
+              <span class="verb">POST /charts</span>
+              <span class="ln"></span>
+              <span class="hint2">a chart is a rendering of a source you already saved</span>
+              <button class="minibtn">Collapse ▴</button>
+            </div>
+            <div class="cbody">
+              <div class="fld">
+                <span class="l">Type <span class="req">*</span> <span class="hint2" style="text-transform:none;letter-spacing:0">seven types, no others — the client draws; the API returns JSON series</span></span>
+                <div class="seg">
+                  <span class="opt on"><span class="radio"></span>
+                    <svg class="ic" viewBox="0 0 24 24" style="width:12px;height:12px"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>bar</span>
+                  <span class="opt"><span class="radio"></span>
+                    <svg class="ic" viewBox="0 0 24 24" style="width:12px;height:12px"><path d="M4 17l5-6 4 3 7-8"/></svg>line</span>
+                  <span class="opt"><span class="radio"></span>
+                    <svg class="ic" viewBox="0 0 24 24" style="width:12px;height:12px"><path d="M4 18l5-6 4 3 7-8v11z"/></svg>area</span>
+                  <span class="opt"><span class="radio"></span>
+                    <svg class="ic" viewBox="0 0 24 24" style="width:12px;height:12px"><circle cx="7" cy="16" r="1.6"/><circle cx="12" cy="10" r="1.6"/><circle cx="17" cy="13" r="1.6"/><circle cx="19" cy="6" r="1.6"/></svg>scatter</span>
+                  <span class="opt"><span class="radio"></span>
+                    <svg class="ic" viewBox="0 0 24 24" style="width:12px;height:12px"><circle cx="12" cy="12" r="8"/><path d="M12 4v8l6 4"/></svg>pie</span>
+                  <span class="opt"><span class="radio"></span>
+                    <svg class="ic" viewBox="0 0 24 24" style="width:12px;height:12px"><rect x="4" y="5" width="16" height="14" rx="1.5"/><path d="M4 10h16M10 10v9"/></svg>table</span>
+                  <span class="opt"><span class="radio"></span>
+                    <svg class="ic" viewBox="0 0 24 24" style="width:12px;height:12px"><path d="M4 15l4-5 4 3 8-8"/><path d="M4 20h16"/></svg>kpi</span>
+                </div>
+              </div>
+
+              <div class="frm" style="grid-template-columns:minmax(0,1fr) minmax(0,1.5fr)">
+                <div style="display:flex;flex-direction:column;gap:9px;min-width:0">
+                  <div class="fld">
+                    <span class="l">Name <span class="req">*</span></span>
+                    <span class="inp lit"><span class="t">Revenue by plan</span><span class="cnt">15/80</span></span>
+                  </div>
+                  <div class="fld">
+                    <span class="l">Series mapping <span class="req">*</span> <span class="hint2" style="text-transform:none;letter-spacing:0">columns offered by the bound source only</span></span>
+                    <span class="inp tall">
+                      <span class="qchip"><span class="k">x</span> plan</span>
+                      <span class="qchip"><span class="k">y</span> sum(amount)</span>
+                      <span class="qchip"><span class="k">series</span> region</span>
+                      <button class="minibtn xs">Edit mapping</button>
+                    </span>
+                    <span class="hint2">4 series → viz-1…viz-4 in fixed categorical order</span>
+                  </div>
+                  <div class="fld">
+                    <span class="l">Preview <span class="hint2" style="text-transform:none;letter-spacing:0">drawn client-side from the bound source’s last run</span></span>
+                    <div class="thumb">
+                      <svg width="100%" height="70" viewBox="0 0 254 70" role="img" aria-label="Preview: bar chart of revenue by plan">
+                        <g stroke="rgba(255,255,255,.055)" stroke-width="1">
+                          <line x1="8" y1="12" x2="246" y2="12"/><line x1="8" y1="28" x2="246" y2="28"/><line x1="8" y1="44" x2="246" y2="44"/>
+                        </g>
+                        <line x1="8" y1="58" x2="246" y2="58" stroke="rgba(255,255,255,.11)" stroke-width="1"/>
+                        <rect x="18" y="46" width="42" height="12" rx="3" fill="var(--viz-1)"/>
+                        <rect x="72" y="30" width="42" height="28" rx="3" fill="var(--viz-1)"/>
+                        <rect x="126" y="20" width="42" height="38" rx="3" fill="var(--viz-1)"/>
+                        <rect x="180" y="10" width="42" height="48" rx="3" fill="var(--viz-1)"/>
+                        <g fill="#85909F" font-size="9" font-family="ui-monospace,monospace" text-anchor="middle">
+                          <text x="39" y="68">free</text><text x="93" y="68">pro</text><text x="147" y="68">team</text><text x="201" y="68">ent</text>
+                        </g>
+                      </svg>
+                    </div>
+                    <span class="hint2">16 × 5 result · 4 groups after <b>having count(*) gt 25</b></span>
+                  </div>
+                </div>
+
+                <div class="fld">
+                  <span class="l">Source binding <span class="req">*</span>
+                    <span class="hint2" style="text-transform:none;letter-spacing:0">a chart owns <b>no</b> query logic — pick the definition or view it renders</span>
+                  </span>
+                  <div class="seg" style="margin-bottom:1px">
+                    <span class="opt on"><span class="radio"></span>definition <span class="hint2">7</span></span>
+                    <span class="opt"><span class="radio"></span>view <span class="hint2">6</span></span>
+                  </div>
+                  <div class="pickwrap">
+                    <div class="pickrow on">
+                      <span class="radio" style="background:var(--key);box-shadow:0 1px 2px rgba(0,0,0,.6)"></span>
+                      <span><span class="kindchip k-aggregate">aggregate</span></span>
+                      <span class="nm" style="font-size:11.5px"><span class="t">Signups by plan × region</span></span>
+                      <span class="cellm">16 × 5 · 1.8s</span>
+                    </div>
+                    <div class="pickrow">
+                      <span class="radio"></span>
+                      <span><span class="kindchip k-pivot">pivot</span></span>
+                      <span class="nm" style="font-size:11.5px"><span class="t">Revenue pivot — region × month</span></span>
+                      <span class="cellm">4 × 8 · 0.9s</span>
+                    </div>
+                    <div class="pickrow">
+                      <span class="radio"></span>
+                      <span><span class="kindchip k-aggregate">aggregate</span></span>
+                      <span class="nm" style="font-size:11.5px"><span class="t">Ticket volume by priority × week</span></span>
+                      <span class="cellm">42 × 4 · 3.4s</span>
+                    </div>
+                    <div class="pickrow" style="opacity:.5">
+                      <span class="radio"></span>
+                      <span><span class="kindchip k-profile">profile</span></span>
+                      <span class="nm" style="font-size:11.5px"><span class="t">Signups column profile — full</span></span>
+                      <span class="cellm">not chartable</span>
+                    </div>
+                    <div class="cursorbar">
+                      <span>1–4 of 7 definitions</span>
+                      <span class="sp"></span>
+                      <button class="minibtn xs">Load more</button>
+                    </div>
+                  </div>
+                  <span class="hint2">Inherits from the source: filters, grouping and <span class="pin latest" style="font-size:9.5px">always latest</span> — the chart cannot override them. Change the binding later with <span class="verb patch" style="padding:0 4px">PATCH</span>.</span>
+                </div>
+              </div>
+
+              <div class="cactions">
+                <button class="btn-sm pri">
+                  <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px;stroke:#fff"><path d="M5 13l4 4L19 7"/></svg>
+                  Create chart
+                </button>
+                <button class="btn-sm">Preview</button>
+                <button class="btn-sm">Cancel</button>
+                <span class="sp"></span>
+                <span class="hint2">creating a chart adds a dependent to <b>Signups by plan × region</b> — that definition can no longer be deleted until this chart is rebound or removed</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="gallery">
+
+            <!-- bar -->
+            <div class="ccard">
+              <div class="ch"><span class="kindchip k-neutral">bar</span><span class="ct">Signups by plan</span></div>
+              <div class="thumb">
+                <svg width="100%" height="78" viewBox="0 0 254 78" role="img" aria-label="Bar chart of signups by plan">
+                  <g stroke="rgba(255,255,255,.055)" stroke-width="1">
+                    <line x1="8" y1="14" x2="246" y2="14"/><line x1="8" y1="32" x2="246" y2="32"/><line x1="8" y1="50" x2="246" y2="50"/>
+                  </g>
+                  <line x1="8" y1="66" x2="246" y2="66" stroke="rgba(255,255,255,.11)" stroke-width="1"/>
+                  <rect x="18" y="16" width="42" height="50" rx="3" fill="var(--viz-1)"/>
+                  <rect x="72" y="34" width="42" height="32" rx="3" fill="var(--viz-1)"/>
+                  <rect x="126" y="51" width="42" height="15" rx="3" fill="var(--viz-1)"/>
+                  <rect x="180" y="58" width="42" height="8" rx="3" fill="var(--viz-1)"/>
+                  <g fill="#85909F" font-size="9" font-family="ui-monospace,monospace" text-anchor="middle">
+                    <text x="39" y="76">free</text><text x="93" y="76">pro</text><text x="147" y="76">team</text><text x="201" y="76">ent</text>
+                  </g>
+                </svg>
+              </div>
+              <div class="bind"><span class="arrow">▸</span><span class="src">definition · Signups by plan × region</span></div>
+              <div class="bind"><span class="mutedt">Q3 Campaign Signups.csv</span></div>
+              <div class="acts" style="justify-content:flex-start;margin-top:auto;padding-top:2px">
+                <button class="minibtn xs" title="PATCH /charts/{id} · name + mapping">Edit</button>
+                <button class="minibtn xs" title="PATCH /charts/{id} · source binding">Rebind</button>
+                <button class="minibtn xs">Duplicate</button>
+                <button class="minibtn xs danger" title="DELETE /charts/{id}">Delete</button>
+              </div>
+            </div>
+
+            <!-- line -->
+            <div class="ccard">
+              <div class="ch"><span class="kindchip k-neutral">line</span><span class="ct">Daily signups vs activations</span></div>
+              <div class="thumb">
+                <svg width="100%" height="78" viewBox="0 0 254 78" role="img" aria-label="Line chart, two series">
+                  <g stroke="rgba(255,255,255,.055)" stroke-width="1">
+                    <line x1="8" y1="16" x2="246" y2="16"/><line x1="8" y1="34" x2="246" y2="34"/><line x1="8" y1="52" x2="246" y2="52"/>
+                  </g>
+                  <line x1="8" y1="66" x2="246" y2="66" stroke="rgba(255,255,255,.11)"/>
+                  <polyline points="14,54 47,50 80,44 113,46 146,36 179,30 212,24 242,17" fill="none" stroke="var(--m1)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  <polyline points="14,62 47,60 80,58 113,55 146,52 179,50 212,45 242,42" fill="none" stroke="var(--m3)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  <g fill="#85909F" font-size="9" font-family="ui-monospace,monospace">
+                    <text x="10" y="76">Aug 01</text><text x="212" y="76">Aug 16</text>
+                  </g>
+                </svg>
+              </div>
+              <div class="legend">
+                <span class="li"><span class="sw" style="background:var(--m1)"></span>signups</span>
+                <span class="li"><span class="sw" style="background:var(--m3)"></span>activations</span>
+              </div>
+              <div class="bind"><span class="arrow">▸</span><span class="src">definition · Signups by plan × region</span></div>
+              <div class="acts" style="justify-content:flex-start;margin-top:auto;padding-top:2px">
+                <button class="minibtn xs" title="PATCH /charts/{id} · name + mapping">Edit</button>
+                <button class="minibtn xs" title="PATCH /charts/{id} · source binding">Rebind</button>
+                <button class="minibtn xs">Duplicate</button>
+                <button class="minibtn xs danger" title="DELETE /charts/{id}">Delete</button>
+              </div>
+            </div>
+
+            <!-- area -->
+            <div class="ccard">
+              <div class="ch"><span class="kindchip k-neutral">area</span><span class="ct">Cumulative revenue MTD</span></div>
+              <div class="thumb">
+                <svg width="100%" height="78" viewBox="0 0 254 78" role="img" aria-label="Area chart of cumulative revenue">
+                  <g stroke="rgba(255,255,255,.055)" stroke-width="1">
+                    <line x1="8" y1="16" x2="246" y2="16"/><line x1="8" y1="34" x2="246" y2="34"/><line x1="8" y1="52" x2="246" y2="52"/>
+                  </g>
+                  <path d="M14,60 L47,55 L80,48 L113,42 L146,32 L179,26 L212,16 L242,10 L242,66 L14,66 Z" fill="var(--viz-1)" fill-opacity=".18"/>
+                  <polyline points="14,60 47,55 80,48 113,42 146,32 179,26 212,16 242,10" fill="none" stroke="var(--viz-1)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  <line x1="8" y1="66" x2="246" y2="66" stroke="rgba(255,255,255,.11)"/>
+                  <g fill="#85909F" font-size="9" font-family="ui-monospace,monospace">
+                    <text x="10" y="76">$0</text><text x="196" y="76">$1.42M</text>
+                  </g>
+                </svg>
+              </div>
+              <div class="bind"><span class="arrow">▸</span><span class="src">view · Enterprise signups — active</span></div>
+              <div class="bind"><span class="mutedt">pinned v42 · inherits the view</span></div>
+              <div class="acts" style="justify-content:flex-start;margin-top:auto;padding-top:2px">
+                <button class="minibtn xs" title="PATCH /charts/{id} · name + mapping">Edit</button>
+                <button class="minibtn xs" title="PATCH /charts/{id} · source binding">Rebind</button>
+                <button class="minibtn xs">Duplicate</button>
+                <button class="minibtn xs danger" title="DELETE /charts/{id}">Delete</button>
+              </div>
+            </div>
+
+            <!-- scatter -->
+            <div class="ccard">
+              <div class="ch"><span class="kindchip k-neutral">scatter</span><span class="ct">Amount vs session length</span></div>
+              <div class="thumb">
+                <svg width="100%" height="78" viewBox="0 0 254 78" role="img" aria-label="Scatter plot">
+                  <g stroke="rgba(255,255,255,.055)" stroke-width="1">
+                    <line x1="8" y1="16" x2="246" y2="16"/><line x1="8" y1="34" x2="246" y2="34"/><line x1="8" y1="52" x2="246" y2="52"/>
+                  </g>
+                  <line x1="8" y1="66" x2="246" y2="66" stroke="rgba(255,255,255,.11)"/>
+                  <g fill="var(--viz-1)" fill-opacity=".85">
+                    <circle cx="24" cy="60" r="2.2"/><circle cx="38" cy="55" r="2.2"/><circle cx="46" cy="61" r="2.2"/>
+                    <circle cx="60" cy="48" r="2.2"/><circle cx="72" cy="53" r="2.2"/><circle cx="84" cy="42" r="2.2"/>
+                    <circle cx="96" cy="50" r="2.2"/><circle cx="106" cy="36" r="2.2"/><circle cx="118" cy="45" r="2.2"/>
+                    <circle cx="130" cy="30" r="2.2"/><circle cx="142" cy="38" r="2.2"/><circle cx="154" cy="26" r="2.2"/>
+                    <circle cx="166" cy="34" r="2.2"/><circle cx="178" cy="22" r="2.2"/><circle cx="190" cy="29" r="2.2"/>
+                    <circle cx="202" cy="18" r="2.2"/><circle cx="214" cy="25" r="2.2"/><circle cx="228" cy="14" r="2.2"/>
+                    <circle cx="32" cy="63" r="2.2"/><circle cx="66" cy="59" r="2.2"/><circle cx="112" cy="56" r="2.2"/>
+                    <circle cx="160" cy="47" r="2.2"/><circle cx="206" cy="40" r="2.2"/><circle cx="236" cy="21" r="2.2"/>
+                  </g>
+                  <g fill="#85909F" font-size="9" font-family="ui-monospace,monospace">
+                    <text x="10" y="76">0s</text><text x="212" y="76">18m</text>
+                  </g>
+                </svg>
+              </div>
+              <div class="bind"><span class="arrow">▸</span><span class="src">view · Checkout funnel — Aug</span></div>
+              <div class="bind"><span class="mutedt">Web Events — Aug</span></div>
+              <div class="acts" style="justify-content:flex-start;margin-top:auto;padding-top:2px">
+                <button class="minibtn xs" title="PATCH /charts/{id} · name + mapping">Edit</button>
+                <button class="minibtn xs" title="PATCH /charts/{id} · source binding">Rebind</button>
+                <button class="minibtn xs">Duplicate</button>
+                <button class="minibtn xs danger" title="DELETE /charts/{id}">Delete</button>
+              </div>
+            </div>
+
+            <!-- pie -->
+            <div class="ccard">
+              <div class="ch"><span class="kindchip k-neutral">pie</span><span class="ct">Tickets by priority</span></div>
+              <div class="thumb">
+                <svg width="100%" height="78" viewBox="0 0 254 78" role="img" aria-label="Donut chart of tickets by priority">
+                  <g transform="rotate(-90 127 38)" fill="none" stroke-width="13">
+                    <circle cx="127" cy="38" r="24" stroke="var(--m1)" stroke-dasharray="63.3 87.5" stroke-dashoffset="0"/>
+                    <circle cx="127" cy="38" r="24" stroke="var(--m2)" stroke-dasharray="39.2 111.6" stroke-dashoffset="-63.3"/>
+                    <circle cx="127" cy="38" r="24" stroke="var(--m3)" stroke-dasharray="30.2 120.6" stroke-dashoffset="-102.5"/>
+                    <circle cx="127" cy="38" r="24" stroke="var(--m5)" stroke-dasharray="18.1 132.7" stroke-dashoffset="-132.7"/>
+                  </g>
+                  <text x="127" y="42" text-anchor="middle" fill="#E7ECF3" font-size="11" font-family="ui-monospace,monospace">8,214</text>
+                </svg>
+              </div>
+              <div class="legend">
+                <span class="li"><span class="sw" style="background:var(--m1)"></span>P3 42%</span>
+                <span class="li"><span class="sw" style="background:var(--m2)"></span>P2 26%</span>
+                <span class="li"><span class="sw" style="background:var(--m3)"></span>P4 20%</span>
+                <span class="li"><span class="sw" style="background:var(--m5)"></span>P1 12%</span>
+              </div>
+              <div class="bind"><span class="arrow">▸</span><span class="src">definition · Ticket volume by priority</span></div>
+              <div class="acts" style="justify-content:flex-start;margin-top:auto;padding-top:2px">
+                <button class="minibtn xs" title="PATCH /charts/{id} · name + mapping">Edit</button>
+                <button class="minibtn xs" title="PATCH /charts/{id} · source binding">Rebind</button>
+                <button class="minibtn xs">Duplicate</button>
+                <button class="minibtn xs danger" title="DELETE /charts/{id}">Delete</button>
+              </div>
+            </div>
+
+            <!-- table -->
+            <div class="ccard">
+              <div class="ch"><span class="kindchip k-neutral">table</span><span class="ct">Top campaigns</span></div>
+              <div class="thumb" style="padding:5px 7px 4px">
+                <table class="minitab">
+                  <thead><tr><th>campaign</th><th class="n">signups</th><th class="n">rev</th></tr></thead>
+                  <tbody>
+                    <tr><td>summer_promo</td><td class="n">17,684</td><td class="n">$412K</td></tr>
+                    <tr><td>paid_search_brand</td><td class="n">14,312</td><td class="n">$388K</td></tr>
+                    <tr><td>webinar_q3</td><td class="n">10,940</td><td class="n">$251K</td></tr>
+                    <tr><td>retargeting_us</td><td class="n">9,268</td><td class="n">$204K</td></tr>
+                    <tr><td>linkedin_abm</td><td class="n">7,581</td><td class="n">$196K</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="bind"><span class="arrow">▸</span><span class="src">view · Enterprise signups — active</span></div>
+              <div class="acts" style="justify-content:flex-start;margin-top:auto;padding-top:2px">
+                <button class="minibtn xs" title="PATCH /charts/{id} · name + mapping">Edit</button>
+                <button class="minibtn xs" title="PATCH /charts/{id} · source binding">Rebind</button>
+                <button class="minibtn xs">Duplicate</button>
+                <button class="minibtn xs danger" title="DELETE /charts/{id}">Delete</button>
+              </div>
+            </div>
+
+            <!-- kpi -->
+            <div class="ccard">
+              <div class="ch"><span class="kindchip k-neutral">kpi</span><span class="ct">MTD revenue</span></div>
+              <div class="thumb" style="display:flex;align-items:center;gap:10px;height:78px">
+                <div style="min-width:0">
+                  <div class="kpibig">$1.42M</div>
+                  <div class="stat" style="font-size:11px;margin-top:2px;color:var(--t2)"><span class="dot" style="background:var(--m2);border-radius:50%"></span>▲ 8.4% vs. Jul MTD</div>
+                </div>
+                <svg width="92" height="34" viewBox="0 0 92 34" style="margin-left:auto;flex:none" role="img" aria-label="Sparkline">
+                  <polyline points="2,28 15,26 28,22 41,23 54,17 67,12 80,8 90,4" fill="none" stroke="var(--viz-1)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </div>
+              <div class="bind"><span class="arrow">▸</span><span class="src">definition · Revenue pivot — region × month</span></div>
+              <div class="acts" style="justify-content:flex-start;margin-top:auto;padding-top:2px">
+                <button class="minibtn xs" title="PATCH /charts/{id} · name + mapping">Edit</button>
+                <button class="minibtn xs" title="PATCH /charts/{id} · source binding">Rebind</button>
+                <button class="minibtn xs">Duplicate</button>
+                <button class="minibtn xs danger" title="DELETE /charts/{id}">Delete</button>
+              </div>
+            </div>
+
+            <!-- delete a chart — the leaf case: nothing can depend on a chart -->
+            <div class="destroy" style="margin:0">
+              <div class="dhdr" style="padding:7px 9px">
+                <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px;flex:none;color:var(--st-crit)"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg>
+                <span class="t" style="font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Delete “Tickets by priority”?</span>
+              </div>
+              <div class="dbody" style="padding:8px 9px 9px;gap:7px">
+                <div class="verb del" style="align-self:flex-start">DELETE /charts/ch_88f1</div>
+                <div class="effect" style="grid-template-columns:1fr;gap:7px">
+                  <div class="col" style="padding:6px 8px">
+                    <div class="h rm">Removes <span class="ln"></span></div>
+                    <ul><li><span class="g">−</span><span>this <b>pie</b> chart and its series mapping</span></li></ul>
+                  </div>
+                  <div class="col" style="padding:6px 8px">
+                    <div class="h keep">Keeps <span class="ln"></span></div>
+                    <ul>
+                      <li><span class="g">+</span><span>definition <b>Ticket volume by priority × week</b></span></li>
+                      <li><span class="g">+</span><span>its artifacts, and every row of data</span></li>
+                    </ul>
+                  </div>
+                </div>
+                <div class="stat good" style="font-size:11px"><span class="dot good"></span>nothing binds to a chart — safe to delete</div>
+                <div class="confirm" style="gap:7px">
+                  <button class="btn-sm dang" style="height:26px;padding:0 9px">Delete chart</button>
+                  <button class="btn-sm" style="height:26px;padding:0 9px">Cancel</button>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 4. ARTIFACTS ============ -->
+      <section class="panel" id="sec-artifacts">
+        <div class="panelhdr">
+          <span class="n">04</span>
+          <h2>Artifacts</h2>
+          <span class="count">214 · 41.2 GB</span>
+          <span class="rule"></span>
+          <div class="act">
+            <span class="micro" style="font-size:10px">Export as</span>
+            <span class="fmt">csv</span><span class="fmt">xlsx</span><span class="fmt">parquet</span>
+            <button class="minibtn">Kind ▾</button>
+            <button class="minibtn">Expiring &lt; 7d</button>
+            <span class="verb none" title="no DELETE endpoint exists for artifacts">DELETE</span>
+          </div>
+        </div>
+        <div class="panelbody">
+          <div class="note">
+            <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px;flex:none;margin-top:1px;color:var(--primary)"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+            <span>Every derived output the platform produces lands here with a <b>kind</b> and a <b>retention</b> clock. Artifacts are read with <b>server-side projection, filter, sort and paging</b> — never downloaded whole to be sliced — and exported as <span class="mono">csv</span>, <span class="mono">xlsx</span> or <span class="mono">parquet</span> only. <b>The artifact row is the only way to resolve a storage key</b>: a blob that was never registered has no reachable path, so orphaned writes are unreadable by construction.</span>
+          </div>
+          <div class="note gov">
+            <span style="flex:none;margin-top:1px;color:var(--st-warn);display:inline-flex"><svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6"/></svg></span>
+            <span><b>Artifacts are not deleted by hand — and there is no delete button here on purpose.</b> Every row carries a <b>retention TTL by kind</b> (left rail); when the clock runs out the sweeper (<span class="mono">GC</span>) removes the blob and its registration row together, in that order. Nothing in this list is an object you own the lifetime of — the way to keep one is <b>Publish</b>, which promotes it to a <span class="mono">published_source</span> dataset retained <span class="mono">∞</span>. Deleting the view or definition that produced an artifact does <b>not</b> shorten its clock.</span>
+          </div>
+          <div class="note gov">
+            <span class="lock" style="margin-top:1px"><svg class="ic" viewBox="0 0 24 24" style="width:12px;height:12px"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3"/></svg></span>
+            <span><b>An artifact inherits the masking of its source.</b> If a source column declares <span class="mono">sensitivity: pii</span>, every artifact derived from it is masked the same way for the same roles — and <b>raw egress is gated by role</b>: your role (<span class="mono">member</span>) can export masked, not raw.</span>
+          </div>
+
+          <div class="colhdr ar-grid">
+            <span>Filename</span><span>Kind</span><span>Source dataset</span><span>Size</span><span>Rows × cols</span><span>Created</span><span>Expiry</span><span style="text-align:right">Actions</span>
+          </div>
+
+          <div class="row ar-grid">
+            <div style="min-width:0"><div class="nm mono" style="font-size:11.5px"><span class="t">q3_campaign_signups_v42.parquet</span>
+              <span class="lock"><svg class="ic" viewBox="0 0 24 24" style="width:11px;height:11px"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3"/></svg></span></div>
+              <div class="sub"><span>1 col masked</span> <span class="sep">·</span> artifacts/growth-analytics/q3-signups/…</div></div>
+            <div><span class="kindchip k-aggregate">published_source</span></div>
+            <div class="cellm">Q3 Campaign Signups</div>
+            <div class="cellm">128.4 MB</div>
+            <div class="cellm">84,213 × 9</div>
+            <div class="cellm">08-13</div>
+            <div class="meter"><span class="lab"><span class="dot idle"></span>no expiry <span class="mutedt">∞</span></span>
+              <span class="track"><span class="fill" style="width:100%;background:var(--m6)"></span></span></div>
+            <div class="acts"><button class="minibtn">Read</button><button class="minibtn">Export ▾</button></div>
+          </div>
+
+          <div class="row ar-grid">
+            <div style="min-width:0"><div class="nm mono" style="font-size:11.5px"><span class="t">signups_v42_validation_failures.csv</span></div>
+              <div class="sub">1,204 rejected rows · rule, column, value, row_no</div></div>
+            <div><span class="kindchip k-neutral">validation_failures</span></div>
+            <div class="cellm">Q3 Campaign Signups</div>
+            <div class="cellm">412 KB</div>
+            <div class="cellm">1,204 × 4</div>
+            <div class="cellm">08-13</div>
+            <div class="meter"><span class="lab"><span class="dot good"></span>in 87d <span class="mutedt">/ 90d</span></span>
+              <span class="track"><span class="fill" style="width:97%;background:var(--m4)"></span></span></div>
+            <div class="acts"><button class="minibtn">Read</button><button class="minibtn">Export ▾</button></div>
+          </div>
+
+          <div class="row ar-grid">
+            <div style="min-width:0"><div class="nm mono" style="font-size:11.5px"><span class="t">signups_normalized_v42.parquet</span>
+              <span class="lock"><svg class="ic" viewBox="0 0 24 24" style="width:11px;height:11px"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3"/></svg></span></div>
+              <div class="sub"><span>1 col masked</span> <span class="sep">·</span> transform: trim, lowercase, derive plan_rank</div></div>
+            <div><span class="kindchip k-neutral">transform_output</span></div>
+            <div class="cellm">Q3 Campaign Signups</div>
+            <div class="cellm">96.1 MB</div>
+            <div class="cellm">84,213 × 11</div>
+            <div class="cellm">08-15</div>
+            <div class="meter"><span class="lab"><span class="dot good"></span>in 28d <span class="mutedt">/ 30d</span></span>
+              <span class="track"><span class="fill" style="width:93%;background:var(--m4)"></span></span></div>
+            <div class="acts"><button class="minibtn">Read</button><button class="minibtn">Export ▾</button></div>
+          </div>
+
+          <div class="row ar-grid">
+            <div style="min-width:0"><div class="nm mono" style="font-size:11.5px"><span class="t">signups_x_crm_accounts.parquet</span>
+              <span class="lock"><svg class="ic" viewBox="0 0 24 24" style="width:11px;height:11px"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3"/></svg></span></div>
+              <div class="sub"><span>2 cols masked</span> <span class="sep">·</span> inherited from both sides · left join on account_id</div></div>
+            <div><span class="kindchip k-neutral">join_output</span></div>
+            <div class="cellm">Q3 Signups ⋈ CRM</div>
+            <div class="cellm">210.7 MB</div>
+            <div class="cellm">79,880 × 17</div>
+            <div class="cellm">08-14</div>
+            <div class="meter"><span class="lab"><span class="dot good"></span>in 27d <span class="mutedt">/ 30d</span></span>
+              <span class="track"><span class="fill" style="width:90%;background:var(--m4)"></span></span></div>
+            <div class="acts"><button class="minibtn">Read</button><button class="minibtn">Export ▾</button></div>
+          </div>
+
+          <div class="row ar-grid">
+            <div style="min-width:0"><div class="nm mono" style="font-size:11.5px"><span class="t">signups_sample_5k_seed42.csv</span>
+              <span class="lock"><svg class="ic" viewBox="0 0 24 24" style="width:11px;height:11px"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3"/></svg></span></div>
+              <div class="sub"><span>1 col masked</span> <span class="sep">·</span> from definition “Random 5k — seed 42”</div></div>
+            <div><span class="kindchip k-sample">sample_output</span></div>
+            <div class="cellm">Q3 Campaign Signups</div>
+            <div class="cellm">1.9 MB</div>
+            <div class="cellm">5,000 × 9</div>
+            <div class="cellm">08-16</div>
+            <div class="meter"><span class="lab"><span class="dot good"></span>in 29d <span class="mutedt">/ 30d</span></span>
+              <span class="track"><span class="fill" style="width:97%;background:var(--m4)"></span></span></div>
+            <div class="acts"><button class="minibtn">Read</button><button class="minibtn">Export ▾</button></div>
+          </div>
+
+          <div class="row ar-grid">
+            <div style="min-width:0"><div class="nm mono" style="font-size:11.5px"><span class="t">signups_by_plan_region.parquet</span></div>
+              <div class="sub">from definition “Signups by plan × region” <span class="sep">·</span> promotable</div></div>
+            <div><span class="kindchip k-aggregate">aggregation_output</span></div>
+            <div class="cellm">Q3 Campaign Signups</div>
+            <div class="cellm">18 KB</div>
+            <div class="cellm">16 × 5</div>
+            <div class="cellm">08-16</div>
+            <div class="meter"><span class="lab"><span class="dot good"></span>in 29d <span class="mutedt">/ 30d</span></span>
+              <span class="track"><span class="fill" style="width:97%;background:var(--m4)"></span></span></div>
+            <div class="acts"><button class="minibtn">Read</button><button class="minibtn">Publish →</button></div>
+          </div>
+
+          <div class="row ar-grid">
+            <div style="min-width:0"><div class="nm mono" style="font-size:11.5px"><span class="t">revenue_pivot_region_month.xlsx</span></div>
+              <div class="sub">from definition “Revenue pivot — region × month”</div></div>
+            <div><span class="kindchip k-pivot">pivot_output</span></div>
+            <div class="cellm">Q3 Campaign Signups</div>
+            <div class="cellm">44 KB</div>
+            <div class="cellm">4 × 8</div>
+            <div class="cellm">08-16</div>
+            <div class="meter"><span class="lab"><span class="dot good"></span>in 29d <span class="mutedt">/ 30d</span></span>
+              <span class="track"><span class="fill" style="width:97%;background:var(--m4)"></span></span></div>
+            <div class="acts"><button class="minibtn">Read</button><button class="minibtn">Publish →</button></div>
+          </div>
+
+          <div class="row ar-grid">
+            <div style="min-width:0"><div class="nm mono" style="font-size:11.5px"><span class="t">signups_v41_vs_v42_diff.csv</span></div>
+              <div class="sub">6,118 changed rows · added 1,902 / removed 88 / modified 4,128</div></div>
+            <div><span class="kindchip k-neutral">diff_output</span></div>
+            <div class="cellm">Q3 Campaign Signups</div>
+            <div class="cellm">2.2 MB</div>
+            <div class="cellm">6,118 × 6</div>
+            <div class="cellm">08-15</div>
+            <div class="meter"><span class="lab"><span class="dot warn"></span>in 12d <span class="mutedt">/ 14d</span></span>
+              <span class="track"><span class="fill" style="width:86%;background:var(--m4)"></span></span></div>
+            <div class="acts"><button class="minibtn">Read</button><button class="minibtn">Export ▾</button></div>
+          </div>
+
+          <div class="row ar-grid">
+            <div style="min-width:0"><div class="nm mono" style="font-size:11.5px"><span class="t">enterprise_signups_active.csv</span>
+              <span class="lock"><svg class="ic" viewBox="0 0 24 24" style="width:11px;height:11px"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3"/></svg></span></div>
+              <div class="sub"><span>masked · raw denied for role member</span> <span class="sep">·</span> export of a view</div></div>
+            <div><span class="kindchip k-neutral">export</span></div>
+            <div class="cellm">Q3 Campaign Signups</div>
+            <div class="cellm">8.4 MB</div>
+            <div class="cellm">41,908 × 6</div>
+            <div class="cellm">08-16</div>
+            <div class="meter"><span class="lab"><span class="dot serious"></span>in 6d <span class="mutedt">/ 7d</span></span>
+              <span class="track"><span class="fill" style="width:86%;background:var(--st-serious)"></span></span></div>
+            <div class="acts"><button class="minibtn">Read</button><button class="minibtn">Export ▾</button></div>
+          </div>
+
+          <div class="row ar-grid">
+            <div style="min-width:0"><div class="nm mono" style="font-size:11.5px"><span class="t">qs_a91c2f_page1.parquet</span>
+              <span class="lock"><svg class="ic" viewBox="0 0 24 24" style="width:11px;height:11px"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3"/></svg></span></div>
+              <div class="sub"><span>1 col masked</span> <span class="sep">·</span> materialised page of a QuerySpec run</div></div>
+            <div><span class="kindchip k-neutral">query_output</span></div>
+            <div class="cellm">Q3 Campaign Signups</div>
+            <div class="cellm">640 KB</div>
+            <div class="cellm">2,000 × 9</div>
+            <div class="cellm">08-16</div>
+            <div class="meter"><span class="lab"><span class="dot crit"></span>in 2d <span class="mutedt">/ 7d</span></span>
+              <span class="track"><span class="fill" style="width:29%;background:var(--st-crit)"></span></span></div>
+            <div class="acts"><button class="minibtn">Read</button><button class="minibtn">Export ▾</button></div>
+          </div>
+
+          <div class="row ar-grid">
+            <div style="min-width:0"><div class="nm mono" style="font-size:11.5px"><span class="t">tickets_open_p1_2026-08-16.xlsx</span></div>
+              <div class="sub">export of view “Open P1 tickets — 30d”</div></div>
+            <div><span class="kindchip k-neutral">export</span></div>
+            <div class="cellm">Support Tickets Export</div>
+            <div class="cellm">1.1 MB</div>
+            <div class="cellm">1,882 × 7</div>
+            <div class="cellm">08-16</div>
+            <div class="meter"><span class="lab"><span class="dot serious"></span>in 6d <span class="mutedt">/ 7d</span></span>
+              <span class="track"><span class="fill" style="width:86%;background:var(--st-serious)"></span></span></div>
+            <div class="acts"><button class="minibtn">Read</button><button class="minibtn">Export ▾</button></div>
+          </div>
+
+          <div class="cursorbar">
+            <span>1–11 of <b style="color:var(--t2)">214</b> artifacts</span>
+            <span class="sep">·</span>
+            <span>sorted created ▼ · cursor <span style="color:var(--t2)">eyJrIjoiMjAyNi0wOC0x…</span></span>
+            <span class="sp"></span>
+            <span class="hint2">cursor-paged — the API returns <b>next_cursor</b>; no page numbers to jump to</span>
+            <button class="minibtn">Load more</button>
+            <button class="minibtn">Next ›</button>
+          </div>
+        </div>
+      </section>
+      <!-- ============ 5. CATALOG SEARCH & FACETS ============ -->
+      <section class="panel" id="sec-catalog">
+        <div class="panelhdr">
+          <span class="n">05</span>
+          <h2>Catalog search &amp; facets</h2>
+          <span class="count">142 datasets · 3,181 columns</span>
+          <span class="rule"></span>
+          <div class="act">
+            <button class="minibtn">★ Favorites only</button>
+            <button class="minibtn">Clear facets</button>
+          </div>
+        </div>
+        <div class="panelbody">
+          <div class="catwrap">
+
+            <!-- facets -->
+            <div class="facets">
+              <div class="fgroup">
+                <div class="fh">Classification <span class="ln"></span></div>
+                <div class="frow"><span class="box"></span><span class="t">Public</span><span class="c">12</span></div>
+                <div class="frow"><span class="box"></span><span class="t">Internal</span><span class="c">68</span></div>
+                <div class="frow on"><span class="box"></span><span class="t">Confidential</span><span class="c">47</span></div>
+                <div class="frow"><span class="box"></span><span class="t">Restricted</span><span class="c">15</span></div>
+              </div>
+              <div class="fgroup">
+                <div class="fh">Domain <span class="ln"></span></div>
+                <div class="frow on"><span class="box"></span><span class="t">growth</span><span class="c">31</span></div>
+                <div class="frow"><span class="box"></span><span class="t">marketing</span><span class="c">28</span></div>
+                <div class="frow"><span class="box"></span><span class="t">platform</span><span class="c">28</span></div>
+                <div class="frow"><span class="box"></span><span class="t">finance</span><span class="c">22</span></div>
+                <div class="frow"><span class="box"></span><span class="t">support</span><span class="c">19</span></div>
+                <div class="frow"><span class="box"></span><span class="t">people</span><span class="c">14</span></div>
+              </div>
+              <div class="fgroup">
+                <div class="fh">Source system <span class="ln"></span></div>
+                <div class="frow"><span class="box"></span><span class="t">manual upload</span><span class="c">64</span></div>
+                <div class="frow"><span class="box"></span><span class="t">segment</span><span class="c">24</span></div>
+                <div class="frow"><span class="box"></span><span class="t">salesforce</span><span class="c">21</span></div>
+                <div class="frow"><span class="box"></span><span class="t">zendesk</span><span class="c">12</span></div>
+                <div class="frow"><span class="box"></span><span class="t">snowflake</span><span class="c">12</span></div>
+                <div class="frow"><span class="box"></span><span class="t">workday</span><span class="c">9</span></div>
+              </div>
+              <div class="fgroup">
+                <div class="fh">Documentation <span class="ln"></span></div>
+                <div class="frow"><span class="box"></span><span class="t">full</span><span class="c">39</span></div>
+                <div class="frow"><span class="box"></span><span class="t">partial</span><span class="c">62</span></div>
+                <div class="frow"><span class="box"></span><span class="t">none</span><span class="c">41</span></div>
+              </div>
+              <div class="fgroup">
+                <div class="fh">Validation status <span class="ln"></span></div>
+                <div class="frow"><span class="box"></span><span class="stat good" style="font-size:11.5px"><span class="dot good"></span>validated</span><span class="c">118</span></div>
+                <div class="frow"><span class="box"></span><span class="stat serious" style="font-size:11.5px"><span class="dot serious"></span>failed</span><span class="c">9</span></div>
+                <div class="frow"><span class="box"></span><span class="stat idle" style="font-size:11.5px"><span class="dot idle"></span>pending</span><span class="c">15</span></div>
+              </div>
+              <div class="fgroup">
+                <div class="fh">Schema drift <span class="ln"></span></div>
+                <div class="frow"><span class="box"></span><span class="stat warn" style="font-size:11.5px"><span class="dot warn"></span>drift detected</span><span class="c">6</span></div>
+                <div class="frow"><span class="box"></span><span class="t">stable</span><span class="c">136</span></div>
+              </div>
+              <div class="fgroup">
+                <div class="fh">Deprecated <span class="ln"></span></div>
+                <div class="frow"><span class="box"></span><span class="t">yes</span><span class="c">7</span></div>
+                <div class="frow"><span class="box"></span><span class="t">no</span><span class="c">135</span></div>
+              </div>
+            </div>
+
+            <!-- search results -->
+            <div class="searchpanel">
+              <div class="sbig">
+                <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+                <span>Dataset search — name &amp; description</span>
+                <span class="q">“signup”</span>
+                <span class="hint">4 of 142 · facets: Confidential + growth</span>
+              </div>
+              <div class="restable">
+                <div class="rhdr ds-grid"><span>★</span><span>Dataset · description</span><span>Classification</span><span>Domain</span><span>Source system</span><span>Status</span></div>
+                <div class="rrow ds-grid">
+                  <span class="star on"><svg class="ic" viewBox="0 0 24 24" style="width:12px;height:12px;fill:currentColor;stroke:none"><path d="M12 3l2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.4l6.1-.9z"/></svg></span>
+                  <span style="min-width:0"><span class="nm"><span class="t">Q3 Campaign <span class="hl">Signup</span>s.csv</span>
+                    <span class="lock"><svg class="ic" viewBox="0 0 24 24" style="width:11px;height:11px"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3"/></svg></span></span>
+                    <span class="sub" style="display:block">Paid + organic <span class="hl">signup</span>s for the Q3 acquisition push · 84,213 rows · 9 cols</span></span>
+                  <span><span class="cls conf">Confidential</span></span>
+                  <span class="cellm">growth</span>
+                  <span class="cellm">manual upload</span>
+                  <span class="stat good"><span class="dot good"></span>validated</span>
+                </div>
+                <div class="rrow ds-grid">
+                  <span class="star"><svg class="ic" viewBox="0 0 24 24" style="width:12px;height:12px;fill:currentColor;stroke:none"><path d="M12 3l2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.4l6.1-.9z"/></svg></span>
+                  <span style="min-width:0"><span class="nm"><span class="t">Q2 Campaign <span class="hl">Signup</span>s.csv</span>
+                    <span class="chip" style="color:var(--st-serious);background:rgba(0,0,0,.36);box-shadow:inset 0 0 0 1px rgba(236,131,90,.32)">deprecated</span></span>
+                    <span class="sub" style="display:block">Superseded by Q3 · retained for YoY comparison · 61,004 rows · 9 cols</span></span>
+                  <span><span class="cls conf">Confidential</span></span>
+                  <span class="cellm">growth</span>
+                  <span class="cellm">manual upload</span>
+                  <span class="stat good"><span class="dot good"></span>validated</span>
+                </div>
+                <div class="rrow ds-grid">
+                  <span class="star"><svg class="ic" viewBox="0 0 24 24" style="width:12px;height:12px;fill:currentColor;stroke:none"><path d="M12 3l2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.4l6.1-.9z"/></svg></span>
+                  <span style="min-width:0"><span class="nm"><span class="t"><span class="hl">Signup</span> Attribution Model</span></span>
+                    <span class="sub" style="display:block">Last-touch attribution over web events → <span class="hl">signup</span>s · 402K rows · 12 cols</span></span>
+                  <span><span class="cls conf">Confidential</span></span>
+                  <span class="cellm">growth</span>
+                  <span class="cellm">segment</span>
+                  <span class="stat warn"><span class="dot warn"></span>schema drift</span>
+                </div>
+                <div class="rrow ds-grid">
+                  <span class="star"><svg class="ic" viewBox="0 0 24 24" style="width:12px;height:12px;fill:currentColor;stroke:none"><path d="M12 3l2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.4l6.1-.9z"/></svg></span>
+                  <span style="min-width:0"><span class="nm"><span class="t">Trial → Paid Conversions</span></span>
+                    <span class="sub" style="display:block">Conversion events keyed by <span class="hl">signup</span>_id · 28,910 rows · 7 cols</span></span>
+                  <span><span class="cls conf">Confidential</span></span>
+                  <span class="cellm">growth</span>
+                  <span class="cellm">snowflake</span>
+                  <span class="stat idle"><span class="dot idle"></span>pending</span>
+                </div>
+              </div>
+
+              <div class="sbig lit" style="margin-top:2px">
+                <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px;color:var(--primary)"><path d="M4 5h16M4 12h16M4 19h16"/><circle cx="19" cy="19" r="0"/></svg>
+                <span>Cross-dataset <b style="color:var(--foreground);font-weight:600">column</b> search</span>
+                <span class="q">“email”</span>
+                <span class="hint">17 matches across 11 datasets · returns dataset · sheet · column · dtype · position</span>
+              </div>
+              <div class="restable">
+                <div class="rhdr cs-grid"><span>Dataset</span><span>Sheet</span><span>Column</span><span>Dtype</span><span>Pos</span><span>Declared sensitivity</span></div>
+                <div class="rrow cs-grid">
+                  <span class="cellm" style="color:var(--foreground)">Q3 Campaign Signups.csv</span>
+                  <span class="cellm">signups</span>
+                  <span class="mono" style="font-size:11.5px"><span class="hl">email</span></span>
+                  <span><span class="dtype">string</span></span><span class="cellm">3</span>
+                  <span><span class="sens pii"><svg class="ic" viewBox="0 0 24 24" style="width:10px;height:10px"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3"/></svg> pii · masked</span></span>
+                </div>
+                <div class="rrow cs-grid">
+                  <span class="cellm" style="color:var(--foreground)">Employee Records</span>
+                  <span class="cellm">roster</span>
+                  <span class="mono" style="font-size:11.5px">work_<span class="hl">email</span></span>
+                  <span><span class="dtype">string</span></span><span class="cellm">11</span>
+                  <span><span class="sens pii"><svg class="ic" viewBox="0 0 24 24" style="width:10px;height:10px"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3"/></svg> pii · masked</span></span>
+                </div>
+                <div class="rrow cs-grid">
+                  <span class="cellm" style="color:var(--foreground)">Employee Records</span>
+                  <span class="cellm">roster</span>
+                  <span class="mono" style="font-size:11.5px">personal_<span class="hl">email</span></span>
+                  <span><span class="dtype">string</span></span><span class="cellm">12</span>
+                  <span><span class="sens undecl">undeclared</span></span>
+                </div>
+                <div class="rrow cs-grid">
+                  <span class="cellm" style="color:var(--foreground)">Support Tickets Export</span>
+                  <span class="cellm">tickets</span>
+                  <span class="mono" style="font-size:11.5px">requester_<span class="hl">email</span></span>
+                  <span><span class="dtype">string</span></span><span class="cellm">4</span>
+                  <span><span class="sens pii"><svg class="ic" viewBox="0 0 24 24" style="width:10px;height:10px"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3"/></svg> pii · masked</span></span>
+                </div>
+                <div class="rrow cs-grid">
+                  <span class="cellm" style="color:var(--foreground)">Vendor Invoices</span>
+                  <span class="cellm">contacts</span>
+                  <span class="mono" style="font-size:11.5px">ap_contact_<span class="hl">email</span></span>
+                  <span><span class="dtype">string</span></span><span class="cellm">6</span>
+                  <span><span class="sens undecl">undeclared</span></span>
+                </div>
+                <div class="rrow cs-grid">
+                  <span class="cellm" style="color:var(--foreground)">Web Events — Aug</span>
+                  <span class="cellm">events</span>
+                  <span class="mono" style="font-size:11.5px"><span class="hl">email</span>_hash</span>
+                  <span><span class="dtype">string</span></span><span class="cellm">8</span>
+                  <span><span class="sens none">none · pseudonymous</span></span>
+                </div>
+                <div class="rrow cs-grid">
+                  <span class="cellm" style="color:var(--foreground)">Product Usage Daily</span>
+                  <span class="cellm">usage</span>
+                  <span class="mono" style="font-size:11.5px">owner_<span class="hl">email</span></span>
+                  <span><span class="dtype">string</span></span><span class="cellm">2</span>
+                  <span><span class="sens undecl">undeclared</span></span>
+                </div>
+                <div class="rrow" style="grid-template-columns:1fr auto;gap:10px;color:var(--muted-foreground);background:var(--card)">
+                  <span class="cellm">1–7 of <b>17</b> column matches · projected, filtered, sorted and paged server-side <span class="sep">·</span> <b>3</b> declare <span style="color:var(--st-warn)">pii</span>, <b>3</b> are <span style="color:var(--st-serious)">undeclared</span> and therefore unmasked</span>
+                  <span class="acts"><span class="hint2">cursor-paged</span><button class="minibtn xs">Load more</button><button class="minibtn xs">Next ›</button></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 6. DATA DICTIONARY ============ -->
+      <section class="panel" id="sec-dict" style="border-bottom:0">
+        <div class="panelhdr">
+          <span class="n">06</span>
+          <h2>Data dictionary</h2>
+          <span class="count">Q3 Campaign Signups.csv › signups</span>
+          <span class="rule"></span>
+          <div class="act">
+            <button class="minibtn">Sheet ▾</button>
+            <button class="minibtn">Undeclared only <span class="mono" style="color:var(--st-serious)">3</span></button>
+            <button class="minibtn run">Edit dictionary</button>
+          </div>
+        </div>
+        <div class="panelbody">
+          <div class="note gov">
+            <span class="lock" style="margin-top:1px"><svg class="ic" viewBox="0 0 24 24" style="width:12px;height:12px"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3"/></svg></span>
+            <span><b>Sensitivity is human-declared here, and it is the only thing that drives masking.</b> Nothing is auto-detected — an undeclared column is never masked, no matter what it looks like. Dataset-level <span class="mono">classification</span> is a catalog label that enforces nothing. This dictionary is the only place masking is configured.</span>
+          </div>
+
+          <div class="dictwrap">
+            <div class="card">
+              <div class="ch">Sheet level <span class="ln"></span></div>
+              <div class="kv">
+                <span class="k">sheet</span><span class="v">signups</span>
+                <span class="k">grain</span><span class="v">one row per signup event</span>
+                <span class="k">primary_key_columns</span><span class="v">[ signup_id ]</span>
+                <span class="k">description</span><span class="v" style="font-family:var(--font-sans);font-size:11.5px;color:var(--t2)">Paid and organic signups captured by the marketing site for the Q3 acquisition push. One row per submitted form; duplicates removed on load.</span>
+                <span class="k">row count</span><span class="v">84,213</span>
+                <span class="k">columns</span><span class="v">9</span>
+              </div>
+
+              <div class="cov">
+                <div class="ch" style="margin-top:12px">Documentation coverage · this sheet <span class="ln"></span></div>
+                <div class="lab"><b>78%</b><span class="mono">7 of 9 columns documented</span></div>
+                <div class="covbar">
+                  <span style="width:56%;background:var(--m1)" title="full: business_name + description + semantic_type"></span>
+                  <span style="width:22%;background:var(--m3)" title="partial: some fields missing"></span>
+                  <span style="width:22%;background:var(--m5)" title="none: undocumented"></span>
+                </div>
+                <div class="legend" style="margin-top:7px">
+                  <span class="li"><span class="sw" style="background:var(--m1)"></span>full 5</span>
+                  <span class="li"><span class="sw" style="background:var(--m3)"></span>partial 2</span>
+                  <span class="li"><span class="sw" style="background:var(--m5)"></span>none 2</span>
+                </div>
+                <div class="note gov" style="margin:10px 0 0">
+                  <span style="font-weight:700;flex:none">!</span>
+                  <span><b>3 columns have no sensitivity declared</b> and are therefore unmasked for every role. Review before this sheet is joined or exported.</span>
+                </div>
+                <div class="verbs">
+                  <span><code>PUT</code> replaces — omitted fields are cleared</span>
+                  <span><code>PATCH</code> merges</span>
+                </div>
+              </div>
+            </div>
+
+            <div style="min-width:0">
+              <div class="colhdr dict-grid">
+                <span>Column</span><span>Business name</span><span>Description</span><span>Semantic type</span><span>Unit</span><span>Sensitivity</span><span>Allowed values</span>
+              </div>
+              <div class="row dict-grid">
+                <span class="mono" style="font-size:11.5px">signup_id</span>
+                <span style="font-size:11.5px">Signup ID</span>
+                <span class="cellm" style="font-family:var(--font-sans);font-size:11.5px">Surrogate key issued on form submit</span>
+                <span class="cellm">identifier</span><span class="cellm">—</span>
+                <span><span class="sens none">none</span></span>
+                <span class="cellm">—</span>
+              </div>
+              <div class="row dict-grid">
+                <span class="mono" style="font-size:11.5px">email</span>
+                <span style="font-size:11.5px">Email Address</span>
+                <span class="cellm" style="font-family:var(--font-sans);font-size:11.5px">Contact address supplied by the signup</span>
+                <span class="cellm">email</span><span class="cellm">—</span>
+                <span><span class="sens pii"><svg class="ic" viewBox="0 0 24 24" style="width:10px;height:10px"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3"/></svg> pii</span></span>
+                <span class="cellm">—</span>
+              </div>
+              <div class="row dict-grid">
+                <span class="mono" style="font-size:11.5px">plan</span>
+                <span style="font-size:11.5px">Plan Tier</span>
+                <span class="cellm" style="font-family:var(--font-sans);font-size:11.5px">Tier selected at signup</span>
+                <span class="cellm">category</span><span class="cellm">—</span>
+                <span><span class="sens none">none</span></span>
+                <span class="cellm">free · pro · team · enterprise</span>
+              </div>
+              <div class="row dict-grid">
+                <span class="mono" style="font-size:11.5px">region</span>
+                <span style="font-size:11.5px">Region</span>
+                <span class="cellm" style="font-family:var(--font-sans);font-size:11.5px">Billing region derived from country</span>
+                <span class="cellm">geo_region</span><span class="cellm">—</span>
+                <span><span class="sens none">none</span></span>
+                <span class="cellm">US · EU · APAC · LATAM</span>
+              </div>
+              <div class="row dict-grid">
+                <span class="mono" style="font-size:11.5px">amount</span>
+                <span style="font-size:11.5px">Signup Amount</span>
+                <span class="cellm" style="font-family:var(--font-sans);font-size:11.5px">First invoiced amount, 0 for free</span>
+                <span class="cellm">currency</span><span class="cellm">USD</span>
+                <span><span class="sens none">none</span></span>
+                <span class="cellm">&gt;= 0</span>
+              </div>
+              <div class="row dict-grid">
+                <span class="mono" style="font-size:11.5px">status</span>
+                <span style="font-size:11.5px">Lifecycle Status</span>
+                <span class="cellm" style="font-family:var(--font-sans);font-size:11.5px">—</span>
+                <span class="cellm">category</span><span class="cellm">—</span>
+                <span><span class="sens none">none</span></span>
+                <span class="cellm">active · trialing · churned</span>
+              </div>
+              <div class="row dict-grid">
+                <span class="mono" style="font-size:11.5px">signup_date</span>
+                <span style="font-size:11.5px">Signup Date</span>
+                <span class="cellm" style="font-family:var(--font-sans);font-size:11.5px">—</span>
+                <span class="cellm">timestamp</span><span class="cellm">date</span>
+                <span><span class="sens undecl">undeclared</span></span>
+                <span class="cellm">—</span>
+              </div>
+              <div class="row dict-grid">
+                <span class="mono" style="font-size:11.5px">utm_campaign</span>
+                <span class="cellm">—</span>
+                <span class="cellm">—</span>
+                <span class="cellm">—</span><span class="cellm">—</span>
+                <span><span class="sens undecl">undeclared</span></span>
+                <span class="cellm">—</span>
+              </div>
+              <div class="row dict-grid">
+                <span class="mono" style="font-size:11.5px">ip_address</span>
+                <span class="cellm">—</span>
+                <span class="cellm" style="font-family:var(--font-sans);font-size:11.5px;color:var(--st-serious)">Looks personal — but nothing is auto-detected, so it is unmasked</span>
+                <span class="cellm">—</span><span class="cellm">—</span>
+                <span><span class="sens undecl">undeclared</span></span>
+                <span class="cellm">—</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+
+  <!-- ===================== STATUS BAR ===================== -->
+  <div class="statusbar">
+    <span class="live"></span>
+    <span>LIBRARY</span><span class="sep">·</span>
+    <span>growth-analytics</span><span class="sep">·</span>
+    <span>6 views · 7 definitions · 7 charts · 214 artifacts · 41.2 GB</span>
+    <span class="sep">·</span>
+    <span style="color:var(--st-warn)">3 undeclared columns on the active sheet</span>
+    <div class="right">
+      <span><kbd>J</kbd>/<kbd>K</kbd> move</span><span class="sep">·</span>
+      <span><kbd>R</kbd> run</span><span class="sep">·</span>
+      <span><kbd>N</kbd> new</span><span class="sep">·</span>
+      <span><kbd>⌫</kbd> delete</span><span class="sep">·</span>
+      <span><kbd>⌘E</kbd> export</span><span class="sep">·</span>
+      <span>SYNC 16:41:07 ET</span>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('.snitem').forEach(function (a) {
+    a.addEventListener('click', function (e) {
+      e.preventDefault();
+      var t = document.querySelector(a.getAttribute('href'));
+      if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      document.querySelectorAll('.snitem').forEach(function (x) { x.classList.remove('on'); });
+      a.classList.add('on');
+    });
+  });
+</script>
+</body>
+</html>

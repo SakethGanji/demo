@@ -1,0 +1,1184 @@
+<!--
+  DESIGN NOTES — "INSTRUMENT" applied to the Relations lens (restyle of the TERMINAL pass; same regions,
+  same controls, same words). Tokens, grain, status shapes, scrollbars and focus ring copied verbatim from
+  terminal-quality-instrument.html. What the restyle decided beyond the shared language:
+  R1 THE GRAPH is graphite. Node fills come from the ramp with elevation (--s4 raised, --s5 for the focused
+     sheet, --s2 for a rejected one) and the --hi highlight — never from a categorical hue. EDGE STATE is a
+     line style first, a hue second: confirmed = solid, suggested = dashed, rejected = dotted + struck (the
+     rejected NODE label is struck through too), so the graph survives greyscale. Cardinality labels stay in
+     ink tokens on a --s3 plate.
+  R2 STATUS = shape + hue + word: the five CSS shapes replace every bare dot, so the rail's health marks and
+     the review queue read without colour.
+  R3 REFUSALS are the honest heart: 409 relationship-has-dependents and the many_to_many pre-flight both keep
+     a recessed well + a status ring, with the code as the anchor and the prose in the 9.5px footnote register.
+  R4 CYAN BUDGET = 4 meanings: the active route, the sheet this screen is scoped to (the tick inside the
+     focused graph node), the relationship currently loaded in the builder (the one solid cyan edge), and the
+     LIVE lamp. Filter chips, segmented controls, step markers and the "in builder" pills moved to
+     value + elevation, because repeated state in cyan becomes a texture and stops signalling.
+  R5 Single-series magnitude (match rate, confidence, suggest/skip split) drops the categorical ramp for the
+     neutral --m ramp; status colour is reserved and never a data series.
+  Original direction note: same dark, hairline-dense cockpit as terminal.html, switched to the RELATIONS lens.
+  Shell and left dataset rail are reused verbatim; the main area is given to a relationship graph plus a
+  join builder whose pre-flight panel is the emotional center — it fires, loudly, on a many-to-many join.
+  Three discovery routes (seed from FK quality rules / statistical suggest / manual declare) sit as three
+  distinct cards; the right dock is the human review queue, because an unreviewed edge cannot be joined.
+  Engine limits (inner|left equi-join, single-column keys, relationship_id required) are drawn, not designed past.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Command Studio — Datasets · Relations · Terminal</title>
+<style>
+  :root {
+    /* ===== INSTRUMENT tokens — verbatim ===== */
+    --s0:#080A0E;  --s1:#0D1015;  --s2:#11151B;  --s3:#161B22;
+    --s4:#1C222B;  --s5:#242C37;  --s6:#38424F;  --key:#E9EEF5;
+    --t1:#E7ECF3;  --t2:#B0BAC8;  --t3:#85909F;  --t4:#5C6675; /* t4 = decoration only, never text */
+    --r1:rgba(255,255,255,.042); --r2:rgba(255,255,255,.075); --r3:rgba(255,255,255,.13);
+    --hi:inset 0 1px 0 rgba(255,255,255,.045);
+    --sig:#46D5E8; --sig-dim:rgba(70,213,232,.14); --sig-line:rgba(70,213,232,.40);
+    --st-good:#0ca30c; --st-warn:#fab219; --st-serious:#ec835a; --st-crit:#DC5050;
+    --st-crit-ink:#EB8A8A; /* crit as TEXT on a raised surface — the pure hue measures only 4.4:1 */
+    --m1:#CBD3DF; --m2:#A2ACBB; --m3:#7D8797; --m4:#5F6979; --m5:#48515F; --m6:#39414D;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+    /* ===== alias layer: the screen's old token names resolve INTO the graphite ramp, so every
+       inline style inherits the language instead of fighting it ===== */
+    --background:var(--s1); --foreground:var(--t1); --card:var(--s2); --surface:var(--s3);
+    --muted:rgba(255,255,255,.05); --muted-foreground:var(--t3); --border:var(--r2);
+    --secondary:var(--s4); --accent:var(--s4); --popover:var(--s3); --radius:8px;
+    /* the primary action wins on VALUE, not on the accent (rule 2) */
+    --primary:var(--key);
+    /* no genuine categorical series on this screen — magnitude takes the neutral value ramp */
+    --viz-1:var(--m2); --viz-2:var(--m3); --viz-3:var(--t2); --viz-4:var(--m3);
+    --viz-5:var(--m4); --viz-6:var(--m4); --viz-7:var(--m5); --viz-8:var(--m5);
+    --success:var(--st-good); --warning:var(--st-warn); --destructive:var(--st-crit);
+  }
+
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { height:100%; overflow:hidden; }
+  html { font-size:13px; }
+  body {
+    font-family:var(--sans); color:var(--t2); font-size:12.5px;
+    background:radial-gradient(1180px 560px at 44% -12%, #151B24 0%, rgba(21,27,36,0) 62%), var(--s1);
+    -webkit-font-smoothing:antialiased; line-height:1.4; letter-spacing:-0.004em;
+    display:flex; flex-direction:column;
+  }
+  body::after {
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:200; opacity:.055; mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .mono { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  .num { font-variant-numeric:tabular-nums; }
+  .muted { color:var(--t3); }
+  ::selection { background:rgba(70,213,232,.26); color:#fff; }
+  :focus-visible { outline:none; box-shadow:0 0 0 1px var(--s0), 0 0 0 3px rgba(70,213,232,.45); border-radius:6px; }
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb { background:#232B35; border-radius:8px; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background:#303945; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-track { background:transparent; }
+
+  /* ===== STATUS: five states, five SHAPES, always beside a word ===== */
+  .g, .sdot { width:8px; height:8px; flex:none; display:inline-block; vertical-align:-1px; }
+  .g.good, .sdot.good       { border-radius:50%; background:var(--st-good); }
+  .g.warn, .sdot.warn       { width:0; height:0; background:none; border-left:4.5px solid transparent;
+                              border-right:4.5px solid transparent; border-bottom:8px solid var(--st-warn); vertical-align:0; }
+  .g.serious, .sdot.serious { width:7px; height:7px; background:var(--st-serious); border-radius:1px;
+                              transform:rotate(45deg); margin:0 1px; }
+  .g.crit, .sdot.crit       { background:var(--st-crit); border-radius:1px; }
+  .g.unknown, .sdot.off, .sdot.neu { border-radius:50%; background:transparent; box-shadow:inset 0 0 0 1.5px var(--t3); }
+  .stw { display:inline-flex; align-items:center; gap:6px; font-size:10.5px; font-weight:500; white-space:nowrap; }
+  /* the footnote register — all provenance lands here */
+  .fn { font-size:9.5px; color:var(--t3); line-height:1.5; }
+
+  /* ================= TOPBAR ================= */
+  header.topbar {
+    height:46px; flex:none; display:flex; align-items:center; gap:16px; padding:0 16px;
+    background:linear-gradient(180deg,#141922,#10141A); border:0;
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); z-index:30;
+  }
+  .brand { display:flex; align-items:center; gap:10px; padding-right:0; }
+  .brand .glyph { width:21px; height:21px; border-radius:5px; background:linear-gradient(180deg,#2C3542,#191F28);
+    display:grid; place-items:center; box-shadow:var(--hi), 0 1px 2px rgba(0,0,0,.5); color:var(--t1); }
+  .brand .name { font-size:12.5px; font-weight:600; color:var(--t1); letter-spacing:-0.012em; white-space:nowrap; }
+  .env-chip { font-family:var(--mono); font-size:10px; font-weight:400; color:var(--t3); letter-spacing:0;
+    text-transform:none; display:inline-flex; align-items:center; gap:6px; white-space:nowrap;
+    background:none; border:0; padding:0; }
+  .env-chip::before { content:""; width:5px; height:5px; border-radius:50%; background:var(--st-warn); flex:none; }
+  nav.gnav { display:flex; align-items:center; gap:4px; }
+  nav.gnav a { font-size:12.5px; font-weight:450; color:var(--t3); text-decoration:none; height:30px; padding:0 10px;
+    border-radius:7px; position:relative; display:inline-flex; align-items:center; transition:color .14s, background .14s; }
+  nav.gnav a:hover { color:var(--t1); background:rgba(255,255,255,.035); }
+  /* SIGNAL 1/4 — the active route */
+  nav.gnav a.active { color:var(--t1); font-weight:550; background:transparent; }
+  nav.gnav a.active::after { content:""; position:absolute; left:10px; right:10px; bottom:-9px; height:2px;
+    background:var(--sig); border-radius:2px 2px 0 0; box-shadow:0 0 12px -1px var(--sig); }
+  .cmdk { margin-left:auto; display:flex; align-items:center; gap:9px; width:290px; height:30px; padding:0 10px;
+    border:0; border-radius:8px; cursor:text; color:var(--t3); background:var(--s0);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); transition:box-shadow .16s; }
+  .cmdk:hover, .cmdk:focus-within { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+  .cmdk svg { flex:none; opacity:.55; }
+  .cmdk .ph2 { font-size:12px; flex:1; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+  .kbd { font-family:var(--mono); font-size:10px; font-weight:500; color:var(--t2); border:0;
+    background:linear-gradient(180deg,#232A34,#1A2028); border-radius:4px; padding:1.5px 5px; line-height:1.4;
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); white-space:nowrap; }
+  .hicons { display:flex; align-items:center; gap:6px; }
+  .iconbtn { width:30px; height:30px; border-radius:7px; border:0; background:transparent; color:var(--t3);
+    display:grid; place-items:center; cursor:pointer; transition:color .14s, background .14s; }
+  .iconbtn:hover { background:rgba(255,255,255,.05); color:var(--t1); border-color:transparent; }
+  .teamsw { display:flex; align-items:center; gap:7px; height:28px; padding:0 10px; border-radius:7px; flex:none;
+    background:var(--s4); border:0; box-shadow:var(--hi); cursor:pointer; white-space:nowrap; }
+  .teamsw .tl { font-size:9.5px; font-weight:500; letter-spacing:.1em; text-transform:uppercase; color:var(--t3); }
+  .teamsw .tv { font-size:12px; font-weight:450; color:var(--t1); }
+  .teamsw .cv { color:var(--t3); font-size:9px; }
+  .avatar { width:27px; height:27px; border-radius:7px; background:linear-gradient(180deg,#2A323D,#1D242D);
+    border:0; display:grid; place-items:center; font-size:10px; font-weight:600; color:var(--t2);
+    cursor:pointer; box-shadow:var(--hi); flex:none; }
+
+  /* ================= KPI STRIP — the first read ================= */
+  .kpistrip { display:flex; align-items:stretch; height:56px; flex:none; border:0; padding:0 6px;
+    background:linear-gradient(180deg,var(--s3),#12171E);
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.55), 0 10px 24px -20px rgba(0,0,0,.9); }
+  .kpi { display:flex; align-items:center; gap:9px; padding:0 13px; border:0; white-space:nowrap; }
+  .kpi + .kpi { box-shadow:inset 1px 0 0 var(--r1); }
+  .kpi .lab { font-size:9.5px; font-weight:500; letter-spacing:.11em; text-transform:uppercase; color:var(--t3); }
+  .kpi .val { font-size:21px; font-weight:600; line-height:1.05; color:var(--t1);
+    letter-spacing:-0.032em; font-variant-numeric:tabular-nums; }
+  .kpi .delta { font-size:10.5px; font-weight:500; color:var(--t3); display:flex; align-items:center; gap:5px; }
+  .kpi .delta b { color:var(--t2); font-weight:600; }
+  .up { color:var(--t2); } .down { color:var(--st-serious); }
+  .runmeta { margin-left:auto; display:flex; align-items:center; gap:10px; padding:0 12px 0 14px;
+    font-family:var(--mono); font-size:10.5px; color:var(--t3); white-space:nowrap; }
+
+  /* ================= WORKSPACE ================= */
+  .workspace { flex:1; min-height:0; display:grid; grid-template-columns:252px 1fr 372px; }
+  .col { display:flex; flex-direction:column; min-width:0; min-height:0; }
+  .col.rail { background:var(--s2); border:0; box-shadow:1px 0 0 rgba(0,0,0,.45); z-index:2; }
+  .col.center { background:transparent; }
+  .col.dock { background:var(--s2); border:0; box-shadow:-1px 0 0 rgba(0,0,0,.45); z-index:2; }
+  .colhead { height:32px; display:flex; align-items:center; gap:9px; padding:0 14px; border:0; flex:none; }
+  .colhead .t { font-size:12.5px; font-weight:600; letter-spacing:-0.012em; text-transform:none;
+    color:var(--t1); white-space:nowrap; }
+  .colhead .badge { font-family:var(--mono); font-size:10px; font-weight:400; color:var(--t3);
+    background:none; border:0; border-radius:0; padding:0; }
+  .colhead .spacer, .spacer { margin-left:auto; }
+
+  /* ---- rail ---- */
+  .railsearch { padding:2px 12px 10px; border:0; flex:none; }
+  .railsearch .box { height:28px; display:flex; align-items:center; gap:8px; padding:0 9px; border:0;
+    background:var(--s0); border-radius:7px; color:var(--t3);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); }
+  .railsearch .box:focus-within { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+  .railsearch .box input { background:none; border:none; outline:none; color:var(--t1); font-size:12px; width:100%; font-family:inherit; }
+  .railsearch .box input::placeholder { color:var(--t3); }
+  .railfilters { display:flex; gap:4px; margin-top:8px; }
+  /* repeated state: value + elevation, never the accent */
+  .fchip { font-size:11px; font-weight:450; color:var(--t3); padding:3px 9px; border-radius:6px;
+    border:0; background:transparent; cursor:pointer; font-family:inherit; }
+  .fchip:hover { color:var(--t1); background:rgba(255,255,255,.05); }
+  .fchip.on { color:var(--t1); font-weight:550; background:var(--s4); box-shadow:var(--hi); }
+  .watchlist { overflow-y:auto; overflow-x:hidden; flex:1; min-height:0; }
+  .wlgroup { padding:10px 14px 5px; font-size:11.5px; font-weight:550; letter-spacing:-0.008em;
+    text-transform:none; color:var(--t2); display:flex; align-items:center; gap:9px; }
+  .wlgroup .ct { font-family:var(--mono); font-size:10px; color:var(--t3); font-weight:400; }
+  .wl { display:grid; grid-template-columns:1fr auto; gap:2px 8px; align-items:center;
+    padding:7px 14px; border:0; cursor:pointer; }
+  .wl:hover { background:rgba(255,255,255,.03); }
+  .wl.sel { background:var(--s4); box-shadow:var(--hi); }
+  .wl.sel .nm { color:var(--t1); }
+  .wl .nm { font-size:12px; font-weight:550; color:var(--t2); display:flex; align-items:center; gap:7px; min-width:0; }
+  .wl .nm .txt { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .wl .meta { grid-column:1; font-size:9.5px; color:var(--t3); display:flex; align-items:center; gap:6px; }
+  .wl .meta .tag { color:var(--t3); }
+  .wl .right { grid-column:2; grid-row:1 / span 2; display:flex; flex-direction:column; align-items:flex-end; gap:2px; }
+  .wl .rows { font-family:var(--mono); font-size:11px; font-weight:600; color:var(--t1); }
+  .wl .relct { font-family:var(--mono); font-size:9.5px; color:var(--t3); }
+  .cls { font-family:var(--mono); font-size:9.5px; font-weight:500; padding:0 5px; border-radius:4px;
+    border:0; white-space:nowrap; color:var(--t3); background:rgba(255,255,255,.05); }
+  .cls.internal { color:var(--t3); }
+  .cls.conf { color:var(--st-warn); background:rgba(250,178,25,.07); }
+  .cls.restr { color:var(--st-crit-ink); background:rgba(220,80,80,.09); }
+  .lockglyph { color:var(--st-warn); display:inline-flex; vertical-align:-2px; flex:none; }
+  .lockglyph.restr { color:var(--st-crit); }
+  .lockglyph.mut { color:var(--t3); }
+
+  /* ================= CENTER ================= */
+  .gridhead { display:flex; align-items:center; gap:14px; padding:0 16px; height:56px; border:0; flex:none;
+    background:linear-gradient(180deg,#131820,#10141B); box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.45); }
+  .gridhead .title { font-size:15px; font-weight:600; color:var(--t1); letter-spacing:-0.02em;
+    display:flex; align-items:center; gap:9px; white-space:nowrap; }
+  .gridhead .path { font-size:10.5px; color:var(--t3); margin-top:5px; display:flex; align-items:center;
+    gap:7px; white-space:nowrap; }
+  .gridhead .path b { color:var(--t2); font-weight:500; }
+  .pill { font-size:10.5px; font-weight:500; padding:2px 7px; border-radius:5px; display:inline-flex;
+    align-items:center; gap:5px; border:0; white-space:nowrap; color:var(--t3); background:rgba(255,255,255,.05); }
+  .pill.ok   { color:var(--st-good); background:rgba(0,0,0,.34); box-shadow:inset 0 0 0 1px rgba(12,163,12,.45); }
+  .pill.warn { color:var(--st-warn); background:rgba(0,0,0,.34); box-shadow:inset 0 0 0 1px rgba(250,178,25,.34); }
+  .pill.crit { color:var(--st-crit-ink); background:rgba(0,0,0,.34); box-shadow:inset 0 0 0 1px rgba(220,80,80,.42); }
+  .pill.neu  { color:var(--t3); background:rgba(255,255,255,.05); }
+  /* the loaded relationship is IDENTITY, not status: raised graphite + near-white value */
+  .pill.pri  { color:var(--t1); background:var(--s4); box-shadow:var(--hi); }
+  .pill.label{ color:var(--t3); background:transparent; box-shadow:inset 0 0 0 1px var(--r1); }
+  .toolbar { margin-left:auto; display:flex; align-items:center; gap:6px; flex:none; }
+  .tbtn { height:28px; padding:0 10px; font-size:12px; font-weight:450; color:var(--t2); background:transparent;
+    border:0; border-radius:7px; cursor:pointer; font-family:inherit; display:inline-flex; align-items:center;
+    gap:6px; transition:all .14s; white-space:nowrap; box-shadow:inset 0 0 0 1px var(--r2); }
+  .tbtn:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  /* the ONE near-white surface on the screen */
+  .tbtn.primary { background:linear-gradient(180deg,#FBFDFF,var(--key)); color:#0B0E13; font-weight:600;
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset, 0 2px 8px -3px rgba(0,0,0,.9), 0 0 0 1px rgba(0,0,0,.35); }
+  .tbtn.primary:hover { background:#fff; }
+  .tbtn.dis { color:var(--t3); background:transparent; box-shadow:inset 0 0 0 1px var(--r1); cursor:not-allowed; }
+  .tbtn.sm { height:26px; padding:0 9px; font-size:11.5px; border-radius:6px; }
+  .tbtn .k { font-size:10px; color:var(--t3); font-family:var(--mono); }
+
+  .centerbody { flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; padding:12px 14px 14px;
+    display:flex; flex-direction:column; gap:12px; }
+  /* cards earn a SURFACE, not a border */
+  .panel { border:0; border-radius:9px; background:var(--s3); box-shadow:var(--hi);
+    display:flex; flex-direction:column; min-height:0; }
+  .panel > .ph { height:32px; display:flex; align-items:center; gap:9px; padding:0 11px; border:0;
+    box-shadow:inset 0 -1px 0 var(--r1); flex:none; }
+  .panel > .ph .t { font-size:12px; font-weight:600; letter-spacing:-0.012em; text-transform:none;
+    color:var(--t1); white-space:nowrap; flex:none; }
+  .panel > .ph > * { flex:none; }
+  .epill { font-family:var(--mono); font-size:9.5px; padding:1px 6px; border-radius:5px; border:0;
+    background:rgba(255,255,255,.05); color:var(--t3); white-space:nowrap; }
+  /* an HTTP verb is a label, not a category — it wears ink */
+  .epill .verb { color:var(--t2); font-weight:600; }
+
+  /* ---- three discovery routes ---- */
+  .routes { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; flex:none; }
+  .joinpanel { flex:none; }
+  .route { border:0; border-radius:9px; background:var(--s3); box-shadow:var(--hi); display:flex; flex-direction:column; }
+  .route .rh { display:flex; align-items:center; gap:6px; padding:7px 9px 6px; border:0;
+    box-shadow:inset 0 -1px 0 var(--r1); }
+  .route .rn { width:15px; height:15px; border-radius:5px; background:rgba(255,255,255,.06); border:0;
+    display:grid; place-items:center; font-size:9px; font-weight:600; color:var(--t3); flex:none; font-family:var(--mono); }
+  .route .rh .epill { font-size:9px; padding:1px 5px; letter-spacing:-0.01em; }
+  .route .rt { font-size:12px; font-weight:600; letter-spacing:-0.012em; text-transform:none; color:var(--t1); }
+  .route .rb { padding:8px 9px 9px; display:flex; flex-direction:column; gap:6px; flex:1; min-width:0; }
+  .route .desc { font-size:10.5px; color:var(--t3); line-height:1.5; }
+  .route .desc b { color:var(--t1); font-weight:600; }
+  .prov { display:flex; flex-direction:column; gap:3px; }
+  .provrow { display:flex; align-items:center; gap:6px; font-size:10px; padding:3px 6px; border-radius:6px; min-width:0;
+    background:var(--s4); border:0; box-shadow:var(--hi); }
+  .provrow .rule { font-family:var(--mono); color:var(--t2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .provrow .arw { color:var(--t3); }
+  .provrow .st { margin-left:auto; font-size:9.5px; font-weight:600; }
+  .statgrid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; }
+  .stt { background:var(--s4); border:0; box-shadow:var(--hi); border-radius:7px; padding:5px 7px 6px; min-width:0; }
+  .stt .k { font-family:var(--mono); font-size:9px; font-weight:400; letter-spacing:0; text-transform:none;
+    color:var(--t3); line-height:1.3; }
+  .stt .v { font-size:18px; font-weight:600; letter-spacing:-0.03em; color:var(--t1);
+    font-variant-numeric:tabular-nums; margin-top:1px; line-height:1.1; }
+  .stackbar { display:flex; height:7px; border-radius:3px; overflow:hidden; background:rgba(255,255,255,.05); }
+  .stackbar span { display:block; height:100%; }
+  .skipnote { font-size:9.5px; color:var(--t3); line-height:1.5; }
+  .skipnote b { color:var(--t2); font-weight:600; }
+  .form2 { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
+  .field { display:flex; flex-direction:column; gap:4px; min-width:0; }
+  .field .fl { font-size:9.5px; font-weight:450; letter-spacing:0; text-transform:none; color:var(--t3); }
+  /* inputs are recessed wells */
+  .sel { height:26px; display:flex; align-items:center; gap:6px; padding:0 8px; border-radius:6px; border:0;
+    background:var(--s0); font-size:11px; color:var(--t1); font-family:var(--mono); min-width:0;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); }
+  .sel .txt { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sel .cv { margin-left:auto; color:var(--t3); font-size:9px; flex:none; }
+  .sel.lockedk { background:rgba(255,255,255,.04); color:var(--t3); box-shadow:inset 0 0 0 1px var(--r1); }
+  /* class collision: the selected rail row is `wl sel` — restore its own box */
+  .wl.sel { display:grid; height:auto; padding:7px 14px; gap:2px 8px; font-family:inherit; font-size:inherit;
+    color:inherit; background:var(--s4); box-shadow:var(--hi); }
+
+  /* ---- graph: nodes are graphite + elevation, edge STATE is a line style ---- */
+  .graphpanel { flex:1 1 auto; min-height:206px; }
+  .graphwrap { flex:1; min-height:0; overflow:hidden; padding:6px 8px 0; }
+  .graphwrap svg { width:100%; height:100%; display:block; }
+  .gnode rect { fill:var(--s4); stroke:rgba(255,255,255,.075); stroke-width:1; }
+  .gnode.focus rect { fill:var(--s5); stroke:rgba(255,255,255,.16); }
+  .gnode.blocked rect { stroke:rgba(250,178,25,.45); }
+  .gnode.rejected rect { fill:var(--s2); stroke:rgba(255,255,255,.05); }
+  .gnode .nn { font-size:11.5px; font-weight:600; fill:var(--t1); }
+  .gnode.rejected .nn { fill:var(--t3); text-decoration:line-through; }
+  .gnode .ns { font-size:9px; fill:var(--t3); }
+  .gnode .nr { font-size:9.5px; fill:var(--t2); font-family:var(--mono); text-anchor:end; }
+  .ed { fill:none; stroke-width:1.4; }
+  .ed.conf { stroke:var(--m4); }                       /* confirmed  = solid  */
+  .ed.prim { stroke:var(--sig); stroke-width:2; }      /* SIGNAL 3/4 — the relationship loaded in the builder */
+  .ed.sug  { stroke:var(--st-warn); stroke-dasharray:5 4; }  /* suggested = dashed */
+  .ed.rej  { stroke:var(--m6); stroke-dasharray:2 3; }       /* rejected  = dotted + struck */
+  .elab { font-size:9px; font-weight:600; font-family:var(--mono); }
+  .elab.conf { fill:var(--t3); } .elab.prim { fill:var(--t1); }
+  .elab.sug { fill:var(--st-warn); } .elab.rej { fill:var(--t3); }
+  .elabbg { fill:#161B22; }
+  .glegend { display:flex; align-items:center; gap:16px; padding:7px 11px; border:0;
+    box-shadow:inset 0 1px 0 var(--r1); font-size:10px; color:var(--t3); flex:none; flex-wrap:wrap; }
+  .glegend .li { display:flex; align-items:center; gap:7px; white-space:nowrap; }
+  .glegend .li b { color:var(--t2); font-weight:600; }
+
+  /* ---- join builder ---- */
+  .jbody { display:grid; grid-template-columns:376px 1fr; min-height:0; }
+  .jleft { border:0; box-shadow:inset -1px 0 0 var(--r1); padding:10px 12px 12px;
+    display:flex; flex-direction:column; gap:7px; }
+  .jright { padding:10px 12px 12px; display:flex; flex-direction:column; gap:7px; min-width:0; }
+  .microlab { font-size:11.5px; font-weight:550; letter-spacing:-0.008em; text-transform:none; color:var(--t2);
+    display:flex; align-items:center; gap:9px; }
+  .microlab .ln { flex:1; height:1px; background:var(--r1); min-width:10px; }
+  .seg { display:inline-flex; border:0; border-radius:7px; overflow:hidden; background:rgba(0,0,0,.3);
+    box-shadow:inset 0 0 0 1px var(--r1); }
+  .seg span { font-size:11px; font-weight:500; padding:4px 11px; color:var(--t3); font-family:var(--mono); border:0; }
+  .seg span.on { background:var(--s5); color:var(--t1); font-weight:600; box-shadow:var(--hi); }
+  .unsupported { font-size:9.5px; color:var(--t3); }
+  .unsupported s { color:var(--t3); text-decoration-color:rgba(220,80,80,.55); }
+  .relchip { display:flex; align-items:center; gap:8px; padding:6px 9px; border-radius:7px; border:0;
+    background:var(--s4); box-shadow:var(--hi), inset 0 0 0 1px rgba(12,163,12,.24); font-size:11px; }
+  .relchip .rid { font-family:var(--mono); font-weight:600; color:var(--t1); }
+  .relchip .keys { font-family:var(--mono); color:var(--t3); font-size:10px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .note { font-size:9.5px; color:var(--t3); line-height:1.55; padding-left:10px; box-shadow:inset 2px 0 0 var(--r2); }
+  .note b { color:var(--t1); font-weight:600; }
+
+  /* the pre-flight refusal surface — a recessed well with a status ring, its numbers the hero */
+  .warnbanner { display:flex; align-items:center; gap:10px; padding:9px 11px; border-radius:8px; border:0;
+    background:rgba(0,0,0,.32); box-shadow:inset 0 0 0 1px rgba(220,80,80,.34), inset 0 2px 4px -2px rgba(0,0,0,.8); }
+  .warnbanner .big { font-family:var(--mono); font-size:13px; font-weight:600; color:var(--st-crit-ink);
+    letter-spacing:-0.02em; }
+  .warnbanner .sub { font-size:10px; color:var(--t3); line-height:1.5; margin-top:2px; }
+  .warnbanner .sub b { color:var(--t1); font-weight:600; }
+  .mgrid { display:grid; grid-template-columns:1fr 1fr; gap:0 18px; }
+  .mrow { display:grid; grid-template-columns:1fr auto; align-items:center; gap:8px; padding:3px 0;
+    border-bottom:1px solid rgba(255,255,255,.032); font-size:10.5px; }
+  .mrow .k { color:var(--t3); font-family:var(--mono); font-size:10px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .mrow .v { font-family:var(--mono); font-variant-numeric:tabular-nums; font-weight:600; color:var(--t1); }
+  .mrow .v.warn { color:var(--st-warn); } .mrow .v.crit { color:var(--st-crit-ink); } .mrow .v.ok { color:var(--st-good); }
+  .collide { display:flex; align-items:center; gap:7px; flex-wrap:wrap; font-size:10px; }
+  .ckey { font-family:var(--mono); font-size:10px; padding:1px 6px; border-radius:5px; border:0;
+    background:rgba(0,0,0,.3); box-shadow:inset 0 0 0 1px rgba(250,178,25,.3); color:var(--st-warn); }
+  .steps { display:flex; align-items:stretch; border:0; box-shadow:inset 0 1px 0 var(--r2);
+    background:rgba(0,0,0,.18); flex:none; }
+  .step { display:flex; gap:9px; padding:8px 10px; border:0; flex:1; min-width:0; }
+  .step + .step { box-shadow:inset 1px 0 0 var(--r1); }
+  .step .sn { width:17px; height:17px; border-radius:50%; display:grid; place-items:center; flex:none;
+    font-size:9px; font-weight:700; font-family:var(--mono); border:0; background:rgba(255,255,255,.05);
+    color:var(--t3); margin-top:1px; }
+  .step.done .sn { color:var(--st-good); background:rgba(0,0,0,.34); box-shadow:inset 0 0 0 1px rgba(12,163,12,.45); }
+  /* the next step is repeated UI state — value + elevation, not the accent */
+  .step.next .sn { color:var(--t1); background:var(--s6); box-shadow:var(--hi); }
+  .step .sb { min-width:0; }
+  .step .st { font-size:11px; font-weight:600; color:var(--t1); display:flex; align-items:center; gap:7px; white-space:nowrap; }
+  .step .sd { font-size:9.5px; color:var(--t3); line-height:1.5; margin-top:3px; }
+  .step .sd .mono { font-size:9.5px; }
+  .radio { display:inline-flex; align-items:center; gap:5px; font-size:9.5px; color:var(--t3); }
+  .radio i { width:9px; height:9px; border-radius:50%; box-shadow:inset 0 0 0 1px var(--t4); display:inline-block; }
+  .radio.on { color:var(--t1); }
+  .radio.on i { background:var(--key); box-shadow:inset 0 0 0 2px var(--s3); }
+
+  /* ================= DOCK ================= */
+  .lenstabs { display:flex; align-items:center; gap:1px; padding:4px 11px; border:0; flex-wrap:wrap;
+    box-shadow:inset 0 1px 0 var(--r1), inset 0 -1px 0 var(--r1); background:rgba(0,0,0,.2); flex:none; }
+  .ltab { font-size:11px; font-weight:450; color:var(--t3); padding:0 6px; height:22px; border-radius:0;
+    cursor:pointer; position:relative; display:inline-flex; align-items:center; }
+  .ltab:hover { color:var(--t1); background:none; }
+  .ltab.on { color:var(--t1); font-weight:550; background:none; box-shadow:none; }
+  .ltab.on::after { content:""; position:absolute; left:6px; right:6px; bottom:0; height:1.5px;
+    background:var(--t1); border-radius:2px; }
+  .dockbody { overflow-y:auto; overflow-x:hidden; flex:1; min-height:0; padding:12px 13px 16px; }
+  .sect { margin-bottom:16px; }
+  .sect > .h { font-size:11.5px; font-weight:550; letter-spacing:-0.008em; text-transform:none;
+    color:var(--t2); margin-bottom:9px; display:flex; align-items:center; gap:9px; }
+  .sect > .h .line { flex:1; height:1px; background:var(--r1); min-width:10px; }
+  /* the guard note loses its box — a left rule and an indent */
+  .gate { display:flex; align-items:flex-start; gap:9px; font-size:10.5px; line-height:1.5; color:var(--t3);
+    background:none; border:0; border-radius:0; padding:0 0 0 10px; margin-bottom:11px;
+    box-shadow:inset 2px 0 0 rgba(250,178,25,.45); }
+  .gate b { color:var(--t1); font-weight:600; }
+  .cand { border:0; border-radius:9px; background:var(--s3); box-shadow:var(--hi); padding:9px 11px 10px; margin-bottom:9px; }
+  .cand.pending { box-shadow:var(--hi); }
+  .cand .ct { display:flex; align-items:center; gap:7px; margin-bottom:6px; }
+  .cand .cid { font-family:var(--mono); font-size:10px; color:var(--t3); }
+  .cand .card2 { font-family:var(--mono); font-size:10px; font-weight:600; letter-spacing:.04em; }
+  .cand .pair { font-family:var(--mono); font-size:10.5px; line-height:1.5; word-break:break-all; color:var(--t3); }
+  .cand .pair .a, .cand .pair .b { color:var(--t1); }
+  .cand .pair .arw { color:var(--t3); }
+  .ev { display:grid; grid-template-columns:78px 1fr auto; align-items:center; gap:8px; margin-top:6px; font-size:10px; }
+  .ev .el { color:var(--t3); font-family:var(--mono); font-size:9.5px; letter-spacing:0; text-transform:none; }
+  .ev .track { height:7px; background:rgba(255,255,255,.05); border-radius:3px; overflow:hidden; }
+  .ev .fill { height:100%; border-radius:0 3px 3px 0; background:var(--m2); }
+  .ev .pv { font-family:var(--mono); font-size:11px; font-weight:600; }
+  .kvline { display:flex; align-items:center; gap:7px; flex-wrap:wrap; margin-top:7px; font-size:9.5px; color:var(--t3); }
+  .kvline .kk { font-family:var(--mono); padding:1px 5px; border-radius:4px; background:rgba(255,255,255,.05);
+    border:0; color:var(--t2); font-size:9.5px; }
+  .actrow { display:flex; align-items:center; gap:7px; margin-top:9px; }
+  .btn-ok { height:26px; padding:0 11px; border-radius:6px; font-size:11.5px; font-weight:600; cursor:pointer;
+    font-family:inherit; color:var(--st-good); background:rgba(0,0,0,.3); border:0;
+    box-shadow:inset 0 0 0 1px rgba(12,163,12,.45); display:inline-flex; align-items:center; gap:6px; }
+  .btn-ok:hover { background:rgba(12,163,12,.14); }
+  .btn-no { height:26px; padding:0 11px; border-radius:6px; font-size:11.5px; font-weight:600; cursor:pointer;
+    font-family:inherit; color:var(--st-crit-ink); background:rgba(0,0,0,.3); border:0;
+    box-shadow:inset 0 0 0 1px rgba(220,80,80,.4); display:inline-flex; align-items:center; gap:6px; }
+  .btn-no:hover { background:rgba(220,80,80,.14); }
+  .blockline { display:flex; align-items:flex-start; gap:8px; margin-top:9px; font-size:9.5px; color:var(--t3);
+    line-height:1.5; border:0; box-shadow:inset 2px 0 0 rgba(250,178,25,.45); padding:0 0 0 10px; }
+  .blockline b { color:var(--t1); font-weight:600; }
+  .rev { display:flex; align-items:center; gap:9px; padding:7px 8px; border-radius:7px; }
+  .rev:hover { background:rgba(255,255,255,.035); }
+  .rev .rl { min-width:0; }
+  .rev .rn2 { font-size:11px; font-weight:600; font-family:var(--mono); color:var(--t1);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .rev .rd { font-size:9.5px; color:var(--t3); margin-top:2px; }
+  .rev.rejected .rn2 { color:var(--t3); font-weight:500; text-decoration:line-through; text-decoration-color:var(--t4); }
+  .rev .rr { margin-left:auto; display:flex; align-items:center; gap:6px; flex:none; }
+  /* the second honest heart: 409 relationship-has-dependents */
+  .err409 { margin:6px 0 4px; border:0; background:rgba(0,0,0,.32); border-radius:8px; padding:9px 10px;
+    font-size:10px; line-height:1.55; color:var(--t3);
+    box-shadow:inset 0 0 0 1px rgba(220,80,80,.34), inset 0 2px 4px -2px rgba(0,0,0,.8); }
+  .err409 .code { font-family:var(--mono); font-size:10.5px; font-weight:700; color:var(--st-crit-ink); }
+  .err409 .dep { font-family:var(--mono); color:var(--t1); }
+  .limits { display:flex; flex-direction:column; gap:1px; }
+  .lim { display:flex; align-items:flex-start; gap:9px; padding:6px 7px; border-radius:6px; font-size:10.5px; color:var(--t2); }
+  .lim:hover { background:rgba(255,255,255,.035); }
+  .lim b { color:var(--t1); font-weight:600; }
+  .lim .ic { width:16px; height:16px; border-radius:5px; display:grid; place-items:center; flex:none;
+    font-family:var(--mono); font-size:9px; font-weight:700; margin-top:1px; }
+  .ic.good { background:rgba(0,0,0,.3); color:var(--st-good); box-shadow:inset 0 0 0 1px rgba(12,163,12,.45); }
+  .ic.warn { background:rgba(0,0,0,.3); color:var(--st-warn); box-shadow:inset 0 0 0 1px rgba(250,178,25,.34); }
+  .ic.crit { background:rgba(0,0,0,.3); color:var(--st-crit-ink); box-shadow:inset 0 0 0 1px rgba(220,80,80,.4); }
+  .ic.neu  { background:rgba(255,255,255,.05); color:var(--t3); }
+  .lim .ld { font-size:9.5px; color:var(--t3); margin-top:2px; line-height:1.5; }
+  .lim .ld .mono { font-size:9.5px; color:var(--t2); }
+
+  /* ================= STATUS BAR ================= */
+  .statusbar { height:26px; flex:none; display:flex; align-items:center; gap:14px; padding:0 16px; border:0;
+    background:var(--s2); box-shadow:inset 0 1px 0 var(--r1); font-size:10.5px; color:var(--t3); }
+  .statusbar .h { display:flex; align-items:center; gap:6px; white-space:nowrap; }
+  .statusbar .h b { color:var(--t2); font-weight:500; }
+  /* SIGNAL 4/4 — the one live indicator on the screen */
+  .statusbar .sync { margin-left:auto; display:flex; align-items:center; gap:8px; font-family:var(--mono); flex:none; }
+  .statusbar .sync .lamp { width:6px; height:6px; border-radius:50%; background:var(--sig); flex:none;
+    box-shadow:0 0 0 3px rgba(70,213,232,.10), 0 0 9px -1px var(--sig); animation:pulse 3s ease-in-out infinite; }
+  .statusbar .sync b { color:var(--t2); font-weight:500; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.42} }
+  @media (prefers-reduced-motion:reduce){ .statusbar .sync .lamp { animation:none } }
+</style>
+</head>
+<body class="dark" data-palette="#3987e5,#d95926,#199e70,#c98500,#d55181,#747c04,#9085e9,#e66767">
+
+<!-- ================= HEADER ================= -->
+<header class="topbar">
+  <div class="brand">
+    <span class="glyph">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M4 7l8-4 8 4-8 4-8-4z" fill="#fff" opacity=".95"/><path d="M4 12l8 4 8-4M4 17l8 4 8-4" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity=".8"/></svg>
+    </span>
+    <span class="name">Command&nbsp;Studio</span>
+  </div>
+  <span class="env-chip">PROD · US-EAST</span>
+  <nav class="gnav">
+    <a href="#">Workflows</a>
+    <a href="#" class="active">Datasets</a>
+    <a href="#">Runs</a>
+    <a href="#">Library</a>
+  </nav>
+
+  <div class="cmdk lit" title="Command palette">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span class="ph2">Search relationships, run a join…</span>
+    <span class="kbd">⌘K</span>
+  </div>
+
+  <div class="hicons">
+    <button class="iconbtn" title="Filters"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M3 5h18M6 12h12M10 19h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+    <button class="iconbtn" title="Alerts — 3 relationships awaiting review">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M6 9a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M10 20a2 2 0 004 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+    <button class="iconbtn" title="Theme" onclick="document.body.classList.toggle('light')">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M20 13a8 8 0 11-9-9 6 6 0 009 9z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+    </button>
+    <div class="teamsw" title="Team switcher — datasets and relationships are team-locked">
+      <span class="tl">Team</span><span class="tv">Growth Analytics</span><span class="cv">▾</span>
+    </div>
+    <div class="avatar" title="S. Ganji · Growth Analytics · role: analyst (raw access granted)">SG</div>
+  </div>
+</header>
+
+<!-- ================= KPI STRIP ================= -->
+<div class="kpistrip">
+  <div class="kpi"><span class="lab">Relationships</span><span class="val num">12</span><span class="delta up">&#9650; 4</span></div>
+  <div class="kpi" title="Confirmed by a human. Only these can back a cross-dataset join.">
+    <span class="lab">Confirmed</span><span class="val num" style="color:var(--st-good)">7</span>
+    <span class="delta" style="color:var(--muted-foreground)"><span class="sdot good"></span> joinable</span>
+  </div>
+  <div class="kpi" title="Candidates awaiting Confirm / Reject. Not joinable.">
+    <span class="lab">Pending review</span><span class="val num" style="color:var(--st-warn)">3</span>
+    <span class="delta" style="color:var(--st-warn)"><span class="sdot warn"></span> blocked</span>
+  </div>
+  <div class="kpi"><span class="lab">Rejected</span><span class="val num" style="color:var(--muted-foreground)">2</span><span class="delta">archived</span></div>
+  <div class="kpi"><span class="lab">Saved joins</span><span class="val num">5</span><span class="delta" style="color:var(--muted-foreground)">2 with dependents</span></div>
+  <div class="kpi" title="ensure_raw_access — joins read raw values, so PII gating applies before preview or execute.">
+    <span class="lab">Raw-data gate</span><span class="val num" style="font-size:13px;color:var(--st-good);display:inline-flex;align-items:center;gap:6px"><span class="g good"></span>PASS</span>
+    <span class="delta" style="color:var(--muted-foreground)">role <b style="color:var(--foreground)">analyst</b></span>
+  </div>
+  <div class="runmeta">
+    <span class="mono">SUGGEST RUN 16:38:02 ET</span>
+    <span class="pill neu mono">42 pairs</span>
+  </div>
+</div>
+
+<!-- ================= WORKSPACE ================= -->
+<div class="workspace">
+
+  <!-- ---------- LEFT RAIL ---------- -->
+  <div class="col rail">
+    <div class="colhead">
+      <span class="t">Datasets</span>
+      <span class="badge num">12</span>
+      <span class="spacer"></span>
+      <button class="iconbtn" style="width:24px;height:24px" title="Upload dataset"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 19V7m0 0l-4 4m4-4l4 4M5 5h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    </div>
+    <div class="railsearch">
+      <div class="box">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <input placeholder="Filter datasets…" />
+        <span class="kbd">/</span>
+      </div>
+      <div class="railfilters">
+        <button class="fchip on">All</button>
+        <button class="fchip">Related</button>
+        <button class="fchip">Growth</button>
+        <button class="fchip">Finance</button>
+      </div>
+    </div>
+
+    <div class="watchlist">
+      <div class="wlgroup">Growth Analytics <span class="ct num">3</span></div>
+      <div class="wl sel">
+        <div class="nm"><span class="sdot good"></span><span class="txt">Q3 Campaign Signups.csv</span></div>
+        <div class="meta"><span class="tag mono">GRW</span> · <span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span> <span class="cls conf">Confidential</span></div>
+        <div class="right"><span class="rows num">84.2K</span><span class="relct">5 rel</span></div>
+      </div>
+      <div class="wl">
+        <div class="nm"><span class="sdot good"></span><span class="txt">CRM Customers</span></div>
+        <div class="meta"><span class="tag mono">GRW</span> · <span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span> <span class="cls conf">Confidential</span></div>
+        <div class="right"><span class="rows num">231.9K</span><span class="relct">4 rel</span></div>
+      </div>
+      <div class="wl">
+        <div class="nm"><span class="sdot good"></span><span class="txt">Churn Feature Store</span></div>
+        <div class="meta"><span class="tag mono">GRW</span> · <span class="cls internal">Internal</span></div>
+        <div class="right"><span class="rows num">2.4M</span><span class="relct">0 rel</span></div>
+      </div>
+
+      <div class="wlgroup">Finance <span class="ct num">2</span></div>
+      <div class="wl">
+        <div class="nm"><span class="sdot good"></span><span class="txt">Invoices</span></div>
+        <div class="meta"><span class="tag mono">FIN</span> · <span class="cls conf">Confidential</span></div>
+        <div class="right"><span class="rows num">512K</span><span class="relct">3 rel</span></div>
+      </div>
+      <div class="wl">
+        <div class="nm"><span class="sdot good"></span><span class="txt">Invoice Lines</span></div>
+        <div class="meta"><span class="tag mono">FIN</span> · <span class="cls conf">Confidential</span></div>
+        <div class="right"><span class="rows num">1.9M</span><span class="relct">1 rel</span></div>
+      </div>
+
+      <div class="wlgroup">Customer Success <span class="ct num">2</span></div>
+      <div class="wl" title="You hold role viewer on this dataset — joins against it are refused by ensure_raw_access.">
+        <div class="nm"><span class="sdot warn"></span><span class="txt">Support Tickets Export</span></div>
+        <div class="meta"><span class="tag mono">CS</span> · <span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span> <span class="cls internal">Internal</span></div>
+        <div class="right"><span class="rows num">1.2M</span><span class="relct">1 cand</span></div>
+      </div>
+      <div class="wl">
+        <div class="nm"><span class="sdot good"></span><span class="txt">NPS Survey Responses</span></div>
+        <div class="meta"><span class="tag mono">CS</span> · <span class="cls internal">Internal</span></div>
+        <div class="right"><span class="rows num">143K</span><span class="relct">0 rel</span></div>
+      </div>
+
+      <div class="wlgroup">Marketing <span class="ct num">2</span></div>
+      <div class="wl">
+        <div class="nm"><span class="sdot good"></span><span class="txt">Web Events — Aug</span></div>
+        <div class="meta"><span class="tag mono">MKT</span> · <span class="cls internal">Internal</span></div>
+        <div class="right"><span class="rows num">402M</span><span class="relct">2 rel</span></div>
+      </div>
+      <div class="wl">
+        <div class="nm"><span class="sdot warn"></span><span class="txt">Lead Scores</span></div>
+        <div class="meta"><span class="tag mono">MKT</span> · <span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span> <span class="cls conf">Confidential</span></div>
+        <div class="right"><span class="rows num">690K</span><span class="relct">1 rej</span></div>
+      </div>
+
+      <div class="wlgroup">People Ops <span class="ct num">2</span></div>
+      <div class="wl">
+        <div class="nm"><span class="sdot warn"></span><span class="txt">Employee Records</span></div>
+        <div class="meta"><span class="tag mono">HR</span> · <span class="lockglyph restr"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span> <span class="cls restr">Restricted</span></div>
+        <div class="right"><span class="rows num">12.4K</span><span class="relct">0 rel</span></div>
+      </div>
+      <div class="wl">
+        <div class="nm"><span class="sdot good"></span><span class="txt">Payroll Run 2026-08</span></div>
+        <div class="meta"><span class="tag mono">HR</span> · <span class="lockglyph restr"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span> <span class="cls restr">Restricted</span></div>
+        <div class="right"><span class="rows num">3,142</span><span class="relct">0 rel</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ---------- CENTER ---------- -->
+  <div class="col center">
+    <div class="gridhead">
+      <div style="min-width:0">
+        <div class="title">
+          <span class="sdot good" style="width:9px;height:9px"></span>
+          Q3 Campaign Signups.csv
+          <span class="pill neu">Relations</span>
+          <span class="pill label" title="Catalog metadata only — it does not gate access.">Confidential</span>
+          <span class="pill warn" title="Joins read raw values. Your role is analyst, so ensure_raw_access passes — a viewer would be refused."><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span> PII · raw access granted</span>
+        </div>
+        <div class="path">
+          <span>team <b>growth-analytics</b> ·</span>
+          <span class="mono">2 sheets · 84,213 rows</span>
+          <span>·</span>
+          <span class="mono"><b style="color:var(--st-good)">3 confirmed</b> · <b style="color:var(--st-warn)">2 candidate</b></span>
+        </div>
+      </div>
+      <div class="toolbar">
+        <button class="tbtn" title="5 saved joins reference these relationships">Saved joins <span class="k mono">5</span></button>
+        <button class="tbtn" title="Re-layout the graph"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M4 4v6h6M20 20v-6h-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 9A8 8 0 006 5M4 15a8 8 0 0014 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Re-layout</button>
+      </div>
+    </div>
+
+    <div class="centerbody">
+
+      <!-- ===== THREE DISCOVERY ROUTES ===== -->
+      <div class="routes">
+
+        <!-- 1 · SEED -->
+        <div class="route">
+          <div class="rh">
+            <span class="rn">01</span><span class="rt">Seed</span>
+            <span class="spacer"></span>
+            <span class="epill mono"><span class="verb">POST</span> …/relationships/seed</span>
+          </div>
+          <div class="rb">
+            <div class="desc">Promotes existing <b>foreign_key</b> quality rules into edges — no statistics, the rule <i>is</i> the provenance.</div>
+            <div class="prov">
+              <div class="provrow" title="Quality rule fk_signup_events on sheet signups">
+                <span class="rule">fk_signup_id</span><span class="arw">→</span><span class="rule">events.signup_id</span>
+                <span class="st" style="color:var(--st-good)">seeded</span>
+              </div>
+              <div class="provrow" title="Quality rule fk_customer_ref on sheet signups">
+                <span class="rule">fk_customer_ref</span><span class="arw">→</span><span class="rule">crm.customer_id</span>
+                <span class="st" style="color:var(--st-good)">seeded</span>
+              </div>
+              <div class="provrow" style="opacity:.72" title="A rule whose target dataset is outside your tenant resolves to nothing — the API answers 404, it never says 'denied'.">
+                <span class="rule">fk_ticket_ref</span><span class="arw">→</span><span class="rule muted">(unresolved)</span>
+                <span class="st muted mono">404</span>
+              </div>
+            </div>
+            <div class="skipnote" style="margin-top:auto">3 edges · <span class="mono" style="color:var(--foreground)">quality_rule</span> · <span style="color:var(--t1)">re-seed →</span></div>
+          </div>
+        </div>
+
+        <!-- 2 · SUGGEST -->
+        <div class="route">
+          <div class="rh">
+            <span class="rn">02</span><span class="rt">Suggest</span>
+            <span class="spacer"></span>
+            <span class="epill mono"><span class="verb">POST</span> …/relationships/suggest</span>
+          </div>
+          <div class="rb">
+            <div class="statgrid">
+              <div class="stt" title="pairs_examined"><div class="k">pairs examined</div><div class="v">42</div></div>
+              <div class="stt" title="suggested"><div class="k">suggested</div><div class="v" style="color:var(--st-warn)">7</div></div>
+              <div class="stt" title="skipped"><div class="k">skipped</div><div class="v" style="color:var(--muted-foreground)">35</div></div>
+            </div>
+            <div class="stackbar" title="7 suggested · 35 skipped of 42 examined">
+              <span style="width:16.7%;background:var(--st-warn)"></span>
+              <span style="width:50%;background:var(--m5)"></span>
+              <span style="width:28.6%;background:var(--m6)"></span>
+              <span style="width:4.7%;background:#232A33"></span>
+            </div>
+            <div class="skipnote">skipped: <b class="mono" style="color:var(--foreground)">21</b> type mismatch · <b class="mono" style="color:var(--foreground)">12</b> outside tenant (404, never listed) · <b class="mono" style="color:var(--foreground)">2</b> overlap &lt; 5%</div>
+            <div class="prov">
+              <div class="provrow"><span class="rule">crm.customer_id</span><span class="arw">→</span><span class="rule">invoices.cust_id</span><span class="st mono" style="color:var(--st-good)">0.92</span></div>
+            </div>
+            <div class="skipnote" style="margin-top:auto">all 7 land as <b style="color:var(--st-warn)">candidate</b> — never auto-confirmed</div>
+          </div>
+        </div>
+
+        <!-- 3 · DECLARE -->
+        <div class="route">
+          <div class="rh">
+            <span class="rn">03</span><span class="rt">Declare</span>
+            <span class="spacer"></span>
+            <span class="epill mono"><span class="verb">POST</span> /relationships</span>
+          </div>
+          <div class="rb">
+            <div class="desc">A human wrote it, so it is created <b>confirmed</b>.</div>
+            <div class="form2">
+              <div class="field"><span class="fl">Left column</span><span class="sel"><span class="txt">customer_ref</span><span class="cv">▾</span></span></div>
+              <div class="field"><span class="fl">Right dataset</span><span class="sel"><span class="txt">CRM Customers</span><span class="cv">▾</span></span></div>
+              <div class="field"><span class="fl">Right column</span><span class="sel"><span class="txt">customer_id</span><span class="cv">▾</span></span></div>
+              <div class="field"><span class="fl">Cardinality</span><span class="sel"><span class="txt">N:M</span><span class="cv">▾</span></span></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:auto">
+              <button class="tbtn sm">Declare →</button>
+              <span class="skipnote">single column each side</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- ===== RELATIONSHIP GRAPH ===== -->
+      <div class="panel graphpanel">
+        <div class="ph">
+          <span class="t">Relationship graph</span>
+          <span class="epill mono"><span class="verb">GET</span> …/relationships?include=candidates</span>
+          <span class="spacer"></span>
+          <span class="pill neu mono">8 nodes · 7 edges</span>
+          <span class="pill pri">◆ REL-0002 loaded in builder</span>
+        </div>
+        <div class="graphwrap">
+          <svg viewBox="0 0 800 172" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Relationship graph of datasets and sheets">
+            <defs>
+              <marker id="m-conf" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#5F6979"/></marker>
+              <marker id="m-prim" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#46D5E8"/></marker>
+              <marker id="m-sug" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#fab219"/></marker>
+            </defs>
+
+            <!-- ===== EDGES (typed by review state) ===== -->
+            <!-- E1 signups -> events : confirmed 1:N, in-dataset -->
+            <path class="ed conf" d="M84 98 L84 58" marker-end="url(#m-conf)"/>
+            <rect class="elabbg" x="89" y="64" width="66" height="13" rx="3"/>
+            <text class="elab conf" x="92" y="74">1:N &#183; in-ds</text>
+
+            <!-- E2 CRM Customers -> signups : confirmed N:M, loaded in builder -->
+            <path class="ed prim" d="M214 34 L166 94" marker-end="url(#m-prim)"/>
+            <rect class="elabbg" x="170" y="52" width="82" height="13" rx="3"/>
+            <text class="elab prim" x="173" y="62">N:M &#183; REL-0002</text>
+
+            <!-- E3 signups -> Web Events : confirmed 1:N -->
+            <path class="ed conf" d="M158 119 L208 119" marker-end="url(#m-conf)"/>
+            <rect class="elabbg" x="166" y="122" width="24" height="13" rx="3"/>
+            <text class="elab conf" x="169" y="132">1:N</text>
+
+            <!-- E4 CRM Customers -> Invoices : suggested 1:N, conf 0.92 -->
+            <path class="ed sug" d="M364 30 L414 30" marker-end="url(#m-sug)"/>
+            <rect class="elabbg" x="366" y="34" width="52" height="13" rx="3"/>
+            <text class="elab sug" x="369" y="44">1:N 0.92</text>
+
+            <!-- E5 Invoices -> Invoice Lines : confirmed 1:N -->
+            <path class="ed conf" d="M570 30 L620 30" marker-end="url(#m-conf)"/>
+            <rect class="elabbg" x="582" y="34" width="24" height="13" rx="3"/>
+            <text class="elab conf" x="585" y="44">1:N</text>
+
+            <!-- E6 Web Events -> Lead Scores : rejected -->
+            <path class="ed rej" d="M364 119 L414 119"/>
+            <g transform="translate(389 119)">
+              <rect class="elabbg" x="-8" y="-8" width="16" height="16" rx="4"/>
+              <path d="M-3.5 -3.5L3.5 3.5M3.5 -3.5L-3.5 3.5" stroke="#7D8797" stroke-width="1.6" stroke-linecap="round"/>
+            </g>
+            <rect class="elabbg" x="366" y="122" width="46" height="13" rx="3"/>
+            <text class="elab rej" x="369" y="132">rejected</text>
+
+            <!-- E7 signups -> Support Tickets : suggested N:M, candidate, access-blocked -->
+            <path class="ed sug" d="M84 140 L84 156 L701 156 L701 142" marker-end="url(#m-sug)"/>
+            <rect class="elabbg" x="300" y="149" width="176" height="13" rx="3"/>
+            <text class="elab sug" x="303" y="159">N:M 0.61 &#183; candidate, unjoinable</text>
+
+            <!-- ===== NODES ===== -->
+            <g class="gnode">
+              <rect x="8" y="10" width="150" height="42" rx="8"/>
+              <text class="nn" x="18" y="28">events</text>
+              <text class="ns" x="18" y="42">sheet &#183; Q3 Signups</text>
+              <text class="nr" x="148" y="28">191,004</text>
+            </g>
+            <g class="gnode focus">
+              <rect x="8" y="98" width="150" height="42" rx="8"/>
+              <circle cx="21" cy="112" r="3.5" fill="#46D5E8"/>
+              <text class="nn" x="31" y="116">signups</text>
+              <text class="ns" x="18" y="130">sheet &#183; Q3 Signups</text>
+              <text class="nr" x="148" y="116">84,213</text>
+            </g>
+            <g class="gnode">
+              <rect x="214" y="10" width="150" height="42" rx="8"/>
+              <text class="nn" x="224" y="28">CRM Customers</text>
+              <text class="ns" x="224" y="42">dataset &#183; GRW &#183; Conf.</text>
+              <text class="nr" x="354" y="28">231,904</text>
+            </g>
+            <g class="gnode">
+              <rect x="214" y="98" width="150" height="42" rx="8"/>
+              <text class="nn" x="224" y="116">Web Events — Aug</text>
+              <text class="ns" x="224" y="130">dataset &#183; MKT &#183; Internal</text>
+              <text class="nr" x="354" y="116">402M</text>
+            </g>
+            <g class="gnode">
+              <rect x="420" y="10" width="150" height="42" rx="8"/>
+              <text class="nn" x="430" y="28">Invoices</text>
+              <text class="ns" x="430" y="42">dataset &#183; FIN &#183; Conf.</text>
+              <text class="nr" x="560" y="28">512K</text>
+            </g>
+            <g class="gnode rejected">
+              <rect x="420" y="98" width="150" height="42" rx="8"/>
+              <text class="nn" x="430" y="116">Lead Scores</text>
+              <text class="ns" x="430" y="130">dataset &#183; MKT &#183; edge rejected</text>
+            </g>
+            <g class="gnode">
+              <rect x="626" y="10" width="150" height="42" rx="8"/>
+              <text class="nn" x="636" y="28">Invoice Lines</text>
+              <text class="ns" x="636" y="42">dataset &#183; FIN &#183; Conf.</text>
+              <text class="nr" x="766" y="28">1.9M</text>
+            </g>
+            <g class="gnode blocked">
+              <rect x="626" y="98" width="150" height="42" rx="8"/>
+              <text class="nn" x="636" y="116">Support Tickets</text>
+              <text class="ns" x="636" y="130">dataset &#183; CS &#183; role viewer</text>
+              <g transform="translate(752 106)"><rect x="0" y="0" width="14" height="12" rx="3" fill="rgba(250,178,25,.12)" stroke="rgba(250,178,25,.4)"/><path d="M4 6.5h6M7 4v5" stroke="#fab219" stroke-width="1.4" stroke-linecap="round"/></g>
+            </g>
+          </svg>
+        </div>
+        <div class="glegend">
+          <span class="li"><svg width="22" height="6"><line x1="0" y1="3" x2="22" y2="3" stroke="#5F6979" stroke-width="1.6"/></svg> confirmed · joinable</span>
+          <span class="li"><svg width="22" height="6"><line x1="0" y1="3" x2="22" y2="3" stroke="#fab219" stroke-width="1.6" stroke-dasharray="5 4"/></svg> suggested · <span style="color:var(--st-warn)">not joinable</span></span>
+          <span class="li"><svg width="22" height="6"><line x1="0" y1="3" x2="22" y2="3" stroke="#39414D" stroke-width="1.6" stroke-dasharray="2 3"/></svg> rejected</span>
+          <span class="li"><svg width="22" height="6"><line x1="0" y1="3" x2="22" y2="3" stroke="#46D5E8" stroke-width="2"/></svg> in builder</span>
+          <span class="li spacer">declared cardinality <span class="mono" style="color:var(--foreground)">1:1 / 1:N / N:M</span></span>
+        </div>
+      </div>
+
+      <!-- ===== JOIN BUILDER + PRE-FLIGHT ===== -->
+      <div class="panel joinpanel">
+        <div class="ph" style="height:34px">
+          <span class="t">Join builder</span>
+          <span class="epill mono"><span class="verb">POST</span> /joins/preview</span>
+          <span class="pill crit">▲ 3 warnings before you run</span>
+          <span class="spacer"></span>
+          <span class="mono" style="font-size:10px;color:var(--muted-foreground)">preview 212ms · nothing executed</span>
+          <button class="tbtn sm dis" title="Publish only becomes available after a successful execute">Publish</button>
+          <button class="tbtn primary sm">Execute join <span class="k" style="color:#4A5462">⇧⌘E</span></button>
+        </div>
+
+        <div class="jbody">
+          <!-- ---- left: the spec ---- -->
+          <div class="jleft">
+            <div class="microlab">Left input <span class="ln"></span> <span style="text-transform:none;letter-spacing:0;font-weight:500">single-column key</span></div>
+            <div class="form2">
+              <div class="field"><span class="fl">Dataset · sheet</span><span class="sel"><span class="txt">Q3 Signups · signups</span><span class="cv">▾</span></span></div>
+              <div class="field"><span class="fl">Key</span><span class="sel"><span class="txt">customer_ref</span><span class="cv">▾</span></span></div>
+            </div>
+
+            <div class="microlab">Relationship — required cross-dataset <span class="ln"></span></div>
+            <div class="relchip" title="Cross-dataset joins bind to a relationship_id. Free-form key pairs are refused.">
+              <span class="sdot good"></span>
+              <span class="rid">REL-0002</span>
+              <span class="pill ok">confirmed</span>
+              <span class="keys">customer_ref = customer_id</span>
+              <span class="cv muted">▾</span>
+            </div>
+            <div class="note">You pick a <b>relationship_id</b>, not keys — only <b>confirmed</b> ones list here, so the 3 candidates in review are absent.</div>
+
+            <div class="microlab">Right input <span class="ln"></span> <span style="text-transform:none;letter-spacing:0;font-weight:500">locked by relationship</span></div>
+            <div class="form2">
+              <div class="field"><span class="fl">Dataset</span><span class="sel lockedk"><span class="txt">CRM Customers</span></span></div>
+              <div class="field"><span class="fl">Key</span><span class="sel lockedk"><span class="txt">customer_id</span></span></div>
+            </div>
+
+            <div class="microlab">Join type &amp; collisions <span class="ln"></span></div>
+            <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+              <div class="seg"><span class="on">inner</span><span>left</span></div>
+              <span class="unsupported">no <s>right</s> <s>full</s> <s>cross</s> <s>anti</s></span>
+              <div class="field" style="flex:0 0 100px;margin-left:auto"><span class="sel"><span class="txt">prefix crm_</span><span class="cv">▾</span></span></div>
+            </div>
+            <div class="note">Equi-join only; no composite keys, no fuzzy matching, no entity resolution. <b>inner</b> drops the 6.2% unmatched left rows. In-dataset joins (signups ⋈ events) may name keys inline.</div>
+          </div>
+
+          <!-- ---- right: pre-flight ---- -->
+          <div class="jright">
+            <div class="microlab">Pre-flight — returned by <span class="mono" style="text-transform:none;letter-spacing:0">/joins/preview</span> before execution <span class="ln"></span></div>
+
+            <div class="warnbanner">
+              <span class="sdot crit"></span>
+              <div style="min-width:0">
+                <div class="big">many_to_many = true</div>
+                <div class="sub">Both sides carry duplicate keys, so rows multiply: <b class="mono">84,213</b> left rows become an estimated <b class="mono">286,324</b> — a <b class="mono" style="color:var(--st-crit-ink)">3.40× row_expansion_factor</b>. Fix the grain, or accept the fan-out.</div>
+              </div>
+            </div>
+
+            <div class="mgrid">
+              <div class="mrow"><span class="k">left_rows</span><span class="v">84,213</span></div>
+              <div class="mrow"><span class="k">right_rows</span><span class="v">231,904</span></div>
+              <div class="mrow"><span class="k">left_duplicate_keys</span><span class="v warn">6,180</span></div>
+              <div class="mrow"><span class="k">right_duplicate_keys</span><span class="v warn">18,442</span></div>
+              <div class="mrow"><span class="k">many_to_many</span><span class="v crit">true</span></div>
+              <div class="mrow"><span class="k">estimated_output_rows</span><span class="v crit">286,324</span></div>
+              <div class="mrow"><span class="k">row_expansion_factor</span><span class="v crit">3.40×</span></div>
+              <div class="mrow"><span class="k">column_collisions</span><span class="v warn">2</span></div>
+              <div class="mrow"><span class="k">unmatched_left_pct</span><span class="v">6.2%</span></div>
+              <div class="mrow"><span class="k">unmatched_right_pct</span><span class="v warn">41.8%</span></div>
+            </div>
+
+            <div class="collide">
+              <span class="muted" style="font-size:9.5px;letter-spacing:.06em;text-transform:uppercase">collisions</span>
+              <span class="ckey">created_at</span><span class="ckey">source</span>
+              <span class="muted">→ renamed <span class="mono" style="color:var(--foreground)">crm_created_at</span>, <span class="mono" style="color:var(--foreground)">crm_source</span> by the prefix</span>
+            </div>
+            <div class="note" style="display:flex;gap:7px;align-items:flex-start">
+              <span class="sdot warn" style="margin-top:4px"></span>
+              <span><b>5,221</b> left rows (6.2%) match nothing and are dropped by <b>inner</b>; <b>96,935</b> right rows (41.8%) are unreferenced. Switch to <b>left</b> to keep the unmatched left side with nulls.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ---- execute → publish ---- -->
+        <div class="steps">
+          <div class="step done">
+            <span class="sn">✓</span>
+            <div class="sb">
+              <div class="st">Preview <span class="pill neu mono">212ms</span></div>
+              <div class="sd">Warnings only. Nothing written.</div>
+            </div>
+          </div>
+          <div class="step next">
+            <span class="sn">2</span>
+            <div class="sb">
+              <div class="st">Execute <span class="epill mono"><span class="verb">POST</span> /joins/execute</span></div>
+              <div class="sd"><span class="mono" style="color:var(--foreground)">join_output</span> artifact · retention <b class="mono" style="color:var(--st-warn)">30 days</b></div>
+            </div>
+          </div>
+          <div class="step">
+            <span class="sn">3</span>
+            <div class="sb">
+              <div class="st">Publish <span class="epill mono"><span class="verb">POST</span> /joins/{run_id}/publish</span></div>
+              <div class="sd" style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+                <span class="radio on"><i></i> new dataset</span>
+                <span class="radio"><i></i> version v43</span>
+                <span>· lineage carried</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ---------- RIGHT DOCK ---------- -->
+  <div class="col dock">
+    <div class="colhead">
+      <span class="t">Lens</span>
+      <span class="spacer"></span>
+      <span class="mono" style="font-size:10px;color:var(--muted-foreground)">Q3 Campaign Signups</span>
+    </div>
+    <div class="lenstabs">
+      <span class="ltab">Overview</span>
+      <span class="ltab">Quality</span>
+      <span class="ltab">Versions</span>
+      <span class="ltab">Analytics</span>
+      <span class="ltab on">Relations</span>
+      <span class="ltab">Transform</span>
+      <span class="ltab">Library</span>
+    </div>
+
+    <div class="dockbody">
+
+      <!-- ===== REVIEW QUEUE ===== -->
+      <div class="sect">
+        <div class="h">Review queue <span class="pill warn">3 pending</span> <span class="line"></span></div>
+        <div class="gate">
+          <span class="lockglyph" style="margin-top:1px"><svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M12 3l9 16H3l9-16z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M12 10v4M12 16.5v.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>
+          <span>Discovery never confirms. <b>An unreviewed edge cannot be joined</b> — candidates are absent from the builder's relationship picker until a human confirms them.</span>
+        </div>
+
+        <!-- candidate 1 -->
+        <div class="cand pending">
+          <div class="ct">
+            <span class="sdot warn"></span><span class="card2" style="color:var(--st-warn)">CANDIDATE</span>
+            <span class="cid">REL-C-0011</span>
+            <span class="spacer"></span>
+            <span class="pill neu mono">N:M</span>
+            <span class="pill neu">via suggest</span>
+          </div>
+          <div class="pair"><span class="a">signups.signup_id</span> <span class="arw">→</span> <span class="b">support_tickets.signup_ref</span></div>
+          <div class="ev">
+            <span class="el">match rate</span>
+            <span class="track"><span class="fill" style="width:61.4%"></span></span>
+            <span class="pv" style="color:var(--st-warn)">61.4%</span>
+          </div>
+          <div class="ev">
+            <span class="el">confidence</span>
+            <span class="track"><span class="fill" style="width:61%"></span></span>
+            <span class="pv" style="color:var(--st-warn)">0.61</span>
+          </div>
+          <div class="kvline">
+            <span>distinct L <span class="kk">78,033</span></span><span>R <span class="kk">51,209</span></span>
+            <span>dup keys both sides</span>
+          </div>
+          <div class="kvline">
+            <span>sample overlap</span>
+            <span class="kk">SGN-84213</span><span class="kk">SGN-84190</span><span class="kk">SGN-84120</span>
+          </div>
+          <div class="actrow">
+            <button class="btn-ok">✓ Confirm <span class="kbd" style="border:none;background:none;padding:0;color:inherit;opacity:.6">C</span></button>
+            <button class="btn-no">✕ Reject <span class="kbd" style="border:none;background:none;padding:0;color:inherit;opacity:.6">X</span></button>
+            <span class="spacer"></span>
+            <span class="mono" style="font-size:9.5px;color:var(--muted-foreground)">16:38:02</span>
+          </div>
+          <div class="blockline">
+            <span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span>
+            <span>Even confirmed, this one stays unusable: you hold <b style="color:var(--foreground)">viewer</b> on Support Tickets Export → <span class="mono">403 raw_access_required</span>.</span>
+          </div>
+        </div>
+
+        <!-- candidate 2 -->
+        <div class="cand pending">
+          <div class="ct">
+            <span class="sdot warn"></span><span class="card2" style="color:var(--st-warn)">CANDIDATE</span>
+            <span class="cid">REL-C-0012</span>
+            <span class="spacer"></span>
+            <span class="pill neu mono">1:N</span>
+            <span class="pill neu">via suggest</span>
+          </div>
+          <div class="pair"><span class="a">crm_customers.customer_id</span> <span class="arw">→</span> <span class="b">invoices.customer_id</span></div>
+          <div class="ev">
+            <span class="el">match rate</span>
+            <span class="track"><span class="fill" style="width:98.7%"></span></span>
+            <span class="pv" style="color:var(--st-good)">98.7%</span>
+          </div>
+          <div class="ev">
+            <span class="el">confidence</span>
+            <span class="track"><span class="fill" style="width:92%"></span></span>
+            <span class="pv" style="color:var(--st-good)">0.92</span>
+          </div>
+          <div class="kvline">
+            <span>distinct L <span class="kk">231,904</span></span><span>R <span class="kk">228,911</span></span>
+            <span>right unique · left unique</span>
+          </div>
+          <div class="kvline">
+            <span>sample overlap</span>
+            <span class="kk">CUS-40912</span><span class="kk">CUS-40877</span><span class="kk">CUS-40810</span>
+          </div>
+          <div class="actrow">
+            <button class="btn-ok">✓ Confirm</button>
+            <button class="btn-no">✕ Reject</button>
+            <span class="spacer"></span>
+            <span class="mono" style="font-size:9.5px;color:var(--muted-foreground)">16:38:02</span>
+          </div>
+        </div>
+
+        <!-- candidate 3 -->
+        <div class="cand pending">
+          <div class="ct">
+            <span class="sdot warn"></span><span class="card2" style="color:var(--st-warn)">CANDIDATE</span>
+            <span class="cid">REL-C-0013</span>
+            <span class="spacer"></span>
+            <span class="pill neu mono">1:1</span>
+            <span class="pill neu">via suggest</span>
+          </div>
+          <div class="pair"><span class="a">events.utm_campaign</span> <span class="arw">→</span> <span class="b">lead_scores.campaign</span></div>
+          <div class="ev">
+            <span class="el">match rate</span>
+            <span class="track"><span class="fill" style="width:19%"></span></span>
+            <span class="pv" style="color:var(--st-serious)">19.0%</span>
+          </div>
+          <div class="ev">
+            <span class="el">confidence</span>
+            <span class="track"><span class="fill" style="width:44%"></span></span>
+            <span class="pv" style="color:var(--st-serious)">0.44</span>
+          </div>
+          <div class="kvline"><span>sample overlap</span><span class="kk">summer_promo</span><span class="kk">webinar_q3</span></div>
+          <div class="actrow">
+            <button class="btn-ok">✓ Confirm</button>
+            <button class="btn-no">✕ Reject</button>
+            <span class="spacer"></span>
+            <span class="mono" style="font-size:9.5px;color:var(--muted-foreground)">16:38:02</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== REVIEWED ===== -->
+      <div class="sect">
+        <div class="h">Reviewed <span class="pill neu mono">7 confirmed · 2 rejected</span> <span class="line"></span></div>
+
+        <div class="rev">
+          <span class="sdot good"></span>
+          <div class="rl"><div class="rn2">REL-0001 signups → events</div><div class="rd">1:N · seed <span class="mono">fk_signup_id</span> · confirmed by S. Ganji, 2d ago</div></div>
+          <div class="rr"><span class="pill ok">joinable</span></div>
+        </div>
+        <div class="rev">
+          <span class="sdot good"></span>
+          <div class="rl"><div class="rn2">REL-0002 crm_customers ↔ signups</div><div class="rd">N:M · declared manually · confirmed by S. Ganji, 4h ago</div></div>
+          <div class="rr"><span class="pill pri">in builder</span></div>
+        </div>
+        <div class="rev">
+          <span class="sdot good"></span>
+          <div class="rl"><div class="rn2">REL-0003 invoices → invoice_lines</div><div class="rd">1:N · seed <span class="mono">fk_invoice_id</span> · confirmed by M. Okafor, 6d ago</div></div>
+          <div class="rr"><span class="pill ok">joinable</span></div>
+        </div>
+        <div class="rev">
+          <span class="sdot good"></span>
+          <div class="rl"><div class="rn2">REL-0004 signups → web_events</div><div class="rd">1:N · suggest 0.97 · confirmed by A. Rao, 9d ago</div></div>
+          <div class="rr"><button class="tbtn sm" title="DELETE /relationships/REL-0004">Delete</button></div>
+        </div>
+        <div class="err409">
+          <div><span class="code">409 relationship-has-dependents</span></div>
+          <div class="muted" style="margin-top:2px">Refused: <span class="dep">2 saved joins</span> bind this relationship_id —
+            <span class="dep">JOIN-118 signups⋈web_events</span>, <span class="dep">JOIN-124 sessions_rollup</span>.
+            Delete or repoint the dependents first; the edge is not detachable while a join names it.</div>
+        </div>
+        <div class="rev rejected">
+          <span class="sdot off"></span>
+          <div class="rl"><div class="rn2">REL-0009 web_events → lead_scores</div><div class="rd">rejected by A. Rao, 3d ago · “spurious — 3.1% overlap, campaign strings collide by accident”</div></div>
+          <div class="rr"><span class="pill neu">rejected</span></div>
+        </div>
+      </div>
+
+      <!-- ===== ACCESS & REFUSALS ===== -->
+      <div class="sect">
+        <div class="h">Access &amp; refusals <span class="line"></span></div>
+        <div class="limits">
+          <div class="lim">
+            <span class="ic good">✓</span>
+            <div><div>ensure_raw_access — <b>PASS</b></div><div class="ld">Joining reads raw values, so PII gating runs before preview. Your role on growth-analytics is <span class="mono">analyst</span>.</div></div>
+          </div>
+          <div class="lim">
+            <span class="ic crit">✕</span>
+            <div><div>Support Tickets Export — <b style="color:var(--st-crit-ink)">REFUSED</b></div><div class="ld"><span class="mono">403 raw_access_required</span> · your role there is <span class="mono">viewer</span>. Preview and execute both stop; a viewer never sees unmasked join output.</div></div>
+          </div>
+          <div class="lim">
+            <span class="ic neu">?</span>
+            <div><div>Outside your tenant — <b>404 not_found</b></div><div class="ld">12 pairs vanished from the suggest run. Cross-tenant is answered as absence, never “access denied” — existence itself is not disclosed.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== ENGINE LIMITS ===== -->
+      <div class="sect" style="margin-bottom:4px">
+        <div class="h">Engine limits <span class="line"></span></div>
+        <div class="limits">
+          <div class="lim"><span class="ic neu">=</span><div><div>Equi-join only · <span class="mono">inner</span> | <span class="mono">left</span></div><div class="ld">No right, full outer, cross or anti join exists in the engine.</div></div></div>
+          <div class="lim"><span class="ic neu">1</span><div><div>Single-column keys</div><div class="ld">No composite keys, no fuzzy or approximate matching, no entity resolution.</div></div></div>
+          <div class="lim"><span class="ic warn">R</span><div><div>Cross-dataset needs a confirmed relationship</div><div class="ld">You pass a <span class="mono">relationship_id</span>; ad-hoc key pairs are rejected. In-dataset cross-sheet joins may be specified inline.</div></div></div>
+          <div class="lim"><span class="ic warn">T</span><div><div><span class="mono">join_output</span> artifacts expire</div><div class="ld">30-day retention. Publish to a dataset or version if you need it to outlive that.</div></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="statusbar" style="box-shadow:inset 0 1px 0 var(--r2)">
+      <span class="h"><span class="kbd">C</span>/<span class="kbd">X</span> review</span>
+      <span class="h" style="margin-left:auto">as-of v42</span>
+    </div>
+  </div>
+
+</div>
+
+<!-- ================= BOTTOM STATUS BAR ================= -->
+<div class="statusbar">
+  <span class="h"><span class="kbd">⌘K</span> command</span>
+  <span class="h"><span class="kbd">J</span><span class="kbd">K</span> candidate</span>
+  <span class="h"><span class="kbd">C</span> confirm</span>
+  <span class="h"><span class="kbd">X</span> reject</span>
+  <span class="h"><span class="kbd">⌘⏎</span> preview join</span>
+  <span class="h"><span class="kbd">⇧⌘E</span> execute</span>
+  <span class="h"><span class="kbd">1</span>–<span class="kbd">7</span> lens</span>
+  <span class="h">graph as-of v42 · 12 edges · 3 unreviewed</span>
+  <span class="sync"><span class="lamp"></span><b>LIVE</b> · SYNC 16:41:07 ET</span>
+</div>
+
+</body>
+</html>

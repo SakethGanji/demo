@@ -1,0 +1,27 @@
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+httpx
+simpleeval
+sqlmodel
+sse-starlette
+aiosqlite
+asyncpg
+psycopg2-binary
+croniter
+cryptography
+argon2-cffi>=23.1.0  # Password hashing for published-app password protection
+python-multipart  # Required by FastAPI's Form() — used by /a/{slug}/_unlock
+pandas
+openpyxl
+google-genai
+google-api-core
+openai
+anthropic
+tiktoken>=0.5.0  # Token counting for memory providers
+numpy>=1.24.0    # Vector operations for semantic memory
+tree-sitter>=0.23.0         # AST parsing for TSX file indexing
+tree-sitter-typescript>=0.23.0
+neo4j>=5.0.0     # Knowledge graph memory (Neo4j driver)
+# aiosmtplib  # Uncomment if using SMTP for email

@@ -1,0 +1,307 @@
+{
+  "name": "PromptLab",
+  "description": "",
+  "active": true,
+  "nodes": [
+    {
+      "name": "webhook",
+      "type": "Webhook",
+      "label": "webhook",
+      "parameters": {
+        "path": "promptlab/run",
+        "method": "POST",
+        "responseMode": "lastNode"
+      },
+      "position": {
+        "x": 100,
+        "y": 400
+      },
+      "continue_on_fail": false,
+      "retry_on_fail": 0,
+      "retry_delay": 1000
+    },
+    {
+      "name": "mainLoop",
+      "type": "Loop",
+      "label": "mainLoop",
+      "parameters": {
+        "batchSize": 1,
+        "maxIterations": "{{ $json.body.max_iterations or 5 }}"
+      },
+      "position": {
+        "x": 340,
+        "y": 400
+      },
+      "continue_on_fail": false,
+      "retry_on_fail": 0,
+      "retry_delay": 1000
+    },
+    {
+      "name": "sessionStateQuery",
+      "type": "MongoDB",
+      "label": "sessionStateQuery",
+      "parameters": {
+        "skip": 0,
+        "sort": "{}",
+        "limit": 1,
+        "filter": "{\"session_id\": \"{{ $json.body.session_id }}\"}",
+        "database": "promptlab",
+        "operation": "find",
+        "collection": "sessions",
+        "projection": "{\"_id\": 0, \"session_id\": 1, \"best_run_id\": 1, \"best_macro_f1\": 1, \"n_runs\": 1, \"budget_spent_usd\": 1, \"max_cost_usd\": 1}",
+        "connectionString": "{{ $env.WORKFLOW_MONGO_URL or 'mongodb://admin:admin@localhost:27017' }}"
+      },
+      "position": {
+        "x": 580,
+        "y": 200
+      },
+      "continue_on_fail": false,
+      "retry_on_fail": 0,
+      "retry_delay": 1000
+    },
+    {
+      "name": "trendQuery",
+      "type": "MongoDB",
+      "label": "trendQuery",
+      "parameters": {
+        "skip": 0,
+        "sort": "{\"created_at\": -1}",
+        "limit": 10,
+        "filter": "{\"session_id\": \"{{ $json.body.session_id }}\"}",
+        "database": "promptlab",
+        "operation": "find",
+        "collection": "prompt_runs",
+        "projection": "{\"response.failures_sample\": 0, \"response.per_row\": 0}",
+        "connectionString": "{{ $env.WORKFLOW_MONGO_URL or 'mongodb://admin:admin@localhost:27017' }}"
+      },
+      "position": {
+        "x": 820,
+        "y": 400
+      },
+      "continue_on_fail": false,
+      "retry_on_fail": 0,
+      "retry_delay": 1000
+    },
+    {
+      "name": "decideAgent",
+      "type": "AIAgent",
+      "label": "decideAgent",
+      "parameters": {
+        "task": "Session: {{ $node['webhook'].json.body.session_id }}\nIteration: {{ ($node['mainLoop'].json.i or 0) + 1 }} / {{ $node['webhook'].json.body.max_iterations or 5 }}\nIntent classes: {{ json_stringify($node['webhook'].json.body.intent_classes) }}\nBudget cap: ${{ $node['webhook'].json.body.max_cost_usd or 1.0 }}\n\nRecent runs (newest first, heavy fields stripped):\n{{ json_stringify($node['trendQuery'].json.documents or []) }}\n\nUse promptlab_mongo for deeper inspection (confusion-pair aggregation, regression diffs, etc.). Then output JSON matching the schema.",
+        "model": "gemini-2.5-flash",
+        "enablePtc": false,
+        "memoryType": "none",
+        "temperature": 0.3,
+        "builtinTools": [
+          {
+            "type": "mongoQuery",
+            "parameters": {
+              "database": "promptlab",
+              "max_limit": 50,
+              "tool_name": "promptlab_mongo",
+              "max_time_ms": 3000,
+              "tool_description": "Run constrained Mongo find/aggregate queries against the PromptLab session's prior runs to diagnose what to change next. session_id is a MANDATORY top-level filter (enforced by the runner).\n\nCollections: prompt_runs, sessions.\nOperations: find (filter/projection/sort/limit) and aggregate (8 stages max).\n\nprompt_runs doc {\n  run_id, session_id, prompt_hash, model, strategy, parent_run_id,\n  stage,                    // 'smoke' | 'quick' | 'full' — filter on this!\n  prompt_system,            // HEAVY — project out unless rewriting\n  prompt_user_template,\n  response: {\n    dataset_id, prompt_hash, config,\n    metrics: {\n      overall:  { accuracy, accuracy_ci_95, macro_f1, weighted_f1,\n                  macro_precision, macro_recall,\n                  weighted_precision, weighted_recall,\n                  n_rows, n_failures, per_class, confusion_matrix },\n      by_split: { <SplitName>: { same shape } }\n    },\n    per_row: [ {row_id, split, inputs, gt, predicted, correct,\n                tokens_in, tokens_out, latency_ms, raw_text, error} ],  // HEAVY\n    failure_summary: { total, by_confusion_pair, by_split, top_confusion_pairs },\n    failures_sample: [ {row_id, split, inputs, gt, predicted, raw_text,\n                        error, confusion_pair} ],  // HEAVY\n    warnings: [ '...' ],\n    cost_usd, tokens_in, tokens_out,\n    latency_p50_ms, latency_p95_ms, latency_p99_ms,\n    cached, budget_spent_usd, budget_max_usd\n  },\n  created_at\n}\n\nsessions doc {\n  session_id, name, max_cost_usd, budget_spent_usd, n_runs,\n  best_run_id, best_macro_f1,    // both only update on stage='full'\n  status, created_at, last_accessed_at\n}\n\nSTAGE FILTERING DISCIPLINE:\n  - Accuracy/macro_f1 comparisons across runs MUST filter stage='full'.\n    smoke (n=10) and quick (n=100) results are NOT comparable to full.\n  - Failure-pattern queries (confusion pairs, recurring failing inputs)\n    can use any stage — diagnostic signal is useful regardless of n.\n  - To see what the agent tried but the gates rejected, look at\n    smoke/quick runs (they persist with their stage label).\n\nCommon queries:\n  # Last 5 FULL runs for fair comparison\n  { collection:'prompt_runs', operation:'find',\n    filter:{session_id:'<sess>', stage:'full'},\n    projection:{prompt_system:0,'response.failures_sample':0,'response.per_row':0},\n    sort:{created_at:-1}, limit:5 }\n\n  # All strategies tried in this session (any stage), for anti-repetition\n  { collection:'prompt_runs', operation:'find',\n    filter:{session_id:'<sess>'},\n    projection:{strategy:1, stage:1, 'response.metrics.overall.accuracy':1, _id:0},\n    sort:{created_at:-1}, limit:30 }\n\n  # Top confusion pairs across all FULL runs in this session\n  { collection:'prompt_runs', operation:'aggregate', pipeline:[\n    {$match:{session_id:'<sess>', stage:'full'}},\n    {$project:{pairs:{$objectToArray:'$response.failure_summary.by_confusion_pair'}}},\n    {$unwind:'$pairs'},\n    {$group:{_id:'$pairs.k',total:{$sum:'$pairs.v'}}},\n    {$sort:{total:-1}}, {$limit:10} ] }\n\n  # Recurring failing rows across iterations (find inputs the prompt\n  # never learns) — uses per_row, any stage\n  { collection:'prompt_runs', operation:'aggregate', pipeline:[\n    {$match:{session_id:'<sess>'}},\n    {$unwind:'$response.per_row'},\n    {$match:{'response.per_row.correct':false}},\n    {$group:{_id:'$response.per_row.row_id',\n             n_failures:{$sum:1},\n             example_input:{$first:'$response.per_row.inputs'},\n             gt:{$first:'$response.per_row.gt'}}},\n    {$sort:{n_failures:-1}}, {$limit:10} ] }\n\nCost rules: prompt_system, failures_sample, per_row are HEAVY — always project them out unless you specifically need them. Response cap is ~200KB.",
+              "connection_string": "{{ $env.WORKFLOW_MONGO_URL or 'mongodb://admin:admin@localhost:27017' }}",
+              "max_response_bytes": 200000,
+              "allowed_collections": [
+                "prompt_runs",
+                "sessions"
+              ],
+              "max_pipeline_stages": 8,
+              "mandatory_filter_field": "session_id",
+              "default_projection_strip": [
+                "prompt_system",
+                "response.failures_sample"
+              ],
+              "mandatory_filter_value_expression": "{{ $node['webhook'].json.body.session_id }}"
+            }
+          }
+        ],
+        "outputSchema": "{\n  \"type\": \"object\",\n  \"required\": [\n    \"action\",\n    \"strategy\",\n    \"entry_stage\",\n    \"reasoning\"\n  ],\n  \"properties\": {\n    \"action\": {\n      \"enum\": [\n        \"continue\",\n        \"stop\"\n      ]\n    },\n    \"strategy\": {\n      \"type\": \"string\",\n      \"description\": \"Free-form instruction the prompt rewriter will follow. Be specific about WHAT to change in the prompt and WHY. Empty string when action='stop'.\"\n    },\n    \"entry_stage\": {\n      \"enum\": [\n        \"smoke\",\n        \"quick\",\n        \"full\"\n      ],\n      \"description\": \"Where to start the candidate's evaluation. 'smoke' = 10 rows (cheap probe); 'quick' = 100 stratified rows (refinement); 'full' = whole dataset (real candidate). Gates auto-promote smoke -> quick -> full if criteria met. Use 'smoke' on iter 0 and for any risky/exploratory edit.\"\n    },\n    \"reasoning\": {\n      \"type\": \"string\",\n      \"description\": \"One sentence on why this action / strategy / stage.\"\n    },\n    \"target_confusion_pair\": {\n      \"type\": \"string\",\n      \"description\": \"If strategy targets a specific gt->pred pair, name it (e.g. 'AccountCl->OutOfScop'). Empty string when none.\"\n    }\n  }\n}",
+        "systemPrompt": "You are a prompt-optimization controller. Each turn you decide TWO things: (1) should we keep iterating, and if so, what strategy should the prompt rewriter try next; (2) at what evaluation tier (smoke / quick / full) should this candidate be tested.\n\nYou have access to a `promptlab_mongo` tool that runs constrained find/aggregate queries against the `prompt_runs` and `sessions` collections, scoped to the current session.\n\nSTAGE RULES (entry_stage field):\n - 'smoke' (10 rows, random): default for risky or exploratory edits —    a brand-new strategy, a big prompt restructure, an untested class.    Cheap; just verifies the prompt produces parseable output and isn't    catastrophically broken.\n - 'quick' (100 rows, stratified): when you have evidence the prompt    works (its prior smoke had no warnings AND accuracy >= 0.3). Gives    a real accuracy signal with every class represented.\n - 'full' (entire dataset): when the prior quick run looked promising    (its accuracy_ci_95.upper >= the session's current best_macro_f1,    OR no prior best exists). ONLY full-stage runs update best_run.\n\nESCALATION (YOU OWN THIS — there are no auto-promote gates):\n\nESCALATION IS MANDATORY, NOT OPTIONAL. The single most important rule\nis: NEVER stay at the same stage with a NEW strategy when your most\nrecent run at the SAME stage already PASSED. Passing means: warnings\nis empty AND accuracy >= 0.5. If your last run passed, the right move\nis to ESCALATE that exact strategy (copy the prior `strategy` value\nverbatim, just change `entry_stage` to the next tier). Exploration\ncomes AFTER a candidate has been promoted to full.\n\n - Iter 0: entry_stage='smoke', strategy='baseline' (probe the seed).\n - Last run passed smoke (acc >= 0.5, no warnings)\n   -> NEXT: entry_stage='quick', strategy=SAME (copy verbatim).\n - Last run passed quick (acc_ci_95.upper >= current best_macro_f1)\n   -> NEXT: entry_stage='full', strategy=SAME. This iteration is the\n   one that produces a canonical best_run candidate.\n - Last run FAILED smoke (warnings OR accuracy < 0.5)\n   -> NEXT: entry_stage='smoke', strategy=DIFFERENT (start over).\n - Last run FAILED quick (ci_95.upper < best_macro_f1)\n   -> NEXT: entry_stage='smoke', strategy=DIFFERENT.\n\nANTI-PATTERN to avoid: smoke passes -> you invent a 'better' strategy\n-> smoke again. This is WRONG — escalate the passing strategy first;\nyour 'better' idea is just hypothetical until smoke+quick+full agree.\n\nACCURACY COMPARISONS: when comparing prompts across iterations, FILTER ON stage='full'. A 10-row smoke run and a full-dataset run are not comparable. The mongoQuery tool description lists the exact filter.\n\nANTI-REPETITION RULE:\nNever emit a `strategy` string equivalent to one already attempted in this session (any stage). Before deciding, query `prompt_runs` for prior strategies and pick something materially different — a different confusion pair, a different operation (add-rule vs add-example vs tighten-definition), or a different class. If smoke rejected your last 3 attempts at the same angle, switch angles. If every meaningful angle is exhausted, emit action='stop'. 'baseline' is only valid as the iter-0 strategy.\n\nDecision rubric:\n - If n_runs == 0  -> action='continue', strategy='baseline', entry_stage='smoke'.\n - Most recent run was a passing smoke (same strategy you want to keep)    -> action='continue', SAME strategy, entry_stage='quick' (escalate).\n - Most recent run was a passing quick (same strategy) -> action='continue',    SAME strategy, entry_stage='full' (escalate to canonical candidate).\n - Most recent run was a failing smoke/quick -> action='continue' with a    DIFFERENT strategy, entry_stage='smoke' (start over).\n - Most recent FULL run has failures and you have a SPECIFIC fix idea    (e.g. 'add disambiguation rule for AccountCl vs OutOfScop based on    cue phrases like <quoted phrase from a sampled failure>') ->    action='continue', new strategy, entry_stage='smoke'.\n - Most recent FULL run REGRESSED vs prior best -> action='continue',    different angle, entry_stage='smoke'.\n - Last 3 FULL runs show a plateau (delta in macro_f1 < 0.005) AND    distinct strategies have been tried -> action='stop'.\n - budget_spent_usd > 0.7 * budget_max_usd -> action='stop'.\n\nStrategy quality bar: the `strategy` field must be specific enough that the prompt rewriter could produce a different prompt from it. Bad: 'improve clarity'. Good: 'add a one-line rule that when the customer mentions \"close my account\" without specifying which product, classify as AccountCl not OutOfScope; reference the failure on row_id <id>'.\n\nOutput STRICT JSON matching the schema. No prose outside the JSON.",
+        "maxIterations": 5,
+        "skillProfiles": [],
+        "enablePlanning": false,
+        "enableSubAgents": false,
+        "maxOutputTokens": 2048,
+        "enableScratchpad": false,
+        "maxContextTokens": 120000
+      },
+      "position": {
+        "x": 1060,
+        "y": 280
+      },
+      "continue_on_fail": false,
+      "retry_on_fail": 0,
+      "retry_delay": 1000
+    },
+    {
+      "name": "promptWriter",
+      "type": "LLMChat",
+      "label": "promptWriter",
+      "parameters": {
+        "model": "gemini-2.5-flash",
+        "maxTokens": 2048,
+        "temperature": 0,
+        "userMessage": "STRATEGY (what to change and why):\n{{ $node['decideAgent'].json.structured.strategy or 'baseline' }}\n\nTARGETED CONFUSION PAIR (if any):\n{{ $node['decideAgent'].json.structured.target_confusion_pair or 'none' }}\n\nCURRENT PROMPT (seed on iter 0, else the most recent run's prompt):\n{{ (($node['trendQuery'].json.documentCount > 0) and $node['trendQuery'].json.documents[0].prompt_system) or $node['webhook'].json.body.prompt_system_seed or '' }}\n\nReturn the prompt only.",
+        "systemPrompt": "You rewrite a classification system prompt to address a SPECIFIC weakness.\n\nPASS-THROUGH RULE (read first):\nIf the STRATEGY field is 'baseline', empty, or any variant meaning 'use as-is' (e.g. 'baseline (use seed verbatim)'), return the CURRENT PROMPT EXACTLY as given — character-for-character, including all output schema details, class names, and formatting instructions. Do NOT 'improve', 'generalize', or 'clean up' the prompt. The seed prompt is canonical.\n\nOtherwise, make the SMALLEST possible edit to the CURRENT PROMPT that addresses STRATEGY. Preserve all existing class names, output schema keys, format instructions, and examples unless STRATEGY explicitly asks to change them.\n\nReturn ONLY the prompt text — no commentary, no markdown fences, no preface."
+      },
+      "position": {
+        "x": 1300,
+        "y": 280
+      },
+      "continue_on_fail": false,
+      "retry_on_fail": 0,
+      "retry_delay": 1000
+    },
+    {
+      "name": "evalCall",
+      "type": "HttpRequest",
+      "label": "evalCall",
+      "parameters": {
+        "url": "{{ $env.ANALYTICS_SERVICE_URL or 'http://localhost:8001' }}/prompt-lab/evaluate",
+        "body": "{\n  \"session_id\": {{ json_stringify($node['webhook'].json.body.session_id) }},\n  \"dataset_id\": {{ json_stringify($node['webhook'].json.body.dataset_id) }},\n  \"intent_classes\": {{ json_stringify($node['webhook'].json.body.intent_classes) }},\n  \"prompt_system\": {{ json_stringify($node['promptWriter'].json.response or '') }},\n  \"prompt_user_template\": {{ json_stringify($node['webhook'].json.body.prompt_user_template) }},\n  \"strategy\": {{ json_stringify($node['decideAgent'].json.structured.strategy or 'baseline') }},\n  \"stage\": {{ json_stringify($node['decideAgent'].json.structured.entry_stage or 'smoke') }},\n  \"max_cost_usd\": {{ $node['webhook'].json.body.max_cost_usd or 1.0 }},\n  \"config\": { \"model\": {{ json_stringify($node['webhook'].json.body.model or 'gemini-2.5-flash') }} }\n}",
+        "method": "POST",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "responseType": "json"
+      },
+      "position": {
+        "x": 1540,
+        "y": 280
+      },
+      "continue_on_fail": false,
+      "retry_on_fail": 0,
+      "retry_delay": 1000
+    },
+    {
+      "name": "stopCheck",
+      "type": "If",
+      "label": "stopCheck",
+      "parameters": {
+        "condition": "{{ ($node['decideAgent'].json.structured.action == 'stop') or (($node['evalCall'].json.body.budget_spent_usd or 0) >= ($node['webhook'].json.body.max_cost_usd or 1e9)) }}"
+      },
+      "position": {
+        "x": 1780,
+        "y": 280
+      },
+      "continue_on_fail": false,
+      "retry_on_fail": 0,
+      "retry_delay": 1000
+    },
+    {
+      "name": "fetchAllRuns",
+      "type": "MongoDB",
+      "label": "fetchAllRuns",
+      "parameters": {
+        "skip": 0,
+        "sort": "{\"created_at\": 1}",
+        "limit": 50,
+        "filter": "{\"session_id\": \"{{ $node['webhook'].json.body.session_id }}\"}",
+        "database": "promptlab",
+        "operation": "find",
+        "collection": "prompt_runs",
+        "projection": "{\"response.failures_sample\": 0, \"response.per_row\": 0}",
+        "connectionString": "{{ $env.WORKFLOW_MONGO_URL or 'mongodb://admin:admin@localhost:27017' }}"
+      },
+      "position": {
+        "x": 2500,
+        "y": 700
+      },
+      "continue_on_fail": false,
+      "retry_on_fail": 0,
+      "retry_delay": 1000
+    },
+    {
+      "name": "summarize",
+      "type": "LLMChat",
+      "label": "summarize",
+      "parameters": {
+        "model": "gemini-2.5-flash",
+        "maxTokens": 2048,
+        "temperature": 0.2,
+        "userMessage": "SESSION ID: {{ $node['webhook'].json.body.session_id }}\nINTENT CLASSES: {{ json_stringify($node['webhook'].json.body.intent_classes) }}\nBUDGET CAP: ${{ $node['webhook'].json.body.max_cost_usd or 1.0 }}\n\nALL RUNS (oldest first):\n{{ json_stringify($node['fetchAllRuns'].json.documents or []) }}",
+        "systemPrompt": "You are a prompt-optimizer reporter. You receive the full trajectory of prompt-rewrite iterations from one optimization session and write a concise, demo-friendly summary in markdown.\n\nStructure your response as:\n\n## Verdict\nOne line: improved / no change / regressed, with the macro_f1 delta (baseline -> winner).\n\n## Summary\n- Baseline macro_f1, winner macro_f1, delta\n- Iterations used, total cost (USD), budget remaining\n- Dataset rows evaluated\n\n## Iteration trajectory\nBullet list: `iter N: <strategy summary> -> macro_f1 = X.XX (delta +/-Y.YY)`\n\n## Winning prompt\nShow the full prompt_system text of the highest-macro_f1 run in a fenced code block.\n\n## Remaining weaknesses\nTop 3 confusion pairs in the winner's failure_summary, with counts.\n\n## Caveats\nCall out: dataset size < 100 rows ('suggestive, not significant'), single-split data ('no held-out test'), budget nearly exhausted, agent stopped early, any iteration with `cached=true` (no new evaluation actually ran), or repeated identical prompt_hashes.\n\nBe honest. If macro_f1 didn't move or regressed, say so plainly. Don't pad."
+      },
+      "position": {
+        "x": 2020,
+        "y": 460
+      },
+      "continue_on_fail": false,
+      "retry_on_fail": 0,
+      "retry_delay": 1000
+    }
+  ],
+  "connections": [
+    {
+      "source_node": "webhook",
+      "source_output": "main",
+      "target_node": "mainLoop",
+      "target_input": "main"
+    },
+    {
+      "source_node": "mainLoop",
+      "source_output": "loop",
+      "target_node": "sessionStateQuery",
+      "target_input": "main"
+    },
+    {
+      "source_node": "sessionStateQuery",
+      "source_output": "main",
+      "target_node": "trendQuery",
+      "target_input": "main"
+    },
+    {
+      "source_node": "trendQuery",
+      "source_output": "main",
+      "target_node": "decideAgent",
+      "target_input": "main"
+    },
+    {
+      "source_node": "decideAgent",
+      "source_output": "main",
+      "target_node": "promptWriter",
+      "target_input": "main"
+    },
+    {
+      "source_node": "promptWriter",
+      "source_output": "main",
+      "target_node": "evalCall",
+      "target_input": "main"
+    },
+    {
+      "source_node": "evalCall",
+      "source_output": "main",
+      "target_node": "stopCheck",
+      "target_input": "main"
+    },
+    {
+      "source_node": "stopCheck",
+      "source_output": "true",
+      "target_node": "fetchAllRuns",
+      "target_input": "main"
+    },
+    {
+      "source_node": "stopCheck",
+      "source_output": "false",
+      "target_node": "mainLoop",
+      "target_input": "main"
+    },
+    {
+      "source_node": "mainLoop",
+      "source_output": "done",
+      "target_node": "fetchAllRuns",
+      "target_input": "main"
+    },
+    {
+      "source_node": "fetchAllRuns",
+      "source_output": "main",
+      "target_node": "summarize",
+      "target_input": "main"
+    }
+  ]
+}

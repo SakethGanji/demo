@@ -1,0 +1,464 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --background: #ffffff;
+  --foreground: #1e1e1e;
+  --card: #ffffff;
+  --card-foreground: #1e1e1e;
+  --popover: #ffffff;
+  --popover-foreground: #1e1e1e;
+  --primary: #18a0fb;
+  --primary-foreground: #ffffff;
+  --secondary: #f1f3f5;
+  --secondary-foreground: #1e1e1e;
+  --muted: #f1f3f5;
+  --muted-foreground: #868e96;
+  --accent: #f1f3f5;
+  --accent-foreground: #1e1e1e;
+  --destructive: #f24822;
+  --destructive-foreground: #ffffff;
+  --border: #dee2e6;
+  --input: #ced4da;
+  --ring: #18a0fb;
+  --surface: #f1f3f5;
+  --success: #14ae5c;
+  --warning: #c4841d;
+  --chart-1: #18a0fb;
+  --chart-2: #7b61ff;
+  --chart-3: #14ae5c;
+  --chart-4: #f24822;
+  --chart-5: #c4841d;
+  --sidebar: #f1f3f5;
+  --sidebar-foreground: #343a40;
+  --sidebar-primary: #18a0fb;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e9ecef;
+  --sidebar-accent-foreground: #343a40;
+  --sidebar-border: #dee2e6;
+  --sidebar-ring: #18a0fb;
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-serif: Georgia, serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 0.5rem;
+  --shadow-2xs: 0 1px 2px 0 rgb(0 0 0 / 0.03);
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.04), 0 1px 4px 0 rgb(0 0 0 / 0.02);
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.03), 0 2px 6px 0 rgb(0 0 0 / 0.04), 0 0 1px 0 rgb(0 0 0 / 0.04);
+  --shadow: 0 1px 2px 0 rgb(0 0 0 / 0.03), 0 2px 6px 0 rgb(0 0 0 / 0.04), 0 0 1px 0 rgb(0 0 0 / 0.04);
+  --shadow-md: 0 2px 4px 0 rgb(0 0 0 / 0.02), 0 4px 12px -2px rgb(0 0 0 / 0.06), 0 0 1px 0 rgb(0 0 0 / 0.04);
+  --shadow-lg: 0 2px 4px 0 rgb(0 0 0 / 0.02), 0 8px 24px -4px rgb(0 0 0 / 0.08), 0 0 1px 0 rgb(0 0 0 / 0.04);
+  --shadow-xl: 0 4px 8px 0 rgb(0 0 0 / 0.02), 0 16px 40px -8px rgb(0 0 0 / 0.1), 0 0 1px 0 rgb(0 0 0 / 0.04);
+  --shadow-2xl: 0 8px 16px 0 rgb(0 0 0 / 0.03), 0 24px 56px -12px rgb(0 0 0 / 0.14), 0 0 1px 0 rgb(0 0 0 / 0.04);
+  --tracking-normal: 0em;
+  --spacing: 0.25rem;
+
+  /* Data-visualisation palette.
+   *
+   * Separate from --chart-1..5 (which are brand accents chosen for the canvas)
+   * because these carry *data* and have to survive colour-vision deficiency.
+   * The slot ORDER is the safety mechanism, not decoration: it was validated
+   * pairwise so adjacent series stay separable. Assign in fixed order, never
+   * cycle, and never invent a 9th — fold the tail into "Other" instead.
+   *
+   * Validated against this app's real chart surfaces (light #f9fafb, dark
+   * #141414): worst adjacent CVD dE 9.1 light / 8.4 dark, normal-vision 19.6 /
+   * 19.3. Three light slots sit under 3:1 contrast, so every chart using them
+   * ships a visible label beside the mark — that is the agreed relief, not an
+   * oversight.
+   *
+   * Slot 6 is held deliberately off --viz-good #0ca30c: a green here would sit
+   * on the reserved status hue (both were once hue 142/143, dE 9.7 apart). It
+   * is now a yellow-green at hue 114 — 7.08:1 on #f9fafb, dE 21.6 from
+   * --viz-good. The green band belongs to status, not to a series. */
+  --viz-1: #2a78d6;
+  --viz-2: #eb6834;
+  --viz-3: #1baf7a;
+  --viz-4: #eda100;
+  --viz-5: #e87ba4;
+  --viz-6: #545a00;
+  --viz-7: #4a3aa7;
+  --viz-8: #e34948;
+
+  /* Status is reserved — never reuse one of these as "series 5". Always paired
+   * with an icon or a word, so state never rides on colour alone. */
+  --viz-good: #0ca30c;
+  --viz-warning: #fab219;
+  --viz-serious: #ec835a;
+  --viz-critical: #d03b3b;
+
+  /* Node colors */
+  --node-bg: var(--surface);
+  --node-trigger: #e8264d;
+  --node-trigger-border: #ffb3c1;
+  --node-trigger-icon-bg: #ffffff;
+  --node-trigger-icon-fg: #c9183d;
+  --node-transform: #0a6fdb;
+  --node-transform-border: #a3d0ff;
+  --node-transform-icon-bg: #ffffff;
+  --node-transform-icon-fg: #0055aa;
+  --node-flow: #9b40e0;
+  --node-flow-border: #d4a8ff;
+  --node-flow-icon-bg: #ffffff;
+  --node-flow-icon-fg: #7a2abf;
+  --node-ai: #1aabe0;
+  --node-ai-border: #a0e0f8;
+  --node-ai-icon-bg: #ffffff;
+  --node-ai-icon-fg: #0f8abf;
+  --node-action: #1aad45;
+  --node-action-border: #86efac;
+  --node-action-icon-bg: #ffffff;
+  --node-action-icon-fg: #128a35;
+  --node-output: #e08a00;
+  --node-output-border: #ffd580;
+  --node-output-icon-bg: #ffffff;
+  --node-output-icon-fg: #b36e00;
+  --node-handle: #9ca3af;
+
+  /* Sticky note colors */
+  --sticky-yellow-bg: #fef9c3;
+  --sticky-yellow-border: #fde047;
+  --sticky-yellow-text: #713f12;
+  --sticky-yellow-resizer: #ca8a04;
+  --sticky-blue-bg: #dbeafe;
+  --sticky-blue-border: #93c5fd;
+  --sticky-blue-text: #1e3a5f;
+  --sticky-blue-resizer: #2563eb;
+  --sticky-green-bg: #dcfce7;
+  --sticky-green-border: #86efac;
+  --sticky-green-text: #14532d;
+  --sticky-green-resizer: #16a34a;
+  --sticky-pink-bg: #fce7f3;
+  --sticky-pink-border: #f9a8d4;
+  --sticky-pink-text: #831843;
+  --sticky-pink-resizer: #db2777;
+  --sticky-purple-bg: #f3e8ff;
+  --sticky-purple-border: #c4b5fd;
+  --sticky-purple-text: #3b0764;
+  --sticky-purple-resizer: #9333ea;
+}
+
+.dark {
+  --background: #111111;
+  --foreground: #e5e5e5;
+  --card: #1c1c1c;
+  --card-foreground: #e5e5e5;
+  --popover: #1c1c1c;
+  --popover-foreground: #e5e5e5;
+  --primary: #18a0fb;
+  --primary-foreground: #ffffff;
+  --secondary: #262626;
+  --secondary-foreground: #e5e5e5;
+  --muted: #222222;
+  --muted-foreground: #999999;
+  --accent: #262626;
+  --accent-foreground: #e5e5e5;
+  --destructive: #f24822;
+  --destructive-foreground: #ffffff;
+  --border: #2a2a2a;
+  --input: #2a2a2a;
+  --ring: #18a0fb;
+  --surface: #1a1a1a;
+  --success: #14ae5c;
+  --warning: #d4a053;
+  --chart-1: #18a0fb;
+  --chart-2: #a78bfa;
+  --chart-3: #14ae5c;
+  --chart-4: #f24822;
+  --chart-5: #d4a053;
+  --sidebar: #1c1c1c;
+  --sidebar-foreground: #e5e5e5;
+  --sidebar-primary: #18a0fb;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #262626;
+  --sidebar-accent-foreground: #e5e5e5;
+  --sidebar-border: #2a2a2a;
+  --sidebar-ring: #18a0fb;
+  --shadow-2xs: 0 1px 2px 0 rgb(0 0 0 / 0.08);
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.1), 0 1px 4px 0 rgb(0 0 0 / 0.06);
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.08), 0 2px 8px 0 rgb(0 0 0 / 0.1), 0 0 1px 0 rgb(0 0 0 / 0.12);
+  --shadow: 0 1px 2px 0 rgb(0 0 0 / 0.08), 0 2px 8px 0 rgb(0 0 0 / 0.1), 0 0 1px 0 rgb(0 0 0 / 0.12);
+  --shadow-md: 0 2px 4px 0 rgb(0 0 0 / 0.06), 0 4px 16px -2px rgb(0 0 0 / 0.14), 0 0 1px 0 rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 2px 4px 0 rgb(0 0 0 / 0.06), 0 8px 28px -4px rgb(0 0 0 / 0.18), 0 0 1px 0 rgb(0 0 0 / 0.1);
+  --shadow-xl: 0 4px 8px 0 rgb(0 0 0 / 0.06), 0 16px 44px -8px rgb(0 0 0 / 0.22), 0 0 1px 0 rgb(0 0 0 / 0.1);
+  --shadow-2xl: 0 8px 16px 0 rgb(0 0 0 / 0.08), 0 24px 60px -12px rgb(0 0 0 / 0.3), 0 0 1px 0 rgb(0 0 0 / 0.1);
+
+  /* Data-visualisation palette — dark mode.
+   *
+   * The SAME eight hues, re-stepped for the dark surface — not a flipped or
+   * auto-derived palette. Each step was chosen to sit in the dark lightness
+   * band and clear 3:1 against #141414, then validated as a set. All eight
+   * pass contrast here, so the light mode's label-relief rule is a light-mode
+   * concern only; keep the labels anyway, for one behaviour in both themes.
+   *
+   * Slot 6 really is re-stepped now. It used to be #008300 in BOTH blocks —
+   * copied, never re-derived — which left it at 3.73:1 here (the weakest slot)
+   * and only dE 9.7 from the reserved --viz-good #0ca30c, same hue to within
+   * 1 degree. It is now #747c04: hue 114 like its light counterpart, but a
+   * lighter step for this surface — 4.06:1 on #141414, dE 12.9 from
+   * --viz-good. Adjacent separation vs --viz-5 / --viz-7 is dE 11.4 / 12.0,
+   * both clear of the 8.4 floor, so the worst adjacent pair in this palette is
+   * still #c98500 / #199e70 and the headline numbers above are unchanged. */
+  --viz-1: #3987e5;
+  --viz-2: #d95926;
+  --viz-3: #199e70;
+  --viz-4: #c98500;
+  --viz-5: #d55181;
+  --viz-6: #747c04;
+  --viz-7: #9085e9;
+  --viz-8: #e66767;
+
+  /* Status steps are mode-invariant: all four already clear 3:1 on dark. */
+  --viz-good: #0ca30c;
+  --viz-warning: #fab219;
+  --viz-serious: #ec835a;
+  --viz-critical: #d03b3b;
+
+  /* Node colors — dark mode */
+  --node-bg: var(--surface);
+  --node-trigger: #ff2d55;
+  --node-trigger-border: #3d1a28;
+  --node-trigger-icon-bg: #d41a45;
+  --node-trigger-icon-fg: #ffffff;
+  --node-transform: #0a84ff;
+  --node-transform-border: #1a2d4a;
+  --node-transform-icon-bg: #0066cc;
+  --node-transform-icon-fg: #ffffff;
+  --node-flow: #bf5af2;
+  --node-flow-border: #2d1a4a;
+  --node-flow-icon-bg: #9935d6;
+  --node-flow-icon-fg: #ffffff;
+  --node-ai: #64d2ff;
+  --node-ai-border: #1a3040;
+  --node-ai-icon-bg: #40a8d4;
+  --node-ai-icon-fg: #ffffff;
+  --node-action: #30d158;
+  --node-action-border: #1a3d22;
+  --node-action-icon-bg: #24a643;
+  --node-action-icon-fg: #ffffff;
+  --node-output: #ff9f0a;
+  --node-output-border: #3d2d1a;
+  --node-output-icon-bg: #cc7e08;
+  --node-output-icon-fg: #ffffff;
+  --node-handle: #666666;
+
+  /* Sticky note colors — dark mode */
+  --sticky-yellow-bg: #422006;
+  --sticky-yellow-border: #854d0e;
+  --sticky-yellow-text: #fef9c3;
+  --sticky-yellow-resizer: #eab308;
+  --sticky-blue-bg: #1e3a5f;
+  --sticky-blue-border: #1d4ed8;
+  --sticky-blue-text: #dbeafe;
+  --sticky-blue-resizer: #3b82f6;
+  --sticky-green-bg: #14532d;
+  --sticky-green-border: #15803d;
+  --sticky-green-text: #dcfce7;
+  --sticky-green-resizer: #22c55e;
+  --sticky-pink-bg: #831843;
+  --sticky-pink-border: #be185d;
+  --sticky-pink-text: #fce7f3;
+  --sticky-pink-resizer: #ec4899;
+  --sticky-purple-bg: #3b0764;
+  --sticky-purple-border: #7e22ce;
+  --sticky-purple-text: #f3e8ff;
+  --sticky-purple-resizer: #a855f7;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --font-serif: var(--font-serif);
+
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --shadow-2xs: var(--shadow-2xs);
+  --shadow-xs: var(--shadow-xs);
+  --shadow-sm: var(--shadow-sm);
+  --shadow: var(--shadow);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-xl: var(--shadow-xl);
+  --shadow-2xl: var(--shadow-2xl);
+
+  --tracking-tighter: calc(var(--tracking-normal) - 0.05em);
+  --tracking-tight: calc(var(--tracking-normal) - 0.025em);
+  --tracking-normal: var(--tracking-normal);
+  --tracking-wide: calc(var(--tracking-normal) + 0.025em);
+  --tracking-wider: calc(var(--tracking-normal) + 0.05em);
+  --tracking-widest: calc(var(--tracking-normal) + 0.1em);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply text-foreground antialiased;
+    background-color: var(--background);
+    letter-spacing: var(--tracking-normal);
+    min-height: 100vh;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-size: 13px;
+  }
+
+  input, textarea, select {
+    color: var(--foreground);
+  }
+
+  html, body, #root {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  ::selection {
+    background-color: color-mix(in srgb, var(--primary) 20%, transparent);
+    color: inherit;
+  }
+
+  /* Scrollbars */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--foreground) 12%, transparent); border-radius: 3px; transition: background 0.2s; }
+  ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--foreground) 22%, transparent); }
+  * { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--foreground) 12%, transparent) transparent; }
+
+  /* Micro-interactions */
+  button:not(:disabled):active, [role="button"]:not(:disabled):active { transform: scale(0.98); }
+  input[type="checkbox"] { accent-color: var(--primary); border-radius: 3px; }
+  input[type="radio"] { accent-color: var(--primary); }
+  input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type="number"] { -moz-appearance: textfield; }
+  textarea { font-family: var(--font-sans); font-size: 13px; }
+  select { font-family: var(--font-sans); font-size: 13px; cursor: pointer; }
+  code:not(pre code) { font-family: var(--font-mono); font-size: 0.9em; }
+  kbd { font-family: var(--font-sans); font-weight: 500; }
+  *:focus-visible { transition: box-shadow 0.15s ease, border-color 0.15s ease; }
+  ::placeholder { color: var(--muted-foreground); opacity: 0.6; }
+}
+
+/* ── Global transitions ── */
+button, a, input, select, textarea, [role="button"] {
+  transition-property: color, background-color, border-color, box-shadow, opacity, transform;
+  transition-duration: 0.15s;
+  transition-timing-function: ease;
+}
+
+/* ── Panel resize handles ── */
+[data-panel-resize-handle-id] { transition: background-color 0.15s ease; }
+[data-panel-resize-handle-id]:hover { background-color: var(--primary) !important; opacity: 0.5; }
+[data-panel-resize-handle-id]:active, [data-panel-resize-handle-id][data-resize-handle-active] { background-color: var(--primary) !important; opacity: 1; }
+
+/* NDV resize handle hit area */
+[data-slot="dialog-content"] [data-panel-resize-handle-id] { position: relative; }
+[data-slot="dialog-content"] [data-panel-resize-handle-id]::before { content: ''; position: absolute; inset: 0 -3px; cursor: col-resize; }
+
+/* ── React Flow overrides ── */
+.react-flow__node { cursor: pointer; }
+.react-flow__node.react-flow__node-addNodes { cursor: default; }
+.react-flow__node .nodrag { cursor: pointer; }
+.react-flow__node.selected { outline: none !important; }
+.react-flow__node-addNodes { pointer-events: all !important; }
+
+.react-flow__selection {
+  background: color-mix(in srgb, var(--primary) 8%, transparent) !important;
+  border: 1px dashed color-mix(in srgb, var(--primary) 40%, transparent) !important;
+  border-radius: var(--radius);
+}
+
+.react-flow__controls {
+  box-shadow: var(--shadow-md) !important;
+  border-radius: var(--radius-lg) !important;
+  border: 1px solid var(--border) !important;
+  overflow: hidden;
+}
+.react-flow__controls-button {
+  background-color: var(--card) !important;
+  color: var(--foreground) !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+.react-flow__controls-button:hover { background-color: var(--muted) !important; }
+.react-flow__controls-button svg { fill: currentColor !important; }
+
+.react-flow__minimap {
+  box-shadow: var(--shadow-md) !important;
+  border-radius: var(--radius-lg) !important;
+  border: 1px solid var(--border) !important;
+  overflow: hidden;
+}
+
+/* ── Animations ── */
+@keyframes badge-pop {
+  0% { transform: scale(0); opacity: 0; }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); opacity: 1; }
+}
+.animate-badge-pop { animation: badge-pop 0.3s ease-out forwards; }
+
+@keyframes flowAnimation {
+  from { stroke-dashoffset: 24; }
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes node-running-ring {
+  0%, 100% { box-shadow: 0 0 0 2px var(--ring-color); opacity: 0.35; }
+  50% { box-shadow: 0 0 0 4px var(--ring-color); opacity: 0.7; }
+}
+
+@keyframes node-success-ring {
+  0% { box-shadow: 0 0 0 0 var(--success); opacity: 0.6; }
+  100% { box-shadow: 0 0 0 8px var(--success); opacity: 0; }
+}
+
+@keyframes node-error-ring {
+  0% { box-shadow: 0 0 0 0 var(--destructive); opacity: 0.5; }
+  50% { box-shadow: 0 0 0 3px var(--destructive); opacity: 0.3; }
+  100% { box-shadow: 0 0 0 0 var(--destructive); opacity: 0; }
+}
+
+.node-exec-idle { opacity: 0.4; transition: opacity 0.4s ease; }

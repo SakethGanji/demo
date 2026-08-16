@@ -1,0 +1,787 @@
+<!--
+  DESIGN NOTES — "INSTRUMENT" turned on the design itself: a shape-conformance bench.
+  The cockpit was drawn once, against one 9-column fixture. This screen renders the HARDEST shape for real
+  (241 all-numeric columns, 1.2M rows) so the layout consequences are measured, not described, and puts the
+  other six shapes in a conformance matrix beside it. Carried over unchanged: the graphite ramp (hue ~218),
+  cyan spent only on SCOPE + LIVENESS (route / shape S1 / viewport window / LIVE = 4), rules only at the
+  workspace-band seam and inside the heterogeneous matrix, sentence-case heads, numbers over recessive
+  eyebrows, SVG grain + vignette + inset highlights + recessed wells, five status SHAPES, severity typographic.
+  Two findings the bench forced: --viz-6 #008300 measures 3.70:1 on --s2 and can never carry text, so the
+  palette is 7 usable slots, not 8 — and every fold legend labels in graphite beside a swatch, never in hue.
+  Where the current design breaks, the guard rail states the break and the surface beside it renders the fix.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Command Studio — Shape conformance · Instrument</title>
+<style>
+  :root {
+    --s0:#080A0E;  --s1:#0D1015;  --s2:#11151B;  --s3:#161B22;
+    --s4:#1C222B;  --s5:#242C37;  --s6:#38424F;  --key:#E9EEF5;
+    --t1:#E7ECF3;  --t2:#B0BAC8;  --t3:#85909F;  --t4:#5C6675;
+    --r1:rgba(255,255,255,.042); --r2:rgba(255,255,255,.075); --r3:rgba(255,255,255,.13);
+    --hi:inset 0 1px 0 rgba(255,255,255,.045);
+    --sig:#46D5E8; --sig-dim:rgba(70,213,232,.14); --sig-line:rgba(70,213,232,.40);
+    --st-good:#0ca30c; --st-warn:#fab219; --st-serious:#ec835a; --st-crit:#DC5050;
+    --m1:#CBD3DF; --m2:#A2ACBB; --m3:#7D8797; --m4:#5F6979; --m5:#48515F; --m6:#39414D;
+    --viz-1:#3987e5; --viz-2:#d95926; --viz-3:#199e70; --viz-4:#c98500;
+    --viz-5:#d55181; --viz-6:#008300; --viz-7:#9085e9; --viz-8:#e66767;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { height:100%; overflow:hidden; }
+  html { font-size:13px; }
+  body {
+    font-family:var(--sans); color:var(--t2); font-size:12.5px;
+    background:radial-gradient(1180px 560px at 44% -12%, #151B24 0%, rgba(21,27,36,0) 62%), var(--s1);
+    -webkit-font-smoothing:antialiased; line-height:1.4; letter-spacing:-0.004em;
+    display:flex; flex-direction:column;
+  }
+  body::after {
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:200; opacity:.055; mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .mono { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  ::selection { background:rgba(70,213,232,.26); color:#fff; }
+  :focus-visible { outline:none; box-shadow:0 0 0 1px var(--s0), 0 0 0 3px rgba(70,213,232,.45); border-radius:6px; }
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb { background:#232B35; border-radius:8px; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background:#303945; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-track { background:transparent; }
+
+  /* ===== STATUS: five states, five SHAPES, always beside a word ===== */
+  .g { width:8px; height:8px; flex:none; display:inline-block; vertical-align:-1px; }
+  .g.good    { border-radius:50%; background:var(--st-good); }
+  .g.warn    { width:0; height:0; border-left:4.5px solid transparent; border-right:4.5px solid transparent;
+               border-bottom:8px solid var(--st-warn); vertical-align:0; }
+  .g.serious { width:7px; height:7px; background:var(--st-serious); border-radius:1px; transform:rotate(45deg); margin:0 1px; }
+  .g.crit    { background:var(--st-crit); border-radius:1px; }
+  .g.unknown { border-radius:50%; background:transparent; box-shadow:inset 0 0 0 1.5px var(--t3); }
+  .w-good{color:var(--st-good)} .w-warn{color:var(--st-warn)} .w-serious{color:var(--st-serious)}
+  .w-crit{color:var(--st-crit)} .w-unknown{color:var(--t3)}
+  .stw { display:inline-flex; align-items:center; gap:6px; font-size:10.5px; font-weight:500; white-space:nowrap; }
+
+  /* ===== TOPBAR ===== */
+  header.topbar {
+    height:46px; flex:none; display:flex; align-items:center; gap:16px; padding:0 16px;
+    background:linear-gradient(180deg,#141922,#10141A); box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); z-index:30;
+  }
+  .brand { display:flex; align-items:center; gap:10px; }
+  .brand .glyph { width:21px; height:21px; border-radius:5px; background:linear-gradient(180deg,#2C3542,#191F28);
+    display:grid; place-items:center; box-shadow:var(--hi), 0 1px 2px rgba(0,0,0,.5); color:var(--t1); }
+  .brand .name { font-size:12.5px; font-weight:600; color:var(--t1); letter-spacing:-0.012em; white-space:nowrap; }
+  .env-chip { font-family:var(--mono); font-size:10px; color:var(--t3); display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+  .env-chip .lamp { width:5px; height:5px; border-radius:50%; background:var(--st-warn); flex:none; }
+  nav.gnav { display:flex; align-items:center; gap:4px; }
+  nav.gnav a { font-size:12.5px; font-weight:450; color:var(--t3); text-decoration:none; height:30px; padding:0 10px;
+    border-radius:7px; position:relative; display:inline-flex; align-items:center; }
+  nav.gnav a:hover { color:var(--t1); background:rgba(255,255,255,.035); }
+  /* SIGNAL 1/4 — the active route */
+  nav.gnav a.active { color:var(--t1); font-weight:550; }
+  nav.gnav a.active::after { content:""; position:absolute; left:10px; right:10px; bottom:-9px; height:2px;
+    background:var(--sig); border-radius:2px 2px 0 0; box-shadow:0 0 12px -1px var(--sig); }
+  .cmdk { margin-left:auto; display:flex; align-items:center; gap:9px; width:262px; height:30px; padding:0 10px;
+    border-radius:8px; cursor:text; color:var(--t3); background:var(--s0);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); }
+  .cmdk svg { flex:none; opacity:.55; }
+  .cmdk .ph { font-size:12px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .kbd { font-family:var(--mono); font-size:10px; font-weight:500; color:var(--t2);
+    background:linear-gradient(180deg,#232A34,#1A2028); border-radius:4px; padding:1.5px 5px; line-height:1.4;
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); white-space:nowrap; }
+  .iconbtn { width:30px; height:30px; border-radius:7px; border:0; background:transparent; color:var(--t3);
+    display:grid; place-items:center; cursor:pointer; }
+  .iconbtn:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  .teamsw { display:flex; align-items:center; gap:7px; height:28px; padding:0 10px; border-radius:7px; flex:none;
+    background:var(--s4); box-shadow:var(--hi); font-size:12px; font-weight:450; color:var(--t1); cursor:pointer; white-space:nowrap; }
+  .teamsw .tk { font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--t3); font-weight:500; }
+  .avatar { width:27px; height:27px; border-radius:7px; background:linear-gradient(180deg,#2A323D,#1D242D);
+    display:grid; place-items:center; font-size:10px; font-weight:600; color:var(--t2); cursor:pointer; box-shadow:var(--hi); flex:none; }
+
+  /* ===== DATASET HEAD ===== */
+  .dshead { height:56px; flex:none; display:flex; align-items:center; gap:14px; padding:0 16px;
+    background:linear-gradient(180deg,#131820,#10141B); box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.45); }
+  .dshead .hgroup { min-width:0; flex:1; }
+  .dshead .title { font-size:15px; font-weight:600; color:var(--t1); letter-spacing:-0.02em;
+    display:flex; align-items:center; gap:9px; white-space:nowrap; }
+  .facts { display:flex; align-items:center; gap:9px; margin-top:5px; font-size:10.5px; color:var(--t3);
+    white-space:nowrap; min-width:0; }
+  .facts .sep { color:var(--t4); }
+  .facts .apath { font-family:var(--mono); overflow:hidden; text-overflow:ellipsis; min-width:40px; flex:0 1 auto; }
+  .facts b { color:var(--t2); font-weight:500; }
+  .attn { display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:500; color:var(--st-crit); }
+  .lbl-only { font-size:11px; color:var(--t3); border-bottom:1px dashed var(--r2); padding-bottom:2px; cursor:help; }
+  /* SIGNAL 2/4 — the shape this whole screen is scoped to (1 of 7) */
+  .scope { display:inline-flex; align-items:center; gap:5px; font-family:var(--mono); font-size:10.5px; color:var(--t2);
+    cursor:pointer; height:24px; padding:0 6px; border-radius:5px; }
+  .scope:hover { background:rgba(255,255,255,.05); }
+  .scope .tick { width:5px; height:5px; border-radius:50%; background:var(--sig); flex:none; box-shadow:0 0 8px -1px var(--sig); }
+  .scope b { color:var(--t1); font-weight:600; }
+
+  .toolbar { display:flex; align-items:center; gap:6px; flex:none; }
+  .tbtn { height:28px; padding:0 10px; font-size:12px; font-weight:450; color:var(--t2); background:transparent;
+    border:0; border-radius:7px; cursor:pointer; font-family:inherit; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+  .tbtn:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  .tbtn.ghost { box-shadow:inset 0 0 0 1px var(--r2); }
+  .tbtn.primary { background:linear-gradient(180deg,#FBFDFF,var(--key)); color:#0B0E13; font-weight:600; padding:0 11px;
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset, 0 2px 8px -3px rgba(0,0,0,.9), 0 0 0 1px rgba(0,0,0,.35); }
+  .tbtn .k { font-size:10px; color:var(--t3); font-family:var(--mono); }
+  .tbtn.primary .k { color:#4A5462; }
+  .tbtn.sm { height:26px; padding:0 9px; font-size:11.5px; border-radius:6px; }
+
+  /* ===== LENS BAR — the seven shapes ===== */
+  .lensbar { height:32px; flex:none; display:flex; align-items:center; gap:1px; padding:0 14px;
+    background:rgba(0,0,0,.2); box-shadow:inset 0 1px 0 var(--r1), inset 0 -1px 0 var(--r1); }
+  .ltab { font-size:11.5px; font-weight:450; color:var(--t3); padding:0 8px; height:24px; cursor:pointer;
+    position:relative; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+  .ltab:hover { color:var(--t1); }
+  .ltab.on { color:var(--t1); font-weight:550; }
+  .ltab.on::after { content:""; position:absolute; left:8px; right:8px; bottom:1px; height:1.5px; background:var(--t1); border-radius:2px; }
+  .lensbar .right { margin-left:auto; display:flex; align-items:center; gap:14px; font-family:var(--mono);
+    font-size:10px; color:var(--t3); white-space:nowrap; }
+  .lensbar .right b { color:var(--t2); font-weight:600; }
+
+  /* ===== KPI STRIP ===== */
+  .kpistrip { height:64px; flex:none; display:flex; align-items:center; padding:0 18px;
+    background:linear-gradient(180deg,var(--s3),#12171E);
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.55), 0 10px 24px -20px rgba(0,0,0,.9); }
+  .kpi { display:flex; flex-direction:column; justify-content:center; gap:1px; padding-right:24px; }
+  .kpi .lab { font-size:9.5px; font-weight:500; letter-spacing:.11em; text-transform:uppercase; color:var(--t3); white-space:nowrap; }
+  .kpi .row { display:flex; align-items:baseline; gap:8px; }
+  .kpi .val { font-size:26px; font-weight:600; line-height:1.05; color:var(--t1); letter-spacing:-0.032em; font-variant-numeric:tabular-nums; }
+  .kpi .note { font-size:10.5px; color:var(--t3); white-space:nowrap; }
+  .kpi.gate .val { color:var(--st-crit); }
+  .kpi.gate .note { color:var(--st-crit); display:inline-flex; align-items:center; gap:5px; }
+  .kdiv { width:1px; height:24px; background:var(--r3); margin:0 24px 0 0; flex:none; }
+  .kclock { margin-left:auto; display:flex; align-items:center; gap:8px; padding-left:18px; font-family:var(--mono);
+    font-size:10.5px; color:var(--t3); white-space:nowrap; text-align:right; }
+  .kclock .tick { width:1px; height:9px; background:var(--t4); flex:none; }
+
+  /* ===== SHELL ===== */
+  .workspace { flex:1; min-height:0; display:grid; grid-template-columns:286px 1fr 372px; }
+  .col { display:flex; flex-direction:column; min-width:0; min-height:0; }
+  .col.rail { background:var(--s2); box-shadow:1px 0 0 rgba(0,0,0,.45); z-index:2; }
+  .col.dock { background:var(--s2); box-shadow:-1px 0 0 rgba(0,0,0,.45); z-index:2; }
+  .colhead { height:30px; flex:none; display:flex; align-items:center; gap:9px; padding:0 13px; }
+  .colhead .t { font-size:12.5px; font-weight:600; color:var(--t1); letter-spacing:-0.012em; white-space:nowrap; }
+  .colhead .ct { font-family:var(--mono); font-size:10px; color:var(--t3); white-space:nowrap; }
+  .colhead .spacer { margin-left:auto; }
+  .cbody { flex:1; overflow-y:auto; overflow-x:hidden; min-height:0; }
+  .sh { font-size:11.5px; font-weight:550; color:var(--t2); letter-spacing:-0.008em; display:flex;
+    align-items:center; gap:9px; flex-wrap:wrap; }
+  .sh .ct { font-family:var(--mono); font-size:10px; color:var(--t3); font-weight:400; }
+  .sh .line { flex:1; height:1px; background:var(--r1); min-width:10px; }
+  .fn { font-size:9.5px; color:var(--t3); line-height:1.45; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .fn .k { font-family:var(--mono); }
+  .fn a, .lnk { color:var(--t2); text-decoration:underline; text-decoration-color:var(--r3);
+    text-decoration-thickness:1px; text-underline-offset:3px; padding:6px 3px; margin:-6px -3px; white-space:nowrap; }
+  .note { display:flex; gap:9px; font-size:10.5px; line-height:1.5; color:var(--t3); padding-left:10px;
+    box-shadow:inset 2px 0 0 var(--r2); }
+  .note b { color:var(--t1); font-weight:600; }
+  .note .mono { color:var(--t2); }
+
+  /* the break/fix pair: a left-ruled indent, never a nested box */
+  .brk { display:flex; gap:8px; font-size:9.5px; line-height:1.5; color:var(--t3);
+    padding-left:9px; box-shadow:inset 2px 0 0 rgba(220,80,80,.5); }
+  .brk .fg { flex:none; color:var(--st-crit); font-size:9px; }
+  .brk b { color:var(--t2); font-weight:600; }
+  .brk.w { box-shadow:inset 2px 0 0 rgba(250,178,25,.5); }
+  .brk.w .fg { color:var(--st-warn); }
+  .brk .tag { font-family:var(--mono); font-weight:600; color:var(--t1); }
+
+  .sevtag { font-size:9.5px; font-weight:500; padding:2px 7px; border-radius:20px; white-space:nowrap; flex:none;
+    font-family:var(--mono); }
+  .sevtag.err  { color:var(--st-crit); background:rgba(0,0,0,.36); box-shadow:inset 0 0 0 1px rgba(220,80,80,.42); }
+  .sevtag.warn { color:var(--st-warn); background:rgba(0,0,0,.36); box-shadow:inset 0 0 0 1px rgba(250,178,25,.34); }
+  .sevtag.ok   { color:var(--t2); background:rgba(255,255,255,.05); }
+
+  /* ===== RAIL · column manager (the fix, rendered) ===== */
+  .srch { margin:2px 13px 9px; height:26px; display:flex; align-items:center; gap:8px; padding:0 9px; border-radius:7px;
+    background:var(--s0); box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035);
+    font-size:11px; color:var(--t3); }
+  .srch svg { flex:none; opacity:.5; }
+  .cmsect { padding:0 13px 9px; }
+  .cmrow { display:grid; grid-template-columns:1fr 46px 30px; align-items:center; gap:8px; height:24px;
+    font-size:11px; color:var(--t2); border-radius:5px; padding:0 5px; margin:0 -5px; }
+  .cmrow:hover { background:rgba(255,255,255,.035); }
+  .cmrow .nm { font-family:var(--mono); font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    display:flex; align-items:center; gap:6px; }
+  .cmrow .nm .pin { color:var(--t1); flex:none; font-size:9px; }
+  .cmrow.pinned .nm { color:var(--t1); font-weight:600; }
+  .cmrow .ct { font-family:var(--mono); font-size:9.5px; color:var(--t3); text-align:right; }
+  .cmrow .cov { height:5px; border-radius:3px; background:rgba(255,255,255,.06); overflow:hidden; }
+  .cmrow .cov i { display:block; height:100%; background:var(--m3); }
+  .cmgrp { display:grid; grid-template-columns:1fr 46px 30px; align-items:center; gap:8px; height:26px;
+    font-size:11px; padding:0 5px; margin:0 -5px; border-radius:5px; }
+  .cmgrp:hover { background:rgba(255,255,255,.035); }
+  .cmgrp + .cmgrp { box-shadow:inset 0 1px 0 var(--r1); }
+  .cmgrp .nm { font-family:var(--mono); color:var(--t2); display:flex; align-items:center; gap:7px; overflow:hidden; }
+  .cmgrp .nm .car { color:var(--t3); font-size:8px; flex:none; }
+  .cmgrp .ct { font-family:var(--mono); font-size:9.5px; color:var(--t3); text-align:right; }
+  .cmgrp .cov { height:5px; border-radius:3px; background:rgba(255,255,255,.06); overflow:hidden; }
+  .cmgrp .cov i { display:block; height:100%; background:var(--m4); }
+  .railsect { padding:10px 13px 12px; box-shadow:inset 0 1px 0 var(--r2); }
+
+  /* ===== CENTER · the grid ===== */
+  .ruler { flex:none; padding:3px 13px 7px; }
+  .rulerbar { height:19px; display:flex; gap:2px; position:relative; }
+  .rulerbar .seg { min-width:0; display:flex; align-items:center; justify-content:center; font-family:var(--mono);
+    font-size:8.5px; color:var(--t3); background:rgba(255,255,255,.055); overflow:hidden; white-space:nowrap;
+    border-radius:2px; }
+  .rulerbar .seg.wide { color:var(--t2); }
+  .rulerbar .seg.pin { background:var(--s5); color:var(--t2); }
+  /* SIGNAL 3/4 — where in 241 columns the viewport actually is */
+  .rulerwin { position:absolute; top:-3px; bottom:-3px; border-radius:3px; pointer-events:none;
+    box-shadow:inset 0 0 0 1.5px var(--sig), 0 0 14px -2px var(--sig); background:rgba(70,213,232,.16); }
+  .rulerwin::before, .rulerwin::after { content:""; position:absolute; top:-3px; width:1px; height:5px; background:var(--sig); }
+  .rulerwin::before { left:0; } .rulerwin::after { right:0; }
+  .rulerlab { display:flex; align-items:center; gap:8px; margin-top:5px; font-family:var(--mono); font-size:9.5px; color:var(--t3); }
+  .rulerlab .win { color:var(--t1); font-weight:600; display:inline-flex; align-items:center; gap:5px; }
+  .rulerlab .win .tick { width:5px; height:5px; border-radius:50%; background:var(--sig); box-shadow:0 0 8px -1px var(--sig); }
+  .rulerlab .grow { margin-left:auto; }
+
+  .gridwrap { flex:1; min-height:0; overflow:auto; }
+  table.dgrid { border-collapse:separate; border-spacing:0; font-family:var(--mono);
+    font-size:10.5px; font-variant-numeric:tabular-nums; }
+  table.dgrid th { background:#12161D; text-align:right; white-space:nowrap; font-weight:500; color:var(--t3);
+    padding:0 8px; height:34px; position:sticky; top:0; z-index:5;
+    box-shadow:inset 0 -1px 0 var(--r2), inset 0 1px 0 var(--r1); vertical-align:middle; }
+  table.dgrid th .cn { display:block; font-size:10px; color:var(--t2); overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+  table.dgrid th .cu { display:block; font-size:8.5px; color:var(--t4); margin-top:1px; }
+  table.dgrid td { padding:0 8px; height:25px; white-space:nowrap; color:var(--t2); text-align:right;
+    border-bottom:1px solid rgba(255,255,255,.028); }
+  table.dgrid tbody tr:nth-child(6n) td { border-bottom-color:rgba(255,255,255,.085); }
+  table.dgrid tbody tr:hover td { background:rgba(255,255,255,.035); }
+  table.dgrid .neg { color:var(--m2); }
+  table.dgrid .zero { color:var(--t3); }
+  table.dgrid th.sk, table.dgrid td.sk { position:sticky; text-align:left; }
+  table.dgrid td.sk { background:#12161D; z-index:3; }
+  table.dgrid th.sk { z-index:7; }
+  table.dgrid .c-rn { left:0; width:44px; color:var(--t3); }
+  table.dgrid .c-id { left:44px; width:104px; box-shadow:inset -1px 0 0 var(--r2); color:var(--t1); }
+  table.dgrid th.c-id { box-shadow:inset -1px 0 0 var(--r2), inset 0 -1px 0 var(--r2), inset 0 1px 0 var(--r1); }
+  table.dgrid tbody tr:hover td.sk { background:#171C24; }
+  th.tail, td.tail { width:210px; text-align:center !important; color:var(--t3);
+    background-image:repeating-linear-gradient(135deg, rgba(255,255,255,.035) 0 1px, transparent 1px 7px); }
+  td.tail { font-size:9.5px; }
+
+  /* ===== DOCK · lens ===== */
+  .dsect { padding:9px 13px 11px; }
+  .dsect + .dsect { box-shadow:inset 0 1px 0 var(--r2); }
+  .hero { display:flex; align-items:baseline; gap:9px; flex-wrap:wrap; margin-top:2px; }
+  .kv { display:inline-flex; align-items:baseline; gap:6px; font-size:9.5px; color:var(--t3); white-space:nowrap;
+    letter-spacing:.02em; text-transform:uppercase; }
+  .kv b { font-family:var(--mono); font-size:13px; font-weight:600; color:var(--t1); letter-spacing:-0.02em; text-transform:none; }
+  .qgrid { display:grid; grid-template-columns:repeat(5,1fr); gap:2px 6px; margin-top:8px; }
+  .qgrid .q { display:flex; flex-direction:column; gap:1px; }
+  .qgrid .q .l { font-family:var(--mono); font-size:8.5px; color:var(--t3); }
+  .qgrid .q .v { font-family:var(--mono); font-size:10.5px; color:var(--t2); font-variant-numeric:tabular-nums; }
+  .qgrid .q.mid .v { color:var(--t1); font-weight:600; }
+  .well { border-radius:8px; background:rgba(0,0,0,.26); box-shadow:inset 0 2px 4px -2px rgba(0,0,0,.7); padding:9px 10px; }
+  .well .ph { font-size:9.5px; font-weight:500; letter-spacing:.1em; text-transform:uppercase; color:var(--t3); margin-bottom:7px; }
+  .offer { display:flex; align-items:flex-start; gap:8px; padding:6px 0; }
+  .offer + .offer { box-shadow:inset 0 1px 0 var(--r1); }
+  .offer .n { font-family:var(--mono); font-size:10px; color:var(--t3); flex:none; width:14px; }
+  .offer .b { min-width:0; }
+  .offer .b .t { font-size:11px; color:var(--t1); font-weight:550; }
+  .offer .b .d { font-size:9.5px; color:var(--t3); line-height:1.45; margin-top:2px; }
+  .dead { border-radius:8px; padding:9px 10px; background:rgba(0,0,0,.3);
+    box-shadow:inset 0 0 0 1px rgba(220,80,80,.22); }
+  .shelf { display:flex; align-items:center; gap:7px; height:24px; border-radius:6px; padding:0 8px;
+    background:rgba(255,255,255,.035); font-family:var(--mono); font-size:10px; color:var(--t3); margin-top:5px; }
+  .shelf .lb { color:var(--t4); width:62px; flex:none; }
+  .shelf.empty { box-shadow:inset 0 0 0 1px rgba(220,80,80,.2); }
+
+  /* ===== BAND ===== */
+  .band { height:352px; flex:none; display:grid; grid-template-columns:1.32fr 1fr; background:var(--s2);
+    box-shadow:inset 0 1px 0 var(--r2), 0 -10px 24px -22px rgba(0,0,0,1); }
+  .pane { display:flex; flex-direction:column; min-width:0; min-height:0; }
+  .pane + .pane { box-shadow:inset 1px 0 0 var(--r1); }
+  .pane .pbody { flex:1; overflow-y:auto; overflow-x:hidden; padding:4px 13px 12px; min-height:0; }
+
+  /* conformance matrix — heterogeneous, so rules return */
+  table.cf { width:100%; border-collapse:separate; border-spacing:0; table-layout:fixed; }
+  table.cf thead th { position:sticky; top:0; z-index:5; background:#12161D; text-align:left; white-space:nowrap;
+    font-family:var(--mono); font-size:9px; font-weight:500; color:var(--t3); padding:0 8px; height:24px;
+    box-shadow:inset 0 -1px 0 var(--r2), inset 0 1px 0 var(--r1); }
+  table.cf thead th.split { box-shadow:inset 1px 0 0 var(--r2), inset 0 -1px 0 var(--r2), inset 0 1px 0 var(--r1); }
+  table.cf td { padding:5px 7px 2px; vertical-align:top; }
+  table.cf td.split { box-shadow:inset 1px 0 0 var(--r2); }
+  table.cf tr.rule td { padding:0 7px 5px; border-bottom:1px solid rgba(255,255,255,.05); }
+  table.cf tr.shape:hover td, table.cf tr.shape:hover + tr.rule td { background:rgba(255,255,255,.032); }
+  .sname { font-family:var(--mono); font-size:10.5px; font-weight:600; color:var(--t1); display:block; }
+  .sfacts { font-size:9px; color:var(--t3); margin-top:1px; display:block; line-height:1.35; }
+  .cell { display:flex; gap:5px; align-items:flex-start; font-size:9.5px; line-height:1.35; color:var(--t3); }
+  .cell .g { margin-top:2.5px; }
+  .cell b { color:var(--t1); font-weight:600; font-family:var(--mono); }
+  .rl { font-size:9px; color:var(--t3); line-height:1.42; display:flex; gap:6px; padding-left:8px;
+    box-shadow:inset 2px 0 0 var(--r2); }
+  .dsect .rl, .pane .pbody > .rl { font-size:9.5px; line-height:1.45; }
+  .rl .rid { font-family:var(--mono); font-weight:600; color:var(--t2); flex:none; }
+  .rl b { color:var(--t2); font-weight:600; }
+  .rl .k { font-family:var(--mono); color:var(--t2); }
+
+  /* the fold, shown working */
+  .foldbar { display:flex; height:22px; border-radius:4px; overflow:hidden; margin:8px 0 9px; gap:1px; }
+  .foldbar span { display:block; height:100%; }
+  .legend { display:grid; grid-template-columns:1fr 1fr; gap:2px 12px; }
+  .lgi { display:flex; align-items:center; gap:7px; font-size:10px; color:var(--t2); height:17px; }
+  .lgi .sw { width:9px; height:9px; border-radius:2px; flex:none; }
+  .lgi .lb { font-family:var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .lgi .pc { margin-left:auto; font-family:var(--mono); font-size:9.5px; color:var(--t3); flex:none; }
+  .lgi.tail .sw { background:var(--m5); box-shadow:inset 0 0 0 1px var(--m4); }
+  .lgi.tail .lb { color:var(--t1); font-weight:600; }
+  .lenbars { display:flex; align-items:flex-end; gap:2px; height:34px; margin-top:6px; }
+  .lenbars i { flex:1; background:var(--m3); border-radius:2px 2px 0 0; min-height:2px; display:block; }
+  .idrow { display:grid; grid-template-columns:78px 1fr; gap:3px 9px; font-size:10px; align-items:baseline; }
+  .idrow .l { font-family:var(--mono); font-size:9.5px; color:var(--t3); }
+  .idrow .v { font-family:var(--mono); color:var(--t2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ratio { display:flex; height:16px; border-radius:4px; overflow:hidden; gap:1px; margin-top:6px; }
+
+  /* ===== STATUS BAR ===== */
+  .statusbar { height:26px; flex:none; display:flex; align-items:center; gap:14px; padding:0 16px;
+    background:var(--s2); box-shadow:inset 0 1px 0 var(--r1); font-size:10.5px; color:var(--t3); }
+  .statusbar .h { display:flex; align-items:center; gap:6px; white-space:nowrap; }
+  .statusbar .gate { margin-left:16px; color:var(--t3); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* SIGNAL 4/4 — the one live indicator */
+  .sclock { margin-left:auto; display:flex; align-items:center; gap:8px; font-family:var(--mono); flex:none; }
+  .sclock .dot { width:6px; height:6px; border-radius:50%; background:var(--sig); flex:none;
+    box-shadow:0 0 0 3px rgba(70,213,232,.10), 0 0 9px -1px var(--sig); animation:pulse 3s ease-in-out infinite; }
+  .sclock b { color:var(--t2); font-weight:500; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.42} }
+  @media (prefers-reduced-motion:reduce){ .sclock .dot { animation:none } }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="glyph"><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M4 7l8-4 8 4-8 4-8-4z" fill="currentColor"/><path d="M4 12l8 4 8-4M4 17l8 4 8-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity=".55"/></svg></span>
+    <span class="name">Command&nbsp;Studio</span>
+  </div>
+  <span class="env-chip"><span class="lamp"></span>PROD · US-EAST</span>
+  <nav class="gnav">
+    <a href="#">Workflows</a><a href="#" class="active">Datasets</a><a href="#">Runs</a><a href="#">Library</a>
+  </nav>
+  <div class="cmdk" tabindex="0" title="Command palette">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span class="ph">pin column · fold tail · bin measure…</span><span class="kbd">⌘K</span>
+  </div>
+  <button class="iconbtn" title="Filters"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M3 5h18M6 12h12M10 19h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button>
+  <button class="iconbtn" title="Theme"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M20 13a8 8 0 11-9-9 6 6 0 009 9z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg></button>
+  <div class="teamsw"><span class="tk">Team</span>Rates &amp; Credit Risk</div>
+  <div class="avatar" title="S. Ganji · role viewer">SG</div>
+</header>
+
+<div class="dshead">
+  <div class="hgroup">
+    <div class="title">
+      <span class="g crit" title="critical"></span>
+      Shape conformance — does the cockpit survive arbitrary tabular data?
+      <span class="attn">9 assumptions break outright</span>
+      <span class="lbl-only" title="The reference cockpit was drawn once, against Q3 Campaign Signups.csv: 9 columns, 3 tidy enums, 1 numeric, 1 date.">Reference fixture: 9 cols</span>
+    </div>
+    <div class="facts">
+      <span>bench <b>7 shapes</b></span><span class="sep">·</span>
+      <span class="apath" title="design-prototypes/terminal.html · terminal-analytics.html · terminal-pivot.html">terminal.html · terminal-analytics.html · terminal-pivot.html</span><span class="sep">·</span>
+      <span class="scope" title="This screen renders shape S1 in full — the other six are in the conformance matrix below"><span class="tick"></span>rendering <b>S1</b> ▾</span>
+      <span>eod_risk_exposure_rates.parquet · <span class="mono">1,204,880 × 241</span></span>
+    </div>
+  </div>
+  <div class="toolbar">
+    <button class="tbtn ghost">Load another shape<span class="k">S</span></button>
+    <button class="tbtn primary">Apply degradation rules<span class="k">⌘⏎</span></button>
+  </div>
+</div>
+
+<div class="lensbar">
+  <span class="ltab on">S1 · wide all-numeric</span><span class="ltab">S2 · all-unique</span><span class="ltab">S3a · one column</span><span class="ltab">S3b · zero rows</span><span class="ltab">S4 · hostile names</span><span class="ltab">S5 · 500 distinct</span><span class="ltab">S6 · mixed types</span>
+  <span class="right">
+    <span>assumptions <b>24</b></span><span>break <b>9</b></span><span>rules <b>R1–R10</b></span>
+  </span>
+</div>
+
+<div class="kpistrip">
+  <div class="kpi"><span class="lab">Shapes on the bench</span><span class="row"><span class="val">7</span><span class="note">6 families</span></span></div>
+  <span class="kdiv"></span>
+  <div class="kpi"><span class="lab">Shape assumptions found</span><span class="row"><span class="val">24</span></span></div>
+  <div class="kpi gate" title="The surface produces a wrong, empty or unreadable result — not merely an ugly one."><span class="lab">Break outright</span><span class="row"><span class="val">9</span><span class="note"><span class="g crit"></span>wrong or unusable</span></span></div>
+  <div class="kpi"><span class="lab">Degrade badly</span><span class="row"><span class="val">8</span><span class="note">readable, misleading</span></span></div>
+  <div class="kpi"><span class="lab">Hold</span><span class="row"><span class="val">7</span><span class="note">shape-independent</span></span></div>
+  <span class="kdiv"></span>
+  <div class="kpi"><span class="lab">Silent wrong answers</span><span class="row"><span class="val">3</span><span class="note">S6 sum · S6 histogram · S5 palette</span></span></div>
+  <div class="kclock"><span class="tick"></span>BENCH 1440×1024<br>no JS · no network</div>
+</div>
+
+<div class="workspace">
+
+  <!-- ================= RAIL — column manager (the fix, rendered) ================= -->
+  <div class="col rail">
+    <div class="colhead"><span class="t">Columns</span><span class="ct">241</span><span class="spacer"></span><span class="ct">all float64</span></div>
+    <div class="cbody">
+      <div class="srch"><svg width="11" height="11" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2.2"/><path d="M20 20l-3-3" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>filter 241 columns…</div>
+
+      <div class="cmsect">
+        <div class="sh" style="margin-bottom:5px">Pinned <span class="line"></span><span class="ct">2</span></div>
+        <div class="cmrow pinned"><span class="nm"><span class="pin">◧</span>instrument_id</span><span class="ct">100%</span><span class="cov"><i style="width:100%"></i></span></div>
+        <div class="cmrow pinned"><span class="nm"><span class="pin">◧</span>notional_usd</span><span class="ct">100%</span><span class="cov"><i style="width:100%"></i></span></div>
+      </div>
+
+      <div class="cmsect">
+        <div class="sh" style="margin-bottom:5px">By prefix <span class="line"></span><span class="ct">12 groups</span></div>
+        <div class="cmgrp"><span class="nm"><span class="car">▾</span>dv01_</span><span class="ct">12</span><span class="cov"><i style="width:100%"></i></span></div>
+        <div class="cmrow"><span class="nm" style="padding-left:14px">dv01_1m</span><span class="ct">99.8%</span><span class="cov"><i style="width:99.8%"></i></span></div>
+        <div class="cmrow"><span class="nm" style="padding-left:14px">dv01_3m</span><span class="ct">99.8%</span><span class="cov"><i style="width:99.8%"></i></span></div>
+        <div class="cmrow"><span class="nm" style="padding-left:14px">dv01_10y</span><span class="ct">99.5%</span><span class="cov"><i style="width:99.5%"></i></span></div>
+        <div class="cmrow"><span class="nm" style="padding-left:14px;color:var(--t3)">+ 9 more</span><span class="ct"></span><span class="cov"></span></div>
+        <div class="cmgrp"><span class="nm"><span class="car">▸</span>cs01_</span><span class="ct">9</span><span class="cov"><i style="width:97%"></i></span></div>
+        <div class="cmgrp"><span class="nm"><span class="car">▸</span>vega_</span><span class="ct">36</span><span class="cov"><i style="width:71%"></i></span></div>
+        <div class="cmgrp"><span class="nm"><span class="car">▸</span>gamma_</span><span class="ct">24</span><span class="cov"><i style="width:68%"></i></span></div>
+        <div class="cmgrp"><span class="nm"><span class="car">▸</span>theta_</span><span class="ct">8</span><span class="cov"><i style="width:88%"></i></span></div>
+        <div class="cmgrp"><span class="nm"><span class="car">▸</span>pnl_</span><span class="ct">6</span><span class="cov"><i style="width:100%"></i></span></div>
+        <div class="cmgrp"><span class="nm"><span class="car">▸</span>xccy_</span><span class="ct">18</span><span class="cov"><i style="width:41%"></i></span></div>
+        <div class="cmgrp"><span class="nm"><span class="car">▸</span>basis_</span><span class="ct">22</span><span class="cov"><i style="width:39%"></i></span></div>
+        <div class="cmgrp"><span class="nm"><span class="car">▸</span>infl_</span><span class="ct">14</span><span class="cov"><i style="width:22%"></i></span></div>
+        <div class="cmgrp"><span class="nm"><span class="car">▸</span>eqdelta_</span><span class="ct">26</span><span class="cov"><i style="width:12%"></i></span></div>
+        <div class="cmgrp"><span class="nm"><span class="car">▸</span>fxdelta_</span><span class="ct">20</span><span class="cov"><i style="width:9%"></i></span></div>
+        <div class="cmgrp"><span class="nm" style="color:var(--t3)"><span class="car">▸</span>no common prefix</span><span class="ct">44</span><span class="cov"><i style="width:34%"></i></span></div>
+      </div>
+
+      <div class="railsect">
+        <div class="brk" style="margin-bottom:9px"><span class="fg">■</span><span><span class="tag">BREAKS</span> — the cockpit rail is a flat, unsearchable list of every column with a type chip each. At 241 columns that is a <b>6,000px scroll</b> with no filter, no grouping and no pin. Nothing above tells you the file is 96% sensitivities.</span></div>
+        <div class="rl"><span class="rid">R1</span><span>Above <b>30 columns</b> the rail becomes a column manager: filter box, pin set, and collapse by longest-common-prefix. Coverage bar replaces the type chip when <b>one type covers ≥95%</b> of columns — a repeated <span class="k">float64</span> badge 241 times is texture, not information.</span></div>
+        <div class="fn" style="margin-top:8px">prefix grouping is lexical only · <span class="k">no semantic model, no inference</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= CENTER — the grid ================= -->
+  <div class="col center">
+    <div class="colhead">
+      <span class="t">Grid</span><span class="ct">1,204,880 rows · 241 cols</span>
+      <span class="spacer"></span>
+      <span class="sevtag err">grid: BREAKS</span>
+      <span class="ct">2 pinned</span>
+    </div>
+
+    <div class="ruler">
+      <div class="rulerbar">
+        <span class="seg pin" style="flex:2"></span>
+        <span class="seg wide" style="flex:12">dv01 12</span>
+        <span class="seg" style="flex:9">cs01</span>
+        <span class="seg wide" style="flex:36">vega 36</span>
+        <span class="seg wide" style="flex:24">gamma 24</span>
+        <span class="seg" style="flex:8">theta</span>
+        <span class="seg" style="flex:6">pnl</span>
+        <span class="seg wide" style="flex:18">xccy 18</span>
+        <span class="seg wide" style="flex:22">basis 22</span>
+        <span class="seg" style="flex:14">infl</span>
+        <span class="seg wide" style="flex:26">eqdelta 26</span>
+        <span class="seg wide" style="flex:20">fxdelta 20</span>
+        <span class="seg wide" style="flex:44">no prefix 44</span>
+        <span class="rulerwin" style="left:-0.3%; width:11.8%"></span>
+      </div>
+      <div class="rulerlab">
+        <span class="win"><span class="tick"></span>viewing cols 1–27 of 241</span>
+        <span>· 26,992px of horizontal scroll at the reference 112px column</span>
+        <span class="grow">drag the window ↔</span>
+      </div>
+    </div>
+
+    <div class="gridwrap">
+      <table class="dgrid">
+        <thead>
+          <tr>
+            <th class="sk c-rn">row</th>
+            <th class="sk c-id"><span class="cn">instrument_id</span><span class="cu">int64 · 100% distinct</span></th>
+            <th style="width:96px"><span class="cn">notional_usd</span><span class="cu">float64</span></th>
+            <th style="width:88px"><span class="cn">dv01_1m</span><span class="cu">float64</span></th>
+            <th style="width:88px"><span class="cn">dv01_3m</span><span class="cu">float64</span></th>
+            <th style="width:88px"><span class="cn">dv01_6m</span><span class="cu">float64</span></th>
+            <th style="width:88px"><span class="cn">dv01_1y</span><span class="cu">float64</span></th>
+            <th style="width:88px"><span class="cn">dv01_2y</span><span class="cu">float64</span></th>
+            <th style="width:88px"><span class="cn">dv01_3y</span><span class="cu">float64</span></th>
+            <th style="width:88px"><span class="cn">dv01_5y</span><span class="cu">float64</span></th>
+            <th style="width:88px"><span class="cn">dv01_7y</span><span class="cu">float64</span></th>
+            <th style="width:88px"><span class="cn">dv01_10y</span><span class="cu">float64</span></th>
+            <th style="width:88px"><span class="cn">dv01_15y</span><span class="cu">float64</span></th>
+            <th style="width:88px"><span class="cn">dv01_20y</span><span class="cu">float64</span></th>
+            <th style="width:88px"><span class="cn">dv01_30y</span><span class="cu">float64</span></th>
+            <th style="width:88px"><span class="cn">cs01_1y</span><span class="cu">float64</span></th>
+            <th style="width:88px"><span class="cn">cs01_3y</span><span class="cu">float64</span></th>
+            <th style="width:88px"><span class="cn">cs01_5y</span><span class="cu">float64</span></th>
+            <th style="width:88px"><span class="cn">cs01_10y</span><span class="cu">float64</span></th>
+            <th style="width:96px"><span class="cn">vega_3m_atm</span><span class="cu">float64</span></th>
+            <th style="width:96px"><span class="cn">vega_1y_atm</span><span class="cu">float64</span></th>
+            <th style="width:88px"><span class="cn">gamma_1y</span><span class="cu">float64</span></th>
+            <th style="width:88px"><span class="cn">theta_1d</span><span class="cu">float64</span></th>
+            <th style="width:96px"><span class="cn">pnl_clean</span><span class="cu">float64</span></th>
+            <th style="width:96px"><span class="cn">pnl_dirty</span><span class="cu">float64</span></th>
+            <th style="width:96px"><span class="cn">xccy_eur_3y</span><span class="cu">float64</span></th>
+            <th style="width:96px"><span class="cn">xccy_gbp_5y</span><span class="cu">float64</span></th>
+            <th class="tail">214 columns beyond this edge</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="sk c-rn">1</td><td class="sk c-id">RT-40118822</td><td>92,400,000.00</td><td>1,204.55</td><td>3,880.12</td><td class="neg">−2,014.90</td><td>7,731.44</td><td>12,880.03</td><td class="neg">−4,120.77</td><td>18,004.61</td><td>9,441.20</td><td>24,118.09</td><td class="neg">−1,802.33</td><td>6,090.14</td><td>31,447.82</td><td>882.10</td><td>1,904.55</td><td class="neg">−612.08</td><td>4,338.71</td><td>18,220.44</td><td>9,004.12</td><td class="zero">0.00</td><td class="neg">−344.09</td><td>118,442.90</td><td>121,006.33</td><td class="neg">−2,880.14</td><td>1,442.06</td><td class="tail">…</td></tr>
+          <tr><td class="sk c-rn">2</td><td class="sk c-id">RT-40118823</td><td>14,750,000.00</td><td class="neg">−88.04</td><td>412.90</td><td>1,004.66</td><td class="neg">−3,318.02</td><td>2,004.18</td><td>6,712.55</td><td class="neg">−9,110.42</td><td>3,884.09</td><td>7,220.31</td><td>1,004.77</td><td class="neg">−480.19</td><td>2,914.08</td><td class="zero">0.00</td><td>640.22</td><td>1,118.90</td><td>2,006.14</td><td>4,410.08</td><td>2,331.77</td><td>1,004.02</td><td class="neg">−92.44</td><td class="neg">−18,004.11</td><td class="neg">−17,882.60</td><td>904.18</td><td class="neg">−330.55</td><td class="tail">…</td></tr>
+          <tr><td class="sk c-rn">3</td><td class="sk c-id">RT-40118824</td><td>308,000,000.00</td><td>8,004.19</td><td>12,441.08</td><td>19,880.44</td><td>28,114.90</td><td>41,006.72</td><td>52,880.14</td><td>68,110.05</td><td>71,442.88</td><td>94,006.31</td><td>44,118.20</td><td>18,904.77</td><td>102,884.09</td><td>4,118.62</td><td>8,004.15</td><td>12,880.33</td><td>21,004.90</td><td>68,114.22</td><td>34,006.71</td><td>1,204.09</td><td class="neg">−2,118.45</td><td>884,006.12</td><td>891,447.03</td><td class="neg">−12,004.88</td><td>8,114.20</td><td class="tail">…</td></tr>
+          <tr><td class="sk c-rn">4</td><td class="sk c-id">RT-40118825</td><td class="zero">0.00</td><td class="zero">0.00</td><td class="zero">0.00</td><td class="zero">0.00</td><td class="zero">0.00</td><td class="zero">0.00</td><td class="zero">0.00</td><td class="zero">0.00</td><td class="zero">0.00</td><td class="zero">0.00</td><td class="zero">0.00</td><td class="zero">0.00</td><td class="zero">0.00</td><td class="zero">0.00</td><td class="zero">0.00</td><td class="zero">0.00</td><td class="zero">0.00</td><td class="zero">0.00</td><td class="zero">0.00</td><td class="zero">0.00</td><td class="zero">0.00</td><td class="zero">0.00</td><td class="zero">0.00</td><td class="zero">0.00</td><td class="zero">0.00</td><td class="tail">…</td></tr>
+          <tr><td class="sk c-rn">5</td><td class="sk c-id">RT-40118826</td><td>47,200,000.00</td><td>604.11</td><td>1,880.42</td><td>3,004.90</td><td>5,118.66</td><td>8,004.20</td><td class="neg">−1,442.09</td><td>11,880.31</td><td>6,004.55</td><td>14,118.72</td><td class="neg">−902.14</td><td>3,880.06</td><td>18,004.41</td><td>440.90</td><td>1,004.22</td><td class="neg">−318.60</td><td>2,118.09</td><td>9,004.71</td><td>4,442.18</td><td>602.33</td><td class="neg">−180.04</td><td>62,004.19</td><td>63,118.80</td><td class="neg">−1,442.02</td><td>720.44</td><td class="tail">…</td></tr>
+          <tr><td class="sk c-rn">6</td><td class="sk c-id">RT-40118827</td><td>1,880,000,000.00</td><td>44,118.09</td><td>68,004.22</td><td>92,880.41</td><td>144,006.18</td><td>218,114.90</td><td>304,880.55</td><td>412,004.72</td><td>388,118.31</td><td>512,006.44</td><td>244,880.09</td><td>102,118.66</td><td>604,004.12</td><td>22,118.80</td><td>44,006.19</td><td>68,880.42</td><td>112,004.90</td><td>388,114.20</td><td>188,006.33</td><td>6,442.09</td><td class="neg">−11,880.14</td><td>4,882,006.71</td><td>4,914,118.02</td><td class="neg">−68,004.19</td><td>44,880.60</td><td class="tail">…</td></tr>
+          <tr><td class="sk c-rn">7</td><td class="sk c-id">RT-40118828</td><td>6,300,000.00</td><td>112.04</td><td>318.90</td><td>604.11</td><td>880.42</td><td>1,204.66</td><td class="neg">−240.18</td><td>1,880.09</td><td>942.31</td><td>2,118.77</td><td class="neg">−144.02</td><td>604.55</td><td>2,880.14</td><td>72.90</td><td>180.06</td><td class="neg">−44.12</td><td>318.44</td><td>1,442.20</td><td>702.09</td><td>94.31</td><td class="neg">−28.60</td><td>9,004.18</td><td>9,118.42</td><td class="neg">−240.55</td><td>112.09</td><td class="tail">…</td></tr>
+          <tr><td class="sk c-rn">8</td><td class="sk c-id">RT-40118829</td><td>221,400,000.00</td><td>5,118.60</td><td>8,880.14</td><td>13,004.42</td><td>21,118.09</td><td>34,006.90</td><td>44,880.22</td><td>58,004.71</td><td>52,118.33</td><td>71,006.18</td><td>34,118.44</td><td>14,880.02</td><td>88,004.55</td><td>3,118.90</td><td>6,006.12</td><td>9,880.60</td><td>16,004.19</td><td>52,114.42</td><td>26,006.09</td><td>904.33</td><td class="neg">−1,602.18</td><td>644,006.90</td><td>648,118.20</td><td class="neg">−9,004.11</td><td>6,118.44</td><td class="tail">…</td></tr>
+          <tr><td class="sk c-rn">9</td><td class="sk c-id">RT-40118830</td><td>880,000.00</td><td>18.44</td><td>44.09</td><td>88.60</td><td>118.02</td><td>180.90</td><td class="neg">−32.14</td><td>240.55</td><td>144.18</td><td>318.06</td><td class="neg">−22.42</td><td>88.31</td><td>412.90</td><td>9.60</td><td>24.11</td><td class="neg">−6.02</td><td>44.33</td><td>188.44</td><td>92.09</td><td>12.18</td><td class="neg">−3.90</td><td>1,204.55</td><td>1,218.60</td><td class="neg">−32.14</td><td>14.09</td><td class="tail">…</td></tr>
+          <tr><td class="sk c-rn">10</td><td class="sk c-id">RT-40118831</td><td>73,600,000.00</td><td>1,880.09</td><td>2,940.44</td><td>4,118.60</td><td>7,004.22</td><td>11,118.90</td><td class="neg">−2,006.14</td><td>16,880.31</td><td>8,442.02</td><td>22,004.55</td><td class="neg">−1,204.18</td><td>5,118.66</td><td>28,880.09</td><td>804.42</td><td>1,742.90</td><td class="neg">−480.11</td><td>3,880.60</td><td>16,004.33</td><td>8,118.44</td><td>1,004.02</td><td class="neg">−302.90</td><td>104,006.18</td><td>106,442.55</td><td class="neg">−2,118.09</td><td>1,304.60</td><td class="tail">…</td></tr>
+          <tr><td class="sk c-rn">11</td><td class="sk c-id">RT-40118832</td><td>412,000,000.00</td><td>9,880.22</td><td>15,004.60</td><td>24,118.09</td><td>38,006.44</td><td>58,880.90</td><td>74,004.18</td><td>96,118.33</td><td>88,006.02</td><td>118,880.55</td><td>58,004.60</td><td>24,118.44</td><td>144,006.09</td><td>5,880.90</td><td>11,004.22</td><td>18,118.60</td><td>28,880.11</td><td>96,006.33</td><td>48,118.02</td><td>1,602.44</td><td class="neg">−2,880.90</td><td>1,188,004.60</td><td>1,196,118.09</td><td class="neg">−18,006.22</td><td>11,880.33</td><td class="tail">…</td></tr>
+          <tr><td class="sk c-rn">12</td><td class="sk c-id">RT-40118833</td><td>2,140,000.00</td><td>44.60</td><td>112.09</td><td>204.44</td><td>318.90</td><td>480.22</td><td class="neg">−88.60</td><td>640.11</td><td>388.33</td><td>880.02</td><td class="neg">−60.44</td><td>240.90</td><td>1,118.60</td><td>28.09</td><td>68.22</td><td class="neg">−14.44</td><td>118.90</td><td>504.60</td><td>248.11</td><td>34.02</td><td class="neg">−9.33</td><td>3,204.90</td><td>3,244.60</td><td class="neg">−88.22</td><td>40.09</td><td class="tail">…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="flex:none;padding:9px 13px 11px;box-shadow:inset 0 1px 0 var(--r2)">
+      <div class="brk" style="margin-bottom:8px"><span class="fg">■</span><span><span class="tag">BREAKS</span> — the reference grid is <span class="mono">table{width:100%}</span> with no <span class="mono">colgroup</span>, no <span class="mono">table-layout</span> and no per-column width, so at 241 columns it <b>does not scroll — it crushes</b>, and since every <span class="mono">td</span> is <span class="mono">nowrap</span> with no <span class="mono">max-width</span> the cells overflow instead of truncating. The only pinned column is the 44px row-number gutter, so the identity leaves the viewport at column 5 and never returns: <b>every cell beyond is an unattributable float</b>.</span></div>
+      <div class="rl" style="margin-bottom:6px"><span class="rid">R2</span><span>Above <b>30 columns</b> the grid pins the identity candidate (highest-distinctness non-float column, else column 1) and renders a <b>column ruler</b>: prefix-segmented, with the viewport window in signal cyan. The ruler is the only place the accent is spent inside the grid, because it answers <i>what am I looking at</i>.</span></div>
+      <div class="rl"><span class="rid">R3</span><span>When <b>one type covers ≥95%</b> of columns the per-header type chip is dropped for a single header-strip statement, and the header falls to one line. Sign is never a status colour — negatives carry a minus and a <b>lighter graphite</b>, because red is reserved.</span></div>
+    </div>
+  </div>
+
+  <!-- ================= DOCK — lens + analytics ================= -->
+  <div class="col dock">
+    <div class="colhead"><span class="t">Lens</span><span class="ct">dv01_10y</span><span class="spacer"></span><span class="sevtag ok">profile: HOLDS</span></div>
+    <div class="cbody">
+
+      <div class="dsect">
+        <div class="sh">Column profile <span class="line"></span><span class="ct">float64</span></div>
+        <div class="hero" style="margin-top:7px">
+          <span class="kv">distinct <b>1,198,442</b></span>
+          <span class="kv">null <b>0.5%</b></span>
+          <span class="kv">zeros <b>18.2%</b></span>
+        </div>
+        <svg width="100%" height="66" viewBox="0 0 340 66" role="img" aria-label="Distribution of dv01_10y: 24 bins, long right tail, spike at zero" style="margin-top:8px">
+          <line x1="4" y1="52" x2="336" y2="52" stroke="rgba(255,255,255,.075)" stroke-width="1"/>
+          <rect x="6" y="8" width="11" height="44" fill="#5F6979"/>
+          <rect x="19" y="30" width="11" height="22" fill="#7D8797"/>
+          <rect x="32" y="20" width="11" height="32" fill="#7D8797"/>
+          <rect x="45" y="14" width="11" height="38" fill="#A2ACBB"/>
+          <rect x="58" y="18" width="11" height="34" fill="#A2ACBB"/>
+          <rect x="71" y="25" width="11" height="27" fill="#A2ACBB"/>
+          <rect x="84" y="31" width="11" height="21" fill="#A2ACBB"/>
+          <rect x="97" y="36" width="11" height="16" fill="#7D8797"/>
+          <rect x="110" y="40" width="11" height="12" fill="#7D8797"/>
+          <rect x="123" y="43" width="11" height="9" fill="#7D8797"/>
+          <rect x="136" y="45" width="11" height="7" fill="#7D8797"/>
+          <rect x="149" y="46.5" width="11" height="5.5" fill="#7D8797"/>
+          <rect x="162" y="47.5" width="11" height="4.5" fill="#5F6979"/>
+          <rect x="175" y="48.2" width="11" height="3.8" fill="#5F6979"/>
+          <rect x="188" y="48.8" width="11" height="3.2" fill="#5F6979"/>
+          <rect x="201" y="49.2" width="11" height="2.8" fill="#5F6979"/>
+          <rect x="214" y="49.6" width="11" height="2.4" fill="#5F6979"/>
+          <rect x="227" y="50" width="11" height="2" fill="#5F6979"/>
+          <rect x="240" y="50.3" width="11" height="1.7" fill="#5F6979"/>
+          <rect x="253" y="50.6" width="11" height="1.4" fill="#5F6979"/>
+          <rect x="266" y="50.9" width="11" height="1.1" fill="#5F6979"/>
+          <rect x="279" y="51.1" width="11" height="0.9" fill="#5F6979"/>
+          <rect x="292" y="51.3" width="11" height="0.7" fill="#5F6979"/>
+          <rect x="305" y="51.4" width="24" height="0.6" fill="#5F6979"/>
+          <text x="4" y="63" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="8.5" fill="#85909F">−4.1M</text>
+          <text x="11" y="6" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="8" fill="#85909F">0 spike</text>
+          <text x="336" y="63" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="8.5" fill="#85909F">+604.0M</text>
+        </svg>
+        <div class="qgrid">
+          <div class="q"><span class="l">p1</span><span class="v">−9,880</span></div>
+          <div class="q"><span class="l">p25</span><span class="v">0</span></div>
+          <div class="q mid"><span class="l">p50</span><span class="v">2,118</span></div>
+          <div class="q"><span class="l">p75</span><span class="v">24,006</span></div>
+          <div class="q"><span class="l">p99</span><span class="v">512,006</span></div>
+        </div>
+        <div class="brk w" style="margin-top:9px"><span class="fg">▲</span><span><span class="tag">HOLDS</span> — but only because a numeric was picked. The same lens is asked for a categorical distribution first, and <b>99.5% distinct</b> would have produced 12 bars of one row each. See R4.</span></div>
+      </div>
+
+      <div class="dsect">
+        <div class="sh">Analytics <span class="line"></span><span class="ct">as designed</span></div>
+        <div class="dead" style="margin-top:8px">
+          <div class="fn" style="margin-bottom:6px"><span class="g crit"></span><span style="color:var(--st-crit);font-weight:600">BREAKS — the builder opens empty and stays empty</span></div>
+          <div class="shelf empty"><span class="lb">dimension</span><span>0 of 241 columns qualify (&lt; 50 distinct)</span></div>
+          <div class="shelf"><span class="lb">measure</span><span>240 candidates</span></div>
+          <div class="shelf empty"><span class="lb">time axis</span><span>no date or timestamp column exists</span></div>
+          <div class="fn" style="margin-top:7px">Every chart in the reference — bar, stacked bar, donut, line — requires a dimension. The pivot builder requires two.</div>
+        </div>
+      </div>
+
+      <div class="dsect">
+        <div class="sh">Analytics <span class="line"></span><span class="ct">with R5–R6</span></div>
+        <div class="well" style="margin-top:8px">
+          <div class="ph">offered instead</div>
+          <div class="offer"><span class="n">01</span><span class="b"><span class="t">Correlation matrix</span><span class="d">240 × 240, coefficient only. The one analysis that needs no dimension at all — and the one this file is actually for.</span></span></div>
+          <div class="offer"><span class="n">02</span><span class="b"><span class="t">Binned dimension</span><span class="d">Quantile-bin any measure into 5–10 ordered buckets to synthesise a dimension. Offered explicitly, never applied silently: <span class="mono">notional_usd</span> → deciles.</span></span></div>
+          <div class="offer"><span class="n">03</span><span class="b"><span class="t">Distribution compare</span><span class="d">Small multiples of up to 12 selected measures on a shared axis. Replaces the bar chart when there is nothing to group by.</span></span></div>
+          <div class="offer"><span class="n">04</span><span class="b"><span class="t">Column-set aggregate</span><span class="d">Sum or mean across a prefix group as a profile curve — <span class="mono">dv01_*</span> across 12 tenors is a term structure, not 12 unrelated numbers.</span></span></div>
+        </div>
+        <div class="rl" style="margin-top:9px"><span class="rid">R5</span><span>The chart picker is <b>capability-gated, not chart-gated</b>: it computes the candidate sets first (dimension / measure / temporal) and only offers charts whose requirements are met. An empty builder is never shown.</span></div>
+        <div class="rl" style="margin-top:6px"><span class="rid">R6</span><span>With <b>zero dimension candidates</b> it offers correlation, binned dimensions and distribution comparison. With <b>zero measures</b> it offers count-by and co-occurrence. Binning is an offer with visible parameters, never an inference.</span></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ================= BAND ================= -->
+<div class="band">
+
+  <div class="pane">
+    <div class="colhead">
+      <span class="t">Conformance matrix</span><span class="ct">7 shapes × 4 surfaces</span>
+      <span class="spacer"></span>
+      <span class="ct"><span class="g good"></span> holds &nbsp;<span class="g warn"></span> degrades &nbsp;<span class="g crit"></span> breaks</span>
+    </div>
+    <div class="pbody" style="padding-top:0">
+      <table class="cf">
+        <thead>
+          <tr>
+            <th style="width:22%">shape</th>
+            <th style="width:19%" class="split">rail</th>
+            <th style="width:20%" class="split">grid</th>
+            <th style="width:20%" class="split">column profile</th>
+            <th class="split">analytics / pivot</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="shape">
+            <td><span class="sname">S1 wide all-numeric</span><span class="sfacts">241 cols · 1.2M rows · 0 enums · 0 dates · 0 strings</span></td>
+            <td class="split"><span class="cell"><span class="g crit"></span><span>flat <b>241</b>-item list, no filter or pin</span></span></td>
+            <td class="split"><span class="cell"><span class="g crit"></span><span><span class="mono">width:100%</span>, no colgroup — it <b>crushes</b>, never scrolls</span></span></td>
+            <td class="split"><span class="cell"><span class="g good"></span><span>numeric lens is shape-independent</span></span></td>
+            <td class="split"><span class="cell"><span class="g crit"></span><span><b>0</b> dimension candidates → empty builder</span></span></td>
+          </tr>
+          <tr class="rule"><td colspan="5"><span class="rl"><span class="rid">R1·R2·R5</span><span>column manager above 30 cols · pin + ruler · capability-gated chart picker with correlation / binned dimension as the fallback offer.</span></span></td></tr>
+
+          <tr class="shape">
+            <td><span class="sname">S2 all-unique</span><span class="sfacts">7 cols · 91,344 rows · every column ≥99.2% distinct · uuid, sha256, ms timestamps, free text</span></td>
+            <td class="split"><span class="cell"><span class="g good"></span><span>7 columns fit</span></span></td>
+            <td class="split"><span class="cell"><span class="g warn"></span><span>64-char hashes ellipsis to <b>~14</b> chars — every cell reads alike</span></span></td>
+            <td class="split"><span class="cell"><span class="g crit"></span><span>the reference draws <b>no profile card at all</b> for its 100%-distinct column — silently omitted</span></span></td>
+            <td class="split"><span class="cell"><span class="g crit"></span><span>every group-by returns <b>n</b> rows; pivot is the table</span></span></td>
+          </tr>
+          <tr class="rule"><td colspan="5"><span class="rl"><span class="rid">R4·R7</span><span>at <b>&gt;95% distinct</b> the distribution is replaced by an <b>identity panel</b> — distinct count, length distribution, character-class signature, 5 sampled values (see right). Omission is not a degradation: a column with no card reads as a column with no problem · monospace cells truncate from the <b>middle</b>, keeping the discriminating head and tail.</span></span></td></tr>
+
+          <tr class="shape">
+            <td><span class="sname">S3a one column</span><span class="sfacts">1 col · 4,210,880 rows · sha256 allowlist</span></td>
+            <td class="split"><span class="cell"><span class="g warn"></span><span>286px of chrome for one row</span></span></td>
+            <td class="split"><span class="cell"><span class="g warn"></span><span>one 88px column in a 740px pane — <b>88%</b> dead</span></span></td>
+            <td class="split"><span class="cell"><span class="g good"></span><span>holds</span></span></td>
+            <td class="split"><span class="cell"><span class="g warn"></span><span>no second field: count-only, but the builder still asks</span></span></td>
+          </tr>
+          <tr class="rule"><td colspan="5"><span class="rl"><span class="rid">R8</span><span>below <b>4 columns</b> the rail collapses into the lens and the grid lets columns grow to fill; a single-column dataset is a list, and should be drawn as one.</span></span></td></tr>
+
+          <tr class="shape">
+            <td><span class="sname">S3b zero rows</span><span class="sfacts">12 cols · 0 rows · a legitimate empty export, not an error</span></td>
+            <td class="split"><span class="cell"><span class="g good"></span><span>schema is known without rows</span></span></td>
+            <td class="split"><span class="cell"><span class="g crit"></span><span>renders the same <b>“no data”</b> as a failed load</span></span></td>
+            <td class="split"><span class="cell"><span class="g crit"></span><span><b>0/0</b> → bars at <span class="mono">width:NaN%</span>, percentages read <span class="mono">NaN%</span></span></span></td>
+            <td class="split"><span class="cell"><span class="g warn"></span><span>charts draw empty axes with no explanation</span></span></td>
+          </tr>
+          <tr class="rule"><td colspan="5"><span class="rl"><span class="rid">R9</span><span>zero rows is a <b>state, not a failure</b>: render the header row and the declared schema, state “0 rows · this version is empty” in the footnote register, and suppress every ratio rather than dividing. <b>No statistic is ever printed from a zero denominator.</b></span></span></td></tr>
+
+          <tr class="shape">
+            <td><span class="sname">S4 hostile names &amp; values</span><span class="sfacts">62-char names · two columns named <span class="mono">Amount</span> · leading digits · unicode · a 1,400-char cell</span></td>
+            <td class="split"><span class="cell"><span class="g crit"></span><span>truncates at <b>~18</b> chars — the two <span class="mono">Amount</span> columns are indistinguishable</span></span></td>
+            <td class="split"><span class="cell"><span class="g crit"></span><span>fixed-width nowrap header: 6 columns all read <span class="mono">Total Gross Not…</span></span></span></td>
+            <td class="split"><span class="cell"><span class="g warn"></span><span>a paragraph cell becomes a 1-row “top value”</span></span></td>
+            <td class="split"><span class="cell"><span class="g warn"></span><span>legend entries at 62 chars; axis labels overlap</span></span></td>
+          </tr>
+          <tr class="rule"><td colspan="5"><span class="rl"><span class="rid">R10</span><span>a column is addressed by <b>ordinal + name</b>, never by name alone; duplicates render as <span class="k">Amount ⟨3⟩</span> / <span class="k">Amount ⟨7⟩</span>. Names wrap to <b>two lines</b> then middle-truncate with the full name in <span class="mono">title</span>. Text cells clamp to one line at a fixed row height with an expand affordance — <b>row height never varies with content</b>.</span></span></td></tr>
+
+          <tr class="shape">
+            <td><span class="sname">S5 high-cardinality categorical</span><span class="sfacts">counterparty_lei · <b>500</b> distinct · 2.1M rows · Zipfian</span></td>
+            <td class="split"><span class="cell"><span class="g good"></span><span>holds</span></span></td>
+            <td class="split"><span class="cell"><span class="g good"></span><span>holds</span></span></td>
+            <td class="split"><span class="cell"><span class="g warn"></span><span>the fold is a <b>150px scrollbox</b> (~7.5 rows), not a top-k: the remaining <b>61.2%</b> is never stated</span></span></td>
+            <td class="split"><span class="cell"><span class="g crit"></span><span>500 bars × 23px = <b>11,500px</b>; 500 legend rows; the palette is 8 and <span class="mono">never cycled</span>, so slots 9–500 have <b>no colour at all</b></span></span></td>
+          </tr>
+          <tr class="rule"><td colspan="5"><span class="rl"><span class="rid">R7</span><span>above <b>8 categories</b>: rank, take the top 8, assign slots 1–8 in fixed rank order, <b>never cycle</b>, and fold the remainder into a graphite <b>Other</b> that carries its own count and share. Shown working on the right. A pivot <b>column</b> shelf rejects a field above <b>24</b> distinct and offers the fold — the reference pivot has no member limit and its row-label column is not sticky, so scrolling 64,000px of columns loses the labels entirely.</span></span></td></tr>
+
+          <tr class="shape">
+            <td><span class="sname">S6 dirty / mixed types</span><span class="sfacts"><span class="mono">quantity</span> · 80.4% int · 14.9% text (<span class="mono">"N/A" "1,204" "12k"</span>) · 4.7% null</span></td>
+            <td class="split"><span class="cell"><span class="g warn"></span><span>one type badge asserts <span class="mono">int64</span> — a claim about 80% of rows</span></span></td>
+            <td class="split"><span class="cell"><span class="g warn"></span><span>right-aligns numbers, left-aligns the text rows: the column looks corrupt</span></span></td>
+            <td class="split"><span class="cell"><span class="g crit"></span><span>histogram over <b>80.4%</b> of rows, labelled as if over all</span></span></td>
+            <td class="split"><span class="cell"><span class="g crit"></span><span><span class="mono">sum</span> silently drops <b>19.6%</b> of rows and prints a confident total</span></span></td>
+          </tr>
+          <tr class="rule" style="border-bottom:none"><td colspan="5"><span class="rl"><span class="rid">R11</span><span>a mixed column carries a <b>coverage denominator on every statistic</b> — “mean over 80.4% of rows” — and the type badge becomes <span class="k">int64 · 80%</span> with the unparsed share one click away. An aggregate that silently narrows its denominator is the one failure mode that produces a <b>wrong number a human will act on</b>.</span></span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="pane">
+    <div class="colhead"><span class="t">The fold, shown working</span><span class="ct">S5 · counterparty_lei</span><span class="spacer"></span><span class="ct">500 distinct</span></div>
+    <div class="pbody">
+      <div class="foldbar">
+        <span style="width:7.8%;background:var(--viz-1)"></span>
+        <span style="width:6.4%;background:var(--viz-2)"></span>
+        <span style="width:5.9%;background:var(--viz-3)"></span>
+        <span style="width:5.1%;background:var(--viz-4)"></span>
+        <span style="width:4.4%;background:var(--viz-5)"></span>
+        <span style="width:3.6%;background:var(--viz-6)"></span>
+        <span style="width:3.1%;background:var(--viz-7)"></span>
+        <span style="width:2.5%;background:var(--viz-8)"></span>
+        <span style="flex:1;background:var(--m5);box-shadow:inset 0 0 0 1px var(--m4)"></span>
+      </div>
+      <div class="legend">
+        <span class="lgi"><span class="sw" style="background:var(--viz-1)"></span><span class="lb">549300NEU…NY01</span><span class="pc">7.8%</span></span>
+        <span class="lgi"><span class="sw" style="background:var(--viz-5)"></span><span class="lb">213800UBS…ZH02</span><span class="pc">4.4%</span></span>
+        <span class="lgi"><span class="sw" style="background:var(--viz-2)"></span><span class="lb">MP6I5ZYZB…LN01</span><span class="pc">6.4%</span></span>
+        <span class="lgi"><span class="sw" style="background:var(--viz-6)"></span><span class="lb">549300SCB…SG01</span><span class="pc">3.6%</span></span>
+        <span class="lgi"><span class="sw" style="background:var(--viz-3)"></span><span class="lb">R0MUWSFP…PA03</span><span class="pc">5.9%</span></span>
+        <span class="lgi"><span class="sw" style="background:var(--viz-7)"></span><span class="lb">7LTWFZYI…FR01</span><span class="pc">3.1%</span></span>
+        <span class="lgi"><span class="sw" style="background:var(--viz-4)"></span><span class="lb">8I5DZWZK…NY04</span><span class="pc">5.1%</span></span>
+        <span class="lgi"><span class="sw" style="background:var(--viz-8)"></span><span class="lb">IGJSJL3JD…NY02</span><span class="pc">2.5%</span></span>
+        <span class="lgi tail" style="grid-column:1 / -1"><span class="sw"></span><span class="lb">Other · 492 values</span><span class="pc">61.2% · 1,285,440 rows</span></span>
+      </div>
+      <div class="rl" style="margin-top:9px"><span class="rid">R7</span><span>Slots are assigned by <b>rank</b>, so slot 1 is always the largest and a colour means the same thing across every chart of this column. <b>Other is graphite, never a slot</b> — it is a residual, not a category. Labels sit in graphite text beside a swatch, never in the series hue: <span class="k">--viz-6 #008300</span> measures <b>3.70:1</b> on <span class="k">--s2</span> and can never carry text. The usable palette is <b>7 hues plus a residual</b>, not 8.</span></div>
+
+      <div class="sh" style="margin-top:12px">When there is nothing to distribute <span class="line"></span><span class="ct">S2 · R4</span></div>
+      <div class="well" style="margin-top:7px">
+        <div class="ph">identity panel — sha256_payload</div>
+        <div class="idrow">
+          <span class="l">distinct</span><span class="v">91,344 / 91,344 · 100.0%</span>
+          <span class="l">null</span><span class="v">0</span>
+          <span class="l">length</span><span class="v">64 · fixed</span>
+          <span class="l">charset</span><span class="v">[0-9a-f] · 100% conforming</span>
+          <span class="l">sample</span><span class="v">a3f1c0…9e42 · 7b20de…11a8 · c0114f…8dd3</span>
+        </div>
+        <div class="fn" style="margin-top:7px">a top-values chart is suppressed, not drawn empty — every bar would be one row</div>
+      </div>
+
+      <div class="well" style="margin-top:8px">
+        <div class="ph">length distribution — free_text_note</div>
+        <div class="lenbars">
+          <i style="height:14%"></i><i style="height:38%"></i><i style="height:72%"></i><i style="height:100%"></i><i style="height:81%"></i><i style="height:54%"></i><i style="height:33%"></i><i style="height:21%"></i><i style="height:12%"></i><i style="height:8%"></i><i style="height:5%"></i><i style="height:3%"></i><i style="height:2%"></i><i style="height:2%"></i><i style="height:6%"></i>
+        </div>
+        <div class="fn" style="margin-top:5px"><span class="k">0</span> chars<span style="margin-left:auto"></span>p50 <b style="color:var(--t1);font-weight:600">118</b><span style="margin-left:auto"></span><span class="k">1,412</span> chars · a paragraph</div>
+      </div>
+
+      <div class="sh" style="margin-top:12px">Two distinct values <span class="line"></span><span class="ct">R7 floor</span></div>
+      <div class="ratio">
+        <span style="width:71.4%;background:var(--viz-1)"></span>
+        <span style="flex:1;background:var(--m5)"></span>
+      </div>
+      <div class="fn" style="margin-top:5px"><span class="k">settled</span> 71.4%<span style="margin-left:auto"></span><span class="k">pending</span> 28.6% — below <b style="color:var(--t2)">3 distinct</b> a bar chart is a ratio, and is drawn as one</div>
+    </div>
+  </div>
+</div>
+
+<div class="statusbar">
+  <span class="h"><span class="kbd">S</span> load shape</span>
+  <span class="h"><span class="kbd">P</span> pin column</span>
+  <span class="h"><span class="kbd">F</span> fold tail</span>
+  <span class="h"><span class="kbd">⌘K</span> commands</span>
+  <span class="gate">verdict: the cockpit is a viewer for ≤30 tidy columns · R1–R11 are the price of the claim “upload any tabular data”</span>
+  <span class="sclock"><span class="dot"></span><b>LIVE</b> · BENCH 16:41:07 ET</span>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,777 @@
+<!--
+  DESIGN NOTES — "INSTRUMENT" applied to the Analytics lens (restyle of terminal-analytics.html).
+  Same information, same regions, same layout: only the visual language changed. Tokens, grain overlay, status
+  shapes, scrollbar and focus ring are copied verbatim from terminal-quality-instrument.html.
+  ACCENT (rule 1) — cyan marks SCOPE + LIVENESS, 4 uses: the active route, the selected dataset in the rail,
+  the as-of version in the lens hintbar, and the SYNC lamp. Repeated state (lens tabs, rail filter chips,
+  pagination) moved to value + elevation.
+  VIZ AUDIT — the ranked bar chart was decoratively categorical: one series (sum(amount)) wearing four hues,
+  with a legend restating labels the bars already carry. Demoted to the neutral value ramp m1→m4 by rank,
+  direct-labelled, legend replaced by one footnote line. The amount cell-bars and every sparkline lost their
+  hue too (several were riding RESERVED status colors). The only chart that keeps categorical color is the
+  indexed time series: two genuinely different quantities that cross, so identity needs hue — slots 1 and 2
+  of the fixed order, with a legend, one y-axis, 2px lines, 9px end dots and ink-token labels.
+  Region / plan tags and the status column are DATA, not system status, so they wear ink + shape, which keeps
+  the reserved palette free for real status.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Command Studio — Analytics Lens · Terminal</title>
+<style>
+  :root {
+    --s0:#080A0E;  --s1:#0D1015;  --s2:#11151B;  --s3:#161B22;
+    --s4:#1C222B;  --s5:#242C37;  --s6:#38424F;  --key:#E9EEF5;
+    --t1:#E7ECF3;  --t2:#B0BAC8;  --t3:#85909F;  --t4:#5C6675; /* t4 = decoration only, NEVER text */
+    --r1:rgba(255,255,255,.042); --r2:rgba(255,255,255,.075); --r3:rgba(255,255,255,.13);
+    --hi:inset 0 1px 0 rgba(255,255,255,.045);
+    --sig:#46D5E8; --sig-dim:rgba(70,213,232,.14); --sig-line:rgba(70,213,232,.40);
+    --st-good:#0ca30c; --st-warn:#fab219; --st-serious:#ec835a; --st-crit:#DC5050;
+    --m1:#CBD3DF; --m2:#A2ACBB; --m3:#7D8797; --m4:#5F6979; --m5:#48515F; --m6:#39414D;
+    /* categorical — fixed order, never cycled. Slot 6 is #747c04: #008300 collided with reserved status green. */
+    --viz-1:#3987e5; --viz-2:#d95926; --viz-3:#199e70; --viz-4:#c98500;
+    --viz-5:#d55181; --viz-6:#747c04; --viz-7:#9085e9; --viz-8:#e66767;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    /* legacy aliases — every remaining inline var() resolves into the instrument ramp, never into chroma */
+    --background:var(--s1); --foreground:var(--t1); --card:var(--s2); --surface:var(--s3);
+    --muted:rgba(255,255,255,.05); --muted-foreground:var(--t3); --border:var(--r1);
+    --secondary:var(--s4); --accent:var(--s4); --popover:var(--s3); --primary:var(--t1);
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { height:100%; overflow:hidden; }
+  html { font-size:13px; }
+  body {
+    font-family:var(--sans); color:var(--t2); font-size:12.5px;
+    background:radial-gradient(1180px 560px at 44% -12%, #151B24 0%, rgba(21,27,36,0) 62%), var(--s1);
+    -webkit-font-smoothing:antialiased; line-height:1.4; letter-spacing:-0.004em;
+    display:flex; flex-direction:column;
+  }
+  body::after {
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:200; opacity:.055; mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .mono { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  .num { font-variant-numeric:tabular-nums; }
+  ::selection { background:rgba(70,213,232,.26); color:#fff; }
+  :focus-visible { outline:none; box-shadow:0 0 0 1px var(--s0), 0 0 0 3px rgba(70,213,232,.45); border-radius:6px; }
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb { background:#232B35; border-radius:8px; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background:#303945; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-track { background:transparent; }
+
+  /* ===== STATUS: five states, five SHAPES, always beside a word. Pure CSS, renders without JS. ===== */
+  .g, .sdot { width:8px; height:8px; flex:none; display:inline-block; vertical-align:-1px; }
+  .g.good, .sdot.good       { border-radius:50%; background:var(--st-good); }
+  .g.warn, .sdot.warn       { width:0; height:0; border-left:4.5px solid transparent; border-right:4.5px solid transparent;
+                              border-bottom:8px solid var(--st-warn); vertical-align:0; background:none; }
+  .g.serious, .sdot.serious { width:7px; height:7px; background:var(--st-serious); border-radius:1px; transform:rotate(45deg); margin:0 1px; }
+  .g.crit, .sdot.crit       { background:var(--st-crit); border-radius:1px; }
+  .g.unknown, .sdot.unknown { border-radius:50%; background:transparent; box-shadow:inset 0 0 0 1.5px var(--t3); }
+  .stw { display:inline-flex; align-items:center; gap:6px; font-size:10.5px; font-weight:500; white-space:nowrap; }
+
+  /* the footnote register — all provenance, caps and chart notes land here */
+  .fnote { font-size:9.5px; color:var(--t3); line-height:1.55; }
+  .fnote .k { font-family:var(--mono); color:var(--t2); }
+  .fnote b { color:var(--t2); font-weight:600; }
+
+  /* ================= HEADER ================= */
+  header.topbar {
+    height:46px; flex:none; display:flex; align-items:center; gap:16px; padding:0 16px;
+    background:linear-gradient(180deg,#141922,#10141A); box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); z-index:30;
+  }
+  .brand { display:flex; align-items:center; gap:10px; }
+  .brand .glyph { width:21px; height:21px; border-radius:5px; background:linear-gradient(180deg,#2C3542,#191F28);
+    display:grid; place-items:center; box-shadow:var(--hi), 0 1px 2px rgba(0,0,0,.5); color:var(--t1); }
+  .brand .glyph svg { display:block; }
+  .brand .name { font-size:12.5px; font-weight:600; color:var(--t1); letter-spacing:-0.012em; white-space:nowrap; }
+  .env-chip { font-family:var(--mono); font-size:10px; color:var(--t3); display:inline-flex; align-items:center;
+    gap:6px; white-space:nowrap; }
+  .env-chip::before { content:""; width:5px; height:5px; border-radius:50%; background:var(--st-warn); flex:none; }
+  nav.gnav { display:flex; align-items:center; gap:4px; }
+  nav.gnav a { font-size:12.5px; font-weight:450; color:var(--t3); text-decoration:none; height:30px; padding:0 10px;
+    border-radius:7px; position:relative; display:inline-flex; align-items:center; transition:color .14s, background .14s; }
+  nav.gnav a:hover { color:var(--t1); background:rgba(255,255,255,.035); }
+  /* SIGNAL 1/4 — the active route */
+  nav.gnav a.active { color:var(--t1); font-weight:550; background:transparent; }
+  nav.gnav a.active::after { content:""; position:absolute; left:10px; right:10px; bottom:-9px; height:2px;
+    background:var(--sig); border-radius:2px 2px 0 0; box-shadow:0 0 12px -1px var(--sig); }
+  .cmdk { margin-left:auto; display:flex; align-items:center; gap:9px; width:300px; height:30px; padding:0 10px;
+    border-radius:8px; cursor:text; color:var(--t3); background:var(--s0);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); transition:box-shadow .16s; }
+  .cmdk:focus-within { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+  .cmdk svg { flex:none; opacity:.55; }
+  .cmdk .ph { font-size:12px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .kbd { font-family:var(--mono); font-size:10px; font-weight:500; color:var(--t2);
+    background:linear-gradient(180deg,#232A34,#1A2028); border-radius:4px; padding:1.5px 5px; line-height:1.4;
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); white-space:nowrap; }
+  .hicons { display:flex; align-items:center; gap:2px; }
+  .iconbtn { width:30px; height:30px; border-radius:7px; border:0; background:transparent; color:var(--t3);
+    display:grid; place-items:center; cursor:pointer; transition:color .14s, background .14s; }
+  .iconbtn:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  .avatar { width:27px; height:27px; border-radius:7px; background:linear-gradient(180deg,#2A323D,#1D242D);
+    display:grid; place-items:center; font-size:10px; font-weight:600; color:var(--t2); cursor:pointer;
+    box-shadow:var(--hi); flex:none; margin-left:6px; }
+
+  /* ================= KPI STRIP — the first read ================= */
+  .kpistrip {
+    height:62px; flex:none; display:flex; align-items:center; padding:0 18px;
+    background:linear-gradient(180deg,var(--s3),#12171E);
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.55), 0 10px 24px -20px rgba(0,0,0,.9);
+  }
+  .kpi { display:flex; flex-wrap:wrap; align-items:baseline; align-content:center; gap:1px 8px; padding-right:30px; }
+  .kpi .lab { flex-basis:100%; font-size:9.5px; font-weight:500; letter-spacing:.11em; text-transform:uppercase;
+    color:var(--t3); white-space:nowrap; }
+  .kpi .val { font-size:23px; font-weight:600; line-height:1.15; color:var(--t1); letter-spacing:-0.032em;
+    font-variant-numeric:tabular-nums; }
+  .kpi .delta { font-size:10.5px; font-weight:450; color:var(--t3); display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
+  .up { color:var(--t2); }
+  .down { color:var(--st-serious); }
+  .kpi .spark { align-self:center; margin-left:2px; }
+  .clock { margin-left:auto; display:flex; align-items:center; gap:8px; padding-left:18px; font-family:var(--mono);
+    font-size:10.5px; color:var(--t3); white-space:nowrap; }
+  /* SIGNAL 4/4 — the one live indicator */
+  .clock .dot { width:6px; height:6px; border-radius:50%; background:var(--sig); flex:none;
+    box-shadow:0 0 0 3px rgba(70,213,232,.10), 0 0 9px -1px var(--sig); animation:pulse 3s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.42} }
+  @media (prefers-reduced-motion:reduce){ .clock .dot { animation:none } }
+
+  /* ================= WORKSPACE ================= */
+  .workspace { flex:1; min-height:0; display:grid; grid-template-columns:264px 1fr 336px; }
+  .col { display:flex; flex-direction:column; min-width:0; min-height:0; }
+  .col.rail { background:var(--s2); box-shadow:1px 0 0 rgba(0,0,0,.45); z-index:2; }
+  .col.center { background:transparent; }
+  .col.dock { background:var(--s2); box-shadow:-1px 0 0 rgba(0,0,0,.45); z-index:2; }
+  .colhead { height:32px; flex:none; display:flex; align-items:center; gap:9px; padding:0 14px; }
+  .colhead .t { font-size:12.5px; font-weight:600; color:var(--t1); letter-spacing:-0.012em; white-space:nowrap; }
+  .colhead .badge { font-family:var(--mono); font-size:10px; color:var(--t3); }
+  .colhead .spacer { margin-left:auto; }
+
+  /* ---- rail search ---- */
+  .railsearch { padding:2px 12px 10px; flex:none; }
+  .railsearch .box { height:28px; display:flex; align-items:center; gap:8px; padding:0 9px; border-radius:7px;
+    color:var(--t3); background:var(--s0); box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); }
+  .railsearch .box input { background:none; border:none; outline:none; color:var(--t1); font-size:12px; width:100%;
+    font-family:inherit; }
+  .railsearch .box input::placeholder { color:var(--t3); }
+  .railfilters { display:flex; gap:4px; margin-top:8px; }
+  /* repeated state — value + elevation, never the accent */
+  .fchip { font-size:11px; font-weight:450; color:var(--t3); padding:3px 9px; border-radius:6px; border:0;
+    background:transparent; cursor:pointer; font-family:inherit; transition:all .14s; }
+  .fchip:hover { color:var(--t1); background:rgba(255,255,255,.05); }
+  .fchip.on { color:var(--t1); font-weight:550; background:var(--s4); box-shadow:var(--hi); }
+
+  /* ---- watchlist ---- */
+  .watchlist { overflow-y:auto; overflow-x:hidden; flex:1; min-height:0; }
+  .wlgroup { padding:11px 14px 4px; font-size:11.5px; font-weight:550; color:var(--t2); letter-spacing:-0.008em;
+    display:flex; align-items:center; gap:8px; }
+  .wlgroup .ct { font-family:var(--mono); font-size:10px; color:var(--t3); font-weight:400; }
+  .wl { display:grid; grid-template-columns:1fr auto; gap:2px 8px; align-items:center;
+    padding:7px 14px; cursor:pointer; position:relative; transition:background .1s; }
+  .wl:hover { background:rgba(255,255,255,.035); }
+  /* SIGNAL 2/4 — the dataset this whole screen is scoped to */
+  .wl.sel { background:var(--s4); box-shadow:var(--hi), inset 2px 0 0 var(--sig); }
+  .wl .nm { font-size:12.5px; font-weight:500; color:var(--t2); display:flex; align-items:center; gap:7px; min-width:0; }
+  .wl.sel .nm { color:var(--t1); font-weight:600; }
+  .wl .nm .txt { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .wl .meta { grid-column:1; font-size:10px; color:var(--t3); display:flex; align-items:center; gap:6px; }
+  .wl .meta .tag { font-family:var(--mono); color:var(--t3); }
+  .wl .right { grid-column:2; grid-row:1 / span 2; display:flex; flex-direction:column; align-items:flex-end; gap:3px; }
+  .wl .rows { font-family:var(--mono); font-size:11.5px; font-weight:600; color:var(--t2); font-variant-numeric:tabular-nums; }
+  .wl.sel .rows { color:var(--t1); }
+  /* classification is a LABEL, enforcement is a CONTROL — labels stay ink, only enforcement wears amber */
+  .cls { font-family:var(--mono); font-size:9.5px; font-weight:500; color:var(--t3); white-space:nowrap;
+    border-bottom:1px dashed var(--r2); padding-bottom:1px; }
+  .verchip { font-family:var(--mono); font-size:9.5px; font-weight:500; color:var(--t3);
+    background:rgba(255,255,255,.05); border-radius:4px; padding:0 4px; }
+  .lockglyph { color:var(--st-warn); display:inline-flex; vertical-align:-2px; flex:none; }
+  .lockglyph.restr { color:var(--st-warn); }
+  .muted { color:var(--t3); }
+  .masked { color:var(--t3); letter-spacing:.06em; background:rgba(0,0,0,.32); border-radius:4px; padding:1px 5px;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.55); }
+  .pcell .lockglyph, table.grid thead th .lockglyph { color:var(--t3); }
+
+  .hintbar { display:flex; align-items:center; gap:11px; padding:0 12px; height:26px; flex:none;
+    box-shadow:inset 0 1px 0 var(--r1); font-size:10px; color:var(--t3); }
+  .hintbar .h { display:flex; align-items:center; gap:6px; white-space:nowrap; }
+  /* SIGNAL 3/4 — the immutable version this lens is reading */
+  .hintbar .scope { display:inline-flex; align-items:center; gap:6px; font-family:var(--mono); color:var(--t3); }
+  .hintbar .scope .tick { width:5px; height:5px; border-radius:50%; background:var(--sig); flex:none;
+    box-shadow:0 0 8px -1px var(--sig); }
+  .hintbar .scope b { color:var(--t1); font-weight:600; }
+
+  /* ================= CENTER ================= */
+  .gridhead { display:flex; align-items:center; gap:14px; padding:0 16px; height:56px; flex:none;
+    background:linear-gradient(180deg,#131820,#10141B); box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.45); }
+  .gridhead .hgroup { min-width:0; flex:1; }
+  .gridhead .title { font-size:15px; font-weight:600; color:var(--t1); letter-spacing:-0.02em;
+    display:flex; align-items:center; gap:9px; white-space:nowrap; }
+  .gridhead .path { font-size:10.5px; color:var(--t3); margin-top:5px; display:flex; align-items:center; gap:6px;
+    min-width:0; white-space:nowrap; }
+  .gridhead .path .fixed { flex:none; }
+  .gridhead .path .apath { flex:0 1 auto; min-width:24px; overflow:hidden; text-overflow:ellipsis; font-family:var(--mono); }
+  .gridhead .path b { color:var(--t2); font-weight:500; }
+  .pill { font-size:10.5px; font-weight:500; padding:2px 7px; border-radius:5px; display:inline-flex; align-items:center; gap:5px;
+    white-space:nowrap; flex:none; }
+  .pill.ok { color:var(--st-good); background:rgba(0,0,0,.36); box-shadow:inset 0 0 0 1px rgba(12,163,12,.34); }
+  .pill.warn { color:var(--st-warn); background:rgba(0,0,0,.36); box-shadow:inset 0 0 0 1px rgba(250,178,25,.34); }
+  .pill.neu { color:var(--t3); background:rgba(255,255,255,.05); }
+  /* label vs enforced: the classification is catalog metadata, the mask is a control */
+  .pill.label { color:var(--t3); background:transparent; font-weight:450; border-bottom:1px dashed var(--r2);
+    border-radius:0; padding:2px 1px; }
+  .pill.enforced { color:var(--st-warn); background:rgba(250,178,25,.07); box-shadow:inset 0 0 0 1px rgba(250,178,25,.26);
+    font-weight:500; }
+
+  .toolbar { margin-left:auto; display:flex; align-items:center; gap:6px; flex:none; white-space:nowrap; }
+  .tbtn { height:28px; padding:0 10px; font-size:12px; font-weight:450; color:var(--t2); background:transparent;
+    border:0; border-radius:7px; cursor:pointer; font-family:inherit; display:inline-flex; align-items:center; gap:6px;
+    transition:all .14s; white-space:nowrap; box-shadow:inset 0 0 0 1px var(--r2); }
+  .tbtn:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  .tbtn.iconb { padding:0; width:28px; justify-content:center; }
+  /* rule 2: the ONE near-white surface on the screen */
+  .tbtn.primary { background:linear-gradient(180deg,#FBFDFF,var(--key)); color:#0B0E13; font-weight:600; padding:0 11px;
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset, 0 2px 8px -3px rgba(0,0,0,.9), 0 0 0 1px rgba(0,0,0,.35); }
+  .tbtn.primary:hover { background:#fff; }
+  .tbtn .k { font-size:10px; color:var(--t3); font-family:var(--mono); }
+  .tbtn.primary .k { color:#4A5462; }
+
+  /* query / filter row */
+  .queryrow { display:flex; align-items:center; gap:8px; padding:0 16px; height:34px; flex:none;
+    background:rgba(0,0,0,.2); box-shadow:inset 0 1px 0 var(--r1), inset 0 -1px 0 var(--r1); }
+  .qtok { font-family:var(--mono); font-size:10.5px; display:inline-flex; align-items:center; gap:6px;
+    padding:2px 8px; border-radius:6px; background:var(--s4); box-shadow:var(--hi); color:var(--t2); white-space:nowrap; }
+  .qtok .key { color:var(--t1); font-weight:600; }
+  .qtok .x { color:var(--t3); cursor:pointer; }
+  .qadd { color:var(--t3); font-size:11px; cursor:pointer; padding:2px 7px; border-radius:6px;
+    box-shadow:inset 0 0 0 1px var(--r1); }
+  .qadd:hover { color:var(--t1); }
+  .qmeta { margin-left:auto; font-size:10.5px; color:var(--t3); display:flex; align-items:center; gap:14px; }
+  .seatchip { display:inline-flex; align-items:center; gap:6px; height:24px; padding:0 8px; font-size:10.5px;
+    color:var(--t3); background:rgba(255,255,255,.045); border-radius:6px; flex:none; }
+  .seatchip b { color:var(--t2); font-weight:600; }
+  .seatchip .lockglyph { color:var(--t3); }
+
+  /* the grid */
+  .gridwrap { flex:1; overflow:auto; min-height:0; }
+  table.grid { border-collapse:separate; border-spacing:0; width:100%; font-size:11.5px; }
+  /* rule 5: table headers are lowercase mono identifiers, not shouting */
+  table.grid thead th {
+    position:sticky; top:0; z-index:5; background:#12161D; text-align:left; white-space:nowrap;
+    font-family:var(--mono); font-size:10px; font-weight:500; color:var(--t3); padding:0 12px; height:28px;
+    box-shadow:inset 0 -1px 0 var(--r2), inset 0 1px 0 var(--r1); cursor:pointer; user-select:none;
+  }
+  table.grid thead th:hover { color:var(--t1); }
+  table.grid thead th .arrow { color:var(--t1); margin-left:3px; }
+  table.grid thead th.rownum, table.grid tbody td.rownum {
+    width:44px; text-align:right; color:var(--t3); padding-right:10px; background:#0D1015;
+    position:sticky; left:0; z-index:4; font-family:var(--mono);
+  }
+  table.grid thead th.rownum { z-index:6; background:#12161D; }
+  table.grid tbody td { padding:0 12px; height:29px; white-space:nowrap; color:var(--t2);
+    border-bottom:1px solid rgba(255,255,255,.032); }
+  table.grid tbody tr:nth-child(6n) td { border-bottom-color:rgba(255,255,255,.085); }  /* the ruler measure */
+  table.grid tbody tr:hover td, table.grid tbody tr:hover td.rownum { background:rgba(255,255,255,.038); }
+  td.n { text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums; color:var(--t1); }
+  td.mono { font-family:var(--mono); }
+  .amt-pos { color:var(--t1); }
+  /* single-series magnitude in a cell — the neutral ramp, never a category hue */
+  .cell-bar { display:inline-block; height:4px; border-radius:0 2px 2px 0; vertical-align:middle; margin-left:8px;
+    background:var(--m4); }
+  /* region / plan are identifiers, not series — mono ink, no hue spent */
+  .rtag, .ptag { font-family:var(--mono); font-size:10px; font-weight:500; padding:1px 6px; border-radius:4px;
+    color:var(--t2); background:rgba(255,255,255,.05); display:inline-flex; align-items:center; gap:4px; }
+  .pcell { display:inline-flex; align-items:center; gap:6px; }
+  /* a value in a status COLUMN is data, not system status — shape + word, ink text */
+  .stat { display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:450; color:var(--t2); }
+  .stat .d { width:7px; height:7px; flex:none; background:var(--m3); border-radius:50%; }
+  .stat.trialing .d { width:0; height:0; background:none; border-left:4px solid transparent;
+    border-right:4px solid transparent; border-bottom:7px solid var(--m3); border-radius:0; }
+  .stat.churned .d { border-radius:1px; transform:rotate(45deg); width:6px; height:6px; }
+  .stat.churned { color:var(--t3); }
+  .flag { color:var(--t1); font-weight:600; }
+
+  .gridfoot { height:28px; flex:none; display:flex; align-items:center; gap:14px; padding:0 16px;
+    box-shadow:inset 0 1px 0 var(--r1); font-size:10.5px; color:var(--t3); }
+  .gridfoot b { color:var(--t2); font-weight:600; }
+  .gridfoot .pg { margin-left:auto; display:flex; align-items:center; gap:4px; }
+  .pgbtn { min-width:24px; height:24px; padding:0 9px; border-radius:6px; border:0; background:transparent;
+    box-shadow:inset 0 0 0 1px var(--r1); color:var(--t3); cursor:pointer; font-size:11px; font-family:inherit; }
+  .pgbtn:hover { color:var(--t1); background:rgba(255,255,255,.05); }
+  .pgbtn.on { color:var(--t1); background:var(--s4); box-shadow:var(--hi); }
+
+  /* ================= DOCK ================= */
+  .lenstabs { display:flex; align-items:center; flex-wrap:wrap; gap:0 1px; padding:4px 12px; flex:none;
+    background:rgba(0,0,0,.2); box-shadow:inset 0 1px 0 var(--r1), inset 0 -1px 0 var(--r1); }
+  .ltab { font-size:11.5px; font-weight:450; color:var(--t3); padding:0 7px; height:23px; cursor:pointer;
+    position:relative; display:inline-flex; align-items:center; transition:color .14s; white-space:nowrap; }
+  .ltab:hover { color:var(--t1); }
+  /* local state is white; cyan is reserved for global scope + liveness */
+  .ltab.on { color:var(--t1); font-weight:550; }
+  .ltab.on::after { content:""; position:absolute; left:7px; right:7px; bottom:1px; height:1.5px;
+    background:var(--t1); border-radius:2px; }
+  .dockbody { overflow-y:auto; overflow-x:hidden; flex:1; min-height:0; padding:12px 14px 16px; }
+  .sect { margin-bottom:18px; }
+  .sect:last-child { margin-bottom:4px; }
+  /* rule 5: sentence-case heads with a hairline, not uppercase micro-labels */
+  .sect > .h { font-size:11.5px; font-weight:550; color:var(--t2); letter-spacing:-0.008em; margin-bottom:9px;
+    display:flex; align-items:center; gap:9px; }
+  .sect > .h .line { flex:1; height:1px; background:var(--r1); min-width:10px; }
+
+  /* ---- aggregate builder: a raised surface, no border ---- */
+  .agg { background:var(--s3); border-radius:9px; box-shadow:var(--hi); padding:10px 11px 11px; }
+  .aggrow { display:flex; align-items:center; gap:9px; margin-bottom:6px; }
+  .aggrow:last-child { margin-bottom:0; }
+  .aggrow .albl { font-size:10.5px; color:var(--t3); width:58px; flex:none; }
+  .selpill { flex:1; min-width:0; height:27px; display:flex; align-items:center; gap:7px; padding:0 9px;
+    border-radius:7px; font-size:11.5px; color:var(--t1); cursor:pointer; background:var(--s0);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); }
+  .selpill:hover { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.09); }
+  .selpill .fn { color:var(--t1); font-family:var(--mono); font-size:10.5px; font-weight:600; }
+  .selpill .cn { font-family:var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--t2); }
+  .selpill .cc { margin-left:auto; color:var(--t3); flex:none; font-size:10px; }
+  .runline { display:flex; align-items:center; gap:9px; margin-top:10px; }
+  .runline .rbtn { height:27px; padding:0 12px; font-size:11.5px; font-weight:550; color:var(--t1); background:var(--s5);
+    border:0; border-radius:7px; cursor:pointer; font-family:inherit; display:inline-flex; align-items:center; gap:6px;
+    box-shadow:var(--hi), 0 1px 2px rgba(0,0,0,.5); }
+  .runline .rbtn:hover { background:var(--s6); }
+  .runline .rmeta { margin-left:auto; font-size:9.5px; color:var(--t3); font-family:var(--mono); }
+
+  /* ---- ranked horizontal bars: thin marks, 4px rounded data-ends on a left baseline ---- */
+  .hbarchart { position:relative; }
+  .hbar { display:grid; grid-template-columns:58px 1fr 60px; gap:0 9px; align-items:center; margin:0 0 7px; }
+  .hbar .hl { font-size:11px; color:var(--t2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:right; }
+  .hbar .hwrap { height:14px; display:flex; align-items:center; box-shadow:inset 1px 0 0 var(--r2); }
+  .hbar .hfill { height:14px; border-radius:0 4px 4px 0; min-width:3px; }
+  .hbar .hval { font-family:var(--mono); font-size:10.5px; color:var(--t2); text-align:right; font-variant-numeric:tabular-nums; }
+  .hbar-axis { display:flex; justify-content:space-between; margin-left:67px; font-family:var(--mono);
+    font-size:9.5px; color:var(--t3); margin-top:3px; }
+  .legend { display:flex; flex-wrap:wrap; align-items:center; gap:4px 14px; margin-top:8px; font-size:10.5px; }
+  .legend .li { display:flex; align-items:center; gap:6px; color:var(--t3); }
+  .legend .sw { width:9px; height:9px; border-radius:3px; flex:none; }
+
+  /* ---- time series: two 2px lines, one y-axis, recessive gridlines, ink labels ---- */
+  .ts { margin-top:4px; }
+  .ts svg { display:block; width:100%; height:auto; }
+  .ts .gl { stroke:var(--r1); stroke-width:1; }
+  .ts .axl { fill:var(--t3); font-family:var(--mono); font-size:9px; }
+  .ts .lbl { fill:var(--t1); font-family:var(--mono); font-size:10px; font-weight:600; }
+  .tstable { width:100%; margin-top:9px; border-collapse:separate; border-spacing:0; font-size:10.5px; }
+  .tstable th { text-align:right; font-family:var(--mono); font-size:9.5px; font-weight:500; color:var(--t3);
+    padding:0 6px; height:22px; box-shadow:inset 0 -1px 0 var(--r2); white-space:nowrap; }
+  .tstable td { text-align:right; padding:0 6px; height:23px; font-family:var(--mono); color:var(--t2);
+    font-variant-numeric:tabular-nums; border-bottom:1px solid rgba(255,255,255,.032); }
+  .tstable tr:last-child td { border-bottom:none; }
+  .tstable th.k, .tstable td.k { text-align:left; font-family:var(--sans); color:var(--t3); }
+  .tstable td.dpos { color:var(--t1); font-weight:600; }
+  .tstable td.dneg { color:var(--t3); }
+</style>
+</head>
+<body class="dark" data-palette="#3987e5,#d95926,#199e70,#c98500,#d55181,#747c04,#9085e9,#e66767">
+
+<!-- ================= HEADER ================= -->
+<header class="topbar">
+  <div class="brand">
+    <span class="glyph">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M4 7l8-4 8 4-8 4-8-4z" fill="#fff" opacity=".95"/><path d="M4 12l8 4 8-4M4 17l8 4 8-4" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity=".8"/></svg>
+    </span>
+    <span class="name">Command&nbsp;Studio</span>
+  </div>
+  <span class="env-chip">PROD · US-EAST</span>
+  <nav class="gnav">
+    <a href="#">Workflows</a>
+    <a href="#" class="active">Datasets</a>
+    <a href="#">Runs</a>
+    <a href="#">Library</a>
+  </nav>
+
+  <div class="cmdk" tabindex="0" title="Command palette">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span class="ph">Search datasets, columns, run a command…</span>
+    <span class="kbd">⌘K</span>
+  </div>
+
+  <div class="hicons">
+    <button class="iconbtn" title="Filters"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M3 5h18M6 12h12M10 19h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+    <button class="iconbtn" title="Alerts">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M6 9a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M10 20a2 2 0 004 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+    <button class="iconbtn" title="Theme" onclick="document.body.classList.toggle('dark')">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M20 13a8 8 0 11-9-9 6 6 0 009 9z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+    </button>
+    <div class="avatar" title="S. Ganji · Growth Analytics · member">SG</div>
+  </div>
+</header>
+
+<!-- ================= KPI STRIP ================= -->
+<div class="kpistrip">
+  <div class="kpi">
+    <span class="lab">Datasets</span><span class="val num">142</span>
+    <span class="delta up">&#9650; 6</span>
+  </div>
+  <div class="kpi">
+    <span class="lab">Rows stored</span><span class="val num">3.14B</span>
+    <svg class="spark" width="52" height="18" viewBox="0 0 52 18"><polyline points="0,14 8,13 16,11 24,12 32,8 40,6 52,3" fill="none" stroke="var(--m3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </div>
+  <div class="kpi">
+    <span class="lab">PII columns</span><span class="val num">38</span>
+    <span class="delta" style="color:var(--muted-foreground)"><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span> masked</span>
+  </div>
+  <div class="kpi" title="Dataset classification is catalog metadata for findability and reporting. It does not gate access — masking is driven by column sensitivity.">
+    <span class="lab">Classified restricted</span><span class="val num">11</span>
+    <span class="delta">label only</span>
+  </div>
+  <div class="kpi" title="Column sensitivity is human-declared in the data dictionary — there is no auto-detection. Undeclared columns are never masked.">
+    <span class="lab">Undeclared cols</span><span class="val num" style="color:var(--st-serious)">126</span>
+    <span class="delta down"><span class="g serious"></span>needs review</span>
+  </div>
+  <div class="clock">
+    <span class="dot"></span>
+    <span class="mono" style="font-size:11px;color:var(--muted-foreground)">SYNC 16:41:07 ET</span>
+  </div>
+</div>
+
+<!-- ================= WORKSPACE ================= -->
+<div class="workspace">
+
+  <!-- ---------- LEFT RAIL / WATCHLIST ---------- -->
+<div class="col rail">
+    <div class="colhead">
+      <span class="t">Datasets</span>
+      <span class="badge num">12</span>
+      <span class="spacer"></span>
+      <button class="iconbtn" style="width:24px;height:24px" title="Upload dataset"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 19V7m0 0l-4 4m4-4l4 4M5 5h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    </div>
+    <div class="railsearch">
+      <div class="box">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <input placeholder="Filter datasets…" />
+        <span class="kbd">/</span>
+      </div>
+      <div class="railfilters">
+        <button class="fchip on">All</button>
+        <button class="fchip">People Ops</button>
+        <button class="fchip">Growth</button>
+        <button class="fchip">Finance</button>
+      </div>
+    </div>
+
+    <div class="watchlist">
+      <div class="wlgroup">People Ops <span class="ct num">3</span></div>
+      <div class="wl">
+        <div class="nm"><span class="sdot warn"></span><span class="txt">Employee Records</span></div>
+        <div class="meta"><span class="tag mono">HR</span> · <span class="lockglyph restr"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span> <span class="cls restr">Restricted</span></div>
+        <div class="right">
+          <span class="rows num">12.4K</span>
+          <svg width="58" height="16" viewBox="0 0 58 16"><polyline points="0,8 8,8 15,7 22,7 29,7 36,6 43,6 50,6 58,5" fill="none" stroke="var(--m3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+      <div class="wl">
+        <div class="nm"><span class="sdot good"></span><span class="txt">Payroll Run 2026-08</span></div>
+        <div class="meta"><span class="tag mono">HR</span> · <span class="lockglyph restr"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span> <span class="cls restr">Restricted</span></div>
+        <div class="right">
+          <span class="rows num">3,142</span>
+          <svg width="58" height="16" viewBox="0 0 58 16"><polyline points="0,8 8,8 15,7 22,7 29,7 36,6 43,6 50,6 58,5" fill="none" stroke="var(--m3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+      <div class="wl">
+        <div class="nm"><span class="sdot warn"></span><span class="txt">Candidate Pipeline</span></div>
+        <div class="meta"><span class="tag mono">HR</span> · <span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span> <span class="cls conf">Confidential</span></div>
+        <div class="right">
+          <span class="rows num">8,710</span>
+          <svg width="58" height="16" viewBox="0 0 58 16"><polyline points="0,6 8,5 15,8 22,6 29,9 36,7 43,10 50,8 58,11" fill="none" stroke="var(--m3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+      <div class="wlgroup">Growth Analytics <span class="ct num">2</span></div>
+      <div class="wl sel">
+        <div class="nm"><span class="sdot good" title="status: good"></span><span class="txt">Q3 Campaign Signups.csv</span></div>
+        <div class="meta"><span class="tag mono">GRW</span> · <span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span> <span class="cls conf">Confidential</span></div>
+        <div class="right">
+          <span class="rows num">84.2K</span>
+          <svg width="58" height="16" viewBox="0 0 58 16"><polyline points="0,12 8,11 15,9 22,10 29,7 36,8 43,5 50,4 58,2" fill="none" stroke="var(--m3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+      <div class="wl">
+        <div class="nm"><span class="sdot good"></span><span class="txt">Churn Feature Store</span></div>
+        <div class="meta"><span class="tag mono">GRW</span> · <span class="cls internal">Internal</span></div>
+        <div class="right">
+          <span class="rows num">2.4M</span>
+          <svg width="58" height="16" viewBox="0 0 58 16"><polyline points="0,12 8,11 15,9 22,10 29,7 36,8 43,5 50,4 58,2" fill="none" stroke="var(--m3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+      <div class="wlgroup">Finance <span class="ct num">2</span></div>
+      <div class="wl">
+        <div class="nm"><span class="sdot good"></span><span class="txt">Vendor Invoices</span></div>
+        <div class="meta"><span class="tag mono">FIN</span> · <span class="cls conf">Confidential</span></div>
+        <div class="right">
+          <span class="rows num">512K</span>
+          <svg width="58" height="16" viewBox="0 0 58 16"><polyline points="0,6 8,5 15,8 22,6 29,9 36,7 43,10 50,8 58,11" fill="none" stroke="var(--m3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+      <div class="wl">
+        <div class="nm"><span class="sdot warn"></span><span class="txt">Refund Requests</span></div>
+        <div class="meta"><span class="tag mono">FIN</span> · <span class="cls conf">Confidential</span></div>
+        <div class="right">
+          <span class="rows num">88.0K</span>
+          <svg width="58" height="16" viewBox="0 0 58 16"><polyline points="0,4 8,6 15,5 22,8 29,6 36,9 43,7 50,10 58,9" fill="none" stroke="var(--m3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+      <div class="wlgroup">Customer Success <span class="ct num">2</span></div>
+      <div class="wl">
+        <div class="nm"><span class="sdot good"></span><span class="txt">Support Tickets Export</span></div>
+        <div class="meta"><span class="tag mono">CS</span> · <span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span> <span class="cls internal">Internal</span></div>
+        <div class="right">
+          <span class="rows num">1.2M</span>
+          <svg width="58" height="16" viewBox="0 0 58 16"><polyline points="0,12 8,11 15,9 22,10 29,7 36,8 43,5 50,4 58,2" fill="none" stroke="var(--m3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+      <div class="wl">
+        <div class="nm"><span class="sdot good"></span><span class="txt">NPS Survey Responses</span></div>
+        <div class="meta"><span class="tag mono">CS</span> · <span class="cls internal">Internal</span></div>
+        <div class="right">
+          <span class="rows num">143K</span>
+          <svg width="58" height="16" viewBox="0 0 58 16"><polyline points="0,8 8,8 15,7 22,7 29,7 36,6 43,6 50,6 58,5" fill="none" stroke="var(--m3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+      <div class="wlgroup">Marketing <span class="ct num">2</span></div>
+      <div class="wl">
+        <div class="nm"><span class="sdot good"></span><span class="txt">Web Events — Aug</span></div>
+        <div class="meta"><span class="tag mono">MKT</span> · <span class="cls internal">Internal</span></div>
+        <div class="right">
+          <span class="rows num">402M</span>
+          <svg width="58" height="16" viewBox="0 0 58 16"><polyline points="0,12 8,11 15,9 22,10 29,7 36,8 43,5 50,4 58,2" fill="none" stroke="var(--m3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+      <div class="wl">
+        <div class="nm"><span class="sdot warn"></span><span class="txt">Lead Scores</span></div>
+        <div class="meta"><span class="tag mono">MKT</span> · <span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span> <span class="cls conf">Confidential</span></div>
+        <div class="right">
+          <span class="rows num">690K</span>
+          <svg width="58" height="16" viewBox="0 0 58 16"><polyline points="0,6 8,5 15,8 22,6 29,9 36,7 43,10 50,8 58,11" fill="none" stroke="var(--m3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+      <div class="wlgroup">Data Platform <span class="ct num">1</span></div>
+      <div class="wl">
+        <div class="nm"><span class="sdot good"></span><span class="txt">Product Usage Daily</span></div>
+        <div class="meta"><span class="tag mono">DP</span> · <span class="cls internal">Internal</span></div>
+        <div class="right">
+          <span class="rows num">311M</span>
+          <svg width="58" height="16" viewBox="0 0 58 16"><polyline points="0,12 8,11 15,9 22,10 29,7 36,8 43,5 50,4 58,2" fill="none" stroke="var(--m3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+    </div>
+
+    <div class="hintbar">
+      <span class="h"><span class="kbd">J</span><span class="kbd">K</span> move</span>
+      <span class="h"><span class="kbd">↵</span> open</span>
+      <span class="h"><span class="kbd">U</span> upload</span>
+    </div>
+  </div>
+
+  <!-- ---------- CENTER / DATA GRID ---------- -->
+  <div class="col center">
+    <div class="gridhead">
+      <div class="hgroup">
+        <div class="title">
+          <span class="sdot good" style="width:9px;height:9px"></span>
+          Q3 Campaign Signups.csv
+          <span class="pill ok">✓ Validated</span>
+          <span class="pill label" title="Dataset classification — catalog metadata only. It does not enforce masking or access.">Confidential</span><span class="pill enforced" title="Enforced: 1 column declared sensitivity: pii in the data dictionary, so its values are masked for your role."><span class="lockglyph" style="color:var(--st-warn)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span> 1 column masked</span>
+        </div>
+        <div class="path">
+          <span class="fixed">team <b style="color:var(--foreground);font-weight:600">growth-analytics</b> ·</span>
+          <span class="apath mono" title="uploads/growth-analytics/q3_campaign_signups.csv">uploads/growth-analytics/q3_campaign_signups.csv</span>
+          <span class="fixed mono">· 84,213 rows · 9 cols</span>
+        </div>
+      </div>
+      <div class="toolbar">
+        <button class="tbtn iconb" title="Filter"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M3 5h18M6 12h12M10 19h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+        <button class="tbtn iconb" title="Sort"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M4 12h10M4 17h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+        <button class="tbtn iconb" title="Export"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <button class="tbtn primary"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M4 17V5m0 0l-3 3m3-3l3 3M10 7h10M10 12h7M10 17h4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Transform<span class="k">⌘⏎</span></button>
+      </div>
+    </div>
+
+    <div class="queryrow">
+      <span class="qtok"><span class="key">plan</span> in pro, team, enterprise</span>
+      <span class="qtok"><span class="key">status</span> = active <span class="x">✕</span></span>
+      <span class="qtok"><span class="key">amount</span> &gt; 0 <span class="x">✕</span></span>
+      <span class="qadd">+ add filter</span>
+      <span class="qmeta">
+        <span class="seatchip" title="Row & column access is governed by RBAC. Your role on this dataset is viewer, so PII columns are masked."><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span> role <b>viewer</b> · masked</span>
+        <span>matched <b class="mono" style="color:var(--foreground)">41,908</b> / 84.2K</span>
+      </span>
+    </div>
+
+    <div class="gridwrap">
+      <table class="grid">
+        <thead>
+          <tr>
+            <th class="rownum">#</th>
+            <th>signup_id</th>
+            <th>email <span class="lockglyph" style="color:var(--muted-foreground)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></th>
+            <th>plan</th>
+            <th>region</th>
+            <th class="n">amount <span class="arrow">▼</span></th>
+            <th>status</th>
+            <th>signup_date</th>
+            <th>utm_campaign</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="rownum num">1</td><td class="mono">SGN-84213</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag ent">enterprise</span></td><td><span class="rtag us">US</span></td><td class="n">1,499.00<span class="cell-bar" style="width:48px"></span></td><td><span class="stat active"><span class="d"></span>active</span></td><td class="mono muted">2026-08-15</td><td class="muted mono">paid_search_brand</td></tr>
+          <tr><td class="rownum num">2</td><td class="mono">SGN-84212</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag team">team</span></td><td><span class="rtag apac">APAC</span></td><td class="n">594.00<span class="cell-bar" style="width:22px"></span></td><td><span class="stat active"><span class="d"></span>active</span></td><td class="mono muted">2026-08-15</td><td class="muted mono">webinar_q3</td></tr>
+          <tr><td class="rownum num">3</td><td class="mono">SGN-84209</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag pro">pro</span></td><td><span class="rtag us">US</span></td><td class="n">290.00<span class="cell-bar" style="width:12px"></span></td><td><span class="stat trialing"><span class="d"></span>trialing</span></td><td class="mono muted">2026-08-15</td><td class="muted mono">summer_promo</td></tr>
+          <tr><td class="rownum num">4</td><td class="mono">SGN-84205</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag ent">enterprise</span></td><td><span class="rtag eu">EU</span></td><td class="n">1,180.00<span class="cell-bar" style="width:38px"></span></td><td><span class="stat active"><span class="d"></span>active</span></td><td class="mono muted">2026-08-14</td><td class="muted mono">linkedin_abm</td></tr>
+          <tr><td class="rownum num">5</td><td class="mono">SGN-84201</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag">free</span></td><td><span class="rtag latam">LATAM</span></td><td class="n">0.00<span class="cell-bar" style="width:2px"></span></td><td><span class="stat active"><span class="d"></span>active</span></td><td class="mono muted">2026-08-14</td><td class="muted mono">blog_organic</td></tr>
+          <tr><td class="rownum num">6</td><td class="mono">SGN-84198</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag pro">pro</span></td><td><span class="rtag us">US</span></td><td class="n">290.00<span class="cell-bar" style="width:12px"></span></td><td><span class="stat active"><span class="d"></span>active</span></td><td class="mono muted">2026-08-14</td><td class="muted mono">retargeting_us</td></tr>
+          <tr><td class="rownum num">7</td><td class="mono">SGN-84190</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag team">team</span></td><td><span class="rtag apac">APAC</span></td><td class="n">792.00<span class="cell-bar" style="width:26px"></span></td><td><span class="stat trialing"><span class="d"></span>trialing</span></td><td class="mono muted">2026-08-14</td><td class="muted mono">product_hunt</td></tr>
+          <tr><td class="rownum num">8</td><td class="mono">SGN-84187</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag">free</span></td><td><span class="rtag eu">EU</span></td><td class="n">0.00<span class="cell-bar" style="width:2px"></span></td><td><span class="stat churned"><span class="d"></span>churned</span></td><td class="mono muted">2026-08-13</td><td class="muted mono">newsletter_aug</td></tr>
+          <tr><td class="rownum num">9</td><td class="mono">SGN-84182</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag ent">enterprise</span></td><td><span class="rtag us">US</span></td><td class="n">2,400.00<span class="cell-bar" style="width:60px"></span></td><td><span class="stat active"><span class="d"></span>active</span></td><td class="mono muted">2026-08-13</td><td class="muted mono">partner_co</td></tr>
+          <tr><td class="rownum num">10</td><td class="mono">SGN-84176</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag pro">pro</span></td><td><span class="rtag latam">LATAM</span></td><td class="n">290.00<span class="cell-bar" style="width:12px"></span></td><td><span class="stat active"><span class="d"></span>active</span></td><td class="mono muted">2026-08-13</td><td class="muted mono">referral_v2</td></tr>
+          <tr><td class="rownum num">11</td><td class="mono">SGN-84170</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag team">team</span></td><td><span class="rtag eu">EU</span></td><td class="n">396.00<span class="cell-bar" style="width:16px"></span></td><td><span class="stat active"><span class="d"></span>active</span></td><td class="mono muted">2026-08-12</td><td class="muted mono">summer_promo</td></tr>
+          <tr><td class="rownum num">12</td><td class="mono">SGN-84166</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag">free</span></td><td><span class="rtag apac">APAC</span></td><td class="n">0.00<span class="cell-bar" style="width:2px"></span></td><td><span class="stat trialing"><span class="d"></span>trialing</span></td><td class="mono muted">2026-08-12</td><td class="muted mono">paid_search_brand</td></tr>
+          <tr><td class="rownum num">13</td><td class="mono">SGN-84159</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag pro">pro</span></td><td><span class="rtag us">US</span></td><td class="n">290.00<span class="cell-bar" style="width:12px"></span></td><td><span class="stat churned"><span class="d"></span>churned</span></td><td class="mono muted">2026-08-12</td><td class="muted mono">webinar_q3</td></tr>
+          <tr><td class="rownum num">14</td><td class="mono">SGN-84153</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag ent">enterprise</span></td><td><span class="rtag eu">EU</span></td><td class="n">1,650.00<span class="cell-bar" style="width:44px"></span></td><td><span class="stat active"><span class="d"></span>active</span></td><td class="mono muted">2026-08-11</td><td class="muted mono">linkedin_abm</td></tr>
+          <tr><td class="rownum num">15</td><td class="mono">SGN-84147</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag team">team</span></td><td><span class="rtag us">US</span></td><td class="n">990.00<span class="cell-bar" style="width:30px"></span></td><td><span class="stat active"><span class="d"></span>active</span></td><td class="mono muted">2026-08-11</td><td class="muted mono">retargeting_us</td></tr>
+          <tr><td class="rownum num">16</td><td class="mono">SGN-84140</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag">free</span></td><td><span class="rtag latam">LATAM</span></td><td class="n">0.00<span class="cell-bar" style="width:2px"></span></td><td><span class="stat active"><span class="d"></span>active</span></td><td class="mono muted">2026-08-11</td><td class="muted mono">blog_organic</td></tr>
+          <tr><td class="rownum num">17</td><td class="mono">SGN-84131</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag pro">pro</span></td><td><span class="rtag apac">APAC</span></td><td class="n">290.00<span class="cell-bar" style="width:12px"></span></td><td><span class="stat trialing"><span class="d"></span>trialing</span></td><td class="mono muted">2026-08-10</td><td class="muted mono">product_hunt</td></tr>
+          <tr><td class="rownum num">18</td><td class="mono">SGN-84120</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag team">team</span></td><td><span class="rtag eu">EU</span></td><td class="n">594.00<span class="cell-bar" style="width:22px"></span></td><td><span class="stat active"><span class="d"></span>active</span></td><td class="mono muted">2026-08-10</td><td class="muted mono">newsletter_aug</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="gridfoot">
+      <span>Showing <b class="mono" style="color:var(--foreground)">1–18</b> of <b class="mono" style="color:var(--foreground)">41,908</b></span>
+      <span class="mono">·  query 71ms</span>
+      <span class="mono">·  <span class="lockglyph" style="color:var(--muted-foreground);vertical-align:-1px"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span> 1 column masked · 3 undeclared</span>
+      <span class="pg">
+        <button class="pgbtn">‹&nbsp;Back</button>
+        <button class="pgbtn">Next&nbsp;›</button>
+      </span>
+    </div>
+  </div>
+
+  <!-- ---------- RIGHT DOCK / LENS ---------- -->
+  <div class="col dock">
+    <div class="colhead">
+      <span class="t">Lens</span>
+      <span class="spacer"></span>
+      <span class="mono" style="font-size:10px;color:var(--muted-foreground)">Q3 Campaign Signups</span>
+    </div>
+    <div class="lenstabs">
+      <span class="ltab">Overview</span>
+      <span class="ltab">Quality</span>
+      <span class="ltab">Versions</span>
+      <span class="ltab on">Analytics</span>
+      <span class="ltab">Relations</span>
+      <span class="ltab">Transform</span>
+      <span class="ltab">Library</span>
+    </div>
+
+    <div class="dockbody">
+      <!-- group-by builder -->
+      <div class="sect">
+        <div class="h">Aggregate <span class="line"></span></div>
+        <div class="agg">
+          <div class="aggrow">
+            <span class="albl">Measure</span>
+            <span class="selpill"><span class="fn">SUM</span><span class="cn">amount</span><span class="cc">▾</span></span>
+          </div>
+          <div class="aggrow">
+            <span class="albl">Group by</span>
+            <span class="selpill"><span class="cn">plan</span><span class="cc">▾</span></span>
+          </div>
+          <div class="aggrow">
+            <span class="albl">Then by</span>
+            <span class="selpill"><span class="cn">region</span><span class="cc">▾</span></span>
+          </div>
+          <div class="aggrow">
+            <span class="albl">Filters</span>
+            <span class="selpill" style="cursor:default"><span class="cn" title="plan in pro, team, enterprise · status = active" style="color:var(--muted-foreground)">plan in pro,team,ent · status=active</span></span>
+          </div>
+          <div class="runline">
+            <button class="rbtn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 4l14 8-14 8V4z" fill="currentColor"/></svg>Run</button>
+            <span class="rmeta">cached · 61ms · 4 groups</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- horizontal bar: sum of amount by plan -->
+      <div class="sect">
+        <div class="h">Sum of amount by plan <span class="line"></span></div>
+        <div class="hbarchart">
+          <div class="hbar"><span class="hl" title="enterprise">enterprise</span><span class="hwrap"><span class="hfill" style="width:100%;background:var(--m1)"></span></span><span class="hval">$1.92M</span></div>
+          <div class="hbar"><span class="hl" title="team">team</span><span class="hwrap"><span class="hfill" style="width:72%;background:var(--m2)"></span></span><span class="hval">$1.38M</span></div>
+          <div class="hbar"><span class="hl" title="pro">pro</span><span class="hwrap"><span class="hfill" style="width:55%;background:var(--m3)"></span></span><span class="hval">$1.05M</span></div>
+          <div class="hbar"><span class="hl" title="free">free</span><span class="hwrap"><span class="hfill" style="width:6%;background:var(--m4)"></span></span><span class="hval">$0.11M</span></div>
+          <div class="hbar-axis"><span>$0</span><span>$1.0M</span><span>$2.0M</span></div>
+        </div>
+        <div class="fnote" style="margin-top:9px">
+          One series — <span class="k">sum(amount)</span> — so the ramp encodes magnitude, not identity:
+          <span class="k">enterprise · team · pro · free</span> are direct-labelled on the bars and no category colour is spent.
+        </div>
+      </div>
+
+      <!-- time series: Amount vs Rows by month, indexed to 100 (one y-axis) -->
+      <div class="sect">
+        <div class="h">Signups vs Revenue by month <span class="line"></span></div>
+        <div class="legend" style="margin:0 0 8px">
+          <span class="li"><span class="sw" style="background:var(--viz-1)"></span>Signups (idx)</span>
+          <span class="li"><span class="sw" style="background:var(--viz-2)"></span>Revenue (idx)</span>
+          <span class="li" style="margin-left:auto;color:var(--t3)"><span class="mono">base = 100 @ Sep&#39;25</span></span>
+        </div>
+        <div class="ts">
+          <svg viewBox="0 0 312 132" role="img" aria-label="Signups and revenue indexed by month">
+            <!-- recessive gridlines -->
+            <line class="gl" x1="18" y1="12" x2="300" y2="12"/>
+            <line class="gl" x1="18" y1="34" x2="300" y2="34"/>
+            <line class="gl" x1="18" y1="56" x2="300" y2="56"/>
+            <line class="gl" x1="18" y1="78" x2="300" y2="78"/>
+            <line class="gl" x1="18" y1="100" x2="300" y2="100"/>
+            <!-- y ticks -->
+            <text class="axl" x="16" y="15" text-anchor="end">155</text>
+            <text class="axl" x="16" y="59" text-anchor="end">125</text>
+            <text class="axl" x="16" y="103" text-anchor="end">95</text>
+            <!-- Revenue series (categorical slot 2), drawn under -->
+            <polyline fill="none" stroke="var(--viz-2)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+              points="20,92.7 45.5,88.3 70.9,83.9 96.4,78 121.8,79.5 147.3,72.1 172.7,63.3 198.2,60.4 223.6,56 249.1,48.7 274.5,38.5 300,32.7"/>
+            <circle cx="300" cy="32.7" r="4.5" fill="var(--viz-2)" stroke="var(--s2)" stroke-width="2"/>
+            <!-- Signups series (categorical slot 1) -->
+            <polyline fill="none" stroke="var(--viz-1)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+              points="20,92.7 45.5,86.8 70.9,79.5 96.4,75.1 121.8,80.9 147.3,66.3 172.7,54.5 198.2,47.2 223.6,50.1 249.1,34 274.5,16.4 300,22.3"/>
+            <circle cx="300" cy="22.3" r="4.5" fill="var(--viz-1)" stroke="var(--s2)" stroke-width="2"/>
+            <!-- selective direct labels on last points -->
+            <text class="lbl" x="296" y="15" text-anchor="end">148</text>
+            <text class="lbl" x="296" y="44" text-anchor="end">141</text>
+            <!-- x axis labels -->
+            <text class="axl" x="20"  y="116" text-anchor="middle">Sep</text>
+            <text class="axl" x="96.4" y="116" text-anchor="middle">Dec</text>
+            <text class="axl" x="172.7" y="116" text-anchor="middle">Mar</text>
+            <text class="axl" x="249.1" y="116" text-anchor="middle">Jun</text>
+            <text class="axl" x="300" y="116" text-anchor="end">Aug</text>
+          </svg>
+        </div>
+        <!-- table view (accessibility / exact values) -->
+        <table class="tstable">
+          <thead><tr><th class="k">month</th><th>signups</th><th>revenue</th><th>Δ mom</th></tr></thead>
+          <tbody>
+            <tr><td class="k">Jun</td><td>58.4K</td><td>$1.62M</td><td class="dpos">▲ +6.1%</td></tr>
+            <tr><td class="k">Jul</td><td>63.1K</td><td>$1.79M</td><td class="dpos">▲ +8.1%</td></tr>
+            <tr><td class="k">Aug</td><td>61.5K</td><td>$1.71M</td><td class="dneg">▼ -2.6%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="hintbar">
+      <span class="h"><span class="kbd">1</span>–<span class="kbd">7</span> lens</span>
+      <span class="h"><span class="kbd">⌘E</span> export lens</span>
+      <span class="h scope" style="margin-left:auto"><span class="tick"></span>as-of <b>v42</b> · immutable</span>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

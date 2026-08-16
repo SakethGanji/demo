@@ -1,0 +1,469 @@
+"""Download service — format conversion, streaming, file management."""
+
+from __future__ import annotations
+
+import logging
+import tempfile
+from collections.abc import AsyncIterator
+from pathlib import Path
+from typing import Any, Literal
+
+from fastapi import HTTPException
+from fastapi.responses import StreamingResponse
+
+from app.api.errors import ProblemException
+from app.features.data_accelerator.services.aggregation import SORT_ORDERS
+from app.infra.db.storage import ArtifactLayout, DatasetLayout, get_storage
+from app.shared.data_io import export_dataframe, load_data
+from app.shared.datasets import (
+    get_version_sheet_rows,
+    resolve_dataset_path,
+    sheet_data_path,
+)
+from app.shared.repo import get_current_version
+from app.shared.utils.sql import quote_ident, safe_value, sanitize_filter_expr
+
+logger = logging.getLogger(__name__)
+
+DOWNLOAD_CHUNK_SIZE = 8 * 1024 * 1024  # 8MB
+
+MEDIA_TYPES = {
+    "csv": "text/csv",
+    "parquet": "application/octet-stream",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "excel": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
+
+
+async def _file_chunks(path: str) -> AsyncIterator[bytes]:
+    """Yield file in chunks for streaming response."""
+    with open(path, "rb") as f:
+        while chunk := f.read(DOWNLOAD_CHUNK_SIZE):
+            yield chunk
+
+
+def streaming_file_response(
+    file_path: str,
+    filename: str,
+    media_type: str = "application/octet-stream",
+) -> StreamingResponse:
+    """Create a streaming response for large file downloads."""
+    return StreamingResponse(
+        _file_chunks(file_path),
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(Path(file_path).stat().st_size),
+        },
+    )
+
+
+def stored_file_response(
+    key: str,
+    filename: str,
+    media_type: str = "application/octet-stream",
+) -> StreamingResponse:
+    """Stream a storage object (local file or S3) as a download response."""
+    storage = get_storage()
+    size = storage.size(key)
+
+    def _chunks():
+        f = storage.open_read(key)
+        try:
+            while chunk := f.read(DOWNLOAD_CHUNK_SIZE):
+                yield chunk
+        finally:
+            f.close()
+
+    return StreamingResponse(
+        _chunks(),
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(size),
+        },
+    )
+
+
+async def workbook_xlsx_response(ver: dict, base_name: str) -> StreamingResponse:
+    """Reconstruct a full .xlsx workbook from a version's sheet parquets.
+
+    One tab per ready sheet, workbook order, hidden-sheet visibility restored.
+    """
+    import pandas as pd
+
+    sheets = [r for r in await get_version_sheet_rows(ver)
+              if r.get("status", "ready") == "ready"]
+    if not sheets:
+        raise HTTPException(404, "Version has no sheets to reconstruct")
+
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
+    tmp.close()
+    used_titles: set[str] = set()
+    with pd.ExcelWriter(tmp.name, engine="openpyxl") as writer:
+        for row in sorted(sheets, key=lambda r: r["sheet_index"]):
+            conn = load_data(file_path=sheet_data_path(ver, row))
+            try:
+                df = conn.execute("SELECT * FROM df").fetchdf()
+            finally:
+                conn.close()
+            title = (row["sheet_name"] or "Sheet")[:31]
+            for ch in "[]:*?/\\":
+                title = title.replace(ch, "_")
+            n = 1
+            while title in used_titles:
+                n += 1
+                title = f"{title[:28]}_{n}"
+            used_titles.add(title)
+            df.to_excel(writer, sheet_name=title, index=False)
+            if row.get("visibility") in ("hidden", "very_hidden"):
+                writer.book[title].sheet_state = (
+                    "hidden" if row["visibility"] == "hidden" else "veryHidden")
+
+    async def _stream_and_cleanup() -> AsyncIterator[bytes]:
+        try:
+            async for chunk in _file_chunks(tmp.name):
+                yield chunk
+        finally:
+            Path(tmp.name).unlink(missing_ok=True)
+
+    return StreamingResponse(
+        _stream_and_cleanup(),
+        media_type=MEDIA_TYPES["xlsx"],
+        headers={
+            "Content-Disposition": f'attachment; filename="{base_name}.xlsx"',
+            "Content-Length": str(Path(tmp.name).stat().st_size),
+        },
+    )
+
+
+async def download_dataset(
+    dataset_id: str,
+    format: str = "csv",
+    sheet: str | None = None,
+    columns: list[str] | None = None,
+    limit: int | None = None,
+    filter_expr: str | None = None,
+) -> StreamingResponse:
+    """Prepare and stream a dataset download in the requested format.
+
+    Loads the dataset's parquet via DuckDB, applies optional column selection,
+    row limit, and filter, then exports to a temp file and streams it back.
+    """
+    fmt = format.lower()
+    if fmt in ("excel",):
+        fmt = "xlsx"
+    if fmt not in ("csv", "parquet", "xlsx"):
+        raise HTTPException(400, f"Unsupported format: {format}. Use csv, parquet, or xlsx.")
+
+    # xlsx with no sheet on a multi-sheet dataset = reconstruct the workbook.
+    if fmt == "xlsx" and sheet is None:
+        ver = await get_current_version(dataset_id)
+        if ver and ver.get("path"):
+            rows = await get_version_sheet_rows(ver)
+            if len([r for r in rows if r.get("status", "ready") == "ready"]) > 1:
+                if columns or limit or filter_expr:
+                    raise HTTPException(
+                        400, "columns/limit/filter apply to a single sheet — name one, "
+                             "or download the whole workbook without them")
+                source = (ver.get("source") or {})
+                base = Path(source.get("filename", f"dataset_{dataset_id[:8]}")).stem
+                return await workbook_xlsx_response(ver, base)
+
+    file_path = await resolve_dataset_path(dataset_id, sheet=sheet)
+    conn = load_data(file_path=file_path)
+
+    try:
+        # Build SELECT with optional column subsetting
+        if columns:
+            desc_rows = conn.execute("DESCRIBE df").fetchall()
+            available = {r[0] for r in desc_rows}
+            missing = [c for c in columns if c not in available]
+            if missing:
+                raise HTTPException(400, f"Columns not found: {missing}")
+            select_cols = ", ".join(quote_ident(c) for c in columns)
+        else:
+            select_cols = "*"
+
+        # Build WHERE
+        where = ""
+        if filter_expr:
+            sanitize_filter_expr(filter_expr)
+            where = f" WHERE {filter_expr}"
+
+        # Build LIMIT
+        limit_clause = f" LIMIT {int(limit)}" if limit else ""
+
+        # Create filtered view
+        conn.execute(
+            f"CREATE TABLE _download AS SELECT {select_cols} FROM df{where}{limit_clause}"
+        )
+
+        # Export to temp file
+        suffix = f".{fmt}"
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+        tmp.close()
+        export_dataframe(conn, tmp.name, fmt, table_name="_download")
+    finally:
+        conn.close()
+
+    # Determine filename
+    ver = await get_current_version(dataset_id)
+    source = (ver or {}).get("source") or {}
+    base_name = source.get("filename", f"dataset_{dataset_id[:8]}")
+    base_stem = Path(base_name).stem
+    dl_filename = f"{base_stem}.{fmt}"
+
+    media_type = MEDIA_TYPES.get(fmt, "application/octet-stream")
+
+    async def _stream_and_cleanup() -> AsyncIterator[bytes]:
+        try:
+            async for chunk in _file_chunks(tmp.name):
+                yield chunk
+        finally:
+            Path(tmp.name).unlink(missing_ok=True)
+
+    return StreamingResponse(
+        _stream_and_cleanup(),
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{dl_filename}"',
+            "Content-Length": str(Path(tmp.name).stat().st_size),
+        },
+    )
+
+
+async def download_dataset_version(
+    dataset_id: str,
+    version_number: int,
+    format: str = "csv",
+    sheet: str | None = None,
+) -> StreamingResponse:
+    """Download a specific version of a dataset."""
+    from app.shared.datasets import resolve_version_sheet_path
+    from app.shared.repo import get_version_by_number
+
+    fmt = format.lower()
+    if fmt in ("excel",):
+        fmt = "xlsx"
+    if fmt not in ("csv", "parquet", "xlsx"):
+        raise HTTPException(400, f"Unsupported format: {format}")
+
+    row = await get_version_by_number(dataset_id, version_number)
+
+    if not row or row.get("status") != "ready" or not row.get("path"):
+        raise HTTPException(404, f"Version {version_number} not found for dataset {dataset_id}")
+
+    # xlsx with no sheet on a multi-sheet version = reconstruct the workbook.
+    if fmt == "xlsx" and sheet is None:
+        rows = await get_version_sheet_rows(row)
+        if len([r for r in rows if r.get("status", "ready") == "ready"]) > 1:
+            source = (row.get("source") or {})
+            base = Path(source.get("filename", f"dataset_{dataset_id[:8]}")).stem
+            return await workbook_xlsx_response(row, f"{base}_v{version_number}")
+
+    # Enforces sheet-selection-required for multi-sheet versions.
+    file_path = await resolve_version_sheet_path(row, sheet)
+
+    if fmt == "parquet":
+        # Stream parquet directly, no conversion needed
+        source = row.get("source") or {}
+        base_name = source.get("filename", f"dataset_{dataset_id[:8]}")
+        dl_filename = f"{Path(base_name).stem}_v{version_number}.parquet"
+        key = get_storage().key_of(file_path)
+        if key:
+            return stored_file_response(key, dl_filename)
+        return streaming_file_response(file_path, dl_filename)  # legacy out-of-storage path
+
+    # Convert via DuckDB
+    conn = load_data(file_path=file_path)
+    try:
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=f".{fmt}")
+        tmp.close()
+        export_dataframe(conn, tmp.name, fmt)
+    finally:
+        conn.close()
+
+    source = row.get("source") or {}
+    base_name = source.get("filename", f"dataset_{dataset_id[:8]}")
+    dl_filename = f"{Path(base_name).stem}_v{version_number}.{fmt}"
+    media_type = MEDIA_TYPES.get(fmt, "application/octet-stream")
+
+    async def _stream_and_cleanup() -> AsyncIterator[bytes]:
+        try:
+            async for chunk in _file_chunks(tmp.name):
+                yield chunk
+        finally:
+            Path(tmp.name).unlink(missing_ok=True)
+
+    return StreamingResponse(
+        _stream_and_cleanup(),
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{dl_filename}"',
+            "Content-Length": str(Path(tmp.name).stat().st_size),
+        },
+    )
+
+
+def read_sample_data(
+    key: str,
+    filename: str,
+    offset: int = 0,
+    limit: int = 100,
+    columns: list[str] | None = None,
+    filter_expr: str | None = None,
+    sort_by: str | None = None,
+    sort_order: Literal["asc", "desc"] = "asc",
+) -> dict:
+    """Read paginated data from a sample/result parquet file via DuckDB.
+
+    *key* comes from the artifact row the caller already authorized against —
+    it is not derivable from *filename*, which is carried only for error text.
+
+    *sort_order* is exactly ``asc`` or ``desc``; the route types it as a
+    ``Literal`` so anything else is a 422 before this is called. The defensive
+    check below matters because this is a plain function a future caller could
+    reach without that gate: it used to read ``"DESC" if
+    sort_order.lower() == "desc" else "ASC"``, which turned every typo — and
+    every ``"descending"`` — into silently *ascending* results.
+    """
+    storage = get_storage()
+    if not storage.exists(key):
+        raise HTTPException(404, f"File not found: {filename}")
+    path = storage.resolve(key)
+
+    conn = load_data(file_path=path)
+    try:
+        # Total row count (unfiltered)
+        total_count = conn.execute("SELECT COUNT(*) FROM df").fetchone()[0]
+
+        # Column metadata
+        desc = conn.execute("DESCRIBE df").fetchall()
+        all_columns = [{"name": r[0], "dtype": r[1]} for r in desc]
+
+        # Build SELECT
+        if columns:
+            available = {r[0] for r in desc}
+            missing = [c for c in columns if c not in available]
+            if missing:
+                # The names that DO exist ride along: an artifact's columns are
+                # whatever the query that produced it aliased them to, so the
+                # caller (often an MCP model carrying names over from the
+                # source sheet) cannot guess them, and there is no schema
+                # endpoint for an artifact to look them up in.
+                raise ProblemException(
+                    400, f"Columns not found: {missing}",
+                    code="unknown-column", columns=missing,
+                    available=sorted(available))
+            select_cols = ", ".join(quote_ident(c) for c in columns)
+        else:
+            select_cols = "*"
+
+        # Build WHERE
+        where = ""
+        if filter_expr:
+            sanitize_filter_expr(filter_expr)
+            where = f" WHERE {filter_expr}"
+
+        # Count after filter
+        filtered_count = conn.execute(f"SELECT COUNT(*) FROM df{where}").fetchone()[0]
+
+        # Build ORDER BY
+        order = ""
+        if sort_by:
+            available = {r[0] for r in desc}
+            if sort_by not in available:
+                raise ProblemException(
+                    400, f"Sort column not found: {sort_by}",
+                    code="unknown-column", column=sort_by,
+                    available=sorted(available))
+            if sort_order not in SORT_ORDERS:
+                raise ProblemException(
+                    400,
+                    f"Invalid sort_order: {sort_order!r}. Valid options: {list(SORT_ORDERS)}",
+                    code="invalid-sort-order", available=list(SORT_ORDERS))
+            direction = "ASC" if sort_order == "asc" else "DESC"
+            order = f" ORDER BY {quote_ident(sort_by)} {direction}"
+
+        # Query with pagination
+        query = f"SELECT {select_cols} FROM df{where}{order} LIMIT {limit} OFFSET {offset}"
+        result = conn.execute(query)
+        col_names = [d[0] for d in result.description]
+        rows = [
+            {col_names[i]: safe_value(v) for i, v in enumerate(row)}
+            for row in result.fetchall()
+        ]
+    finally:
+        conn.close()
+
+    return {
+        "filename": filename,
+        "total_count": total_count,
+        "filtered_count": filtered_count,
+        "offset": offset,
+        "limit": limit,
+        "columns": all_columns,
+        "data": rows,
+    }
+
+
+EXPORT_FORMATS = ("csv", "xlsx", "parquet")
+
+
+async def export_sample_file(key: str, filename: str, format: str,
+                             layout: ArtifactLayout) -> dict:
+    """Convert a stored sample/result file to *format* in the artifact area.
+
+    *key* is the source artifact's stored key; *layout* places the export
+    alongside it under the same team/dataset. Returns metadata for the new
+    file; the caller records the `export` artifact (with ownership inherited
+    from the source) so the standard /samples authorization applies to the
+    export too.
+    """
+    import uuid
+
+    fmt = format.lower()
+    if fmt == "excel":
+        fmt = "xlsx"
+    if fmt not in EXPORT_FORMATS:
+        raise HTTPException(
+            400, f"Unsupported export format: {format}. Supported: {', '.join(EXPORT_FORMATS)}")
+
+    storage = get_storage()
+    if not storage.exists(key):
+        raise HTTPException(404, f"File not found: {filename}")
+
+    export_name = f"export_{uuid.uuid4().hex}.{fmt}"
+    conn = load_data(file_path=storage.resolve(key))
+    try:
+        with tempfile.TemporaryDirectory(prefix="accel_export_") as td:
+            local = Path(td) / export_name
+            export_dataframe(conn, str(local), fmt)
+            size = local.stat().st_size
+            storage.put_file(layout.key(export_name), local)
+    finally:
+        conn.close()
+
+    return {
+        "export_file": export_name,
+        "format": fmt,
+        "size_bytes": size,
+        "media_type": MEDIA_TYPES[fmt],
+        "source_file": filename,
+    }
+
+
+def download_sample_file(key: str, filename: str, media_type: str | None = None) -> StreamingResponse:
+    """Resolve and stream a sample file for download.
+
+    *media_type* is the artifact's recorded content type; passing it makes the
+    browser handle a .csv/.xlsx export correctly instead of receiving the
+    default ``application/octet-stream`` for every artifact regardless of kind.
+    """
+    storage = get_storage()
+    if not storage.exists(key):
+        raise HTTPException(404, f"File not found: {filename}")
+    if media_type:
+        return stored_file_response(key, filename, media_type=media_type)
+    return stored_file_response(key, filename)

@@ -1,0 +1,1326 @@
+<!--
+  DESIGN NOTES — "INSTRUMENT" applied to an ordered pipeline builder (restyle of the TERMINAL transform lens).
+  Same information, same regions, same layout, same content: saved transformations, the 16-op palette, the
+  8-step pipeline with per-step output schema, the 10-node expression editor, the five-state lifecycle ledger,
+  the guardrails, the PATCH card and the dependency-refused DELETE.
+  R8 STEP CARDS: ordered steps are heterogeneous, independently actionable and ranked, so they KEEP a surface
+     (--s2, open --s3) and lose the border. Nothing nests: inside a step every sub-block is either flat under a
+     sentence-case label, a LEFT-RULED INDENT (notes, publish options, the delete refusal's inner note), or a
+     RECESSED WELL (the expression editor, inputs). Solved identically in terminal-sampling.html.
+  SCHEMA EVOLUTION is magnitude, not identity — new / retyped / dropped ride the neutral ramp (--s6 > --s5 >
+     flat > struck-through) plus ink, never a hue. Guardrail meters likewise (--m3 on a recessed track).
+  CYAN (4, meaning not count): the active route · the dataset this screen is scoped to · the saved pipeline the
+     builder is holding · the live SYNC lamp. The 16-op palette, the 10 node types and every "pri" pill are
+     REPEATED state, so they take value + elevation instead.
+  CATEGORICAL: exactly one genuine series ships — the four plan classes in the drift mix bars, direct-labelled.
+  SEVERITY is typographic (the failed run reads --t1/600, not red); STATUS is shape + hue + word.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Command Studio — Transform · Terminal</title>
+<style>
+  :root {
+    --s0:#080A0E;  --s1:#0D1015;  --s2:#11151B;  --s3:#161B22;
+    --s4:#1C222B;  --s5:#242C37;  --s6:#38424F;  --key:#E9EEF5;
+    --t1:#E7ECF3;  --t2:#B0BAC8;  --t3:#85909F;  --t4:#5C6675; /* t4 = decoration only, never text */
+    --r1:rgba(255,255,255,.042); --r2:rgba(255,255,255,.075); --r3:rgba(255,255,255,.13);
+    --hi:inset 0 1px 0 rgba(255,255,255,.045);
+    --sig:#46D5E8; --sig-dim:rgba(70,213,232,.14); --sig-line:rgba(70,213,232,.40);
+    --st-good:#0ca30c; --st-warn:#fab219; --st-serious:#ec835a; --st-crit:#DC5050;
+    --m1:#CBD3DF; --m2:#A2ACBB; --m3:#7D8797; --m4:#5F6979; --m5:#48515F; --m6:#39414D;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    /* legacy aliases — every inline style in the markup resolves into the new language.
+       NOTE --primary is deliberately a NEUTRAL: the accent is spent by hand, four times. */
+    --background:var(--s1); --foreground:var(--t1); --card:var(--s2); --surface:var(--s3);
+    --muted:rgba(255,255,255,.05); --muted-foreground:var(--t3); --secondary:var(--s4);
+    --border:var(--r2); --primary:var(--m1); --radius:8px;
+    /* the ONE categorical series on this screen: the four plan classes in the mix bars */
+    --viz-1:#3987e5; --viz-2:#d95926; --viz-3:#199e70; --viz-4:#c98500;
+    --viz-5:#d55181; --viz-6:#747c04; --viz-7:#9085e9; --viz-8:#e66767;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { height:100%; overflow:hidden; }
+  html { font-size:13px; }
+  body {
+    font-family:var(--sans); color:var(--t2); font-size:12.5px;
+    background:radial-gradient(1180px 560px at 44% -12%, #151B24 0%, rgba(21,27,36,0) 62%), var(--s1);
+    -webkit-font-smoothing:antialiased; line-height:1.4; letter-spacing:-0.004em;
+    display:flex; flex-direction:column;
+  }
+  body::after {
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:200; opacity:.055; mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .mono { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  .num { font-variant-numeric:tabular-nums; }
+  .muted { color:var(--t3); }
+  ::selection { background:rgba(70,213,232,.26); color:#fff; }
+  :focus-visible { outline:none; box-shadow:0 0 0 1px var(--s0), 0 0 0 3px rgba(70,213,232,.45); border-radius:6px; }
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb { background:#232B35; border-radius:8px; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background:#303945; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-track { background:transparent; }
+
+  /* ===== STATUS: five states, five SHAPES, always beside a word ===== */
+  .sdot { width:8px; height:8px; flex:none; display:inline-block; vertical-align:-1px; border-radius:0; }
+  .sdot.good    { border-radius:50%; background:var(--st-good); }
+  .sdot.warn    { width:0; height:0; background:none; border-left:4.5px solid transparent;
+                  border-right:4.5px solid transparent; border-bottom:8px solid var(--st-warn); vertical-align:0; }
+  .sdot.serious { width:7px; height:7px; background:var(--st-serious); border-radius:1px; transform:rotate(45deg); margin:0 1px; }
+  .sdot.crit    { background:var(--st-crit); border-radius:1px; }
+  .sdot.idle    { border-radius:50%; background:transparent; box-shadow:inset 0 0 0 1.5px var(--t3); }
+
+  /* ===== TOPBAR ===== */
+  header.topbar {
+    height:46px; flex:none; display:flex; align-items:center; gap:16px; padding:0 16px;
+    background:linear-gradient(180deg,#141922,#10141A); box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); z-index:30;
+  }
+  .brand { display:flex; align-items:center; gap:10px; }
+  .brand .glyph { width:21px; height:21px; border-radius:5px; background:linear-gradient(180deg,#2C3542,#191F28);
+    display:grid; place-items:center; box-shadow:var(--hi), 0 1px 2px rgba(0,0,0,.5); color:var(--t1); }
+  .brand .name { font-size:12.5px; font-weight:600; color:var(--t1); letter-spacing:-0.012em; white-space:nowrap; }
+  .env-chip { font-family:var(--mono); font-size:10px; font-weight:400; letter-spacing:0; text-transform:none;
+    color:var(--t3); background:none; border:0; padding:0; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; flex:none; }
+  .env-chip::before { content:""; width:5px; height:5px; border-radius:50%; background:var(--st-warn); flex:none; }
+  nav.gnav { display:flex; align-items:center; gap:4px; }
+  nav.gnav a { font-size:12.5px; font-weight:450; color:var(--t3); text-decoration:none; height:30px; padding:0 10px;
+    border-radius:7px; position:relative; display:inline-flex; align-items:center; background:none; transition:color .14s, background .14s; }
+  nav.gnav a:hover { color:var(--t1); background:rgba(255,255,255,.035); }
+  /* SIGNAL 1/4 — the active route */
+  nav.gnav a.active { color:var(--t1); font-weight:550; background:none; }
+  nav.gnav a.active::after { content:""; position:absolute; left:10px; right:10px; bottom:-9px; height:2px;
+    background:var(--sig); border-radius:2px 2px 0 0; box-shadow:0 0 12px -1px var(--sig); }
+  .cmdk, .cmdk.lit { margin-left:auto; display:flex; align-items:center; gap:9px; width:290px; height:30px; padding:0 10px;
+    border:0; border-radius:8px; cursor:text; color:var(--t3); background:var(--s0);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); }
+  .cmdk:focus-within { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+  .cmdk svg { flex:none; opacity:.55; }
+  .cmdk .ph { font-size:12px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .kbd { font-family:var(--mono); font-size:10px; font-weight:500; color:var(--t2);
+    background:linear-gradient(180deg,#232A34,#1A2028); border:0; border-radius:4px; padding:1.5px 5px; line-height:1.4;
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); white-space:nowrap; }
+  .hicons { display:flex; align-items:center; gap:2px; }
+  .iconbtn { width:30px; height:30px; border-radius:7px; border:0; background:transparent; color:var(--t3);
+    display:grid; place-items:center; cursor:pointer; transition:color .14s, background .14s; }
+  .iconbtn:hover { background:rgba(255,255,255,.05); color:var(--t1); border:0; }
+  .teamsw { display:flex; align-items:center; gap:7px; height:28px; padding:0 10px; border-radius:7px; flex:none;
+    border:0; background:var(--s4); box-shadow:var(--hi); font-size:12px; font-weight:450; color:var(--t1); cursor:pointer; white-space:nowrap; }
+  .teamsw .tk { font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--t3); font-weight:500; }
+  .teamsw .ca { color:var(--t3); font-size:9px; }
+  .avatar { width:27px; height:27px; border-radius:7px; border:0; background:linear-gradient(180deg,#2A323D,#1D242D);
+    display:grid; place-items:center; font-size:10px; font-weight:600; color:var(--t2); cursor:pointer; box-shadow:var(--hi); flex:none; }
+
+  /* ===== GUARDRAIL / RUN STRIP — the first read. Numbers are the hero. ===== */
+  .kpistrip {
+    height:62px; flex:none; display:flex; align-items:stretch; padding:0 16px;
+    background:linear-gradient(180deg,var(--s3),#12171E); border:0;
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.55), 0 10px 24px -20px rgba(0,0,0,.9);
+  }
+  .kpi { display:grid; grid-template-columns:auto auto; align-items:baseline; align-content:center;
+    gap:2px 8px; padding:0 24px 0 0; border:0; white-space:nowrap; }
+  .kpi .lab { grid-column:1 / -1; font-size:9.5px; font-weight:500; letter-spacing:.11em;
+    text-transform:uppercase; color:var(--t3); }
+  .kpi .val { font-size:21px; font-weight:600; line-height:1.05; color:var(--t1);
+    letter-spacing:-0.032em; font-variant-numeric:tabular-nums; }
+  .kpi .val .muted { font-size:12px; font-weight:500; }
+  .kpi .delta { font-size:10.5px; font-weight:500; color:var(--t3); display:flex; align-items:center; gap:5px; }
+  .up, .down { color:var(--t2); }
+  .cap { display:flex; align-items:center; gap:6px; align-self:center; }
+  /* guardrail meters are MAGNITUDE — neutral ramp, never the accent */
+  .capbar { width:52px; height:6px; border-radius:3px; background:rgba(0,0,0,.4);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6); overflow:hidden; }
+  .capbar i { display:block; height:100%; background:var(--m3); border-radius:3px; }
+  .runbtns { margin-left:auto; display:flex; align-items:center; gap:6px; padding-left:14px; flex:none; align-self:center; }
+
+  /* ===== BUTTONS / PILLS ===== */
+  .tbtn { height:28px; padding:0 10px; font-size:12px; font-weight:450; color:var(--t2); background:transparent;
+    border:0; border-radius:7px; cursor:pointer; font-family:inherit; display:inline-flex; align-items:center; gap:6px;
+    box-shadow:inset 0 0 0 1px var(--r2); transition:all .14s; white-space:nowrap; }
+  .tbtn:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  /* rule 2 — the primary action is near-white, not the accent */
+  .tbtn.primary { background:linear-gradient(180deg,#FBFDFF,var(--key)); color:#0B0E13; font-weight:600; padding:0 11px;
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset, 0 2px 8px -3px rgba(0,0,0,.9), 0 0 0 1px rgba(0,0,0,.35); }
+  .tbtn.primary:hover { background:#fff; }
+  .tbtn.sm { height:24px; padding:0 8px; font-size:11.5px; border-radius:6px; }
+  .tbtn .k { font-size:10px; color:var(--t3); font-family:var(--mono); }
+  .tbtn.primary .k { color:#4A5462; }
+  .tbtn[disabled] { opacity:.45; cursor:not-allowed; }
+  .tbtn.danger { color:var(--t2); box-shadow:inset 0 0 0 1px rgba(220,80,80,.35); }
+  .tbtn.danger:hover { color:var(--t1); background:rgba(220,80,80,.12); }
+  .pill { font-size:10px; font-weight:500; padding:2px 7px; border-radius:20px; display:inline-flex;
+    align-items:center; gap:5px; border:0; white-space:nowrap; color:var(--t3); background:rgba(255,255,255,.05); }
+  /* status pills keep the reserved hue over a recessed well so the word clears 4.5:1 */
+  .pill.ok   { color:var(--st-good); background:rgba(0,0,0,.34); box-shadow:inset 0 0 0 1px rgba(12,163,12,.42); }
+  .pill.warn { color:var(--st-warn); background:rgba(0,0,0,.34); box-shadow:inset 0 0 0 1px rgba(250,178,25,.34); }
+  .pill.crit { color:var(--st-crit); background:rgba(0,0,0,.36); box-shadow:inset 0 0 0 1px rgba(220,80,80,.42); }
+  .pill.neu  { color:var(--t3); background:rgba(255,255,255,.05); }
+  /* repeated emphasis goes to VALUE + elevation, never to a second accent */
+  .pill.pri  { color:var(--t1); background:var(--s4); box-shadow:var(--hi); }
+  .pill.label { color:var(--t3); background:transparent; box-shadow:inset 0 0 0 1px var(--r1); }
+  .pill.enforced { color:var(--st-warn); background:rgba(250,178,25,.07); box-shadow:inset 0 0 0 1px rgba(250,178,25,.26);
+    font-weight:500; border-radius:5px; }
+  .lockglyph { color:var(--st-warn); display:inline-flex; vertical-align:-2px; flex:none; }
+  .cls { font-size:10.5px; font-weight:400; padding:0; border:0; border-radius:0; white-space:nowrap; }
+  .cls.conf { color:var(--t3); background:none; border-bottom:1px dashed var(--r2); padding-bottom:2px; cursor:help; }
+  /* the footnote register — every provenance line on the screen lands here */
+  .ep { font-family:var(--mono); font-size:9.5px; color:var(--t3); }
+
+  /* ===== LENS BAR ===== */
+  .lensbar { height:32px; flex:none; display:flex; align-items:center; gap:10px; padding:0 14px; border:0;
+    background:rgba(0,0,0,.2); box-shadow:inset 0 1px 0 var(--r1), inset 0 -1px 0 var(--r1); }
+  .lensbar .lk { font-size:10.5px; font-weight:400; letter-spacing:0; text-transform:none; color:var(--t3); }
+  .lenstabs { display:flex; gap:1px; }
+  .ltab { font-size:11.5px; font-weight:450; color:var(--t3); padding:0 8px; height:24px; border-radius:0;
+    background:none; cursor:pointer; position:relative; display:inline-flex; align-items:center; white-space:nowrap; }
+  .ltab:hover { color:var(--t1); background:none; }
+  /* local state is white — the cyan is reserved for scope + liveness */
+  .ltab.on { color:var(--t1); font-weight:550; background:none; box-shadow:none; }
+  .ltab.on::after { content:""; position:absolute; left:8px; right:8px; bottom:1px; height:1.5px; background:var(--t1); border-radius:2px; }
+  .lensctx { margin-left:auto; display:flex; align-items:center; gap:9px; font-size:10.5px; color:var(--t3); white-space:nowrap; }
+  .lensctx b { color:var(--t1); font-weight:600; }
+  /* SIGNAL 2/4 — the dataset this whole screen is scoped to */
+  .tick { width:5px; height:5px; border-radius:50%; background:var(--sig); flex:none; box-shadow:0 0 8px -1px var(--sig); display:inline-block; }
+
+  /* ===== WORKSPACE SHELL ===== */
+  .workspace { flex:1; min-height:0; display:grid; grid-template-columns:300px 1fr 348px; }
+  .col { display:flex; flex-direction:column; min-width:0; min-height:0; }
+  .col.rail { border:0; background:var(--s2); box-shadow:1px 0 0 rgba(0,0,0,.45); z-index:2; }
+  .col.center { background:transparent; min-width:0; }
+  .col.dock { border:0; background:var(--s2); box-shadow:-1px 0 0 rgba(0,0,0,.45); z-index:2; }
+  .colhead { height:32px; flex:none; display:flex; align-items:center; gap:9px; padding:0 14px; border:0; }
+  .colhead .t { font-size:12.5px; font-weight:600; letter-spacing:-0.012em; text-transform:none; color:var(--t1); white-space:nowrap; }
+  .colhead .badge { font-family:var(--mono); font-size:10px; font-weight:400; color:var(--t3);
+    background:none; border:0; border-radius:0; padding:0; }
+  .colhead .spacer { margin-left:auto; }
+  .body { overflow-y:auto; overflow-x:hidden; flex:1; min-height:0; }
+  .sect { margin-bottom:15px; }
+  .sect > .h { font-size:11.5px; font-weight:550; letter-spacing:-0.008em; text-transform:none;
+    color:var(--t2); margin-bottom:8px; display:flex; align-items:center; gap:9px; }
+  .sect > .h .line { flex:1; height:1px; background:var(--r1); min-width:10px; }
+  .sect > .h .rn { font-family:var(--mono); font-size:9.5px; font-weight:400; letter-spacing:0; text-transform:none; color:var(--t3); }
+  .hintbar { display:flex; align-items:center; gap:12px; padding:6px 14px; border:0;
+    background:transparent; box-shadow:inset 0 1px 0 var(--r1); font-size:10px; color:var(--t3); flex:none; }
+  .hintbar .h { display:flex; align-items:center; gap:5px; }
+
+  /* ===== LEFT RAIL ===== */
+  .railwrap { padding:10px 14px 14px; }
+  .palsearch { height:28px; display:flex; align-items:center; gap:8px; padding:0 9px; margin-bottom:11px;
+    background:var(--s0); border:0; border-radius:7px; color:var(--t3); font-size:11.5px;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); }
+  .pgroup { margin-bottom:14px; }
+  .pglab { display:flex; align-items:center; gap:8px; font-size:11.5px; font-weight:550; letter-spacing:-0.008em;
+    text-transform:none; color:var(--t2); margin-bottom:6px; }
+  .pglab .ln { flex:1; height:1px; background:var(--r1); min-width:10px; }
+  .pglab .ct { font-family:var(--mono); font-size:9.5px; font-weight:400; letter-spacing:0; text-transform:none; color:var(--t3); }
+  /* the 16-op palette: repeated state cannot take the accent — value + elevation instead */
+  .op { display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:3px 8px;
+    padding:5px 8px; border-radius:7px; border:0; cursor:grab; }
+  .op:hover { background:rgba(255,255,255,.04); border:0; }
+  .op.used { background:var(--s3); box-shadow:var(--hi); }
+  .op .on { font-family:var(--mono); font-size:11.5px; font-weight:600; color:var(--t2); }
+  .op.used .on { color:var(--t1); }
+  .op .ov { grid-column:1 / -1; font-size:9.5px; color:var(--t3); font-family:var(--mono); }
+  .op .cnt { font-family:var(--mono); font-size:10px; font-weight:600; color:var(--t1); }
+  .op .grip { color:var(--m5); font-size:10px; }
+
+  /* saved transformations — no border; the list groups by elevation and one whisper rule */
+  .slist { border:0; border-radius:0; overflow:visible; margin-bottom:12px; }
+  .srow { display:grid; grid-template-columns:1fr auto; gap:2px 8px; padding:7px 9px; border-radius:7px; cursor:pointer; }
+  .srow + .srow, .sacts + .srow { border:0; box-shadow:inset 0 1px 0 var(--r1); border-radius:0; }
+  .srow:hover { background:rgba(255,255,255,.04); }
+  /* SIGNAL 3/4 — the saved pipeline this builder is holding */
+  .srow.on { background:var(--s3); box-shadow:inset 2px 0 0 var(--sig), var(--hi); }
+  .srow .sn { font-size:11.5px; font-weight:500; color:var(--t2); display:flex; align-items:center; gap:7px; min-width:0; }
+  .srow.on .sn { color:var(--t1); font-weight:600; }
+  .srow .sn .txt { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .srow .sv { font-family:var(--mono); font-size:9.5px; font-weight:500; color:var(--t3);
+    background:rgba(255,255,255,.05); border:0; border-radius:4px; padding:0 4px; flex:none; }
+  .srow .sv.on { color:var(--t1); background:var(--s5); box-shadow:var(--hi); }
+  .srow .sm2 { grid-column:1 / -1; font-family:var(--mono); font-size:9.5px; color:var(--t3);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .srow .sm2 b { color:var(--t2); font-weight:500; }
+  .sacts { display:flex; align-items:center; gap:5px; padding:7px 9px 8px; background:var(--s3);
+    border:0; box-shadow:inset 0 1px 0 var(--r1); border-radius:0 0 7px 7px; }
+  .sacts .ep { margin-left:auto; }
+
+  /* PATCH card — a rail-level surface, its inputs are recessed wells (no box inside a box) */
+  .crud { border:0; background:var(--s3); box-shadow:var(--hi); border-radius:9px; padding:10px 11px 11px; margin-bottom:12px; }
+  .crud .ct3 { display:flex; align-items:center; gap:7px; font-size:11.5px; font-weight:600; color:var(--t1); }
+  .crud .ct3 .ep { margin-left:auto; font-weight:400; }
+  .fld2 { display:flex; flex-direction:column; gap:4px; margin-top:8px; min-width:0; }
+  .fk2 { font-size:10px; font-weight:400; letter-spacing:0; text-transform:none; color:var(--t3); }
+  .fi2 { width:100%; display:block; font-family:inherit; font-size:11.5px; line-height:1.45; color:var(--t1);
+    background:var(--s0); border:0; border-radius:7px; padding:5px 8px; outline:none; resize:none;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.04); }
+  .fi2:focus { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+  .fi2::placeholder { color:var(--t3); }
+  .fi2.mono { font-family:var(--mono); font-size:10.5px; }
+  .crudact { display:flex; align-items:center; gap:6px; margin-top:9px; }
+
+  /* the refusal — one of only two tinted callouts on the screen */
+  .refuse { border:0; border-radius:9px; background:rgba(220,80,80,.07);
+    box-shadow:inset 0 0 0 1px rgba(220,80,80,.22); padding:10px 11px 11px; margin-bottom:12px; }
+  .refuse .rt2 { display:flex; align-items:center; gap:7px; font-size:11.5px; font-weight:600; color:var(--t1); }
+  .refuse .rt2 .rc { margin-left:auto; font-family:var(--mono); font-size:9.5px; font-weight:500; color:var(--t3); }
+  .refuse .rd2 { font-size:10.5px; line-height:1.5; color:var(--t3); margin-top:6px; }
+  .refuse .rd2 b { color:var(--t1); font-weight:600; }
+  .deprow { display:grid; grid-template-columns:auto 1fr auto; gap:7px; align-items:center; font-size:10.5px; margin-top:7px; }
+  .deprow .dn2 { font-family:var(--mono); color:var(--t2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .deprow .dv2 { font-family:var(--mono); font-size:9.5px; color:var(--t3); }
+
+  /* guardrails + routing lose their boxes: a labelled list, whisper-ruled */
+  .guard { border:0; background:transparent; border-radius:0; padding:0; }
+  .grow { display:flex; align-items:center; gap:8px; font-size:10.5px; color:var(--t3); padding:5px 0; }
+  .grow + .grow { border:0; box-shadow:inset 0 1px 0 var(--r1); }
+  .grow .gn { color:var(--t2); }
+  .grow .gv { margin-left:auto; font-family:var(--mono); font-weight:600; color:var(--t1); }
+  .route { border:0; background:transparent; border-radius:0; padding:0; margin-bottom:14px; }
+  .route .rt { font-size:11.5px; font-weight:550; color:var(--t2); margin-bottom:4px; }
+  .route .rd { font-size:10.5px; color:var(--t3); line-height:1.5; margin-bottom:6px; }
+  .rrow { display:flex; align-items:center; gap:6px; font-size:10.5px; padding:4px 0; border:0; box-shadow:inset 0 1px 0 var(--r1); }
+  .rrow .rw { font-family:var(--mono); color:var(--t2); }
+  .rrow .ra { margin-left:auto; color:var(--t2); text-decoration:underline; text-decoration-color:var(--r3);
+    text-underline-offset:3px; font-weight:450; white-space:nowrap; }
+  .rrow .ra:hover { color:var(--t1); }
+  .rrow .no { color:var(--t3); font-weight:400; font-family:var(--mono); font-size:10px; margin-left:auto; }
+
+  /* ===== CENTER · pipeline ===== */
+  .cbanner { display:flex; align-items:center; gap:9px; padding:8px 14px; border:0;
+    background:transparent; box-shadow:inset 0 -1px 0 var(--r1); flex:none; font-size:10.5px; color:var(--t3); flex-wrap:wrap; }
+  .cbanner b { color:var(--t1); font-weight:600; font-size:11.5px; }
+  .pipe { padding:11px 14px 16px; }
+
+  /* RULE 8 — ordered steps are heterogeneous and independently actionable, so they keep a
+     SURFACE and lose the border. Nothing inside a step is ever a second box: sub-blocks are
+     flat under a label, a left-ruled indent, or a recessed well. */
+  .step { border:0; border-radius:9px; background:var(--s2); box-shadow:var(--hi); margin-bottom:0; overflow:hidden; }
+  .step:hover { background:#131820; }
+  .step.open { background:var(--s3); box-shadow:var(--hi), 0 10px 26px -20px rgba(0,0,0,1); }
+  .sh { display:grid; grid-template-columns:22px 116px 1fr auto auto 12px; align-items:center; gap:9px;
+    padding:8px 11px; cursor:pointer; }
+  .step.open .sh { border:0; background:transparent; }
+  .sh:hover { background:rgba(255,255,255,.03); }
+  .sidx { font-family:var(--mono); font-size:10.5px; font-weight:600; color:var(--t3); }
+  .step.open .sidx { color:var(--t1); }
+  .sop { font-family:var(--mono); font-size:11.5px; font-weight:600; color:var(--t1); background:none;
+    border:0; border-radius:0; padding:0; text-align:left; letter-spacing:-0.01em; }
+  .ssum { font-size:11.5px; color:var(--t3); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ssum b { color:var(--t2); font-weight:500; font-family:var(--mono); font-size:11px; }
+  /* schema evolution is MAGNITUDE, not identity — the neutral ramp plus ink carries it */
+  .dlt { font-family:var(--mono); font-size:10px; font-weight:500; padding:1px 6px; border-radius:5px;
+    border:0; color:var(--t3); background:rgba(255,255,255,.045); white-space:nowrap; }
+  .dlt.add  { color:var(--t1); background:var(--s5); box-shadow:var(--hi); }
+  .dlt.del  { color:var(--t2); background:rgba(255,255,255,.06); }
+  .dlt.type { color:var(--t2); background:rgba(255,255,255,.06); }
+  .dlt.rows { color:var(--t1); background:rgba(255,255,255,.06); }
+  .scols { font-family:var(--mono); font-size:11px; font-weight:600; color:var(--t1); }
+  .scols .ar { color:var(--t4); margin:0 2px; }
+  .scar { color:var(--t4); font-size:10px; text-align:center; }
+  .conn { display:flex; align-items:center; gap:8px; padding:2px 0 2px 22px; height:22px; }
+  .conn .cl { width:1px; height:100%; background:var(--r2); }
+  .conn .ct { font-size:9.5px; color:var(--t3); font-family:var(--mono); }
+  .conn .ct b { color:var(--t2); font-weight:500; }
+
+  .sb { padding:2px 12px 12px; box-shadow:inset 0 1px 0 var(--r1); }
+  .mlab { display:flex; align-items:center; gap:8px; font-size:11px; font-weight:550; letter-spacing:-0.008em;
+    text-transform:none; color:var(--t2); margin:10px 0 7px; }
+  .mlab .ln { flex:1; height:1px; background:var(--r1); min-width:10px; }
+  .mlab .hint { font-weight:400; letter-spacing:0; text-transform:none; font-size:9.5px; color:var(--t3); }
+  .params { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:9px; }
+  .prm { display:inline-flex; align-items:center; gap:6px; font-family:var(--mono); font-size:10.5px;
+    background:none; border:0; border-radius:0; padding:0 10px 0 0; }
+  .prm .pn { color:var(--t3); }
+  .prm .pv { color:var(--t1); font-weight:600; }
+  .prm .pv.off { color:var(--t3); font-weight:400; }
+  .qtok { font-family:var(--mono); font-size:10.5px; display:inline-flex; align-items:center; gap:6px;
+    padding:3px 8px; border-radius:6px; border:0; background:rgba(255,255,255,.05); color:var(--t2); }
+  .qtok .key { color:var(--t1); font-weight:600; }
+  .qtok .opx { color:var(--t3); font-weight:500; }
+  .qtok .x { color:var(--t3); cursor:pointer; }
+  .qadd { color:var(--t3); font-size:10.5px; cursor:pointer; padding:3px 8px; border-radius:6px;
+    border:0; box-shadow:inset 0 0 0 1px var(--r1); }
+  .filters { display:flex; flex-wrap:wrap; gap:5px; align-items:center; margin-bottom:9px; }
+  .andor { font-size:9.5px; font-weight:600; letter-spacing:.04em; color:var(--t3);
+    border:0; border-radius:6px; overflow:hidden; display:inline-flex; background:rgba(255,255,255,.05); }
+  .andor span { padding:3px 8px; color:var(--t3); }
+  .andor span.on { background:var(--s5); color:var(--t1); box-shadow:var(--hi); }
+
+  /* schema ribbon — the signature idea, carried on value not hue */
+  .sar { border:0; box-shadow:inset 0 1px 0 var(--r1); margin-top:11px; padding-top:9px; }
+  .cchips { display:flex; flex-wrap:wrap; gap:4px; }
+  .cc { font-family:var(--mono); font-size:10px; display:inline-flex; align-items:center; gap:5px;
+    padding:2px 7px; border-radius:5px; border:0; background:rgba(255,255,255,.045); color:var(--t2); }
+  .cc .ty { color:var(--t3); font-size:9px; }
+  .cc.new { background:var(--s6); color:var(--t1); box-shadow:var(--hi); }
+  .cc.new .ty { color:var(--t1); }
+  .cc.ret { background:var(--s5); color:var(--t1); box-shadow:var(--hi); }
+  .cc.ret .ty { color:var(--t2); }
+  .cc.gone { background:transparent; box-shadow:inset 0 0 0 1px var(--r1); color:var(--t3); text-decoration:line-through; }
+  .cc .lk { color:var(--st-warn); }
+
+  /* expression editor — a recessed WELL inside the card, never a second bordered box */
+  .expr { border:0; border-radius:8px; background:rgba(0,0,0,.30);
+    box-shadow:inset 0 2px 4px -2px rgba(0,0,0,.75), inset 0 0 0 1px rgba(255,255,255,.03);
+    padding:10px 11px; font-family:var(--mono); font-size:11px; line-height:1.75; margin-bottom:9px; }
+  .expr .ln { display:flex; align-items:baseline; gap:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    flex:none; height:auto; background:none; }
+  .expr .tree { color:var(--m6); }
+  .expr .nt  { color:var(--t1); font-weight:600; }
+  .expr .cl2 { color:var(--t2); font-weight:500; }
+  .expr .li  { color:var(--m2); }
+  .expr .op2 { color:var(--t3); }
+  .expr .kw  { color:var(--t3); font-weight:600; letter-spacing:.04em; }
+  .expr .pn2 { color:var(--t3); }
+  .expr .depth { color:var(--t3); font-size:9.5px; }
+  .nodepal { display:flex; flex-wrap:wrap; gap:4px; }
+  .nd { font-family:var(--mono); font-size:10px; padding:2px 7px; border-radius:6px;
+    border:0; background:rgba(255,255,255,.045); color:var(--t3); }
+  .nd.on { color:var(--t1); background:var(--s5); box-shadow:var(--hi); font-weight:600; }
+  .nd .v { color:var(--t3); font-weight:400; }
+  .nd.on .v { color:var(--t2); }
+
+  /* informational notes lose the box entirely — a left rule and an indent */
+  .note { display:flex; align-items:flex-start; gap:9px; font-size:10.5px; line-height:1.5; color:var(--t3);
+    background:none; border:0; border-radius:0; padding:0 0 0 10px; box-shadow:inset 2px 0 0 var(--r2); }
+  .note b { color:var(--t1); font-weight:600; }
+  .note .mono { color:var(--t2); }
+  .note a { color:var(--t2); text-decoration:underline; text-decoration-color:var(--r3);
+    text-underline-offset:3px; white-space:nowrap; }
+  .note a:hover { color:var(--t1); }
+  .note.pribox { color:var(--t3); background:none; box-shadow:inset 2px 0 0 var(--r2); padding:0 0 0 10px; }
+  .note.critbox { color:var(--t3); background:none; box-shadow:inset 2px 0 0 rgba(220,80,80,.5); padding:0 0 0 10px; }
+  /* the ONE consequential callout that keeps a tinted surface */
+  .note.warnbox { color:var(--t2); background:rgba(250,178,25,.06);
+    box-shadow:inset 0 0 0 1px rgba(250,178,25,.2); border-radius:7px; padding:9px 10px; }
+  .addstep { display:flex; align-items:center; justify-content:center; gap:8px; height:32px; margin-top:10px;
+    border:0; box-shadow:inset 0 0 0 1px var(--r1); border-radius:9px; color:var(--t3); font-size:11.5px; cursor:pointer; }
+  .addstep:hover { color:var(--t1); box-shadow:inset 0 0 0 1px var(--r2); }
+
+  /* ===== DOCK · lifecycle ledger ===== */
+  .dockpad { padding:11px 14px 14px; }
+  .lc { display:flex; flex-direction:column; }
+  .lcs { display:grid; grid-template-columns:20px 1fr; gap:0 10px; }
+  .lcs .rail2 { display:flex; flex-direction:column; align-items:center; }
+  .lcs .node { width:18px; height:18px; border-radius:50%; border:0; background:var(--s4);
+    display:grid; place-items:center; font-size:9px; font-weight:600; color:var(--t3); flex:none; box-shadow:var(--hi); }
+  .lcs .node.done { background:transparent; box-shadow:inset 0 0 0 1.5px rgba(12,163,12,.55); color:var(--st-good); }
+  .lcs .node.next { background:var(--s6); color:var(--t1); box-shadow:var(--hi); }
+  .lcs .wire { width:1px; flex:1; background:var(--r2); min-height:10px; }
+  .lcs .card { padding:0 0 12px; min-width:0; }
+  .lcs .ct2 { display:flex; align-items:center; gap:7px; font-size:12px; font-weight:600; color:var(--t1); }
+  .lcs .cd { font-size:10.5px; color:var(--t3); line-height:1.5; margin-top:3px; }
+  .lcs .cd b { color:var(--t1); font-weight:600; }
+  .lcs .cmeta { display:flex; flex-wrap:wrap; align-items:center; gap:5px; margin-top:6px; }
+
+  .schemalist { border:0; border-radius:0; overflow:visible; }
+  .scrow { display:grid; grid-template-columns:1fr auto auto; align-items:center; gap:8px; padding:5px 2px; font-size:10.5px; }
+  .scrow + .scrow { border:0; box-shadow:inset 0 1px 0 var(--r1); }
+  .scrow .cn2 { font-family:var(--mono); color:var(--t2); overflow:hidden; text-overflow:ellipsis; }
+  .scrow .ty2 { font-family:var(--mono); font-size:9.5px; color:var(--t3); }
+  .scrow .bd { font-size:9.5px; font-weight:500; letter-spacing:0; text-transform:none; color:var(--t3); }
+  .scrow.new .cn2, .scrow.ret .cn2 { color:var(--t1); }
+  .scrow.new .bd { color:var(--t1); font-weight:600; }
+  .scrow.ret .bd { color:var(--t2); }
+  .scrow.gone { opacity:1; }
+  .scrow.gone .cn2 { text-decoration:line-through; color:var(--t3); }
+  .scrow.gone .ty2, .scrow.gone .bd { color:var(--t3); }
+  .scrow.head { background:transparent; font-family:var(--mono); font-size:10px; letter-spacing:0;
+    text-transform:lowercase; color:var(--t3); box-shadow:inset 0 -1px 0 var(--r2); padding-bottom:6px; }
+
+  /* the governance moment — one vertical rule splits capability from outcome */
+  .gate { border:0; border-radius:0; overflow:visible; }
+  .gaterow { display:grid; grid-template-columns:1fr 52px 52px; align-items:center; gap:8px; padding:6px 0; font-size:10.5px; }
+  .gaterow + .gaterow { border:0; box-shadow:inset 0 1px 0 var(--r1); }
+  .gaterow.head { background:transparent; font-family:var(--mono); font-size:10px; letter-spacing:0;
+    text-transform:lowercase; color:var(--t3); box-shadow:inset 0 -1px 0 var(--r2); padding-bottom:6px; }
+  .gaterow > *:nth-child(2) { box-shadow:inset 1px 0 0 var(--r2); }
+  .gaterow .gl2 { min-width:0; }
+  .gaterow .gn2 { color:var(--t2); }
+  .gaterow .gs { font-family:var(--mono); font-size:9.5px; color:var(--t3); }
+  .gaterow .yes { color:var(--st-good); font-weight:600; text-align:center; }
+  .gaterow .no { display:inline-flex; align-items:center; justify-content:center; gap:5px;
+    color:var(--t1); font-weight:600; text-align:center; font-family:var(--mono); font-size:10px; }
+
+  /* publish options — left-ruled indents, not two boxes inside the ledger card */
+  .pubopt { display:flex; gap:14px; }
+  .po { flex:1; border:0; border-radius:0; background:none; padding:1px 0 1px 10px;
+    box-shadow:inset 2px 0 0 var(--r1); cursor:pointer; }
+  .po.on { box-shadow:inset 2px 0 0 var(--t2); }
+  .po .pt { font-size:11px; font-weight:500; color:var(--t3); display:flex; align-items:center; gap:6px; }
+  .po.on .pt { color:var(--t1); font-weight:600; }
+  .po .pd { font-size:9.5px; color:var(--t3); margin-top:3px; line-height:1.45; }
+  .radio { width:11px; height:11px; border-radius:50%; border:0; box-shadow:inset 0 0 0 1.5px var(--t4); flex:none; }
+  .po.on .radio { box-shadow:inset 0 0 0 3px var(--key); }
+
+  /* ===== BOTTOM BAND — a real seam: a dark edge alone reads as "content ran out" ===== */
+  .band { height:184px; flex:none; display:grid; grid-template-columns:1fr 330px 414px; border:0;
+    background:var(--s2); box-shadow:inset 0 1px 0 var(--r2), 0 -10px 24px -22px rgba(0,0,0,1); overflow:hidden; }
+  .bcell { display:flex; flex-direction:column; min-width:0; min-height:0; overflow:hidden; border:0; }
+  .bcell + .bcell { box-shadow:inset 1px 0 0 var(--r1); }
+  .bhead { height:29px; display:flex; align-items:center; gap:8px; padding:0 12px; border:0; flex:none;
+    overflow:hidden; white-space:nowrap; }
+  .bhead > * { flex:none; }
+  .bhead .ep, .bhead > .mono { flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  .bhead .t { font-size:12px; font-weight:600; letter-spacing:-0.012em; text-transform:none; color:var(--t1); }
+  .bhead .spacer { margin-left:auto; }
+  .bbody { flex:1; overflow:auto; min-height:0; }
+
+  table.grid { border-collapse:separate; border-spacing:0; width:100%; font-size:11px; }
+  table.grid thead th { position:sticky; top:0; z-index:5; background:#12161D; text-align:left;
+    font-family:var(--mono); font-size:10px; font-weight:500; letter-spacing:0; text-transform:lowercase; color:var(--t3);
+    padding:0 9px; height:26px; border:0; box-shadow:inset 0 -1px 0 var(--r2), inset 0 1px 0 var(--r1); white-space:nowrap; }
+  table.grid thead th.newcol { color:var(--t1); }
+  table.grid tbody td { padding:0 9px; height:23px; border-bottom:1px solid rgba(255,255,255,.032);
+    white-space:nowrap; color:var(--t2); }
+  table.grid tbody tr:nth-child(6n) td { border-bottom-color:rgba(255,255,255,.085); } /* the ruler measure */
+  table.grid tbody tr:hover td { background:rgba(255,255,255,.038); }
+  table.grid td.n { text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums; color:var(--t1); }
+  table.grid td.m { font-family:var(--mono); }
+  table.grid td.rn { width:34px; text-align:right; color:var(--t3); font-family:var(--mono); font-size:10px; }
+  .stat { display:inline-flex; align-items:center; gap:6px; font-size:10.5px; font-weight:500; }
+  .stat .d { width:8px; height:8px; flex:none; }
+  .stat.paid .d   { border-radius:50%; background:var(--st-good); }
+  .stat.paid      { color:var(--st-good); }
+  .stat.active .d { width:0; height:0; background:none; border-left:4.5px solid transparent;
+                    border-right:4.5px solid transparent; border-bottom:8px solid var(--st-warn); }
+  .stat.active    { color:var(--st-warn); }
+  .stat.failed .d { background:var(--st-crit); border-radius:1px; }
+  .stat.failed    { color:var(--t1); font-weight:600; }
+
+  .artbox { padding:9px 12px 12px; }
+  .artname { font-family:var(--mono); font-size:10.5px; color:var(--t2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .artmeta { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-top:6px; font-size:9.5px;
+    color:var(--t3); font-family:var(--mono); }
+  .drow { display:flex; align-items:center; gap:8px; font-size:10.5px; padding:4px 0; }
+  .drow .dn { color:var(--t3); }
+  .drow .dv { margin-left:auto; font-family:var(--mono); font-weight:600; color:var(--t1); }
+  .mixbar { display:flex; height:9px; border-radius:3px; overflow:hidden; background:rgba(0,0,0,.4);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6); }
+  .mixbar i { display:block; height:100%; }
+  .mixlab { display:flex; align-items:center; gap:8px; font-size:9.5px; color:var(--t3); margin:4px 0 6px; }
+  .mixlab .w { width:44px; color:var(--t3); font-family:var(--mono); }
+  .legend { display:flex; flex-wrap:wrap; gap:3px 12px; margin-top:3px; }
+  .legend .li2 { display:flex; align-items:center; gap:5px; font-size:9.5px; color:var(--t3); }
+  .legend .sw { width:8px; height:8px; border-radius:2px; }
+
+  table.runs { width:100%; border-collapse:separate; border-spacing:0; font-size:10.5px; }
+  table.runs thead th { position:sticky; top:0; background:#12161D; text-align:left; font-family:var(--mono);
+    font-size:10px; font-weight:500; letter-spacing:0; text-transform:lowercase; color:var(--t3); padding:0 6px; height:26px;
+    border:0; box-shadow:inset 0 -1px 0 var(--r2), inset 0 1px 0 var(--r1); white-space:nowrap; }
+  table.runs td { padding:0 6px; height:25px; border-bottom:1px solid rgba(255,255,255,.032); white-space:nowrap; color:var(--t2); }
+  table.runs tr:hover td { background:rgba(255,255,255,.038); }
+  table.runs td.id { font-family:var(--mono); color:var(--t1); font-weight:600; }
+  table.runs td.n { text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  table.runs .sub { font-size:9.5px; color:var(--t3); }
+
+  /* ===== STATUS BAR ===== */
+  .statusbar { height:26px; flex:none; display:flex; align-items:center; gap:14px; padding:0 16px; border:0;
+    background:var(--s2); box-shadow:inset 0 1px 0 var(--r1); font-size:10.5px; color:var(--t3); }
+  .statusbar .h { display:flex; align-items:center; gap:6px; white-space:nowrap; }
+  /* SIGNAL 4/4 — the one live indicator on the screen */
+  .statusbar .clock { margin-left:auto; display:flex; align-items:center; gap:8px; font-family:var(--mono); flex:none; }
+  .statusbar .clock .dot { width:6px; height:6px; border-radius:50%; background:var(--sig); flex:none;
+    box-shadow:0 0 0 3px rgba(70,213,232,.10), 0 0 9px -1px var(--sig); animation:pulse 3s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.42} }
+  @media (prefers-reduced-motion:reduce){ .statusbar .clock .dot { animation:none } }
+</style>
+</head>
+<body class="dark" data-palette="#3987e5,#d95926,#199e70,#c98500,#d55181,#008300,#9085e9,#e66767">
+
+<!-- ================= HEADER ================= -->
+<header class="topbar">
+  <div class="brand">
+    <span class="glyph">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M4 7l8-4 8 4-8 4-8-4z" fill="#fff" opacity=".95"/><path d="M4 12l8 4 8-4M4 17l8 4 8-4" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity=".8"/></svg>
+    </span>
+    <span class="name">Command&nbsp;Studio</span>
+  </div>
+  <span class="env-chip">PROD · US-EAST</span>
+  <nav class="gnav">
+    <a href="#">Workflows</a>
+    <a href="#" class="active">Datasets</a>
+    <a href="#">Runs</a>
+    <a href="#">Library</a>
+  </nav>
+
+  <div class="cmdk lit" title="Command palette">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span class="ph">add step · compile draft · preview 50 rows…</span>
+    <span class="kbd">⌘K</span>
+  </div>
+
+  <div class="hicons">
+    <button class="iconbtn" title="Filters"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M3 5h18M6 12h12M10 19h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+    <button class="iconbtn" title="Alerts"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M6 9a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M10 20a2 2 0 004 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+    <button class="iconbtn" title="Theme" onclick="document.body.classList.toggle('dark')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M20 13a8 8 0 11-9-9 6 6 0 009 9z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></button>
+  </div>
+  <div class="teamsw" title="Active team — datasets, transformations and artifacts are locked to this team">
+    <span class="tk">Team</span>Growth Analytics<span class="ca">▾</span>
+  </div>
+  <div class="avatar" title="S. Ganji · Growth Analytics · role editor on this dataset">SG</div>
+</header>
+
+<!-- ================= GUARDRAIL / RUN STRIP ================= -->
+<div class="kpistrip">
+  <div class="kpi" title="A pipeline may hold at most 50 steps.">
+    <span class="lab">Steps</span><span class="val num mono">8<span class="muted" style="font-size:11px">/50</span></span>
+    <span class="cap"><span class="capbar"><i style="width:16%"></i></span></span>
+  </div>
+  <div class="kpi" title="Expression trees are rejected beyond depth 12. Deepest node here: if → concat → cast → round → arith → col.">
+    <span class="lab">Expr depth</span><span class="val num mono">6<span class="muted" style="font-size:11px">/12</span></span>
+    <span class="cap"><span class="capbar"><i style="width:50%"></i></span></span>
+  </div>
+  <div class="kpi" title="Per-step output schema comes from compile — it never reads a row.">
+    <span class="lab">Schema</span><span class="val num mono">9 <span class="muted">▸</span> 9</span>
+    <span class="delta muted">+1 −1 · 2 retyped</span>
+  </div>
+  <div class="kpi" title="Row counts come from run #4,118 (84,213 ▸ 41,204) — compile returns schema only.">
+    <span class="lab">Rows · last run</span><span class="val num mono">84.2K <span class="muted">▸</span> 41.2K</span>
+    <span class="delta down">−51.1%</span>
+  </div>
+  <div class="kpi" title="Auto-profiling is skipped when the transform output exceeds 256 MB.">
+    <span class="lab">Output</span><span class="val num mono">128<span class="muted" style="font-size:11px"> MB</span></span>
+    <span class="delta up"><span class="sdot good"></span>profiled</span>
+  </div>
+  <div class="kpi">
+    <span class="lab">Run time</span><span class="val num mono">4.82s</span>
+  </div>
+  <div class="runbtns">
+    <button class="tbtn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Compile<span class="k">⌘B</span></button>
+    <button class="tbtn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2.6" stroke="currentColor" stroke-width="2"/></svg>Preview<span class="k">⌘P</span></button>
+    <button class="tbtn primary"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M7 4l12 8-12 8V4z" fill="currentColor"/></svg>Run<span class="k">⌘⏎</span></button>
+  </div>
+</div>
+
+<!-- ================= LENS BAR ================= -->
+<div class="lensbar">
+  <span class="lk">Lens</span>
+  <div class="lenstabs">
+    <span class="ltab">Overview</span>
+    <span class="ltab">Quality</span>
+    <span class="ltab">Versions</span>
+    <span class="ltab">Analytics</span>
+    <span class="ltab">Relations</span>
+    <span class="ltab on">Transform</span>
+    <span class="ltab">Library</span>
+  </div>
+  <div class="lensctx">
+    <span class="tick" title="the dataset this screen is scoped to"></span>
+    <b>Q3 Campaign Signups.csv</b>
+    <span class="mono" style="font-size:10.5px">84,213 rows · 9 cols · v42</span>
+    <span class="cls conf">Confidential</span>
+    <span class="pill enforced" title="email is declared sensitivity: pii in the data dictionary — masked for roles without raw access."><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span>email masked</span>
+    <span class="mono" style="font-size:10.5px;color:var(--t3)">single sheet · Sheet1</span>
+  </div>
+</div>
+
+<!-- ================= WORKSPACE ================= -->
+<div class="workspace">
+
+  <!-- ---------- LEFT RAIL / STEP PALETTE ---------- -->
+  <div class="col rail">
+    <div class="colhead">
+      <span class="t">Transformations</span>
+      <span class="badge num">7</span>
+      <span class="spacer"></span>
+      <span class="mono" style="font-size:9.5px;color:var(--t3);white-space:nowrap">GET /transformations</span>
+    </div>
+
+    <div class="body">
+      <div class="railwrap">
+        <div class="palsearch">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <span style="flex:1">Filter saved transformations…</span>
+          <span class="kbd">/</span>
+        </div>
+
+        <!-- ---- SAVED PIPELINES — the list you navigate back through ---- -->
+        <div class="pgroup">
+          <div class="pglab">Saved <span class="ct num">7</span><span class="ln"></span><span class="ct" style="letter-spacing:0;text-transform:none">team-locked</span></div>
+          <div class="slist">
+            <div class="srow on" title="Open tf_31c — loads its 8 steps into the builder">
+              <span class="sn"><span class="sdot good"></span><span class="txt">Q3 signups → tiered</span></span>
+              <span class="sv on">v3</span>
+              <span class="sm2">q3_campaign_signups · <b>8 steps</b> · s.ganji · ran 16:39</span>
+            </div>
+            <div class="sacts">
+              <button class="tbtn sm">Open<span class="k">⏎</span></button>
+              <button class="tbtn sm">Rename</button>
+              <button class="tbtn sm danger">Delete</button>
+              <span class="ep">tf_31c</span>
+            </div>
+            <div class="srow">
+              <span class="sn"><span class="sdot good"></span><span class="txt">Signups → EU only</span></span>
+              <span class="sv">v7</span>
+              <span class="sm2">q3_campaign_signups · <b>5 steps</b> · m.okafor · ran Aug 15</span>
+            </div>
+            <div class="srow">
+              <span class="sn"><span class="sdot good"></span><span class="txt">Refunds → cleaned</span></span>
+              <span class="sv">v2</span>
+              <span class="sm2">refund_requests · <b>11 steps</b> · j.reyes · ran Aug 14</span>
+            </div>
+            <div class="srow">
+              <span class="sn"><span class="sdot warn"></span><span class="txt">Leads → scored slim</span></span>
+              <span class="sv">v12</span>
+              <span class="sm2">lead_scores · <b>6 steps</b> · a.duarte · ran Aug 11 <span style="color:var(--st-warn)">· failed</span></span>
+            </div>
+            <div class="srow">
+              <span class="sn"><span class="sdot idle"></span><span class="txt">Tickets → dedup export</span></span>
+              <span class="sv">v1</span>
+              <span class="sm2">support_tickets_export · <b>3 steps</b> · s.ganji · never run</span>
+            </div>
+            <div class="srow">
+              <span class="sn"><span class="sdot good"></span><span class="txt">NPS → verbatim trim</span></span>
+              <span class="sv">v4</span>
+              <span class="sm2">nps_survey_responses · <b>4 steps</b> · m.okafor · ran Aug 09</span>
+            </div>
+            <div class="srow">
+              <span class="sn"><span class="sdot idle"></span><span class="txt">Payroll → audit slice</span></span>
+              <span class="sv">v9</span>
+              <span class="sm2">payroll_run_2026_08 · <b>7 steps</b> · j.reyes · ran Jul 31</span>
+            </div>
+          </div>
+
+          <!-- ---- PATCH: rename / edit metadata ---- -->
+          <div class="crud">
+            <div class="ct3"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" style="color:var(--primary)"><path d="M4 20h4l10-10-4-4L4 16v4z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M14 6l4 4" stroke="currentColor" stroke-width="2"/></svg>Rename / edit</div>
+            <div class="ep" style="margin-top:3px">PATCH …/transformations/tf_31c</div>
+            <div class="fld2">
+              <span class="fk2">Name</span>
+              <input class="fi2" value="Q3 signups → tiered" />
+            </div>
+            <div class="fld2">
+              <span class="fk2">Description</span>
+              <textarea class="fi2" rows="2">Tier bucketing + dedupe for the Q3 acquisition cohort. Drops email before publish.</textarea>
+            </div>
+            <div class="crudact">
+              <button class="tbtn sm primary">Save</button>
+              <button class="tbtn sm">Cancel</button>
+              <span class="ep" style="margin-left:auto">metadata only · steps stay at v3</span>
+            </div>
+          </div>
+
+          <!-- ---- DELETE: confirm, then a dependency-aware refusal ---- -->
+          <div class="refuse">
+            <div class="rt2"><span class="sdot crit"></span>Delete “Q3 signups → tiered”?<span class="rc">409</span></div>
+            <div class="rd2"><span class="ep">DELETE …/transformations/tf_31c</span><br/>Would drop the definition, its <b>4 saved versions</b> and all <b>14 runs</b>. Type the name to confirm — but this one is refused first:</div>
+            <div class="deprow"><span class="sdot crit"></span><span class="dn2">Q3 Signups — Tiered</span><span class="dv2">ds_a41c · v1</span></div>
+            <div class="deprow"><span class="sdot crit"></span><span class="dn2">Q3 Signups — Tiered EU</span><span class="dv2">ds_a44f · v2</span></div>
+            <div class="note critbox" style="margin-top:7px">
+              <span style="font-weight:700">✕</span>
+              <span><b>relationship-has-dependents.</b> Two published datasets carry <span class="mono">transformed_from</span> lineage to this pipeline. Delete it and their provenance stops resolving — so the refusal stands until the lineage is detached or those datasets go.</span>
+            </div>
+            <div class="fld2">
+              <span class="fk2">Type the name to confirm</span>
+              <input class="fi2 mono" placeholder="Q3 signups → tiered" disabled />
+            </div>
+            <div style="display:flex;gap:6px;margin-top:8px">
+              <button class="tbtn sm" style="flex:1;justify-content:center">Review lineage</button>
+              <button class="tbtn sm danger" style="flex:1;justify-content:center" disabled>Delete</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="pgroup">
+          <div class="pglab">Operations <span class="ct num">16</span><span class="ln"></span><span class="ct" style="letter-spacing:0;text-transform:none">drag to pipeline</span></div>
+        </div>
+
+        <div class="pgroup">
+          <div class="pglab">Columns <span class="ct num">5</span><span class="ln"></span></div>
+          <div class="op"><span class="on">select</span><span></span><span class="grip">⠿</span><span class="ov">keep only the listed columns</span></div>
+          <div class="op used"><span class="on">drop</span><span></span><span class="cnt">1</span><span class="ov">remove columns — used at step 08</span></div>
+          <div class="op"><span class="on">rename</span><span></span><span class="grip">⠿</span><span class="ov">old_name → new_name map</span></div>
+          <div class="op"><span class="on">reorder</span><span></span><span class="grip">⠿</span><span class="ov">explicit column order</span></div>
+          <div class="op used"><span class="on">cast</span><span></span><span class="cnt">1</span><span class="ov">10 target types · on_error null | fail</span></div>
+        </div>
+
+        <div class="pgroup">
+          <div class="pglab">Text &amp; values <span class="ct num">6</span><span class="ln"></span></div>
+          <div class="op used"><span class="on">trim</span><span></span><span class="cnt">1</span><span class="ov">both · left · right</span></div>
+          <div class="op used"><span class="on">case_normalize</span><span></span><span class="cnt">1</span><span class="ov">lower · upper · title</span></div>
+          <div class="op"><span class="on">replace</span><span></span><span class="grip">⠿</span><span class="ov">exact · substring · regex · nulls_to</span></div>
+          <div class="op used"><span class="on">parse_dates</span><span></span><span class="cnt">1</span><span class="ov">strptime format → date/timestamp</span></div>
+          <div class="op"><span class="on">split</span><span></span><span class="grip">⠿</span><span class="ov">one column → n by delimiter</span></div>
+          <div class="op"><span class="on">merge</span><span></span><span class="grip">⠿</span><span class="ov">concat_ws — n columns → one</span></div>
+        </div>
+
+        <div class="pgroup">
+          <div class="pglab">Derived <span class="ct num">1</span><span class="ln"></span></div>
+          <div class="op used"><span class="on">compute</span><span></span><span class="cnt">1</span><span class="ov">expression tree · 10 node types</span></div>
+        </div>
+
+        <div class="pgroup">
+          <div class="pglab">Rows <span class="ct num">4</span><span class="ln"></span></div>
+          <div class="op used"><span class="on">filter</span><span></span><span class="cnt">1</span><span class="ov">the same 36-operator DSL as queries</span></div>
+          <div class="op used"><span class="on">deduplicate</span><span></span><span class="cnt">1</span><span class="ov">subset · keep first | last | none · order_by</span></div>
+          <div class="op"><span class="on">sort</span><span></span><span class="grip">⠿</span><span class="ov">n keys · asc | desc</span></div>
+          <div class="op"><span class="on">limit</span><span></span><span class="grip">⠿</span><span class="ov">first n rows after sort</span></div>
+        </div>
+
+        <div class="route">
+          <div class="rt">Need something else?</div>
+          <div class="rd">Transform is strictly <b style="color:var(--foreground)">single-sheet</b>: it can reshape and shrink, but it can never widen or roll up. These live elsewhere —</div>
+          <div class="rrow"><span class="rw">join · lookup</span><a class="ra" href="#">Relations ▸</a></div>
+          <div class="rrow"><span class="rw">group_by · aggregate · pivot</span><a class="ra" href="#">Analytics ▸</a></div>
+          <div class="rrow"><span class="rw">sample · stratify</span><a class="ra" href="#">Sampling ▸</a></div>
+          <div class="rrow"><span class="rw">union · append</span><a class="ra" href="#">Workflows ▸</a></div>
+          <div class="rrow"><span class="rw">window · fill-down · explode</span><span class="no">not supported</span></div>
+          <div class="rrow"><span class="rw">raw SQL escape</span><span class="no">never</span></div>
+        </div>
+
+        <div class="guard">
+          <div class="grow"><span class="gn">Max steps</span><span class="gv">8 / 50</span></div>
+          <div class="grow"><span class="gn">Max expression depth</span><span class="gv">6 / 12</span></div>
+          <div class="grow"><span class="gn">Preview rows</span><span class="gv">50 / 500 max</span></div>
+          <div class="grow"><span class="gn">Auto-profile ceiling</span><span class="gv">256 MB</span></div>
+          <div class="grow"><span class="gn">Aggregate functions</span><span class="gv">none exist</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="hintbar">
+      <span class="h"><span class="kbd">S</span> add step</span>
+      <span class="h"><span class="kbd">⌫</span> remove</span>
+      <span class="h" style="margin-left:auto;color:var(--t3)">v4 draft</span>
+    </div>
+  </div>
+
+  <!-- ---------- CENTER / PIPELINE BUILDER ---------- -->
+  <div class="col center">
+    <div class="colhead">
+      <span class="t">Pipeline</span>
+      <span class="badge num">8 steps</span>
+      <span class="pill warn" title="The draft in the builder has edits that are not in saved version v3. Compile validates the draft as it stands — saving is a separate call.">3 unsaved edits</span>
+      <span class="spacer"></span>
+      <button class="tbtn sm">Discard draft</button>
+      <button class="tbtn sm"><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M5 4h11l3 3v13H5z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 4v5h6" stroke="currentColor" stroke-width="2"/></svg>Save v4<span class="k">⌘S</span></button>
+    </div>
+
+    <div class="cbanner">
+      <span class="sdot good"></span>
+      <b>Compiled</b>
+      <span class="ep">POST /datasets/ds_8f21/transformations/compile</span>
+      <span class="pill ok">8 / 8 steps valid</span>
+      <span class="pill neu">unsaved draft</span>
+      <span class="pill pri">per-step output schema returned</span>
+      <span style="margin-left:auto" class="mono">240 ms · 0 rows read · schema only</span>
+    </div>
+
+    <div class="body">
+      <div class="pipe">
+
+        <!-- ---- SOURCE ---- -->
+        <div class="step" style="background:var(--surface)">
+          <div class="sh" style="grid-template-columns:22px 116px 1fr auto auto 12px">
+            <span class="sidx mono">▸</span>
+            <span class="sop" style="color:var(--t3)">source</span>
+            <span class="ssum"><b>Sheet1</b> · uploads/growth-analytics/q3_campaign_signups.csv <span class="mono" style="color:var(--t3)">· v42</span></span>
+            <span class="dlt">CSV · all varchar but 1</span>
+            <span class="scols">9</span>
+            <span class="scar">▾</span>
+          </div>
+          <div class="sb" style="padding-top:8px">
+            <div class="cchips">
+              <span class="cc">signup_id<span class="ty">bigint</span></span>
+              <span class="cc" title="declared sensitivity: pii"><span class="lk"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span>email<span class="ty">varchar</span></span>
+              <span class="cc">plan<span class="ty">varchar</span></span>
+              <span class="cc">region<span class="ty">varchar</span></span>
+              <span class="cc">amount<span class="ty">varchar</span></span>
+              <span class="cc">status<span class="ty">varchar</span></span>
+              <span class="cc">signup_date<span class="ty">varchar</span></span>
+              <span class="cc">utm_campaign<span class="ty">varchar</span></span>
+              <span class="cc">source<span class="ty">varchar</span></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="conn"><span class="cl"></span><span class="ct">84,213 rows in <b>· run #4,118</b></span></div>
+
+        <!-- ---- 01 trim ---- -->
+        <div class="step">
+          <div class="sh">
+            <span class="sidx mono">01</span>
+            <span class="sop">trim</span>
+            <span class="ssum">mode <b>both</b> · <b>email</b>, <b>utm_campaign</b>, <b>source</b></span>
+            <span class="dlt">no schema change</span>
+            <span class="scols">9<span class="ar">▸</span>9</span>
+            <span class="scar">▸</span>
+          </div>
+        </div>
+
+        <div class="conn"><span class="cl"></span><span class="ct">84,213 rows</span></div>
+
+        <!-- ---- 02 case_normalize ---- -->
+        <div class="step">
+          <div class="sh">
+            <span class="sidx mono">02</span>
+            <span class="sop">case_normalize</span>
+            <span class="ssum">mode <b>lower</b> · <b>email</b>, <b>plan</b>, <b>source</b></span>
+            <span class="dlt">no schema change</span>
+            <span class="scols">9<span class="ar">▸</span>9</span>
+            <span class="scar">▸</span>
+          </div>
+        </div>
+
+        <div class="conn"><span class="cl"></span><span class="ct">84,213 rows</span></div>
+
+        <!-- ---- 03 parse_dates ---- -->
+        <div class="step">
+          <div class="sh">
+            <span class="sidx mono">03</span>
+            <span class="sop">parse_dates</span>
+            <span class="ssum"><b>signup_date</b> · strptime <b>%Y-%m-%d %H:%M:%S</b> → <b>timestamp</b></span>
+            <span class="dlt type">signup_date varchar ▸ timestamp</span>
+            <span class="scols">9<span class="ar">▸</span>9</span>
+            <span class="scar">▸</span>
+          </div>
+        </div>
+
+        <div class="conn"><span class="cl"></span><span class="ct">84,213 rows</span></div>
+
+        <!-- ---- 04 cast ---- -->
+        <div class="step">
+          <div class="sh">
+            <span class="sidx mono">04</span>
+            <span class="sop">cast</span>
+            <span class="ssum"><b>amount</b> → <b>decimal(12,2)</b> · on_error <b>null</b></span>
+            <span class="dlt type">1 retyped · 412 nulled</span>
+            <span class="scols">9<span class="ar">▸</span>9</span>
+            <span class="scar">▸</span>
+          </div>
+        </div>
+
+        <div class="conn"><span class="cl"></span><span class="ct">84,213 rows</span></div>
+
+        <!-- ---- 05 compute (open — expression editor) ---- -->
+        <div class="step open">
+          <div class="sh">
+            <span class="sidx mono">05</span>
+            <span class="sop">compute</span>
+            <span class="ssum">new column <b>value_tier</b> <span class="mono" style="color:var(--t3)">varchar</span> · if-based tier bucketing on <b>amount</b></span>
+            <span class="dlt add">+1 column</span>
+            <span class="scols">9<span class="ar">▸</span>10</span>
+            <span class="scar">▾</span>
+          </div>
+          <div class="sb">
+            <div class="mlab">Expression <span class="ln"></span><span class="hint">tree · evaluated per row · no aggregates exist in this language</span></div>
+            <div class="expr">
+              <div class="ln"><span class="nt">if</span><span class="pn2">&nbsp;— 3 arms + else</span><span class="depth">&nbsp;&nbsp;· depth 6 / 12</span></div>
+              <div class="ln"><span class="tree">├─&nbsp;</span><span class="kw">ARM 1&nbsp;&nbsp;WHEN&nbsp;</span><span class="pn2">all of</span></div>
+              <div class="ln"><span class="tree">│&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;·&nbsp;</span><span class="nt">col</span>&nbsp;<span class="cl2">amount</span>&nbsp;<span class="op2">gte</span>&nbsp;<span class="nt">lit</span>&nbsp;<span class="li">5000</span></div>
+              <div class="ln"><span class="tree">│&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;·&nbsp;</span><span class="nt">col</span>&nbsp;<span class="cl2">status</span>&nbsp;<span class="op2">in</span>&nbsp;<span class="li">paid, active</span></div>
+              <div class="ln"><span class="tree">│&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="kw">THEN&nbsp;</span><span class="nt">concat</span>(&nbsp;<span class="nt">lit</span>&nbsp;<span class="li">"ENT-"</span>&nbsp;·&nbsp;<span class="nt">cast</span>(&nbsp;<span class="nt">date_extract</span>&nbsp;<span class="op2">quarter</span>&nbsp;<span class="nt">col</span>&nbsp;<span class="cl2">signup_date</span>&nbsp;→&nbsp;<span class="op2">varchar</span>&nbsp;)&nbsp;)</div>
+              <div class="ln"><span class="tree">├─&nbsp;</span><span class="kw">ARM 2&nbsp;&nbsp;WHEN&nbsp;</span><span class="pn2">all of</span></div>
+              <div class="ln"><span class="tree">│&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;·&nbsp;</span><span class="nt">col</span>&nbsp;<span class="cl2">amount</span>&nbsp;<span class="op2">between</span>&nbsp;<span class="li">1000 … 4999.99</span></div>
+              <div class="ln"><span class="tree">│&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;·&nbsp;</span><span class="nt">col</span>&nbsp;<span class="cl2">plan</span>&nbsp;<span class="op2">in</span>&nbsp;<span class="li">team, pro</span></div>
+              <div class="ln"><span class="tree">│&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="kw">THEN&nbsp;</span><span class="nt">concat</span>(&nbsp;<span class="nt">lit</span>&nbsp;<span class="li">"MID-"</span>&nbsp;·&nbsp;<span class="nt">str</span>&nbsp;<span class="op2">upper</span>(&nbsp;<span class="nt">col</span>&nbsp;<span class="cl2">region</span>&nbsp;)&nbsp;)</div>
+              <div class="ln"><span class="tree">├─&nbsp;</span><span class="kw">ARM 3&nbsp;&nbsp;WHEN&nbsp;</span><span class="nt">col</span>&nbsp;<span class="cl2">amount</span>&nbsp;<span class="op2">gt</span>&nbsp;<span class="nt">lit</span>&nbsp;<span class="li">0</span></div>
+              <div class="ln"><span class="tree">│&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="kw">THEN&nbsp;</span><span class="nt">concat</span>(&nbsp;<span class="nt">lit</span>&nbsp;<span class="li">"STARTER-"</span>&nbsp;·&nbsp;<span class="nt">cast</span>(&nbsp;<span class="nt">round</span>(&nbsp;<span class="nt">arith</span>&nbsp;<span class="op2">div</span>(&nbsp;<span class="nt">col</span>&nbsp;<span class="cl2">amount</span>&nbsp;·&nbsp;<span class="nt">lit</span>&nbsp;<span class="li">100</span>&nbsp;)&nbsp;·&nbsp;<span class="li">0</span>&nbsp;)&nbsp;→&nbsp;<span class="op2">varchar</span>&nbsp;)&nbsp;)</div>
+              <div class="ln"><span class="tree">└─&nbsp;</span><span class="kw">ELSE&nbsp;&nbsp;</span><span class="nt">coalesce</span>(&nbsp;<span class="nt">str</span>&nbsp;<span class="op2">lower</span>(&nbsp;<span class="nt">col</span>&nbsp;<span class="cl2">plan</span>&nbsp;)&nbsp;·&nbsp;<span class="nt">lit</span>&nbsp;<span class="li">"unknown"</span>&nbsp;)</div>
+            </div>
+
+            <div class="mlab">Node types <span class="ln"></span><span class="hint">10 total · all 10 used by this expression</span></div>
+            <div class="nodepal" style="margin-bottom:9px">
+              <span class="nd on">col</span>
+              <span class="nd on">lit</span>
+              <span class="nd on">arith <span class="v">add sub mul div mod</span></span>
+              <span class="nd on">concat</span>
+              <span class="nd on">if <span class="v">multi-arm CASE</span></span>
+              <span class="nd on">coalesce</span>
+              <span class="nd on">round</span>
+              <span class="nd on">date_extract <span class="v">year month day hour minute dow week quarter</span></span>
+              <span class="nd on">cast <span class="v">varchar text integer bigint double decimal boolean date timestamp time</span></span>
+              <span class="nd on">str <span class="v">lower upper trim length substr</span></span>
+            </div>
+
+            <div class="note" style="margin-bottom:9px">
+              <span style="color:var(--t3);font-weight:700">✕</span>
+              <span>There are <b>no aggregate functions</b> in the expression language — no <span class="mono">sum</span>, <span class="mono">avg</span>, <span class="mono">count</span>, no window frames. An expression sees one row at a time. Roll-ups belong to <a href="#">Analytics ▸</a></span>
+            </div>
+
+            <div class="sar">
+              <div class="mlab">Output schema after 05 <span class="ln"></span><span class="hint">compile added value_tier before a single row existed</span></div>
+              <div class="cchips">
+                <span class="cc">signup_id<span class="ty">bigint</span></span>
+                <span class="cc"><span class="lk"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span>email<span class="ty">varchar</span></span>
+                <span class="cc">plan<span class="ty">varchar</span></span>
+                <span class="cc">region<span class="ty">varchar</span></span>
+                <span class="cc ret">amount<span class="ty">decimal(12,2)</span></span>
+                <span class="cc">status<span class="ty">varchar</span></span>
+                <span class="cc ret">signup_date<span class="ty">timestamp</span></span>
+                <span class="cc">utm_campaign<span class="ty">varchar</span></span>
+                <span class="cc">source<span class="ty">varchar</span></span>
+                <span class="cc new">value_tier<span class="ty">+ varchar</span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="conn"><span class="cl"></span><span class="ct">84,213 rows</span></div>
+
+        <!-- ---- 06 filter (open — 36-operator DSL) ---- -->
+        <div class="step open">
+          <div class="sh">
+            <span class="sidx mono">06</span>
+            <span class="sop">filter</span>
+            <span class="ssum">5 predicates · match <b>ALL</b> · same DSL as queries</span>
+            <span class="dlt rows">−42,305 rows</span>
+            <span class="scols">10<span class="ar">▸</span>10</span>
+            <span class="scar">▾</span>
+          </div>
+          <div class="sb">
+            <div class="mlab">Predicates <span class="ln"></span><span class="hint">36-operator filter DSL — identical vocabulary to query &amp; sampling</span></div>
+            <div class="filters">
+              <span class="andor"><span class="on">ALL</span><span>ANY</span></span>
+              <span class="qtok"><span class="key">utm_campaign</span> <span class="opx">icontains</span> q3_ <span class="x">✕</span></span>
+              <span class="qtok"><span class="key">amount</span> <span class="opx">between</span> 10 … 25000 <span class="x">✕</span></span>
+              <span class="qtok"><span class="key">signup_date</span> <span class="opx">last_n_days</span> 90 <span class="x">✕</span></span>
+              <span class="qtok"><span class="key">email</span> <span class="opx">is_duplicate</span> false <span class="x">✕</span></span>
+              <span class="qtok"><span class="key">amount</span> <span class="opx">top_pct</span> 95 <span class="x">✕</span></span>
+              <span class="qadd">+ predicate</span>
+            </div>
+            <div class="note pribox">
+              <span style="font-weight:700">≡</span>
+              <span><b>5 of 36 operators</b> in use. Families: comparison (<span class="mono">eq, gte, lt</span>) · membership (<span class="mono">in, not_in</span>) · text (<span class="mono">icontains, starts_with, regex</span>) · null &amp; empty (<span class="mono">is_null, is_empty</span>) · range (<span class="mono">between, not_between</span>) · length (<span class="mono">len_gt, len_between</span>) · date windows (<span class="mono">last_n_days, date_between</span>) · duplicates (<span class="mono">is_duplicate, is_unique</span>) · distribution (<span class="mono">top_pct, top_n, bottom_pct</span>). <a href="#">Browse all 36 ▸</a></span>
+            </div>
+            <div class="sar">
+              <div class="mlab">Output schema after 06 <span class="ln"></span><span class="hint">filter never changes the schema — only the row count</span></div>
+              <div class="cchips">
+                <span class="cc">10 columns unchanged<span class="ty">from step 05</span></span>
+                <span class="cc" style="border-style:dashed"><span class="mono" style="color:var(--muted-foreground)">rows 84,213 ▸ 41,908</span><span class="ty">run #4,118</span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="conn"><span class="cl"></span><span class="ct">41,908 rows</span></div>
+
+        <!-- ---- 07 deduplicate ---- -->
+        <div class="step">
+          <div class="sh">
+            <span class="sidx mono">07</span>
+            <span class="sop">deduplicate</span>
+            <span class="ssum">subset <b>email</b> · keep <b>last</b> · order_by <b>signup_date desc</b></span>
+            <span class="dlt rows">−704 rows</span>
+            <span class="scols">10<span class="ar">▸</span>10</span>
+            <span class="scar">▸</span>
+          </div>
+        </div>
+
+        <div class="conn"><span class="cl"></span><span class="ct">41,204 rows</span></div>
+
+        <!-- ---- 08 drop ---- -->
+        <div class="step">
+          <div class="sh">
+            <span class="sidx mono">08</span>
+            <span class="sop">drop</span>
+            <span class="ssum"><b>email</b> <span style="color:var(--t3)">· the only pii column — output carries no PII</span></span>
+            <span class="dlt del">−1 column</span>
+            <span class="scols">10<span class="ar">▸</span>9</span>
+            <span class="scar">▸</span>
+          </div>
+        </div>
+
+        <div class="addstep">
+          <span style="font-size:13px">＋</span> Add step
+          <span class="kbd">S</span>
+          <span class="mono" style="font-size:10px;color:var(--t3)">8 / 50 used · 42 remaining</span>
+        </div>
+
+        <div class="note" style="margin-top:9px">
+          <span class="sdot warn" style="margin-top:4px"></span>
+          <span><b>Single-sheet, one direction.</b> Steps run in order against <span class="mono">Sheet1</span> only. The pipeline can retype, derive, filter and shrink — it can never widen (no join, union, explode) or roll up (no group_by, pivot, window). Row counts shown per step come from <b>run #4,118</b>; compile itself returns schema only.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="hintbar">
+      <span class="h"><span class="kbd">↑</span><span class="kbd">↓</span> reorder step</span>
+      <span class="h"><span class="kbd">⏎</span> open step</span>
+      <span class="h"><span class="kbd">⌘B</span> recompile draft</span>
+      <span class="h" style="margin-left:auto;color:var(--t3)">draft compiled 12s ago · auto-compile on edit</span>
+    </div>
+  </div>
+
+  <!-- ---------- RIGHT DOCK / LIFECYCLE ---------- -->
+  <div class="col dock">
+    <div class="colhead">
+      <span class="t">Lifecycle</span>
+      <span class="spacer"></span>
+      <span class="pill pri">4 of 5 done</span>
+    </div>
+
+    <div class="body">
+      <div class="dockpad">
+
+        <div class="lc">
+          <!-- 1 COMPILE -->
+          <div class="lcs">
+            <div class="rail2"><span class="node done">✓</span><span class="wire"></span></div>
+            <div class="card">
+              <div class="ct2">Compile <span class="pill ok">valid</span></div>
+              <div class="cd"><span class="ep">POST …/transformations/compile</span><br/>Validates the <b>unsaved</b> draft and returns the <b>output schema of every step</b>. Never fetches rows, so it works for any role.</div>
+              <div class="cmeta">
+                <span class="pill neu">240 ms</span><span class="pill neu">8/8 steps</span><span class="pill neu">0 rows read</span>
+              </div>
+            </div>
+          </div>
+          <!-- 2 SAVE -->
+          <div class="lcs">
+            <div class="rail2"><span class="node done">✓</span><span class="wire"></span></div>
+            <div class="card">
+              <div class="ct2">Save <span class="pill warn">v3 · 3 edits behind</span></div>
+              <div class="cd"><span class="ep">POST …/transformations</span><br/>Saved as <b>“Q3 signups → tiered”</b> v3, 12 min ago by s.ganji. The builder holds a newer draft — compile does not require saving.</div>
+              <div class="cmeta"><button class="tbtn sm">Save v4</button><span class="pill neu">team-locked</span></div>
+            </div>
+          </div>
+          <!-- 3 PREVIEW -->
+          <div class="lcs">
+            <div class="rail2"><span class="node done">✓</span><span class="wire"></span></div>
+            <div class="card">
+              <div class="ct2">Preview <span class="pill neu">50 rows</span></div>
+              <div class="cd"><span class="ep">POST …/transformations/tf_31c/preview</span><br/>A <b>sampled dry run</b> — <span class="mono">approximate: true</span>. Default <b>50</b> rows, hard max <b>500</b>. Touches raw rows, so it is gated.</div>
+              <div class="cmeta">
+                <span class="pill neu">50</span><span class="pill neu">100</span><span class="pill neu">250</span><span class="pill pri">500 max</span><span class="pill neu">1.21s</span>
+              </div>
+            </div>
+          </div>
+          <!-- 4 RUN -->
+          <div class="lcs">
+            <div class="rail2"><span class="node done">✓</span><span class="wire"></span></div>
+            <div class="card">
+              <div class="ct2">Run <span class="pill neu">#4,118 · 4.82s</span></div>
+              <div class="cd"><span class="ep">POST …/run?sync=true</span> <span style="color:var(--t3)">— sync defaults to true</span><br/>Full pipeline over all 84,213 rows → one <b>transform_output</b> artifact, <b>auto-profiled</b>, with <b>drift vs source</b> computed.</div>
+              <div class="cmeta"><span class="pill neu">41,204 × 9</span><span class="pill neu">128 MB</span><span class="pill ok">profiled</span><span class="pill ok">drift ✓</span></div>
+            </div>
+          </div>
+          <!-- 5 PUBLISH -->
+          <div class="lcs">
+            <div class="rail2"><span class="node next">5</span></div>
+            <div class="card">
+              <div class="ct2">Publish <span class="pill pri">ready</span></div>
+              <div class="cd"><span class="ep">POST …/runs/4118/publish</span><br/>Promote the artifact into the catalog, carrying <span class="mono">transformed_from</span> lineage back to v42.</div>
+              <div class="pubopt" style="margin-top:7px">
+                <div class="po on">
+                  <div class="pt"><span class="radio"></span>New dataset</div>
+                  <div class="pd">“Q3 Signups — Tiered” · fresh id, starts at v1</div>
+                </div>
+                <div class="po">
+                  <div class="pt"><span class="radio"></span>New version</div>
+                  <div class="pd">v43 of this dataset · versions stay immutable</div>
+                </div>
+              </div>
+              <div class="cmeta" style="margin-top:7px">
+                <button class="tbtn primary sm">Publish<span class="k">⌘⇧P</span></button>
+                <span class="pill neu">lineage transformed_from v42</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="sect" style="margin-top:4px">
+          <div class="h">Output schema <span class="line"></span><span class="rn">after step 08 ▾</span></div>
+          <div class="schemalist">
+            <div class="scrow head"><span>Column</span><span>Type</span><span>Δ</span></div>
+            <div class="scrow"><span class="cn2">signup_id</span><span class="ty2">bigint</span><span class="bd"></span></div>
+            <div class="scrow"><span class="cn2">plan</span><span class="ty2">varchar</span><span class="bd"></span></div>
+            <div class="scrow"><span class="cn2">region</span><span class="ty2">varchar</span><span class="bd"></span></div>
+            <div class="scrow ret"><span class="cn2">amount</span><span class="ty2">decimal(12,2)</span><span class="bd">cast</span></div>
+            <div class="scrow"><span class="cn2">status</span><span class="ty2">varchar</span><span class="bd"></span></div>
+            <div class="scrow ret"><span class="cn2">signup_date</span><span class="ty2">timestamp</span><span class="bd">parsed</span></div>
+            <div class="scrow"><span class="cn2">utm_campaign</span><span class="ty2">varchar</span><span class="bd"></span></div>
+            <div class="scrow"><span class="cn2">source</span><span class="ty2">varchar</span><span class="bd"></span></div>
+            <div class="scrow new"><span class="cn2">value_tier</span><span class="ty2">varchar</span><span class="bd">new</span></div>
+            <div class="scrow gone"><span class="cn2">email</span><span class="ty2">varchar · pii</span><span class="bd">dropped</span></div>
+          </div>
+          <div class="note" style="margin-top:7px">
+            <span style="color:var(--t3);font-weight:700">▸</span>
+            <span>Scrub the step selector to see the schema at any point in the pipeline — every one of the 8 states came back in a single compile call.</span>
+          </div>
+        </div>
+
+        <div class="sect">
+          <div class="h">Raw-data gate <span class="line"></span><span class="rn">ensure_raw_access</span></div>
+          <div class="gate">
+            <div class="gaterow head"><span>Capability</span><span>editor</span><span>viewer</span></div>
+            <div class="gaterow"><span class="gl2"><span class="gn2">Compile — schema only</span><br/><span class="gs">reads 0 rows</span></span><span class="yes">✓</span><span class="yes">✓</span></div>
+            <div class="gaterow"><span class="gl2"><span class="gn2">Compile with rows</span><br/><span class="gs">include_rows: true</span></span><span class="yes">✓</span><span class="no"><span class="sdot crit"></span>403</span></div>
+            <div class="gaterow"><span class="gl2"><span class="gn2">Preview</span><br/><span class="gs">approximate dry run</span></span><span class="yes">✓</span><span class="no"><span class="sdot crit"></span>403</span></div>
+            <div class="gaterow"><span class="gl2"><span class="gn2">Run</span><br/><span class="gs">writes an artifact</span></span><span class="yes">✓</span><span class="no"><span class="sdot crit"></span>403</span></div>
+            <div class="gaterow"><span class="gl2"><span class="gn2">Publish</span><br/><span class="gs">catalog write</span></span><span class="yes">✓</span><span class="no"><span class="sdot crit"></span>403</span></div>
+          </div>
+          <div class="note warnbox" style="margin-top:7px">
+            <span class="lockglyph"><svg width="11" height="11" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span>
+            <span><b>A viewer can still build.</b> Schema-only compile never fetches a row, so the whole builder — steps, expression, evolving schema — stays live; only preview, run and publish are refused. You are <b>editor</b> here, so all five states are open.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="hintbar">
+      <span class="h"><span class="kbd">1</span>–<span class="kbd">7</span> lens</span>
+      <span class="h"><span class="kbd">⌘E</span> export lens</span>
+      <span class="h" style="margin-left:auto;color:var(--t3)">tf_31c · as-of v42</span>
+    </div>
+  </div>
+
+</div>
+
+<!-- ================= BOTTOM BAND ================= -->
+<div class="band">
+
+  <!-- ---- PREVIEW ---- -->
+  <div class="bcell">
+    <div class="bhead">
+      <span class="t">Preview</span>
+      <span class="pill neu">approximate: true</span>
+      <span class="ep">POST …/preview</span>
+      <span class="mono" style="font-size:10px;color:var(--muted-foreground)">50 of 500 max · sampled dry run, not the full result</span>
+      <span class="spacer"></span>
+      <span class="pill warn"><span class="lockglyph"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span>raw rows · gated</span>
+      <button class="tbtn sm">Re-run preview<span class="k">⌘P</span></button>
+    </div>
+    <div class="bbody">
+      <table class="grid">
+        <thead>
+          <tr>
+            <th class="rn">#</th><th>signup_id</th><th>plan</th><th>region</th><th>amount</th><th>status</th>
+            <th>signup_date</th><th>utm_campaign</th><th>source</th><th class="newcol">value_tier</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="rn">1</td><td class="m">1000042</td><td class="m">enterprise</td><td class="m">US</td><td class="n">12,480.00</td><td><span class="stat paid"><span class="d"></span>paid</span></td><td class="m">2026-07-02 09:14:00</td><td class="m">q3_launch_email</td><td class="m">email</td><td class="m">ENT-3</td></tr>
+          <tr><td class="rn">2</td><td class="m">1000107</td><td class="m">team</td><td class="m">EMEA</td><td class="n">3,120.50</td><td><span class="stat active"><span class="d"></span>active</span></td><td class="m">2026-07-02 11:02:00</td><td class="m">q3_launch_social</td><td class="m">social</td><td class="m">MID-EMEA</td></tr>
+          <tr><td class="rn">3</td><td class="m">1000221</td><td class="m">pro</td><td class="m">APAC</td><td class="n">1,880.00</td><td><span class="stat paid"><span class="d"></span>paid</span></td><td class="m">2026-07-03 08:41:00</td><td class="m">q3_retarget</td><td class="m">paid_ads</td><td class="m">MID-APAC</td></tr>
+          <tr><td class="rn">4</td><td class="m">1000388</td><td class="m">free</td><td class="m">US</td><td class="n">42.00</td><td><span class="stat active"><span class="d"></span>active</span></td><td class="m">2026-07-03 16:22:00</td><td class="m">q3_launch_email</td><td class="m">email</td><td class="m">STARTER-0</td></tr>
+          <tr><td class="rn">5</td><td class="m">1000415</td><td class="m">team</td><td class="m">LATAM</td><td class="n">2,940.75</td><td><span class="stat paid"><span class="d"></span>paid</span></td><td class="m">2026-07-04 10:05:00</td><td class="m">q3_partner</td><td class="m">partner</td><td class="m">MID-LATAM</td></tr>
+          <tr><td class="rn">6</td><td class="m">1000502</td><td class="m">enterprise</td><td class="m">EMEA</td><td class="n">18,900.00</td><td><span class="stat paid"><span class="d"></span>paid</span></td><td class="m">2026-07-05 07:58:00</td><td class="m">q3_enterprise_abm</td><td class="m">sales</td><td class="m">ENT-3</td></tr>
+          <tr><td class="rn">7</td><td class="m">1000633</td><td class="m">pro</td><td class="m">US</td><td class="n">880.00</td><td><span class="stat active"><span class="d"></span>active</span></td><td class="m">2026-07-05 13:30:00</td><td class="m">q3_retarget</td><td class="m">paid_ads</td><td class="m">STARTER-9</td></tr>
+          <tr><td class="rn">8</td><td class="m">1000714</td><td class="m">free</td><td class="m">APAC</td><td class="n">120.00</td><td><span class="stat active"><span class="d"></span>active</span></td><td class="m">2026-07-06 09:12:00</td><td class="m">q3_launch_social</td><td class="m">social</td><td class="m">STARTER-1</td></tr>
+          <tr><td class="rn">9</td><td class="m">1000806</td><td class="m">team</td><td class="m">US</td><td class="n">4,650.00</td><td><span class="stat paid"><span class="d"></span>paid</span></td><td class="m">2026-07-06 15:44:00</td><td class="m">q3_partner</td><td class="m">partner</td><td class="m">MID-US</td></tr>
+          <tr><td class="rn">10</td><td class="m">1000922</td><td class="m">enterprise</td><td class="m">APAC</td><td class="n">7,310.25</td><td><span class="stat paid"><span class="d"></span>paid</span></td><td class="m">2026-07-07 06:20:00</td><td class="m">q3_enterprise_abm</td><td class="m">sales</td><td class="m">ENT-3</td></tr>
+          <tr><td class="rn">11</td><td class="m">1001033</td><td class="m">pro</td><td class="m">EMEA</td><td class="n">1,240.00</td><td><span class="stat paid"><span class="d"></span>paid</span></td><td class="m">2026-07-07 12:11:00</td><td class="m">q3_retarget</td><td class="m">email</td><td class="m">MID-EMEA</td></tr>
+          <tr><td class="rn">12</td><td class="m">1001148</td><td class="m">free</td><td class="m">US</td><td class="n">18.00</td><td><span class="stat active"><span class="d"></span>active</span></td><td class="m">2026-07-08 08:03:00</td><td class="m">q3_launch_email</td><td class="m">email</td><td class="m">STARTER-0</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ---- RUN OUTPUT + DRIFT ---- -->
+  <div class="bcell">
+    <div class="bhead">
+      <span class="t">Run output</span>
+      <span class="pill neu">transform_output</span>
+      <span class="spacer"></span>
+      <span class="pill ok">auto-profiled</span>
+    </div>
+    <div class="bbody">
+      <div class="artbox">
+        <div class="artname" title="artifacts/growth-analytics/q3_campaign_signups/transform_output/tf_31c_run4118.parquet">artifacts/growth-analytics/…/tf_31c_run4118.parquet</div>
+        <div class="artmeta"><span>41,204 × 9</span><span>· 128 MB</span><span>· parquet</span><span class="pill ok">under 256 MB → profiled</span></div>
+
+        <div style="margin-top:8px">
+          <div class="mlab">Drift vs source <span class="ln"></span><span class="hint">computed at run</span></div>
+          <div class="drow"><span class="dn">Rows</span><span class="dv">84,213 <span class="muted">▸</span> 41,204 <span style="color:var(--t2)">−51.1%</span></span></div>
+          <div class="drow"><span class="dn">amount · mean</span><span class="dv">$842.10 <span class="muted">▸</span> $1,204.60 <span style="color:var(--t2)">+43.1%</span></span></div>
+          <div class="drow"><span class="dn">amount · null rate</span><span class="dv">0.0% <span class="muted">▸</span> 1.0% <span style="color:var(--t3)">cast</span></span></div>
+          <div class="drow" style="padding-bottom:1px"><span class="dn">plan mix</span><span class="dv muted" style="font-weight:500">source ▸ output</span></div>
+          <div class="mixlab"><span class="w">source</span>
+            <span class="mixbar" style="flex:1"><i style="width:41%;background:var(--viz-1)"></i><i style="width:28%;background:var(--viz-2)"></i><i style="width:19%;background:var(--viz-3)"></i><i style="width:12%;background:var(--viz-4)"></i></span>
+          </div>
+          <div class="mixlab"><span class="w">output</span>
+            <span class="mixbar" style="flex:1"><i style="width:22%;background:var(--viz-1)"></i><i style="width:31%;background:var(--viz-2)"></i><i style="width:27%;background:var(--viz-3)"></i><i style="width:20%;background:var(--viz-4)"></i></span>
+          </div>
+          <div class="legend">
+            <span class="li2"><span class="sw" style="background:var(--viz-1)"></span>free</span>
+            <span class="li2"><span class="sw" style="background:var(--viz-2)"></span>pro</span>
+            <span class="li2"><span class="sw" style="background:var(--viz-3)"></span>team</span>
+            <span class="li2"><span class="sw" style="background:var(--viz-4)"></span>enterprise</span>
+          </div>
+          <div class="note" style="margin-top:7px">
+            <span class="sdot warn" style="margin-top:4px"></span>
+            <span>The filter is <b>not distribution-neutral</b> — free plans fall from 41% to 22%. Drift is reported, never corrected.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ---- RUNS HISTORY ---- -->
+  <div class="bcell">
+    <div class="bhead">
+      <span class="t">Runs</span>
+      <span class="badge num">14</span>
+      <span class="spacer"></span>
+      <span class="mono" style="font-size:10px;color:var(--t3)">tf_31c · 30-day artifact retention</span>
+    </div>
+    <div class="bbody">
+      <table class="runs">
+        <thead>
+          <tr><th>Run</th><th>Started</th><th style="text-align:right">In ▸ out</th><th style="text-align:right">Time</th><th style="text-align:right">Size</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="id">#4,118</td><td>16:39:04</td><td class="n">84,213 ▸ 41,204</td><td class="n">4.82s</td><td class="n">128 MB</td>
+            <td><span class="stat paid"><span class="d"></span>ok</span></td>
+          </tr>
+          <tr>
+            <td class="id">#4,102</td><td>15:12:41</td><td class="n">84,213 ▸ 41,190</td><td class="n">4.91s</td><td class="n">127 MB</td>
+            <td><span class="stat paid"><span class="d"></span>ok</span></td>
+          </tr>
+          <tr>
+            <td class="id">#4,061</td><td>11:04:18</td><td class="n">84,213 ▸ 52,880</td><td class="n">6.10s</td><td class="n">164 MB</td>
+            <td><span class="stat paid"><span class="d"></span>ok</span></td>
+          </tr>
+          <tr>
+            <td class="id">#3,998</td><td>Aug15 18:22</td><td class="n">84,213 ▸ <span class="muted">—</span></td><td class="n">0.94s</td><td class="n">—</td>
+            <td><span class="stat failed"><span class="d"></span>failed</span></td>
+          </tr>
+          <tr>
+            <td colspan="6" class="sub" style="padding:0 9px 6px 9px;height:auto;color:var(--t2)">step 04 cast · on_error: fail · “amount” = “n/a” at row 18,442</td>
+          </tr>
+          <tr>
+            <td class="id">#3,970</td><td>Aug14 09:51</td><td class="n">84,213 ▸ 84,213</td><td class="n">12.44s</td><td class="n" style="color:var(--t1);font-weight:600">302 MB</td>
+            <td><span class="stat active"><span class="d"></span>ok</span></td>
+          </tr>
+          <tr>
+            <td colspan="6" class="sub" style="padding:0 9px 6px 9px;height:auto;color:var(--t3)">auto-profile skipped — output above the 256 MB ceiling (no filter step yet)</td>
+          </tr>
+          <tr>
+            <td class="id">#3,944</td><td>Aug13 16:07</td><td class="n">84,213 ▸ 41,908</td><td class="n">4.60s</td><td class="n">129 MB</td>
+            <td><span class="stat paid"><span class="d"></span>ok</span></td>
+          </tr>
+          <tr>
+            <td class="id">#3,901</td><td>Aug12 10:33</td><td class="n">84,213 ▸ 41,908</td><td class="n">4.71s</td><td class="n">129 MB</td>
+            <td><span class="stat paid"><span class="d"></span>ok</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+
+
+<!-- ================= STATUS BAR ================= -->
+<div class="statusbar">
+  <span class="h"><span class="kbd">⌘B</span> compile draft</span>
+  <span class="h"><span class="kbd">⌘S</span> save</span>
+  <span class="h"><span class="kbd">⌘P</span> preview 50</span>
+  <span class="h"><span class="kbd">⌘⏎</span> run sync</span>
+  <span class="h"><span class="kbd">⌘⇧P</span> publish</span>
+  <span class="h"><span class="kbd">S</span> add step</span>
+  <span class="h"><span class="kbd">⌘K</span> commands</span>
+  <span class="h" style="margin-left:20px;color:var(--t3)">transform_output · team growth-analytics · lineage transformed_from v42</span>
+  <span class="clock">
+    <span class="dot"></span>
+    <span class="mono" style="font-size:10.5px">SYNC 16:41:07 ET</span>
+  </span>
+</div>
+
+</body>
+</html>

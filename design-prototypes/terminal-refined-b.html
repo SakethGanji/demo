@@ -1,0 +1,793 @@
+<!--
+  DESIGN NOTES — "EDITORIAL"
+  Thesis: in a screen made entirely of text and numbers, TYPE is the design; chrome is a failure of typography.
+  1. A real scale, used end to end: 10 / 11 / 13 / 15 / 20 / 28 / 40. One 40px serif headline (the dataset) is the
+     first read; the KPI strip is demoted to a quiet 20px ticker so it stops competing.
+  2. Three faces with jobs: humanist sans for UI, a Palatino-class serif for WORDS at display size and for section
+     ledes, mono for DATA. Rule: numbers are never set in the serif; words above 15px always are.
+  3. Cards deleted. Lens tiles, column-profile cards, callouts and pills are now ledger entries grouped by space,
+     baseline rhythm and a two-weight rule hierarchy (thick above a table head, hairline between rows).
+  4. Underline style carries meaning: SOLID underline = enforced control, DASHED = catalog label only. The old
+     two-pill-styles hack becomes a typographic distinction stated once and reused in the dock.
+  5. Uppercase micro-labels removed. Group heads are serif italic sentence case; lens readouts are value-first with
+     the label demoted beneath; grid heads are the literal lowercase column identifiers.
+  6. Palette: warm ink (#0f0e0c → #f2ede2), no dead grays, and NO decorative accent — selection is paper-white plus a
+     hanging rule, so every colour on screen is semantic. Status dots also differ in SHAPE (circle/diamond/square).
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Command Studio — Datasets</title>
+<style>
+  :root{
+    /* ---- type scale ---- */
+    --t1:10px; --t2:11px; --t3:13px; --t4:15px; --t5:20px; --t6:28px; --t7:40px;
+    --sans:"Inter","Adwaita Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,P052,Charter,"Bitstream Charter","Noto Serif",Georgia,ui-serif,"Times New Roman",serif;
+    --mono:"JetBrains Mono","JetBrainsMono Nerd Font","SF Mono","Cascadia Mono","Adwaita Mono",ui-monospace,Menlo,Consolas,monospace;
+
+    /* ---- warm ink ramp (dark) ---- */
+    --ink:#0f0e0c; --ink-2:#141310; --ink-3:#1a1815; --ink-4:#211e19;
+    --rule:#2b2721; --rule-soft:#1f1c18; --rule-strong:#4a443a;
+    --paper:#f2ede2; --paper-2:#a8a094; --paper-3:#8b8376;
+    --wash:rgba(242,237,226,.055);
+
+    /* ---- reserved status (never a data series; always paired with a word or shape) ---- */
+    --ok:#3faa63; --warn:#f0b429; --serious:#ec835a; --crit:#e05555;
+
+    /* ---- categorical series (fixed order, CVD-separated) ---- */
+    --viz-1:#3987e5; --viz-2:#d95926; --viz-3:#199e70; --viz-4:#c98500;
+    --viz-5:#d55181; --viz-6:#008300; --viz-7:#9085e9; --viz-8:#e66767;
+    /* categorical tints for in-grid value tags — derived from the series, kept legible on the surface */
+    --c-pro:#8fb9ea; --c-team:#66c0a0; --c-ent:#b0a6f1;
+    --c-us:#7aacea; --c-apac:#e2825a; --c-latam:#4cbb92; --c-eu:#a79df0;
+  }
+  body.paper{
+    --ink:#f6f2e9; --ink-2:#fffdf7; --ink-3:#f1ece1; --ink-4:#e8e2d4;
+    --rule:#d8d0be; --rule-soft:#e6dfd0; --rule-strong:#9c9382;
+    --paper:#191712; --paper-2:#5f584b; --paper-3:#726a5b;
+    --wash:rgba(25,23,18,.05);
+    --ok:#0f6f36; --warn:#8a6000; --serious:#b04a17; --crit:#b4262b;
+    --viz-1:#2a78d6; --viz-2:#c2501f; --viz-3:#12805c; --viz-4:#8a6000;
+    --viz-5:#b03a68; --viz-6:#166b16; --viz-7:#5b4bc4; --viz-8:#c03a3a;
+    --c-pro:#1f5da3; --c-team:#0e6547; --c-ent:#4a3aa7;
+    --c-us:#1f5da3; --c-apac:#9d4418; --c-latam:#0e6547; --c-eu:#4a3aa7;
+  }
+
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;overflow:hidden}
+  body{
+    font-family:var(--sans); font-size:var(--t3); line-height:1.45;
+    background:var(--ink); color:var(--paper);
+    -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+    font-feature-settings:"tnum" 0; letter-spacing:-0.006em;
+  }
+  /* material: a faint press-grain over everything, and a warm top vignette */
+  body::before{
+    content:""; position:fixed; inset:0; z-index:99; pointer-events:none; opacity:.05;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  body::after{
+    content:""; position:fixed; left:0; right:0; top:0; height:280px; z-index:0; pointer-events:none;
+    background:radial-gradient(120% 100% at 30% 0%, rgba(255,230,190,.045), transparent 70%);
+  }
+  .mono{font-family:var(--mono);font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+  .num{font-variant-numeric:tabular-nums lining-nums;font-feature-settings:"tnum" 1,"lnum" 1}
+  .srf{font-family:var(--serif);letter-spacing:-0.012em}
+  ::selection{background:rgba(242,237,226,.20)}
+  a{color:inherit}
+  button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+  .sprite{position:absolute;width:0;height:0;overflow:hidden}
+  .gi{width:10px;height:10px;flex:none;display:inline-block;vertical-align:-1px}
+  .g12{width:12px;height:12px;flex:none}
+  .g14{width:14px;height:14px;flex:none}
+
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:var(--ink-4);border-radius:0;border:3px solid transparent;background-clip:padding-box}
+  ::-webkit-scrollbar-thumb:hover{background:var(--rule-strong);background-clip:padding-box;border:3px solid transparent}
+  ::-webkit-scrollbar-track{background:transparent}
+
+  /* micro tier: the only tracked-out type on the screen */
+  .kick{font-size:var(--t1);letter-spacing:.11em;text-transform:uppercase;color:var(--paper-3);font-weight:500}
+  .lede{font-family:var(--serif);font-size:var(--t4);letter-spacing:-0.012em;color:var(--paper);font-weight:400}
+
+  /* ============ TOP BAR ============ */
+  header.top{
+    height:54px;display:flex;align-items:center;gap:22px;padding:0 20px;position:relative;z-index:30;
+    border-bottom:1px solid var(--rule);background:var(--ink-2);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.035);
+  }
+  .brand{display:flex;align-items:baseline;gap:9px}
+  .brand .mk{width:18px;height:18px;flex:none;align-self:center;color:var(--paper)}
+  .brand .wm{font-family:var(--serif);font-size:var(--t4);letter-spacing:-0.02em;font-weight:400}
+  .env{display:flex;align-items:center;gap:6px;font-size:var(--t1);letter-spacing:.1em;text-transform:uppercase;color:var(--paper-3)}
+  .env i{width:5px;height:5px;border-radius:50%;background:var(--warn);display:block;flex:none}
+  nav.gn{display:flex;align-items:center;gap:20px;margin-left:4px}
+  nav.gn a{font-size:var(--t3);font-weight:400;color:var(--paper-3);text-decoration:none;padding:16px 0;position:relative;transition:color .12s}
+  nav.gn a:hover{color:var(--paper)}
+  nav.gn a.on{color:var(--paper);font-weight:500}
+  nav.gn a.on::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--paper)}
+  .cmd{
+    margin-left:auto;display:flex;align-items:center;gap:10px;width:330px;height:30px;
+    color:var(--paper-3);border-bottom:1px solid var(--rule);cursor:text;transition:border-color .14s,color .14s;
+  }
+  .cmd:hover,.cmd:focus-within{border-bottom-color:var(--rule-strong);color:var(--paper-2)}
+  .cmd .ph{flex:1;font-size:var(--t3)}
+  .kbd{font-family:var(--mono);font-size:var(--t1);font-weight:500;color:var(--paper-3);border:1px solid var(--rule);padding:1px 4px;line-height:1.4;border-radius:3px}
+  .hicons{display:flex;align-items:center;gap:2px}
+  .ib{width:28px;height:28px;display:grid;place-items:center;color:var(--paper-3);border-radius:4px;transition:color .12s,background .12s}
+  .ib:hover{color:var(--paper);background:var(--wash)}
+  .av{width:28px;height:28px;display:grid;place-items:center;font-size:var(--t2);font-weight:600;color:var(--paper);border:1px solid var(--rule-strong);border-radius:50%;margin-left:8px;letter-spacing:.02em}
+
+  /* ============ TICKER (was the KPI strip) — demoted to third read ============ */
+  .ticker{height:62px;display:flex;align-items:center;padding:0 20px;border-bottom:1px solid var(--rule);background:var(--ink-2);position:relative;z-index:20}
+  .kpi{display:flex;flex-direction:column;justify-content:center;padding-right:34px}
+  .kpi.gov{border-left:1px solid var(--rule);padding-left:26px;margin-left:6px}
+  .kpi .v{font-size:var(--t5);font-weight:300;letter-spacing:-0.028em;line-height:1.1;display:flex;align-items:baseline;gap:7px}
+  .kpi .v em{font-style:normal;font-size:var(--t2);font-weight:500;letter-spacing:0}
+  .kpi .k{font-size:var(--t1);color:var(--paper-3);margin-top:3px;letter-spacing:.02em;display:flex;align-items:center;gap:5px}
+  .up{color:var(--ok)} .dn{color:var(--serious)}
+  .kpi .spark{margin-left:2px;align-self:center}
+  .tclock{margin-left:auto;display:flex;align-items:center;gap:9px;font-family:var(--mono);font-size:var(--t2);color:var(--paper-3);font-variant-numeric:tabular-nums}
+  .tclock i{width:6px;height:6px;border-radius:50%;background:var(--ok);display:block;flex:none}
+
+  /* ============ WORKSPACE — deliberately unequal rhythm ============ */
+  .ws{display:grid;grid-template-columns:268px minmax(0,1fr) 340px;height:calc(100vh - 116px);position:relative;z-index:10}
+  .col{display:flex;flex-direction:column;min-width:0;min-height:0}
+  .rail{background:var(--ink-2);border-right:1px solid var(--rule)}
+  .center{background:var(--ink)}
+  .dock{background:var(--ink-2);border-left:1px solid var(--rule)}
+
+  /* ---------- LEFT RAIL — the rest region: fewer marks, more air ---------- */
+  .railhead{display:flex;align-items:baseline;gap:9px;padding:18px 20px 12px;flex:none}
+  .railhead .n{font-family:var(--mono);font-size:var(--t2);color:var(--paper-3);font-variant-numeric:tabular-nums}
+  .railhead .sp{margin-left:auto}
+  .railsearch{padding:0 20px 14px;flex:none}
+  .rs{display:flex;align-items:center;gap:8px;height:28px;border-bottom:1px solid var(--rule);color:var(--paper-3);transition:border-color .14s}
+  .rs:focus-within{border-bottom-color:var(--rule-strong)}
+  .rs input{flex:1;background:none;border:none;outline:none;color:var(--paper);font:inherit;font-size:var(--t3);min-width:0}
+  .rs input::placeholder{color:var(--paper-3)}
+  .rfilters{display:flex;gap:16px;margin-top:12px}
+  .rf{font-size:var(--t2);color:var(--paper-3);padding:5px 0;min-height:24px;border-bottom:1px solid transparent;transition:color .12s}
+  .rf:hover{color:var(--paper)}
+  .rf.on{color:var(--paper);font-weight:500;border-bottom-color:var(--paper)}
+
+  .list{overflow-y:auto;flex:1;padding-bottom:8px}
+  .grp{display:flex;align-items:baseline;gap:8px;padding:20px 20px 7px;font-family:var(--serif);font-style:italic;font-size:var(--t3);color:var(--paper-2)}
+  .grp .ct{font-family:var(--mono);font-style:normal;font-size:var(--t1);color:var(--paper-3);font-variant-numeric:tabular-nums}
+  .grp .ln{flex:1;height:1px;background:var(--rule-soft);align-self:center}
+  .it{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;align-items:center;padding:8px 14px 8px 18px;border-left:2px solid transparent;cursor:pointer;transition:background .1s}
+  .it:hover{background:var(--wash)}
+  .it.sel{border-left-color:var(--paper);background:linear-gradient(90deg,rgba(242,237,226,.075),transparent 78%)}
+  .it .nm{display:flex;align-items:center;gap:8px;min-width:0;font-size:var(--t3);font-weight:500;letter-spacing:-0.01em}
+  .it.sel .nm{font-weight:600}
+  .it .nm .tx{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .it .mt{grid-column:1;display:flex;align-items:center;gap:6px;font-size:var(--t1);color:var(--paper-3);min-width:0}
+  .it .mt .tm{font-family:var(--mono);letter-spacing:.04em}
+  .it .rt{grid-column:2;grid-row:1 / span 2;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+  .it .rw{font-size:var(--t3);font-weight:500;font-variant-numeric:tabular-nums;letter-spacing:-0.01em}
+  /* status differs by SHAPE as well as hue */
+  .sd{width:7px;height:7px;flex:none;display:block}
+  .sd.ok{background:var(--ok);border-radius:50%}
+  .sd.warn{background:var(--warn);transform:rotate(45deg)}
+  .sd.crit{background:var(--crit)}
+  .cl{font-size:var(--t1);white-space:nowrap}
+  .cl.public{color:var(--paper-3)}
+  .cl.internal{color:var(--paper-2)}
+  .cl.conf{color:var(--warn)}
+  .cl.restr{color:var(--crit);font-weight:600}
+  .lk{color:var(--warn);display:inline-flex;align-items:center;flex:none}
+  .lk.restr{color:var(--crit)}
+  .lk.q{color:var(--paper-3)}
+
+  .hint{display:flex;align-items:center;gap:16px;padding:8px 20px;border-top:1px solid var(--rule);font-size:var(--t1);color:var(--paper-3);flex:none;background:var(--ink-2)}
+  .hint .h{display:flex;align-items:center;gap:5px}
+
+  /* ---------- CENTER — the focal region ---------- */
+  .masthead{padding:20px 20px 14px;flex:none;display:flex;align-items:flex-start;gap:24px}
+  .mh{min-width:0;flex:1}
+  .mh .kick{display:flex;align-items:center;gap:8px;min-width:0;white-space:nowrap}
+  .mh .kick .pth{font-family:var(--mono);letter-spacing:.02em;text-transform:none;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  h1{
+    font-family:var(--serif);font-size:var(--t7);font-weight:400;letter-spacing:-0.028em;line-height:1.06;
+    margin:7px 0 0;display:flex;align-items:baseline;gap:2px;min-width:0;
+  }
+  h1 .ext{font-family:var(--mono);font-size:var(--t3);font-weight:400;color:var(--paper-3);letter-spacing:0;margin-left:5px}
+  h1 .sd{align-self:center;margin-right:11px}
+  .deck{display:flex;align-items:center;flex-wrap:wrap;gap:0 14px;margin-top:11px;font-size:var(--t3);color:var(--paper-2)}
+  .deck b{color:var(--paper);font-weight:600;font-variant-numeric:tabular-nums}
+  .deck .sep{color:var(--paper-3)}
+  .deck .ok{color:var(--ok);display:flex;align-items:center;gap:5px}
+  /* the underline carries the meaning: dashed = catalog label, solid = enforced control */
+  .lbl-only{color:var(--paper-2);border-bottom:1px dashed var(--rule-strong);padding-bottom:2px;cursor:help}
+  .enforced{color:var(--warn);font-weight:500;border-bottom:1px solid var(--warn);padding-bottom:2px;display:flex;align-items:center;gap:6px;cursor:help}
+  .tools{display:flex;align-items:center;gap:4px;flex:none;padding-top:2px}
+  .tb{height:28px;min-width:28px;padding:0 9px;display:inline-flex;align-items:center;justify-content:center;gap:6px;font-size:var(--t3);color:var(--paper-2);border-radius:4px;transition:color .12s,background .12s}
+  .tb:hover{color:var(--paper);background:var(--wash)}
+  .tb.pri{color:var(--paper);font-weight:500;border:1px solid var(--rule-strong);padding:0 12px;margin-left:6px}
+  .tb.pri:hover{background:var(--wash);border-color:var(--paper-2)}
+  .tb .k{font-family:var(--mono);font-size:var(--t1);color:var(--paper-3)}
+
+  .queryrow{display:flex;align-items:center;gap:0;height:38px;padding:0 20px;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);flex:none;background:var(--ink-2);overflow:hidden}
+  .qt{font-family:var(--mono);font-size:var(--t2);color:var(--paper-2);padding:0 9px;border-right:1px solid var(--rule);display:inline-flex;align-items:center;gap:7px;line-height:20px;white-space:nowrap;flex:none}
+  .qt:first-child{padding-left:0}
+  .qt .ky{color:var(--paper);font-weight:600}
+  .qt .x{color:var(--paper-3);cursor:pointer;font-size:var(--t1)}
+  .qt .x:hover{color:var(--paper)}
+  .qadd{font-size:var(--t2);color:var(--paper-3);padding:3px 10px;min-height:24px;display:inline-flex;align-items:center;white-space:nowrap;flex:none;border-bottom:1px dashed var(--rule-strong);margin-left:4px;cursor:pointer}
+  .qadd:hover{color:var(--paper)}
+  .qmeta{margin-left:auto;padding-left:10px;display:flex;align-items:center;gap:12px;font-size:var(--t2);color:var(--paper-3);white-space:nowrap;flex:none}
+  .qmeta b{color:var(--paper);font-weight:600}
+  .qmeta .role{display:flex;align-items:center;gap:6px;color:var(--paper-2);cursor:help}
+  .qmeta .mt{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+  .gridwrap{flex:1;overflow:auto;min-height:0}
+  table.grid{border-collapse:separate;border-spacing:0;width:100%;font-size:var(--t3)}
+  /* print-table rule hierarchy: heavy under the head, hairlines between rows */
+  table.grid thead th{
+    position:sticky;top:0;z-index:5;background:var(--ink);text-align:left;
+    font-family:var(--mono);font-size:var(--t2);font-weight:400;color:var(--paper-3);letter-spacing:0;
+    padding:9px 10px 8px;border-bottom:1px solid var(--rule-strong);white-space:nowrap;cursor:pointer;user-select:none;
+  }
+  table.grid thead th:hover{color:var(--paper)}
+  table.grid thead th.n{text-align:right}
+  table.grid thead th .ar{color:var(--paper);margin-left:4px}
+  table.grid thead th.rn,table.grid tbody td.rn{
+    width:46px;text-align:right;padding-right:12px;padding-left:20px;background:var(--ink);
+    position:sticky;left:0;z-index:4;color:var(--paper-3);font-family:var(--mono);font-size:var(--t1);
+    font-variant-numeric:tabular-nums;
+  }
+  table.grid thead th.rn{z-index:6;color:var(--paper-3)}
+  table.grid tbody td{padding:0 10px;height:32px;border-bottom:1px solid var(--rule-soft);white-space:nowrap;vertical-align:middle}
+  table.grid tbody tr:hover td{background:var(--wash)}
+  td.id{font-family:var(--mono);font-size:var(--t2);color:var(--paper-2)}
+  td.dt{font-family:var(--mono);font-size:var(--t2);color:var(--paper-3);font-variant-numeric:tabular-nums}
+  td.utm{font-family:var(--mono);font-size:var(--t2);color:var(--paper-3)}
+  td.pii{font-family:var(--mono);font-size:var(--t2)}
+  .msk{color:var(--paper-3);letter-spacing:.1em}
+  .pcell{display:inline-flex;align-items:center;gap:7px}
+  td.n{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;padding-right:12px}
+  .amt{display:inline-flex;flex-direction:column;align-items:flex-end;gap:3px;line-height:1.25}
+  .amt i{height:2px;background:var(--viz-1);opacity:.7;display:block}
+  .tag{font-size:var(--t2);color:var(--paper-2)}
+  .tag.pro{color:var(--c-pro)} .tag.team{color:var(--c-team)} .tag.ent{color:var(--c-ent)}
+  .reg{font-family:var(--mono);font-size:var(--t2);letter-spacing:.04em}
+  .reg.us{color:var(--c-us)} .reg.apac{color:var(--c-apac)} .reg.latam{color:var(--c-latam)} .reg.eu{color:var(--c-eu)}
+  .st{display:inline-flex;align-items:center;gap:6px;font-size:var(--t2);font-weight:500}
+  .st i{width:6px;height:6px;flex:none;display:block}
+  .st.active{color:var(--ok)} .st.active i{background:var(--ok);border-radius:50%}
+  .st.trialing{color:var(--warn)} .st.trialing i{background:var(--warn);transform:rotate(45deg)}
+  .st.churned{color:var(--serious)} .st.churned i{background:var(--serious)}
+
+  .gfoot{display:flex;align-items:center;gap:16px;padding:0 20px;height:34px;border-top:1px solid var(--rule);font-size:var(--t2);color:var(--paper-3);flex:none;background:var(--ink-2);white-space:nowrap;overflow:hidden}
+  .gfoot > span{flex:none}
+  .gfoot b{color:var(--paper);font-weight:600;font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .gfoot .dim{color:var(--paper-3)}
+  .pg{margin-left:auto;display:flex;align-items:center;gap:2px}
+  .pgb{min-width:24px;height:24px;padding:0 6px;font-family:var(--mono);font-size:var(--t2);color:var(--paper-3);border-bottom:1px solid transparent}
+  .pgb:hover{color:var(--paper)}
+  .pgb.on{color:var(--paper);font-weight:600;border-bottom-color:var(--paper)}
+
+  /* ---------- RIGHT DOCK — second read ---------- */
+  .dockhead{padding:18px 20px 11px;flex:none;display:flex;align-items:baseline;gap:10px}
+  .dockhead .v{margin-left:auto;font-family:var(--mono);font-size:var(--t1);color:var(--paper-3)}
+  .tabs{display:flex;flex-wrap:wrap;gap:0 16px;padding:0 20px 0;border-bottom:1px solid var(--rule);flex:none}
+  .tab{font-size:var(--t2);color:var(--paper-3);padding:6px 0 7px;min-height:24px;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .12s}
+  .tab:hover{color:var(--paper)}
+  .tab.on{color:var(--paper);font-weight:600;border-bottom-color:var(--paper)}
+  .dockbody{overflow-y:auto;flex:1;padding:16px 20px 22px;min-height:0}
+
+  /* value-first readouts — the label is demoted beneath the number */
+  .ov{display:grid;grid-template-columns:1fr 1fr;gap:16px 18px;padding-bottom:18px;border-bottom:1px solid var(--rule)}
+  .ov .v{font-size:var(--t5);font-weight:300;letter-spacing:-0.028em;line-height:1.05;font-variant-numeric:tabular-nums}
+  .ov .v small{font-size:var(--t3);font-weight:400;color:var(--paper-2);margin-left:1px}
+  .ov .hero .v{font-size:var(--t6)}
+  .ov .v.w{font-family:var(--serif);font-size:var(--t5);font-weight:400;letter-spacing:-0.015em;color:var(--paper-2)}
+  .ov .k{font-size:var(--t1);color:var(--paper-3);margin-top:5px;line-height:1.4}
+  .ov .k em{font-style:normal;color:var(--serious)}
+  .ov .k .dash{border-bottom:1px dashed var(--rule-strong);padding-bottom:1px}
+
+  .sect{padding-top:20px}
+  .sect .lede{display:flex;align-items:baseline;gap:9px;margin-bottom:4px}
+  .sect .lede .n{font-family:var(--mono);font-size:var(--t1);color:var(--paper-3)}
+
+  .cp{padding-top:13px;margin-top:13px;border-top:1px solid var(--rule-soft)}
+  .cp:first-of-type{border-top:none;margin-top:0}
+  .cp .hd{display:flex;align-items:baseline;gap:9px;margin-bottom:9px;min-width:0}
+  .cp .nm{font-family:var(--mono);font-size:var(--t3);font-weight:600;letter-spacing:-0.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .cp .ty{font-size:var(--t1);color:var(--paper-3);font-style:italic;font-family:var(--serif);flex:none}
+  .cp .fl{margin-left:auto;font-size:var(--t2);color:var(--paper-3);flex:none;font-variant-numeric:tabular-nums}
+  .cp .fl b{color:var(--paper-2);font-weight:500}
+  .cp .fl b.w{color:var(--warn)}
+  /* prose notes: hanging rule, no box */
+  .note{border-left:2px solid var(--warn);padding:1px 0 1px 11px;margin:0 0 10px;font-size:var(--t2);line-height:1.5;color:var(--paper-2)}
+  .note b{color:var(--paper);font-weight:600}
+  .note .sv{font-family:var(--mono);color:var(--warn);font-weight:600}
+  .note a{color:var(--paper);text-decoration:underline;text-underline-offset:2px;white-space:nowrap}
+  .note.dict{border-left-color:var(--rule-strong);display:flex;align-items:center;gap:7px;color:var(--paper-3);margin-bottom:8px}
+  .note.dict a{margin-left:auto;color:var(--paper-2)}
+  .note.alert{border-left-color:var(--serious);font-size:var(--t3);font-family:var(--serif);line-height:1.5;letter-spacing:-0.005em;margin-bottom:16px}
+
+  .dist{max-height:152px;overflow-y:auto}
+  .dr{display:grid;grid-template-columns:101px minmax(0,1fr) 30px;align-items:center;gap:9px;height:19px}
+  .dr .lb{font-size:var(--t2);color:var(--paper-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .dr .lb.q{color:var(--paper-3)}
+  .dr .tk{height:5px;background:var(--ink-4)}
+  .dr .fl{height:100%}
+  .dr .pc{font-family:var(--mono);font-size:var(--t1);color:var(--paper-3);text-align:right;font-variant-numeric:tabular-nums}
+  .dr .lb .st{gap:5px}
+  .lg{display:flex;flex-wrap:wrap;gap:3px 14px;margin-top:9px;font-size:var(--t1);color:var(--paper-3)}
+  .lg .li{display:flex;align-items:center;gap:5px}
+  .lg .sw{width:8px;height:8px;flex:none}
+  .lg .mn{font-family:var(--mono);color:var(--paper-2);font-variant-numeric:tabular-nums}
+
+  .histo{display:flex;align-items:flex-end;gap:2px;height:52px;padding-top:2px}
+  .histo i{flex:1;background:var(--viz-1);min-height:2px;opacity:.85;display:block}
+  .ax{display:flex;justify-content:space-between;font-family:var(--mono);font-size:var(--t1);color:var(--paper-3);margin-top:6px;font-variant-numeric:tabular-nums}
+
+  /* governance: solid rule = enforced, dashed rule = label only — same grammar as the masthead */
+  .gl{display:flex;align-items:baseline;gap:8px;font-family:var(--serif);font-style:italic;font-size:var(--t3);padding-bottom:5px;margin:16px 0 6px}
+  .gl span{font-size:var(--t1);font-style:normal;font-family:var(--sans);color:var(--paper-3)}
+  .gl .ln{flex:1}
+  .gl.enf{color:var(--warn);border-bottom:1px solid rgba(240,180,41,.4)}
+  .gl.cat{color:var(--paper-2);border-bottom:1px dashed var(--rule)}
+  .qi{display:flex;align-items:flex-start;gap:10px;padding:7px 0;min-height:24px}
+  .qi + .qi{border-top:1px solid var(--rule-soft)}
+  .qi .ic{width:15px;height:15px;flex:none;display:grid;place-items:center;font-size:9px;font-weight:700;margin-top:1px;border-radius:2px}
+  .ic.good{background:rgba(63,170,99,.16);color:var(--ok)}
+  .ic.warn{background:rgba(240,180,41,.16);color:var(--warn)}
+  .ic.crit{background:rgba(224,85,85,.16);color:var(--crit)}
+  .ic.neu{background:var(--ink-4);color:var(--paper-2)}
+  .qi .qn{font-size:var(--t2);font-weight:500;letter-spacing:-0.005em}
+  .qi .qd{font-size:var(--t1);color:var(--paper-3);margin-top:1px}
+  .qi .qd .mono{font-size:var(--t1)}
+  .qi .qs{font-size:var(--t1);color:var(--paper-3);font-family:var(--serif);font-style:italic;margin-top:2px}
+  .qi .qv{margin-left:auto;font-family:var(--mono);font-size:var(--t1);font-weight:600;flex:none;padding-left:8px;letter-spacing:.03em}
+</style>
+</head>
+<body data-palette="#3987e5,#d95926,#199e70,#c98500,#d55181,#008300,#9085e9,#e66767">
+
+<svg class="sprite" aria-hidden="true"><defs>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4.5" y="10.5" width="15" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" fill="none" stroke="currentColor" stroke-width="2.2"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-filter" viewBox="0 0 24 24"><path d="M3 5h18M6 12h12M10 19h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-sort" viewBox="0 0 24 24"><path d="M4 7h16M4 12h10M4 17h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V7m0 0l-4 4m4-4l4 4M5 4h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-tf" viewBox="0 0 24 24"><path d="M4 17V5m0 0l-3 3m3-3l3 3M10 7h10M10 12h7M10 17h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 9a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M10 20a2 2 0 004 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 13a8 8 0 11-9-9 6 6 0 009 9z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+  <symbol id="i-mark" viewBox="0 0 24 24"><path d="M4 7l8-4 8 4-8 4-8-4z" fill="currentColor"/><path d="M4 12l8 4 8-4M4 17l8 4 8-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity=".55"/></symbol>
+</defs></svg>
+
+<!-- ============ TOP BAR ============ -->
+<header class="top">
+  <div class="brand">
+    <svg class="mk"><use href="#i-mark"/></svg>
+    <span class="wm">Command Studio</span>
+  </div>
+  <span class="env"><i></i>Prod · us-east</span>
+  <nav class="gn">
+    <a href="#">Workflows</a>
+    <a href="#" class="on">Datasets</a>
+    <a href="#">Runs</a>
+    <a href="#">Library</a>
+  </nav>
+  <div class="cmd" title="Command palette">
+    <svg class="g12" style="opacity:.75"><use href="#i-search"/></svg>
+    <span class="ph">Search datasets, columns, run a command…</span>
+    <span class="kbd">⌘K</span>
+  </div>
+  <div class="hicons">
+    <button class="ib" title="Filters"><svg class="g14"><use href="#i-filter"/></svg></button>
+    <button class="ib" title="Alerts"><svg class="g14"><use href="#i-bell"/></svg></button>
+    <button class="ib" title="Theme" onclick="document.body.classList.toggle('paper')"><svg class="g14"><use href="#i-moon"/></svg></button>
+    <span class="av" title="S. Ganji · Growth Analytics · member">SG</span>
+  </div>
+</header>
+
+<!-- ============ TICKER ============ -->
+<div class="ticker">
+  <div class="kpi">
+    <div class="v"><span class="num">142</span><em class="up">▲ 6</em></div>
+    <div class="k">Datasets</div>
+  </div>
+  <div class="kpi">
+    <div class="v"><span class="num">3.14B</span>
+      <svg class="spark" width="50" height="15" viewBox="0 0 50 15"><polyline points="0,12 8,11 16,9 24,10 32,6 40,4 50,2" fill="none" stroke="var(--ok)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+    <div class="k">Rows stored</div>
+  </div>
+  <div class="kpi">
+    <div class="v"><span class="num">38</span></div>
+    <div class="k"><svg class="gi" style="color:var(--paper-3)"><use href="#i-lock"/></svg> PII columns · masked</div>
+  </div>
+  <div class="kpi gov" title="Dataset classification is catalog metadata for findability and reporting. It does not gate access — masking is driven by column sensitivity.">
+    <div class="v"><span class="num">11</span></div>
+    <div class="k">Classified restricted <span style="border-bottom:1px dashed var(--rule-strong)">label only</span></div>
+  </div>
+  <div class="kpi gov" title="Column sensitivity is human-declared in the data dictionary — there is no auto-detection. Undeclared columns are never masked.">
+    <div class="v"><span class="num" style="color:var(--serious)">126</span></div>
+    <div class="k dn">Undeclared cols · needs review</div>
+  </div>
+  <div class="tclock"><i></i>SYNC 16:41:07 ET</div>
+</div>
+
+<!-- ============ WORKSPACE ============ -->
+<div class="ws">
+
+  <!-- ---------- LEFT RAIL ---------- -->
+  <div class="col rail">
+    <div class="railhead">
+      <span class="lede">Datasets</span>
+      <span class="n">12</span>
+      <span class="sp"></span>
+      <button class="ib" style="width:24px;height:24px" title="Upload dataset"><svg class="g14"><use href="#i-up"/></svg></button>
+    </div>
+    <div class="railsearch">
+      <div class="rs">
+        <svg class="g12"><use href="#i-search"/></svg>
+        <input placeholder="Filter datasets…" />
+        <span class="kbd">/</span>
+      </div>
+      <div class="rfilters">
+        <button class="rf on">All</button>
+        <button class="rf">People Ops</button>
+        <button class="rf">Growth</button>
+        <button class="rf">Finance</button>
+      </div>
+    </div>
+
+    <div class="list">
+      <div class="grp">People Ops <span class="ct">3</span><span class="ln"></span></div>
+      <div class="it">
+        <div class="nm"><span class="sd warn" title="needs review"></span><span class="tx">Employee Records</span></div>
+        <div class="mt"><span class="tm">HR</span><span class="lk restr"><svg class="gi"><use href="#i-lock"/></svg></span><span class="cl restr">Restricted</span></div>
+        <div class="rt"><span class="rw">12.4K</span>
+          <svg width="42" height="14" viewBox="0 0 54 14"><polyline points="0,8 7,8 14,7 21,7 28,7 35,6 42,6 48,6 54,5" fill="none" stroke="var(--paper-3)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+      <div class="it">
+        <div class="nm"><span class="sd ok" title="healthy"></span><span class="tx">Payroll Run 2026-08</span></div>
+        <div class="mt"><span class="tm">HR</span><span class="lk restr"><svg class="gi"><use href="#i-lock"/></svg></span><span class="cl restr">Restricted</span></div>
+        <div class="rt"><span class="rw">3,142</span>
+          <svg width="42" height="14" viewBox="0 0 54 14"><polyline points="0,8 7,8 14,7 21,7 28,7 35,6 42,6 48,6 54,5" fill="none" stroke="var(--paper-3)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+      <div class="it">
+        <div class="nm"><span class="sd warn" title="needs review"></span><span class="tx">Candidate Pipeline</span></div>
+        <div class="mt"><span class="tm">HR</span><span class="lk"><svg class="gi"><use href="#i-lock"/></svg></span><span class="cl conf">Confidential</span></div>
+        <div class="rt"><span class="rw">8,710</span>
+          <svg width="42" height="14" viewBox="0 0 54 14"><polyline points="0,6 7,5 14,8 21,6 28,9 35,7 42,10 48,8 54,11" fill="none" stroke="var(--viz-1)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+
+      <div class="grp">Growth Analytics <span class="ct">2</span><span class="ln"></span></div>
+      <div class="it sel">
+        <div class="nm"><span class="sd ok" title="healthy"></span><span class="tx">Q3 Campaign Signups.csv</span></div>
+        <div class="mt"><span class="tm">GRW</span><span class="lk"><svg class="gi"><use href="#i-lock"/></svg></span><span class="cl conf">Confidential</span></div>
+        <div class="rt"><span class="rw">84.2K</span>
+          <svg width="42" height="14" viewBox="0 0 54 14"><polyline points="0,11 7,10 14,8 21,9 28,6 35,7 42,4 48,3 54,2" fill="none" stroke="var(--ok)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+      <div class="it">
+        <div class="nm"><span class="sd ok" title="healthy"></span><span class="tx">Churn Feature Store</span></div>
+        <div class="mt"><span class="tm">GRW</span><span class="cl internal">Internal</span></div>
+        <div class="rt"><span class="rw">2.4M</span>
+          <svg width="42" height="14" viewBox="0 0 54 14"><polyline points="0,11 7,10 14,8 21,9 28,6 35,7 42,4 48,3 54,2" fill="none" stroke="var(--ok)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+
+      <div class="grp">Finance <span class="ct">2</span><span class="ln"></span></div>
+      <div class="it">
+        <div class="nm"><span class="sd ok" title="healthy"></span><span class="tx">Vendor Invoices</span></div>
+        <div class="mt"><span class="tm">FIN</span><span class="cl conf">Confidential</span></div>
+        <div class="rt"><span class="rw">512K</span>
+          <svg width="42" height="14" viewBox="0 0 54 14"><polyline points="0,6 7,5 14,8 21,6 28,9 35,7 42,10 48,8 54,11" fill="none" stroke="var(--viz-1)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+      <div class="it">
+        <div class="nm"><span class="sd warn" title="needs review"></span><span class="tx">Refund Requests</span></div>
+        <div class="mt"><span class="tm">FIN</span><span class="cl conf">Confidential</span></div>
+        <div class="rt"><span class="rw">88.0K</span>
+          <svg width="42" height="14" viewBox="0 0 54 14"><polyline points="0,4 7,6 14,5 21,8 28,6 35,9 42,7 48,10 54,9" fill="none" stroke="var(--serious)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+
+      <div class="grp">Customer Success <span class="ct">2</span><span class="ln"></span></div>
+      <div class="it">
+        <div class="nm"><span class="sd ok" title="healthy"></span><span class="tx">Support Tickets Export</span></div>
+        <div class="mt"><span class="tm">CS</span><span class="lk"><svg class="gi"><use href="#i-lock"/></svg></span><span class="cl internal">Internal</span></div>
+        <div class="rt"><span class="rw">1.2M</span>
+          <svg width="42" height="14" viewBox="0 0 54 14"><polyline points="0,11 7,10 14,8 21,9 28,6 35,7 42,4 48,3 54,2" fill="none" stroke="var(--ok)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+      <div class="it">
+        <div class="nm"><span class="sd ok" title="healthy"></span><span class="tx">NPS Survey Responses</span></div>
+        <div class="mt"><span class="tm">CS</span><span class="cl internal">Internal</span></div>
+        <div class="rt"><span class="rw">143K</span>
+          <svg width="42" height="14" viewBox="0 0 54 14"><polyline points="0,8 7,8 14,7 21,7 28,7 35,6 42,6 48,6 54,5" fill="none" stroke="var(--paper-3)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+
+      <div class="grp">Marketing <span class="ct">2</span><span class="ln"></span></div>
+      <div class="it">
+        <div class="nm"><span class="sd ok" title="healthy"></span><span class="tx">Web Events — Aug</span></div>
+        <div class="mt"><span class="tm">MKT</span><span class="cl internal">Internal</span></div>
+        <div class="rt"><span class="rw">402M</span>
+          <svg width="42" height="14" viewBox="0 0 54 14"><polyline points="0,11 7,10 14,8 21,9 28,6 35,7 42,4 48,3 54,2" fill="none" stroke="var(--ok)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+      <div class="it">
+        <div class="nm"><span class="sd warn" title="needs review"></span><span class="tx">Lead Scores</span></div>
+        <div class="mt"><span class="tm">MKT</span><span class="lk"><svg class="gi"><use href="#i-lock"/></svg></span><span class="cl conf">Confidential</span></div>
+        <div class="rt"><span class="rw">690K</span>
+          <svg width="42" height="14" viewBox="0 0 54 14"><polyline points="0,6 7,5 14,8 21,6 28,9 35,7 42,10 48,8 54,11" fill="none" stroke="var(--viz-1)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+
+      <div class="grp">Data Platform <span class="ct">1</span><span class="ln"></span></div>
+      <div class="it">
+        <div class="nm"><span class="sd ok" title="healthy"></span><span class="tx">Product Usage Daily</span></div>
+        <div class="mt"><span class="tm">DP</span><span class="cl internal">Internal</span></div>
+        <div class="rt"><span class="rw">311M</span>
+          <svg width="42" height="14" viewBox="0 0 54 14"><polyline points="0,11 7,10 14,8 21,9 28,6 35,7 42,4 48,3 54,2" fill="none" stroke="var(--ok)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+    </div>
+
+    <div class="hint">
+      <span class="h"><span class="kbd">J</span><span class="kbd">K</span> move</span>
+      <span class="h"><span class="kbd">↵</span> open</span>
+      <span class="h"><span class="kbd">U</span> upload</span>
+    </div>
+  </div>
+
+  <!-- ---------- CENTER ---------- -->
+  <div class="col center">
+    <div class="masthead">
+      <div class="mh">
+        <div class="kick">
+          <span>Growth Analytics</span><span style="color:var(--paper-3)">/</span>
+          <span class="pth" title="uploads/growth-analytics/q3_campaign_signups.csv">uploads/growth-analytics/q3_campaign_signups.csv</span>
+        </div>
+        <h1><span class="sd ok" title="healthy"></span>Q3 Campaign Signups<span class="ext">.csv</span></h1>
+        <div class="deck">
+          <span><b>84,213</b> rows · <b>9</b> columns</span>
+          <span class="sep">·</span>
+          <span class="ok">✓ Validated</span>
+          <span class="sep">·</span>
+          <span class="lbl-only" title="Dataset classification — catalog metadata only. It does not enforce masking or access.">Confidential</span>
+          <span class="enforced" title="Enforced: 1 column declared sensitivity: pii in the data dictionary, so its values are masked for your role."><svg class="gi"><use href="#i-lock"/></svg>1 column masked</span>
+        </div>
+      </div>
+      <div class="tools">
+        <button class="tb" title="Filter"><svg class="g14"><use href="#i-filter"/></svg></button>
+        <button class="tb" title="Sort"><svg class="g14"><use href="#i-sort"/></svg></button>
+        <button class="tb" title="Export"><svg class="g14"><use href="#i-down"/></svg></button>
+        <button class="tb pri"><svg class="g12"><use href="#i-tf"/></svg>Transform<span class="k">⌘⏎</span></button>
+      </div>
+    </div>
+
+    <div class="queryrow">
+      <span class="qt"><span class="ky">plan</span> in pro, team, enterprise</span>
+      <span class="qt"><span class="ky">status</span> = active <span class="x">✕</span></span>
+      <span class="qt"><span class="ky">amount</span> &gt; 0 <span class="x">✕</span></span>
+      <span class="qadd">+ add filter</span>
+      <span class="qmeta">
+        <span class="role" title="Row &amp; column access is governed by RBAC. Your role on this dataset is viewer, so PII columns are masked."><svg class="gi"><use href="#i-lock"/></svg>role <b>viewer</b> · masked</span>
+        <span>matched <b class="mt">41,908</b> <span style="color:var(--paper-3)">/</span> <span class="mt">84.2K</span></span>
+      </span>
+    </div>
+
+    <div class="gridwrap">
+      <table class="grid">
+        <thead>
+          <tr>
+            <th class="rn">#</th>
+            <th>signup_id</th>
+            <th>email <span class="lk q" style="vertical-align:-1px"><svg class="gi"><use href="#i-lock"/></svg></span></th>
+            <th>plan</th>
+            <th>region</th>
+            <th class="n">amount <span class="ar">▼</span></th>
+            <th>status</th>
+            <th>signup_date</th>
+            <th>utm_campaign</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="rn">1</td><td class="id">SGN-84213</td><td class="pii"><span class="pcell"><span class="msk">••••@••••.com</span><span class="lk q"><svg class="gi"><use href="#i-lock"/></svg></span></span></td><td><span class="tag ent">enterprise</span></td><td><span class="reg us">US</span></td><td class="n"><span class="amt"><span>1,499.00</span><i style="width:48px"></i></span></td><td><span class="st active"><i></i>active</span></td><td class="dt">2026-08-15</td><td class="utm">paid_search_brand</td></tr>
+          <tr><td class="rn">2</td><td class="id">SGN-84212</td><td class="pii"><span class="pcell"><span class="msk">••••@••••.com</span><span class="lk q"><svg class="gi"><use href="#i-lock"/></svg></span></span></td><td><span class="tag team">team</span></td><td><span class="reg apac">APAC</span></td><td class="n"><span class="amt"><span>594.00</span><i style="width:22px"></i></span></td><td><span class="st active"><i></i>active</span></td><td class="dt">2026-08-15</td><td class="utm">webinar_q3</td></tr>
+          <tr><td class="rn">3</td><td class="id">SGN-84209</td><td class="pii"><span class="pcell"><span class="msk">••••@••••.com</span><span class="lk q"><svg class="gi"><use href="#i-lock"/></svg></span></span></td><td><span class="tag pro">pro</span></td><td><span class="reg us">US</span></td><td class="n"><span class="amt"><span>290.00</span><i style="width:12px"></i></span></td><td><span class="st trialing"><i></i>trialing</span></td><td class="dt">2026-08-15</td><td class="utm">summer_promo</td></tr>
+          <tr><td class="rn">4</td><td class="id">SGN-84205</td><td class="pii"><span class="pcell"><span class="msk">••••@••••.com</span><span class="lk q"><svg class="gi"><use href="#i-lock"/></svg></span></span></td><td><span class="tag ent">enterprise</span></td><td><span class="reg eu">EU</span></td><td class="n"><span class="amt"><span>1,180.00</span><i style="width:38px"></i></span></td><td><span class="st active"><i></i>active</span></td><td class="dt">2026-08-14</td><td class="utm">linkedin_abm</td></tr>
+          <tr><td class="rn">5</td><td class="id">SGN-84201</td><td class="pii"><span class="pcell"><span class="msk">••••@••••.com</span><span class="lk q"><svg class="gi"><use href="#i-lock"/></svg></span></span></td><td><span class="tag">free</span></td><td><span class="reg latam">LATAM</span></td><td class="n"><span class="amt"><span>0.00</span><i style="width:2px"></i></span></td><td><span class="st active"><i></i>active</span></td><td class="dt">2026-08-14</td><td class="utm">blog_organic</td></tr>
+          <tr><td class="rn">6</td><td class="id">SGN-84198</td><td class="pii"><span class="pcell"><span class="msk">••••@••••.com</span><span class="lk q"><svg class="gi"><use href="#i-lock"/></svg></span></span></td><td><span class="tag pro">pro</span></td><td><span class="reg us">US</span></td><td class="n"><span class="amt"><span>290.00</span><i style="width:12px"></i></span></td><td><span class="st active"><i></i>active</span></td><td class="dt">2026-08-14</td><td class="utm">retargeting_us</td></tr>
+          <tr><td class="rn">7</td><td class="id">SGN-84190</td><td class="pii"><span class="pcell"><span class="msk">••••@••••.com</span><span class="lk q"><svg class="gi"><use href="#i-lock"/></svg></span></span></td><td><span class="tag team">team</span></td><td><span class="reg apac">APAC</span></td><td class="n"><span class="amt"><span>792.00</span><i style="width:26px"></i></span></td><td><span class="st trialing"><i></i>trialing</span></td><td class="dt">2026-08-14</td><td class="utm">product_hunt</td></tr>
+          <tr><td class="rn">8</td><td class="id">SGN-84187</td><td class="pii"><span class="pcell"><span class="msk">••••@••••.com</span><span class="lk q"><svg class="gi"><use href="#i-lock"/></svg></span></span></td><td><span class="tag">free</span></td><td><span class="reg eu">EU</span></td><td class="n"><span class="amt"><span>0.00</span><i style="width:2px"></i></span></td><td><span class="st churned"><i></i>churned</span></td><td class="dt">2026-08-13</td><td class="utm">newsletter_aug</td></tr>
+          <tr><td class="rn">9</td><td class="id">SGN-84182</td><td class="pii"><span class="pcell"><span class="msk">••••@••••.com</span><span class="lk q"><svg class="gi"><use href="#i-lock"/></svg></span></span></td><td><span class="tag ent">enterprise</span></td><td><span class="reg us">US</span></td><td class="n"><span class="amt"><span>2,400.00</span><i style="width:60px"></i></span></td><td><span class="st active"><i></i>active</span></td><td class="dt">2026-08-13</td><td class="utm">partner_co</td></tr>
+          <tr><td class="rn">10</td><td class="id">SGN-84176</td><td class="pii"><span class="pcell"><span class="msk">••••@••••.com</span><span class="lk q"><svg class="gi"><use href="#i-lock"/></svg></span></span></td><td><span class="tag pro">pro</span></td><td><span class="reg latam">LATAM</span></td><td class="n"><span class="amt"><span>290.00</span><i style="width:12px"></i></span></td><td><span class="st active"><i></i>active</span></td><td class="dt">2026-08-13</td><td class="utm">referral_v2</td></tr>
+          <tr><td class="rn">11</td><td class="id">SGN-84170</td><td class="pii"><span class="pcell"><span class="msk">••••@••••.com</span><span class="lk q"><svg class="gi"><use href="#i-lock"/></svg></span></span></td><td><span class="tag team">team</span></td><td><span class="reg eu">EU</span></td><td class="n"><span class="amt"><span>396.00</span><i style="width:16px"></i></span></td><td><span class="st active"><i></i>active</span></td><td class="dt">2026-08-12</td><td class="utm">summer_promo</td></tr>
+          <tr><td class="rn">12</td><td class="id">SGN-84166</td><td class="pii"><span class="pcell"><span class="msk">••••@••••.com</span><span class="lk q"><svg class="gi"><use href="#i-lock"/></svg></span></span></td><td><span class="tag">free</span></td><td><span class="reg apac">APAC</span></td><td class="n"><span class="amt"><span>0.00</span><i style="width:2px"></i></span></td><td><span class="st trialing"><i></i>trialing</span></td><td class="dt">2026-08-12</td><td class="utm">paid_search_brand</td></tr>
+          <tr><td class="rn">13</td><td class="id">SGN-84159</td><td class="pii"><span class="pcell"><span class="msk">••••@••••.com</span><span class="lk q"><svg class="gi"><use href="#i-lock"/></svg></span></span></td><td><span class="tag pro">pro</span></td><td><span class="reg us">US</span></td><td class="n"><span class="amt"><span>290.00</span><i style="width:12px"></i></span></td><td><span class="st churned"><i></i>churned</span></td><td class="dt">2026-08-12</td><td class="utm">webinar_q3</td></tr>
+          <tr><td class="rn">14</td><td class="id">SGN-84153</td><td class="pii"><span class="pcell"><span class="msk">••••@••••.com</span><span class="lk q"><svg class="gi"><use href="#i-lock"/></svg></span></span></td><td><span class="tag ent">enterprise</span></td><td><span class="reg eu">EU</span></td><td class="n"><span class="amt"><span>1,650.00</span><i style="width:44px"></i></span></td><td><span class="st active"><i></i>active</span></td><td class="dt">2026-08-11</td><td class="utm">linkedin_abm</td></tr>
+          <tr><td class="rn">15</td><td class="id">SGN-84147</td><td class="pii"><span class="pcell"><span class="msk">••••@••••.com</span><span class="lk q"><svg class="gi"><use href="#i-lock"/></svg></span></span></td><td><span class="tag team">team</span></td><td><span class="reg us">US</span></td><td class="n"><span class="amt"><span>990.00</span><i style="width:30px"></i></span></td><td><span class="st active"><i></i>active</span></td><td class="dt">2026-08-11</td><td class="utm">retargeting_us</td></tr>
+          <tr><td class="rn">16</td><td class="id">SGN-84140</td><td class="pii"><span class="pcell"><span class="msk">••••@••••.com</span><span class="lk q"><svg class="gi"><use href="#i-lock"/></svg></span></span></td><td><span class="tag">free</span></td><td><span class="reg latam">LATAM</span></td><td class="n"><span class="amt"><span>0.00</span><i style="width:2px"></i></span></td><td><span class="st active"><i></i>active</span></td><td class="dt">2026-08-11</td><td class="utm">blog_organic</td></tr>
+          <tr><td class="rn">17</td><td class="id">SGN-84131</td><td class="pii"><span class="pcell"><span class="msk">••••@••••.com</span><span class="lk q"><svg class="gi"><use href="#i-lock"/></svg></span></span></td><td><span class="tag pro">pro</span></td><td><span class="reg apac">APAC</span></td><td class="n"><span class="amt"><span>290.00</span><i style="width:12px"></i></span></td><td><span class="st trialing"><i></i>trialing</span></td><td class="dt">2026-08-10</td><td class="utm">product_hunt</td></tr>
+          <tr><td class="rn">18</td><td class="id">SGN-84120</td><td class="pii"><span class="pcell"><span class="msk">••••@••••.com</span><span class="lk q"><svg class="gi"><use href="#i-lock"/></svg></span></span></td><td><span class="tag team">team</span></td><td><span class="reg eu">EU</span></td><td class="n"><span class="amt"><span>594.00</span><i style="width:22px"></i></span></td><td><span class="st active"><i></i>active</span></td><td class="dt">2026-08-10</td><td class="utm">newsletter_aug</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="gfoot">
+      <span>Showing <b>1–18</b> of <b>41,908</b></span>
+      <span class="dim">query 71 ms</span>
+      <span class="dim" style="display:flex;align-items:center;gap:6px"><svg class="gi"><use href="#i-lock"/></svg>1 column masked · 3 undeclared</span>
+      <span class="pg">
+        <button class="pgb">‹&nbsp;Back</button>
+        <button class="pgb">Next&nbsp;›</button>
+      </span>
+    </div>
+  </div>
+
+  <!-- ---------- RIGHT DOCK ---------- -->
+  <div class="col dock">
+    <div class="dockhead">
+      <span class="lede">Q3 Campaign Signups</span>
+      <span class="v">as-of v42</span>
+    </div>
+    <div class="tabs">
+      <button class="tab">Overview</button>
+      <button class="tab on">Quality</button>
+      <button class="tab">Versions</button>
+      <button class="tab">Analytics</button>
+      <button class="tab">Relations</button>
+      <button class="tab">Transform</button>
+      <button class="tab">Library</button>
+    </div>
+
+    <div class="dockbody">
+      <div class="ov">
+        <div class="hero"><div class="v">84.2<small>K</small></div><div class="k">rows · uploaded 3d ago</div></div>
+        <div><div class="v">9</div><div class="k">columns · 1 masked, <em>3 undeclared</em></div></div>
+        <div><div class="v" style="color:var(--ok)">99.6<small>%</small></div><div class="k">complete · 1 col &lt; 100%</div></div>
+        <div title="Catalog metadata only — does not enforce access."><div class="v w">Confidential</div><div class="k">classification · <span class="dash">label only</span></div></div>
+      </div>
+
+      <div class="sect">
+        <div class="lede">Column profile <span class="n">9 columns</span></div>
+
+        <!-- email — PII, masked -->
+        <div class="cp">
+          <div class="hd"><span class="nm" title="email">email</span><span class="ty">string</span><span class="fl">100% · <b class="w">masked</b></span></div>
+          <div class="note dict">
+            <span class="lk"><svg class="gi"><use href="#i-lock"/></svg></span>
+            <span>sensitivity: <span class="sv">pii</span> · from dictionary</span>
+            <a href="#" title="Sensitivity is declared by a human in the per-column data dictionary. It is the control that drives masking.">edit →</a>
+          </div>
+          <div class="note">Masked because this column declares <b>sensitivity: pii</b> — your role (<b>viewer</b>) cannot unmask it or export raw. <a href="#">Request access →</a></div>
+          <div class="dist">
+            <div class="dr"><span class="lb" title="masked domain">••••@gmail</span><div class="tk"><div class="fl" style="width:41%;background:var(--paper-3)"></div></div><span class="pc">41%</span></div>
+            <div class="dr"><span class="lb" title="masked domain">••••@outlook</span><div class="tk"><div class="fl" style="width:14%;background:var(--paper-3)"></div></div><span class="pc">14%</span></div>
+            <div class="dr"><span class="lb" title="masked domain">••••@&lt;corp&gt;</span><div class="tk"><div class="fl" style="width:22%;background:var(--paper-3)"></div></div><span class="pc">22%</span></div>
+            <div class="dr"><span class="lb q" title="other masked domains">•••• other</span><div class="tk"><div class="fl" style="width:23%;background:var(--paper-3)"></div></div><span class="pc">23%</span></div>
+          </div>
+        </div>
+
+        <!-- plan -->
+        <div class="cp">
+          <div class="hd"><span class="nm" title="plan">plan</span><span class="ty">enum</span><span class="fl">100% · <b>4 distinct</b></span></div>
+          <div class="dist">
+            <div class="dr"><span class="lb">free</span><div class="tk"><div class="fl" style="width:48%;background:var(--viz-1)"></div></div><span class="pc">48%</span></div>
+            <div class="dr"><span class="lb">pro</span><div class="tk"><div class="fl" style="width:31%;background:var(--viz-2)"></div></div><span class="pc">31%</span></div>
+            <div class="dr"><span class="lb">team</span><div class="tk"><div class="fl" style="width:14%;background:var(--viz-3)"></div></div><span class="pc">14%</span></div>
+            <div class="dr"><span class="lb">enterprise</span><div class="tk"><div class="fl" style="width:7%;background:var(--viz-4)"></div></div><span class="pc">7%</span></div>
+          </div>
+          <div class="lg">
+            <span class="li"><span class="sw" style="background:var(--viz-1)"></span>free</span>
+            <span class="li"><span class="sw" style="background:var(--viz-2)"></span>pro</span>
+            <span class="li"><span class="sw" style="background:var(--viz-3)"></span>team</span>
+            <span class="li"><span class="sw" style="background:var(--viz-4)"></span>enterprise</span>
+          </div>
+        </div>
+
+        <!-- region -->
+        <div class="cp">
+          <div class="hd"><span class="nm" title="region">region</span><span class="ty">enum</span><span class="fl">100% · <b>4 distinct</b></span></div>
+          <div class="dist">
+            <div class="dr"><span class="lb">US</span><div class="tk"><div class="fl" style="width:38%;background:var(--viz-1)"></div></div><span class="pc">38%</span></div>
+            <div class="dr"><span class="lb">APAC</span><div class="tk"><div class="fl" style="width:26%;background:var(--viz-2)"></div></div><span class="pc">26%</span></div>
+            <div class="dr"><span class="lb">EU</span><div class="tk"><div class="fl" style="width:22%;background:var(--viz-3)"></div></div><span class="pc">22%</span></div>
+            <div class="dr"><span class="lb">LATAM</span><div class="tk"><div class="fl" style="width:14%;background:var(--viz-4)"></div></div><span class="pc">14%</span></div>
+          </div>
+        </div>
+
+        <!-- status -->
+        <div class="cp">
+          <div class="hd"><span class="nm" title="status">status</span><span class="ty">enum</span><span class="fl">100% · <b>3 distinct</b></span></div>
+          <div class="dr"><span class="lb"><span class="st active"><i></i>active</span></span><div class="tk"><div class="fl" style="width:62%;background:var(--ok)"></div></div><span class="pc">62%</span></div>
+          <div class="dr"><span class="lb"><span class="st trialing"><i></i>trialing</span></span><div class="tk"><div class="fl" style="width:24%;background:var(--warn)"></div></div><span class="pc">24%</span></div>
+          <div class="dr"><span class="lb"><span class="st churned"><i></i>churned</span></span><div class="tk"><div class="fl" style="width:14%;background:var(--serious)"></div></div><span class="pc">14%</span></div>
+        </div>
+
+        <!-- utm_campaign -->
+        <div class="cp">
+          <div class="hd"><span class="nm" title="utm_campaign">utm_campaign</span><span class="ty">string</span><span class="fl">98.9% · <b>34 distinct</b></span></div>
+          <div class="dist">
+            <div class="dr"><span class="lb" title="summer_promo">summer_promo</span><div class="tk"><div class="fl" style="width:21%;background:var(--viz-1)"></div></div><span class="pc">21%</span></div>
+            <div class="dr"><span class="lb" title="paid_search_brand">paid_search_brand</span><div class="tk"><div class="fl" style="width:17%;background:var(--viz-2)"></div></div><span class="pc">17%</span></div>
+            <div class="dr"><span class="lb" title="webinar_q3">webinar_q3</span><div class="tk"><div class="fl" style="width:13%;background:var(--viz-3)"></div></div><span class="pc">13%</span></div>
+            <div class="dr"><span class="lb" title="retargeting_us">retargeting_us</span><div class="tk"><div class="fl" style="width:11%;background:var(--viz-4)"></div></div><span class="pc">11%</span></div>
+            <div class="dr"><span class="lb" title="linkedin_abm">linkedin_abm</span><div class="tk"><div class="fl" style="width:9%;background:var(--viz-5)"></div></div><span class="pc">9%</span></div>
+            <div class="dr"><span class="lb" title="product_hunt">product_hunt</span><div class="tk"><div class="fl" style="width:7%;background:var(--viz-6)"></div></div><span class="pc">7%</span></div>
+            <div class="dr"><span class="lb" title="referral_v2">referral_v2</span><div class="tk"><div class="fl" style="width:6%;background:var(--viz-7)"></div></div><span class="pc">6%</span></div>
+            <div class="dr"><span class="lb" title="newsletter_aug">newsletter_aug</span><div class="tk"><div class="fl" style="width:5%;background:var(--viz-8)"></div></div><span class="pc">5%</span></div>
+            <div class="dr"><span class="lb q" title="partner_co">partner_co</span><div class="tk"><div class="fl" style="width:4%;background:var(--paper-3)"></div></div><span class="pc">4%</span></div>
+            <div class="dr"><span class="lb q" title="blog_organic">blog_organic</span><div class="tk"><div class="fl" style="width:3%;background:var(--paper-3)"></div></div><span class="pc">3%</span></div>
+            <div class="dr"><span class="lb q" title="26 more campaigns">Other</span><div class="tk"><div class="fl" style="width:4%;background:var(--paper-3)"></div></div><span class="pc">4%</span></div>
+          </div>
+        </div>
+
+        <!-- amount -->
+        <div class="cp">
+          <div class="hd"><span class="nm" title="amount">amount</span><span class="ty">decimal</span><span class="fl">100% · <b>USD</b></span></div>
+          <div class="histo">
+            <i style="height:96%"></i><i style="height:38%"></i><i style="height:52%"></i><i style="height:30%"></i>
+            <i style="height:44%"></i><i style="height:22%"></i><i style="height:18%"></i><i style="height:12%"></i>
+            <i style="height:9%"></i><i style="height:6%"></i><i style="height:5%"></i><i style="height:8%"></i>
+          </div>
+          <div class="ax"><span>$0</span><span>median $290</span><span>$2.4k+</span></div>
+          <div class="lg">
+            <span class="li mn">μ 312</span><span class="li mn">σ 486</span><span class="li mn">48% at $0 (free)</span>
+          </div>
+        </div>
+
+        <!-- signup_date -->
+        <div class="cp">
+          <div class="hd"><span class="nm" title="signup_date">signup_date</span><span class="ty">date</span><span class="fl">100% · <b>Jul–Aug</b></span></div>
+          <div class="histo">
+            <i style="height:34%;background:var(--viz-3)"></i><i style="height:41%;background:var(--viz-3)"></i>
+            <i style="height:48%;background:var(--viz-3)"></i><i style="height:55%;background:var(--viz-3)"></i>
+            <i style="height:52%;background:var(--viz-3)"></i><i style="height:64%;background:var(--viz-3)"></i>
+            <i style="height:72%;background:var(--viz-3)"></i><i style="height:70%;background:var(--viz-3)"></i>
+            <i style="height:83%;background:var(--viz-3)"></i><i style="height:91%;background:var(--viz-3)"></i>
+            <i style="height:97%;background:var(--viz-3)"></i><i style="height:86%;background:var(--viz-3)"></i>
+          </div>
+          <div class="ax"><span>Jul 01</span><span>signups / day</span><span>Aug 16</span></div>
+        </div>
+      </div>
+
+      <div class="sect">
+        <div class="lede">Access &amp; governance</div>
+        <div class="note alert" style="margin-top:9px"><b>3 columns have no sensitivity declared.</b> Sensitivity is set by a person in the data dictionary — nothing is auto-detected, so undeclared columns are never masked. <a href="#" style="font-family:var(--sans);font-size:var(--t2)">Review dictionary →</a></div>
+
+        <div class="gl enf">Enforced <span>— actually controls access</span><span class="ln"></span></div>
+        <div>
+          <div class="qi"><span class="ic warn"><svg class="gi" style="width:9px;height:9px"><use href="#i-lock"/></svg></span><div><div class="qn">Column sensitivity → masking</div><div class="qd"><span class="mono">email</span> · sensitivity: pii</div><div class="qs">the only thing that drives masking</div></div><span class="qv" style="color:var(--warn)">1 col</span></div>
+          <div class="qi"><span class="ic warn"><svg class="gi" style="width:9px;height:9px"><use href="#i-lock"/></svg></span><div><div class="qn">Your role: viewer</div><div class="qd">read · no unmask · no raw export</div></div><span class="qv" style="color:var(--warn)">scoped</span></div>
+          <div class="qi"><span class="ic good">✓</span><div><div class="qn">Row access: team-locked</div><div class="qd">growth-analytics members only</div></div><span class="qv" style="color:var(--ok)">RBAC</span></div>
+          <div class="qi"><span class="ic crit">✕</span><div><div class="qn">Raw egress gate</div><div class="qd">download · SQL · transform preview · join</div><div class="qs">refused for your role while pii is declared</div></div><span class="qv" style="color:var(--crit)">DENY</span></div>
+        </div>
+
+        <div class="gl cat">Catalog metadata <span>— labels, no enforcement</span><span class="ln"></span></div>
+        <div>
+          <div class="qi"><span class="ic neu">#</span><div><div class="qn">Classification</div><div class="qd">Confidential · reviewed 3d ago</div><div class="qs">label only — masking is driven by column sensitivity</div></div><span class="qv" style="color:var(--paper-3)">set</span></div>
+          <div class="qi"><span class="ic neu">#</span><div><div class="qn">Domain</div><div class="qd">growth · acquisition</div></div><span class="qv" style="color:var(--paper-3)">set</span></div>
+          <div class="qi"><span class="ic neu">#</span><div><div class="qn">Source system</div><div class="qd">manual upload · marketing-site</div></div><span class="qv" style="color:var(--paper-3)">set</span></div>
+          <div class="qi"><span class="ic neu">#</span><div><div class="qn">Retention</div><div class="qd">documented as 400 days</div></div><span class="qv" style="color:var(--paper-3)">400d</span></div>
+          <div class="qi"><span class="ic neu">#</span><div><div class="qn">Review date</div><div class="qd">next review 2026-11-13</div></div><span class="qv" style="color:var(--paper-3)">90d</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="hint">
+      <span class="h"><span class="kbd">1</span>–<span class="kbd">7</span> lens</span>
+      <span class="h"><span class="kbd">⌘E</span> export lens</span>
+      <span class="h" style="margin-left:auto">as-of v42</span>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,1409 @@
+<!--
+  DESIGN NOTES — "INSTRUMENT" applied to the Quality lens (restyle of terminal-quality.html, v2 language).
+  Carried from the reference restyle: cold graphite ramp (hue ~218), signal cyan #46D5E8 spent on SCOPE +
+  LIVENESS only, three rule weights, sentence-case heads, recessive eyebrows over hero numbers, SVG grain +
+  backlit vignette + inset highlights + recessed wells, five distinct SHAPES for status, near-white (not
+  accent) primary key, typographic severity, cards-with-a-surface-not-a-border.
+  NEW CONTENT this pass had to absorb (the reference predates it):
+  N1 CREATE-RULE FORM — a heterogeneous control surface. Inputs, selects and the values[] list are RECESSED
+     WELLS (the same material as masked PII); the 8 rule-type chips are REPEATED selectable state, so they
+     take value + elevation (s2 -> s4, t2 -> t1) and never the accent. Labels are sentence case, not
+     uppercase micro-labels. `required` / `locked` / `derived` fall into the footnote register.
+  N2 SHAPE REFERENCE (8 types) — a genuinely heterogeneous table, so rule 3's exception applies: ONE vertical
+     rule splits what you DECLARE (rule_type, scope_type) from what you SUPPLY (target, parameters).
+  N3 SEVERITY SELECTOR — follows rule 7 exactly: `error` is t1/600, `warning` is t3. No red. The chip that
+     is chosen is marked by elevation, not by painting the word.
+  N4 EDIT (PATCH) ROW — an opened row reads as opened: elevated surface + a white left rule. The
+     "not patchable" caveat becomes a left-ruled indent, never a box inside the table cell.
+  N5 DELETE CONFIRM — the one destructive moment on the screen keeps a crit left rule and a crit-ringed
+     button; still no nested container.
+  N6 VALIDATION HISTORY — 11 numeric columns. Status colour would become a texture across 66 cells, so the
+     counts go typographic (t1 for a count that matters, t2 normal, t3 for zero) and the run's shape+word
+     status stays on the run id. The current run is marked by elevation, not cyan.
+  Cyan budget, unchanged at 4: active route · as-of v3 · sheet signups · LIVE lamp.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Command Studio — Quality · Instrument</title>
+<style>
+  :root {
+    --s0:#080A0E;  --s1:#0D1015;  --s2:#11151B;  --s3:#161B22;
+    --s4:#1C222B;  --s5:#242C37;  --s6:#38424F;  --key:#E9EEF5;
+    --t1:#E7ECF3;  --t2:#B0BAC8;  --t3:#85909F;  --t4:#5C6675; /* t4 = decoration only, never text */
+    --r1:rgba(255,255,255,.042); --r2:rgba(255,255,255,.075); --r3:rgba(255,255,255,.13);
+    --hi:inset 0 1px 0 rgba(255,255,255,.045);
+    --sig:#46D5E8; --sig-dim:rgba(70,213,232,.14); --sig-line:rgba(70,213,232,.40);
+    --st-good:#0ca30c; --st-warn:#fab219; --st-serious:#ec835a; --st-crit:#DC5050;
+    --m1:#CBD3DF; --m2:#A2ACBB; --m3:#7D8797; --m4:#5F6979; --m5:#48515F; --m6:#39414D;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --well: inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.045);
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { height:100%; overflow:hidden; }
+  html { font-size:13px; }
+  body {
+    font-family:var(--sans); color:var(--t2); font-size:12.5px;
+    background:radial-gradient(1180px 560px at 44% -12%, #151B24 0%, rgba(21,27,36,0) 62%), var(--s1);
+    -webkit-font-smoothing:antialiased; line-height:1.4; letter-spacing:-0.004em;
+    display:flex; flex-direction:column;
+  }
+  body::after {
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:200; opacity:.055; mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .mono { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  ::selection { background:rgba(70,213,232,.26); color:#fff; }
+  :focus-visible { outline:none; box-shadow:0 0 0 1px var(--s0), 0 0 0 3px rgba(70,213,232,.45); border-radius:6px; }
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb { background:#232B35; border-radius:8px; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background:#303945; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-track { background:transparent; }
+
+  /* ===== STATUS: five states, five SHAPES, always beside a word ===== */
+  .g { width:8px; height:8px; flex:none; display:inline-block; vertical-align:-1px; }
+  .g.good    { border-radius:50%; background:var(--st-good); }
+  .g.warn    { width:0; height:0; border-left:4.5px solid transparent; border-right:4.5px solid transparent;
+               border-bottom:8px solid var(--st-warn); vertical-align:0; }
+  .g.serious { width:7px; height:7px; background:var(--st-serious); border-radius:1px; transform:rotate(45deg); margin:0 1px; }
+  .g.crit    { background:var(--st-crit); border-radius:1px; }
+  .g.unknown { border-radius:50%; background:transparent; box-shadow:inset 0 0 0 1.5px var(--t3); }
+  .w-good{color:var(--st-good)} .w-warn{color:var(--st-warn)} .w-serious{color:var(--st-serious)}
+  .w-crit{color:var(--st-crit)} .w-unknown{color:var(--t3)}
+  .stw { display:inline-flex; align-items:center; gap:6px; font-size:10.5px; font-weight:500; white-space:nowrap; }
+
+  /* ===== TOPBAR ===== */
+  header.topbar {
+    height:46px; flex:none; display:flex; align-items:center; gap:16px; padding:0 16px;
+    background:linear-gradient(180deg,#141922,#10141A); box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); z-index:30;
+  }
+  .brand { display:flex; align-items:center; gap:10px; }
+  .brand .glyph { width:21px; height:21px; border-radius:5px; background:linear-gradient(180deg,#2C3542,#191F28);
+    display:grid; place-items:center; box-shadow:var(--hi), 0 1px 2px rgba(0,0,0,.5); color:var(--t1); }
+  .brand .name { font-size:12.5px; font-weight:600; color:var(--t1); letter-spacing:-0.012em; white-space:nowrap; }
+  .env-chip { font-family:var(--mono); font-size:10px; color:var(--t3); display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+  .env-chip .lamp { width:5px; height:5px; border-radius:50%; background:var(--st-warn); flex:none; }
+  nav.gnav { display:flex; align-items:center; gap:4px; }
+  nav.gnav a { font-size:12.5px; font-weight:450; color:var(--t3); text-decoration:none; height:30px; padding:0 10px;
+    border-radius:7px; position:relative; display:inline-flex; align-items:center; transition:color .14s, background .14s; }
+  nav.gnav a:hover { color:var(--t1); background:rgba(255,255,255,.035); }
+  /* SIGNAL 1/4 — the active route */
+  nav.gnav a.active { color:var(--t1); font-weight:550; }
+  nav.gnav a.active::after { content:""; position:absolute; left:10px; right:10px; bottom:-9px; height:2px;
+    background:var(--sig); border-radius:2px 2px 0 0; box-shadow:0 0 12px -1px var(--sig); }
+  .cmdk { margin-left:auto; display:flex; align-items:center; gap:9px; width:290px; height:30px; padding:0 10px;
+    border-radius:8px; cursor:text; color:var(--t3); background:var(--s0);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); transition:box-shadow .16s; }
+  .cmdk:focus-within { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+  .cmdk svg { flex:none; opacity:.55; }
+  .cmdk .ph { font-size:12px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .kbd { font-family:var(--mono); font-size:10px; font-weight:500; color:var(--t2);
+    background:linear-gradient(180deg,#232A34,#1A2028); border-radius:4px; padding:1.5px 5px; line-height:1.4;
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); white-space:nowrap; }
+  .hicons { display:flex; align-items:center; gap:2px; }
+  .iconbtn { width:30px; height:30px; border-radius:7px; border:0; background:transparent; color:var(--t3);
+    display:grid; place-items:center; cursor:pointer; transition:color .14s, background .14s; }
+  .iconbtn:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  .teamsw { display:flex; align-items:center; gap:7px; height:28px; padding:0 10px; border-radius:7px; flex:none;
+    background:var(--s4); box-shadow:var(--hi); font-size:12px; font-weight:450; color:var(--t1); cursor:pointer; white-space:nowrap; }
+  .teamsw .tk { font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--t3); font-weight:500; }
+  .teamsw .ca { color:var(--t3); font-size:9px; }
+  .avatar { width:27px; height:27px; border-radius:7px; background:linear-gradient(180deg,#2A323D,#1D242D);
+    display:grid; place-items:center; font-size:10px; font-weight:600; color:var(--t2); cursor:pointer; box-shadow:var(--hi); flex:none; }
+
+  /* ===== DATASET HEAD ===== */
+  .dshead { height:56px; flex:none; display:flex; align-items:center; gap:14px; padding:0 16px;
+    background:linear-gradient(180deg,#131820,#10141B); box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.45); }
+  .dshead .hgroup { min-width:0; flex:1; }
+  .dshead .title { font-size:15px; font-weight:600; color:var(--t1); letter-spacing:-0.02em;
+    display:flex; align-items:center; gap:9px; white-space:nowrap; }
+  .facts { display:flex; align-items:center; gap:9px; margin-top:5px; font-size:10.5px; color:var(--t3);
+    white-space:nowrap; min-width:0; }
+  .facts .sep { color:var(--t3); }
+  .facts .apath { font-family:var(--mono); overflow:hidden; text-overflow:ellipsis; min-width:40px; flex:0 1 auto; }
+  .facts b { color:var(--t2); font-weight:500; }
+  .attn { display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:500; color:var(--st-serious); }
+  .lbl-only { font-size:11px; color:var(--t3); border-bottom:1px dashed var(--r2); padding-bottom:2px; cursor:help; }
+  .enforced { display:inline-flex; align-items:center; gap:5px; font-size:10.5px; font-weight:500; color:var(--st-warn);
+    background:rgba(250,178,25,.07); box-shadow:inset 0 0 0 1px rgba(250,178,25,.26); border-radius:5px; padding:2px 7px; }
+  .lk { display:inline-flex; vertical-align:-1px; flex:none; color:var(--t3); }
+  /* SIGNAL 2/4 — the sheet this whole screen is scoped to (1 of 3) */
+  .scope { display:inline-flex; align-items:center; gap:5px; font-family:var(--mono); font-size:10.5px; color:var(--t2);
+    cursor:pointer; height:24px; padding:0 6px; border-radius:5px; }
+  .scope:hover { background:rgba(255,255,255,.05); }
+  .scope .tick { width:5px; height:5px; border-radius:50%; background:var(--sig); flex:none; box-shadow:0 0 8px -1px var(--sig); }
+  .scope b { color:var(--t1); font-weight:600; }
+
+  .toolbar { display:flex; align-items:center; gap:6px; flex:none; }
+  .tbtn { height:28px; padding:0 10px; font-size:12px; font-weight:450; color:var(--t2); background:transparent;
+    border:0; border-radius:7px; cursor:pointer; font-family:inherit; display:inline-flex; align-items:center; gap:6px;
+    transition:all .14s; white-space:nowrap; }
+  .tbtn:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  .tbtn.ghost { box-shadow:inset 0 0 0 1px var(--r2); }
+  /* the primary key is near-white, never the accent: one globally, plus one per OPEN form */
+  .tbtn.primary { background:linear-gradient(180deg,#FBFDFF,var(--key)); color:#0B0E13; font-weight:600; padding:0 11px;
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset, 0 2px 8px -3px rgba(0,0,0,.9), 0 0 0 1px rgba(0,0,0,.35); }
+  .tbtn.primary:hover { background:#fff; }
+  .tbtn .k { font-size:10px; color:var(--t3); font-family:var(--mono); }
+  .tbtn.primary .k { color:#4A5462; }
+  .tbtn.sm { height:26px; padding:0 9px; font-size:11.5px; border-radius:6px; }
+  .tbtn.danger { color:#F0A5A5; background:rgba(0,0,0,.34); box-shadow:inset 0 0 0 1px rgba(220,80,80,.45); font-weight:550; }
+  .tbtn.danger:hover { background:rgba(220,80,80,.16); color:#FFC9C9; }
+  .tbtn[disabled] { opacity:.45; cursor:not-allowed; }
+
+  /* ===== LENS BAR ===== */
+  .lensbar { height:32px; flex:none; display:flex; align-items:center; gap:1px; padding:0 14px;
+    background:rgba(0,0,0,.2); box-shadow:inset 0 1px 0 var(--r1), inset 0 -1px 0 var(--r1); }
+  .ltab { font-size:11.5px; font-weight:450; color:var(--t3); padding:0 8px; height:24px; cursor:pointer;
+    position:relative; display:inline-flex; align-items:center; transition:color .14s; white-space:nowrap; }
+  .ltab:hover { color:var(--t1); }
+  .ltab.on { color:var(--t1); font-weight:550; }
+  .ltab.on::after { content:""; position:absolute; left:8px; right:8px; bottom:1px; height:1.5px; background:var(--t1); border-radius:2px; }
+  .lensbar .right { margin-left:auto; display:flex; align-items:center; gap:14px; font-family:var(--mono);
+    font-size:10px; color:var(--t3); white-space:nowrap; }
+  .lensbar .right b { color:var(--t2); font-weight:600; }
+
+  /* ===== KPI STRIP — the first read ===== */
+  .kpistrip { height:64px; flex:none; display:flex; align-items:center; padding:0 18px;
+    background:linear-gradient(180deg,var(--s3),#12171E);
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.55), 0 10px 24px -20px rgba(0,0,0,.9); }
+  .kpi { display:flex; flex-direction:column; justify-content:center; gap:1px; padding-right:26px; }
+  .kpi .lab { font-size:9.5px; font-weight:500; letter-spacing:.11em; text-transform:uppercase; color:var(--t3); white-space:nowrap; }
+  .kpi .row { display:flex; align-items:baseline; gap:8px; }
+  .kpi .val { font-size:26px; font-weight:600; line-height:1.05; color:var(--t1); letter-spacing:-0.032em; font-variant-numeric:tabular-nums; }
+  .kpi .val.ts { font-family:var(--mono); font-size:14px; font-weight:500; letter-spacing:-0.01em; color:var(--t2); }
+  .kpi .note { font-size:10.5px; color:var(--t3); white-space:nowrap; }
+  .kpi.gate .val { color:var(--st-crit); }
+  .kpi.gate .note { color:var(--st-crit); display:inline-flex; align-items:center; gap:5px; }
+  .kdiv { width:1px; height:24px; background:var(--r3); margin:0 26px 0 0; flex:none; }
+  .kclock { margin-left:auto; display:flex; align-items:center; gap:8px; padding-left:18px; font-family:var(--mono);
+    font-size:10.5px; color:var(--t3); white-space:nowrap; }
+  .kclock .tick { width:1px; height:9px; background:var(--t4); flex:none; }
+
+  /* ===== WORKSPACE SHELL ===== */
+  .workspace { flex:1; min-height:0; display:grid; grid-template-columns:296px 1fr 380px; }
+  .col { display:flex; flex-direction:column; min-width:0; min-height:0; }
+  .col.rail { background:var(--s2); box-shadow:1px 0 0 rgba(0,0,0,.45); z-index:2; }
+  .col.center { background:transparent; }
+  .col.dock { background:var(--s2); box-shadow:-1px 0 0 rgba(0,0,0,.45); z-index:2; }
+  .colhead { height:32px; flex:none; display:flex; align-items:center; gap:9px; padding:0 14px; }
+  .colhead .t { font-size:12.5px; font-weight:600; color:var(--t1); letter-spacing:-0.012em; white-space:nowrap; }
+  .colhead .ct { font-family:var(--mono); font-size:10px; color:var(--t3); white-space:nowrap; }
+  .colhead .spacer { margin-left:auto; }
+  .cbody { flex:1; overflow-y:auto; overflow-x:hidden; min-height:0; }
+  .sh { font-size:11.5px; font-weight:550; color:var(--t2); letter-spacing:-0.008em; display:flex;
+    align-items:center; gap:9px; flex-wrap:wrap; }
+  .sh .ct { font-family:var(--mono); font-size:10px; color:var(--t3); font-weight:400; }
+  .sh .lb { font-size:10px; color:var(--t3); font-weight:400; }
+  .sh .line { flex:1; height:1px; background:var(--r1); min-width:10px; }
+  /* the footnote register: every provenance line on the screen lands here */
+  .fn { font-size:9.5px; color:var(--t3); line-height:1.45; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .fn .k { font-family:var(--mono); }
+  .fn a, .lnk { color:var(--t2); text-decoration:underline; text-decoration-color:var(--r3);
+    text-decoration-thickness:1px; text-underline-offset:3px; padding:6px 3px; margin:-6px -3px; white-space:nowrap; }
+  .fn a:hover, .lnk:hover { color:var(--t1); }
+  /* informational notes lose the box entirely — a left rule and an indent */
+  .note { display:flex; gap:9px; font-size:10.5px; line-height:1.5; color:var(--t3); padding-left:10px;
+    box-shadow:inset 2px 0 0 var(--r2); }
+  .note b { color:var(--t1); font-weight:600; }
+  .note .mono { color:var(--t2); }
+  /* consequential callouts keep a tinted surface — only two on the whole screen */
+  .note.warn, .note.crit { padding:9px 10px; border-radius:7px; box-shadow:none; color:var(--t2); }
+  .note.warn { background:rgba(250,178,25,.06); box-shadow:inset 0 0 0 1px rgba(250,178,25,.2); }
+  .note.crit { background:rgba(220,80,80,.07); box-shadow:inset 0 0 0 1px rgba(220,80,80,.22); }
+  .note .ci { flex:none; margin-top:1px; }
+  .note.warn .ci { color:var(--st-warn); } .note.crit .ci { color:var(--st-crit); }
+  .note a { color:var(--t1); text-decoration:underline; text-decoration-color:var(--r3);
+    text-decoration-thickness:1px; text-underline-offset:3px; white-space:nowrap; padding:6px 3px; margin:-6px -3px; }
+  /* a caveat inside a card or a cell is a left-ruled indent, never a second box */
+  .guard { display:flex; gap:8px; margin-top:8px; font-size:9.5px; line-height:1.5; color:var(--t3);
+    padding-left:9px; box-shadow:inset 2px 0 0 rgba(250,178,25,.45); }
+  .guard b { color:var(--t2); font-weight:600; }
+  .guard .fg { flex:none; color:var(--st-warn); }
+  .guard .mono { color:var(--t2); }
+  .guard.neu { box-shadow:inset 2px 0 0 var(--r2); }
+  .guard.neu .fg { color:var(--t3); }
+  .guard.lg { font-size:10.5px; line-height:1.5; }
+
+  /* ===== RAIL · health dimensions ===== */
+  .hdim { padding:10px 14px 11px; }
+  .hdim + .hdim { box-shadow:inset 0 1px 0 var(--r1); }   /* whisper rule — space alone failed here */
+  .hdim:hover { background:rgba(255,255,255,.03); }
+  .hdim .r1 { display:flex; align-items:center; gap:8px; }
+  .hdim .nm { font-family:var(--mono); font-size:11.5px; font-weight:600; color:var(--t1); letter-spacing:-0.01em; }
+  .hdim .r1 .stw { margin-left:auto; }
+  .hdim .sum { font-size:11px; color:var(--t3); margin-top:4px; line-height:1.45; }
+  .hdim .sum b { color:var(--t1); font-weight:600; }
+  .hdim .fn { margin-top:5px; }
+  .railsect { padding:12px 14px 14px; box-shadow:inset 0 1px 0 var(--r2); }
+  .flagchip { font-family:var(--mono); font-size:9.5px; font-weight:500; border-radius:4px; padding:1px 5px;
+    color:var(--t3); background:rgba(255,255,255,.045); white-space:nowrap; }
+  .flagchip.on { color:var(--t1); background:var(--s4); box-shadow:var(--hi); }
+  .prun { display:grid; grid-template-columns:1fr auto; gap:2px 8px; padding:8px 10px; border-radius:7px;
+    background:var(--s3); box-shadow:var(--hi); margin-bottom:6px; }
+  .prun .id { font-family:var(--mono); font-size:11px; font-weight:600; color:var(--t1); display:flex; align-items:center; gap:7px; }
+  .prun .when { font-family:var(--mono); font-size:10px; color:var(--t3); text-align:right; }
+  .prun .meta { grid-column:1 / -1; font-size:9.5px; color:var(--t3); display:flex; flex-wrap:wrap; gap:4px 8px; align-items:center; }
+  .verchip { font-family:var(--mono); font-size:9.5px; font-weight:500; color:var(--t3); background:rgba(255,255,255,.05);
+    border-radius:4px; padding:0 4px; flex:none; }
+  .masked { color:var(--t3); letter-spacing:.06em; }
+
+  /* ===== CENTER · rules table ===== */
+  table.rules { width:100%; border-collapse:separate; border-spacing:0; font-size:11.5px; table-layout:fixed; }
+  table.rules td { overflow:hidden; text-overflow:ellipsis; }
+  table.rules thead th { position:sticky; top:0; z-index:5; background:#12161D; text-align:left; white-space:nowrap;
+    font-family:var(--mono); font-size:10px; font-weight:500; color:var(--t3); padding:0 9px; height:28px;
+    box-shadow:inset 0 -1px 0 var(--r2), inset 0 1px 0 var(--r1); }
+  table.rules tbody td { padding:0 9px; height:32px; white-space:nowrap; color:var(--t2);
+    border-bottom:1px solid rgba(255,255,255,.032); }
+  table.rules tbody tr:nth-child(6n) td { border-bottom-color:rgba(255,255,255,.085); }  /* the ruler measure */
+  table.rules tbody tr:hover td { background:rgba(255,255,255,.038); }
+  /* the ONE vertical rule — it separates rule DEFINITION from rule OUTCOME */
+  table.rules th.split, table.rules td.split { box-shadow:inset 1px 0 0 var(--r2); }
+  table.rules thead th.split { box-shadow:inset 1px 0 0 var(--r2), inset 0 -1px 0 var(--r2), inset 0 1px 0 var(--r1); }
+  table.rules tbody tr.off td { color:var(--t3); }
+  .rtype { font-family:var(--mono); font-size:11px; font-weight:600; color:var(--t1); }
+  tr.off .rtype { color:var(--t3); font-weight:500; }
+  .rscope { font-family:var(--mono); font-size:10px; color:var(--t3); }
+  .rparam { font-family:var(--mono); font-size:10.5px; color:var(--t3); max-width:100%; overflow:hidden;
+    text-overflow:ellipsis; display:inline-block; vertical-align:-3px; white-space:nowrap; }
+  .rparam .k { color:var(--t2); }
+  /* severity is a PROPERTY, not a state — typographic, so red stays reserved for status */
+  .sev { font-family:var(--mono); font-size:10.5px; }
+  .sev.error { color:var(--t1); font-weight:600; }
+  .sev.warning { color:var(--t3); font-weight:400; }
+  tr.off .sev { opacity:.55; }
+  .res { display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:450; }
+  /* 11 toggles are REPEATED state — value + position + elevation, never the accent */
+  .tg { width:34px; height:24px; border:0; background:transparent; position:relative; cursor:pointer; padding:0;
+    display:inline-block; vertical-align:middle; }
+  .tg::before { content:""; position:absolute; left:3px; top:5.5px; width:26px; height:13px; border-radius:7px;
+    background:var(--s0); box-shadow:inset 0 1px 2px rgba(0,0,0,.65), inset 0 0 0 1px rgba(255,255,255,.05); }
+  .tg::after { content:""; position:absolute; top:8px; left:6px; width:8px; height:8px; border-radius:50%;
+    background:var(--t4); transition:left .15s, background .15s; }
+  .tg.on::before { background:var(--s5); box-shadow:var(--hi), inset 0 0 0 1px rgba(255,255,255,.07); }
+  .tg.on::after { left:18px; background:var(--key); box-shadow:0 1px 2px rgba(0,0,0,.6); }
+  .acts { display:flex; align-items:center; gap:1px; }
+  .acts .ib { width:24px; height:24px; border-radius:5px; border:0; background:transparent; display:grid;
+    place-items:center; color:var(--t3); cursor:pointer; font-size:11px; font-family:inherit; }
+  .acts .ib:hover { color:var(--t1); background:rgba(255,255,255,.06); }
+  .acts .ib.open { color:var(--t1); background:var(--s4); box-shadow:var(--hi); }
+  .acts .ib.del:hover { color:var(--st-crit); }
+  .acts .ib.del.open { color:#F0A5A5; background:rgba(0,0,0,.34); box-shadow:inset 0 0 0 1px rgba(220,80,80,.45); }
+
+  /* inline CRUD rows: an opened row reads as opened — elevation + a left rule, no accent */
+  table.rules tbody tr.editrow td, table.rules tbody tr.delrow td {
+    height:auto; white-space:normal; overflow:visible; padding:12px 14px; color:var(--t2);
+    border-bottom:1px solid var(--r2); }
+  table.rules tbody tr.editrow td { background:var(--s2); box-shadow:inset 3px 0 0 var(--r3), var(--hi); }
+  table.rules tbody tr.editrow:hover td { background:var(--s2); }
+  table.rules tbody tr.delrow td { background:var(--s2); box-shadow:inset 3px 0 0 rgba(220,80,80,.6), var(--hi); }
+  table.rules tbody tr.delrow:hover td { background:var(--s2); }
+  .delhead { font-size:11.5px; font-weight:600; color:var(--t1); margin-bottom:4px; display:flex; align-items:center; gap:7px; }
+  .delhead .g { vertical-align:0; }
+  .delbody { font-size:10.5px; color:var(--t3); line-height:1.5; }
+  .delbody b { color:var(--t1); font-weight:600; }
+  .delbody .mono { color:var(--t2); }
+
+  /* ===== CENTER · forms (create rule / edit rule) — a heterogeneous control surface ===== */
+  .field { margin-bottom:10px; }
+  .field .lab { font-size:10.5px; font-weight:500; color:var(--t3); display:flex; align-items:center; gap:6px;
+    margin-bottom:5px; }
+  .field .lab .nmk { color:var(--t2); font-family:var(--mono); }
+  .req { font-family:var(--mono); font-size:9.5px; font-weight:600; color:var(--t2); }
+  .opt { font-family:var(--mono); font-size:9.5px; color:var(--t3); }
+  /* inputs are recessed wells — the same material as masked PII */
+  .inp { width:100%; height:28px; padding:0 9px; border:0; border-radius:7px; color:var(--t1); font-size:11.5px;
+    font-family:inherit; outline:none; background:var(--s0); box-shadow:var(--well); }
+  .inp:focus { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+  .inp::placeholder { color:var(--t3); }
+  .inp.mono { font-family:var(--mono); }
+  .inp[disabled] { color:var(--t3); background:rgba(0,0,0,.32); box-shadow:inset 0 1px 2px rgba(0,0,0,.5); cursor:not-allowed; }
+  .fhint { font-size:9.5px; color:var(--t3); margin-top:4px; line-height:1.5; }
+  .fhint b { color:var(--t2); font-weight:600; }
+  .fhint .mono { color:var(--t2); }
+  .frow { display:flex; align-items:center; gap:8px; margin-top:11px; }
+  .sel { width:100%; height:28px; padding:0 9px; border-radius:7px; font-size:11.5px; display:flex; align-items:center;
+    gap:8px; cursor:pointer; color:var(--t1); background:var(--s0); box-shadow:var(--well); }
+  .sel:hover { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.11); }
+  .sel .ca { margin-left:auto; color:var(--t3); font-size:9px; }
+  .sel .hint { font-family:var(--mono); font-size:9.5px; color:var(--t3); }
+  /* 8 rule-type chips = REPEATED selectable state → value + elevation, never the accent */
+  .typechip { display:flex; align-items:center; gap:7px; padding:0 8px; height:28px; border-radius:7px;
+    background:var(--s2); box-shadow:var(--hi), inset 0 0 0 1px var(--r1); cursor:pointer; min-width:0; }
+  .typechip:hover { background:var(--s3); }
+  .typechip.on { background:var(--s4); box-shadow:var(--hi), 0 2px 6px -3px rgba(0,0,0,.9); }
+  .typechip .tn { font-family:var(--mono); font-size:10.5px; font-weight:500; color:var(--t2); overflow:hidden;
+    text-overflow:ellipsis; white-space:nowrap; }
+  .typechip.on .tn { color:var(--t1); font-weight:600; }
+  .typechip .ts { margin-left:auto; font-size:9.5px; color:var(--t3); white-space:nowrap; }
+  .radio { width:11px; height:11px; border-radius:50%; flex:none; position:relative; display:inline-block;
+    background:var(--s0); box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.08); }
+  .radio.on::after { content:""; position:absolute; inset:2.5px; border-radius:50%; background:var(--key); }
+  .cbx { width:12px; height:12px; border-radius:4px; flex:none; display:grid; place-items:center; font-size:8px;
+    color:transparent; background:var(--s0); box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.08); }
+  .cbx.on { background:var(--key); color:#0B0E13; font-weight:700; box-shadow:none; }
+  .vwell { display:flex; flex-wrap:wrap; gap:5px; border-radius:7px; padding:5px 6px; background:var(--s0); box-shadow:var(--well); }
+  .vtag { display:inline-flex; align-items:center; gap:6px; font-family:var(--mono); font-size:10.5px; color:var(--t1);
+    background:var(--s4); border-radius:5px; padding:2px 6px; box-shadow:var(--hi); }
+  .vtag .x { color:var(--t3); cursor:pointer; }
+  .vtag.add { background:transparent; box-shadow:inset 0 0 0 1px var(--r2); color:var(--t3); }
+  .derived { display:inline-flex; align-items:center; gap:6px; font-family:var(--mono); font-size:10px; color:var(--t3);
+    border-radius:5px; padding:3px 8px; background:rgba(0,0,0,.3); box-shadow:inset 0 1px 2px rgba(0,0,0,.5); }
+  .derived b { color:var(--t1); font-weight:600; }
+  /* masked / read-only listings sit in a well too */
+  .colpick { border-radius:7px; margin-top:6px; padding:4px 5px; background:rgba(0,0,0,.26);
+    box-shadow:inset 0 2px 4px -2px rgba(0,0,0,.7); }
+  .colpick .cr { display:flex; align-items:center; gap:8px; padding:3px 5px; font-family:var(--mono);
+    font-size:10.5px; color:var(--t3); }
+  .colpick .cr.pick { color:var(--t1); }
+  .colpick .cr .ty { margin-left:auto; font-size:9.5px; color:var(--t3); }
+
+  /* ===== shape reference + validation history ===== */
+  .tblwrap { border-radius:8px; overflow:hidden; background:var(--s2); box-shadow:var(--hi); }
+  table.shape, table.vhist { width:100%; border-collapse:separate; border-spacing:0; font-size:10.5px; table-layout:fixed; }
+  table.shape th, table.vhist th { text-align:left; background:#12161D; font-family:var(--mono); font-size:10px;
+    font-weight:500; color:var(--t3); padding:0 9px; height:26px; box-shadow:inset 0 -1px 0 var(--r2); white-space:nowrap; }
+  table.shape td, table.vhist td { padding:0 9px; height:25px; border-bottom:1px solid rgba(255,255,255,.032);
+    white-space:nowrap; font-family:var(--mono); color:var(--t2); overflow:hidden; text-overflow:ellipsis; }
+  table.shape tr:last-child td, table.vhist tr:last-child td { border-bottom:none; }
+  table.shape tbody tr:hover td, table.vhist tbody tr:hover td { background:rgba(255,255,255,.038); }
+  /* the selected row is REPEATED state as well — value + elevation, no accent */
+  table.shape tbody tr.on td, table.vhist tbody tr.on td { background:var(--s4); color:var(--t1); box-shadow:var(--hi); }
+  /* rule 3's table exception: one vertical rule splits what you DECLARE from what you SUPPLY */
+  table.shape th.split, table.shape td.split { box-shadow:inset 1px 0 0 var(--r2); }
+  table.shape thead th.split { box-shadow:inset 1px 0 0 var(--r2), inset 0 -1px 0 var(--r2); }
+  table.shape tbody tr.on td.split { box-shadow:var(--hi), inset 1px 0 0 var(--r2); }
+  table.shape td .k { color:var(--t1); font-weight:600; }
+  table.shape td.dim, table.vhist td.dim { color:var(--t3); }
+  table.vhist td.n, table.vhist th.n { text-align:right; font-variant-numeric:tabular-nums; }
+  table.vhist td.n { color:var(--t2); }
+  table.vhist td.n.z { color:var(--t3); }          /* zero recedes */
+  table.vhist td.n.hot { color:var(--t1); font-weight:600; }  /* the count that gates */
+  table.vhist td .run { color:var(--t1); font-weight:600; display:inline-flex; align-items:center; gap:7px; }
+  .loadmore { display:flex; align-items:center; gap:9px; margin-top:9px; font-size:9.5px; color:var(--t3); }
+  .loadmore b { color:var(--t2); font-weight:600; font-family:var(--mono); }
+
+  /* ===== CENTER · sections + validation run ===== */
+  .vsect { padding:14px 14px 16px; box-shadow:inset 0 1px 0 var(--r2); }
+  .runbar { display:flex; gap:2px; height:8px; margin:10px 0 9px; }
+  .runbar span { display:block; height:100%; border-radius:2px; }
+  .runlegend { display:flex; flex-wrap:wrap; gap:6px 16px; font-size:10.5px; color:var(--t3); }
+  .runlegend .li { display:flex; align-items:center; gap:6px; }
+  .runlegend .li b { color:var(--t1); font-weight:600; font-family:var(--mono); }
+  /* raised result block; its evidence is a RECESSED well, not a second bordered box */
+  .vres { border-radius:9px; background:var(--s3); box-shadow:var(--hi); margin-bottom:9px; overflow:hidden; }
+  .vres > .top { display:flex; align-items:center; gap:9px; padding:9px 11px; min-width:0; }
+  .vres > .top .nm { font-family:var(--mono); font-size:11.5px; font-weight:600; color:var(--t1); flex:none; }
+  .vres > .top .tgt { font-size:10.5px; color:var(--t3); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+  .vres > .top .tgt b { color:var(--t2); font-family:var(--mono); font-weight:500; }
+  .vres > .top .cnt { margin-left:auto; font-family:var(--mono); font-size:11.5px; font-weight:600; color:var(--t1); flex:none; }
+  .vres > .top .cnt.dim { color:var(--t3); font-weight:400; }
+  .sevtag { font-size:10px; font-weight:500; padding:2px 7px; border-radius:20px; white-space:nowrap; flex:none; }
+  /* recessed well + a status ring: keeps the exact reserved hue and clears 4.5:1 */
+  .sevtag.err  { color:var(--st-crit); background:rgba(0,0,0,.36); box-shadow:inset 0 0 0 1px rgba(220,80,80,.42); }
+  .sevtag.warn { color:var(--st-warn); background:rgba(0,0,0,.36); box-shadow:inset 0 0 0 1px rgba(250,178,25,.34); }
+  .sevtag.neu  { color:var(--t3); background:rgba(255,255,255,.05); }
+  .vres .expand { padding:9px 11px 10px; background:rgba(0,0,0,.26); box-shadow:inset 0 2px 4px -2px rgba(0,0,0,.7); }
+  .vres .cap { font-size:9.5px; color:var(--t3); line-height:1.5; display:flex; align-items:center; gap:7px; flex-wrap:wrap; margin-bottom:7px; }
+  .vres .cap b { color:var(--st-warn); font-weight:600; }
+  .vres .cap .k { font-family:var(--mono); }
+  .orphan { display:inline-flex; align-items:center; gap:6px; font-family:var(--mono); font-size:10.5px;
+    border-radius:6px; padding:3px 8px; background:rgba(220,80,80,.09); color:#F0A5A5; box-shadow:inset 0 0 0 1px rgba(220,80,80,.22); }
+  .orphan b { color:var(--t3); font-weight:400; }
+  .orphan.w { background:rgba(250,178,25,.08); color:#EBC782; box-shadow:inset 0 0 0 1px rgba(250,178,25,.22); }
+  table.samp { width:100%; border-collapse:separate; border-spacing:0; font-size:10.5px; }
+  table.samp th { text-align:left; font-family:var(--mono); font-size:9.5px; font-weight:500; color:var(--t3);
+    padding:0 8px; height:22px; box-shadow:inset 0 -1px 0 var(--r2); white-space:nowrap; }
+  table.samp td { padding:0 8px; height:24px; border-bottom:1px solid rgba(255,255,255,.032); white-space:nowrap;
+    font-family:var(--mono); color:var(--t2); }
+  table.samp tr:last-child td { border-bottom:none; }
+  table.samp td.rn { color:var(--t3); }
+  .nullcell { color:var(--st-serious); font-weight:600; }
+
+  /* ===== DOCK · insight feed (cards keep a surface, lose the border) ===== */
+  .ins { border-radius:9px; background:var(--s3); box-shadow:var(--hi); padding:10px 11px 11px; margin-bottom:9px; }
+  .ins:hover { background:var(--s4); }
+  .ins .r1 { display:flex; align-items:center; gap:9px; }
+  .ins .rank { font-family:var(--mono); font-size:10.5px; font-weight:600; color:var(--t3); flex:none; }
+  .ins .kind { font-family:var(--mono); font-size:11px; font-weight:600; color:var(--t1); letter-spacing:-0.01em; }
+  .ins .r1 .stw { margin-left:auto; }
+  .ins .line { font-size:11.5px; margin-top:7px; line-height:1.5; color:var(--t3); }
+  .ins .line b { font-family:var(--mono); font-weight:600; color:var(--t1); }
+  .ins .viz { margin-top:9px; }
+  .ins .fn { margin-top:8px; }
+  .ins .fn .grow { margin-left:auto; }
+
+  /* ===== BAND (a real rule + shadow — a dark seam alone read as "content ran out") ===== */
+  .band { height:200px; flex:none; display:grid; grid-template-columns:1fr 1.12fr; background:var(--s2);
+    box-shadow:inset 0 1px 0 var(--r2), 0 -10px 24px -22px rgba(0,0,0,1); }
+  .pane { display:flex; flex-direction:column; min-width:0; min-height:0; }
+  .pane + .pane { box-shadow:inset 1px 0 0 var(--r1); }
+  .pane .pbody { flex:1; overflow-y:auto; overflow-x:hidden; padding:8px 14px 12px; min-height:0; }
+  .kv { display:inline-flex; align-items:baseline; gap:6px; font-size:10px; color:var(--t3); white-space:nowrap;
+    letter-spacing:.02em; text-transform:uppercase; }
+  .kv b { font-family:var(--mono); font-size:13px; font-weight:600; color:var(--t1); letter-spacing:-0.02em; text-transform:none; }
+  .subsetchip { display:inline-flex; align-items:center; gap:6px; font-size:10.5px; color:var(--t3);
+    background:rgba(255,255,255,.05); border-radius:6px; padding:2px 8px; white-space:nowrap; }
+  .subsetchip b { color:var(--t1); font-weight:600; font-family:var(--mono); }
+  .subsetchip.off { background:transparent; box-shadow:inset 0 0 0 1px var(--r1); }
+  table.dup { width:100%; border-collapse:separate; border-spacing:0; font-size:10.5px; }
+  table.dup th { position:sticky; top:0; background:#12161D; text-align:left; font-family:var(--mono); font-size:9.5px;
+    font-weight:500; color:var(--t3); padding:0 8px; height:22px; box-shadow:inset 0 -1px 0 var(--r2); white-space:nowrap; }
+  table.dup td { padding:0 8px; height:23px; border-bottom:1px solid rgba(255,255,255,.028); white-space:nowrap;
+    font-family:var(--mono); color:var(--t2); }
+  /* elevation, not a border, marks the group header row */
+  table.dup tr.grp td { background:var(--s4); font-weight:600; color:var(--t1); box-shadow:var(--hi); }
+  table.dup tr.ex td { color:var(--t3); }
+  .missrow { display:grid; grid-template-columns:92px 1fr 104px; align-items:center; gap:9px; margin:4px 0; }
+  .missrow .lbl { font-family:var(--mono); font-size:10.5px; color:var(--t2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .missrow .track { height:7px; background:rgba(255,255,255,.05); border-radius:3px; overflow:hidden; }
+  .missrow .fill { height:100%; border-radius:0 3px 3px 0; background:var(--m2); }
+  .missrow .pct { font-family:var(--mono); font-size:10px; color:var(--t3); text-align:right; white-space:nowrap; }
+  .missrow.zero .lbl, .missrow.zero .pct { color:var(--t3); }
+  .probe { border-radius:8px; background:rgba(0,0,0,.26); box-shadow:inset 0 2px 4px -2px rgba(0,0,0,.7); padding:9px 10px; }
+  .probe .ph { font-size:9.5px; font-weight:500; letter-spacing:.1em; text-transform:uppercase; color:var(--t3); margin-bottom:6px; }
+  .probe .pr { display:flex; align-items:center; gap:8px; font-family:var(--mono); font-size:10.5px; color:var(--t2);
+    padding:3px 0; border-bottom:1px solid rgba(255,255,255,.032); }
+  .probe .pr:last-of-type { border-bottom:none; }
+  .probe .pr .lb { color:var(--t3); }
+  .probe .pr .cnt { margin-left:auto; color:var(--st-serious); font-weight:600; }
+
+  /* ===== STATUS BAR ===== */
+  .statusbar { height:26px; flex:none; display:flex; align-items:center; gap:14px; padding:0 16px;
+    background:var(--s2); box-shadow:inset 0 1px 0 var(--r1); font-size:10.5px; color:var(--t3); }
+  .statusbar .h { display:flex; align-items:center; gap:6px; white-space:nowrap; }
+  .statusbar .gate { margin-left:20px; color:var(--t3); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* SIGNAL 4/4 — the one live indicator on the screen */
+  .sclock { margin-left:auto; display:flex; align-items:center; gap:8px; font-family:var(--mono); flex:none; }
+  .sclock .dot { width:6px; height:6px; border-radius:50%; background:var(--sig); flex:none;
+    box-shadow:0 0 0 3px rgba(70,213,232,.10), 0 0 9px -1px var(--sig); animation:pulse 3s ease-in-out infinite; }
+  .sclock b { color:var(--t2); font-weight:500; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.42} }
+  @media (prefers-reduced-motion:reduce){ .sclock .dot { animation:none } }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="glyph"><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M4 7l8-4 8 4-8 4-8-4z" fill="currentColor"/><path d="M4 12l8 4 8-4M4 17l8 4 8-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity=".55"/></svg></span>
+    <span class="name">Command&nbsp;Studio</span>
+  </div>
+  <span class="env-chip"><span class="lamp"></span>PROD · US-EAST</span>
+  <nav class="gnav">
+    <a href="#">Workflows</a><a href="#" class="active">Datasets</a><a href="#">Runs</a><a href="#">Library</a>
+  </nav>
+  <div class="cmdk" tabindex="0" title="Command palette">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span class="ph">run validation · add rule · profile sheet…</span><span class="kbd">⌘K</span>
+  </div>
+  <div class="hicons">
+    <button class="iconbtn" title="Filters"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M3 5h18M6 12h12M10 19h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button>
+    <button class="iconbtn" title="Alerts"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M6 9a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M10 20a2 2 0 004 0" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button>
+    <button class="iconbtn" title="Theme"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M20 13a8 8 0 11-9-9 6 6 0 009 9z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg></button>
+  </div>
+  <div class="teamsw" title="Active team — datasets, rules, profiles and artifacts are locked to this team"><span class="tk">Team</span>Growth Analytics<span class="ca">▾</span></div>
+  <div class="avatar" title="S. Ganji · Growth Analytics · role viewer">SG</div>
+</header>
+
+<div class="dshead">
+  <div class="hgroup">
+    <div class="title">
+      <span class="g serious" title="attention"></span>
+      Q3 Campaign Signups.csv
+      <span class="attn">2 dimensions need attention</span>
+      <span class="lbl-only" title="Dataset classification — catalog metadata only. It does not gate access.">Confidential</span>
+      <span class="enforced" title="Enforced: column `email` declares sensitivity: pii, so its values are masked for your role — including in validation samples."><span class="lk" style="color:var(--st-warn)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2.2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2.2"/></svg></span>email masked</span>
+    </div>
+    <div class="facts">
+      <span>team <b>growth-analytics</b></span><span class="sep">·</span>
+      <span class="apath" title="uploads/growth-analytics/q3_campaign_signups.csv">uploads/growth-analytics/q3_campaign_signups.csv</span><span class="sep">·</span>
+      <span class="mono">84,213 rows · 9 cols</span><span class="sep">·</span>
+      <span class="scope" title="This screen is scoped to one sheet of three"><span class="tick"></span>sheet <b>signups</b> ▾</span>
+      <span style="color:var(--t3)">3 sheets in v3</span>
+    </div>
+  </div>
+  <div class="toolbar">
+    <button class="tbtn ghost" title="Profiling is never automatic — a profile only exists because someone ran one."><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M4 20V10m5 10V4m5 16v-7m5 7V7" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>Run profile<span class="k">⌘P</span></button>
+    <button class="tbtn ghost"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>Add rule<span class="k">N</span></button>
+    <button class="tbtn primary" title="Validation runs synchronously — the response carries the results."><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M5 12l5 5L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Run validation<span class="k">⌘⏎</span></button>
+  </div>
+</div>
+
+<div class="lensbar">
+  <span class="ltab">Overview</span><span class="ltab on">Quality</span><span class="ltab">Versions</span><span class="ltab">Analytics</span><span class="ltab">Relations</span><span class="ltab">Transform</span><span class="ltab">Library</span>
+  <span class="right">
+    <span class="scope" style="height:22px"><span class="tick"></span>as-of <b>v3</b> · immutable</span><span>profile run <b>#47</b></span><span title="18 runs on this dataset — pick another in Validation history">validation run <b>#218</b> ▾ of 18</span>
+  </span>
+</div>
+
+<div class="kpistrip">
+  <div class="kpi"><span class="lab">Rules total</span><span class="row"><span class="val">10</span><span class="note">+1 disabled</span></span></div>
+  <span class="kdiv"></span>
+  <div class="kpi"><span class="lab">Passed</span><span class="row"><span class="val">5</span></span></div>
+  <div class="kpi"><span class="lab">Failed</span><span class="row"><span class="val">3</span></span></div>
+  <div class="kpi gate" title="Failures on rules whose severity is error. Only these block tag promotion."><span class="lab">Error failures</span><span class="row"><span class="val">1</span><span class="note"><span class="g crit"></span>blocks promotion</span></span></div>
+  <div class="kpi" title="Warnings never block anything — not upload, not publish, not promotion."><span class="lab">Warning failures</span><span class="row"><span class="val">2</span><span class="note">never block</span></span></div>
+  <span class="kdiv"></span>
+  <div class="kpi"><span class="lab">Last validation</span><span class="row"><span class="val ts">2026-08-16 12:07</span><span class="note">synchronous · 2.41s</span></span></div>
+  <div class="kclock"><span class="tick"></span>SYNC 16:41:07 ET</div>
+</div>
+
+<div class="workspace">
+  <div class="col rail">
+    <div class="colhead"><span class="t">Health</span><span class="ct">7 dimensions</span><span class="spacer"></span><span class="ct">v3</span></div>
+    <div class="cbody">
+      <div style="padding:2px 14px 12px">
+        <div class="note"><span class="ci">≡</span><span><b>No aggregate score, by design.</b> Seven dimensions are reported independently — a single 0–100 number would average away the one thing you need to act on.</span></div>
+      </div>
+      <div class="hdim">
+        <div class="r1"><span class="g good"></span><span class="nm">schema_stability</span><span class="stw w-good">ok</span></div>
+        <div class="sum">9 columns, <b>no adds, drops or type changes</b> since v2.</div>
+        <div class="fn">evidence <span class="k">version diff v2 → v3</span> · <a href="#">open →</a></div>
+      </div>
+      <div class="hdim">
+        <div class="r1"><span class="g serious"></span><span class="nm">validation</span><span class="stw w-serious">attention</span></div>
+        <div class="sum"><b>3 of 10</b> rules failed — 1 at severity <b>error</b>, 2 at severity <b>warning</b>.</div>
+        <div class="fn">evidence <span class="k">validation run #218</span> · <a href="#">open →</a></div>
+      </div>
+      <div class="hdim">
+        <div class="r1"><span class="g warn"></span><span class="nm">missing</span><span class="stw w-warn">warning</span></div>
+        <div class="sum"><b>mrr_usd</b> is 54.8% null; <b>utm_campaign</b> 27.5%. 6 of 9 columns are complete.</div>
+        <div class="fn">evidence <span class="k">profile run #47 · signups</span> · <a href="#">open →</a></div>
+      </div>
+      <div class="hdim">
+        <div class="r1"><span class="g warn"></span><span class="nm">duplicates</span><span class="stw w-warn">warning</span></div>
+        <div class="sum"><b>968</b> duplicate rows across <b>412</b> groups — 1.15% of rows.</div>
+        <div class="fn">evidence <span class="k">profile run #47 · duplicates probe</span> · <a href="#">open →</a></div>
+      </div>
+      <div class="hdim">
+        <div class="r1"><span class="g warn"></span><span class="nm">drift</span><span class="stw w-warn">warning</span></div>
+        <div class="sum"><b>utm_campaign</b> null rate rose <b>+23.4pp</b> vs v2; <b>plan</b> gained 2 categories.</div>
+        <div class="fn">evidence <span class="k">profile #39 (v2) ↔ #47 (v3)</span> · <a href="#">open →</a></div>
+      </div>
+      <div class="hdim">
+        <div class="r1"><span class="g unknown"></span><span class="nm">freshness</span><span class="stw w-unknown">unknown</span></div>
+        <div class="sum">No recognized <b>refresh_frequency</b> declared — <b>not assessable</b>. Freshness is judged against the declared cadence, not against wall-clock age.</div>
+        <div class="fn">evidence <span class="k">dataset metadata · refresh_frequency: —</span> · <a href="#">declare →</a></div>
+      </div>
+      <div class="hdim">
+        <div class="r1"><span class="g serious"></span><span class="nm">documentation</span><span class="stw w-serious">attention</span></div>
+        <div class="sum"><b>3 of 9</b> columns have no description and no declared sensitivity.</div>
+        <div class="fn">evidence <span class="k">data dictionary · signups</span> · <a href="#">open →</a></div>
+      </div>
+      <div class="railsect">
+        <div class="sh">Profiling <span class="line"></span><span class="ct">3 runs</span></div>
+        <div class="note warn" style="margin:10px 0"><span class="ci">▲</span><span><b>Profiling is not automatic.</b> Nothing profiles on upload — until someone runs one, <span class="mono">missing</span>, <span class="mono">duplicates</span> and <span class="mono">drift</span> all read <span class="mono">unknown</span>. This dataset was profiled by hand.</span></div>
+        <div style="display:flex;align-items:center;gap:7px;margin-bottom:10px;flex-wrap:wrap">
+          <button class="tbtn sm ghost">Run profile</button>
+          <span class="flagchip on" title="Opt-in flag on the profile run">correlations ✓</span>
+          <span class="flagchip on" title="Opt-in flag on the profile run">histograms ✓</span>
+          <span class="fn">opt-in per run</span>
+        </div>
+        <div class="prun">
+          <div class="id"><span class="g good"></span>run #47 <span class="verchip">v3</span></div>
+          <div class="when">12:04 · 8.21s</div>
+          <div class="meta"><span class="mono">sheet signups</span><span>·</span><span class="mono">84,213 × 9</span><span class="flagchip on">corr</span><span class="flagchip on">hist</span></div>
+        </div>
+        <div class="prun">
+          <div class="id"><span class="g good"></span>run #46 <span class="verchip">v3</span></div>
+          <div class="when">12:04 · 0.62s</div>
+          <div class="meta"><span class="mono">sheet refunds</span><span>·</span><span class="mono">1,942 × 5</span><span class="flagchip">corr ✕</span><span class="flagchip on">hist</span></div>
+        </div>
+        <div class="prun">
+          <div class="id"><span class="g good"></span>run #39 <span class="verchip">v2</span></div>
+          <div class="when">08-02 09:11</div>
+          <div class="meta"><span class="mono">sheet signups</span><span>·</span><span class="mono">79,004 × 9</span><span>drift baseline</span></div>
+        </div>
+        <div class="fn" style="margin-top:8px;display:block">Profiles are persisted per sheet and version — insights are computed from these rows, never from a live scan. Sheet <span class="k">campaign_ref</span> (v3) has <b style="color:var(--st-warn);font-weight:600">no profile yet</b>.</div>
+      </div>
+    </div>
+  </div>
+  <div class="col center">
+    <div class="colhead">
+      <span class="t">Quality rules</span><span class="ct">11 defined · 10 enabled</span>
+      <span class="ct" title="A rule severity is exactly one of error or warning. There is no info and no critical.">severity: error | warning</span>
+      <span class="spacer"></span><button class="tbtn sm ghost">+ Add rule</button>
+    </div>
+    <div class="cbody">
+      <table class="rules">
+        <thead>
+          <tr>
+            <th style="width:58px">on</th><th style="width:122px">type</th><th style="width:64px">scope</th>
+            <th style="width:112px">target</th><th>parameters</th>
+            <th style="width:70px" class="split">severity</th><th style="width:82px">last result</th><th style="width:68px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><button class="tg on" title="Enabled — click to disable"></button></td>
+            <td><span class="rtype">sheet_exists</span></td>
+            <td><span class="rscope">dataset</span></td>
+            <td class="mono">signups</td>
+            <td><span class="rparam"><span class="k">sheet</span>: "signups"</span></td>
+            <td class="split"><span class="sev error">error</span></td>
+            <td><span class="res w-good"><span class="g good"></span>passed</span></td>
+            <td><span class="acts"><button class="ib" title="Edit rule">✎</button><button class="ib del" title="Delete rule">✕</button></span></td>
+          </tr>
+          <tr>
+            <td><button class="tg on" title="Enabled — click to disable"></button></td>
+            <td><span class="rtype">row_count_min</span></td>
+            <td><span class="rscope">sheet</span></td>
+            <td class="mono">signups</td>
+            <td><span class="rparam"><span class="k">min</span>: 50000</span> <span style="font-size:10px;color:var(--t3)">→ 84,213</span></td>
+            <td class="split"><span class="sev error">error</span></td>
+            <td><span class="res w-good"><span class="g good"></span>passed</span></td>
+            <td><span class="acts"><button class="ib" title="Edit rule">✎</button><button class="ib del" title="Delete rule">✕</button></span></td>
+          </tr>
+          <tr>
+            <td><button class="tg on" title="Enabled — click to disable"></button></td>
+            <td><span class="rtype">not_null</span></td>
+            <td><span class="rscope">column</span></td>
+            <td class="mono">email <span class="lk"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2.4"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2.4"/></svg></span></td>
+            <td><span class="rparam">— no parameters</span></td>
+            <td class="split"><span class="sev error">error</span></td>
+            <td><span class="res w-good"><span class="g good"></span>passed</span></td>
+            <td><span class="acts"><button class="ib" title="Edit rule">✎</button><button class="ib del" title="Delete rule">✕</button></span></td>
+          </tr>
+          <tr>
+            <td><button class="tg on" title="Enabled — click to disable"></button></td>
+            <td><span class="rtype">not_null</span></td>
+            <td><span class="rscope">column</span></td>
+            <td class="mono">utm_campaign</td>
+            <td><span class="rparam">— no parameters</span></td>
+            <td class="split"><span class="sev warning">warning</span></td>
+            <td><span class="res w-serious"><span class="g serious"></span>failed</span></td>
+            <td><span class="acts"><button class="ib" title="Edit rule">✎</button><button class="ib del" title="Delete rule">✕</button></span></td>
+          </tr>
+          <tr>
+            <td><button class="tg on" title="Enabled — click to disable"></button></td>
+            <td><span class="rtype">unique</span></td>
+            <td><span class="rscope">column</span></td>
+            <td class="mono">signup_id</td>
+            <td><span class="rparam">— no parameters</span></td>
+            <td class="split"><span class="sev error">error</span></td>
+            <td><span class="res w-good"><span class="g good"></span>passed</span></td>
+            <td><span class="acts"><button class="ib" title="Edit rule">✎</button><button class="ib del" title="Delete rule">✕</button></span></td>
+          </tr>
+          <tr>
+            <td><button class="tg on" title="Enabled — click to disable"></button></td>
+            <td><span class="rtype">accepted_values</span></td>
+            <td><span class="rscope">column</span></td>
+            <td class="mono">plan</td>
+            <td><span class="rparam" title='values: ["free","pro","team","enterprise"]'><span class="k">values</span>: ["free","pro","team","enterprise"]</span></td>
+            <td class="split"><span class="sev warning">warning</span></td>
+            <td><span class="res w-serious"><span class="g serious"></span>failed</span></td>
+            <td><span class="acts"><button class="ib open" title="Edit rule — open below">✎</button><button class="ib del" title="Delete rule">✕</button></span></td>
+          </tr>
+
+          <!-- ---- inline EDIT (PATCH) ---- -->
+          <tr class="editrow">
+            <td colspan="8">
+              <div class="sh" style="margin-bottom:11px">Edit rule
+                <span class="ct">rule_id 6 · accepted_values(plan)</span>
+                <span class="ct">PATCH …/rules/6</span>
+                <span class="line"></span>
+                <span class="ct">partial — only the fields you touch are sent</span>
+              </div>
+
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 18px">
+                <div>
+                  <div class="field">
+                    <span class="lab">Name</span>
+                    <input class="inp" value="plan is a known tier" />
+                  </div>
+                  <div class="field">
+                    <span class="lab">Description</span>
+                    <input class="inp" value="Catch new plan codes before they reach the warehouse." />
+                  </div>
+                  <div class="field" style="margin-bottom:0">
+                    <span class="lab">Selectors · sheet + column</span>
+                    <div style="display:flex;gap:8px">
+                      <span class="sel" style="flex:1"><span class="mono">signups</span><span class="ca">▾</span></span>
+                      <span class="sel" style="flex:1"><span class="mono">plan</span><span class="ca">▾</span></span>
+                    </div>
+                    <div class="fhint">Selectors are patchable — retargeting a rule keeps its <span class="mono">rule_id</span> and its history.</div>
+                  </div>
+                </div>
+
+                <div>
+                  <div class="field">
+                    <span class="lab">Parameters · <span class="nmk">values[]</span> <span class="req">required</span></span>
+                    <div class="vwell">
+                      <span class="vtag">free <span class="x">✕</span></span>
+                      <span class="vtag">pro <span class="x">✕</span></span>
+                      <span class="vtag">team <span class="x">✕</span></span>
+                      <span class="vtag">enterprise <span class="x">✕</span></span>
+                      <span class="vtag add">+ add value</span>
+                    </div>
+                    <div class="fhint">Run #218 saw 2 values outside this list — <span class="mono">enterprise_plus</span> (1,610) and <span class="mono">startup</span> (294). Add them to accept them; leave them out to keep failing.</div>
+                  </div>
+                  <div class="field">
+                    <span class="lab">Severity</span>
+                    <div style="display:flex;gap:8px">
+                      <span class="typechip" style="flex:1"><span class="radio"></span><span class="tn sev error">error</span><span class="ts">blocks promotion</span></span>
+                      <span class="typechip on" style="flex:1"><span class="radio on"></span><span class="tn sev warning">warning</span><span class="ts">advisory</span></span>
+                    </div>
+                  </div>
+                  <div class="field" style="margin-bottom:0">
+                    <span class="lab">Enabled</span>
+                    <div style="display:flex;align-items:center;gap:6px">
+                      <button class="tg on" title="Enabled"></button>
+                      <span style="font-size:11px;color:var(--t3)">included in every run on this dataset</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="guard lg" style="margin-top:12px">
+                <span class="fg">▲</span>
+                <span><b>rule_type and scope_type are not patchable.</b> An <span class="mono">accepted_values</span> rule stays one
+                for life — retyping it would silently invalidate every stored result that cites this <span class="mono">rule_id</span>,
+                including run #218 below. To change the type, delete this rule and create a new one; the old results stay
+                truthful about what they measured. Patchable:
+                <span class="mono">name · description · selectors · parameters · severity · enabled</span>.</span>
+              </div>
+
+              <div style="display:flex;gap:12px;margin-top:11px;align-items:flex-end">
+                <div class="field" style="margin:0;flex:1">
+                  <span class="lab">rule_type <span class="opt">locked</span></span>
+                  <input class="inp mono" value="accepted_values" disabled />
+                </div>
+                <div class="field" style="margin:0;flex:1">
+                  <span class="lab">scope_type <span class="opt">derived · locked</span></span>
+                  <input class="inp mono" value="column" disabled />
+                </div>
+                <span style="display:flex;align-items:center;gap:8px">
+                  <button class="tbtn sm primary">Save changes</button>
+                  <button class="tbtn sm ghost">Cancel</button>
+                </span>
+              </div>
+            </td>
+          </tr>
+
+          <tr>
+            <td><button class="tg on" title="Enabled — click to disable"></button></td>
+            <td><span class="rtype">range</span></td>
+            <td><span class="rscope">column</span></td>
+            <td class="mono">amount</td>
+            <td><span class="rparam"><span class="k">min</span>: 0, <span class="k">max</span>: 5000</span></td>
+            <td class="split"><span class="sev error">error</span></td>
+            <td><span class="res w-good"><span class="g good"></span>passed</span></td>
+            <td><span class="acts"><button class="ib" title="Edit rule">✎</button><button class="ib del" title="Delete rule">✕</button></span></td>
+          </tr>
+          <tr>
+            <td><button class="tg on" title="Enabled — click to disable"></button></td>
+            <td><span class="rtype">range</span></td>
+            <td><span class="rscope">column</span></td>
+            <td class="mono">signup_date</td>
+            <td><span class="rparam"><span class="k">min</span>: 0 (max omitted — either bound alone is legal)</span></td>
+            <td class="split"><span class="sev error">error</span></td>
+            <td><span class="res w-crit" title="Status error — the rule could not be evaluated. Distinct from severity error."><span class="g crit"></span>error</span></td>
+            <td><span class="acts"><button class="ib" title="Edit rule">✎</button><button class="ib del" title="Delete rule">✕</button></span></td>
+          </tr>
+          <tr>
+            <td><button class="tg on" title="Enabled — click to disable"></button></td>
+            <td><span class="rtype">regex_match</span></td>
+            <td><span class="rscope">column</span></td>
+            <td class="mono">phone</td>
+            <td><span class="rparam" title="pattern: ^\+?[1-9]\d{7,14}$"><span class="k">pattern</span>: "^\+?[1-9]\d{7,14}$"</span></td>
+            <td class="split"><span class="sev warning">warning</span></td>
+            <td><span class="res w-unknown"><span class="g unknown"></span>skipped</span></td>
+            <td><span class="acts"><button class="ib" title="Edit rule">✎</button><button class="ib del" title="Delete rule">✕</button></span></td>
+          </tr>
+          <tr>
+            <td><button class="tg on" title="Enabled — click to disable"></button></td>
+            <td><span class="rtype">foreign_key</span></td>
+            <td><span class="rscope">cross</span></td>
+            <td class="mono">utm_campaign</td>
+            <td><span class="rparam" title='ref_sheet: "campaign_ref", ref_column: "campaign_code"'><span class="k">ref_sheet</span>: "campaign_ref", <span class="k">ref_column</span>: "campaign_code"</span></td>
+            <td class="split"><span class="sev error">error</span></td>
+            <td><span class="res w-crit"><span class="g crit"></span>failed</span></td>
+            <td><span class="acts"><button class="ib" title="Edit rule">✎</button><button class="ib del" title="Delete rule">✕</button></span></td>
+          </tr>
+          <tr class="off" title="Disabled — kept in the definition list, excluded from every run">
+            <td><button class="tg" title="Disabled — click to enable"></button></td>
+            <td><span class="rtype">regex_match</span></td>
+            <td><span class="rscope">column</span></td>
+            <td class="mono">email</td>
+            <td><span class="rparam" title='pattern: ^[^@\s]+@[^@\s]+\.[a-z]{2,}$'><span class="k">pattern</span>: "^[^@\s]+@[^@\s]+\.[a-z]{2,}$"</span></td>
+            <td class="split"><span class="sev warning">warning</span></td>
+            <td><span class="res" style="color:var(--t3)">not in run</span></td>
+            <td><span class="acts"><button class="ib" title="Edit rule">✎</button><button class="ib del open" title="Delete rule — confirm below">✕</button></span></td>
+          </tr>
+
+          <!-- ---- inline DELETE confirm ---- -->
+          <tr class="delrow">
+            <td colspan="8">
+              <div style="display:flex;align-items:flex-start;gap:11px">
+                <div style="flex:1;min-width:0">
+                  <div class="delhead"><span class="g crit"></span>Delete rule regex_match(email)?</div>
+                  <div class="delbody">
+                    The definition goes for good — there is no trash and no undo.
+                    <b>Past validation runs keep their results</b>: run #218 will still carry
+                    <span class="mono">rule_id 11</span>, but the link will resolve to nothing. If you only want it out of the
+                    next run, it already <b>is</b> — this rule is disabled, which keeps the
+                    definition, the history and the ability to switch it back on.
+                  </div>
+                </div>
+                <span style="display:flex;align-items:center;gap:8px;flex:none">
+                  <button class="tbtn sm danger">Delete rule</button>
+                  <button class="tbtn sm ghost">Cancel</button>
+                </span>
+              </div>
+              <div class="fn" style="margin-top:8px"><span class="k">DELETE /teams/growth-analytics/datasets/ds_8412/rules/11</span></div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- ---------- NEW RULE (POST) ---------- -->
+      <div class="vsect">
+        <div class="sh">New rule
+          <span class="ct">POST …/datasets/ds_8412/rules</span>
+          <span class="ct">8 rule types</span>
+          <span class="line"></span>
+          <span class="ct" title="Each rule_type takes a different target and a different parameter set — the form is not one shape with optional fields.">the form follows rule_type</span>
+        </div>
+
+        <div class="field" style="margin-top:11px">
+          <span class="lab">Rule type · everything below changes with this choice</span>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:7px">
+            <span class="typechip"><span class="radio"></span><span class="tn">sheet_exists</span><span class="ts">dataset</span></span>
+            <span class="typechip"><span class="radio"></span><span class="tn">row_count_min</span><span class="ts">sheet</span></span>
+            <span class="typechip"><span class="radio"></span><span class="tn">not_null</span><span class="ts">column</span></span>
+            <span class="typechip"><span class="radio"></span><span class="tn">unique</span><span class="ts">column</span></span>
+            <span class="typechip on"><span class="radio on"></span><span class="tn">accepted_values</span><span class="ts">column</span></span>
+            <span class="typechip"><span class="radio"></span><span class="tn">range</span><span class="ts">column</span></span>
+            <span class="typechip"><span class="radio"></span><span class="tn">regex_match</span><span class="ts">column</span></span>
+            <span class="typechip"><span class="radio"></span><span class="tn">foreign_key</span><span class="ts">cross</span></span>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 18px;align-items:start">
+
+          <!-- the shape for the selected type -->
+          <div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px;flex-wrap:wrap">
+              <span class="derived">scope_type <b>column</b></span>
+              <span class="fn">derived server-side from <span class="k">rule_type</span> — the form never sends it</span>
+            </div>
+
+            <div class="field">
+              <span class="lab">Target · sheet</span>
+              <div class="sel"><span class="mono">signups</span><span class="hint">84,213 × 9</span><span class="ca">▾</span></div>
+            </div>
+
+            <div class="field">
+              <span class="lab">Target · column</span>
+              <div class="sel"><span class="mono">plan</span><span class="hint">string · 6 distinct</span><span class="ca">▾</span></div>
+              <div class="colpick">
+                <div class="cr"><span class="cbx"></span>signup_id<span class="ty">string</span></div>
+                <div class="cr"><span class="cbx"></span>email
+                  <span class="lk" style="color:var(--st-warn)" title="sensitivity: pii — masked for your role"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2.2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2.2"/></svg></span>
+                  <span style="color:var(--st-warn);font-size:9.5px">pii</span>
+                  <span class="ty">masked</span>
+                </div>
+                <div class="cr pick"><span class="cbx on">✓</span>plan<span class="ty">string</span></div>
+              </div>
+              <div class="fhint">Column picker · 9 columns in <span class="mono">signups</span> at v3.</div>
+            </div>
+
+            <div class="field">
+              <span class="lab">Parameters · <span class="nmk">values[]</span> <span class="req">required</span></span>
+              <div class="vwell">
+                <span class="vtag">free <span class="x">✕</span></span>
+                <span class="vtag">pro <span class="x">✕</span></span>
+                <span class="vtag">team <span class="x">✕</span></span>
+                <span class="vtag add">+ add value</span>
+              </div>
+              <div class="fhint">An empty list is rejected — <span class="mono">accepted_values</span> with nothing accepted would fail every row.</div>
+            </div>
+          </div>
+
+          <!-- fields every type shares -->
+          <div>
+            <div class="field">
+              <span class="lab">Severity · exactly two exist</span>
+              <div style="display:flex;gap:8px">
+                <span class="typechip on" style="flex:1"><span class="radio on"></span><span class="tn sev error">error</span><span class="ts">default</span></span>
+                <span class="typechip" style="flex:1"><span class="radio"></span><span class="tn sev warning">warning</span><span class="ts">advisory</span></span>
+              </div>
+              <div class="fhint">There is no <span class="mono">info</span>, no <span class="mono">critical</span>, no <span class="mono">blocker</span>. New rules default to <b>error</b>.</div>
+            </div>
+
+            <div class="field">
+              <span class="lab">Name</span>
+              <input class="inp" placeholder="plan is a known tier" />
+            </div>
+            <div class="field">
+              <span class="lab">Description <span class="opt">optional</span></span>
+              <input class="inp" placeholder="Why this rule exists — read by whoever gets the failure." />
+            </div>
+            <div class="field">
+              <span class="lab">Enabled</span>
+              <div style="display:flex;align-items:center;gap:6px">
+                <button class="tg on" title="Enabled"></button>
+                <span style="font-size:11px;color:var(--t3)">runs from the next validation onward</span>
+              </div>
+            </div>
+
+            <div class="guard lg" style="margin-top:0">
+              <span class="fg"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" style="vertical-align:-1px"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2.2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2.2"/></svg></span>
+              <span><b>A masked column is a legal target.</b> <span class="mono">email</span> declares
+              <span class="mono">sensitivity: pii</span>, so it carries a lock in the picker and is masked for your role — and it
+              can still be the target of a <span class="mono">not_null</span> or <span class="mono">unique</span> rule, as it
+              already is. The check runs server-side against <b>raw</b> values; only the evidence handed back to you is masked,
+              exactly like run #218's sample below. The lock tells you what you will be <i>shown</i>, not what you may assert.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- shape reference for all 8 -->
+        <div class="sh" style="margin:13px 0 7px">Shape reference · all 8 types
+          <span class="line"></span><span class="ct">the selected row is the form above</span>
+        </div>
+        <div class="tblwrap">
+          <table class="shape">
+            <thead>
+              <tr>
+                <th style="width:132px">rule_type</th>
+                <th style="width:88px" title="Never sent by the form — the server derives it from rule_type.">scope_type</th>
+                <th style="width:132px" class="split">target you pick</th>
+                <th>parameters</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>sheet_exists</td><td class="dim">dataset</td><td class="split">sheet name</td>
+                <td class="dim">— none <span class="opt">target only</span></td>
+              </tr>
+              <tr>
+                <td>row_count_min</td><td class="dim">sheet</td><td class="split">sheet</td>
+                <td><span class="k">min</span> <span class="dim">integer</span> <span class="req">required</span></td>
+              </tr>
+              <tr>
+                <td>not_null</td><td class="dim">column</td><td class="split">sheet · column</td>
+                <td class="dim">— none</td>
+              </tr>
+              <tr>
+                <td>unique</td><td class="dim">column</td><td class="split">sheet · column</td>
+                <td class="dim">— none</td>
+              </tr>
+              <tr class="on">
+                <td>accepted_values</td><td class="dim">column</td><td class="split">sheet · column</td>
+                <td><span class="k">values[]</span> <span class="dim">non-empty</span> <span class="req">required</span></td>
+              </tr>
+              <tr>
+                <td>range</td><td class="dim">column</td><td class="split">sheet · column</td>
+                <td><span class="k">min</span> <span class="dim">and/or</span> <span class="k">max</span> <span class="req">one required</span></td>
+              </tr>
+              <tr>
+                <td>regex_match</td><td class="dim">column</td><td class="split">sheet · column</td>
+                <td><span class="k">pattern</span> <span class="dim">regex</span> <span class="req">required</span></td>
+              </tr>
+              <tr>
+                <td>foreign_key</td><td class="dim">cross</td><td class="split">sheet · column</td>
+                <td><span class="k">ref_sheet</span> + <span class="k">ref_column</span> <span class="req">both required</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;margin-top:11px">
+          <div class="note">
+            <span class="ci">≡</span>
+            <span><b>Eight types, eight shapes.</b> This is not one form with optional fields:
+            <span class="mono">sheet_exists</span> never asks for a column, <span class="mono">row_count_min</span> never asks
+            for one either, and <span class="mono">foreign_key</span> is the only type that reaches into a second sheet — which
+            is why it is the only one whose <span class="mono">scope_type</span> is <span class="mono">cross</span>.
+            <b>You never choose scope_type</b>; it belongs to the type you picked, and sending it would be ignored.</span>
+          </div>
+
+          <div class="note">
+            <span class="ci">⊘</span>
+            <span><b>Severity is not status.</b> <span class="mono">error</span> and <span class="mono">warning</span> say how
+            much a failure matters — only an <span class="mono">error</span>-severity failure blocks tag promotion. A run also
+            reports <span class="mono">skipped</span> and <span class="mono">errored</span>, which are neither passes nor
+            failures and carry no severity at all.</span>
+          </div>
+        </div>
+
+        <div class="frow">
+          <button class="tbtn primary sm">Create rule</button>
+          <button class="tbtn sm ghost">Cancel</button>
+          <span class="fn" style="margin-left:auto"><span class="k">201 · rule_id assigned on create · POST is not idempotent</span></span>
+        </div>
+      </div>
+
+      <!-- ---------- VALIDATION HISTORY ---------- -->
+      <div class="vsect">
+        <div class="sh">Validation history
+          <span class="ct">GET …/datasets/ds_8412/validations</span>
+          <span class="ct">18 runs</span>
+          <span class="line"></span>
+          <span class="ct">newest first</span>
+        </div>
+
+        <div class="tblwrap" style="margin-top:10px">
+          <table class="vhist">
+            <thead>
+              <tr>
+                <th style="width:78px">run</th>
+                <th style="width:108px">finished</th>
+                <th style="width:104px">scope</th>
+                <th class="n" style="width:42px" title="rules_total">total</th>
+                <th class="n" style="width:50px" title="rules_passed">passed</th>
+                <th class="n" style="width:44px" title="rules_failed">failed</th>
+                <th class="n" style="width:52px" title="error_failures — the only count that blocks tag promotion">err&nbsp;fail</th>
+                <th class="n" style="width:58px" title="warning_failures — advisory, never blocks">warn&nbsp;fail</th>
+                <th class="n" style="width:40px" title="rule target absent at this version">skip</th>
+                <th class="n" style="width:54px" title="could not be evaluated — neither pass nor fail">errored</th>
+                <th class="n">duration</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="on" title="The run shown below">
+                <td><span class="run"><span class="g serious"></span>#218</span></td>
+                <td>08-16 12:07:44</td><td class="dim">v3 · signups</td>
+                <td class="n">10</td><td class="n">5</td><td class="n">3</td>
+                <td class="n hot">1</td><td class="n">2</td><td class="n z">1</td><td class="n">1</td>
+                <td class="n">2.41s</td>
+              </tr>
+              <tr>
+                <td><span class="run"><span class="g serious"></span>#217</span></td>
+                <td>08-16 11:52:10</td><td class="dim">v3 · signups</td>
+                <td class="n">10</td><td class="n">6</td><td class="n">2</td>
+                <td class="n z">0</td><td class="n">2</td><td class="n z">1</td><td class="n">1</td>
+                <td class="n">2.38s</td>
+              </tr>
+              <tr>
+                <td><span class="run"><span class="g warn"></span>#214</span></td>
+                <td>08-15 18:20:03</td><td class="dim">v3 · signups</td>
+                <td class="n">9</td><td class="n">7</td><td class="n">1</td>
+                <td class="n z">0</td><td class="n">1</td><td class="n z">1</td><td class="n z">0</td>
+                <td class="n">2.11s</td>
+              </tr>
+              <tr>
+                <td><span class="run"><span class="g good"></span>#209</span></td>
+                <td>08-14 09:04:51</td><td class="dim">v3 · refunds</td>
+                <td class="n">4</td><td class="n">4</td><td class="n z">0</td>
+                <td class="n z">0</td><td class="n z">0</td><td class="n z">0</td><td class="n z">0</td>
+                <td class="n">0.44s</td>
+              </tr>
+              <tr>
+                <td><span class="run"><span class="g crit"></span>#205</span></td>
+                <td>08-12 16:41:29</td><td class="dim">v2 · signups</td>
+                <td class="n">9</td><td class="n">5</td><td class="n">4</td>
+                <td class="n hot">2</td><td class="n">2</td><td class="n z">0</td><td class="n z">0</td>
+                <td class="n">2.02s</td>
+              </tr>
+              <tr>
+                <td><span class="run"><span class="g good"></span>#198</span></td>
+                <td>08-02 09:15:07</td><td class="dim">v2 · signups</td>
+                <td class="n">9</td><td class="n">9</td><td class="n z">0</td>
+                <td class="n z">0</td><td class="n z">0</td><td class="n z">0</td><td class="n z">0</td>
+                <td class="n">1.87s</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="loadmore">
+          <button class="tbtn sm ghost">Load more</button>
+          <span>showing <b>6</b> of 18 · cursor-paged — a next cursor, never a page number</span>
+          <span style="margin-left:auto" class="mono">1 error-severity failure in 7d</span>
+        </div>
+
+        <div class="note" style="margin-top:11px">
+          <span class="ci">≡</span>
+          <span><b>Every run is a stored row, not a job.</b> Each one above re-opens with its full per-rule results, its
+          failing-row artifacts and the rule set <b>as it stood at the time</b> — adding, editing or deleting a rule since
+          does not rewrite a past run. <span class="mono">#205</span> ran against <b>v2</b> and stays attached to v2: a
+          validation result belongs to the version it measured, so promotion is judged on the newest run
+          <i>for that version</i>, not the newest run overall.</span>
+        </div>
+      </div>
+
+      <!-- ---------- VALIDATION RUN ---------- -->
+      <div class="vsect">
+        <div class="sh">Validation run #218 <span class="ct">2026-08-16 12:07:44</span>
+          <span class="ct" title="The request blocks until every rule is evaluated; there is no job to poll.">synchronous · 2.41s</span>
+          <span class="line"></span><span class="ct">v3 · sheet signups</span>
+        </div>
+
+        <div class="runbar" title="rules_total 10">
+          <span style="width:50%;background:var(--st-good)"></span>
+          <span style="width:10%;background:var(--st-crit)"></span>
+          <span style="width:20%;background:var(--st-serious)"></span>
+          <span style="width:10%;background:var(--m5)"></span>
+          <span style="width:10%;background:var(--m6)"></span>
+        </div>
+        <div class="runlegend">
+          <span class="li">rules_total <b>10</b></span>
+          <span class="li"><span class="g good"></span>rules_passed <b>5</b></span>
+          <span class="li"><span class="g serious"></span>rules_failed <b>3</b></span>
+          <span class="li"><span class="g crit"></span>error_failures <b>1</b></span>
+          <span class="li"><span class="g warn"></span>warning_failures <b>2</b></span>
+          <span class="li"><span class="g unknown"></span>skipped <b>1</b></span>
+          <span class="li"><span class="g crit"></span>errored <b>1</b></span>
+        </div>
+
+        <div class="note crit" style="margin:12px 0 14px"><span class="ci">⊘</span><span><b>What this gates: tag promotion, and nothing else.</b> Promoting the <span class="mono">certified</span> tag to v3 is blocked while <b>1 error-severity failure</b> stands. <b>Upload is not gated. Publish is not gated. Warnings never block anything</b> — the 2 warning failures below are advisory. <a href="#">Promotion policy →</a></span></div>
+
+        <div class="vres">
+          <div class="top">
+            <span class="g crit"></span><span class="nm">foreign_key</span>
+            <span class="tgt">signups.<b>utm_campaign</b> → campaign_ref.<b>campaign_code</b></span>
+            <span class="sevtag err">severity error</span><span class="cnt">412 rows</span>
+          </div>
+          <div class="expand">
+            <div class="cap"><span>a foreign_key failure emits <b>DISTINCT orphan values</b>, not rows —</span><span class="k">3 distinct · 412 referencing rows</span></div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px">
+              <span class="orphan">summer_promo_v2 <b>· 218 rows</b></span>
+              <span class="orphan">q3_field_event <b>· 141 rows</b></span>
+              <span class="orphan">partner_co_2 <b>· 53 rows</b></span>
+            </div>
+            <div class="fn" style="margin-top:9px"><span class="k">artifacts/growth-analytics/q3-campaign-signups/validation/run-218-rule-10-orphans.parquet</span><a href="#">open artifact →</a></div>
+          </div>
+        </div>
+
+        <div class="vres">
+          <div class="top">
+            <span class="g serious"></span><span class="nm">not_null</span>
+            <span class="tgt">column <b>utm_campaign</b></span>
+            <span class="sevtag warn">severity warning</span><span class="cnt">23,158 rows</span>
+          </div>
+          <div class="expand">
+            <div class="cap"><span><b>Failing-row sample: 5 of 23,158</b> — samples are hard-capped at 5 rows and written to a parquet artifact.</span><span class="lk" style="color:var(--st-warn)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2.2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2.2"/></svg></span><span style="color:var(--st-warn)">masking applies to samples — <span class="k">email</span> is masked for your role</span></div>
+            <table class="samp">
+              <thead><tr><th style="width:56px">row</th><th style="width:104px">signup_id</th><th style="width:150px">email</th><th style="width:74px">plan</th><th style="width:96px">signup_date</th><th>utm_campaign</th></tr></thead>
+              <tbody>
+                <tr><td class="rn">1,204</td><td>SGN-83012</td><td><span class="masked">••••@••••.com</span></td><td>free</td><td>2026-08-14</td><td class="nullcell">NULL</td></tr>
+                <tr><td class="rn">1,377</td><td>SGN-82887</td><td><span class="masked">••••@••••.com</span></td><td>pro</td><td>2026-08-14</td><td class="nullcell">NULL</td></tr>
+                <tr><td class="rn">2,051</td><td>SGN-82190</td><td><span class="masked">••••@••••.com</span></td><td>free</td><td>2026-08-13</td><td class="nullcell">NULL</td></tr>
+                <tr><td class="rn">2,908</td><td>SGN-81344</td><td><span class="masked">••••@••••.com</span></td><td>team</td><td>2026-08-12</td><td class="nullcell">NULL</td></tr>
+                <tr><td class="rn">3,415</td><td>SGN-80876</td><td><span class="masked">••••@••••.com</span></td><td>free</td><td>2026-08-12</td><td class="nullcell">NULL</td></tr>
+              </tbody>
+            </table>
+            <div class="fn" style="margin-top:9px"><span class="k">artifacts/growth-analytics/q3-campaign-signups/validation/run-218-rule-4-sample.parquet</span><a href="#">open artifact →</a></div>
+          </div>
+        </div>
+
+        <div class="vres">
+          <div class="top">
+            <span class="g serious"></span><span class="nm">accepted_values</span>
+            <span class="tgt">column <b>plan</b> · 2 unexpected values</span>
+            <span class="sevtag warn">severity warning</span><span class="cnt">1,904 rows</span>
+          </div>
+          <div class="expand">
+            <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+              <span class="orphan w">enterprise_plus <b>· 1,610 rows</b></span>
+              <span class="orphan w">startup <b>· 294 rows</b></span>
+              <span class="fn">— same two values the <span class="k">new-categories</span> insight found in profile #47</span>
+            </div>
+            <div class="fn" style="margin-top:9px">failing-row sample capped at 5 · <span class="k">run-218-rule-6-sample.parquet</span><a href="#">expand sample →</a></div>
+          </div>
+        </div>
+
+        <div class="vres">
+          <div class="top">
+            <span class="g crit"></span><span class="nm">range</span><span class="tgt">column <b>signup_date</b></span>
+            <span class="sevtag neu">status error</span><span class="cnt dim">not evaluated</span>
+          </div>
+          <div class="expand" style="padding-top:8px;padding-bottom:8px">
+            <div class="cap" style="margin:0"><span>rule could not be evaluated: <b style="color:var(--st-crit)">cannot coerce column <span class="k">signup_date</span> (string) to numeric</b> — an errored rule is not a failure, and does not count toward <span class="k">error_failures</span>.</span></div>
+          </div>
+        </div>
+
+        <div class="vres">
+          <div class="top">
+            <span class="g unknown"></span><span class="nm" style="color:var(--t3)">regex_match</span>
+            <span class="tgt">column <b>phone</b></span><span class="sevtag neu">skipped</span><span class="cnt dim">—</span>
+          </div>
+          <div class="expand" style="padding-top:8px;padding-bottom:8px">
+            <div class="cap" style="margin:0"><span>column <span class="k">phone</span> is not present in sheet <span class="k">signups</span> at v3 — skipped, not failed.</span></div>
+          </div>
+        </div>
+
+        <div class="vres">
+          <div class="top">
+            <span class="g good"></span><span class="nm">5 rules passed</span>
+            <span class="tgt mono">sheet_exists · row_count_min · not_null(email) · unique(signup_id) · range(amount)</span>
+            <span class="cnt dim">▾</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col dock">
+    <div class="colhead"><span class="t">Insight engine</span><span class="ct">10 rules · 10 hits</span><span class="spacer"></span><span class="ct">ranked</span></div>
+    <div class="cbody" style="padding:2px 13px 14px">
+      <div class="note" style="margin-bottom:12px"><span class="ci">≡</span><span><b>Ten deterministic rules over persisted profiles.</b> No model, no sampling, no live scan — every card below re-computes identically from the profile row it cites.</span></div>
+      <div class="ins">
+        <div class="r1"><span class="rank">01</span><span class="kind">duplicate-rows</span><span class="stw w-warn"><span class="g warn"></span>warning</span></div>
+        <div class="line"><b>968</b> duplicate rows in <b>412</b> groups — 1.15% of the sheet, keyed on <b>email + signup_date</b>.</div>
+        <div class="fn">profile #47 · signups · v3 <a href="#" class="grow">duplicates explorer ↓</a></div>
+      </div>
+      <div class="ins">
+        <div class="r1"><span class="rank">02</span><span class="kind">high-null-rate</span><span class="stw w-serious"><span class="g serious"></span>attention</span></div>
+        <div class="line"><b>mrr_usd</b> is <b>54.8%</b> null (46,148 of 84,213) — above the <b>≥50%</b> threshold.</div><div class="viz"><div class="missrow" style="grid-template-columns:70px 1fr 50px"><span class="lbl">mrr_usd</span><div class="track"><div class="fill" style="width:54.8%"></div></div><span class="pct">54.8%</span></div></div>
+        <div class="fn">profile #47 · signups · v3 <a href="#" class="grow">missing explorer ↓</a></div>
+      </div>
+      <div class="ins">
+        <div class="r1"><span class="rank">03</span><span class="kind">null-rate-spike</span><span class="stw w-serious"><span class="g serious"></span>attention</span></div>
+        <div class="line"><b>utm_campaign</b> null rate went <b>4.1% → 27.5%</b> — a <b>+23.4pp</b> jump against the prior version, past the <b>≥20pp</b> threshold.</div><div class="viz"><svg width="100%" height="52" viewBox="0 0 330 52" fill="none" role="img" aria-label="null rate rose from 4.1 percent at v2 to 27.5 percent at v3">
+            <line x1="8" y1="42" x2="322" y2="42" stroke="rgba(255,255,255,.075)" stroke-width="1"/>
+            <line x1="8" y1="14" x2="322" y2="14" stroke="rgba(255,255,255,.042)" stroke-width="1" stroke-dasharray="3 4"/>
+            <text x="322" y="11" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="8.5" fill="#85909F">30%</text>
+            <polyline points="56,38 274,16" fill="none" stroke="#A2ACBB" stroke-width="2" stroke-linecap="round"/>
+            <circle cx="56" cy="38" r="3" fill="#A2ACBB"/><circle cx="274" cy="16" r="3.5" fill="#E7ECF3"/>
+            <text x="56" y="52" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="9" fill="#85909F">v2 · 4.1%</text>
+            <text x="274" y="52" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="9" fill="#85909F">v3 · 27.5%</text>
+            <text x="165" y="20" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="10.5" font-weight="600" fill="#E7ECF3">+23.4pp</text>
+          </svg></div>
+        <div class="fn">profile #39 (v2) ↔ #47 (v3) <a href="#" class="grow">version diff →</a></div>
+      </div>
+      <div class="ins">
+        <div class="r1"><span class="rank">04</span><span class="kind">numeric-outliers</span><span class="stw w-warn"><span class="g warn"></span>warning</span></div>
+        <div class="line"><b>amount</b> breaches the <b>upper</b> Tukey fence: <b>2,118</b> values lie above <b>1,485.00</b>. Lower fence <b>−891.00</b> is not breached.</div><div class="viz"><svg width="100%" height="58" viewBox="0 0 330 58" fill="none" role="img" aria-label="Tukey IQR fences for amount; upper fence 1485 breached by 2118 values">
+            <rect x="236" y="16" width="86" height="14" fill="rgba(250,178,25,.10)" stroke="rgba(250,178,25,.30)" stroke-width="1" rx="3"/>
+            <line x1="8" y1="23" x2="322" y2="23" stroke="rgba(255,255,255,.075)" stroke-width="1"/>
+            <line x1="8" y1="14" x2="8" y2="32" stroke="#7D8797" stroke-width="1.5"/>
+            <line x1="236" y1="13" x2="236" y2="33" stroke="#fab219" stroke-width="2"/>
+            <line x1="8" y1="23" x2="94" y2="23" stroke="#7D8797" stroke-width="1"/>
+            <line x1="152" y1="23" x2="236" y2="23" stroke="#7D8797" stroke-width="1"/>
+            <rect x="94" y="17" width="58" height="12" rx="3" fill="rgba(162,172,187,.22)" stroke="#A2ACBB" stroke-width="1.2"/>
+            <line x1="117" y1="17" x2="117" y2="29" stroke="#E7ECF3" stroke-width="1.5"/>
+            <text x="8" y="44" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="8.5" fill="#85909F">−891.00</text>
+            <text x="8" y="54" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="8" fill="#85909F">lower fence</text>
+            <text x="94" y="44" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="8.5" fill="#85909F">Q1 0</text>
+            <text x="158" y="44" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="8.5" fill="#85909F">Q3 594</text>
+            <text x="236" y="44" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="8.5" fill="#fab219">1,485.00</text>
+            <text x="236" y="54" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="8" fill="#85909F">upper fence</text>
+            <text x="282" y="12" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="8.5" fill="#fab219">2,118 beyond</text>
+          </svg></div><div class="guard"><span class="fg">▲</span><span>Fences and a breached side only — <b>the outlying rows are never reported</b>. Cell values stay in the object store and never land in Postgres. To see them, run a filtered query under your own access.</span></div>
+        <div class="fn">profile #47 · signups · v3 · IQR ×1.5</div>
+      </div>
+      <div class="ins">
+        <div class="r1"><span class="rank">05</span><span class="kind">high-correlation</span><span class="stw w-warn"><span class="g warn"></span>warning</span></div>
+        <div class="line"><b>amount</b> ↔ <b>mrr_usd</b> at <b>r = +0.98</b> — at or past the <b>|r| ≥ 0.95</b> threshold, over 38,061 complete pairs.</div><div class="viz"><svg width="100%" height="34" viewBox="0 0 330 34" fill="none" role="img" aria-label="correlation 0.98 against a 0.95 threshold">
+            <rect x="8" y="10" width="314" height="9" rx="3" fill="rgba(255,255,255,.06)"/>
+            <rect x="8" y="10" width="307.7" height="9" rx="3" fill="#A2ACBB"/>
+            <line x1="306.3" y1="5" x2="306.3" y2="24" stroke="#E7ECF3" stroke-width="1.5"/>
+            <text x="8" y="32" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="8.5" fill="#85909F">0.00</text>
+            <text x="292" y="32" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="8.5" fill="#85909F">threshold 0.95</text>
+            <text x="322" y="32" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="8.5" fill="#85909F">1.00</text>
+          </svg></div><div class="guard"><span class="fg">▲</span><span>Coefficient only — no scatter is drawn, because plotting pairs would move <b>cell values</b> out of the object store. Correlations were an <b>opt-in flag</b> on profile #47.</span></div>
+        <div class="fn">profile #47 · signups · v3 · pearson</div>
+      </div>
+      <div class="ins">
+        <div class="r1"><span class="rank">06</span><span class="kind">new-categories</span><span class="stw w-warn"><span class="g warn"></span>warning</span></div>
+        <div class="line"><b>plan</b> gained 2 values absent at v2: <b>enterprise_plus</b> (1,610) and <b>startup</b> (294).</div>
+        <div class="fn">profile #39 ↔ #47 <a href="#" class="grow">accepted_values rule →</a></div>
+      </div>
+      <div class="ins">
+        <div class="r1"><span class="rank">07</span><span class="kind">likely-primary-key</span><span class="stw w-good"><span class="g good"></span>ok</span></div>
+        <div class="line"><b>signup_id</b> is <b>84,213 / 84,213</b> distinct with <b>0</b> nulls — a primary-key candidate.</div>
+        <div class="fn">profile #47 · signups · v3 <a href="#" class="grow">add unique rule →</a></div>
+      </div>
+      <div class="ins">
+        <div class="r1"><span class="rank">08</span><span class="kind">constant-column</span><span class="stw w-warn"><span class="g warn"></span>warning</span></div>
+        <div class="line"><b>currency</b> holds a single distinct value across every row — carries no information.</div>
+        <div class="fn">profile #47 · signups · v3 <a href="#" class="grow">drop in Transform →</a></div>
+      </div>
+      <div class="ins">
+        <div class="r1"><span class="rank">09</span><span class="kind">future-timestamps</span><span class="stw w-serious"><span class="g serious"></span>attention</span></div>
+        <div class="line"><b>signup_date</b> holds <b>37</b> values later than ingest time — max <b>2027-01-04</b>.</div>
+        <div class="fn">profile #47 · signups · v3 · ingest 2026-08-16</div>
+      </div>
+      <div class="ins">
+        <div class="r1"><span class="rank">10</span><span class="kind">new-sheet</span><span class="stw w-good"><span class="g good"></span>ok</span></div>
+        <div class="line">v3 introduced sheets <b>refunds</b> (1,942 rows) and <b>campaign_ref</b> (61 rows) — neither existed at v2.</div><div class="guard neu"><span class="fg">▲</span><span><span class="mono">campaign_ref</span> has <b style="color:var(--st-warn)">no profile yet</b>, so its own missing / duplicates / drift dimensions read <span class="mono">unknown</span>.</span></div>
+        <div class="fn">version diff v2 → v3 <a href="#" class="grow">profile it →</a></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="band">
+  <div class="pane">
+    <div class="colhead">
+      <span class="t">Duplicates explorer</span><span class="ct" title="This surface reports. It does not remediate.">read-only</span>
+      <span class="spacer"></span>
+      <span class="subsetchip" title="Group on every column, or a chosen subset">grouped on <b>email + signup_date</b> ▾</span>
+      <span class="subsetchip off">all columns</span>
+    </div>
+    <div class="pbody">
+      <div style="display:flex;align-items:center;gap:18px;margin-bottom:9px;flex-wrap:wrap">
+        <span class="kv">group_count <b>412</b></span>
+        <span class="kv">duplicate_rows <b>968</b></span>
+        <span class="kv">share of sheet <b>1.15%</b></span>
+        <span class="kv">largest group <b>4</b></span>
+      </div>
+      <div class="note" style="margin-bottom:9px"><span class="ci">→</span><span>No remediation here — act in <a href="#">Transform · <span class="mono">deduplicate</span> step</a> or draw a de-duplicated sample in the <a href="#">Sampling studio</a>.</span></div>
+      <table class="dup">
+        <thead><tr><th style="width:196px">group key</th><th style="width:62px">rows</th><th style="width:106px">signup_id</th><th style="width:66px">plan</th><th style="width:82px">amount</th><th>utm_campaign</th></tr></thead>
+        <tbody>
+          <tr class="grp"><td><span class="masked">••••@••••.com</span> · 2026-08-14</td><td>4</td><td style="color:var(--t3);font-weight:400">— example rows —</td><td></td><td></td><td></td></tr>
+          <tr class="ex"><td></td><td></td><td>SGN-83012</td><td>free</td><td>0.00</td><td>NULL</td></tr>
+          <tr class="ex"><td></td><td></td><td>SGN-83014</td><td>free</td><td>0.00</td><td>NULL</td></tr>
+          <tr class="ex"><td></td><td></td><td>SGN-83019</td><td>free</td><td>0.00</td><td>summer_promo</td></tr>
+          <tr class="grp"><td><span class="masked">••••@••••.com</span> · 2026-08-12</td><td>3</td><td style="color:var(--t3);font-weight:400">— example rows —</td><td></td><td></td><td></td></tr>
+          <tr class="ex"><td></td><td></td><td>SGN-81344</td><td>team</td><td>594.00</td><td>NULL</td></tr>
+          <tr class="ex"><td></td><td></td><td>SGN-81351</td><td>team</td><td>594.00</td><td>webinar_q3</td></tr>
+          <tr class="grp"><td><span class="masked">••••@••••.com</span> · 2026-08-11</td><td>2</td><td style="color:var(--t3);font-weight:400">— example rows —</td><td></td><td></td><td></td></tr>
+          <tr class="ex"><td></td><td></td><td>SGN-80122</td><td>pro</td><td>290.00</td><td>retargeting_us</td></tr>
+          <tr class="ex"><td></td><td></td><td>SGN-80130</td><td>pro</td><td>290.00</td><td>retargeting_us</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="pane">
+    <div class="colhead">
+      <span class="t">Missing-data explorer</span><span class="ct">worst-first</span>
+      <span class="spacer"></span><span class="ct">profile #47 · 84,213 rows · 9 cols</span>
+    </div>
+    <div class="pbody" style="display:grid;grid-template-columns:1fr 210px;gap:16px;align-items:start">
+      <div>
+        <div class="missrow"><span class="lbl">mrr_usd</span><div class="track"><div class="fill" style="width:54.8%"></div></div><span class="pct">46,148 · 54.8%</span></div>
+        <div class="missrow"><span class="lbl">utm_campaign</span><div class="track"><div class="fill" style="width:27.5%"></div></div><span class="pct">23,158 · 27.5%</span></div>
+        <div class="missrow"><span class="lbl">region</span><div class="track"><div class="fill" style="width:3.2%"></div></div><span class="pct">2,695 · 3.2%</span></div>
+        <div class="missrow"><span class="lbl">status</span><div class="track"><div class="fill" style="width:0.4%"></div></div><span class="pct">337 · 0.4%</span></div>
+        <div class="missrow"><span class="lbl">plan</span><div class="track"><div class="fill" style="width:0.2%"></div></div><span class="pct">168 · 0.2%</span></div>
+        <div class="missrow zero"><span class="lbl">amount</span><div class="track"></div><span class="pct">0 · 0.0%</span></div>
+        <div class="missrow zero"><span class="lbl">signup_date</span><div class="track"></div><span class="pct">0 · 0.0%</span></div>
+        <div class="missrow zero"><span class="lbl">email</span><div class="track"></div><span class="pct">0 · 0.0%</span></div>
+        <div class="missrow zero"><span class="lbl">signup_id</span><div class="track"></div><span class="pct">0 · 0.0%</span></div>
+        </div>
+      <div class="probe">
+        <div class="ph">rows_most_missing</div>
+        <div class="pr"><span class="lb">row</span><span>51,204</span><span class="cnt">4 / 9 null</span></div>
+        <div class="pr"><span class="lb">row</span><span>18,930</span><span class="cnt">4 / 9 null</span></div>
+        <div class="pr"><span class="lb">row</span><span>7,662</span><span class="cnt">3 / 9 null</span></div>
+        <div class="pr"><span class="lb">row</span><span>44,081</span><span class="cnt">3 / 9 null</span></div>
+        <div class="pr"><span class="lb">row</span><span>2,517</span><span class="cnt">3 / 9 null</span></div>
+        <div class="fn" style="margin-top:7px">row positions and null counts only — no cell values</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="statusbar">
+  <span class="h"><span class="kbd">⌘⏎</span> run validation</span>
+  <span class="h"><span class="kbd">⌘P</span> run profile</span>
+  <span class="h"><span class="kbd">N</span> new rule</span>
+  <span class="h"><span class="kbd">E</span> enable / disable</span>
+  <span class="h"><span class="kbd">⌫</span> delete rule</span>
+  <span class="h"><span class="kbd">⌘K</span> commands</span>
+  <span class="gate">quality gate: tag promotion only · upload &amp; publish ungated · team growth-analytics</span>
+  <span class="sclock"><span class="dot"></span><b>LIVE</b> · SYNC 16:41:07 ET</span>
+</div>
+
+</body>
+</html>

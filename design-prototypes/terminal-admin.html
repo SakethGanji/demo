@@ -1,0 +1,1777 @@
+<!--
+  DESIGN NOTES
+  Direction: "TERMINAL" — sibling of the datasets cockpit, re-pointed at the ADMIN & GOVERNANCE console
+  of Command Studio (internal multi-tenant data platform; teams upload their own PII-bearing datasets).
+  Same shell, hairlines, 13px base, mono tabular-nums, uppercase micro-labels, status-dot-plus-word rule.
+  Signature move: a left CONSOLE section-nav over one internally-scrolling stack — Teams & members is the
+  shown state (teams table + open "New team" form + member table + RBAC permission matrix), and Users,
+  Audit log, Webhooks and Storage & retention live directly below it, each rendered in full.
+  The crux is spelled out, not implied: dataset:read_sensitive is deliberately WITHHELD from editor.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Command Studio — Admin &amp; Governance · Terminal</title>
+<style>
+  /* ===== INSTRUMENT tokens — copied verbatim from terminal-quality-instrument.html ===== */
+  :root {
+    --s0:#080A0E;  --s1:#0D1015;  --s2:#11151B;  --s3:#161B22;
+    --s4:#1C222B;  --s5:#242C37;  --s6:#38424F;  --key:#E9EEF5;
+    --t1:#E7ECF3;  --t2:#B0BAC8;  --t3:#85909F;  --t4:#5C6675; /* t4 = decoration only, never text */
+    --r1:rgba(255,255,255,.042); --r2:rgba(255,255,255,.075); --r3:rgba(255,255,255,.13);
+    --hi:inset 0 1px 0 rgba(255,255,255,.045);
+    --sig:#46D5E8; --sig-dim:rgba(70,213,232,.14); --sig-line:rgba(70,213,232,.40);
+    --st-good:#0ca30c; --st-warn:#fab219; --st-serious:#ec835a; --st-crit:#DC5050;
+    --m1:#CBD3DF; --m2:#A2ACBB; --m3:#7D8797; --m4:#5F6979; --m5:#48515F; --m6:#39414D;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    /* categorical set, fixed order, never cycled — on this screen it dresses TEAM IDENTITY only */
+    --viz-1:#3987e5; --viz-2:#d95926; --viz-3:#199e70; --viz-4:#c98500;
+    --viz-5:#d55181; --viz-6:#747c04; --viz-7:#9085e9; --viz-8:#e66767;
+    /* legacy names kept as aliases so every inline style resolves into the instrument ramp */
+    --background:var(--s1); --foreground:var(--t1); --card:var(--s2); --popover:var(--s2);
+    --muted:rgba(255,255,255,.05); --muted-foreground:var(--t3); --surface:rgba(255,255,255,.035);
+    --secondary:var(--s4); --accent:var(--s4); --border:var(--r2);
+    --primary:var(--t2); --primary-foreground:var(--s0);
+    --success:var(--st-good); --warning:var(--st-warn); --destructive:var(--st-crit); --radius:8px;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html { font-size:13px; }
+  body {
+    font-family:var(--sans); color:var(--t2); font-size:12.5px;
+    background:radial-gradient(1180px 560px at 44% -12%, #151B24 0%, rgba(21,27,36,0) 62%), var(--s1);
+    -webkit-font-smoothing:antialiased; line-height:1.4; letter-spacing:-0.004em;
+    width:1440px; height:1024px; overflow:hidden;
+  }
+  body::after {
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:200; opacity:.055; mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .mono { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  .num { font-variant-numeric:tabular-nums; font-feature-settings:"tnum"; }
+  ::selection { background:rgba(70,213,232,.26); color:#fff; }
+  :focus-visible { outline:none; box-shadow:0 0 0 1px var(--s0), 0 0 0 3px rgba(70,213,232,.45); border-radius:6px; }
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb { background:#232B35; border-radius:8px; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background:#303945; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-track { background:transparent; }
+
+  /* ================= HEADER ================= */
+  header.topbar {
+    height:48px; display:flex; align-items:center; gap:18px; padding:0 14px; flex:none; z-index:30;
+    background:linear-gradient(180deg,#141922,#10141A); box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5);
+  }
+  .brand { display:flex; align-items:center; gap:9px; padding-right:6px; }
+  .brand .glyph { width:22px; height:22px; border-radius:6px; display:grid; place-items:center; color:var(--t1);
+    background:linear-gradient(180deg,#2C3542,#191F28); box-shadow:var(--hi), 0 1px 2px rgba(0,0,0,.5); }
+  .brand .glyph svg { display:block; }
+  .brand .name { font-size:12.5px; font-weight:600; color:var(--t1); letter-spacing:-0.012em; white-space:nowrap; }
+  .env-chip { font-family:var(--mono); font-size:10px; color:var(--t3); display:inline-flex; align-items:center;
+    gap:6px; white-space:nowrap; text-transform:none; letter-spacing:0; font-weight:400; }
+  .env-chip::before { content:""; width:5px; height:5px; border-radius:50%; background:var(--st-warn); flex:none; }
+  nav.gnav { display:flex; align-items:center; gap:4px; }
+  nav.gnav a { font-size:12.5px; font-weight:450; color:var(--t3); text-decoration:none; height:30px; padding:0 10px;
+    border-radius:7px; display:inline-flex; align-items:center; transition:color .14s, background .14s; }
+  nav.gnav a:hover { color:var(--t1); background:rgba(255,255,255,.035); }
+  .cmdk { margin-left:auto; display:flex; align-items:center; gap:9px; width:340px; height:30px; padding:0 10px;
+    border-radius:8px; cursor:text; color:var(--t3); background:var(--s0);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); }
+  .cmdk.lit { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.09); }
+  .cmdk:focus-within { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+  .cmdk svg { flex:none; opacity:.6; }
+  .cmdk .ph { font-size:12px; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .kbd { font-family:var(--mono); font-size:10px; font-weight:500; color:var(--t2);
+    background:linear-gradient(180deg,#232A34,#1A2028); border-radius:4px; padding:1.5px 5px; line-height:1.4;
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); white-space:nowrap; }
+  .hicons { display:flex; align-items:center; gap:4px; }
+  .iconbtn { width:30px; height:30px; border-radius:7px; border:0; background:transparent; color:var(--t3);
+    display:grid; place-items:center; cursor:pointer; transition:color .14s, background .14s; }
+  .iconbtn:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  /* SIGNAL 1/4 — the team every section below is scoped to */
+  .teamsw { display:inline-flex; align-items:center; gap:7px; height:28px; padding:0 10px; cursor:pointer;
+    font-size:12px; color:var(--t1); background:var(--s4); box-shadow:var(--hi); border-radius:7px; white-space:nowrap; }
+  .teamsw::before { content:""; width:5px; height:5px; border-radius:50%; background:var(--sig); flex:none;
+    box-shadow:0 0 8px -1px var(--sig); }
+  .teamsw .tk { font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--t3); font-weight:500; }
+  .teamsw .ca { color:var(--t3); font-size:10px; }
+  .avatar { width:27px; height:27px; border-radius:7px; background:linear-gradient(180deg,#2A323D,#1D242D);
+    display:grid; place-items:center; font-size:10px; font-weight:600; color:var(--t2); cursor:pointer;
+    box-shadow:var(--hi); flex:none; }
+  .avatar.lit { box-shadow:var(--hi), inset 0 0 0 1px var(--r3); }
+
+  /* ================= KPI STRIP — the first read ================= */
+  .kpistrip { display:flex; align-items:stretch; gap:0; height:44px; padding:0 6px; flex:none;
+    background:linear-gradient(180deg,var(--s3),#12171E);
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.55), 0 10px 24px -20px rgba(0,0,0,.9); }
+  .kpi { display:flex; align-items:center; gap:9px; padding:0 16px; }
+  .kpi + .kpi { box-shadow:inset 1px 0 0 var(--r1); }
+  .kpi .lab { font-size:9.5px; font-weight:500; letter-spacing:.11em; text-transform:uppercase; color:var(--t3);
+    white-space:nowrap; }
+  .kpi .val { font-size:18px; font-weight:600; color:var(--t1); letter-spacing:-0.03em; line-height:1;
+    font-variant-numeric:tabular-nums; }
+  .kpi .delta { font-size:10.5px; font-weight:500; display:flex; align-items:center; gap:2px; color:var(--t3); }
+  .up { color:var(--t2); } .down { color:var(--st-serious); }
+  .kpi.head { gap:8px; }
+  .kpi.head .ttl { font-size:12.5px; font-weight:600; letter-spacing:-0.012em; text-transform:none; color:var(--t1); }
+  .kpi.head .shield { color:var(--t3); display:flex; }
+
+  /* ================= WORKSPACE ================= */
+  .workspace { display:grid; grid-template-columns:212px 1fr; height:calc(1024px - 48px - 44px - 28px); }
+  .col { display:flex; flex-direction:column; min-width:0; min-height:0; }
+  .col.rail { background:var(--s2); box-shadow:1px 0 0 rgba(0,0,0,.45); z-index:2; }
+  .col.main { background:transparent; min-width:0; }
+
+  .colhead { height:34px; display:flex; align-items:center; gap:8px; padding:0 12px; flex:none;
+    box-shadow:inset 0 -1px 0 var(--r1); }
+  .colhead .t { font-size:12.5px; font-weight:600; letter-spacing:-0.012em; text-transform:none; color:var(--t1); }
+  .colhead .spacer { margin-left:auto; }
+  .colhead .badge { font-family:var(--mono); font-size:10px; font-weight:500; color:var(--t3);
+    background:rgba(255,255,255,.05); border-radius:20px; padding:1px 7px; }
+
+  /* ---- section nav ---- */
+  .navlist { padding:8px 8px 0; overflow-y:auto; flex:1; }
+  .navitem { display:grid; grid-template-columns:15px 1fr auto; grid-template-rows:auto auto; align-items:center;
+    column-gap:8px; padding:7px 8px; border-radius:7px; cursor:pointer; color:var(--t3); text-decoration:none;
+    box-shadow:inset 2px 0 0 transparent; transition:background .1s, color .1s; }
+  .navitem:hover { background:rgba(255,255,255,.035); color:var(--t1); }
+  /* SIGNAL 2/4 — the section this console is parked on */
+  .navitem.on { background:var(--s3); box-shadow:inset 2px 0 0 var(--sig); color:var(--t1); }
+  .navitem .ni { grid-column:1; grid-row:1; display:flex; color:currentColor; opacity:.8; }
+  .navitem .nl { grid-column:2; grid-row:1; font-size:12px; font-weight:550; white-space:nowrap; }
+  .navitem .nb { grid-column:3; grid-row:1; justify-self:end; font-family:var(--mono); font-size:9.5px;
+    font-weight:500; color:var(--t3); background:rgba(255,255,255,.05); border-radius:20px; padding:0 5px;
+    white-space:nowrap; }
+  .navitem .nsub { grid-column:2 / span 2; grid-row:2; font-size:9.5px; color:var(--t3); font-weight:400;
+    margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .navitem .nb.su { color:var(--st-warn); background:rgba(0,0,0,.36); box-shadow:inset 0 0 0 1px rgba(250,178,25,.3);
+    letter-spacing:.02em; }
+  .navsep { margin:10px 4px 8px; height:1px; background:var(--r1); }
+  .navmicro { font-size:9.5px; font-weight:500; letter-spacing:.11em; text-transform:uppercase; color:var(--t3);
+    padding:2px 10px 6px; }
+  .whoami { margin:0 8px 10px; border-radius:8px; background:var(--s3); box-shadow:var(--hi); padding:8px 9px; }
+  .whoami .wn { font-size:12px; font-weight:600; color:var(--t1); display:flex; align-items:center; gap:6px; }
+  .whoami .we { font-size:9.5px; color:var(--t3); margin-top:3px; }
+  .whoami .wr { display:flex; align-items:center; gap:5px; margin-top:6px; flex-wrap:wrap; }
+
+  /* ---- shared chips / pills ---- */
+  .pill { font-size:10px; font-weight:500; padding:2px 7px; border-radius:20px; display:inline-flex;
+    align-items:center; gap:5px; white-space:nowrap; }
+  .pill.ok { color:var(--st-good); background:rgba(0,0,0,.36); box-shadow:inset 0 0 0 1px rgba(12,163,12,.42); }
+  .pill.warn { color:var(--st-warn); background:rgba(0,0,0,.36); box-shadow:inset 0 0 0 1px rgba(250,178,25,.34); }
+  .pill.crit { color:var(--st-crit); background:rgba(0,0,0,.36); box-shadow:inset 0 0 0 1px rgba(220,80,80,.42); }
+  .pill.neu { color:var(--t3); background:rgba(255,255,255,.05); }
+  /* the four roles are ordinal — they rank by VALUE, not by hue */
+  .role { font-size:10px; font-weight:500; padding:1px 7px; border-radius:20px; color:var(--t2);
+    background:rgba(255,255,255,.05); display:inline-flex; align-items:center; gap:4px; white-space:nowrap; }
+  .role.viewer { color:var(--t3); background:transparent; box-shadow:inset 0 0 0 1px var(--r1); }
+  .role.editor { color:var(--t2); }
+  .role.admin  { color:var(--t1); }
+  .role.owner  { color:var(--t1); font-weight:600; background:var(--s5); box-shadow:var(--hi); }
+  .su-chip { font-family:var(--mono); font-size:9px; font-weight:500; letter-spacing:.03em; text-transform:uppercase;
+    padding:1px 5px; border-radius:4px; color:var(--st-warn); background:rgba(0,0,0,.36);
+    box-shadow:inset 0 0 0 1px rgba(250,178,25,.3); white-space:nowrap; }
+  /* status = five states, five SHAPES, always beside a word */
+  .sdot { width:8px; height:8px; flex:none; display:inline-block; vertical-align:-1px; }
+  .sdot.good { border-radius:50%; background:var(--st-good); }
+  .sdot.warn { width:0; height:0; border-left:4.5px solid transparent; border-right:4.5px solid transparent;
+    border-bottom:8px solid var(--st-warn); vertical-align:0; }
+  .sdot.serious { width:7px; height:7px; background:var(--st-serious); border-radius:1px; transform:rotate(45deg); margin:0 1px; }
+  .sdot.crit { background:var(--st-crit); border-radius:1px; }
+  .sdot.off { border-radius:50%; background:transparent; box-shadow:inset 0 0 0 1.5px var(--t3); }
+  .stat { display:inline-flex; align-items:center; gap:6px; font-size:10.5px; font-weight:500; white-space:nowrap; }
+  .stat.good { color:var(--st-good); } .stat.warn { color:var(--st-warn); }
+  .stat.serious { color:var(--st-serious); } .stat.crit { color:var(--st-crit); }
+  .stat.off { color:var(--t3); }
+  .muted { color:var(--t3); }
+  .dim { color:var(--t3); }
+  .lockglyph { color:var(--st-warn); display:inline-flex; vertical-align:-2px; flex:none; }
+
+  /* ---- buttons ---- */
+  .tbtn { height:28px; padding:0 10px; font-size:12px; font-weight:450; color:var(--t2); background:transparent;
+    border:0; box-shadow:inset 0 0 0 1px var(--r2); border-radius:7px; cursor:pointer; font-family:inherit;
+    display:inline-flex; align-items:center; gap:6px; transition:all .14s; white-space:nowrap; }
+  .tbtn:hover { background:rgba(255,255,255,.06); color:var(--t1); }
+  /* the primary action wins on VALUE, which preserves the accent */
+  .tbtn.primary { background:linear-gradient(180deg,#FBFDFF,var(--key)); color:#0B0E13; font-weight:600;
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset, 0 2px 8px -3px rgba(0,0,0,.9), 0 0 0 1px rgba(0,0,0,.35); }
+  .tbtn.primary:hover { background:#fff; }
+  .tbtn.sm { height:24px; padding:0 8px; font-size:11px; }
+  .tbtn .k { font-size:10px; color:var(--t3); font-family:var(--mono); }
+  .tbtn.primary .k { color:#4A5462; }
+  .xbtn { width:24px; height:24px; border-radius:6px; border:0; background:transparent; color:var(--t3);
+    cursor:pointer; font-size:12px; line-height:1; }
+  .xbtn:hover { color:var(--st-crit); background:rgba(255,255,255,.06); }
+  .xbtn[disabled] { opacity:.3; cursor:not-allowed; }
+  .xbtn[disabled]:hover { color:var(--t3); background:transparent; }
+  .rolesel { height:22px; padding:0 6px 0 7px; font-size:11px; font-weight:500; background:var(--s4);
+    box-shadow:var(--hi); border-radius:6px; color:var(--t1); display:inline-flex; align-items:center; gap:6px;
+    cursor:pointer; }
+  .rolesel:hover { background:var(--s5); }
+  .rolesel .ca { color:var(--t3); font-size:9px; }
+
+  /* ---- main scroll stack ---- */
+  .stack { overflow-y:auto; flex:1; padding:14px; }
+  .section { margin-bottom:26px; }
+  .section:last-child { margin-bottom:0; }
+  .sechead { display:flex; align-items:center; gap:10px; padding-bottom:9px; margin-bottom:12px;
+    box-shadow:inset 0 -1px 0 var(--r2); }
+  .sechead .no { font-family:var(--mono); font-size:10px; font-weight:500; color:var(--t3); flex:none; }
+  .sechead h2 { font-size:14px; font-weight:600; color:var(--t1); letter-spacing:-0.02em; }
+  .sechead .sub { font-size:10.5px; color:var(--t3); }
+  .sechead .acts { margin-left:auto; display:flex; align-items:center; gap:6px; }
+
+  /* cards earn a SURFACE, not a border */
+  .panel { background:var(--s2); border-radius:9px; overflow:hidden; box-shadow:var(--hi); }
+  .panel > .ph { height:31px; display:flex; align-items:center; gap:8px; padding:0 10px;
+    box-shadow:inset 0 -1px 0 var(--r1); background:rgba(255,255,255,.022); }
+  .panel > .ph .t { font-size:11.5px; font-weight:600; letter-spacing:-0.008em; text-transform:none; color:var(--t2); }
+  .panel > .ph .sp { margin-left:auto; }
+  .panel > .pb { padding:10px; }
+  /* a form is raised above the data it writes into — elevation, not an accent border */
+  .panel.accent { background:var(--s3); box-shadow:var(--hi), 0 10px 24px -22px rgba(0,0,0,1); }
+  .panel.accent > .ph { background:transparent; }
+  .panel.accent > .ph .t { color:var(--t1); }
+
+  /* ---- dense tables ---- */
+  table.dt { width:100%; border-collapse:separate; border-spacing:0; font-size:11.5px; }
+  table.dt thead th { text-align:left; font-family:var(--mono); font-size:10px; font-weight:500; letter-spacing:0;
+    text-transform:lowercase; color:var(--t3); padding:0 10px; height:26px; white-space:nowrap; user-select:none;
+    box-shadow:inset 0 -1px 0 var(--r2), inset 0 1px 0 var(--r1); background:rgba(0,0,0,.18); }
+  table.dt tbody td { padding:0 10px; height:28px; white-space:nowrap; color:var(--t2);
+    border-bottom:1px solid rgba(255,255,255,.032); }
+  table.dt tbody tr:last-child td { border-bottom:none; }
+  table.dt tbody tr:hover td { background:rgba(255,255,255,.032); }
+  table.dt td.n, table.dt th.n { text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  table.dt td.mono { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  /* SIGNAL 3/4 — the selected team, the object this whole section is about */
+  table.dt tbody tr.sel td { background:rgba(70,213,232,.055); color:var(--t1); }
+  table.dt tbody tr.sel:hover td { background:rgba(70,213,232,.08); }
+  table.dt tbody tr.sel td:first-child { box-shadow:inset 2px 0 0 var(--sig); }
+  table.dt.mem { table-layout:fixed; font-size:11.5px; }
+  table.dt.mem thead th, table.dt.mem tbody td { padding:0 8px; overflow:hidden; text-overflow:ellipsis; }
+  table.dt.mem col.m-user { width:138px; } table.dt.mem col.m-email { width:auto; }
+  table.dt.mem col.m-role { width:92px; } table.dt.mem col.m-added { width:88px; }
+  table.dt.mem col.m-last { width:88px; } table.dt.mem col.m-act { width:62px; }
+  .uname { display:inline-flex; align-items:center; gap:7px; font-weight:550; color:var(--t1); }
+  .ava { width:19px; height:19px; border-radius:6px; background:linear-gradient(180deg,#2A323D,#1D242D);
+    display:grid; place-items:center; font-size:8.5px; font-weight:600; color:var(--t3); flex:none;
+    box-shadow:var(--hi); }
+  .tname { display:inline-flex; align-items:center; gap:7px; font-weight:550; color:var(--t1); }
+  /* team identity is the one place a categorical hue is genuinely earned */
+  .tglyph { width:5px; height:14px; border-radius:2px; flex:none; }
+
+  /* ---- form ---- */
+  .field { margin-bottom:10px; }
+  /* labels live in the footnote register */
+  .field .lab { font-size:9.5px; font-weight:500; letter-spacing:0; text-transform:none; color:var(--t3);
+    display:block; margin-bottom:4px; }
+  /* every input is a recessed well */
+  .inp { width:100%; height:28px; padding:0 9px; border:0; border-radius:6px; background:var(--s0);
+    color:var(--t1); font-size:12px; font-family:inherit; outline:none;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); }
+  .inp:focus { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+  .inp::placeholder { color:var(--t3); }
+  textarea.inp { height:48px; padding:6px 9px; resize:none; line-height:1.45; }
+  .inp.mono { font-family:var(--mono); }
+  .fhint { font-size:9.5px; color:var(--t3); margin-top:4px; line-height:1.45; }
+  .frow { display:flex; align-items:center; gap:7px; margin-top:11px; }
+
+  /* ---- callouts: a left rule and an indent, never a box inside a box ---- */
+  .callout { display:flex; align-items:flex-start; gap:9px; font-size:10.5px; line-height:1.5; color:var(--t3);
+    padding:1px 0 1px 10px; box-shadow:inset 2px 0 0 rgba(236,131,90,.5); background:transparent; }
+  .callout .ci { flex:none; margin-top:0; font-weight:600; color:var(--st-serious); }
+  .callout b { color:var(--t1); font-weight:600; }
+  .callout .mono { color:var(--t2); }
+  .callout.amber { box-shadow:inset 2px 0 0 rgba(250,178,25,.5); }
+  .callout.amber .ci, .callout.amber .lockglyph { color:var(--st-warn); }
+  .callout.neutral { box-shadow:inset 2px 0 0 var(--r2); }
+  .callout.neutral .ci { color:var(--t3); }
+
+  /* ---- permission matrix: rule 3's heterogeneous-table exception ---- */
+  table.mtx { width:100%; border-collapse:separate; border-spacing:0; font-size:12px; }
+  table.mtx thead th { font-family:var(--mono); font-size:10px; font-weight:500; letter-spacing:0;
+    text-transform:lowercase; color:var(--t3); padding:0 8px; height:26px; text-align:center; white-space:nowrap;
+    background:rgba(0,0,0,.18); box-shadow:inset 0 -1px 0 var(--r2), inset 0 1px 0 var(--r1); }
+  table.mtx thead th.perm { text-align:left; width:280px; }
+  table.mtx.narrow { table-layout:fixed; }
+  table.mtx.narrow thead th { font-size:9.5px; padding:0 4px; }
+  table.mtx.narrow thead th.perm { width:172px; padding-left:10px; }
+  table.mtx.narrow tbody td { padding:0 4px; height:26px; }
+  table.mtx.narrow tbody td.perm { font-size:10.5px; padding-left:10px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  /* the one vertical rule that stays: it splits team roles from the platform flag */
+  table.mtx thead th.sup { color:var(--st-warn); box-shadow:inset 1px 0 0 var(--r2), inset 0 -1px 0 var(--r2), inset 0 1px 0 var(--r1); }
+  table.mtx tbody td { height:26px; padding:0 8px; text-align:center; color:var(--t2);
+    border-bottom:1px solid rgba(255,255,255,.032); }
+  table.mtx tbody tr:last-child td { border-bottom:none; }
+  table.mtx tbody td.perm { text-align:left; font-family:var(--mono); font-size:11px; color:var(--t2); }
+  table.mtx tbody td.sup { box-shadow:inset 1px 0 0 var(--r2); }
+  table.mtx tbody tr:hover td { background:rgba(255,255,255,.032); }
+  /* the crux of the governance story — the loudest row in the region */
+  table.mtx tr.hot td { background:rgba(220,80,80,.075); }
+  table.mtx tr.hot:hover td { background:rgba(220,80,80,.1); }
+  table.mtx tr.hot td.perm { color:var(--t1); font-weight:600; }
+  table.mtx tr.hot td.perm .lockglyph { color:var(--st-crit); }
+  /* 30 repeated grants are state, not status: value carries them */
+  .yes { color:var(--t1); font-weight:600; }
+  .no  { color:var(--t3); }
+  .withheld { display:inline-flex; align-items:center; gap:5px; font-size:9.5px; font-weight:600; letter-spacing:.02em;
+    color:var(--st-crit); background:rgba(0,0,0,.42); box-shadow:inset 0 0 0 1px rgba(220,80,80,.55);
+    border-radius:5px; padding:2px 6px; text-transform:uppercase; white-space:nowrap; }
+  table.mtx.narrow .withheld { font-size:8.5px; letter-spacing:0; padding:2px 5px; }
+  .mlegend { display:flex; align-items:center; gap:16px; font-size:10.5px; color:var(--t3); padding:8px 10px 0; flex-wrap:wrap; }
+  .mlegend .li { display:inline-flex; align-items:center; gap:5px; }
+
+  /* ---- toggles: repeated state → value + position + elevation, never the accent ---- */
+  .tog { display:flex; align-items:center; gap:8px; padding:5px 7px; border-radius:7px; cursor:pointer; }
+  .tog:hover { background:rgba(255,255,255,.04); }
+  .sw { width:26px; height:15px; border-radius:20px; position:relative; flex:none; transition:all .14s;
+    background:var(--s0); box-shadow:inset 0 1px 2px rgba(0,0,0,.65), inset 0 0 0 1px rgba(255,255,255,.05); }
+  .sw::after { content:""; position:absolute; top:2.5px; left:3px; width:9px; height:9px; border-radius:50%;
+    background:var(--t4); transition:all .14s; }
+  .sw.on { background:var(--s5); box-shadow:var(--hi), inset 0 0 0 1px rgba(255,255,255,.07); }
+  .sw.on::after { left:14px; background:var(--key); box-shadow:0 1px 2px rgba(0,0,0,.6); }
+  .evname { font-family:var(--mono); font-size:11px; color:var(--t2); }
+
+  /* ---- storage bar ---- */
+  .barwrap { padding:2px 0 6px; }
+  .legend { display:flex; flex-wrap:wrap; gap:5px 14px; margin-top:9px; }
+  .legend .li { display:flex; align-items:center; gap:6px; font-size:10.5px; color:var(--t3); }
+  .legend .sw2 { width:9px; height:9px; border-radius:3px; flex:none; }
+  .legend b { color:var(--t1); font-weight:600; font-family:var(--mono); font-variant-numeric:tabular-nums; }
+
+  /* ---- filter chips ---- */
+  .fchip { font-size:10.5px; font-weight:500; color:var(--t3); padding:2px 8px; border-radius:6px;
+    background:transparent; box-shadow:inset 0 0 0 1px var(--r2); cursor:pointer; transition:all .14s; }
+  .fchip:hover { color:var(--t1); background:rgba(255,255,255,.05); }
+  .fchip.on { color:var(--t1); background:var(--s4); box-shadow:var(--hi); font-weight:550; }
+  .qtok { font-family:var(--mono); font-size:10.5px; display:inline-flex; align-items:center; gap:6px;
+    padding:2px 8px; border-radius:6px; background:rgba(0,0,0,.32); color:var(--t2);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.5); }
+  .qtok .key { color:var(--t3); }
+  .qtok .x { color:var(--t3); cursor:pointer; }
+  .searchbox { height:26px; display:inline-flex; align-items:center; gap:7px; padding:0 9px; width:190px;
+    border-radius:7px; color:var(--t3); background:var(--s0);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); }
+  .searchbox:focus-within { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+  .searchbox input { background:none; border:none; outline:none; color:var(--t1); font-size:11.5px; width:100%; font-family:inherit; }
+  .searchbox input::placeholder { color:var(--t3); }
+
+  /* ---- audit ---- */
+  table.audit { font-size:10.5px; table-layout:fixed; }
+  table.audit thead th { font-size:9.5px; padding:0 6px; }
+  table.audit tbody td { height:25px; padding:0 6px; font-family:var(--mono); font-variant-numeric:tabular-nums;
+    overflow:hidden; text-overflow:ellipsis; }
+  table.audit col.c-ts { width:88px; } table.audit col.c-actor { width:76px; }
+  table.audit col.c-team { width:112px; } table.audit col.c-action { width:256px; }
+  table.audit col.c-meth { width:64px; } table.audit col.c-path { width:190px; }
+  table.audit col.c-status { width:44px; } table.audit col.c-res { width:120px; }
+  table.audit col.c-ip { width:82px; } table.audit col.c-req { width:76px; } table.audit col.c-ms { width:46px; }
+  /* a method is an identifier, not a status */
+  .meth { font-family:var(--mono); font-size:9.5px; font-weight:500; letter-spacing:.02em; padding:1px 5px;
+    border-radius:4px; color:var(--t3); background:rgba(255,255,255,.05); }
+  .meth.post { color:var(--t2); }
+  .meth.put, .meth.patch { color:var(--t2); }
+  .meth.del { color:var(--st-crit); background:rgba(0,0,0,.36); box-shadow:inset 0 0 0 1px rgba(220,80,80,.35); }
+  .meth.get { color:var(--t3); background:transparent; box-shadow:inset 0 0 0 1px var(--r1); }
+  /* outcome is typographic: the ordinary 2xx recedes so the failures read first */
+  .sc { font-family:var(--mono); }
+  .sc.ok { color:var(--t3); font-weight:400; }
+  .sc.warn { color:var(--st-warn); font-weight:600; }
+  .sc.serious { color:var(--st-serious); font-weight:600; }
+  .sc.crit { color:var(--st-crit); font-weight:600; }
+  .trunc { display:inline-block; max-width:100%; overflow:hidden; text-overflow:ellipsis; vertical-align:bottom; }
+
+  /* ---- destructive + confirm steps ---- */
+  /* weight comes from elevation and a type-the-name gate, not from a wall of red */
+  .tbtn.danger { color:var(--t1); font-weight:600; background:linear-gradient(180deg,#242C37,#1A2029);
+    box-shadow:var(--hi), inset 0 0 0 1px rgba(220,80,80,.45), 0 2px 8px -4px rgba(0,0,0,.9); }
+  .tbtn.danger:hover { background:linear-gradient(180deg,#2B333F,#1F2630); }
+  .tbtn[disabled] { opacity:.42; cursor:not-allowed; }
+  .tbtn[disabled]:hover { background:transparent; }
+  .tbtn.danger[disabled]:hover { background:linear-gradient(180deg,#242C37,#1A2029); }
+  .confirm { border-radius:8px; padding:9px 10px; background:var(--s4);
+    box-shadow:var(--hi), inset 3px 0 0 rgba(220,80,80,.6), 0 10px 24px -22px rgba(0,0,0,1); }
+  .confirm .ct { font-size:11.5px; font-weight:600; color:var(--t1); display:block;
+    margin-bottom:6px; letter-spacing:-0.008em; }
+  .confirm .ct::first-letter { color:var(--st-crit); }
+  .confirm .cb { font-size:10.5px; color:var(--t3); line-height:1.5; }
+  .confirm .cb b { color:var(--t1); font-weight:600; }
+  .confirm .cb .mono { color:var(--t2); }
+  .confirm .inp { background:var(--s0); }
+  table.dt tbody tr.confirmrow td { background:rgba(255,255,255,.022); height:auto; padding:8px 10px;
+    white-space:normal; overflow:visible; }
+  table.dt tbody tr.confirmrow:hover td { background:rgba(255,255,255,.022); }
+
+  /* ---- choice controls ---- */
+  .seg { display:inline-flex; padding:2px; gap:2px; border-radius:8px; background:rgba(0,0,0,.3);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.55); }
+  .seg .sgi { font-size:11px; font-weight:500; color:var(--t3); padding:3px 9px; border-radius:6px; cursor:pointer; }
+  .seg .sgi:hover { color:var(--t1); }
+  .seg .sgi.on { color:var(--t1); background:var(--s5); box-shadow:var(--hi); font-weight:550; }
+  .rolecard { border-radius:8px; background:rgba(255,255,255,.03); padding:7px 8px; cursor:pointer; }
+  .rolecard:hover { background:rgba(255,255,255,.055); }
+  .rolecard.on { background:var(--s5); box-shadow:var(--hi), 0 2px 8px -5px rgba(0,0,0,.9); }
+  .rolecard .rt { display:flex; align-items:center; gap:6px; }
+  .rolecard .rd { font-size:9.5px; color:var(--t3); line-height:1.45; margin-top:5px; }
+  .rolecard .rd b { color:var(--t1); font-weight:600; }
+  .radio { width:12px; height:12px; border-radius:50%; flex:none; display:inline-block; position:relative;
+    background:var(--s0); box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.09); }
+  .radio.on { background:var(--key); box-shadow:0 1px 2px rgba(0,0,0,.6); }
+  .cbx { width:13px; height:13px; border-radius:4px; flex:none; display:grid; place-items:center; font-size:9px;
+    color:transparent; background:var(--s0);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.09); }
+  .cbx.on { background:var(--key); color:#0B0E13; font-weight:700; box-shadow:0 1px 2px rgba(0,0,0,.6); }
+  .evrow { display:flex; align-items:center; gap:8px; padding:4px 6px; border-radius:6px; cursor:pointer; }
+  .evrow:hover { background:rgba(255,255,255,.04); }
+  /* the write-once secret is a one-shot state: a recessed well is exactly right for it */
+  .secretbox { font-family:var(--mono); font-size:11.5px; letter-spacing:.02em; color:var(--t1);
+    background:var(--s0); border-radius:8px; padding:10px 11px; word-break:break-all; line-height:1.5;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.7), inset 0 0 0 1px rgba(250,178,25,.28); }
+  .loadmore { display:flex; align-items:center; gap:9px; padding:8px 10px; box-shadow:inset 0 1px 0 var(--r1);
+    font-size:10.5px; color:var(--t3); }
+  .loadmore b { color:var(--t2); font-weight:600; }
+
+  /* ================= STATUS BAR ================= */
+  .statusbar { height:28px; display:flex; align-items:center; gap:14px; padding:0 12px; flex:none;
+    background:var(--s2); box-shadow:inset 0 1px 0 var(--r1); font-size:10.5px; color:var(--t3); }
+  .statusbar .h { display:flex; align-items:center; gap:6px; }
+  .statusbar .right { margin-left:auto; display:flex; align-items:center; gap:9px; }
+  /* SIGNAL 4/4 — the one live indicator on the screen */
+  .statusbar .dot { width:6px; height:6px; border-radius:50%; background:var(--sig); flex:none;
+    box-shadow:0 0 0 3px rgba(70,213,232,.10), 0 0 9px -1px var(--sig); animation:pulse 3s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.42} }
+  @media (prefers-reduced-motion:reduce){ .statusbar .dot { animation:none } }
+</style>
+</head>
+<body class="dark" data-palette="#3987e5,#d95926,#199e70,#c98500,#d55181,#008300,#9085e9,#e66767">
+
+<!-- ================= HEADER ================= -->
+<header class="topbar">
+  <div class="brand">
+    <span class="glyph">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M4 7l8-4 8 4-8 4-8-4z" fill="#fff" opacity=".95"/><path d="M4 12l8 4 8-4M4 17l8 4 8-4" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity=".8"/></svg>
+    </span>
+    <span class="name">Command&nbsp;Studio</span>
+  </div>
+  <span class="env-chip">PROD · US-EAST</span>
+  <nav class="gnav">
+    <a href="#">Workflows</a>
+    <a href="#">Datasets</a>
+    <a href="#">Runs</a>
+    <a href="#">Library</a>
+  </nav>
+
+  <div class="cmdk lit" title="Command palette">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span class="ph">Search teams, members, audit events, run a command…</span>
+    <span class="kbd">⌘K</span>
+  </div>
+
+  <div class="hicons">
+    <button class="iconbtn" title="Filters"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M3 5h18M6 12h12M10 19h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+    <button class="iconbtn" title="Alerts">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M6 9a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M10 20a2 2 0 004 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+    <button class="iconbtn" title="Theme" onclick="document.body.classList.toggle('dark')">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M20 13a8 8 0 11-9-9 6 6 0 009 9z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+    </button>
+    <div class="teamsw" title="Switch team">
+      <span class="tk">Team</span>
+      <span>Growth Analytics</span>
+      <span class="ca">▾</span>
+    </div>
+    <div class="avatar lit" title="S. Ganji · owner @ growth-analytics · superuser">SG</div>
+  </div>
+</header>
+
+<!-- ================= KPI STRIP ================= -->
+<div class="kpistrip">
+  <div class="kpi head">
+    <span class="shield"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6l7-3z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></span>
+    <span class="ttl">Admin &amp; Governance</span>
+  </div>
+  <div class="kpi"><span class="lab">Teams</span><span class="val num">7</span><span class="delta up">▲ 1</span></div>
+  <div class="kpi"><span class="lab">Members</span><span class="val num">84</span><span class="delta" style="color:var(--muted-foreground)">seats</span></div>
+  <div class="kpi"><span class="lab">Platform users</span><span class="val num">96</span></div>
+  <div class="kpi" title="Platform-level flag — separate from the four team-scoped roles."><span class="lab">Superusers</span><span class="val num" style="color:var(--st-warn)">3</span><span class="delta" style="color:var(--st-warn)">privileged</span></div>
+  <div class="kpi"><span class="lab">Storage used</span><span class="val num">2.41<small style="font-size:11px;color:var(--muted-foreground)"> TB</small></span></div>
+  <div class="kpi"><span class="lab">Audit events 30d</span><span class="val num">1.24M</span>
+    <svg width="52" height="18" viewBox="0 0 52 18"><polyline points="0,13 8,12 16,14 24,9 32,10 40,6 52,4" fill="none" stroke="var(--muted-foreground)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </div>
+  <div class="kpi" title="Artifacts past their retention TTL, awaiting the next GC sweep."><span class="lab">Due for GC</span><span class="val num" style="color:var(--st-serious)">412</span><span class="delta down">unswept</span></div>
+</div>
+
+<!-- ================= WORKSPACE ================= -->
+<div class="workspace">
+
+  <!-- ---------- LEFT / SECTION NAV ---------- -->
+  <div class="col rail">
+    <div class="colhead">
+      <span class="t">Console</span>
+      <span class="spacer"></span>
+      <span class="badge mono">5</span>
+    </div>
+    <div class="navlist">
+      <a class="navitem on" href="#s-teams">
+        <span class="ni"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8" r="3.2" stroke="currentColor" stroke-width="2"/><path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M16 6.2a3 3 0 010 5.6M17.5 19c0-2.4-1-4.1-2.4-5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>
+        <span class="nl">Teams &amp; members</span>
+        <span class="nb num">7</span>
+        <span class="nsub">roles · membership · RBAC</span>
+      </a>
+      <a class="navitem" href="#s-users">
+        <span class="ni"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3.4" stroke="currentColor" stroke-width="2"/><path d="M5 20c0-3.4 3.1-6 7-6s7 2.6 7 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>
+        <span class="nl">Users</span>
+        <span class="nb num">96</span>
+        <span class="nsub">platform accounts · is_superuser</span>
+      </a>
+      <a class="navitem" href="#s-audit">
+        <span class="ni"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M5 4h10l4 4v12H5z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M8 11h8M8 15h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>
+        <span class="nl">Audit log</span>
+        <span class="nb su">Superuser</span>
+        <span class="nsub">immutable · append-only</span>
+      </a>
+      <a class="navitem" href="#s-hooks">
+        <span class="ni"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 4v7a3 3 0 003 3h4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="4.5" r="1.8" stroke="currentColor" stroke-width="2"/><circle cx="19.5" cy="14" r="1.8" stroke="currentColor" stroke-width="2"/><path d="M8 20h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>
+        <span class="nl">Webhooks</span>
+        <span class="nb num">3</span>
+        <span class="nsub">7 event types · deliveries</span>
+      </a>
+      <a class="navitem" href="#s-storage">
+        <span class="ni"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="6" rx="7" ry="2.8" stroke="currentColor" stroke-width="2"/><path d="M5 6v12c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8V6" stroke="currentColor" stroke-width="2"/><path d="M5 12c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8" stroke="currentColor" stroke-width="2"/></svg></span>
+        <span class="nl">Storage &amp; retention</span>
+        <span class="nb mono">2.41T</span>
+        <span class="nsub">GC · TTL by artifact kind</span>
+      </a>
+
+      <div class="navsep"></div>
+      <div class="navmicro">Signed in as</div>
+      <div class="whoami">
+        <div class="wn"><span class="ava">SG</span> S. Ganji</div>
+        <div class="we mono">s.ganji@bank-internal.net</div>
+        <div class="wr">
+          <span class="role owner">owner</span>
+          <span class="su-chip">superuser</span>
+        </div>
+        <div class="we" style="margin-top:6px">on <b style="color:var(--foreground);font-weight:600">growth-analytics</b> · 3 more teams</div>
+      </div>
+      <div class="navmicro">Scope</div>
+      <div style="padding:0 10px 12px;font-size:10.5px;color:var(--muted-foreground);line-height:1.5">
+        Everything below is <b style="color:var(--foreground);font-weight:600">team-scoped</b>. Sections marked
+        <span class="su-chip">superuser</span> are platform-wide.
+      </div>
+    </div>
+  </div>
+
+  <!-- ---------- MAIN / CONSOLE STACK ---------- -->
+  <div class="col main">
+    <div class="stack">
+
+      <!-- ============ 1 · TEAMS & MEMBERS ============ -->
+      <div class="section" id="s-teams">
+        <div class="sechead">
+          <span class="no">01</span>
+          <h2>Teams &amp; members</h2>
+          <span class="sub">7 teams · 84 members · every dataset is locked to exactly one team</span>
+          <span class="acts">
+            <span class="searchbox">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+              <input placeholder="Filter teams…" />
+              <span class="kbd">/</span>
+            </span>
+            <button class="tbtn primary">+ New team<span class="k">⌘N</span></button>
+          </span>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 348px;gap:12px;align-items:start">
+
+          <div style="display:flex;flex-direction:column;gap:12px;min-width:0">
+          <!-- teams table -->
+          <div class="panel">
+            <div class="ph">
+              <span class="t">Teams</span>
+              <span class="pill neu num">7</span>
+              <span class="sp"></span>
+              <span class="mono" style="font-size:10px;color:var(--t3)">sorted by storage ▼</span>
+            </div>
+            <table class="dt">
+              <thead>
+                <tr>
+                  <th>Team</th><th>Slug</th><th class="n">Members</th><th class="n">Datasets</th>
+                  <th class="n">Storage</th><th>Created</th><th>Your role</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="sel">
+                  <td><span class="tname"><span class="tglyph" style="background:var(--viz-2)"></span>Growth Analytics</span></td>
+                  <td class="mono muted">growth-analytics</td>
+                  <td class="n">12</td><td class="n">31</td><td class="n">612 GB</td>
+                  <td class="mono muted">2025-03-11</td>
+                  <td><span class="role owner">owner</span></td>
+                </tr>
+                <tr>
+                  <td><span class="tname"><span class="tglyph" style="background:var(--viz-6)"></span>Risk &amp; Compliance</span></td>
+                  <td class="mono muted">risk-compliance</td>
+                  <td class="n">18</td><td class="n">27</td><td class="n">548 GB</td>
+                  <td class="mono muted">2024-11-02</td>
+                  <td><span class="role viewer">viewer</span></td>
+                </tr>
+                <tr>
+                  <td><span class="tname"><span class="tglyph" style="background:var(--viz-7)"></span>Data Platform</span></td>
+                  <td class="mono muted">data-platform</td>
+                  <td class="n">9</td><td class="n">24</td><td class="n">446 GB</td>
+                  <td class="mono muted">2024-09-18</td>
+                  <td><span class="role admin">admin</span></td>
+                </tr>
+                <tr>
+                  <td><span class="tname"><span class="tglyph" style="background:var(--viz-3)"></span>Finance</span></td>
+                  <td class="mono muted">finance</td>
+                  <td class="n">14</td><td class="n">19</td><td class="n">331 GB</td>
+                  <td class="mono muted">2025-01-27</td>
+                  <td><span class="role editor">editor</span></td>
+                </tr>
+                <tr>
+                  <td><span class="tname"><span class="tglyph" style="background:var(--viz-1)"></span>People Ops</span></td>
+                  <td class="mono muted">people-ops</td>
+                  <td class="n">11</td><td class="n">14</td><td class="n">218 GB</td>
+                  <td class="mono muted">2025-02-04</td>
+                  <td><span class="dim" title="You are not a member of this team">— not a member</span></td>
+                </tr>
+                <tr>
+                  <td><span class="tname"><span class="tglyph" style="background:var(--viz-4)"></span>Customer Success</span></td>
+                  <td class="mono muted">customer-success</td>
+                  <td class="n">13</td><td class="n">16</td><td class="n">164 GB</td>
+                  <td class="mono muted">2025-05-19</td>
+                  <td><span class="role viewer">viewer</span></td>
+                </tr>
+                <tr>
+                  <td><span class="tname"><span class="tglyph" style="background:var(--viz-5)"></span>Marketing</span></td>
+                  <td class="mono muted">marketing</td>
+                  <td class="n">7</td><td class="n">11</td><td class="n">91 GB</td>
+                  <td class="mono muted">2025-08-01</td>
+                  <td><span class="role viewer">viewer</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- selected team summary -->
+          <div class="panel">
+            <div class="ph">
+              <span class="t">Growth Analytics · selected</span>
+              <span class="mono" style="font-size:10px;color:var(--t3)">team_id 4f2a · created 2025-03-11 by h.bergstrom</span>
+              <span class="sp"></span>
+              <button class="tbtn sm">Rename</button>
+              <button class="tbtn sm danger" title="Owner only — deletes the team and every dataset it owns. Opens the confirm step in the danger zone below.">Delete team</button>
+            </div>
+            <div class="pb" style="display:flex;align-items:center;gap:0;padding:0">
+              <div style="flex:1;padding:9px 12px;border-right:1px solid var(--border)">
+                <div style="font-size:9.5px;font-weight:500;letter-spacing:.11em;text-transform:uppercase;color:var(--t3)">Members</div>
+                <div class="num" style="font-size:21px;font-weight:600;letter-spacing:-0.03em;color:var(--t1)">12</div>
+              </div>
+              <div style="flex:1;padding:9px 12px;border-right:1px solid var(--border)">
+                <div style="font-size:9.5px;font-weight:500;letter-spacing:.11em;text-transform:uppercase;color:var(--t3)">Datasets</div>
+                <div class="num" style="font-size:21px;font-weight:600;letter-spacing:-0.03em;color:var(--t1)">31</div>
+              </div>
+              <div style="flex:1;padding:9px 12px;border-right:1px solid var(--border)">
+                <div style="font-size:9.5px;font-weight:500;letter-spacing:.11em;text-transform:uppercase;color:var(--t3)">Storage</div>
+                <div class="num" style="font-size:21px;font-weight:600;letter-spacing:-0.03em;color:var(--t1)">612<small style="font-size:11px;font-weight:600;color:var(--muted-foreground)"> GB</small></div>
+              </div>
+              <div style="flex:1;padding:9px 12px;border-right:1px solid var(--border)">
+                <div style="font-size:9.5px;font-weight:500;letter-spacing:.11em;text-transform:uppercase;color:var(--t3)">PII columns</div>
+                <div class="num" style="font-size:21px;font-weight:600;letter-spacing:-0.03em;color:var(--t1)">14</div>
+              </div>
+              <div style="flex:1.9;padding:9px 12px;min-width:0">
+                <div style="font-size:9.5px;font-weight:500;letter-spacing:.11em;text-transform:uppercase;color:var(--t3)">Can read unmasked</div>
+                <div style="font-size:12px;font-weight:600;margin-top:3px;display:flex;align-items:center;gap:7px;white-space:nowrap">
+                  <span class="num">3</span> of 12
+                  <span class="pill warn">admin · owner</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          </div>
+
+          <!-- inline create team -->
+          <div class="panel accent">
+            <div class="ph">
+              <span class="t">New team</span>
+              <span class="sp"></span>
+              <span class="mono" style="font-size:10px;color:var(--t3)">POST /teams</span>
+            </div>
+            <div class="pb">
+              <div class="field">
+                <span class="lab">Team name</span>
+                <input class="inp" value="Treasury Analytics" />
+              </div>
+              <div class="field">
+                <span class="lab">Slug</span>
+                <input class="inp mono" value="treasury-analytics" />
+                <div class="fhint">Derived from the name · immutable once created · used in every artifact path.</div>
+              </div>
+              <div class="field">
+                <span class="lab">Description</span>
+                <textarea class="inp">Liquidity, funding and intraday balance datasets for the Treasury desk.</textarea>
+              </div>
+              <div class="field">
+                <span class="lab">Initial owner</span>
+                <div class="rolesel" style="width:100%;height:28px;justify-content:space-between;font-weight:500">
+                  <span style="display:inline-flex;align-items:center;gap:7px"><span class="ava">MR</span> M. Ruiz · m.ruiz@bank-internal.net</span>
+                  <span class="ca">▾</span>
+                </div>
+                <div class="fhint">Gets the <b style="color:var(--foreground);font-weight:600">owner</b> role — the only role that can delete the team.</div>
+              </div>
+              <div class="frow">
+                <button class="tbtn primary">Create team</button>
+                <button class="tbtn">Cancel</button>
+                <span class="mono" style="margin-left:auto;font-size:10px;color:var(--t3)">audited</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 528px;gap:12px;align-items:start;margin-top:12px">
+
+        <!-- members -->
+        <div class="panel">
+          <div class="ph">
+            <span class="t">Members · Growth Analytics</span>
+            <span class="pill neu num">12</span>
+            <span class="mono" style="font-size:10px;color:var(--t3)">growth-analytics</span>
+            <span class="sp"></span>
+            <span class="mono" style="font-size:10px;color:var(--t3)">showing 6 of 12</span>
+            <button class="tbtn sm">+ Add member</button>
+          </div>
+          <table class="dt mem">
+            <colgroup>
+              <col class="m-user"/><col class="m-email"/><col class="m-role"/><col class="m-added"/><col class="m-last"/><col class="m-act"/>
+            </colgroup>
+            <thead>
+              <tr>
+                <th>User</th><th>Email</th><th>Role</th><th>Added</th><th>Last active</th>
+                <th class="n">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="uname"><span class="ava">SG</span>S. Ganji <span class="su-chip" style="margin-left:2px" title="Platform superuser">su</span></span></td>
+                <td class="mono muted">s.ganji@bank-internal.net</td>
+                <td><span class="rolesel"><span class="role owner">owner</span><span class="ca">▾</span></span></td>
+                <td class="mono muted">2025-03-11</td>
+                <td class="mono muted">2m ago</td>
+                <td class="n"><button class="xbtn" disabled title="A team must keep at least one owner">✕</button></td>
+              </tr>
+              <tr>
+                <td><span class="uname"><span class="ava">DP</span>D. Park</span></td>
+                <td class="mono muted">d.park@bank-internal.net</td>
+                <td><span class="rolesel"><span class="role admin">admin</span><span class="ca">▾</span></span></td>
+                <td class="mono muted">2025-03-14</td>
+                <td class="mono muted">18m ago</td>
+                <td class="n"><button class="xbtn" title="Remove from team">✕</button></td>
+              </tr>
+              <tr>
+                <td><span class="uname"><span class="ava">AK</span>A. Kaur</span></td>
+                <td class="mono muted">a.kaur@bank-internal.net</td>
+                <td><span class="rolesel"><span class="role admin">admin</span><span class="ca">▾</span></span></td>
+                <td class="mono muted">2025-04-02</td>
+                <td class="mono muted">1h ago</td>
+                <td class="n"><button class="xbtn" title="Remove from team">✕</button></td>
+              </tr>
+              <tr>
+                <td><span class="uname"><span class="ava">JO</span>J. Okafor</span></td>
+                <td class="mono muted">j.okafor@bank-internal.net</td>
+                <td><span class="rolesel"><span class="role editor">editor</span><span class="ca">▾</span></span></td>
+                <td class="mono muted">2025-05-21</td>
+                <td class="mono muted">3h ago</td>
+                <td class="n"><button class="xbtn" title="Remove from team">✕</button></td>
+              </tr>
+              <tr>
+                <td><span class="uname"><span class="ava">LM</span>L. Moreau</span></td>
+                <td class="mono muted">l.moreau@bank-internal.net</td>
+                <td><span class="rolesel"><span class="role editor">editor</span><span class="ca">▾</span></span></td>
+                <td class="mono muted">2025-06-08</td>
+                <td class="mono muted">yesterday</td>
+                <td class="n"><button class="xbtn" title="Remove from team">✕</button></td>
+              </tr>
+              <tr>
+                <td><span class="uname"><span class="ava">RB</span>R. Bhatt</span></td>
+                <td class="mono muted">r.bhatt@bank-internal.net</td>
+                <td><span class="rolesel"><span class="role viewer">viewer</span><span class="ca">▾</span></span></td>
+                <td class="mono muted">2026-01-15</td>
+                <td class="mono muted">6d ago</td>
+                <td class="n"><button class="xbtn" title="Remove from team" style="color:var(--st-crit);background:rgba(255,255,255,.06)">✕</button></td>
+              </tr>
+              <tr class="confirmrow">
+                <td colspan="6">
+                  <div class="confirm">
+                    <div class="ct">⚠ Remove R. Bhatt from growth-analytics?</div>
+                    <div class="cb">
+                      Removal is <b>immediate</b> — there is no pending state and no undo. Their very next request against this
+                      team returns <b>404, not 403</b>, so the team's existence stays hidden from them. Everything they made
+                      <b>stays with the team</b>: datasets, rules, profiles and artifacts are owned by
+                      <span class="mono">growth-analytics</span>, never by a person, so nothing is deleted and nothing is orphaned.
+                      Their platform account and their memberships in <b>2 other teams</b> are untouched. Re-adding them later
+                      restores access but not their role — you pick it again.
+                    </div>
+                    <div class="frow" style="margin-top:8px">
+                      <button class="tbtn danger sm">Remove member</button>
+                      <button class="tbtn sm">Cancel</button>
+                      <span class="mono" style="margin-left:auto;font-size:10px;color:var(--t3)">DELETE /teams/growth-analytics/members/u_2318 · audited</span>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="loadmore">
+            <button class="tbtn sm">Load more</button>
+            <span>showing <b class="mono">6</b> of 12 · cursor-paged — the API hands back a next cursor, never a page number</span>
+          </div>
+          <div style="padding:10px">
+            <div class="callout neutral">
+              <span class="ci">i</span>
+              <span>Roles are assigned <b>per team</b>. The same person can be <b>owner</b> of growth-analytics and
+              <b>viewer</b> of risk-compliance; a dataset never leaves the team that owns it, so a role grants nothing
+              outside that team's namespace. A team must always keep at least one <b>owner</b>.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- permission matrix -->
+        <div class="panel">
+          <div class="ph">
+            <span class="t">Role permission matrix</span>
+            <span class="pill neu">4 roles + 1 flag</span>
+            <span class="sp"></span>
+            <span class="mono" style="font-size:10px;color:var(--t3)">cumulative</span>
+          </div>
+          <div style="padding:10px 10px 0">
+            <div class="callout">
+              <span class="ci">!</span>
+              <span><b>dataset:read_sensitive is deliberately withheld from editor.</b> An editor can write, transform and
+              publish data they cannot read unmasked — only <b>admin</b>, <b>owner</b> and platform <b>superuser</b> ever see
+              raw PII, and every unmasked read is written to the audit log.</span>
+            </div>
+          </div>
+          <div style="padding:10px 0 0">
+          <table class="mtx narrow">
+            <thead>
+              <tr>
+                <th class="perm">Permission</th>
+                <th>viewer</th><th>editor</th><th>admin</th><th>owner</th><th class="sup">superuser</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td class="perm">team:read</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="sup yes">✓</td></tr>
+              <tr><td class="perm">dataset:read</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="sup yes">✓</td></tr>
+              <tr><td class="perm">dataset:write</td><td class="no">—</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="sup yes">✓</td></tr>
+              <tr><td class="perm">dataset:delete</td><td class="no">—</td><td class="no">—</td><td class="yes">✓</td><td class="yes">✓</td><td class="sup yes">✓</td></tr>
+              <tr class="hot">
+                <td class="perm">dataset:read_sensitive <span class="lockglyph" style="margin-left:2px"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></td>
+                <td class="no">—</td>
+                <td><span class="withheld">✕ withheld</span></td>
+                <td class="yes">✓</td><td class="yes">✓</td><td class="sup yes">✓</td>
+              </tr>
+              <tr><td class="perm">team:manage</td><td class="no">—</td><td class="no">—</td><td class="yes">✓</td><td class="yes">✓</td><td class="sup yes">✓</td></tr>
+              <tr><td class="perm">team:delete</td><td class="no">—</td><td class="no">—</td><td class="no">—</td><td class="yes">✓</td><td class="sup yes">✓</td></tr>
+            </tbody>
+          </table>
+          <div class="mlegend">
+            <span class="li"><span class="yes">✓</span> granted</span>
+            <span class="li"><span class="no">—</span> not granted</span>
+            <span class="li"><span class="withheld">✕ withheld</span> by policy, not by rank</span>
+          </div>
+          <div class="mlegend" style="padding-top:6px;padding-bottom:2px;line-height:1.45">
+            <span class="li" style="align-items:flex-start"><span class="su-chip">superuser</span>
+              <span style="max-width:420px">platform flag on the user record — not a team role, and it bypasses team scope entirely.</span></span>
+          </div>
+          </div>
+        </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 528px;gap:12px;align-items:start;margin-top:12px">
+
+          <!-- inline add member -->
+          <div class="panel accent">
+            <div class="ph">
+              <span class="t">Add member · Growth Analytics</span>
+              <span class="sp"></span>
+              <span class="mono" style="font-size:10px;color:var(--t3)">POST /teams/growth-analytics/members</span>
+            </div>
+            <div class="pb">
+              <div class="field">
+                <span class="lab">Who</span>
+                <div style="display:flex;align-items:center;gap:9px;margin-bottom:6px">
+                  <span class="seg">
+                    <span class="sgi on">Existing platform user</span>
+                    <span class="sgi">Invite by email</span>
+                  </span>
+                  <span style="font-size:10px;color:var(--t3)">96 accounts · the 12 already on this team are hidden</span>
+                </div>
+                <div class="rolesel" style="width:100%;height:28px;justify-content:space-between;font-weight:500">
+                  <span style="display:inline-flex;align-items:center;gap:7px">
+                    <span class="ava">FT</span> F. Traoré
+                    <span class="mono muted" style="font-size:11px">f.traore@bank-internal.net</span>
+                    <span class="pill neu" style="font-size:9px">no team yet</span>
+                  </span>
+                  <span class="ca">▾</span>
+                </div>
+                <div class="fhint">Type to filter by name or email. Picking an existing account adds them instantly — no invite, no acceptance step.</div>
+              </div>
+
+              <div class="field">
+                <span class="lab">…or invite by email</span>
+                <input class="inp mono" placeholder="name@bank-internal.net" />
+                <div class="fhint">
+                  Creates a platform account with <span class="mono">is_superuser: false</span> and this membership pre-attached.
+                  The invite expires in 7 days; until they sign in the seat shows as <b style="color:var(--foreground)">pending</b>.
+                </div>
+              </div>
+
+              <div class="field">
+                <span class="lab">Role in this team</span>
+                <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:7px">
+                  <div class="rolecard">
+                    <div class="rt"><span class="radio"></span><span class="role viewer">viewer</span></div>
+                    <div class="rd">Reads rows and metadata. Masked columns stay masked.</div>
+                  </div>
+                  <div class="rolecard on">
+                    <div class="rt"><span class="radio on"></span><span class="role editor">editor</span></div>
+                    <div class="rd">Writes, transforms, publishes — but <b>never sees raw PII</b>.</div>
+                  </div>
+                  <div class="rolecard">
+                    <div class="rt"><span class="radio"></span><span class="role admin">admin</span></div>
+                    <div class="rd">Editor, plus delete, manage members, and <b>unmasked reads</b>.</div>
+                  </div>
+                  <div class="rolecard">
+                    <div class="rt"><span class="radio"></span><span class="role owner">owner</span></div>
+                    <div class="rd">Admin, plus deleting the team. A team needs <b>≥ 1 owner</b>.</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="callout" style="margin-top:2px">
+                <span class="ci">!</span>
+                <span><b>editor does not carry dataset:read_sensitive.</b> It is <b>withheld by policy, not by rank</b> — an editor
+                can upload, transform and publish rows they are never allowed to read unmasked. Only <b>admin</b>, <b>owner</b>
+                and platform <b>superuser</b> resolve raw PII, and every one of those reads lands in the audit log.</span>
+              </div>
+
+              <div class="callout neutral" style="margin-top:7px">
+                <span class="ci">i</span>
+                <span>This role applies to <b>growth-analytics</b> and nowhere else — it grants <b>nothing outside this team's
+                namespace</b>: not another team's datasets, artifacts, webhooks or audit rows, which do not merely 403 but
+                <b>404</b>. The same person can be <b>owner</b> here and <b>viewer</b> on risk-compliance.</span>
+              </div>
+
+              <div class="frow">
+                <button class="tbtn primary">Add member</button>
+                <button class="tbtn">Cancel</button>
+                <span class="mono" style="margin-left:auto;font-size:10px;color:var(--t3)">effective on their next request · audited</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- danger zone -->
+          <div class="panel" style="box-shadow:var(--hi), inset 3px 0 0 rgba(220,80,80,.55)">
+            <div class="ph">
+              <span class="t" style="color:var(--st-crit)">Danger zone · Growth Analytics</span>
+              <span class="sp"></span>
+              <span class="role owner">owner only</span>
+            </div>
+            <div class="pb" style="display:flex;flex-direction:column;gap:9px">
+              <div class="confirm">
+                <div class="ct">⚠ Delete team growth-analytics</div>
+                <div class="cb">
+                  This is a <b>cascade, not an archive</b>. <b>31 datasets</b> go with the team, and with them every version, tag,
+                  quality rule, profile, validation run and <b>612 GB</b> of blobs under
+                  <span class="mono">artifacts/growth-analytics/…</span> — including <b>published_source</b>, which is exempt from
+                  GC but not from this. Nothing can be rescued first: a dataset is locked to the team that owns it, so there is
+                  no move, no transfer and no re-parent. <b>12 members</b> lose access on their next request; their platform
+                  accounts and other memberships survive untouched.
+                </div>
+                <div class="field" style="margin:9px 0 0">
+                  <span class="lab">Type the slug to confirm</span>
+                  <input class="inp mono" placeholder="growth-analytics" />
+                </div>
+                <div class="frow">
+                  <button class="tbtn danger" disabled title="Type growth-analytics above to enable">Delete team · 31 datasets</button>
+                  <button class="tbtn">Cancel</button>
+                  <span class="mono" style="margin-left:auto;font-size:10px;color:var(--t3)">DELETE /teams/growth-analytics</span>
+                </div>
+              </div>
+
+              <div class="callout amber">
+                <span class="ci">!</span>
+                <span><b>Ownership can be transferred, never vacated.</b> A team must hold at least <b>one owner</b> at all times —
+                the last owner's ✕ is disabled and demoting them is rejected server-side, so you cannot orphan a team by
+                walking out of it. Promote a successor to <b>owner</b>, then remove yourself.</span>
+              </div>
+
+              <div class="callout neutral">
+                <span class="ci">i</span>
+                <span>Softer paths first: <b>Rename</b> the team, remove its members, or delete datasets one at a time so each
+                removal is its own reviewable audit row. Team deletion writes exactly one
+                <span class="mono">DELETE /teams/{team}</span> event — <b>the cascade is not itemised</b>, so after the fact you
+                cannot tell from the log which 31 datasets went.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ 2 · USERS ============ -->
+      <div class="section" id="s-users">
+        <div class="sechead">
+          <span class="no">02</span>
+          <h2>Users</h2>
+          <span class="sub">96 platform accounts · 3 carry the <code class="mono" style="color:var(--st-warn)">is_superuser</code> flag</span>
+          <span class="acts">
+            <span class="searchbox">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+              <input placeholder="Filter users…" />
+            </span>
+            <button class="tbtn sm">Export CSV</button>
+            <button class="tbtn primary">+ New user</button>
+          </span>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 348px;gap:12px;align-items:start">
+
+        <div class="panel">
+          <div class="ph">
+            <span class="t">Platform users</span>
+            <span class="pill neu num">96</span>
+            <span class="sp"></span>
+            <span class="mono" style="font-size:10px;color:var(--t3)">POST /users · superuser only</span>
+          </div>
+          <table class="dt">
+            <thead>
+              <tr>
+                <th>User</th><th>Email</th><th>is_superuser</th><th class="n">Teams</th>
+                <th>Created</th><th>Last login</th><th>Status</th><th class="n" style="width:120px">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="uname"><span class="ava">SG</span>S. Ganji</span></td>
+                <td class="mono muted">s.ganji@bank-internal.net</td>
+                <td><span class="su-chip">true</span></td>
+                <td class="n">4</td>
+                <td class="mono muted">2024-08-19</td><td class="mono muted">2m ago</td>
+                <td><span class="stat good"><span class="sdot good"></span>active</span></td>
+                <td class="n"><button class="tbtn sm">Edit</button></td>
+              </tr>
+              <tr>
+                <td><span class="uname"><span class="ava">HB</span>H. Bergström</span></td>
+                <td class="mono muted">h.bergstrom@bank-internal.net</td>
+                <td><span class="su-chip">true</span></td>
+                <td class="n">7</td>
+                <td class="mono muted">2024-06-03</td><td class="mono muted">44m ago</td>
+                <td><span class="stat good"><span class="sdot good"></span>active</span></td>
+                <td class="n"><button class="tbtn sm">Edit</button></td>
+              </tr>
+              <tr>
+                <td><span class="uname"><span class="ava">PS</span>P. Sørensen</span></td>
+                <td class="mono muted">p.sorensen@bank-internal.net</td>
+                <td><span class="su-chip">true</span></td>
+                <td class="n">2</td>
+                <td class="mono muted">2025-02-11</td><td class="mono muted">5h ago</td>
+                <td><span class="stat good"><span class="sdot good"></span>active</span></td>
+                <td class="n"><button class="tbtn sm">Edit</button></td>
+              </tr>
+              <tr>
+                <td><span class="uname"><span class="ava">DP</span>D. Park</span></td>
+                <td class="mono muted">d.park@bank-internal.net</td>
+                <td class="mono dim">false</td>
+                <td class="n">3</td>
+                <td class="mono muted">2025-03-14</td><td class="mono muted">18m ago</td>
+                <td><span class="stat good"><span class="sdot good"></span>active</span></td>
+                <td class="n"><button class="tbtn sm">Edit</button></td>
+              </tr>
+              <tr>
+                <td><span class="uname"><span class="ava">JO</span>J. Okafor</span></td>
+                <td class="mono muted">j.okafor@bank-internal.net</td>
+                <td class="mono dim">false</td>
+                <td class="n">2</td>
+                <td class="mono muted">2025-05-21</td><td class="mono muted">3h ago</td>
+                <td><span class="stat good"><span class="sdot good"></span>active</span></td>
+                <td class="n"><button class="tbtn sm">Edit</button></td>
+              </tr>
+              <tr>
+                <td><span class="uname"><span class="ava">CV</span>C. Vargas</span></td>
+                <td class="mono muted">c.vargas@bank-internal.net</td>
+                <td class="mono dim">false</td>
+                <td class="n">1</td>
+                <td class="mono muted">2026-06-04</td><td class="mono muted">31d ago</td>
+                <td><span class="stat warn"><span class="sdot warn"></span>dormant</span></td>
+                <td class="n"><button class="tbtn sm">Edit</button></td>
+              </tr>
+              <tr>
+                <td><span class="uname"><span class="ava">FT</span>F. Traoré</span></td>
+                <td class="mono muted">f.traore@bank-internal.net</td>
+                <td class="mono dim">false</td>
+                <td class="n">0</td>
+                <td class="mono muted">2026-08-12</td><td class="mono dim">never</td>
+                <td><span class="stat off"><span class="sdot off"></span>no team</span></td>
+                <td class="n"><button class="tbtn sm">Edit</button></td>
+              </tr>
+            </tbody>
+          </table>
+          <div style="padding:10px">
+            <div class="callout neutral">
+              <span class="ci">i</span>
+              <span>A user with no team membership can sign in and see <b>nothing</b> — every dataset route resolves
+              through a team. Creating users and toggling <b>is_superuser</b> are superuser-only operations, and both
+              are recorded in the audit log.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- inline create user -->
+        <div class="panel accent">
+          <div class="ph">
+            <span class="t">New user</span>
+            <span class="sp"></span>
+            <span class="su-chip">superuser only</span>
+          </div>
+          <div class="pb">
+            <div class="field">
+              <span class="lab">Full name</span>
+              <input class="inp" value="M. Adeyemi" />
+              <div class="fhint">Display name only — it is not an identity and may be changed later.</div>
+            </div>
+            <div class="field">
+              <span class="lab">Email</span>
+              <input class="inp mono" value="m.adeyemi@bank-internal.net" />
+              <div class="fhint">Unique across the platform, and the sign-in identity itself — <b style="color:var(--foreground)">immutable once created</b>.</div>
+            </div>
+            <div class="field">
+              <span class="lab">Platform flag</span>
+              <div class="tog" style="border-radius:7px;background:rgba(0,0,0,.26);box-shadow:inset 0 2px 4px -2px rgba(0,0,0,.7);cursor:pointer">
+                <span class="sw"></span>
+                <span class="evname">is_superuser</span>
+                <span class="mono" style="margin-left:auto;font-size:10px;color:var(--t3)">false</span>
+              </div>
+              <div class="fhint">Off by default. 3 of 96 accounts carry it today.</div>
+            </div>
+
+            <div class="callout" style="margin-top:2px">
+              <span class="ci">!</span>
+              <span><b>is_superuser bypasses team scope entirely.</b> It is not a fifth role and it does not sit beside
+              viewer/editor/admin/owner — it is a flag on the <b>user record</b> that ignores membership altogether: every
+              team, every dataset, <b>every unmasked PII column</b>, and the audit log itself. Grant it to a named person you
+              can page at 3am, never to a shared service account.</span>
+            </div>
+
+            <div class="callout neutral" style="margin-top:7px">
+              <span class="ci">i</span>
+              <span>Only a superuser may <span class="mono">POST /users</span> or flip this flag, and each writes an audit row
+              naming the actor. The new account lands with <b>no team</b> — it can sign in and see nothing until someone adds
+              it, which is the safe default, not an oversight.</span>
+            </div>
+
+            <div class="frow">
+              <button class="tbtn primary">Create user</button>
+              <button class="tbtn">Cancel</button>
+              <span class="mono" style="margin-left:auto;font-size:10px;color:var(--t3)">POST /users</span>
+            </div>
+          </div>
+        </div>
+        </div>
+      </div>
+
+      <!-- ============ 3 · AUDIT LOG ============ -->
+      <div class="section" id="s-audit">
+        <div class="sechead">
+          <span class="no">03</span>
+          <h2>Audit log</h2>
+          <span class="su-chip">superuser only</span>
+          <span class="sub">every mutation + every data egress read, success and failure</span>
+          <span class="acts">
+            <span class="searchbox" style="width:210px">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+              <input placeholder="actor, path, request_id…" />
+            </span>
+            <button class="tbtn sm">Export</button>
+          </span>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+          <span class="qtok"><span class="key">window</span> last 24h <span class="x">✕</span></span>
+          <span class="qtok"><span class="key">team</span> all</span>
+          <span class="qtok"><span class="key">status</span> ≥ 400 <span class="x">✕</span></span>
+          <span class="fchip on">All</span>
+          <span class="fchip">Mutations</span>
+          <span class="fchip">Egress GETs</span>
+          <span class="fchip">Failures</span>
+          <span class="fchip">Sensitive reads</span>
+          <span style="margin-left:auto;font-size:10.5px;color:var(--muted-foreground)">
+            <b class="mono" style="color:var(--foreground)">18,402</b> events in window · showing 12
+          </span>
+        </div>
+
+        <div class="panel">
+          <div class="ph">
+            <span class="t">Append-only stream</span>
+            <span class="pill warn">
+              <span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span>
+              immutable
+            </span>
+            <span class="mono" style="font-size:10px;color:var(--t3)">a DB trigger rejects UPDATE and DELETE on audit_log — rows can only be inserted</span>
+            <span class="sp"></span>
+            <span class="stat good"><span class="sdot good"></span>live</span>
+          </div>
+          <div style="overflow-x:auto">
+          <table class="dt audit">
+            <colgroup>
+              <col class="c-ts"/><col class="c-actor"/><col class="c-team"/><col class="c-action"/><col class="c-meth"/>
+              <col class="c-path"/><col class="c-status"/><col class="c-res"/><col class="c-ip"/><col class="c-req"/><col class="c-ms"/>
+            </colgroup>
+            <thead>
+              <tr>
+                <th>Timestamp</th><th>Actor</th><th>Team</th><th>Action (route template)</th><th>Method</th>
+                <th>Path</th><th class="n">Status</th><th>Resource</th><th>IP</th><th>request_id</th><th class="n">ms</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="muted">16:41:02.884</td><td>d.park</td><td class="muted">growth-analytics</td>
+                <td>POST /teams/{team}/datasets/{id}/publish</td><td><span class="meth post">POST</span></td>
+                <td><span class="trunc" style="max-width:190px" title="/teams/growth-analytics/datasets/ds_8412/publish">/teams/growth-analytics/datasets/ds_8412/publish</span></td>
+                <td class="n"><span class="sc ok">201</span></td><td class="muted">dataset · ds_8412</td>
+                <td class="muted">10.24.8.71</td><td class="muted">req_9f3a1c</td><td class="n">418</td>
+              </tr>
+              <tr>
+                <td class="muted">16:40:57.219</td><td>l.moreau</td><td class="muted">growth-analytics</td>
+                <td>GET /teams/{team}/datasets/{id}/download</td><td><span class="meth get">GET</span></td>
+                <td><span class="trunc" style="max-width:190px" title="/teams/growth-analytics/datasets/ds_8397/download">/teams/growth-analytics/datasets/ds_8397/download</span></td>
+                <td class="n"><span class="sc ok">200</span></td><td class="muted">egress · ds_8397</td>
+                <td class="muted">10.24.8.19</td><td class="muted">req_9f3a1b</td><td class="n">2,140</td>
+              </tr>
+              <tr>
+                <td class="muted">16:40:44.007</td><td>t.nakamura</td><td class="muted">growth-analytics</td>
+                <td>GET /teams/{team}/datasets/{id}/samples/{f}/data</td><td><span class="meth get">GET</span></td>
+                <td><span class="trunc" style="max-width:190px" title="/teams/growth-analytics/datasets/ds_8397/samples/head_1k/data">/teams/growth-analytics/datasets/ds_8397/samples/head_1k/data</span></td>
+                <td class="n"><span class="sc crit">403</span></td><td class="muted">egress · ds_8397</td>
+                <td class="muted">10.24.9.204</td><td class="muted">req_9f3a17</td><td class="n">11</td>
+              </tr>
+              <tr>
+                <td class="muted">16:39:58.611</td><td>a.kaur</td><td class="muted">growth-analytics</td>
+                <td>PATCH /teams/{team}/members/{user}</td><td><span class="meth patch">PATCH</span></td>
+                <td><span class="trunc" style="max-width:190px" title="/teams/growth-analytics/members/u_2291">/teams/growth-analytics/members/u_2291</span></td>
+                <td class="n"><span class="sc ok">200</span></td><td class="muted">member · u_2291</td>
+                <td class="muted">10.24.8.33</td><td class="muted">req_9f3a0e</td><td class="n">62</td>
+              </tr>
+              <tr>
+                <td class="muted">16:38:12.470</td><td>h.bergstrom</td><td class="muted">risk-compliance</td>
+                <td>DELETE /teams/{team}/datasets/{id}</td><td><span class="meth del">DELETE</span></td>
+                <td><span class="trunc" style="max-width:190px" title="/teams/risk-compliance/datasets/ds_7710">/teams/risk-compliance/datasets/ds_7710</span></td>
+                <td class="n"><span class="sc ok">204</span></td><td class="muted">dataset · ds_7710</td>
+                <td class="muted">10.24.4.12</td><td class="muted">req_9f39f2</td><td class="n">331</td>
+              </tr>
+              <tr>
+                <td class="muted">16:37:40.155</td><td>c.vargas</td><td class="muted">growth-analytics</td>
+                <td>GET /teams/{team}/datasets/{id}/samples/{f}</td><td><span class="meth get">GET</span></td>
+                <td><span class="trunc" style="max-width:190px" title="/teams/growth-analytics/datasets/ds_9001/samples/tail_1k">/teams/growth-analytics/datasets/ds_9001/samples/tail_1k</span></td>
+                <td class="n"><span class="sc serious">404</span></td><td class="muted">sample · tail_1k</td>
+                <td class="muted">10.24.8.90</td><td class="muted">req_9f39e8</td><td class="n">8</td>
+              </tr>
+              <tr>
+                <td class="muted">16:36:03.902</td><td>j.okafor</td><td class="muted">growth-analytics</td>
+                <td>PUT /teams/{team}/datasets/{id}/metadata</td><td><span class="meth put">PUT</span></td>
+                <td><span class="trunc" style="max-width:190px" title="/teams/growth-analytics/datasets/ds_8412/metadata">/teams/growth-analytics/datasets/ds_8412/metadata</span></td>
+                <td class="n"><span class="sc ok">200</span></td><td class="muted">metadata · ds_8412</td>
+                <td class="muted">10.24.8.55</td><td class="muted">req_9f39d1</td><td class="n">74</td>
+              </tr>
+              <tr>
+                <td class="muted">16:35:22.318</td><td>p.sorensen</td><td class="muted">— platform —</td>
+                <td>POST /users</td><td><span class="meth post">POST</span></td>
+                <td><span class="trunc" style="max-width:190px" title="/users">/users</span></td>
+                <td class="n"><span class="sc ok">201</span></td><td class="muted">user · u_2418</td>
+                <td class="muted">10.24.2.7</td><td class="muted">req_9f39c4</td><td class="n">96</td>
+              </tr>
+              <tr>
+                <td class="muted">16:34:47.771</td><td>r.bhatt</td><td class="muted">growth-analytics</td>
+                <td>POST /teams/{team}/datasets/{id}/transformations</td><td><span class="meth post">POST</span></td>
+                <td><span class="trunc" style="max-width:190px" title="/teams/growth-analytics/datasets/ds_8397/transformations">/teams/growth-analytics/datasets/ds_8397/transformations</span></td>
+                <td class="n"><span class="sc crit">403</span></td><td class="muted">transform · —</td>
+                <td class="muted">10.24.8.61</td><td class="muted">req_9f39b9</td><td class="n">9</td>
+              </tr>
+              <tr>
+                <td class="muted">16:33:11.049</td><td>d.park</td><td class="muted">growth-analytics</td>
+                <td>POST /teams/{team}/datasets/{id}/tags/{tag}/rollback</td><td><span class="meth post">POST</span></td>
+                <td><span class="trunc" style="max-width:190px" title="/teams/growth-analytics/datasets/ds_8288/tags/prod/rollback">/teams/growth-analytics/datasets/ds_8288/tags/prod/rollback</span></td>
+                <td class="n"><span class="sc ok">200</span></td><td class="muted">tag · prod</td>
+                <td class="muted">10.24.8.71</td><td class="muted">req_9f39a0</td><td class="n">187</td>
+              </tr>
+              <tr>
+                <td class="muted">16:31:55.640</td><td>svc-etl</td><td class="muted">data-platform</td>
+                <td>POST /teams/{team}/datasets/{id}/versions</td><td><span class="meth post">POST</span></td>
+                <td><span class="trunc" style="max-width:190px" title="/teams/data-platform/datasets/ds_5512/versions">/teams/data-platform/datasets/ds_5512/versions</span></td>
+                <td class="n"><span class="sc ok">201</span></td><td class="muted">version · v18</td>
+                <td class="muted">10.24.1.44</td><td class="muted">req_9f3985</td><td class="n">6,204</td>
+              </tr>
+              <tr>
+                <td class="muted">16:30:02.113</td><td>h.bergstrom</td><td class="muted">— platform —</td>
+                <td>POST /admin/storage/gc</td><td><span class="meth post">POST</span></td>
+                <td><span class="trunc" style="max-width:190px" title="/admin/storage/gc">/admin/storage/gc</span></td>
+                <td class="n"><span class="sc ok">200</span></td><td class="muted">gc · sweep_4471</td>
+                <td class="muted">10.24.4.12</td><td class="muted">req_9f3970</td><td class="n">4,882</td>
+              </tr>
+            </tbody>
+          </table>
+          </div>
+          <div style="padding:10px;display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div class="callout amber">
+              <span class="lockglyph" style="margin-top:1px"><svg width="11" height="11" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span>
+              <span><b>Immutable by construction.</b> A database trigger rejects <span class="mono">UPDATE</span> and
+              <span class="mono">DELETE</span> on the audit table — not even a superuser can rewrite history. Reads of
+              this section are themselves audited.</span>
+            </div>
+            <div class="callout neutral">
+              <span class="ci">i</span>
+              <span><b>What is captured:</b> every <span class="mono">POST · PUT · PATCH · DELETE</span> — including the
+              ones that <b>failed</b> (the 403s and 404s above) — plus data-egress reads
+              <span class="mono">GET /download</span>, <span class="mono">/samples/{f}</span> and
+              <span class="mono">/samples/{f}/data</span>. Ordinary list/read GETs are not recorded.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ 4 · WEBHOOKS ============ -->
+      <div class="section" id="s-hooks">
+        <div class="sechead">
+          <span class="no">04</span>
+          <h2>Webhooks</h2>
+          <span class="sub">3 endpoints · 7 event types · team-scoped, signed with a write-once secret</span>
+          <span class="acts">
+            <button class="tbtn sm">Send test</button>
+            <button class="tbtn primary">+ New endpoint</button>
+          </span>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 300px;gap:12px;align-items:start">
+
+          <div style="display:flex;flex-direction:column;gap:12px;min-width:0">
+            <!-- endpoints -->
+            <div class="panel">
+              <div class="ph">
+                <span class="t">Endpoints</span>
+                <span class="pill neu num">3</span>
+                <span class="sp"></span>
+                <span class="mono" style="font-size:10px;color:var(--t3)">growth-analytics</span>
+              </div>
+              <table class="dt">
+                <thead>
+                  <tr><th style="width:366px">URL</th><th style="width:106px" title="PATCH /webhooks/{id} { active } — pausing stops delivery on the next event and keeps the endpoint, its secret and its subscriptions">Active</th><th style="width:100px">Secret</th><th style="width:92px">Created</th><th class="n" style="width:94px">Last delivery</th><th class="n" style="width:122px">Actions</th></tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="mono"><span class="trunc" style="max-width:346px" title="https://hooks.growth.bank-internal.net/cmdstudio">https://hooks.growth.bank-internal.net/cmdstudio</span></td>
+                    <td>
+                      <span style="display:inline-flex;align-items:center;gap:8px">
+                        <span class="sw on" title="PATCH { active: false } — click to pause"></span>
+                        <span class="stat good"><span class="sdot good"></span>active</span>
+                      </span>
+                    </td>
+                    <td class="mono dim" title="Shown once at creation. Never returned by the API again.">whsec_••••••</td>
+                    <td class="mono muted">2026-06-02</td>
+                    <td class="n mono muted">2m ago</td>
+                    <td class="n"><button class="tbtn sm">Send test</button> <button class="xbtn" title="Delete endpoint">✕</button></td>
+                  </tr>
+                  <tr>
+                    <td class="mono"><span class="trunc" style="max-width:346px" title="https://api.riskops.bank-internal.net/v1/events">https://api.riskops.bank-internal.net/v1/events</span></td>
+                    <td>
+                      <span style="display:inline-flex;align-items:center;gap:8px">
+                        <span class="sw on" title="PATCH { active: false } — click to pause"></span>
+                        <span class="stat good"><span class="sdot good"></span>active</span>
+                      </span>
+                    </td>
+                    <td class="mono dim">whsec_••••••</td>
+                    <td class="mono muted">2026-04-14</td>
+                    <td class="n mono muted">17m ago</td>
+                    <td class="n"><button class="tbtn sm">Send test</button> <button class="xbtn" title="Delete endpoint">✕</button></td>
+                  </tr>
+                  <tr>
+                    <td class="mono"><span class="trunc" style="max-width:346px" title="https://legacy-bridge.bank-internal.net/hooks/studio">https://legacy-bridge.bank-internal.net/hooks/studio</span></td>
+                    <td>
+                      <span style="display:inline-flex;align-items:center;gap:8px">
+                        <span class="sw" title="PATCH { active: true } — click to resume"></span>
+                        <span class="stat off"><span class="sdot off"></span>paused</span>
+                      </span>
+                    </td>
+                    <td class="mono dim">whsec_••••••</td>
+                    <td class="mono muted">2025-11-30</td>
+                    <td class="n mono muted">9d ago</td>
+                    <td class="n"><button class="tbtn sm">Send test</button> <button class="xbtn" title="Delete endpoint" style="color:var(--st-crit);background:rgba(255,255,255,.06)">✕</button></td>
+                  </tr>
+                  <tr class="confirmrow">
+                    <td colspan="6">
+                      <div class="confirm">
+                        <div class="ct">⚠ Delete endpoint legacy-bridge.bank-internal.net/hooks/studio?</div>
+                        <div class="cb">
+                          Permanent and immediate: the subscription, the <b>signing secret</b> and any queued retries go with it.
+                          In-flight attempts are abandoned, not drained. <b>Delivery history is kept 30 days</b> for forensics and
+                          then swept — after that there is no record this endpoint ever received an event.
+                          If you only want the noise to stop, <b>pause it instead</b>: the toggle in the Active column keeps the
+                          endpoint, its secret and its 7 subscriptions exactly as they are, and resuming needs no new secret.
+                        </div>
+                        <div class="frow" style="margin-top:8px">
+                          <button class="tbtn danger sm">Delete endpoint</button>
+                          <button class="tbtn sm">Cancel</button>
+                          <span class="mono" style="margin-left:auto;font-size:10px;color:var(--t3)">DELETE /teams/growth-analytics/webhooks/wh_3f01 · audited</span>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <div style="padding:10px">
+                <div class="callout amber">
+                  <span class="lockglyph" style="margin-top:1px"><svg width="11" height="11" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span>
+                  <span><b>The signing secret is write-once.</b> It is displayed exactly once when the endpoint is
+                  created and is never read back by any API response or UI. Lost it? Rotate — you cannot recover it.</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- deliveries -->
+            <div class="panel">
+              <div class="ph">
+                <span class="t">Delivery history</span>
+                <span class="pill neu">last 200</span>
+                <span class="sp"></span>
+                <span class="mono" style="font-size:10px;color:var(--t3)">retries: 3 attempts, exponential backoff</span>
+              </div>
+              <table class="dt">
+                <thead>
+                  <tr><th>Event</th><th>Endpoint</th><th class="n">Status</th><th class="n">Attempts</th><th class="n">Duration</th><th>Timestamp</th></tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="mono">validation.passed</td><td class="mono muted">hooks.growth…/cmdstudio</td>
+                    <td class="n"><span class="sc ok">200</span></td><td class="n">1</td><td class="n">142 ms</td>
+                    <td class="mono muted">2026-08-16 16:40:58</td>
+                  </tr>
+                  <tr>
+                    <td class="mono">version.ready</td><td class="mono muted">hooks.growth…/cmdstudio</td>
+                    <td class="n"><span class="sc ok">200</span></td><td class="n">1</td><td class="n">118 ms</td>
+                    <td class="mono muted">2026-08-16 16:38:02</td>
+                  </tr>
+                  <tr>
+                    <td class="mono">tag.promoted</td><td class="mono muted">api.riskops…/v1/events</td>
+                    <td class="n"><span class="sc ok">202</span></td><td class="n">1</td><td class="n">311 ms</td>
+                    <td class="mono muted">2026-08-16 16:33:12</td>
+                  </tr>
+                  <tr>
+                    <td class="mono">transformation.completed</td><td class="mono muted">api.riskops…/v1/events</td>
+                    <td class="n"><span class="sc crit">500</span></td><td class="n" style="color:var(--t1);font-weight:600">3</td><td class="n">30,000 ms</td>
+                    <td class="mono muted">2026-08-16 16:29:41</td>
+                  </tr>
+                  <tr>
+                    <td class="mono">validation.failed</td><td class="mono muted">hooks.growth…/cmdstudio</td>
+                    <td class="n"><span class="sc ok">200</span></td><td class="n">1</td><td class="n">96 ms</td>
+                    <td class="mono muted">2026-08-16 16:21:07</td>
+                  </tr>
+                  <tr>
+                    <td class="mono">dataset.published</td><td class="mono muted">hooks.growth…/cmdstudio</td>
+                    <td class="n"><span class="sc warn">429</span></td><td class="n">2</td><td class="n">1,204 ms</td>
+                    <td class="mono muted">2026-08-16 16:14:55</td>
+                  </tr>
+                  <tr>
+                    <td class="mono">tag.rolled_back</td><td class="mono muted">hooks.growth…/cmdstudio</td>
+                    <td class="n"><span class="sc ok">200</span></td><td class="n">1</td><td class="n">133 ms</td>
+                    <td class="mono muted">2026-08-16 15:58:20</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- event subscriptions -->
+          <div class="panel">
+            <div class="ph">
+              <span class="t">Event types</span>
+              <span class="pill neu">5 / 7 on</span>
+            </div>
+            <div class="pb" style="padding:6px">
+              <div class="tog"><span class="sw on"></span><span class="evname">validation.passed</span></div>
+              <div class="tog"><span class="sw on"></span><span class="evname">validation.failed</span></div>
+              <div class="tog"><span class="sw on"></span><span class="evname">tag.promoted</span></div>
+              <div class="tog"><span class="sw"></span><span class="evname" style="color:var(--muted-foreground)">tag.rolled_back</span></div>
+              <div class="tog"><span class="sw on"></span><span class="evname">version.ready</span></div>
+              <div class="tog"><span class="sw"></span><span class="evname" style="color:var(--muted-foreground)">transformation.completed</span></div>
+              <div class="tog"><span class="sw on"></span><span class="evname">dataset.published</span></div>
+              <div style="padding:8px 7px 4px">
+                <div class="callout neutral" style="font-size:10px">
+                  <span class="ci">i</span>
+                  <span>Subscriptions are per endpoint. Payloads carry <b>ids and counts only</b> — never row data, so a
+                  webhook can never become a PII egress path.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 396px;gap:12px;align-items:start;margin-top:12px">
+
+          <!-- inline create webhook -->
+          <div class="panel accent">
+            <div class="ph">
+              <span class="t">New endpoint</span>
+              <span class="sp"></span>
+              <span class="mono" style="font-size:10px;color:var(--t3)">POST /teams/growth-analytics/webhooks</span>
+            </div>
+            <div class="pb">
+              <div class="field">
+                <span class="lab">Target URL</span>
+                <input class="inp mono" value="https://treasury-ops.bank-internal.net/hooks/studio" />
+                <div class="fhint">
+                  <span class="mono">https</span> only · must answer <b style="color:var(--foreground)">2xx within 30s</b> ·
+                  3 attempts with exponential backoff, then the delivery is marked failed and dropped — <b style="color:var(--foreground)">events are never replayed automatically</b>.
+                </div>
+              </div>
+
+              <div class="field">
+                <span class="lab">Subscribed events · 7 available</span>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px 10px;border-radius:8px;padding:5px 6px;background:rgba(0,0,0,.26);box-shadow:inset 0 2px 4px -2px rgba(0,0,0,.7)">
+                  <div class="evrow"><span class="cbx on">✓</span><span class="evname">validation.passed</span></div>
+                  <div class="evrow"><span class="cbx on">✓</span><span class="evname">tag.promoted</span></div>
+                  <div class="evrow"><span class="cbx on">✓</span><span class="evname">validation.failed</span></div>
+                  <div class="evrow"><span class="cbx on">✓</span><span class="evname">tag.rolled_back</span></div>
+                  <div class="evrow"><span class="cbx on">✓</span><span class="evname">version.ready</span></div>
+                  <div class="evrow"><span class="cbx"></span><span class="evname" style="color:var(--muted-foreground)">transformation.completed</span></div>
+                  <div class="evrow"><span class="cbx on">✓</span><span class="evname">dataset.published</span></div>
+                  <div class="evrow" style="cursor:default"><span style="font-size:10px;color:var(--t3)">6 of 7 selected</span></div>
+                </div>
+                <div class="fhint">
+                  At least one is required. <b style="color:var(--foreground)">These seven are the complete set</b> — there is no
+                  wildcard, no <span class="mono">*</span>, and no way to subscribe to an event that does not exist yet.
+                </div>
+              </div>
+
+              <div class="callout neutral">
+                <span class="ci">i</span>
+                <span>Every payload carries <b>ids, counts and timestamps only</b> — dataset_id, version, rule counts. Never row
+                data, never column values, so a webhook can never be turned into a PII egress path even by a team that owns the
+                receiving service.</span>
+              </div>
+
+              <div class="frow">
+                <button class="tbtn primary">Create endpoint</button>
+                <button class="tbtn">Cancel</button>
+                <span class="mono" style="margin-left:auto;font-size:10px;color:var(--t3)">the signing secret comes back on this one response →</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- write-once secret -->
+          <div class="panel" style="box-shadow:var(--hi), inset 3px 0 0 rgba(250,178,25,.5)">
+            <div class="ph">
+              <span class="t" style="color:var(--st-warn)">Signing secret · shown once</span>
+              <span class="sp"></span>
+              <span class="pill warn mono">201 created</span>
+            </div>
+            <div class="pb" style="display:flex;flex-direction:column;gap:9px">
+              <div style="font-size:10.5px;color:var(--muted-foreground);line-height:1.45">
+                <b class="mono" style="color:var(--foreground)">treasury-ops…/hooks/studio</b> was created. The server keeps only a
+                hash of the value below — <b style="color:var(--foreground)">no API response and no screen will ever show it
+                again</b>, not to you, not to a superuser, not in the audit log.
+              </div>
+
+              <div class="secretbox">whsec_7Q2mR9tK4xVb1LpZ8sHn6EgW0cYd3JfA</div>
+
+              <div style="display:flex;align-items:center;gap:7px">
+                <button class="tbtn sm">Copy</button>
+                <button class="tbtn sm">Download .env line</button>
+                <span class="mono" style="margin-left:auto;font-size:10px;color:var(--t3)">HMAC-SHA256 · X-Studio-Signature</span>
+              </div>
+
+              <div class="evrow" style="padding:6px 8px;border-radius:7px;background:rgba(0,0,0,.26);box-shadow:inset 0 2px 4px -2px rgba(0,0,0,.7)">
+                <span class="cbx"></span>
+                <span style="font-size:11px">I have stored this secret in the vault</span>
+              </div>
+
+              <button class="tbtn" disabled title="Tick the box first — dismissing this panel is irreversible" style="justify-content:center">
+                Done — hide the secret
+              </button>
+
+              <div class="callout amber">
+                <span class="ci">!</span>
+                <span><b>There is no recovery, only rotation.</b> Lose it and the endpoint keeps receiving events perfectly
+                well — you simply can no longer verify that they came from us. <b>Rotate</b> mints a new secret, shows it once
+                here, and <b>invalidates the old one immediately</b>: anything already in flight will fail your signature check,
+                so rotate when the receiver is quiet.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ 5 · STORAGE & RETENTION ============ -->
+      <div class="section" id="s-storage">
+        <div class="sechead">
+          <span class="no">05</span>
+          <h2>Storage &amp; retention</h2>
+          <span class="sub">2.41 TB across the object store · TTL is per artifact kind</span>
+          <span class="acts">
+            <span class="pill warn">412 due for collection</span>
+            <button class="tbtn primary">Run GC</button>
+          </span>
+        </div>
+
+        <div style="display:grid;grid-template-columns:452px 1fr;gap:12px;align-items:start">
+
+          <div style="display:flex;flex-direction:column;gap:12px;min-width:0">
+            <!-- usage -->
+            <div class="panel">
+              <div class="ph">
+                <span class="t">Usage breakdown</span>
+                <span class="pill neu">5 buckets</span>
+                <span class="sp"></span>
+                <span class="mono" style="font-size:10px;color:var(--t3)">bytes, exact</span>
+              </div>
+              <div class="pb">
+                <div class="barwrap">
+                  <svg width="430" height="20" viewBox="0 0 430 20" role="img" aria-label="Storage usage by category">
+                    <defs><clipPath id="barclip"><rect x="0" y="0" width="430" height="20" rx="4" ry="4"/></clipPath></defs>
+                    <g clip-path="url(#barclip)">
+                      <rect x="0"   y="0" width="288" height="20" fill="var(--m1)"/>
+                      <rect x="288" y="0" width="69"  height="20" fill="var(--m2)"/>
+                      <rect x="357" y="0" width="33"  height="20" fill="var(--m3)"/>
+                      <rect x="390" y="0" width="25"  height="20" fill="var(--m4)"/>
+                      <rect x="415" y="0" width="15"  height="20" fill="var(--m5)"/>
+                    </g>
+                  </svg>
+                </div>
+                <div class="legend">
+                  <span class="li"><span class="sw2" style="background:var(--m1)"></span>datasets <b>1.62 TB</b></span>
+                  <span class="li"><span class="sw2" style="background:var(--m2)"></span>uploads <b>402 GB</b></span>
+                  <span class="li"><span class="sw2" style="background:var(--m3)"></span>samples <b>188 GB</b></span>
+                  <span class="li"><span class="sw2" style="background:var(--m4)"></span>exports <b>141 GB</b></span>
+                  <span class="li"><span class="sw2" style="background:var(--m5)"></span>other outputs <b>78 GB</b></span>
+                </div>
+              </div>
+              <table class="dt" style="box-shadow:inset 0 1px 0 var(--r1)">
+                <thead><tr><th>Bucket</th><th class="n">Bytes</th><th class="n">Objects</th><th class="n">Share</th></tr></thead>
+                <tbody>
+                  <tr><td><b>Total</b></td><td class="n">2,650,822,410,394</td><td class="n">1,482,911</td><td class="n">100.0%</td></tr>
+                  <tr><td>datasets</td><td class="n">1,781,352,911,004</td><td class="n">612,470</td><td class="n">67.2%</td></tr>
+                  <tr><td>uploads</td><td class="n">431,660,331,120</td><td class="n">18,204</td><td class="n">16.3%</td></tr>
+                  <tr><td>samples</td><td class="n">201,880,441,772</td><td class="n">644,018</td><td class="n">7.6%</td></tr>
+                  <tr><td>exports</td><td class="n">151,396,881,240</td><td class="n">184,662</td><td class="n">5.7%</td></tr>
+                  <tr><td>query / transform outputs</td><td class="n">84,531,845,258</td><td class="n">23,557</td><td class="n">3.2%</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- GC -->
+            <div class="panel">
+              <div class="ph">
+                <span class="t">Garbage collection</span>
+                <span class="sp"></span>
+                <span class="mono" style="font-size:10px;color:var(--t3)">POST /admin/storage/gc</span>
+              </div>
+              <div class="pb">
+                <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px 9px;font-size:10.5px;color:var(--muted-foreground);margin-bottom:9px">
+                  <span>Last sweep <b class="mono" style="color:var(--foreground)">16:30:02 ET</b></span>
+                  <span>·  deleted <b class="mono" style="color:var(--foreground)">1,000</b></span>
+                  <span>·  freed <b class="mono" style="color:var(--foreground)">37.4 GB</b></span>
+                  <span class="pill warn mono">more_remaining: true</span>
+                </div>
+                <div class="callout amber">
+                  <span class="ci">!</span>
+                  <span><b>There is no scheduler in the service.</b> GC never runs on its own — it is triggered here by an
+                  admin, or by an external cron calling the endpoint. Each sweep is <b>bounded</b> (max 1,000 objects) and
+                  returns <span class="mono">more_remaining</span> so the caller knows to sweep again.</span>
+                </div>
+                <div class="frow">
+                  <button class="tbtn primary">Run GC</button>
+                  <button class="tbtn">Dry run</button>
+                  <span style="margin-left:auto;font-size:10.5px;color:var(--muted-foreground)">
+                    <b class="mono" style="color:var(--st-serious)">412</b> objects due · est. <b class="mono" style="color:var(--foreground)">14.8 GB</b>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- retention policy -->
+          <div class="panel">
+            <div class="ph">
+              <span class="t">Retention policy by artifact kind</span>
+              <span class="pill neu">11 kinds</span>
+              <span class="sp"></span>
+              <span class="mono" style="font-size:10px;color:var(--t3)">TTL measured from artifact creation</span>
+            </div>
+            <table class="dt">
+              <thead>
+                <tr><th>Artifact kind</th><th class="n">TTL</th><th class="n">Artifacts</th><th class="n">Bytes</th><th class="n">Due for collection</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="mono">published_source</td>
+                  <td class="n"><span class="pill ok" style="font-family:var(--mono)">∞ never</span></td>
+                  <td class="n">612,470</td><td class="n">1.62 TB</td><td class="n dim">—</td>
+                </tr>
+                <tr><td class="mono">validation_failures</td><td class="n">90d</td><td class="n">4,118</td><td class="n">9.2 GB</td><td class="n">31</td></tr>
+                <tr><td class="mono">transform_output</td><td class="n">30d</td><td class="n">12,904</td><td class="n">41.7 GB</td><td class="n">96</td></tr>
+                <tr><td class="mono">join_output</td><td class="n">30d</td><td class="n">3,441</td><td class="n">18.8 GB</td><td class="n">44</td></tr>
+                <tr><td class="mono">sample_output</td><td class="n">30d</td><td class="n">644,018</td><td class="n">188 GB</td><td class="n">118</td></tr>
+                <tr><td class="mono">aggregation_output</td><td class="n">30d</td><td class="n">7,209</td><td class="n">11.4 GB</td><td class="n">22</td></tr>
+                <tr><td class="mono">pivot_output</td><td class="n">30d</td><td class="n">2,880</td><td class="n">6.1 GB</td><td class="n">17</td></tr>
+                <tr><td class="mono">diff_output</td><td class="n">14d</td><td class="n">1,662</td><td class="n">3.4 GB</td><td class="n">28</td></tr>
+                <tr><td class="mono">export</td><td class="n">7d</td><td class="n">184,662</td><td class="n">141 GB</td><td class="n" style="color:var(--st-serious)">51</td></tr>
+                <tr><td class="mono">query_output</td><td class="n">7d</td><td class="n">9,447</td><td class="n">7.0 GB</td><td class="n">5</td></tr>
+                <tr>
+                  <td class="mono">&lt;unknown kind&gt;</td><td class="n">30d</td><td class="n">100</td><td class="n">0.4 GB</td><td class="n">0</td>
+                </tr>
+                <tr>
+                  <td class="mono dim">orphan blobs (no artifact row)</td>
+                  <td class="n"><span class="pill warn" style="font-family:var(--mono)">24h grace</span></td>
+                  <td class="n dim">—</td><td class="n">2.9 GB</td><td class="n" style="color:var(--st-serious)">402</td>
+                </tr>
+              </tbody>
+            </table>
+            <div style="padding:10px;display:flex;flex-direction:column;gap:8px">
+              <div class="callout neutral">
+                <span class="ci">i</span>
+                <span>An unrecognised kind falls back to <b>30d</b>. A blob with no artifact row is unreachable through
+                the API — it is swept after a <b>24h</b> grace window so an in-flight upload is never deleted underneath
+                itself.</span>
+              </div>
+              <div class="callout">
+                <span class="ci">!</span>
+                <span><b>published_source is kept forever</b> and is deliberately out of GC's reach — published versions
+                are immutable, so retention can never silently break a tag that points at one.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+
+    </div>
+  </div>
+</div>
+
+<!-- ================= STATUS BAR ================= -->
+<div class="statusbar">
+  <span class="h"><span class="kbd">G</span><span class="kbd">T</span> sections</span>
+  <span class="h"><span class="kbd">J</span><span class="kbd">K</span> move</span>
+  <span class="h"><span class="kbd">⌘N</span> new team</span>
+  <span class="h"><span class="kbd">⌘⇧A</span> add member</span>
+  <span class="h"><span class="kbd">⌘K</span> command</span>
+  <span class="h"><span class="kbd">?</span> shortcuts</span>
+  <span class="right">
+    <span class="mono">admin · growth-analytics</span>
+    <span class="mono">SYNC 16:41:07 ET</span>
+    <span class="dot"></span>
+  </span>
+</div>
+
+</body>
+</html>

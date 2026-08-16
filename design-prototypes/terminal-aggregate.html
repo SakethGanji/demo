@@ -1,0 +1,1063 @@
+<!--
+  DESIGN NOTES — "INSTRUMENT" applied to the full POST /aggregate builder (restyle of terminal-aggregate.html).
+  Same information, same regions, same layout: 10 type-gated functions, 7 aliased measures, the FILTER
+  conditional, date_trunc | bin_width | bin_count, HAVING over aliases, sort + limit, compiled SQL, the result
+  table with grand totals that NAME their totals_omitted, and one chart. Only the visual language changed.
+  ACCENT (rule 1) — cyan means SCOPE + LIVENESS, 3 uses: the active route, the as-of v42 chip, the SYNC lamp.
+  Everything that used to take the blue was repeated LOCAL state — the active bucket card, the picked function,
+  the used columns, the lit input, the sorted header, the group_count chip — and it all moved to value +
+  elevation, which is what stops the accent turning into a texture.
+  BORDERS (rule 3) — deleted almost everywhere, and returned in exactly three places: the builder/result zone
+  seam, one vertical rule in the MEASURE table splitting what a measure computes from how it totals, and one
+  vertical rule in the RESULT table splitting the group key from the measured outcomes. Both tables are
+  genuinely heterogeneous (identifier | expression | number | flag), which is the exception the rule names.
+  SEVERITY (rule 7) — additivity is a property, not a status: `additive` t3, `derived` t2, `omitted` t1/600.
+  The totals row's `—‡` is therefore the strongest value in its row, and the ‡ is explained once, in the
+  footnote register, in the result footer. That frees the reserved palette for the one real status on the
+  screen: the refused masked-column filter, and the DRAFT definition (shape + hue + word, both times).
+  VIZ — the ranked bar chart is magnitude, not identity, so it ships ZERO categorical color: active vs the
+  rest are two steps of the neutral ramp (m1 / m5) with a 2px surface gap and a legend, and the folded tail
+  keeps its graphite "Other" with its own count and share. The compiled SQL lost its syntax hues too and
+  reads through weight and value instead.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Command Studio — Aggregate Builder · Terminal</title>
+<style>
+  :root {
+    --s0:#080A0E;  --s1:#0D1015;  --s2:#11151B;  --s3:#161B22;
+    --s4:#1C222B;  --s5:#242C37;  --s6:#38424F;  --key:#E9EEF5;
+    --t1:#E7ECF3;  --t2:#B0BAC8;  --t3:#85909F;  --t4:#5C6675; /* t4 = decoration only, NEVER text */
+    --r1:rgba(255,255,255,.042); --r2:rgba(255,255,255,.075); --r3:rgba(255,255,255,.13);
+    --hi:inset 0 1px 0 rgba(255,255,255,.045);
+    --sig:#46D5E8; --sig-dim:rgba(70,213,232,.14); --sig-line:rgba(70,213,232,.40);
+    --st-good:#0ca30c; --st-warn:#fab219; --st-serious:#ec835a; --st-crit:#DC5050;
+    --m1:#CBD3DF; --m2:#A2ACBB; --m3:#7D8797; --m4:#5F6979; --m5:#48515F; --m6:#39414D;
+    /* categorical — fixed order, never cycled. Slot 6 is #747c04: #008300 collided with reserved status green.
+       This screen ships none of them: every chart on it is magnitude, so it runs on the neutral ramp. */
+    --viz-1:#3987e5; --viz-2:#d95926; --viz-3:#199e70; --viz-4:#c98500;
+    --viz-5:#d55181; --viz-6:#747c04; --viz-7:#9085e9; --viz-8:#e66767;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    /* legacy aliases — every remaining inline var() resolves into the instrument ramp, never into chroma */
+    --background:var(--s1); --foreground:var(--t1); --card:var(--s2); --surface:var(--s3);
+    --muted:rgba(255,255,255,.05); --muted-foreground:var(--t3); --border:var(--r1);
+    --secondary:var(--s4); --accent:var(--s4); --popover:var(--s4); --primary:var(--t1);
+    --radius:0.5rem;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { height:100%; overflow:hidden; }
+  html { font-size:13px; }
+  body {
+    font-family:var(--sans); color:var(--t2); font-size:12.5px;
+    background:radial-gradient(1180px 560px at 44% -12%, #151B24 0%, rgba(21,27,36,0) 62%), var(--s1);
+    -webkit-font-smoothing:antialiased; line-height:1.4; letter-spacing:-0.004em;
+    display:flex; flex-direction:column;
+  }
+  body::after {
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:200; opacity:.055; mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .mono { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  .num { font-variant-numeric:tabular-nums; }
+  ::selection { background:rgba(70,213,232,.26); color:#fff; }
+  :focus-visible { outline:none; box-shadow:0 0 0 1px var(--s0), 0 0 0 3px rgba(70,213,232,.45); border-radius:6px; }
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb { background:#232B35; border-radius:8px; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background:#303945; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-track { background:transparent; }
+
+  /* ===== STATUS: five states, five SHAPES, always beside a word. Pure CSS, renders without JS. ===== */
+  .g, .sdot { width:8px; height:8px; flex:none; display:inline-block; vertical-align:-1px; }
+  .g.good, .sdot.good       { border-radius:50%; background:var(--st-good); }
+  .g.warn, .sdot.warn       { width:0; height:0; border-left:4.5px solid transparent; border-right:4.5px solid transparent;
+                              border-bottom:8px solid var(--st-warn); vertical-align:0; background:none; }
+  .g.serious, .sdot.serious { width:7px; height:7px; background:var(--st-serious); border-radius:1px; transform:rotate(45deg); margin:0 1px; }
+  .g.crit, .sdot.crit       { background:var(--st-crit); border-radius:1px; }
+  .g.unknown, .sdot.unknown { border-radius:50%; background:transparent; box-shadow:inset 0 0 0 1.5px var(--t3); }
+
+  /* ================= HEADER ================= */
+  header.topbar {
+    height:46px; flex:none; display:flex; align-items:center; gap:16px; padding:0 16px;
+    background:linear-gradient(180deg,#141922,#10141A); box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); z-index:30;
+  }
+  .brand { display:flex; align-items:center; gap:10px; }
+  .brand .glyph { width:21px; height:21px; border-radius:5px; background:linear-gradient(180deg,#2C3542,#191F28);
+    display:grid; place-items:center; box-shadow:var(--hi), 0 1px 2px rgba(0,0,0,.5); color:var(--t1); }
+  .brand .glyph svg { display:block; }
+  .brand .name { font-size:12.5px; font-weight:600; color:var(--t1); letter-spacing:-0.012em; white-space:nowrap; }
+  .env-chip { font-family:var(--mono); font-size:10px; color:var(--t3); display:inline-flex; align-items:center;
+    gap:6px; white-space:nowrap; }
+  .env-chip::before { content:""; width:5px; height:5px; border-radius:50%; background:var(--st-warn); flex:none; }
+  nav.gnav { display:flex; align-items:center; gap:4px; }
+  nav.gnav a { font-size:12.5px; font-weight:450; color:var(--t3); text-decoration:none; height:30px; padding:0 10px;
+    border-radius:7px; position:relative; display:inline-flex; align-items:center; transition:color .14s, background .14s; }
+  nav.gnav a:hover { color:var(--t1); background:rgba(255,255,255,.035); }
+  /* SIGNAL 1/3 — the active route */
+  nav.gnav a.active { color:var(--t1); font-weight:550; background:transparent; }
+  nav.gnav a.active::after { content:""; position:absolute; left:10px; right:10px; bottom:-9px; height:2px;
+    background:var(--sig); border-radius:2px 2px 0 0; box-shadow:0 0 12px -1px var(--sig); }
+  .cmdk { margin-left:auto; display:flex; align-items:center; gap:9px; width:284px; height:30px; padding:0 10px;
+    border-radius:8px; cursor:text; color:var(--t3); background:var(--s0);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); transition:box-shadow .16s; }
+  .cmdk:focus-within { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+  .cmdk svg { flex:none; opacity:.55; }
+  .cmdk .ph { font-size:12px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .kbd { font-family:var(--mono); font-size:10px; font-weight:500; color:var(--t2);
+    background:linear-gradient(180deg,#232A34,#1A2028); border-radius:4px; padding:1.5px 5px; line-height:1.4;
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); white-space:nowrap; }
+  .hicons { display:flex; align-items:center; gap:2px; }
+  .iconbtn { width:30px; height:30px; border-radius:7px; border:0; background:transparent; color:var(--t3);
+    display:grid; place-items:center; cursor:pointer; transition:color .14s, background .14s; }
+  .iconbtn:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  .teamsw { display:flex; align-items:center; gap:7px; height:28px; padding:0 10px; border-radius:7px; flex:none;
+    background:var(--s4); box-shadow:var(--hi); cursor:pointer; white-space:nowrap; margin-left:6px; }
+  .teamsw .tl { font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--t3); font-weight:500; }
+  .teamsw .tv { font-size:12px; font-weight:450; color:var(--t1); }
+  .teamsw .cv { color:var(--t3); font-size:9px; }
+  .avatar { width:27px; height:27px; border-radius:7px; background:linear-gradient(180deg,#2A323D,#1D242D);
+    display:grid; place-items:center; font-size:10px; font-weight:600; color:var(--t2); cursor:pointer;
+    box-shadow:var(--hi); flex:none; margin-left:6px; }
+
+  /* ================= KPI STRIP — the first read ================= */
+  .kpistrip {
+    height:56px; flex:none; display:flex; align-items:center; padding:0 16px;
+    background:linear-gradient(180deg,var(--s3),#12171E);
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.55), 0 10px 24px -20px rgba(0,0,0,.9);
+  }
+  .kpi { display:flex; flex-wrap:wrap; align-items:baseline; align-content:center; gap:1px 8px; padding-right:26px; white-space:nowrap; }
+  .kpi .lab { flex-basis:100%; font-size:9.5px; font-weight:500; letter-spacing:.11em; text-transform:uppercase;
+    color:var(--t3); }
+  .kpi .val { font-size:20px; font-weight:600; line-height:1.15; color:var(--t1); letter-spacing:-0.032em;
+    font-variant-numeric:tabular-nums; }
+  .kpi .val.sm { font-family:var(--mono); font-size:14px; font-weight:600; letter-spacing:-0.01em; }
+  .kpi .delta { font-size:10.5px; font-weight:450; color:var(--t3); display:inline-flex; align-items:center; gap:5px; }
+  .up { color:var(--t2); } .down { color:var(--t3); }
+  .clock { margin-left:auto; display:flex; align-items:center; gap:8px; padding-left:16px; flex:none;
+    font-family:var(--mono); font-size:10.5px; color:var(--t3); }
+  /* SIGNAL 2/3 — the immutable version everything on this screen is computed against */
+  .clock .tick { width:6px; height:6px; border-radius:50%; background:var(--sig); flex:none;
+    box-shadow:0 0 0 3px rgba(70,213,232,.10), 0 0 9px -1px var(--sig); }
+  .clock b { color:var(--t1); font-weight:600; }
+
+  /* ================= WORKSPACE ================= */
+  .workspace { display:grid; grid-template-columns:252px 1fr 336px; flex:1; min-height:0; }
+  .col { display:flex; flex-direction:column; min-width:0; min-height:0; }
+  .col.rail { background:var(--s2); box-shadow:1px 0 0 rgba(0,0,0,.45); z-index:2; }
+  .col.center { background:transparent; }
+  .col.dock { background:var(--s2); box-shadow:-1px 0 0 rgba(0,0,0,.45); z-index:2; }
+  .colhead { height:32px; flex:none; display:flex; align-items:center; gap:9px; padding:0 12px; }
+  .colhead .t { font-size:12.5px; font-weight:600; color:var(--t1); letter-spacing:-0.012em; white-space:nowrap; }
+  .colhead .badge { font-family:var(--mono); font-size:10px; color:var(--t3); }
+  .colhead .spacer { margin-left:auto; }
+
+  /* ---- shared bits ---- */
+  .muted { color:var(--t3); }
+  .lockglyph { color:var(--st-warn); display:inline-flex; vertical-align:-2px; flex:none; }
+  .pill { font-size:10.5px; font-weight:500; padding:2px 7px; border-radius:5px; display:inline-flex; align-items:center;
+    gap:5px; white-space:nowrap; flex:none; }
+  .pill.ok { color:var(--st-good); background:rgba(0,0,0,.36); box-shadow:inset 0 0 0 1px rgba(12,163,12,.34); }
+  .pill.neu { color:var(--t3); background:rgba(255,255,255,.05); }
+  /* a classification is a LABEL; a mask is a CONTROL. only the control wears amber. */
+  .pill.label { color:var(--t3); background:transparent; font-weight:450; border-bottom:1px dashed var(--r2);
+    border-radius:0; padding:2px 1px; }
+  .pill.enforced { color:var(--st-warn); background:rgba(250,178,25,.07); box-shadow:inset 0 0 0 1px rgba(250,178,25,.26); }
+  .pill.kind { color:var(--t3); background:rgba(255,255,255,.05); font-family:var(--mono); font-size:10px; }
+  .tbtn { height:26px; padding:0 10px; font-size:11.5px; font-weight:450; color:var(--t2); background:transparent;
+    border:0; border-radius:7px; cursor:pointer; font-family:inherit; display:inline-flex; align-items:center; gap:6px;
+    white-space:nowrap; transition:all .14s; box-shadow:inset 0 0 0 1px var(--r2); }
+  .tbtn:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  /* rule 2: the ONE near-white surface on the screen */
+  .tbtn.primary { background:linear-gradient(180deg,#FBFDFF,var(--key)); color:#0B0E13; font-weight:600; padding:0 11px;
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset, 0 2px 8px -3px rgba(0,0,0,.9), 0 0 0 1px rgba(0,0,0,.35); }
+  .tbtn.primary:hover { background:#fff; }
+  .tbtn .k { font-size:10px; color:var(--t3); font-family:var(--mono); }
+  .tbtn.primary .k { color:#4A5462; }
+  /* the footnote register: every provenance / caveat line on the screen lands here */
+  .tinynote { font-size:9.5px; color:var(--t3); line-height:1.5; white-space:normal; }
+  .tinynote b { color:var(--t2); font-weight:600; }
+  .tinynote .code { font-family:var(--mono); color:var(--t2); }
+  /* informational prose loses the box — a left rule and an indent (rule 8) */
+  .note { font-size:10.5px; line-height:1.5; color:var(--t3); margin-top:8px; padding-left:10px;
+    box-shadow:inset 2px 0 0 var(--r2); }
+  .note b { color:var(--t1); font-weight:600; }
+  .note .mono { color:var(--t2); font-family:var(--mono); }
+
+  /* ================= LEFT RAIL — COLUMNS & TYPE GATES ================= */
+  .railsearch { padding:2px 12px 8px; flex:none; }
+  .railsearch .box { height:28px; display:flex; align-items:center; gap:8px; padding:0 9px; border-radius:7px;
+    color:var(--t3); background:var(--s0); box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); }
+  .railsearch .box input { background:none; border:none; outline:none; color:var(--t1); font-size:12px; width:100%; font-family:inherit; }
+  .railsearch .box input::placeholder { color:var(--t3); }
+  .railbody { flex:1; overflow-y:auto; overflow-x:hidden; padding:2px 10px 12px; min-height:0; }
+  /* rule 5: sentence-case group heads, counts in mono */
+  .grouplabel { display:flex; align-items:center; gap:9px; margin:12px 0 4px; padding:0 2px;
+    font-size:11.5px; font-weight:550; color:var(--t2); letter-spacing:-0.008em; }
+  .grouplabel:first-child { margin-top:0; }
+  .grouplabel .gl-line { flex:1; height:1px; background:var(--r1); min-width:8px; }
+  .grouplabel .gl-ct { font-family:var(--mono); font-size:9.5px; font-weight:400; color:var(--t3); }
+  .crow { display:grid; grid-template-columns:1fr auto; gap:1px 7px; align-items:center;
+    padding:5px 8px; border-radius:7px; cursor:pointer; }
+  .crow:hover { background:rgba(255,255,255,.04); }
+  .crow .cn { font-family:var(--mono); font-size:11.5px; color:var(--t2); overflow:hidden; text-overflow:ellipsis;
+    white-space:nowrap; display:flex; align-items:center; gap:6px; }
+  .crow .ct { font-family:var(--mono); font-size:9.5px; color:var(--t3); flex:none; }
+  .crow .gate { grid-column:1 / span 2; font-size:9.5px; color:var(--t3); font-family:var(--mono); }
+  .crow .gate b { color:var(--t1); font-weight:600; }
+  .crow .gate b.part { color:var(--t2); font-weight:500; }
+  .crow.locked .cn { color:var(--t2); }
+  .crow.locked .gate { color:var(--t3); }
+  /* repeated state (2 columns in use) — value + elevation, never the accent */
+  .crow.usedg { background:var(--s4); box-shadow:var(--hi); }
+  .crow.usedg .cn { color:var(--t1); font-weight:600; }
+  .usetag { font-family:var(--mono); font-size:9.5px; font-weight:500; color:var(--t2);
+    background:rgba(255,255,255,.06); border-radius:4px; padding:0 4px; }
+  .railnote { font-size:9.5px; line-height:1.55; color:var(--t3); margin-top:12px; padding-left:10px;
+    box-shadow:inset 2px 0 0 var(--r2); }
+  .railnote b { color:var(--t1); font-weight:600; }
+  .railnote .code { font-family:var(--mono); color:var(--t2); }
+
+  /* ================= CENTER ================= */
+  .gridhead { display:flex; align-items:center; gap:12px; padding:0 14px; height:47px; flex:none;
+    background:linear-gradient(180deg,#131820,#10141B); box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.45); }
+  .gridhead .hgroup { min-width:0; flex:1; }
+  .gridhead .title { font-size:14.5px; font-weight:600; color:var(--t1); letter-spacing:-0.02em;
+    display:flex; align-items:center; gap:8px; white-space:nowrap; }
+  .gridhead .path { font-size:10.5px; color:var(--t3); margin-top:4px; display:flex; align-items:center; gap:6px; white-space:nowrap; }
+  .gridhead .path b { color:var(--t2); font-weight:500; }
+  .split { flex:1; min-height:0; display:flex; flex-direction:column; }
+  .pane { display:flex; flex-direction:column; min-height:0; }
+  .pane.bl { flex:none; }
+  /* rule 3, exception 1: a horizontal ZONE boundary — builder ends, result begins */
+  .pane.rs { flex:1 1 auto; min-height:0; box-shadow:inset 0 1px 0 var(--r2), 0 -10px 24px -22px rgba(0,0,0,1); }
+  .panehead { height:26px; flex:none; display:flex; align-items:center; gap:10px; padding:0 14px; }
+  .panehead .pt { font-size:12.5px; font-weight:600; color:var(--t1); letter-spacing:-0.012em; }
+  .panehead .ep { font-family:var(--mono); font-size:9.5px; color:var(--t3); }
+  .panehead .spacer { margin-left:auto; }
+  .panebody { flex:1; min-height:0; overflow:auto; }
+
+  /* ---- builder ---- */
+  .builder { padding:0 14px 7px; flex:none; }
+  .brow { display:flex; align-items:center; gap:7px; min-height:20px; white-space:nowrap; }
+  .brow .bl, .hrow .bl { font-size:10.5px; color:var(--t3); width:56px; flex:none; }
+  .bmeta { margin-left:auto; font-size:9.5px; color:var(--t3); font-family:var(--mono); }
+  .dchip { font-family:var(--mono); font-size:10.5px; display:inline-flex; align-items:center; gap:6px;
+    padding:2px 7px; border-radius:6px; background:var(--s4); box-shadow:var(--hi); color:var(--t2);
+    white-space:nowrap; flex:none; width:max-content; }
+  .dchip .gr { color:var(--t4); letter-spacing:-2px; cursor:grab; }
+  .dchip .x { color:var(--t3); cursor:pointer; }
+  .dchip .key { color:var(--t1); font-weight:600; }
+  .dchip b { color:var(--t1); }
+  /* a refusal is a real status: reserved hue, in a recessed well so the text still clears 4.5:1 */
+  .dchip.deny { background:rgba(0,0,0,.36); box-shadow:inset 0 0 0 1px rgba(220,80,80,.42); color:var(--st-crit);
+    cursor:not-allowed; }
+  .dadd { color:var(--t3); font-size:10.5px; cursor:pointer; padding:2px 7px; border-radius:6px;
+    box-shadow:inset 0 0 0 1px var(--r1); flex:none; }
+  .dadd:hover { color:var(--t1); }
+
+  /* measure table — heterogeneous columns, so rule 3's ONE vertical rule returns:
+     it splits what the measure COMPUTES from how it TOTALS. */
+  .mwrap { display:flex; gap:12px; align-items:flex-start; }
+  .mtable { flex:1; min-width:0; border-radius:8px; background:var(--s3); box-shadow:var(--hi); overflow:hidden; }
+  .mhead, .mrow { display:grid; grid-template-columns:14px 62px 96px 108px 1fr 56px 14px; align-items:center; gap:7px; padding:0 9px; }
+  .mhead { height:21px; background:rgba(0,0,0,.22); font-family:var(--mono); font-size:9.5px; font-weight:500;
+    color:var(--t3); box-shadow:inset 0 -1px 0 var(--r1); }
+  .mrow { height:20px; font-size:11px; font-family:var(--mono); white-space:nowrap; color:var(--t2);
+    border-bottom:1px solid rgba(255,255,255,.032); }
+  .mrow:last-child { border-bottom:none; }
+  .mrow:hover { background:rgba(255,255,255,.038); }
+  .mhead > :nth-child(6), .mrow > :nth-child(6) { box-shadow:inset 1px 0 0 var(--r2); padding-left:8px; }
+  .mrow .ord { color:var(--t3); font-size:9.5px; }
+  .mrow .fnb { display:inline-flex; align-items:center; gap:4px; height:16px; padding:0 6px; border-radius:5px;
+    background:var(--s5); box-shadow:var(--hi); color:var(--t1); font-weight:600; font-size:10px; }
+  .mrow .fnb .cv { color:var(--t3); font-weight:400; font-size:9px; }
+  .mrow .col { overflow:hidden; text-overflow:ellipsis; }
+  .mrow .al { color:var(--t1); }
+  .mrow .al .as { color:var(--t3); font-size:9px; margin-right:3px; }
+  .mrow .flt { color:var(--t3); font-size:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .mrow .flt.on { color:var(--t1); }
+  .mrow .flt .kw { color:var(--t1); font-weight:600; }
+  .mrow .add { color:var(--t3); font-size:9.5px; cursor:pointer; }
+  /* rule 7: additivity is a PROPERTY of the measure, so it is typographic — no hue impersonating status */
+  .mrow .tt { font-size:9.5px; color:var(--t3); }
+  .mrow .tt.nonadd { color:var(--t1); font-weight:600; }
+  .mrow .tt.drv { color:var(--t2); }
+  .mrow .x { color:var(--t3); cursor:pointer; font-size:10px; }
+  .mrow.newm { background:rgba(255,255,255,.05); }
+  /* the conditional measure is a THREAD across the screen — carried by value, not by a hue */
+  .mrow.condi { background:rgba(255,255,255,.035); }
+
+  /* function picker popover — a floating surface earns an edge */
+  .picker { position:relative; width:262px; flex:none; border-radius:9px; background:var(--s4); padding:7px 9px 8px;
+    box-shadow:var(--hi), 0 18px 40px -14px rgba(0,0,0,.95), 0 0 0 1px rgba(0,0,0,.55), inset 0 0 0 1px var(--r1); }
+  .picker::before { content:""; position:absolute; left:-5px; top:32px; width:8px; height:8px; background:var(--s4);
+    transform:rotate(45deg); }
+  .picker .ph { display:flex; align-items:center; gap:7px; font-size:11.5px; font-weight:550; color:var(--t2);
+    margin-bottom:6px; }
+  .picker .ph .tgt { font-family:var(--mono); color:var(--t1); font-weight:600; font-size:10.5px; }
+  .picker .ph .ty { font-family:var(--mono); font-size:9.5px; color:var(--t3); }
+  .fngrid { display:grid; grid-template-columns:1fr 1fr; gap:3px; }
+  .fn { display:flex; align-items:center; gap:5px; height:19px; padding:0 7px; border-radius:6px;
+    background:rgba(255,255,255,.045); font-family:var(--mono); font-size:10.5px; color:var(--t2); cursor:pointer; }
+  .fn:hover { background:rgba(255,255,255,.08); color:var(--t1); }
+  .fn .tick { margin-left:auto; font-size:9px; color:var(--t3); }
+  /* local selection is white, never the accent */
+  .fn.on { background:var(--s6); color:var(--t1); font-weight:600; box-shadow:var(--hi); }
+  .fn.on .tick { color:var(--t1); }
+  .fn.gated { background:transparent; box-shadow:inset 0 0 0 1px var(--r1); color:var(--t3); cursor:not-allowed; }
+  .fn.gated:hover { background:transparent; color:var(--t3); }
+  .fn.gated .tick { color:var(--t3); font-size:8px; }
+  .fn.nonadd::after { content:"‡"; color:var(--t3); font-weight:600; }
+  .gatenote { margin-top:6px; padding-top:5px; font-size:9.5px; line-height:1.5; color:var(--t3);
+    box-shadow:inset 0 1px 0 var(--r1); }
+  .gatenote b { color:var(--t1); font-weight:600; }
+  .gatenote .code, .gatenote .ok { font-family:var(--mono); color:var(--t2); }
+
+  /* bucket control */
+  .bucketwrap { display:grid; grid-template-columns:1fr 1fr 1fr; gap:7px; margin-top:5px; }
+  .bcard { border-radius:8px; background:rgba(0,0,0,.22); padding:5px 8px 6px; min-width:0;
+    box-shadow:inset 0 0 0 1px var(--r1); }
+  .bcard.on { background:var(--s4); box-shadow:var(--hi), inset 0 0 0 1px var(--r2); }
+  .bcard .bh { display:flex; align-items:center; gap:6px; font-family:var(--mono); font-size:10.5px; font-weight:600; color:var(--t2); }
+  .bcard .bh .radio { width:9px; height:9px; border-radius:50%; box-shadow:inset 0 0 0 1px var(--t4); flex:none; }
+  .bcard.on .bh { color:var(--t1); }
+  .bcard.on .bh .radio { box-shadow:inset 0 0 0 1px var(--key); background:radial-gradient(var(--key) 45%, transparent 47%); }
+  .bcard .bh .ap { margin-left:auto; font-size:9.5px; font-weight:400; color:var(--t3); font-family:var(--sans); }
+  .bcard.on .bh .ap { color:var(--t2); }
+  .bcard .params { display:flex; align-items:center; gap:5px; margin-top:4px; flex-wrap:wrap; }
+  .inp { font-family:var(--mono); font-size:10px; height:19px; padding:0 6px; border-radius:5px; color:var(--t2);
+    background:var(--s0); box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035);
+    display:inline-flex; align-items:center; gap:4px; }
+  .inp b { color:var(--t1); font-weight:600; }
+  .inp.lit { color:var(--t1); box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px var(--r3); }
+  .inp .u { color:var(--t3); font-weight:400; }
+  .gchip { font-family:var(--mono); font-size:9.5px; padding:0 6px; height:18px; display:inline-flex; align-items:center;
+    border-radius:5px; color:var(--t3); cursor:pointer; }
+  .gchip:hover { color:var(--t1); background:rgba(255,255,255,.05); }
+  .gchip.on { color:var(--t1); font-weight:600; background:var(--s5); box-shadow:var(--hi); }
+  .bcard .lbls { margin-top:4px; font-family:var(--mono); font-size:9.5px; color:var(--t3);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .bcard.on .lbls { color:var(--t2); }
+  .bcard .why { margin-top:3px; font-size:9.5px; line-height:1.4; color:var(--t3); white-space:normal; }
+
+  /* having / sort / filters */
+  .hrow { display:flex; align-items:center; gap:7px; margin-top:5px; white-space:nowrap; }
+  .opset { display:flex; gap:2px; padding:2px; background:rgba(0,0,0,.28); border-radius:7px; flex:none;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.5); }
+  .opset button { font-family:var(--mono); font-size:9.5px; height:18px; padding:0 7px; border:none; border-radius:5px;
+    background:transparent; color:var(--t3); cursor:pointer; }
+  .opset button:hover { color:var(--t1); }
+  .opset button.on { background:var(--s5); color:var(--t1); font-weight:600; box-shadow:var(--hi); }
+  .havchip { font-family:var(--mono); font-size:10.5px; display:inline-flex; align-items:center; gap:6px;
+    padding:2px 8px; border-radius:6px; background:var(--s4); box-shadow:var(--hi); color:var(--t3); flex:none; }
+  .havchip .al { color:var(--t1); font-weight:600; }
+  .havchip .x { color:var(--t3); cursor:pointer; }
+
+  /* compiled sql — syntax reads through WEIGHT and VALUE, so no chroma is spent on a code block */
+  .sqlstrip { display:flex; flex:none; background:rgba(0,0,0,.26); box-shadow:inset 0 1px 0 var(--r1), inset 0 2px 5px -3px rgba(0,0,0,.8); }
+  .gutter { flex:none; width:26px; padding:4px 0; text-align:right; font-family:var(--mono); font-size:9px;
+    color:var(--t3); user-select:none; line-height:1.44; box-shadow:inset -1px 0 0 var(--r1); }
+  .gutter div { padding-right:7px; }
+  pre.sql { flex:1; padding:4px 12px; margin:0; font-family:var(--mono); font-size:10px; line-height:1.44;
+    color:var(--t2); overflow-x:auto; tab-size:2; }
+  pre.sql .k { color:var(--t1); font-weight:600; }
+  pre.sql .fnc { color:var(--t1); }
+  pre.sql .str { color:var(--t2); }
+  pre.sql .n0 { color:var(--t1); }
+  pre.sql .cm { color:var(--t3); font-style:italic; }
+  pre.sql .al2 { color:var(--t2); }
+  pre.sql .pn { color:var(--t3); }
+  pre.sql .hl { background:rgba(255,255,255,.07); border-radius:3px; box-shadow:0 0 0 1px var(--r1); }
+
+  /* ---- result table ---- */
+  .resbar { display:flex; align-items:center; gap:9px; padding:0 14px; height:26px; flex:none;
+    font-size:10.5px; color:var(--t3); white-space:nowrap; box-shadow:inset 0 -1px 0 var(--r1); }
+  .resbar b { color:var(--t1); font-weight:600; }
+  .cchip { font-size:9.5px; display:inline-flex; align-items:center; gap:5px; padding:2px 7px; border-radius:5px;
+    color:var(--t3); background:rgba(255,255,255,.045); flex:none; }
+  .cchip.lit { color:var(--t2); background:var(--s4); box-shadow:var(--hi); }
+  .cchip.warn { color:var(--t2); background:rgba(255,255,255,.045); }
+  table.res { border-collapse:separate; border-spacing:0; width:100%; font-size:11px; table-layout:fixed; }
+  /* rule 5: headers are lowercase mono identifiers; the expression under them is the footnote register */
+  table.res thead th { position:sticky; top:0; z-index:5; background:#12161D; text-align:right; padding:3px 6px;
+    white-space:nowrap; vertical-align:bottom; overflow:hidden;
+    box-shadow:inset 0 -1px 0 var(--r2), inset 0 1px 0 var(--r1); }
+  table.res thead th .a { font-family:var(--mono); font-size:10px; font-weight:600; color:var(--t2);
+    overflow:hidden; text-overflow:ellipsis; }
+  table.res thead th .f { font-family:var(--mono); font-size:9px; color:var(--t3); font-weight:400; margin-top:1px;
+    overflow:hidden; text-overflow:ellipsis; }
+  table.res thead th.lft { text-align:left; }
+  table.res thead th.sorted .a, table.res thead th.sorted .arrow { color:var(--t1); }
+  table.res thead th .ftag, table.res thead th .ntag { font-family:var(--mono); font-size:8.5px; font-weight:600;
+    color:var(--t2); background:rgba(255,255,255,.07); border-radius:3px; padding:0 3px; margin-left:3px; }
+  table.res tbody td { padding:0 6px; height:21px; white-space:nowrap; text-align:right; color:var(--t2);
+    font-family:var(--mono); font-variant-numeric:tabular-nums; font-size:10.5px;
+    border-bottom:1px solid rgba(255,255,255,.03); }
+  table.res tbody tr:hover td { background:rgba(255,255,255,.038); }
+  /* rule 3, exception 2: ONE vertical rule splits the group KEY from the measured OUTCOMES */
+  table.res thead th:nth-child(2), table.res tbody td:nth-child(2) { box-shadow:inset 1px 0 0 var(--r2); }
+  table.res thead th:nth-child(2) { box-shadow:inset 1px 0 0 var(--r2), inset 0 -1px 0 var(--r2), inset 0 1px 0 var(--r1); }
+  td.bkt { text-align:left; color:var(--t1); }
+  td.bkt .rk { color:var(--t3); font-size:9px; margin-right:7px; }
+  td.bkt .br { color:var(--t1); }
+  /* the conditional column: a value tint, the same thread as the measure row */
+  td.cond { background:rgba(255,255,255,.035); }
+  td.z { color:var(--t3); }
+  tr.pagesub td { background:var(--s4); font-weight:600; color:var(--t2); position:sticky; bottom:22px; z-index:6;
+    height:22px; box-shadow:var(--hi); border-bottom:none; }
+  tr.grand td { background:var(--s5); font-weight:600; color:var(--t1); height:23px; position:sticky; bottom:0;
+    z-index:6; box-shadow:var(--hi), 0 -8px 18px -14px rgba(0,0,0,1); border-bottom:none; }
+  tr.grand td.bkt, tr.pagesub td.bkt { font-family:var(--sans); font-size:11px; letter-spacing:-0.01em; }
+  /* the honest heart of the screen: an omission is named, and it is the STRONGEST value in the row */
+  .omit { color:var(--t1); font-weight:600; }
+  .omit sup, .drv sup { color:var(--t2); font-weight:600; }
+  tr.pagesub .omit { color:var(--t3); font-weight:400; }
+  .resfoot { display:flex; align-items:center; gap:14px; padding:0 14px; height:24px; flex:none;
+    box-shadow:inset 0 1px 0 var(--r1); font-size:9.5px; color:var(--t3); white-space:nowrap; overflow:hidden; }
+  .resfoot b { color:var(--t2); font-weight:600; }
+  .resfoot .sep { color:var(--t4); }
+  .resfoot sup, table.res thead th sup { color:var(--t2); font-weight:600; }
+
+  /* ================= DOCK ================= */
+  .lenstabs { display:flex; align-items:center; flex-wrap:wrap; gap:0 1px; padding:4px 12px; flex:none;
+    background:rgba(0,0,0,.2); box-shadow:inset 0 1px 0 var(--r1), inset 0 -1px 0 var(--r1); }
+  .ltab { font-size:11.5px; font-weight:450; color:var(--t3); padding:0 7px; height:23px; cursor:pointer;
+    position:relative; display:inline-flex; align-items:center; transition:color .14s; white-space:nowrap; }
+  .ltab:hover { color:var(--t1); }
+  .ltab.on { color:var(--t1); font-weight:550; }
+  .ltab.on::after { content:""; position:absolute; left:7px; right:7px; bottom:1px; height:1.5px;
+    background:var(--t1); border-radius:2px; }
+  .dockbody { overflow-y:auto; overflow-x:hidden; flex:1; min-height:0; padding:11px 14px 16px; }
+  .sect { margin-bottom:15px; }
+  .sect:last-child { margin-bottom:4px; }
+  .sect > .h { font-size:11.5px; font-weight:550; color:var(--t2); letter-spacing:-0.008em; margin-bottom:8px;
+    display:flex; align-items:center; gap:9px; }
+  .sect > .h .line { flex:1; height:1px; background:var(--r1); min-width:8px; }
+  .sect > .h .mono { color:var(--t3); }
+  /* rule 8: tiles earn a surface, not a border */
+  .tiles { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .tile { background:var(--s3); border-radius:8px; box-shadow:var(--hi); padding:8px 10px 9px; }
+  .tile .k2 { font-size:9.5px; font-weight:500; letter-spacing:.11em; text-transform:uppercase; color:var(--t3); }
+  .tile .v { font-size:20px; font-weight:600; margin-top:2px; letter-spacing:-0.03em; color:var(--t1);
+    font-variant-numeric:tabular-nums; line-height:1.1; }
+  .tile .v small { font-size:11px; font-weight:600; color:var(--t3); }
+  .tile .sub { font-size:10px; color:var(--t3); margin-top:2px; }
+
+  /* ranked horizontal bars — thin marks, 4px rounded data-ends on a left baseline, neutral value ramp */
+  .hbar { display:grid; grid-template-columns:62px 1fr 52px; gap:0 8px; align-items:center; margin:0 0 6px; }
+  .hbar .hl { font-family:var(--mono); font-size:9.5px; color:var(--t2); text-align:right;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .hbar .hwrap { height:13px; display:flex; align-items:center; box-shadow:inset 1px 0 0 var(--r2); }
+  .hbar .hfill { height:13px; border-radius:0 4px 4px 0; display:flex; min-width:3px; background:var(--m5); }
+  /* 2px surface gap between adjacent fills */
+  .hbar .hfill .seg { height:13px; background:var(--m1); border-right:2px solid var(--s2); }
+  .hbar.other .hfill { background:var(--m6); box-shadow:inset 0 0 0 1px var(--r3); }
+  .hbar.other .hfill .seg { background:var(--m4); }
+  .hbar .hval { font-family:var(--mono); font-size:9.5px; color:var(--t2); text-align:right; font-variant-numeric:tabular-nums; }
+  .hbar.other .hl, .hbar.other .hval { color:var(--t3); }
+  .hbaxis { display:flex; justify-content:space-between; margin-left:70px; font-family:var(--mono);
+    font-size:9.5px; color:var(--t3); margin-top:2px; }
+  .legend { display:flex; flex-wrap:wrap; gap:4px 12px; margin-top:8px; }
+  .legend .li { display:flex; align-items:center; gap:6px; font-size:10.5px; color:var(--t3); }
+  .legend .sw { width:9px; height:9px; border-radius:3px; flex:none; }
+
+  /* totals / omitted card */
+  .omcard { border-radius:9px; background:var(--s3); box-shadow:var(--hi); overflow:hidden; }
+  .omrow { display:grid; grid-template-columns:auto 1fr auto; gap:8px; align-items:center; padding:4px 9px;
+    border-bottom:1px solid rgba(255,255,255,.032); font-size:10.5px; }
+  .omrow:last-child { border-bottom:none; }
+  .omrow .fnm { font-family:var(--mono); font-size:10px; color:var(--t2); }
+  .omrow .al3 { font-family:var(--mono); font-size:9.5px; color:var(--t3);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* rule 7 again: totalled / derived / omitted is a property — typographic, three steps of value */
+  .omrow .vd { font-family:var(--mono); font-size:9px; font-weight:600; color:var(--t3); letter-spacing:.04em; }
+  .omrow.drvd .vd { color:var(--t2); }
+  .omrow.omt { background:rgba(0,0,0,.24); }
+  .omrow.omt .vd, .omrow.omt .fnm { color:var(--t1); }
+  pre.jsn { font-family:var(--mono); font-size:9.5px; line-height:1.6; color:var(--t2); border-radius:8px;
+    background:rgba(0,0,0,.28); box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px var(--r1);
+    padding:8px 9px; overflow-x:auto; }
+  pre.jsn .key { color:var(--t3); }
+  pre.jsn .sv { color:var(--t2); }
+  pre.jsn .nv { color:var(--t1); }
+  pre.jsn .warnv { color:var(--t1); font-weight:600; }
+  pre.jsn .cm { color:var(--t3); font-style:italic; }
+
+  /* save-as-definition */
+  .savecard { border-radius:9px; background:var(--s3); box-shadow:var(--hi); padding:9px; }
+  .fieldrow { display:flex; align-items:center; gap:8px; margin-bottom:7px; }
+  .fieldrow .fl { font-size:10.5px; color:var(--t3); width:42px; flex:none; }
+  .field { flex:1; min-width:0; height:26px; display:flex; align-items:center; padding:0 9px; border-radius:7px;
+    font-size:11.5px; color:var(--t2); background:var(--s0); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); }
+  .field.lit { color:var(--t1); box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px var(--r3); }
+  .defrow { display:flex; align-items:center; gap:8px; padding:5px 6px; border-radius:7px; font-size:10.5px; color:var(--t2); }
+  .defrow:hover { background:rgba(255,255,255,.04); }
+  .defrow .dn { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .defrow .dm { margin-left:auto; font-family:var(--mono); font-size:9.5px; color:var(--t3); flex:none; }
+  .pubchip { font-family:var(--mono); font-size:9.5px; font-weight:500; padding:0 5px; border-radius:4px;
+    color:var(--t3); background:rgba(255,255,255,.05); flex:none; }
+  .pubchip.live { color:var(--t1); }
+
+  /* ================= BOTTOM STATUS BAR ================= */
+  .statusbar { height:26px; flex:none; display:flex; align-items:center; gap:14px; padding:0 14px;
+    box-shadow:inset 0 1px 0 var(--r1); background:var(--s2); font-size:10.5px; color:var(--t3); }
+  .statusbar .h { display:flex; align-items:center; gap:6px; white-space:nowrap; }
+  /* SIGNAL 3/3 — the one live indicator on the screen */
+  .statusbar .sync { margin-left:auto; display:flex; align-items:center; gap:8px; font-family:var(--mono); flex:none; }
+  .statusbar .sync .dot { width:6px; height:6px; border-radius:50%; background:var(--sig); flex:none;
+    box-shadow:0 0 0 3px rgba(70,213,232,.10), 0 0 9px -1px var(--sig); animation:pulse 3s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.42} }
+  @media (prefers-reduced-motion:reduce){ .statusbar .sync .dot { animation:none } }
+</style>
+</head>
+<body class="dark" data-palette="#3987e5,#d95926,#199e70,#c98500,#d55181,#747c04,#9085e9,#e66767">
+
+<!-- ================= HEADER ================= -->
+<header class="topbar">
+  <div class="brand">
+    <span class="glyph">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M4 7l8-4 8 4-8 4-8-4z" fill="#fff" opacity=".95"/><path d="M4 12l8 4 8-4M4 17l8 4 8-4" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity=".8"/></svg>
+    </span>
+    <span class="name">Command&nbsp;Studio</span>
+  </div>
+  <span class="env-chip">PROD · US-EAST</span>
+  <nav class="gnav">
+    <a href="#">Workflows</a>
+    <a href="#" class="active">Datasets</a>
+    <a href="#">Runs</a>
+    <a href="#">Library</a>
+  </nav>
+
+  <div class="cmdk" tabindex="0" title="Command palette">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span class="ph">Add a measure, bucket a column, save a definition…</span>
+    <span class="kbd">⌘K</span>
+  </div>
+
+  <div class="hicons">
+    <button class="iconbtn" title="Filters — inherited by the aggregate"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M3 5h18M6 12h12M10 19h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+    <button class="iconbtn" title="Alerts">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M6 9a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M10 20a2 2 0 004 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+    <button class="iconbtn" title="Theme" onclick="document.body.classList.toggle('dark')">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M20 13a8 8 0 11-9-9 6 6 0 009 9z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+    </button>
+    <div class="teamsw" title="Team switcher — datasets, definitions and saved aggregates are team-locked">
+      <span class="tl">Team</span><span class="tv">Growth Analytics</span><span class="cv">▾</span>
+    </div>
+    <div class="avatar" title="S. Ganji · Growth Analytics · role: admin">SG</div>
+  </div>
+</header>
+
+<!-- ================= KPI STRIP ================= -->
+<div class="kpistrip">
+  <div class="kpi" title="sum(amount) over ALL 83,287 filtered rows — not the returned page, and not only the groups that passed HAVING.">
+    <span class="lab">Grand total</span><span class="val num">$106.29M</span>
+    <span class="delta" style="color:var(--muted-foreground)">sum(amount)</span>
+  </div>
+  <div class="kpi" title="Rows passing the inherited filters. Every total on this screen is computed over these rows.">
+    <span class="lab">Rows in scope</span><span class="val num">83,287</span>
+    <span class="delta" style="color:var(--muted-foreground)">/ 84,213</span>
+  </div>
+  <div class="kpi" title="18 buckets exist · 14 pass HAVING · 12 fit the LIMIT and are returned as this page.">
+    <span class="lab">Groups</span><span class="val num">18→14→12</span>
+    <span class="delta" style="color:var(--muted-foreground)">buckets → page</span>
+  </div>
+  <div class="kpi"><span class="lab">Measures</span><span class="val num">7</span><span class="delta" style="color:var(--t2)">1 conditional</span></div>
+  <div class="kpi" title="median, std and nunique cannot be combined from group results, so the response names them in totals_omitted.">
+    <span class="lab">Totals omitted</span><span class="val num">3</span>
+    <span class="delta down">non-additive</span>
+  </div>
+  <div class="kpi" title="This aggregate is an unsaved draft. Saving it creates an analytics definition of kind `aggregate`.">
+    <span class="lab">Definition</span><span class="val sm" style="color:var(--st-warn)"><span class="g warn" style="margin-right:5px"></span>DRAFT</span>
+    <span class="delta mono" style="color:var(--muted-foreground);font-size:10px">aggregate</span>
+  </div>
+  <div class="clock" title="Every number on this screen is computed against this immutable version.">
+    <span class="tick"></span>
+    <span>as-of <b>v42</b> · immutable</span>
+  </div>
+</div>
+
+<!-- ================= WORKSPACE ================= -->
+<div class="workspace">
+
+  <!-- ---------- LEFT RAIL — COLUMNS & TYPE GATES ---------- -->
+  <div class="col rail">
+    <div class="colhead">
+      <span class="t">Columns</span>
+      <span class="badge num">9</span>
+      <span class="spacer"></span>
+      <span class="mono" style="font-size:9.5px;color:var(--t3)">v42</span>
+    </div>
+    <div class="railsearch">
+      <div class="box">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <input placeholder="Find a column…" />
+        <span class="kbd">/</span>
+      </div>
+    </div>
+
+    <div class="railbody">
+      <div class="grouplabel">Numeric <span class="gl-line"></span><span class="gl-ct">all 10 fns</span></div>
+      <div class="crow usedg" title="amount is the bucketed group-by column and the argument of 5 of the 7 measures.">
+        <span class="cn">amount <span class="usetag">bucket</span></span><span class="ct">decimal</span>
+        <span class="gate">agg <b>10/10</b> · bin_width · bin_count</span>
+      </div>
+
+      <div class="grouplabel">Date <span class="gl-line"></span><span class="gl-ct">6 fns</span></div>
+      <div class="crow">
+        <span class="cn">signup_date</span><span class="ct">date</span>
+        <span class="gate">agg <b class="part">6/10</b> · date_trunc</span>
+      </div>
+
+      <div class="grouplabel">Text <span class="gl-line"></span><span class="gl-ct">6 fns · no bucketing</span></div>
+      <div class="crow"><span class="cn">signup_id</span><span class="ct">varchar</span><span class="gate">agg <b class="part">6/10</b> · count, nunique…</span></div>
+      <div class="crow"><span class="cn">plan</span><span class="ct">varchar</span><span class="gate">agg <b class="part">6/10</b> · 4 members</span></div>
+      <div class="crow"><span class="cn">region</span><span class="ct">varchar</span><span class="gate">agg <b class="part">6/10</b> · 4 members</span></div>
+      <div class="crow"><span class="cn">status</span><span class="ct">varchar</span><span class="gate">agg <b class="part">6/10</b> · used in a FILTER</span></div>
+      <div class="crow usedg"><span class="cn">utm_campaign <span class="usetag">nunique</span></span><span class="ct">varchar</span><span class="gate">agg <b class="part">6/10</b> · 11 members</span></div>
+      <div class="crow"><span class="cn">source</span><span class="ct">varchar</span><span class="gate">agg <b class="part">6/10</b> · 5 members</span></div>
+
+      <div class="grouplabel">Masked <span class="gl-line"></span></div>
+      <div class="crow locked" title="Declared sensitivity: pii — refused as a measure argument, a group-by, a bucket and a filter.">
+        <span class="cn"><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span>email</span><span class="ct">varchar</span>
+        <span class="gate">agg <b style="color:var(--st-crit)">0/10</b> · not groupable</span>
+      </div>
+
+      <div class="railnote">
+        Functions are <b>type-gated</b>. <span class="code">sum · mean · median · std</span> need a numeric column;
+        <span class="code">count · nunique · first · last · min · max</span> take any type. Offering
+        <span class="code">sum(plan)</span> is a bug, so the picker never offers it —
+        the API would answer <span class="code">400 invalid-aggregation</span>.
+      </div>
+    </div>
+
+    <div class="statusbar">
+      <span class="h"><span class="kbd">↵</span> add as measure</span>
+      <span class="h" style="margin-left:auto">84,213 rows</span>
+    </div>
+  </div>
+
+  <!-- ---------- CENTER — BUILDER over RESULT ---------- -->
+  <div class="col center">
+    <div class="gridhead">
+      <div class="hgroup">
+        <div class="title">
+          <span class="sdot good" style="width:9px;height:9px"></span>
+          Q3 Campaign Signups.csv
+          <span class="pill label" title="Dataset classification — catalog metadata only. It does not enforce access.">Confidential</span>
+          <span class="pill enforced" title="Enforced: `email` declares sensitivity: pii in the data dictionary."><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span> email masked</span>
+          <span class="pill kind">kind: aggregate</span>
+        </div>
+        <div class="path">
+          <span>team <b>growth-analytics</b> ·</span>
+          <span class="mono">ds_8f21c4 · version <b>42</b> · 84,213 rows · 9 cols</span>
+        </div>
+      </div>
+      <button class="tbtn" title="Persist this spec as an analytics definition of kind `aggregate`. Publishing it makes it runnable from the Library.">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M5 4h11l3 3v13H5z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M8 4v6h7" stroke="currentColor" stroke-width="2"/></svg>
+        Save as definition<span class="k">⌘S</span>
+      </button>
+      <button class="tbtn primary">Run<span class="k">⌘⏎</span></button>
+    </div>
+
+    <div class="split">
+
+      <!-- ============ A. THE BUILDER ============ -->
+      <div class="pane bl">
+        <div class="panehead">
+          <span class="pt">Aggregate</span>
+          <span class="ep">POST /datasets/ds_8f21c4/versions/42/aggregate</span>
+          <span class="spacer"></span>
+          <span class="mono" style="font-size:10px;color:var(--muted-foreground)">7 measures · 1 group-by · 2 having · 128 ms</span>
+        </div>
+
+        <div class="builder">
+          <div class="brow" style="margin-bottom:4px">
+            <span class="bl">Measures</span>
+            <span class="tinynote">each measure carries its own function, column, <b>alias</b> and optional <b>FILTER (WHERE …)</b></span>
+            <span class="bmeta">7 of 24 max</span>
+          </div>
+
+          <div class="mwrap">
+            <div class="mtable">
+              <div class="mhead">
+                <span></span><span>fn</span><span>column</span><span>alias</span><span>filter (where …)</span><span>totals</span><span></span>
+              </div>
+              <div class="mrow">
+                <span class="ord">1</span>
+                <span><span class="fnb">count<span class="cv">▾</span></span></span>
+                <span class="col">signup_id</span>
+                <span class="al"><span class="as">as</span>signups</span>
+                <span class="flt">— <span class="add">add filter</span></span>
+                <span class="tt">additive</span>
+                <span class="x">✕</span>
+              </div>
+              <div class="mrow">
+                <span class="ord">2</span>
+                <span><span class="fnb">sum<span class="cv">▾</span></span></span>
+                <span class="col">amount</span>
+                <span class="al"><span class="as">as</span>gross_amount</span>
+                <span class="flt">— <span class="add">add filter</span></span>
+                <span class="tt">additive</span>
+                <span class="x">✕</span>
+              </div>
+              <div class="mrow condi" title="A conditional aggregate: the same column, the same group, a different row predicate — compiled to sum(amount) FILTER (WHERE status = 'active').">
+                <span class="ord">3</span>
+                <span><span class="fnb">sum<span class="cv">▾</span></span></span>
+                <span class="col">amount</span>
+                <span class="al"><span class="as">as</span>active_amount</span>
+                <span class="flt on"><span class="kw">FILTER</span> status='active'</span>
+                <span class="tt">additive</span>
+                <span class="x">✕</span>
+              </div>
+              <div class="mrow">
+                <span class="ord">4</span>
+                <span><span class="fnb">mean<span class="cv">▾</span></span></span>
+                <span class="col">amount</span>
+                <span class="al"><span class="as">as</span>avg_ticket</span>
+                <span class="flt">— <span class="add">add filter</span></span>
+                <span class="tt drv">derived</span>
+                <span class="x">✕</span>
+              </div>
+              <div class="mrow">
+                <span class="ord">5</span>
+                <span><span class="fnb">median<span class="cv">▾</span></span></span>
+                <span class="col">amount</span>
+                <span class="al"><span class="as">as</span>median_ticket</span>
+                <span class="flt">— <span class="add">add filter</span></span>
+                <span class="tt nonadd">omitted</span>
+                <span class="x">✕</span>
+              </div>
+              <div class="mrow">
+                <span class="ord">6</span>
+                <span><span class="fnb">std<span class="cv">▾</span></span></span>
+                <span class="col">amount</span>
+                <span class="al"><span class="as">as</span>std_ticket</span>
+                <span class="flt">— <span class="add">add filter</span></span>
+                <span class="tt nonadd">omitted</span>
+                <span class="x">✕</span>
+              </div>
+              <div class="mrow newm">
+                <span class="ord">7</span>
+                <span><span class="fnb" style="box-shadow:var(--hi), 0 0 0 2px var(--r2)">nunique<span class="cv">▾</span></span></span>
+                <span class="col">utm_campaign</span>
+                <span class="al"><span class="as">as</span>campaigns</span>
+                <span class="flt">— <span class="add">add filter</span></span>
+                <span class="tt nonadd">omitted</span>
+                <span class="x">✕</span>
+              </div>
+            </div>
+
+            <!-- the function picker, open on measure 7 -->
+            <div class="picker">
+              <div class="ph">
+                <span>Function</span><span class="tgt">utm_campaign</span><span class="ty">varchar</span>
+              </div>
+              <div class="fngrid">
+                <span class="fn gated" title="sum needs a numeric column — utm_campaign is varchar">sum <span class="tick">✕</span></span>
+                <span class="fn gated" title="mean needs a numeric column">mean <span class="tick">✕</span></span>
+                <span class="fn gated" title="median needs a numeric column">median <span class="tick">✕</span></span>
+                <span class="fn">count <span class="tick">＋</span></span>
+                <span class="fn">min <span class="tick">＋</span></span>
+                <span class="fn">max <span class="tick">＋</span></span>
+                <span class="fn gated" title="std needs a numeric column">std <span class="tick">✕</span></span>
+                <span class="fn on">nunique <span class="tick">✓</span></span>
+                <span class="fn">first <span class="tick">＋</span></span>
+                <span class="fn">last <span class="tick">＋</span></span>
+              </div>
+              <div class="gatenote">
+                <b>4 of the 10</b> gated by type — <span class="code">sum · mean · median · std</span> need numeric.
+                Pick <span class="ok">amount</span> and all ten light up.
+              </div>
+            </div>
+          </div>
+
+          <!-- GROUP BY + BUCKETING -->
+          <div class="brow" style="margin-top:7px">
+            <span class="bl">Group by</span>
+            <span class="dchip" title="Group-by dimension 1 — drag to reorder"><span class="gr">⋮⋮</span><span class="key">amount</span> · bucket <b>bin_width 500</b><span class="x">✕</span></span>
+            <span class="dadd">+ dim</span>
+            <span class="tinynote" style="margin-left:6px">the bucket is part of the dimension, so the bucket label <b>is</b> the group key</span>
+            <span class="bmeta">18 buckets</span>
+          </div>
+          <div class="bucketwrap">
+            <div class="bcard" title="Time bucketing. Only date / timestamp columns are offered.">
+              <div class="bh"><span class="radio"></span>date_trunc<span class="ap">date only</span></div>
+              <div class="params">
+                <span class="gchip">day</span><span class="gchip">week</span><span class="gchip on">month</span><span class="gchip">quarter</span><span class="gchip">year</span>
+              </div>
+              <div class="lbls">signup_date → 2026-07 · 2026-08</div>
+              <div class="why">Buckets are period starts — a time axis can never mis-order.</div>
+            </div>
+            <div class="bcard on" title="Fixed-width numeric bins. You choose the width; the number of bins follows from the data range.">
+              <div class="bh"><span class="radio"></span>bin_width<span class="ap">active</span></div>
+              <div class="params">
+                <span class="inp lit">width <b>500</b><span class="u">$</span></span>
+                <span class="tinynote">→ 18 bins over $0 – $9,000</span>
+              </div>
+              <div class="lbls">[0 – 500) · [500 – 1,000) · [1,000 – 1,500) …</div>
+              <div class="why">Left-closed, right-open — the label carries the range.</div>
+            </div>
+            <div class="bcard" title="Equal-width bins: the count is fixed, the width is derived from min/max.">
+              <div class="bh"><span class="radio"></span>bin_count<span class="ap">equal width</span></div>
+              <div class="params">
+                <span class="inp">bins <b>20</b></span>
+                <span class="tinynote">→ width 447.00 from min 0.00 / max 8,940.00</span>
+              </div>
+              <div class="lbls">[0 – 447) · [447 – 894) · [894 – 1,341) …</div>
+              <div class="why">Equal <i>width</i>, not equal frequency (that is quantiles).</div>
+            </div>
+          </div>
+
+          <!-- HAVING -->
+          <div class="hrow">
+            <span class="bl">Having</span>
+            <span class="havchip"><span class="al">signups</span> gt 500<span class="x">✕</span></span>
+            <span class="havchip"><span class="al">gross_amount</span> gte 3,000,000<span class="x">✕</span></span>
+            <span class="dadd">+ condition</span>
+            <div class="opset" title="HAVING operators">
+              <button>eq</button><button>neq</button><button class="on">gt</button><button>gte</button><button>lt</button><button>lte</button>
+            </div>
+            <span class="bmeta">18 → 14 groups</span>
+          </div>
+          <div class="brow" style="margin-top:3px">
+            <span class="bl"></span>
+            <span class="tinynote">
+              HAVING filters <b>groups, not rows</b> — it runs after aggregation and its operands are
+              <b>aliases</b> (<span class="code">signups</span>, <span class="code">gross_amount</span>), never raw columns.
+              4 sparse bins fail; their <b>1,219 rows stay inside the grand totals</b>.
+            </span>
+          </div>
+
+          <!-- SORT + LIMIT + FILTERS -->
+          <div class="hrow">
+            <span class="bl">Sort</span>
+            <span class="dchip"><span class="key">gross_amount</span> desc <span style="color:var(--t1)">▼</span><span class="x">✕</span></span>
+            <span class="bl" style="width:auto;margin-left:8px">Limit</span>
+            <span class="inp">12</span>
+            <span class="tinynote" style="margin-left:6px">sort keys are aliases too · 14 pass HAVING, <b>12</b> fit the page</span>
+            <span class="bmeta">offset 0</span>
+          </div>
+          <div class="hrow">
+            <span class="bl">Filters</span>
+            <span class="dchip" title="Inherited from the data grid"><span class="key">signup_date</span> ≥ 2026-07-01<span class="x">✕</span></span>
+            <span class="dchip" title="Inherited from the data grid"><span class="key">utm_campaign</span> is not null<span class="x">✕</span></span>
+            <span class="dchip" title="Inherited from the data grid"><span class="key">amount</span> ≥ 0<span class="x">✕</span></span>
+            <span class="dchip deny" title="Refused: a masked column cannot be filtered, grouped or bucketed — 400 sensitive-column-not-filterable."><span class="lockglyph" style="color:var(--st-crit)"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span>email = …<span class="x">✕</span></span>
+            <span class="bmeta">inherited · matched 83,287 / 84,213</span>
+          </div>
+        </div>
+
+        <!-- compiled SQL -->
+        <div class="sqlstrip">
+          <div class="gutter"><div>1</div><div>2</div><div>3</div><div>4</div><div>5</div></div>
+<pre class="sql"><span class="cm">-- compiled from the spec · bucket → floor() · conditional measure → FILTER (WHERE …) · HAVING over aliases</span>
+<span class="k">SELECT</span> <span class="fnc">floor</span><span class="pn">(</span>amount <span class="pn">/</span> <span class="n0">500</span><span class="pn">) *</span> <span class="n0">500</span> <span class="k">AS</span> <span class="al2">amount_bin</span><span class="pn">,</span> <span class="fnc">count</span><span class="pn">(</span>signup_id<span class="pn">)</span> <span class="k">AS</span> <span class="al2">signups</span><span class="pn">,</span> <span class="fnc">sum</span><span class="pn">(</span>amount<span class="pn">)</span> <span class="k">AS</span> <span class="al2">gross_amount</span><span class="pn">,</span>
+       <span class="hl"><span class="fnc">sum</span><span class="pn">(</span>amount<span class="pn">)</span> <span class="k">FILTER</span> <span class="pn">(</span><span class="k">WHERE</span> status <span class="pn">=</span> <span class="str">'active'</span><span class="pn">)</span> <span class="k">AS</span> <span class="al2">active_amount</span></span><span class="pn">,</span> <span class="fnc">avg</span><span class="pn">(</span>amount<span class="pn">)</span> <span class="k">AS</span> <span class="al2">avg_ticket</span><span class="pn">,</span> <span class="fnc">median</span><span class="pn">(</span>amount<span class="pn">)</span> <span class="k">AS</span> <span class="al2">median_ticket</span><span class="pn">,</span>
+       <span class="fnc">stddev_samp</span><span class="pn">(</span>amount<span class="pn">)</span> <span class="k">AS</span> <span class="al2">std_ticket</span><span class="pn">,</span> <span class="fnc">count</span><span class="pn">(</span><span class="k">DISTINCT</span> utm_campaign<span class="pn">)</span> <span class="k">AS</span> <span class="al2">campaigns</span>  <span class="k">FROM</span> signups
+<span class="k">WHERE</span> signup_date <span class="pn">&gt;=</span> <span class="k">DATE</span> <span class="str">'2026-07-01'</span> <span class="k">AND</span> utm_campaign <span class="k">IS NOT NULL</span> <span class="k">AND</span> amount <span class="pn">&gt;=</span> <span class="n0">0</span>  <span class="cm">-- email is never filterable</span>
+<span class="k">GROUP BY</span> <span class="n0">1</span> <span class="k">HAVING</span> signups <span class="pn">&gt;</span> <span class="n0">500</span> <span class="k">AND</span> gross_amount <span class="pn">&gt;=</span> <span class="n0">3000000</span> <span class="k">ORDER BY</span> gross_amount <span class="k">DESC</span> <span class="k">LIMIT</span> <span class="n0">12</span><span class="pn">;</span></pre>
+        </div>
+      </div>
+
+      <!-- ============ B. THE RESULT ============ -->
+      <div class="pane rs">
+        <div class="panehead">
+          <span class="pt">Result</span>
+          <span class="cchip lit" title="group_count is the number of groups in THIS page — a deliberate, documented behaviour. It is not the number of groups that exist.">group_count <b class="mono">12</b> · this page</span>
+          <span class="cchip">14 passed HAVING</span>
+          <span class="cchip">18 buckets exist</span>
+          <span class="spacer"></span>
+          <span class="mono" style="font-size:10px;color:var(--muted-foreground)">128 ms · scanned 83,287 rows</span>
+          <button class="tbtn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Export</button>
+        </div>
+
+        <div class="panebody">
+          <table class="res">
+            <thead>
+              <tr>
+                <th class="lft" style="width:140px"><div class="a">amount_bin</div><div class="f">group key · bin_width 500</div></th>
+                <th style="width:90px"><div class="a">signups</div><div class="f">count(signup_id)</div></th>
+                <th class="sorted" style="width:106px"><div class="a">gross_amount <span class="arrow">▼</span></div><div class="f">sum(amount)</div></th>
+                <th style="width:118px" title="sum(amount) FILTER (WHERE status = 'active')"><div class="a">active_amount</div><div class="f"><span class="ftag">FILTER</span> status=active</div></th>
+                <th style="width:46px"><div class="a">act %</div><div class="f">derived</div></th>
+                <th style="width:78px"><div class="a">avg_ticket</div><div class="f">mean(amount)</div></th>
+                <th style="width:96px" title="non-additive — omitted from totals"><div class="a">median_ticket<sup>‡</sup></div><div class="f">median(amount)</div></th>
+                <th style="width:74px" title="non-additive — omitted from totals"><div class="a">std_ticket<sup>‡</sup></div><div class="f">std(amount)</div></th>
+                <th style="width:82px" title="nunique(utm_campaign) — non-additive, omitted from totals"><div class="a">campaigns<sup>‡</sup></div><div class="f">nunique(utm_…)</div></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td class="bkt"><span class="rk">1</span><span class="br">[1,000 – 1,500)</span></td><td>11,905</td><td>14,738,390</td><td class="cond">10,243,181</td><td class="muted">69.5%</td><td>1,238.00</td><td>1,188.00</td><td>149.4</td><td>11</td></tr>
+              <tr><td class="bkt"><span class="rk">2</span><span class="br">[500 – 1,000)</span></td><td>18,240</td><td>13,534,080</td><td class="cond">8,932,493</td><td class="muted">66.0%</td><td>742.00</td><td>742.00</td><td>158.2</td><td>11</td></tr>
+              <tr><td class="bkt"><span class="rk">3</span><span class="br">[1,500 – 2,000)</span></td><td>7,460</td><td>12,995,320</td><td class="cond">9,356,630</td><td class="muted">72.0%</td><td>1,742.00</td><td>1,782.00</td><td>152.7</td><td>10</td></tr>
+              <tr><td class="bkt"><span class="rk">4</span><span class="br">[2,000 – 2,500)</span></td><td>4,820</td><td>10,931,760</td><td class="cond">8,034,844</td><td class="muted">73.5%</td><td>2,268.00</td><td>2,277.00</td><td>138.9</td><td>10</td></tr>
+              <tr><td class="bkt"><span class="rk">5</span><span class="br">[2,500 – 3,000)</span></td><td>3,150</td><td>8,634,150</td><td class="cond">6,458,344</td><td class="muted">74.8%</td><td>2,741.00</td><td>2,772.00</td><td>141.5</td><td>9</td></tr>
+              <tr><td class="bkt"><span class="rk">6</span><span class="br">[3,000 – 3,500)</span></td><td>2,090</td><td>6,738,160</td><td class="cond">5,100,787</td><td class="muted">75.7%</td><td>3,224.00</td><td>3,168.00</td><td>146.2</td><td>9</td></tr>
+              <tr><td class="bkt"><span class="rk">7</span><span class="br">[3,500 – 4,000)</span></td><td>1,430</td><td>5,313,880</td><td class="cond">4,070,432</td><td class="muted">76.6%</td><td>3,716.00</td><td>3,762.00</td><td>139.8</td><td>8</td></tr>
+              <tr><td class="bkt"><span class="rk">8</span><span class="br">[4,000 – 4,500)</span></td><td>985</td><td>4,174,430</td><td class="cond">3,231,009</td><td class="muted">77.4%</td><td>4,238.00</td><td>4,257.00</td><td>152.1</td><td>8</td></tr>
+              <tr title="The busiest bin by far, and the smallest by revenue: 29,090 rows whose median is 0.00 — the free plan. mean 118.00 vs median 0.00 is the whole argument for shipping both.">
+                <td class="bkt"><span class="rk">9</span><span class="br">[0 – 500)</span></td><td>29,090</td><td>3,432,620</td><td class="cond">1,990,920</td><td class="muted">58.0%</td><td>118.00</td><td class="z">0.00</td><td>131.6</td><td>11</td></tr>
+              <tr><td class="bkt"><span class="rk">10</span><span class="br">[4,500 – 5,000)</span></td><td>720</td><td>3,406,320</td><td class="cond">2,660,336</td><td class="muted">78.1%</td><td>4,731.00</td><td>4,752.00</td><td>147.6</td><td>7</td></tr>
+              <tr><td class="bkt"><span class="rk">11</span><span class="br">[6,500 – 7,000)</span></td><td>503</td><td>3,376,136</td><td class="cond">2,741,422</td><td class="muted">81.2%</td><td>6,712.00</td><td>6,732.00</td><td>138.2</td><td>5</td></tr>
+              <tr><td class="bkt"><span class="rk">12</span><span class="br">[5,000 – 5,500)</span></td><td>615</td><td>3,220,140</td><td class="cond">2,537,470</td><td class="muted">78.8%</td><td>5,236.00</td><td>5,247.00</td><td>133.4</td><td>7</td></tr>
+
+              <tr class="pagesub" title="The 12 groups on this page. Shown only so the grand total below is checkable — the API does not return it.">
+                <td class="bkt">Page subtotal <span class="muted">· 12</span></td>
+                <td>81,008</td><td>90,495,386</td><td>65,357,868</td><td class="muted">72.2%</td><td>1,117.12</td>
+                <td class="omit">—</td><td class="omit">—</td><td class="omit">—</td>
+              </tr>
+              <tr class="grand" title="Totals are computed over ALL 83,287 filtered rows — including the 4 groups HAVING removed and the 2 groups beyond the LIMIT.">
+                <td class="bkt">TOTALS <span class="muted">· 83,287 rows</span></td>
+                <td>83,287</td><td>106,286,302</td><td>78,191,131</td><td class="muted">73.6%</td>
+                <td class="drv" title="mean is totalled as sum/count over all rows — never the mean of the group means.">1,276.15<sup>†</sup></td>
+                <td class="omit" title="totals_omitted: median cannot be combined from group results.">—<sup>‡</sup></td>
+                <td class="omit" title="totals_omitted: std cannot be combined from group results.">—<sup>‡</sup></td>
+                <td class="omit" title="totals_omitted: nunique cannot be combined — summing the group values would read 118, the truth is 11.">—<sup>‡</sup></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="resfoot">
+          <span><b>106,286,302</b> = 90,495,386 page <span class="sep">+</span> 6,340,472 past LIMIT <span class="sep">+</span> 9,450,444 cut by HAVING</span>
+          <span><sup>†</sup> sum/count</span>
+          <span><sup>‡</sup> <b>totals_omitted</b></span>
+          <span style="margin-left:auto" class="mono">81,008 + 1,060 + 1,219 rows</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ---------- RIGHT DOCK / LENS ---------- -->
+  <div class="col dock">
+    <div class="colhead">
+      <span class="t">Lens</span>
+      <span class="spacer"></span>
+      <span class="mono" style="font-size:10px;color:var(--muted-foreground)">Q3 Campaign Signups</span>
+    </div>
+    <div class="lenstabs">
+      <span class="ltab">Overview</span>
+      <span class="ltab">Quality</span>
+      <span class="ltab">Versions</span>
+      <span class="ltab on">Analytics</span>
+      <span class="ltab">Relations</span>
+      <span class="ltab">Transform</span>
+      <span class="ltab">Library</span>
+    </div>
+
+    <div class="dockbody">
+      <div class="sect">
+        <div class="tiles">
+          <div class="tile"><div class="k2">Grand total</div><div class="v">$106.29<small>M</small></div><div class="sub">sum(amount) · all rows</div></div>
+          <div class="tile"><div class="k2">Of that, active</div><div class="v">73.6<small>%</small></div><div class="sub">$78.19M · FILTER</div></div>
+        </div>
+      </div>
+
+      <!-- ONE chart: ranked bars for the returned page -->
+      <div class="sect">
+        <div class="h">gross_amount by bucket <span class="line"></span><span class="mono" style="font-size:9px;font-weight:500">page · 12 groups</span></div>
+        <div class="hbar"><span class="hl">$1.0–1.5k</span><span class="hwrap"><span class="hfill" style="width:81.88%"><span class="seg" style="width:69.5%"></span></span></span><span class="hval">$14.74M</span></div>
+        <div class="hbar"><span class="hl">$0.5–1.0k</span><span class="hwrap"><span class="hfill" style="width:75.19%"><span class="seg" style="width:66.0%"></span></span></span><span class="hval">$13.53M</span></div>
+        <div class="hbar"><span class="hl">$1.5–2.0k</span><span class="hwrap"><span class="hfill" style="width:72.20%"><span class="seg" style="width:72.0%"></span></span></span><span class="hval">$13.00M</span></div>
+        <div class="hbar"><span class="hl">$2.0–2.5k</span><span class="hwrap"><span class="hfill" style="width:60.73%"><span class="seg" style="width:73.5%"></span></span></span><span class="hval">$10.93M</span></div>
+        <div class="hbar"><span class="hl">$2.5–3.0k</span><span class="hwrap"><span class="hfill" style="width:47.97%"><span class="seg" style="width:74.8%"></span></span></span><span class="hval">$8.63M</span></div>
+        <div class="hbar"><span class="hl">$3.0–3.5k</span><span class="hwrap"><span class="hfill" style="width:37.43%"><span class="seg" style="width:75.7%"></span></span></span><span class="hval">$6.74M</span></div>
+        <div class="hbar"><span class="hl">$3.5–4.0k</span><span class="hwrap"><span class="hfill" style="width:29.52%"><span class="seg" style="width:76.6%"></span></span></span><span class="hval">$5.31M</span></div>
+        <div class="hbar other" title="Ranks 8–12 folded into Other: [4,000–4,500), [0–500), [4,500–5,000), [6,500–7,000), [5,000–5,500). The table keeps them apart.">
+          <span class="hl">Other ×5</span><span class="hwrap"><span class="hfill" style="width:97.83%"><span class="seg" style="width:74.7%"></span></span></span><span class="hval">$17.61M</span>
+        </div>
+        <div class="hbaxis"><span>$0</span><span>$9M</span><span>$18M</span></div>
+        <div class="legend">
+          <span class="li"><span class="sw" style="background:var(--m1)"></span>active_amount</span>
+          <span class="li"><span class="sw" style="background:var(--m5)"></span>trialing + churned</span>
+        </div>
+        <div class="note">
+          Eight marks is the ceiling, so ranks <b>8–12 fold into Other</b> — dashed, still stacked, still summing to
+          the page subtotal <span class="mono">$90.50M</span>. Folded, never dropped — and the bar out-running every
+          single bucket is the honest signal to raise the limit.
+        </div>
+      </div>
+
+      <!-- totals & omitted -->
+      <div class="sect">
+        <div class="h">Totals · additivity <span class="line"></span></div>
+        <div class="omcard">
+          <div class="omrow tot"><span class="fnm">count</span><span class="al3">signups</span><span class="vd">TOTALLED</span></div>
+          <div class="omrow tot"><span class="fnm">sum</span><span class="al3">gross_amount</span><span class="vd">TOTALLED</span></div>
+          <div class="omrow tot"><span class="fnm">sum · filter</span><span class="al3">active_amount</span><span class="vd">TOTALLED</span></div>
+          <div class="omrow drvd"><span class="fnm">mean</span><span class="al3">avg_ticket</span><span class="vd">DERIVED</span></div>
+          <div class="omrow omt"><span class="fnm">median</span><span class="al3">median_ticket</span><span class="vd">OMITTED</span></div>
+          <div class="omrow omt"><span class="fnm">std</span><span class="al3">std_ticket</span><span class="vd">OMITTED</span></div>
+          <div class="omrow omt"><span class="fnm">nunique</span><span class="al3">campaigns</span><span class="vd">OMITTED</span></div>
+        </div>
+        <div class="note">
+          Five of the ten — <span class="mono">median, std, nunique, first, last</span> — cannot be combined from group
+          results. Summing <b>campaigns</b> prints <b>118</b>; the truth is <b>11</b>. So the response names them in
+          <span class="mono">totals_omitted</span> and the row renders <b>—</b> instead of a number that only looks like a total.
+        </div>
+        <button class="tbtn" style="width:100%;justify-content:center;margin-top:6px">Compute exact totals · 2nd pass<span class="k">+1.4s</span></button>
+      </div>
+
+      <!-- save as definition -->
+      <div class="sect">
+        <div class="h">Save as definition <span class="line"></span><span class="pill kind">aggregate</span></div>
+        <div class="savecard">
+          <div class="fieldrow">
+            <span class="fl">Name</span>
+            <span class="field lit">Ticket-size bands · gross vs active</span>
+          </div>
+          <div class="fieldrow">
+            <span class="fl">Scope</span>
+            <span class="field mono" style="font-size:10px;color:var(--muted-foreground)">ds_8f21c4 · v42 · pinned</span>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="tbtn primary" style="flex:1;justify-content:center">Save definition</button>
+            <button class="tbtn" style="flex:1;justify-content:center" title="Publishing makes the definition runnable from the Library by anyone with a seat on this team.">Publish…</button>
+          </div>
+        </div>
+        <div class="defrow" style="margin-top:6px"><span class="sdot good"></span><span class="dn">Revenue by month</span><span class="pubchip live">live</span><span class="dm">date_trunc</span></div>
+        <div class="defrow"><span class="sdot good"></span><span class="dn">Ticket size · 20 equal bins</span><span class="pubchip live">live</span><span class="dm">bin_count</span></div>
+        <div class="defrow"><span class="sdot warn"></span><span class="dn">Campaign mix · active only</span><span class="pubchip draft">draft</span><span class="dm">filter agg</span></div>
+      </div>
+      <!-- response meta -->
+      <div class="sect">
+        <div class="h">Response · meta <span class="line"></span></div>
+<pre class="jsn">{
+  <span class="key">"group_count"</span>: <span class="nv">12</span>,  <span class="cm">// this page only</span>
+  <span class="key">"limit"</span>: <span class="nv">12</span>, <span class="key">"offset"</span>: <span class="nv">0</span>,
+  <span class="key">"rows_matched"</span>:  <span class="nv">83287</span>,
+  <span class="key">"totals"</span>: { <span class="key">"gross_amount"</span>: <span class="nv">106286302</span>, … },
+  <span class="key">"totals_omitted"</span>: [<span class="warnv">"median_ticket"</span>,
+     <span class="warnv">"std_ticket"</span>, <span class="warnv">"campaigns"</span>]
+}</pre>
+        <div class="note">
+          <b>group_count</b> counts the groups in the returned page — deliberate, and documented. Paging never
+          reveals how many groups exist; ask for that with <span class="mono">limit=0</span>.
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ================= BOTTOM STATUS BAR ================= -->
+<div class="statusbar">
+  <span class="h"><span class="kbd">⌘K</span> command</span>
+  <span class="h"><span class="kbd">⌘⏎</span> run</span>
+  <span class="h"><span class="kbd">⌥M</span> add measure</span>
+  <span class="h"><span class="kbd">⌥B</span> bucket</span>
+  <span class="h"><span class="kbd">⌥H</span> having</span>
+  <span class="h"><span class="kbd">⌘S</span> save definition</span>
+  <span class="h"><span class="kbd">1</span>–<span class="kbd">7</span> lens</span>
+  <span class="h">aggregate 128 ms · 12 of 14 groups · 3 totals omitted · 1 masked column</span>
+  <span class="sync"><span class="dot"></span><span>SYNC 16:41:07 ET</span></span>
+</div>
+
+</body>
+</html>

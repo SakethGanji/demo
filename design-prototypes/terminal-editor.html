@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<!--
+  DESIGN NOTES — Command Studio · Workflow Editor, restyled into INSTRUMENT.
+  Same screen, same regions, same content: dotted canvas, floating navbar, 8-node / 9-edge "Nightly PII
+  redaction" graph, node palette, execution log, zoom controls, minimap, keyboard hints.
+
+  R1 FLOATING PANELS ARE ELEVATION. Rule 3 lands naturally here: every panel loses its 1px border and gets
+     the graphite ramp (--s2/--s3) + --hi inset highlight + a real drop shadow + a dark hairline that reads
+     as a seam, not a rule. The canvas beneath carries the body vignette and the grain.
+  R2 NODE-KIND HUE IS GENUINE IDENTITY — a node's kind is what it IS — so the encoding stays, but the six
+     hues were RE-STEPPED off the borrowed (bluer, brighter) system into one lightness band on the graphite
+     canvas: every kind now measures 6.4–6.8:1 against the composited canvas (was 4.7–10.5:1, a three-stop
+     spread that made #64d2ff shout and #0a84ff mumble). Two kinds were pushed FURTHER than a re-step:
+       · ai  #64d2ff → #9A8FF2  — the old cyan WAS the signal accent. A node kind cannot own liveness, so
+         ai moved off cyan entirely into periwinkle. This is what buys the cyan budget back.
+       · output #ff9f0a → #BC9A5E — same hue family as reserved --st-warn (both ~38°), so chroma was cut
+         96%→41%: a bronze reads as material, an amber reads as an alert.
+       · action #30d158 → #3AAE84 — pulled 38° toward teal so it cannot be mistaken for reserved good.
+     Kind colour now lives on the icon well, not on a coloured border+glow ring around every box.
+  R3 EXECUTION STATE IS STATUS, so per rule 6 it is shape + hue + WORD, never a coloured ring alone:
+     running = cyan ring + "running", done = circle + "done", queued = hollow ring + "queued", the steward
+     branch = triangle + "Hold · request steward review". Both animations are prefers-reduced-motion guarded.
+  R4 CYAN BUDGET = 3 uses, all one meaning (liveness): the Live pill, the running node, the running edge.
+     The 6 toolbar toggles that used to take --primary moved to value + elevation (rule 1), the primary
+     action (Run) went near-white (rule 2), and "Add node" dropped to a raised graphite button.
+  Fixed 1440×1024, no page scroll, zero network, renders without JS.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1440, initial-scale=1" />
+<title>Command Studio — Workflow Editor · Instrument</title>
+<style>
+  :root {
+    --s0:#080A0E;  --s1:#0D1015;  --s2:#11151B;  --s3:#161B22;
+    --s4:#1C222B;  --s5:#242C37;  --s6:#38424F;  --key:#E9EEF5;
+    --t1:#E7ECF3;  --t2:#B0BAC8;  --t3:#85909F;  --t4:#5C6675; /* t4 = decoration only, never text */
+    --r1:rgba(255,255,255,.042); --r2:rgba(255,255,255,.075); --r3:rgba(255,255,255,.13);
+    --hi:inset 0 1px 0 rgba(255,255,255,.045);
+    --sig:#46D5E8; --sig-dim:rgba(70,213,232,.14); --sig-line:rgba(70,213,232,.40);
+    --st-good:#0ca30c; --st-warn:#fab219; --st-serious:#ec835a; --st-crit:#DC5050;
+    --m1:#CBD3DF; --m2:#A2ACBB; --m3:#7D8797; --m4:#5F6979; --m5:#48515F; --m6:#39414D;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+    /* NODE-KIND IDENTITY — re-stepped into one lightness band on the graphite canvas.
+       measured against the composited canvas (#12161D): 6.37 / 6.67 / 6.55 / 6.84 / 6.53 / 6.84 : 1 */
+    --k-trigger:#E8739E;   /* h338  rose      (was #ff2d55) */
+    --k-transform:#5FA0EC; /* h212  blue      (was #0a84ff) */
+    --k-ai:#9A8FF2;        /* h247  periwinkle(was #64d2ff — moved OFF the signal cyan) */
+    --k-flow:#CE83DE;      /* h289  orchid    (was #bf5af2) */
+    --k-action:#3AAE84;    /* h158  teal-green(was #30d158 — 38° off reserved good) */
+    --k-output:#BC9A5E;    /* h38   bronze    (was #ff9f0a — chroma 96%→41% off reserved warn) */
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { width:1440px; height:1024px; overflow:hidden; }
+  html { font-size:13px; }
+  body {
+    font-family:var(--sans); color:var(--t2); font-size:12.5px; position:relative;
+    background:radial-gradient(1180px 560px at 44% -12%, #151B24 0%, rgba(21,27,36,0) 62%), var(--s1);
+    -webkit-font-smoothing:antialiased; line-height:1.4; letter-spacing:-0.004em;
+  }
+  body::after {
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:200; opacity:.055; mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .mono { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  ::selection { background:rgba(70,213,232,.26); color:#fff; }
+  :focus-visible { outline:none; box-shadow:0 0 0 1px var(--s0), 0 0 0 3px rgba(70,213,232,.45); border-radius:6px; }
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb { background:#232B35; border-radius:8px; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background:#303945; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-track { background:transparent; }
+
+  /* ===== STATUS: five states, five SHAPES, always beside a word ===== */
+  .g { width:8px; height:8px; flex:none; display:inline-block; vertical-align:-1px; }
+  .g.good    { border-radius:50%; background:var(--st-good); }
+  .g.warn    { width:0; height:0; border-left:4.5px solid transparent; border-right:4.5px solid transparent;
+               border-bottom:8px solid var(--st-warn); vertical-align:0; }
+  .g.serious { width:7px; height:7px; background:var(--st-serious); border-radius:1px; transform:rotate(45deg); margin:0 1px; }
+  .g.crit    { background:var(--st-crit); border-radius:1px; }
+  .g.unknown { border-radius:50%; background:transparent; box-shadow:inset 0 0 0 1.5px var(--t3); }
+  .g.live    { border-radius:50%; background:transparent; box-shadow:inset 0 0 0 1.5px var(--sig); }
+  .w-good{color:var(--st-good)} .w-warn{color:var(--st-warn)} .w-serious{color:var(--st-serious)}
+  .w-crit{color:var(--st-crit)} .w-unknown{color:var(--t3)} .w-live{color:var(--sig)}
+  .stw { display:inline-flex; align-items:center; gap:6px; font-size:10.5px; font-weight:500; white-space:nowrap; }
+
+  /* the one footnote register — every provenance line lands here */
+  .fn { font-size:9.5px; color:var(--t3); }
+  .lbl { font-size:10.5px; font-weight:500; color:var(--t3); letter-spacing:-0.004em; }
+
+  /* ---------- CANVAS ---------- */
+  #canvas {
+    position:absolute; inset:0; z-index:0;
+    background-image:radial-gradient(rgba(255,255,255,.055) 1px, transparent 1px);
+    background-size:20px 20px; background-position:-1px -1px;
+  }
+  #graph { position:absolute; inset:0; width:1440px; height:1024px; z-index:10; }
+
+  /* ---------- FLOATING TOP NAVBAR (elevation, no border) ---------- */
+  .navbar {
+    position:absolute; top:12px; left:12px; right:12px; height:52px; z-index:40;
+    display:flex; align-items:center; gap:10px; padding:0 10px; border-radius:11px;
+    background:linear-gradient(180deg,#161C25,#10141A);
+    box-shadow:var(--hi), 0 0 0 1px rgba(0,0,0,.55), 0 18px 40px -22px rgba(0,0,0,.95);
+  }
+  .nav-left { display:flex; align-items:center; gap:9px; min-width:0; }
+  .back { display:flex; align-items:center; gap:5px; color:var(--t3); font-size:12px;
+    padding:6px 6px; border-radius:7px; white-space:nowrap; }
+  .back:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  .wf-name { display:flex; align-items:center; gap:8px; }
+  .wf-name .title { font-size:14.5px; font-weight:600; color:var(--t1); letter-spacing:-0.018em; white-space:nowrap; }
+  .unsaved { width:6px; height:6px; border-radius:50%; background:var(--t3); flex:none;
+    box-shadow:0 0 0 3px rgba(255,255,255,.05); }
+  .chip { display:inline-flex; align-items:center; gap:6px; padding:3px 8px; border-radius:6px;
+    font-size:11px; font-weight:450; background:var(--s4); color:var(--t2); box-shadow:var(--hi); white-space:nowrap; }
+  /* PII is a governance CONSTRAINT, not a status — recessed well + the reserved hue kept for the word */
+  .badge-pii { color:#F0A5A5; background:rgba(0,0,0,.36); box-shadow:inset 0 0 0 1px rgba(220,80,80,.30); }
+
+  .nav-sep { width:1px; height:24px; background:var(--r2); flex:none; }
+  .nav-right { display:flex; align-items:center; gap:5px; margin-left:auto; }
+  .tbtn { display:inline-flex; align-items:center; justify-content:center; gap:6px; font-family:inherit;
+    height:30px; min-width:30px; padding:0 7px; border-radius:7px; border:0;
+    background:transparent; color:var(--t3); font-size:12px; cursor:default; white-space:nowrap; }
+  .tbtn:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  .tbtn.icon { padding:0; width:30px; }
+  /* rule 1: repeated active state takes VALUE + ELEVATION, never the accent */
+  .tbtn.active { color:var(--t1); font-weight:550; background:var(--s5); box-shadow:var(--hi); }
+  .tgroup { display:flex; align-items:center; gap:2px; padding:2px; border-radius:8px;
+    background:rgba(0,0,0,.30); box-shadow:inset 0 1px 2px rgba(0,0,0,.55); }
+  .tgroup .tbtn, .tgroup .tbtn.icon { height:26px; min-width:26px; width:26px; padding:0; border-radius:6px; }
+  .zoom-val { font-size:10.5px; padding:0 3px; color:var(--t2); }
+  .btn-add { display:inline-flex; align-items:center; gap:6px; height:30px; padding:0 9px; border:0;
+    border-radius:7px; font-family:inherit; font-size:12px; font-weight:500; color:var(--t1);
+    background:var(--s5); box-shadow:var(--hi), 0 1px 2px rgba(0,0,0,.5); cursor:default; white-space:nowrap; }
+  .btn-add:hover { background:#2A3340; }
+  .env-sel { display:inline-flex; align-items:center; gap:6px; height:30px; padding:0 9px; border-radius:7px;
+    font-size:11.5px; color:var(--t3); background:rgba(0,0,0,.28);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.55), inset 0 0 0 1px rgba(255,255,255,.035); white-space:nowrap; }
+  .env-sel .mono { color:var(--t1); font-size:11px; font-weight:600; }
+  /* SIGNAL 1/3 — liveness */
+  .pill-live { display:inline-flex; align-items:center; gap:6px; height:30px; padding:0 10px;
+    border-radius:7px; font-size:11.5px; font-weight:550; color:var(--sig);
+    background:rgba(0,0,0,.34); box-shadow:inset 0 0 0 1px var(--sig-line); white-space:nowrap; }
+  .pill-live .lamp { width:5px; height:5px; border-radius:50%; background:var(--sig); flex:none;
+    box-shadow:0 0 9px -1px var(--sig); }
+  /* rule 2: the primary action is near-white, which preserves the accent budget */
+  .btn-run { display:inline-flex; align-items:center; gap:7px; height:30px; padding:0 11px; border:0;
+    border-radius:7px; font-family:inherit; font-size:12px; font-weight:600; color:#0B0E13;
+    background:linear-gradient(180deg,#FBFDFF,var(--key)); cursor:default; white-space:nowrap;
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset, 0 2px 8px -3px rgba(0,0,0,.9), 0 0 0 1px rgba(0,0,0,.35); }
+  .btn-run:hover { background:#fff; }
+  .status-text { font-size:10px; color:var(--t3); white-space:nowrap; display:inline-flex; align-items:center;
+    gap:6px; letter-spacing:-0.01em; }
+
+  svg .ic { stroke-width:1.6; fill:none; stroke-linecap:round; stroke-linejoin:round; }
+
+  /* ---------- NODE GRAPH (HTML nodes over SVG edges) ---------- */
+  #nodes-layer { position:absolute; inset:0; z-index:20; pointer-events:none; }
+  .node { position:absolute; width:96px; display:flex; flex-direction:column; align-items:center; gap:8px; }
+  .node .box {
+    position:relative; width:60px; height:60px; border-radius:13px;
+    background:linear-gradient(180deg,#212936,#141922);
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:var(--hi), 0 0 0 1px rgba(0,0,0,.55), 0 10px 24px -10px rgba(0,0,0,.95);
+  }
+  /* kind identity lives HERE — a tinted well with the kind-coloured glyph, not a ring round the whole box */
+  .node .chip {
+    width:36px; height:36px; border-radius:10px; display:flex; align-items:center; justify-content:center;
+    background:rgba(0,0,0,.30); box-shadow:inset 0 1px 2px rgba(0,0,0,.55), inset 0 0 0 1px currentColor;
+  }
+  .node .label { font-size:11.5px; font-weight:500; color:var(--t1); text-align:center; line-height:1.25;
+    max-width:92px; letter-spacing:-0.008em; }
+  .node .sub { font-family:var(--mono); font-variant-numeric:tabular-nums; font-size:9.5px; color:var(--t3);
+    text-align:center; margin-top:-4px; }
+  /* handles */
+  .handle { position:absolute; width:9px; height:9px; border-radius:50%; top:50%; transform:translateY(-50%);
+    background:#161B23; box-shadow:0 0 0 1.5px var(--s6); }
+  .handle.tgt { left:-5px; }
+  .handle.src { right:-5px; }
+  .handle.src.plus { background:var(--s5); box-shadow:var(--hi), 0 0 0 1.5px var(--s6); }
+  .handle.src.plus::after { content:"+"; position:absolute; inset:0; color:var(--t1); font-size:9px;
+    line-height:8px; text-align:center; font-weight:700; }
+
+  /* kind coloring via data-attr — currentColor drives both the well ring and the glyph */
+  .node[data-kind=trigger]   .chip { color:var(--k-trigger); }
+  .node[data-kind=transform] .chip { color:var(--k-transform); }
+  .node[data-kind=flow]      .chip { color:var(--k-flow); }
+  .node[data-kind=ai]        .chip { color:var(--k-ai); }
+  .node[data-kind=action]    .chip { color:var(--k-action); }
+  .node[data-kind=output]    .chip { color:var(--k-output); }
+
+  /* execution states — rule 6: shape + hue + WORD */
+  .node.idle { opacity:.62; }
+  /* SIGNAL 2/3 — the one thing that is live right now */
+  .node.running .box { box-shadow:var(--hi), 0 0 0 1px var(--sig-line), 0 0 22px -4px rgba(70,213,232,.55),
+    0 10px 24px -10px rgba(0,0,0,.95); }
+  .node.running .box::before {
+    content:""; position:absolute; inset:-6px; border-radius:17px;
+    border:1.5px solid rgba(70,213,232,.20); border-top-color:var(--sig);
+    animation:spin 1.6s linear infinite;
+  }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .nstat { position:absolute; top:-10px; right:-13px; z-index:2; display:inline-flex; align-items:center; gap:5px;
+    height:18px; padding:0 7px; border-radius:6px; font-size:9.5px; font-weight:600; white-space:nowrap;
+    background:linear-gradient(180deg,#252D39,#171C24); color:var(--t2);
+    box-shadow:var(--hi), 0 0 0 2px var(--s1), 0 2px 6px -2px rgba(0,0,0,.9); }
+  .nstat.ok  { color:var(--t1); }
+  .nstat.run { color:var(--sig); box-shadow:inset 0 0 0 1px var(--sig-line), 0 0 0 2px var(--s1), 0 0 14px -4px var(--sig); }
+  .nstat.q   { color:var(--t3); }
+
+  .edge { fill:none; stroke:#3B4553; stroke-width:2; }
+  .edge.dim { stroke:#252D38; }
+  .edge.hold { stroke:var(--st-warn); opacity:.42; stroke-dasharray:4 5; }
+  /* SIGNAL 3/3 — liveness, on the wire */
+  .edge.running { stroke:var(--sig); stroke-width:2.4; stroke-dasharray:6 6; animation:flow .8s linear infinite;
+    filter:drop-shadow(0 0 5px rgba(70,213,232,.45)); }
+  @keyframes flow { to { stroke-dashoffset:-24; } }
+  .edge-lbl { fill:var(--t3); font-size:10px; font-family:var(--mono); }
+  .edge-lbl-bg { fill:#171C24; stroke:rgba(255,255,255,.075); stroke-width:1; }
+  @media (prefers-reduced-motion:reduce) {
+    .node.running .box::before { animation:none; }
+    .edge.running { animation:none; }
+    .cursor { animation:none; }
+  }
+
+  /* ---------- FLOATING PANEL BASE — elevation replaces the border ---------- */
+  .panel { position:absolute; z-index:35; border-radius:11px; background:var(--s2);
+    box-shadow:var(--hi), 0 0 0 1px rgba(0,0,0,.55), 0 22px 48px -24px rgba(0,0,0,.95); }
+
+  /* ---------- RIGHT PANEL: NODE PALETTE ---------- */
+  .rightp { top:76px; right:12px; width:320px; bottom:150px; display:flex; flex-direction:column; }
+  /* rule 3: a horizontal ZONE boundary is one of the three rules that earn their keep */
+  .p-tabs { display:flex; align-items:center; gap:2px; padding:8px 10px; box-shadow:inset 0 -1px 0 var(--r1); }
+  .p-tab { font-size:12px; padding:5px 9px; border-radius:6px; color:var(--t3); }
+  .p-tab.active { color:var(--t1); font-weight:550; background:var(--s4); box-shadow:var(--hi); }
+  .p-tabs .close { margin-left:auto; color:var(--t3); padding:0 4px; }
+  .search { margin:10px; display:flex; align-items:center; gap:8px; height:32px; padding:0 10px;
+    border-radius:8px; color:var(--t3); font-size:12px; background:var(--s0);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); }
+  .search .mono { font-size:10px; margin-left:auto; color:var(--t3); }
+  .palette { overflow:hidden; padding:0 8px 8px; flex:1; }
+  .cat { padding:11px 6px 5px; }
+  .cat > .lbl { padding:0 8px 3px; }
+  .cat-row { display:flex; align-items:center; gap:10px; padding:7px 8px; border-radius:8px; }
+  .cat-row:hover { background:rgba(255,255,255,.045); }
+  .cat-ic { width:26px; height:26px; border-radius:7px; display:flex; align-items:center; justify-content:center;
+    flex-shrink:0; background:rgba(0,0,0,.30); box-shadow:inset 0 1px 2px rgba(0,0,0,.5), inset 0 0 0 1px currentColor; }
+  .cat-ic[data-k=trigger]{color:var(--k-trigger)} .cat-ic[data-k=transform]{color:var(--k-transform)}
+  .cat-ic[data-k=flow]{color:var(--k-flow)}       .cat-ic[data-k=ai]{color:var(--k-ai)}
+  .cat-ic[data-k=action]{color:var(--k-action)}   .cat-ic[data-k=output]{color:var(--k-output)}
+  .cat-row .nm { font-size:12px; font-weight:500; color:var(--t1); letter-spacing:-0.008em; }
+  .cat-row .ds { font-size:10.5px; color:var(--t3); line-height:1.3; }
+  .grip { margin-left:auto; color:var(--t4); font-size:13px; letter-spacing:-1px; }
+
+  /* ---------- BOTTOM-LEFT PANEL: LOGS ---------- */
+  .logsp { left:12px; bottom:64px; width:460px; height:220px; display:flex; flex-direction:column; }
+  .logs-head { display:flex; align-items:center; gap:2px; padding:8px 10px; box-shadow:inset 0 -1px 0 var(--r1); }
+  .logs-head .l-tab { font-size:12px; padding:5px 9px; border-radius:6px; color:var(--t3); }
+  .logs-head .l-tab.active { color:var(--t1); font-weight:550; background:var(--s4); box-shadow:var(--hi); }
+  .logs-head .spacer { margin-left:auto; display:flex; gap:4px; }
+  .logs-body { flex:1; overflow:hidden; padding:8px 12px; font-family:var(--mono);
+    font-variant-numeric:tabular-nums; font-size:11.5px; line-height:1.85; }
+  .logline { display:flex; gap:9px; align-items:baseline; white-space:nowrap; }
+  .logline .ts { color:var(--t3); }
+  .logline .msg { color:var(--t1); }
+  .logline .muted { color:var(--t3); }
+  .lv { font-size:10px; width:9px; flex:none; }
+  .lv.info { color:var(--t3); } .lv.warn { color:var(--st-warn); } .lv.ok { color:var(--st-good); }
+  .cursor { display:inline-block; width:7px; height:12px; background:var(--t2); animation:blink 1s steps(1) infinite; vertical-align:middle; }
+  @keyframes blink { 50% { opacity:0; } }
+
+  /* ---------- CANVAS CHROME ---------- */
+  /* the zoom stack sits ABOVE the log dock (which owns the bottom-left corner) so neither is clipped */
+  .zoomctl { position:absolute; left:12px; bottom:294px; z-index:30; display:flex; flex-direction:column;
+    border-radius:8px; overflow:hidden; background:var(--s3);
+    box-shadow:var(--hi), 0 0 0 1px rgba(0,0,0,.55), 0 12px 28px -16px rgba(0,0,0,.95); }
+  .zoomctl button { width:32px; height:30px; display:flex; align-items:center; justify-content:center; border:0;
+    font-family:inherit; font-size:13px; color:var(--t3); background:transparent; box-shadow:inset 0 -1px 0 var(--r1); cursor:default; }
+  .zoomctl button:last-child { box-shadow:none; }
+  .zoomctl button:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+
+  .minimap { position:absolute; right:12px; bottom:16px; z-index:30; width:180px; height:112px;
+    border-radius:9px; overflow:hidden; background:var(--s2);
+    box-shadow:var(--hi), 0 0 0 1px rgba(0,0,0,.55), 0 12px 28px -16px rgba(0,0,0,.95); }
+  .minimap .mm-label { position:absolute; top:5px; left:8px; font-size:10px; color:var(--t3); font-weight:500; }
+  .minimap svg { display:block; }
+
+  .hint { position:absolute; left:50%; transform:translateX(-50%); bottom:18px; z-index:30;
+    display:flex; align-items:center; gap:13px; padding:7px 14px; border-radius:8px; background:var(--s2);
+    font-size:11px; color:var(--t3); white-space:nowrap;
+    box-shadow:var(--hi), 0 0 0 1px rgba(0,0,0,.55), 0 12px 28px -16px rgba(0,0,0,.95); }
+  .hint kbd { font-family:var(--mono); font-size:10px; font-weight:500; color:var(--t2);
+    background:linear-gradient(180deg,#232A34,#1A2028); border-radius:4px; padding:1.5px 5px; line-height:1.4;
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); }
+  .hint .sep { color:var(--t4); }
+
+  /* every animation on the screen, guarded — declared last so it wins the cascade */
+  @media (prefers-reduced-motion:reduce) {
+    .node.running .box::before { animation:none; }
+    .edge.running { animation:none; }
+    .cursor { animation:none; }
+  }
+</style>
+</head>
+<body>
+
+<div id="canvas"></div>
+
+<!-- ============ EDGES (SVG under nodes) ============ -->
+<svg id="graph" viewBox="0 0 1440 1024" preserveAspectRatio="none">
+  <!-- handle coords: box vmid = nodeTop+30; src = nodeLeft+78; tgt = nodeLeft+18
+       N1 src(180,300) N2 tgt(300,300)/src(360,300) N3 tgt(480,300)/src(540,300)
+       N4 tgt(660,300)/src(720,300) N5 tgt(470,540)/src(530,540) N6 tgt(670,540)/src(730,540)
+       N7 tgt(818,470)/src(878,470) N8 tgt(998,470)/src(1058,470) -->
+  <!-- 1: trigger -> action -->
+  <path class="edge" d="M 180 300 C 240 300, 240 300, 300 300" />
+  <!-- 2: action -> transform -->
+  <path class="edge" d="M 360 300 C 420 300, 420 300, 480 300" />
+  <!-- 3: transform -> ai -->
+  <path class="edge" d="M 540 300 C 600 300, 600 300, 660 300" />
+  <!-- 4: ai -> flow (down-left, main path) -->
+  <path class="edge" d="M 720 300 C 800 300, 560 540, 470 540" />
+  <!-- 5: transform(dictionary) -> flow (second input, faint) -->
+  <path class="edge dim" d="M 540 300 C 500 410, 430 460, 470 540" />
+  <!-- 6: flow -> transform(mask)  ANIMATED RUNNING EDGE -->
+  <path class="edge running" d="M 530 540 C 590 540, 610 540, 670 540" />
+  <!-- 7: transform(mask) -> action(validate) up-right -->
+  <path class="edge" d="M 730 540 C 780 540, 780 470, 818 470" />
+  <!-- 8: action(validate) -> output -->
+  <path class="edge" d="M 878 470 C 938 470, 938 470, 998 470" />
+  <!-- 9: flow -> steward hold (undeclared columns never reach the artifact) -->
+  <path class="edge hold" d="M 530 540 C 620 662, 682 700, 742 700" />
+
+  <!-- branch labels -->
+  <g transform="translate(600,522)">
+    <rect class="edge-lbl-bg" x="-30" y="-11" width="60" height="18" rx="5"/>
+    <text class="edge-lbl" x="0" y="2" text-anchor="middle">declared</text>
+  </g>
+  <g transform="translate(640,652)">
+    <rect class="edge-lbl-bg" x="-36" y="-11" width="72" height="18" rx="5"/>
+    <text class="edge-lbl" x="0" y="2" text-anchor="middle">undeclared</text>
+  </g>
+
+  <!-- human gate: steward review affordance on the undeclared path.
+       rule 6 — the held branch gets the WARN TRIANGLE beside its word, not a bare dot -->
+  <g transform="translate(742,700)">
+    <rect x="0" y="-14" width="176" height="28" rx="8" fill="rgba(0,0,0,.36)" stroke="rgba(250,178,25,.30)"/>
+    <path d="M 15 -4 L 19.4 3.6 L 10.6 3.6 Z" fill="#fab219"/>
+    <text class="edge-lbl" x="28" y="3.5" fill="#fab219">Hold · request steward review</text>
+  </g>
+</svg>
+
+<!-- ============ NODES (HTML over SVG) ============ -->
+<div id="nodes-layer">
+
+  <!-- N1 Trigger -->
+  <div class="node" data-kind="trigger" style="left:102px; top:270px;">
+    <div class="box">
+      <div class="chip">
+        <svg width="19" height="19" viewBox="0 0 24 24"><g class="ic" stroke="currentColor"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 1.5M9 2h6M12 5V2"/></g></svg>
+      </div>
+      <span class="handle src"></span>
+    </div>
+    <div class="label">Schedule 02:00 UTC</div>
+    <div class="sub mono">cron · nightly</div>
+  </div>
+
+  <!-- N2 Action: Load HR upload -->
+  <div class="node" data-kind="action" style="left:282px; top:270px;">
+    <div class="box">
+      <div class="nstat ok"><i class="g good"></i>done</div>
+      <div class="chip">
+        <svg width="19" height="19" viewBox="0 0 24 24"><g class="ic" stroke="currentColor"><path d="M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3z"/><path d="M4 7v10c0 1.7 3.6 3 8 3s8-1.3 8-3V7"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></g></svg>
+      </div>
+      <span class="handle tgt"></span><span class="handle src"></span>
+    </div>
+    <div class="label">Load HR upload (S3)</div>
+    <div class="sub mono">1,204 rows</div>
+  </div>
+
+  <!-- N3 Transform: Apply PII dictionary (declared sensitivity, human-authored) -->
+  <div class="node" data-kind="transform" style="left:462px; top:270px;">
+    <div class="box">
+      <div class="chip">
+        <svg width="19" height="19" viewBox="0 0 24 24"><g class="ic" stroke="currentColor"><path d="M5 4.5A1.5 1.5 0 016.5 3H18v15H6.5A1.5 1.5 0 005 19.5z"/><path d="M5 19.5A1.5 1.5 0 016.5 18H18v3H6.5A1.5 1.5 0 015 19.5z"/><path d="M9 7.5h5M9 11h3.5"/></g></svg>
+      </div>
+      <span class="handle tgt"></span><span class="handle src"></span>
+    </div>
+    <div class="label">Apply PII dictionary</div>
+    <div class="sub mono">4 declared · 2 undeclared</div>
+  </div>
+
+  <!-- N4 AI: Classify notes -->
+  <div class="node" data-kind="ai" style="left:642px; top:270px;">
+    <div class="box">
+      <div class="chip">
+        <svg width="19" height="19" viewBox="0 0 24 24"><g class="ic" stroke="currentColor"><path d="M12 3l1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8z"/><path d="M18 15l.9 2.1L21 18l-2.1.9L18 21l-.9-2.1L15 18l2.1-.9z"/></g></svg>
+      </div>
+      <span class="handle tgt"></span><span class="handle src plus"></span>
+    </div>
+    <div class="label">Classify free-text notes</div>
+    <div class="sub mono">opus · note-labels</div>
+  </div>
+
+  <!-- N5 Flow: Branch has PII? (RUNNING) -->
+  <div class="node running" data-kind="flow" style="left:452px; top:510px;">
+    <div class="box">
+      <div class="nstat run"><i class="g live"></i>running</div>
+      <div class="chip">
+        <svg width="19" height="19" viewBox="0 0 24 24"><g class="ic" stroke="currentColor"><path d="M6 3v6a3 3 0 003 3h6"/><circle cx="18" cy="12" r="2.4"/><path d="M6 9v6a3 3 0 003 3h6"/><circle cx="4.5" cy="4.5" r="1.8"/><circle cx="18" cy="20" r="1.8"/></g></svg>
+      </div>
+      <span class="handle tgt"></span><span class="handle src"></span>
+    </div>
+    <div class="label">Branch: undeclared columns?</div>
+    <div class="sub mono">2 → steward hold</div>
+  </div>
+
+  <!-- N6 Transform: Mask + hash -->
+  <div class="node" data-kind="transform" style="left:652px; top:510px;">
+    <div class="box">
+      <div class="chip">
+        <svg width="19" height="19" viewBox="0 0 24 24"><g class="ic" stroke="currentColor"><rect x="4.5" y="10.5" width="15" height="9.5" rx="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3"/><circle cx="12" cy="15" r="1.3"/></g></svg>
+      </div>
+      <span class="handle tgt"></span><span class="handle src"></span>
+    </div>
+    <div class="label">Mask + hash</div>
+    <div class="sub mono">email·ssn·phone</div>
+  </div>
+
+  <!-- N7 Action: Validate rules -->
+  <div class="node" data-kind="action" style="left:800px; top:440px;">
+    <div class="box">
+      <div class="chip">
+        <svg width="19" height="19" viewBox="0 0 24 24"><g class="ic" stroke="currentColor"><path d="M9 12l2 2 4-4"/><path d="M12 3l7 3v5c0 4.4-3 7.6-7 9-4-1.4-7-4.6-7-9V6z"/></g></svg>
+      </div>
+      <span class="handle tgt"></span><span class="handle src"></span>
+    </div>
+    <div class="label">Validate rules</div>
+    <div class="sub mono">42/42 pass</div>
+  </div>
+
+  <!-- N8 Output: Write governed artifact (idle-dim) -->
+  <div class="node idle" data-kind="output" style="left:980px; top:440px;">
+    <div class="box">
+      <div class="nstat q"><i class="g unknown"></i>queued</div>
+      <div class="chip">
+        <svg width="19" height="19" viewBox="0 0 24 24"><g class="ic" stroke="currentColor"><path d="M14 3v5h5"/><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/><path d="M9 14l2 2 4-4"/></g></svg>
+      </div>
+      <span class="handle tgt"></span><span class="handle src"></span>
+    </div>
+    <div class="label">Write governed artifact</div>
+    <div class="sub mono">queued</div>
+  </div>
+
+</div>
+
+<!-- ============ FLOATING TOP NAVBAR ============ -->
+<div class="navbar">
+  <div class="nav-left">
+    <a class="back">‹&nbsp; Projects</a>
+    <div class="nav-sep"></div>
+    <div class="wf-name">
+      <span class="unsaved" title="Unsaved changes"></span>
+      <span class="title">Nightly PII redaction</span>
+    </div>
+    <span class="chip">People Ops</span>
+    <span class="chip badge-pii">Restricted · PII</span>
+  </div>
+
+  <div class="nav-right">
+    <div class="tgroup">
+      <button class="tbtn icon" title="Undo"><svg width="15" height="15" viewBox="0 0 24 24"><g class="ic" stroke="currentColor"><path d="M9 7L4 12l5 5"/><path d="M4 12h11a5 5 0 010 10h-2"/></g></svg></button>
+      <button class="tbtn icon" title="Redo"><svg width="15" height="15" viewBox="0 0 24 24"><g class="ic" stroke="currentColor"><path d="M15 7l5 5-5 5"/><path d="M20 12H9a5 5 0 000 10h2"/></g></svg></button>
+    </div>
+    <div class="tgroup">
+      <button class="tbtn icon active" title="Pointer"><svg width="15" height="15" viewBox="0 0 24 24"><path class="ic" stroke="currentColor" d="M5 3l6 16 2.2-6.5L20 10z"/></svg></button>
+      <button class="tbtn icon" title="Hand / Pan"><svg width="15" height="15" viewBox="0 0 24 24"><path class="ic" stroke="currentColor" d="M8 12V6a1.5 1.5 0 013 0v5m0-1V5a1.5 1.5 0 013 0v6m0-1V6.5a1.5 1.5 0 013 0V14a6 6 0 01-6 6h-1a5 5 0 01-4.3-2.5L5 14a1.5 1.5 0 012.5-1.6L8 13"/></svg></button>
+    </div>
+    <div class="tgroup">
+      <button class="tbtn icon" title="Zoom out">−</button>
+      <span class="zoom-val mono">100%</span>
+      <button class="tbtn icon" title="Zoom in">+</button>
+    </div>
+    <button class="tbtn active" title="Toggle logs">Logs</button>
+    <button class="tbtn active" title="Toggle nodes">Nodes</button>
+    <button class="tbtn" title="Toggle AI panel">AI</button>
+    <button class="btn-add"><span style="font-size:14px;line-height:1">+</span> Add node</button>
+    <div class="env-sel">env <span class="mono">prod</span> <span style="color:var(--t4)">▾</span></div>
+    <span class="pill-live"><span class="lamp"></span>Live</span>
+    <button class="btn-run"><svg width="10" height="10" viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z" fill="#0B0E13"/></svg> Run</button>
+    <button class="tbtn icon" title="Save"><svg width="15" height="15" viewBox="0 0 24 24"><g class="ic" stroke="currentColor"><path d="M5 4h11l3 3v13a1 1 0 01-1 1H5a1 1 0 01-1-1V5a1 1 0 011-1z"/><path d="M8 4v5h7V4M8 21v-6h8v6"/></g></svg></button>
+    <div class="nav-sep"></div>
+    <span class="status-text mono">8 nodes · 9 edges · last run 840ms<span class="stw w-good"><i class="g good"></i>ok</span></span>
+    <button class="tbtn icon" title="More">⋯</button>
+  </div>
+</div>
+
+<!-- ============ RIGHT PANEL: NODE PALETTE ============ -->
+<div class="panel rightp">
+  <div class="p-tabs">
+    <span class="p-tab active">Nodes</span>
+    <span class="p-tab">AI</span>
+    <span class="close">✕</span>
+  </div>
+  <div class="search">
+    <svg width="14" height="14" viewBox="0 0 24 24"><g class="ic" stroke="currentColor"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></g></svg>
+    Search nodes…
+    <span class="mono">⌘K</span>
+  </div>
+  <div class="palette">
+    <div class="cat">
+      <div class="lbl">Triggers</div>
+      <div class="cat-row">
+        <span class="cat-ic" data-k="trigger"><svg width="14" height="14" viewBox="0 0 24 24"><g class="ic" stroke="currentColor"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 1.5"/></g></svg></span>
+        <div><div class="nm">Schedule</div><div class="ds">Run on a cron cadence</div></div><span class="grip">⋮⋮</span>
+      </div>
+      <div class="cat-row">
+        <span class="cat-ic" data-k="trigger"><svg width="14" height="14" viewBox="0 0 24 24"><g class="ic" stroke="currentColor"><path d="M4 6h16v12H4z"/><path d="M4 8l8 5 8-5"/></g></svg></span>
+        <div><div class="nm">On dataset upload</div><div class="ds">Fire when a file lands</div></div><span class="grip">⋮⋮</span>
+      </div>
+    </div>
+    <div class="cat">
+      <div class="lbl">Transform</div>
+      <div class="cat-row">
+        <span class="cat-ic" data-k="transform"><svg width="14" height="14" viewBox="0 0 24 24"><g class="ic" stroke="currentColor"><rect x="4.5" y="10.5" width="15" height="9" rx="2"/><path d="M8 10.5V7a4 4 0 018 0v3.5"/></g></svg></span>
+        <div><div class="nm">Mask + hash</div><div class="ds">Redact &amp; one-way hash PII</div></div><span class="grip">⋮⋮</span>
+      </div>
+      <div class="cat-row">
+        <span class="cat-ic" data-k="transform"><svg width="14" height="14" viewBox="0 0 24 24"><g class="ic" stroke="currentColor"><path d="M5 4.5A1.5 1.5 0 016.5 3H18v15H6.5A1.5 1.5 0 005 19.5z"/><path d="M5 19.5A1.5 1.5 0 016.5 18H18v3H6.5A1.5 1.5 0 015 19.5z"/></g></svg></span>
+        <div><div class="nm">Apply PII dictionary</div><div class="ds">Use declared column sensitivity</div></div><span class="grip">⋮⋮</span>
+      </div>
+    </div>
+    <div class="cat">
+      <div class="lbl">Flow</div>
+      <div class="cat-row">
+        <span class="cat-ic" data-k="flow"><svg width="14" height="14" viewBox="0 0 24 24"><g class="ic" stroke="currentColor"><path d="M6 4v6a3 3 0 003 3h6"/><circle cx="18" cy="13" r="2.2"/></g></svg></span>
+        <div><div class="nm">Branch</div><div class="ds">Split on a condition</div></div><span class="grip">⋮⋮</span>
+      </div>
+    </div>
+    <div class="cat">
+      <div class="lbl">AI</div>
+      <div class="cat-row">
+        <span class="cat-ic" data-k="ai"><svg width="14" height="14" viewBox="0 0 24 24"><g class="ic" stroke="currentColor"><path d="M12 4l1.6 3.8L17 9l-3.4 1.2L12 14l-1.6-3.8L7 9l3.4-1.2z"/></g></svg></span>
+        <div><div class="nm">Classify text</div><div class="ds">LLM label on free-text fields</div></div><span class="grip">⋮⋮</span>
+      </div>
+    </div>
+    <div class="cat">
+      <div class="lbl">Helpers</div>
+      <div class="cat-row">
+        <span class="cat-ic" data-k="action"><svg width="14" height="14" viewBox="0 0 24 24"><g class="ic" stroke="currentColor"><path d="M9 12l2 2 4-4"/><path d="M12 3l7 3v5c0 4.4-3 7.6-7 9-4-1.4-7-4.6-7-9V6z"/></g></svg></span>
+        <div><div class="nm">Validate rules</div><div class="ds">Assert governance policy</div></div><span class="grip">⋮⋮</span>
+      </div>
+      <div class="cat-row">
+        <span class="cat-ic" data-k="output"><svg width="14" height="14" viewBox="0 0 24 24"><g class="ic" stroke="currentColor"><path d="M14 3v5h5"/><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/></g></svg></span>
+        <div><div class="nm">Write artifact</div><div class="ds">Persist a governed output</div></div><span class="grip">⋮⋮</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ BOTTOM-LEFT PANEL: LOGS ============ -->
+<div class="panel logsp">
+  <div class="logs-head">
+    <span class="l-tab active">Logs</span>
+    <span class="l-tab">Input</span>
+    <span class="lbl mono" style="margin-left:10px">run #248</span>
+    <div class="spacer">
+      <button class="tbtn icon" title="Maximize" style="height:24px;width:24px"><svg width="12" height="12" viewBox="0 0 24 24"><g class="ic" stroke="currentColor"><path d="M4 9V4h5M20 15v5h-5M15 4h5v5M9 20H4v-5"/></g></svg></button>
+      <button class="tbtn icon" title="Close" style="height:24px;width:24px">✕</button>
+    </div>
+  </div>
+  <div class="logs-body">
+    <div class="logline"><span class="ts">02:00:01</span><span class="lv info">▸</span><span class="msg">load_hr_upload</span><span class="muted">1,204 rows · 4.2 MB</span></div>
+    <div class="logline"><span class="ts">02:00:02</span><span class="lv info">▸</span><span class="msg">apply_pii_dictionary</span><span class="muted">4 declared · 2 undeclared</span></div>
+    <div class="logline"><span class="ts">02:00:02</span><span class="lv warn">⚠</span><span class="msg">steward_review</span><span class="muted">2 undeclared → held</span></div>
+    <div class="logline"><span class="ts">02:00:02</span><span class="lv info">▸</span><span class="msg">classify_notes</span><span class="muted">312 rows · opus</span></div>
+    <div class="logline"><span class="ts">02:00:03</span><span class="lv warn">⚠</span><span class="msg">mask+hash</span><span class="muted">redacted email, ssn, phone</span></div>
+    <div class="logline"><span class="ts">02:00:04</span><span class="lv ok">✓</span><span class="msg">validate</span><span class="muted">42/42 rules</span></div>
+    <div class="logline"><span class="ts">02:00:04</span><span class="lv info">▸</span><span class="msg">write_artifact</span><span class="muted">queued → hr/redacted/…</span><span class="cursor"></span></div>
+  </div>
+</div>
+
+<!-- ============ CANVAS CHROME ============ -->
+<div class="zoomctl">
+  <button title="Zoom in">+</button>
+  <button title="Zoom out">−</button>
+  <button title="Fit view"><svg width="14" height="14" viewBox="0 0 24 24"><g class="ic" stroke="currentColor"><path d="M4 9V4h5M20 15v5h-5M15 4h5v5M9 20H4v-5"/></g></svg></button>
+</div>
+
+<div class="minimap">
+  <span class="mm-label">Map</span>
+  <svg width="180" height="112" viewBox="0 0 180 112">
+    <rect x="0" y="0" width="180" height="112" fill="transparent"/>
+    <!-- viewport frame -->
+    <rect x="12" y="26" width="150" height="66" fill="rgba(255,255,255,.035)" stroke="rgba(255,255,255,.13)" rx="4"/>
+    <!-- faint edges (under the dots) -->
+    <g stroke="rgba(255,255,255,.13)" stroke-width="1" fill="none">
+      <path d="M26 42H92"/><path d="M92 42C80 55 78 72 66 72"/>
+      <path d="M66 72H90"/><path d="M90 72C104 72 108 64 116 64"/><path d="M116 64H140"/>
+    </g>
+    <!-- node dots colored by kind, mirroring layout -->
+    <circle cx="26"  cy="42" r="4.5" fill="#E8739E"/>
+    <circle cx="48"  cy="42" r="4.5" fill="#3AAE84"/>
+    <circle cx="70"  cy="42" r="4.5" fill="#5FA0EC"/>
+    <circle cx="92"  cy="42" r="4.5" fill="#9A8FF2"/>
+    <circle cx="66"  cy="72" r="4.5" fill="#CE83DE"/>
+    <circle cx="90"  cy="72" r="4.5" fill="#5FA0EC"/>
+    <circle cx="116" cy="64" r="4.5" fill="#3AAE84"/>
+    <circle cx="140" cy="64" r="4.5" fill="#BC9A5E"/>
+    <!-- the running node is the one live thing on the map -->
+    <circle cx="66" cy="72" r="7.5" fill="none" stroke="#46D5E8" stroke-width="1.2"/>
+  </svg>
+</div>
+
+<div class="hint">
+  <span><kbd>Space</kbd>+drag pan</span><span class="sep">·</span>
+  <span><kbd>⌘Z</kbd> undo</span><span class="sep">·</span>
+  <span><kbd>⌫</kbd> delete</span><span class="sep">·</span>
+  <span><kbd>Tab</kbd> add node</span><span class="sep">·</span>
+  <span><kbd>⌘↵</kbd> run</span>
+</div>
+
+</body>
+</html>

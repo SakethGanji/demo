@@ -1,0 +1,1045 @@
+<!--
+  DESIGN NOTES — "INSTRUMENT" applied to the cross-tab + SQL console (restyle of the TERMINAL pivot screen).
+  Same information, same regions, same layout; the visual language is the house one: graphite ramp (hue ~218),
+  signal cyan #46D5E8, three rule weights, sentence-case heads, lowercase-mono table headers, hero numbers over
+  9.5px eyebrows, SVG grain + backlit vignette + inset highlights + recessed wells, status as SHAPE + hue + word,
+  and a near-white (not accent) primary.
+  RULES IN THE CROSS-TAB (rule 3's heterogeneous-table exception, adjudicated cell by cell):
+    KEPT    (a) ONE vertical rule splitting the row dimensions (definition) from the value grid (outcome);
+            (b) ONE vertical rule leading into the totals column;
+            (c) horizontal seams under the sticky header and above every totals row.
+    DROPPED the per-row hairline (three-row region groups plus the subtotal seam already measure the eye),
+            the boxed column-group header, and the cyan hover outline (a wash reads quieter and does not
+            impersonate selection).
+  TOTALS BAND: never heated. It is separated by ELEVATION (s3 subtotal -> s4 grand -> s5 grand row-total) plus an
+  inset top highlight, so it can never be mistaken for a data cell even when a data cell runs hot.
+  HEAT: sequential single hue (213 deg — the graphite family's own hue), six steps light -> dark. Step 0 is the
+  ramp FLOOR and is drawn in the legend, so the all-zero `free` column reads as measured zero, not missing data.
+  Cell text is t2, and t1 on the top two steps (>=4.5:1 measured on the composited fill).
+  CYAN BUDGET (4): active route · v42 as-of tick · the ONE pivot dimension chip · the SYNC lamp. The ten agg
+  toggles, four display modes, three inherited filters and the seat table are repeated state, so they take
+  value + position + elevation instead.
+  SQL HIGHLIGHTING: keywords win on VALUE (near-white 600, no hue at all, so they cannot fight the accent);
+  a little chroma is spent only on function / string / number, plus t3 italic comments — all >= 4.5:1 on --s0.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Command Studio — Pivot &amp; SQL Console · Terminal</title>
+<style>
+  :root {
+    --s0:#080A0E;  --s1:#0D1015;  --s2:#11151B;  --s3:#161B22;
+    --s4:#1C222B;  --s5:#242C37;  --s6:#38424F;  --key:#E9EEF5;
+    --t1:#E7ECF3;  --t2:#B0BAC8;  --t3:#85909F;  --t4:#5C6675; /* t4 = decoration only, never text */
+    --r1:rgba(255,255,255,.042); --r2:rgba(255,255,255,.075); --r3:rgba(255,255,255,.13);
+    --hi:inset 0 1px 0 rgba(255,255,255,.045);
+    --sig:#46D5E8; --sig-dim:rgba(70,213,232,.14); --sig-line:rgba(70,213,232,.40);
+    --st-good:#0ca30c; --st-warn:#fab219; --st-serious:#ec835a; --st-crit:#DC5050;
+    --m1:#CBD3DF; --m2:#A2ACBB; --m3:#7D8797; --m4:#5F6979; --m5:#48515F; --m6:#39414D;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    /* HEAT RAMP — one hue (213°, the graphite family's own hue), light -> dark, six steps.
+       h0 is the ramp FLOOR, not "no fill": a zero cell is a measured zero, never a missing cell. */
+    --h0:rgba(110,147,190,.085); --h1:rgba(110,147,190,.16); --h2:rgba(110,147,190,.25);
+    --h3:rgba(110,147,190,.36);  --h4:rgba(110,147,190,.48);  --h5:rgba(110,147,190,.62);
+    /* legacy aliases — the markup still carries inline var() references from the old language */
+    --foreground:var(--t1); --muted-foreground:var(--t3); --border:var(--r2); --primary:var(--t2);
+    --card:var(--s2); --surface:var(--s3); --muted:var(--s3); --secondary:var(--s4); --popover:var(--s3);
+  }
+
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { height:100%; overflow:hidden; }
+  html { font-size:13px; }
+  body {
+    font-family:var(--sans); color:var(--t2); font-size:12.5px;
+    background:radial-gradient(1180px 560px at 44% -12%, #151B24 0%, rgba(21,27,36,0) 62%), var(--s1);
+    -webkit-font-smoothing:antialiased; line-height:1.4; letter-spacing:-0.004em;
+    display:flex; flex-direction:column;
+  }
+  body::after {
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:200; opacity:.055; mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .mono { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  .num { font-variant-numeric:tabular-nums; }
+  .muted { color:var(--t3); }
+  ::selection { background:rgba(70,213,232,.26); color:#fff; }
+  :focus-visible { outline:none; box-shadow:0 0 0 1px var(--s0), 0 0 0 3px rgba(70,213,232,.45); border-radius:6px; }
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb { background:#232B35; border-radius:8px; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background:#303945; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-track { background:transparent; }
+
+  /* ===== STATUS: five states, five SHAPES, always beside a word ===== */
+  .g { width:8px; height:8px; flex:none; display:inline-block; vertical-align:-1px; }
+  .g.good    { border-radius:50%; background:var(--st-good); }
+  .g.warn    { width:0; height:0; border-left:4.5px solid transparent; border-right:4.5px solid transparent;
+               border-bottom:8px solid var(--st-warn); vertical-align:0; }
+  .g.serious { width:7px; height:7px; background:var(--st-serious); border-radius:1px; transform:rotate(45deg); margin:0 1px; }
+  .g.crit    { background:var(--st-crit); border-radius:1px; }
+  .g.unknown { border-radius:50%; background:transparent; box-shadow:inset 0 0 0 1.5px var(--t3); }
+  .stw { display:inline-flex; align-items:center; gap:6px; font-size:10.5px; font-weight:500; white-space:nowrap; }
+
+  /* ===== TOPBAR ===== */
+  header.topbar {
+    height:46px; flex:none; display:flex; align-items:center; gap:16px; padding:0 16px;
+    background:linear-gradient(180deg,#141922,#10141A); box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); z-index:30;
+  }
+  .brand { display:flex; align-items:center; gap:10px; }
+  .brand .glyph { width:21px; height:21px; border-radius:5px; background:linear-gradient(180deg,#2C3542,#191F28);
+    display:grid; place-items:center; box-shadow:var(--hi), 0 1px 2px rgba(0,0,0,.5); color:var(--t1); }
+  .brand .glyph svg { display:block; }
+  .brand .name { font-size:12.5px; font-weight:600; color:var(--t1); letter-spacing:-0.012em; white-space:nowrap; }
+  .env-chip { font-family:var(--mono); font-size:10px; color:var(--t3); display:inline-flex; align-items:center;
+    gap:6px; white-space:nowrap; }
+  .env-chip::before { content:""; width:5px; height:5px; border-radius:50%; background:var(--st-warn); flex:none; }
+  nav.gnav { display:flex; align-items:center; gap:4px; }
+  nav.gnav a { font-size:12.5px; font-weight:450; color:var(--t3); text-decoration:none; height:30px; padding:0 10px;
+    border-radius:7px; position:relative; display:inline-flex; align-items:center; transition:color .14s, background .14s; }
+  nav.gnav a:hover { color:var(--t1); background:rgba(255,255,255,.035); }
+  /* SIGNAL 1/4 — the active route */
+  nav.gnav a.active { color:var(--t1); font-weight:550; }
+  nav.gnav a.active::after { content:""; position:absolute; left:10px; right:10px; bottom:-9px; height:2px;
+    background:var(--sig); border-radius:2px 2px 0 0; box-shadow:0 0 12px -1px var(--sig); }
+  .cmdk { margin-left:auto; display:flex; align-items:center; gap:9px; width:290px; height:30px; padding:0 10px;
+    border-radius:8px; cursor:text; color:var(--t3); background:var(--s0);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); transition:box-shadow .16s; }
+  .cmdk:focus-within { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+  .cmdk svg { flex:none; opacity:.55; }
+  .cmdk .ph { font-size:12px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .kbd { font-family:var(--mono); font-size:10px; font-weight:500; color:var(--t2);
+    background:linear-gradient(180deg,#232A34,#1A2028); border-radius:4px; padding:1.5px 5px; line-height:1.4;
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); white-space:nowrap; }
+  .hicons { display:flex; align-items:center; gap:2px; }
+  .iconbtn { width:30px; height:30px; border-radius:7px; border:0; background:transparent; color:var(--t3);
+    display:grid; place-items:center; cursor:pointer; transition:color .14s, background .14s; }
+  .iconbtn:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  .teamsw { display:flex; align-items:center; gap:7px; height:28px; padding:0 10px; border-radius:7px; flex:none;
+    background:var(--s4); box-shadow:var(--hi); font-size:12px; color:var(--t1); cursor:pointer; white-space:nowrap;
+    margin-left:6px; }
+  .teamsw .tl { font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--t3); font-weight:500; }
+  .teamsw .tv { font-size:12px; font-weight:450; }
+  .teamsw .cv { color:var(--t3); font-size:9px; }
+  .avatar { width:27px; height:27px; border-radius:7px; background:linear-gradient(180deg,#2A323D,#1D242D);
+    display:grid; place-items:center; font-size:10px; font-weight:600; color:var(--t2); cursor:pointer;
+    box-shadow:var(--hi); flex:none; margin-left:2px; }
+
+  /* ===== KPI STRIP — the first read: hero numbers over recessive eyebrows ===== */
+  .kpistrip {
+    height:62px; flex:none; display:flex; align-items:center; padding:0 18px;
+    background:linear-gradient(180deg,var(--s3),#12171E);
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.55), 0 10px 24px -20px rgba(0,0,0,.9);
+  }
+  .kpi { display:flex; flex-direction:column; justify-content:center; gap:1px; padding-right:26px; white-space:nowrap; }
+  .kpi .lab { font-size:9.5px; font-weight:500; letter-spacing:.11em; text-transform:uppercase; color:var(--t3); }
+  .kpi .val.ts { font-size:15px; font-weight:600; letter-spacing:-0.01em; color:var(--t1); text-transform:none; }
+  .kpi .val { font-size:24px; font-weight:600; line-height:1.05; color:var(--t1); letter-spacing:-0.032em;
+    font-variant-numeric:tabular-nums; display:inline-block; }
+  .kpi .delta { font-size:10.5px; color:var(--t3); display:inline-flex; align-items:center; gap:5px; }
+  .kpi .row { display:flex; align-items:baseline; gap:8px; }
+  .up { color:var(--st-good); } .down { color:var(--t2); }
+  .clock { margin-left:auto; display:flex; align-items:center; gap:8px; padding-left:18px; }
+  /* SIGNAL 2/4 — the version this whole screen is scoped to */
+  .astick { width:6px; height:6px; border-radius:50%; background:var(--sig); flex:none; box-shadow:0 0 9px -1px var(--sig); }
+
+  /* ===== WORKSPACE ===== */
+  .workspace { display:grid; grid-template-columns:252px 1fr 336px; flex:1; min-height:0; }
+  .col { display:flex; flex-direction:column; min-width:0; min-height:0; }
+  .col.rail { background:var(--s2); box-shadow:1px 0 0 rgba(0,0,0,.45); z-index:2; }
+  .col.center { background:transparent; }
+  .col.dock { background:var(--s2); box-shadow:-1px 0 0 rgba(0,0,0,.45); z-index:2; }
+
+  .colhead { height:32px; display:flex; align-items:center; gap:9px; padding:0 14px; flex:none; }
+  .colhead .t { font-size:12.5px; font-weight:600; color:var(--t1); letter-spacing:-0.012em; white-space:nowrap; }
+  .colhead .badge { font-family:var(--mono); font-size:10px; color:var(--t3); }
+  .colhead .spacer { margin-left:auto; }
+
+  /* ---- shared bits ---- */
+  .lockglyph { color:var(--st-warn); display:inline-flex; vertical-align:-2px; flex:none; }
+  .pill { font-size:10.5px; font-weight:450; padding:2px 7px; border-radius:5px; display:inline-flex;
+    align-items:center; gap:5px; color:var(--t3); background:rgba(255,255,255,.05); white-space:nowrap; }
+  .pill.ok { color:var(--t2); }
+  .pill.warn { color:var(--st-warn); background:rgba(250,178,25,.07); box-shadow:inset 0 0 0 1px rgba(250,178,25,.26); }
+  .pill.neu { color:var(--t3); }
+  .pill.label { color:var(--t3); background:transparent; box-shadow:inset 0 0 0 1px var(--r2); }
+  .pill.enforced { color:var(--st-warn); background:rgba(250,178,25,.07);
+    box-shadow:inset 0 0 0 1px rgba(250,178,25,.26); font-weight:500; }
+  .tbtn { height:26px; padding:0 10px; font-size:11.5px; font-weight:450; color:var(--t2); background:transparent;
+    border:0; border-radius:7px; cursor:pointer; font-family:inherit; display:inline-flex; align-items:center; gap:6px;
+    transition:all .14s; white-space:nowrap; box-shadow:inset 0 0 0 1px var(--r2); }
+  .tbtn:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  /* rule 2 — the primary action wins on VALUE, not on the accent */
+  .tbtn.primary { background:linear-gradient(180deg,#FBFDFF,var(--key)); color:#0B0E13; font-weight:600;
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset, 0 2px 8px -3px rgba(0,0,0,.9), 0 0 0 1px rgba(0,0,0,.35); }
+  .tbtn.primary:hover { background:#fff; }
+  .tbtn .k { font-size:10px; color:var(--t3); font-family:var(--mono); }
+  .tbtn.primary .k { color:#4A5462; }
+  .microlab { font-size:10.5px; font-weight:550; color:var(--t2); letter-spacing:-0.008em; }
+  /* the footnote register — all provenance, caps and explanations land here */
+  .fn { font-size:9.5px; color:var(--t3); line-height:1.5; }
+  .fn b { color:var(--t2); font-weight:600; }
+
+  /* ===== LEFT RAIL — SCHEMA ===== */
+  .railsearch { padding:6px 12px 8px; flex:none; }
+  .railsearch .box { height:28px; display:flex; align-items:center; gap:7px; padding:0 9px; border-radius:7px;
+    background:var(--s0); color:var(--t3);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); }
+  .railsearch .box:focus-within { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+  .railsearch .box input { background:none; border:none; outline:none; color:var(--t1); font-size:12px; width:100%; font-family:inherit; }
+  .railsearch .box input::placeholder { color:var(--t3); }
+  .railbody { flex:1; overflow-y:auto; overflow-x:hidden; padding:2px 12px 12px; min-height:0; }
+  /* rule 8 — the sheet blocks earn a surface, not a border */
+  .sheet { border-radius:8px; background:var(--s3); box-shadow:var(--hi); margin-bottom:8px; overflow:hidden; }
+  .sheet .sh { display:flex; align-items:center; gap:7px; padding:6px 9px; background:var(--s4); box-shadow:var(--hi); }
+  .sheet .sh .nm { font-family:var(--mono); font-size:11.5px; font-weight:600; color:var(--t1); }
+  .sheet .sh .ct { margin-left:auto; font-size:9.5px; color:var(--t3); font-family:var(--mono); }
+  .keychip { font-family:var(--mono); font-size:9px; color:var(--t3); background:rgba(0,0,0,.35); border-radius:4px;
+    padding:0 4px; letter-spacing:.02em; }
+  .cols { padding:4px 0 5px; }
+  .crow { display:flex; align-items:center; gap:6px; padding:2.5px 9px; font-size:11px; }
+  .crow:hover { background:rgba(255,255,255,.04); }
+  .crow .cn { font-family:var(--mono); color:var(--t2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .crow .ct { margin-left:auto; font-family:var(--mono); font-size:9.5px; color:var(--t3); flex:none; }
+  .crow.locked .cn { color:var(--t1); }
+  /* an informational note loses its box — a left rule and an indent */
+  .railnote { font-size:9.5px; line-height:1.55; color:var(--t3); padding-left:10px; margin-top:9px;
+    box-shadow:inset 2px 0 0 var(--r2); }
+  .railnote b { color:var(--t2); font-weight:600; }
+  .railnote .code { font-family:var(--mono); color:var(--t2); }
+
+  /* ===== CENTER ===== */
+  .gridhead { display:flex; align-items:center; gap:14px; padding:9px 14px; flex:none;
+    background:linear-gradient(180deg,#131820,#10141B); box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.45); }
+  .gridhead .hgroup { min-width:0; flex:1; }
+  .gridhead .title { font-size:15px; font-weight:600; color:var(--t1); letter-spacing:-0.02em;
+    display:flex; align-items:center; gap:9px; white-space:nowrap; }
+  .gridhead .path { font-size:10.5px; color:var(--t3); margin-top:4px; display:flex; align-items:center; gap:5px; white-space:nowrap; }
+  .gridhead .path b { color:var(--t2); font-weight:500; }
+  .seg { display:flex; align-items:center; gap:2px; padding:2px; background:rgba(0,0,0,.28); border-radius:8px; flex:none;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.5); }
+  .seg button { height:22px; padding:0 10px; font-size:11.5px; font-weight:450; border:none; border-radius:6px;
+    background:transparent; color:var(--t3); cursor:pointer; font-family:inherit; }
+  .seg button:hover { color:var(--t1); }
+  /* repeated local state: value + elevation, never the accent */
+  .seg button.on { background:var(--s4); color:var(--t1); font-weight:550; box-shadow:var(--hi); }
+
+  .split { flex:1; min-height:0; display:flex; flex-direction:column; }
+  .pane { display:flex; flex-direction:column; min-height:0; }
+  .pane.pv { flex:0 0 53%; }
+  /* rule 3 exception — a horizontal ZONE boundary; a dark seam alone read as "content ran out" */
+  .pane.sq { flex:1 1 auto; min-height:0; background:var(--s2);
+    box-shadow:inset 0 1px 0 var(--r2), 0 -10px 24px -22px rgba(0,0,0,1); }
+  .panehead { height:30px; flex:none; display:flex; align-items:center; gap:10px; padding:0 14px; }
+  .panehead .pt { font-size:12.5px; font-weight:600; color:var(--t1); letter-spacing:-0.012em; white-space:nowrap; }
+  .panehead .ep { font-family:var(--mono); font-size:10px; color:var(--t3); overflow:hidden; text-overflow:ellipsis; }
+  .panehead .spacer { margin-left:auto; }
+  .panebody { flex:1; min-height:0; overflow:auto; background:var(--s1); }
+
+  /* ---- pivot builder ---- */
+  .builder { padding:7px 14px 9px; flex:none; box-shadow:inset 0 1px 0 var(--r1); }
+  .brow { display:flex; align-items:center; gap:6px; min-height:22px; white-space:nowrap; }
+  .brow + .brow { margin-top:5px; }
+  .brow .bl { font-size:10.5px; color:var(--t3); width:52px; flex:none; }
+  .dchip { font-family:var(--mono); font-size:11px; display:inline-flex; align-items:center; gap:6px;
+    padding:2px 7px; border-radius:6px; background:var(--s3); color:var(--t2); cursor:grab; box-shadow:var(--hi);
+    white-space:nowrap; flex:none; width:max-content; }
+  .dchip .gr { color:var(--t4); letter-spacing:-2px; }
+  .dchip .x { color:var(--t3); cursor:pointer; }
+  .dchip .ord { color:var(--t3); font-size:9px; }
+  /* SIGNAL 3/4 — the ONE pivot dimension the whole cross-tab is built on */
+  .dchip.pivotdim { background:var(--s4); color:var(--t2); }
+  .dchip.pivotdim .key { color:var(--t1); font-weight:600; }
+  .dchip.pivotdim::before { content:""; width:5px; height:5px; border-radius:50%; background:var(--sig); flex:none;
+    box-shadow:0 0 8px -1px var(--sig); }
+  .dchip.meas .fn { color:var(--t1); font-size:11px; font-weight:600; }
+  .dchip.off { color:var(--t3); background:transparent; box-shadow:inset 0 0 0 1px var(--r1); }
+  .dchip.off .fn { color:var(--t3); font-weight:500; }
+  .dchip.deny { background:rgba(220,80,80,.09); box-shadow:inset 0 0 0 1px rgba(220,80,80,.24);
+    color:var(--t2); cursor:not-allowed; }
+  .dchip .colref { color:var(--t2); }
+  .dadd { color:var(--t3); font-size:11px; cursor:pointer; padding:2px 7px; border-radius:6px;
+    box-shadow:inset 0 0 0 1px var(--r1); flex:none; white-space:nowrap; }
+  .dadd:hover { color:var(--t1); }
+  .aggs { display:flex; gap:2px; flex:none; }
+  .agg { font-family:var(--mono); font-size:10px; padding:2px 6px; border-radius:5px; flex:none;
+    background:transparent; color:var(--t3); cursor:pointer; white-space:nowrap; }
+  .agg:hover { color:var(--t1); background:rgba(255,255,255,.05); }
+  /* repeated state -> value + elevation */
+  .agg.on { color:var(--t1); background:var(--s4); box-shadow:var(--hi); font-weight:600; }
+  .bmeta { margin-left:auto; font-size:9.5px; color:var(--t3); font-family:var(--mono); }
+
+  /* the refusal keeps a tinted surface — it is consequential. Its explanation is a footnote. */
+  .deny-bar { display:flex; align-items:flex-start; gap:8px; line-height:1.5; padding:6px 9px; margin-top:7px;
+    border-radius:7px; background:rgba(220,80,80,.07); box-shadow:inset 0 0 0 1px rgba(220,80,80,.22);
+    font-size:9.5px; color:var(--t3); white-space:normal; }
+  .deny-bar b { color:var(--t2); font-weight:600; }
+  .deny-bar .codechip { font-family:var(--mono); font-size:9.5px; font-weight:600; color:var(--st-crit);
+    background:rgba(0,0,0,.4); box-shadow:inset 0 0 0 1px rgba(220,80,80,.42); border-radius:5px;
+    padding:1px 6px; flex:none; }
+
+  /* ---- mode selector + heat legend ---- */
+  .modebar { display:flex; align-items:center; gap:9px; padding:5px 14px; flex:none; white-space:nowrap;
+    box-shadow:inset 0 1px 0 var(--r1); }
+  .modes { display:flex; gap:2px; padding:2px; background:rgba(0,0,0,.28); border-radius:7px;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.5); }
+  .modes button { font-family:var(--mono); font-size:10px; height:20px; padding:0 8px; border:none; border-radius:5px;
+    background:transparent; color:var(--t3); cursor:pointer; }
+  .modes button:hover { color:var(--t1); }
+  .modes button.on { background:var(--s4); color:var(--t1); font-weight:600; box-shadow:var(--hi); }
+  .ramp { display:flex; align-items:center; gap:5px; margin-left:auto; font-size:9.5px; color:var(--t3); }
+  .ramp .sw { width:15px; height:9px; }
+
+  /* ================= THE CROSS-TAB =================
+     Rule 3's heterogeneous-table exception, adjudicated cell by cell:
+     KEPT   (a) one vertical rule splitting row DIMENSIONS from the value grid,
+            (b) one vertical rule leading into the totals column,
+            (c) horizontal seams under the header and above each totals row.
+     DROPPED per-row hairlines (the 3-row region groups + the subtotal seam already measure),
+            the boxed column-group header, and the hover outline (a wash reads quieter). */
+  table.pivot { border-collapse:separate; border-spacing:0; width:100%; font-size:11.5px; }
+  table.pivot th { position:sticky; top:0; z-index:5; background:#12161D; text-align:left; white-space:nowrap;
+    font-family:var(--mono); font-size:10px; font-weight:500; color:var(--t3); padding:0 9px; height:22px;
+    box-shadow:inset 0 -1px 0 var(--r2); }
+  table.pivot th.g2 { top:22px; }
+  table.pivot th.n { text-align:right; }
+  table.pivot th.coldim { text-align:center; color:var(--t2); box-shadow:inset 1px 0 0 var(--r2), inset 0 -1px 0 var(--r1); }
+  table.pivot thead tr:last-child th:first-child { box-shadow:inset 1px 0 0 var(--r2), inset 0 -1px 0 var(--r2); }
+  table.pivot th.tot { text-align:right; color:var(--t2); background:#141922;
+    box-shadow:inset 1px 0 0 var(--r2), inset 0 -1px 0 var(--r2); }
+  table.pivot td { padding:0 9px; height:23px; white-space:nowrap; color:var(--t2);
+    font-family:var(--mono); font-variant-numeric:tabular-nums; text-align:right; font-size:11px; }
+  table.pivot td.dim { text-align:left; font-family:var(--sans); font-size:11.5px; color:var(--t2); }
+  /* (a) definition | outcome */
+  table.pivot td.dim + td { box-shadow:inset 1px 0 0 var(--r2); }
+  table.pivot td.rdim { font-weight:600; color:var(--t1); background:var(--s2); }
+  table.pivot tbody tr:hover td:not(.rdim) { background-color:rgba(255,255,255,.045); }
+  /* the ramp: light -> dark, one hue. h0 is the FLOOR — a real zero, not a hole. */
+  table.pivot td.h0 { background:var(--h0); color:var(--t3); }
+  table.pivot td.h1 { background:var(--h1); } table.pivot td.h2 { background:var(--h2); }
+  table.pivot td.h3 { background:var(--h3); }
+  /* the top two steps carry the ink up with them: t2 measures 3.2:1 on step 5, t1 measures 5.4:1 */
+  table.pivot td.h4 { background:var(--h4); color:var(--t1); }
+  table.pivot td.h5 { background:var(--h5); color:var(--t1); }
+  /* (b) + the totals band: no heat, its own elevation, an inset highlight — never a data cell */
+  table.pivot td.rowtot { background:var(--s3); font-weight:600; color:var(--t1);
+    box-shadow:inset 1px 0 0 var(--r2), var(--hi); }
+  table.pivot tr.subtot td { background:var(--s3); font-weight:600; color:var(--t1); box-shadow:inset 0 1px 0 var(--r1); }
+  table.pivot tr.subtot td.dim + td { box-shadow:inset 1px 0 0 var(--r2), inset 0 1px 0 var(--r1); }
+  table.pivot tr.subtot td.rdim { background:var(--s3); }
+  table.pivot tr.subtot td.rowtot { background:var(--s4); box-shadow:inset 1px 0 0 var(--r2), inset 0 1px 0 var(--r1); }
+  table.pivot tr.subtot .muted { color:var(--t3); font-weight:450; }
+  /* (c) the grand band is pinned: subtotals scroll, the grand total never leaves */
+  table.pivot tr.grand td { background:var(--s4); font-weight:600; color:var(--t1); height:24px;
+    position:sticky; bottom:20px; z-index:6; box-shadow:var(--hi), inset 0 1px 0 var(--r2); }
+  table.pivot tr.grand td.dim + td { box-shadow:var(--hi), inset 0 1px 0 var(--r2), inset 1px 0 0 var(--r2); }
+  table.pivot tr.grand td.rdim { background:var(--s4); }
+  table.pivot tr.grand td.rowtot { background:var(--s5); color:var(--t1); box-shadow:var(--hi), inset 0 1px 0 var(--r2), inset 1px 0 0 var(--r2); }
+  table.pivot tr.gpct td { background:var(--s3); color:var(--t3); height:20px; font-size:10px;
+    position:sticky; bottom:0; z-index:6; box-shadow:inset 0 1px 0 var(--r1); }
+  table.pivot tr.gpct td.dim + td { box-shadow:inset 0 1px 0 var(--r1), inset 1px 0 0 var(--r2); }
+  table.pivot tr.gpct td.rdim { background:var(--s3); color:var(--t3); font-weight:450; font-family:var(--mono); font-size:9.5px; }
+  table.pivot tr.gpct td.rowtot { background:var(--s4); color:var(--t2); box-shadow:inset 0 1px 0 var(--r1), inset 1px 0 0 var(--r2); }
+  .chev { color:var(--t4); font-size:9px; margin-right:3px; }
+  /* status = shape + hue + word; the word wears ink */
+  .stat { display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:450; color:var(--t2); }
+  .stat .d { width:7px; height:7px; flex:none; display:inline-block; }
+  .stat.active .d { border-radius:50%; background:var(--st-good); }
+  .stat.trialing .d { width:0; height:0; border-left:4px solid transparent; border-right:4px solid transparent;
+    border-bottom:7px solid var(--st-warn); }
+  .stat.churned .d { width:6.5px; height:6.5px; background:var(--st-serious); border-radius:1px; transform:rotate(45deg); }
+  .pivfoot { display:flex; align-items:center; gap:12px; padding:4px 14px; flex:none;
+    box-shadow:inset 0 1px 0 var(--r1); font-size:9.5px; color:var(--t3);
+    white-space:nowrap; overflow:hidden; }
+  .pivfoot b { color:var(--t2); font-weight:600; }
+
+  /* ================= SQL CONSOLE ================= */
+  .constraints { display:flex; align-items:center; gap:6px; padding:5px 14px; flex:none; white-space:nowrap;
+    overflow:hidden; box-shadow:inset 0 1px 0 var(--r1); }
+  .cchip { font-size:10px; display:inline-flex; align-items:center; gap:5px; padding:1px 6px;
+    border-radius:5px; color:var(--t3); background:rgba(255,255,255,.045); white-space:nowrap; flex:none; width:max-content; }
+  .cchip b { color:var(--t2); font-weight:600; }
+  .cchip.ok { color:var(--t2); }
+  .cchip.deny { color:var(--t2); background:rgba(220,80,80,.08); box-shadow:inset 0 0 0 1px rgba(220,80,80,.2); }
+  .cchip .mono { font-size:10px; color:var(--t2); }
+  .gatechip { margin-left:auto; display:inline-flex; align-items:center; gap:7px; font-size:10.5px; padding:3px 9px;
+    border-radius:6px; background:var(--s4); box-shadow:var(--hi); color:var(--t1); font-weight:500; }
+  .gatechip .sub { color:var(--t3); font-weight:400; font-size:9.5px; }
+
+  /* the editor is a recessed well */
+  .editor { display:flex; flex:none; background:var(--s0);
+    box-shadow:inset 0 2px 4px -2px rgba(0,0,0,.75), inset 0 -1px 0 var(--r1); }
+  .gutter { flex:none; width:30px; padding:6px 0; text-align:right; font-family:var(--mono); font-size:9.5px;
+    color:var(--t3); user-select:none; line-height:1.5; box-shadow:inset -1px 0 0 var(--r1); }
+  .gutter div { padding-right:8px; }
+  pre.sql { flex:1; padding:6px 14px; margin:0; font-family:var(--mono); font-size:10.5px; line-height:1.5;
+    color:var(--t2); overflow-x:auto; tab-size:2; }
+  /* the one place a little chroma earns its keep — all five roles measured >= 4.5:1 on --s0 */
+  .k   { color:var(--key); font-weight:600; }   /* keyword — value first, no hue */
+  .fnc { color:#A79BE0; }                       /* function */
+  .str { color:#7CC2A2; }                       /* string literal */
+  .n0  { color:#D6AC6E; }                       /* number */
+  .cm  { color:var(--t3); font-style:italic; }  /* comment */
+  .al  { color:var(--t1); }                     /* alias */
+  .pn  { color:var(--t3); }                     /* punctuation */
+
+  .resbar { display:flex; align-items:center; gap:11px; padding:5px 14px; flex:none; white-space:nowrap;
+    font-size:10.5px; color:var(--t3); box-shadow:inset 0 1px 0 var(--r1); }
+  .resbar b { color:var(--t1); font-weight:600; }
+  .artchip { display:inline-flex; align-items:center; gap:6px; font-size:10px; padding:2px 8px; border-radius:6px;
+    background:rgba(255,255,255,.05); color:var(--t2); font-weight:500; }
+  .artchip .rt { color:var(--t3); font-weight:400; }
+  table.res { border-collapse:separate; border-spacing:0; width:100%; font-size:11px; }
+  table.res thead th { position:sticky; top:0; z-index:4; background:#12161D; text-align:left;
+    font-family:var(--mono); font-size:10px; font-weight:500; color:var(--t3); padding:0 10px; height:24px;
+    box-shadow:inset 0 -1px 0 var(--r2), inset 0 1px 0 var(--r1); white-space:nowrap; }
+  table.res thead th.n { text-align:right; }
+  table.res tbody td { padding:0 10px; height:23px; white-space:nowrap; color:var(--t2);
+    font-family:var(--mono); font-variant-numeric:tabular-nums; border-bottom:1px solid rgba(255,255,255,.032); }
+  table.res tbody td.n { text-align:right; }
+  table.res tbody tr:nth-child(4n) td { border-bottom-color:rgba(255,255,255,.085); }
+  table.res tbody tr:hover td { background:rgba(255,255,255,.038); }
+  .rank1 { color:var(--t1); font-weight:600; }
+
+  /* ================= DOCK ================= */
+  .lenstabs { display:flex; gap:1px 2px; padding:3px 12px 4px; flex-wrap:wrap; flex:none; align-items:center;
+    background:rgba(0,0,0,.2); box-shadow:inset 0 1px 0 var(--r1), inset 0 -1px 0 var(--r1); }
+  .ltab { font-size:11.5px; font-weight:450; color:var(--t3); padding:0 7px; height:24px; cursor:pointer;
+    position:relative; display:inline-flex; align-items:center; }
+  .ltab:hover { color:var(--t1); }
+  .ltab.on { color:var(--t1); font-weight:550; }
+  .ltab.on::after { content:""; position:absolute; left:7px; right:7px; bottom:1px; height:1.5px;
+    background:var(--t1); border-radius:2px; }
+  .dockbody { overflow-y:auto; overflow-x:hidden; flex:1; padding:11px 12px 14px; min-height:0; }
+  .sect { margin-bottom:15px; }
+  .sect > .h { font-size:11.5px; font-weight:550; color:var(--t2); letter-spacing:-0.008em;
+    margin-bottom:8px; display:flex; align-items:center; gap:9px; }
+  .sect > .h .line { flex:1; height:1px; background:var(--r1); }
+  .tiles { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .tile { background:var(--s3); border-radius:8px; box-shadow:var(--hi); padding:8px 10px 9px; }
+  .tile .k2 { font-size:9.5px; font-weight:500; letter-spacing:.11em; text-transform:uppercase; color:var(--t3); }
+  .tile .v { font-size:21px; font-weight:600; margin-top:2px; letter-spacing:-0.03em; color:var(--t1);
+    font-variant-numeric:tabular-nums; line-height:1.1; }
+  .tile .v small { font-size:12px; font-weight:600; color:var(--t3); }
+  .tile .sub { font-size:9.5px; color:var(--t3); margin-top:2px; }
+
+  .gate { border-radius:8px; background:var(--s3); box-shadow:var(--hi); overflow:hidden; }
+  .grow { display:flex; align-items:center; gap:8px; padding:5px 10px; font-size:11px; }
+  .grow + .grow { box-shadow:inset 0 1px 0 var(--r1); }
+  .grow .rn { font-family:var(--mono); font-size:11px; color:var(--t2); }
+  .grow .vd { margin-left:auto; font-family:var(--mono); font-size:9.5px; font-weight:600; }
+  .grow.allow .vd { color:var(--t3); }
+  /* a recessed well under the reserved hue, exactly as the sev tags do — 4.8:1 measured */
+  .grow.deny .vd { color:var(--st-crit); background:rgba(0,0,0,.45); border-radius:4px; padding:0 5px; }
+  /* "you" is identity, not scope — elevation + value, no accent */
+  .grow.you { background:var(--s4); box-shadow:var(--hi); }
+  .grow.you .rn { color:var(--t1); font-weight:600; }
+  .grow.you .vd { color:var(--t1); }
+  .grow .me { font-size:9.5px; font-weight:500; color:var(--t3); }
+
+  pre.problem { font-family:var(--mono); font-size:10px; line-height:1.55; color:var(--t3);
+    background:var(--s0); border-radius:8px; padding:9px 10px; overflow-x:auto;
+    box-shadow:inset 0 2px 4px -2px rgba(0,0,0,.75); }
+  pre.problem .key { color:var(--t3); }
+  pre.problem .cd { color:var(--st-crit); font-weight:600; }
+  pre.problem .sv { color:#7CC2A2; }
+  .note { font-size:9.5px; line-height:1.55; color:var(--t3); margin-top:7px; padding-left:10px;
+    box-shadow:inset 2px 0 0 var(--r2); }
+  .note b { color:var(--t2); font-weight:600; }
+  .note .mono { color:var(--t2); }
+
+  .hist { display:flex; flex-direction:column; }
+  .hitem { display:grid; grid-template-columns:auto 1fr auto; gap:2px 8px; padding:6px 8px; border-radius:7px; cursor:pointer; }
+  .hitem:hover { background:rgba(255,255,255,.04); }
+  .hitem .kindchip { grid-row:1 / span 2; align-self:start; margin-top:2px; font-family:var(--mono); font-size:9px;
+    font-weight:500; padding:1px 5px; border-radius:4px; color:var(--t3); background:rgba(255,255,255,.05); }
+  .hitem .kindchip.sql { color:var(--t2); }
+  .hitem .q { font-size:11px; color:var(--t2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .hitem .m { grid-column:2; font-family:var(--mono); font-size:9.5px; color:var(--t3); }
+  .hitem .st { grid-row:1 / span 2; grid-column:3; align-self:center; font-family:var(--mono); font-size:10px; font-weight:600; }
+  .hitem .st.ok { color:var(--st-good); } .hitem .st.bad { color:var(--st-crit); }
+  .hitem.refused .q { color:var(--t3); }
+  .codetag { font-family:var(--mono); font-size:9px; font-weight:600; color:var(--st-crit);
+    background:rgba(0,0,0,.4); box-shadow:inset 0 0 0 1px rgba(220,80,80,.38); border-radius:4px; padding:0 4px; }
+  .viewrow { display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:7px; font-size:11px; color:var(--t2); }
+  .viewrow:hover { background:rgba(255,255,255,.04); }
+  .viewrow .vn { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .viewrow .vm { margin-left:auto; font-family:var(--mono); font-size:9.5px; color:var(--t3); flex:none; }
+
+  /* ================= STATUS BARS ================= */
+  .statusbar { height:26px; flex:none; display:flex; align-items:center; gap:14px; padding:0 16px;
+    background:var(--s2); box-shadow:inset 0 1px 0 var(--r1); font-size:10.5px; color:var(--t3); }
+  .statusbar .h { display:flex; align-items:center; gap:6px; white-space:nowrap; }
+  .statusbar .sync { margin-left:auto; display:flex; align-items:center; gap:8px; font-family:var(--mono); flex:none; }
+  /* SIGNAL 4/4 — the one live indicator on the screen */
+  .statusbar .sync .lamp { width:6px; height:6px; border-radius:50%; background:var(--sig); flex:none;
+    box-shadow:0 0 0 3px rgba(70,213,232,.10), 0 0 9px -1px var(--sig); animation:pulse 3s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.42} }
+  @media (prefers-reduced-motion:reduce){ .statusbar .sync .lamp { animation:none } }
+</style>
+</head>
+<body class="dark" data-palette="#3987e5,#d95926,#199e70,#c98500,#d55181,#008300,#9085e9,#e66767">
+
+<!-- ================= HEADER ================= -->
+<header class="topbar">
+  <div class="brand">
+    <span class="glyph">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M4 7l8-4 8 4-8 4-8-4z" fill="#fff" opacity=".95"/><path d="M4 12l8 4 8-4M4 17l8 4 8-4" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity=".8"/></svg>
+    </span>
+    <span class="name">Command&nbsp;Studio</span>
+  </div>
+  <span class="env-chip">PROD · US-EAST</span>
+  <nav class="gnav">
+    <a href="#">Workflows</a>
+    <a href="#" class="active">Datasets</a>
+    <a href="#">Runs</a>
+    <a href="#">Library</a>
+  </nav>
+
+  <div class="cmdk lit" title="Command palette">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span class="ph">Pivot a dimension, run SQL, save a view…</span>
+    <span class="kbd">⌘K</span>
+  </div>
+
+  <div class="hicons">
+    <button class="iconbtn" title="Filters — inherited by the pivot"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M3 5h18M6 12h12M10 19h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+    <button class="iconbtn" title="Alerts — 2 refused queries today">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M6 9a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M10 20a2 2 0 004 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+    <button class="iconbtn" title="Theme" onclick="document.body.classList.toggle('dark')">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M20 13a8 8 0 11-9-9 6 6 0 009 9z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+    </button>
+    <div class="teamsw" title="Team switcher — datasets, sheets and query history are team-locked">
+      <span class="tl">Team</span><span class="tv">Growth Analytics</span><span class="cv">▾</span>
+    </div>
+    <div class="avatar" title="S. Ganji · Growth Analytics · role: admin (ensure_raw_access → granted)">SG</div>
+  </div>
+</header>
+
+<!-- ================= KPI STRIP ================= -->
+<div class="kpistrip">
+  <div class="kpi" title="SUM(amount) over ALL filtered rows — not just the visible page.">
+    <span class="lab">Grand total</span>
+    <span class="row"><span class="val num">$25.69M</span><span class="delta">sum(amount)</span></span>
+  </div>
+  <div class="kpi" title="Rows passing the inherited filters. Every total on this screen is computed over these rows.">
+    <span class="lab">Matched rows</span>
+    <span class="row"><span class="val num">83,287</span><span class="delta">/ 84,213</span></span>
+  </div>
+  <div class="kpi"><span class="lab">Pivot cells</span>
+    <span class="row"><span class="val num">48</span><span class="delta">12 × 4</span></span>
+  </div>
+  <div class="kpi"><span class="lab">SQL runs today</span>
+    <span class="row"><span class="val num">37</span><span class="delta down">2 refused</span></span>
+  </div>
+  <div class="kpi" title="ensure_raw_access — the SQL console is raw egress, so it is gated by seat role.">
+    <span class="lab">Raw access</span>
+    <span class="row"><span class="val ts">GRANTED</span><span class="delta"><span class="g good"></span>role admin</span></span>
+  </div>
+  <div class="kpi" title="Every SQL result is persisted as a parquet artifact with a 7-day retention.">
+    <span class="lab">Artifacts</span>
+    <span class="row"><span class="val num">6</span><span class="delta">query_output · 7d</span></span>
+  </div>
+  <div class="clock" title="The version this whole screen is scoped to — pivot, SQL and totals all read version 42.">
+    <span class="astick"></span>
+    <span class="mono" style="font-size:11px;color:var(--t2)">v42 · immutable</span>
+  </div>
+</div>
+
+<!-- ================= WORKSPACE ================= -->
+<div class="workspace">
+
+  <!-- ---------- LEFT RAIL — SCHEMA / SHEET-TABLES ---------- -->
+  <div class="col rail">
+    <div class="colhead">
+      <span class="t">Schema</span>
+      <span class="badge num">2 sheets</span>
+      <span class="spacer"></span>
+      <span class="mono" style="font-size:9.5px;color:var(--t3)">v42</span>
+    </div>
+    <div class="railsearch">
+      <div class="box">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <input placeholder="Find a column…" />
+        <span class="kbd">/</span>
+      </div>
+    </div>
+
+    <div class="railbody">
+      <div class="microlab" style="margin:0 0 7px 0">Sheets are tables</div>
+
+      <div class="sheet">
+        <div class="sh">
+          <span class="keychip">sheet_key</span>
+          <span class="nm">signups</span>
+          <span class="ct">9 cols</span>
+        </div>
+        <div class="cols">
+          <div class="crow"><span class="cn">signup_id</span><span class="ct">varchar</span></div>
+          <div class="crow locked" title="Declared sensitivity: pii → masked for every seat, and refused as a pivot dimension, a filter or a sort key (400 sensitive-column-not-filterable).">
+            <span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span>
+            <span class="cn">email</span><span class="ct">varchar</span>
+          </div>
+          <div class="crow"><span class="cn">plan</span><span class="ct">varchar</span></div>
+          <div class="crow"><span class="cn">region</span><span class="ct">varchar</span></div>
+          <div class="crow"><span class="cn">amount</span><span class="ct">decimal</span></div>
+          <div class="crow"><span class="cn">status</span><span class="ct">varchar</span></div>
+          <div class="crow"><span class="cn">signup_date</span><span class="ct">date</span></div>
+          <div class="crow"><span class="cn">utm_campaign</span><span class="ct">varchar</span></div>
+          <div class="crow"><span class="cn">source</span><span class="ct">varchar</span></div>
+        </div>
+      </div>
+
+      <div class="sheet">
+        <div class="sh">
+          <span class="keychip">sheet_key</span>
+          <span class="nm">plan_catalog</span>
+          <span class="ct">4 cols</span>
+        </div>
+        <div class="cols">
+          <div class="crow"><span class="cn">plan_code</span><span class="ct">varchar</span></div>
+          <div class="crow"><span class="cn">list_price</span><span class="ct">decimal</span></div>
+          <div class="crow"><span class="cn">seat_based</span><span class="ct">boolean</span></div>
+          <div class="crow"><span class="cn">tier_rank</span><span class="ct">integer</span></div>
+        </div>
+      </div>
+
+      <div class="railnote">
+        Address a sheet by its <b>sheet_key</b> — <span class="code">FROM signups</span>. Joins across the sheets of
+        this version are allowed. A sheet_key belonging to another team resolves as
+        <span class="code">404</span>, never “access denied”.
+      </div>
+    </div>
+
+    <div class="statusbar">
+      <span class="h"><span class="kbd">↵</span> insert column</span>
+      <span class="h" style="margin-left:auto;color:var(--t3)">84,213 rows</span>
+    </div>
+  </div>
+
+  <!-- ---------- CENTER — PIVOT over SQL CONSOLE ---------- -->
+  <div class="col center">
+    <div class="gridhead">
+      <div class="hgroup">
+        <div class="title">
+          <span class="g good" title="healthy"></span>
+          Q3 Campaign Signups.csv
+          <span class="pill label" title="Dataset classification — catalog metadata only. It does not enforce access.">Confidential</span>
+          <span class="pill enforced" title="Enforced: `email` declares sensitivity: pii in the data dictionary."><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span> email masked</span>
+        </div>
+        <div class="path">
+          <span>team <b>growth-analytics</b> ·</span>
+          <span class="mono">ds_8f21c4 · version <b>42</b> · 84,213 rows · 9 cols</span>
+        </div>
+      </div>
+      <div class="seg" title="Both analytics surfaces run against the same version and the same filters">
+        <button>Pivot</button><button>SQL</button><button class="on">Split</button>
+      </div>
+    </div>
+
+    <div class="split">
+
+      <!-- ============ A. PIVOT ============ -->
+      <div class="pane pv">
+        <div class="panehead">
+          <span class="pt">Pivot</span>
+          <span class="ep">POST /datasets/ds_8f21c4/versions/42/pivot</span>
+          <span class="spacer"></span>
+          <span class="mono" style="font-size:10px;color:var(--muted-foreground)">48 cells · 96 ms</span>
+          <button class="tbtn primary">Run<span class="k">⌘⏎</span></button>
+        </div>
+
+        <!-- builder strip -->
+        <div class="builder">
+          <div class="brow">
+            <span class="bl">Rows</span>
+            <span class="dchip" title="Row dimension 1 — drag to reorder"><span class="gr">⋮⋮</span><span class="ord">1</span>region<span class="x">✕</span></span>
+            <span class="dchip" title="Row dimension 2 — nested under region"><span class="gr">⋮⋮</span><span class="ord">2</span>status<span class="x">✕</span></span>
+            <span class="dadd">+ dim</span>
+            <span class="bl" style="width:auto;margin-left:10px">Column</span>
+            <span class="dchip pivotdim" title="Exactly ONE pivot (column) dimension is allowed"><span class="gr">⋮⋮</span><span class="key">plan</span> · 4 members<span class="x">✕</span></span>
+            <span class="muted" style="font-size:9.5px">exactly one</span>
+          </div>
+          <div class="brow">
+            <span class="bl">Values</span>
+            <span class="dchip meas"><span class="gr">⋮⋮</span><span class="fn">sum</span>(amount)<span class="x">✕</span></span>
+            <span class="dchip meas off" title="Toggle on to add a second value block per column">+ <span class="fn">count</span>(signup_id)</span>
+            <span class="bl" style="width:auto;margin-left:10px">Agg</span>
+            <span class="aggs">
+              <span class="agg on">sum</span><span class="agg">mean</span><span class="agg">median</span><span class="agg">count</span><span class="agg">min</span><span class="agg">max</span><span class="agg">std</span><span class="agg">nunique</span><span class="agg">first</span><span class="agg">last</span>
+            </span>
+            <span class="bmeta">10 aggs</span>
+          </div>
+          <div class="brow">
+            <span class="bl">Filters</span>
+            <span class="dchip" title="Inherited from the data grid"><span class="colref">utm_campaign</span> is not null<span class="x">✕</span></span>
+            <span class="dchip" title="Inherited from the data grid"><span class="colref">signup_date</span> ≥ 2026-07-01<span class="x">✕</span></span>
+            <span class="dchip" title="Inherited from the data grid"><span class="colref">amount</span> ≥ 0<span class="x">✕</span></span>
+            <span class="dchip deny" title="Refused: a masked column cannot be filtered, sorted or pivoted."><span class="lockglyph" style="color:var(--st-crit)"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span>email = …<span class="x">✕</span></span>
+            <span class="bmeta">matched 83,287 / 84,213</span>
+          </div>
+          <div class="deny-bar">
+            <span class="codechip">400 sensitive-column-not-filterable</span>
+            <span><b>email</b> is refused as a pivot dimension, a filter and a sort key — a cell <b>count</b> under an
+            equality filter would binary-search the masked value. Refused, not redacted.</span>
+          </div>
+        </div>
+
+        <!-- display modes + heat ramp legend -->
+        <div class="modebar">
+          <span class="microlab">Display</span>
+          <div class="modes">
+            <button class="on">value</button><button>pct_of_row</button><button>pct_of_column</button><button>pct_of_grand_total</button>
+          </div>
+          <span class="muted" style="font-size:9.5px">cells show <span class="mono" style="color:var(--t1)">sum(amount)</span> USD</span>
+          <span class="ramp" title="Sequential single-hue ramp — ONE hue, light to dark. The first swatch is the ramp floor: a zero cell is a measured zero, not a missing cell. Totals are never heated.">
+            0
+            <span class="sw" style="background:var(--h0)"></span><span class="sw" style="background:var(--h1)"></span><span class="sw" style="background:var(--h2)"></span><span class="sw" style="background:var(--h3)"></span><span class="sw" style="background:var(--h4)"></span><span class="sw" style="background:var(--h5)"></span>
+            high
+          </span>
+        </div>
+
+        <!-- the cross-tab -->
+        <div class="panebody">
+          <table class="pivot">
+            <thead>
+              <tr>
+                <th rowspan="2" style="width:60px">region</th>
+                <th rowspan="2" style="width:84px">status</th>
+                <th class="coldim" colspan="4">plan &mdash; pivot dimension · 4 of 4 members</th>
+                <th class="tot" rowspan="2" style="width:104px">row total</th>
+              </tr>
+              <tr>
+                <th class="n g2" style="width:128px">free</th>
+                <th class="n g2" style="width:128px">pro</th>
+                <th class="n g2" style="width:128px">team</th>
+                <th class="n g2" style="width:128px">enterprise</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="dim rdim" rowspan="3">US</td>
+                <td class="dim"><span class="stat active"><span class="d"></span>active</span></td>
+                <td class="h0">0</td><td class="h4">1,877,750</td><td class="h4">2,371,644</td><td class="h5">4,770,500</td>
+                <td class="rowtot">9,019,894</td>
+              </tr>
+              <tr>
+                <td class="dim"><span class="stat trialing"><span class="d"></span>trialing</span></td>
+                <td class="h0">0</td><td class="h3">669,900</td><td class="h2">617,958</td><td class="h3">728,000</td>
+                <td class="rowtot">2,015,858</td>
+              </tr>
+              <tr>
+                <td class="dim"><span class="stat churned"><span class="d"></span>churned</span></td>
+                <td class="h0">0</td><td class="h2">443,990</td><td class="h2">349,470</td><td class="h2">479,500</td>
+                <td class="rowtot">1,272,960</td>
+              </tr>
+              <tr class="subtot">
+                <td class="dim rdim">US</td><td class="dim muted">subtotal</td>
+                <td class="h0">0</td><td>2,991,640</td><td>3,339,072</td><td>5,978,000</td>
+                <td class="rowtot">12,308,712</td>
+              </tr>
+
+              <tr>
+                <td class="dim rdim" rowspan="3">APAC</td>
+                <td class="dim"><span class="stat active"><span class="d"></span>active</span></td>
+                <td class="h0">0</td><td class="h4">1,426,220</td><td class="h3">1,154,142</td><td class="h3">1,320,900</td>
+                <td class="rowtot">3,901,262</td>
+              </tr>
+              <tr>
+                <td class="dim"><span class="stat trialing"><span class="d"></span>trialing</span></td>
+                <td class="h0">0</td><td class="h2">469,220</td><td class="h1">277,398</td><td class="h1">185,400</td>
+                <td class="rowtot">932,018</td>
+              </tr>
+              <tr>
+                <td class="dim"><span class="stat churned"><span class="d"></span>churned</span></td>
+                <td class="h0">0</td><td class="h2">313,200</td><td class="h1">158,004</td><td class="h1">123,100</td>
+                <td class="rowtot">594,304</td>
+              </tr>
+              <tr class="subtot">
+                <td class="dim rdim">APAC</td><td class="dim muted">subtotal</td>
+                <td class="h0">0</td><td>2,208,640</td><td>1,589,544</td><td>1,629,400</td>
+                <td class="rowtot">5,427,584</td>
+              </tr>
+
+              <tr>
+                <td class="dim rdim" rowspan="3">EU</td>
+                <td class="dim"><span class="stat active"><span class="d"></span>active</span></td>
+                <td class="h0">0</td><td class="h3">1,133,610</td><td class="h4">1,341,252</td><td class="h4">1,906,800</td>
+                <td class="rowtot">4,381,662</td>
+              </tr>
+              <tr>
+                <td class="dim"><span class="stat trialing"><span class="d"></span>trialing</span></td>
+                <td class="h0">0</td><td class="h2">392,950</td><td class="h2">339,570</td><td class="h1">282,200</td>
+                <td class="rowtot">1,014,720</td>
+              </tr>
+              <tr>
+                <td class="dim"><span class="stat churned"><span class="d"></span>churned</span></td>
+                <td class="h0">0</td><td class="h1">261,290</td><td class="h1">192,654</td><td class="h1">186,500</td>
+                <td class="rowtot">640,444</td>
+              </tr>
+              <tr class="subtot">
+                <td class="dim rdim">EU</td><td class="dim muted">subtotal</td>
+                <td class="h0">0</td><td>1,787,850</td><td>1,873,476</td><td>2,375,500</td>
+                <td class="rowtot">6,036,826</td>
+              </tr>
+
+              <tr>
+                <td class="dim rdim" rowspan="3">LATAM</td>
+                <td class="dim"><span class="stat active"><span class="d"></span>active</span></td>
+                <td class="h0">0</td><td class="h2">597,980</td><td class="h2">401,544</td><td class="h2">394,800</td>
+                <td class="rowtot">1,394,324</td>
+              </tr>
+              <tr>
+                <td class="dim"><span class="stat trialing"><span class="d"></span>trialing</span></td>
+                <td class="h0">0</td><td class="h1">179,220</td><td class="h1">88,110</td><td class="h1">50,400</td>
+                <td class="rowtot">317,730</td>
+              </tr>
+              <tr>
+                <td class="dim"><span class="stat churned"><span class="d"></span>churned</span></td>
+                <td class="h0">0</td><td class="h1">122,380</td><td class="h1">50,886</td><td class="h1">33,600</td>
+                <td class="rowtot">206,866</td>
+              </tr>
+              <tr class="subtot">
+                <td class="dim rdim">LATAM</td><td class="dim muted">subtotal</td>
+                <td class="h0">0</td><td>899,580</td><td>540,540</td><td>478,800</td>
+                <td class="rowtot">1,918,920</td>
+              </tr>
+
+              <tr class="grand">
+                <td class="dim rdim" colspan="2">column total</td>
+                <td class="h0">0</td><td>7,887,710</td><td>7,342,632</td><td>10,461,700</td>
+                <td class="rowtot">25,692,042</td>
+              </tr>
+              <tr class="gpct">
+                <td class="dim rdim" colspan="2" >pct_of_grand_total</td>
+                <td>0.0%</td><td>30.7%</td><td>28.6%</td><td>40.7%</td>
+                <td class="rowtot">100.0%</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="pivfoot">
+          <span>Row, column and grand totals cover all <b>83,287</b> filtered rows — never the page.</span>
+          <span class="mono">·  free = <b>$0</b> by definition (38,109 rows)</span>
+          <span style="margin-left:auto" class="mono">4 regions × 3 statuses · scroll</span>
+        </div>
+      </div>
+
+      <!-- ============ B. SQL CONSOLE ============ -->
+      <div class="pane sq">
+        <div class="panehead">
+          <span class="pt">SQL console</span>
+          <span class="ep">POST /datasets/ds_8f21c4/versions/42/sql</span>
+          <span class="spacer"></span>
+          <button class="tbtn" title="Persist this statement as a named, re-runnable view">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M5 4h11l3 3v13H5z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M8 4v6h7" stroke="currentColor" stroke-width="2"/></svg>
+            Save as view
+          </button>
+          <button class="tbtn">Explain</button>
+          <button class="tbtn primary">Run<span class="k">⌘⏎</span></button>
+        </div>
+
+        <div class="constraints">
+          <span class="cchip ok">✓ <span class="mono">1</span> statement</span>
+          <span class="cchip ok">✓ <span class="mono">SELECT</span> only</span>
+          <span class="cchip deny" title="INSERT UPDATE DELETE CREATE DROP ALTER ATTACH COPY are all rejected before execution.">✕ no DDL/DML</span>
+          <span class="cchip">DuckDB read-only</span>
+          <span class="cchip">joins · CTEs · <b>windows OK</b></span>
+          <span class="gatechip" title="ensure_raw_access — SQL is raw egress, so it is gated. viewer and editor seats are refused with 403 sensitive-data-restricted while `email` declares sensitivity: pii.">
+            <span class="g good"></span> ensure_raw_access GRANTED
+            <span class="sub mono">admin · viewer/editor → 403</span>
+          </span>
+        </div>
+
+        <div class="editor">
+          <div class="gutter">
+            <div>1</div><div>2</div><div>3</div><div>4</div><div>5</div><div>6</div><div>7</div><div>8</div><div>9</div><div>10</div><div>11</div><div>12</div>
+          </div>
+<pre class="sql"><span class="cm">-- monthly revenue by plan — in-month rank + running total (CTE + window fns)</span>
+<span class="k">WITH</span> <span class="al">monthly</span> <span class="k">AS</span> <span class="pn">(</span>
+  <span class="k">SELECT</span> <span class="fnc">date_trunc</span><span class="pn">(</span><span class="str">'month'</span><span class="pn">,</span> signup_date<span class="pn">)</span> <span class="k">AS</span> <span class="al">month</span><span class="pn">,</span> plan<span class="pn">,</span>
+         <span class="fnc">sum</span><span class="pn">(</span>amount<span class="pn">)</span> <span class="k">AS</span> <span class="al">revenue</span><span class="pn">,</span> <span class="fnc">count</span><span class="pn">(</span><span class="n0">*</span><span class="pn">)</span> <span class="k">AS</span> <span class="al">signups</span>
+  <span class="k">FROM</span> signups <span class="k">WHERE</span> utm_campaign <span class="k">IS NOT NULL</span>   <span class="cm">-- a masked column is never filterable</span>
+  <span class="k">GROUP BY</span> <span class="n0">1</span><span class="pn">,</span> <span class="n0">2</span><span class="pn">)</span>
+<span class="k">SELECT</span> m.month<span class="pn">,</span> m.plan<span class="pn">,</span> p.list_price<span class="pn">,</span> m.revenue<span class="pn">,</span> m.signups<span class="pn">,</span>
+       <span class="fnc">rank</span><span class="pn">()</span> <span class="k">OVER</span> <span class="pn">(</span><span class="k">PARTITION BY</span> m.month <span class="k">ORDER BY</span> m.revenue <span class="k">DESC</span><span class="pn">)</span> <span class="k">AS</span> <span class="al">plan_rank</span><span class="pn">,</span>
+       <span class="fnc">sum</span><span class="pn">(</span>m.revenue<span class="pn">)</span> <span class="k">OVER</span> <span class="pn">(</span><span class="k">PARTITION BY</span> m.plan <span class="k">ORDER BY</span> m.month
+                            <span class="k">ROWS UNBOUNDED PRECEDING</span><span class="pn">)</span> <span class="k">AS</span> <span class="al">running_revenue</span>
+<span class="k">FROM</span> <span class="al">monthly</span> m <span class="k">JOIN</span> plan_catalog p <span class="k">ON</span> p.plan_code <span class="pn">=</span> m.plan  <span class="cm">-- join across sheet_keys</span>
+<span class="k">ORDER BY</span> m.month<span class="pn">,</span> plan_rank<span class="pn">;</span></pre>
+        </div>
+
+        <div class="resbar">
+          <span><b class="mono">8</b> rows</span>
+          <span class="mono">· 412 ms</span>
+          <span class="mono">· scanned 83,287 rows</span>
+          <span class="artchip" title="The result set is persisted to the object store as a parquet artifact; the artifact row is the only way to resolve its key.">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M4 7l8-4 8 4v10l-8 4-8-4z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+            query_output · parquet <span class="rt">· 214 KB · retention 7d</span>
+          </span>
+          <button class="tbtn" style="margin-left:auto">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Export
+          </button>
+        </div>
+
+        <div class="panebody">
+          <table class="res">
+            <thead>
+              <tr>
+                <th>month</th><th>plan</th><th class="n">list_price</th><th class="n">revenue</th>
+                <th class="n">signups</th><th class="n">plan_rank</th><th class="n">running_revenue</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td class="muted">2026-07-01</td><td>enterprise</td><td class="n muted">1,500.00</td><td class="n">4,393,900</td><td class="n">2,622</td><td class="n rank1">1</td><td class="n">4,393,900</td></tr>
+              <tr><td class="muted">2026-07-01</td><td>pro</td><td class="n muted">290.00</td><td class="n">3,312,960</td><td class="n">11,424</td><td class="n">2</td><td class="n">3,312,960</td></tr>
+              <tr><td class="muted">2026-07-01</td><td>team</td><td class="n muted">198.00</td><td class="n">3,083,850</td><td class="n">4,929</td><td class="n">3</td><td class="n">3,083,850</td></tr>
+              <tr><td class="muted">2026-07-01</td><td>free</td><td class="n muted">0.00</td><td class="n muted">0</td><td class="n">16,006</td><td class="n">4</td><td class="n muted">0</td></tr>
+              <tr><td class="muted">2026-08-01</td><td>enterprise</td><td class="n muted">1,500.00</td><td class="n">6,067,800</td><td class="n">3,622</td><td class="n rank1">1</td><td class="n">10,461,700</td></tr>
+              <tr><td class="muted">2026-08-01</td><td>pro</td><td class="n muted">290.00</td><td class="n">4,574,750</td><td class="n">15,775</td><td class="n">2</td><td class="n">7,887,710</td></tr>
+              <tr><td class="muted">2026-08-01</td><td>team</td><td class="n muted">198.00</td><td class="n">4,258,782</td><td class="n">6,806</td><td class="n">3</td><td class="n">7,342,632</td></tr>
+              <tr><td class="muted">2026-08-01</td><td>free</td><td class="n muted">0.00</td><td class="n muted">0</td><td class="n">22,103</td><td class="n">4</td><td class="n muted">0</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ---------- RIGHT DOCK / LENS ---------- -->
+  <div class="col dock">
+    <div class="colhead">
+      <span class="t">Lens</span>
+      <span class="spacer"></span>
+      <span class="mono" style="font-size:10px;color:var(--muted-foreground)">Q3 Campaign Signups</span>
+    </div>
+    <div class="lenstabs">
+      <span class="ltab">Overview</span>
+      <span class="ltab">Quality</span>
+      <span class="ltab">Versions</span>
+      <span class="ltab on">Analytics</span>
+      <span class="ltab">Relations</span>
+      <span class="ltab">Transform</span>
+      <span class="ltab">Library</span>
+    </div>
+
+    <div class="dockbody">
+      <div class="sect">
+        <div class="tiles">
+          <div class="tile"><div class="k2">Grand total</div><div class="v">$25.69<small>M</small></div><div class="sub">sum(amount) · USD</div></div>
+          <div class="tile"><div class="k2">Rows in scope</div><div class="v">83,287</div><div class="sub">of 84,213 · 3 filters</div></div>
+        </div>
+      </div>
+
+      <!-- saved views -->
+      <div class="sect">
+        <div class="h">Saved views <span class="line"></span></div>
+        <div class="viewrow"><span class="g good"></span><span class="vn">Monthly revenue rank by plan</span><span class="vm">sql · v42</span></div>
+        <div class="viewrow"><span class="g good"></span><span class="vn">Region × plan cross-tab</span><span class="vm">pivot · v42</span></div>
+        <div class="viewrow"><span class="g warn"></span><span class="vn">APAC trialing funnel</span><span class="vm">sql · v41</span></div>
+        <button class="tbtn" style="width:100%;justify-content:center;margin-top:6px">+ Save current query as a view</button>
+      </div>
+
+      <!-- access gate -->
+      <div class="sect">
+        <div class="h">Raw-egress gate <span class="line"></span></div>
+        <div class="gate">
+          <div class="grow allow"><span class="g good"></span><span class="rn">owner</span><span class="vd">ALLOW</span></div>
+          <div class="grow allow you"><span class="g good"></span><span class="rn">admin</span><span class="me">you</span><span class="vd">ALLOW</span></div>
+          <div class="grow allow"><span class="g good"></span><span class="rn">superuser</span><span class="vd">ALLOW</span></div>
+          <div class="grow deny"><span class="g crit"></span><span class="rn">editor</span><span class="vd">403</span></div>
+          <div class="grow deny"><span class="g crit"></span><span class="rn">viewer</span><span class="vd">403</span></div>
+        </div>
+        <div class="note">
+          <b>ensure_raw_access</b> runs before the statement compiles. Because <span class="mono">email</span> declares
+          <span class="mono">pii</span>, a <b>viewer</b> or <b>editor</b> seat is refused
+          <span class="mono">403 sensitive-data-restricted</span> — there is no redacted SQL mode, because a
+          <span class="mono">SELECT</span> can reconstruct a masked value.
+        </div>
+        <div class="note">
+          Another tenant's dataset returns <span class="mono">404</span> — never “access denied”, which would
+          confirm it exists.
+        </div>
+      </div>
+
+      <!-- problem+json -->
+      <div class="sect">
+        <div class="h">Refusal · problem+json <span class="line"></span></div>
+<pre class="problem"><span class="key">HTTP/1.1</span> <span class="cd">400</span> · <span class="key">application/problem+json</span>
+{
+  <span class="key">"type"</span>:   <span class="sv">"/errors/unknown-column"</span>,
+  <span class="key">"title"</span>:  <span class="sv">"Unknown column"</span>,
+  <span class="key">"status"</span>: 400,
+  <span class="key">"code"</span>:   <span class="cd">"unknown-column"</span>,
+  <span class="key">"detail"</span>: <span class="sv">"campaign_utm not in sheet signups"</span>
+}</pre>
+        <div class="note">Clients branch on <b>code</b>, never on the prose in <span class="mono">detail</span> or <span class="mono">title</span> — both are localised and may change.</div>
+      </div>
+
+      <!-- history -->
+      <div class="sect">
+        <div class="h">Query history <span class="line"></span><span class="mono" style="font-size:9.5px;font-weight:500">today</span></div>
+        <div class="hist">
+          <div class="hitem">
+            <span class="kindchip sql">sql</span>
+            <span class="q">revenue by plan · rank + running total</span>
+            <span class="m">412 ms · 8 rows · 16:41</span>
+            <span class="st ok">✓</span>
+          </div>
+          <div class="hitem">
+            <span class="kindchip">pivot</span>
+            <span class="q">region › status × plan · sum(amount)</span>
+            <span class="m">96 ms · 48 cells · 16:39</span>
+            <span class="st ok">✓</span>
+          </div>
+          <div class="hitem">
+            <span class="kindchip sql">sql</span>
+            <span class="q">churn cohorts · lag() over signup_date</span>
+            <span class="m">1.24 s · 214 rows · 15:02</span>
+            <span class="st ok">✓</span>
+          </div>
+          <div class="hitem refused">
+            <span class="kindchip sql">sql</span>
+            <span class="q">select campaign_utm, count(*) …</span>
+            <span class="m"><span class="codetag">unknown-column</span> 400 · 11 ms · 14:48</span>
+            <span class="st bad">✕</span>
+          </div>
+          <div class="hitem refused">
+            <span class="kindchip">pivot</span>
+            <span class="q">email × plan · count(signup_id)</span>
+            <span class="m"><span class="codetag">sensitive-column-not-filterable</span> 400 · 14:31</span>
+            <span class="st bad">✕</span>
+          </div>
+          <div class="hitem refused">
+            <span class="kindchip sql">sql</span>
+            <span class="q">select * from signups limit 50 — seat: viewer</span>
+            <span class="m"><span class="codetag">sensitive-data-restricted</span> 403 · 09:12</span>
+            <span class="st bad">✕</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<!-- ================= BOTTOM STATUS BAR ================= -->
+<div class="statusbar">
+  <span class="h"><span class="kbd">⌘K</span> command</span>
+  <span class="h"><span class="kbd">⌘⏎</span> run</span>
+  <span class="h"><span class="kbd">⇧⌘M</span> display mode</span>
+  <span class="h"><span class="kbd">⌥↑↓</span> reorder dims</span>
+  <span class="h"><span class="kbd">⌘S</span> save as view</span>
+  <span class="h"><span class="kbd">⌘E</span> export parquet</span>
+  <span class="h"><span class="kbd">1</span>–<span class="kbd">7</span> lens</span>
+  <span class="h" style="color:var(--t3)">pivot 96 ms · sql 412 ms · 1 masked column · 2 refusals today</span>
+  <span class="sync"><span class="lamp" title="live — last sync 16:41:07 ET"></span><span class="mono">SYNC 16:41:07 ET</span></span>
+</div>
+
+</body>
+</html>

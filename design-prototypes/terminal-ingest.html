@@ -1,0 +1,1004 @@
+<!--
+  DESIGN NOTES — "INSTRUMENT" applied to the ingest surface. Tokens, grain, status shapes, scrollbar and focus
+  ring copied verbatim from terminal-quality-instrument.html. Same information, same regions, same layout.
+   A1 ACCENT — cyan is spent 4 times: the active route (Datasets), the live tick on the in-flight TUS transfer,
+      the selected destination row in the picker, and the SYNC lamp. Every other "on" state on this screen —
+      2 destination choices, 2 transport choices, 2 sheets, 4 sensitivity segments, the metadata segments, the
+      active stage — is repeated state, so it moved to value + elevation (raised surface, near-white mark).
+      Endpoint chips, links and the cmd-K field all came off the accent.
+   A2 CONTAINERS — rule 8: no container inside a container. The four transfer stats lost their boxes and became
+      eyebrow-over-figure; the stepper, the preview table wrapper and the sheet rows lost theirs to elevation and
+      one whisper rule. Informational callouts became left-ruled indents; only the 422 hold and the refusal keep
+      a tinted surface. The drop zone keeps its dashed edge because the dashes ARE the affordance.
+   A3 MAGNITUDE — the chunk track, the paused track and the progress numbers are magnitude, so they take the
+      neutral ramp (acknowledged m3, in-flight m1, pending a recessed well); the interruption mark stays a
+      1px serious rule because it is an event, not a quantity.
+   A4 SIGNATURE — the resume receipt and the running sha256 are what this screen is for, so the receipt became a
+      recessed well with the offset in t1/600, and Upload-Offset is a hero figure in ink rather than in cyan.
+   A5 PROPERTIES — classification (internal/confidential/restricted) is a property, not a status, so it is ranked
+      typographically (t3 → t2 → t1/600) and the reserved palette stays free for real state. "unknown" is the
+      unknown STATE and wears t3, never an alarm hue.
+  Direction: "TERMINAL" — same dark, hairline, mono-tabular cockpit as the datasets screen; this is the INGEST
+  surface reached from the `U` upload affordance. File upload is the ONLY ingestion path — no connectors, no
+  streaming, no schedules.
+  Signature move: a live TUS resumable upload made legible — chunk strip, byte offset, running sha256, pause /
+  resume / terminate, and a "resumed from offset, no bytes re-sent" receipt. Destination is the primary fork
+  (new dataset vs. new immutable version of an existing one); multi-sheet workbooks stop for an explicit choice.
+  Honesty rail on the right: profiling and PII sensitivity are NOT automatic — they are offered as next steps.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Command Studio — Ingest · Terminal</title>
+<style>
+  :root {
+    --s0:#080A0E;  --s1:#0D1015;  --s2:#11151B;  --s3:#161B22;
+    --s4:#1C222B;  --s5:#242C37;  --s6:#38424F;  --key:#E9EEF5;
+    --t1:#E7ECF3;  --t2:#B0BAC8;  --t3:#85909F;  --t4:#5C6675; /* t4 = decoration only, NEVER text */
+    --r1:rgba(255,255,255,.042); --r2:rgba(255,255,255,.075); --r3:rgba(255,255,255,.13);
+    --hi:inset 0 1px 0 rgba(255,255,255,.045);
+    --sig:#46D5E8; --sig-dim:rgba(70,213,232,.14); --sig-line:rgba(70,213,232,.40);
+    --st-good:#0ca30c; --st-warn:#fab219; --st-serious:#ec835a; --st-crit:#DC5050;
+    --m1:#CBD3DF; --m2:#A2ACBB; --m3:#7D8797; --m4:#5F6979; --m5:#48515F; --m6:#39414D;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --viz-1:#3987e5; --viz-2:#d95926; --viz-3:#199e70; --viz-4:#c98500;
+    --viz-5:#d55181; --viz-6:#747c04; --viz-7:#9085e9; --viz-8:#e66767;
+    /* legacy aliases so inline styles still in the markup keep resolving */
+    --background:var(--s1); --foreground:var(--t1); --card:var(--s2); --surface:var(--s3);
+    --popover:var(--s3); --muted:rgba(255,255,255,.05); --muted-foreground:var(--t3);
+    --secondary:var(--s4); --accent:var(--s4); --border:var(--r2);
+    --primary:var(--sig); --primary-foreground:#0B0E13;
+    --success:var(--st-good); --warning:var(--st-warn); --destructive:var(--st-crit); --radius:8px;
+    --shadow-md:0 2px 4px 0 rgb(0 0 0/.4),0 4px 16px -2px rgb(0 0 0/.5);
+  }
+  .light, .dark { /* one instrument, one theme — the toggle is inert by design */ }
+
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html { font-size:13px; overflow:hidden; height:100%; }
+  body {
+    font-family:var(--sans); color:var(--t2); font-size:12.5px; width:1440px; height:1024px;
+    background:radial-gradient(1180px 560px at 44% -12%, #151B24 0%, rgba(21,27,36,0) 62%), var(--s1);
+    overflow:hidden; -webkit-font-smoothing:antialiased; line-height:1.4; letter-spacing:-0.004em;
+  }
+  body::after {
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:200; opacity:.055; mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .mono { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  .num { font-variant-numeric:tabular-nums; }
+  .muted { color:var(--t3); }
+  ::selection { background:rgba(70,213,232,.26); color:#fff; }
+  :focus-visible { outline:none; box-shadow:0 0 0 1px var(--s0), 0 0 0 3px rgba(70,213,232,.45); border-radius:6px; }
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb { background:#232B35; border-radius:8px; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background:#303945; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-track { background:transparent; }
+
+  /* ===== STATUS: five states, five SHAPES, always beside a word (rule 6) ===== */
+  .sdot { width:8px; height:8px; flex:none; display:inline-block; vertical-align:-1px; }
+  .sdot.good    { border-radius:50%; background:var(--st-good); }
+  .sdot.warn    { width:0; height:0; border-left:4.5px solid transparent; border-right:4.5px solid transparent;
+                  border-bottom:8px solid var(--st-warn); vertical-align:0; }
+  .sdot.serious { width:7px; height:7px; background:var(--st-serious); border-radius:1px; transform:rotate(45deg); margin:0 1px; }
+  .sdot.crit    { background:var(--st-crit); border-radius:1px; }
+  .sdot.idle    { border-radius:50%; background:transparent; box-shadow:inset 0 0 0 1.5px var(--t4); }
+  /* in-flight = outcome not yet known: the unknown RING, pulsing */
+  .sdot.run     { border-radius:50%; background:transparent; box-shadow:inset 0 0 0 1.5px var(--t2);
+                  animation:pulse 2.4s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.34} }
+  @media (prefers-reduced-motion:reduce){ .sdot.run, .xtick, footer.statusbar .clock .sdot { animation:none } }
+  /* the WORD carries ink, the SHAPE carries hue — so every label clears 4.5:1 */
+  .stat { display:inline-flex; align-items:center; gap:6px; font-size:10.5px; font-weight:500; color:var(--t2); white-space:nowrap; }
+  .stat.idle { color:var(--t3); }
+  .stat.crit { color:var(--t1); font-weight:600; }
+
+  /* ===== HEADER ===== */
+  header.topbar { height:48px; display:flex; align-items:center; gap:16px; padding:0 14px; flex:none;
+    background:linear-gradient(180deg,#141922,#10141A); box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); z-index:30; }
+  .brand { display:flex; align-items:center; gap:10px; }
+  .brand .glyph { width:21px; height:21px; border-radius:5px; background:linear-gradient(180deg,#2C3542,#191F28);
+    display:grid; place-items:center; box-shadow:var(--hi), 0 1px 2px rgba(0,0,0,.5); color:var(--t1); }
+  .brand .name { font-weight:600; font-size:12.5px; letter-spacing:-0.012em; color:var(--t1); white-space:nowrap; }
+  .env-chip { font-family:var(--mono); font-size:10px; font-weight:400; letter-spacing:0; text-transform:none;
+    color:var(--t3); background:transparent; border:0; padding:0; border-radius:0;
+    display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+  .env-chip::before { content:""; width:5px; height:5px; border-radius:50%; background:var(--st-warn); flex:none; }
+  nav.gnav { display:flex; align-items:center; gap:4px; }
+  nav.gnav a { font-size:12.5px; font-weight:450; color:var(--t3); text-decoration:none; height:30px; padding:0 10px;
+    border-radius:7px; position:relative; display:inline-flex; align-items:center; transition:color .14s, background .14s; }
+  nav.gnav a:hover { color:var(--t1); background:rgba(255,255,255,.035); }
+  /* SIGNAL 1/4 — the active route */
+  nav.gnav a.active { color:var(--t1); font-weight:550; background:transparent; }
+  nav.gnav a.active::after { content:""; position:absolute; left:10px; right:10px; bottom:-10px; height:2px;
+    background:var(--sig); border-radius:2px 2px 0 0; box-shadow:0 0 12px -1px var(--sig); }
+  .cmdk { margin-left:auto; display:flex; align-items:center; gap:9px; width:288px; height:30px; padding:0 10px;
+    border:0; border-radius:8px; background:var(--s0); color:var(--t3); cursor:text;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); }
+  .cmdk.lit { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); }
+  .cmdk:focus-within { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+  .cmdk .ph { font-size:12px; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .kbd { font-family:var(--mono); font-size:10px; font-weight:500; color:var(--t2); border:0;
+    background:linear-gradient(180deg,#232A34,#1A2028); border-radius:4px; padding:1.5px 5px; line-height:1.4;
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); white-space:nowrap; }
+  .hicons { display:flex; align-items:center; gap:2px; }
+  .iconbtn { width:30px; height:30px; border-radius:7px; border:0; background:transparent; color:var(--t3);
+    display:grid; place-items:center; cursor:pointer; transition:color .14s, background .14s; }
+  .iconbtn:hover { background:rgba(255,255,255,.05); color:var(--t1); border-color:transparent; }
+  .teamsw { display:flex; align-items:center; gap:7px; height:28px; padding:0 10px; border-radius:7px; border:0;
+    background:var(--s4); box-shadow:var(--hi); cursor:pointer; white-space:nowrap; }
+  .teamsw .tl { font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--t3); font-weight:500; }
+  .teamsw .tn { font-size:12px; font-weight:450; color:var(--t1); }
+  .teamsw .cv { color:var(--t3); font-size:9px; }
+  .avatar { width:27px; height:27px; border-radius:7px; border:0; background:linear-gradient(180deg,#2A323D,#1D242D);
+    display:grid; place-items:center; font-family:var(--mono); font-size:10px; font-weight:600; color:var(--t2);
+    box-shadow:var(--hi); cursor:pointer; flex:none; }
+
+  /* ===== KPI STRIP — numbers are the hero over a recessive eyebrow (rule 4) ===== */
+  .kpistrip { display:flex; align-items:stretch; height:44px; padding:0 10px; flex:none;
+    background:linear-gradient(180deg,var(--s3),#12171E);
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.55), 0 10px 24px -20px rgba(0,0,0,.9); }
+  .kpi { display:flex; align-items:baseline; gap:8px; padding:0 16px 0 0; margin-right:8px; border:0;
+    white-space:nowrap; align-self:center; }
+  .kpi .lab { font-size:9.5px; font-weight:500; letter-spacing:.11em; text-transform:uppercase; color:var(--t3); }
+  .kpi .val { font-size:17px; font-weight:600; color:var(--t1); letter-spacing:-0.03em; font-variant-numeric:tabular-nums; }
+  .kpi .delta { font-size:9.5px; font-weight:400; color:var(--t3); }
+  .crumbs { display:flex; align-items:center; gap:7px; margin-left:auto; padding:0 4px; font-size:10.5px;
+    color:var(--t3); white-space:nowrap; align-self:center; }
+  .crumbs b { color:var(--t1); font-weight:600; }
+
+  /* ===== WORKSPACE ===== */
+  .workspace { display:grid; grid-template-columns:306px 1fr 372px; height:calc(1024px - 48px - 44px - 26px); }
+  .col { display:flex; flex-direction:column; min-width:0; min-height:0; }
+  .col.rail { background:var(--s2); box-shadow:1px 0 0 rgba(0,0,0,.45); z-index:2; border:0; }
+  .col.center { background:transparent; }
+  .col.dock { background:var(--s2); box-shadow:-1px 0 0 rgba(0,0,0,.45); z-index:2; border:0; }
+  .colhead { height:34px; display:flex; align-items:center; gap:9px; padding:0 12px; flex:none; border:0;
+    box-shadow:inset 0 -1px 0 var(--r1); }
+  .colhead .t { font-size:12.5px; font-weight:600; letter-spacing:-0.012em; text-transform:none; color:var(--t1); }
+  .colhead .badge { font-family:var(--mono); font-size:9.5px; font-weight:400; color:var(--t3); border:0;
+    background:rgba(255,255,255,.05); border-radius:4px; padding:1px 6px; }
+  .colhead .spacer { margin-left:auto; }
+  .scroll { overflow-y:auto; flex:1; min-height:0; }
+  .pad { padding:12px 12px 16px; }
+
+  /* sentence-case section heading — the eyebrow register is for numbers only (rule 5) */
+  .ml { font-size:11.5px; font-weight:550; letter-spacing:-0.008em; text-transform:none; color:var(--t2);
+    display:flex; align-items:center; gap:9px; margin-bottom:9px; }
+  .ml .line { flex:1; height:1px; background:var(--r1); }
+  .ml .n { font-family:var(--mono); font-size:9.5px; font-weight:400; letter-spacing:0; text-transform:none; color:var(--t3); }
+
+  /* chips: a status pill is a recessed well + a status ring (keeps the reserved hue AND 4.5:1) */
+  .pill { font-size:9.5px; font-weight:500; padding:2px 7px; border-radius:20px; display:inline-flex; align-items:center;
+    gap:4px; border:0; white-space:nowrap; color:var(--t3); background:rgba(255,255,255,.05); }
+  .pill.ok   { color:var(--st-good); background:rgba(0,0,0,.36); box-shadow:inset 0 0 0 1px rgba(12,163,12,.45); }
+  .pill.warn { color:var(--st-warn); background:rgba(0,0,0,.36); box-shadow:inset 0 0 0 1px rgba(250,178,25,.34); }
+  .pill.crit { color:var(--st-crit); background:rgba(0,0,0,.36); box-shadow:inset 0 0 0 1px rgba(220,80,80,.42); }
+  /* repeated "this one" state never takes the accent — value + elevation instead (rule 1) */
+  .pill.pri  { color:var(--t1); background:var(--s4); box-shadow:var(--hi); font-weight:600; }
+  .pill.neu  { color:var(--t3); background:rgba(255,255,255,.05); }
+  .pill.label{ color:var(--t3); background:transparent; box-shadow:inset 0 0 0 1px var(--r1); font-weight:400; }
+  /* endpoints are provenance, so they live in the footnote register, not in the accent */
+  .ep { font-family:var(--mono); font-size:9.5px; color:var(--t3); background:rgba(0,0,0,.28); border:0;
+    border-radius:5px; padding:1px 6px; white-space:nowrap; box-shadow:inset 0 1px 2px rgba(0,0,0,.5); }
+  .ep b { color:var(--t2); font-weight:600; }
+  .lockglyph { color:var(--st-warn); display:inline-flex; vertical-align:-2px; flex:none; }
+
+  /* buttons — rule 2: the primary action wins on VALUE (near-white), not on the accent */
+  .tbtn { height:28px; padding:0 10px; font-size:12px; font-weight:450; color:var(--t2); background:transparent;
+    border:0; box-shadow:inset 0 0 0 1px var(--r2); border-radius:7px; cursor:pointer; font-family:inherit;
+    display:inline-flex; align-items:center; gap:6px; white-space:nowrap; transition:background .14s, color .14s; }
+  .tbtn:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  .tbtn.primary { background:linear-gradient(180deg,#FBFDFF,var(--key)); color:#0B0E13; font-weight:600;
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset, 0 2px 8px -3px rgba(0,0,0,.9), 0 0 0 1px rgba(0,0,0,.35); }
+  .tbtn.primary:hover { background:#fff; }
+  .tbtn.danger { color:var(--st-crit); background:transparent; box-shadow:inset 0 0 0 1px rgba(220,80,80,.3); }
+  .tbtn.danger:hover { background:rgba(220,80,80,.09); color:var(--st-crit); }
+  .tbtn.wide { width:100%; justify-content:center; }
+  .tbtn .k { font-family:var(--mono); font-size:10px; color:var(--t3); }
+  .tbtn.primary .k { color:#4A5462; }
+
+  /* cards earn a SURFACE, not a border (rule 8) */
+  .card { border:0; border-radius:9px; background:var(--s3); box-shadow:var(--hi); padding:11px; margin-bottom:10px; }
+  .card.on { background:var(--s4); box-shadow:var(--hi), 0 2px 10px -6px rgba(0,0,0,.9); }
+  .card .ch { display:flex; align-items:center; gap:9px; margin-bottom:9px; flex-wrap:wrap; }
+  .card .ct { font-size:12.5px; font-weight:600; color:var(--t1); }
+  .card .cs { font-size:10.5px; color:var(--t3); line-height:1.5; }
+  .card .cs b { color:var(--t1); }
+
+  /* the destination / transport fork: selected = raised + near-white mark, never the accent */
+  .choice { display:flex; gap:10px; align-items:flex-start; border:0; border-radius:9px; background:transparent;
+    box-shadow:inset 0 0 0 1px var(--r1); padding:10px; cursor:pointer; margin-bottom:8px; }
+  .choice:hover { background:rgba(255,255,255,.03); }
+  .choice.on { background:var(--s4); box-shadow:var(--hi), 0 2px 10px -6px rgba(0,0,0,.9); }
+  .radio { width:14px; height:14px; border-radius:50%; border:0; box-shadow:inset 0 0 0 1.5px var(--t4);
+    flex:none; margin-top:2px; display:grid; place-items:center; }
+  .choice.on .radio { box-shadow:inset 0 0 0 1.5px var(--key); }
+  .choice.on .radio::after { content:""; width:7px; height:7px; border-radius:50%; background:var(--key); }
+  .choice .n { font-size:12.5px; font-weight:600; color:var(--t2); display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
+  .choice.on .n { color:var(--t1); }
+  .choice .d { font-size:10.5px; color:var(--t3); margin-top:4px; line-height:1.5; }
+  .choice .d b { color:var(--t1); font-weight:600; }
+  .choice .mono { color:var(--t2); }
+
+  /* callouts: informational ones lose the box and become a left-ruled indent; only the two
+     consequential ones (the 422 hold and the refusal) keep a tinted surface */
+  .callout { display:flex; align-items:flex-start; gap:9px; font-size:10.5px; line-height:1.5; color:var(--t3);
+    border:0; border-radius:0; padding:0 0 0 10px; margin-bottom:10px; box-shadow:inset 2px 0 0 var(--r2); background:none; }
+  .callout b { color:var(--t1); font-weight:600; }
+  .callout .mono { color:var(--t2); }
+  .callout a { color:var(--t2); text-decoration:underline; text-decoration-color:var(--r3);
+    text-decoration-thickness:1px; text-underline-offset:3px; white-space:nowrap; }
+  .callout a:hover { color:var(--t1); }
+  .callout .ci { flex:none; margin-top:1px; font-weight:400; color:var(--t3); }
+  .callout.info    { box-shadow:inset 2px 0 0 var(--r2); }
+  .callout.serious { box-shadow:inset 2px 0 0 rgba(236,131,90,.5); }
+  .callout.serious .ci { color:var(--st-serious); }
+  /* the TUS resume receipt — the signature detail: a recessed well so the offset reads as a machine fact */
+  .callout.good { padding:9px 10px 9px 11px; border-radius:7px; background:rgba(0,0,0,.3); color:var(--t2);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 3px 0 0 var(--st-good); }
+  .callout.good .ci { color:var(--st-good); }
+  .callout.good .mono { color:var(--t1); font-weight:600; }
+  .callout.warn { padding:9px 10px; border-radius:7px; color:var(--t2);
+    background:rgba(250,178,25,.06); box-shadow:inset 0 0 0 1px rgba(250,178,25,.2); }
+  .callout.warn .ci { color:var(--st-warn); }
+  .callout.crit { padding:9px 10px; border-radius:7px; color:var(--t2);
+    background:rgba(220,80,80,.07); box-shadow:inset 0 0 0 1px rgba(220,80,80,.22); }
+  .callout.crit .ci { color:var(--st-crit); }
+
+  .kv { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; font-size:11px; }
+  .kv .k { color:var(--t3); font-size:10.5px; letter-spacing:0; text-transform:none; white-space:nowrap; }
+  .kv .v { font-family:var(--mono); font-size:10.5px; color:var(--t2); font-variant-numeric:tabular-nums;
+    text-align:right; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+  /* form fields — recessed wells */
+  .field { margin-bottom:11px; }
+  .field .fl { font-size:10.5px; letter-spacing:0; text-transform:none; color:var(--t3); margin-bottom:5px;
+    display:flex; align-items:center; gap:7px; }
+  .inp { height:28px; display:flex; align-items:center; gap:7px; padding:0 9px; border:0; border-radius:7px;
+    background:var(--s0); font-size:12px; color:var(--t1);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); }
+  .inp.ph { color:var(--t3); }
+  .inp .cv { margin-left:auto; color:var(--t3); font-size:9px; }
+  .fhint { font-size:9.5px; color:var(--t3); margin-top:5px; line-height:1.45; }
+  .fhint b { color:var(--t2); font-weight:600; }
+  .seg { display:flex; gap:5px; flex-wrap:wrap; }
+  .segb { font-family:var(--mono); font-size:10px; font-weight:400; color:var(--t3); padding:3px 8px; border-radius:6px;
+    border:0; background:transparent; box-shadow:inset 0 0 0 1px var(--r1); cursor:pointer; }
+  .segb:hover { color:var(--t1); background:rgba(255,255,255,.04); }
+  .segb.on { color:var(--t1); font-weight:600; background:var(--s5); box-shadow:var(--hi); }
+  .segb.warnon { color:var(--st-warn); font-weight:600; background:rgba(0,0,0,.36); box-shadow:inset 0 0 0 1px rgba(250,178,25,.34); }
+
+  /* ===== FOOTER ===== */
+  footer.statusbar { height:26px; display:flex; align-items:center; gap:14px; padding:0 14px; flex:none; border:0;
+    background:var(--s2); box-shadow:inset 0 1px 0 var(--r1); font-size:10.5px; color:var(--t3); }
+  footer.statusbar .h { display:flex; align-items:center; gap:6px; white-space:nowrap; }
+  footer.statusbar .clock { margin-left:auto; display:flex; align-items:center; gap:8px; font-family:var(--mono); }
+  /* SIGNAL 4/4 — the one live indicator on the screen */
+  footer.statusbar .clock .sdot { width:6px; height:6px; border-radius:50%; background:var(--sig);
+    box-shadow:0 0 0 3px rgba(70,213,232,.10), 0 0 9px -1px var(--sig); animation:pulse 3s ease-in-out infinite; }
+
+  /* ---- drop zone + accept list (the dashed edge stays: it IS the drop target) ---- */
+  .drop { border:1px dashed var(--r3); border-radius:9px; background:rgba(0,0,0,.18); padding:15px 12px;
+    text-align:center; box-shadow:inset 0 1px 2px rgba(0,0,0,.45); }
+  .drop .dt { font-size:12.5px; font-weight:600; color:var(--t1); margin-top:8px; }
+  .drop .ds { font-size:10.5px; color:var(--t3); margin-top:4px; }
+  .drop .browse { color:var(--t1); text-decoration:underline; text-decoration-color:var(--r3);
+    text-decoration-thickness:1px; text-underline-offset:3px; }
+  .exts { display:flex; gap:5px; justify-content:center; margin-top:10px; flex-wrap:wrap; }
+  .ext { font-family:var(--mono); font-size:9.5px; font-weight:400; color:var(--t3); border:0;
+    background:rgba(255,255,255,.05); border-radius:4px; padding:1px 6px; }
+  /* a rejection is a note, not a box: left rule + the crit square + the reason */
+  .rejected { display:flex; align-items:center; gap:9px; border:0; background:none; border-radius:0;
+    box-shadow:inset 2px 0 0 rgba(220,80,80,.5); padding:2px 0 2px 10px; margin-top:10px; }
+  .rejected .fn { font-family:var(--mono); font-size:11px; color:var(--t1); font-weight:600;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .rejected .why { font-size:9.5px; color:var(--t3); margin-top:2px; }
+
+  /* ---- destination picker: a recessed well of rows ---- */
+  .picker { border:0; border-radius:8px; background:rgba(0,0,0,.24); overflow:hidden;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.55); }
+  .picker .psearch { display:flex; align-items:center; gap:7px; height:29px; padding:0 9px; border:0;
+    box-shadow:inset 0 -1px 0 var(--r1); color:var(--t3); font-size:12px; background:transparent; }
+  .picker .plist { max-height:154px; overflow-y:auto; }
+  .prow { display:grid; grid-template-columns:1fr auto; gap:1px 8px; align-items:center; padding:6px 9px;
+    border:0; box-shadow:inset 3px 0 0 transparent; cursor:pointer; }
+  .prow:hover { background:rgba(255,255,255,.04); }
+  /* SIGNAL 3/4 — the destination this upload is scoped to */
+  .prow.sel { background:var(--sig-dim); box-shadow:inset 3px 0 0 var(--sig); }
+  .prow .pn { grid-column:1; grid-row:1; font-size:12px; font-weight:550; color:var(--t2); display:flex;
+    align-items:center; gap:7px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+  .prow.sel .pn { color:var(--t1); font-weight:600; }
+  .prow .pm { grid-column:1; grid-row:2; font-family:var(--mono); font-size:9.5px; color:var(--t3);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+  .prow .pv { grid-column:2; grid-row:1 / span 2; font-family:var(--mono); font-size:9.5px; color:var(--t3);
+    line-height:1.5; text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .pfoot { font-size:9.5px; color:var(--t3); padding:6px 9px; box-shadow:inset 0 1px 0 var(--r1); line-height:1.45; }
+  .pfoot b { color:var(--t2); }
+  /* classification is a PROPERTY (rule 7): ranked by value, never by a status hue */
+  .cls { font-family:var(--mono); font-size:9px; font-weight:400; padding:0 4px; border:0; border-radius:4px;
+    white-space:nowrap; text-transform:lowercase; background:rgba(255,255,255,.05); }
+  .cls.public   { color:var(--t3); }
+  .cls.internal { color:var(--t3); }
+  .cls.conf     { color:var(--t2); }
+  .cls.restr    { color:var(--t1); font-weight:600; }
+
+  /* ---- TUS transfer: the in-flight object, so it takes the elevation AND the one live tick ---- */
+  .xfer { border:0; border-radius:10px; background:var(--s4); padding:12px; margin-bottom:12px;
+    box-shadow:var(--hi), 0 6px 22px -14px rgba(0,0,0,1); }
+  .xhead { display:flex; align-items:center; gap:9px; margin-bottom:10px; flex-wrap:wrap; }
+  /* SIGNAL 2/4 — this upload is the live thing on the screen */
+  .xtick { width:6px; height:6px; border-radius:50%; background:var(--sig); flex:none;
+    box-shadow:0 0 0 3px rgba(70,213,232,.10), 0 0 9px -1px var(--sig); animation:pulse 2.6s ease-in-out infinite; }
+  .xhead .fn { font-family:var(--mono); font-size:13px; font-weight:600; color:var(--t1); letter-spacing:-0.015em; }
+  .xhead .sp { margin-left:auto; display:flex; align-items:center; gap:6px; }
+  /* progress is MAGNITUDE — the neutral value ramp, not a categorical hue and not the accent */
+  .chunktrack { position:relative; height:16px; border:0; border-radius:5px; background:var(--s0); overflow:hidden;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.7); }
+  .chunktrack::before { content:""; position:absolute; inset:0;
+    background:repeating-linear-gradient(90deg,rgba(255,255,255,.05) 0 7px,transparent 7px 8px); }
+  .chunkfill { position:absolute; top:0; bottom:0; left:0; width:65.7%;
+    background:repeating-linear-gradient(90deg,var(--m3) 0 7px,rgba(8,10,14,.55) 7px 8px); }
+  .chunklive { position:absolute; top:0; bottom:0; left:65.7%; width:1.9%;
+    background:repeating-linear-gradient(90deg,var(--m1) 0 7px,rgba(8,10,14,.5) 7px 8px); }
+  .chunkmark { position:absolute; top:-3px; bottom:-3px; width:1px; background:var(--st-serious); opacity:.9; }
+  .xlegend { display:flex; align-items:center; gap:14px; margin-top:7px; font-size:9.5px; color:var(--t3); flex-wrap:wrap; }
+  .xlegend .li { display:flex; align-items:center; gap:5px; }
+  .xlegend .sw { width:9px; height:9px; border-radius:2px; }
+  .xlegend b { color:var(--t1); }
+  .xlegend a { color:var(--t2); text-decoration:underline; text-decoration-color:var(--r3);
+    text-decoration-thickness:1px; text-underline-offset:3px; }
+  /* no container inside a container: the four transfer facts lose their boxes and become
+     eyebrow-over-figure, split by space and one whisper rule (rule 4 + rule 8) */
+  .xgrid { display:grid; grid-template-columns:1fr 1fr; gap:11px 22px; margin-top:12px; }
+  .xbox { border:0; border-radius:0; background:none; padding:0; }
+  .xbox .k { font-size:9.5px; font-weight:500; letter-spacing:.11em; text-transform:uppercase; color:var(--t3); }
+  .xbox .v { font-family:var(--mono); font-variant-numeric:tabular-nums; font-size:14px; font-weight:600;
+    color:var(--t1); letter-spacing:-0.02em; margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .xbox .v .muted { color:var(--t3); }
+  .xbox .s { font-size:9.5px; color:var(--t3); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .xctl { display:flex; align-items:center; gap:7px; margin-top:12px; }
+  .xctl .sp { margin-left:auto; }
+
+  /* ---- stepper: elevation marks the active stage, not a border or a tint ---- */
+  .stages { display:flex; align-items:stretch; gap:6px; border:0; border-radius:0; background:none; overflow:visible; }
+  .stage { flex:1; padding:7px 9px; border:0; border-radius:7px; min-width:0; box-shadow:inset 0 0 0 1px var(--r1); }
+  .stage .sn { font-size:11px; font-weight:550; color:var(--t2); display:flex; align-items:center; gap:6px; }
+  .stage .sd { font-size:9.5px; color:var(--t3); margin-top:3px; font-family:var(--mono); overflow:hidden;
+    text-overflow:ellipsis; white-space:nowrap; }
+  .stage.done .sn { color:var(--t2); }
+  .stage.active { background:var(--s5); box-shadow:var(--hi); }
+  .stage.active .sn { color:var(--t1); font-weight:600; }
+  .stage.todo .sn { color:var(--t3); }
+
+  /* ---- sheets: stacked rows, so a whisper rule instead of five boxes ---- */
+  .sheet { display:grid; grid-template-columns:16px 1fr auto; gap:10px; align-items:center; padding:8px 9px;
+    border:0; border-radius:7px; background:transparent; margin-bottom:2px; cursor:pointer;
+    box-shadow:inset 0 -1px 0 var(--r1); }
+  .sheet:hover { background:rgba(255,255,255,.04); }
+  .sheet.on { background:var(--s5); box-shadow:var(--hi); }
+  .cbx { width:14px; height:14px; border-radius:4px; border:0; box-shadow:inset 0 0 0 1.5px var(--t4);
+    display:grid; place-items:center; flex:none; color:transparent; }
+  .sheet.on .cbx { box-shadow:none; background:var(--key); color:#0B0E13; }
+  .sheet .snm { font-family:var(--mono); font-size:11.5px; font-weight:600; color:var(--t2);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sheet.on .snm { color:var(--t1); }
+  .sheet .ssub { font-size:9.5px; color:var(--t3); margin-top:2px; }
+  /* on the raised surfaces t3 measured 4.46:1 — the secondary ink steps up so every label clears 4.5 */
+  .sheet.on .ssub, .sheet.on .sct, .stage.active .sd { color:var(--t2); }
+  .sheet .sct { font-family:var(--mono); font-size:10.5px; color:var(--t3); text-align:right; white-space:nowrap;
+    font-variant-numeric:tabular-nums; }
+
+  /* ---- preview table: no wrapper box inside the card; the header row is a seam ---- */
+  .tblwrap { border:0; border-radius:0; overflow:hidden; background:none; }
+  table.grid { border-collapse:separate; border-spacing:0; width:100%; font-size:11px; }
+  table.grid thead th { background:transparent; text-align:left; font-family:var(--mono); font-size:9.5px;
+    font-weight:500; letter-spacing:0; text-transform:lowercase; color:var(--t3); padding:0 9px; height:24px;
+    border:0; box-shadow:inset 0 -1px 0 var(--r2); white-space:nowrap; }
+  table.grid tbody td { padding:0 9px; height:25px; border:0; border-bottom:1px solid rgba(255,255,255,.032);
+    white-space:nowrap; color:var(--t2); }
+  table.grid tbody tr:last-child td { border-bottom:none; }
+  table.grid tbody tr:hover td { background:rgba(255,255,255,.035); }
+  td.n { text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  td.mono { font-family:var(--mono); }
+  td.muted { color:var(--t3); }
+  .typerow { display:flex; flex-wrap:wrap; gap:5px; }
+  .typechip { display:inline-flex; align-items:center; gap:6px; font-size:10.5px; border:0;
+    background:rgba(255,255,255,.05); border-radius:6px; padding:2px 7px; }
+  .typechip .c { font-family:var(--mono); color:var(--t2); }
+  .typechip .t { font-family:var(--mono); font-size:9px; font-weight:400; letter-spacing:0; text-transform:lowercase; color:var(--t3); }
+  .typechip.und { background:rgba(0,0,0,.3); box-shadow:inset 0 0 0 1px rgba(236,131,90,.3); }
+  .typechip.und .c { color:var(--t1); }
+
+  /* ---- column sensitivity review ---- */
+  .colrow { border:0; border-radius:8px; background:var(--s3); box-shadow:var(--hi); padding:9px 10px; margin-bottom:7px; }
+  .colrow .top { display:flex; align-items:center; gap:8px; }
+  .colrow .cn { font-family:var(--mono); font-size:11.5px; font-weight:600; color:var(--t1);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .colrow .ct { font-family:var(--mono); font-size:9.5px; font-weight:400; letter-spacing:0; text-transform:lowercase;
+    color:var(--t3); border:0; background:rgba(255,255,255,.05); border-radius:4px; padding:0 5px; flex:none; }
+  .colrow .sp { margin-left:auto; }
+  .colrow .sample { font-family:var(--mono); font-size:9.5px; color:var(--t3); margin:5px 0 7px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+  /* ---- recent uploads ---- */
+  .rec { display:grid; grid-template-columns:1fr auto; gap:2px 8px; padding:7px 10px; border:0;
+    box-shadow:inset 0 -1px 0 var(--r1); }
+  .rec:hover { background:rgba(255,255,255,.035); }
+  .rec .rn { grid-column:1; grid-row:1; font-size:11.5px; font-weight:500; color:var(--t2); display:flex;
+    align-items:center; gap:7px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+  .rec .rm { grid-column:1; grid-row:2; font-family:var(--mono); font-size:9.5px; color:var(--t3);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+  .rec .rr { grid-column:2; grid-row:1 / span 2; text-align:right; font-family:var(--mono); font-size:9.5px;
+    color:var(--t3); line-height:1.5; white-space:nowrap; font-variant-numeric:tabular-nums; }
+</style>
+</head>
+<body class="dark" data-palette="#3987e5,#d95926,#199e70,#c98500,#d55181,#008300,#9085e9,#e66767">
+
+<header class="topbar">
+  <div class="brand">
+    <span class="glyph"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M4 7l8-4 8 4-8 4-8-4z" fill="#fff" opacity=".95"/><path d="M4 12l8 4 8-4M4 17l8 4 8-4" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity=".8"/></svg></span>
+    <span class="name">Command&nbsp;Studio</span>
+  </div>
+  <span class="env-chip">PROD · US-EAST</span>
+  <nav class="gnav">
+    <a href="#">Workflows</a>
+    <a href="#" class="active">Datasets</a>
+    <a href="#">Runs</a>
+    <a href="#">Library</a>
+  </nav>
+  <div class="cmdk lit" title="Command palette">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span class="ph">Search datasets, columns, run a command…</span>
+    <span class="kbd">⌘K</span>
+  </div>
+  <div class="hicons">
+    <button class="iconbtn" title="Filters"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M3 5h18M6 12h12M10 19h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+    <button class="iconbtn" title="Alerts"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M6 9a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M10 20a2 2 0 004 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+    <button class="iconbtn" title="Theme" onclick="document.body.classList.toggle('light');document.body.classList.toggle('dark')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M20 13a8 8 0 11-9-9 6 6 0 009 9z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></button>
+  </div>
+  <div class="teamsw" title="Uploads are team-locked. You are uploading into Growth Analytics.">
+    <span class="tl">Team</span><span class="tn">Growth Analytics</span><span class="cv">▾</span>
+  </div>
+  <div class="avatar" title="S. Ganji · Growth Analytics · uploader">SG</div>
+</header>
+
+<div class="kpistrip">
+  <div class="kpi"><span class="lab">In flight</span><span class="val num">2</span><span class="delta">1 paused</span></div>
+  <div class="kpi"><span class="lab">Bytes sent today</span><span class="val num mono">41.8 GB</span></div>
+  <div class="kpi"><span class="lab">Accepted types</span><span class="val mono" style="font-size:12px;color:var(--muted-foreground)">.csv .parquet .xlsx .xls</span></div>
+  <div class="kpi" title="Abandoned TUS uploads are removed by the stale-upload reaper after 24h."><span class="lab">Stale reaper</span><span class="val num mono" style="font-size:13px">24h</span></div>
+  <div class="kpi" title="Profiling never runs on upload — it must be requested."><span class="lab">Unprofiled versions</span><span class="val num" style="color:var(--st-serious)">7</span></div>
+  <div class="kpi" title="Column sensitivity is human-declared. Nothing is auto-detected."><span class="lab">Undeclared cols</span><span class="val num" style="color:var(--st-serious)">126</span></div>
+  <div class="crumbs">Datasets <span>/</span> <b>Ingest</b> <span class="ep">POST <b>/upload</b> · <b>/tus/</b></span></div>
+</div>
+
+<div class="workspace">
+  <!-- ---------- LEFT RAIL : SOURCE + DESTINATION ---------- -->
+  <div class="col rail">
+    <div class="colhead">
+      <span class="t">New upload</span>
+      <span class="badge mono">team-locked</span>
+      <span class="spacer"></span>
+      <span class="kbd">U</span>
+    </div>
+
+    <div class="scroll">
+      <div class="pad">
+
+        <!-- ---- 1. FILE ---- -->
+        <div class="ml">1 · File <span class="line"></span><span class="n">file upload is the only ingestion path</span></div>
+        <div class="drop">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" style="color:var(--t3)"><path d="M12 17V5m0 0l-4 4m4-4l4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <div class="dt">Drop a file, or <a href="#" class="browse">browse</a></div>
+          <div class="ds">Files &gt; 100 MB automatically switch to the resumable path.</div>
+          <div class="exts">
+            <span class="ext">.csv</span><span class="ext">.parquet</span><span class="ext">.xlsx</span><span class="ext">.xls</span>
+          </div>
+        </div>
+        <div class="rejected" title="Rejected before any bytes were sent — the accept list is enforced server-side too.">
+          <span class="stat crit"><span class="sdot crit"></span></span>
+          <div style="min-width:0">
+            <div class="fn">Q3_readout_deck.pdf</div>
+            <div class="why">Rejected · unsupported type <span class="mono">.pdf</span> — accepted: .csv .parquet .xlsx .xls</div>
+          </div>
+          <button class="iconbtn" style="width:22px;height:22px;margin-left:auto" title="Dismiss">✕</button>
+        </div>
+
+        <!-- ---- 2. DESTINATION ---- -->
+        <div class="ml" style="margin-top:16px">2 · Destination <span class="line"></span><span class="n">the fork</span></div>
+
+        <div class="choice">
+          <span class="radio"></span>
+          <div style="min-width:0">
+            <div class="n">Create a new dataset</div>
+            <div class="d">A fresh dataset in <b style="color:var(--foreground)">growth-analytics</b>, starting at <span class="mono">v1</span>.</div>
+          </div>
+        </div>
+
+        <div class="choice on">
+          <span class="radio"></span>
+          <div style="min-width:0">
+            <div class="n">Add a version to an existing dataset <span class="pill pri">dataset_id</span></div>
+            <div class="d">Appends <span class="mono">v8</span> to the dataset below. Versions are <b>immutable</b> — a new version is the only way to add data. Nothing is overwritten.</div>
+          </div>
+        </div>
+
+        <div class="picker">
+          <div class="psearch">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            <span style="flex:1">signup</span><span class="kbd">/</span>
+          </div>
+          <div class="plist">
+            <div class="prow sel">
+              <div class="pn"><span class="sdot good"></span>Q3 Campaign Signups</div>
+              <div class="pm">ds_7f21a4 · growth-analytics</div>
+              <div class="pv">v7<br/>84.2K</div>
+            </div>
+            <div class="prow">
+              <div class="pn">Signup Attribution Raw <span class="cls internal">Internal</span></div>
+              <div class="pm">ds_1c90bb · growth-analytics</div>
+              <div class="pv">v22<br/>1.9M</div>
+            </div>
+            <div class="prow">
+              <div class="pn">Signup Funnel Weekly <span class="cls internal">Internal</span></div>
+              <div class="pm">ds_44e017 · growth-analytics</div>
+              <div class="pv">v104<br/>18.3K</div>
+            </div>
+            <div class="prow">
+              <div class="pn">Trial Signups — EMEA <span class="cls conf">Confidential</span></div>
+              <div class="pm">ds_9ab332 · growth-analytics</div>
+              <div class="pv">v3<br/>44.0K</div>
+            </div>
+            <div class="prow">
+              <div class="pn">Signup Consent Log <span class="cls restr">Restricted</span></div>
+              <div class="pm">ds_02da7e · growth-analytics</div>
+              <div class="pv">v61<br/>2.2M</div>
+            </div>
+          </div>
+          <div class="pfoot">Showing <b class="mono" style="color:var(--t3)">5</b> matches · the picker lists only the first <b class="mono" style="color:var(--t2)">200</b> datasets — <b style="color:var(--foreground)">search rather than scroll</b> to reach the rest.</div>
+        </div>
+
+        <!-- ---- 3. TRANSPORT ---- -->
+        <div class="ml" style="margin-top:16px">3 · Transport <span class="line"></span><span class="n">two real paths</span></div>
+
+        <div class="choice">
+          <span class="radio"></span>
+          <div style="min-width:0">
+            <div class="n">Multipart <span class="ep">POST <b>/upload</b></span></div>
+            <div class="d">One request, one shot. Add <span class="mono">?sync=true</span> and the response carries the dataset id — immediately queryable. Best under ~100 MB.</div>
+          </div>
+        </div>
+
+        <div class="choice on">
+          <span class="radio"></span>
+          <div style="min-width:0">
+            <div class="n">Resumable <span class="pill pri">tus 1.0.0</span></div>
+            <div class="d">
+              <span class="ep">POST <b>/tus/</b></span> → <span class="ep">PATCH <b>/tus/{id}</b></span> chunks →
+              <span class="ep">GET <b>/tus/{id}/status</b></span>. Survives a dropped connection; <span class="ep">DELETE</span> terminates.
+            </div>
+          </div>
+        </div>
+
+        <div class="callout info" style="margin-top:2px">
+          <span class="ci">⏱</span>
+          <span><b>Stale-upload reaper.</b> An abandoned resumable upload is cleaned up after <span class="mono">24h</span> of no PATCH. Paused uploads resume any time before that; after it, start again from zero.</span>
+        </div>
+
+        <button class="tbtn primary wide" style="height:31px">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 17V5m0 0l-4 4m4-4l4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 20h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          Start ingest <span class="k">⌘↵</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ---------- CENTER : TRANSFERS + INGEST ---------- -->
+  <div class="col center">
+    <div class="colhead">
+      <span class="t">Ingest queue</span>
+      <span class="badge mono">4 active</span>
+      <span class="spacer"></span>
+      <span class="ep">GET <b>/tus/{id}/status</b> · polling 1s</span>
+    </div>
+
+    <div class="scroll">
+      <div class="pad">
+
+        <!-- ============ A2 · TUS RESUMABLE, MID-FLIGHT ============ -->
+        <div class="xfer">
+          <div class="xhead">
+            <span class="xtick" title="live — this upload is in flight"></span>
+            <span class="stat"><span class="sdot run"></span>uploading</span>
+            <span class="fn">signup_events_full_history.parquet</span>
+            <span class="pill pri">tus 1.0.0</span>
+            <span class="sp">
+              <span class="ep">PATCH <b>/tus/9f4c1d2e8a</b></span>
+              <span class="pill neu mono">chunk 8 MiB</span>
+            </span>
+          </div>
+
+          <div class="callout good" style="margin-bottom:9px">
+            <span class="ci">↺</span>
+            <span><b>Resumed after interruption.</b> Connection dropped at <span class="mono">16:22:41</span> mid-chunk <span class="mono">#148</span>; the server reported <span class="mono">Upload-Offset: 1,241,513,984</span> and transfer restarted from exactly there — <b>0 bytes re-sent</b>, no restart from zero.</span>
+          </div>
+
+          <div class="chunktrack" title="189 of 288 chunks acknowledged · chunk 190 in flight">
+            <div class="chunkfill"></div>
+            <div class="chunklive"></div>
+            <div class="chunkmark" style="left:51.5%;width:2px" title="interruption point — resumed from offset 1,241,513,984"></div>
+          </div>
+          <div class="xlegend">
+            <span class="li"><span class="sw" style="background:var(--m3)"></span>189 acknowledged</span>
+            <span class="li"><span class="sw" style="background:var(--m1)"></span>1 in flight</span>
+            <span class="li"><span class="sw" style="background:rgba(255,255,255,.08)"></span>98 pending</span>
+            <span class="li"><span class="sw" style="background:var(--st-serious);width:2px"></span>interruption at 51.5%</span>
+            <span class="li" style="margin-left:auto"><b class="mono" style="color:var(--foreground)">65.7%</b> · 14.2 MB/s · ETA 00:58</span>
+          </div>
+
+          <div class="xgrid">
+            <div class="xbox">
+              <div class="k">Bytes sent / total</div>
+              <div class="v">1,585,446,912 <span class="muted" style="font-weight:400">/</span> 2,411,724,800</div>
+              <div class="s">1.48 GiB of 2.25 GiB · 189 / 288 chunks</div>
+            </div>
+            <div class="xbox">
+              <div class="k">Upload-Offset</div>
+              <div class="v">1,585,446,912</div>
+              <div class="s">server-confirmed · the only resume anchor</div>
+            </div>
+            <div class="xbox">
+              <div class="k">sha256 (running)</div>
+              <div class="v" style="font-size:11px" title="4b2e9c81a7f0d63e5c14ab9f28d70e6b3fa15c8d94e2071b6cad38f5e90c47b2">4b2e9c81a7f0d63e…e90c47b2</div>
+              <div class="s">189 / 189 chunk digests verified on PATCH</div>
+            </div>
+            <div class="xbox">
+              <div class="k">Destination</div>
+              <div class="v" style="font-size:11.5px">ds_7f21a4 → v8</div>
+              <div class="s">Q3 Campaign Signups · new immutable version</div>
+            </div>
+          </div>
+
+          <div class="xctl">
+            <button class="tbtn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M9 5v14M15 5v14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Pause <span class="k">P</span></button>
+            <button class="tbtn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M7 5l12 7-12 7V5z" fill="currentColor"/></svg>Resume</button>
+            <button class="tbtn danger" title="DELETE /tus/9f4c1d2e8a — terminates the upload. The dataset is kept.">Terminate <span class="k">⌫</span></button>
+            <span class="sp mono" style="font-size:10.5px;color:var(--muted-foreground)">started 16:09:03 · 2 interruptions · reaped in 24h if abandoned</span>
+          </div>
+        </div>
+
+        <!-- ============ A2b · PAUSED RESUMABLE ============ -->
+        <div class="card">
+          <div class="ch">
+            <span class="stat idle"><span class="sdot idle"></span>paused</span>
+            <span class="ct mono">consent_log_backfill.csv</span>
+            <span class="pill neu">tus</span>
+            <span style="margin-left:auto" class="ep">offset <b>412,876,800</b> / 3,004,231,680</span>
+          </div>
+          <div class="chunktrack" style="height:10px"><div class="chunkfill" style="width:13.7%"></div></div>
+          <div class="xlegend"><span class="li">13.7% · paused 00:41 ago by <b style="color:var(--foreground)">S. Ganji</b></span>
+            <span class="li" style="margin-left:auto"><a href="#" style="color:var(--t2);text-decoration:underline;text-decoration-color:var(--r3);text-underline-offset:3px">Resume from offset →</a></span></div>
+        </div>
+
+        <!-- ============ D · MULTI-SHEET WORKBOOK ============ -->
+        <div class="ml" style="margin-top:16px">Sheet selection required <span class="line"></span><span class="n">the service refuses to guess</span></div>
+        <div class="card on">
+          <div class="ch">
+            <span class="stat warn"><span class="sdot warn"></span>needs input</span>
+            <span class="ct mono">campaign_budget_FY26.xlsx</span>
+            <span class="pill warn mono">422 sheet-selection-required</span>
+            <span style="margin-left:auto" class="ep">POST <b>/upload</b> · multipart</span>
+          </div>
+          <div class="callout warn">
+            <span class="ci">!</span>
+            <span><b>5 sheets found.</b> A multi-sheet workbook is never auto-flattened and no sheet is picked for you — the upload is held at <span class="mono">422</span> until you choose. Selecting a subset sends <span class="mono">include_sheets</span> (a partial-workbook opt-in); the unselected sheets are simply not ingested.</span>
+          </div>
+
+          <div class="sheet on">
+            <span class="cbx"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <div style="min-width:0"><div class="snm">Q3 Detail</div><div class="ssub">header row 1 · 3 merged cells ignored</div></div>
+            <div class="sct">1,411 rows × 14 cols</div>
+          </div>
+          <div class="sheet on">
+            <span class="cbx"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <div style="min-width:0"><div class="snm">Q2 Detail</div><div class="ssub">header row 1 · same shape as Q3</div></div>
+            <div class="sct">1,318 rows × 14 cols</div>
+          </div>
+          <div class="sheet">
+            <span class="cbx"></span>
+            <div style="min-width:0"><div class="snm">Q1 Detail</div><div class="ssub">header row 1</div></div>
+            <div class="sct">1,204 rows × 14 cols</div>
+          </div>
+          <div class="sheet">
+            <span class="cbx"></span>
+            <div style="min-width:0"><div class="snm">Summary</div><div class="ssub">pivot-style layout · 2 header rows</div></div>
+            <div class="sct">42 rows × 8 cols</div>
+          </div>
+          <div class="sheet">
+            <span class="cbx"></span>
+            <div style="min-width:0"><div class="snm">Assumptions</div><div class="ssub">free-form notes · mixed types</div></div>
+            <div class="sct">96 rows × 5 cols</div>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:8px;margin-top:9px">
+            <span class="ep">include_sheets = <b>["Q3 Detail","Q2 Detail"]</b></span>
+            <span class="mono" style="font-size:10.5px;color:var(--muted-foreground)">2 of 5 · 2,729 rows</span>
+            <button class="tbtn primary" style="margin-left:auto">Continue with 2 sheets</button>
+          </div>
+
+          <div class="callout crit" style="margin:9px 0 0">
+            <span class="ci">✕</span>
+            <span><b>If nothing is selected the upload stays refused</b> — the response is the same <span class="mono">422 sheet-selection-required</span>, not a silent first-sheet guess:
+              <span class="mono" style="display:block;margin-top:4px;color:var(--muted-foreground)">{"detail":"sheet-selection-required","sheets":["Summary","Q1 Detail","Q2 Detail","Q3 Detail","Assumptions"]}</span></span>
+          </div>
+        </div>
+
+        <!-- ============ F · PROGRESS & OUTCOME ============ -->
+        <div class="ml" style="margin-top:16px">Ingest status <span class="line"></span><span class="n">GET /upload/status/{version_id}</span></div>
+        <div class="card">
+          <div class="ch">
+            <span class="stat"><span class="sdot run"></span>writing artifact</span>
+            <span class="ct mono">nps_survey_responses.csv</span>
+            <span class="pill neu">multipart · <span class="mono">?sync=true</span></span>
+            <span style="margin-left:auto" class="ep">version_id <b>ver_8c11d0</b> → v12</span>
+          </div>
+
+          <div class="stages">
+            <div class="stage done"><div class="sn"><span class="sdot good"></span>uploading</div><div class="sd">18.4 MB · 0.9s</div></div>
+            <div class="stage done"><div class="sn"><span class="sdot good"></span>parsing</div><div class="sd">delimiter , · utf-8</div></div>
+            <div class="stage active"><div class="sn"><span class="sdot run"></span>writing artifact</div><div class="sd">artifacts/growth-analytics/…</div></div>
+            <div class="stage todo"><div class="sn"><span class="sdot idle"></span>ready</div><div class="sd">queryable on completion</div></div>
+          </div>
+
+          <div class="kv" style="margin-top:10px">
+            <span class="k">Rows detected</span><span class="v">143,208</span>
+            <span class="k">Columns detected</span><span class="v">11</span>
+            <span class="k">Artifact key</span><span class="v" title="artifacts/growth-analytics/nps_survey_responses/rows/ver_8c11d0.parquet">artifacts/growth-analytics/…/ver_8c11d0.parquet</span>
+            <span class="k">Sync flag</span><span class="v" style="color:var(--t2)">sync=true — id returned inline</span>
+          </div>
+
+          <div style="margin-top:11px"><div class="ml" style="margin-bottom:6px">Inferred column types <span class="line"></span><span class="n">inferred, not declared</span></div>
+            <div class="typerow">
+              <span class="typechip"><span class="c">response_id</span><span class="t">string</span></span>
+              <span class="typechip"><span class="c">submitted_at</span><span class="t">timestamp</span></span>
+              <span class="typechip"><span class="c">score</span><span class="t">int64</span></span>
+              <span class="typechip"><span class="c">segment</span><span class="t">string</span></span>
+              <span class="typechip und" title="No sensitivity is declared for this column — nothing is masked."><span class="c">email</span><span class="t">string</span><span class="pill warn" style="padding:0 5px">undeclared</span></span>
+              <span class="typechip und"><span class="c">account_ref</span><span class="t">string</span><span class="pill warn" style="padding:0 5px">undeclared</span></span>
+              <span class="typechip"><span class="c">comment</span><span class="t">string</span></span>
+              <span class="typechip"><span class="c">nps_bucket</span><span class="t">string</span></span>
+              <span class="typechip"><span class="c">country</span><span class="t">string</span></span>
+              <span class="typechip"><span class="c">renewal_amount</span><span class="t">decimal</span></span>
+              <span class="typechip"><span class="c">is_verified</span><span class="t">bool</span></span>
+            </div>
+          </div>
+
+          <div style="margin-top:11px"><div class="ml" style="margin-bottom:6px">First rows <span class="line"></span><span class="n">preview · 5 of 143,208</span></div>
+            <div class="tblwrap">
+              <table class="grid">
+                <thead><tr><th>response_id</th><th>submitted_at</th><th>score</th><th>segment</th><th>email</th><th>renewal_amount</th></tr></thead>
+                <tbody>
+                  <tr><td class="mono">NPS-100241</td><td class="mono muted">2026-08-15 09:12</td><td class="n">9</td><td>enterprise</td><td class="mono">d.okafor@northwind.example</td><td class="n">2,400.00</td></tr>
+                  <tr><td class="mono">NPS-100240</td><td class="mono muted">2026-08-15 09:05</td><td class="n">7</td><td>team</td><td class="mono">m.reyes@vela.example</td><td class="n">594.00</td></tr>
+                  <tr><td class="mono">NPS-100239</td><td class="mono muted">2026-08-15 08:58</td><td class="n">4</td><td>pro</td><td class="mono">j.tan@brightpath.example</td><td class="n">290.00</td></tr>
+                  <tr><td class="mono">NPS-100238</td><td class="mono muted">2026-08-15 08:41</td><td class="n">10</td><td>enterprise</td><td class="mono">a.silva@corvus.example</td><td class="n">1,650.00</td></tr>
+                  <tr><td class="mono">NPS-100237</td><td class="mono muted">2026-08-15 08:33</td><td class="n">6</td><td>free</td><td class="mono">k.novak@lumen.example</td><td class="n">0.00</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="callout warn" style="margin:8px 0 0">
+              <span class="ci"><span class="lockglyph"><svg width="11" height="11" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span>
+              <span><b>Nothing here is masked.</b> PII is never auto-detected — <span class="mono">email</span> and <span class="mono">account_ref</span> are visible to everyone with dataset access until someone declares a sensitivity in the data dictionary. <a href="#">Review column sensitivity →</a></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============ F2 · FAILURE HONESTY ============ -->
+        <div class="ml" style="margin-top:16px">Needs attention <span class="line"></span><span class="n">failed ≠ broken</span></div>
+        <div class="card">
+          <div class="ch">
+            <span class="stat crit"><span class="sdot crit"></span>failed</span>
+            <span class="ct mono">web_events_aug_full.parquet</span>
+            <span class="pill crit">v12 · no readable version</span>
+            <span style="margin-left:auto" class="ep">DELETE <b>/tus/3b70c9f1</b> · cancelled at 71%</span>
+          </div>
+          <div class="callout serious">
+            <span class="ci">!</span>
+            <span><b>The dataset still exists, and that is correct.</b> A cancelled or failed resumable upload keeps its dataset and keeps its version number — <span class="mono">v12</span> stays <span class="mono">v12</span>, marked failed, forever. Because this dataset has only ever had one version, it currently has <b>0 readable versions</b>: it is empty, not corrupt.</span>
+          </div>
+          <div class="kv">
+            <span class="k">Dataset</span><span class="v">ds_5e8102 · Web Events — Aug</span>
+            <span class="k">Versions</span><span class="v">1 total · <span style="color:var(--st-crit)">0 readable</span></span>
+            <span class="k">Bytes transferred</span><span class="v">6,712,459,264 / 9,453,182,976 (discarded)</span>
+            <span class="k">Documented retry</span><span class="v" style="color:var(--t2)">re-upload onto ds_5e8102 → becomes v13</span>
+          </div>
+          <div class="xctl">
+            <button class="tbtn">Retry onto this dataset</button>
+            <button class="tbtn">View failure log</button>
+            <span class="sp mono" style="font-size:10.5px;color:var(--t3)">v12 is never reused or renumbered</span>
+          </div>
+        </div>
+
+        <!-- ============ F3 · EMPTY IS NOT AN ERROR ============ -->
+        <div class="card">
+          <div class="ch">
+            <span class="stat good"><span class="sdot good"></span>ready</span>
+            <span class="ct mono">loyalty_optouts_2026-08.csv</span>
+            <span class="pill ok mono">0 rows · 4 cols</span>
+            <span style="margin-left:auto" class="ep">v4 · ver_a01f77</span>
+          </div>
+          <div class="callout info" style="margin:0">
+            <span class="ci">i</span>
+            <span><b>An empty file is a legitimate empty export, not a failure.</b> Zero rows with a valid header is ingested as a normal version — the schema is recorded and the version is queryable and returns nothing. It is <b>not</b> flagged red, and it does not block the next version.</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ---------- RIGHT DOCK : AFTER INGEST ---------- -->
+  <div class="col dock">
+    <div class="colhead">
+      <span class="t">After ingest</span>
+      <span class="badge">2 not automatic</span>
+      <span class="spacer"></span>
+      <span class="mono" style="font-size:10px;color:var(--muted-foreground)">ver_8c11d0 · v12</span>
+    </div>
+
+    <div class="scroll">
+      <div class="pad">
+
+        <!-- ---- G1 · PROFILING ---- -->
+        <div class="ml">1 · Run profile <span class="line"></span><span class="n">does not run on upload</span></div>
+        <div class="card">
+          <div class="cs" style="margin-bottom:9px">Profiling is <b style="color:var(--foreground)">never triggered by an upload</b>. Until you run it, every health dimension for this version reads <span class="mono" style="color:var(--t3)">unknown</span> — that is an absence of measurement, not a bad score.</div>
+          <div class="kv" style="margin-bottom:10px">
+            <span class="k">Completeness</span><span class="v" style="color:var(--t3)">unknown</span>
+            <span class="k">Validity</span><span class="v" style="color:var(--t3)">unknown</span>
+            <span class="k">Uniqueness</span><span class="v" style="color:var(--t3)">unknown</span>
+            <span class="k">Freshness</span><span class="v" style="color:var(--t3)">unknown</span>
+          </div>
+          <button class="tbtn primary wide">Run profile on v12</button>
+          <div class="fhint">Freshness stays unassessable until a refresh frequency is set below — there is nothing to measure lateness against.</div>
+        </div>
+
+        <!-- ---- G2 · SENSITIVITY ---- -->
+        <div class="ml" style="margin-top:16px">2 · Review column sensitivity <span class="line"></span><span class="n">human-declared</span></div>
+        <div class="callout warn">
+          <span class="ci"><span class="lockglyph"><svg width="11" height="11" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span>
+          <span><b>11 new columns, all undeclared.</b> There is no PII auto-detection anywhere in the platform. Masking is driven only by the <span class="mono">sensitivity</span> a person writes into the data dictionary — until then every value is readable by anyone with dataset access.</span>
+        </div>
+
+        <div class="colrow">
+          <div class="top"><span class="cn">email</span><span class="ct">string</span><span class="sp pill warn">undeclared</span></div>
+          <div class="sample">d.okafor@northwind.example · 143,208 non-null</div>
+          <div class="seg"><span class="segb">none</span><span class="segb">internal</span><span class="segb warnon">pii</span><span class="segb">restricted</span></div>
+        </div>
+        <div class="colrow">
+          <div class="top"><span class="cn">account_ref</span><span class="ct">string</span><span class="sp pill warn">undeclared</span></div>
+          <div class="sample">ACC-99-041882 · 100% distinct</div>
+          <div class="seg"><span class="segb">none</span><span class="segb on">internal</span><span class="segb">pii</span><span class="segb">restricted</span></div>
+        </div>
+        <div class="colrow">
+          <div class="top"><span class="cn">comment</span><span class="ct">string</span><span class="sp pill warn">undeclared</span></div>
+          <div class="sample">free text — may contain names or account numbers</div>
+          <div class="seg"><span class="segb">none</span><span class="segb">internal</span><span class="segb">pii</span><span class="segb">restricted</span></div>
+        </div>
+        <div class="colrow">
+          <div class="top"><span class="cn">country</span><span class="ct">string</span><span class="sp pill neu">declared</span></div>
+          <div class="sample">sensitivity: none · 14 distinct</div>
+          <div class="seg"><span class="segb on">none</span><span class="segb">internal</span><span class="segb">pii</span><span class="segb">restricted</span></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:7px;margin:2px 0 0">
+          <span class="mono" style="font-size:10.5px;color:var(--muted-foreground)">7 more columns</span>
+          <button class="tbtn" style="margin-left:auto">Open data dictionary</button>
+        </div>
+
+        <!-- ---- METADATA ---- -->
+        <div class="ml" style="margin-top:16px">3 · Dataset metadata <span class="line"></span><span class="n">catalog</span></div>
+        <div class="card">
+          <div class="field">
+            <div class="fl">Classification <span class="pill label">label only</span></div>
+            <div class="seg">
+              <span class="segb">public</span><span class="segb">internal</span><span class="segb on">confidential</span><span class="segb">restricted</span>
+            </div>
+            <div class="fhint">A catalog label for findability and reporting. It enforces nothing — access is RBAC, and masking comes from column sensitivity above.</div>
+          </div>
+          <div class="field">
+            <div class="fl">Domain</div>
+            <div class="inp">growth · acquisition <span class="cv">▾</span></div>
+          </div>
+          <div class="field">
+            <div class="fl">Source system</div>
+            <div class="inp">manual upload · survey-tool export <span class="cv">▾</span></div>
+          </div>
+          <div class="field" style="margin-bottom:0">
+            <div class="fl">Refresh frequency</div>
+            <div class="seg"><span class="segb">daily</span><span class="segb on">weekly</span><span class="segb">monthly</span><span class="segb">ad-hoc</span></div>
+            <div class="fhint">Declaring a cadence is what makes <b style="color:var(--foreground)">freshness</b> assessable later. It schedules nothing — every refresh is still a manual upload.</div>
+          </div>
+        </div>
+
+        <!-- ---- E · SHEET REPLACE ---- -->
+        <div class="ml" style="margin-top:16px">Sheet replace <span class="line"></span><span class="n">separate flow</span></div>
+        <div class="card">
+          <div class="ch">
+            <span class="ct">Swap one sheet in place</span>
+            <span class="sp pill pri" style="margin-left:auto">new version</span>
+          </div>
+          <div class="cs" style="margin-bottom:9px">
+            <span class="ep">POST <b>/datasets/{id}/sheets/{sheet}/replace</b></span><br/>
+            Replaces a single sheet of a workbook-backed dataset without re-uploading the whole book. It still <b style="color:var(--foreground)">produces a new immutable version</b> — nothing is edited in place.
+          </div>
+          <div class="field" style="margin-bottom:8px">
+            <div class="fl">Dataset</div>
+            <div class="inp">Campaign Budget FY26 · ds_bb4410 <span class="cv">▾</span></div>
+          </div>
+          <div class="field" style="margin-bottom:9px">
+            <div class="fl">Sheet</div>
+            <div class="inp">Q3 Detail <span class="cv">▾</span></div>
+          </div>
+          <button class="tbtn wide">Choose replacement file…</button>
+          <div class="fhint">v6 → v7 · the other four sheets are carried forward unchanged.</div>
+        </div>
+
+        <!-- ---- H · RECENT UPLOADS ---- -->
+        <div class="ml" style="margin-top:16px">Recent uploads <span class="line"></span><span class="n">last 6</span></div>
+        <div style="border:1px solid var(--border);border-radius:9px;overflow:hidden;background:var(--surface)">
+          <div class="rec">
+            <div class="rn"><span class="sdot run"></span>signup_events_full_history.parquet</div>
+            <div class="rm">tus · 65.7% · S. Ganji</div>
+            <div class="rr">2.25 GiB<br/>now</div>
+          </div>
+          <div class="rec">
+            <div class="rn"><span class="sdot good"></span>nps_survey_responses.csv</div>
+            <div class="rm">multipart · v12 · S. Ganji</div>
+            <div class="rr">18.4 MB · 143.2K<br/>2m ago</div>
+          </div>
+          <div class="rec">
+            <div class="rn"><span class="sdot crit"></span>web_events_aug_full.parquet</div>
+            <div class="rm">tus · v12 failed · R. Mehta</div>
+            <div class="rr">6.25 GiB · —<br/>41m ago</div>
+          </div>
+          <div class="rec">
+            <div class="rn"><span class="sdot good"></span>loyalty_optouts_2026-08.csv</div>
+            <div class="rm">multipart · v4 · empty export</div>
+            <div class="rr">412 B · 0<br/>1h ago</div>
+          </div>
+          <div class="rec">
+            <div class="rn"><span class="sdot good"></span>campaign_budget_FY26.xlsx</div>
+            <div class="rm">multipart · v6 · 2 of 5 sheets</div>
+            <div class="rr">4.1 MB · 2.7K<br/>3h ago</div>
+          </div>
+          <div class="rec" style="border-bottom:none">
+            <div class="rn"><span class="sdot serious"></span>trial_signups_emea.csv</div>
+            <div class="rm">multipart · v3 · unprofiled</div>
+            <div class="rr">92.7 MB · 44.0K<br/>yesterday</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+          <span class="mono" style="font-size:10px;color:var(--t3)">3 abandoned uploads reaped in the last 24h</span>
+          <a href="#" style="margin-left:auto;color:var(--t2);font-size:11px;text-decoration:underline;text-decoration-color:var(--r3);text-underline-offset:3px">All ingests →</a>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<footer class="statusbar">
+  <span class="h"><span class="sdot good"></span>READY</span>
+  <span class="h"><span class="kbd">U</span> upload</span>
+  <span class="h"><span class="kbd">P</span> pause / resume</span>
+  <span class="h"><span class="kbd">⌫</span> terminate</span>
+  <span class="h"><span class="kbd">⌘↵</span> start ingest</span>
+  <span class="h mono">tus 1.0.0 · chunk 8 MiB · max 20 GB/file</span>
+  <span class="clock"><span class="sdot good"></span><span class="mono">SYNC 16:41:07 ET</span></span>
+</footer>
+</body>
+</html>

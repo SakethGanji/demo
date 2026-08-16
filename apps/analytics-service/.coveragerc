@@ -1,0 +1,49 @@
+# Coverage configuration.
+#
+# The omit list is deliberately short. Every entry is a decision someone made
+# on purpose, recorded here so the coverage number means something — an
+# unexplained omit is worse than an honest gap, because it looks like safety.
+
+[run]
+source = app
+branch = True
+omit =
+    # ------------------------------------------------------------------
+    # app/infra/llm/ — kept deliberately, excluded deliberately.
+    #
+    # This is the unified LLM gateway (llm_provider.py 421 stmts,
+    # tool_schema.py 156 stmts, both 0% covered). It arrived with the AI
+    # assistance feature that was built and then removed in 941288b. The
+    # package was kept rather than deleted because analytics-service still
+    # has ONE live consumer:
+    #
+    #     app/features/data_accelerator/services/methods.py:337
+    #         from app.infra.llm.llm_provider import get_embeddings_batch
+    #
+    # ...used by the `similarity_search` / `diverse` sampling strategies.
+    # That is 1 of the 19 top-level functions in llm_provider.py.
+    # tool_schema.py has zero importers anywhere in this repo. (The many
+    # apparent hits in apps/workflow-engine/ are that app's own separate
+    # src/engine/tool_schema.py; no Python import crosses the boundary.)
+    #
+    # Decision (2026-08-07, with the repo owner): KEEP the code for future AI
+    # work, but stop counting it as a coverage gap. It is 577 statements —
+    # 26% of the whole gap — and testing a provider gateway that currently
+    # has one caller would be effort spent on the wrong thing.
+    #
+    # If the AI features come back, DELETE THIS OMIT FIRST. The gateway is
+    # the seam every one of those features runs through, and it has never
+    # had a single test run against it.
+    #
+    # NOTE: get_embeddings_batch itself is a live code path and IS worth
+    # covering — its caller in methods.py is not omitted, and a test that
+    # patches the gateway boundary still exercises the sampling logic.
+    app/infra/llm/*
+
+[report]
+# Don't report on the test suite's own view of what it missed at import time.
+exclude_also =
+    if TYPE_CHECKING:
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    @overload

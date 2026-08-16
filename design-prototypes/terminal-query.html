@@ -1,0 +1,1072 @@
+<!--
+  DESIGN NOTES — "INSTRUMENT" applied to the QuerySpec builder (restyle of the TERMINAL query screen).
+  Same information, same regions, same layout: 36-operator picker, nested and/or tree, sort ARRAY, projection,
+  free-text search, cursor paging, save-as-view and download. Only the visual language changed — graphite ramp,
+  signal cyan #46D5E8, three rule weights, sentence-case heads, lowercase-mono table headers, hero numbers over
+  9.5px eyebrows, grain + vignette + inset highlights, recessed wells for every input AND for masked PII,
+  status as SHAPE + hue + word, near-white (not accent) primaries.
+  BORDERS: ~90% deleted. Filter conditions, sort rows and the spec sections are grouped by ELEVATION and space;
+  a nested and/or group is a LEFT-RULED INDENT rather than a box inside a box (rule 8). Rules survive only at
+  horizontal zone seams (tree/results/persist) and as the results grid's every-sixth-row ruler measure.
+  DISABLED OPERATORS recede by VALUE (t3 ink, a t4 strike as pure decoration) — never by a coloured
+  "disabled" state and never by an opacity that would push them under 4.5:1. 14 of 36 are greyed and all 14
+  stay readable, because the reason (`num·date`) has to be legible to be useful.
+  CATEGORICAL HUE DELETED: plan and region cells already carry direct labels, so the eight-colour set ships
+  nowhere; the amount bar is single-series magnitude and takes the neutral --m4 ramp instead.
+  REFUSALS (400 sensitive-column-not-filterable, 400 invalid-cursor) keep a tinted surface and a code chip on a
+  recessed well — the reserved hue at 4.7:1 — while their explanations drop to the 9.5px footnote register.
+  CYAN BUDGET (4): active route · as-of v42 · the SELECTED operator (the draft row and the value editor are both
+  scoped to it) · the SYNC lamp. The five op chips, seven projection checkboxes, three sort ranks, four segmented
+  controls and the drop line are repeated state, so they take value + position + elevation instead.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Command Studio — Query Builder · Terminal</title>
+<style>
+  :root {
+    --s0:#080A0E;  --s1:#0D1015;  --s2:#11151B;  --s3:#161B22;
+    --s4:#1C222B;  --s5:#242C37;  --s6:#38424F;  --key:#E9EEF5;
+    --t1:#E7ECF3;  --t2:#B0BAC8;  --t3:#85909F;  --t4:#5C6675; /* t4 = decoration only, never text */
+    --r1:rgba(255,255,255,.042); --r2:rgba(255,255,255,.075); --r3:rgba(255,255,255,.13);
+    --hi:inset 0 1px 0 rgba(255,255,255,.045);
+    --sig:#46D5E8; --sig-dim:rgba(70,213,232,.14); --sig-line:rgba(70,213,232,.40);
+    --st-good:#0ca30c; --st-warn:#fab219; --st-serious:#ec835a; --st-crit:#DC5050;
+    --m1:#CBD3DF; --m2:#A2ACBB; --m3:#7D8797; --m4:#5F6979; --m5:#48515F; --m6:#39414D;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    /* legacy aliases — the markup still carries inline var() references from the old language */
+    --foreground:var(--t1); --muted-foreground:var(--t3); --border:var(--r2); --primary:var(--t2);
+    --card:var(--s2); --surface:var(--s3); --muted:var(--s3); --secondary:var(--s4); --popover:var(--s3);
+    --viz-1:var(--m3); --viz-2:var(--m3); --viz-3:var(--m3); --viz-7:var(--m3);
+  }
+
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { height:100%; overflow:hidden; }
+  html { font-size:13px; }
+  body {
+    font-family:var(--sans); color:var(--t2); font-size:12.5px;
+    background:radial-gradient(1180px 560px at 44% -12%, #151B24 0%, rgba(21,27,36,0) 62%), var(--s1);
+    -webkit-font-smoothing:antialiased; line-height:1.4; letter-spacing:-0.004em;
+  }
+  body::after {
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:200; opacity:.055; mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .shell { display:flex; flex-direction:column; height:100%; }
+  .mono { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  .num { font-variant-numeric:tabular-nums; }
+  .muted { color:var(--t3); }
+  ::selection { background:rgba(70,213,232,.26); color:#fff; }
+  :focus-visible { outline:none; box-shadow:0 0 0 1px var(--s0), 0 0 0 3px rgba(70,213,232,.45); border-radius:6px; }
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb { background:#232B35; border-radius:8px; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background:#303945; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-track { background:transparent; }
+  /* rule 5 — section heads are sentence case; identifiers are lowercase mono */
+  .ulab { font-size:11.5px; font-weight:550; color:var(--t2); letter-spacing:-0.008em; text-transform:none; }
+
+  /* ===== STATUS: five states, five SHAPES, always beside a word ===== */
+  .g { width:8px; height:8px; flex:none; display:inline-block; vertical-align:-1px; }
+  .g.good    { border-radius:50%; background:var(--st-good); }
+  .g.warn    { width:0; height:0; border-left:4.5px solid transparent; border-right:4.5px solid transparent;
+               border-bottom:8px solid var(--st-warn); vertical-align:0; }
+  .g.serious { width:7px; height:7px; background:var(--st-serious); border-radius:1px; transform:rotate(45deg); margin:0 1px; }
+  .g.crit    { background:var(--st-crit); border-radius:1px; }
+  .g.unknown { border-radius:50%; background:transparent; box-shadow:inset 0 0 0 1.5px var(--t3); }
+
+  /* ===== TOPBAR ===== */
+  header.topbar { height:46px; flex:none; display:flex; align-items:center; gap:16px; padding:0 16px;
+    background:linear-gradient(180deg,#141922,#10141A); box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); z-index:30; }
+  .brand { display:flex; align-items:center; gap:10px; }
+  .brand .glyph { width:21px; height:21px; border-radius:5px; background:linear-gradient(180deg,#2C3542,#191F28);
+    display:grid; place-items:center; box-shadow:var(--hi), 0 1px 2px rgba(0,0,0,.5); color:var(--t1); }
+  .brand .glyph svg { display:block; }
+  .brand .name { font-size:12.5px; font-weight:600; color:var(--t1); letter-spacing:-0.012em; white-space:nowrap; }
+  .env-chip { font-family:var(--mono); font-size:10px; color:var(--t3); display:inline-flex; align-items:center;
+    gap:6px; white-space:nowrap; }
+  .env-chip::before { content:""; width:5px; height:5px; border-radius:50%; background:var(--st-warn); flex:none; }
+  nav.gnav { display:flex; align-items:center; gap:4px; }
+  nav.gnav a { font-size:12.5px; font-weight:450; color:var(--t3); text-decoration:none; height:30px; padding:0 10px;
+    border-radius:7px; position:relative; display:inline-flex; align-items:center; transition:color .14s, background .14s; }
+  nav.gnav a:hover { color:var(--t1); background:rgba(255,255,255,.035); }
+  /* SIGNAL 1/4 — the active route */
+  nav.gnav a.active { color:var(--t1); font-weight:550; background:transparent; }
+  nav.gnav a.active::after { content:""; position:absolute; left:10px; right:10px; bottom:-9px; height:2px;
+    background:var(--sig); border-radius:2px 2px 0 0; box-shadow:0 0 12px -1px var(--sig); }
+  .cmdk { margin-left:auto; display:flex; align-items:center; gap:9px; width:308px; height:30px; padding:0 10px;
+    border-radius:8px; cursor:text; color:var(--t3); background:var(--s0);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); transition:box-shadow .16s; }
+  .cmdk:focus-within { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+  .cmdk svg { flex:none; opacity:.55; }
+  .cmdk .ph { font-size:12px; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .kbd { font-family:var(--mono); font-size:10px; font-weight:500; color:var(--t2);
+    background:linear-gradient(180deg,#232A34,#1A2028); border-radius:4px; padding:1.5px 5px; line-height:1.4;
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); white-space:nowrap; }
+  .hicons { display:flex; align-items:center; gap:2px; }
+  .iconbtn { width:30px; height:30px; border-radius:7px; border:0; background:transparent; color:var(--t3);
+    display:grid; place-items:center; cursor:pointer; transition:color .14s, background .14s; }
+  .iconbtn:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  .teamsel { display:flex; align-items:center; gap:7px; height:28px; padding:0 10px; border-radius:7px; flex:none;
+    background:var(--s4); box-shadow:var(--hi); color:var(--t1); cursor:pointer; white-space:nowrap; margin-left:6px; }
+  .teamsel .tl { font-size:9.5px; font-weight:500; letter-spacing:.1em; text-transform:uppercase; color:var(--t3); }
+  .teamsel .tv { font-size:12px; font-weight:450; }
+  .teamsel .cv { color:var(--t3); font-size:9px; }
+  .avatar { width:27px; height:27px; border-radius:7px; background:linear-gradient(180deg,#2A323D,#1D242D);
+    display:grid; place-items:center; font-size:10px; font-weight:600; color:var(--t2); cursor:pointer;
+    box-shadow:var(--hi); flex:none; margin-left:2px; }
+
+  /* ===== SPEC BAR — the first read: hero numbers over recessive eyebrows ===== */
+  .specbar { height:58px; flex:none; display:flex; align-items:center; gap:0; padding:0 18px;
+    background:linear-gradient(180deg,var(--s3),#12171E);
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.55), 0 10px 24px -20px rgba(0,0,0,.9); }
+  .sbi { display:flex; align-items:center; gap:9px; padding-right:26px; height:100%; white-space:nowrap; }
+  .sbi.stack { flex-direction:column; align-items:flex-start; justify-content:center; gap:1px; }
+  .sbi .lab { font-size:9.5px; font-weight:500; letter-spacing:.11em; text-transform:uppercase; color:var(--t3); }
+  .sbi .val { font-size:22px; font-weight:600; color:var(--t1); letter-spacing:-0.032em; line-height:1.1;
+    font-variant-numeric:tabular-nums; }
+  .sbi .val.big { font-size:15px; letter-spacing:-0.02em; }
+  .sbi .val.sm { font-size:13px; letter-spacing:-0.012em; font-weight:550; }
+  .sbi .row { display:flex; align-items:center; gap:8px; }
+  .pill { font-size:10.5px; font-weight:450; padding:2px 7px; border-radius:5px; display:inline-flex;
+    align-items:center; gap:5px; color:var(--t3); background:rgba(255,255,255,.05); white-space:nowrap; }
+  .pill.ok { color:var(--t2); }
+  .pill.neu { color:var(--t3); }
+  .fnode .pill.neu { color:var(--t2); }
+  .pill.warn { color:var(--st-warn); background:rgba(250,178,25,.07); box-shadow:inset 0 0 0 1px rgba(250,178,25,.26); }
+  .pill.crit { color:var(--st-crit); background:rgba(0,0,0,.4); box-shadow:inset 0 0 0 1px rgba(220,80,80,.4); }
+  .pill.label { color:var(--t3); background:transparent; box-shadow:inset 0 0 0 1px var(--r2); }
+  /* SIGNAL 2/4 — the version the whole spec is resolved against */
+  .asof { display:inline-flex; align-items:center; gap:6px; font-family:var(--mono); font-size:11px; color:var(--t2); }
+  .asof .tick { width:5px; height:5px; border-radius:50%; background:var(--sig); flex:none; box-shadow:0 0 8px -1px var(--sig); }
+  .asof b { color:var(--t1); font-weight:600; }
+  .lockglyph { color:var(--st-warn); display:inline-flex; vertical-align:-2px; flex:none; }
+
+  .tbtn { height:28px; padding:0 10px; font-size:12px; font-weight:450; color:var(--t2); background:transparent;
+    border:0; border-radius:7px; cursor:pointer; font-family:inherit; display:inline-flex; align-items:center; gap:6px;
+    white-space:nowrap; box-shadow:inset 0 0 0 1px var(--r2); transition:all .14s; }
+  .tbtn:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  .tbtn.ghost { box-shadow:none; }
+  /* rule 2 — the primary action wins on VALUE, not on the accent */
+  .tbtn.primary { background:linear-gradient(180deg,#FBFDFF,var(--key)); color:#0B0E13; font-weight:600;
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset, 0 2px 8px -3px rgba(0,0,0,.9), 0 0 0 1px rgba(0,0,0,.35); }
+  .tbtn.primary:hover { background:#fff; }
+  .tbtn .k { font-size:10px; color:var(--t3); font-family:var(--mono); }
+  .tbtn.primary .k { color:#4A5462; }
+  .tbtn.sm { height:24px; padding:0 8px; font-size:11px; border-radius:6px; }
+  .tbtn[disabled] { color:var(--t3); cursor:not-allowed; }
+
+  /* ===== WORKSPACE ===== */
+  .workspace { display:grid; grid-template-columns:304px 1fr 400px; flex:1; min-height:0; }
+  .col { display:flex; flex-direction:column; min-width:0; min-height:0; }
+  .col.rail { background:var(--s2); box-shadow:1px 0 0 rgba(0,0,0,.45); z-index:2; }
+  .col.center { background:transparent; }
+  .col.dock { background:var(--s2); box-shadow:-1px 0 0 rgba(0,0,0,.45); z-index:2; }
+  .colhead { height:32px; display:flex; align-items:center; gap:9px; padding:0 14px; flex:none; }
+  .colhead .badge { font-family:var(--mono); font-size:10px; color:var(--t3); }
+  .colhead .spacer { margin-left:auto; }
+  .hintbar { display:flex; align-items:center; gap:14px; height:26px; padding:0 14px; flex:none;
+    background:var(--s2); box-shadow:inset 0 1px 0 var(--r1); font-size:10.5px; color:var(--t3); }
+  .hintbar .h { display:flex; align-items:center; gap:6px; white-space:nowrap; }
+
+  /* ===== FORM ATOMS — inputs are recessed wells ===== */
+  .fld { height:27px; display:flex; align-items:center; gap:7px; padding:0 9px; border-radius:7px;
+    background:var(--s0); color:var(--t2); font-size:11.5px;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); }
+  .fld.lit { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px var(--r3); }
+  .fld:focus-within { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+  .fld input { background:none; border:none; outline:none; color:var(--t1); font-size:11.5px; width:100%;
+    font-family:inherit; min-width:0; }
+  .fld input::placeholder { color:var(--t3); }
+  .fld .x { color:var(--t3); cursor:pointer; flex:none; }
+  .fld.mono, .fld.mono input { font-family:var(--mono); font-size:11px; }
+  /* the footnote register — every explanation, cap and provenance line on the screen lands here */
+  .hint { font-size:9.5px; line-height:1.5; color:var(--t3); }
+  .hint b { color:var(--t2); font-weight:600; }
+  .hint code, code.m { font-family:var(--mono); font-size:9.5px; color:var(--t2); }
+  .seg { display:inline-flex; padding:2px; border-radius:7px; background:rgba(0,0,0,.28); gap:2px;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.5); }
+  .seg button { border:none; background:transparent; color:var(--t3); font-family:var(--mono); font-size:10.5px;
+    font-weight:500; padding:0 9px; height:20px; border-radius:5px; cursor:pointer; }
+  .seg button:hover { color:var(--t1); }
+  /* repeated state -> value + elevation, never the accent */
+  .seg button.on { background:var(--s4); color:var(--t1); font-weight:600; box-shadow:var(--hi); }
+  .seg.big button { height:22px; font-size:11px; padding:0 11px; }
+  .tog { display:inline-flex; align-items:center; gap:6px; font-size:10px; color:var(--t3); font-family:var(--mono); }
+  .sw { width:26px; height:14px; border-radius:8px; position:relative; flex:none;
+    background:var(--s0); box-shadow:inset 0 1px 2px rgba(0,0,0,.65), inset 0 0 0 1px rgba(255,255,255,.05); }
+  .sw::after { content:""; position:absolute; top:3px; left:3px; width:8px; height:8px; border-radius:50%;
+    background:var(--t4); }
+  .sw.on { background:var(--s5); box-shadow:var(--hi), inset 0 0 0 1px rgba(255,255,255,.07); }
+  .sw.on::after { left:15px; background:var(--key); box-shadow:0 1px 2px rgba(0,0,0,.6); }
+  .sw.off-locked::after { background:var(--m6); }
+  .grip { color:var(--t4); cursor:grab; flex:none; display:inline-flex; }
+  .xbtn { width:24px; height:24px; border-radius:5px; border:0; background:transparent; color:var(--t3);
+    cursor:pointer; display:grid; place-items:center; font-size:11px; flex:none; font-family:inherit; }
+  .xbtn:hover { color:var(--t1); background:rgba(255,255,255,.06); }
+  .sect { padding:9px 14px 11px; }
+  .sect + .sect { box-shadow:inset 0 1px 0 var(--r1); }
+  .sect > .sh { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+  .sect > .sh .line { flex:1; height:1px; background:var(--r1); min-width:8px; }
+  .ctype { font-family:var(--mono); font-size:9.5px; color:var(--t3); flex:none; }
+  .cname { font-family:var(--mono); font-size:12px; font-weight:600; color:var(--t1); }
+  /* a consequential refusal keeps a tinted surface; its prose drops to the footnote register */
+  .refuse { display:flex; align-items:flex-start; gap:8px; font-size:9.5px; line-height:1.5; color:var(--t3);
+    background:rgba(220,80,80,.07); box-shadow:inset 0 0 0 1px rgba(220,80,80,.22); border-radius:7px; padding:6px 8px; }
+  .refuse b { color:var(--t2); font-weight:600; }
+  .refuse .cd { font-family:var(--mono); color:var(--st-crit); background:rgba(0,0,0,.4);
+    box-shadow:inset 0 0 0 1px rgba(220,80,80,.38); border-radius:4px; padding:0 4px; }
+  /* informational notes lose the box — a left rule and an indent */
+  .warnnote { display:flex; align-items:flex-start; gap:8px; font-size:9.5px; line-height:1.5; color:var(--t3);
+    padding-left:10px; box-shadow:inset 2px 0 0 rgba(250,178,25,.45); }
+  .warnnote b { color:var(--t2); font-weight:600; }
+  .infonote { display:flex; align-items:flex-start; gap:8px; font-size:9.5px; line-height:1.55; color:var(--t3);
+    padding-left:10px; box-shadow:inset 2px 0 0 var(--r2); }
+  .infonote b { color:var(--t2); font-weight:600; }
+
+  /* ---- sort stack ---- */
+  .stack { display:flex; flex-direction:column; gap:5px; }
+  .srow { display:flex; align-items:center; gap:6px; height:26px; padding:0 7px; border-radius:7px;
+    background:var(--s3); box-shadow:var(--hi); }
+  .srow .ord { font-family:var(--mono); font-size:10.5px; font-weight:600; color:var(--t1); width:12px; flex:none; }
+  .srow .cn { font-family:var(--mono); font-size:11px; color:var(--t2); flex:1; min-width:0; overflow:hidden;
+    text-overflow:ellipsis; white-space:nowrap; }
+  .srow.locked { background:transparent; box-shadow:inset 0 0 0 1px var(--r1); }
+  .srow.locked .ord, .srow.locked .cn { color:var(--t3); }
+  .dirseg button { height:18px; padding:0 5px; font-size:10px; }
+  .srow .seg { padding:1.5px; }
+  .adddrop { display:flex; align-items:center; justify-content:space-between; gap:6px; height:24px; padding:0 9px;
+    border-radius:7px; color:var(--t3); font-size:11px; cursor:pointer; box-shadow:inset 0 0 0 1px var(--r1); }
+  .adddrop:hover { color:var(--t1); }
+
+  /* ---- projection ---- */
+  .projlist { display:flex; flex-direction:column; gap:1px; }
+  .prow { display:flex; align-items:center; gap:8px; height:20px; padding:0 5px; border-radius:6px; font-size:11px; color:var(--t2); }
+  .prow:hover { background:rgba(255,255,255,.04); }
+  .cbx { width:13px; height:13px; border-radius:4px; flex:none; display:grid; place-items:center; font-size:9px;
+    color:transparent; background:var(--s0); box-shadow:inset 0 1px 2px rgba(0,0,0,.65), inset 0 0 0 1px rgba(255,255,255,.06); }
+  /* seven checked rows are repeated state: near-white, never the accent */
+  .cbx.on { background:var(--key); color:#0B0E13; font-weight:700; box-shadow:var(--hi); }
+  .cbx.lock { box-shadow:inset 0 0 0 1px var(--r1); }
+  .prow .cn { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .prow .ordn { font-family:var(--mono); font-size:9.5px; color:var(--t3); }
+  .prow.off .cn, .prow.off .ordn { color:var(--t3); }
+
+  /* ================= FILTER TREE ================= */
+  .paneh { height:32px; display:flex; align-items:center; gap:10px; padding:0 16px; flex:none;
+    white-space:nowrap; overflow:hidden; box-shadow:inset 0 -1px 0 var(--r1); }
+  .paneh > * { flex:none; }
+  .paneh > *:last-child { flex:0 1 auto; min-width:0; }
+  .paneh button { flex:none; }
+  .paneh .hint { flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  .treewrap { flex:none; height:298px; overflow:auto; padding:9px 16px; box-shadow:inset 0 -1px 0 var(--r2); }
+  .persist { flex:none; display:grid; grid-template-columns:1fr 1fr; background:var(--s2); height:214px;
+    box-shadow:inset 0 1px 0 var(--r2), 0 -10px 24px -22px rgba(0,0,0,1); }
+  .pcard { padding:9px 14px 10px; min-width:0; overflow:auto; }
+  .pcard + .pcard { box-shadow:inset 1px 0 0 var(--r1); }
+  .pcard .ch { display:flex; align-items:center; gap:8px; margin-bottom:7px; }
+  .pcard .ch .line { flex:1; height:1px; background:var(--r1); min-width:8px; }
+  .jsonbox { background:var(--s0); border-radius:7px; padding:8px 9px; font-family:var(--mono); font-size:9.5px;
+    line-height:1.5; color:var(--t2); overflow:auto; box-shadow:inset 0 2px 4px -2px rgba(0,0,0,.75); }
+  .jsonbox .k { color:var(--t1); } .jsonbox .s { color:#7CC2A2; } .jsonbox .n { color:#D6AC6E; }
+  .jsonbox .c { color:var(--t3); font-style:italic; }
+  /* a group is a left-ruled indent, not a box inside a box (rule 8) */
+  .grp { border-radius:9px; padding:5px 7px 6px; box-shadow:inset 2px 0 0 var(--r2); background:rgba(255,255,255,.022); }
+  .grp.root { background:transparent; box-shadow:none; padding-left:0; }
+  .grp.drop { box-shadow:inset 2px 0 0 var(--r3); outline:1px dashed var(--r2); outline-offset:2px; }
+  .grph { display:flex; align-items:center; gap:9px; margin-bottom:5px; }
+  .grph .cnt { font-size:10px; color:var(--t3); font-family:var(--mono); }
+  .grph .sp { margin-left:auto; display:flex; align-items:center; gap:5px; }
+  .kids { display:flex; flex-direction:column; gap:4px; }
+  .kid { display:grid; grid-template-columns:44px 1fr; gap:8px; align-items:start; }
+  .conn { font-family:var(--mono); font-size:10px; font-weight:600; color:var(--t2); text-align:right; padding-top:9px; }
+  .conn.first { font-weight:400; color:var(--t3); text-transform:lowercase; }
+  /* a condition earns a SURFACE, not a border */
+  .fnode { display:flex; align-items:center; gap:7px; min-height:28px; padding:3px 7px; border-radius:8px;
+    background:var(--s3); box-shadow:var(--hi); }
+  .fnode.draft { background:var(--s4); box-shadow:var(--hi), inset 0 0 0 1px var(--r2); }
+  .colchip { display:inline-flex; align-items:center; gap:6px; height:22px; padding:0 8px; border-radius:6px;
+    background:var(--s0); width:152px; flex:none;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.55), inset 0 0 0 1px rgba(255,255,255,.04); }
+  .colchip .cn { font-family:var(--mono); font-size:11px; color:var(--t1); overflow:hidden; text-overflow:ellipsis;
+    white-space:nowrap; flex:1; min-width:0; }
+  .colchip .cv { color:var(--t3); font-size:8px; flex:none; }
+  /* five op chips are repeated state — mono on elevation, no accent */
+  .opchip { display:inline-flex; align-items:center; gap:6px; height:22px; padding:0 8px; border-radius:6px;
+    background:var(--s5); color:var(--t1); font-family:var(--mono); font-size:11px; width:118px; flex:none;
+    box-shadow:var(--hi); }
+  .opchip .cn { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .opchip .cv { color:var(--t3); font-size:8px; flex:none; }
+  .vals { display:flex; align-items:center; gap:6px; flex:1; min-width:0; flex-wrap:wrap; }
+  .vin { height:22px; display:inline-flex; align-items:center; padding:0 8px; border-radius:6px; background:var(--s0);
+    color:var(--t1); font-family:var(--mono); font-size:11px;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.55), inset 0 0 0 1px rgba(255,255,255,.04); }
+  .vin.n { min-width:62px; justify-content:flex-end; }
+  .vin.lit { box-shadow:inset 0 1px 2px rgba(0,0,0,.55), inset 0 0 0 1px var(--r3); }
+  .vin.ph { color:var(--t3); }
+  .vsep { font-size:10px; color:var(--t3); font-family:var(--mono); }
+  /* direct labels, neutral chips — identity here does not need hue */
+  .vchip { height:20px; display:inline-flex; align-items:center; gap:6px; padding:0 7px; border-radius:5px;
+    font-family:var(--mono); font-size:10.5px; color:var(--t2); background:rgba(255,255,255,.05); }
+  .vchip .x { color:var(--t3); cursor:pointer; }
+  .vchip.v1, .vchip.v3, .vchip.v7 { color:var(--t2); }
+  .vaddc { height:20px; padding:0 7px; border-radius:5px; color:var(--t3); font-size:10.5px;
+    display:inline-flex; align-items:center; cursor:pointer; box-shadow:inset 0 0 0 1px var(--r1); }
+  .addrow { display:flex; align-items:center; gap:6px; margin-top:5px; padding-left:52px; }
+  .addbtn { height:22px; padding:0 8px; border-radius:6px; border:0; background:transparent; color:var(--t3);
+    font-size:11px; cursor:pointer; display:inline-flex; align-items:center; gap:5px; font-family:inherit;
+    box-shadow:inset 0 0 0 1px var(--r1); }
+  .addbtn:hover { color:var(--t1); background:rgba(255,255,255,.05); }
+  .dropline { height:2px; border-radius:2px; background:var(--m2); margin:2px 0 2px 52px; }
+
+  /* ================= OPERATOR PICKER ================= */
+  .opsearch { padding:8px 12px; flex:none; }
+  .opctx { display:flex; align-items:center; gap:8px; padding:7px 12px; flex:none;
+    box-shadow:inset 0 1px 0 var(--r1), inset 0 -1px 0 var(--r1); }
+  .opctx .lab { font-size:10.5px; color:var(--t3); }
+  .opwrap { flex:1; overflow:auto; padding:9px 12px 10px; min-height:0; }
+  .opgroup { margin-bottom:7px; }
+  .oghead { display:flex; align-items:center; gap:7px; font-size:11px; font-weight:550; color:var(--t2);
+    letter-spacing:-0.006em; margin-bottom:4px; text-transform:none; }
+  .oghead .line { flex:1; height:1px; background:var(--r1); min-width:8px; }
+  .oghead .ct { color:var(--t3); font-family:var(--mono); font-weight:400; font-size:9.5px; }
+  .oghead .og-note { font-size:9.5px; font-weight:400; color:var(--t3); letter-spacing:0; }
+  .ogrid { display:grid; grid-template-columns:1fr 1fr; gap:1px 8px; }
+  .op { display:flex; align-items:center; gap:6px; height:20px; padding:0 7px; border-radius:5px; cursor:pointer; }
+  .op:hover { background:rgba(255,255,255,.05); }
+  .op .on-name { font-family:var(--mono); font-size:10.5px; color:var(--t1); flex:1; min-width:0;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .op .ot { font-family:var(--mono); font-size:9px; color:var(--t3); flex:none; text-transform:none; letter-spacing:0; }
+  /* SIGNAL 3/4 — the selected operator: the draft row and the value editor are both scoped to it */
+  .op.sel { background:var(--s4); box-shadow:var(--hi), inset 0 0 0 1px var(--sig-line); }
+  .op.sel .on-name { color:var(--t1); font-weight:600; }
+  .op.sel .ot { color:var(--t2); }
+  /* an operator that cannot apply recedes by VALUE — no colour, no dimming to illegibility */
+  .op.off { cursor:not-allowed; }
+  .op.off:hover { background:transparent; }
+  .op.off .on-name { color:var(--t3); text-decoration:line-through; text-decoration-color:var(--t4); }
+  .op.off .ot { color:var(--t3); }
+  .op .lk { color:var(--t3); display:inline-flex; flex:none; }
+  .oplegend { display:flex; align-items:center; gap:12px; font-size:9.5px; color:var(--t3); padding:6px 12px;
+    flex:none; box-shadow:inset 0 1px 0 var(--r1), inset 0 -1px 0 var(--r1); }
+  .oplegend .li { display:flex; align-items:center; gap:6px; }
+  .swx { width:9px; height:9px; border-radius:3px; box-shadow:inset 0 0 0 1px var(--r2); }
+
+  /* ---- value editor ---- */
+  .veditor { flex:none; padding:9px 12px 10px; box-shadow:inset 0 1px 0 var(--r1); }
+  .vgrid { display:grid; grid-template-columns:82px 1fr; gap:6px 9px; align-items:center; }
+  .vgrid .vk { font-family:var(--mono); font-size:10px; color:var(--t3); text-align:right; }
+  .shapes { display:flex; flex-direction:column; gap:3px; margin-top:8px; padding-top:8px; box-shadow:inset 0 1px 0 var(--r1); }
+  .shrow { display:grid; grid-template-columns:82px 1fr; gap:9px; align-items:center; }
+  .shrow .sk { font-family:var(--mono); font-size:9.5px; color:var(--t3); text-align:right; }
+  .shrow .sv { display:flex; align-items:center; gap:5px; flex-wrap:wrap; }
+  .mini { height:18px; padding:0 6px; border-radius:5px; background:var(--s0); font-family:var(--mono); font-size:9.5px;
+    display:inline-flex; align-items:center; color:var(--t3);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.55), inset 0 0 0 1px rgba(255,255,255,.04); }
+  .mini.f { color:var(--t1); }
+  .okdot { color:var(--t2); font-size:9.5px; font-weight:500; display:inline-flex; align-items:center; gap:5px; }
+  .okdot .d { width:7px; height:7px; border-radius:50%; background:var(--st-good); flex:none; }
+
+  /* ---- download panel ---- */
+  .dlpanel { flex:none; padding:9px 12px 10px; background:var(--s3); box-shadow:inset 0 1px 0 var(--r2); }
+  .dlh { display:flex; align-items:center; gap:8px; margin-bottom:7px; }
+  .dlh .ep { font-family:var(--mono); font-size:9.5px; color:var(--t3); margin-left:auto; }
+  .dlrow { display:grid; grid-template-columns:60px 1fr; gap:6px 9px; align-items:center; margin-bottom:7px; }
+  .dlrow .dk { font-family:var(--mono); font-size:10px; color:var(--t3); text-align:right; }
+  .exprbox { background:var(--s0); border-radius:7px; padding:7px 8px; font-family:var(--mono); font-size:9px;
+    line-height:1.5; color:var(--t2); overflow:hidden; grid-column:1 / -1;
+    box-shadow:inset 0 2px 4px -2px rgba(0,0,0,.75); }
+  .exprbox .kw { color:var(--key); font-weight:600; }
+  .exprbox .st { color:#7CC2A2; }
+  .exprbox .nm { color:var(--t2); }
+
+  /* ================= RESULTS ================= */
+  .resmeta { height:32px; display:flex; align-items:center; gap:12px; white-space:nowrap; padding:0 16px; flex:none;
+    font-size:10.5px; color:var(--t3); box-shadow:inset 0 1px 0 var(--r1); }
+  .resmeta b { color:var(--t1); font-weight:600; }
+  .gridwrap { flex:1; overflow:auto; min-height:0; background:var(--s1); }
+  table.grid { border-collapse:separate; border-spacing:0; width:100%; font-size:11.5px; }
+  /* rule 5 — table headers are identifiers: lowercase mono, not shouting */
+  table.grid thead th { position:sticky; top:0; z-index:5; background:#12161D; text-align:left;
+    font-family:var(--mono); font-size:10px; font-weight:500; color:var(--t3); padding:0 10px; height:26px;
+    box-shadow:inset 0 -1px 0 var(--r2), inset 0 1px 0 var(--r1); white-space:nowrap; user-select:none; }
+  table.grid thead th .sk { color:var(--t2); margin-left:5px; font-family:var(--mono); font-size:9.5px; }
+  table.grid thead th.rownum, table.grid tbody td.rownum { width:46px; text-align:right; color:var(--t3);
+    padding-right:10px; background:var(--s2); position:sticky; left:0; z-index:4; }
+  table.grid thead th.rownum { z-index:6; }
+  table.grid tbody td { padding:0 10px; height:27px; white-space:nowrap; color:var(--t2);
+    border-bottom:1px solid rgba(255,255,255,.032); }
+  table.grid tbody tr:nth-child(6n) td { border-bottom-color:rgba(255,255,255,.085); }  /* the ruler measure */
+  table.grid tbody tr:hover td, table.grid tbody tr:hover td.rownum { background:rgba(255,255,255,.038); }
+  td.n { text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums; color:var(--t1); }
+  td.mono { font-family:var(--mono); }
+  /* masked PII gets the recessed-well treatment the material calls for */
+  .masked { color:var(--t3); letter-spacing:.06em; background:rgba(0,0,0,.4); border-radius:4px; padding:1px 6px;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.5); }
+  .pcell { display:inline-flex; align-items:center; gap:6px; }
+  /* the value is the word; hue would be a second, redundant encoding */
+  .ptag { font-size:10.5px; font-weight:450; padding:1px 7px; border-radius:5px; color:var(--t2);
+    background:rgba(255,255,255,.05); }
+  .ptag.pro, .ptag.team, .ptag.ent { color:var(--t2); }
+  .rtag { font-family:var(--mono); font-size:10.5px; font-weight:500; padding:1px 7px; border-radius:5px;
+    display:inline-flex; align-items:center; gap:4px; color:var(--t2); background:rgba(255,255,255,.05); }
+  .rtag.us, .rtag.apac, .rtag.latam, .rtag.eu { color:var(--t2); }
+  .stat { display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:450; color:var(--t2); }
+  .stat .d { width:7px; height:7px; flex:none; display:inline-block; }
+  .stat.active .d { border-radius:50%; background:var(--st-good); }
+  .stat.trialing .d { width:0; height:0; border-left:4px solid transparent; border-right:4px solid transparent;
+    border-bottom:7px solid var(--st-warn); }
+  /* single-series magnitude: a neutral value ramp, never a categorical hue */
+  .cell-bar { display:inline-block; height:4px; border-radius:2px; vertical-align:middle; margin-left:8px;
+    background:var(--m4) !important; }
+
+  /* the second consequential callout on the screen — the explanation is a footnote */
+  .errbar { display:flex; align-items:flex-start; gap:10px; padding:6px 16px; line-height:1.5; flex:none;
+    font-size:9.5px; color:var(--t3); background:rgba(220,80,80,.07);
+    box-shadow:inset 0 1px 0 rgba(220,80,80,.28), inset 0 -1px 0 rgba(220,80,80,.28); }
+  .errbar .code { font-family:var(--mono); font-size:10.5px; font-weight:600; color:var(--st-crit); white-space:nowrap;
+    background:rgba(0,0,0,.4); box-shadow:inset 0 0 0 1px rgba(220,80,80,.42); border-radius:5px; padding:1px 6px; }
+  .errbar .txt { color:var(--t3); }
+  .errbar .txt b { color:var(--t2); font-weight:600; }
+  .errbar .sp { margin-left:auto; display:flex; gap:6px; flex:none; align-items:center; }
+
+  .pager { flex:none; padding:6px 16px 7px; box-shadow:inset 0 1px 0 var(--r1); }
+  .pgrow { display:flex; align-items:center; gap:10px; font-size:11px; color:var(--t3); white-space:nowrap; }
+  .pgrow b { color:var(--t1); font-weight:600; }
+  .pgbtn { height:24px; padding:0 10px; border-radius:7px; border:0; background:transparent; color:var(--t2);
+    font-size:11.5px; cursor:pointer; display:inline-flex; align-items:center; gap:5px; font-family:inherit;
+    box-shadow:inset 0 0 0 1px var(--r2); }
+  .pgbtn:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  .pgbtn.primary { background:linear-gradient(180deg,#FBFDFF,var(--key)); color:#0B0E13; font-weight:600;
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset, 0 2px 8px -3px rgba(0,0,0,.9), 0 0 0 1px rgba(0,0,0,.35); }
+  .pgbtn[disabled] { color:var(--t3); cursor:not-allowed; }
+  .curline { display:flex; align-items:center; gap:9px; white-space:nowrap; margin-top:5px; font-size:9.5px;
+    color:var(--t3); font-family:var(--mono); }
+  .curline .tok { background:var(--s0); border-radius:5px; padding:2px 7px; color:var(--t3); width:246px; flex:none;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); }
+  .strike { text-decoration:line-through; text-decoration-color:var(--t4); color:var(--t3); }
+
+  /* ================= STATUS BAR ================= */
+  .statusbar { height:26px; flex:none; display:flex; align-items:center; gap:14px; padding:0 16px;
+    background:var(--s2); box-shadow:inset 0 1px 0 var(--r1); font-size:10.5px; color:var(--t3); }
+  .statusbar .h { display:flex; align-items:center; gap:6px; white-space:nowrap; }
+  .statusbar .sp { margin-left:auto; display:flex; align-items:center; gap:10px; font-family:var(--mono); }
+  /* SIGNAL 4/4 — the one live indicator on the screen */
+  .statusbar .dot { width:6px; height:6px; border-radius:50%; background:var(--sig); flex:none;
+    box-shadow:0 0 0 3px rgba(70,213,232,.10), 0 0 9px -1px var(--sig); animation:pulse 3s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.42} }
+  @media (prefers-reduced-motion:reduce){ .statusbar .dot { animation:none } }
+</style>
+</head>
+<body class="dark" data-palette="#3987e5,#d95926,#199e70,#c98500,#d55181,#008300,#9085e9,#e66767">
+<div class="shell">
+<header class="topbar">
+  <div class="brand">
+    <span class="glyph">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M4 7l8-4 8 4-8 4-8-4z" fill="#fff" opacity=".95"/><path d="M4 12l8 4 8-4M4 17l8 4 8-4" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity=".8"/></svg>
+    </span>
+    <span class="name">Command&nbsp;Studio</span>
+  </div>
+  <span class="env-chip">PROD · US-EAST</span>
+  <nav class="gnav">
+    <a href="#">Workflows</a>
+    <a href="#" class="active">Datasets</a>
+    <a href="#">Runs</a>
+    <a href="#">Library</a>
+  </nav>
+  <div class="cmdk lit" title="Command palette">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span class="ph">Search datasets, columns, run a command…</span>
+    <span class="kbd">⌘K</span>
+  </div>
+  <div class="hicons">
+    <button class="iconbtn" title="Filters"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M3 5h18M6 12h12M10 19h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+    <button class="iconbtn" title="Alerts"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M6 9a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M10 20a2 2 0 004 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+    <button class="iconbtn" title="Theme" onclick="document.body.classList.toggle('dark')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M20 13a8 8 0 11-9-9 6 6 0 009 9z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></button>
+    <div class="teamsel" title="Active team scope"><span class="tl">Team</span><span class="tv">Growth Analytics</span><span class="cv">▾</span></div>
+    <div class="avatar" title="S. Ganji · Growth Analytics · viewer">SG</div>
+  </div>
+</header>
+
+<div class="specbar">
+  <div class="sbi">
+    <span class="lockglyph" style="color:var(--st-warn)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span>
+    <span class="val big">Q3 Campaign Signups.csv</span>
+    <span class="pill label" title="Catalog metadata only — masking is driven by column sensitivity.">Confidential</span>
+    <span class="pill warn" title="`email` declares sensitivity: pii, so it is masked — and refused for filter, sort and search.">1 column masked</span>
+  </div>
+  <div class="sbi stack"><span class="lab">Rows</span><span class="val num mono">84,213</span></div>
+  <div class="sbi stack"><span class="lab">Query</span>
+    <span class="row"><span class="val sm mono">QuerySpec</span>
+      <span class="asof" title="The version this spec is resolved against — projection, sort keys and cursor are all v42."><span class="tick"></span>as-of <b>v42</b></span>
+      <span class="pill ok"><span class="g good"></span>valid</span></span>
+  </div>
+  <div class="sbi" style="margin-left:auto;padding-right:0;gap:6px">
+    <button class="tbtn ghost" title="Clear filters, sort, projection and search">Reset</button>
+    <button class="tbtn" title="Show the compiled request body"><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M9 5L4 12l5 7M15 5l5 7-5 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>JSON</button>
+    <button class="tbtn primary">Run query<span class="k">⌘⏎</span></button>
+  </div>
+</div>
+<div class="workspace">
+<div class="col rail">
+  <div class="colhead">
+    <span class="ulab">Query spec</span>
+    <span class="badge mono">4 clauses</span>
+    <span class="spacer"></span>
+    <span class="mono" style="font-size:10px;color:var(--t3)">POST /query</span>
+  </div>
+
+  <div style="flex:1;overflow:auto;min-height:0">
+
+    <!-- ---------- FREE-TEXT SEARCH ---------- -->
+    <div class="sect">
+      <div class="sh"><span class="ulab">Search</span><span class="mono" style="font-size:9.5px;color:var(--t3)">spec.search</span><span class="line"></span></div>
+      <div class="fld">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style="color:var(--t3);flex:none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <input placeholder="Substring across all text columns…" />
+        <span class="kbd">⌘F</span>
+      </div>
+      <div class="hint" style="margin-top:5px">Case-insensitive substring, OR'd across <b>5 of 6</b> text cols — <code>signup_id plan region status utm_campaign source</code>. Never numbers or dates.</div>
+      <div class="refuse" style="margin-top:6px">
+        <span class="lockglyph" style="color:var(--st-crit);margin-top:1px"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span>
+        <span><b>email</b> excluded — a matched count is an oracle.</span>
+      </div>
+    </div>
+
+    <!-- ---------- SORT STACK ---------- -->
+    <div class="sect">
+      <div class="sh"><span class="ulab">Sort stack</span><span class="mono" style="font-size:9.5px;color:var(--t3)">spec.sort[]</span><span class="line"></span><span class="pill neu mono">3</span></div>
+      <div class="stack">
+        <div class="srow">
+          <span class="grip" title="Drag to reorder"><svg width="9" height="12" viewBox="0 0 9 12" fill="currentColor"><circle cx="2" cy="2" r="1.1"/><circle cx="7" cy="2" r="1.1"/><circle cx="2" cy="6" r="1.1"/><circle cx="7" cy="6" r="1.1"/><circle cx="2" cy="10" r="1.1"/><circle cx="7" cy="10" r="1.1"/></svg></span>
+          <span class="ord num">1</span>
+          <span class="cn">amount</span>
+          <span class="ctype">num</span>
+          <span class="seg dirseg"><button>asc ▲</button><button class="on">desc ▼</button></span>
+          <button class="xbtn" title="Remove">✕</button>
+        </div>
+        <div class="srow">
+          <span class="grip"><svg width="9" height="12" viewBox="0 0 9 12" fill="currentColor"><circle cx="2" cy="2" r="1.1"/><circle cx="7" cy="2" r="1.1"/><circle cx="2" cy="6" r="1.1"/><circle cx="7" cy="6" r="1.1"/><circle cx="2" cy="10" r="1.1"/><circle cx="7" cy="10" r="1.1"/></svg></span>
+          <span class="ord num">2</span>
+          <span class="cn">signup_date</span>
+          <span class="ctype">date</span>
+          <span class="seg dirseg"><button class="on">asc ▲</button><button>desc ▼</button></span>
+          <button class="xbtn" title="Remove">✕</button>
+        </div>
+        <div class="srow">
+          <span class="grip"><svg width="9" height="12" viewBox="0 0 9 12" fill="currentColor"><circle cx="2" cy="2" r="1.1"/><circle cx="7" cy="2" r="1.1"/><circle cx="2" cy="6" r="1.1"/><circle cx="7" cy="6" r="1.1"/><circle cx="2" cy="10" r="1.1"/><circle cx="7" cy="10" r="1.1"/></svg></span>
+          <span class="ord num">3</span>
+          <span class="cn">plan</span>
+          <span class="ctype">enum</span>
+          <span class="seg dirseg"><button class="on">asc ▲</button><button>desc ▼</button></span>
+          <button class="xbtn" title="Remove">✕</button>
+        </div>
+        <div class="srow locked" title="Cursor paging needs a total order. The primary key is appended automatically so ties can never straddle a page boundary.">
+          <span class="grip" style="opacity:.3"><svg width="9" height="12" viewBox="0 0 9 12" fill="currentColor"><circle cx="2" cy="2" r="1.1"/><circle cx="7" cy="2" r="1.1"/><circle cx="2" cy="6" r="1.1"/><circle cx="7" cy="6" r="1.1"/><circle cx="2" cy="10" r="1.1"/><circle cx="7" cy="10" r="1.1"/></svg></span>
+          <span class="ord num">4</span>
+          <span class="cn">signup_id</span>
+          <span class="ctype">tiebreak</span>
+          <span class="seg dirseg"><button class="on">asc ▲</button></span>
+          <span class="xbtn" style="cursor:not-allowed" title="Required by cursor paging">🔒</span>
+        </div>
+        <div class="adddrop"><span>+ add sort column</span><span style="font-size:9px">▾</span></div>
+      </div>
+      <div class="hint" style="margin-top:6px">Applied 1 → 4. An <b>array</b>, not one header arrow — the grid marks each key's rank.</div>
+      <div class="refuse" style="margin-top:6px">
+        <span class="lockglyph" style="color:var(--st-crit);margin-top:1px"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span>
+        <span><b>email</b> is absent from the add-sort list — <span class="cd">400 sensitive-column-not-filterable</span>.</span>
+      </div>
+    </div>
+
+    <!-- ---------- PROJECTION ---------- -->
+    <div class="sect">
+      <div class="sh"><span class="ulab">Projection</span><span class="mono" style="font-size:9.5px;color:var(--t3)">spec.columns[]</span><span class="line"></span><span class="pill neu mono">7 / 9</span></div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+        <button class="tbtn sm">Select all</button>
+        <button class="tbtn sm">None</button>
+        <span class="hint" style="margin-left:auto">drag to reorder</span>
+      </div>
+      <div class="projlist">
+        <div class="prow"><span class="grip"><svg width="9" height="10" viewBox="0 0 9 12" fill="currentColor"><circle cx="2" cy="2" r="1.1"/><circle cx="7" cy="2" r="1.1"/><circle cx="2" cy="6" r="1.1"/><circle cx="7" cy="6" r="1.1"/><circle cx="2" cy="10" r="1.1"/><circle cx="7" cy="10" r="1.1"/></svg></span><span class="cbx on">✓</span><span class="cn mono">signup_id</span><span class="ctype">text</span><span class="ordn">1</span></div>
+        <div class="prow"><span class="grip"><svg width="9" height="10" viewBox="0 0 9 12" fill="currentColor"><circle cx="2" cy="2" r="1.1"/><circle cx="7" cy="2" r="1.1"/><circle cx="2" cy="6" r="1.1"/><circle cx="7" cy="6" r="1.1"/><circle cx="2" cy="10" r="1.1"/><circle cx="7" cy="10" r="1.1"/></svg></span><span class="cbx on">✓</span><span class="cn mono">email</span><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span><span class="ctype" style="color:var(--st-warn)">masked</span><span class="ordn">2</span></div>
+        <div class="prow"><span class="grip"><svg width="9" height="10" viewBox="0 0 9 12" fill="currentColor"><circle cx="2" cy="2" r="1.1"/><circle cx="7" cy="2" r="1.1"/><circle cx="2" cy="6" r="1.1"/><circle cx="7" cy="6" r="1.1"/><circle cx="2" cy="10" r="1.1"/><circle cx="7" cy="10" r="1.1"/></svg></span><span class="cbx on">✓</span><span class="cn mono">plan</span><span class="ctype">enum</span><span class="ordn">3</span></div>
+        <div class="prow"><span class="grip"><svg width="9" height="10" viewBox="0 0 9 12" fill="currentColor"><circle cx="2" cy="2" r="1.1"/><circle cx="7" cy="2" r="1.1"/><circle cx="2" cy="6" r="1.1"/><circle cx="7" cy="6" r="1.1"/><circle cx="2" cy="10" r="1.1"/><circle cx="7" cy="10" r="1.1"/></svg></span><span class="cbx on">✓</span><span class="cn mono">region</span><span class="ctype">enum</span><span class="ordn">4</span></div>
+        <div class="prow"><span class="grip"><svg width="9" height="10" viewBox="0 0 9 12" fill="currentColor"><circle cx="2" cy="2" r="1.1"/><circle cx="7" cy="2" r="1.1"/><circle cx="2" cy="6" r="1.1"/><circle cx="7" cy="6" r="1.1"/><circle cx="2" cy="10" r="1.1"/><circle cx="7" cy="10" r="1.1"/></svg></span><span class="cbx on">✓</span><span class="cn mono">amount</span><span class="ctype">num</span><span class="ordn">5</span></div>
+        <div class="prow"><span class="grip"><svg width="9" height="10" viewBox="0 0 9 12" fill="currentColor"><circle cx="2" cy="2" r="1.1"/><circle cx="7" cy="2" r="1.1"/><circle cx="2" cy="6" r="1.1"/><circle cx="7" cy="6" r="1.1"/><circle cx="2" cy="10" r="1.1"/><circle cx="7" cy="10" r="1.1"/></svg></span><span class="cbx on">✓</span><span class="cn mono">status</span><span class="ctype">enum</span><span class="ordn">6</span></div>
+        <div class="prow"><span class="grip"><svg width="9" height="10" viewBox="0 0 9 12" fill="currentColor"><circle cx="2" cy="2" r="1.1"/><circle cx="7" cy="2" r="1.1"/><circle cx="2" cy="6" r="1.1"/><circle cx="7" cy="6" r="1.1"/><circle cx="2" cy="10" r="1.1"/><circle cx="7" cy="10" r="1.1"/></svg></span><span class="cbx on">✓</span><span class="cn mono">signup_date</span><span class="ctype">date</span><span class="ordn">7</span></div>
+        <div class="prow off"><span class="grip"><svg width="9" height="10" viewBox="0 0 9 12" fill="currentColor"><circle cx="2" cy="2" r="1.1"/><circle cx="7" cy="2" r="1.1"/><circle cx="2" cy="6" r="1.1"/><circle cx="7" cy="6" r="1.1"/><circle cx="2" cy="10" r="1.1"/><circle cx="7" cy="10" r="1.1"/></svg></span><span class="cbx"></span><span class="cn mono">utm_campaign</span><span class="ctype">text</span><span class="ordn">—</span></div>
+        <div class="prow off"><span class="grip"><svg width="9" height="10" viewBox="0 0 9 12" fill="currentColor"><circle cx="2" cy="2" r="1.1"/><circle cx="7" cy="2" r="1.1"/><circle cx="2" cy="6" r="1.1"/><circle cx="7" cy="6" r="1.1"/><circle cx="2" cy="10" r="1.1"/><circle cx="7" cy="10" r="1.1"/></svg></span><span class="cbx"></span><span class="cn mono">source</span><span class="ctype">text</span><span class="ordn">—</span></div>
+      </div>
+      <div class="hint" style="margin-top:6px">This order is the returned order. Filtering an <b>un-projected</b> column is allowed — <code>utm_campaign</code> is filtered, not returned.</div>
+    </div>
+
+    <!-- ---------- COMPILED SPEC ---------- -->
+    <div class="sect" style="border-bottom:none">
+      <div class="sh"><span class="ulab">Compiled</span><span class="line"></span><span class="kbd">⌘J</span></div>
+      <div class="jsonbox">{ <span class="k">"search"</span>:<span class="c">null</span>, <span class="k">"filter"</span>:{<span class="s">"and"</span>,[<span class="n">4</span>]},<br />
+&nbsp;&nbsp;<span class="k">"sort"</span>:[<span class="s">"amount:desc"</span>,<span class="s">"signup_date:asc"</span>,<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="s">"plan:asc"</span>,<span class="s">"signup_id:asc"</span><span class="c">/*pk*/</span>],<br />
+&nbsp;&nbsp;<span class="k">"columns"</span>:[<span class="n">7</span>], <span class="k">"limit"</span>:<span class="n">50</span>,<br />
+&nbsp;&nbsp;<span class="k">"cursor"</span>:<span class="s">"eyJrIjpbMjk0MC…"</span> <span class="c">// no offset</span> }</div>
+    </div>
+  </div>
+
+  <div class="hintbar">
+    <span class="h"><span class="kbd">⌘S</span> save</span>
+    <span class="h"><span class="kbd">⌘⇧S</span> sort</span>
+    <span class="h"><span class="kbd">⌘P</span> columns</span>
+  </div>
+</div>
+<div class="col center">
+
+  <!-- ---------- FILTER TREE ---------- -->
+  <div class="paneh">
+    <span class="ulab">Filter tree</span>
+    <span class="mono" style="font-size:9.5px;color:var(--t3)">spec.filter · FilterGroup</span>
+    <span class="pill neu mono">5 conditions · 2 groups · depth 2</span>
+    <span style="margin-left:auto;display:flex;align-items:center;gap:6px">
+      <span class="hint">drag a row onto a group to re-parent</span>
+      <button class="tbtn sm">Collapse all</button>
+      <button class="tbtn sm">+ Group</button>
+    </span>
+  </div>
+
+  <div class="treewrap">
+    <div class="grp root">
+      <div class="grph">
+        <span style="color:var(--t3);font-size:10px">▾</span>
+        <span class="seg"><button class="on">AND</button><button>OR</button></span>
+        <span class="cnt">match all · 3 children</span>
+        <span class="sp">
+          <button class="addbtn">+ filter</button>
+          <button class="addbtn">+ group</button>
+          <button class="xbtn" title="More">⋯</button>
+        </span>
+      </div>
+
+      <div class="kids">
+        <!-- 1. in — list chip input -->
+        <div class="kid">
+          <span class="conn first">where</span>
+          <div class="fnode">
+            <span class="grip"><svg width="9" height="12" viewBox="0 0 9 12" fill="currentColor"><circle cx="2" cy="2" r="1.1"/><circle cx="7" cy="2" r="1.1"/><circle cx="2" cy="6" r="1.1"/><circle cx="7" cy="6" r="1.1"/><circle cx="2" cy="10" r="1.1"/><circle cx="7" cy="10" r="1.1"/></svg></span>
+            <span class="colchip"><span class="cn">plan</span><span class="ctype">enum</span><span class="cv">▾</span></span>
+            <span class="opchip"><span class="cn">in</span><span class="cv">▾</span></span>
+            <span class="vals">
+              <span class="vchip v1">pro<span class="x">✕</span></span>
+              <span class="vchip v3">team<span class="x">✕</span></span>
+              <span class="vchip v7">enterprise<span class="x">✕</span></span>
+              <span class="vaddc">+ value</span>
+              
+            </span>
+            <button class="xbtn" title="Remove condition">✕</button>
+          </div>
+        </div>
+
+        <!-- 2. between — two inputs -->
+        <div class="kid">
+          <span class="conn">AND</span>
+          <div class="fnode">
+            <span class="grip"><svg width="9" height="12" viewBox="0 0 9 12" fill="currentColor"><circle cx="2" cy="2" r="1.1"/><circle cx="7" cy="2" r="1.1"/><circle cx="2" cy="6" r="1.1"/><circle cx="7" cy="6" r="1.1"/><circle cx="2" cy="10" r="1.1"/><circle cx="7" cy="10" r="1.1"/></svg></span>
+            <span class="colchip"><span class="cn">amount</span><span class="ctype">num</span><span class="cv">▾</span></span>
+            <span class="opchip"><span class="cn">between</span><span class="cv">▾</span></span>
+            <span class="vals">
+              <span class="vin n">100</span>
+              <span class="vsep">and</span>
+              <span class="vin n">5,000</span>
+              <span class="hint">inclusive · USD</span>
+            </span>
+            <button class="xbtn" title="Remove condition">✕</button>
+          </div>
+        </div>
+
+        <!-- 3. nested OR group -->
+        <div class="kid">
+          <span class="conn">AND</span>
+          <div class="grp drop">
+            <div class="grph">
+              <span style="color:var(--t3);font-size:10px">▾</span>
+              <span class="seg"><button>AND</button><button class="on">OR</button></span>
+              <span class="cnt">match any · 2 children</span>
+              <span class="sp">
+                <button class="addbtn">+ filter</button>
+                <button class="addbtn">+ group</button>
+                <button class="xbtn" title="Ungroup">⤴</button>
+                <button class="xbtn" title="Delete group">✕</button>
+              </span>
+            </div>
+            <div class="kids">
+              <div class="kid">
+                <span class="conn first">where</span>
+                <div class="fnode">
+                  <span class="grip"><svg width="9" height="12" viewBox="0 0 9 12" fill="currentColor"><circle cx="2" cy="2" r="1.1"/><circle cx="7" cy="2" r="1.1"/><circle cx="2" cy="6" r="1.1"/><circle cx="7" cy="6" r="1.1"/><circle cx="2" cy="10" r="1.1"/><circle cx="7" cy="10" r="1.1"/></svg></span>
+                  <span class="colchip"><span class="cn">status</span><span class="ctype">enum</span><span class="cv">▾</span></span>
+                  <span class="opchip"><span class="cn">eq</span><span class="cv">▾</span></span>
+                  <span class="vals">
+                    <span class="vin"><span class="stat active" style="margin-right:5px"><span class="d"></span></span>active</span>
+                    <span class="hint">single value</span>
+                  </span>
+                  <button class="xbtn">✕</button>
+                </div>
+              </div>
+              <div class="kid">
+                <span class="conn">OR</span>
+                <div class="fnode">
+                  <span class="grip"><svg width="9" height="12" viewBox="0 0 9 12" fill="currentColor"><circle cx="2" cy="2" r="1.1"/><circle cx="7" cy="2" r="1.1"/><circle cx="2" cy="6" r="1.1"/><circle cx="7" cy="6" r="1.1"/><circle cx="2" cy="10" r="1.1"/><circle cx="7" cy="10" r="1.1"/></svg></span>
+                  <span class="colchip"><span class="cn">signup_date</span><span class="ctype">date</span><span class="cv">▾</span></span>
+                  <span class="opchip"><span class="cn">last_n_days</span><span class="cv">▾</span></span>
+                  <span class="vals">
+                    <span class="vin n">30</span><span class="vsep">days</span>
+                    <span class="hint">relative — 2026-07-17 → 2026-08-16</span>
+                  </span>
+                  <button class="xbtn">✕</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- drag-to-regroup affordance -->
+        <div class="dropline" title="Drop here to move this condition into the OR group"></div>
+
+        <!-- 4. draft row being composed in the operator picker -->
+        <div class="kid">
+          <span class="conn">AND</span>
+          <div class="fnode draft">
+            <span class="grip"><svg width="9" height="12" viewBox="0 0 9 12" fill="currentColor"><circle cx="2" cy="2" r="1.1"/><circle cx="7" cy="2" r="1.1"/><circle cx="2" cy="6" r="1.1"/><circle cx="7" cy="6" r="1.1"/><circle cx="2" cy="10" r="1.1"/><circle cx="7" cy="10" r="1.1"/></svg></span>
+            <span class="colchip" style="border-color:rgba(24,160,251,.4)"><span class="cn">utm_campaign</span><span class="ctype">text</span><span class="cv">▾</span></span>
+            <span class="opchip"><span class="cn">contains</span><span class="cv">▾</span></span>
+            <span class="vals">
+              <span class="vin lit">summer</span>
+              <span class="tog" title="case_sensitive applies to contains / not_contains / starts_with / ends_with / regex"><span class="sw on"></span>case_sensitive</span>
+              <span class="pill neu">editing →</span>
+            </span>
+            <button class="xbtn">✕</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="addrow">
+        <button class="addbtn">+ filter</button>
+        <button class="addbtn">+ group</button>
+        <span class="hint">or press <span class="kbd">⌘⇧F</span></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ---------- RESULTS ---------- -->
+  <div class="resmeta">
+    <span>matched <b class="mono">41,908</b> <span class="mono">/ 84,213</span> · <span class="mono">49.8%</span></span>
+    <span class="mono">· query 71ms</span>
+    <span class="mono">· sort 3 keys +pk</span>
+    <span class="mono">· 7 / 9 cols</span>
+    <span style="margin-left:auto;display:flex;align-items:center;gap:8px">
+      <span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span>
+      <span>role <b>viewer</b> · <span class="mono">email</span> masked</span>
+    </span>
+  </div>
+
+  <div class="gridwrap">
+    <table class="grid">
+      <thead>
+        <tr>
+          <th class="rownum">#</th>
+          <th>signup_id</th>
+          <th>email <span class="lockglyph" style="color:var(--t3)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></th>
+          <th>plan <span class="sk" title="sort key 3, ascending">3▲</span></th>
+          <th>region</th>
+          <th class="n" style="text-align:right">amount <span class="sk" title="sort key 1, descending">1▼</span></th>
+          <th>status</th>
+          <th>signup_date <span class="sk" title="sort key 2, ascending">2▲</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td class="rownum num">51</td><td class="mono">SGN-71204</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag ent">enterprise</span></td><td><span class="rtag us">US</span></td><td class="n">3,180.00<span class="cell-bar" style="width:56px;background:var(--viz-1)"></span></td><td><span class="stat active"><span class="d"></span>active</span></td><td class="mono muted">2026-07-02</td></tr>
+        <tr><td class="rownum num">52</td><td class="mono">SGN-68930</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag ent">enterprise</span></td><td><span class="rtag eu">EU</span></td><td class="n">3,150.00<span class="cell-bar" style="width:55px;background:var(--viz-1)"></span></td><td><span class="stat active"><span class="d"></span>active</span></td><td class="mono muted">2026-07-18</td></tr>
+        <tr><td class="rownum num">53</td><td class="mono">SGN-77451</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag team">team</span></td><td><span class="rtag apac">APAC</span></td><td class="n">3,120.00<span class="cell-bar" style="width:54px;background:var(--viz-1)"></span></td><td><span class="stat trialing"><span class="d"></span>trialing</span></td><td class="mono muted">2026-07-29</td></tr>
+        <tr><td class="rownum num">54</td><td class="mono">SGN-80112</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag ent">enterprise</span></td><td><span class="rtag us">US</span></td><td class="n">3,120.00<span class="cell-bar" style="width:54px;background:var(--viz-1)"></span></td><td><span class="stat active"><span class="d"></span>active</span></td><td class="mono muted">2026-08-04</td></tr>
+        <tr><td class="rownum num">55</td><td class="mono">SGN-64887</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag pro">pro</span></td><td><span class="rtag latam">LATAM</span></td><td class="n">3,090.00<span class="cell-bar" style="width:53px;background:var(--viz-1)"></span></td><td><span class="stat active"><span class="d"></span>active</span></td><td class="mono muted">2026-07-11</td></tr>
+        <tr><td class="rownum num">56</td><td class="mono">SGN-79003</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag team">team</span></td><td><span class="rtag eu">EU</span></td><td class="n">3,060.00<span class="cell-bar" style="width:52px;background:var(--viz-1)"></span></td><td><span class="stat active"><span class="d"></span>active</span></td><td class="mono muted">2026-08-01</td></tr>
+        <tr><td class="rownum num">57</td><td class="mono">SGN-58620</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag ent">enterprise</span></td><td><span class="rtag apac">APAC</span></td><td class="n">3,000.00<span class="cell-bar" style="width:51px;background:var(--viz-1)"></span></td><td><span class="stat active"><span class="d"></span>active</span></td><td class="mono muted">2026-07-06</td></tr>
+        <tr><td class="rownum num">58</td><td class="mono">SGN-83441</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag pro">pro</span></td><td><span class="rtag us">US</span></td><td class="n">2,990.00<span class="cell-bar" style="width:50px;background:var(--viz-1)"></span></td><td><span class="stat trialing"><span class="d"></span>trialing</span></td><td class="mono muted">2026-07-21</td></tr>
+        <tr><td class="rownum num">59</td><td class="mono">SGN-61775</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag team">team</span></td><td><span class="rtag latam">LATAM</span></td><td class="n">2,990.00<span class="cell-bar" style="width:50px;background:var(--viz-1)"></span></td><td><span class="stat active"><span class="d"></span>active</span></td><td class="mono muted">2026-08-09</td></tr>
+        <tr><td class="rownum num">60</td><td class="mono">SGN-72318</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag ent">enterprise</span></td><td><span class="rtag eu">EU</span></td><td class="n">2,990.00<span class="cell-bar" style="width:50px;background:var(--viz-1)"></span></td><td><span class="stat active"><span class="d"></span>active</span></td><td class="mono muted">2026-08-09</td></tr>
+        <tr><td class="rownum num">61</td><td class="mono">SGN-55901</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag pro">pro</span></td><td><span class="rtag us">US</span></td><td class="n">2,960.00<span class="cell-bar" style="width:49px;background:var(--viz-1)"></span></td><td><span class="stat active"><span class="d"></span>active</span></td><td class="mono muted">2026-07-14</td></tr>
+        <tr><td class="rownum num">62</td><td class="mono">SGN-69240</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag team">team</span></td><td><span class="rtag apac">APAC</span></td><td class="n">2,940.00<span class="cell-bar" style="width:48px;background:var(--viz-1)"></span></td><td><span class="stat active"><span class="d"></span>active</span></td><td class="mono muted">2026-08-12</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 400 invalid-cursor -->
+  <div class="errbar">
+    <span class="g crit" title="refused" style="margin-top:3px"></span>
+    <span class="code">400 invalid-cursor</span>
+    <span class="txt">Spec changed mid-page — <b>sort[0]</b> <span class="mono strike">amount asc</span> <span class="mono">→ desc</span>. A cursor encodes the last row's sort key, so it cannot be replayed against a new order.</span>
+    <span class="sp">
+      <button class="tbtn sm">Undo spec change</button>
+      <button class="tbtn sm primary">Restart from first page</button>
+    </span>
+  </div>
+
+  <!-- cursor pager -->
+  <div class="pager">
+    <div class="pgrow">
+      <button class="pgbtn" title="Pops the client-side back stack — the API has no previous_cursor">‹ Back</button>
+      <span class="hint">stack <b class="mono">2</b></span>
+      <span style="width:1px;height:14px;background:var(--r2)"></span>
+      <span>rows <b class="mono">51–62</b> of <b class="mono">41,908</b> <span class="hint">— <code>total</code> is returned, so the count is honest</span></span>
+      <span style="margin-left:auto;display:flex;align-items:center;gap:6px">
+        <span class="seg" title="limit"><button>25</button><button class="on">50</button><button>100</button></span>
+        <button class="pgbtn">Load more</button>
+        <button class="pgbtn primary">Next ›</button>
+      </span>
+    </div>
+    <div class="curline">
+      <span>next_cursor</span>
+      <span class="tok" title="Opaque, server-signed. Encodes the sort key of the last row plus a spec hash.">eyJrIjpbMjk0MCwiMjAyNi0wOC0xMiIsInRlYW0iLCJTR04tNjkyNDAiXSwiaCI6ImE3ZjNjMSIsInYiOjQyfQ</span>
+      <span class="xbtn" title="Copy cursor">⧉</span>
+      <span style="margin-left:auto;color:var(--t3)">no page jumps — <span class="strike">‹ 1 2 3 … 2,329 ›</span> is unbuildable</span>
+    </div>
+  </div>
+
+  <!-- ---------- PERSIST: SAVE AS VIEW + DOWNLOAD ---------- -->
+  <div class="persist">
+    <div class="pcard">
+      <div class="ch"><span class="ulab">Save as view</span><span class="line"></span><span class="kbd">⌘S</span></div>
+      <div class="fld lit"><input value="Paid signups — active or recent" /></div>
+      <div style="display:flex;gap:14px;margin-top:7px">
+        <label style="display:flex;align-items:center;gap:6px;font-size:11px"><span class="cbx on" style="border-radius:50%">●</span>Always latest</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--t3)"><span class="cbx" style="border-radius:50%"></span>Pin version <span class="mono">v42</span></label>
+      </div>
+      <div class="infonote" style="margin-top:7px">
+        <span style="margin-top:1px">i</span>
+        <span>A view stores the whole <b>QuerySpec</b> — tree, sort array, projection, search — and <b>no cursor</b>: every open starts at the first page. <b>Always latest</b> re-runs on new versions; <b>pin v42</b> freezes data and spec.</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;margin-top:8px">
+        <span class="hint">visible to <b>Growth Analytics</b></span>
+        <span style="margin-left:auto;display:flex;gap:6px">
+          <button class="tbtn">Team ▾</button>
+          <button class="tbtn primary">Save view</button>
+        </span>
+      </div>
+    </div>
+
+    <div class="pcard">
+      <div class="ch"><span class="ulab">Download</span><span class="pill neu mono">4 params</span><span class="line"></span><span class="mono" style="font-size:9.5px;color:var(--t3)">GET /download</span></div>
+      <div class="dlrow">
+        <span class="dk">format</span>
+        <span class="seg big"><button class="on">csv</button><button>parquet</button><button>xlsx</button></span>
+        <span class="dk">columns</span>
+        <span class="fld" style="height:24px"><span class="mono" style="font-size:10.5px">use projection — 7 of 9</span><span style="margin-left:auto;color:var(--t3);font-size:9px">▾</span></span>
+        <span class="dk">limit</span>
+        <span style="display:flex;align-items:center;gap:7px"><span class="fld mono" style="height:24px;width:80px"><input value="50000" /></span><span class="hint">rows · max 1,000,000</span></span>
+        <span class="exprbox"><span style="color:var(--t1)">filter_expr</span> = <span class="nm">plan</span> <span class="kw">in</span> (<span class="st">'pro'</span>,<span class="st">'team'</span>,<span class="st">'enterprise'</span>) <span class="kw">and</span> <span class="nm">amount</span> <span class="kw">between</span> 100 <span class="kw">and</span> 5000 <span class="kw">and</span> (<span class="nm">status</span>=<span class="st">'active'</span> <span class="kw">or</span> <span class="nm">signup_date</span> <span class="kw">last_n_days</span> 30)</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:2px">
+        <span class="warnnote" style="flex:1;padding:4px 7px;white-space:nowrap;align-items:center">
+          <span class="lockglyph" style="margin-top:1px"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span>
+          <span><b>email</b> exports masked · 12.4&nbsp;MB</span>
+        </span>
+        <button class="tbtn">Cancel</button>
+        <button class="tbtn primary">Download csv</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="hintbar">
+    <span class="h"><span class="kbd">⌘⏎</span> run</span>
+    <span class="h"><span class="kbd">⌘⇧F</span> add filter</span>
+    <span class="h"><span class="kbd">⌥↑↓</span> move condition</span>
+    <span class="h"><span class="kbd">⌘G</span> group selection</span>
+    <span class="h"><span class="kbd">⇧⌫</span> delete</span>
+    <span class="h" style="margin-left:auto;color:var(--t3)">as-of v42</span>
+  </div>
+</div>
+<div class="col dock">
+  <div class="colhead">
+    <span class="ulab">Operator</span>
+    <span class="badge mono">36 total</span>
+    <span class="spacer"></span>
+    <span class="mono" style="font-size:10px;color:var(--t3)">Filter.op</span>
+  </div>
+
+  <div class="opctx">
+    <span class="lab">For</span>
+    <span class="cname">utm_campaign</span>
+    <span class="ctype">text</span>
+    <span style="margin-left:auto;font-size:10px;color:var(--t3)"><b class="mono" style="color:var(--t1)">22</b> apply · <b class="mono">14</b> greyed</span>
+  </div>
+
+  <div class="opsearch">
+    <div class="fld lit">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style="color:var(--t3);flex:none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <input id="opq" placeholder="Type to filter operators — “cont”, “len”, “date”…" autocomplete="off" />
+      <span class="kbd">/</span>
+    </div>
+  </div>
+
+  <div class="opwrap" id="oplist">
+    <div class="opgroup" data-g="null / blank">
+      <div class="oghead">Null / blank <span class="ct">4</span><span class="line"></span></div>
+      <div class="ogrid">
+        <div class="op"><span class="on-name">is_null</span><span class="ot">any</span></div>
+        <div class="op"><span class="on-name">is_not_null</span><span class="ot">any</span></div>
+        <div class="op"><span class="on-name">is_empty</span><span class="ot">txt</span></div>
+        <div class="op"><span class="on-name">is_not_empty</span><span class="ot">txt</span></div>
+      </div>
+    </div>
+
+    <div class="opgroup" data-g="comparison">
+      <div class="oghead">Comparison <span class="ct">10</span><span class="line"></span></div>
+      <div class="ogrid">
+        <div class="op"><span class="on-name">eq</span><span class="ot">any</span></div>
+        <div class="op"><span class="on-name">neq</span><span class="ot">any</span></div>
+        <div class="op off" title="gt needs an ordered type — utm_campaign is free text"><span class="on-name">gt</span><span class="ot">num·date</span></div>
+        <div class="op off" title="gte needs an ordered type"><span class="on-name">gte</span><span class="ot">num·date</span></div>
+        <div class="op off" title="lt needs an ordered type"><span class="on-name">lt</span><span class="ot">num·date</span></div>
+        <div class="op off" title="lte needs an ordered type"><span class="on-name">lte</span><span class="ot">num·date</span></div>
+        <div class="op"><span class="on-name">in</span><span class="ot">any</span></div>
+        <div class="op"><span class="on-name">not_in</span><span class="ot">any</span></div>
+        <div class="op off" title="between needs an ordered type"><span class="on-name">between</span><span class="ot">num·date</span></div>
+        <div class="op off" title="not_between needs an ordered type"><span class="on-name">not_between</span><span class="ot">num·date</span></div>
+      </div>
+    </div>
+
+    <div class="opgroup" data-g="text">
+      <div class="oghead">Text <span class="ct">6</span><span class="line"></span><span class="og-note">honours case_sensitive</span></div>
+      <div class="ogrid">
+        <div class="op sel"><span class="on-name">contains</span><span class="ot">txt</span></div>
+        <div class="op"><span class="on-name">icontains</span><span class="ot">txt</span></div>
+        <div class="op"><span class="on-name">not_contains</span><span class="ot">txt</span></div>
+        <div class="op"><span class="on-name">starts_with</span><span class="ot">txt</span></div>
+        <div class="op"><span class="on-name">ends_with</span><span class="ot">txt</span></div>
+        <div class="op"><span class="on-name">regex</span><span class="ot">txt</span></div>
+      </div>
+    </div>
+
+    <div class="opgroup" data-g="length">
+      <div class="oghead">Length <span class="ct">6</span><span class="line"></span><span class="og-note">character count</span></div>
+      <div class="ogrid">
+        <div class="op"><span class="on-name">len_eq</span><span class="ot">txt</span></div>
+        <div class="op"><span class="on-name">len_gt</span><span class="ot">txt</span></div>
+        <div class="op"><span class="on-name">len_gte</span><span class="ot">txt</span></div>
+        <div class="op"><span class="on-name">len_lt</span><span class="ot">txt</span></div>
+        <div class="op"><span class="on-name">len_lte</span><span class="ot">txt</span></div>
+        <div class="op"><span class="on-name">len_between</span><span class="ot">txt</span></div>
+      </div>
+    </div>
+
+    <div class="opgroup" data-g="rank">
+      <div class="oghead">Rank <span class="ct">4</span><span class="line"></span><span class="og-note">needs a rankable column</span></div>
+      <div class="ogrid">
+        <div class="op off" title="Ranking free text is meaningless — pick amount or signup_date"><span class="on-name">top_n</span><span class="ot">num·date</span></div>
+        <div class="op off"><span class="on-name">bottom_n</span><span class="ot">num·date</span></div>
+        <div class="op off"><span class="on-name">top_pct</span><span class="ot">num·date</span></div>
+        <div class="op off"><span class="on-name">bottom_pct</span><span class="ot">num·date</span></div>
+      </div>
+    </div>
+
+    <div class="opgroup" data-g="date">
+      <div class="oghead">Date <span class="ct">4</span><span class="line"></span></div>
+      <div class="ogrid">
+        <div class="op off" title="Date operators require a date column — signup_date"><span class="on-name">date_before</span><span class="ot">date</span></div>
+        <div class="op off"><span class="on-name">date_after</span><span class="ot">date</span></div>
+        <div class="op off"><span class="on-name">date_between</span><span class="ot">date</span></div>
+        <div class="op off"><span class="on-name">last_n_days</span><span class="ot">date</span></div>
+      </div>
+    </div>
+
+    <div class="opgroup" data-g="cardinality">
+      <div class="oghead">Cardinality <span class="ct">2</span><span class="line"></span></div>
+      <div class="ogrid">
+        <div class="op"><span class="on-name">is_duplicate</span><span class="ot">any</span></div>
+        <div class="op"><span class="on-name">is_unique</span><span class="ot">any</span></div>
+      </div>
+    </div>
+
+    <div class="refuse" style="margin-top:2px">
+      <span class="lockglyph" style="color:var(--st-crit);margin-top:1px"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span>
+      <span>Pick <b>email</b> as the column and <b>all 36 go dark</b>: <span class="cd">400 sensitive-column-not-filterable</span>. Even <span class="cd">is_null</span> returns a count, and a count you can steer is a binary search for the value.</span>
+    </div>
+  </div>
+
+  <div class="oplegend">
+    <span class="li"><span class="swx" style="background:var(--s4);box-shadow:inset 0 0 0 1px var(--sig-line)"></span>selected</span>
+    <span class="li"><span class="swx" style="background:var(--s3)"></span>applies</span>
+    <span class="li"><span class="swx" style="background:transparent"></span><span class="strike" style="font-family:var(--mono);font-size:9px">op</span>wrong type</span>
+    <span class="li" style="margin-left:auto"><span class="mono">↑↓</span> move · <span class="mono">↵</span> apply</span>
+  </div>
+
+  <!-- ---------- VALUE EDITOR ---------- -->
+  <div class="veditor">
+    <div class="sh" style="display:flex;align-items:center;gap:7px;margin-bottom:7px">
+      <span class="ulab">Value</span>
+      <span class="opchip" style="width:auto;height:19px"><span class="cn">contains</span></span>
+      <span class="line" style="flex:1;height:1px;background:var(--border)"></span>
+    </div>
+    <div class="vgrid">
+      <span class="vk">value</span>
+      <span class="fld mono lit" style="height:24px"><input value="summer" /><span class="x">✕</span></span>
+      <span class="vk">case_sensitive</span>
+      <span style="display:flex;align-items:center;gap:8px">
+        <span class="tog"><span class="sw on"></span>true</span>
+        <span class="hint">matches <code>Summer_2026</code> ✗ · <code>summer_promo</code> ✓</span>
+      </span>
+    </div>
+    <div class="shapes">
+      <div class="shrow"><span class="sk">between</span><span class="sv"><span class="mini f">100</span><span class="vsep">and</span><span class="mini f">5,000</span><span class="hint">two bounds</span></span></div>
+      <div class="shrow"><span class="sk">in / not_in</span><span class="sv"><span class="vchip v1" style="height:17px">pro<span class="x">✕</span></span><span class="vchip v3" style="height:17px">team<span class="x">✕</span></span><span class="vaddc" style="height:17px">+</span><span class="hint">chip list</span></span></div>
+      <div class="shrow"><span class="sk">top_n</span><span class="sv"><span class="mini f">250</span><span class="hint">integer count · top_pct takes 0–100</span></span></div>
+      <div class="shrow"><span class="sk">regex</span><span class="sv"><span class="mini f">^(paid|organic)_</span><span class="okdot"><span class="d"></span>valid · 1 group</span></span></div>
+      <div class="shrow"><span class="sk">is_null</span><span class="sv"><span class="mini">no value</span><span class="hint">nullary — input hidden</span></span></div>
+    </div>
+  </div>
+
+  <div class="hintbar">
+    <span class="h"><span class="kbd">/</span> search ops</span>
+    <span class="h"><span class="kbd">↵</span> apply</span>
+    <span class="h" style="margin-left:auto;color:var(--t3)">36 operators</span>
+  </div>
+</div>
+</div>
+<div class="statusbar">
+  <span class="h"><span class="kbd">⌘K</span> command</span>
+  <span class="h"><span class="kbd">⌘⏎</span> run query</span>
+  <span class="h"><span class="kbd">⌘S</span> save view</span>
+  <span class="h"><span class="kbd">⌘E</span> download</span>
+  <span class="h"><span class="kbd">/</span> operators</span>
+  <span class="h"><span class="kbd">esc</span> close</span>
+  <span class="sp">
+    <span class="mono" style="color:var(--t3)">cursor eyJrIjpbMjk0MC…LTY5MjQwIl0sInYiOjQyfQ</span>
+    <span class="mono" style="color:var(--t3)">· spec-hash a7f3c1</span>
+    <span class="dot"></span>
+    <span class="mono" style="color:var(--t3)">SYNC 16:41:07 ET</span>
+  </span>
+</div>
+</div>
+<script>
+/* Progressive enhancement only — the picker is fully legible with JS disabled. */
+(function () {
+  var q = document.getElementById('opq'), list = document.getElementById('oplist');
+  if (!q || !list) return;
+  var groups = list.querySelectorAll('.opgroup');
+  q.addEventListener('input', function () {
+    var t = q.value.trim().toLowerCase();
+    for (var i = 0; i < groups.length; i++) {
+      var g = groups[i], ops = g.querySelectorAll('.op'), shown = 0;
+      for (var j = 0; j < ops.length; j++) {
+        var name = ops[j].querySelector('.on-name').textContent.toLowerCase();
+        var hit = !t || name.indexOf(t) !== -1 || (g.getAttribute('data-g') || '').indexOf(t) !== -1;
+        ops[j].style.display = hit ? '' : 'none';
+        if (hit) shown++;
+      }
+      g.style.display = shown ? '' : 'none';
+    }
+  });
+})();
+</script>
+</body>
+</html>

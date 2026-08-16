@@ -1,0 +1,39 @@
+conversation_id,primary_key,conversation,bl_turn_count,bisg,age,gender,race,transcript,assignment,chat_history,utterance,turn,FL,gt_intent,gt_scenario,split
+8,conv_008,"{""speaker"": ""Customer"", ""script"": ""UM""}",16,updated,old,male,asian,Race,Stratified,,UM,1,C8,Ambiguous,Default,train
+8,conv_008,"{""speaker"": ""Customer"", ""script"": ""UM""}",16,updated,old,male,asian,Race,Stratified,"Customer: UMAgent: THANKS FOR CA! YEAH MY NAME IS HENRY ... LAST NAME T",,2,C8,OutOfScop,Default,train
+8,conv_008,"{""speaker"": ""Customer"", ""script"": ""UM""}",16,updated,old,male,asian,Race,Stratified,"Customer: UMAgent: THANKS FOR CA! YEAH I I ... RECEIVED A LETTER THAT YOU ... YO!",,3,C8,OutOfScop,Default,train
+8,conv_008,"{""speaker"": ""Customer"", ""script"": ""UM""}",16,updated,old,male,asian,Race,Stratified,"Customer: UMAgent: THANKS FOR CA! AND THAT MIGHT BE ... YE",,4,C8,OutOfScop,Default,train
+8,conv_008,"{""speaker"": ""Customer"", ""script"": ""UM""}",16,updated,old,male,asian,Race,Stratified,"Customer: UMAgent: THANKS FOR CA! ONE TWO ONE",,5,C8,OutOfScop,Default,train
+8,conv_008,"{""speaker"": ""Customer"", ""script"": ""UM""}",16,updated,old,male,asian,Race,Stratified,"Customer: UMAgent: THANKS FOR CA! TO PAY FOR THE ... YOUR MEMBERSHIP",,6,C8,OutOfScop,Default,train
+8,conv_008,"{""speaker"": ""Customer"", ""script"": ""UM""}",16,updated,old,male,asian,Race,Stratified,"Customer: UMAgent: THANKS FOR CA! OBVIOUSLY",,7,C8,OutOfScop,Default,train
+8,conv_008,"{""speaker"": ""Customer"", ""script"": ""UM""}",16,updated,old,male,asian,Race,Stratified,"Agent: THANK YOU FOR CALLING CITI / IT SHOULDN'T YOU ... UM ... LOVE THE FILE [LA]",,8,C8,OutOfScop,Default,train
+12,conv_001,"{""speaker"": ""Agent"", ""script"": ""THANK YOU F""}",10,updated,young,,asian,Race,Stratified,"Agent: THANK YOU FOR CALLING CITI / MY NAME IS ... THAT",,1,C12,AccountCl,Default,train
+12,conv_001,"{""speaker"": ""Agent"", ""script"": ""THANK YOU F""}",10,updated,young,,asian,Race,Stratified,"Agent: THANK YOU FOR CALLING CITI / OH YES I'M I'M JUST LOOKING AT ... SEE IF THE!",,2,C12,AccountCl,Default,train
+12,conv_001,"{""speaker"": ""Agent"", ""script"": ""THANK YOU F""}",10,updated,young,,asian,Race,Stratified,"Agent: THANK YOU FOR CALLING CITI / I'M THINKING ABOUT IT ... THERE'S SOME FEES",,3,C12,AccountCl,Default,train
+12,conv_001,"{""speaker"": ""Agent"", ""script"": ""THANK YOU F""}",10,updated,young,,asian,Race,Stratified,"Agent: THANK YOU FOR CALLING CITI / YES",,4,C12,OutOfScop,Default,train
+12,conv_001,"{""speaker"": ""Agent"", ""script"": ""THANK YOU F""}",10,updated,young,,asian,Race,Stratified,"Agent: THANK YOU FOR CALLING CITI / OK THANK YOU",,5,C12,OutOfScop,Default,train
+24,conv_002,"{""speaker"": ""Agent"", ""script"": ""HI THANKS FO""}",16,updated,young,male,asian,Race,Stratified,"Agent: HI THANKS FOR CALLING CITI TI TWENTY ONE",,1,C24,Ambiguous,Default,train
+24,conv_002,"{""speaker"": ""Agent"", ""script"": ""HI THANKS FO""}",16,updated,young,male,asian,Race,Stratified,"Agent: HI THANKS FOR CALLING CITI TI UH I ... TO CANCEL THIS CARD AND ... WAS ON",,1,C24,Ambiguous,Default,train
+24,conv_002,"{""speaker"": ""Agent"", ""script"": ""HI THANKS FO""}",16,updated,young,male,asian,Race,Stratified,"Agent: HI THANKS FOR CALLING CITI TI YES",,2,C24,AccountCl,Default,train
+24,conv_002,"{""speaker"": ""Agent"", ""script"": ""HI THANKS FO""}",16,updated,young,male,asian,Race,Stratified,"Agent: HI THANKS FOR CALLING CITI TI CORRECT",,3,C24,AccountCl,Default,train
+24,conv_002,"{""speaker"": ""Agent"", ""script"": ""HI THANKS FO""}",16,updated,young,male,asian,Race,Stratified,"Agent: HI THANKS FOR CALLING CITI TI UH ... PROBABLY ... IT'S ANDY A N D L E H U ... P",,4,FL,AccountCl,Default,train
+24,conv_002,"{""speaker"": ""Agent"", ""script"": ""HI THANKS FO""}",16,updated,young,male,asian,Race,Stratified,"Agent: HI THANKS FOR CALLING CITI TI THAT IS THAT",,5,C24,AccountCl,Default,train
+24,conv_002,"{""speaker"": ""Agent"", ""script"": ""HI THANKS FO""}",16,updated,young,male,asian,Race,Stratified,"Agent: HI THANKS FOR CALLING CITI TI OK ... THANK YOU",,6,C24,AccountCl,Default,train
+24,conv_002,"{""speaker"": ""Agent"", ""script"": ""HI THANKS FO""}",16,updated,young,male,asian,Race,Stratified,"Agent: HI THANKS FOR CALLING CITI TI RIGHT",,7,C24,AccountCl,Default,train
+24,conv_002,"{""speaker"": ""Agent"", ""script"": ""HI THANKS FO""}",16,updated,young,male,asian,Race,Stratified,"Agent: WELCOME TO CITI MY NAME IS YES I WANTED TO GET A ... BALANCE ... GOIN",,8,C24,OutOfScop,Default,train
+39,conv_003,"{""speaker"": ""Agent"", ""script"": ""WELCOME TO""}",46,updated,young,,black,Race,Stratified,"Agent: WELCOME TO CITI MY NAME IS I NEED TO ... GET ONE GOING I HAVEN'T START!",,1,,OutOfScop,Default,train
+39,conv_003,"{""speaker"": ""Agent"", ""script"": ""WELCOME TO""}",46,updated,young,,black,Race,Stratified,"Agent: WELCOME TO CITI MY NAME IS UM ... THE ... CARD",,2,,OutOfScop,Default,train
+39,conv_003,"{""speaker"": ""Agent"", ""script"": ""WELCOME TO""}",46,updated,young,,black,Race,Stratified,"Agent: WELCOME TO CITI MY NAME IS I RECENTLY I JUST GOT THE CARD ... ACTIVATED",,3,,OutOfScop,Default,train
+39,conv_003,"{""speaker"": ""Agent"", ""script"": ""WELCOME TO""}",46,updated,young,,black,Race,Stratified,"Agent: WELCOME TO CITI MY NAME IS A C T A S E Y ... JACKSON",,4,,OutOfScop,Default,train
+39,conv_003,"{""speaker"": ""Agent"", ""script"": ""WELCOME TO""}",46,updated,young,,black,Race,Stratified,"Agent: WELCOME TO CITI MY NAME IS TWO SIX ZERO ZERO",,5,,OutOfScop,Default,train
+39,conv_003,"{""speaker"": ""Agent"", ""script"": ""WELCOME TO""}",46,updated,young,,black,Race,Stratified,"Agent: WELCOME TO CITI MY NAME IS OK",,6,,OutOfScop,Default,train
+39,conv_003,"{""speaker"": ""Agent"", ""script"": ""WELCOME TO""}",46,updated,young,,black,Race,Stratified,"Agent: WELCOME TO CITI MY NAME IS IT'S A BANK OF AMERICA CREDIT CARD",,7,,OutOfScop,Default,train
+39,conv_003,"{""speaker"": ""Agent"", ""script"": ""WELCOME TO""}",46,updated,young,,black,Race,Stratified,"Agent: WELCOME TO CITI MY NAME IS YOU ... FIVE FIVE TWO FOUR ... THREE THREE ZE",,8,,OutOfScop,Default,train
+39,conv_003,"{""speaker"": ""Agent"", ""script"": ""WELCOME TO""}",46,updated,young,,black,Race,Stratified,"Agent: WELCOME TO CITI MY NAME IS YEAH",,9,,OutOfScop,Default,train
+39,conv_003,"{""speaker"": ""Agent"", ""script"": ""WELCOME TO""}",46,updated,young,,black,Race,Stratified,"Agent: WELCOME TO CITI MY NAME IS FIVE ONE TWO ... SEVEN FOUR ZERO ... EIGHT F",,10,,OutOfScop,Default,train
+39,conv_003,"{""speaker"": ""Agent"", ""script"": ""WELCOME TO""}",46,updated,young,,black,Race,Stratified,"Agent: WELCOME TO CITI MY NAME IS OK I HAD IT I ACCEPT",,11,,OutOfScop,Default,train
+39,conv_003,"{""speaker"": ""Agent"", ""script"": ""WELCOME TO""}",46,updated,young,,black,Race,Stratified,"Agent: WELCOME TO CITI MY NAME IS YEAH LET ME GET TO THE",,12,,OutOfScop,Default,train
+39,conv_003,"{""speaker"": ""Agent"", ""script"": ""WELCOME TO""}",46,updated,young,,black,Race,Stratified,"Agent: WELCOME TO CITI MY NAME IS SEVEN THOUSAND ... THREE HUNDRED AND SE",,13,,OutOfScop,Default,train
+39,conv_003,"{""speaker"": ""Agent"", ""script"": ""WELCOME TO""}",46,updated,young,,black,Race,Stratified,"Agent: WELCOME TO CITI MY NAME IS YEAH",,14,,OutOfScop,Default,train
+39,conv_003,"{""speaker"": ""Agent"", ""script"": ""WELCOME TO""}",46,updated,young,,black,Race,Stratified,"Agent: WELCOME TO CITI MY NAME IS OK",,15,,OutOfScop,Default,train
+39,conv_003,"{""speaker"": ""Agent"", ""script"": ""WELCOME TO""}",46,updated,young,,black,Race,Stratified,"Agent: WELCOME TO CITI MY NAME IS NO",,16,,OutOfScop,Default,train

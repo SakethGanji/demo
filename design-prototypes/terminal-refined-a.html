@@ -1,0 +1,998 @@
+<!--
+  DESIGN NOTES — "INSTRUMENT" (restyle of terminal.html; same regions, same data, same layout)
+  Thesis: this is a precision instrument, and precision reads through restraint, not decoration.
+  1. Ramp: dead-neutral #111/#1c1c1c replaced by a cold blue-black graphite ramp (hue ~218deg, 8 steps s0..s6 + a
+     near-white key). Grouping is by elevation step and by space, not by 1px boxes.
+  2. Accent: ONE signal cyan #46D5E8, used 4 times only — active route, selected dataset, live sync, sorted column.
+     Chosen over #18a0fb because a blue accent disappears into a blue-black chrome; validated ΔE vs status-good 25.1,
+     vs series aqua 20.1 (deutan). The primary action is NOT accented — it is the only near-white surface on screen.
+  3. Borders: ~90% deleted. Three rule weights survive (.04 whisper / .075 normal / .12 emphatic) and a ruler-mark
+     every 6th grid row. The only bordered/tinted card left in the lens is the one enforced control (email/PII).
+  4. Numbers are the hero: KPI readouts at 27px/600/-0.03em over 9.5px recessive eyebrows; row counts, percentages
+     and amounts all mono tabular. Amount bars re-anchored to a left baseline so the digits actually align.
+  5. Material: SVG fractal-noise grain, a backlit vignette, inset top highlights on every raised edge, recessed wells
+     for inputs, a considered 3px focus ring, and one 3s pulse on the live indicator (reduced-motion guarded).
+  6. Viz: categorical hexes UNCHANGED (validated on the new surface, adjacent pairlist: worst CVD ΔE 8.4) but their
+     deployment cut — identity is direct-labeled everywhere, so magnitude bars went to a neutral value ramp and
+     categorical color survives only where a legend needs it (plan). Status colors stay reserved + always with a word.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Command Studio — Datasets · Instrument</title>
+<style>
+  :root {
+    /* ---- cold blue-black graphite ramp (hue ~218) ---- */
+    --s0:#080A0E;  --s1:#0D1015;  --s2:#11151B;  --s3:#161B22;
+    --s4:#1C222B;  --s5:#242C37;  --s6:#38424F;  --key:#E9EEF5;
+
+    /* ---- ink ---- */
+    --t1:#E7ECF3;  --t2:#B0BAC8;  --t3:#85909F;  --t4:#5C6675; /* t4 = decoration only, never text */
+
+    /* ---- rules: three weights, each earns its place ---- */
+    --r1:rgba(255,255,255,.042); --r2:rgba(255,255,255,.075); --r3:rgba(255,255,255,.13);
+    --hi:inset 0 1px 0 rgba(255,255,255,.045);
+
+    /* ---- THE signal. one accent, four uses. ---- */
+    --sig:#46D5E8; --sig-dim:rgba(70,213,232,.14); --sig-line:rgba(70,213,232,.40);
+
+    /* ---- status: reserved, never a series, never color-alone ---- */
+    --st-good:#0ca30c; --st-warn:#fab219; --st-serious:#ec835a; --st-crit:#DC5050;
+
+    /* ---- categorical: unchanged hexes, validated on --s3 (adjacent, worst CVD dE 8.4) ---- */
+    --viz-1:#3987e5; --viz-2:#d95926; --viz-3:#199e70; --viz-4:#c98500;
+    --viz-5:#d55181; --viz-6:#008300; --viz-7:#9085e9; --viz-8:#e66767;
+
+    /* ---- neutral magnitude ramp (direct-labeled bars: value, not hue) ---- */
+    --m1:#CBD3DF; --m2:#A2ACBB; --m3:#7D8797; --m4:#5F6979; --m5:#48515F; --m6:#39414D;
+
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { height:100%; overflow:hidden; }
+  html { font-size:13px; }
+  body {
+    font-family:var(--sans); color:var(--t2);
+    background:
+      radial-gradient(1180px 620px at 46% -14%, #151B24 0%, rgba(21,27,36,0) 62%),
+      var(--s1);
+    -webkit-font-smoothing:antialiased; line-height:1.4; letter-spacing:-0.004em;
+    font-size:12.5px;
+  }
+  /* ---- material: milled grain over everything ---- */
+  body::after {
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:200; opacity:.055;
+    mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  .mono { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  .num  { font-variant-numeric:tabular-nums; font-feature-settings:"tnum"; }
+  ::selection { background:rgba(70,213,232,.26); color:#fff; }
+
+  :focus-visible { outline:none; box-shadow:0 0 0 1px var(--s0), 0 0 0 3px rgba(70,213,232,.45); border-radius:6px; }
+
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb { background:#232B35; border-radius:8px; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background:#303945; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-track { background:transparent; }
+
+  /* status glyph: SHAPE carries the state, color only reinforces it */
+  .g { display:inline-flex; vertical-align:-1px; flex:none; }
+  .g.good { color:var(--st-good); } .g.warn { color:var(--st-warn); }
+  .g.serious { color:var(--st-serious); } .g.crit { color:var(--st-crit); }
+
+  /* ================= 1 · HEADER — quiet chrome, one signal ================= */
+  header.topbar {
+    height:46px; display:flex; align-items:center; gap:20px; padding:0 16px;
+    background:linear-gradient(180deg,#141922,#10141A); box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5);
+    position:relative; z-index:30; flex:none;
+  }
+  .brand { display:flex; align-items:center; gap:10px; }
+  .brand .glyph {
+    width:21px; height:21px; border-radius:5px; background:linear-gradient(180deg,#2C3542,#191F28);
+    display:grid; place-items:center; box-shadow:var(--hi), 0 1px 2px rgba(0,0,0,.5); color:var(--t1);
+  }
+  .brand .name { font-size:12.5px; font-weight:600; color:var(--t1); letter-spacing:-0.012em; }
+  .env-chip { font-family:var(--mono); font-size:10px; font-weight:500; letter-spacing:.02em; color:var(--t3);
+    display:inline-flex; align-items:center; gap:6px; }
+  .env-chip .lamp { width:5px; height:5px; border-radius:50%; background:var(--st-warn); flex:none; }
+
+  nav.gnav { display:flex; align-items:center; gap:4px; }
+  nav.gnav a {
+    font-size:12.5px; font-weight:450; color:var(--t3); text-decoration:none; height:30px;
+    padding:0 10px; border-radius:7px; position:relative; display:inline-flex; align-items:center;
+    transition:color .14s, background .14s;
+  }
+  nav.gnav a:hover { color:var(--t1); background:rgba(255,255,255,.035); }
+  /* SIGNAL 1 of 4 — the active route */
+  nav.gnav a.active { color:var(--t1); font-weight:550; }
+  nav.gnav a.active::after {
+    content:""; position:absolute; left:10px; right:10px; bottom:-9px; height:2px;
+    background:var(--sig); border-radius:2px 2px 0 0; box-shadow:0 0 12px -1px var(--sig);
+  }
+
+  .cmdk {
+    margin-left:auto; display:flex; align-items:center; gap:9px; width:328px; height:30px;
+    padding:0 10px; border-radius:8px; cursor:text; color:var(--t3);
+    background:var(--s0); box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035);
+    transition:box-shadow .16s;
+  }
+  .cmdk:hover { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.08); }
+  .cmdk:focus-within { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+  .cmdk svg { flex:none; opacity:.55; }
+  .cmdk .ph { font-size:12px; flex:1; }
+  .kbd {
+    font-family:var(--mono); font-size:10px; font-weight:500; color:var(--t2);
+    background:linear-gradient(180deg,#232A34,#1A2028); border-radius:4px; padding:1.5px 5px; line-height:1.4;
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5);
+  }
+  .hicons { display:flex; align-items:center; gap:2px; }
+  .iconbtn {
+    width:30px; height:30px; border-radius:7px; border:0; background:transparent; color:var(--t3);
+    display:grid; place-items:center; cursor:pointer; transition:color .14s, background .14s;
+  }
+  .iconbtn:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  .avatar {
+    width:27px; height:27px; border-radius:7px; background:linear-gradient(180deg,#2A323D,#1D242D);
+    display:grid; place-items:center; font-size:10px; font-weight:600; color:var(--t2); cursor:pointer;
+    box-shadow:var(--hi); letter-spacing:.02em;
+  }
+
+  /* ================= 2 · KPI STRIP — the focal band. numbers are the hero. ================= */
+  .kpistrip {
+    height:70px; display:flex; align-items:center; padding:0 20px; flex:none;
+    background:linear-gradient(180deg,var(--s3),#12171E);
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.55), 0 10px 24px -20px rgba(0,0,0,.9);
+  }
+  .kpi { display:flex; flex-direction:column; justify-content:center; gap:1px; padding-right:30px; }
+  .kpi .lab {
+    font-size:9.5px; font-weight:500; letter-spacing:.11em; text-transform:uppercase; color:var(--t3);
+    white-space:nowrap;
+  }
+  .kpi .row { display:flex; align-items:baseline; gap:8px; }
+  .kpi .val {
+    font-size:27px; font-weight:600; line-height:1.05; color:var(--t1); letter-spacing:-0.032em;
+    font-variant-numeric:tabular-nums;
+  }
+  .kpi .val small { font-size:14px; font-weight:500; color:var(--t3); letter-spacing:-0.01em; margin-left:2px; }
+  .kpi .delta { font-size:11px; font-weight:500; color:var(--t3); display:inline-flex; align-items:center; gap:4px; white-space:nowrap; }
+  .kpi .delta.up { color:var(--st-good); }
+  .kpi .delta.alarm { color:var(--st-serious); }
+  /* the one rule that survives here: it separates inventory from governance */
+  .kdiv { width:1px; height:26px; background:var(--r2); margin:0 30px 0 4px; flex:none; }
+  .kpi.alarm .val { color:var(--st-serious); }
+  .clock { margin-left:auto; display:flex; align-items:center; gap:9px; padding-left:20px; }
+  /* SIGNAL 2 of 4 — the live thing */
+  .clock .dot { width:6px; height:6px; border-radius:50%; background:var(--sig); flex:none;
+    box-shadow:0 0 0 4px rgba(70,213,232,.10), 0 0 10px -1px var(--sig); animation:pulse 3s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.42} }
+  @media (prefers-reduced-motion:reduce){ .clock .dot { animation:none } }
+  .clock .txt { font-family:var(--mono); font-size:10.5px; color:var(--t3); letter-spacing:.01em; }
+  .clock .txt b { color:var(--t2); font-weight:500; }
+
+  /* ================= 3 · WORKSPACE ================= */
+  .workspace { display:grid; grid-template-columns:270px 1fr 348px; height:calc(100vh - 46px - 70px); min-height:0; }
+  .col { display:flex; flex-direction:column; min-width:0; min-height:0; position:relative; }
+  .col.rail { background:var(--s2); box-shadow:1px 0 0 rgba(0,0,0,.42); z-index:2; }
+  .col.center { background:transparent; }
+  .col.dock { background:var(--s2); box-shadow:-1px 0 0 rgba(0,0,0,.42); z-index:2; }
+
+  .colhead { height:38px; display:flex; align-items:center; gap:9px; padding:0 14px; flex:none; }
+  .colhead .t { font-size:12.5px; font-weight:600; color:var(--t1); letter-spacing:-0.012em; }
+  .colhead .ct { font-family:var(--mono); font-size:11px; color:var(--t3); font-variant-numeric:tabular-nums; }
+  .colhead .spacer { margin-left:auto; }
+
+  /* ---- rail search: a recessed well, no border ---- */
+  .railsearch { padding:2px 12px 10px; flex:none; }
+  .railsearch .box {
+    height:30px; display:flex; align-items:center; gap:8px; padding:0 9px; border-radius:7px; color:var(--t3);
+    background:var(--s0); box-shadow:inset 0 1px 2px rgba(0,0,0,.55), inset 0 0 0 1px rgba(255,255,255,.03);
+  }
+  .railsearch .box:focus-within { box-shadow:inset 0 1px 2px rgba(0,0,0,.55), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+  .railsearch .box input { background:none; border:none; outline:none; color:var(--t1); font-size:12px; width:100%; height:100%; font-family:inherit; }
+  .railsearch .box input::placeholder { color:var(--t3); }
+  .railfilters { display:flex; gap:2px; margin-top:9px; }
+  .fchip {
+    font-size:11px; font-weight:450; color:var(--t3); padding:3px 9px; height:24px; border-radius:6px;
+    border:0; background:transparent; cursor:pointer; transition:all .14s; font-family:inherit;
+  }
+  .fchip:hover { color:var(--t1); background:rgba(255,255,255,.04); }
+  .fchip.on { color:var(--t1); background:var(--s4); box-shadow:var(--hi); font-weight:500; }
+
+  /* ---- watchlist: grouped by space, not by boxes ---- */
+  .watchlist { overflow-y:auto; flex:1; padding-bottom:8px; }
+  .wlgroup {
+    padding:16px 14px 5px; font-size:10.5px; font-weight:500; color:var(--t3);
+    display:flex; align-items:center; gap:7px; letter-spacing:.005em;
+  }
+  .wlgroup .ct { font-family:var(--mono); color:var(--t3); font-size:10px; }
+  .wl {
+    display:grid; grid-template-columns:1fr auto; gap:1px 10px; align-items:center;
+    padding:6px 14px 6px 12px; border-left:2px solid transparent; cursor:pointer; transition:background .12s;
+  }
+  .wl:hover { background:rgba(255,255,255,.032); }
+  /* SIGNAL 3 of 4 — the selected dataset */
+  .wl.sel { background:var(--s4); border-left-color:var(--sig); box-shadow:var(--hi); }
+  .wl.sel .nm .txt { color:var(--t1); font-weight:600; }
+  .wl .nm { font-size:12.5px; font-weight:450; color:var(--t2); display:flex; align-items:center; gap:7px; min-width:0; }
+  .wl .nm .txt { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .wl .meta { grid-column:1; font-size:10.5px; color:var(--t3); display:flex; align-items:center; gap:6px; padding-left:15px; }
+  .wl .meta .tag { font-family:var(--mono); font-size:10px; color:var(--t3); letter-spacing:.04em; }
+  .wl .right { grid-column:2; grid-row:1 / span 2; display:flex; flex-direction:column; align-items:flex-end; gap:2px; }
+  .wl .rows { font-family:var(--mono); font-size:12px; font-weight:500; color:var(--t2); font-variant-numeric:tabular-nums; letter-spacing:-0.01em; }
+  .wl.sel .rows { color:var(--t1); }
+  .cls { font-size:10px; font-weight:450; white-space:nowrap; }
+  .cls.internal { color:var(--t3); }
+  .cls.conf { color:var(--st-warn); }
+  .cls.restr { color:var(--st-crit); }
+  .lk { display:inline-flex; vertical-align:-1px; flex:none; color:var(--t3); }
+
+  .hintbar {
+    display:flex; align-items:center; gap:14px; padding:7px 14px; flex:none;
+    box-shadow:0 -1px 0 var(--r1); font-size:10.5px; color:var(--t3);
+  }
+  .hintbar .h { display:flex; align-items:center; gap:5px; }
+
+  /* ================= 4 · CENTER / DATA GRID ================= */
+  .gridhead { display:flex; align-items:flex-start; gap:16px; padding:14px 18px 12px; flex:none; }
+  .gridhead .hgroup { min-width:0; flex:1; }
+  .gridhead .title {
+    font-size:17px; font-weight:600; color:var(--t1); letter-spacing:-0.024em;
+    display:flex; align-items:center; gap:9px; white-space:nowrap;
+  }
+  .facts { display:flex; align-items:center; gap:10px; margin-top:7px; font-size:11px; color:var(--t3); white-space:nowrap; min-width:0; }
+  .facts.two { margin-top:5px; gap:8px; }
+  .facts .sep { color:var(--t4); }
+  .facts .apath { font-family:var(--mono); font-size:10.5px; overflow:hidden; text-overflow:ellipsis; min-width:40px; flex:0 1 auto; color:var(--t3); }
+  .facts b { color:var(--t2); font-weight:500; }
+  .facts .mono { font-size:10.5px; flex:none; }
+  /* validated = quiet glyph + word, no chip */
+  .ok-inline { display:inline-flex; align-items:center; gap:5px; font-size:11px; color:var(--t2); font-weight:450; }
+  /* catalog label = dotted underline, signalling "descriptive, not enforced" */
+  .lbl-only { font-size:11px; color:var(--t3); border-bottom:1px dashed var(--r2); padding-bottom:2px; cursor:help; }
+  /* the ONE enforced control in this row keeps a tint + rule */
+  .enforced {
+    display:inline-flex; align-items:center; gap:5px; font-size:10.5px; font-weight:500; color:var(--st-warn);
+    background:rgba(250,178,25,.07); box-shadow:inset 0 0 0 1px rgba(250,178,25,.26); border-radius:5px;
+    padding:2px 7px; letter-spacing:-0.004em;
+  }
+
+  .toolbar { display:flex; align-items:center; gap:5px; flex:none; }
+  .tbtn {
+    height:28px; min-width:28px; padding:0 9px; font-size:12px; font-weight:450; color:var(--t2);
+    background:transparent; border:0; border-radius:7px; cursor:pointer; font-family:inherit;
+    display:inline-flex; align-items:center; gap:6px; transition:all .14s;
+  }
+  .tbtn:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  .tbtn.iconb { padding:0; width:28px; justify-content:center; }
+  /* the primary action earns attention by VALUE, not by color: the only near-white surface on screen */
+  .tbtn.primary {
+    background:linear-gradient(180deg,#FBFDFF,var(--key)); color:#0B0E13; font-weight:600; padding:0 11px;
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset, 0 2px 8px -3px rgba(0,0,0,.9), 0 0 0 1px rgba(0,0,0,.35);
+  }
+  .tbtn.primary:hover { background:#fff; }
+  .tbtn.primary .k { font-size:10px; color:#4A5462; font-family:var(--mono); }
+
+  /* query row: recessed shelf */
+  .queryrow {
+    display:flex; align-items:center; gap:6px; padding:7px 14px; flex:none; height:36px;
+    background:rgba(0,0,0,.22); box-shadow:inset 0 1px 0 var(--r1), inset 0 -1px 0 var(--r1);
+  }
+  .qtok {
+    font-family:var(--mono); font-size:11px; display:inline-flex; align-items:center; gap:6px; height:24px;
+    padding:0 8px; border-radius:5px; background:var(--s4); color:var(--t2); box-shadow:var(--hi);
+    white-space:nowrap; flex:none;
+  }
+  .qtok .key { color:var(--t3); }
+  .qtok .x { color:var(--t3); cursor:pointer; font-size:10px; }
+  .qtok .x:hover { color:var(--t1); }
+  .qadd { color:var(--t3); font-size:11px; cursor:pointer; height:24px; padding:0 8px; border-radius:5px;
+    display:inline-flex; align-items:center; box-shadow:inset 0 0 0 1px var(--r2); white-space:nowrap; flex:none; }
+  .qadd:hover { color:var(--t1); box-shadow:inset 0 0 0 1px var(--r3); }
+  .qmeta { margin-left:auto; font-size:11px; color:var(--t3); display:flex; align-items:center; gap:13px;
+    white-space:nowrap; flex:none; padding-left:10px; }
+  .qmeta .seat { display:inline-flex; align-items:center; gap:6px; }
+  .qmeta b { color:var(--t2); font-weight:500; }
+  .qmeta .matched { font-family:var(--mono); }
+  .qmeta .matched b { color:var(--t1); font-weight:600; font-size:12px; }
+
+  /* the grid */
+  .gridwrap { flex:1; overflow:auto; min-height:0; background:#0C0F14; box-shadow:inset 0 1px 0 rgba(0,0,0,.5); }
+  table.grid { border-collapse:separate; border-spacing:0; width:100%; font-size:12px; }
+  table.grid thead th {
+    position:sticky; top:0; z-index:5; background:#12161D; text-align:left;
+    font-family:var(--mono); font-size:10.5px; font-weight:500; letter-spacing:.01em; color:var(--t3);
+    padding:0 12px; height:30px; white-space:nowrap; cursor:pointer; user-select:none;
+    box-shadow:inset 0 -1px 0 var(--r2), inset 0 1px 0 var(--r1);
+  }
+  table.grid thead th:hover { color:var(--t1); }
+  table.grid thead th.rownum, table.grid tbody td.rownum {
+    width:46px; text-align:right; padding-right:11px; position:sticky; left:0; z-index:4;
+  }
+  table.grid thead th.rownum { z-index:6; color:var(--t3); }
+  table.grid tbody td.rownum { color:var(--t3); font-family:var(--mono); font-size:10.5px; background:#0C0F14; }
+  table.grid tbody td {
+    padding:0 12px; height:33px; white-space:nowrap; color:var(--t2);
+    border-bottom:1px solid rgba(255,255,255,.032);
+  }
+  /* ruler marks: every 6th row is measured */
+  table.grid tbody tr:nth-child(6n) td { border-bottom-color:rgba(255,255,255,.085); }
+  table.grid tbody tr:hover td { background:rgba(255,255,255,.038); color:var(--t1); }
+  table.grid tbody tr:hover td.rownum { background:#181D25; color:var(--t2); }
+  td.id { font-family:var(--mono); color:var(--t3); font-size:11px; }
+  td.mono { font-family:var(--mono); }
+  td.dim { color:var(--t3); }
+  /* plan tier encoded by VALUE, not by 4 colored chips */
+  .tier { font-family:var(--mono); font-size:11px; letter-spacing:.01em; }
+  .tier.ent  { color:var(--t1); font-weight:600; }
+  .tier.team { color:var(--t1); font-weight:400; }
+  .tier.pro  { color:var(--t2); font-weight:400; }
+  .tier.free { color:var(--t3); font-weight:400; }
+  .rgn { font-family:var(--mono); font-size:10.5px; color:var(--t3); letter-spacing:.055em; }
+  /* status: reserved color + the word, always */
+  .stat { display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:450; }
+  .stat.active { color:var(--st-good); } .stat.trialing { color:var(--st-warn); } .stat.churned { color:var(--st-serious); }
+  .masked { color:var(--t3); letter-spacing:.06em; font-size:11px; }
+  .pcell { display:inline-flex; align-items:center; gap:7px; }
+
+  /* SIGNAL 4 of 4 — the sorted column, and it is also the focal channel of the grid */
+  table.grid tbody td.amt { background:rgba(255,255,255,.026); }
+  table.grid tbody tr:hover td.amt { background:rgba(255,255,255,.058); }
+  table.grid thead th.amt {
+    text-align:right; background:#151A21; color:var(--t2);
+    box-shadow:inset 0 -1px 0 var(--r2), inset 0 2px 0 var(--sig);
+  }
+  table.grid thead th.amt .arrow { color:var(--sig); margin-left:4px; font-size:9px; }
+  table.grid tbody td.amt {
+    position:relative; text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums;
+    color:var(--t1); font-size:12px; letter-spacing:-0.012em;
+  }
+  /* the meter shares the digits' own alignment edge, so magnitude and value read off one baseline */
+  table.grid tbody td.amt .bar {
+    position:absolute; right:0; top:3px; bottom:3px; background:rgba(255,255,255,.075); border-radius:2px 0 0 2px;
+  }
+  table.grid tbody td.amt .v { position:relative; }
+
+  .gridfoot {
+    height:34px; display:flex; align-items:center; gap:16px; padding:0 18px; flex:none;
+    box-shadow:inset 0 1px 0 var(--r1); font-size:11px; color:var(--t3); background:rgba(0,0,0,.18);
+  }
+  .gridfoot b { color:var(--t1); font-weight:600; font-family:var(--mono); }
+  .gridfoot .pg { margin-left:auto; display:flex; align-items:center; gap:1px; }
+  .pgbtn { min-width:24px; height:24px; padding:0 6px; border-radius:5px; border:0; background:transparent;
+    color:var(--t3); cursor:pointer; font-size:11px; font-family:var(--mono); }
+  .pgbtn:hover { color:var(--t1); background:rgba(255,255,255,.05); }
+  .pgbtn.on { color:var(--t1); background:var(--s4); box-shadow:var(--hi); font-weight:600; }
+
+  /* ================= 5 · DOCK / LENS ================= */
+  .lenstabs { display:flex; gap:0; justify-content:space-between; padding:0 13px 9px; flex:none; }
+  .ltab { font-size:10.5px; font-weight:450; color:var(--t3); padding:0 1px; height:24px; cursor:pointer;
+    position:relative; transition:color .14s; white-space:nowrap; display:inline-flex; align-items:center; letter-spacing:-0.004em; }
+  .ltab:hover { color:var(--t1); }
+  /* local state is marked in white; the cyan is reserved for global state */
+  .ltab.on { color:var(--t1); font-weight:550; }
+  .ltab.on::after { content:""; position:absolute; left:0; right:0; bottom:1px; height:1.5px; background:var(--t1); border-radius:2px; }
+  .dockbody { overflow-y:auto; overflow-x:hidden; flex:1; padding:14px 14px 18px; }
+  .sect { margin-bottom:26px; }
+  .sect > .h { font-size:11.5px; font-weight:550; color:var(--t2); margin-bottom:11px; letter-spacing:-0.008em; }
+
+  .tiles { display:grid; grid-template-columns:1fr 1fr; gap:2px; background:var(--r1); border-radius:9px; overflow:hidden; }
+  .tile { background:var(--s3); padding:10px 12px 11px; box-shadow:var(--hi); }
+  .tile .k { font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--t3); font-weight:500; }
+  .tile .v { font-size:22px; font-weight:600; margin-top:3px; letter-spacing:-0.03em; color:var(--t1); font-variant-numeric:tabular-nums; line-height:1.1; }
+  .tile .v small { font-size:12px; font-weight:500; color:var(--t3); }
+  .tile .v.word { font-size:14px; font-weight:500; color:var(--t2); letter-spacing:-0.01em; padding:4px 0 3px; }
+  .tile .sub { font-size:10.5px; color:var(--t3); margin-top:3px; }
+  .tile .sub .alarm { color:var(--st-serious); }
+
+  /* profile: NO card. space + a mono anchor name. */
+  .prof { padding:0 0 4px; margin-bottom:20px; }
+  .prof .top { display:flex; align-items:baseline; gap:8px; margin-bottom:9px; min-width:0; }
+  .prof .cname { font-family:var(--mono); font-size:12px; font-weight:600; color:var(--t1); letter-spacing:-0.01em;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+  .prof .ctype { font-size:9.5px; font-weight:500; letter-spacing:.09em; text-transform:uppercase; color:var(--t3); flex:none; }
+  .prof .comp { margin-left:auto; font-family:var(--mono); font-size:10.5px; color:var(--t3); flex:none; white-space:nowrap; }
+  .prof .comp b { color:var(--t2); font-weight:500; }
+  .prof .comp b.warn { color:var(--st-warn); }
+  /* the ONE elevated card in the lens: the enforced control */
+  .prof.enf {
+    background:var(--s3); border-radius:9px; padding:11px 12px 8px; margin:0 0 22px;
+    box-shadow:var(--hi), 0 6px 20px -14px rgba(0,0,0,1); border-left:2px solid rgba(250,178,25,.55);
+  }
+  .dictline { display:flex; align-items:center; gap:6px; font-size:10.5px; color:var(--t3); margin:0 0 8px; }
+  .dictline .sv { font-family:var(--mono); color:var(--st-warn); font-weight:600; }
+  .dictline a { color:var(--t2); text-decoration:none; margin-left:auto; box-shadow:0 1px 0 var(--r3);
+    display:inline-flex; align-items:center; height:24px; }
+  .dictline a:hover { color:var(--t1); border-bottom-color:var(--t2); }
+  .pii-note { display:flex; align-items:flex-start; gap:7px; font-size:10.5px; line-height:1.5; color:var(--t2);
+    background:rgba(250,178,25,.055); border-radius:6px; padding:7px 9px; margin-bottom:10px; }
+  .pii-note b { color:var(--st-warn); font-weight:600; }
+  .pii-note a { color:var(--t1); text-decoration:underline; text-decoration-color:var(--r3); text-decoration-thickness:1px; text-underline-offset:3px; white-space:nowrap; padding:6px 3px; margin:-6px -3px; }
+  .distlist { max-height:154px; overflow-y:auto; overflow-x:hidden; padding-right:2px; }
+
+  .distrow { display:grid; grid-template-columns:70px 1fr 40px; align-items:center; gap:9px; margin:5px 0; }
+  .distrow .lbl { font-size:11px; color:var(--t2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; display:block; }
+  .distrow .lbl .g { margin-right:6px; vertical-align:-1px; }
+  .distrow .lbl.dim { color:var(--t3); }
+  .distrow .track { height:6px; background:rgba(255,255,255,.05); border-radius:3px; overflow:hidden; }
+  .distrow .fill { height:100%; border-radius:0 3px 3px 0; }
+  .distrow .pct { font-family:var(--mono); font-size:10.5px; color:var(--t2); text-align:right; font-variant-numeric:tabular-nums; }
+
+  .histo { display:flex; align-items:flex-end; gap:3px; height:54px; padding-top:4px; }
+  .histo .bar { flex:1; background:var(--m3); border-radius:2px 2px 0 0; min-height:2px; transition:background .12s; }
+  .histo .bar:hover { background:var(--m1); }
+  .histo.tall .bar { background:var(--m4); }
+  .histo.tall .bar:hover { background:var(--m2); }
+  .axrow { display:flex; justify-content:space-between; font-family:var(--mono); font-size:9.5px; color:var(--t3); margin-top:6px; }
+  .legend { display:flex; flex-wrap:wrap; gap:5px 14px; margin-top:10px; }
+  .legend .li { display:flex; align-items:center; gap:6px; font-size:10.5px; color:var(--t2); }
+  .legend .sw { width:8px; height:8px; border-radius:2px; flex:none; }
+  .stats-inline { display:flex; gap:16px; margin-top:10px; font-family:var(--mono); font-size:10.5px; color:var(--t3); }
+  .stats-inline b { color:var(--t1); font-weight:600; }
+
+  /* governance */
+  .callout { display:flex; align-items:flex-start; gap:8px; font-size:10.5px; line-height:1.5; color:var(--t2);
+    background:rgba(236,131,90,.07); border-radius:7px; padding:9px 10px; margin-bottom:16px;
+    box-shadow:inset 0 0 0 1px rgba(236,131,90,.2); }
+  .callout .ci { flex:none; margin-top:2px; color:var(--st-serious); }
+  .callout b { color:var(--t1); font-weight:600; }
+  .callout a { color:var(--t1); text-decoration:underline; text-decoration-color:var(--r3); text-decoration-thickness:1px; text-underline-offset:3px; white-space:nowrap; padding:6px 3px; margin:-6px -3px; }
+  .qgroup { margin-bottom:18px; }
+  .grouplabel { display:flex; align-items:center; gap:8px; font-size:11px; font-weight:550; margin:0 0 8px; letter-spacing:-0.006em; }
+  .grouplabel.enf { color:var(--st-warn); }
+  .grouplabel.cat { color:var(--t3); font-weight:450; }
+  .grouplabel .gl-note { font-weight:400; font-size:10.5px; color:var(--t3); }
+  .grouplabel .gl-line { flex:1; height:1px; }
+  .grouplabel.enf .gl-line { background:rgba(250,178,25,.22); }
+  .grouplabel.cat .gl-line { background:var(--r1); }
+  .qlist { display:flex; flex-direction:column; }
+  .qitem { display:flex; align-items:flex-start; gap:10px; padding:7px 8px; border-radius:6px; margin:0 -8px; }
+  .qitem:hover { background:rgba(255,255,255,.032); }
+  .qitem .ic { width:16px; height:16px; border-radius:4px; display:grid; place-items:center; flex:none;
+    font-size:9px; font-weight:700; margin-top:1px; }
+  .ic.good { background:rgba(12,163,12,.16); color:#2fce2f; }
+  .ic.warn { background:rgba(250,178,25,.16); color:var(--st-warn); }
+  .ic.crit { background:rgba(220,80,80,.18); color:#ef7676; }
+  .ic.cat  { background:rgba(255,255,255,.05); color:var(--t3); }
+  .qitem .qn { font-size:11.5px; font-weight:450; color:var(--t1); }
+  .qgroup.cat .qitem .qn { font-weight:400; color:var(--t2); }
+  .qitem .qd { font-size:10.5px; color:var(--t3); margin-top:1px; }
+  .qitem .qd .mono { font-size:10px; }
+  .qitem .qsub { font-size:10px; color:var(--t3); margin-top:2px; }
+  .qitem .qv { margin-left:auto; font-family:var(--mono); font-size:10.5px; font-weight:600; flex:none; padding-left:8px;
+    letter-spacing:.02em; }
+  .qv.warn { color:var(--st-warn); } .qv.good { color:#2fce2f; } .qv.crit { color:#ef7676; } .qv.cat { color:var(--t3); font-weight:400; }
+</style>
+</head>
+<body data-palette="#3987e5,#d95926,#199e70,#c98500">
+
+<!-- ================= HEADER ================= -->
+<header class="topbar">
+  <div class="brand">
+    <span class="glyph">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M4 7l8-4 8 4-8 4-8-4z" fill="currentColor"/><path d="M4 12l8 4 8-4M4 17l8 4 8-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity=".55"/></svg>
+    </span>
+    <span class="name">Command&nbsp;Studio</span>
+  </div>
+  <span class="env-chip"><span class="lamp"></span>PROD · US-EAST</span>
+  <nav class="gnav">
+    <a href="#">Workflows</a>
+    <a href="#" class="active">Datasets</a>
+    <a href="#">Runs</a>
+    <a href="#">Library</a>
+  </nav>
+
+  <div class="cmdk" tabindex="0" title="Command palette">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span class="ph">Search datasets, columns, run a command…</span>
+    <span class="kbd">⌘K</span>
+  </div>
+
+  <div class="hicons">
+    <button class="iconbtn" title="Filters"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M3 5h18M6 12h12M10 19h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button>
+    <button class="iconbtn" title="Alerts"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M6 9a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M10 20a2 2 0 004 0" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button>
+    <button class="iconbtn" title="Theme"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M20 13a8 8 0 11-9-9 6 6 0 009 9z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg></button>
+    <div class="avatar" title="S. Ganji · Growth Analytics · member">SG</div>
+  </div>
+</header>
+
+<!-- ================= KPI STRIP ================= -->
+<div class="kpistrip">
+  <div class="kpi">
+    <span class="lab">Datasets</span>
+    <span class="row"><span class="val">142</span><span class="delta up">▲ 6</span></span>
+  </div>
+  <div class="kpi">
+    <span class="lab">Rows stored</span>
+    <span class="row"><span class="val">3.14<small>B</small></span>
+      <svg width="54" height="16" viewBox="0 0 54 16"><polyline points="1,13 9,12 17,10 25,11 33,7 41,5 53,2" fill="none" stroke="#7D8797" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </span>
+  </div>
+  <span class="kdiv"></span>
+  <div class="kpi">
+    <span class="lab">PII columns</span>
+    <span class="row"><span class="val">38</span><span class="delta"><span class="lk"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span>masked</span></span>
+  </div>
+  <div class="kpi" title="Dataset classification is catalog metadata for findability and reporting. It does not gate access — masking is driven by column sensitivity.">
+    <span class="lab">Classified restricted</span>
+    <span class="row"><span class="val">11</span><span class="delta">label only</span></span>
+  </div>
+  <div class="kpi alarm" title="Column sensitivity is human-declared in the data dictionary — there is no auto-detection. Undeclared columns are never masked.">
+    <span class="lab">Undeclared cols</span>
+    <span class="row"><span class="val">126</span><span class="delta alarm">needs review</span></span>
+  </div>
+  <div class="clock">
+    <span class="dot"></span>
+    <span class="txt"><b>LIVE</b> · SYNC 16:41:07 ET</span>
+  </div>
+</div>
+
+<!-- ================= WORKSPACE ================= -->
+<div class="workspace">
+
+  <!-- ---------- LEFT RAIL ---------- -->
+  <div class="col rail">
+    <div class="colhead">
+      <span class="t">Datasets</span>
+      <span class="ct">12</span>
+      <span class="spacer"></span>
+      <button class="iconbtn" style="width:26px;height:26px" title="Upload dataset"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 19V7m0 0l-4 4m4-4l4 4M5 5h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    </div>
+    <div class="railsearch">
+      <div class="box">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <input placeholder="Filter datasets…" />
+        <span class="kbd">/</span>
+      </div>
+      <div class="railfilters">
+        <button class="fchip on">All</button>
+        <button class="fchip">People Ops</button>
+        <button class="fchip">Growth</button>
+        <button class="fchip">Finance</button>
+      </div>
+    </div>
+
+    <div class="watchlist">
+      <div class="wlgroup">People Ops <span class="ct">3</span></div>
+
+      <div class="wl">
+        <div class="nm"><span class="g warn" title="warning"><svg width="9" height="9" viewBox="0 0 10 10"><path d="M5 0.5L9.5 9H0.5z" fill="currentColor"/></svg></span><span class="txt">Employee Records</span></div>
+        <div class="meta"><span class="tag">HR</span><span class="lk" style="color:var(--st-crit)"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2.4"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2.4"/></svg></span><span class="cls restr">Restricted</span></div>
+        <div class="right"><span class="rows">12.4K</span>
+          <svg width="54" height="14" viewBox="0 0 54 14"><polyline points="1,7 8,7 15,6 22,6 29,6 36,5 43,5 53,4" fill="none" stroke="#48515F" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+
+      <div class="wl">
+        <div class="nm"><span class="g good" title="healthy"><svg width="9" height="9" viewBox="0 0 10 10"><circle cx="5" cy="5" r="3.6" fill="currentColor"/></svg></span><span class="txt">Payroll Run 2026-08</span></div>
+        <div class="meta"><span class="tag">HR</span><span class="lk" style="color:var(--st-crit)"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2.4"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2.4"/></svg></span><span class="cls restr">Restricted</span></div>
+        <div class="right"><span class="rows">3,142</span>
+          <svg width="54" height="14" viewBox="0 0 54 14"><polyline points="1,7 8,7 15,6 22,6 29,6 36,5 43,5 53,4" fill="none" stroke="#48515F" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+
+      <div class="wl">
+        <div class="nm"><span class="g warn" title="warning"><svg width="9" height="9" viewBox="0 0 10 10"><path d="M5 0.5L9.5 9H0.5z" fill="currentColor"/></svg></span><span class="txt">Candidate Pipeline</span></div>
+        <div class="meta"><span class="tag">HR</span><span class="lk"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2.4"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2.4"/></svg></span><span class="cls conf">Confidential</span></div>
+        <div class="right"><span class="rows">8,710</span>
+          <svg width="54" height="14" viewBox="0 0 54 14"><polyline points="1,5 8,4 15,7 22,5 29,8 36,6 43,9 53,8" fill="none" stroke="#48515F" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+
+      <div class="wlgroup">Growth Analytics <span class="ct">2</span></div>
+
+      <div class="wl sel">
+        <div class="nm"><span class="g good" title="healthy"><svg width="9" height="9" viewBox="0 0 10 10"><circle cx="5" cy="5" r="3.6" fill="currentColor"/></svg></span><span class="txt">Q3 Campaign Signups.csv</span></div>
+        <div class="meta"><span class="tag">GRW</span><span class="lk"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2.4"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2.4"/></svg></span><span class="cls conf">Confidential</span></div>
+        <div class="right"><span class="rows">84.2K</span>
+          <svg width="54" height="14" viewBox="0 0 54 14"><polyline points="1,11 8,10 15,8 22,9 29,6 36,7 43,4 53,2" fill="none" stroke="#A2ACBB" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+
+      <div class="wl">
+        <div class="nm"><span class="g good" title="healthy"><svg width="9" height="9" viewBox="0 0 10 10"><circle cx="5" cy="5" r="3.6" fill="currentColor"/></svg></span><span class="txt">Churn Feature Store</span></div>
+        <div class="meta"><span class="tag">GRW</span><span class="cls internal">Internal</span></div>
+        <div class="right"><span class="rows">2.4M</span>
+          <svg width="54" height="14" viewBox="0 0 54 14"><polyline points="1,11 8,10 15,8 22,9 29,6 36,7 43,4 53,2" fill="none" stroke="#48515F" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+
+      <div class="wlgroup">Finance <span class="ct">2</span></div>
+
+      <div class="wl">
+        <div class="nm"><span class="g good" title="healthy"><svg width="9" height="9" viewBox="0 0 10 10"><circle cx="5" cy="5" r="3.6" fill="currentColor"/></svg></span><span class="txt">Vendor Invoices</span></div>
+        <div class="meta"><span class="tag">FIN</span><span class="cls conf">Confidential</span></div>
+        <div class="right"><span class="rows">512K</span>
+          <svg width="54" height="14" viewBox="0 0 54 14"><polyline points="1,5 8,4 15,7 22,5 29,8 36,6 43,9 53,8" fill="none" stroke="#48515F" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+
+      <div class="wl">
+        <div class="nm"><span class="g warn" title="warning"><svg width="9" height="9" viewBox="0 0 10 10"><path d="M5 0.5L9.5 9H0.5z" fill="currentColor"/></svg></span><span class="txt">Refund Requests</span></div>
+        <div class="meta"><span class="tag">FIN</span><span class="cls conf">Confidential</span></div>
+        <div class="right"><span class="rows">88.0K</span>
+          <svg width="54" height="14" viewBox="0 0 54 14"><polyline points="1,3 8,5 15,4 22,7 29,5 36,8 43,6 53,8" fill="none" stroke="#48515F" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+
+      <div class="wlgroup">Customer Success <span class="ct">2</span></div>
+
+      <div class="wl">
+        <div class="nm"><span class="g good" title="healthy"><svg width="9" height="9" viewBox="0 0 10 10"><circle cx="5" cy="5" r="3.6" fill="currentColor"/></svg></span><span class="txt">Support Tickets Export</span></div>
+        <div class="meta"><span class="tag">CS</span><span class="lk"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2.4"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2.4"/></svg></span><span class="cls internal">Internal</span></div>
+        <div class="right"><span class="rows">1.2M</span>
+          <svg width="54" height="14" viewBox="0 0 54 14"><polyline points="1,11 8,10 15,8 22,9 29,6 36,7 43,4 53,2" fill="none" stroke="#48515F" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+
+      <div class="wl">
+        <div class="nm"><span class="g good" title="healthy"><svg width="9" height="9" viewBox="0 0 10 10"><circle cx="5" cy="5" r="3.6" fill="currentColor"/></svg></span><span class="txt">NPS Survey Responses</span></div>
+        <div class="meta"><span class="tag">CS</span><span class="cls internal">Internal</span></div>
+        <div class="right"><span class="rows">143K</span>
+          <svg width="54" height="14" viewBox="0 0 54 14"><polyline points="1,7 8,7 15,6 22,6 29,6 36,5 43,5 53,4" fill="none" stroke="#48515F" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+
+      <div class="wlgroup">Marketing <span class="ct">2</span></div>
+
+      <div class="wl">
+        <div class="nm"><span class="g good" title="healthy"><svg width="9" height="9" viewBox="0 0 10 10"><circle cx="5" cy="5" r="3.6" fill="currentColor"/></svg></span><span class="txt">Web Events — Aug</span></div>
+        <div class="meta"><span class="tag">MKT</span><span class="cls internal">Internal</span></div>
+        <div class="right"><span class="rows">402M</span>
+          <svg width="54" height="14" viewBox="0 0 54 14"><polyline points="1,11 8,10 15,8 22,9 29,6 36,7 43,4 53,2" fill="none" stroke="#48515F" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+
+      <div class="wl">
+        <div class="nm"><span class="g warn" title="warning"><svg width="9" height="9" viewBox="0 0 10 10"><path d="M5 0.5L9.5 9H0.5z" fill="currentColor"/></svg></span><span class="txt">Lead Scores</span></div>
+        <div class="meta"><span class="tag">MKT</span><span class="lk"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2.4"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2.4"/></svg></span><span class="cls conf">Confidential</span></div>
+        <div class="right"><span class="rows">690K</span>
+          <svg width="54" height="14" viewBox="0 0 54 14"><polyline points="1,5 8,4 15,7 22,5 29,8 36,6 43,9 53,8" fill="none" stroke="#48515F" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+
+      <div class="wlgroup">Data Platform <span class="ct">1</span></div>
+
+      <div class="wl">
+        <div class="nm"><span class="g good" title="healthy"><svg width="9" height="9" viewBox="0 0 10 10"><circle cx="5" cy="5" r="3.6" fill="currentColor"/></svg></span><span class="txt">Product Usage Daily</span></div>
+        <div class="meta"><span class="tag">DP</span><span class="cls internal">Internal</span></div>
+        <div class="right"><span class="rows">311M</span>
+          <svg width="54" height="14" viewBox="0 0 54 14"><polyline points="1,11 8,10 15,8 22,9 29,6 36,7 43,4 53,2" fill="none" stroke="#48515F" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+    </div>
+
+    <div class="hintbar">
+      <span class="h"><span class="kbd">J</span><span class="kbd">K</span> move</span>
+      <span class="h"><span class="kbd">↵</span> open</span>
+      <span class="h"><span class="kbd">U</span> upload</span>
+    </div>
+  </div>
+
+  <!-- ---------- CENTER / DATA GRID ---------- -->
+  <div class="col center">
+    <div class="gridhead">
+      <div class="hgroup">
+        <div class="title">
+          <span class="g good" title="healthy"><svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="currentColor"/></svg></span>
+          Q3 Campaign Signups.csv
+        </div>
+        <div class="facts">
+          <span class="ok-inline"><svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M4 12.5l5.5 5.5L20 7" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Validated</span>
+          <span class="sep">·</span>
+          <span class="lbl-only" title="Dataset classification — catalog metadata only. It does not enforce masking or access.">Confidential</span>
+          <span class="enforced" title="Enforced: 1 column declared sensitivity: pii in the data dictionary, so its values are masked for your role."><span class="lk" style="color:var(--st-warn)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2.2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2.2"/></svg></span>1 column masked</span>
+          <span class="sep">·</span>
+          <span>team <b>growth-analytics</b></span>
+        </div>
+        <div class="facts two">
+          <span class="apath" title="uploads/growth-analytics/q3_campaign_signups.csv">uploads/growth-analytics/q3_campaign_signups.csv</span>
+          <span class="sep">·</span>
+          <span class="mono">84,213 rows · 9 cols</span>
+        </div>
+      </div>
+      <div class="toolbar">
+        <button class="tbtn iconb" title="Filter"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M3 5h18M6 12h12M10 19h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+        <button class="tbtn iconb" title="Sort"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M4 12h10M4 17h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+        <button class="tbtn iconb" title="Export"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <button class="tbtn primary"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M4 17V5m0 0l-3 3m3-3l3 3M10 7h10M10 12h7M10 17h4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Transform<span class="k">⌘⏎</span></button>
+      </div>
+    </div>
+
+    <div class="queryrow">
+      <span class="qtok"><span class="key">plan</span> in pro, team, enterprise</span>
+      <span class="qtok"><span class="key">status</span> = active <span class="x">✕</span></span>
+      <span class="qtok"><span class="key">amount</span> &gt; 0 <span class="x">✕</span></span>
+      <span class="qadd">+ add filter</span>
+      <span class="qmeta">
+        <span class="seat" title="Row & column access is governed by RBAC. Your role on this dataset is viewer, so PII columns are masked."><span class="lk"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2.2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2.2"/></svg></span>role <b>viewer</b> · masked</span>
+        <span class="matched">matched <b>41,908</b> / 84.2K</span>
+      </span>
+    </div>
+
+    <div class="gridwrap">
+      <table class="grid">
+        <thead>
+          <tr>
+            <th class="rownum">#</th>
+            <th>signup_id</th>
+            <th>email <span class="lk" style="vertical-align:-1px"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2.4"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2.4"/></svg></span></th>
+            <th>plan</th>
+            <th>region</th>
+            <th class="amt">amount <span class="arrow">▼</span></th>
+            <th>status</th>
+            <th>signup_date</th>
+            <th>utm_campaign</th>
+          </tr>
+        </thead>
+        <tbody id="gridbody"></tbody>
+      </table>
+    </div>
+
+    <div class="gridfoot">
+      <span>Showing <b>1–18</b> of <b>41,908</b></span>
+      <span class="mono">· query 71ms</span>
+      <span class="mono">· <span class="lk" style="vertical-align:-1px"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2.2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2.2"/></svg></span> 1 column masked · 3 undeclared</span>
+      <span class="pg">
+        <button class="pgbtn">‹&nbsp;Back</button>
+        <button class="pgbtn">Next&nbsp;›</button>
+      </span>
+    </div>
+  </div>
+
+  <!-- ---------- RIGHT DOCK / LENS ---------- -->
+  <div class="col dock">
+    <div class="colhead">
+      <span class="t">Lens</span>
+      <span class="spacer"></span>
+      <span class="mono" style="font-size:10.5px;color:var(--t3)">Q3 Campaign Signups</span>
+    </div>
+    <div class="lenstabs">
+      <span class="ltab">Overview</span>
+      <span class="ltab on">Quality</span>
+      <span class="ltab">Versions</span>
+      <span class="ltab">Analytics</span>
+      <span class="ltab">Relations</span>
+      <span class="ltab">Transform</span>
+      <span class="ltab">Library</span>
+    </div>
+
+    <div class="dockbody">
+      <div class="sect">
+        <div class="tiles">
+          <div class="tile"><div class="k">Rows</div><div class="v">84.2<small>K</small></div><div class="sub">uploaded 3d ago</div></div>
+          <div class="tile"><div class="k">Columns</div><div class="v">9</div><div class="sub">1 masked · <span class="alarm">3 undeclared</span></div></div>
+          <div class="tile"><div class="k">Completeness</div><div class="v">99.6<small>%</small></div><div class="sub">1 col &lt; 100%</div></div>
+          <div class="tile" title="Catalog metadata only — does not enforce access."><div class="k">Classification</div><div class="v word">Confidential</div><div class="sub">label only</div></div>
+        </div>
+      </div>
+
+      <div class="sect">
+        <div class="h">Column profile</div>
+
+        <!-- email — the one enforced control, the one elevated card -->
+        <div class="prof enf">
+          <div class="top">
+            <span class="cname" title="email">email</span>
+            <span class="ctype">string</span>
+            <span class="comp">100% · <b class="warn">masked</b></span>
+          </div>
+          <div class="dictline">
+            <span class="lk" style="color:var(--st-warn)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2.2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2.2"/></svg></span>
+            <span>sensitivity: <span class="sv">pii</span> · from dictionary</span>
+            <a href="#" title="Sensitivity is declared by a human in the per-column data dictionary. It is the control that drives masking.">edit sensitivity →</a>
+          </div>
+          <div class="pii-note">
+            <span class="lk" style="color:var(--st-warn);margin-top:2px"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2.2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2.2"/></svg></span>
+            <span>Masked because this column declares <b>sensitivity: pii</b> — your role (viewer) cannot unmask it or export raw. <a href="#">Request access →</a></span>
+          </div>
+          <div class="distlist">
+            <div class="distrow"><span class="lbl" title="masked domain">••••@gmail</span><div class="track"><div class="fill" style="width:41%;background:var(--m2)"></div></div><span class="pct">41%</span></div>
+            <div class="distrow"><span class="lbl" title="masked domain">••••@&lt;corp&gt;</span><div class="track"><div class="fill" style="width:22%;background:var(--m3)"></div></div><span class="pct">22%</span></div>
+            <div class="distrow"><span class="lbl" title="masked domain">••••@outlook</span><div class="track"><div class="fill" style="width:14%;background:var(--m4)"></div></div><span class="pct">14%</span></div>
+            <div class="distrow"><span class="lbl dim" title="other masked domains">•••• other</span><div class="track"><div class="fill" style="width:23%;background:var(--m5)"></div></div><span class="pct">23%</span></div>
+          </div>
+        </div>
+
+        <!-- plan — the ONE place categorical color earns its place (it carries a legend) -->
+        <div class="prof">
+          <div class="top">
+            <span class="cname" title="plan">plan</span>
+            <span class="ctype">enum</span>
+            <span class="comp">100% · <b>4 distinct</b></span>
+          </div>
+          <div class="distlist">
+            <div class="distrow"><span class="lbl" title="free">free</span><div class="track"><div class="fill" style="width:48%;background:var(--viz-1)"></div></div><span class="pct">48%</span></div>
+            <div class="distrow"><span class="lbl" title="pro">pro</span><div class="track"><div class="fill" style="width:31%;background:var(--viz-2)"></div></div><span class="pct">31%</span></div>
+            <div class="distrow"><span class="lbl" title="team">team</span><div class="track"><div class="fill" style="width:14%;background:var(--viz-3)"></div></div><span class="pct">14%</span></div>
+            <div class="distrow"><span class="lbl" title="enterprise">enterprise</span><div class="track"><div class="fill" style="width:7%;background:var(--viz-4)"></div></div><span class="pct">7%</span></div>
+          </div>
+          <div class="legend">
+            <span class="li"><span class="sw" style="background:var(--viz-1)"></span>free</span>
+            <span class="li"><span class="sw" style="background:var(--viz-2)"></span>pro</span>
+            <span class="li"><span class="sw" style="background:var(--viz-3)"></span>team</span>
+            <span class="li"><span class="sw" style="background:var(--viz-4)"></span>enterprise</span>
+          </div>
+        </div>
+
+        <!-- region — direct-labeled magnitude, so value not hue -->
+        <div class="prof">
+          <div class="top">
+            <span class="cname" title="region">region</span>
+            <span class="ctype">enum</span>
+            <span class="comp">100% · <b>4 distinct</b></span>
+          </div>
+          <div class="distlist">
+            <div class="distrow"><span class="lbl" title="US">US</span><div class="track"><div class="fill" style="width:38%;background:var(--m2)"></div></div><span class="pct">38%</span></div>
+            <div class="distrow"><span class="lbl" title="APAC">APAC</span><div class="track"><div class="fill" style="width:26%;background:var(--m3)"></div></div><span class="pct">26%</span></div>
+            <div class="distrow"><span class="lbl" title="EU">EU</span><div class="track"><div class="fill" style="width:22%;background:var(--m4)"></div></div><span class="pct">22%</span></div>
+            <div class="distrow"><span class="lbl" title="LATAM">LATAM</span><div class="track"><div class="fill" style="width:14%;background:var(--m5)"></div></div><span class="pct">14%</span></div>
+          </div>
+        </div>
+
+        <!-- status — reserved colors, always beside the word -->
+        <div class="prof">
+          <div class="top">
+            <span class="cname" title="status">status</span>
+            <span class="ctype">enum</span>
+            <span class="comp">100% · <b>3 distinct</b></span>
+          </div>
+          <div class="distrow"><span class="lbl"><span class="g good"><svg width="8" height="8" viewBox="0 0 10 10"><circle cx="5" cy="5" r="3.6" fill="currentColor"/></svg></span>active</span><div class="track"><div class="fill" style="width:62%;background:var(--st-good)"></div></div><span class="pct">62%</span></div>
+          <div class="distrow"><span class="lbl"><span class="g warn"><svg width="8" height="8" viewBox="0 0 10 10"><path d="M5 0.5L9.5 9H0.5z" fill="currentColor"/></svg></span>trialing</span><div class="track"><div class="fill" style="width:24%;background:var(--st-warn)"></div></div><span class="pct">24%</span></div>
+          <div class="distrow"><span class="lbl"><span class="g serious"><svg width="8" height="8" viewBox="0 0 10 10"><path d="M5 0.5L9.5 5 5 9.5 0.5 5z" fill="currentColor"/></svg></span>churned</span><div class="track"><div class="fill" style="width:14%;background:var(--st-serious)"></div></div><span class="pct">14%</span></div>
+        </div>
+
+        <!-- utm_campaign — 34 distinct: a ranked magnitude list, not 8 hues -->
+        <div class="prof">
+          <div class="top">
+            <span class="cname" title="utm_campaign">utm_campaign</span>
+            <span class="ctype">string</span>
+            <span class="comp">98.9% · <b>34 distinct</b></span>
+          </div>
+          <div class="distlist">
+            <div class="distrow"><span class="lbl" title="summer_promo">summer_promo</span><div class="track"><div class="fill" style="width:21%;background:var(--m1)"></div></div><span class="pct">21%</span></div>
+            <div class="distrow"><span class="lbl" title="paid_search_brand">paid_search_brand</span><div class="track"><div class="fill" style="width:17%;background:var(--m2)"></div></div><span class="pct">17%</span></div>
+            <div class="distrow"><span class="lbl" title="webinar_q3">webinar_q3</span><div class="track"><div class="fill" style="width:13%;background:var(--m2)"></div></div><span class="pct">13%</span></div>
+            <div class="distrow"><span class="lbl" title="retargeting_us">retargeting_us</span><div class="track"><div class="fill" style="width:11%;background:var(--m3)"></div></div><span class="pct">11%</span></div>
+            <div class="distrow"><span class="lbl" title="linkedin_abm">linkedin_abm</span><div class="track"><div class="fill" style="width:9%;background:var(--m3)"></div></div><span class="pct">9%</span></div>
+            <div class="distrow"><span class="lbl" title="product_hunt">product_hunt</span><div class="track"><div class="fill" style="width:7%;background:var(--m4)"></div></div><span class="pct">7%</span></div>
+            <div class="distrow"><span class="lbl" title="referral_v2">referral_v2</span><div class="track"><div class="fill" style="width:6%;background:var(--m4)"></div></div><span class="pct">6%</span></div>
+            <div class="distrow"><span class="lbl" title="newsletter_aug">newsletter_aug</span><div class="track"><div class="fill" style="width:5%;background:var(--m5)"></div></div><span class="pct">5%</span></div>
+            <div class="distrow"><span class="lbl dim" title="partner_co">partner_co</span><div class="track"><div class="fill" style="width:4%;background:var(--m5)"></div></div><span class="pct">4%</span></div>
+            <div class="distrow"><span class="lbl dim" title="blog_organic">blog_organic</span><div class="track"><div class="fill" style="width:3%;background:var(--m6)"></div></div><span class="pct">3%</span></div>
+            <div class="distrow"><span class="lbl dim" title="26 more campaigns">Other</span><div class="track"><div class="fill" style="width:4%;background:var(--m6)"></div></div><span class="pct">4%</span></div>
+          </div>
+        </div>
+
+        <div class="prof">
+          <div class="top">
+            <span class="cname" title="amount">amount</span>
+            <span class="ctype">decimal</span>
+            <span class="comp">100% · <b>USD</b></span>
+          </div>
+          <div class="histo">
+            <div class="bar" style="height:96%"></div><div class="bar" style="height:38%"></div>
+            <div class="bar" style="height:52%"></div><div class="bar" style="height:30%"></div>
+            <div class="bar" style="height:44%"></div><div class="bar" style="height:22%"></div>
+            <div class="bar" style="height:18%"></div><div class="bar" style="height:12%"></div>
+            <div class="bar" style="height:9%"></div><div class="bar" style="height:6%"></div>
+            <div class="bar" style="height:5%"></div><div class="bar" style="height:8%"></div>
+          </div>
+          <div class="axrow"><span>$0</span><span>median $290</span><span>$2.4k+</span></div>
+          <div class="stats-inline"><span>μ <b>312</b></span><span>σ <b>486</b></span><span><b>48%</b> at $0 (free)</span></div>
+        </div>
+
+        <div class="prof">
+          <div class="top">
+            <span class="cname" title="signup_date">signup_date</span>
+            <span class="ctype">date</span>
+            <span class="comp">100% · <b>Jul–Aug</b></span>
+          </div>
+          <div class="histo tall">
+            <div class="bar" style="height:34%"></div><div class="bar" style="height:41%"></div>
+            <div class="bar" style="height:48%"></div><div class="bar" style="height:55%"></div>
+            <div class="bar" style="height:52%"></div><div class="bar" style="height:64%"></div>
+            <div class="bar" style="height:72%"></div><div class="bar" style="height:70%"></div>
+            <div class="bar" style="height:83%"></div><div class="bar" style="height:91%"></div>
+            <div class="bar" style="height:97%"></div><div class="bar" style="height:86%"></div>
+          </div>
+          <div class="axrow"><span>Jul 01</span><span>signups / day</span><span>Aug 16</span></div>
+        </div>
+      </div>
+
+      <div class="sect">
+        <div class="h">Access &amp; governance</div>
+
+        <div class="callout">
+          <span class="ci"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M6 0.5L11.5 10.5H0.5z" fill="currentColor"/><path d="M6 4v3M6 8.6v.6" stroke="#15161C" stroke-width="1.3" stroke-linecap="round"/></svg></span>
+          <span><b>3 columns have no sensitivity declared.</b> Sensitivity is set by a person in the data dictionary — nothing is auto-detected, so undeclared columns are never masked. <a href="#">Review dictionary →</a></span>
+        </div>
+
+        <div class="qgroup">
+          <div class="grouplabel enf">Enforced <span class="gl-note">— actually controls access</span><span class="gl-line"></span></div>
+          <div class="qlist">
+            <div class="qitem"><span class="ic warn">&#128274;</span><div><div class="qn">Column sensitivity → masking</div><div class="qd"><span class="mono">email</span> · sensitivity: pii</div><div class="qsub">the only thing that drives masking</div></div><span class="qv warn">1 col</span></div>
+            <div class="qitem"><span class="ic warn">&#128274;</span><div><div class="qn">Your role: viewer</div><div class="qd">read · no unmask · no raw export</div></div><span class="qv warn">scoped</span></div>
+            <div class="qitem"><span class="ic good">✓</span><div><div class="qn">Row access: team-locked</div><div class="qd">growth-analytics members only</div></div><span class="qv good">RBAC</span></div>
+            <div class="qitem"><span class="ic crit">✕</span><div><div class="qn">Raw egress gate</div><div class="qd">download · SQL · transform preview · join</div><div class="qsub">refused for your role while pii is declared</div></div><span class="qv crit">DENY</span></div>
+          </div>
+        </div>
+
+        <div class="qgroup cat">
+          <div class="grouplabel cat">Catalog metadata <span class="gl-note">— labels, no enforcement</span><span class="gl-line"></span></div>
+          <div class="qlist">
+            <div class="qitem"><span class="ic cat">#</span><div><div class="qn">Classification</div><div class="qd">Confidential · reviewed 3d ago</div><div class="qsub">label only — masking is driven by column sensitivity</div></div><span class="qv cat">set</span></div>
+            <div class="qitem"><span class="ic cat">#</span><div><div class="qn">Domain</div><div class="qd">growth · acquisition</div></div><span class="qv cat">set</span></div>
+            <div class="qitem"><span class="ic cat">#</span><div><div class="qn">Source system</div><div class="qd">manual upload · marketing-site</div></div><span class="qv cat">set</span></div>
+            <div class="qitem"><span class="ic cat">#</span><div><div class="qn">Retention</div><div class="qd">documented as 400 days</div></div><span class="qv cat">400d</span></div>
+            <div class="qitem"><span class="ic cat">#</span><div><div class="qn">Review date</div><div class="qd">next review 2026-11-13</div></div><span class="qv cat">90d</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="hintbar">
+      <span class="h"><span class="kbd">1</span>–<span class="kbd">7</span> lens</span>
+      <span class="h"><span class="kbd">⌘E</span> export lens</span>
+      <span class="h" style="margin-left:auto;color:var(--t3)">as-of v42</span>
+    </div>
+  </div>
+
+</div>
+
+<script>
+/* Tiny generator for the 18 identical-shape data rows — keeps the markup honest and the file readable.
+   Same 18 rows, same values as the source screen. */
+(function () {
+  var LOCK = '<svg width="9" height="9" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2.4"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2.4"/></svg>';
+  var SH = {
+    active:   '<svg width="8" height="8" viewBox="0 0 10 10"><circle cx="5" cy="5" r="3.6" fill="currentColor"/></svg>',
+    trialing: '<svg width="8" height="8" viewBox="0 0 10 10"><path d="M5 0.5L9.5 9H0.5z" fill="currentColor"/></svg>',
+    churned:  '<svg width="8" height="8" viewBox="0 0 10 10"><path d="M5 0.5L9.5 5 5 9.5 0.5 5z" fill="currentColor"/></svg>'
+  };
+  var rows = [
+    ['SGN-84213','enterprise','US',1499,'active','2026-08-15','paid_search_brand'],
+    ['SGN-84212','team','APAC',594,'active','2026-08-15','webinar_q3'],
+    ['SGN-84209','pro','US',290,'trialing','2026-08-15','summer_promo'],
+    ['SGN-84205','enterprise','EU',1180,'active','2026-08-14','linkedin_abm'],
+    ['SGN-84201','free','LATAM',0,'active','2026-08-14','blog_organic'],
+    ['SGN-84198','pro','US',290,'active','2026-08-14','retargeting_us'],
+    ['SGN-84190','team','APAC',792,'trialing','2026-08-14','product_hunt'],
+    ['SGN-84187','free','EU',0,'churned','2026-08-13','newsletter_aug'],
+    ['SGN-84182','enterprise','US',2400,'active','2026-08-13','partner_co'],
+    ['SGN-84176','pro','LATAM',290,'active','2026-08-13','referral_v2'],
+    ['SGN-84170','team','EU',396,'active','2026-08-12','summer_promo'],
+    ['SGN-84166','free','APAC',0,'trialing','2026-08-12','paid_search_brand'],
+    ['SGN-84159','pro','US',290,'churned','2026-08-12','webinar_q3'],
+    ['SGN-84153','enterprise','EU',1650,'active','2026-08-11','linkedin_abm'],
+    ['SGN-84147','team','US',990,'active','2026-08-11','retargeting_us'],
+    ['SGN-84140','free','LATAM',0,'active','2026-08-11','blog_organic'],
+    ['SGN-84131','pro','APAC',290,'trialing','2026-08-10','product_hunt'],
+    ['SGN-84120','team','EU',594,'active','2026-08-10','newsletter_aug']
+  ];
+  var TIER = { enterprise:'ent', team:'team', pro:'pro', free:'free' };
+  var out = rows.map(function (r, i) {
+    var pct = Math.round(r[3] / 2400 * 100);
+    var amt = r[3].toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return '<tr>' +
+      '<td class="rownum">' + (i + 1) + '</td>' +
+      '<td class="id">' + r[0] + '</td>' +
+      '<td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lk">' + LOCK + '</span></span></td>' +
+      '<td><span class="tier ' + TIER[r[1]] + '">' + r[1] + '</span></td>' +
+      '<td><span class="rgn">' + r[2] + '</span></td>' +
+      '<td class="amt"><span class="bar" style="width:' + pct + '%"></span><span class="v">' + amt + '</span></td>' +
+      '<td><span class="stat ' + r[4] + '"><span class="g ' + (r[4] === 'active' ? 'good' : r[4] === 'trialing' ? 'warn' : 'serious') + '">' + SH[r[4]] + '</span>' + r[4] + '</span></td>' +
+      '<td class="mono dim">' + r[5] + '</td>' +
+      '<td class="mono dim">' + r[6] + '</td>' +
+    '</tr>';
+  }).join('');
+  document.getElementById('gridbody').innerHTML = out;
+})();
+</script>
+</body>
+</html>

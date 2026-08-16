@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<!--
+  DESIGN NOTES
+  Direction: "WORKBENCH" — the elevated, closest-to-shippable port of the current datasets workspace.
+  Signature move: a real persistent LEFT APP-SHELL sidebar that unifies Command Studio (Workflows,
+  Datasets, Runs, Library, Settings), finally making Datasets a first-class peer of Workflows.
+  We keep the proven three-pane surface (dataset rail -> data grid -> lens dock) but upgrade every
+  part: sparklined stat tiles, circular quality/health rings, inline mini-distributions in the grid,
+  crisp shadcn-style controls, refined type hierarchy. Recognizably the same tool, dramatically better.
+  Light default; a working .dark toggle on <html>. Fixed 1440x1024 shell; each pane owns its scroll.
+-->
+<html lang="en" class="">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Command Studio — Datasets</title>
+<style>
+  :root {
+    --background:#ffffff; --foreground:#1e1e1e; --card:#ffffff; --card-foreground:#1e1e1e;
+    --muted:#f1f3f5; --muted-foreground:#868e96; --primary:#18a0fb; --primary-foreground:#ffffff;
+    --secondary:#f1f3f5; --accent:#f1f3f5; --border:#dee2e6; --input:#ced4da; --ring:#18a0fb;
+    --surface:#f1f3f5; --success:#14ae5c; --warning:#c4841d; --destructive:#f24822;
+    --sidebar:#f1f3f5; --sidebar-foreground:#343a40; --sidebar-accent:#e9ecef; --sidebar-border:#dee2e6;
+    /* categorical data viz — fixed order, never cycle */
+    --viz-1:#2a78d6; --viz-2:#eb6834; --viz-3:#1baf7a; --viz-4:#eda100;
+    --viz-5:#e87ba4; --viz-6:#008300; --viz-7:#4a3aa7; --viz-8:#e34948;
+    /* reserved status — word/icon, never a series */
+    --st-good:#0ca30c; --st-warning:#fab219; --st-serious:#ec835a; --st-critical:#d03b3b;
+    --radius:0.5rem;
+    --radius-sm:calc(var(--radius) - 2px);
+    --radius-lg:calc(var(--radius) + 2px);
+    --font-sans:'Inter',ui-sans-serif,system-ui,-apple-system,sans-serif;
+    --font-mono:'JetBrains Mono',ui-monospace,monospace;
+    --shadow-sm:0 1px 2px 0 rgb(0 0 0/.03),0 2px 6px 0 rgb(0 0 0/.04);
+    --shadow-md:0 2px 4px 0 rgb(0 0 0/.02),0 4px 12px -2px rgb(0 0 0/.06);
+  }
+  .dark {
+    --background:#111111; --foreground:#e5e5e5; --card:#1c1c1c; --card-foreground:#e5e5e5;
+    --muted:#222222; --muted-foreground:#999999; --primary:#18a0fb; --primary-foreground:#ffffff;
+    --secondary:#262626; --accent:#262626; --border:#2a2a2a; --input:#2a2a2a; --ring:#18a0fb;
+    --surface:#1a1a1a; --success:#14ae5c; --warning:#d4a053; --destructive:#f24822;
+    --sidebar:#1c1c1c; --sidebar-foreground:#e5e5e5; --sidebar-accent:#262626; --sidebar-border:#2a2a2a;
+    --viz-1:#3987e5; --viz-2:#d95926; --viz-3:#199e70; --viz-4:#c98500;
+    --viz-5:#d55181; --viz-6:#008300; --viz-7:#9085e9; --viz-8:#e66767;
+    --shadow-sm:0 1px 2px 0 rgb(0 0 0/.25),0 2px 6px 0 rgb(0 0 0/.35);
+    --shadow-md:0 2px 4px 0 rgb(0 0 0/.25),0 4px 12px -2px rgb(0 0 0/.45);
+  }
+
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html,body { height:100%; }
+  body {
+    font-family:var(--font-sans); font-size:13px; line-height:1.45;
+    color:var(--foreground); background:var(--background);
+    -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+    overflow:hidden;
+  }
+  .tnum { font-variant-numeric:tabular-nums; }
+  .mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
+
+  /* ---------- app viewport ---------- */
+  .app {
+    width:1440px; height:1024px; margin:0 auto;
+    display:grid; grid-template-columns:224px 1fr;
+    background:var(--background); overflow:hidden;
+  }
+
+  /* ---------- left app shell ---------- */
+  .shell {
+    background:var(--sidebar); color:var(--sidebar-foreground);
+    border-right:1px solid var(--sidebar-border);
+    display:flex; flex-direction:column; height:1024px;
+  }
+  .brand {
+    display:flex; align-items:center; gap:10px; padding:16px 16px 14px;
+    border-bottom:1px solid var(--sidebar-border);
+  }
+  .brand .logo {
+    width:30px; height:30px; border-radius:var(--radius-sm);
+    background:linear-gradient(135deg,var(--primary),#0f7fd6);
+    display:flex; align-items:center; justify-content:center; flex-shrink:0;
+    box-shadow:var(--shadow-sm);
+  }
+  .brand .name { font-weight:650; font-size:13.5px; letter-spacing:-.01em; line-height:1.1; }
+  .brand .env { font-size:10.5px; color:var(--muted-foreground); letter-spacing:.02em; }
+  .nav { padding:12px 10px; display:flex; flex-direction:column; gap:2px; }
+  .nav-label {
+    font-size:10.5px; font-weight:600; text-transform:uppercase; letter-spacing:.06em;
+    color:var(--muted-foreground); padding:8px 8px 4px;
+  }
+  .nav-item {
+    display:flex; align-items:center; gap:10px; padding:7px 8px; border-radius:var(--radius-sm);
+    color:var(--sidebar-foreground); font-size:12.5px; font-weight:500; cursor:pointer;
+    border:1px solid transparent; position:relative; user-select:none;
+  }
+  .nav-item svg { color:var(--muted-foreground); flex-shrink:0; }
+  .nav-item:hover { background:var(--sidebar-accent); }
+  .nav-item.active {
+    background:var(--card); border-color:var(--sidebar-border);
+    color:var(--foreground); font-weight:600; box-shadow:var(--shadow-sm);
+  }
+  .nav-item.active svg { color:var(--primary); }
+  .nav-item.active::before {
+    content:""; position:absolute; left:-10px; top:6px; bottom:6px; width:3px;
+    background:var(--primary); border-radius:0 3px 3px 0;
+  }
+  .nav-item .badge-count {
+    margin-left:auto; font-size:10.5px; font-weight:600; color:var(--muted-foreground);
+    background:var(--sidebar-accent); border-radius:999px; padding:1px 7px; min-width:20px; text-align:center;
+  }
+  .shell-foot { margin-top:auto; padding:12px 12px 14px; border-top:1px solid var(--sidebar-border); }
+  .user {
+    display:flex; align-items:center; gap:10px; padding:6px 8px; border-radius:var(--radius-sm); cursor:pointer;
+  }
+  .user:hover { background:var(--sidebar-accent); }
+  .avatar {
+    width:28px; height:28px; border-radius:999px; flex-shrink:0;
+    background:linear-gradient(135deg,var(--viz-7),var(--viz-1)); color:#fff;
+    display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:650;
+  }
+  .user .u-name { font-size:12px; font-weight:600; line-height:1.15; }
+  .user .u-role { font-size:10.5px; color:var(--muted-foreground); }
+
+  /* ---------- main column ---------- */
+  .main { display:flex; flex-direction:column; height:1024px; min-width:0; }
+
+  .topbar {
+    height:52px; flex-shrink:0; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; gap:12px; padding:0 16px; background:var(--card);
+  }
+  .crumbs { display:flex; align-items:center; gap:7px; font-size:12.5px; color:var(--muted-foreground); }
+  .crumbs .sep { color:var(--border); }
+  .crumbs .cur { color:var(--foreground); font-weight:600; }
+  .topbar-spacer { flex:1; }
+  .search-top {
+    display:flex; align-items:center; gap:8px; height:32px; width:300px;
+    background:var(--background); border:1px solid var(--input); border-radius:var(--radius-sm);
+    padding:0 10px; color:var(--muted-foreground);
+  }
+  .search-top input {
+    border:0; outline:0; background:transparent; font-family:inherit; font-size:12.5px;
+    color:var(--foreground); width:100%;
+  }
+  .search-top .kbd {
+    font-size:10px; font-family:var(--font-mono); color:var(--muted-foreground);
+    border:1px solid var(--border); border-radius:4px; padding:1px 5px; background:var(--muted);
+  }
+
+  /* buttons */
+  .btn {
+    display:inline-flex; align-items:center; gap:6px; height:32px; padding:0 12px;
+    border-radius:var(--radius-sm); border:1px solid var(--input); background:var(--card);
+    color:var(--foreground); font-size:12.5px; font-weight:550; cursor:pointer; font-family:inherit;
+    white-space:nowrap;
+  }
+  .btn:hover { background:var(--accent); }
+  .btn svg { color:var(--muted-foreground); }
+  .btn.primary { background:var(--primary); border-color:var(--primary); color:var(--primary-foreground); }
+  .btn.primary svg { color:var(--primary-foreground); }
+  .btn.primary:hover { filter:brightness(1.05); }
+  .btn.icon { width:32px; padding:0; justify-content:center; }
+  .btn.sm { height:28px; padding:0 9px; font-size:12px; }
+
+  /* ---------- datasets surface (3 panes) ---------- */
+  .surface { flex:1; display:grid; grid-template-columns:272px 1fr 372px; min-height:0; overflow:hidden; }
+
+  /* pane chrome */
+  .pane { min-height:0; min-width:0; display:flex; flex-direction:column; overflow:hidden; }
+  .pane.rail { border-right:1px solid var(--border); background:var(--card); }
+  .pane.center { background:var(--background); }
+  .pane.lens { border-left:1px solid var(--border); background:var(--card); }
+  .pane-head {
+    flex-shrink:0; padding:12px 14px; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; gap:8px;
+  }
+  .pane-title { font-size:12px; font-weight:650; letter-spacing:.01em; }
+  .pane-scroll { overflow-y:auto; flex:1; min-height:0; }
+  .pane-scroll::-webkit-scrollbar { width:10px; height:10px; }
+  .pane-scroll::-webkit-scrollbar-thumb { background:var(--border); border-radius:8px; border:3px solid var(--card); }
+  .pane-scroll::-webkit-scrollbar-track { background:transparent; }
+
+  /* ---------- dataset rail ---------- */
+  .rail-search {
+    margin:10px 12px 8px; display:flex; align-items:center; gap:8px; height:32px;
+    background:var(--background); border:1px solid var(--input); border-radius:var(--radius-sm);
+    padding:0 10px; color:var(--muted-foreground);
+  }
+  .rail-search input { border:0; outline:0; background:transparent; font-family:inherit; font-size:12.5px; color:var(--foreground); width:100%; }
+  .rail-filters { display:flex; gap:6px; padding:0 12px 8px; flex-wrap:wrap; }
+  .chip {
+    font-size:11px; font-weight:550; padding:3px 9px; border-radius:999px;
+    border:1px solid var(--border); color:var(--muted-foreground); background:var(--card); cursor:pointer;
+  }
+  .chip.on { background:var(--foreground); color:var(--background); border-color:var(--foreground); }
+  .rail-group-label {
+    font-size:10.5px; font-weight:650; text-transform:uppercase; letter-spacing:.06em;
+    color:var(--muted-foreground); padding:10px 14px 5px;
+  }
+  .ds-item {
+    display:grid; grid-template-columns:34px 1fr auto; gap:10px; align-items:center;
+    padding:9px 12px 9px 14px; cursor:pointer; border-left:2px solid transparent; position:relative;
+  }
+  .ds-item:hover { background:var(--accent); }
+  .ds-item.active { background:var(--accent); border-left-color:var(--primary); }
+  .ds-name { font-size:12.5px; font-weight:600; letter-spacing:-.005em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ds-meta { font-size:11px; color:var(--muted-foreground); display:flex; align-items:center; gap:6px; margin-top:1px; }
+  .ds-meta .dot { width:3px; height:3px; border-radius:999px; background:var(--border); }
+  .ver-pill {
+    font-size:9.5px; font-weight:600; font-family:var(--font-mono); color:var(--muted-foreground);
+    border:1px solid var(--border); border-radius:4px; padding:0 4px; line-height:1.5;
+  }
+  .ds-spark { grid-column:2; margin-top:5px; }
+
+  /* quality ring (small, rail) */
+  .ring-sm { width:34px; height:34px; }
+
+  /* ---------- center grid ---------- */
+  .grid-toolbar {
+    flex-shrink:0; border-bottom:1px solid var(--border); background:var(--card);
+    display:flex; flex-direction:column;
+  }
+  .gt-row { display:flex; align-items:center; gap:10px; padding:10px 14px; }
+  .gt-row.stats { padding:12px 14px; gap:12px; border-bottom:1px solid var(--border); background:var(--background); }
+  .ds-title-wrap { display:flex; align-items:center; gap:10px; min-width:0; }
+  .ds-title { font-size:16px; font-weight:680; letter-spacing:-.015em; }
+  .badge {
+    display:inline-flex; align-items:center; gap:4px; font-size:11px; font-weight:600;
+    padding:2px 8px; border-radius:999px; border:1px solid transparent; line-height:1.4;
+  }
+  .badge .bdot { width:6px; height:6px; border-radius:999px; }
+  .badge.good { color:var(--st-good); background:color-mix(in srgb,var(--st-good) 12%,transparent); }
+  .badge.good .bdot { background:var(--st-good); }
+  .badge.warn { color:var(--warning); background:color-mix(in srgb,var(--warning) 14%,transparent); }
+  .badge.warn .bdot { background:var(--warning); }
+  .badge.serious { color:var(--st-serious); background:color-mix(in srgb,var(--st-serious) 14%,transparent); }
+  .badge.serious .bdot { background:var(--st-serious); }
+  .badge.neutral { color:var(--muted-foreground); background:var(--muted); }
+  .badge.outline { color:var(--muted-foreground); border-color:var(--border); background:transparent; font-family:var(--font-mono); }
+
+  /* select / segmented */
+  .select {
+    display:inline-flex; align-items:center; gap:7px; height:30px; padding:0 9px;
+    border:1px solid var(--input); border-radius:var(--radius-sm); background:var(--card);
+    font-size:12px; font-weight:550; cursor:pointer; color:var(--foreground);
+  }
+  .select .lab { color:var(--muted-foreground); font-weight:500; }
+  .select svg { color:var(--muted-foreground); }
+  .seg { display:inline-flex; background:var(--muted); border-radius:var(--radius-sm); padding:2px; gap:2px; }
+  .seg button {
+    border:0; background:transparent; font-family:inherit; font-size:12px; font-weight:550;
+    color:var(--muted-foreground); padding:4px 10px; border-radius:calc(var(--radius-sm) - 1px); cursor:pointer;
+  }
+  .seg button.on { background:var(--card); color:var(--foreground); box-shadow:var(--shadow-sm); }
+  .spacer { flex:1; }
+
+  /* stat tiles */
+  .tiles { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; width:100%; }
+  .tile {
+    border:1px solid var(--border); border-radius:var(--radius); background:var(--card);
+    padding:11px 13px; display:flex; flex-direction:column; gap:2px; position:relative; overflow:hidden;
+  }
+  .tile .t-label { font-size:11px; color:var(--muted-foreground); font-weight:550; }
+  .tile .t-value { font-size:20px; font-weight:700; letter-spacing:-.02em; line-height:1.1; }
+  .tile .t-sub { font-size:10.5px; color:var(--muted-foreground); display:flex; align-items:center; gap:4px; }
+  .tile .t-spark { position:absolute; right:11px; top:12px; opacity:.95; }
+  .delta.up { color:var(--st-good); font-weight:600; }
+  .delta.down { color:var(--destructive); font-weight:600; }
+
+  /* data grid table */
+  .grid-scroll { overflow:auto; flex:1; min-height:0; }
+  table.grid { border-collapse:separate; border-spacing:0; width:100%; font-size:12.5px; }
+  table.grid thead th {
+    position:sticky; top:0; z-index:2; background:var(--muted); text-align:left;
+    font-size:10.5px; font-weight:650; text-transform:uppercase; letter-spacing:.04em; color:var(--muted-foreground);
+    padding:0; border-bottom:1px solid var(--border); white-space:nowrap;
+  }
+  table.grid thead .th-inner { padding:7px 12px; display:flex; flex-direction:column; gap:5px; }
+  table.grid thead .th-top { display:flex; align-items:center; gap:6px; }
+  table.grid thead .th-type { font-family:var(--font-mono); font-size:9px; color:var(--muted-foreground); opacity:.8; text-transform:none; letter-spacing:0; }
+  table.grid tbody td {
+    padding:8px 10px; border-bottom:1px solid var(--border); white-space:nowrap; vertical-align:middle;
+  }
+  table.grid thead .th-inner { padding:7px 10px; }
+  td.email-cell { max-width:132px; overflow:hidden; text-overflow:ellipsis; }
+  table.grid tbody tr:hover td { background:var(--accent); }
+  td.num { text-align:right; font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
+  .rownum { color:var(--muted-foreground); font-family:var(--font-mono); font-size:11px; text-align:right; width:40px; user-select:none; }
+  .id-cell { font-family:var(--font-mono); color:var(--muted-foreground); font-size:11.5px; }
+  .email-cell { color:var(--muted-foreground); }
+  /* mini distribution bar for column header */
+  .minidist { display:flex; gap:2px; height:5px; align-items:flex-end; }
+  .minidist span { border-radius:1.5px; height:100%; }
+
+  .tag {
+    display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:600;
+    padding:2px 8px; border-radius:999px; border:1px solid var(--border);
+  }
+  .tag .tdot { width:6px; height:6px; border-radius:2px; }
+
+  .grid-foot {
+    flex-shrink:0; border-top:1px solid var(--border); background:var(--card);
+    display:flex; align-items:center; gap:12px; padding:8px 14px; font-size:12px; color:var(--muted-foreground);
+  }
+  .pager { display:inline-flex; align-items:center; gap:2px; }
+  .pager button {
+    width:26px; height:26px; border:1px solid var(--border); background:var(--card); border-radius:var(--radius-sm);
+    display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--muted-foreground); font-family:inherit;
+  }
+  .pager button:hover { background:var(--accent); }
+  .pager button.on { background:var(--foreground); color:var(--background); border-color:var(--foreground); font-weight:600; font-size:12px; }
+
+  /* ---------- lens dock ---------- */
+  .lens-tabs {
+    flex-shrink:0; display:flex; gap:2px; padding:8px 10px 0; border-bottom:1px solid var(--border);
+    overflow-x:auto; background:var(--card);
+  }
+  .lens-tabs::-webkit-scrollbar { height:0; }
+  .lens-tab {
+    border:0; background:transparent; font-family:inherit; font-size:12px; font-weight:550;
+    color:var(--muted-foreground); padding:7px 10px 9px; cursor:pointer; white-space:nowrap;
+    border-bottom:2px solid transparent; position:relative;
+  }
+  .lens-tab:hover { color:var(--foreground); }
+  .lens-tab.on { color:var(--foreground); font-weight:650; border-bottom-color:var(--primary); }
+  .lens-body { padding:16px 16px 24px; }
+  .lens-section + .lens-section { margin-top:20px; }
+  .sec-title { font-size:10.5px; font-weight:650; text-transform:uppercase; letter-spacing:.06em; color:var(--muted-foreground); margin-bottom:10px; }
+  .kv { display:grid; grid-template-columns:96px 1fr; gap:6px 12px; font-size:12px; }
+  .kv .k { color:var(--muted-foreground); }
+  .kv .v { color:var(--foreground); font-weight:550; }
+
+  /* health block */
+  .health {
+    display:grid; grid-template-columns:auto 1fr; gap:16px; align-items:center;
+    border:1px solid var(--border); border-radius:var(--radius); padding:14px; background:var(--background);
+  }
+  .ring-lg-wrap { position:relative; width:92px; height:92px; }
+  .ring-lg-center { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+  .ring-lg-center .score { font-size:24px; font-weight:750; letter-spacing:-.02em; line-height:1; }
+  .ring-lg-center .of { font-size:9.5px; color:var(--muted-foreground); font-weight:600; }
+  .health-list { display:flex; flex-direction:column; gap:9px; }
+  .hl-item { display:flex; align-items:center; gap:9px; font-size:12px; }
+  .hl-ico { width:16px; height:16px; flex-shrink:0; display:flex; align-items:center; justify-content:center; }
+  .hl-label { color:var(--foreground); font-weight:550; }
+  .hl-val { margin-left:auto; font-size:11px; color:var(--muted-foreground); font-weight:600; }
+  .meter { height:5px; border-radius:999px; background:var(--muted); overflow:hidden; margin-top:3px; }
+  .meter > span { display:block; height:100%; border-radius:999px; }
+
+  /* column dictionary */
+  .dict-item {
+    display:flex; align-items:center; gap:10px; padding:9px 10px; border:1px solid var(--border);
+    border-radius:var(--radius-sm); margin-bottom:7px; background:var(--card);
+  }
+  .dict-item:hover { background:var(--accent); }
+  .dict-type {
+    width:26px; height:26px; border-radius:var(--radius-sm); flex-shrink:0; display:flex; align-items:center; justify-content:center;
+    font-family:var(--font-mono); font-size:11px; font-weight:600; background:var(--muted); color:var(--muted-foreground);
+  }
+  .dict-name { font-size:12px; font-weight:600; }
+  .dict-sub { font-size:10.5px; color:var(--muted-foreground); }
+  .dict-fill { margin-left:auto; text-align:right; }
+  .dict-pct { font-size:11px; font-weight:650; font-variant-numeric:tabular-nums; }
+
+  /* generic legend */
+  .legend { display:flex; gap:14px; flex-wrap:wrap; margin-top:8px; font-size:11px; color:var(--muted-foreground); }
+  .legend span { display:inline-flex; align-items:center; gap:6px; }
+  .legend i { width:9px; height:9px; border-radius:2px; display:inline-block; }
+
+  .theme-toggle { display:inline-flex; align-items:center; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ============ LEFT APP SHELL ============ -->
+  <aside class="shell">
+    <div class="brand">
+      <div class="logo">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7 L9 12 L4 17"/><path d="M12 17 L20 17"/></svg>
+      </div>
+      <div>
+        <div class="name">Command Studio</div>
+        <div class="env">Prod · US-East</div>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <div class="nav-label">Workspace</div>
+      <div class="nav-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M17.5 14v7M14 17.5h7"/></svg>
+        Workflows <span class="badge-count">24</span>
+      </div>
+      <div class="nav-item active">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/><path d="M4 11v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6"/></svg>
+        Datasets <span class="badge-count">13</span>
+      </div>
+      <div class="nav-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a10 10 0 1 0-10-10"/><path d="M12 7v5l3 2"/><path d="M2 12H6"/></svg>
+        Runs <span class="badge-count">6</span>
+      </div>
+      <div class="nav-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H9l2 2.5h7.5A1.5 1.5 0 0 1 20 8v9.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/></svg>
+        Library
+      </div>
+
+      <div class="nav-label" style="margin-top:8px;">System</div>
+      <div class="nav-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 4v5c0 4.4-3 7.7-7 9-4-1.3-7-4.6-7-9V7z"/><path d="M9.5 12l1.8 1.8L15 10"/></svg>
+        Governance
+      </div>
+      <div class="nav-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-2.9 1.09V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 8 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15H4.5a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 6.2 9 1.65 1.65 0 0 0 5.87 7.2l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 11 4.6h.09A1.65 1.65 0 0 0 12.4 3"/></svg>
+        Settings
+      </div>
+    </nav>
+
+    <div class="shell-foot">
+      <div class="user">
+        <div class="avatar">SG</div>
+        <div style="min-width:0;">
+          <div class="u-name">Saketh Ganji</div>
+          <div class="u-role">Data Engineer</div>
+        </div>
+        <svg style="margin-left:auto;color:var(--muted-foreground)" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l4-4 4 4"/><path d="M16 15l-4 4-4-4"/></svg>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <div class="main">
+
+    <!-- top bar -->
+    <div class="topbar">
+      <div class="crumbs">
+        <span>Datasets</span>
+        <span class="sep">/</span>
+        <span>Commercial</span>
+        <span class="sep">/</span>
+        <span class="cur">Regional Orders</span>
+      </div>
+      <div class="topbar-spacer"></div>
+      <div class="search-top">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+        <input placeholder="Search datasets, columns, runs…" />
+        <span class="kbd">⌘K</span>
+      </div>
+      <button class="btn icon theme-toggle" id="themeBtn" title="Toggle theme" aria-label="Toggle theme">
+        <svg id="iconSun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+        <svg id="iconMoon" style="display:none" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      </button>
+      <button class="btn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>Upload</button>
+    </div>
+
+    <!-- three-pane surface -->
+    <div class="surface">
+
+      <!-- ===== PANE 1: dataset rail ===== -->
+      <div class="pane rail">
+        <div class="rail-search">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+          <input placeholder="Filter 13 datasets" />
+        </div>
+        <div class="rail-filters">
+          <span class="chip on">All</span>
+          <span class="chip">Validated</span>
+          <span class="chip">Issues</span>
+          <span class="chip">Recent</span>
+        </div>
+        <div class="pane-scroll">
+
+          <div class="rail-group-label">Commercial</div>
+          <!-- active item -->
+          <div class="ds-item active">
+            <svg class="ring-sm" viewBox="0 0 36 36" data-ring data-pct="94" data-status="good"></svg>
+            <div style="min-width:0;">
+              <div class="ds-name">Regional Orders</div>
+              <div class="ds-meta"><span class="tnum">128,540 rows</span><span class="dot"></span><span class="ver-pill">v7</span></div>
+              <svg class="ds-spark" width="150" height="20" data-spark="12,14,13,16,18,17,20,22,21,24,26,25"></svg>
+            </div>
+          </div>
+          <div class="ds-item">
+            <svg class="ring-sm" viewBox="0 0 36 36" data-ring data-pct="88" data-status="good"></svg>
+            <div style="min-width:0;">
+              <div class="ds-name">CRM Customers</div>
+              <div class="ds-meta"><span class="tnum">64,209 rows</span><span class="dot"></span><span class="ver-pill">v4</span></div>
+            </div>
+          </div>
+          <div class="ds-item">
+            <svg class="ring-sm" viewBox="0 0 36 36" data-ring data-pct="72" data-status="warning"></svg>
+            <div style="min-width:0;">
+              <div class="ds-name">KYC Cases</div>
+              <div class="ds-meta"><span class="tnum">9,842 rows</span><span class="dot"></span><span class="ver-pill">v2</span></div>
+            </div>
+          </div>
+
+          <div class="rail-group-label">Risk &amp; Markets</div>
+          <div class="ds-item">
+            <svg class="ring-sm" viewBox="0 0 36 36" data-ring data-pct="91" data-status="good"></svg>
+            <div style="min-width:0;">
+              <div class="ds-name">Counterparty Exposures</div>
+              <div class="ds-meta"><span class="tnum">41,377 rows</span><span class="dot"></span><span class="ver-pill">v12</span></div>
+            </div>
+          </div>
+          <div class="ds-item">
+            <svg class="ring-sm" viewBox="0 0 36 36" data-ring data-pct="97" data-status="good"></svg>
+            <div style="min-width:0;">
+              <div class="ds-name">FX Trades EOD</div>
+              <div class="ds-meta"><span class="tnum">218,904 rows</span><span class="dot"></span><span class="ver-pill">v31</span></div>
+            </div>
+          </div>
+          <div class="ds-item">
+            <svg class="ring-sm" viewBox="0 0 36 36" data-ring data-pct="84" data-status="good"></svg>
+            <div style="min-width:0;">
+              <div class="ds-name">Positions</div>
+              <div class="ds-meta"><span class="tnum">76,551 rows</span><span class="dot"></span><span class="ver-pill">v18</span></div>
+            </div>
+          </div>
+          <div class="ds-item">
+            <svg class="ring-sm" viewBox="0 0 36 36" data-ring data-pct="99" data-status="good"></svg>
+            <div style="min-width:0;">
+              <div class="ds-name">Reference Rates</div>
+              <div class="ds-meta"><span class="tnum">3,204 rows</span><span class="dot"></span><span class="ver-pill">v9</span></div>
+            </div>
+          </div>
+          <div class="ds-item">
+            <svg class="ring-sm" viewBox="0 0 36 36" data-ring data-pct="61" data-status="serious"></svg>
+            <div style="min-width:0;">
+              <div class="ds-name">Trade Breaks</div>
+              <div class="ds-meta"><span class="tnum">1,118 rows</span><span class="dot"></span><span class="ver-pill">v3</span></div>
+            </div>
+          </div>
+
+          <div class="rail-group-label">Finance &amp; Compliance</div>
+          <div class="ds-item">
+            <svg class="ring-sm" viewBox="0 0 36 36" data-ring data-pct="93" data-status="good"></svg>
+            <div style="min-width:0;">
+              <div class="ds-name">Ledger Entries</div>
+              <div class="ds-meta"><span class="tnum">512,880 rows</span><span class="dot"></span><span class="ver-pill">v22</span></div>
+            </div>
+          </div>
+          <div class="ds-item">
+            <svg class="ring-sm" viewBox="0 0 36 36" data-ring data-pct="79" data-status="warning"></svg>
+            <div style="min-width:0;">
+              <div class="ds-name">AML Alerts</div>
+              <div class="ds-meta"><span class="tnum">14,663 rows</span><span class="dot"></span><span class="ver-pill">v5</span></div>
+            </div>
+          </div>
+          <div class="ds-item">
+            <svg class="ring-sm" viewBox="0 0 36 36" data-ring data-pct="86" data-status="good"></svg>
+            <div style="min-width:0;">
+              <div class="ds-name">Counterparty Ref Data</div>
+              <div class="ds-meta"><span class="tnum">2,905 rows</span><span class="dot"></span><span class="ver-pill">v6</span></div>
+            </div>
+          </div>
+          <div class="ds-item">
+            <svg class="ring-sm" viewBox="0 0 36 36" data-ring data-pct="68" data-status="warning"></svg>
+            <div style="min-width:0;">
+              <div class="ds-name">Settlement Instructions</div>
+              <div class="ds-meta"><span class="tnum">8,410 rows</span><span class="dot"></span><span class="ver-pill">v4</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== PANE 2: center data grid ===== -->
+      <div class="pane center">
+
+        <div class="grid-toolbar">
+          <!-- title row -->
+          <div class="gt-row">
+            <div class="ds-title-wrap">
+              <span class="ds-title">Regional Orders</span>
+              <span class="badge good"><span class="bdot"></span>Validated</span>
+              <span class="badge outline">v7 · latest</span>
+            </div>
+            <div class="spacer"></div>
+            <button class="btn sm"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>Export</button>
+            <button class="btn sm primary"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16M4 6h16M4 18h10"/></svg>Transform</button>
+          </div>
+
+          <!-- stat tiles -->
+          <div class="gt-row stats">
+            <div class="tiles">
+              <div class="tile">
+                <div class="t-label">Total rows</div>
+                <div class="t-value tnum">128,540</div>
+                <div class="t-sub"><span class="delta up">▲ 4.2%</span> vs v6</div>
+                <svg class="t-spark" width="46" height="18" data-spark="8,9,11,10,13,15,14,17,19,18,21,24" data-color="var(--viz-1)"></svg>
+              </div>
+              <div class="tile">
+                <div class="t-label">Columns</div>
+                <div class="t-value tnum">8</div>
+                <div class="t-sub">0 nullable of note</div>
+                <svg class="t-spark" width="46" height="18" data-bars="6,8,5,9,7,8,6,9" data-color="var(--viz-3)"></svg>
+              </div>
+              <div class="tile">
+                <div class="t-label">Quality score</div>
+                <div class="t-value tnum" style="color:var(--st-good)">94<span style="font-size:12px;color:var(--muted-foreground);font-weight:600">/100</span></div>
+                <div class="t-sub"><span class="delta up">▲ 2 pts</span> this run</div>
+                <svg class="t-spark" width="46" height="18" data-spark="86,88,87,90,89,91,90,92,93,94" data-color="var(--st-good)"></svg>
+              </div>
+              <div class="tile">
+                <div class="t-label">Freshness</div>
+                <div class="t-value">2h ago</div>
+                <div class="t-sub">daily · 06:00 UTC</div>
+                <svg class="t-spark" width="46" height="18" data-bars="9,9,8,9,9,9,8,9" data-color="var(--viz-4)"></svg>
+              </div>
+            </div>
+          </div>
+
+          <!-- controls row -->
+          <div class="gt-row">
+            <div class="select"><span class="lab">Version</span><span class="mono">v7</span>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+            </div>
+            <div class="select"><span class="lab">Sheet</span><span>orders</span>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+            </div>
+            <div class="seg">
+              <button class="on">Data</button>
+              <button>Schema</button>
+              <button>Diff</button>
+            </div>
+            <div class="spacer"></div>
+            <button class="btn sm icon" title="Column controls"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/></svg></button>
+            <button class="btn sm icon" title="Filter"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18l-7 8v5l-4 2v-7z"/></svg></button>
+            <div class="badge neutral tnum" style="font-weight:600">15 of 128,540</div>
+          </div>
+        </div>
+
+        <!-- the grid -->
+        <div class="grid-scroll">
+          <table class="grid">
+            <thead>
+              <tr>
+                <th style="width:40px"><div class="th-inner"><div class="th-top">#</div></div></th>
+                <th><div class="th-inner"><div class="th-top">order_id</div><span class="th-type">int64 · unique</span></div></th>
+                <th><div class="th-inner"><div class="th-top">region</div>
+                  <div class="minidist" title="US / APAC / LATAM / EU">
+                    <span style="width:22px;background:var(--viz-1)"></span>
+                    <span style="width:14px;background:var(--viz-2)"></span>
+                    <span style="width:10px;background:var(--viz-3)"></span>
+                    <span style="width:16px;background:var(--viz-4)"></span>
+                  </div></div></th>
+                <th><div class="th-inner"><div class="th-top">customer_id</div><span class="th-type">int64 · fk</span></div></th>
+                <th><div class="th-inner"><div class="th-top">email</div><span class="th-type">string · 99.4%</span></div></th>
+                <th style="text-align:right"><div class="th-inner" style="align-items:flex-end"><div class="th-top">amount</div><span class="th-type">decimal · usd</span></div></th>
+                <th><div class="th-inner"><div class="th-top">status</div>
+                  <div class="minidist" title="paid / pending / refunded">
+                    <span style="width:28px;background:var(--st-good)"></span>
+                    <span style="width:12px;background:var(--st-warning)"></span>
+                    <span style="width:8px;background:var(--st-serious)"></span>
+                  </div></div></th>
+                <th><div class="th-inner"><div class="th-top">order_date</div><span class="th-type">date</span></div></th>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- 15 rows -->
+              <tr><td class="rownum">1</td><td class="id-cell">10041027</td><td><span class="tag"><span class="tdot" style="background:var(--viz-1)"></span>US</span></td><td class="id-cell">C-88213</td><td class="email-cell">a.moreno@northwind.io</td><td class="num">1,284.00</td><td><span class="badge good"><span class="bdot"></span>paid</span></td><td class="mono">2026-08-14</td></tr>
+              <tr><td class="rownum">2</td><td class="id-cell">10041028</td><td><span class="tag"><span class="tdot" style="background:var(--viz-2)"></span>APAC</span></td><td class="id-cell">C-11947</td><td class="email-cell">kenji.watanabe@aozora.jp</td><td class="num">642.50</td><td><span class="badge warn"><span class="bdot"></span>pending</span></td><td class="mono">2026-08-14</td></tr>
+              <tr><td class="rownum">3</td><td class="id-cell">10041029</td><td><span class="tag"><span class="tdot" style="background:var(--viz-4)"></span>EU</span></td><td class="id-cell">C-50388</td><td class="email-cell">l.fischer@rheinmark.de</td><td class="num">3,910.75</td><td><span class="badge good"><span class="bdot"></span>paid</span></td><td class="mono">2026-08-13</td></tr>
+              <tr><td class="rownum">4</td><td class="id-cell">10041030</td><td><span class="tag"><span class="tdot" style="background:var(--viz-3)"></span>LATAM</span></td><td class="id-cell">C-72640</td><td class="email-cell">m.silva@bancosur.br</td><td class="num">228.90</td><td><span class="badge serious"><span class="bdot"></span>refunded</span></td><td class="mono">2026-08-13</td></tr>
+              <tr><td class="rownum">5</td><td class="id-cell">10041031</td><td><span class="tag"><span class="tdot" style="background:var(--viz-1)"></span>US</span></td><td class="id-cell">C-33019</td><td class="email-cell">t.nguyen@westgate.com</td><td class="num">5,472.00</td><td><span class="badge good"><span class="bdot"></span>paid</span></td><td class="mono">2026-08-13</td></tr>
+              <tr><td class="rownum">6</td><td class="id-cell">10041032</td><td><span class="tag"><span class="tdot" style="background:var(--viz-1)"></span>US</span></td><td class="id-cell">C-90551</td><td class="email-cell">r.oberoi@vantage.us</td><td class="num">89.99</td><td><span class="badge warn"><span class="bdot"></span>pending</span></td><td class="mono">2026-08-12</td></tr>
+              <tr><td class="rownum">7</td><td class="id-cell">10041033</td><td><span class="tag"><span class="tdot" style="background:var(--viz-2)"></span>APAC</span></td><td class="id-cell">C-14782</td><td class="email-cell">s.pillai@meridian.sg</td><td class="num">1,050.00</td><td><span class="badge good"><span class="bdot"></span>paid</span></td><td class="mono">2026-08-12</td></tr>
+              <tr><td class="rownum">8</td><td class="id-cell">10041034</td><td><span class="tag"><span class="tdot" style="background:var(--viz-4)"></span>EU</span></td><td class="id-cell">C-60294</td><td class="email-cell">e.rossi@lombardia.it</td><td class="num">742.30</td><td><span class="badge good"><span class="bdot"></span>paid</span></td><td class="mono">2026-08-12</td></tr>
+              <tr><td class="rownum">9</td><td class="id-cell">10041035</td><td><span class="tag"><span class="tdot" style="background:var(--viz-3)"></span>LATAM</span></td><td class="id-cell">C-47710</td><td class="email-cell">j.castro@andesbank.pe</td><td class="num">318.45</td><td><span class="badge warn"><span class="bdot"></span>pending</span></td><td class="mono">2026-08-11</td></tr>
+              <tr><td class="rownum">10</td><td class="id-cell">10041036</td><td><span class="tag"><span class="tdot" style="background:var(--viz-1)"></span>US</span></td><td class="id-cell">C-20938</td><td class="email-cell">d.harper@pinecrest.us</td><td class="num">2,199.00</td><td><span class="badge good"><span class="bdot"></span>paid</span></td><td class="mono">2026-08-11</td></tr>
+              <tr><td class="rownum">11</td><td class="id-cell">10041037</td><td><span class="tag"><span class="tdot" style="background:var(--viz-2)"></span>APAC</span></td><td class="id-cell">C-55127</td><td class="email-cell">h.lim@daehan.kr</td><td class="num">4,860.20</td><td><span class="badge good"><span class="bdot"></span>paid</span></td><td class="mono">2026-08-11</td></tr>
+              <tr><td class="rownum">12</td><td class="id-cell">10041038</td><td><span class="tag"><span class="tdot" style="background:var(--viz-4)"></span>EU</span></td><td class="id-cell">C-38264</td><td class="email-cell">p.novak@vltava.cz</td><td class="num">156.75</td><td><span class="badge serious"><span class="bdot"></span>refunded</span></td><td class="mono">2026-08-10</td></tr>
+              <tr><td class="rownum">13</td><td class="id-cell">10041039</td><td><span class="tag"><span class="tdot" style="background:var(--viz-1)"></span>US</span></td><td class="id-cell">C-71005</td><td class="email-cell">c.walker@brightbay.us</td><td class="num">920.00</td><td><span class="badge good"><span class="bdot"></span>paid</span></td><td class="mono">2026-08-10</td></tr>
+              <tr><td class="rownum">14</td><td class="id-cell">10041040</td><td><span class="tag"><span class="tdot" style="background:var(--viz-3)"></span>LATAM</span></td><td class="id-cell">C-29483</td><td class="email-cell">f.ramirez@aztecacap.mx</td><td class="num">1,675.60</td><td><span class="badge warn"><span class="bdot"></span>pending</span></td><td class="mono">2026-08-10</td></tr>
+              <tr><td class="rownum">15</td><td class="id-cell">10041041</td><td><span class="tag"><span class="tdot" style="background:var(--viz-2)"></span>APAC</span></td><td class="id-cell">C-64872</td><td class="email-cell">w.chan@harbourpt.hk</td><td class="num">3,240.10</td><td><span class="badge good"><span class="bdot"></span>paid</span></td><td class="mono">2026-08-09</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- grid footer / pager -->
+        <div class="grid-foot">
+          <span>Rows <b class="tnum" style="color:var(--foreground)">1–15</b> of <b class="tnum" style="color:var(--foreground)">128,540</b></span>
+          <span class="dot" style="width:3px;height:3px;border-radius:999px;background:var(--border)"></span>
+          <span>Page size <b style="color:var(--foreground)">15</b></span>
+          <div class="spacer"></div>
+          <div class="pager">
+            <button title="Previous"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+            <button class="on">1</button>
+            <button>2</button>
+            <button>3</button>
+            <button>…</button>
+            <button>8570</button>
+            <button title="Next"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== PANE 3: lens dock ===== -->
+      <div class="pane lens">
+        <div class="lens-tabs">
+          <button class="lens-tab on">Overview</button>
+          <button class="lens-tab">Quality</button>
+          <button class="lens-tab">Versions</button>
+          <button class="lens-tab">Analytics</button>
+          <button class="lens-tab">Relations</button>
+          <button class="lens-tab">Transform</button>
+          <button class="lens-tab">Library</button>
+        </div>
+        <div class="pane-scroll">
+          <div class="lens-body">
+
+            <!-- metadata -->
+            <div class="lens-section">
+              <div class="sec-title">Dataset</div>
+              <div class="kv">
+                <div class="k">Owner</div><div class="v">Commercial Analytics</div>
+                <div class="k">Steward</div><div class="v">M. Okafor</div>
+                <div class="k">Source</div><div class="v">warehouse.orders_raw</div>
+                <div class="k">Classification</div><div class="v"><span class="badge warn" style="padding:1px 7px"><span class="bdot"></span>Confidential · PII</span></div>
+                <div class="k">Updated</div><div class="v">2026-08-16 · 2h ago</div>
+                <div class="k">Version</div><div class="v mono">v7 · 128,540 rows</div>
+              </div>
+            </div>
+
+            <!-- HEALTH -->
+            <div class="lens-section">
+              <div class="sec-title">Health</div>
+              <div class="health">
+                <div class="ring-lg-wrap">
+                  <svg width="92" height="92" viewBox="0 0 92 92" data-ring-lg data-pct="94" data-status="good"></svg>
+                  <div class="ring-lg-center">
+                    <div class="score" style="color:var(--st-good)">94</div>
+                    <div class="of">HEALTHY</div>
+                  </div>
+                </div>
+                <div class="health-list">
+                  <div>
+                    <div class="hl-item">
+                      <span class="hl-ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--st-good)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>
+                      <span class="hl-label">Validation</span><span class="hl-val">42/42 rules</span>
+                    </div>
+                    <div class="meter"><span style="width:100%;background:var(--st-good)"></span></div>
+                  </div>
+                  <div>
+                    <div class="hl-item">
+                      <span class="hl-ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--st-good)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span>
+                      <span class="hl-label">Documentation</span><span class="hl-val">8/8 columns</span>
+                    </div>
+                    <div class="meter"><span style="width:100%;background:var(--st-good)"></span></div>
+                  </div>
+                  <div>
+                    <div class="hl-item">
+                      <span class="hl-ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--st-warning)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></span>
+                      <span class="hl-label">Schema drift</span><span class="hl-val">1 minor</span>
+                    </div>
+                    <div class="meter"><span style="width:82%;background:var(--st-warning)"></span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- column dictionary -->
+            <div class="lens-section">
+              <div class="sec-title" style="display:flex;justify-content:space-between;align-items:center">Column dictionary <span style="font-weight:600;text-transform:none;letter-spacing:0">8 columns</span></div>
+
+              <div class="dict-item">
+                <div class="dict-type">#</div>
+                <div style="min-width:0"><div class="dict-name">order_id</div><div class="dict-sub">int64 · primary key</div></div>
+                <div class="dict-fill"><div class="dict-pct" style="color:var(--st-good)">100%</div><div class="dict-sub">complete</div></div>
+              </div>
+              <div class="dict-item">
+                <div class="dict-type">A</div>
+                <div style="min-width:0"><div class="dict-name">region</div><div class="dict-sub">enum · 4 values</div></div>
+                <div class="dict-fill"><div class="dict-pct" style="color:var(--st-good)">100%</div><div class="dict-sub">US·APAC·EU·LATAM</div></div>
+              </div>
+              <div class="dict-item">
+                <div class="dict-type">#</div>
+                <div style="min-width:0"><div class="dict-name">customer_id</div><div class="dict-sub">int64 · foreign key</div></div>
+                <div class="dict-fill"><div class="dict-pct" style="color:var(--st-good)">100%</div><div class="dict-sub">→ CRM Customers</div></div>
+              </div>
+              <div class="dict-item">
+                <div class="dict-type">@</div>
+                <div style="min-width:0"><div class="dict-name">email</div><div class="dict-sub">string · pii · masked</div></div>
+                <div class="dict-fill"><div class="dict-pct" style="color:var(--st-warning)">99.4%</div><div class="dict-sub">771 null</div></div>
+              </div>
+              <div class="dict-item">
+                <div class="dict-type">$</div>
+                <div style="min-width:0"><div class="dict-name">amount</div><div class="dict-sub">decimal(12,2) · usd</div></div>
+                <div class="dict-fill"><div class="dict-pct" style="color:var(--st-good)">100%</div><div class="dict-sub">0 – 84,210</div></div>
+              </div>
+              <div class="dict-item">
+                <div class="dict-type">A</div>
+                <div style="min-width:0"><div class="dict-name">status</div><div class="dict-sub">enum · 3 values</div></div>
+                <div class="dict-fill"><div class="dict-pct" style="color:var(--st-good)">100%</div><div class="dict-sub">paid·pending·refunded</div></div>
+              </div>
+              <div class="dict-item">
+                <div class="dict-type" style="font-size:10px">⧗</div>
+                <div style="min-width:0"><div class="dict-name">order_date</div><div class="dict-sub">date · daily grain</div></div>
+                <div class="dict-fill"><div class="dict-pct" style="color:var(--st-good)">100%</div><div class="dict-sub">18mo span</div></div>
+              </div>
+
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /surface -->
+  </div><!-- /main -->
+</div><!-- /app -->
+
+<script>
+  // ---- theme toggle ----
+  (function(){
+    var btn = document.getElementById('themeBtn');
+    var sun = document.getElementById('iconSun');
+    var moon = document.getElementById('iconMoon');
+    btn.addEventListener('click', function(){
+      var dark = document.documentElement.classList.toggle('dark');
+      sun.style.display = dark ? 'none' : 'block';
+      moon.style.display = dark ? 'block' : 'none';
+      redraw();
+    });
+  })();
+
+  // ---- status color resolver ----
+  function statusColor(s){
+    var map = {good:'--st-good', warning:'--st-warning', serious:'--st-serious', critical:'--st-critical'};
+    return getComputedStyle(document.documentElement).getPropertyValue(map[s]||'--st-good').trim();
+  }
+  function ink(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+
+  // ---- small rings (rail, 36x36 viewbox) ----
+  function drawRing(el){
+    var pct = +el.getAttribute('data-pct');
+    var col = statusColor(el.getAttribute('data-status'));
+    var track = ink('--border');
+    var r = 15, c = 2*Math.PI*r, off = c*(1-pct/100);
+    el.innerHTML =
+      '<circle cx="18" cy="18" r="'+r+'" fill="none" stroke="'+track+'" stroke-width="3"/>'+
+      '<circle cx="18" cy="18" r="'+r+'" fill="none" stroke="'+col+'" stroke-width="3" stroke-linecap="round" '+
+      'stroke-dasharray="'+c+'" stroke-dashoffset="'+off+'" transform="rotate(-90 18 18)"/>'+
+      '<text x="18" y="18" text-anchor="middle" dominant-baseline="central" font-family="var(--font-mono)" '+
+      'font-size="9" font-weight="700" fill="'+ink('--foreground')+'">'+pct+'</text>';
+  }
+
+  // ---- large ring (health, 92x92) ----
+  function drawRingLg(el){
+    var pct = +el.getAttribute('data-pct');
+    var col = statusColor(el.getAttribute('data-status'));
+    var track = ink('--muted');
+    var r = 40, c = 2*Math.PI*r, off = c*(1-pct/100);
+    el.innerHTML =
+      '<circle cx="46" cy="46" r="'+r+'" fill="none" stroke="'+track+'" stroke-width="7"/>'+
+      '<circle cx="46" cy="46" r="'+r+'" fill="none" stroke="'+col+'" stroke-width="7" stroke-linecap="round" '+
+      'stroke-dasharray="'+c+'" stroke-dashoffset="'+off+'" transform="rotate(-90 46 46)"/>';
+  }
+
+  // ---- sparkline (line, 2px, dot at end) ----
+  function drawSpark(el){
+    var pts = el.getAttribute('data-spark').split(',').map(Number);
+    var w = +el.getAttribute('width'), h = +el.getAttribute('height');
+    var col = el.getAttribute('data-color') || ink('--muted-foreground');
+    col = col.indexOf('var(')===0 ? ink(col.slice(4,-1)) : col;
+    var min = Math.min.apply(null,pts), max = Math.max.apply(null,pts), span = (max-min)||1;
+    var pad = 3, iw = w-pad*2, ih = h-pad*2;
+    var d = pts.map(function(p,i){
+      var x = pad + iw*(i/(pts.length-1));
+      var y = pad + ih*(1-(p-min)/span);
+      return (i?'L':'M')+x.toFixed(1)+' '+y.toFixed(1);
+    }).join(' ');
+    var lx = pad+iw, ly = pad+ih*(1-(pts[pts.length-1]-min)/span);
+    el.innerHTML =
+      '<path d="'+d+'" fill="none" stroke="'+col+'" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'+
+      '<circle cx="'+lx.toFixed(1)+'" cy="'+ly.toFixed(1)+'" r="2.2" fill="'+col+'"/>';
+  }
+
+  // ---- mini bars (rounded data-ends, anchored to baseline) ----
+  function drawBars(el){
+    var pts = el.getAttribute('data-bars').split(',').map(Number);
+    var w = +el.getAttribute('width'), h = +el.getAttribute('height');
+    var col = el.getAttribute('data-color') || ink('--muted-foreground');
+    col = col.indexOf('var(')===0 ? ink(col.slice(4,-1)) : col;
+    var max = Math.max.apply(null,pts)||1, pad = 2, iw = w-pad*2, ih = h-pad;
+    var gap = 2, bw = (iw-gap*(pts.length-1))/pts.length;
+    var out = '';
+    pts.forEach(function(p,i){
+      var bh = Math.max(2, ih*(p/max));
+      var x = pad + i*(bw+gap), y = h-bh;
+      out += '<rect x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+bh.toFixed(1)+'" rx="1.5" fill="'+col+'"/>';
+    });
+    el.innerHTML = out;
+  }
+
+  function redraw(){
+    document.querySelectorAll('[data-ring]').forEach(drawRing);
+    document.querySelectorAll('[data-ring-lg]').forEach(drawRingLg);
+    document.querySelectorAll('[data-spark]').forEach(drawSpark);
+    document.querySelectorAll('[data-bars]').forEach(drawBars);
+  }
+  redraw();
+</script>
+</body>
+</html>

@@ -1,0 +1,1212 @@
+<!DOCTYPE html>
+<!--
+DESIGN NOTES — "INSTRUMENT" applied to the unified execution monitor (restyle of the terminal RUNS screen).
+Tokens, grain overlay, status-shape CSS, scrollbar and focus-ring copied verbatim from terminal-quality-instrument.html.
+Same information, same regions, same layout — only the material changed. What the density forced:
+ A1 ACCENT — cyan means SCOPE + LIVENESS, so it is spent exactly 4 times: the active route (Runs), the selected
+    run row #4118, that run's id in the dock head, and the SYNC lamp. RUNNING is repeated state (3 rows + a KPI),
+    so it cannot take the accent without becoming a texture: running is the UNKNOWN ring, pulsing, guarded by
+    prefers-reduced-motion. Every link, every "active" filter and the primary button came off the accent.
+ A2 BORDERS — the run list is rule 3's heterogeneous-table exception and needs two of the three cases: a whisper
+    row rule with a heavier ruler measure every 6th row, and ONE vertical rule before `status` splitting
+    DEFINITION (run/what/src/type/mode) from OUTCOME (status/started/dur/rows/team/actor). The webhook strip earns
+    a horizontal zone seam. Everywhere else elevation and space replaced the hairline.
+ A3 MODE — ASYNC vs IN-REQ is a PROPERTY, not a state (rule 7), so the two chips lost their blue/amber boxes and
+    are told typographically: `async` in t1/600, `in-req` in t3/400. Same for src (data/wf) and the EXT marker.
+ A4 MAGNITUDE — stage bars, webhook success meters, sparklines and the queue histogram are single-series
+    magnitude, so they take the neutral value ramp (m1..m6). Status hue survives only on the five shapes.
+    The one categorical use left is the 7-team identity swatch, which keeps the fixed palette order.
+ A5 THE ERROR — problem+json became a genuine artifact: a recessed well, ink-only payload (no syntax rainbow),
+    with the machine-readable `code` as the hero figure over a 9.5px eyebrow.
+Command Studio — RUNS: one execution monitor over two engines (workflow engine + analytics service), because an
+operator thinks of "things that ran" as a single list. Sibling of terminal-workflows.html: same 1440x1024 shell,
+hairlines, mono tabular-nums, uppercase micro-labels, status dots always beside a word; only panes scroll.
+Execution-model honesty is the spine: an ASYNC vs IN-REQ chip on every row (only 4 of 8 job types have a worker
+handler, so "queued" only means something for ASYNC), EXT markers + a banner because nothing schedules artifact_gc,
+and a right dock whose failure view leads with the machine-readable problem+json `code`, not the prose.
+-->
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Command Studio · Runs</title>
+<style>
+  :root {
+    --s0:#080A0E;  --s1:#0D1015;  --s2:#11151B;  --s3:#161B22;
+    --s4:#1C222B;  --s5:#242C37;  --s6:#38424F;  --key:#E9EEF5;
+    --t1:#E7ECF3;  --t2:#B0BAC8;  --t3:#85909F;  --t4:#5C6675; /* t4 = decoration only, NEVER text */
+    --r1:rgba(255,255,255,.042); --r2:rgba(255,255,255,.075); --r3:rgba(255,255,255,.13);
+    --hi:inset 0 1px 0 rgba(255,255,255,.045);
+    --sig:#46D5E8; --sig-dim:rgba(70,213,232,.14); --sig-line:rgba(70,213,232,.40);
+    --st-good:#0ca30c; --st-warn:#fab219; --st-serious:#ec835a; --st-crit:#DC5050;
+    --m1:#CBD3DF; --m2:#A2ACBB; --m3:#7D8797; --m4:#5F6979; --m5:#48515F; --m6:#39414D;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    /* categorical set, fixed order, never cycled — used ONLY for team identity in the run list */
+    --viz-1:#3987e5; --viz-2:#d95926; --viz-3:#199e70; --viz-4:#c98500;
+    --viz-5:#d55181; --viz-6:#747c04; --viz-7:#9085e9; --viz-8:#e66767;
+    /* legacy aliases so the inline styles still in the markup keep resolving */
+    --background:var(--s1); --foreground:var(--t1); --card:var(--s2); --surface:var(--s3);
+    --muted:rgba(255,255,255,.05); --muted-foreground:var(--t3); --secondary:var(--s4);
+    --accent:var(--s4); --border:var(--r2); --primary:var(--sig); --primary-foreground:#0B0E13;
+    --destructive:var(--st-crit); --success:var(--st-good); --warning:var(--st-warn);
+    --font-sans:var(--sans); --font-mono:var(--mono); --radius:8px;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { height:100%; overflow:hidden; }
+  html { font-size:13px; }
+  body {
+    font-family:var(--sans); color:var(--t2); font-size:12.5px;
+    background:radial-gradient(1180px 560px at 44% -12%, #151B24 0%, rgba(21,27,36,0) 62%), var(--s1);
+    -webkit-font-smoothing:antialiased; line-height:1.4; letter-spacing:-0.004em;
+    display:flex; align-items:center; justify-content:center;
+  }
+  body::after {
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:200; opacity:.055; mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .mono, .tnum { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  .tnum { font-family:inherit; }
+  /* the ONE eyebrow register — 9.5px, only over hero numbers (rule 4) */
+  .micro { font-size:9.5px; font-weight:500; letter-spacing:.11em; text-transform:uppercase; color:var(--t3); }
+  ::selection { background:rgba(70,213,232,.26); color:#fff; }
+  :focus-visible { outline:none; box-shadow:0 0 0 1px var(--s0), 0 0 0 3px rgba(70,213,232,.45); border-radius:6px; }
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb { background:#232B35; border-radius:8px; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background:#303945; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-track { background:transparent; }
+
+  /* ===== STATUS: five states, five SHAPES, always beside a word (rule 6) ===== */
+  .dot { width:8px; height:8px; flex:none; display:inline-block; vertical-align:-1px; }
+  .dot.good    { border-radius:50%; background:var(--st-good); }
+  .dot.warn    { width:0; height:0; border-left:4.5px solid transparent; border-right:4.5px solid transparent;
+                 border-bottom:8px solid var(--st-warn); vertical-align:0; }
+  .dot.serious { width:7px; height:7px; background:var(--st-serious); border-radius:1px; transform:rotate(45deg); margin:0 1px; }
+  .dot.crit    { background:var(--st-crit); border-radius:1px; }
+  .dot.muted   { border-radius:50%; background:transparent; box-shadow:inset 0 0 0 1.5px var(--t4); }
+  /* running = outcome not yet known: the unknown RING, pulsing. Never the accent — 3 rows carry it. */
+  .dot.run     { border-radius:50%; background:transparent; box-shadow:inset 0 0 0 1.5px var(--t2);
+                 animation:pulse 2.4s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.34} }
+  @media (prefers-reduced-motion:reduce){ .dot.run, .live { animation:none } }
+
+  /* ===== SHELL ===== */
+  .shell { width:100%; height:100%; background:transparent; display:flex; flex-direction:column; overflow:hidden; }
+
+  /* ===== TOP BAR ===== */
+  .topbar { height:56px; min-height:56px; flex:none; display:flex; align-items:center; gap:18px; padding:0 16px;
+    background:linear-gradient(180deg,#141922,#10141A); box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); z-index:30; }
+  .brand { display:flex; align-items:center; gap:10px; }
+  .logo { width:21px; height:21px; border-radius:5px; background:linear-gradient(180deg,#2C3542,#191F28);
+    position:relative; box-shadow:var(--hi), 0 1px 2px rgba(0,0,0,.5); }
+  .logo::after { content:""; position:absolute; inset:6px; border:1.5px solid var(--t2); border-radius:2px; opacity:.9; }
+  .wordmark { font-weight:600; font-size:12.5px; letter-spacing:-0.012em; color:var(--t1); white-space:nowrap; }
+  .envchip { font-family:var(--mono); font-size:10px; color:var(--t3); display:inline-flex; align-items:center;
+    gap:6px; white-space:nowrap; }
+  .envchip::before { content:""; width:5px; height:5px; border-radius:50%; background:var(--st-warn); flex:none; }
+  .nav { display:flex; align-items:center; gap:4px; }
+  .nav a { position:relative; height:30px; padding:0 10px; color:var(--t3); text-decoration:none; font-size:12.5px;
+    font-weight:450; border-radius:7px; display:inline-flex; align-items:center; transition:color .14s, background .14s; }
+  .nav a:hover { color:var(--t1); background:rgba(255,255,255,.035); }
+  /* SIGNAL 1/4 — the active route */
+  .nav a.active { color:var(--t1); font-weight:550; }
+  .nav a.active::after { content:""; position:absolute; left:10px; right:10px; bottom:-14px; height:2px;
+    background:var(--sig); border-radius:2px 2px 0 0; box-shadow:0 0 12px -1px var(--sig); }
+  .topright { margin-left:auto; display:flex; align-items:center; gap:8px; }
+  .cmdk { width:290px; height:30px; display:flex; align-items:center; gap:9px; padding:0 10px; border-radius:8px;
+    cursor:text; color:var(--t3); font-size:12px; background:var(--s0);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); }
+  .cmdk:focus-within { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+  .kbd, .cmdk .kbd { font-family:var(--mono); font-size:10px; font-weight:500; color:var(--t2);
+    background:linear-gradient(180deg,#232A34,#1A2028); border:0; border-radius:4px; padding:1.5px 5px;
+    line-height:1.4; box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); white-space:nowrap; }
+  .cmdk .kbd { margin-left:auto; }
+  .iconbtn { width:30px; height:30px; border:0; border-radius:7px; background:transparent; color:var(--t3);
+    display:grid; place-items:center; cursor:pointer; transition:color .14s, background .14s; }
+  .iconbtn:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  .team { height:28px; display:flex; align-items:center; gap:7px; padding:0 10px; border-radius:7px;
+    background:var(--s4); box-shadow:var(--hi); cursor:pointer; font-size:12px; color:var(--t1); white-space:nowrap; }
+  .team .caret { color:var(--t3); font-size:9px; }
+  .avatar { width:27px; height:27px; border-radius:7px; background:linear-gradient(180deg,#2A323D,#1D242D);
+    display:grid; place-items:center; font-family:var(--mono); font-size:10px; font-weight:600; color:var(--t2);
+    box-shadow:var(--hi); flex:none; cursor:pointer; }
+  svg.ic { width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
+
+  /* ===== SUB-HEADER ===== */
+  .subhead { height:52px; min-height:52px; flex:none; display:flex; align-items:center; gap:12px; padding:0 16px;
+    background:linear-gradient(180deg,#131820,#10141B); box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.45); }
+  .subhead h1 { font-size:15px; font-weight:600; letter-spacing:-0.02em; color:var(--t1); }
+  /* segmented control: a recessed track, the active pill raised — value + elevation, never the accent */
+  .seg { display:flex; align-items:center; height:30px; padding:2px; border-radius:8px; background:var(--s0);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.55), inset 0 0 0 1px rgba(255,255,255,.03); }
+  .seg button { height:100%; padding:0 11px; background:transparent; border:0; border-radius:6px; cursor:pointer;
+    color:var(--t3); font-size:12px; font-family:inherit; display:flex; align-items:center; gap:6px; white-space:nowrap;
+    transition:color .14s, background .14s; }
+  .seg button:hover { color:var(--t1); }
+  .seg button.active { background:var(--s4); color:var(--t1); font-weight:550; box-shadow:var(--hi), 0 1px 2px rgba(0,0,0,.5); }
+  .seg button .c { font-family:var(--mono); font-size:10.5px; font-variant-numeric:tabular-nums; color:var(--t3); }
+  .seg button.active .c { color:var(--t2); }
+  .seg.sm { height:26px; } .seg.sm button { padding:0 9px; font-size:11.5px; }
+  .searchbox { width:230px; height:30px; display:flex; align-items:center; gap:8px; padding:0 10px; border-radius:8px;
+    color:var(--t3); font-size:12px; background:var(--s0);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); }
+  .searchbox:focus-within { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+  .searchbox input { background:transparent; border:0; outline:0; color:var(--t1); font-family:inherit; font-size:12px; width:100%; }
+  .searchbox input::placeholder { color:var(--t3); }
+  .spacer { margin-left:auto; }
+  .ctrl { height:28px; display:flex; align-items:center; gap:7px; padding:0 10px; border-radius:7px;
+    background:transparent; box-shadow:inset 0 0 0 1px var(--r2); color:var(--t2); font-size:12px; cursor:pointer;
+    white-space:nowrap; transition:background .14s, color .14s; }
+  .ctrl:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  .ctrl .caret { font-size:9px; color:var(--t3); }
+  .ctrl b { color:var(--t1); font-weight:550; }
+  /* filter-row controls lose the box entirely — space and hover carry them */
+  .ctrl.sm { height:26px; padding:0 9px; font-size:11.5px; box-shadow:none; color:var(--t3); }
+  .ctrl.sm:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  /* rule 2 — the primary action is near-white, not the accent */
+  .btn-primary { height:30px; display:flex; align-items:center; gap:7px; padding:0 11px; border:0; border-radius:7px;
+    background:linear-gradient(180deg,#FBFDFF,var(--key)); color:#0B0E13; font-size:12px; font-weight:600;
+    font-family:inherit; cursor:pointer;
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset, 0 2px 8px -3px rgba(0,0,0,.9), 0 0 0 1px rgba(0,0,0,.35); }
+  .btn-primary:hover { background:#fff; }
+  .btn-primary svg.ic { stroke:#0B0E13 !important; }
+
+  /* ===== TRUTH BANNER — one of the two consequential callouts on the screen ===== */
+  .banner { height:36px; min-height:36px; flex:none; display:flex; align-items:center; gap:9px; padding:0 16px;
+    background:rgba(250,178,25,.055); box-shadow:inset 0 1px 0 var(--r1), inset 0 -1px 0 rgba(0,0,0,.45);
+    font-size:11.5px; color:var(--t3); }
+  .banner b { color:var(--t1); font-weight:600; }
+  .banner .mono { font-size:11px; color:var(--t2); }
+  .banner .lg { margin-left:auto; display:flex; align-items:center; gap:10px; font-size:11px; white-space:nowrap; }
+
+  /* ===== KPI STRIP — the first read (rule 4: numbers are the hero) ===== */
+  .kpis { height:86px; min-height:86px; flex:none; display:grid; grid-template-columns:repeat(6,1fr); overflow:hidden;
+    background:linear-gradient(180deg,var(--s3),#12171E);
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.55), 0 10px 24px -20px rgba(0,0,0,.9); }
+  .kpi { padding:13px 16px 12px; display:flex; flex-direction:column; gap:3px; min-width:0; }
+  .kpi .top { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .kpi .val { font-size:24px; font-weight:600; line-height:1.05; color:var(--t1); letter-spacing:-0.032em;
+    font-variant-numeric:tabular-nums; }
+  .kpi .val small { font-size:11px; color:var(--t3); font-weight:400; letter-spacing:0; }
+  /* the footnote register absorbs every delta and provenance line */
+  .kpi .delta, .kpi .delta.up, .kpi .delta.down { font-size:9.5px; color:var(--t3); font-variant-numeric:tabular-nums; }
+
+  /* ===== FILTER ROW ===== */
+  .filters { height:44px; min-height:44px; flex:none; display:flex; align-items:center; gap:10px; padding:0 16px;
+    background:rgba(0,0,0,.2); box-shadow:inset 0 1px 0 var(--r1), inset 0 -1px 0 var(--r1); }
+  .filters .lbl { font-size:9.5px; letter-spacing:.11em; text-transform:uppercase; color:var(--t3); }
+  .divv { width:1px; height:16px; background:var(--r2); }
+
+  /* ===== MAIN SPLIT ===== */
+  .main { flex:1; display:grid; grid-template-columns:1fr 376px; min-height:0; }
+  .left { display:flex; flex-direction:column; min-width:0; min-height:0; }
+  .dock { background:var(--s2); box-shadow:-1px 0 0 rgba(0,0,0,.45); display:flex; flex-direction:column; min-height:0; z-index:2; }
+
+  /* ===== RUN LIST =====
+     A2 — this is rule 3's heterogeneous-table exception, and it needs TWO of the three cases:
+     (a) a whisper row rule + a heavier ruler measure every 6th row, so 22 mixed rows stay countable;
+     (b) ONE vertical rule before `status`, splitting DEFINITION (id/what/src/type/mode) from OUTCOME
+         (status/started/dur/rows/team/actor). Everything else groups by elevation and space. */
+  .colhdr { display:grid; align-items:center; height:28px; padding:0 12px; gap:8px; flex:none;
+    background:#12161D; color:var(--t3); font-family:var(--mono); font-size:10px; font-weight:500;
+    letter-spacing:0; text-transform:lowercase;
+    box-shadow:inset 0 -1px 0 var(--r2), inset 0 1px 0 var(--r1); }
+  .runwrap { flex:1; overflow-y:auto; overflow-x:hidden; min-height:0; }
+  .rgrid { grid-template-columns:42px minmax(140px,1fr) 44px 116px 58px 90px 60px 54px 72px 120px 64px 14px; }
+  .row { display:grid; align-items:center; height:32px; padding:0 12px; gap:8px; cursor:pointer;
+    border-bottom:1px solid rgba(255,255,255,.032); }
+  .row:nth-child(6n) { border-bottom-color:rgba(255,255,255,.085); }   /* the ruler measure */
+  .row:hover { background:rgba(255,255,255,.038); }
+  /* SIGNAL 2/4 — the selected run: what this dock is showing */
+  .row.sel { background:var(--sig-dim); box-shadow:inset 2px 0 0 var(--sig); }
+  .row.sel:hover { background:rgba(70,213,232,.18); }
+  .rgrid > :nth-child(6) { align-self:stretch; display:flex; align-items:center; padding-left:9px;
+    box-shadow:inset 1px 0 0 var(--r2); }
+  .rid { font-family:var(--mono); font-size:11px; color:var(--t3); font-variant-numeric:tabular-nums; }
+  .row.sel .rid { color:var(--sig); font-weight:600; }
+  .what { display:flex; align-items:center; gap:7px; min-width:0; }
+  .what .g { flex:none; color:var(--t4); display:flex; }
+  .row:hover .what .g, .row.sel .what .g { color:var(--t3); }
+  .what .n { font-size:12px; color:var(--t2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .row.sel .what .n, .row:hover .what .n { color:var(--t1); }
+  .what .n em { font-style:normal; color:var(--t3); font-family:var(--mono); font-size:10.5px; }
+  .cm { font-family:var(--mono); font-size:10.5px; font-variant-numeric:tabular-nums; color:var(--t3);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .cm strong { color:var(--t1); font-weight:600; }
+  /* engine + mode are PROPERTIES, not states (rule 7) — lowercase mono, told by value, never by hue */
+  .src { font-family:var(--mono); font-size:9.5px; text-transform:lowercase; color:var(--t3);
+    background:rgba(255,255,255,.05); border-radius:4px; padding:1px 4px; display:inline-block; }
+  .src.wf { color:var(--t2); }
+  .jt { font-family:var(--mono); font-size:10.5px; color:var(--t2); white-space:nowrap; overflow:hidden;
+    text-overflow:ellipsis; display:block; }
+  .mode { font-family:var(--mono); font-size:9.5px; text-transform:lowercase; letter-spacing:.02em;
+    display:inline-flex; align-items:center; gap:3px; white-space:nowrap; padding:0; border-radius:0; }
+  .mode.async { color:var(--t1); font-weight:600; }
+  .mode.inreq { color:var(--t3); font-weight:400; }
+  .ext { font-family:var(--mono); font-size:9px; text-transform:lowercase; color:var(--t3); border-radius:3px;
+    padding:0 3px; margin-left:5px; box-shadow:inset 0 0 0 1px var(--r2); }
+  .status { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--t2); white-space:nowrap; }
+  .row.sel .status { color:var(--t1); }
+  .teamtag { display:inline-flex; align-items:center; gap:6px; font-size:11px; color:var(--t2);
+    min-width:0; white-space:nowrap; overflow:hidden; }
+  .teamtag .sw { width:7px; height:7px; border-radius:2px; flex:none; }
+  .teamtag span { overflow:hidden; text-overflow:ellipsis; }
+  .kebab { color:var(--t3); text-align:center; font-size:13px; line-height:1; }
+  .row:hover .kebab { color:var(--t1); }
+  .daysep { display:flex; align-items:center; gap:10px; padding:8px 12px 7px; position:sticky; top:0; z-index:2;
+    background:#12161D; box-shadow:inset 0 -1px 0 var(--r2); }
+  /* sentence-case zone heading — the eyebrow register is for numbers only (rule 5) */
+  .daysep .micro, .hooks .micro { font-size:11.5px; font-weight:550; letter-spacing:-0.008em;
+    text-transform:none; color:var(--t2); }
+  .daysep .rule { flex:1; height:1px; background:var(--r1); }
+  .daysep .count { font-family:var(--mono); font-size:9.5px; color:var(--t3); }
+
+  /* ===== WEBHOOK STRIP — a horizontal zone boundary, so a real seam is earned ===== */
+  .hooks { flex:none; background:var(--s2); box-shadow:inset 0 1px 0 var(--r2), 0 -10px 24px -22px rgba(0,0,0,1); }
+  .hooks .hh { display:flex; align-items:center; gap:9px; padding:8px 12px 7px; }
+  .hooks .hh .lnk { margin-left:auto; font-size:10.5px; color:var(--t2); text-decoration:underline;
+    text-decoration-color:var(--r3); text-decoration-thickness:1px; text-underline-offset:3px; }
+  .hooks .hh .lnk:hover { color:var(--t1); }
+  .hkgrid { grid-template-columns:200px 190px 54px 66px 1fr 84px; }
+  .hkrow { display:grid; align-items:center; gap:8px; padding:0 12px; height:26px;
+    border-bottom:1px solid rgba(255,255,255,.032); }
+  .hkrow:last-child { border-bottom:0; }
+  /* magnitude = neutral value ramp, never a categorical hue and never the accent */
+  .track { height:6px; background:rgba(255,255,255,.06); border-radius:3px; overflow:hidden; max-width:180px;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.5); }
+  .track i { display:block; height:100%; border-radius:3px; background:var(--m2); }
+  .code { font-family:var(--mono); font-size:10.5px; border-radius:4px; padding:1px 4px; color:var(--t3);
+    background:rgba(0,0,0,.32); box-shadow:inset 0 0 0 1px var(--r1); }
+  .code.ok { color:var(--t2); }
+  .code.bad { color:var(--t1); font-weight:600; }   /* severity is typographic (rule 7) */
+
+  /* ===== DOCK ===== */
+  .dockhead { height:38px; min-height:38px; display:flex; align-items:center; gap:9px; padding:0 12px;
+    box-shadow:inset 0 -1px 0 var(--r1); }
+  .dockhead .t { font-size:12.5px; font-weight:600; letter-spacing:-0.012em; text-transform:none; color:var(--t1); }
+  .dockbody { flex:1; overflow-y:auto; min-height:0; padding:12px; }
+  .sect { margin-bottom:16px; }
+  .sect > .h { font-size:11.5px; font-weight:550; letter-spacing:-0.008em; text-transform:none; color:var(--t2);
+    margin-bottom:8px; display:flex; align-items:center; gap:9px; }
+  .sect > .h .line { flex:1; height:1px; background:var(--r1); }
+  .sect > .h .r { font-family:var(--mono); font-weight:400; letter-spacing:0; font-size:9.5px; color:var(--t3); }
+  .dtitle { font-size:15px; font-weight:600; letter-spacing:-0.02em; color:var(--t1); margin-bottom:3px; }
+  .dsub { font-family:var(--mono); font-size:10px; color:var(--t3); margin-bottom:9px; }
+  .chips { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+  .kv { display:grid; grid-template-columns:82px 1fr; gap:5px 8px; font-size:11.5px; }
+  .kv .k { color:var(--t3); font-size:10.5px; letter-spacing:0; text-transform:none; }
+  .kv .v { font-family:var(--mono); font-size:10.5px; color:var(--t2); word-break:break-all; }
+  /* a recessed well, the way an input or an identifier reads */
+  .reqid { display:flex; align-items:center; gap:8px; border-radius:7px; padding:6px 9px; margin-bottom:11px;
+    background:rgba(0,0,0,.3); box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); }
+  .reqid .k { font-family:var(--mono); font-size:9.5px; letter-spacing:0; text-transform:none; color:var(--t3); }
+  .reqid .v { font-family:var(--mono); font-size:11px; color:var(--t1); font-weight:600; }
+  .reqid .cp { margin-left:auto; color:var(--t3); cursor:pointer; display:flex; }
+  .reqid .cp:hover { color:var(--t1); }
+
+  /* timeline */
+  .tl { position:relative; padding-left:16px; }
+  .tl::before { content:""; position:absolute; left:3.5px; top:6px; bottom:8px; width:1px; background:var(--r2); }
+  .tl .st { position:relative; padding-bottom:10px; }
+  .tl .st .d { position:absolute; left:-16px; top:4px; }
+  .tl .st .l { font-size:11.5px; color:var(--t1); }
+  .tl .st .m { font-family:var(--mono); font-size:9.5px; color:var(--t3); line-height:1.45; }
+  .tl .st.na .l { color:var(--t3); }
+
+  /* stages — bars are magnitude (duration share), so they take the neutral ramp */
+  .stg { display:grid; grid-template-columns:14px 1fr 52px; align-items:center; gap:7px; padding:4px 0 0; }
+  .stg .nm { font-family:var(--mono); font-size:10.5px; color:var(--t2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .stg .ms { font-family:var(--mono); font-size:10px; color:var(--t3); text-align:right; font-variant-numeric:tabular-nums; }
+  .stgbar { height:5px; background:rgba(255,255,255,.05); border-radius:3px; overflow:hidden; margin-top:3px;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.45); }
+  .stgbar i { display:block; height:100%; background:var(--m3); border-radius:0 3px 3px 0; }
+  .stgbar i.dim { background:var(--m6); }
+
+  /* ===== problem+json — a genuine artifact: a recessed well, mono, the machine code as the hero ===== */
+  .prob { border-radius:8px; background:rgba(0,0,0,.3); overflow:hidden;
+    box-shadow:inset 0 2px 5px -2px rgba(0,0,0,.85), inset 0 0 0 1px rgba(220,80,80,.26); }
+  .prob .ph { display:flex; align-items:center; gap:8px; padding:7px 10px; box-shadow:inset 0 -1px 0 var(--r1); }
+  .prob .ph .ct { font-family:var(--mono); font-size:9.5px; color:var(--t3); margin-left:auto; }
+  .prob .pb { padding:9px 10px 10px; }
+  .prob .pb .micro { font-size:9.5px; margin-bottom:2px; display:block; }
+  .codebig { font-family:var(--mono); font-size:17px; font-weight:600; color:var(--t1); letter-spacing:-0.03em; }
+  .prob .pt { font-size:12px; color:var(--t2); margin-top:6px; }
+  .prob .pd { font-size:11px; color:var(--t3); margin-top:3px; line-height:1.45; }
+  /* the payload keeps ink tokens only — text never wears a series hue */
+  .json { font-family:var(--mono); font-size:10px; line-height:1.65; background:rgba(0,0,0,.34);
+    border-radius:6px; padding:8px 9px; margin-top:9px; white-space:pre-wrap; word-break:break-word;
+    color:var(--t2); box-shadow:inset 0 1px 2px rgba(0,0,0,.6); }
+  .json .jk { color:var(--t3); } .json .jsv { color:var(--t2); }
+  .json .jn { color:var(--t1); font-weight:600; font-variant-numeric:tabular-nums; }
+  /* informational notes lose the box entirely — a left rule and an indent (rule 8) */
+  .note { display:flex; gap:8px; align-items:flex-start; font-size:10.5px; color:var(--t3); line-height:1.5;
+    margin-top:9px; padding-left:10px; box-shadow:inset 2px 0 0 var(--r2); border:0; }
+  .note code { font-family:var(--mono); font-size:10px; color:var(--t2); background:rgba(255,255,255,.05);
+    border-radius:3px; padding:0 3px; }
+
+  /* artifacts */
+  .art { display:flex; align-items:center; gap:8px; padding:6px 9px; border-radius:7px; background:var(--s3);
+    box-shadow:var(--hi); margin-bottom:6px; }
+  .art .io { font-family:var(--mono); font-size:9px; text-transform:lowercase; color:var(--t3);
+    background:rgba(255,255,255,.05); border-radius:3px; padding:0 4px; flex:none; }
+  .art .p { font-family:var(--mono); font-size:10px; color:var(--t2); min-width:0; white-space:nowrap;
+    overflow:hidden; text-overflow:ellipsis; }
+  .art .sz { margin-left:auto; font-family:var(--mono); font-size:10px; color:var(--t3); flex:none;
+    font-variant-numeric:tabular-nums; }
+  /* the artifact that was never written: recessed, not raised */
+  .art.miss { background:rgba(0,0,0,.26); box-shadow:inset 0 1px 2px rgba(0,0,0,.55); }
+  .art.miss .p { color:var(--t3); text-decoration:line-through; }
+
+  /* ===== LOG — level dots are status (shape + hue), the level word carries severity typographically ===== */
+  .logwrap { position:relative; }
+  .logwrap::after { content:""; position:absolute; left:1px; right:1px; bottom:1px; height:24px;
+    background:linear-gradient(to bottom,rgba(9,11,15,0),#090B0F 78%); border-radius:0 0 7px 7px; pointer-events:none; }
+  .log { background:rgba(0,0,0,.34); border-radius:7px; padding:7px 9px 18px; max-height:186px; overflow-y:auto;
+    box-shadow:inset 0 1px 3px rgba(0,0,0,.7); }
+  .lgl { display:grid; grid-template-columns:8px 62px 1fr; gap:6px; align-items:baseline; padding:1.5px 0;
+    font-family:var(--mono); font-size:10px; line-height:1.5; }
+  .lgl .ld { width:6px; height:6px; flex:none; align-self:start; margin-top:5px; }
+  .lgl .ld.info { border-radius:50%; background:transparent; box-shadow:inset 0 0 0 1.5px var(--t3); }
+  .lgl .ld.dbg  { border-radius:50%; background:transparent; box-shadow:inset 0 0 0 1.5px var(--t4); }
+  .lgl .ld.warn { width:0; height:0; margin-top:5px; border-left:3.5px solid transparent;
+    border-right:3.5px solid transparent; border-bottom:6px solid var(--st-warn); }
+  .lgl .ld.err  { border-radius:1px; background:var(--st-crit); }
+  .lgl .lv { font-size:9px; letter-spacing:.04em; color:var(--t3); }
+  .lgl .tx { color:var(--t2); word-break:break-word; }
+  .lgl.err .lv { color:var(--t1); font-weight:600; }
+  .lgl.err .tx { color:var(--t1); }
+  .lgl.warn .lv { color:var(--t2); font-weight:500; }
+  .lgl.warn .tx { color:var(--t2); }
+  .lgl.dbg .tx, .lgl.dbg .lv { color:var(--t3); }
+
+  .dockfoot { flex:none; padding:9px 12px; display:flex; align-items:center; gap:7px;
+    box-shadow:inset 0 1px 0 var(--r2); }
+  .btn { height:28px; display:flex; align-items:center; gap:6px; padding:0 10px; border:0; border-radius:7px;
+    background:transparent; box-shadow:inset 0 0 0 1px var(--r2); color:var(--t2); font-size:11.5px;
+    font-family:inherit; cursor:pointer; transition:background .14s, color .14s; }
+  .btn:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  /* disabled reads by LOSING the frame, not by dropping under 4.5:1 (t4 measured 3.26) */
+  .btn.dis { color:var(--t3); box-shadow:none; cursor:not-allowed; }
+  .btn.dis:hover { background:transparent; color:var(--t3); }
+
+  /* ===== BOTTOM STATUS BAR ===== */
+  .statusbar { height:30px; min-height:30px; flex:none; display:flex; align-items:center; padding:0 16px; gap:8px;
+    background:var(--s2); box-shadow:inset 0 1px 0 var(--r1); font-family:var(--mono); font-size:10.5px; color:var(--t3); }
+  .statusbar .right { margin-left:auto; display:flex; align-items:center; gap:8px; }
+  .statusbar kbd { color:var(--t2); font-family:var(--mono); }
+  /* SIGNAL 4/4 — the one live indicator on the screen */
+  .live { width:6px; height:6px; border-radius:50%; background:var(--sig); flex:none;
+    box-shadow:0 0 0 3px rgba(70,213,232,.10), 0 0 9px -1px var(--sig); animation:pulse 3s ease-in-out infinite; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- ===== TOP BAR ===== -->
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo"></div>
+      <span class="wordmark">Command Studio</span>
+      <span class="envchip">PROD · US-EAST</span>
+    </div>
+    <nav class="nav">
+      <a href="#">Workflows</a>
+      <a href="#">Datasets</a>
+      <a href="#" class="active">Runs</a>
+      <a href="#">Library</a>
+    </nav>
+    <div class="topright">
+      <div class="cmdk">
+        <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+        <span>Search runs, request ids, datasets…</span>
+        <span class="kbd">⌘K</span>
+      </div>
+      <div class="iconbtn" title="Filters">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M3 5h18M6 12h12M10 19h4"/></svg>
+      </div>
+      <div class="iconbtn" title="Notifications">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg>
+      </div>
+      <div class="iconbtn" title="Theme">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg>
+      </div>
+      <div class="team" title="Switch team">
+        <span class="dot good"></span>
+        <span>Growth Analytics</span>
+        <span class="caret">▾</span>
+      </div>
+      <div class="avatar">SG</div>
+    </div>
+  </div>
+
+  <!-- ===== SUB-HEADER ===== -->
+  <div class="subhead">
+    <h1>Runs</h1>
+    <div class="seg" id="segsrc">
+      <button class="active">All <span class="c">1,284</span></button>
+      <button>Workflows <span class="c">402</span></button>
+      <button>Data jobs <span class="c">882</span></button>
+    </div>
+    <div class="searchbox">
+      <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+      <input placeholder="run id, dataset, request_id…" />
+    </div>
+    <div class="spacer"></div>
+    <div class="ctrl">Auto-refresh <b>5s</b> <span class="caret">▾</span></div>
+    <div class="ctrl">
+      <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M12 21V9m0 12l-4-4m4 4l4-4M4 3h16"/></svg>
+      Export
+    </div>
+    <button class="btn-primary">
+      <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px;stroke:#fff"><path d="M4 4v6h6M20 20v-6h-6"/><path d="M20 9a8 8 0 00-14.5-3M4 15a8 8 0 0014.5 3"/></svg>
+      Retry failed <span style="opacity:.8">▾</span>
+    </button>
+  </div>
+  <!-- ===== EXECUTION-MODEL TRUTH BANNER ===== -->
+  <div class="banner">
+    <span class="dot warn"></span>
+    <span><b>No scheduler in this service.</b> Nothing enqueues <span class="mono">artifact_gc</span> — recurring runs are fired by an external cron/operator; those rows are marked <span class="ext" style="margin-left:0">EXT</span>.</span>
+    <span class="lg">
+      <span class="mode async">ASYNC</span><span>queued → worker (4 of 8 job types)</span>
+      <span class="divv"></span>
+      <span class="mode inreq">IN-REQ</span><span>ran inside the API request — record only</span>
+    </span>
+  </div>
+
+  <!-- ===== KPI STRIP ===== -->
+  <div class="kpis">
+    <div class="kpi">
+      <div class="micro">Runs today</div>
+      <div class="top">
+        <div class="val">1,284</div>
+        <svg width="66" height="20" viewBox="0 0 66 20" aria-hidden="true"><polyline points="0,13 11,14 22,9 33,11 44,6 55,8 66,4" fill="none" stroke="#7D8797" stroke-width="1.5"/></svg>
+      </div>
+      <div class="delta up">▲ 6.2% vs yest.</div>
+    </div>
+    <div class="kpi">
+      <div class="micro">Succeeded</div>
+      <div class="top">
+        <div class="val">1,208 <small>94.1%</small></div>
+        <svg width="66" height="20" viewBox="0 0 66 20" aria-hidden="true"><polyline points="0,8 11,7 22,9 33,6 44,7 55,5 66,5" fill="none" stroke="#7D8797" stroke-width="1.5"/></svg>
+      </div>
+      <div class="delta">7d avg 93.4%</div>
+    </div>
+    <div class="kpi">
+      <div class="micro">Failed</div>
+      <div class="top">
+        <div class="val" style="color:var(--st-crit)">41</div>
+        <svg width="66" height="20" viewBox="0 0 66 20" aria-hidden="true"><polyline points="0,14 11,13 22,12 33,10 44,11 55,7 66,5" fill="none" stroke="#7D8797" stroke-width="1.5"/></svg>
+      </div>
+      <div class="delta down">▲ 12 vs yest.</div>
+    </div>
+    <div class="kpi">
+      <div class="micro">Running now</div>
+      <div class="top">
+        <div class="val">3</div>
+        <span class="status"><span class="dot run"></span><span class="mono" style="font-size:10.5px;color:var(--t3)">live</span></span>
+      </div>
+      <div class="delta">2 in-request · 1 async</div>
+    </div>
+    <div class="kpi">
+      <div class="micro">Median duration</div>
+      <div class="top">
+        <div class="val">1.4<small>s</small></div>
+        <svg width="66" height="20" viewBox="0 0 66 20" aria-hidden="true"><polyline points="0,9 11,10 22,8 33,9 44,7 55,8 66,6" fill="none" stroke="#7D8797" stroke-width="1.5"/></svg>
+      </div>
+      <div class="delta up">▼ 180ms vs yest.</div>
+    </div>
+    <div class="kpi">
+      <div class="micro">Queue depth</div>
+      <div class="top">
+        <div class="val">1</div>
+        <svg width="66" height="20" viewBox="0 0 66 20" aria-hidden="true">
+          <rect x="0" y="12" width="7" height="8" rx="1" fill="#39414D"/><rect x="9" y="14" width="7" height="6" rx="1" fill="#39414D"/><rect x="18" y="10" width="7" height="10" rx="1" fill="#39414D"/><rect x="27" y="15" width="7" height="5" rx="1" fill="#39414D"/><rect x="36" y="13" width="7" height="7" rx="1" fill="#39414D"/><rect x="45" y="16" width="7" height="4" rx="1" fill="#48515F"/><rect x="54" y="14" width="7" height="6" rx="1" fill="#A2ACBB"/>
+        </svg>
+      </div>
+      <div class="delta">async types only · 3 workers</div>
+    </div>
+  </div>
+
+  <!-- ===== FILTER ROW ===== -->
+  <div class="filters">
+    <span class="lbl">Scope</span>
+    <div class="seg sm" id="segmode">
+      <button class="active">All modes</button>
+      <button>Async</button>
+      <button>In-request</button>
+    </div>
+    <div class="divv"></div>
+    <div class="ctrl sm">Status: <b>Any</b> <span class="caret">▾</span></div>
+    <div class="ctrl sm">Job type: <b>All 8</b> <span class="caret">▾</span></div>
+    <div class="ctrl sm">Team: <b>All 7</b> <span class="caret">▾</span></div>
+    <div class="ctrl sm">Actor: <b>Any</b> <span class="caret">▾</span></div>
+    <div class="divv"></div>
+    <div class="seg sm" id="segtime">
+      <button>1h</button>
+      <button class="active">24h</button>
+      <button>7d</button>
+      <button>30d</button>
+    </div>
+    <div class="spacer"></div>
+    <span class="mono" style="font-size:10.5px;color:var(--t3)">sorted by started ▾ · showing 22 of 1,284</span>
+  </div>
+  <!-- ===== MAIN SPLIT ===== -->
+  <div class="main">
+
+    <!-- ---------- RUN LIST ---------- -->
+    <div class="left">
+      <div class="colhdr rgrid">
+        <div>Run</div><div>What ran</div><div>Src</div><div>Type</div><div>Mode</div>
+        <div>Status</div><div>Started</div><div>Dur</div><div>Rows</div><div>Team</div><div>Actor</div><div></div>
+      </div>
+
+      <div class="runwrap">
+        <div class="daysep">
+          <span class="micro">Today · Fri 16 Aug</span>
+          <span class="count">22 executions · 3 running · 1 queued · 4 failed</span>
+          <span class="rule"></span>
+        </div>
+
+        <!-- 1 · import, in-request, running -->
+        <div class="row rgrid">
+          <div class="rid">#4121</div>
+          <div class="what">
+            <span class="g"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v11m0 0l-4-4m4 4l4-4M4 20h16"/></svg></span>
+            <span class="n">Q3 Campaign Signups.csv <em>→ v8</em></span>
+          </div>
+          <div><span class="src">DATA</span></div>
+          <div><span class="jt">import</span></div>
+          <div><span class="mode inreq">IN-REQ</span></div>
+          <div class="status"><span class="dot run"></span>Running</div>
+          <div class="cm">16:41:04</div>
+          <div class="cm"><strong>3.1s</strong></div>
+          <div class="cm">128,400</div>
+          <div class="teamtag"><span class="sw" style="background:var(--viz-2)"></span><span>Growth Analytics</span></div>
+          <div class="cm">s.ganji</div>
+          <div class="kebab">⋯</div>
+        </div>
+
+        <!-- 2 · workflow, async, running -->
+        <div class="row rgrid">
+          <div class="rid">#4120</div>
+          <div class="what">
+            <span class="g"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="5" cy="12" r="2.4"/><circle cx="19" cy="6" r="2.4"/><circle cx="19" cy="18" r="2.4"/><path d="M7.4 11l9.3-4M7.4 13l9.3 4"/></svg></span>
+            <span class="n">Signup → CRM sync <em>· 5 nodes</em></span>
+          </div>
+          <div><span class="src wf">WF</span></div>
+          <div><span class="jt">workflow</span></div>
+          <div><span class="mode async">ASYNC</span></div>
+          <div class="status"><span class="dot run"></span>Running</div>
+          <div class="cm">16:40:58</div>
+          <div class="cm"><strong>9.4s</strong></div>
+          <div class="cm">1,204</div>
+          <div class="teamtag"><span class="sw" style="background:var(--viz-2)"></span><span>Growth Analytics</span></div>
+          <div class="cm">svc:wf-1</div>
+          <div class="kebab">⋯</div>
+        </div>
+
+        <!-- 3 · relationship_discovery, async, running -->
+        <div class="row rgrid">
+          <div class="rid">#4119</div>
+          <div class="what">
+            <span class="g"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="6" cy="7" r="2.2"/><circle cx="18" cy="7" r="2.2"/><circle cx="12" cy="18" r="2.2"/><path d="M8.2 7h7.6M7.1 9l3.8 7M16.9 9l-3.8 7"/></svg></span>
+            <span class="n">Customer 360 <em>· 14 datasets</em></span>
+          </div>
+          <div><span class="src">DATA</span></div>
+          <div><span class="jt" title="relationship_discovery">relationship_disc…</span></div>
+          <div><span class="mode async">ASYNC</span></div>
+          <div class="status"><span class="dot run"></span>Running</div>
+          <div class="cm">16:40:41</div>
+          <div class="cm"><strong>26.8s</strong></div>
+          <div class="cm">2.4M prs</div>
+          <div class="teamtag"><span class="sw" style="background:var(--viz-7)"></span><span>Data Platform</span></div>
+          <div class="cm">svc:wk-2</div>
+          <div class="kebab">⋯</div>
+        </div>
+
+        <!-- 4 · validation, in-request, FAILED — SELECTED -->
+        <div class="row rgrid sel">
+          <div class="rid">#4118</div>
+          <div class="what">
+            <span class="g" style="color:#e08a72"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg></span>
+            <span class="n">pii_guardrails <em>· Loan Book FY26 v7</em></span>
+          </div>
+          <div><span class="src">DATA</span></div>
+          <div><span class="jt">validation</span></div>
+          <div><span class="mode inreq">IN-REQ</span></div>
+          <div class="status"><span class="dot crit"></span>Failed</div>
+          <div class="cm">16:39:52</div>
+          <div class="cm"><strong>812ms</strong></div>
+          <div class="cm">128,400</div>
+          <div class="teamtag"><span class="sw" style="background:var(--viz-6)"></span><span>Risk &amp; Compliance</span></div>
+          <div class="cm">a.okafor</div>
+          <div class="kebab">⋯</div>
+        </div>
+
+        <!-- 5 · webhook_delivery, async, FAILED -->
+        <div class="row rgrid">
+          <div class="rid">#4117</div>
+          <div class="what">
+            <span class="g"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M13 3l-8 10h6l-1 8 8-10h-6z"/></svg></span>
+            <span class="n">dataset.version.created <em>→ hooks.riskops.int/v1</em></span>
+          </div>
+          <div><span class="src">DATA</span></div>
+          <div><span class="jt" title="webhook_delivery">webhook_delivery</span></div>
+          <div><span class="mode async">ASYNC</span></div>
+          <div class="status"><span class="dot crit"></span>Failed</div>
+          <div class="cm">16:39:44</div>
+          <div class="cm"><strong>30.0s</strong></div>
+          <div class="cm">503 · 3/5</div>
+          <div class="teamtag"><span class="sw" style="background:var(--viz-6)"></span><span>Risk &amp; Compliance</span></div>
+          <div class="cm">svc:wk-3</div>
+          <div class="kebab">⋯</div>
+        </div>
+
+        <!-- 6 · workflow, async, success, EXT -->
+        <div class="row rgrid">
+          <div class="rid">#4116</div>
+          <div class="what">
+            <span class="g"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="5" cy="12" r="2.4"/><circle cx="19" cy="6" r="2.4"/><circle cx="19" cy="18" r="2.4"/><path d="M7.4 11l9.3-4M7.4 13l9.3 4"/></svg></span>
+            <span class="n">Nightly PII redaction <em>· 7 nodes</em></span>
+          </div>
+          <div><span class="src wf">WF</span></div>
+          <div><span class="jt">workflow<span class="ext">EXT</span></span></div>
+          <div><span class="mode async">ASYNC</span></div>
+          <div class="status"><span class="dot good"></span>Succeeded</div>
+          <div class="cm">16:38:10</div>
+          <div class="cm"><strong>2m 04s</strong></div>
+          <div class="cm">486,220</div>
+          <div class="teamtag"><span class="sw" style="background:var(--viz-1)"></span><span>People Ops</span></div>
+          <div class="cm">ext:cron</div>
+          <div class="kebab">⋯</div>
+        </div>
+
+        <!-- 7 · transform, in-request (sync=true default), success -->
+        <div class="row rgrid">
+          <div class="rid">#4115</div>
+          <div class="what">
+            <span class="g"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h11l-3-3M20 16H9l3 3"/></svg></span>
+            <span class="n">mask_ssn + tenure <em>· ?sync=true</em></span>
+          </div>
+          <div><span class="src">DATA</span></div>
+          <div><span class="jt">transform</span></div>
+          <div><span class="mode inreq">IN-REQ</span></div>
+          <div class="status"><span class="dot good"></span>Succeeded</div>
+          <div class="cm">16:37:55</div>
+          <div class="cm"><strong>1.9s</strong></div>
+          <div class="cm">486,220</div>
+          <div class="teamtag"><span class="sw" style="background:var(--viz-1)"></span><span>People Ops</span></div>
+          <div class="cm">m.reyes</div>
+          <div class="kebab">⋯</div>
+        </div>
+
+        <!-- 8 · profiling, in-request, success -->
+        <div class="row rgrid">
+          <div class="rid">#4114</div>
+          <div class="what">
+            <span class="g"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M5 20V10M12 20V4M19 20v-7"/></svg></span>
+            <span class="n">Headcount FY26.xlsx <em>· sheet "Roster"</em></span>
+          </div>
+          <div><span class="src">DATA</span></div>
+          <div><span class="jt">profiling</span></div>
+          <div><span class="mode inreq">IN-REQ</span></div>
+          <div class="status"><span class="dot good"></span>Succeeded</div>
+          <div class="cm">16:36:20</div>
+          <div class="cm"><strong>3.4s</strong></div>
+          <div class="cm">24,118</div>
+          <div class="teamtag"><span class="sw" style="background:var(--viz-1)"></span><span>People Ops</span></div>
+          <div class="cm">m.reyes</div>
+          <div class="kebab">⋯</div>
+        </div>
+
+        <!-- 9 · artifact_gc, async, EXT, success -->
+        <div class="row rgrid">
+          <div class="rid">#4113</div>
+          <div class="what">
+            <span class="g"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg></span>
+            <span class="n">artifacts/growth-analytics/** <em>· sweep</em></span>
+          </div>
+          <div><span class="src">DATA</span></div>
+          <div><span class="jt">artifact_gc<span class="ext" title="externally triggered — no scheduler in this service">EXT</span></span></div>
+          <div><span class="mode async">ASYNC</span></div>
+          <div class="status"><span class="dot good"></span>Succeeded</div>
+          <div class="cm">16:30:00</div>
+          <div class="cm"><strong>41.2s</strong></div>
+          <div class="cm">1,884 obj</div>
+          <div class="teamtag"><span class="sw" style="background:var(--viz-7)"></span><span>Data Platform</span></div>
+          <div class="cm">ext:cron</div>
+          <div class="kebab">⋯</div>
+        </div>
+
+        <!-- 10 · workflow, async, failed -->
+        <div class="row rgrid">
+          <div class="rid">#4112</div>
+          <div class="what">
+            <span class="g"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="5" cy="12" r="2.4"/><circle cx="19" cy="6" r="2.4"/><circle cx="19" cy="18" r="2.4"/><path d="M7.4 11l9.3-4M7.4 13l9.3 4"/></svg></span>
+            <span class="n">Invoice OCR + validate <em>· 6 nodes</em></span>
+          </div>
+          <div><span class="src wf">WF</span></div>
+          <div><span class="jt">workflow</span></div>
+          <div><span class="mode async">ASYNC</span></div>
+          <div class="status"><span class="dot crit"></span>Failed</div>
+          <div class="cm">16:28:33</div>
+          <div class="cm"><strong>3.1s</strong></div>
+          <div class="cm">412</div>
+          <div class="teamtag"><span class="sw" style="background:var(--viz-3)"></span><span>Finance</span></div>
+          <div class="cm">j.villa</div>
+          <div class="kebab">⋯</div>
+        </div>
+
+        <!-- 11 · analytics, in-request, success (cached) -->
+        <div class="row rgrid">
+          <div class="rid">#4111</div>
+          <div class="what">
+            <span class="g"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19h16"/><path d="M6 15l4-5 3 3 5-7"/></svg></span>
+            <span class="n">Revenue by segment <em>· cached 61ms</em></span>
+          </div>
+          <div><span class="src">DATA</span></div>
+          <div><span class="jt">analytics</span></div>
+          <div><span class="mode inreq">IN-REQ</span></div>
+          <div class="status"><span class="dot good"></span>Succeeded</div>
+          <div class="cm">16:26:47</div>
+          <div class="cm"><strong>61ms</strong></div>
+          <div class="cm">1.9M scan</div>
+          <div class="teamtag"><span class="sw" style="background:var(--viz-3)"></span><span>Finance</span></div>
+          <div class="cm">l.chen</div>
+          <div class="kebab">⋯</div>
+        </div>
+        <!-- 12 · transform, async (explicit sync=false), success -->
+        <div class="row rgrid">
+          <div class="rid">#4110</div>
+          <div class="what">
+            <span class="g"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h11l-3-3M20 16H9l3 3"/></svg></span>
+            <span class="n">dedupe_contacts <em>· ?sync=false</em></span>
+          </div>
+          <div><span class="src">DATA</span></div>
+          <div><span class="jt">transform</span></div>
+          <div><span class="mode async">ASYNC</span></div>
+          <div class="status"><span class="dot good"></span>Succeeded</div>
+          <div class="cm">16:24:12</div>
+          <div class="cm"><strong>18.7s</strong></div>
+          <div class="cm">903,442</div>
+          <div class="teamtag"><span class="sw" style="background:var(--viz-5)"></span><span>Marketing</span></div>
+          <div class="cm">d.abraham</div>
+          <div class="kebab">⋯</div>
+        </div>
+
+        <!-- 13 · import, in-request, success -->
+        <div class="row rgrid">
+          <div class="rid">#4109</div>
+          <div class="what">
+            <span class="g"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v11m0 0l-4-4m4 4l4-4M4 20h16"/></svg></span>
+            <span class="n">churn_signals_v4.parquet <em>→ v3</em></span>
+          </div>
+          <div><span class="src">DATA</span></div>
+          <div><span class="jt">import</span></div>
+          <div><span class="mode inreq">IN-REQ</span></div>
+          <div class="status"><span class="dot good"></span>Succeeded</div>
+          <div class="cm">16:22:05</div>
+          <div class="cm"><strong>12.6s</strong></div>
+          <div class="cm">1,902,338</div>
+          <div class="teamtag"><span class="sw" style="background:var(--viz-4)"></span><span>Customer Success</span></div>
+          <div class="cm">p.nair</div>
+          <div class="kebab">⋯</div>
+        </div>
+
+        <!-- 14 · webhook_delivery, async, success -->
+        <div class="row rgrid">
+          <div class="rid">#4108</div>
+          <div class="what">
+            <span class="g"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M13 3l-8 10h6l-1 8 8-10h-6z"/></svg></span>
+            <span class="n">dataset.validation.failed <em>→ svc.pagerduty.int/hooks/rc</em></span>
+          </div>
+          <div><span class="src">DATA</span></div>
+          <div><span class="jt" title="webhook_delivery">webhook_delivery</span></div>
+          <div><span class="mode async">ASYNC</span></div>
+          <div class="status"><span class="dot good"></span>Succeeded</div>
+          <div class="cm">16:21:58</div>
+          <div class="cm"><strong>340ms</strong></div>
+          <div class="cm">202 · 1/5</div>
+          <div class="teamtag"><span class="sw" style="background:var(--viz-6)"></span><span>Risk &amp; Compliance</span></div>
+          <div class="cm">svc:wk-3</div>
+          <div class="kebab">⋯</div>
+        </div>
+
+        <!-- 15 · workflow, async, success -->
+        <div class="row rgrid">
+          <div class="rid">#4107</div>
+          <div class="what">
+            <span class="g"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="5" cy="12" r="2.4"/><circle cx="19" cy="6" r="2.4"/><circle cx="19" cy="18" r="2.4"/><path d="M7.4 11l9.3-4M7.4 13l9.3 4"/></svg></span>
+            <span class="n">Ticket auto-triage <em>· 6 nodes</em></span>
+          </div>
+          <div><span class="src wf">WF</span></div>
+          <div><span class="jt">workflow</span></div>
+          <div><span class="mode async">ASYNC</span></div>
+          <div class="status"><span class="dot good"></span>Succeeded</div>
+          <div class="cm">16:19:40</div>
+          <div class="cm"><strong>1.2s</strong></div>
+          <div class="cm">88</div>
+          <div class="teamtag"><span class="sw" style="background:var(--viz-4)"></span><span>Customer Success</span></div>
+          <div class="cm">svc:wf-2</div>
+          <div class="kebab">⋯</div>
+        </div>
+
+        <!-- 16 · profiling, in-request, success -->
+        <div class="row rgrid">
+          <div class="rid">#4106</div>
+          <div class="what">
+            <span class="g"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M5 20V10M12 20V4M19 20v-7"/></svg></span>
+            <span class="n">NPS Q3 raw <em>· 18 columns</em></span>
+          </div>
+          <div><span class="src">DATA</span></div>
+          <div><span class="jt">profiling</span></div>
+          <div><span class="mode inreq">IN-REQ</span></div>
+          <div class="status"><span class="dot good"></span>Succeeded</div>
+          <div class="cm">16:17:11</div>
+          <div class="cm"><strong>1.1s</strong></div>
+          <div class="cm">12,004</div>
+          <div class="teamtag"><span class="sw" style="background:var(--viz-5)"></span><span>Marketing</span></div>
+          <div class="cm">d.abraham</div>
+          <div class="kebab">⋯</div>
+        </div>
+
+        <!-- 17 · validation, in-request, succeeded with warnings -->
+        <div class="row rgrid">
+          <div class="rid">#4105</div>
+          <div class="what">
+            <span class="g"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg></span>
+            <span class="n">schema_contract <em>· NPS Q3 raw v2</em></span>
+          </div>
+          <div><span class="src">DATA</span></div>
+          <div><span class="jt">validation</span></div>
+          <div><span class="mode inreq">IN-REQ</span></div>
+          <div class="status"><span class="dot warn"></span>14 warnings</div>
+          <div class="cm">16:15:02</div>
+          <div class="cm"><strong>640ms</strong></div>
+          <div class="cm">12,004</div>
+          <div class="teamtag"><span class="sw" style="background:var(--viz-5)"></span><span>Marketing</span></div>
+          <div class="cm">d.abraham</div>
+          <div class="kebab">⋯</div>
+        </div>
+
+        <!-- 18 · analytics, in-request, failed (unknown-column) -->
+        <div class="row rgrid">
+          <div class="rid">#4104</div>
+          <div class="what">
+            <span class="g" style="color:#e08a72"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19h16"/><path d="M6 15l4-5 3 3 5-7"/></svg></span>
+            <span class="n">Spend Explorer · GROUP BY vendor_nm <em>· unknown-column</em></span>
+          </div>
+          <div><span class="src">DATA</span></div>
+          <div><span class="jt">analytics</span></div>
+          <div><span class="mode inreq">IN-REQ</span></div>
+          <div class="status"><span class="dot crit"></span>Failed</div>
+          <div class="cm">16:12:38</div>
+          <div class="cm"><strong>210ms</strong></div>
+          <div class="cm">—</div>
+          <div class="teamtag"><span class="sw" style="background:var(--viz-3)"></span><span>Finance</span></div>
+          <div class="cm">l.chen</div>
+          <div class="kebab">⋯</div>
+        </div>
+
+        <!-- 19 · artifact_gc, async, QUEUED, EXT -->
+        <div class="row rgrid">
+          <div class="rid">#4103</div>
+          <div class="what">
+            <span class="g"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg></span>
+            <span class="n">artifacts/finance/** <em>· sweep · waiting for a worker</em></span>
+          </div>
+          <div><span class="src">DATA</span></div>
+          <div><span class="jt">artifact_gc<span class="ext" title="externally triggered — no scheduler in this service">EXT</span></span></div>
+          <div><span class="mode async">ASYNC</span></div>
+          <div class="status"><span class="dot warn"></span>Queued</div>
+          <div class="cm">—</div>
+          <div class="cm">—</div>
+          <div class="cm">—</div>
+          <div class="teamtag"><span class="sw" style="background:var(--viz-7)"></span><span>Data Platform</span></div>
+          <div class="cm">ext:cron</div>
+          <div class="kebab">⋯</div>
+        </div>
+
+        <!-- 20 · relationship_discovery, in-request (sync defaults true) -->
+        <div class="row rgrid">
+          <div class="rid">#4102</div>
+          <div class="what">
+            <span class="g"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="6" cy="7" r="2.2"/><circle cx="18" cy="7" r="2.2"/><circle cx="12" cy="18" r="2.2"/><path d="M8.2 7h7.6M7.1 9l3.8 7M16.9 9l-3.8 7"/></svg></span>
+            <span class="n">Loan Book suggest <em>· ?sync= defaults true</em></span>
+          </div>
+          <div><span class="src">DATA</span></div>
+          <div><span class="jt" title="relationship_discovery">relationship_disc…</span></div>
+          <div><span class="mode inreq">IN-REQ</span></div>
+          <div class="status"><span class="dot good"></span>Succeeded</div>
+          <div class="cm">16:09:22</div>
+          <div class="cm"><strong>4.8s</strong></div>
+          <div class="cm">38 cand</div>
+          <div class="teamtag"><span class="sw" style="background:var(--viz-6)"></span><span>Risk &amp; Compliance</span></div>
+          <div class="cm">a.okafor</div>
+          <div class="kebab">⋯</div>
+        </div>
+
+        <!-- 21 · webhook_delivery, async, success after retry -->
+        <div class="row rgrid">
+          <div class="rid">#4101</div>
+          <div class="what">
+            <span class="g"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M13 3l-8 10h6l-1 8 8-10h-6z"/></svg></span>
+            <span class="n">dataset.row_count.changed <em>→ hooks.growth.int/v2</em></span>
+          </div>
+          <div><span class="src">DATA</span></div>
+          <div><span class="jt" title="webhook_delivery">webhook_delivery</span></div>
+          <div><span class="mode async">ASYNC</span></div>
+          <div class="status"><span class="dot good"></span>Succeeded</div>
+          <div class="cm">16:07:03</div>
+          <div class="cm"><strong>1.4s</strong></div>
+          <div class="cm">200 · 2/5</div>
+          <div class="teamtag"><span class="sw" style="background:var(--viz-2)"></span><span>Growth Analytics</span></div>
+          <div class="cm">svc:wk-3</div>
+          <div class="kebab">⋯</div>
+        </div>
+
+        <!-- 22 · workflow, async, held/cancelled -->
+        <div class="row rgrid">
+          <div class="rid">#4100</div>
+          <div class="what">
+            <span class="g"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="5" cy="12" r="2.4"/><circle cx="19" cy="6" r="2.4"/><circle cx="19" cy="18" r="2.4"/><path d="M7.4 11l9.3-4M7.4 13l9.3 4"/></svg></span>
+            <span class="n">Payroll export gate <em>· 5 nodes · approval held</em></span>
+          </div>
+          <div><span class="src wf">WF</span></div>
+          <div><span class="jt">workflow<span class="ext">EXT</span></span></div>
+          <div><span class="mode async">ASYNC</span></div>
+          <div class="status"><span class="dot serious"></span>Held</div>
+          <div class="cm">16:02:19</div>
+          <div class="cm"><strong>2.0s</strong></div>
+          <div class="cm">1,140</div>
+          <div class="teamtag"><span class="sw" style="background:var(--viz-3)"></span><span>Finance</span></div>
+          <div class="cm">ext:cron</div>
+          <div class="kebab">⋯</div>
+        </div>
+
+      </div><!-- /runwrap -->
+
+      <!-- ---------- WEBHOOK DELIVERIES ---------- -->
+      <div class="hooks">
+        <div class="hh">
+          <span class="micro">Webhook deliveries</span>
+          <span class="mono" style="font-size:10.5px;color:var(--t3)">last 60 min · delivered by the <span style="color:var(--t2)">webhook_delivery</span> job type on the worker, with retry + backoff</span>
+          <a class="lnk" href="#">Admin › Webhooks →</a>
+        </div>
+        <div class="hkrow hkgrid colhdr" style="border-bottom:1px solid var(--border);padding:4px 12px">
+          <div>Endpoint</div><div>Event</div><div>Code</div><div>Attempt</div><div>Success rate (24h)</div><div>State</div>
+        </div>
+        <div class="hkrow hkgrid">
+          <div class="cm" style="color:var(--t2)">hooks.riskops.int/v1</div>
+          <div class="cm">dataset.version.created</div>
+          <div><span class="code bad">503</span></div>
+          <div class="cm">3 / 5</div>
+          <div class="track" title="41 of 44 delivered"><i style="width:93%;background:var(--m3)"></i></div>
+          <div class="status"><span class="dot serious"></span>Retrying</div>
+        </div>
+        <div class="hkrow hkgrid">
+          <div class="cm" style="color:var(--t2)">svc.pagerduty.int/hooks/rc</div>
+          <div class="cm">dataset.validation.failed</div>
+          <div><span class="code ok">202</span></div>
+          <div class="cm">1 / 5</div>
+          <div class="track" title="12 of 12 delivered"><i style="width:100%;background:var(--m2)"></i></div>
+          <div class="status"><span class="dot good"></span>Healthy</div>
+        </div>
+        <div class="hkrow hkgrid">
+          <div class="cm" style="color:var(--t2)">hooks.growth.int/v2</div>
+          <div class="cm">dataset.row_count.changed</div>
+          <div><span class="code ok">200</span></div>
+          <div class="cm">2 / 5</div>
+          <div class="track" title="88 of 89 delivered"><i style="width:99%;background:var(--m2)"></i></div>
+          <div class="status"><span class="dot good"></span>Healthy</div>
+        </div>
+      </div>
+
+    </div><!-- /left -->
+    <!-- ---------- RUN DETAIL DOCK ---------- -->
+    <div class="dock">
+      <div class="dockhead">
+        <span class="t">Run detail</span>
+        <span class="mono" style="font-size:11px;color:var(--sig);font-weight:600">#4118</span>
+        <span class="spacer"></span>
+        <span class="iconbtn" style="width:26px;height:26px;border-radius:6px" title="Previous run"><svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M15 6l-6 6 6 6"/></svg></span>
+        <span class="iconbtn" style="width:26px;height:26px;border-radius:6px" title="Next run"><svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M9 6l6 6-6 6"/></svg></span>
+        <span class="iconbtn" style="width:26px;height:26px;border-radius:6px" title="Close"><svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M6 6l12 12M18 6L6 18"/></svg></span>
+      </div>
+
+      <div class="dockbody">
+
+        <div class="dtitle">pii_guardrails</div>
+        <div class="dsub">Loan Book FY26 · v7 · ds_8f21c4b0</div>
+        <div class="chips">
+          <span class="jt" style="border:1px solid var(--border);border-radius:4px;padding:1px 5px">validation</span>
+          <span class="mode inreq">IN-REQ</span>
+          <span class="status" style="font-size:12px"><span class="dot crit"></span>Failed</span>
+          <span class="cm" style="margin-left:auto"><strong>812ms</strong></span>
+        </div>
+
+        <div class="reqid">
+          <span class="k">request_id</span>
+          <span class="v">req_01J8ZQ4M2K7Y3T</span>
+          <span class="cp" title="Copy"><svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h8"/></svg></span>
+        </div>
+
+        <div class="kv" style="margin-bottom:16px">
+          <span class="k">Actor</span><span class="v">a.okafor <span style="color:var(--muted-foreground)">· admin</span></span>
+          <span class="k">Team</span><span class="v" style="display:flex;align-items:center;gap:6px"><span class="teamtag" style="font-size:11px"><span class="sw" style="background:var(--viz-6)"></span><span>Risk &amp; Compliance</span></span></span>
+          <span class="k">Entry</span><span class="v">POST /v1/datasets/ds_8f21c4b0/versions/7/validate</span>
+          <span class="k">Started</span><span class="v">16:39:52.104 ET</span>
+          <span class="k">Ended</span><span class="v">16:39:52.916 ET</span>
+          <span class="k">Worker</span><span class="v" style="color:var(--muted-foreground)">none — no handler registered</span>
+        </div>
+
+        <!-- TIMELINE -->
+        <div class="sect">
+          <div class="h">Timeline <span class="line"></span><span class="r">812ms total</span></div>
+          <div class="tl">
+            <div class="st"><span class="d dot good"></span>
+              <div class="l">Job row created</div>
+              <div class="m">16:39:52.104 · execution record only</div>
+            </div>
+            <div class="st na"><span class="d dot muted"></span>
+              <div class="l">Queue wait — not applicable</div>
+              <div class="m">validation has no registered worker handler; it ran inside the API request</div>
+            </div>
+            <div class="st"><span class="d dot run"></span>
+              <div class="l">Executing in-request</div>
+              <div class="m">16:39:52.122 → 16:39:52.916</div>
+            </div>
+            <div class="st"><span class="d dot crit"></span>
+              <div class="l">Failed · 422 Unprocessable Entity</div>
+              <div class="m">16:39:52.916 · 3 of 12 rules failed</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- STAGES -->
+        <div class="sect">
+          <div class="h">Stages <span class="line"></span><span class="r">6 stages</span></div>
+          <div class="stg"><span class="dot good"></span><span class="nm">resolve_version</span><span class="ms">18ms</span></div>
+          <div class="stgbar"><i style="width:2%"></i></div>
+          <div class="stg"><span class="dot good"></span><span class="nm">fetch_artifact · 41.2 MB</span><span class="ms">226ms</span></div>
+          <div class="stgbar"><i style="width:28%"></i></div>
+          <div class="stg"><span class="dot good"></span><span class="nm">compile_ruleset · 12 rules</span><span class="ms">33ms</span></div>
+          <div class="stgbar"><i style="width:4%"></i></div>
+          <div class="stg"><span class="dot good"></span><span class="nm">scan_rows · 128,400</span><span class="ms">501ms</span></div>
+          <div class="stgbar"><i style="width:62%"></i></div>
+          <div class="stg"><span class="dot crit"></span><span class="nm">evaluate_rules · 3 failed</span><span class="ms">27ms</span></div>
+          <div class="stgbar"><i style="width:3%"></i></div>
+          <div class="stg"><span class="dot muted"></span><span class="nm" style="color:var(--t3)">write_report</span><span class="ms">skipped</span></div>
+          <div class="stgbar"><i class="dim" style="width:0%"></i></div>
+        </div>
+
+        <!-- PROBLEM+JSON -->
+        <div class="sect">
+          <div class="h">Error <span class="line"></span><span class="r">application/problem+json</span></div>
+          <div class="prob">
+            <div class="ph">
+              <span class="dot crit"></span>
+              <span class="mono" style="font-size:11px;color:var(--t1);font-weight:600">HTTP 422</span>
+              <span class="ct">RFC 9457</span>
+            </div>
+            <div class="pb">
+              <div class="micro" style="font-size:9.5px;margin-bottom:3px">code — machine readable</div>
+              <div class="codebig">validation-failed</div>
+              <div class="pt">Validation failed</div>
+              <div class="pd">3 of 12 rules failed on version v7 (128,400 rows scanned). Report was not written.</div>
+              <div class="json"><span class="jk">"type"</span>:    <span class="jsv">"https://errors.cmdstudio.int/validation-failed"</span>
+<span class="jk">"title"</span>:   <span class="jsv">"Validation failed"</span>
+<span class="jk">"status"</span>:  <span class="jn">422</span>
+<span class="jk">"code"</span>:    <span class="jsv">"validation-failed"</span>
+<span class="jk">"detail"</span>:  <span class="jsv">"3 of 12 rules failed on version v7."</span>
+<span class="jk">"instance"</span>: <span class="jsv">"/v1/datasets/ds_8f21c4b0/versions/7/validate"</span>
+<span class="jk">"request_id"</span>: <span class="jsv">"req_01J8ZQ4M2K7Y3T"</span></div>
+            </div>
+          </div>
+          <div class="note">
+            <span class="dot warn" style="margin-top:5px"></span>
+            <span>Clients branch on <code>code</code>, never on <code>title</code>/<code>detail</code> prose — those are display copy and may change. Domain codes are hyphenated (<code>validation-failed</code>, <code>unknown-column</code>); HTTP defaults are underscored (<code>not_found</code>, <code>forbidden</code>).</span>
+          </div>
+        </div>
+
+        <!-- ARTIFACTS -->
+        <div class="sect">
+          <div class="h">Artifacts <span class="line"></span></div>
+          <div class="art">
+            <span class="io">IN</span>
+            <span class="p" title="artifacts/risk-compliance/loan-book/raw/v7.parquet">artifacts/risk-compliance/loan-book/raw/v7.parquet</span>
+            <span class="sz">41.2 MB</span>
+          </div>
+          <div class="art miss">
+            <span class="io">OUT</span>
+            <span class="p" title="not created">artifacts/risk-compliance/loan-book/validation/v7-report.json</span>
+            <span class="sz">—</span>
+          </div>
+          <div class="note" style="margin-top:6px">
+            <span class="dot muted" style="margin-top:5px"></span>
+            <span>An artifact is only reachable through its registered row — the unwritten report has no row, so nothing points at it.</span>
+          </div>
+        </div>
+
+        <!-- LOG -->
+        <div class="sect" style="margin-bottom:4px">
+          <div class="h">Log <span class="line"></span><span class="r">9 lines</span></div>
+          <div class="logwrap"><div class="log">
+            <div class="lgl"><span class="ld info"></span><span class="lv">INFO</span><span class="tx">52.104 validation.start suite=pii_guardrails version=7</span></div>
+            <div class="lgl dbg"><span class="ld dbg"></span><span class="lv">DEBUG</span><span class="tx">52.122 artifact.resolve key=…/loan-book/raw/v7.parquet</span></div>
+            <div class="lgl"><span class="ld info"></span><span class="lv">INFO</span><span class="tx">52.348 artifact.fetch bytes=43,201,904 ms=226</span></div>
+            <div class="lgl"><span class="ld info"></span><span class="lv">INFO</span><span class="tx">52.381 ruleset.compile rules=12 ms=33</span></div>
+            <div class="lgl"><span class="ld info"></span><span class="lv">INFO</span><span class="tx">52.882 rows.scan rows=128,400 ms=501</span></div>
+            <div class="lgl warn"><span class="ld warn"></span><span class="lv">WARN</span><span class="tx">52.909 rule.fail id=ssn_masked column=ssn violations=1,204</span></div>
+            <div class="lgl warn"><span class="ld warn"></span><span class="lv">WARN</span><span class="tx">52.912 rule.fail id=no_free_email column=email violations=88</span></div>
+            <div class="lgl err"><span class="ld err"></span><span class="lv">ERROR</span><span class="tx">52.914 rule.fail id=dob_present column=date_of_birth violations=128,400</span></div>
+            <div class="lgl err"><span class="ld err"></span><span class="lv">ERROR</span><span class="tx">52.916 validation.failed code=validation-failed status=422 req=req_01J8ZQ4M2K7Y3T</span></div>
+          </div></div>
+          <div class="note">
+            <span class="dot muted" style="margin-top:5px"></span>
+            <span>Retry re-runs this synchronously — there is nothing to re-queue, because <code>validation</code> has no worker handler.</span>
+          </div>
+        </div>
+
+      </div><!-- /dockbody -->
+
+      <div class="dockfoot">
+        <button class="btn"><svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M4 4v6h6M20 20v-6h-6"/><path d="M20 9a8 8 0 00-14.5-3M4 15a8 8 0 0014.5 3"/></svg>Retry in-request</button>
+        <button class="btn">Open dataset</button>
+        <button class="btn dis" title="Report was never written">Download report</button>
+      </div>
+    </div><!-- /dock -->
+
+  </div><!-- /main -->
+
+  <!-- ===== BOTTOM STATUS BAR ===== -->
+  <div class="statusbar">
+    <span><kbd>J/K</kbd> move · <kbd>↵</kbd> open · <kbd>R</kbd> retry · <kbd>F</kbd> filter · <kbd>L</kbd> logs · <kbd>⌘K</kbd> command</span>
+    <span class="right">
+      <span class="live"></span>
+      3 running · 1 queued · worker pool 3 · FOR UPDATE SKIP LOCKED, not a durable queue · SYNC 16:41:07 ET
+    </span>
+  </div>
+
+</div>
+
+<script>
+  // Optional: segmented-control active state only. No data changes.
+  document.querySelectorAll('.seg').forEach(function (seg) {
+    seg.querySelectorAll('button').forEach(function (b) {
+      b.addEventListener('click', function () {
+        seg.querySelectorAll('button').forEach(function (x) { x.classList.remove('active'); });
+        b.classList.add('active');
+      });
+    });
+  });
+  // Optional: row selection highlight (detail dock content stays static in this mockup).
+  document.querySelectorAll('.runwrap .row').forEach(function (r) {
+    r.addEventListener('click', function () {
+      document.querySelectorAll('.runwrap .row').forEach(function (x) { x.classList.remove('sel'); });
+      r.classList.add('sel');
+    });
+  });
+</script>
+</body>
+</html>

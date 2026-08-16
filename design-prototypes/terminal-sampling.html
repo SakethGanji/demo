@@ -1,0 +1,1216 @@
+<!--
+  DESIGN NOTES — "INSTRUMENT" applied to an ordered pipeline builder (restyle of the TERMINAL sampling studio).
+  Same information, same regions, same layout, same content: the 3-step pipeline, the 8 methods (and
+  llm_semantic's 3 modes), the depletion ledger, distribution-goal validation with its missed class,
+  per-step results, the seed dock and the coordinated cross-sheet band.
+  R8 STEP CARDS — solved identically to terminal-transform.html: ordered steps are heterogeneous and
+     independently actionable, so they KEEP a surface (--s3, open --s4) and lose the border. Nothing nests:
+     the 3 llm_semantic modes and the exhaustion warning became LEFT-RULED INDENTS, the pool ledger and the
+     query_text input became RECESSED WELLS, the 8 method tiles win on value + elevation.
+  POOL DEPLETION is magnitude, not identity — drawn --m1 over eligible --m5 in a recessed track, so no bar
+     is ever mistaken for a data series. Retention and semi-join bars ride the same ramp.
+  CYAN (4, meaning not count): the active route · the source dataset this run is drawn from · the locked seed
+     that identifies this exact run · the live SYNC lamp. The coordinated toggle, the driver sheet and the
+     selected method are REPEATED state, so they take value + elevation instead.
+  CATEGORICAL: exactly one genuine series ships — the four plan classes in goal validation, direct-labelled.
+  The missed class is STATUS (shape + hue + word); its numbers are typographic, not red.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Command Studio — Sampling Studio · Terminal</title>
+<style>
+  :root {
+    --s0:#080A0E;  --s1:#0D1015;  --s2:#11151B;  --s3:#161B22;
+    --s4:#1C222B;  --s5:#242C37;  --s6:#38424F;  --key:#E9EEF5;
+    --t1:#E7ECF3;  --t2:#B0BAC8;  --t3:#85909F;  --t4:#5C6675; /* t4 = decoration only, never text */
+    --r1:rgba(255,255,255,.042); --r2:rgba(255,255,255,.075); --r3:rgba(255,255,255,.13);
+    --hi:inset 0 1px 0 rgba(255,255,255,.045);
+    --sig:#46D5E8; --sig-dim:rgba(70,213,232,.14); --sig-line:rgba(70,213,232,.40);
+    --st-good:#0ca30c; --st-warn:#fab219; --st-serious:#ec835a; --st-crit:#DC5050;
+    --m1:#CBD3DF; --m2:#A2ACBB; --m3:#7D8797; --m4:#5F6979; --m5:#48515F; --m6:#39414D;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    /* legacy aliases — every inline style in the markup resolves into the new language.
+       NOTE --primary is deliberately a NEUTRAL: the accent is spent by hand, four times. */
+    --background:var(--s1); --foreground:var(--t1); --card:var(--s2); --surface:var(--s3);
+    --muted:rgba(255,255,255,.05); --muted-foreground:var(--t3); --secondary:var(--s4);
+    --border:var(--r2); --primary:var(--m1); --radius:8px;
+    /* the ONE categorical series on this screen: the four plan classes in the mix bars */
+    --viz-1:#3987e5; --viz-2:#d95926; --viz-3:#199e70; --viz-4:#c98500;
+    --viz-5:#d55181; --viz-6:#747c04; --viz-7:#9085e9; --viz-8:#e66767;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { height:100%; overflow:hidden; }
+  html { font-size:13px; }
+  body {
+    font-family:var(--sans); color:var(--t2); font-size:12.5px;
+    background:radial-gradient(1180px 560px at 44% -12%, #151B24 0%, rgba(21,27,36,0) 62%), var(--s1);
+    -webkit-font-smoothing:antialiased; line-height:1.4; letter-spacing:-0.004em;
+    display:flex; flex-direction:column;
+  }
+  body::after {
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:200; opacity:.055; mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .mono { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  .num { font-variant-numeric:tabular-nums; }
+  .muted { color:var(--t3); }
+  ::selection { background:rgba(70,213,232,.26); color:#fff; }
+  :focus-visible { outline:none; box-shadow:0 0 0 1px var(--s0), 0 0 0 3px rgba(70,213,232,.45); border-radius:6px; }
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb { background:#232B35; border-radius:8px; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background:#303945; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-track { background:transparent; }
+
+  /* ===== STATUS: five states, five SHAPES, always beside a word ===== */
+  .sdot { width:8px; height:8px; flex:none; display:inline-block; vertical-align:-1px; border-radius:0; }
+  .sdot.good    { border-radius:50%; background:var(--st-good); }
+  .sdot.warn    { width:0; height:0; background:none; border-left:4.5px solid transparent;
+                  border-right:4.5px solid transparent; border-bottom:8px solid var(--st-warn); vertical-align:0; }
+  .sdot.serious { width:7px; height:7px; background:var(--st-serious); border-radius:1px; transform:rotate(45deg); margin:0 1px; }
+  .sdot.crit    { background:var(--st-crit); border-radius:1px; }
+  .sdot.idle    { border-radius:50%; background:transparent; box-shadow:inset 0 0 0 1.5px var(--t3); }
+
+  /* ===== TOPBAR ===== */
+  header.topbar {
+    height:46px; flex:none; display:flex; align-items:center; gap:16px; padding:0 16px;
+    background:linear-gradient(180deg,#141922,#10141A); box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); z-index:30;
+  }
+  .brand { display:flex; align-items:center; gap:10px; }
+  .brand .glyph { width:21px; height:21px; border-radius:5px; background:linear-gradient(180deg,#2C3542,#191F28);
+    display:grid; place-items:center; box-shadow:var(--hi), 0 1px 2px rgba(0,0,0,.5); color:var(--t1); }
+  .brand .name { font-size:12.5px; font-weight:600; color:var(--t1); letter-spacing:-0.012em; white-space:nowrap; }
+  .env-chip { font-family:var(--mono); font-size:10px; font-weight:400; letter-spacing:0; text-transform:none;
+    color:var(--t3); background:none; border:0; padding:0; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; flex:none; }
+  .env-chip::before { content:""; width:5px; height:5px; border-radius:50%; background:var(--st-warn); flex:none; }
+  nav.gnav { display:flex; align-items:center; gap:4px; }
+  nav.gnav a { font-size:12.5px; font-weight:450; color:var(--t3); text-decoration:none; height:30px; padding:0 10px;
+    border-radius:7px; position:relative; display:inline-flex; align-items:center; background:none; transition:color .14s, background .14s; }
+  nav.gnav a:hover { color:var(--t1); background:rgba(255,255,255,.035); }
+  /* SIGNAL 1/4 — the active route */
+  nav.gnav a.active { color:var(--t1); font-weight:550; background:none; }
+  nav.gnav a.active::after { content:""; position:absolute; left:10px; right:10px; bottom:-9px; height:2px;
+    background:var(--sig); border-radius:2px 2px 0 0; box-shadow:0 0 12px -1px var(--sig); }
+  .cmdk, .cmdk.lit { margin-left:auto; display:flex; align-items:center; gap:9px; width:290px; height:30px; padding:0 10px;
+    border:0; border-radius:8px; cursor:text; color:var(--t3); background:var(--s0);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); }
+  .cmdk:focus-within { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+  .cmdk svg { flex:none; opacity:.55; }
+  .cmdk .ph { font-size:12px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .kbd { font-family:var(--mono); font-size:10px; font-weight:500; color:var(--t2);
+    background:linear-gradient(180deg,#232A34,#1A2028); border:0; border-radius:4px; padding:1.5px 5px; line-height:1.4;
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); white-space:nowrap; }
+  .hicons { display:flex; align-items:center; gap:2px; }
+  .iconbtn { width:30px; height:30px; border-radius:7px; border:0; background:transparent; color:var(--t3);
+    display:grid; place-items:center; cursor:pointer; transition:color .14s, background .14s; }
+  .iconbtn:hover { background:rgba(255,255,255,.05); color:var(--t1); border:0; }
+  .teamsw { display:flex; align-items:center; gap:7px; height:28px; padding:0 10px; border-radius:7px; flex:none;
+    border:0; background:var(--s4); box-shadow:var(--hi); font-size:12px; font-weight:450; color:var(--t1); cursor:pointer; white-space:nowrap; }
+  .teamsw .tk { font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--t3); font-weight:500; }
+  .teamsw .ca { color:var(--t3); font-size:9px; }
+  .avatar { width:27px; height:27px; border-radius:7px; border:0; background:linear-gradient(180deg,#2A323D,#1D242D);
+    display:grid; place-items:center; font-size:10px; font-weight:600; color:var(--t2); cursor:pointer; box-shadow:var(--hi); flex:none; }
+
+  /* ===== GUARDRAIL / RUN STRIP — the first read. Numbers are the hero. ===== */
+  .kpistrip {
+    height:62px; flex:none; display:flex; align-items:stretch; padding:0 16px;
+    background:linear-gradient(180deg,var(--s3),#12171E); border:0;
+    box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.55), 0 10px 24px -20px rgba(0,0,0,.9);
+  }
+  .kpi { display:grid; grid-template-columns:auto auto; align-items:baseline; align-content:center;
+    gap:2px 8px; padding:0 24px 0 0; border:0; white-space:nowrap; }
+  .kpi .lab { grid-column:1 / -1; font-size:9.5px; font-weight:500; letter-spacing:.11em;
+    text-transform:uppercase; color:var(--t3); }
+  .kpi .val { font-size:21px; font-weight:600; line-height:1.05; color:var(--t1);
+    letter-spacing:-0.032em; font-variant-numeric:tabular-nums; }
+  .kpi .val .muted { font-size:12px; font-weight:500; }
+  .kpi .delta { font-size:10.5px; font-weight:500; color:var(--t3); display:flex; align-items:center; gap:5px; }
+  .up, .down { color:var(--t2); }
+  .cap { display:flex; align-items:center; gap:6px; align-self:center; }
+  /* guardrail meters are MAGNITUDE — neutral ramp, never the accent */
+  .capbar { width:52px; height:6px; border-radius:3px; background:rgba(0,0,0,.4);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6); overflow:hidden; }
+  .capbar i { display:block; height:100%; background:var(--m3); border-radius:3px; }
+  .runbtns { margin-left:auto; display:flex; align-items:center; gap:6px; padding-left:14px; flex:none; align-self:center; }
+
+  /* ===== BUTTONS / PILLS ===== */
+  .tbtn { height:28px; padding:0 10px; font-size:12px; font-weight:450; color:var(--t2); background:transparent;
+    border:0; border-radius:7px; cursor:pointer; font-family:inherit; display:inline-flex; align-items:center; gap:6px;
+    box-shadow:inset 0 0 0 1px var(--r2); transition:all .14s; white-space:nowrap; }
+  .tbtn:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+  /* rule 2 — the primary action is near-white, not the accent */
+  .tbtn.primary { background:linear-gradient(180deg,#FBFDFF,var(--key)); color:#0B0E13; font-weight:600; padding:0 11px;
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset, 0 2px 8px -3px rgba(0,0,0,.9), 0 0 0 1px rgba(0,0,0,.35); }
+  .tbtn.primary:hover { background:#fff; }
+  .tbtn.sm { height:24px; padding:0 8px; font-size:11.5px; border-radius:6px; }
+  .tbtn .k { font-size:10px; color:var(--t3); font-family:var(--mono); }
+  .tbtn.primary .k { color:#4A5462; }
+  .tbtn[disabled] { opacity:.45; cursor:not-allowed; }
+  .tbtn.danger { color:var(--t2); box-shadow:inset 0 0 0 1px rgba(220,80,80,.35); }
+  .tbtn.danger:hover { color:var(--t1); background:rgba(220,80,80,.12); }
+  .pill { font-size:10px; font-weight:500; padding:2px 7px; border-radius:20px; display:inline-flex;
+    align-items:center; gap:5px; border:0; white-space:nowrap; color:var(--t3); background:rgba(255,255,255,.05); }
+  /* status pills keep the reserved hue over a recessed well so the word clears 4.5:1 */
+  .pill.ok   { color:var(--st-good); background:rgba(0,0,0,.34); box-shadow:inset 0 0 0 1px rgba(12,163,12,.42); }
+  .pill.warn { color:var(--st-warn); background:rgba(0,0,0,.34); box-shadow:inset 0 0 0 1px rgba(250,178,25,.34); }
+  .pill.crit { color:var(--st-crit); background:rgba(0,0,0,.36); box-shadow:inset 0 0 0 1px rgba(220,80,80,.42); }
+  .pill.neu  { color:var(--t3); background:rgba(255,255,255,.05); }
+  /* repeated emphasis goes to VALUE + elevation, never to a second accent */
+  .pill.pri  { color:var(--t1); background:var(--s4); box-shadow:var(--hi); }
+  .pill.label { color:var(--t3); background:transparent; box-shadow:inset 0 0 0 1px var(--r1); }
+  .pill.enforced { color:var(--st-warn); background:rgba(250,178,25,.07); box-shadow:inset 0 0 0 1px rgba(250,178,25,.26);
+    font-weight:500; border-radius:5px; }
+  .lockglyph { color:var(--st-warn); display:inline-flex; vertical-align:-2px; flex:none; }
+  .cls { font-size:10.5px; font-weight:400; padding:0; border:0; border-radius:0; white-space:nowrap; }
+  .cls.conf { color:var(--t3); background:none; border-bottom:1px dashed var(--r2); padding-bottom:2px; cursor:help; }
+  /* the footnote register — every provenance line on the screen lands here */
+  .ep { font-family:var(--mono); font-size:9.5px; color:var(--t3); }
+
+  /* SIGNAL — scope + liveness. Four on this screen, no more. */
+  .tick { width:5px; height:5px; border-radius:50%; background:var(--sig); flex:none;
+    box-shadow:0 0 8px -1px var(--sig); display:inline-block; }
+
+  /* ===== WORKSPACE SHELL ===== */
+  .workspace { flex:1; min-height:0; display:grid; grid-template-columns:372px 1fr 348px; }
+  .col { display:flex; flex-direction:column; min-width:0; min-height:0; }
+  .col.rail { border:0; background:var(--s2); box-shadow:1px 0 0 rgba(0,0,0,.45); z-index:2; }
+  .col.center { background:transparent; min-width:0; }
+  .col.dock { border:0; background:var(--s2); box-shadow:-1px 0 0 rgba(0,0,0,.45); z-index:2; }
+  .colhead { height:34px; flex:none; display:flex; align-items:center; gap:9px; padding:0 14px; border:0; }
+  .colhead .t { font-size:12.5px; font-weight:600; letter-spacing:-0.012em; text-transform:none; color:var(--t1); white-space:nowrap; }
+  .colhead .badge { font-family:var(--mono); font-size:10px; font-weight:400; color:var(--t3);
+    background:none; border:0; border-radius:0; padding:0; }
+  .colhead .spacer { margin-left:auto; }
+  .verchip { font-family:var(--mono); font-size:9.5px; font-weight:500; color:var(--t3);
+    background:rgba(255,255,255,.05); border:0; border-radius:4px; padding:0 4px; flex:none; }
+  .sect { margin-bottom:16px; }
+  .sect:last-child { margin-bottom:0; }
+  .sect > .h { font-size:11.5px; font-weight:550; letter-spacing:-0.008em; text-transform:none;
+    color:var(--t2); margin-bottom:9px; display:flex; align-items:center; gap:9px; }
+  .sect > .h .line { flex:1; height:1px; background:var(--r1); min-width:10px; }
+  .sect > .h .rnote { font-weight:400; letter-spacing:0; text-transform:none; font-size:9.5px; color:var(--t3); }
+  .sect > .h .rnote b { color:var(--t2); font-weight:600; }
+  .hintbar { display:flex; align-items:center; gap:14px; padding:6px 14px; border:0;
+    background:transparent; box-shadow:inset 0 1px 0 var(--r1); font-size:10px; color:var(--t3); flex:none; }
+  .hintbar .h { display:flex; align-items:center; gap:5px; }
+  .ep { font-family:var(--mono); font-size:9.5px; color:var(--t3); }
+
+  /* ===== RAIL · source + the depletion pipeline ===== */
+  .srcbox { padding:9px 14px 11px; border:0; box-shadow:inset 0 -1px 0 var(--r1); flex:none; background:transparent; }
+  .srctop { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:var(--t1); letter-spacing:-0.016em; }
+  .srctop .txt { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .srcpath { font-size:10px; color:var(--t3); margin-top:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .srcmeta { display:flex; align-items:center; gap:8px; margin-top:7px; font-size:10px; color:var(--t3); }
+
+  .pipebody { flex:1; overflow-y:auto; overflow-x:hidden; padding:11px 14px 14px; min-height:0; }
+  .poolcap { display:flex; align-items:center; gap:9px; padding:8px 11px; border:0;
+    border-radius:8px; background:var(--s3); box-shadow:var(--hi); }
+  .poolcap .pk { font-size:9.5px; font-weight:500; letter-spacing:.11em; text-transform:uppercase; color:var(--t3); }
+  .poolcap .pv { margin-left:auto; font-size:17px; font-weight:600; color:var(--t1);
+    letter-spacing:-0.028em; font-variant-numeric:tabular-nums; }
+  .poolcap.end { border:0; background:transparent; box-shadow:inset 0 0 0 1px var(--r1); }
+  .poolcap.end .pv { color:var(--t2); }
+
+  .conn { display:flex; align-items:center; gap:8px; padding:3px 0 3px 14px; }
+  .conn .cl { width:1px; height:16px; background:var(--r2); flex:none; }
+  .conn .ct { font-size:9.5px; color:var(--t3); font-family:var(--mono); }
+  .conn .ct b { color:var(--t2); font-weight:500; }
+  .conn .cx { flex:1; height:1px; background:var(--r1); }
+
+  /* RULE 8 — ordered steps keep a SURFACE and lose the border; nothing inside is a second box */
+  .step { border:0; border-radius:9px; background:var(--s3); box-shadow:var(--hi); overflow:hidden; }
+  .step:hover { background:#181E26; }
+  .step.open { background:var(--s4); box-shadow:var(--hi), 0 10px 26px -20px rgba(0,0,0,1); }
+  .step .sh { display:flex; align-items:center; gap:8px; padding:8px 11px; cursor:pointer; }
+  .step.open .sh { border:0; background:transparent; }
+  .step .sh:hover { background:rgba(255,255,255,.03); }
+  .sidx { font-family:var(--mono); font-size:10.5px; font-weight:600; color:var(--t3);
+    background:none; border:0; border-radius:0; padding:0; flex:none; }
+  .step.open .sidx { color:var(--t1); }
+  /* the 8 methods are repeated state — the selected one wins on value, never on the accent */
+  .smeth { font-family:var(--mono); font-size:11.5px; font-weight:600; color:var(--t1); letter-spacing:-0.01em; }
+  .ssum { font-size:11px; color:var(--t3); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ssum b { color:var(--t2); font-weight:500; font-family:var(--mono); }
+  .sdraw { margin-left:auto; font-family:var(--mono); font-size:12px; font-weight:600; color:var(--t1);
+    flex:none; font-variant-numeric:tabular-nums; }
+  .scar { color:var(--t4); font-size:9px; flex:none; }
+  .step .sb { padding:2px 11px 0; box-shadow:inset 0 1px 0 var(--r1); }
+  .mlab { font-size:11px; font-weight:550; letter-spacing:-0.008em; text-transform:none; color:var(--t2);
+    display:flex; align-items:center; gap:8px; margin:10px 0 7px; }
+  .mlab .ln { flex:1; height:1px; background:var(--r1); min-width:10px; }
+  .mlab .note { font-weight:400; letter-spacing:0; text-transform:none; font-size:9.5px; color:var(--t3);
+    background:none; box-shadow:none; padding:0; display:inline; }
+
+  .mpick { display:grid; grid-template-columns:1fr 1fr; gap:2px; margin-bottom:9px; }
+  .mchip { border:0; border-radius:6px; background:transparent; padding:4px 7px; cursor:pointer;
+    display:flex; flex-direction:column; gap:1px; transition:background .14s; min-width:0; }
+  .mchip:hover { border:0; background:rgba(255,255,255,.04); }
+  .mchip .mn { font-family:var(--mono); font-size:10.5px; font-weight:600; color:var(--t2);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .mchip .md { font-size:9.5px; color:var(--t3); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .mchip.on { border:0; background:var(--s6); box-shadow:var(--hi); }
+  .mchip.on .mn { color:var(--t1); }
+  .mchip.on .md { color:var(--t2); }
+
+  /* llm_semantic's 3 modes: left-ruled indents, not three boxes inside the step card */
+  .mpick.m3 { grid-template-columns:repeat(3,1fr); }
+  .modebox { border:0; border-radius:0; background:transparent; padding:1px 0 7px 11px; margin-bottom:8px;
+    box-shadow:inset 2px 0 0 var(--r1); }
+  .modebox.on { box-shadow:inset 2px 0 0 var(--t2); }
+  .modebox .mt { display:flex; align-items:center; gap:7px; font-size:10.5px; color:var(--t3); }
+  .modebox .mt .mm { font-family:var(--mono); font-weight:600; color:var(--t2); }
+  .modebox.on .mt .mm { color:var(--t1); }
+  .modebox .mt .algo { margin-left:auto; font-family:var(--mono); font-size:9.5px; color:var(--t3); flex:none; }
+  .modebox .mw { font-size:9.5px; line-height:1.5; color:var(--t3); margin:5px 0 6px; }
+  .modebox .mw b { color:var(--t2); font-weight:600; }
+  .modebox .params { grid-template-columns:1fr; gap:2px; margin-bottom:0; }
+  .qinput { display:flex; align-items:center; gap:7px; height:25px; padding:0 8px; margin-bottom:7px;
+    border-radius:6px; border:0; background:var(--s0); font-family:var(--mono); font-size:10px; color:var(--t1); min-width:0;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.04); }
+  .qinput .qk { color:var(--t3); flex:none; }
+  .qinput .qv2 { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .reqchip { margin-left:auto; flex:none; font-size:9.5px; font-weight:500; letter-spacing:0; text-transform:none;
+    color:var(--st-warn); border:0; background:rgba(0,0,0,.34); box-shadow:inset 0 0 0 1px rgba(250,178,25,.34);
+    border-radius:4px; padding:1px 5px; font-family:var(--sans); }
+
+  .filters { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px; }
+  .qtok { font-family:var(--mono); font-size:10.5px; display:inline-flex; align-items:center; gap:6px;
+    padding:3px 8px; border-radius:6px; border:0; background:rgba(255,255,255,.05); color:var(--t2); }
+  .qtok .key { color:var(--t1); font-weight:600; }
+  .qtok .x { color:var(--t3); cursor:pointer; }
+  .qadd { color:var(--t3); font-size:10.5px; cursor:pointer; padding:3px 8px; border-radius:6px;
+    border:0; box-shadow:inset 0 0 0 1px var(--r1); }
+
+  .params { display:grid; grid-template-columns:1fr 1fr; gap:3px 14px; margin-bottom:8px; }
+  .prm { display:flex; align-items:baseline; gap:6px; font-size:10.5px; min-width:0; }
+  .prm .pn { font-family:var(--mono); font-size:9.5px; color:var(--t3);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .prm .pv { margin-left:auto; font-family:var(--mono); font-weight:600; color:var(--t1); flex:none; }
+  .prm .pv.off { color:var(--t3); font-weight:400; }
+  .classtargets { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px; }
+  .classtargets .ct2 { font-size:9.5px; font-family:var(--mono); border:0; border-radius:5px;
+    padding:2px 6px; color:var(--t3); background:rgba(255,255,255,.05); }
+  .classtargets .ct2 b { color:var(--t1); font-weight:600; }
+
+  /* THE POOL LEDGER — the signature idea. A recessed well at the foot of the step, never a
+     nested card; every bar is the neutral value ramp, so no bar is mistaken for a data series. */
+  .pstrip { border:0; margin:8px -11px 0; padding:8px 11px 9px; background:rgba(0,0,0,.26);
+    box-shadow:inset 0 2px 4px -2px rgba(0,0,0,.7), inset 0 1px 0 var(--r1); }
+  .pstrip.solo { margin:0; padding:8px 0 0; background:transparent; box-shadow:none; }
+  .pmath { display:flex; align-items:baseline; gap:7px; font-family:var(--mono); font-size:10.5px;
+    color:var(--t3); margin-bottom:6px; }
+  .pmath b { color:var(--t1); font-weight:600; }
+  .pmath .op { color:var(--t4); }
+  .pmath .out { margin-left:auto; color:var(--t1); font-weight:600; }
+  .pbar { height:10px; display:flex; gap:2px; background:rgba(0,0,0,.45); border-radius:3px; overflow:hidden;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6); }
+  .pbar .seg { height:100%; }
+  .pbar .seg.drawn { background:var(--m1); border-radius:3px 0 0 3px; min-width:5px; }
+  .pbar .seg.elig { background:var(--m5); }
+  .pbar .seg.rest { background:transparent; }
+  .pleg { display:flex; align-items:center; gap:12px; margin-top:5px; font-size:9.5px; color:var(--t3); }
+  .pleg .li { display:flex; align-items:center; gap:5px; }
+  .pleg .sw { width:8px; height:8px; border-radius:2px; flex:none; }
+  .pleg .r { margin-left:auto; font-family:var(--mono); }
+  .pleg .r b { color:var(--t1); font-weight:600; }
+  /* a guard note inside the ledger is a left-ruled indent, not a third box */
+  .warnline { display:flex; align-items:flex-start; gap:8px; font-size:9.5px; line-height:1.5; color:var(--t3);
+    background:none; border:0; border-radius:0; padding:0 0 0 10px;
+    box-shadow:inset 2px 0 0 rgba(250,178,25,.45); margin-top:8px; }
+  .warnline b { color:var(--t1); font-weight:600; }
+
+  .addstep { margin-top:10px; width:100%; height:31px; border:0; box-shadow:inset 0 0 0 1px var(--r1);
+    border-radius:8px; background:transparent; color:var(--t3); font-size:11.5px; font-weight:450; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; gap:7px; font-family:inherit; }
+  .addstep:hover { border:0; box-shadow:inset 0 0 0 1px var(--r2); color:var(--t1); }
+
+  /* ===== CENTER · result ===== */
+  .gridhead { display:flex; align-items:center; gap:14px; padding:9px 16px; border:0;
+    box-shadow:inset 0 -1px 0 var(--r1); flex:none; }
+  .gridhead .hgroup { min-width:0; flex:1; }
+  .gridhead .title { font-size:15px; font-weight:600; letter-spacing:-0.02em; color:var(--t1);
+    display:flex; align-items:center; gap:9px; white-space:nowrap; }
+  .gridhead .path { font-size:10.5px; color:var(--t3); margin-top:5px; display:flex; align-items:center; gap:6px; white-space:nowrap; }
+  .gridhead .path b { color:var(--t2); font-weight:500; }
+  .toolbar { margin-left:auto; display:flex; align-items:center; gap:6px; flex:none; }
+  .centerbody { flex:1; overflow-y:auto; overflow-x:hidden; padding:13px 16px 16px; min-height:0; }
+
+  /* goal validation — the ONE genuine categorical series on the screen */
+  .goalcard { border:0; border-radius:9px; background:var(--s3); box-shadow:var(--hi); padding:11px 13px 11px; }
+  .goalhead { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+  .goalhead .gt { font-size:12.5px; font-weight:600; color:var(--t1); letter-spacing:-0.012em; }
+  .goalhead .gs { font-size:10px; color:var(--t3); font-family:var(--mono); }
+  .gtable { width:100%; }
+  .grow { display:grid; grid-template-columns:88px 50px 50px 152px 50px 52px 104px 68px; gap:9px;
+    align-items:center; height:28px; border:0; box-shadow:inset 0 -1px 0 rgba(255,255,255,.032); }
+  .grow.hd { height:22px; border:0; box-shadow:inset 0 -1px 0 var(--r2); }
+  .grow.hd span { font-family:var(--mono); font-size:10px; font-weight:500; letter-spacing:0;
+    text-transform:lowercase; color:var(--t3); }
+  .grow.hd .r { text-align:right; }
+  .grow:last-child { box-shadow:none; }
+  .gcls { display:flex; align-items:center; gap:7px; font-size:11.5px; color:var(--t2); min-width:0; }
+  .gcls .sw { width:9px; height:9px; border-radius:3px; flex:none; }
+  .gcls .t { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .gnum { font-family:var(--mono); font-size:11px; text-align:right; color:var(--t1); font-variant-numeric:tabular-nums; }
+  .gnum.mut { color:var(--t3); }
+  .dbar { position:relative; height:14px; background:rgba(255,255,255,.05); border-radius:3px; overflow:hidden;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.45); }
+  .dbar .band { position:absolute; top:0; bottom:0; left:33.33%; right:33.33%; background:rgba(255,255,255,.07); }
+  .dbar .zero { position:absolute; top:0; bottom:0; left:50%; width:1px; background:var(--m5); }
+  .dbar .fill { position:absolute; top:3px; height:8px; }
+  .dbar .fill.pos { left:50%; border-radius:0 4px 4px 0; }
+  .dbar .fill.neg { right:50%; border-radius:4px 0 0 4px; }
+  .dbar .dv { position:absolute; right:4px; top:0; line-height:14px; font-family:var(--mono);
+    font-size:9.5px; color:var(--t1); text-shadow:0 1px 3px rgba(0,0,0,.85), 0 0 2px rgba(0,0,0,.95); }
+  .dbar .dv.l { right:auto; left:4px; }
+  .mbar { position:relative; height:14px; background:rgba(255,255,255,.05); border-radius:3px; overflow:hidden;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.45); }
+  .mbar .fill { position:absolute; left:0; top:3px; height:8px; border-radius:0 4px 4px 0; }
+  .mbar .tick { position:absolute; top:0; bottom:0; width:2px; background:var(--t1); opacity:.85; }
+  /* status = shape + hue + word */
+  .gstat { display:inline-flex; align-items:center; gap:6px; font-size:10.5px; font-weight:500; }
+  .gstat .d { width:8px; height:8px; flex:none; }
+  .gstat.met { color:var(--st-good); } .gstat.met .d { border-radius:50%; background:var(--st-good); }
+  .gstat.miss { color:var(--st-warn); }
+  .gstat.miss .d { width:0; height:0; background:none; border-left:4.5px solid transparent;
+    border-right:4.5px solid transparent; border-bottom:8px solid var(--st-warn); }
+  .glegend { display:flex; align-items:center; flex-wrap:wrap; gap:5px 14px; margin-top:9px;
+    padding-top:9px; border:0; box-shadow:inset 0 1px 0 var(--r1); font-size:9.5px; color:var(--t3); }
+  .glegend .li { display:flex; align-items:center; gap:5px; }
+  .glegend .sw { width:9px; height:9px; border-radius:3px; }
+  .glegend .tickkey { width:2px; height:10px; background:var(--t1); opacity:.85; }
+  .glegend .bandkey { width:14px; height:10px; background:rgba(255,255,255,.12);
+    border:0; box-shadow:inset 0 0 0 1px var(--r2); border-radius:2px; }
+
+  /* per-step results — heterogeneous columns, so ONE vertical rule splits input from outcome */
+  .stable { width:100%; border-collapse:separate; border-spacing:0; font-size:11.5px; }
+  .stable th { text-align:right; font-family:var(--mono); font-size:10px; font-weight:500; letter-spacing:0;
+    text-transform:lowercase; color:var(--t3); padding:0 8px 6px; border:0;
+    box-shadow:inset 0 -1px 0 var(--r2); white-space:nowrap; }
+  .stable th.l, .stable td.l { text-align:left; }
+  .stable td { text-align:right; padding:0 8px; height:27px; border-bottom:1px solid rgba(255,255,255,.032);
+    font-family:var(--mono); font-variant-numeric:tabular-nums; white-space:nowrap; color:var(--t1); }
+  .stable tr:last-child td { border-bottom:none; }
+  .stable td.mut { color:var(--t3); }
+  .stable td.meth { font-size:11px; color:var(--t2); }
+  .stable th:nth-child(6), .stable td:nth-child(6) { box-shadow:inset 1px 0 0 var(--r2); }
+  .stable .rnd { font-size:9.5px; color:var(--t3); }
+  .snotes { margin-top:8px; display:flex; flex-direction:column; gap:4px; }
+  .snote { display:flex; align-items:baseline; gap:9px; font-family:var(--mono); font-size:9.5px;
+    color:var(--t3); line-height:1.5; }
+  .snote .nk { font-family:var(--mono); font-size:9.5px; font-weight:400; letter-spacing:0; text-transform:none;
+    color:var(--t3); width:64px; flex:none; }
+  .snote b { color:var(--t2); font-weight:600; }
+  .snote .sep { color:var(--t4); padding:0 2px; }
+
+  /* preview grid */
+  table.grid { border-collapse:separate; border-spacing:0; width:100%; font-size:11.5px; }
+  table.grid thead th { text-align:left; font-family:var(--mono); font-size:10px; font-weight:500; letter-spacing:0;
+    text-transform:lowercase; color:var(--t3); padding:0 10px 6px; border:0;
+    box-shadow:inset 0 -1px 0 var(--r2); white-space:nowrap; }
+  table.grid thead th.n { text-align:right; }
+  table.grid tbody td { padding:0 10px; height:27px; border-bottom:1px solid rgba(255,255,255,.032);
+    white-space:nowrap; color:var(--t2); }
+  table.grid tbody tr:nth-child(6n) td { border-bottom-color:rgba(255,255,255,.085); } /* the ruler measure */
+  table.grid tbody tr:hover td { background:rgba(255,255,255,.038); }
+  table.grid td.rownum { width:34px; text-align:right; color:var(--t3); padding-right:8px;
+    font-family:var(--mono); font-size:10px; }
+  td.n { text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums; color:var(--t1); }
+  td.mono { font-family:var(--mono); }
+  /* masked PII sits in a recessed well */
+  .masked { color:var(--t3); letter-spacing:.08em; background:rgba(0,0,0,.35); border-radius:4px; padding:1px 5px;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6); }
+  .pcell { display:inline-flex; align-items:center; gap:6px; }
+  .stepchip { font-size:9.5px; font-weight:500; font-family:var(--mono); color:var(--t3);
+    border:0; background:rgba(255,255,255,.05); border-radius:4px; padding:1px 5px; }
+  /* labels wear ink, never a series hue */
+  .ptag, .rtag { font-size:10px; font-weight:450; padding:1px 7px; border-radius:20px; border:0;
+    color:var(--t2); background:rgba(255,255,255,.05); }
+  .ptag.pro, .ptag.team, .ptag.ent, .rtag.us, .rtag.apac, .rtag.latam, .rtag.eu {
+    color:var(--t2); background:rgba(255,255,255,.05); border:0; }
+  .stat { display:inline-flex; align-items:center; gap:6px; font-size:10.5px; font-weight:500; }
+  .stat .d { width:8px; height:8px; flex:none; }
+  .stat.active .d { border-radius:50%; background:var(--st-good); } .stat.active { color:var(--st-good); }
+  .stat.trialing .d { width:0; height:0; background:none; border-left:4.5px solid transparent;
+    border-right:4.5px solid transparent; border-bottom:8px solid var(--st-warn); }
+  .stat.trialing { color:var(--st-warn); }
+  .stat.churned .d { width:7px; height:7px; background:var(--st-serious); border-radius:1px; transform:rotate(45deg); }
+  .stat.churned { color:var(--st-serious); }
+  .gridfoot { height:28px; display:flex; align-items:center; gap:12px; padding:0 16px; border:0;
+    box-shadow:inset 0 1px 0 var(--r1); background:transparent; font-size:10px; color:var(--t3); flex:none; }
+  .gridfoot b { color:var(--t2); font-weight:500; }
+
+  /* ===== DOCK · reproducibility ===== */
+  .dockbody { overflow-y:auto; overflow-x:hidden; flex:1; padding:12px 14px 14px; min-height:0; }
+  /* the seed is a HERO NUMBER over a recessive eyebrow — no box */
+  .seedbox { border:0; border-radius:0; background:transparent; box-shadow:inset 0 -1px 0 var(--r1);
+    padding:0 0 13px; margin-bottom:13px; }
+  .seedbox .k { font-size:9.5px; font-weight:500; letter-spacing:.11em; text-transform:uppercase;
+    color:var(--t3); display:flex; align-items:center; gap:7px; }
+  .seedbox .k .sp { margin-left:auto; }
+  .seedval { font-family:var(--mono); font-size:27px; font-weight:600; letter-spacing:-0.03em;
+    margin:5px 0 3px; color:var(--t1); font-variant-numeric:tabular-nums; }
+  .seedsub { font-size:10.5px; color:var(--t3); line-height:1.5; }
+  .seedacts { display:flex; align-items:center; gap:6px; margin-top:9px; }
+  .btnwide { width:100%; height:31px; justify-content:center; margin-bottom:16px; }
+  .manifest { border:0; border-radius:0; background:transparent; padding:0; }
+  .mrow { display:flex; align-items:baseline; gap:9px; font-size:10.5px; padding:4px 0;
+    border:0; box-shadow:inset 0 -1px 0 var(--r1); }
+  .mrow:last-child { box-shadow:none; }
+  .mrow .mk { font-family:var(--mono); font-size:9.5px; color:var(--t3); width:88px; flex:none; }
+  .mrow .mv { font-family:var(--mono); color:var(--t2); min-width:0; overflow:hidden;
+    text-overflow:ellipsis; white-space:nowrap; flex:1; }
+  .mrow .mv .dim { color:var(--t3); }
+  .artcard { border:0; border-radius:9px; background:var(--s3); box-shadow:var(--hi); padding:10px 11px 11px; }
+  .artname { font-family:var(--mono); font-size:11px; font-weight:500; color:var(--t1); word-break:break-all; line-height:1.45; }
+  .artmeta { display:flex; align-items:center; gap:8px; margin-top:7px; font-size:9.5px; color:var(--t3); font-family:var(--mono); }
+  .ttl { margin-top:9px; }
+  .ttl .tl { display:flex; align-items:center; justify-content:space-between; font-size:9.5px;
+    color:var(--t3); margin-bottom:5px; font-family:var(--mono); }
+  .ttl .track { height:6px; background:rgba(0,0,0,.4); border-radius:3px; overflow:hidden;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6); }
+  .ttl .fill { height:100%; background:var(--m3); border-radius:0 3px 3px 0; }
+  .exports { display:flex; gap:5px; margin-top:10px; }
+  .exports .tbtn { flex:1; justify-content:center; }
+  .qlist { display:flex; flex-direction:column; gap:1px; }
+  .qitem { display:flex; align-items:center; gap:10px; padding:6px 7px; border-radius:7px; }
+  .qitem:hover { background:rgba(255,255,255,.04); }
+  .qitem .ic { width:16px; height:16px; border-radius:0; display:grid; place-items:center; flex:none;
+    font-size:10px; font-weight:600; background:none; }
+  .ic.good { background:none; color:var(--st-good); }
+  .ic.warn { background:none; color:var(--st-warn); }
+  .qitem .qn { font-size:11.5px; font-weight:500; color:var(--t2); }
+  .qitem .qd { font-size:9.5px; color:var(--t3); }
+  .qitem .qv { margin-left:auto; font-family:var(--mono); font-size:10px; font-weight:600; color:var(--t2); flex:none; }
+
+  /* ===== COORDINATED BAND (a real seam — a dark edge alone reads as "content ran out") ===== */
+  .coordband { height:196px; border:0; background:var(--s2); display:flex; flex-direction:column; flex:none; min-height:0;
+    box-shadow:inset 0 1px 0 var(--r2), 0 -10px 24px -22px rgba(0,0,0,1); }
+  .cbhead { height:32px; display:flex; align-items:center; gap:10px; padding:0 16px; border:0;
+    box-shadow:inset 0 -1px 0 var(--r1); flex:none; overflow:hidden; white-space:nowrap; }
+  .cbhead .t { font-size:12px; font-weight:600; letter-spacing:-0.012em; text-transform:none; color:var(--t1); }
+  .cbhead .ep { font-family:var(--mono); font-size:9.5px; color:var(--t3); }
+  .cbhead .sp { margin-left:auto; }
+  .cbhead > .mono { flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  /* a second toggle cannot take the accent — value + elevation */
+  .toggle { display:inline-flex; align-items:center; gap:7px; font-size:11px; font-weight:500; color:var(--t1); }
+  .toggle .tr { width:26px; height:14px; border-radius:8px; background:var(--s5); border:0;
+    box-shadow:var(--hi), inset 0 0 0 1px rgba(255,255,255,.07); position:relative; }
+  .toggle .tr::after { content:""; position:absolute; right:2px; top:2px; width:10px; height:10px;
+    border-radius:50%; background:var(--key); box-shadow:0 1px 2px rgba(0,0,0,.6); }
+  .cbbody { flex:1; display:flex; min-height:0; }
+  .cflow { flex:1; display:flex; align-items:stretch; gap:0; padding:11px 14px; min-width:0; overflow:hidden; }
+  .csheet { width:240px; flex:none; border:0; border-radius:9px; background:var(--s3); box-shadow:var(--hi);
+    padding:9px 10px; display:flex; flex-direction:column; min-width:0; }
+  .csheet.driver { border:0; background:var(--s4); box-shadow:var(--hi), 0 8px 20px -18px rgba(0,0,0,1); }
+  .csh { display:flex; align-items:center; gap:7px; font-size:11.5px; font-weight:600; color:var(--t2); min-width:0; }
+  .csheet.driver .csh { color:var(--t1); }
+  .csh .t { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .cbadge { font-size:9.5px; font-weight:400; letter-spacing:0; text-transform:none; padding:1px 5px;
+    border-radius:4px; border:0; background:rgba(255,255,255,.05); color:var(--t3); flex:none; }
+  .cbadge.drv { color:var(--t1); background:var(--s6); box-shadow:var(--hi); }
+  .ckey { font-family:var(--mono); font-size:9.5px; color:var(--t3); margin-top:4px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .cnums { display:flex; align-items:baseline; gap:7px; margin-top:7px; font-family:var(--mono); }
+  .cnums .b4 { font-size:11px; color:var(--t3); text-decoration:line-through; text-decoration-color:var(--t4); }
+  .cnums .ar { color:var(--t4); font-size:10px; }
+  .cnums .af { font-size:16px; font-weight:600; color:var(--t1); letter-spacing:-0.028em; font-variant-numeric:tabular-nums; }
+  .cnums .pc { margin-left:auto; font-size:9.5px; color:var(--t3); }
+  .cbar { height:8px; background:rgba(0,0,0,.4); border-radius:3px; overflow:hidden; margin-top:6px;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6); }
+  .cbar .fill { height:100%; background:var(--m2); border-radius:0 3px 3px 0; min-width:4px; }
+  .cnote { font-size:9.5px; color:var(--t3); margin-top:7px; line-height:1.45; }
+  .cnote b { color:var(--t2); font-weight:600; font-family:var(--mono); }
+  .carrow { flex:1; min-width:50px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; padding:0 4px; }
+  .carrow .lb { font-family:var(--mono); font-size:9px; color:var(--t3); text-align:center; line-height:1.3; }
+  .csum { width:296px; flex:none; border:0; box-shadow:inset 1px 0 0 var(--r1); padding:9px 14px 10px;
+    display:flex; flex-direction:column; }
+  .csum .sh { font-size:11.5px; font-weight:550; letter-spacing:-0.008em; text-transform:none;
+    color:var(--t2); margin-bottom:7px; display:block; padding:0; }
+  .wbrow { display:flex; align-items:center; gap:8px; font-size:10.5px; padding:2px 0; }
+  .wbrow .wn { font-family:var(--mono); color:var(--t3); }
+  .wbrow .wv { margin-left:auto; font-family:var(--mono); color:var(--t2); font-variant-numeric:tabular-nums; }
+  .wbtot { display:flex; align-items:center; gap:8px; margin-top:5px; padding-top:5px; border:0;
+    box-shadow:inset 0 1px 0 var(--r2); font-size:11px; font-weight:600; color:var(--t1); }
+  .wbtot .wv { margin-left:auto; font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  /* an assurance line is a left-ruled indent, not a tinted box inside a pane */
+  .assure { display:flex; align-items:flex-start; gap:8px; margin-top:auto; padding:0 0 0 10px; border:0;
+    border-radius:0; background:none; box-shadow:inset 2px 0 0 rgba(12,163,12,.5); }
+  .assure .sdot { margin-top:4px; }
+  .assure .at { font-size:10.5px; font-weight:600; color:var(--t1); line-height:1.4; }
+  .assure .ad { font-size:9.5px; color:var(--t3); line-height:1.4; }
+
+  /* ===== STATUS BAR ===== */
+  .statusbar { height:26px; flex:none; display:flex; align-items:center; gap:14px; padding:0 16px; border:0;
+    background:var(--s2); box-shadow:inset 0 1px 0 var(--r1); font-size:10.5px; color:var(--t3); }
+  .statusbar .h { display:flex; align-items:center; gap:6px; white-space:nowrap; }
+  /* SIGNAL 4/4 — the one live indicator on the screen */
+  .statusbar .clock { margin-left:auto; display:flex; align-items:center; gap:8px; font-family:var(--mono); flex:none; }
+  .statusbar .clock .dot { width:6px; height:6px; border-radius:50%; background:var(--sig); flex:none;
+    box-shadow:0 0 0 3px rgba(70,213,232,.10), 0 0 9px -1px var(--sig); animation:pulse 3s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.42} }
+  @media (prefers-reduced-motion:reduce){ .statusbar .clock .dot { animation:none } }
+</style>
+</head>
+<body class="dark" data-palette="#3987e5,#d95926,#199e70,#c98500,#d55181,#008300,#9085e9,#e66767">
+
+<!-- ================= HEADER ================= -->
+<header class="topbar">
+  <div class="brand">
+    <span class="glyph">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M4 7l8-4 8 4-8 4-8-4z" fill="#fff" opacity=".95"/><path d="M4 12l8 4 8-4M4 17l8 4 8-4" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity=".8"/></svg>
+    </span>
+    <span class="name">Command&nbsp;Studio</span>
+  </div>
+  <span class="env-chip">PROD · US-EAST</span>
+  <nav class="gnav">
+    <a href="#">Workflows</a>
+    <a href="#" class="active">Datasets</a>
+    <a href="#">Runs</a>
+    <a href="#">Library</a>
+  </nav>
+
+  <div class="cmdk lit" title="Command palette">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span class="ph">sample stratified by plan · replay seed…</span>
+    <span class="kbd">⌘K</span>
+  </div>
+
+  <div class="hicons">
+    <button class="iconbtn" title="Filters"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M3 5h18M6 12h12M10 19h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+    <button class="iconbtn" title="Alerts"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M6 9a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M10 20a2 2 0 004 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+    <button class="iconbtn" title="Theme" onclick="document.body.classList.toggle('dark')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M20 13a8 8 0 11-9-9 6 6 0 009 9z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></button>
+  </div>
+  <div class="teamsw" title="Active team — all datasets, samples and artifacts are locked to this team">
+    <span class="tk">Team</span>Growth Analytics<span class="ca">▾</span>
+  </div>
+  <div class="avatar" title="S. Ganji · Growth Analytics · role viewer">SG</div>
+</header>
+
+<!-- ================= RUN STRIP ================= -->
+<div class="kpistrip">
+  <div class="kpi">
+    <span class="lab">Source pool</span><span class="val num mono">84,213</span>
+    <span class="delta muted">rows</span>
+  </div>
+  <div class="kpi">
+    <span class="lab">Steps</span><span class="val num mono">3</span>
+    <span class="delta muted">stratified · weighted · llm</span>
+  </div>
+  <div class="kpi">
+    <span class="lab">Sampled</span><span class="val num mono">5,000</span>
+    <span class="delta up">5.94% of pool</span>
+  </div>
+  <div class="kpi" title="Distribution goals are validated after the run: 4 classes checked against target_distribution and class_minimums.">
+    <span class="lab">Goals met</span><span class="val num mono">3<span style="color:var(--muted-foreground)">/4</span></span>
+    <span class="delta" style="color:var(--st-warn)"><span class="sdot warn"></span>1 miss</span>
+  </div>
+  <div class="kpi">
+    <span class="lab">Pool remaining</span><span class="val num mono">79,213</span>
+    <span class="delta muted">94.1% untouched</span>
+  </div>
+  <div class="kpi">
+    <span class="lab">Seed</span><span class="val num mono">1123581321</span>
+    <span class="delta muted">locked</span>
+  </div>
+  <div class="runbtns">
+    <button class="tbtn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Save preset</button>
+    <button class="tbtn primary"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M7 4l12 8-12 8V4z" fill="currentColor"/></svg>Run sample<span class="k">⌘⏎</span></button>
+  </div>
+</div>
+
+<!-- ================= WORKSPACE ================= -->
+<div class="workspace">
+
+  <!-- ---------- LEFT / SOURCE + STEP PIPELINE ---------- -->
+  <div class="col rail">
+    <div class="colhead">
+      <span class="t">Sample pipeline</span>
+      <span class="badge num">3 steps</span>
+      <span class="spacer"></span>
+      <button class="iconbtn" style="width:24px;height:24px" title="Load preset"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+    </div>
+
+    <div class="srcbox">
+      <div class="srctop">
+        <span class="tick" title="the source this sample is drawn from"></span>
+        <span class="txt">Q3 Campaign Signups.csv</span>
+        <span class="verchip">v42</span>
+      </div>
+      <div class="srcpath mono" title="uploads/growth-analytics/q3_campaign_signups.csv">uploads/growth-analytics/q3_campaign_signups.csv</div>
+      <div class="srcmeta">
+        <span class="cls conf">Confidential</span>
+        <span class="pill enforced" title="email is declared sensitivity: pii — masked for your role and inherited by every sample drawn from it."><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span>1 col masked</span>
+        <span class="mono">84,213 rows · 9 cols</span>
+      </div>
+    </div>
+
+    <div class="pipebody">
+      <div class="poolcap">
+        <span class="pk">Source pool</span>
+        <span class="mono" style="font-size:9.5px;color:var(--t3)">all rows, no filter</span>
+        <span class="pv mono">84,213</span>
+      </div>
+
+      <div class="conn"><span class="cl"></span><span class="ct">step 1 draws from <b>84,213</b></span><span class="cx"></span></div>
+
+      <!-- ---- STEP 1 (expanded, method picker) ---- -->
+      <div class="step open">
+        <div class="sh">
+          <span class="sidx mono">01</span>
+          <span class="smeth mono">stratified</span>
+          <span class="ssum">by <b>plan</b></span>
+          <span class="sdraw mono">−3,000</span>
+          <span class="scar">▾</span>
+        </div>
+        <div class="sb">
+          <div class="mlab">Method <span class="ln"></span><span class="note">8 available</span></div>
+          <div class="mpick">
+            <div class="mchip"><span class="mn">random</span><span class="md">uniform · replace</span></div>
+            <div class="mchip on"><span class="mn">stratified</span><span class="md">per-class targets</span></div>
+            <div class="mchip"><span class="mn">systematic</span><span class="md">every k-th row</span></div>
+            <div class="mchip"><span class="mn">cluster</span><span class="md">whole clusters</span></div>
+            <div class="mchip"><span class="mn">weighted</span><span class="md">prob ∝ weight col</span></div>
+            <div class="mchip"><span class="mn">time_stratified</span><span class="md">across time buckets</span></div>
+            <div class="mchip"><span class="mn">llm_semantic</span><span class="md">embeddings · 3 modes</span></div>
+            <div class="mchip"><span class="mn">deduplicate</span><span class="md">unique rows only</span></div>
+          </div>
+
+          <div class="mlab">Step filters <span class="ln"></span><span class="note">36-operator DSL</span></div>
+          <div class="filters">
+            <span class="qtok"><span class="key">status</span> != churned <span class="x">✕</span></span>
+            <span class="qtok"><span class="key">signup_date</span> &gt;= 2026-07-01 <span class="x">✕</span></span>
+            <span class="qtok"><span class="key">email</span> is_not_null <span class="x">✕</span></span>
+            <span class="qadd">+ filter</span>
+          </div>
+
+          <div class="params">
+            <div class="prm"><span class="pn">sample_size</span><span class="pv">3,000</span></div>
+            <div class="prm"><span class="pn">sample_fraction</span><span class="pv off">—</span></div>
+            <div class="prm"><span class="pn">rounds</span><span class="pv">2</span></div>
+            <div class="prm"><span class="pn">replace</span><span class="pv off">false</span></div>
+          </div>
+          <div class="classtargets">
+            <span class="ct2">free <b>750</b></span>
+            <span class="ct2">pro <b>750</b></span>
+            <span class="ct2">team <b>750</b></span>
+            <span class="ct2">enterprise <b>750</b></span>
+          </div>
+
+          <div class="pstrip">
+            <div class="pmath">
+              <span>pool <b>84,213</b></span><span class="op">→</span>
+              <span>match <b>61,480</b></span><span class="op">→</span>
+              <span>draw <b>3,000</b></span>
+              <span class="out">out 81,213</span>
+            </div>
+            <div class="pbar" title="Of the 84,213 rows in the pool, 61,480 matched this step's filters; 3,000 were drawn.">
+              <span class="seg drawn" style="width:3.6%"></span>
+              <span class="seg elig" style="width:69.4%"></span>
+            </div>
+            <div class="pleg">
+              <span class="li"><span class="sw" style="background:var(--primary)"></span>drawn 3,000</span>
+              <span class="li"><span class="sw" style="background:var(--m5)"></span>eligible 58,480</span>
+              <span class="r">73.0% matched</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="conn"><span class="cl"></span><span class="ct">remaining pool <b>81,213</b> → step 2</span><span class="cx"></span></div>
+
+      <!-- ---- STEP 2 ---- -->
+      <div class="step">
+        <div class="sh">
+          <span class="sidx mono">02</span>
+          <span class="smeth mono">weighted</span>
+          <span class="ssum">by <b>amount</b></span>
+          <span class="sdraw mono">−1,200</span>
+          <span class="scar">▸</span>
+        </div>
+        <div class="sb">
+          <div class="filters">
+            <span class="qtok"><span class="key">plan</span> in team, enterprise</span>
+            <span class="qtok"><span class="key">amount</span> &gt; 0</span>
+          </div>
+          <div class="params">
+            <div class="prm"><span class="pn">sample_size</span><span class="pv">1,200</span></div>
+            <div class="prm"><span class="pn">weight_column</span><span class="pv">amount</span></div>
+            <div class="prm"><span class="pn">rounds</span><span class="pv">1</span></div>
+            <div class="prm"><span class="pn">replace</span><span class="pv off">false</span></div>
+          </div>
+          <div class="pstrip">
+            <div class="pmath">
+              <span>pool <b>81,213</b></span><span class="op">→</span>
+              <span>match <b>17,204</b></span><span class="op">→</span>
+              <span>draw <b>1,200</b></span>
+              <span class="out">out 80,013</span>
+            </div>
+            <div class="pbar" title="Step 2 draws only from what step 1 left behind.">
+              <span class="seg drawn" style="width:1.5%"></span>
+              <span class="seg elig" style="width:19.7%"></span>
+            </div>
+            <div class="pleg">
+              <span class="li"><span class="sw" style="background:var(--primary)"></span>drawn 1,200</span>
+              <span class="li"><span class="sw" style="background:var(--m5)"></span>eligible 16,004</span>
+              <span class="r">21.2% matched</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="conn"><span class="cl"></span><span class="ct">remaining pool <b>80,013</b> → step 3</span><span class="cx"></span></div>
+
+      <!-- ---- STEP 3 ---- -->
+      <div class="step">
+        <div class="sh">
+          <span class="sidx mono">03</span>
+          <span class="smeth mono">llm_semantic</span>
+          <span class="ssum">mode <b>edge_cases</b></span>
+          <span class="sdraw mono">−800</span>
+          <span class="scar">▸</span>
+        </div>
+        <div class="sb">
+          <div class="filters">
+            <span class="qtok"><span class="key">region</span> in APAC, LATAM</span>
+            <span class="qtok"><span class="key">utm_campaign</span> is_not_null</span>
+          </div>
+          <div class="params">
+            <div class="prm"><span class="pn">sample_size</span><span class="pv">800</span></div>
+            <div class="prm"><span class="pn">text_columns</span><span class="pv">2</span></div>
+            <div class="prm"><span class="pn">rounds</span><span class="pv">1</span></div>
+            <div class="prm"><span class="pn">replace</span><span class="pv off">false</span></div>
+          </div>
+
+          <!-- ---- the three llm_semantic modes ---- -->
+          <div class="mlab">Mode <span class="ln"></span><span class="note">llm_semantic · 3 of 3 shown</span></div>
+          <div class="mpick m3">
+            <div class="mchip"><span class="mn">diverse</span><span class="md">KMeans</span></div>
+            <div class="mchip on"><span class="mn">edge_cases</span><span class="md">IsolationForest</span></div>
+            <div class="mchip"><span class="mn">similarity</span><span class="md">cosine · query</span></div>
+          </div>
+
+          <div class="modebox">
+            <div class="mt"><span class="mm">diverse</span>maximise coverage<span class="algo">KMeans</span></div>
+            <div class="mw">Embeds the text columns, clusters the surviving pool, then draws evenly from <b>every</b> cluster — the sample spans the whole embedding space instead of piling into the dense middle.</div>
+            <div class="params">
+              <div class="prm"><span class="pn">text_columns</span><span class="pv">utm_campaign, source</span></div>
+              <div class="prm"><span class="pn">n_clusters</span><span class="pv">24</span></div>
+              <div class="prm"><span class="pn">embedding_model</span><span class="pv">text-embed-3-sm</span></div>
+              <div class="prm"><span class="pn">query_text</span><span class="pv off">n/a</span></div>
+            </div>
+          </div>
+
+          <div class="modebox on">
+            <div class="mt"><span class="mm">edge_cases</span>surface outliers<span class="algo">IsolationForest</span></div>
+            <div class="mw">Scores every embedded row for isolation and keeps the <b>least typical</b> — the rows a downstream model is most likely to get wrong. This is the mode this step runs.</div>
+            <div class="params">
+              <div class="prm"><span class="pn">text_columns</span><span class="pv">utm_campaign, source</span></div>
+              <div class="prm"><span class="pn">contamination</span><span class="pv">0.08</span></div>
+              <div class="prm"><span class="pn">embedding_model</span><span class="pv">text-embed-3-sm</span></div>
+              <div class="prm"><span class="pn">query_text</span><span class="pv off">n/a</span></div>
+            </div>
+          </div>
+
+          <div class="modebox">
+            <div class="mt"><span class="mm">similarity_search</span>nearest to a query<span class="algo">cosine</span></div>
+            <div class="mw">Embeds a supplied query text and ranks the pool by <b>cosine similarity</b> to it. The only mode that takes an input — omit <span class="mono">query_text</span> and the step is refused <span class="mono">422</span>.</div>
+            <div class="qinput"><span class="qk">query_text</span><span class="qv2">enterprise renewal at churn risk</span><span class="reqchip">required</span></div>
+            <div class="params">
+              <div class="prm"><span class="pn">text_columns</span><span class="pv">utm_campaign, source</span></div>
+              <div class="prm"><span class="pn">min_similarity</span><span class="pv">0.62</span></div>
+              <div class="prm"><span class="pn">embedding_model</span><span class="pv">text-embed-3-sm</span></div>
+              <div class="prm"><span class="pn">top_k</span><span class="pv">800</span></div>
+            </div>
+          </div>
+
+          <div class="pstrip">
+            <div class="pmath">
+              <span>pool <b>80,013</b></span><span class="op">→</span>
+              <span>match <b>9,338</b></span><span class="op">→</span>
+              <span>draw <b>800</b></span>
+              <span class="out">out 79,213</span>
+            </div>
+            <div class="pbar" title="Embedding-based edge-case selection over the surviving pool.">
+              <span class="seg drawn" style="width:1.0%"></span>
+              <span class="seg elig" style="width:10.7%"></span>
+            </div>
+            <div class="pleg">
+              <span class="li"><span class="sw" style="background:var(--primary)"></span>drawn 800</span>
+              <span class="li"><span class="sw" style="background:var(--m5)"></span>eligible 8,538</span>
+              <span class="r">11.7% matched</span>
+            </div>
+            <div class="warnline">
+              <span class="sdot warn" style="margin-top:4px"></span>
+              <span>enterprise rows in this pool were exhausted at <b class="mono">1,162</b> — below the <b class="mono">1,200</b> class minimum.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="conn"><span class="cl"></span><span class="ct">after 3 steps</span><span class="cx"></span></div>
+
+      <div class="poolcap end">
+        <span class="pk">Remaining pool</span>
+        <span class="mono" style="font-size:9.5px;color:var(--t3)">never drawn</span>
+        <span class="pv mono">79,213</span>
+      </div>
+
+      <button class="addstep">＋ add step <span class="kbd">S</span></button>
+    </div>
+
+    <div class="hintbar">
+      <span class="h"><span class="kbd">S</span> add step</span>
+      <span class="h"><span class="kbd">↑</span><span class="kbd">↓</span> reorder</span>
+      <span class="h"><span class="kbd">F</span> filter</span>
+    </div>
+  </div>
+
+  <!-- ---------- CENTER / RESULT ---------- -->
+  <div class="col center">
+    <div class="gridhead">
+      <div class="hgroup">
+        <div class="title">
+          <span class="sdot warn"></span>
+          Sample result
+          <span class="pill neu mono">5,000 rows</span>
+          <span class="pill warn">goals 3/4 · 1 miss</span>
+          <span class="pill enforced" title="Column masking is inherited from the source dataset — a sample can never widen access."><span class="lockglyph"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span>email masked</span>
+        </div>
+        <div class="path">
+          <span>3 steps · post-processed <b class="mono">dedupe → shuffle → sort</b> · built in <b class="mono">4.21s</b></span>
+        </div>
+      </div>
+      <div class="toolbar">
+        <button class="tbtn sm">Compare to source</button>
+        <button class="tbtn sm">Warnings <span class="k">2</span></button>
+      </div>
+    </div>
+
+    <div class="centerbody">
+
+      <!-- ===== distribution goal validation ===== -->
+      <div class="sect">
+        <div class="h">Distribution goal validation <span class="line"></span>
+          <span class="rnote">validated after the run · GoalValidationResult.met = <b>false</b></span>
+        </div>
+        <div class="goalcard">
+          <div class="goalhead">
+            <span class="gt">Balanced across <span class="mono" style="color:var(--t1)">plan</span></span>
+            <span class="gs">target_distribution 25/25/25/25 · class_minimums 1,200</span>
+            <span style="margin-left:auto"></span>
+            <span class="pill warn"><span class="sdot warn"></span>1 class below minimum</span>
+          </div>
+
+          <div class="gtable">
+            <div class="grow hd">
+              <span>Class</span><span class="r">Target</span><span class="r">Actual</span><span>Δ vs target</span>
+              <span class="r">Min</span><span class="r">Rows</span><span>Rows vs min</span><span>Status</span>
+            </div>
+
+            <div class="grow">
+              <span class="gcls"><span class="sw" style="background:var(--viz-1)"></span><span class="t">free</span></span>
+              <span class="gnum mut">25.0%</span><span class="gnum">26.2%</span>
+              <span class="dbar"><span class="band"></span><span class="zero"></span><span class="fill pos" style="width:20.0%;background:var(--viz-1)"></span><span class="dv">+1.2pp</span></span>
+              <span class="gnum mut">1,200</span><span class="gnum">1,312</span>
+              <span class="mbar"><span class="fill" style="width:93.7%;background:var(--viz-1)"></span><span class="tick" style="left:85.7%"></span></span>
+              <span class="gstat met"><span class="d"></span>met</span>
+            </div>
+
+            <div class="grow">
+              <span class="gcls"><span class="sw" style="background:var(--viz-2)"></span><span class="t">pro</span></span>
+              <span class="gnum mut">25.0%</span><span class="gnum">25.7%</span>
+              <span class="dbar"><span class="band"></span><span class="zero"></span><span class="fill pos" style="width:11.7%;background:var(--viz-2)"></span><span class="dv">+0.7pp</span></span>
+              <span class="gnum mut">1,200</span><span class="gnum">1,285</span>
+              <span class="mbar"><span class="fill" style="width:91.8%;background:var(--viz-2)"></span><span class="tick" style="left:85.7%"></span></span>
+              <span class="gstat met"><span class="d"></span>met</span>
+            </div>
+
+            <div class="grow">
+              <span class="gcls"><span class="sw" style="background:var(--viz-3)"></span><span class="t">team</span></span>
+              <span class="gnum mut">25.0%</span><span class="gnum">24.8%</span>
+              <span class="dbar"><span class="band"></span><span class="zero"></span><span class="fill neg" style="width:3.3%;background:var(--viz-3)"></span><span class="dv l">−0.2pp</span></span>
+              <span class="gnum mut">1,200</span><span class="gnum">1,241</span>
+              <span class="mbar"><span class="fill" style="width:88.6%;background:var(--viz-3)"></span><span class="tick" style="left:85.7%"></span></span>
+              <span class="gstat met"><span class="d"></span>met</span>
+            </div>
+
+            <div class="grow">
+              <span class="gcls"><span class="sw" style="background:var(--viz-4)"></span><span class="t">enterprise</span></span>
+              <span class="gnum mut">25.0%</span><span class="gnum" style="font-weight:600">23.2%</span>
+              <span class="dbar"><span class="band"></span><span class="zero"></span><span class="fill neg" style="width:30.0%;background:var(--viz-4)"></span><span class="dv l">−1.8pp</span></span>
+              <span class="gnum mut">1,200</span><span class="gnum" style="font-weight:600">1,162</span>
+              <span class="mbar"><span class="fill" style="width:83.0%;background:var(--viz-4)"></span><span class="tick" style="left:85.7%"></span></span>
+              <span class="gstat miss"><span class="d"></span>missed</span>
+            </div>
+          </div>
+
+          <div class="glegend">
+            <span class="li"><span class="sw" style="background:var(--viz-1)"></span>free</span>
+            <span class="li"><span class="sw" style="background:var(--viz-2)"></span>pro</span>
+            <span class="li"><span class="sw" style="background:var(--viz-3)"></span>team</span>
+            <span class="li"><span class="sw" style="background:var(--viz-4)"></span>enterprise</span>
+            <span class="li"><span class="bandkey"></span>±1.0pp tolerance</span>
+            <span class="li"><span class="tickkey"></span>class minimum 1,200</span>
+            <span class="li" style="margin-left:auto">warning: enterprise pool exhausted after step&nbsp;3 filters</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== per-step results ===== -->
+      <div class="sect">
+        <div class="h">Per-step results <span class="line"></span><span class="rnote">each step draws from the pool the previous step left</span></div>
+        <table class="stable">
+          <thead>
+            <tr>
+              <th class="l">Step</th><th class="l">Method</th><th>Pool in</th><th>Filter match</th>
+              <th>Rounds</th><th>Selected</th><th>Pool out</th><th>Depleted</th><th class="l">Warnings</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="l">01</td><td class="l meth">stratified</td><td>84,213</td><td>61,480</td>
+              <td>2</td><td>3,000</td><td>81,213</td><td class="mut">3.56%</td>
+              <td class="l mut">none</td>
+            </tr>
+            <tr>
+              <td class="l">02</td><td class="l meth">weighted</td><td>81,213</td><td>17,204</td>
+              <td>1</td><td>1,200</td><td>80,013</td><td class="mut">1.48%</td>
+              <td class="l mut">none</td>
+            </tr>
+            <tr>
+              <td class="l">03</td><td class="l meth">llm_semantic</td><td>80,013</td><td>9,338</td>
+              <td>1</td><td>800</td><td>79,213</td><td class="mut">1.00%</td>
+              <td class="l" style="color:var(--st-warn)"><span class="sdot warn" style="margin-right:6px"></span>class floor</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="snotes">
+          <div class="snote"><span class="nk">per-round</span><span>S1 r1 <b>1,500</b> · r2 <b>1,500</b> (750 / class)<span class="sep">·</span>S2 team <b>604</b> · enterprise <b>596</b><span class="sep">·</span>S3 free <b>562</b> · pro <b>195</b> · enterprise <b>43</b></span></div>
+          <div class="snote"><span class="nk">post</span><span>deduplicate on signup_id → <b>0 removed</b> (no overlap, replace=false)<span class="sep">·</span>shuffle <b>true</b><span class="sep">·</span>sort_by <b>signup_date</b> descending</span></div>
+        </div>
+      </div>
+
+      <!-- ===== sampled rows preview ===== -->
+      <div class="sect">
+        <div class="h">Sampled rows <span class="line"></span><span class="rnote">10 of 5,000 · masking inherited from source</span></div>
+        <table class="grid">
+          <thead>
+            <tr>
+              <th class="rownum">#</th>
+              <th title="which pipeline step selected this row">Src</th>
+              <th>signup_id</th>
+              <th>email <span class="lockglyph" style="color:var(--muted-foreground)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></th>
+              <th>plan</th><th>region</th><th class="n">amount</th><th>status</th><th>signup_date</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td class="rownum">1</td><td><span class="stepchip">S1</span></td><td class="mono">SGN-79104</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph" style="color:var(--muted-foreground)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag ent">enterprise</span></td><td><span class="rtag us">US</span></td><td class="n">2,400.00</td><td><span class="stat active"><span class="d"></span>active</span></td><td class="mono muted">2026-08-15</td></tr>
+            <tr><td class="rownum">2</td><td><span class="stepchip">S2</span></td><td class="mono">SGN-77318</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph" style="color:var(--muted-foreground)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag team">team</span></td><td><span class="rtag apac">APAC</span></td><td class="n">990.00</td><td><span class="stat active"><span class="d"></span>active</span></td><td class="mono muted">2026-08-14</td></tr>
+            <tr><td class="rownum">3</td><td><span class="stepchip">S1</span></td><td class="mono">SGN-71992</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph" style="color:var(--muted-foreground)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag">free</span></td><td><span class="rtag eu">EU</span></td><td class="n">0.00</td><td><span class="stat trialing"><span class="d"></span>trialing</span></td><td class="mono muted">2026-08-14</td></tr>
+            <tr><td class="rownum">4</td><td><span class="stepchip">S3</span></td><td class="mono">SGN-70455</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph" style="color:var(--muted-foreground)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag pro">pro</span></td><td><span class="rtag latam">LATAM</span></td><td class="n">290.00</td><td><span class="stat active"><span class="d"></span>active</span></td><td class="mono muted">2026-08-13</td></tr>
+            <tr><td class="rownum">5</td><td><span class="stepchip">S1</span></td><td class="mono">SGN-68210</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph" style="color:var(--muted-foreground)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag pro">pro</span></td><td><span class="rtag us">US</span></td><td class="n">290.00</td><td><span class="stat active"><span class="d"></span>active</span></td><td class="mono muted">2026-08-12</td></tr>
+            <tr><td class="rownum">6</td><td><span class="stepchip">S2</span></td><td class="mono">SGN-64837</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph" style="color:var(--muted-foreground)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag ent">enterprise</span></td><td><span class="rtag eu">EU</span></td><td class="n">1,650.00</td><td><span class="stat active"><span class="d"></span>active</span></td><td class="mono muted">2026-08-11</td></tr>
+            <tr><td class="rownum">7</td><td><span class="stepchip">S3</span></td><td class="mono">SGN-61004</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph" style="color:var(--muted-foreground)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag">free</span></td><td><span class="rtag apac">APAC</span></td><td class="n">0.00</td><td><span class="stat trialing"><span class="d"></span>trialing</span></td><td class="mono muted">2026-08-10</td></tr>
+            <tr><td class="rownum">8</td><td><span class="stepchip">S1</span></td><td class="mono">SGN-58771</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph" style="color:var(--muted-foreground)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag team">team</span></td><td><span class="rtag us">US</span></td><td class="n">594.00</td><td><span class="stat active"><span class="d"></span>active</span></td><td class="mono muted">2026-08-09</td></tr>
+            <tr><td class="rownum">9</td><td><span class="stepchip">S1</span></td><td class="mono">SGN-55620</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph" style="color:var(--muted-foreground)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag">free</span></td><td><span class="rtag latam">LATAM</span></td><td class="n">0.00</td><td><span class="stat active"><span class="d"></span>active</span></td><td class="mono muted">2026-08-08</td></tr>
+            <tr><td class="rownum">10</td><td><span class="stepchip">S2</span></td><td class="mono">SGN-52118</td><td class="mono"><span class="pcell"><span class="masked">••••@••••.com</span><span class="lockglyph" style="color:var(--muted-foreground)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span></span></td><td><span class="ptag ent">enterprise</span></td><td><span class="rtag apac">APAC</span></td><td class="n">1,180.00</td><td><span class="stat churned"><span class="d"></span>churned</span></td><td class="mono muted">2026-08-07</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="gridfoot">
+      <span>Showing <b class="mono">1–10</b> of <b class="mono">5,000</b> sampled rows</span>
+      <span class="mono">· sampling rate 5.94%</span>
+      <span class="mono">· <span class="lockglyph" style="color:var(--muted-foreground);vertical-align:-1px"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10.5V7.5a4 4 0 018 0v3" stroke="currentColor" stroke-width="2"/></svg></span> 1 column masked</span>
+      <span class="mono" style="margin-left:auto">engine 4.2.1 · 4.21s</span>
+    </div>
+  </div>
+
+  <!-- ---------- RIGHT DOCK / REPRODUCIBILITY & OUTPUT ---------- -->
+  <div class="col dock">
+    <div class="colhead">
+      <span class="t">Reproducibility &amp; output</span>
+      <span class="spacer"></span>
+      <span class="pill ok">deterministic</span>
+    </div>
+
+    <div class="dockbody">
+      <div class="seedbox">
+        <div class="k"><span class="tick" title="this exact run"></span>Seed
+          <span class="sp"></span>
+          <span class="pill neu" style="font-size:9px">locked</span>
+        </div>
+        <div class="seedval mono">1123581321</div>
+        <div class="seedsub">Same seed + same config ⇒ byte-identical sample. Recorded in the audit log with the run.</div>
+        <div class="seedacts">
+          <button class="tbtn sm"><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" stroke-width="2"/><path d="M5 15V5h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Copy</button>
+          <button class="tbtn sm"><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M4 12a8 8 0 0113.7-5.7M20 12a8 8 0 01-13.7 5.7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M18 3v4h-4M6 21v-4h4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Regenerate</button>
+          <span class="mono" style="margin-left:auto;font-size:9.5px;color:var(--t3)">int64</span>
+        </div>
+      </div>
+
+      <button class="tbtn primary btnwide">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M4 12a8 8 0 1013.7-5.7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M18 3v4h-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Replay this exact sample<span class="k">⌘R</span>
+      </button>
+
+      <div class="sect">
+        <div class="h">Run config <span class="line"></span><span class="rnote">ReproducibilityInfo</span></div>
+        <div class="manifest">
+          <div class="mrow"><span class="mk">seed</span><span class="mv">1123581321</span></div>
+          <div class="mrow"><span class="mk">steps</span><span class="mv">3 <span class="dim">· stratified, weighted, llm_semantic</span></span></div>
+          <div class="mrow"><span class="mk">filters</span><span class="mv">7 predicates <span class="dim">· 36-op DSL</span></span></div>
+          <div class="mrow"><span class="mk">goals</span><span class="mv">target_distribution + class_minimums</span></div>
+          <div class="mrow"><span class="mk">post</span><span class="mv">deduplicate, shuffle, sort_by</span></div>
+          <div class="mrow"><span class="mk">sort_by</span><span class="mv">signup_date <span class="dim">· descending true</span></span></div>
+          <div class="mrow"><span class="mk">timestamp</span><span class="mv">2026-08-16T16:41:07Z</span></div>
+          <div class="mrow"><span class="mk">engine</span><span class="mv">sampling 4.2.1</span></div>
+          <div class="mrow"><span class="mk">requested_by</span><span class="mv">s.ganji <span class="dim">· role viewer</span></span></div>
+          <div class="mrow"><span class="mk">config_hash</span><span class="mv" title="sha256:9f2c1a4e77b3d0c58a61e2fd90b4471c8ee7b41d">sha256:9f2c1a4e…8ee7b41d</span></div>
+        </div>
+      </div>
+
+      <div class="sect">
+        <div class="h">Output artifact <span class="line"></span><span class="rnote">sample_output</span></div>
+        <div class="artcard">
+          <div class="artname">q3_signups_sample_5k_seed1123581321.parquet</div>
+          <div class="artmeta">
+            <span class="pill neu">sample_output</span>
+            <span>2.8 MB</span><span>· 5,000 × 9</span>
+          </div>
+          <div class="ttl">
+            <div class="tl"><span>retention 30d</span><span>expires 2026-09-15</span></div>
+            <div class="track"><div class="fill" style="width:97%"></div></div>
+          </div>
+          <div class="exports">
+            <button class="tbtn sm">CSV</button>
+            <button class="tbtn sm">Parquet</button>
+            <button class="tbtn sm">XLSX</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="sect">
+        <div class="h">Governance <span class="line"></span></div>
+        <div class="qlist">
+          <div class="qitem"><span class="ic warn">&#128274;</span><div><div class="qn">Masking inherited</div><div class="qd">email stays masked in the sample &amp; every export</div></div><span class="qv">1 col</span></div>
+          <div class="qitem"><span class="ic good">✓</span><div><div class="qn">Team-locked</div><div class="qd">growth-analytics · not shareable cross-team</div></div><span class="qv muted">RBAC</span></div>
+          <div class="qitem"><span class="ic warn">!</span><div><div class="qn">Your role: viewer</div><div class="qd">may sample &amp; export masked · no unmask</div></div><span class="qv">scoped</span></div>
+          <div class="qitem"><span class="ic good">✓</span><div><div class="qn">Audit entry written</div><div class="qd">seed + config + who + when</div></div><span class="qv">LOGGED</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="hintbar">
+      <span class="h"><span class="kbd">⌘R</span> replay</span>
+      <span class="h"><span class="kbd">⌘E</span> export</span>
+      <span class="h" style="margin-left:auto;color:var(--t3)">run #4,118</span>
+    </div>
+  </div>
+
+</div>
+
+<!-- ================= COORDINATED CROSS-SHEET BAND ================= -->
+<div class="coordband">
+  <div class="cbhead">
+    <span class="toggle"><span class="tr"></span>Coordinated</span>
+    <span class="t">Cross-sheet sample</span>
+    <span class="ep">POST /sample/coordinated</span>
+    <span class="pill pri">driver + 3 related sheets</span>
+    <span class="sp"></span>
+    <span class="mono" style="font-size:10.5px;color:var(--muted-foreground)">semi-join keeps only rows referenced by the driver sample</span>
+    <button class="tbtn sm" style="margin-left:10px">Edit relationships</button>
+    <button class="tbtn sm">Open workbook</button>
+  </div>
+
+  <div class="cbbody">
+    <div class="cflow">
+      <!-- driver -->
+      <div class="csheet driver">
+        <div class="csh"><span class="sdot good"></span><span class="t">Signups</span><span class="cbadge drv">Driver</span></div>
+        <div class="ckey">key signup_id · pk</div>
+        <div class="cnums"><span class="b4">84,213</span><span class="ar">→</span><span class="af">5,000</span><span class="pc">5.9%</span></div>
+        <div class="cbar"><div class="fill" style="width:5.9%"></div></div>
+        <div class="cnote">sampled by the <b>3-step</b> pipeline at left</div>
+      </div>
+
+      <div class="carrow">
+        <svg width="42" height="12" viewBox="0 0 42 12" fill="none"><path d="M0 6h34" stroke="var(--border)" stroke-width="2"/><path d="M34 2l6 4-6 4z" fill="var(--m5)"/></svg>
+        <span class="lb">semi-join<br/>signup_id</span>
+      </div>
+
+      <div class="csheet">
+        <div class="csh"><span class="sdot good"></span><span class="t">Events</span><span class="cbadge">Related</span></div>
+        <div class="ckey">fk signup_id · confirmed</div>
+        <div class="cnums"><span class="b4">2,411,908</span><span class="ar">→</span><span class="af">18,402</span><span class="pc">0.8%</span></div>
+        <div class="cbar"><div class="fill" style="width:0.8%"></div></div>
+        <div class="cnote">46,005 referenced → sub-sampled <b>random 40%</b></div>
+      </div>
+
+      <div class="carrow">
+        <svg width="42" height="12" viewBox="0 0 42 12" fill="none"><path d="M0 6h34" stroke="var(--border)" stroke-width="2"/><path d="M34 2l6 4-6 4z" fill="var(--m5)"/></svg>
+        <span class="lb">semi-join<br/>signup_id</span>
+      </div>
+
+      <div class="csheet">
+        <div class="csh"><span class="sdot good"></span><span class="t">Invoices</span><span class="cbadge">Related</span></div>
+        <div class="ckey">fk signup_id · confirmed</div>
+        <div class="cnums"><span class="b4">312,447</span><span class="ar">→</span><span class="af">3,118</span><span class="pc">1.0%</span></div>
+        <div class="cbar"><div class="fill" style="width:1.0%"></div></div>
+        <div class="cnote">keys resolved from the <b>confirmed</b> relationship</div>
+      </div>
+
+      <div class="carrow">
+        <svg width="42" height="12" viewBox="0 0 42 12" fill="none"><path d="M0 6h34" stroke="var(--border)" stroke-width="2"/><path d="M34 2l6 4-6 4z" fill="var(--m5)"/></svg>
+        <span class="lb">chained<br/>invoice_id</span>
+      </div>
+
+      <div class="csheet">
+        <div class="csh"><span class="sdot warn"></span><span class="t">Invoice Lines</span><span class="cbadge">Chained</span></div>
+        <div class="ckey">parent_sheet Invoices</div>
+        <div class="cnums"><span class="b4">1,204,112</span><span class="ar">→</span><span class="af">9,442</span><span class="pc">0.8%</span></div>
+        <div class="cbar"><div class="fill" style="width:0.8%"></div></div>
+        <div class="cnote">relationship <b>inferred</b> — confirm to pin it</div>
+      </div>
+    </div>
+
+    <div class="csum">
+      <div class="sh">Referentially consistent mini-workbook</div>
+      <div class="wbrow"><span class="wn">Signups</span><span class="wv">5,000</span></div>
+      <div class="wbrow"><span class="wn">Events</span><span class="wv">18,402</span></div>
+      <div class="wbrow"><span class="wn">Invoices</span><span class="wv">3,118</span></div>
+      <div class="wbrow"><span class="wn">Invoice Lines</span><span class="wv">9,442</span></div>
+      <div class="wbtot"><span>4 sheets</span><span class="wv">35,962 rows</span></div>
+      <div class="assure">
+        <span class="sdot good"></span>
+        <div>
+          <div class="at">0 orphan keys · joins verified</div>
+          <div class="ad">every related row points at a sampled signup_id</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= STATUS BAR ================= -->
+<div class="statusbar">
+  <span class="h"><span class="kbd">⌘⏎</span> run sample</span>
+  <span class="h"><span class="kbd">⌘R</span> replay seed</span>
+  <span class="h"><span class="kbd">S</span> add step</span>
+  <span class="h"><span class="kbd">⌥C</span> coordinated</span>
+  <span class="h"><span class="kbd">⌘E</span> export</span>
+  <span class="h"><span class="kbd">⌘K</span> commands</span>
+  <span class="h" style="margin-left:24px;color:var(--t3)">sample_output · 30-day retention · team growth-analytics</span>
+  <span class="clock">
+    <span class="dot"></span>
+    <span class="mono" style="font-size:10.5px">SYNC 16:41:07 ET</span>
+  </span>
+</div>
+
+</body>
+</html>
