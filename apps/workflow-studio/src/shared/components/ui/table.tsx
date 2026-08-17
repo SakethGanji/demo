@@ -23,7 +23,7 @@ function Table({ className, containerClassName, ...props }: React.ComponentProps
     >
       <table
         data-slot="table"
-        className={cn("w-full caption-bottom border-separate border-spacing-0 text-[13px]", className)}
+        className={cn("w-full caption-bottom border-separate border-spacing-0 text-label", className)}
         {...props}
       />
     </div>
@@ -66,12 +66,25 @@ function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
  * border is drawn on the cell (not the row) because `border-collapse: separate`
  * is required for sticky headers to keep their borders.
  */
+/**
+ * A column header.
+ *
+ * LOWERCASE MONO, per INSTRUMENT rule 5: a column header is an identifier —
+ * the string you type into a filter — not a heading. It used to be uppercase
+ * and letter-spaced, which made `signup_id` render as `SIGNUP_ID`: a name you
+ * cannot copy, cannot match against the schema by eye, and which shouts at you
+ * once per column.
+ *
+ * This also removes a real trap the browser suite documented: `innerText`
+ * reports text as *rendered*, so an uppercase rule made `id` come back as `ID`
+ * and a case-sensitive assertion fail for a purely cosmetic reason.
+ */
 function TableHead({ className, ...props }: React.ComponentProps<"th">) {
   return (
     <th
       data-slot="table-head"
       className={cn(
-        "sticky top-0 z-10 whitespace-nowrap border-b border-border bg-background px-3 py-2 text-left align-middle text-[11px] font-medium tracking-wide text-muted-foreground uppercase",
+        "sticky top-0 z-10 whitespace-nowrap border-b border-border bg-background px-3 py-2 text-left align-middle font-mono text-micro font-medium text-muted-foreground",
         className
       )}
       {...props}

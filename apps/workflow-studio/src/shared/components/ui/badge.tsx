@@ -19,10 +19,9 @@ const badgeVariants = cva(
         ghost:
           "hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50",
         link: "text-primary underline-offset-4 hover:underline",
-        // `--success` has no Tailwind utility (it isn't in the @theme inline map),
-        // so it is consumed as an arbitrary value — same soft tint as `destructive`.
-        success:
-          "bg-[var(--success)]/10 text-[var(--success)] [a]:hover:bg-[var(--success)]/20",
+        // Same soft tint as `destructive`. `--success` is mapped in @theme
+        // inline now, so this uses real utilities rather than arbitrary values.
+        success: "bg-success/10 text-success [a]:hover:bg-success/20",
         // The `floatingPanel` glass treatment (see app/routes/editor.tsx), scaled
         // down for a badge: translucent surface over whatever sits behind it.
         glass:

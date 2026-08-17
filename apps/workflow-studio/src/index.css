@@ -4,45 +4,187 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ═══════════════════════════════════════════════════════════════════════════
+ * INSTRUMENT — the house visual language.
+ * Spec: design-prototypes/INSTRUMENT.md · reference: design-prototypes/*.html
+ *
+ * Two layers, and the dependency runs ONE WAY:
+ *
+ *   primitives  (--s0..--s6, --t1..--t4, --m1..--m6, --sig, --st-*, --r1..--r3)
+ *        ↑
+ *   semantic    (--background, --card, --border, --muted-foreground, …)
+ *        ↑
+ *   components  (Tailwind utilities via @theme inline)
+ *
+ * A semantic token may point at a primitive. A primitive must NEVER point at a
+ * semantic one, and application code must not reach past the semantic layer —
+ * the exception is the handful of Instrument display primitives that spend the
+ * accent or the magnitude ramp, which name --sig / --m* directly and are the
+ * only places allowed to.
+ *
+ * The semantic alias layer is declared exactly ONCE, in :root. `.dark`
+ * redefines only the primitives, so var() resolution does the mode switch at
+ * use time. Light and dark therefore cannot drift apart in the semantic layer —
+ * there is only one copy of it to get wrong.
+ *
+ * This is what lets /editor, /builder, / and /projects re-theme without a code
+ * edit: they consume the semantic names, which now resolve to the graphite ramp.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #1e1e1e;
-  --card: #ffffff;
-  --card-foreground: #1e1e1e;
-  --popover: #ffffff;
-  --popover-foreground: #1e1e1e;
-  --primary: #18a0fb;
-  --primary-foreground: #ffffff;
-  --secondary: #f1f3f5;
-  --secondary-foreground: #1e1e1e;
-  --muted: #f1f3f5;
-  --muted-foreground: #868e96;
-  --accent: #f1f3f5;
-  --accent-foreground: #1e1e1e;
-  --destructive: #f24822;
-  --destructive-foreground: #ffffff;
-  --border: #dee2e6;
-  --input: #ced4da;
-  --ring: #18a0fb;
-  --surface: #f1f3f5;
-  --success: #14ae5c;
-  --warning: #c4841d;
-  --chart-1: #18a0fb;
-  --chart-2: #7b61ff;
-  --chart-3: #14ae5c;
-  --chart-4: #f24822;
-  --chart-5: #c4841d;
-  --sidebar: #f1f3f5;
-  --sidebar-foreground: #343a40;
-  --sidebar-primary: #18a0fb;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #e9ecef;
-  --sidebar-accent-foreground: #343a40;
-  --sidebar-border: #dee2e6;
-  --sidebar-ring: #18a0fb;
-  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  /* ── Instrument primitives — LIGHT ──────────────────────────────────────
+   * Selected from the graphite hue family (~215°), NOT derived by inverting
+   * the dark ramp. Elevation in light runs the other way: the page is the
+   * mid-tone and raised surfaces approach white, so --s3/--s4 are the light
+   * mode's "raised" and --s5 (a tint, not a lift) is "selected".
+   *
+   * Measured against every surface it composites on: --t1/--t2/--t3 clear
+   * 4.5:1 on s1…s5 (worst case t3 on s5 = 4.74:1). --t4 is decoration only
+   * and is never text, per the spec's non-negotiable. */
+  --s0: #E3E8EF;   /* recessed — wells, inputs, masked PII */
+  --s1: #EEF1F6;   /* the page */
+  --s2: #F6F8FA;   /* panel — rail, dock */
+  --s3: #FCFDFE;   /* raised — cards */
+  --s4: #FFFFFF;   /* raised further — popovers, dialogs */
+  --s5: #E7ECF3;   /* selected / hover */
+  --s6: #C6CEDA;   /* strongest edge */
+
+  --key: #16202C;      /* the primary action wins on VALUE, not on hue (rule 2).
+                        * In light that means near-black, not near-white. */
+  --key-ink: #F7F9FC;  /* text on --key — 15.59:1 */
+
+  --t1: #111720;   /* anchors — ~12 per screen */
+  --t2: #38414E;   /* body */
+  --t3: #5E6879;   /* the one footnote register — provenance, eyebrows */
+  --t4: #96A0AE;   /* DECORATION ONLY. Never text. 2.34:1 — that is the point. */
+
+  --r1: rgba(0, 0, 0, 0.05);
+  --r2: rgba(0, 0, 0, 0.09);
+  --r3: rgba(0, 0, 0, 0.16);
+  --hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+
+  /* The accent means SCOPE AND LIVENESS, ~4 uses per screen (rule 1).
+   * #46D5E8 measures 1.65:1 on a light panel and is unusable here, so light
+   * takes a darker step in the same family: 5.56:1 as text, 5.23:1 as a mark. */
+  --sig: #0B6E7E;
+  --sig-dim: rgba(11, 110, 126, 0.12);
+  --sig-line: rgba(11, 110, 126, 0.45);
+
+  /* Status is RESERVED and never a data series. The spec's steps are tuned for
+   * a dark surface: on light, --st-warn measures 1.72:1 and --st-serious
+   * 2.48:1 — invisible as marks. These are the light-surface steps, all ≥3:1
+   * as a mark and in fact ≥4.2:1, so they can carry a word if one is needed.
+   * Status is still never hue alone (rule 6): the shape carries the hue, the
+   * word wears an ink token. */
+  --st-good: #0A7D14;
+  --st-warn: #9A6B00;
+  --st-serious: #B4471E;
+  --st-crit: #C0392B;
+
+  /* Neutral magnitude ramp. MAGNITUDE USES THE NEUTRAL RAMP, IDENTITY USES
+   * CATEGORICAL HUE — most single-series charts need no categorical colour at
+   * all. m1 is the strongest magnitude, so on light it is the darkest step. */
+  --m1: #2E3742;
+  --m2: #465162;
+  --m3: #5F6B7C;
+  --m4: #8B95A3;
+  --m5: #B2BBC7;
+  --m6: #D3DAE3;
+
+  --bg-vignette: radial-gradient(1180px 560px at 44% -12%, #FFFFFF 0%, rgba(255, 255, 255, 0) 62%);
+  --grain-opacity: 0.035;
+
+  /* Chrome surfaces are a shallow vertical GRADIENT, not a flat fill.
+   *
+   * This is the difference between a panel that reads as machined and one that
+   * reads as a web page. A flat band plus a border is a div; a band that is
+   * fractionally lighter at its top edge, carries `--hi` as an inset
+   * highlight, and drops a soft shadow onto what is below it, reads as a
+   * physical strip sitting above the content. INSTRUMENT's material section
+   * asks for exactly this and it is the cheapest possible way to get it. */
+  --chrome-bar: linear-gradient(180deg, #FDFEFE, #F2F5F9);
+  --chrome-strip: linear-gradient(180deg, #FAFCFD, #EFF3F8);
+  --chrome-shadow: var(--hi), 0 1px 0 rgba(0, 0, 0, 0.06);
+  --chrome-strip-shadow: var(--hi), 0 1px 0 rgba(0, 0, 0, 0.07),
+    0 10px 24px -20px rgba(0, 0, 0, 0.45);
+
+  /* Data-visualisation palette — light.
+   *
+   * Separate from the status ramp above (which is reserved) because these
+   * carry *data* and have to survive colour-vision deficiency. The slot ORDER
+   * is the safety mechanism, not decoration: it was validated pairwise so
+   * adjacent series stay separable. Assign in fixed order, never cycle, and
+   * never invent a 9th — rank, take the top 8, and fold the tail into a
+   * graphite "Other" carrying its own count and share.
+   *
+   * Validated against this app's real chart surfaces: worst adjacent CVD
+   * dE 9.1 light / 8.4 dark, normal-vision 19.6 / 19.3. Three light slots sit
+   * under 3:1 contrast, so every chart using them ships a visible label beside
+   * the mark — that is the agreed relief, not an oversight.
+   *
+   * Slot 6 is held deliberately off the reserved status green: a green here
+   * would sit on the status hue (both were once hue 142/143, dE 9.7 apart).
+   * It is now a yellow-green at hue 114 — 7.08:1 on #f9fafb. The green band
+   * belongs to status, not to a series. */
+  --viz-1: #2a78d6;
+  --viz-2: #eb6834;
+  --viz-3: #1baf7a;
+  --viz-4: #eda100;
+  --viz-5: #e87ba4;
+  --viz-6: #545a00;
+  --viz-7: #4a3aa7;
+  --viz-8: #e34948;
+
+  /* ── Semantic alias layer — declared ONCE, resolves per mode ───────────── */
+  --background: var(--s1);
+  --foreground: var(--t1);
+  --card: var(--s2);
+  --card-foreground: var(--t1);
+  --popover: var(--s4);
+  --popover-foreground: var(--t1);
+  --primary: var(--key);
+  --primary-foreground: var(--key-ink);
+  --secondary: var(--s4);
+  --secondary-foreground: var(--t1);
+  --muted: var(--s3);
+  --muted-foreground: var(--t3);
+  --accent: var(--s5);
+  --accent-foreground: var(--t1);
+  --destructive: var(--st-crit);
+  --destructive-foreground: var(--key-ink);
+  --border: var(--r2);
+  --input: var(--r2);
+  --ring: var(--sig);
+  --surface: var(--s2);
+  --success: var(--st-good);
+  --warning: var(--st-warn);
+
+  /* Brand accents for the canvas. Re-pointed at the validated viz slots so the
+   * editor's syntax highlighting and node chrome speak the same colour
+   * language as the rest of the studio; the original intent of each slot
+   * (blue · purple · green · red · amber) is preserved. */
+  --chart-1: var(--viz-1);
+  --chart-2: var(--viz-7);
+  --chart-3: var(--viz-3);
+  --chart-4: var(--viz-2);
+  --chart-5: var(--viz-4);
+
+  --sidebar: var(--s2);
+  --sidebar-foreground: var(--t2);
+  --sidebar-primary: var(--key);
+  --sidebar-primary-foreground: var(--key-ink);
+  --sidebar-accent: var(--s5);
+  --sidebar-accent-foreground: var(--t1);
+  --sidebar-border: var(--r2);
+  --sidebar-ring: var(--sig);
+
+  /* System fonts only, zero network resources — an INSTRUMENT non-negotiable.
+   * This also removes a render-blocking cross-origin request that the browser
+   * test harness had to stub out because its browser has no internet. */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-serif: Georgia, serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
   --radius: 0.5rem;
   --shadow-2xs: 0 1px 2px 0 rgb(0 0 0 / 0.03);
   --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.04), 0 1px 4px 0 rgb(0 0 0 / 0.02);
@@ -54,40 +196,6 @@
   --shadow-2xl: 0 8px 16px 0 rgb(0 0 0 / 0.03), 0 24px 56px -12px rgb(0 0 0 / 0.14), 0 0 1px 0 rgb(0 0 0 / 0.04);
   --tracking-normal: 0em;
   --spacing: 0.25rem;
-
-  /* Data-visualisation palette.
-   *
-   * Separate from --chart-1..5 (which are brand accents chosen for the canvas)
-   * because these carry *data* and have to survive colour-vision deficiency.
-   * The slot ORDER is the safety mechanism, not decoration: it was validated
-   * pairwise so adjacent series stay separable. Assign in fixed order, never
-   * cycle, and never invent a 9th — fold the tail into "Other" instead.
-   *
-   * Validated against this app's real chart surfaces (light #f9fafb, dark
-   * #141414): worst adjacent CVD dE 9.1 light / 8.4 dark, normal-vision 19.6 /
-   * 19.3. Three light slots sit under 3:1 contrast, so every chart using them
-   * ships a visible label beside the mark — that is the agreed relief, not an
-   * oversight.
-   *
-   * Slot 6 is held deliberately off --viz-good #0ca30c: a green here would sit
-   * on the reserved status hue (both were once hue 142/143, dE 9.7 apart). It
-   * is now a yellow-green at hue 114 — 7.08:1 on #f9fafb, dE 21.6 from
-   * --viz-good. The green band belongs to status, not to a series. */
-  --viz-1: #2a78d6;
-  --viz-2: #eb6834;
-  --viz-3: #1baf7a;
-  --viz-4: #eda100;
-  --viz-5: #e87ba4;
-  --viz-6: #545a00;
-  --viz-7: #4a3aa7;
-  --viz-8: #e34948;
-
-  /* Status is reserved — never reuse one of these as "series 5". Always paired
-   * with an icon or a word, so state never rides on colour alone. */
-  --viz-good: #0ca30c;
-  --viz-warning: #fab219;
-  --viz-serious: #ec835a;
-  --viz-critical: #d03b3b;
 
   /* Node colors */
   --node-bg: var(--surface);
@@ -141,66 +249,82 @@
 }
 
 .dark {
-  --background: #111111;
-  --foreground: #e5e5e5;
-  --card: #1c1c1c;
-  --card-foreground: #e5e5e5;
-  --popover: #1c1c1c;
-  --popover-foreground: #e5e5e5;
-  --primary: #18a0fb;
-  --primary-foreground: #ffffff;
-  --secondary: #262626;
-  --secondary-foreground: #e5e5e5;
-  --muted: #222222;
-  --muted-foreground: #999999;
-  --accent: #262626;
-  --accent-foreground: #e5e5e5;
-  --destructive: #f24822;
-  --destructive-foreground: #ffffff;
-  --border: #2a2a2a;
-  --input: #2a2a2a;
-  --ring: #18a0fb;
-  --surface: #1a1a1a;
-  --success: #14ae5c;
-  --warning: #d4a053;
-  --chart-1: #18a0fb;
-  --chart-2: #a78bfa;
-  --chart-3: #14ae5c;
-  --chart-4: #f24822;
-  --chart-5: #d4a053;
-  --sidebar: #1c1c1c;
-  --sidebar-foreground: #e5e5e5;
-  --sidebar-primary: #18a0fb;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #262626;
-  --sidebar-accent-foreground: #e5e5e5;
-  --sidebar-border: #2a2a2a;
-  --sidebar-ring: #18a0fb;
-  --shadow-2xs: 0 1px 2px 0 rgb(0 0 0 / 0.08);
-  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.1), 0 1px 4px 0 rgb(0 0 0 / 0.06);
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.08), 0 2px 8px 0 rgb(0 0 0 / 0.1), 0 0 1px 0 rgb(0 0 0 / 0.12);
-  --shadow: 0 1px 2px 0 rgb(0 0 0 / 0.08), 0 2px 8px 0 rgb(0 0 0 / 0.1), 0 0 1px 0 rgb(0 0 0 / 0.12);
-  --shadow-md: 0 2px 4px 0 rgb(0 0 0 / 0.06), 0 4px 16px -2px rgb(0 0 0 / 0.14), 0 0 1px 0 rgb(0 0 0 / 0.1);
-  --shadow-lg: 0 2px 4px 0 rgb(0 0 0 / 0.06), 0 8px 28px -4px rgb(0 0 0 / 0.18), 0 0 1px 0 rgb(0 0 0 / 0.1);
-  --shadow-xl: 0 4px 8px 0 rgb(0 0 0 / 0.06), 0 16px 44px -8px rgb(0 0 0 / 0.22), 0 0 1px 0 rgb(0 0 0 / 0.1);
-  --shadow-2xl: 0 8px 16px 0 rgb(0 0 0 / 0.08), 0 24px 60px -12px rgb(0 0 0 / 0.3), 0 0 1px 0 rgb(0 0 0 / 0.1);
+  /* ── Instrument primitives — DARK ───────────────────────────────────────
+   * The reference ramp, copied from INSTRUMENT.md. No semantic token is
+   * redeclared here: the alias layer in :root points at these names and
+   * resolves against whichever block is in scope. */
+  --s0: #080A0E;
+  --s1: #0D1015;
+  --s2: #11151B;
+  --s3: #161B22;
+  --s4: #1C222B;
+  --s5: #242C37;
+  --s6: #38424F;
 
-  /* Data-visualisation palette — dark mode.
+  --key: #E9EEF5;
+  --key-ink: #0D1015;
+
+  --t1: #E7ECF3;
+  --t2: #B0BAC8;
+  /* Spec value is #85909F. It measures 4.35:1 on --s5 — the selected-row
+   * surface — which fails the spec's own "body text ≥4.5:1 measured against
+   * its composited surface" non-negotiable, and --t3 is the footnote register
+   * so it IS body text. Nudged one step to clear it: 4.65:1 on s5, 6.04:1 on
+   * s2. Everywhere else the difference is imperceptible. */
+  --t3: #8B95A4;
+  --t4: #5C6675;   /* DECORATION ONLY. Never text. */
+
+  --r1: rgba(255, 255, 255, 0.042);
+  --r2: rgba(255, 255, 255, 0.075);
+  --r3: rgba(255, 255, 255, 0.13);
+  --hi: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+
+  --sig: #46D5E8;
+  --sig-dim: rgba(70, 213, 232, 0.14);
+  --sig-line: rgba(70, 213, 232, 0.40);
+
+  --st-good: #0ca30c;
+  --st-warn: #fab219;
+  --st-serious: #ec835a;
+  --st-crit: #DC5050;
+
+  --m1: #CBD3DF;
+  --m2: #A2ACBB;
+  --m3: #7D8797;
+  --m4: #5F6979;
+  --m5: #48515F;
+  --m6: #39414D;
+
+  --bg-vignette: radial-gradient(1180px 560px at 44% -12%, #151B24 0%, rgba(21, 27, 36, 0) 62%);
+  --grain-opacity: 0.055;
+
+  /* The prototype's own values — see the light block for why a gradient. */
+  --chrome-bar: linear-gradient(180deg, #141922, #10141A);
+  --chrome-strip: linear-gradient(180deg, var(--s3), #12171E);
+  --chrome-shadow: var(--hi), 0 1px 0 rgba(0, 0, 0, 0.5);
+  --chrome-strip-shadow: var(--hi), 0 1px 0 rgba(0, 0, 0, 0.55),
+    0 10px 24px -20px rgba(0, 0, 0, 0.9);
+
+  /* Data-visualisation palette — dark.
    *
    * The SAME eight hues, re-stepped for the dark surface — not a flipped or
    * auto-derived palette. Each step was chosen to sit in the dark lightness
-   * band and clear 3:1 against #141414, then validated as a set. All eight
+   * band and clear 3:1 against the panel, then validated as a set. All eight
    * pass contrast here, so the light mode's label-relief rule is a light-mode
    * concern only; keep the labels anyway, for one behaviour in both themes.
    *
-   * Slot 6 really is re-stepped now. It used to be #008300 in BOTH blocks —
+   * This block is byte-identical to INSTRUMENT.md's categorical set — the
+   * design adopted the palette work already in this file rather than
+   * replacing it, so there was nothing to change here.
+   *
+   * Slot 6 really is re-stepped. It used to be #008300 in BOTH blocks —
    * copied, never re-derived — which left it at 3.73:1 here (the weakest slot)
-   * and only dE 9.7 from the reserved --viz-good #0ca30c, same hue to within
-   * 1 degree. It is now #747c04: hue 114 like its light counterpart, but a
-   * lighter step for this surface — 4.06:1 on #141414, dE 12.9 from
-   * --viz-good. Adjacent separation vs --viz-5 / --viz-7 is dE 11.4 / 12.0,
-   * both clear of the 8.4 floor, so the worst adjacent pair in this palette is
-   * still #c98500 / #199e70 and the headline numbers above are unchanged. */
+   * and only dE 9.7 from the reserved status green, same hue to within 1
+   * degree. It is now #747c04: hue 114 like its light counterpart, but a
+   * lighter step for this surface — 4.06:1, dE 12.9 from the status green.
+   * Adjacent separation vs --viz-5 / --viz-7 is dE 11.4 / 12.0, both clear of
+   * the 8.4 floor, so the worst adjacent pair is still #c98500 / #199e70 and
+   * the headline numbers above are unchanged. */
   --viz-1: #3987e5;
   --viz-2: #d95926;
   --viz-3: #199e70;
@@ -210,11 +334,14 @@
   --viz-7: #9085e9;
   --viz-8: #e66767;
 
-  /* Status steps are mode-invariant: all four already clear 3:1 on dark. */
-  --viz-good: #0ca30c;
-  --viz-warning: #fab219;
-  --viz-serious: #ec835a;
-  --viz-critical: #d03b3b;
+  --shadow-2xs: 0 1px 2px 0 rgb(0 0 0 / 0.08);
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.1), 0 1px 4px 0 rgb(0 0 0 / 0.06);
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.08), 0 2px 8px 0 rgb(0 0 0 / 0.1), 0 0 1px 0 rgb(0 0 0 / 0.12);
+  --shadow: 0 1px 2px 0 rgb(0 0 0 / 0.08), 0 2px 8px 0 rgb(0 0 0 / 0.1), 0 0 1px 0 rgb(0 0 0 / 0.12);
+  --shadow-md: 0 2px 4px 0 rgb(0 0 0 / 0.06), 0 4px 16px -2px rgb(0 0 0 / 0.14), 0 0 1px 0 rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 2px 4px 0 rgb(0 0 0 / 0.06), 0 8px 28px -4px rgb(0 0 0 / 0.18), 0 0 1px 0 rgb(0 0 0 / 0.1);
+  --shadow-xl: 0 4px 8px 0 rgb(0 0 0 / 0.06), 0 16px 44px -8px rgb(0 0 0 / 0.22), 0 0 1px 0 rgb(0 0 0 / 0.1);
+  --shadow-2xl: 0 8px 16px 0 rgb(0 0 0 / 0.08), 0 24px 60px -12px rgb(0 0 0 / 0.3), 0 0 1px 0 rgb(0 0 0 / 0.1);
 
   /* Node colors — dark mode */
   --node-bg: var(--surface);
@@ -287,6 +414,9 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-surface: var(--surface);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
@@ -301,9 +431,48 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
+  /* --sig is deliberately NOT mapped here.
+   *
+   * Rule 1: the accent is a MEANING, not a count — it marks scope and
+   * liveness, roughly four uses per screen regardless of density. If a
+   * `text-sig` utility existed, that budget would be spent by accident within
+   * a week and the accent would decay into a texture. The handful of
+   * components that legitimately spend it name var(--sig) directly, which
+   * makes every use greppable and deliberate. Same reasoning for --m1..--m6:
+   * magnitude marks go through the chart primitives, not through utilities. */
+
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
   --font-serif: var(--font-serif);
+
+  /* ── Type scale ────────────────────────────────────────────────────────
+   * Rule 4 (numbers are the hero) and rule 5 (sentence-case headings; table
+   * headers are lowercase mono identifiers) are both typographic, so without
+   * a scale in the token layer half of INSTRUMENT is unreachable by theming.
+   * Before this existed there were 120 hardcoded `text-[Npx]` literals in the
+   * datasets surface and no token could touch any of them.
+   *
+   * `footnote` is deliberately a single register: it absorbs ALL provenance —
+   * evidence lines, run ids, artifact paths, cap labels — which is what frees
+   * --t1 for the ~12 anchors on a screen. */
+  --text-footnote: 9.5px;
+  --text-footnote--line-height: 1.35;
+  --text-micro: 10.5px;
+  --text-micro--line-height: 1.35;
+  --text-small: 11.5px;
+  --text-small--line-height: 1.4;
+  --text-body: 12.5px;
+  --text-body--line-height: 1.4;
+  --text-label: 13px;
+  --text-label--line-height: 1.4;
+  --text-lead: 15px;
+  --text-lead--line-height: 1.3;
+  --text-figure: 20px;
+  --text-figure--line-height: 1.1;
+  --text-figure--letter-spacing: -0.03em;
+  --text-hero: 27px;
+  --text-hero--line-height: 1.05;
+  --text-hero--letter-spacing: -0.032em;
 
   --radius-sm: calc(var(--radius) - 2px);
   --radius-md: var(--radius);
@@ -333,15 +502,34 @@
   }
 
   body {
-    @apply text-foreground antialiased;
-    background-color: var(--background);
-    letter-spacing: var(--tracking-normal);
+    @apply antialiased;
+    /* Body text is --t2, not --foreground. --t1 is reserved for the ~12
+     * anchors on a screen; if body copy took it, everything would read as an
+     * anchor and the hierarchy would flatten. `text-foreground` still resolves
+     * to --t1 for the elements that should have it. */
+    color: var(--t2);
+    background: var(--bg-vignette), var(--background);
+    letter-spacing: -0.004em;
     min-height: 100vh;
     font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
-    font-size: 13px;
+    font-size: 12.5px;
+    line-height: 1.4;
+  }
+
+  /* Material: a fractal-noise grain over everything. Inlined as a data URI —
+   * INSTRUMENT's zero-network-resources rule applies to decoration too. */
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 200;
+    opacity: var(--grain-opacity);
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
   }
 
   input, textarea, select {
@@ -356,17 +544,21 @@
     overflow: hidden;
   }
 
+  html {
+    font-size: 13px;
+  }
+
   ::selection {
-    background-color: color-mix(in srgb, var(--primary) 20%, transparent);
+    background-color: color-mix(in srgb, var(--sig) 26%, transparent);
     color: inherit;
   }
 
   /* Scrollbars */
-  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--foreground) 12%, transparent); border-radius: 3px; transition: background 0.2s; }
-  ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--foreground) 22%, transparent); }
-  * { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--foreground) 12%, transparent) transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--s5); border-radius: 8px; border: 3px solid transparent; background-clip: padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--s6); border: 3px solid transparent; background-clip: padding-box; }
+  * { scrollbar-width: thin; scrollbar-color: var(--s5) transparent; }
 
   /* Micro-interactions */
   button:not(:disabled):active, [role="button"]:not(:disabled):active { transform: scale(0.98); }
@@ -374,11 +566,16 @@
   input[type="radio"] { accent-color: var(--primary); }
   input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   input[type="number"] { -moz-appearance: textfield; }
-  textarea { font-family: var(--font-sans); font-size: 13px; }
-  select { font-family: var(--font-sans); font-size: 13px; cursor: pointer; }
+  textarea { font-family: var(--font-sans); font-size: var(--text-body); }
+  select { font-family: var(--font-sans); font-size: var(--text-body); cursor: pointer; }
   code:not(pre code) { font-family: var(--font-mono); font-size: 0.9em; }
-  kbd { font-family: var(--font-sans); font-weight: 500; }
-  *:focus-visible { transition: box-shadow 0.15s ease, border-color 0.15s ease; }
+  kbd { font-family: var(--font-mono); font-weight: 500; }
+  *:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 1px var(--s0), 0 0 0 3px color-mix(in srgb, var(--sig) 45%, transparent);
+    border-radius: 6px;
+    transition: box-shadow 0.15s ease, border-color 0.15s ease;
+  }
   ::placeholder { color: var(--muted-foreground); opacity: 0.6; }
 }
 
@@ -391,8 +588,8 @@ button, a, input, select, textarea, [role="button"] {
 
 /* ── Panel resize handles ── */
 [data-panel-resize-handle-id] { transition: background-color 0.15s ease; }
-[data-panel-resize-handle-id]:hover { background-color: var(--primary) !important; opacity: 0.5; }
-[data-panel-resize-handle-id]:active, [data-panel-resize-handle-id][data-resize-handle-active] { background-color: var(--primary) !important; opacity: 1; }
+[data-panel-resize-handle-id]:hover { background-color: var(--sig) !important; opacity: 0.5; }
+[data-panel-resize-handle-id]:active, [data-panel-resize-handle-id][data-resize-handle-active] { background-color: var(--sig) !important; opacity: 1; }
 
 /* NDV resize handle hit area */
 [data-slot="dialog-content"] [data-panel-resize-handle-id] { position: relative; }
@@ -406,8 +603,8 @@ button, a, input, select, textarea, [role="button"] {
 .react-flow__node-addNodes { pointer-events: all !important; }
 
 .react-flow__selection {
-  background: color-mix(in srgb, var(--primary) 8%, transparent) !important;
-  border: 1px dashed color-mix(in srgb, var(--primary) 40%, transparent) !important;
+  background: color-mix(in srgb, var(--sig) 8%, transparent) !important;
+  border: 1px dashed color-mix(in srgb, var(--sig) 40%, transparent) !important;
   border-radius: var(--radius);
 }
 
