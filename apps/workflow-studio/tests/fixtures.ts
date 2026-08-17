@@ -29,6 +29,66 @@ export const API_BASE = process.env.API_BASE || 'http://localhost:8001/api/v1'
 export const ADMIN = process.env.ADMIN_USER_ID || '00000000-0000-0000-0000-000000000001'
 export const DEFAULT_TEAM = '00000000-0000-0000-0000-000000000001'
 
+/**
+ * Dismiss any visible toasts before interacting with what is under them.
+ *
+ * The Toaster sits bottom-right, which is exactly where the lens dock's action
+ * buttons are. A toast is a real element with real pointer events (it carries a
+ * close button), so while one is up it genuinely intercepts clicks on the
+ * control beneath — Playwright reports
+ * `<li data-sonner-toast> … subtree intercepts pointer events` and retries
+ * until the test times out. Under full-suite load there are more toasts in
+ * flight and they overlap more actions, which is why this only ever failed in
+ * a full run.
+ *
+ * This is not papering over a flake: a human hitting the same overlap has the
+ * same problem, and the honest fix on the product side is for toasts not to
+ * cover the dock. Until then, tests clear them deliberately rather than racing
+ * the auto-dismiss.
+ */
+export async function dismissToasts(page: Page): Promise<void> {
+  const toasts = page.locator('[data-sonner-toast]')
+  for (let guard = 0; guard < 10; guard++) {
+    if ((await toasts.count()) === 0) return
+    const close = toasts.first().getByRole('button', { name: /close/i })
+    if (await close.count()) await close.first().click({ timeout: 2_000 }).catch(() => {})
+    else await page.mouse.click(4, 4)
+    await page.waitForTimeout(150)
+  }
+}
+
+/**
+ * Drive a `ScopePicker` — the custom listbox behind Version, Sheet and Acting
+ * seat in the app chrome.
+ *
+ * Those three are no longer native `<select>` elements (an OS widget in the
+ * middle of custom chrome was the loudest remaining visual tell), so
+ * `selectOption()` does not drive them. This is the replacement: open the
+ * trigger by its accessible name, then click the option by its visible text.
+ *
+ * The FORM selects inside panels and dialogs are still native and still take
+ * `selectOption()` — that line is deliberate and is documented in
+ * `ScopePicker.tsx`.
+ */
+export async function pickScope(
+  page: Page,
+  label: string,
+  option: string | RegExp,
+): Promise<void> {
+  await page.getByLabel(label).click()
+
+  // Scoped to the open listbox on purpose. A native `<select><option>` also
+  // carries `role=option`, and the datasets dock has several — an unscoped
+  // `getByRole('option')` can match one of those and click a control the test
+  // never meant to touch, or make the unmount assertion below never settle.
+  const popup = page.getByRole('listbox')
+  await popup.getByRole('option', { name: option }).first().click()
+
+  // The listbox unmounts on select; waiting for that keeps the next action
+  // from racing a popup that is still capturing pointer events.
+  await expect(popup).toHaveCount(0)
+}
+
 /** The localStorage key the studio's identity store reads at module init. */
 const IDENTITY_KEY = 'studio.identity'
 
@@ -90,7 +150,21 @@ function rowsToCsv(rows: Record<string, unknown>[]): string {
  * Every fixture this suite creates is named with this prefix, which is how the
  * sweep in `sweep.ts` finds them without any per-test bookkeeping.
  */
-export const TEST_PREFIX = 'uitest-'
+/**
+ * Every fixture this suite creates is named with this prefix, which is how the
+ * sweep finds them without any per-test bookkeeping.
+ *
+ * `UITEST_PREFIX` namespaces a run. The sweep deletes everything matching the
+ * prefix at BOTH ends of a run, so two concurrent runs sharing one prefix
+ * destroy each other's fixtures mid-test — which is exactly what happens when
+ * several people (or several agents) drive this suite against one API at once.
+ * Giving a run its own namespace makes concurrent runs safe:
+ *
+ *     UITEST_PREFIX=uitest-query- npx playwright test query.spec.ts
+ *
+ * Default is unchanged, so a normal `npm run test:ui` behaves as before.
+ */
+export const TEST_PREFIX = process.env.UITEST_PREFIX || 'uitest-'
 
 let counter = 0
 /** Unique per run AND per call, so parallel workers never collide on a name. */
@@ -187,16 +261,16 @@ export const test = base.extend<{ h: Harness }>({
     /**
      * Cut the browser off from the public internet.
      *
-     * `index.html` pulls Inter and JetBrains Mono from Google Fonts, so every
-     * test run depended on fonts.gstatic.com being reachable — and when it
-     * wasn't, the font 404 surfaced as a console error and failed whichever
-     * test happened to be running. A test suite must not be able to fail
-     * because of someone else's CDN. Returning empty CSS means the font files
-     * are never requested at all; the app falls back to the system sans, which
-     * changes nothing this suite asserts on.
+     * This used to exist because `index.html` pulled Inter and JetBrains Mono
+     * from Google Fonts, so every run depended on fonts.gstatic.com being
+     * reachable and a CDN hiccup failed whichever test happened to be running.
+     * The app is on system fonts now (INSTRUMENT mandates zero network
+     * resources), so nothing should reach the public internet at all — this
+     * route is kept as an assertion of that rather than as a workaround. If it
+     * ever fires, a network dependency has crept back in.
      */
     await page.route(/fonts\.(googleapis|gstatic)\.com/, (route) =>
-      route.fulfill({ status: 200, contentType: 'text/css', body: '' }),
+      route.abort('blockedbyclient'),
     )
 
     page.on('pageerror', (e) => errors.push(`[pageerror] ${e.message}`))

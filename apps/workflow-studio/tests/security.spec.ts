@@ -1,4 +1,4 @@
-import { test, expect, goto, api, apiOk } from './fixtures'
+import { test, expect, goto, api, apiOk, pickScope } from './fixtures'
 
 /**
  * Masking and RBAC, seen through the UI.
@@ -33,7 +33,12 @@ test('a viewer sees masked values in the grid — not raw, and not refused', asy
   expect(body).not.toContain(SENTINEL)
 
   // And the masked column is named as masked rather than silently blanked.
-  await expect(page.getByText(/\d+ masked/)).toBeVisible()
+  //
+  // Scoped to the grid toolbar: masking is now stated in three places (the
+  // cockpit strip, the dataset header and this badge), which is the point —
+  // but an unscoped regex matches all three and fails strict mode.
+  await expect(page.getByTestId('grid-masked-count')).toBeVisible()
+  await expect(page.getByTestId('grid-masked-count')).toContainText(/\d+ masked/)
 
   const html = await page.content()
   expect(html).not.toContain(SENTINEL)
@@ -67,7 +72,7 @@ test('switching seats in the UI changes what the same page shows', async ({ page
 
   // Drive the real control, not localStorage — this is the flow a person uses
   // to prove to themselves that masking bites.
-  await page.getByLabel('Acting seat').selectOption(viewer.user_id)
+  await pickScope(page, 'Acting seat', `${viewer.name} (${viewer.role})`)
 
   await expect
     .poll(async () => (await page.locator('body').innerText()).includes(SENTINEL))

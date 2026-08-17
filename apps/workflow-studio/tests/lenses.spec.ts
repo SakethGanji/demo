@@ -161,10 +161,17 @@ test('the library lens lists artifacts this dataset produced', async ({ page, h 
   await page.getByTestId('lens-library').click()
 
   await expect(page.getByTestId('artifact')).toHaveCount(1)
-  const artifact = page.getByTestId('artifact').first()
-  await expect(artifact).toContainText('aggregation_output')
+
+  // The kind and its retention are stated once per KIND GROUP rather than
+  // repeated on every row — the clock is a property of the kind, so one
+  // statement covers the whole block. The assertions are unchanged; only the
+  // element that has to carry them moved outward.
+  const group = page.getByTestId('artifact-group').first()
+  await expect(group).toContainText('aggregation_output')
   // Retention is real and surprising; the panel must state it.
-  await expect(artifact).toContainText('kept 30d')
+  await expect(group).toContainText('kept 30d')
+  // And the row itself still carries its own countdown against that clock.
+  await expect(page.getByTestId('artifact-retention').first()).toBeVisible()
 
   // Cross-check against the artifact table.
   const samples = await apiOk<{ items: any[] }>('GET', '/samples?limit=200')

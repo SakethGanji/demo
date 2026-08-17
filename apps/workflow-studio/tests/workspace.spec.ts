@@ -1,4 +1,4 @@
-import { test, expect, goto, apiOk } from './fixtures'
+import { test, expect, goto, apiOk, pickScope } from './fixtures'
 import type { Page } from '@playwright/test'
 
 /**
@@ -9,10 +9,15 @@ import type { Page } from '@playwright/test'
  * a purely cosmetic rule. `textContent` is the underlying string.
  */
 const headerTexts = (page: Page) =>
-  page.locator('thead th').evaluateAll((els) => els.map((e) => e.textContent?.trim() ?? ''))
+  page
+    // `[data-column]` scopes this to DATA headers. The grid also renders a
+    // row-ordinal gutter header (SHAPE-R10), which is chrome, not a column —
+    // selecting by position would silently fold it into the expected list.
+    .locator('thead th[data-column]')
+    .evaluateAll((els) => els.map((e) => e.textContent?.trim() ?? ''))
 
 /** The first cell of the first row — the cheapest proof that a page turned. */
-const firstCell = (page: Page) => page.locator('tbody tr td:first-child').first()
+const firstCell = (page: Page) => page.getByTestId('first-cell').first()
 
 /**
  * The /data workspace: the persistent grid, and the selectors that drive it.
@@ -51,7 +56,7 @@ test('cursor paging returns every row exactly once when the sort key has ties', 
   await expect(page.getByTestId('row-count')).toContainText('120 rows')
 
   const idsOnPage = async () =>
-    page.locator('tbody tr td:first-child').evaluateAll((tds) =>
+    page.getByTestId('first-cell').evaluateAll((tds) =>
       tds.map((td) => td.textContent?.trim() ?? ''),
     )
 
@@ -101,12 +106,12 @@ test('switching version reloads the grid against that version', async ({ page, h
   // Newest version wins by default, so the grid opens on the 9-row v2.
   await expect(page.getByTestId('row-count')).toContainText('9 rows')
 
-  await page.getByLabel('Version').selectOption('1')
+  await pickScope(page, 'Version', /^v1\b/)
   await expect(page.getByTestId('row-count')).toContainText('3 rows')
   await expect(page.locator('tbody tr')).toHaveCount(3)
 
   // Switching back must not replay v1's cursor against v2 (a 400 invalid-cursor).
-  await page.getByLabel('Version').selectOption('2')
+  await pickScope(page, 'Version', /^v2\b/)
   await expect(page.getByTestId('row-count')).toContainText('9 rows')
 })
 
@@ -124,18 +129,21 @@ test('a multi-sheet workbook lets you pick the sheet, and the grid follows', asy
 
   await goto(page, `/data?dataset=${wb.id}`)
 
-  const sheetSelect = page.getByLabel('Sheet')
-  const options = await sheetSelect.locator('option').allInnerTexts()
+  // The sheet picker is a listbox, not a `<select>` — open it to read the
+  // options, which is also the only way a user sees them.
+  await page.getByLabel('Sheet').click()
+  const options = await page.getByRole('option').allInnerTexts()
   expect(options.join(' ')).toContain('Customers')
   expect(options.join(' ')).toContain('Orders')
+  await page.keyboard.press('Escape')
 
   // The option VALUE is the sheet name — per-sheet data paths take the display
   // name, while `sheet_key` addresses metadata routes.
-  await sheetSelect.selectOption('Customers')
+  await pickScope(page, 'Sheet', /^Customers\b/)
   await expect(page.getByTestId('row-count')).toContainText('4 rows')
   expect(await headerTexts(page)).toContain('customer_id')
 
-  await sheetSelect.selectOption('Orders')
+  await pickScope(page, 'Sheet', /^Orders\b/)
   await expect(page.getByTestId('row-count')).toContainText('11 rows')
   expect(await headerTexts(page)).toContain('order_id')
 })
@@ -155,7 +163,7 @@ test('selecting another dataset from the rail swaps the grid without a stale-she
   await expect(page.getByTestId('row-count')).toContainText('2 rows')
 
   // Narrow the rail to just this test's fixtures, then switch.
-  await page.getByPlaceholder('Search datasets…').first().fill(`rail${token}`)
+  await page.getByTestId('rail-search').fill(`rail${token}`)
   await page.getByRole('button', { name: new RegExp(b.name) }).click()
 
   await expect(page.getByTestId('row-count')).toContainText('5 rows')

@@ -1,6 +1,6 @@
 # Browser tests — the datasets surface
 
-41 tests driving the real app against a real analytics-service. No mocks: every
+181 tests driving the real app against a real analytics-service. No mocks: every
 bug this suite exists to catch lives in the seam between the UI and the service,
 and a mocked test cannot see that seam.
 
@@ -28,6 +28,16 @@ rather than letting the suite produce forty identical timeouts.
 
 Useful variants: `npm run test:ui:headed`, `npx playwright test catalog.spec.ts`,
 `npx playwright test -g "cursor paging"`, `npm run test:ui:report`.
+
+**Running two suites at once.** Cleanup is a prefix sweep at BOTH ends of a run,
+so two concurrent runs sharing a prefix delete each other's fixtures mid-test.
+`UITEST_PREFIX` namespaces a run:
+
+```bash
+UITEST_PREFIX=uitest-query- npx playwright test query.spec.ts --workers=2
+```
+
+The default is unchanged, so a plain `npm run test:ui` behaves as before.
 
 Env overrides: `UI_BASE`, `API_BASE`, `ADMIN_USER_ID`, `ANALYTICS_PYTHON`.
 
@@ -68,9 +78,10 @@ Tests run in parallel, so they must not be able to break each other.
   another worker's browser had them listed, and the second failed on a 404 that
   had nothing to do with what it was testing. The sweep also tidies after a
   crashed run, which per-test cleanup never did.
-- **The browser has no internet.** `index.html` pulls fonts from Google, so runs
-  used to fail whenever `fonts.gstatic.com` hiccuped. The harness fulfils those
-  requests with empty CSS.
+- **The browser has no internet.** `index.html` used to pull fonts from Google,
+  so runs failed whenever `fonts.gstatic.com` hiccuped. The app is on system
+  fonts now, so the harness blocks those requests outright rather than stubbing
+  them — if the route ever fires, a network dependency has crept back in.
 - **Deep-link to your own dataset** (`/data?dataset=<id>`) rather than letting
   the page fall back to whichever dataset happens to be first.
 
@@ -82,6 +93,18 @@ Tests run in parallel, so they must not be able to break each other.
 | `workspace.spec.ts` | grid contents vs the API, cursor paging with tied sort keys, paging backwards, version switching, multi-sheet selection, dataset switching |
 | `writes.spec.ts` | upload (new dataset and new version), metadata PATCH, rule create/toggle/delete, validation, tags, promote's quality gate, the column dictionary |
 | `lenses.spec.ts` | the grid staying loaded across lenses, profiling + health, relationship seeding, schema-only compile, artifacts + retention, version history + tags, masked-column reporting, the restricted state |
+| `errors.spec.ts` | the 404 message not leaking a problem+json `code`, a failed lens fetch never rendering beside an empty state, `X-Team-Id` surviving a seat switch |
+| `shape.spec.ts` | the shape rules in a browser — wide-table rail switching, the ordinal gutter, middle truncation, fixed row height, the identity panel |
+| `query.spec.ts` | the 36 operators against `Filter.op`, type-gating checked on all 108 operator×dtype combinations against the live server, filtering, AND/OR nesting, sort, projection, cursor paging, the download manifest, save-as-view |
+| `analysis.spec.ts` | `/aggregate` arithmetic and denominators, capability gating, the top-8 fold; `/pivot` cross-tab, sticky row labels, member limit, SQL console; `/column` R11, R4 and R9 |
+| `quality.spec.ts` | rules CRUD, the promotion gate, warnings never blocking, health words, and the duplicates / missing-data explorers against fixtures with constructed answers |
+| `versions.spec.ts` | immutability, row deltas, schema diff, tag pinning, the tag-history ledger, the row-diff key picker, version download and its refusal, the timeline |
+| `library-relations.spec.ts` | artifacts and retention, charts, saved views, analyses, usage, favourites; relationship seed/confirm/reject, capped sweeps, the join builder, lineage, counterpart search |
+| `pipeline.spec.ts` | `/ingest` (incl. the resumable TUS path), `/sampling` methods and seeds, `/runs` execution model |
+| `transform.spec.ts` | the pipeline builder, schema evolution, staleness, and the proof that no compile ever sends `rows` |
+| `admin.spec.ts` | classification-vs-sensitivity, the review queue, roles, storage and the manual sweep, webhooks, the audit log, teams and seats |
+| `shell.spec.ts` | the shell on studio routes and its ABSENCE on the theming-only ones, the ⌘K palette, the cockpit strip, the query-token row |
+| `variety.spec.ts` | pathological shapes — 125 columns, single column, all-null, hostile names and values (incl. an XSS check), mixed types, 210-distinct folding, numeric extremes |
 | `security.spec.ts` | masking for a viewer vs an admin, seat switching through the UI, datasets with nothing sensitive, viewer-safe schema compile, RBAC write refusals, 404-not-403 existence hiding |
 
 ## Not covered
@@ -91,10 +114,7 @@ Honest gaps, so nobody reads a green run as more than it is:
 - **Accessibility** — no axe pass, no keyboard-only traversal.
 - **Responsive layout** — one 1440×1000 viewport; the page is a fixed
   three-column layout and has not been tested narrow.
-- **TUS / resumable upload** — only the single-shot multipart path is exercised.
 - **Behaviour at volume** — largest fixture is 120 rows and 26 datasets.
-- **Dark mode** — the viz tokens have validated dark values, but no test asserts
-  on them.
 - **Cross-team isolation** — the outsider seat is a viewer of the *same* team;
   a genuinely foreign team is not constructed.
 

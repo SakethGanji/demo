@@ -205,7 +205,7 @@ test('searching the rail filters the list without changing the dataset on screen
   // Type a search that EXCLUDES the dataset being viewed. The rail must narrow;
   // the grid must not move. This used to swap the grid to whatever matched
   // first, so the header named one dataset while the rows came from another.
-  await page.getByPlaceholder('Search datasets…').first().fill(other.name)
+  await page.getByTestId('rail-search').fill(other.name)
   await expect(page.getByRole('button', { name: new RegExp(other.name) })).toHaveCount(1)
   await expect(page.getByRole('button', { name: new RegExp(viewing.name) })).toHaveCount(0)
 
