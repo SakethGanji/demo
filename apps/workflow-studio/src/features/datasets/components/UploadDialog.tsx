@@ -90,18 +90,18 @@ export function UploadDialog({
             aria-label="Data file"
             data-testid="upload-file"
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            className="block w-full text-[12px] file:mr-2 file:rounded-md file:border file:border-border file:bg-background file:px-2 file:py-1 file:text-[12px] file:text-foreground hover:file:bg-muted"
+            className="block w-full text-body file:mr-2 file:rounded-md file:border file:border-border file:bg-background file:px-2 file:py-1 file:text-body file:text-foreground hover:file:bg-muted"
           />
 
           {file && (
-            <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <p className="mt-1.5 flex items-center gap-1.5 text-small text-muted-foreground">
               <FileUp className="size-3" />
               {file.name} · {(file.size / 1024).toFixed(1)} KB
             </p>
           )}
 
           {currentDatasetId && (
-            <label className="mt-3 flex items-start gap-2 text-[12px]">
+            <label className="mt-3 flex items-start gap-2 text-body">
               <input
                 type="checkbox"
                 checked={asNewVersion}
@@ -112,14 +112,14 @@ export function UploadDialog({
               <span>
                 Add as a new version of{' '}
                 <span className="font-medium">{currentDatasetName ?? 'the current dataset'}</span>
-                <span className="block text-[11px] text-muted-foreground">
+                <span className="block text-small text-muted-foreground">
                   Leave unchecked to create a separate dataset.
                 </span>
               </span>
             </label>
           )}
 
-          <label className="mt-3 block text-[11px] text-muted-foreground">
+          <label className="mt-3 block text-small text-muted-foreground">
             Sheets to include <span className="text-muted-foreground/60">(optional)</span>
           </label>
           <input
@@ -128,10 +128,10 @@ export function UploadDialog({
             placeholder="Orders, Customers"
             aria-label="Sheets to include"
             data-testid="upload-include-sheets"
-            className="h-7 w-full rounded-md border border-border bg-background px-2 text-[12px] outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+            className="h-7 w-full rounded-md border border-border bg-background px-2 text-body outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
           />
           {/* Naming a sheet that isn't in the workbook fails the whole upload. */}
-          <p className="mt-1 text-[11px] text-muted-foreground/70">
+          <p className="mt-1 text-small text-muted-foreground/70">
             Multi-sheet workbooks only. Comma-separated; leave blank to ingest every sheet.
           </p>
         </div>

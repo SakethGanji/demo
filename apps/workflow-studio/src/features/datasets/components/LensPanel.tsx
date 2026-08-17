@@ -88,7 +88,7 @@ export function LensPanel({
               data-testid={`lens-${l.id}`}
               aria-pressed={active}
               className={cn(
-                'flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] transition-colors',
+                'flex items-center gap-1 rounded-md px-1.5 py-1 text-small transition-colors',
                 active
                   ? 'bg-primary/10 text-primary'
                   : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
@@ -102,8 +102,8 @@ export function LensPanel({
       </div>
 
       {/* The panel owns its own scroll. */}
-      <div className="min-h-0 flex-1 overflow-y-auto p-3" data-testid="lens-body">
-        {!dataset && <p className="text-[12px] text-muted-foreground">Select a dataset.</p>}
+      <div className="min-h-0 flex-1 overflow-y-auto p-3 pb-1" data-testid="lens-body">
+        {!dataset && <p className="text-body text-muted-foreground">Select a dataset.</p>}
 
         {dataset && lens === 'overview' && (
           <OverviewLens
@@ -142,6 +142,20 @@ export function LensPanel({
 
         {dataset && lens === 'library' && <LibraryLens datasetId={datasetId} />}
       </div>
+      {/* Provenance and affordances share the one footnote register. */}
+      <p className="flex items-center gap-3 px-3 py-1.5 text-footnote text-muted-foreground shadow-[inset_0_1px_0_var(--r1)]">
+        <span className="flex items-center gap-1">
+          <kbd className="rounded bg-secondary px-1 font-mono text-footnote text-foreground shadow-[var(--hi)]">
+            1
+          </kbd>
+          –
+          <kbd className="rounded bg-secondary px-1 font-mono text-footnote text-foreground shadow-[var(--hi)]">
+            7
+          </kbd>
+          lens
+        </span>
+        <span className="ml-auto font-mono">as-of v{version ?? '—'}</span>
+      </p>
     </aside>
   );
 }

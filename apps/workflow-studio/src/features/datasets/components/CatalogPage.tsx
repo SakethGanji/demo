@@ -7,27 +7,24 @@
  */
 
 import { useMemo, useState } from 'react';
-import { Link, useNavigate } from '@tanstack/react-router';
-import { ArrowUpDown, ChevronLeft, ChevronRight, Database, Search, Table2 } from 'lucide-react';
+import { useNavigate } from '@tanstack/react-router';
+import { ArrowUpDown, Database, Search } from 'lucide-react';
 import {
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableHeader,
+  TableNumericCell,
   TableRow,
 } from '@/shared/components/ui/table';
 import { Badge } from '@/shared/components/ui/badge';
 import { cn } from '@/shared/lib/utils';
+import { formatBytes } from '@/shared/lib/format';
+import { Metric } from '@/shared/components/instrument/Typography';
+import { PagerButton } from './PagerButton';
 import { useDatasetCatalogSweep, MAX_CATALOG_ROWS, type DatasetInfo } from '../hooks/useDatasets';
-import { SeatSwitcher } from './SeatSwitcher';
 
-function formatBytes(n?: number | null): string {
-  if (n == null) return '—';
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
-}
 
 function formatDate(s?: string | null): string {
   if (!s) return '—';
@@ -37,16 +34,16 @@ function formatDate(s?: string | null): string {
   return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString();
 }
 
+/**
+ * A catalog headline figure.
+ *
+ * `Metric` rather than a bordered tile: rule 8 reserves a surface for
+ * heterogeneous, independently actionable units, and four homogeneous counts
+ * are a STRIP, not four cards. They are grouped by space instead — which also
+ * drops four borders and one nested container.
+ */
 function StatTile({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <div className="rounded-lg border border-border bg-[var(--surface)]/40 px-3 py-2.5">
-      <div className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
-        {label}
-      </div>
-      <div className="mt-0.5 text-[20px] leading-tight font-medium tabular-nums">{value}</div>
-      {hint && <div className="text-[10px] text-muted-foreground/70">{hint}</div>}
-    </div>
-  );
+  return <Metric label={label} value={value} size="figure" note={hint} className="px-3 py-2.5" />;
 }
 
 type SortKey = 'name' | 'row_count' | 'size_bytes' | 'updated_at';
@@ -140,37 +137,18 @@ export function CatalogPage() {
     </TableHead>
   );
 
+  // Brand, route nav and identity are the studio shell's job now
+  // (`app/shell/StudioShell.tsx`), so this page is only its own content.
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
-      <header className="flex h-10 shrink-0 items-center gap-3 border-b border-border px-3">
-        <Link
-          to="/projects"
-          className="text-[12px] text-muted-foreground transition-colors hover:text-foreground"
-        >
-          Projects
-        </Link>
-        <span className="text-border">/</span>
-        <span className="text-[13px] font-medium">Catalog</span>
-        <div className="ml-auto flex items-center gap-3">
-          <Link
-            to="/data"
-            className="flex items-center gap-1 text-[12px] text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <Table2 className="size-3" />
-            Workspace
-          </Link>
-          <SeatSwitcher />
-        </div>
-      </header>
-
+    <div className="flex min-h-0 flex-1 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-6xl flex-col gap-4 p-5">
           <div>
-            <h1 className="flex items-center gap-2 text-[18px] font-medium">
+            <h1 className="flex items-center gap-2 text-figure font-medium">
               <Database className="size-4 text-muted-foreground" />
               Dataset catalog
             </h1>
-            <p className="mt-0.5 text-[12px] text-muted-foreground">
+            <p className="mt-0.5 text-body text-muted-foreground">
               Every dataset this seat can see, with health and documentation at a glance.
             </p>
           </div>
@@ -201,7 +179,7 @@ export function CatalogPage() {
                 }}
                 placeholder="Search datasets…"
                 data-testid="catalog-search"
-                className="h-7 w-full rounded-md border border-border bg-background pr-2 pl-7 text-[12px] outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                className="h-7 w-full rounded-md border border-border bg-background pr-2 pl-7 text-body outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
               />
             </div>
             <select
@@ -212,7 +190,7 @@ export function CatalogPage() {
               }}
               aria-label="Documentation"
               data-testid="catalog-doc-filter"
-              className="h-7 rounded-md border border-border bg-background px-2 text-[12px] outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+              className="h-7 rounded-md border border-border bg-background px-2 text-body outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
             >
               {DOC_FILTERS.map((f) => (
                 <option key={f} value={f}>
@@ -228,7 +206,7 @@ export function CatalogPage() {
               }}
               aria-label="Validation status"
               data-testid="catalog-validation-filter"
-              className="h-7 rounded-md border border-border bg-background px-2 text-[12px] outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+              className="h-7 rounded-md border border-border bg-background px-2 text-body outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
             >
               {VALIDATION_FILTERS.map((f) => (
                 <option key={f} value={f}>
@@ -290,15 +268,15 @@ export function CatalogPage() {
                         {d.documentation ?? 'none'}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-right tabular-nums">
+                    <TableNumericCell>
                       {(d.row_count ?? 0).toLocaleString()}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
+                    </TableNumericCell>
+                    <TableNumericCell>
                       {formatBytes(d.size_bytes)}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
+                    </TableNumericCell>
+                    <TableNumericCell>
                       v{d.current_version ?? '—'}
-                    </TableCell>
+                    </TableNumericCell>
                     <TableCell className="text-muted-foreground">
                       {formatDate(d.updated_at)}
                     </TableCell>
@@ -308,51 +286,45 @@ export function CatalogPage() {
             </Table>
 
             {!catalog.isLoading && rows.length === 0 && (
-              <p className="px-3 py-6 text-center text-[12px] text-muted-foreground">
+              <p className="px-3 py-6 text-center text-body text-muted-foreground">
                 {search || doc !== 'all' || validation !== 'all'
                   ? 'No datasets match those filters.'
                   : 'No datasets yet.'}
               </p>
             )}
             {catalog.isLoading && (
-              <p className="px-3 py-6 text-center text-[12px] text-muted-foreground">Loading…</p>
+              <p className="px-3 py-6 text-center text-body text-muted-foreground">Loading…</p>
             )}
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-[11px] text-muted-foreground tabular-nums" data-testid="catalog-range">
+            <span className="text-small text-muted-foreground tabular-nums" data-testid="catalog-range">
               {sorted.length === 0
                 ? '0 datasets'
                 : `${safePage * PAGE_SIZE + 1}–${safePage * PAGE_SIZE + rows.length} of ${sorted.length}`}
             </span>
             <div className="ml-auto flex items-center gap-1">
-              <button
+              <PagerButton
+                direction="prev"
                 onClick={() => setPage((p) => Math.max(0, p - 1))}
                 disabled={safePage === 0}
-                aria-label="Previous page"
-                data-testid="catalog-prev"
-                className="flex size-6 items-center justify-center rounded-md border border-border transition-colors hover:bg-muted disabled:opacity-40"
-              >
-                <ChevronLeft className="size-3" />
-              </button>
-              <span className="text-[11px] text-muted-foreground tabular-nums">
+                testid="catalog-prev"
+              />
+              <span className="text-small text-muted-foreground tabular-nums">
                 {safePage + 1} / {pageCount}
               </span>
-              <button
+              <PagerButton
+                direction="next"
                 onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
                 disabled={safePage >= pageCount - 1}
-                aria-label="Next page"
-                data-testid="catalog-next"
-                className="flex size-6 items-center justify-center rounded-md border border-border transition-colors hover:bg-muted disabled:opacity-40"
-              >
-                <ChevronRight className="size-3" />
-              </button>
+                testid="catalog-next"
+              />
             </div>
           </div>
 
           {/* Only shown when sorting really is over a partial set. */}
           {truncated && (
-            <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground">
+            <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-small text-muted-foreground">
               This tenant has {total.toLocaleString()} datasets; the first{' '}
               {MAX_CATALOG_ROWS.toLocaleString()} were loaded. Sorting and totals above cover only
               those — narrow with search or a filter to see the rest.
