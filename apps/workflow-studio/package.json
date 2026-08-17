@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test:ui": "playwright test",
+    "check:rules": "esbuild scripts/check-shape-rules.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/check-rules.mjs --log-level=error && node node_modules/.cache/check-rules.mjs",
     "test:ui:headed": "playwright test --headed",
     "test:ui:report": "playwright show-report",
     "postinstall": "cp node_modules/esbuild-wasm/esbuild.wasm public/esbuild.wasm 2>/dev/null || true"
