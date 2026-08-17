@@ -78,6 +78,33 @@ export class AnalyticsApiError extends Error {
   }
 }
 
+/**
+ * The one place an API failure becomes text a human reads.
+ *
+ * It lives beside `AnalyticsApiError` rather than in a feature so there is
+ * exactly one of it. There used to be two: this one, and an inline
+ * re-implementation in `DatasetsPage` that produced *different* wording for the
+ * same conditions, dropped the sensitive-restricted branch entirely, and leaked
+ * the raw problem+json `code` into the UI as `${code}: ${detail}`. A code is a
+ * branching key for us, not a sentence for a user.
+ *
+ * Add new branches HERE, keyed on `code`, and every call site gets them.
+ *
+ * @param notFound Override for the 404 wording when a caller can say something
+ *   more specific than the generic message. Cross-tenant reads return 404 by
+ *   design, so no override may say "access denied" — 404 hides existence, and
+ *   naming the refusal would defeat that.
+ */
+export function errorText(e: unknown, opts?: { notFound?: string }): string {
+  if (e instanceof AnalyticsApiError) {
+    if (e.isNotFound) return opts?.notFound ?? 'Not found, or not available to this seat.';
+    if (e.isSensitiveRestricted)
+      return 'This dataset declares sensitive columns; only admin, owner or superuser may run this.';
+    return e.detail;
+  }
+  return e instanceof Error ? e.message : String(e);
+}
+
 function qs(query?: Record<string, unknown>): string {
   if (!query) return '';
   const p = new URLSearchParams();
