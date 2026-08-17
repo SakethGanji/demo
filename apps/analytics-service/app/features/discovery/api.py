@@ -139,9 +139,24 @@ class ColumnMetadataOut(ColumnMetadataIn):
 
 
 class UsageResponse(BaseModel):
+    """Successful audited activity, split by what the request actually did.
+
+    ``downloads + writes + reads == total_events``. The split is by the route's
+    declared effect, not its HTTP method: the biggest reads in the service are
+    POSTs because their request is a spec, and counting those as writes made
+    opening a dataset look like changing one.
+    """
+
     dataset_id: str
     downloads: int
-    writes: int
+    writes: int = Field(description=(
+        "Requests that changed something: metadata edits, tags, rules, runs, "
+        "and anything that persisted an artifact."))
+    # Required, like every other counter here: a client that has to treat a
+    # missing count as zero cannot tell "no reads" from "old server".
+    reads: int = Field(description=(
+        "Read-shaped POSTs — row queries, chart renders, previews, compiles. "
+        "Plain GET reads are not audited and are not counted here."))
     total_events: int
     last_activity_at: str | None = None
 

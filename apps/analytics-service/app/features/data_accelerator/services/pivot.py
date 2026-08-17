@@ -36,6 +36,8 @@ from .aggregation import (
     _compile_group_entries,
     _compile_select_aggs,
     _compile_where,
+    _GroupedQuery,
+    _run_grouped,
 )
 
 MAX_PIVOT_COLUMNS = 200
@@ -64,12 +66,15 @@ def _aggregate_into(
     group_by: list[str | GroupByBucket],
     available: set[str],
     source: str,
+    unavailable: set[str],
 ) -> list[str]:
     """Run one grouped aggregation of the request's values into *table*.
 
     Reused at every grain: the long table (rows + column), row totals (rows
     only), column totals (pivot dim only), grand totals (no grouping).
-    Returns the value aliases.
+    Returns the value aliases, and adds to *unavailable* any alias with a cell
+    that has no finite double (see `_run_grouped`) — a `std` over a group
+    holding a value near 1e308 used to fail the whole pivot at every grain.
     """
     where_sql, where_binds, needs_src = _compile_where(
         request.filters, None, available)
@@ -82,10 +87,13 @@ def _aggregate_into(
         "", None, "asc", MAX_AGGREGATION_ROWS)
     if needs_src or aggs_need_src:
         conn.execute(f"CREATE OR REPLACE VIEW _filter_src AS SELECT * FROM {source}")
-    try:
-        conn.execute(f"CREATE TABLE {table} AS {sql}", where_binds + select_binds)
-    except duckdb.Error as e:
-        raise HTTPException(400, f"Pivot query error: {e}")
+    outcome = _run_grouped(
+        conn, table, sql, where_binds + select_binds,
+        _GroupedQuery(source, from_target, where_sql, where_binds, group_entries,
+                      list(request.values), aliases, available,
+                      limit=MAX_AGGREGATION_ROWS),
+        error_prefix="Pivot query error")
+    unavailable.update(outcome.unavailable)
     return aliases
 
 
@@ -176,8 +184,9 @@ def _run_pivot_on_conn(conn: duckdb.DuckDBPyConnection,
         raise HTTPException(400, f"Pivot dimension '{col_name}' is also a row dimension")
 
     # 1. Long table + percentage displays.
+    unavailable: set[str] = set()
     aliases = _aggregate_into(conn, "_pivot_long", request, dim_entries,
-                              available, source)
+                              available, source, unavailable)
     _apply_pct_displays(conn, request, row_names, col_name, aliases)
 
     # 2. Widen (or pass the long table through when there's no pivot dim).
@@ -220,7 +229,7 @@ def _run_pivot_on_conn(conn: duckdb.DuckDBPyConnection,
     row_total_aliases = [a for a, s in zip(aliases, request.values) if s.display == "value"]
     if request.include_row_totals and col_name is not None and row_total_aliases:
         _aggregate_into(conn, "_pivot_row_totals", request, list(request.rows),
-                        available, source)
+                        available, source, unavailable)
         total_cols = ", ".join(
             f"t.{quote_ident(a)} AS {quote_ident('total_' + a)}" for a in row_total_aliases)
         join_on = " AND ".join(
@@ -257,7 +266,8 @@ def _run_pivot_on_conn(conn: duckdb.DuckDBPyConnection,
     value_aliases = [a for a, s in zip(aliases, request.values) if s.display == "value"]
     totals: dict[str, Any] | None = None
     if value_aliases:
-        _aggregate_into(conn, "_pivot_grand", request, [], available, source)
+        _aggregate_into(conn, "_pivot_grand", request, [], available, source,
+                        unavailable)
         row = conn.execute(
             f"SELECT {', '.join(quote_ident(a) for a in value_aliases)} "
             f"FROM _pivot_grand").fetchone()
@@ -266,7 +276,7 @@ def _run_pivot_on_conn(conn: duckdb.DuckDBPyConnection,
     column_totals: dict[str, Any] | None = None
     if request.include_column_totals and col_name is not None and value_aliases:
         _aggregate_into(conn, "_pivot_col_totals", request, [request.columns],
-                        available, source)
+                        available, source, unavailable)
         column_totals = {}
         for r in conn.execute(
                 f"SELECT {quote_ident(col_name)}, "
@@ -303,6 +313,7 @@ def _run_pivot_on_conn(conn: duckdb.DuckDBPyConnection,
         data=data,
         totals=totals,
         column_totals=column_totals,
+        unavailable_measures=[a for a in aliases if a in unavailable],
         truncated=truncated,
         result_file=result_filename,
     )

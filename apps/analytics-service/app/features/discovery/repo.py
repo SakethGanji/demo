@@ -7,6 +7,7 @@ import json
 from sqlalchemy import text
 
 from app.infra.db.postgres import async_session_factory
+from app.shared import request_effects
 from app.shared.repo import is_uuid
 
 
@@ -620,7 +621,7 @@ async def delete_column_metadata(logical_sheet_id: str, column_name: str) -> boo
 # ---------------------------------------------------------------------------
 
 async def dataset_usage(dataset_id: str) -> dict:
-    """Download/write counts + last activity for SUCCESSFUL requests only.
+    """Download/write/read counts + last activity for SUCCESSFUL requests only.
 
     ``status_code < 400`` is the whole point: the audit middleware records the
     final response of every mutating or download request, including the ones
@@ -628,23 +629,35 @@ async def dataset_usage(dataset_id: str) -> dict:
     malformed (422). Counting those makes a dataset nobody could actually touch
     look busy — a bot hammering a forbidden download would report as real usage.
 
-    There is no read count here: only ``/download`` GETs are audited, so
-    ``total_events`` is downloads + writes and nothing else.
+    ``writes`` is the declared effect of the route (``request_effects``), NOT
+    the HTTP method. The method counted the studio's own row read —
+    ``POST .../sheets/{s}/query`` — as a write, so opening a dataset reported
+    that it was being written to.
+
+    ``reads`` is the rest of that same audited traffic: the read-shaped POSTs.
+    They are counted rather than dropped for two reasons. They are the truest
+    "is anyone using this?" signal the trail holds — downloads are rare, and
+    GET reads are not audited at all — and without them ``total_events`` would
+    exceed its own parts with nothing to explain the gap, which is how a
+    counter starts lying again. The three partition ``total_events``: the only
+    audited GETs under a dataset path are ``/download``.
     """
     async with async_session_factory() as s:
         row = (await s.execute(
             text("""
                 SELECT
-                    COUNT(*) FILTER (WHERE path LIKE '%/download')       AS downloads,
-                    COUNT(*) FILTER (WHERE method IN ('POST','PUT','PATCH','DELETE'))
-                                                                          AS writes,
-                    COUNT(*)                                              AS total_events,
-                    MAX(occurred_at)::text                                AS last_activity_at
+                    COUNT(*) FILTER (WHERE path LIKE '%/download')     AS downloads,
+                    COUNT(*) FILTER (WHERE method <> 'GET'
+                                       AND NOT (action = ANY(:reads))) AS writes,
+                    COUNT(*) FILTER (WHERE method <> 'GET'
+                                       AND action = ANY(:reads))       AS reads,
+                    COUNT(*)                                           AS total_events,
+                    MAX(occurred_at)::text                             AS last_activity_at
                 FROM audit_log
                 WHERE path LIKE '%/datasets/' || :did || '%'
                   AND status_code < 400
             """),
-            {"did": dataset_id},
+            {"did": dataset_id, "reads": request_effects.READ_ACTIONS},
         )).mappings().one()
         return dict(row)
 
@@ -726,17 +739,26 @@ _TIMELINE_EVENTS = """
                               'status_code', a.status_code,
                               'request_id', a.request_id)
     FROM audit_log a
-    WHERE a.method <> 'GET' AND a.path LIKE '%/datasets/' || :did || '%'
+    WHERE a.method <> 'GET' AND NOT (a.action = ANY(:reads))
+      AND a.path LIKE '%/datasets/' || :did || '%'
 """
 
 
 async def dataset_timeline(dataset_id: str, *, limit: int, offset: int) -> tuple[list[dict], int]:
     """Merged history events, newest first. Audit events are writes only —
-    reads are usage (see dataset_usage), not history."""
+    reads are usage (see dataset_usage), not history.
+
+    "Writes only" was enforced by ``method <> 'GET'``, which let every
+    ``POST .../query`` into the feed as an ``audit`` event: a history entry
+    saying something happened to a dataset that nothing happened to. It is the
+    same misclassification the usage counters had, so both surfaces now read
+    the one declared table and cannot drift apart.
+    """
+    params = {"did": dataset_id, "reads": request_effects.READ_ACTIONS}
     async with async_session_factory() as s:
         total = (await s.execute(
             text(f"SELECT COUNT(*) FROM ({_TIMELINE_EVENTS}) e"),
-            {"did": dataset_id})).scalar_one()
+            params)).scalar_one()
         rows = (await s.execute(
             text(f"""
                 SELECT event_type, occurred_at::text AS occurred_at, actor, details
@@ -744,7 +766,7 @@ async def dataset_timeline(dataset_id: str, *, limit: int, offset: int) -> tuple
                 ORDER BY occurred_at DESC
                 LIMIT :limit OFFSET :offset
             """),
-            {"did": dataset_id, "limit": limit, "offset": offset},
+            {**params, "limit": limit, "offset": offset},
         )).mappings().all()
         return [dict(r) for r in rows], total
 

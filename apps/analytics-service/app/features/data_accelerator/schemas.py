@@ -840,6 +840,17 @@ class ColumnProfile(BaseModel):
     max_length: int | None = None
     # Histogram
     histogram: list[HistogramBin] | None = None
+    # A statistic can be undefined for two very different reasons, and null
+    # alone cannot tell them apart: "the column is empty / the aggregate does
+    # not apply" versus "the true value has no finite double". The second
+    # happens for real, finite data — STDDEV squares its input, so a single
+    # legitimate value near 1e308 overflows the accumulator — and a consumer
+    # must be able to say "not representable" instead of "no data".
+    unavailable_stats: list[str] = Field(
+        default_factory=list,
+        description="Names of the statistics on this column (e.g. 'std') whose "
+                    "value has no finite double and is therefore null here. "
+                    "Empty for the overwhelming majority of columns")
 
 
 class ProfileRequest(BaseModel):
@@ -1016,7 +1027,20 @@ class AggregateResponse(BaseModel):
                     "`totals`, so a client can tell 'there is no total' from "
                     "'the total is zero'. Reason: 'non-additive' — the function "
                     "(max/min/mean/median/std/nunique/first/last) has no "
-                    "meaningful grand total; re-run at the grain you need")
+                    "meaningful grand total; re-run at the grain you need. "
+                    "Reason: 'unrepresentable' — the measure has no finite "
+                    "double (see `unavailable_measures`), so any total for it "
+                    "would be a partial sum wearing the name of the whole")
+    unavailable_measures: list[str] = Field(
+        default_factory=list,
+        description="Aliases of the aggregations that are null in at least one "
+                    "returned group because the value has no finite double — "
+                    "`std` squares its input, so one legitimate value near "
+                    "1e308 leaves the double range, and `sum` of two such "
+                    "values is +inf. Every other group and measure is computed "
+                    "normally; this list is what lets a client say 'not "
+                    "representable' rather than 'no data'. Empty for the "
+                    "overwhelming majority of requests")
     truncated: bool = Field(
         default=False,
         description="True when the server-side row cap (MAX_AGGREGATION_ROWS) cut "
@@ -1094,6 +1118,13 @@ class PivotResponse(BaseModel):
         default=None, description="Grand totals per value alias (display=value specs only)")
     column_totals: dict[str, Any] | None = Field(
         default=None, description="Per-output-column totals (include_column_totals)")
+    unavailable_measures: list[str] = Field(
+        default_factory=list,
+        description="Value aliases with at least one cell (or total) that is "
+                    "null because it has no finite double — `std` squares its "
+                    "input, so one value near 1e308 leaves the double range. "
+                    "The rest of the grid is computed normally; same contract "
+                    "as the aggregate endpoint's field of this name")
     truncated: bool = False
     result_file: str | None = Field(
         default=None, description="Saved result filename — fetch via GET /api/v1/samples/{filename}")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,58 @@ from app.shared.data_io import load_data
 from app.shared.datasets import resolve_dataset_path
 
 from ..schemas import ColumnProfile, HistogramBin, ProfileRequest, ProfileResponse, TopValue
+
+
+class _Unrepresentable:
+    """Marker for an aggregate whose true value has no finite double."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return "<unrepresentable>"
+
+
+UNREPRESENTABLE = _Unrepresentable()
+
+
+def _is_representable(val: Any) -> bool:
+    """False for inf/NaN — neither is JSON, and neither is a real answer."""
+    try:
+        return math.isfinite(val)
+    except TypeError:  # not a number at all (str, date, None) — nothing to check
+        return True
+
+
+def eval_aggregates(
+    conn: duckdb.DuckDBPyConnection, exprs: list[str], source: str = "df",
+) -> list[Any]:
+    """Evaluate scalar aggregate *exprs* over *source*, one query if possible.
+
+    Returns one value per expression, positionally, with ``UNREPRESENTABLE`` in
+    place of any whose value cannot be a finite double.
+
+    Why this is not a plain SELECT: DuckDB *raises* ``OutOfRangeException`` when
+    an aggregate's accumulator leaves the double range, and it kills the whole
+    statement. The variance family squares its input (STDDEV/VAR, and CORR via
+    STDDEV_POP), so one legitimate finite value near 1e308 overflows the sum of
+    squares — which is how a single extreme cell used to take out every
+    statistic for every column on the sheet. Bisecting on failure isolates the
+    offending expressions and leaves their neighbours computed; the common path
+    still costs exactly one query.
+    """
+    if not exprs:
+        return []
+    try:
+        row = conn.execute(f"SELECT {', '.join(exprs)} FROM {source}").fetchone()
+    except duckdb.OutOfRangeException:
+        if len(exprs) == 1:
+            return [UNREPRESENTABLE]
+        mid = len(exprs) // 2
+        return (eval_aggregates(conn, exprs[:mid], source)
+                + eval_aggregates(conn, exprs[mid:], source))
+    # An aggregate can also *return* inf/NaN instead of raising (a partial
+    # overflow, 0/0). That is unrepresentable for the same reason.
+    return [v if _is_representable(v) else UNREPRESENTABLE for v in row]
 
 
 def map_duckdb_type(type_str: str, unique_count: int, row_count: int) -> str:
@@ -46,17 +99,35 @@ def correlations_duckdb(
                 pairs.append((a, b))
 
     corr_exprs = [f"CORR({quote_ident(a)}, {quote_ident(b)})" for a, b in pairs]
-    result = conn.execute(f"SELECT {', '.join(corr_exprs)} FROM df").fetchone()
+    result = eval_aggregates(conn, corr_exprs)
 
     correlations: dict[str, dict[str, float]] = {c: {} for c in numeric_cols}
     for c in numeric_cols:
         correlations[c][c] = 1.0
     for idx, (a, b) in enumerate(pairs):
-        val = safe_value(result[idx])
+        # An unrepresentable coefficient (CORR overflows STDDEV_POP on a column
+        # holding a value near 1e308) reads as null, the same "no coefficient"
+        # the matrix already carries for a zero-variance pair — and only for
+        # the pairs affected, not for the whole matrix.
+        raw = result[idx]
+        val = None if raw is UNREPRESENTABLE else safe_value(raw)
         correlations[a][b] = val
         correlations[b][a] = val
 
     return correlations
+
+
+def _bin_edge(lo: float, hi: float, bucket: int, num_bins: int) -> float:
+    """Edge *bucket* of *num_bins* equal bins spanning [lo, hi].
+
+    Written as a weighted blend of the two ends rather than
+    ``lo + bucket * (hi - lo) / num_bins``: SQL evaluates that left to right,
+    so ``bucket * (hi - lo)`` overflowed to inf on a column reaching 1e308 and
+    the bin edges came back as Infinity — not JSON, and a 500 on the way out.
+    Every term here stays within [lo, hi], so the result is always finite.
+    """
+    t = bucket / num_bins
+    return lo * (1.0 - t) + hi * t
 
 
 def profile_column_duckdb(
@@ -109,63 +180,69 @@ def profile_column_duckdb(
 
     # ----- dtype-specific stats -----
     if dtype == "numeric":
-        stats = conn.execute(f"""
-            SELECT
-                AVG({qcol}),
-                MEDIAN({qcol}),
-                STDDEV_SAMP({qcol}),
-                MIN({qcol}),
-                MAX({qcol}),
-                QUANTILE_CONT({qcol}, 0.25),
-                QUANTILE_CONT({qcol}, 0.75)
-            FROM df
-        """).fetchone()
-        profile.mean = safe_value(stats[0])
-        profile.median = safe_value(stats[1])
-        profile.std = safe_value(stats[2])
-        profile.min = safe_value(stats[3])
-        profile.max = safe_value(stats[4])
-        profile.q25 = safe_value(stats[5])
-        profile.q75 = safe_value(stats[6])
+        stat_exprs = [
+            ("mean", f"AVG({qcol})"),
+            ("median", f"MEDIAN({qcol})"),
+            ("std", f"STDDEV_SAMP({qcol})"),
+            ("min", f"MIN({qcol})"),
+            ("max", f"MAX({qcol})"),
+            ("q25", f"QUANTILE_CONT({qcol}, 0.25)"),
+            ("q75", f"QUANTILE_CONT({qcol}, 0.75)"),
+        ]
+        stats = eval_aggregates(conn, [expr for _, expr in stat_exprs])
+        for (field, _), raw in zip(stat_exprs, stats):
+            if raw is UNREPRESENTABLE:
+                # Null AND named. Nulling it silently would be indistinguishable
+                # from "no data", and any substitute would be a confident wrong
+                # number; the other statistics on this column still stand.
+                profile.unavailable_stats.append(field)
+                continue
+            setattr(profile, field, safe_value(raw))
 
-        if include_histogram and non_null_count > 1 and unique_count > 1:
+        # float(): a DECIMAL column's MIN/MAX come back as Decimal, which does
+        # not mix with the float arithmetic below.
+        lo = None if profile.min is None else float(profile.min)
+        hi = None if profile.max is None else float(profile.max)
+        if include_histogram and non_null_count > 1 and unique_count > 1 \
+                and lo is not None and hi is not None and lo < hi:
             num_bins = min(20, unique_count)
-            # Every bin 1..num_bins is emitted (LEFT JOIN a generated series,
-            # COALESCE count to 0) so an empty middle bin isn't silently dropped
-            # — a chart consuming the array positionally would otherwise draw
-            # non-adjacent bins as adjacent and misrepresent the distribution.
-            hist_rows = conn.execute(f"""
-                WITH bounds AS (
-                    SELECT MIN({qcol})::DOUBLE AS lo, MAX({qcol})::DOUBLE AS hi
-                    FROM df WHERE {qcol} IS NOT NULL
-                ),
-                gen AS (SELECT generate_series AS bucket FROM generate_series(1, {num_bins})),
-                counts AS (
-                    SELECT
-                        LEAST(GREATEST(
-                            FLOOR(({qcol}::DOUBLE - lo) / ((hi - lo) / {num_bins}))::INT + 1,
-                        1), {num_bins}) AS bucket,
-                        COUNT(*) AS cnt
-                    FROM df, bounds
-                    WHERE {qcol} IS NOT NULL AND lo < hi
-                    GROUP BY bucket
-                )
-                SELECT
-                    bounds.lo + (gen.bucket - 1) * (bounds.hi - bounds.lo) / {num_bins} AS bin_start,
-                    bounds.lo + gen.bucket * (bounds.hi - bounds.lo) / {num_bins} AS bin_end,
-                    COALESCE(counts.cnt, 0) AS cnt
-                FROM gen CROSS JOIN bounds
-                LEFT JOIN counts ON counts.bucket = gen.bucket
-                ORDER BY gen.bucket
-            """).fetchall()
-            profile.histogram = [
-                HistogramBin(
-                    bin_start=round(float(r[0]), 6),
-                    bin_end=round(float(r[1]), 6),
-                    count=int(r[2]),
-                )
-                for r in hist_rows
-            ]
+            # Bucketing runs in half-scale coordinates. The direct form
+            # (v - lo) / ((hi - lo) / n) overflows to inf as soon as the span
+            # exceeds DBL_MAX (it does for -1e308..1e308), and inf/inf is NaN,
+            # which FLOOR(...)::INT then refuses to cast — a 500. Halving is
+            # exact in binary floating point, so v/2 - lo/2 over half the bin
+            # width is bit-identical to the direct form for every input that
+            # does not overflow, and finite for the ones that do.
+            half_width = (hi / 2 - lo / 2) / num_bins
+            if half_width > 0:
+                # Every bin 1..num_bins is emitted (LEFT JOIN a generated series,
+                # COALESCE count to 0) so an empty middle bin isn't silently dropped
+                # — a chart consuming the array positionally would otherwise draw
+                # non-adjacent bins as adjacent and misrepresent the distribution.
+                hist_rows = conn.execute(f"""
+                    WITH gen AS (SELECT generate_series AS bucket FROM generate_series(1, {num_bins})),
+                    counts AS (
+                        SELECT
+                            LEAST(GREATEST(
+                                FLOOR(({qcol}::DOUBLE / 2 - ?) / ?)::INT + 1,
+                            1), {num_bins}) AS bucket,
+                            COUNT(*) AS cnt
+                        FROM df
+                        WHERE {qcol} IS NOT NULL
+                        GROUP BY bucket
+                    )
+                    SELECT gen.bucket, COALESCE(counts.cnt, 0) AS cnt
+                    FROM gen LEFT JOIN counts ON counts.bucket = gen.bucket
+                    ORDER BY gen.bucket
+                """, [lo / 2, half_width]).fetchall()
+                profile.histogram = [
+                    HistogramBin(
+                        bin_start=round(_bin_edge(lo, hi, int(r[0]) - 1, num_bins), 6),
+                        bin_end=round(_bin_edge(lo, hi, int(r[0]), num_bins), 6),
+                        count=int(r[1]),
+                    )
+                    for r in hist_rows
+                ]
 
     elif dtype == "datetime":
         try:

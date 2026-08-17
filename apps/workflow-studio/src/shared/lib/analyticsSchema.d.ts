@@ -575,6 +575,29 @@ export interface paths {
          * Create Profile Runs
          * @description Profile every ready sheet of a version; persist one run per sheet with
          *     deterministic insights (idempotent per algorithm version).
+         *
+         *     **``dataset:read`` is enough here, and deliberately so — unlike
+         *     ``POST /profile``, which refuses a caller without
+         *     ``dataset:read_sensitive`` on a dataset that declares one
+         *     (``sensitive-data-restricted``).** The two are not the same operation:
+         *
+         *     * that endpoint hands the profile *straight back* to the caller, over an
+         *       arbitrary column selection, so refusing is the only control it has;
+         *     * this one persists a run and answers a **redacted** view of it — every
+         *       route that reads a run back masks the values of a column the caller may
+         *       not see, in the profile and in the insights alike (``run_detail``,
+         *       ``runs_with_context``). What a masked caller gets is the statistics they
+         *       are entitled to: null rates, cardinality, duplicates, the shape.
+         *
+         *     Gating this on ``dataset:read_sensitive`` too would take profiling away
+         *     from *editors* as well (they are not exempt from masking either, by
+         *     design), i.e. from the very people who curate the dataset — and it would
+         *     leave ``/health``, ``/missing`` and the drift signals, all of which read
+         *     persisted runs, permanently "unknown" on any dataset with a PII column.
+         *
+         *     The write is bounded: ``upsert_run`` is keyed on
+         *     (version, sheet, algorithm_version), so re-profiling replaces rather than
+         *     accumulates; the residue of a repeated call is one ``jobs`` row.
          */
         post: operations["create_profile_runs_api_v1_datasets__dataset_id__versions__version_number__profile_runs_post"];
         delete?: never;
@@ -593,6 +616,11 @@ export interface paths {
         /**
          * Get Profile Run
          * @description One run with its full persisted profile JSON.
+         *
+         *     The profile's `top_values` are verbatim cell values — the same ones the
+         *     grid and the column drawer mask — so a caller who may not see a column gets
+         *     that column redacted here, in the profile and in the insights derived from
+         *     it. `service.run_detail` owns both halves.
          */
         get: operations["get_profile_run_api_v1_datasets__dataset_id__profile_runs__run_id__get"];
         put?: never;
@@ -1217,6 +1245,20 @@ export interface paths {
         /**
          * Profile Data
          * @description Profile data columns — statistics, distributions, data quality.
+         *
+         *     On a dataset that declares a sensitive column this **refuses** a caller
+         *     without `dataset:read_sensitive` (403 `sensitive-data-restricted`, via
+         *     `_authorize_source`), because the profile it returns is the raw one: the
+         *     caller chooses the columns and gets `top_values`, extremes and quantiles
+         *     straight back, with no per-column policy applied on the way out.
+         *
+         *     `POST /datasets/{id}/versions/{v}/profile-runs` deliberately answers the
+         *     same caller instead of refusing: it persists a run and every read of that
+         *     run is redacted per-principal. The asymmetry is "refuse the raw read, allow
+         *     the redacted one", not an oversight — see that handler for why gating it
+         *     too would cost more than it protects. If this endpoint is ever made to
+         *     answer a redacted profile as well, the refusal is what should go, and the
+         *     UI copy that says profiling is refused rather than masked goes with it.
          */
         post: operations["profile_data_api_v1_profile_post"];
         delete?: never;
@@ -2761,11 +2803,16 @@ export interface components {
             } | null;
             /**
              * Totals Omitted
-             * @description alias -> reason for every aggregation with no entry in `totals`, so a client can tell 'there is no total' from 'the total is zero'. Reason: 'non-additive' — the function (max/min/mean/median/std/nunique/first/last) has no meaningful grand total; re-run at the grain you need
+             * @description alias -> reason for every aggregation with no entry in `totals`, so a client can tell 'there is no total' from 'the total is zero'. Reason: 'non-additive' — the function (max/min/mean/median/std/nunique/first/last) has no meaningful grand total; re-run at the grain you need. Reason: 'unrepresentable' — the measure has no finite double (see `unavailable_measures`), so any total for it would be a partial sum wearing the name of the whole
              */
             totals_omitted?: {
                 [key: string]: unknown;
             } | null;
+            /**
+             * Unavailable Measures
+             * @description Aliases of the aggregations that are null in at least one returned group because the value has no finite double — `std` squares its input, so one legitimate value near 1e308 leaves the double range, and `sum` of two such values is +inf. Every other group and measure is computed normally; this list is what lets a client say 'not representable' rather than 'no data'. Empty for the overwhelming majority of requests
+             */
+            unavailable_measures?: string[];
             /**
              * Truncated
              * @description True when the server-side row cap (MAX_AGGREGATION_ROWS) cut the results. `totals` stay correct when this is set — they are computed over all groups, not the returned page
@@ -3242,6 +3289,11 @@ export interface components {
             /** Histogram */
             histogram?: components["schemas"]["HistogramBin"][] | null;
             /**
+             * Unavailable Stats
+             * @description Names of the statistics on this column (e.g. 'std') whose value has no finite double and is therefore null here. Empty for the overwhelming majority of columns
+             */
+            unavailable_stats?: string[];
+            /**
              * Normalized Name
              * @description Normalized (snake_case) column name
              */
@@ -3503,6 +3555,11 @@ export interface components {
             max_length?: number | null;
             /** Histogram */
             histogram?: components["schemas"]["HistogramBin"][] | null;
+            /**
+             * Unavailable Stats
+             * @description Names of the statistics on this column (e.g. 'std') whose value has no finite double and is therefore null here. Empty for the overwhelming majority of columns
+             */
+            unavailable_stats?: string[];
         };
         /**
          * ColumnSummary
@@ -5499,6 +5556,11 @@ export interface components {
             column_totals?: {
                 [key: string]: unknown;
             } | null;
+            /**
+             * Unavailable Measures
+             * @description Value aliases with at least one cell (or total) that is null because it has no finite double — `std` squares its input, so one value near 1e308 leaves the double range. The rest of the grid is computed normally; same contract as the aggregate endpoint's field of this name
+             */
+            unavailable_measures?: string[];
             /**
              * Truncated
              * @default false
@@ -7707,14 +7769,30 @@ export interface components {
             /** Message */
             message?: string | null;
         };
-        /** UsageResponse */
+        /**
+         * UsageResponse
+         * @description Successful audited activity, split by what the request actually did.
+         *
+         *     ``downloads + writes + reads == total_events``. The split is by the route's
+         *     declared effect, not its HTTP method: the biggest reads in the service are
+         *     POSTs because their request is a spec, and counting those as writes made
+         *     opening a dataset look like changing one.
+         */
         UsageResponse: {
             /** Dataset Id */
             dataset_id: string;
             /** Downloads */
             downloads: number;
-            /** Writes */
+            /**
+             * Writes
+             * @description Requests that changed something: metadata edits, tags, rules, runs, and anything that persisted an artifact.
+             */
             writes: number;
+            /**
+             * Reads
+             * @description Read-shaped POSTs — row queries, chart renders, previews, compiles. Plain GET reads are not audited and are not counted here.
+             */
+            reads: number;
             /** Total Events */
             total_events: number;
             /** Last Activity At */

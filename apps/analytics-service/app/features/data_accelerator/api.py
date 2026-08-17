@@ -696,7 +696,22 @@ async def sample_coordinated(
 
 @router.post("/profile", response_model=ProfileResponse, tags=["analytics"])
 async def profile_data(request: ProfileRequest, principal: Principal = Depends(get_principal)) -> ProfileResponse:
-    """Profile data columns — statistics, distributions, data quality."""
+    """Profile data columns — statistics, distributions, data quality.
+
+    On a dataset that declares a sensitive column this **refuses** a caller
+    without `dataset:read_sensitive` (403 `sensitive-data-restricted`, via
+    `_authorize_source`), because the profile it returns is the raw one: the
+    caller chooses the columns and gets `top_values`, extremes and quantiles
+    straight back, with no per-column policy applied on the way out.
+
+    `POST /datasets/{id}/versions/{v}/profile-runs` deliberately answers the
+    same caller instead of refusing: it persists a run and every read of that
+    run is redacted per-principal. The asymmetry is "refuse the raw read, allow
+    the redacted one", not an oversight — see that handler for why gating it
+    too would cost more than it protects. If this endpoint is ever made to
+    answer a redacted profile as well, the refusal is what should go, and the
+    UI copy that says profiling is refused rather than masked goes with it.
+    """
     await _authorize_source(principal, request)
     return await run_profiling(request)
 

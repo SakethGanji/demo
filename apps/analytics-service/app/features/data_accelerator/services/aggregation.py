@@ -5,7 +5,7 @@ from __future__ import annotations
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple, Sequence
 
 import duckdb
 import pandas as pd
@@ -20,10 +20,15 @@ from app.shared.filters import compile_filter
 from app.infra.db.storage import ArtifactLayout, get_storage
 
 from ..schemas import AggregateRequest, AggregateResponse, GroupByBucket
+from .profiling import UNREPRESENTABLE, _is_representable, eval_aggregates
 
 _HAVING_OPS = {"eq": "=", "neq": "!=", "gt": ">", "gte": ">=", "lt": "<", "lte": "<="}
 
 SORT_ORDERS = ("asc", "desc")
+
+#: Scratch table the overflow recovery works from — one row per source row,
+#: carrying its group id and each measure's FILTER predicate as columns.
+_ROWS = "_agg_rows"
 
 # Functions whose grand total is a single well-defined number over the whole
 # filtered source. Everything else — max, min, mean, median, std, nunique,
@@ -35,6 +40,9 @@ TOTALABLE_FUNCTIONS = frozenset({"sum", "count"})
 
 #: Values of ``AggregateResponse.totals_omitted``.
 TOTAL_OMITTED_NON_ADDITIVE = "non-additive"
+#: The measure has no finite double for at least one group (or in total), so
+#: any footer for it would be a partial sum presented as the whole.
+TOTAL_OMITTED_UNREPRESENTABLE = "unrepresentable"
 
 
 def _filter_columns(group: dict[str, Any]) -> set[str]:
@@ -123,6 +131,39 @@ def _compile_group_entries(
     return entries
 
 
+def _agg_alias(spec: Any) -> str:
+    return spec.alias or f"{spec.column}_{spec.function}"
+
+
+def _base_agg_expr(spec: Any) -> str:
+    """The bare ``f(column)`` for one spec, without its FILTER clause."""
+    qcol = quote_ident(spec.column)
+    if spec.function == "nunique":
+        return f"COUNT(DISTINCT {qcol})"
+    return f"{AGG_SQL_MAP[spec.function]}({qcol})"
+
+
+def _spec_filter(spec: Any, available: set[str], binds: list[Any]) -> str:
+    """The compiled predicate of a spec's conditional filter ("" when it has
+    none); *binds* is extended with its values, in textual order.
+
+    Pure, so the overflow recovery can compile the same predicate a second time
+    rather than have it threaded through every caller.
+    """
+    if spec.filter is None:
+        return ""
+    fdict = spec.filter.model_dump()
+    unknown = sorted(c for c in _filter_columns(fdict) if c not in available)
+    if unknown:
+        raise ProblemException(
+            400,
+            f"Aggregation filter columns not found: {unknown}. "
+            f"Valid options: {sorted(available)}",
+            code="unknown-column", columns=unknown,
+            available=sorted(available))
+    return compile_filter(fdict, binds)
+
+
 def _compile_select_aggs(
     aggregations: list[Any], available: set[str],
 ) -> tuple[list[str], list[str], list[Any], dict[str, tuple[str, list[Any]]], bool]:
@@ -137,7 +178,7 @@ def _compile_select_aggs(
     agg_exprs: dict[str, tuple[str, list[Any]]] = {}
     uses_filter_src = False
     for spec in aggregations:
-        alias = spec.alias or f"{spec.column}_{spec.function}"
+        alias = _agg_alias(spec)
         if alias in agg_aliases:
             # Two measures under one output name are ambiguous, and the ambiguity
             # is not survivable: the main query materialises a table so DuckDB
@@ -152,28 +193,13 @@ def _compile_select_aggs(
                 code="duplicate-alias", alias=alias,
             )
         agg_aliases.append(alias)
-        qcol = quote_ident(spec.column)
-
-        if spec.function == "nunique":
-            expr = f"COUNT(DISTINCT {qcol})"
-        else:
-            expr = f"{AGG_SQL_MAP[spec.function]}({qcol})"
+        expr = _base_agg_expr(spec)
 
         expr_binds: list[Any] = []
-        if spec.filter is not None:
-            fdict = spec.filter.model_dump()
-            unknown = sorted(c for c in _filter_columns(fdict) if c not in available)
-            if unknown:
-                raise ProblemException(
-                    400,
-                    f"Aggregation filter columns not found: {unknown}. "
-                    f"Valid options: {sorted(available)}",
-                    code="unknown-column", columns=unknown,
-                    available=sorted(available))
-            clause = compile_filter(fdict, expr_binds)
-            if clause:
-                expr += f" FILTER (WHERE {clause})"
-                uses_filter_src = True
+        clause = _spec_filter(spec, available, expr_binds)
+        if clause:
+            expr += f" FILTER (WHERE {clause})"
+            uses_filter_src = True
 
         agg_exprs[alias] = (expr, expr_binds)
         select_binds.extend(expr_binds)
@@ -182,7 +208,7 @@ def _compile_select_aggs(
 
 
 def _compile_having(
-    having: list[Any],
+    having: Sequence[Any],
     agg_exprs: dict[str, tuple[str, list[Any]]],
     agg_aliases: list[str],
 ) -> tuple[str, list[Any]]:
@@ -255,6 +281,218 @@ def _assemble_sql(
     return sql
 
 
+# ---------------------------------------------------------------------------
+# Unrepresentable measures
+# ---------------------------------------------------------------------------
+# DuckDB's variance family (STDDEV_SAMP behind `function: "std"`, and VAR/CORR
+# behind the same accumulator) squares its input, so a single legitimate finite
+# value near 1e308 overflows the sum of squares and DuckDB *raises*
+# OutOfRangeException — killing the whole statement. In a grouped aggregation
+# that meant one extreme value in one group took out every group and every
+# other measure of the request, which surfaced as a 400 "Query error" on data
+# the caller can see is perfectly valid.
+#
+# The policy here is `/profile`'s, because two endpoints answering the same
+# arithmetic differently is its own bug: a figure with no finite double comes
+# back NULL and is NAMED, and everything else still computes.
+
+
+class _GroupedQuery(NamedTuple):
+    """What a grouped aggregation needs to be rebuilt after an overflow."""
+
+    source: str
+    from_target: str
+    where_sql: str
+    where_binds: list[Any]
+    group_entries: list[tuple[str, str]]
+    aggregations: list[Any]
+    aliases: list[str]
+    available: set[str]
+    having: Sequence[Any] = ()
+    sort_by: str | None = None
+    sort_order: str = "asc"
+    limit: int | None = None
+
+
+class _GroupedResult(NamedTuple):
+    """Outcome of running one grouped aggregation into a table.
+
+    ``exprs`` is None on the ordinary path (nothing was rewritten, so the
+    caller's own SQL context still describes the result); after a recovery it
+    carries the rewritten measure expressions, which the caller needs to keep
+    its grand totals consistent with the table it just got.
+    """
+
+    unavailable: list[str]
+    source: str
+    exprs: dict[str, str] | None = None
+    having_sql: str = ""
+    having_binds: list[Any] = ()
+
+
+def _measure_expr(base: str, conds: list[str]) -> str:
+    return f"{base} FILTER (WHERE {' AND '.join(conds)})" if conds else base
+
+
+def _null_non_finite(conn: duckdb.DuckDBPyConnection, table: str,
+                     aliases: list[str]) -> list[str]:
+    """NULL out — and name — any inf/NaN measure cell in *table*.
+
+    Not every overflow raises: SUM/AVG of two values near 1e308 return +inf
+    with no exception at all. inf is not JSON, and pydantic renders it as null
+    on the way out, so the number would vanish from the response without
+    anything saying it ever existed. Nulling it at the source keeps the
+    persisted parquet honest too, and returns the alias so it can be named.
+    """
+    types = {r[0]: r[1] for r in conn.execute(f"DESCRIBE {table}").fetchall()}
+    floats = [a for a in aliases if types.get(a) in ("DOUBLE", "FLOAT", "REAL")]
+    if not floats:
+        return []
+    counts = conn.execute(
+        "SELECT " + ", ".join(
+            f"COUNT(*) FILTER (WHERE NOT isfinite({quote_ident(a)}))" for a in floats)
+        + f" FROM {table}").fetchone()
+    bad = [a for a, n in zip(floats, counts) if n]
+    if bad:
+        conn.execute(
+            f"CREATE OR REPLACE TABLE {table} AS SELECT * REPLACE ("
+            + ", ".join(
+                f"CASE WHEN isfinite({quote_ident(a)}) THEN {quote_ident(a)} END "
+                f"AS {quote_ident(a)}" for a in bad)
+            + f") FROM {table}")
+    return bad
+
+
+def _build_rows_table(conn: duckdb.DuckDBPyConnection,
+                      q: _GroupedQuery) -> list[tuple[str, str]]:
+    """Materialise one row per (filtered) source row into ``_agg_rows``, with
+    its group id ``_gid`` and one boolean column per conditional measure.
+
+    Returns (bare aggregate expression, FILTER condition) per measure.
+
+    Baking the group key and the per-measure filters into columns is what makes
+    the recovery's queries free of bind parameters, so a measure can be
+    restricted to a range of groups — or handed to ``eval_aggregates`` — by
+    string alone. DENSE_RANK numbers the groups exactly as GROUP BY forms them
+    (equal keys, NULLs included, share a rank).
+    """
+    cols = [f'{expr} AS "_g{i}"' for i, (_, expr) in enumerate(q.group_entries)]
+    binds: list[Any] = list(q.where_binds)
+    parts: list[tuple[str, str]] = []
+    for i, spec in enumerate(q.aggregations):
+        fbinds: list[Any] = []
+        clause = _spec_filter(spec, q.available, fbinds)
+        if clause:
+            cols.append(f'({clause}) AS "_f{i}"')
+            binds.extend(fbinds)
+        parts.append((_base_agg_expr(spec), f'"_f{i}"' if clause else ""))
+
+    inner = f"SELECT *, {', '.join(cols)} FROM {q.from_target}" if cols \
+        else f"SELECT * FROM {q.from_target}"
+    order = ", ".join(f'"_g{i}"' for i in range(len(q.group_entries)))
+    query = (f'SELECT *, DENSE_RANK() OVER ({f"ORDER BY {order}" if order else ""}) '
+             f'AS "_gid" FROM ({inner})')
+    if q.where_sql:
+        # Same pre-filtering CTE as the main statement, so bind order stays
+        # textual: WHERE first, then the per-measure FILTERs.
+        query = (f"WITH _agg_src AS (SELECT * FROM {q.source} WHERE {q.where_sql}) "
+                 + query)
+    conn.execute(f"CREATE OR REPLACE TABLE {_ROWS} AS {query}", binds)
+    return parts
+
+
+def _unrepresentable_gids(conn: duckdb.DuckDBPyConnection, exprs: list[str],
+                          lo: int, hi: int) -> dict[int, set[int]]:
+    """measure index -> the group ids whose value has no finite double.
+
+    ``eval_aggregates``'s policy and its halving, applied to the group axis:
+    the whole range is evaluated in ONE grouped query and only a range that
+    raises is split, so isolating one bad group out of N costs O(log N)
+    queries instead of one query per group. A single group is handed to
+    ``eval_aggregates`` itself, which isolates WHICH of its measures overflowed
+    — the two axes then answer with one shared definition of "unrepresentable",
+    including the inf/NaN an aggregate can return without raising at all.
+    """
+    if lo == hi:
+        values = eval_aggregates(
+            conn, exprs, f'(SELECT * FROM {_ROWS} WHERE "_gid" = {lo})')
+        return {i: {lo} for i, v in enumerate(values) if v is UNREPRESENTABLE}
+    try:
+        rows = conn.execute(
+            f'SELECT "_gid", {", ".join(exprs)} FROM {_ROWS} '
+            f'WHERE "_gid" BETWEEN {lo} AND {hi} GROUP BY "_gid"').fetchall()
+    except duckdb.OutOfRangeException:
+        mid = (lo + hi) // 2
+        found = _unrepresentable_gids(conn, exprs, lo, mid)
+        for i, gids in _unrepresentable_gids(conn, exprs, mid + 1, hi).items():
+            found.setdefault(i, set()).update(gids)
+        return found
+    found: dict[int, set[int]] = {}
+    for row in rows:
+        for i, value in enumerate(row[1:]):
+            if not _is_representable(value):
+                found.setdefault(i, set()).add(int(row[0]))
+    return found
+
+
+def _recover_grouped(conn: duckdb.DuckDBPyConnection, table: str,
+                     q: _GroupedQuery, error_prefix: str) -> _GroupedResult:
+    """Rebuild the aggregation with the unrepresentable groups nulled out."""
+    parts = _build_rows_table(conn, q)
+    exprs = [_measure_expr(base, [cond] if cond else []) for base, cond in parts]
+    max_gid = conn.execute(f'SELECT MAX("_gid") FROM {_ROWS}').fetchone()[0]
+    bad = _unrepresentable_gids(conn, exprs, 1, int(max_gid)) if max_gid else {}
+
+    rewritten: dict[str, str] = {}
+    unavailable: list[str] = []
+    for i, alias in enumerate(q.aliases):
+        base, cond = parts[i]
+        conds = [cond] if cond else []
+        gids = sorted(bad.get(i, ()))
+        if gids:
+            # Excluding the group's rows from this ONE measure leaves the
+            # aggregate with nothing to accumulate, so the cell is NULL while
+            # every other group keeps the value DuckDB would have computed —
+            # bit for bit, since it sees exactly the same rows as before.
+            unavailable.append(alias)
+            conds.append(f'"_gid" NOT IN ({", ".join(str(g) for g in gids)})')
+        rewritten[alias] = _measure_expr(base, conds)
+
+    group_entries = [(name, f'"_g{i}"')
+                     for i, (name, _) in enumerate(q.group_entries)]
+    agg_parts = [f"{rewritten[a]} AS {quote_ident(a)}" for a in q.aliases]
+    having_sql, having_binds = _compile_having(
+        q.having, {a: (rewritten[a], []) for a in q.aliases}, q.aliases)
+    sql = _assemble_sql(_ROWS, _ROWS, "", group_entries, agg_parts, q.aliases,
+                        having_sql, q.sort_by, q.sort_order, q.limit)
+    try:
+        conn.execute(f"CREATE TABLE {table} AS {sql}", having_binds)
+    except duckdb.Error as e:
+        raise HTTPException(status_code=400, detail=f"{error_prefix}: {e}")
+    for alias in _null_non_finite(conn, table, q.aliases):
+        if alias not in unavailable:
+            unavailable.append(alias)
+    return _GroupedResult([a for a in q.aliases if a in unavailable], _ROWS,
+                          rewritten, having_sql, having_binds)
+
+
+def _run_grouped(conn: duckdb.DuckDBPyConnection, table: str, sql: str,
+                 binds: list[Any], q: _GroupedQuery,
+                 error_prefix: str = "Query error") -> _GroupedResult:
+    """Run a grouped aggregation into *table*, recovering from an overflow.
+
+    The ordinary path is the statement the caller already assembled — one
+    query, no added cost. Only an OutOfRangeException triggers the rebuild.
+    """
+    try:
+        conn.execute(f"CREATE TABLE {table} AS {sql}", binds)
+    except duckdb.OutOfRangeException:
+        return _recover_grouped(conn, table, q, error_prefix)
+    except duckdb.Error as e:
+        raise HTTPException(status_code=400, detail=f"{error_prefix}: {e}")
+    return _GroupedResult(_null_non_finite(conn, table, q.aliases), q.source)
+
+
 def _split_totalable(aggregations: list[Any]) -> tuple[list[Any], dict[str, str]]:
     """(specs that get a grand total, alias -> why the others don't)."""
     totalable: list[Any] = []
@@ -263,8 +501,7 @@ def _split_totalable(aggregations: list[Any]) -> tuple[list[Any], dict[str, str]
         if spec.function in TOTALABLE_FUNCTIONS:
             totalable.append(spec)
         else:
-            alias = spec.alias or f"{spec.column}_{spec.function}"
-            omitted[alias] = TOTAL_OMITTED_NON_ADDITIVE
+            omitted[_agg_alias(spec)] = TOTAL_OMITTED_NON_ADDITIVE
     return totalable, omitted
 
 
@@ -279,6 +516,8 @@ def _grand_totals(
     group_entries: list[tuple[str, str]],
     having_sql: str,
     having_binds: list[Any],
+    recovered: dict[str, str] | None = None,
+    unavailable: Sequence[str] = (),
 ) -> tuple[dict[str, Any], dict[str, str]]:
     """Grand totals over the FULL filtered source — never the returned page.
 
@@ -297,11 +536,28 @@ def _grand_totals(
       functions this is restricted to, SUM-of-per-group equals the grand value.
     """
     total_specs, omitted = _split_totalable(request.aggregations)
+    # A measure that had no finite value for some group has no trustworthy
+    # grand total either: totalling what is left would be a partial sum wearing
+    # the name of the whole. Named as unrepresentable instead — the same
+    # distinction `totals_omitted` already draws for non-additive functions.
+    kept = []
+    for spec in total_specs:
+        if _agg_alias(spec) in unavailable:
+            omitted[_agg_alias(spec)] = TOTAL_OMITTED_UNREPRESENTABLE
+        else:
+            kept.append(spec)
+    total_specs = kept
     if not total_specs:
         return {}, omitted
 
     agg_parts, aliases, select_binds, _exprs, _needs_src = _compile_select_aggs(
         total_specs, available)
+    if recovered is not None:
+        # After a recovery the table came from the scratch row table with
+        # rewritten expressions; the footer has to be computed the same way or
+        # it describes a different query than the rows above it.
+        agg_parts = [f"{recovered[a]} AS {quote_ident(a)}" for a in aliases]
+        select_binds = []
 
     if having_sql:
         inner = _assemble_sql(source, from_target, where_sql, group_entries,
@@ -319,7 +575,16 @@ def _grand_totals(
         row = conn.execute(sql, binds).fetchone()
     except duckdb.Error as e:
         raise HTTPException(status_code=400, detail=f"Query error: {e}")
-    return {a: safe_value(v) for a, v in zip(aliases, row)}, omitted
+    totals: dict[str, Any] = {}
+    for a, v in zip(aliases, row):
+        # A total can leave the double range even when no single group did
+        # (SUM over every row). inf is not an answer, so it is named rather
+        # than passed off as a null that reads like "zero rows".
+        if _is_representable(v):
+            totals[a] = safe_value(v)
+        else:
+            omitted[a] = TOTAL_OMITTED_UNREPRESENTABLE
+    return totals, omitted
 
 
 def _effective_limit(user_limit: int | None, cap: int) -> int:
@@ -436,10 +701,18 @@ async def run_aggregation(request: AggregateRequest, layout: ArtifactLayout,
 
         if needs_filter_src:
             conn.execute(f"CREATE OR REPLACE VIEW _filter_src AS SELECT * FROM {source}")
-        try:
-            conn.execute(f"CREATE TABLE _agg_probe AS {sql}", binds)
-        except duckdb.Error as e:
-            raise HTTPException(status_code=400, detail=f"Query error: {e}")
+        outcome = _run_grouped(conn, "_agg_probe", sql, binds, _GroupedQuery(
+            source, from_target, where_sql, where_binds, group_entries,
+            request.aggregations, agg_aliases, available, request.having,
+            request.sort_by, request.sort_order, effective_limit))
+        if outcome.exprs is not None:
+            # The recovery recomputed the result from the scratch row table;
+            # the grand totals below have to describe that same query.
+            source = from_target = outcome.source
+            where_sql, where_binds = "", []
+            group_entries = [(name, f'"_g{i}"')
+                             for i, (name, _) in enumerate(group_entries)]
+            having_sql, having_binds = outcome.having_sql, outcome.having_binds
 
         fetched: int = conn.execute("SELECT COUNT(*) FROM _agg_probe").fetchone()[0]
         truncated = _is_truncated(fetched, request.limit, MAX_AGGREGATION_ROWS)
@@ -453,7 +726,8 @@ async def run_aggregation(request: AggregateRequest, layout: ArtifactLayout,
         # returned page, and only for functions a total means something for.
         totals, totals_omitted = _grand_totals(
             conn, request, available, source, from_target, where_sql, where_binds,
-            group_entries, having_sql, having_binds)
+            group_entries, having_sql, having_binds,
+            recovered=outcome.exprs, unavailable=outcome.unavailable)
 
         # Persist result as parquet (write locally, publish to the storage backend)
         result_filename: str | None = None
@@ -479,6 +753,7 @@ async def run_aggregation(request: AggregateRequest, layout: ArtifactLayout,
             data=result_data,
             totals=totals if totals else None,
             totals_omitted=totals_omitted if totals_omitted else None,
+            unavailable_measures=outcome.unavailable,
             truncated=truncated,
             result_file=result_filename,
         )

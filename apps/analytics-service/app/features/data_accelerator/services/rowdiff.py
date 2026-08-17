@@ -24,6 +24,11 @@ interesting logic is unit-testable against in-memory DuckDB.
 
 NULL handling uses ``IS DISTINCT FROM`` throughout: NULL → 5 is a change, and
 NULL → NULL is not. Plain ``<>`` would silently classify both as unchanged.
+
+A column may also change TYPE between the two versions — which is precisely
+what a diff is for — so every comparison goes through :func:`_side`, which
+pins a disagreeing pair to a type both versions can reach. See
+:func:`reconcile_types` for why the engine, not this module, picks it.
 """
 
 from __future__ import annotations
@@ -44,6 +49,18 @@ class DiffCounts(NamedTuple):
         return self.added + self.removed + self.changed
 
 
+def _side(alias: str, column: str, casts: dict[str, str] | None) -> str:
+    """One side of a comparison, reconciled when the two versions disagree.
+
+    Absent an entry in *casts* this is the bare column reference, so a column
+    typed the same in both versions is compared exactly as it was before this
+    reconciliation existed.
+    """
+    ref = f"{alias}.{quote_ident(column)}"
+    target = (casts or {}).get(column)
+    return f"CAST({ref} AS {target})" if target else ref
+
+
 def key_expr(alias: str, key_columns: list[str]) -> str:
     """A single comparable key expression for one side.
 
@@ -55,23 +72,25 @@ def key_expr(alias: str, key_columns: list[str]) -> str:
     return parts[0] if len(parts) == 1 else f"CONCAT_WS(CHR(31), {', '.join(parts)})"
 
 
-def join_condition(left: str, right: str, key_columns: list[str]) -> str:
+def join_condition(left: str, right: str, key_columns: list[str],
+                   casts: dict[str, str] | None = None) -> str:
     """Key equality that treats two NULL key parts as equal.
 
     A plain ``=`` drops rows whose key contains a NULL, which would silently
     report them as both added and removed.
     """
     return " AND ".join(
-        f"{left}.{quote_ident(c)} IS NOT DISTINCT FROM {right}.{quote_ident(c)}"
+        f"{_side(left, c, casts)} IS NOT DISTINCT FROM {_side(right, c, casts)}"
         for c in key_columns)
 
 
-def changed_predicate(left: str, right: str, compare_columns: list[str]) -> str:
+def changed_predicate(left: str, right: str, compare_columns: list[str],
+                      casts: dict[str, str] | None = None) -> str:
     """True when any compared column differs between the two sides."""
     if not compare_columns:
         return "FALSE"
     return " OR ".join(
-        f"{left}.{quote_ident(c)} IS DISTINCT FROM {right}.{quote_ident(c)}"
+        f"{_side(left, c, casts)} IS DISTINCT FROM {_side(right, c, casts)}"
         for c in compare_columns)
 
 
@@ -92,17 +111,18 @@ def _present(relation: str, sentinel: str) -> str:
 
 
 def counts_sql(left: str, right: str, key_columns: list[str],
-               compare_columns: list[str]) -> str:
+               compare_columns: list[str],
+               casts: dict[str, str] | None = None) -> str:
     """One pass producing all four bucket counts.
 
     A FULL OUTER JOIN on the key classifies every row exactly once — which is
     what makes the buckets provably disjoint rather than four independent
     queries that might disagree.
     """
-    on = join_condition("l", "r", key_columns)
+    on = join_condition("l", "r", key_columns, casts)
     # Presence is decided by the join, not by NULL-ness of a key part — hence
     # the `_l`/`_r` sentinels, which are non-NULL exactly when that side matched.
-    changed = changed_predicate("l", "r", compare_columns)
+    changed = changed_predicate("l", "r", compare_columns, casts)
     return f"""
         SELECT
             COUNT(*) FILTER (WHERE _l IS NULL AND _r IS NOT NULL) AS added,
@@ -117,15 +137,16 @@ def counts_sql(left: str, right: str, key_columns: list[str],
 
 
 def column_change_counts_sql(left: str, right: str, key_columns: list[str],
-                             compare_columns: list[str]) -> str:
+                             compare_columns: list[str],
+                             casts: dict[str, str] | None = None) -> str:
     """How many matched rows changed, per column — the "what moved" summary."""
-    on = join_condition("l", "r", key_columns)
+    on = join_condition("l", "r", key_columns, casts)
     if not compare_columns:
         return "SELECT NULL AS column_name, 0 AS changed_rows WHERE FALSE"
     per_column = " UNION ALL ".join(
         f"SELECT '{c.replace(chr(39), chr(39) * 2)}' AS column_name, "
-        f"COUNT(*) FILTER (WHERE l.{quote_ident(c)} IS DISTINCT FROM "
-        f"r.{quote_ident(c)}) AS changed_rows "
+        f"COUNT(*) FILTER (WHERE {_side('l', c, casts)} IS DISTINCT FROM "
+        f"{_side('r', c, casts)}) AS changed_rows "
         f"FROM {left} l JOIN {right} r ON {on}"
         for c in compare_columns)
     return (f"SELECT column_name, changed_rows FROM ({per_column}) c "
@@ -133,14 +154,19 @@ def column_change_counts_sql(left: str, right: str, key_columns: list[str],
 
 
 def cell_changes_sql(left: str, right: str, key_columns: list[str],
-                     compare_columns: list[str], all_columns: list[str]) -> str:
+                     compare_columns: list[str], all_columns: list[str],
+                     casts: dict[str, str] | None = None) -> str:
     """The full diff in long cell-level form.
 
     One uniform shape covers all three buckets — added rows are NULL → value
     across every column, removed rows are value → NULL, changed rows are only
     the differing cells.
+
+    Only the WHERE predicate is reconciled; ``before_value``/``after_value``
+    are still rendered from the stored column, so a reader sees what each
+    version actually holds rather than a value coerced for the comparison.
     """
-    on = join_condition("l", "r", key_columns)
+    on = join_condition("l", "r", key_columns, casts)
     lkey, rkey = key_expr("l", key_columns), key_expr("r", key_columns)
     # Presence must be decided by the join, never by NULL-ness of a key part —
     # see `_present` for why.
@@ -152,7 +178,7 @@ def cell_changes_sql(left: str, right: str, key_columns: list[str],
         f"CAST(l.{quote_ident(c)} AS VARCHAR) AS before_value, "
         f"CAST(r.{quote_ident(c)} AS VARCHAR) AS after_value "
         f"FROM {left} l JOIN {right} r ON {on} "
-        f"WHERE l.{quote_ident(c)} IS DISTINCT FROM r.{quote_ident(c)}"
+        f"WHERE {_side('l', c, casts)} IS DISTINCT FROM {_side('r', c, casts)}"
         for c in compare_columns) if compare_columns else None
 
     added_parts = " UNION ALL ".join(
@@ -174,22 +200,27 @@ def cell_changes_sql(left: str, right: str, key_columns: list[str],
 
 
 def sample_rows_sql(source: str, other: str, key_columns: list[str],
-                    limit: int) -> str:
+                    limit: int, casts: dict[str, str] | None = None) -> str:
     """Full rows present on one side only — the added/removed samples."""
-    on = join_condition("s", "o", key_columns)
+    on = join_condition("s", "o", key_columns, casts)
     return (f"SELECT s.* FROM {source} s LEFT JOIN {_present(other, '_o')} o ON {on} "
             f"WHERE o._o IS NULL LIMIT {int(limit)}")
 
 
-def duplicate_keys_sql(relation: str, key_columns: list[str]) -> str:
+def duplicate_keys_sql(relation: str, key_columns: list[str],
+                       casts: dict[str, str] | None = None) -> str:
     """Rows whose key repeats — the diff is only trustworthy if this is zero.
 
     A duplicated key means the join fans out and a row could be reported as
     both added and removed, so callers check this first and refuse rather than
     return a plausible-looking wrong answer.
+
+    Uniqueness is checked on the same reconciled key the join will use: if a
+    type change collapses two distinct keys into one, the join fans out just
+    the same, and a check on the native type would not see it.
     """
-    cols = ", ".join(quote_ident(c) for c in key_columns)
-    return (f"SELECT COUNT(*) FROM (SELECT {cols} FROM {relation} "
+    cols = ", ".join(_side("k", c, casts) for c in key_columns)
+    return (f"SELECT COUNT(*) FROM (SELECT {cols} FROM {relation} k "
             f"GROUP BY {cols} HAVING COUNT(*) > 1) d")
 
 
@@ -198,6 +229,67 @@ def duplicate_keys_sql(relation: str, key_columns: list[str]) -> str:
 # ---------------------------------------------------------------------------
 
 MAX_SAMPLE_ROWS = 50
+
+
+def column_types(conn, relation: str) -> dict[str, str]:
+    """Column → physical type, as DuckDB itself reports it for *relation*.
+
+    The stored schema_json is a description of the version; this is what the
+    generated SQL will actually be bound against, so the comparison is
+    reconciled from the parquet's own types.
+    """
+    return {r[0]: r[1] for r in conn.execute(f"DESCRIBE {relation}").fetchall()}
+
+
+def reconcile_types(conn, left_types: dict[str, str], right_types: dict[str, str],
+                    columns: list[str]) -> dict[str, str]:
+    """Column → the type both sides are cast to before being compared.
+
+    A column whose type changed between versions is the single most
+    interesting thing a diff can report — the schema diff already treats it as
+    a first-class outcome. But DuckDB resolves ``BIGINT IS DISTINCT FROM
+    VARCHAR`` by casting the text back to a number, which throws on the first
+    non-numeric value and takes the whole endpoint down with it. So a
+    disagreeing pair is pinned to a type both sides can reach.
+
+    DuckDB picks that type, not us: ``COALESCE`` binds exactly when the two
+    types have a lossless common supertype, which is also the condition under
+    which comparing them is runtime-safe. So a numeric widening (BIGINT →
+    DOUBLE) keeps comparing as numbers and reports no spurious row changes,
+    and only a pair with no common type falls back to comparing as text.
+
+    Comparing as text is the honest answer for that fallback: it says two
+    values are the same when they render the same, which is what a reviewer
+    means by "this row didn't change" when a column's storage type moved.
+    Refusing instead would leave the row diff unable to answer on the exact
+    input its sibling endpoint handles.
+
+    Columns whose types agree are absent from the result, so they are compared
+    with no cast at all.
+    """
+    casts: dict[str, str] = {}
+    for c in columns:
+        a, b = left_types.get(c), right_types.get(c)
+        if a is None or b is None or a == b:
+            continue
+        casts[c] = _common_type(conn, a, b) or "VARCHAR"
+    return casts
+
+
+def _common_type(conn, a: str, b: str) -> str | None:
+    """The lossless supertype of *a* and *b*, or None when there isn't one.
+
+    Both arguments come from DuckDB's own DESCRIBE, never from a caller, so
+    interpolating them is not a widening of the query surface.
+    """
+    import duckdb
+
+    try:
+        return conn.execute(
+            f"SELECT typeof(COALESCE(CAST(NULL AS {a}), CAST(NULL AS {b})))"
+        ).fetchone()[0]
+    except duckdb.Error:
+        return None
 
 
 async def run_row_diff(ds: dict, from_version: int, to_version: int,
@@ -266,8 +358,17 @@ async def run_row_diff(ds: dict, from_version: int, to_version: int,
             conn.execute(
                 f"CREATE VIEW {alias} AS SELECT * FROM read_parquet('{escaped}')")
 
+        # A column (including a key column) may be typed differently in the two
+        # versions; every comparison below is reconciled so it answers a
+        # question instead of raising a conversion error. See `reconcile_types`.
+        # Resolved before the uniqueness check, which must see the same key the
+        # join will.
+        casts = reconcile_types(conn, column_types(conn, "diff_a"),
+                                column_types(conn, "diff_b"), all_common)
+
         for alias, label in (("diff_a", from_version), ("diff_b", to_version)):
-            dupes = conn.execute(duplicate_keys_sql(alias, phys_keys)).fetchone()[0]
+            dupes = conn.execute(
+                duplicate_keys_sql(alias, phys_keys, casts)).fetchone()[0]
             if dupes:
                 raise ProblemException(
                     409,
@@ -277,23 +378,26 @@ async def run_row_diff(ds: dict, from_version: int, to_version: int,
                     duplicate_keys=int(dupes), key=keys)
 
         counts = DiffCounts(*conn.execute(
-            counts_sql("diff_a", "diff_b", phys_keys, common)).fetchone())
+            counts_sql("diff_a", "diff_b", phys_keys, common, casts)).fetchone())
         per_column = [
             {"column": c, "changed_rows": int(n)} for c, n in
             conn.execute(column_change_counts_sql(
-                "diff_a", "diff_b", phys_keys, common)).fetchall()]
+                "diff_a", "diff_b", phys_keys, common, casts)).fetchall()]
 
-        added = _rows(conn, sample_rows_sql("diff_b", "diff_a", phys_keys, sample_limit))
-        removed = _rows(conn, sample_rows_sql("diff_a", "diff_b", phys_keys, sample_limit))
+        added = _rows(conn, sample_rows_sql("diff_b", "diff_a", phys_keys,
+                                            sample_limit, casts))
+        removed = _rows(conn, sample_rows_sql("diff_a", "diff_b", phys_keys,
+                                              sample_limit, casts))
         changed = _rows(conn, (
-            f"SELECT * FROM ({cell_changes_sql('diff_a', 'diff_b', phys_keys, common, all_common)}) x "
+            f"SELECT * FROM ({cell_changes_sql('diff_a', 'diff_b', phys_keys, common, all_common, casts)}) x "
             f"WHERE change_type = 'changed' LIMIT {int(sample_limit)}")) if common else []
 
         sample_file = None
         if counts.total_changes:
             conn.execute(
                 "CREATE TABLE diff_cells AS "
-                + cell_changes_sql("diff_a", "diff_b", phys_keys, common, all_common))
+                + cell_changes_sql("diff_a", "diff_b", phys_keys, common,
+                                   all_common, casts))
             sample_file = _persist_table(conn, "diff_cells", "diff", layout)
     finally:
         conn.close()
