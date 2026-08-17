@@ -11,3 +11,9 @@ apps/workflow-studio/public/esbuild.wasm
 # accident and produced a diff on each suite invocation.
 apps/analytics-service/.coverage
 apps/analytics-service/htmlcov/
+screenshots/
+
+# Playwright run artifacts: traces, videos and the last-run marker. Regenerated
+# by every `npm run test:ui`, and `.last-run.json` changes on each invocation.
+test-results/
+playwright-report/
