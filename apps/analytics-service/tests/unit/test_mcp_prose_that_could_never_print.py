@@ -7,13 +7,12 @@ where the caveat is correctly absent.
 
 **``get_activity``'s zero-usage line.** It hung off ``render.fields(...) or
 "No recorded activity at all"``, and ``render.fields`` only returns the empty
-string when every pair is empty. ``UsageResponse`` types ``downloads``,
-``writes`` and ``total_events`` as required ``int``, so the block is never
-empty and the sentence could never print. Meanwhile the counters are derived
-from the audit trail and count successful writes only, so ``0 / 0 / 0`` is a
-real and reachable state — a dataset nobody has changed, or one whose only
-traffic was denied — and three zeroes with no explanation read as a broken
-counter rather than as a quiet dataset.
+string when every pair is empty. ``UsageResponse`` types its counters as
+required ``int``, so the block is never empty and the sentence could never
+print. Meanwhile the counters are derived from the audit trail and count
+successful requests only, so all-zero is a real and reachable state — a dataset
+nobody has touched, or one whose only traffic was denied — and a row of zeroes
+with no explanation reads as a broken counter rather than as a quiet dataset.
 
 **``run_sql``'s table-name hint.** It said "Queryable table names in this
 version" about a list read from ``GET /datasets/{id}/sheets``, which resolves
@@ -59,11 +58,12 @@ def sql(client: FakeAnalyticsClient) -> ToolSet:
     return register_tools(look, client)
 
 
-def usage(*, downloads: int, writes: int, total_events: int, last: str | None = None):
+def usage(*, downloads: int, writes: int, total_events: int, reads: int = 0,
+          last: str | None = None):
     """``GET /datasets/{id}/usage`` — the counters are non-optional ints."""
     return {
         "dataset_id": "ds-1", "downloads": downloads, "writes": writes,
-        "total_events": total_events, "last_activity_at": last,
+        "reads": reads, "total_events": total_events, "last_activity_at": last,
     }
 
 
@@ -76,20 +76,23 @@ async def test_a_dataset_with_no_recorded_usage_is_told_apart_from_a_broken_coun
     activity, client
 ):
     """The whole point of this tool is judging whether a dataset is maintained.
-    "downloads: 0 / writes: 0 / total_events: 0" beside an empty timeline is
-    consistent with a live, read-only reference table *and* with a counter that
-    is not wired up, and a model that guesses wrong either dismisses a good
-    dataset or trusts a dead one. The sentence has to name what is and is not
-    counted."""
-    client.on_get(USAGE, usage(downloads=0, writes=0, total_events=0))
+    "downloads: 0 / writes: 0 / reads: 0 / total_events: 0" beside an empty
+    timeline is consistent with a live, read-only reference table *and* with a
+    counter that is not wired up, and a model that guesses wrong either
+    dismisses a good dataset or trusts a dead one. The sentence has to name
+    what is and is not counted — and since GET reads are not audited, "no
+    reads" is precisely the claim it must NOT make."""
+    client.on_get(USAGE, usage(downloads=0, writes=0, reads=0, total_events=0))
     client.on_get(TIMELINE, page([]))
 
     out = await activity["get_activity"](dataset_id="ds-1", include_jobs=False)
 
     assert "total_events: 0" in out
-    assert "No recorded activity at all — no downloads, no writes." in out
-    assert "Reads are not counted here" in out
+    assert "reads: 0" in out
+    assert "No recorded activity at all — nothing queried, downloaded or changed." in out
+    assert "Plain GET reads are not audited" in out
     assert "denied requests" in out
+    assert "not 'nobody has looked at it'" in out
 
 
 async def test_a_dataset_with_recorded_usage_gets_no_such_caveat(activity, client):
@@ -105,6 +108,31 @@ async def test_a_dataset_with_recorded_usage_gets_no_such_caveat(activity, clien
     out = await activity["get_activity"](dataset_id="ds-1", include_jobs=False)
 
     assert "writes: 3" in out
+    assert "No recorded activity" not in out
+
+
+async def test_a_dataset_that_is_only_queried_is_not_reported_as_untouched(
+    activity, client
+):
+    """The state the write/read split newly makes visible.
+
+    A reference table that everyone queries and nobody edits is the most
+    common shape in a catalog. While every ``POST .../query`` was counted as a
+    write, it reported as heavily written to; if the fix had merely dropped
+    those rows it would now report as dead. Neither is what a model should
+    conclude, and the "nothing happened here" caveat must stay off a dataset
+    with recorded queries.
+    """
+    client.on_get(
+        USAGE,
+        usage(downloads=0, writes=0, reads=12, total_events=12,
+              last="2026-05-01T09:00:00+00:00"),
+    )
+    client.on_get(TIMELINE, page([]))
+
+    out = await activity["get_activity"](dataset_id="ds-1", include_jobs=False)
+
+    assert "writes: 0" in out and "reads: 12" in out
     assert "No recorded activity" not in out
 
 

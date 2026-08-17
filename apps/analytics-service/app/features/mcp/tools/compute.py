@@ -205,6 +205,18 @@ def register(server: MCPServer, ctx: Ctx) -> None:
                 f"No overall total for {reasons}. Summing per-group averages, maxima or "
                 "distinct counts describes nothing; use run_sql for a true overall value."
             )
+        # A blank cell normally means "no rows"; here it means "no number
+        # exists". Without saying so the model reads the gap as missing data
+        # and, worse, retries it in run_sql, where the same overflow is an
+        # error instead of a null.
+        unavailable = payload.get("unavailable_measures") or []
+        if unavailable:
+            notes.append(
+                f"Blank cells under {', '.join(unavailable)} are values with no finite "
+                "double — a group holding a number near 1e308, which std squares — not "
+                "missing data, and not something run_sql can compute either. Every "
+                "other group and measure above is exact."
+            )
 
         return render.join(
             render.fields(
@@ -307,6 +319,16 @@ def register(server: MCPServer, ctx: Ctx) -> None:
             notes.append(
                 "No column totals: they are computed per pivot column, and this "
                 "call has no `columns` dimension. Grand totals are shown instead."
+            )
+        # Same caveat as aggregate's: an empty cell here is "no representable
+        # number", which reads nothing like the "no rows in this cell" a pivot
+        # grid is full of.
+        unavailable = payload.get("unavailable_measures") or []
+        if unavailable:
+            notes.append(
+                f"Blank cells under {', '.join(unavailable)} are values with no finite "
+                "double — a group holding a number near 1e308, which std squares — not "
+                "empty cells. Every other cell above is exact."
             )
 
         return render.join(

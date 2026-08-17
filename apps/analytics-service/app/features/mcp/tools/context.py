@@ -506,11 +506,12 @@ def register(server: MCPServer, ctx: Ctx) -> None:
                 [
                     ("downloads", usage.get("downloads")),
                     ("writes", usage.get("writes")),
+                    ("reads", usage.get("reads")),
                     ("total_events", usage.get("total_events")),
                     ("last_activity_at", _ts(usage.get("last_activity_at"))),
                 ]
             )
-            # `UsageResponse` types all three counters as required ints, so
+            # `UsageResponse` types the counters as required ints, so
             # `render.fields` always renders them — zero is a value, not an
             # empty. The "nothing here" sentence therefore has to hang off the
             # counters being zero, not off the block being blank; hung off the
@@ -518,18 +519,25 @@ def register(server: MCPServer, ctx: Ctx) -> None:
             # total_events: 0" alone reads as a broken counter rather than as an
             # untouched dataset. It is a live case: the counters are built from
             # the audit trail and count only successful requests, so a dataset
-            # whose only traffic was denied reports 0/0/0.
+            # whose only traffic was denied reports all zeroes.
             quiet = not any(
-                usage.get(k) for k in ("downloads", "writes", "total_events")
+                usage.get(k) for k in ("downloads", "writes", "reads", "total_events")
             )
             blocks.append(
                 render.section(
                     "Usage",
                     render.join(
                         usage_fields,
-                        "No recorded activity at all — no downloads, no writes. Reads "
-                        "are not counted here, and neither are denied requests, so this "
-                        "means nobody has successfully changed or exported this dataset."
+                        # `reads` counts the queries, renders and previews that
+                        # are POSTs because their request is a spec — NOT plain
+                        # GET reads, which are not audited at all. Saying "no
+                        # reads" flat would therefore assert something this
+                        # trail cannot see; the distinction is the difference
+                        # between "nobody uses it" and "nobody changes it".
+                        "No recorded activity at all — nothing queried, downloaded or "
+                        "changed. Plain GET reads are not audited, and neither are "
+                        "denied requests, so this is 'nobody has successfully queried, "
+                        "changed or exported this dataset', not 'nobody has looked at it'."
                         if quiet
                         else "",
                     ),

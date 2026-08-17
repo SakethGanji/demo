@@ -44,13 +44,14 @@ from app.shared.repo import list_version_sheets
 from app.shared.utils.sql import quote_ident, safe_value
 
 from . import repo
-from .insights import compute_insights
+from .insights import compute_insights, redact_insights
 from .schemas import (
     ColumnExplorerResponse,
     DatasetViewIn,
     DatasetViewOut,
     DatasetViewUpdate,
     InsightOut,
+    ProfileRunDetail,
     ProfileRunOut,
     RunViewRequest,
     SqlQueryResponse,
@@ -456,6 +457,10 @@ async def explore_column(ver: dict, sheet: str | None, column: str,
         ]
         for field in _VALUE_BEARING_PROFILE_FIELDS:
             profile[field] = None
+        # Those fields are null because they are withheld, not because they are
+        # unrepresentable; saying "std has no finite value here" would both
+        # mislabel the null and leak that this column holds an extreme value.
+        profile["unavailable_stats"] = []
 
     non_null = base.count - base.null_count
     return ColumnExplorerResponse(
@@ -504,12 +509,52 @@ async def _profilable_sheets(ver: dict) -> list[dict]:
     return sheets
 
 
-async def profile_version(ds: dict, ver: dict, principal_user_id: str) -> list[ProfileRunOut]:
+async def masked_columns_by_sheet(ver: dict,
+                                  principal) -> dict[str, dict[str, str | None]]:
+    """Physical columns to withhold from *principal*, keyed by logical sheet id.
+
+    Profile runs are addressed by logical sheet, so masking has to be resolved
+    the same way — one resolution serves a whole page of runs, and a run on
+    sheet B can never be redacted with sheet A's policy. Both early exits are
+    the ordinary case: a caller who may see raw values, and a dataset that
+    declares no sensitive column, cost one metadata read and stop.
+    """
+    from app.shared.masking import (dataset_has_sensitive_columns, may_see_raw,
+                                    resolve_masking)
+    from app.shared.repo import get_dataset
+
+    if principal is None:
+        return {}
+    dataset_id = str(ver["dataset_id"])
+    ds = await get_dataset(dataset_id)
+    if may_see_raw(principal, str(ds["team_id"]) if ds and ds.get("team_id") else None):
+        return {}
+    if not await dataset_has_sensitive_columns(dataset_id):
+        return {}
+
+    out: dict[str, dict[str, str | None]] = {}
+    for row in await get_version_sheet_rows(ver):
+        lsid = row.get("logical_sheet_id")
+        if not lsid:
+            continue
+        masked = await resolve_masking(
+            dataset_id, await ensure_sheet_schema(ver, row), principal)
+        if masked:
+            out[str(lsid)] = masked
+    return out
+
+
+async def profile_version(ds: dict, ver: dict, principal) -> list[ProfileRunOut]:
     """Profile every ready sheet of *ver*, persist runs + insights.
 
     Idempotent per (version, sheet, algorithm_version): re-profiling resets and
     replaces the previous run. Insight rules compare against the previous ready
     version's persisted profile when one exists.
+
+    What is *stored* is always the raw profile — redaction is per-reader, not a
+    destructive write, so an elevated colleague still gets the whole profile
+    out of a run a masked caller happened to trigger. The response to *this*
+    caller is redacted like any other read of the run.
     """
     dataset_id = str(ds["id"])
     sheets = await _profilable_sheets(ver)
@@ -526,6 +571,7 @@ async def profile_version(ds: dict, ver: dict, principal_user_id: str) -> list[P
         team_id=str(ds["team_id"]), parameters={"sheets": len(sheets)})
     await jobs.start_job(str(job["id"]))
 
+    masked_by_sheet = await masked_columns_by_sheet(ver, principal)
     out: list[ProfileRunOut] = []
     run = None
     try:
@@ -534,7 +580,7 @@ async def profile_version(ds: dict, ver: dict, principal_user_id: str) -> list[P
             run = await repo.upsert_run(
                 dataset_id=dataset_id, dataset_version_id=str(ver["id"]),
                 logical_sheet_id=lsid, job_id=str(job["id"]),
-                created_by=principal_user_id,
+                created_by=principal.user_id,
                 algorithm_version=PROFILE_ALGORITHM_VERSION)
             resp = await run_profiling(ProfileRequest(
                 dataset_id=dataset_id, version_id=str(ver["id"]),
@@ -552,7 +598,9 @@ async def profile_version(ds: dict, ver: dict, principal_user_id: str) -> list[P
                 sheet_name=sheet_row["sheet_name"])
 
             run = await repo.complete_run(run["id"], profile, insights)
-            out.append(_run_out(run, insights, sheet_row["sheet_name"]))
+            out.append(_run_out(
+                run, redact_insights(insights, masked_by_sheet.get(lsid) or {}),
+                sheet_row["sheet_name"]))
             run = None
         await jobs.complete_job(str(job["id"]), result={
             "profile_runs": [r.id for r in out]})
@@ -564,13 +612,47 @@ async def profile_version(ds: dict, ver: dict, principal_user_id: str) -> list[P
     return out
 
 
-async def runs_with_context(ver: dict, runs: list[dict]) -> list[ProfileRunOut]:
-    """Attach insights + sheet names to run rows."""
+async def runs_with_context(ver: dict, runs: list[dict],
+                            principal=None) -> list[ProfileRunOut]:
+    """Attach insights + sheet names to run rows, redacted for *principal*.
+
+    An insight is computed *from* the profile and is exactly as sensitive:
+    ``constant-column`` carries the value, ``new-categories`` the categories,
+    ``numeric-outliers`` the observed extremes. Redacting the stored profile in
+    the detail response while handing the same values back in the insight list
+    — which every one of these routes returns, including the create response —
+    withheld nothing. See :func:`app.features.explorer.insights.redact_insights`.
+    """
     grouped = await repo.list_insights([r["id"] for r in runs])
     names = {str(r["logical_sheet_id"]): r["sheet_name"]
              for r in await get_version_sheet_rows(ver) if r.get("logical_sheet_id")}
-    return [_run_out(r, grouped.get(r["id"], []),
-                     names.get(str(r["logical_sheet_id"]))) for r in runs]
+    masked_by_sheet = await masked_columns_by_sheet(ver, principal)
+    out = []
+    for r in runs:
+        lsid = str(r["logical_sheet_id"])
+        out.append(_run_out(
+            r, redact_insights(grouped.get(r["id"], []),
+                               masked_by_sheet.get(lsid) or {}),
+            names.get(lsid)))
+    return out
+
+
+async def run_detail(ver: dict, run: dict, principal) -> ProfileRunDetail:
+    """One run plus its persisted profile, both redacted for *principal*.
+
+    The sheet whose policy applies is the run's own ``logical_sheet_id``. This
+    used to look the sheet up by a ``sheet_key`` that profile-run rows do not
+    carry, so it always passed None — which on a multi-sheet version raised
+    ``sheet-selection-required`` and made this endpoint answer 400 for every
+    workbook, for every caller.
+    """
+    from app.shared.masking import redact_profile
+
+    out = (await runs_with_context(ver, [run], principal))[0]
+    masked = (await masked_columns_by_sheet(ver, principal)).get(
+        str(run["logical_sheet_id"])) or {}
+    return ProfileRunDetail(**out.model_dump(),
+                            profile=redact_profile(run.get("profile"), masked))
 
 
 # ---------------------------------------------------------------------------

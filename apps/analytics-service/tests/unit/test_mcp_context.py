@@ -142,7 +142,10 @@ def _edge(child_id: str, parent_id: str, *, relation: str = "join", depth: int =
 def _usage(**over: Any) -> dict[str, Any]:
     """``GET /datasets/{id}/usage``."""
     fields: dict[str, Any] = {
-        "dataset_id": "ds-1", "downloads": 4, "writes": 11, "total_events": 40,
+        # The counters partition the same audited rows, so the fixture adds up:
+        # downloads + writes + reads == total_events.
+        "dataset_id": "ds-1", "downloads": 4, "writes": 11, "reads": 25,
+        "total_events": 40,
         "last_activity_at": "2026-05-01 09:00:00.482913+00",
     }
     return _dump(UsageResponse(**{**fields, **over}))

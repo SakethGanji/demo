@@ -114,6 +114,7 @@ def agg_result(
     rows: Sequence[dict[str, Any]] = (), *, columns: Sequence[str] | None = None,
     original_count: int = 1000, group_count: int | None = None,
     totals: dict[str, Any] | None = None, totals_omitted: dict[str, Any] | None = None,
+    unavailable_measures: Sequence[str] = (),
     truncated: bool = False, result_file: str | None = None,
 ) -> dict[str, Any]:
     """``POST /aggregate`` (``AggregateResponse``)."""
@@ -124,6 +125,7 @@ def agg_result(
             group_count=len(listed) if group_count is None else group_count,
             columns=list(columns) if columns is not None else (list(listed[0]) if listed else []),
             data=listed, totals=totals, totals_omitted=totals_omitted,
+            unavailable_measures=list(unavailable_measures),
             truncated=truncated, result_file=result_file,
         )
     )
@@ -133,7 +135,8 @@ def pivot_result(
     rows: Sequence[dict[str, Any]] = (), *, columns: Sequence[str] | None = None,
     pivot_columns: Sequence[str] = (), original_count: int = 1000,
     row_count: int | None = None, totals: dict[str, Any] | None = None,
-    column_totals: dict[str, Any] | None = None, truncated: bool = False,
+    column_totals: dict[str, Any] | None = None,
+    unavailable_measures: Sequence[str] = (), truncated: bool = False,
     result_file: str | None = None,
 ) -> dict[str, Any]:
     """``POST /pivot`` (``PivotResponse``)."""
@@ -144,7 +147,9 @@ def pivot_result(
             row_count=len(listed) if row_count is None else row_count,
             columns=list(columns) if columns is not None else (list(listed[0]) if listed else []),
             pivot_columns=list(pivot_columns), data=listed, totals=totals,
-            column_totals=column_totals, truncated=truncated, result_file=result_file,
+            column_totals=column_totals,
+            unavailable_measures=list(unavailable_measures),
+            truncated=truncated, result_file=result_file,
         )
     )
 
@@ -574,6 +579,48 @@ async def test_an_aggregation_with_no_grand_total_says_why_and_what_to_do(tools,
 
     assert "No overall total for avg_price (non-additive); distinct_skus (non-additive)." in out
     assert "use run_sql for a true overall value" in out
+
+
+async def test_a_measure_with_no_finite_value_is_named_not_left_as_a_blank_cell(
+        tools, client):
+    """A null in an aggregate table normally means "no rows here". When the
+    service reports the alias in ``unavailable_measures`` it means the opposite
+    — there are rows, and their true value has no finite double (`std` squares
+    its input, so one legitimate value near 1e308 leaves the range). Unsaid,
+    the model reads it as missing data and retries in run_sql, where the same
+    arithmetic is an error rather than a null."""
+    client.on_post(
+        "/aggregate",
+        agg_result([{"region": "EU", "sd": None}, {"region": "US", "sd": 10.0}],
+                   columns=["region", "sd"], unavailable_measures=["sd"],
+                   totals_omitted={"sd": "non-additive"}),
+    )
+    out = await tools["aggregate"](
+        dataset_id="ds-1", group_by=["region"],
+        aggregations=[{"column": "amount", "function": "std", "alias": "sd"}],
+    )
+
+    assert "Blank cells under sd are values with no finite double" in out
+    assert "not something run_sql can compute either" in out
+
+
+async def test_a_pivot_cell_with_no_finite_value_is_named_too(tools, client):
+    """Same caveat, and it matters more in a grid: a pivot is *expected* to
+    have empty cells for combinations that never occur, so an unrepresentable
+    cell is indistinguishable from an absent one without being told."""
+    client.on_post(
+        "/pivot",
+        pivot_result([{"region": "EU", "Q1": None, "Q2": 10.0}],
+                     columns=["region", "Q1", "Q2"], pivot_columns=["Q1", "Q2"],
+                     unavailable_measures=["sd"]),
+    )
+    out = await tools["pivot"](
+        dataset_id="ds-1", rows=["region"], columns="quarter",
+        values=[{"column": "amount", "function": "std", "alias": "sd"}],
+    )
+
+    assert "Blank cells under sd are values with no finite double" in out
+    assert "not empty cells" in out
 
 
 async def test_a_truncated_aggregate_says_so_and_hands_over_the_full_result(tools, client):

@@ -144,6 +144,66 @@ def compute_insights(
     return out
 
 
+# ---------------------------------------------------------------------------
+# Redaction (masking, §PII)
+# ---------------------------------------------------------------------------
+
+# Evidence keys that carry a *value taken from the data* rather than a count, a
+# rate or a column name. These are the same things ``redact_profile`` strips
+# out of the stored profile, so they must not survive in an insight either:
+# `constant-column` copies the top value verbatim, `new-categories` the new
+# categories, `numeric-outliers` the observed min/max and the fences derived
+# from the quartiles, `future-timestamps` the maximum timestamp.
+_VALUE_BEARING_EVIDENCE = frozenset({
+    "value", "values", "added", "removed", "examples",
+    "min", "max", "mean", "median", "std", "q25", "q75",
+    "lower_fence", "upper_fence", "min_date", "max_date",
+})
+
+# Rules whose *message* quotes nothing from the data, so the prose survives
+# redaction intact. This is an allow-list rather than a deny-list on purpose:
+# a rule added later gets its message withheld until someone confirms it says
+# nothing, which is the safe direction for a control whose job is to withhold.
+_VALUE_FREE_MESSAGES = frozenset({
+    "new-sheet", "duplicate-rows", "likely-primary-key", "constant-column",
+    "high-null-rate", "null-rate-spike", "high-correlation",
+})
+
+
+def redact_insights(insights: list[dict],
+                    masked: dict[str, str | None] | set[str]) -> list[dict]:
+    """Strip data values out of the insights over a caller's masked columns.
+
+    Insights are computed from the profile and inherit its sensitivity: an
+    insight on a column the caller may only see as ``***`` cannot hand back
+    that column's values in its evidence or in its message. What survives is
+    the finding itself — which rule fired, on which column, how severe — so a
+    reader still learns "this column is constant" or "new categories appeared"
+    without learning *what* they are.
+
+    *masked* is the physical-column mapping :func:`resolve_masking` returns
+    (a plain set of names works too). Empty means nothing is withheld, which is
+    the elevated caller's case and the ordinary no-sensitivity dataset's.
+    """
+    if not insights or not masked:
+        return insights
+    out = []
+    for insight in insights:
+        if insight.get("column_name") not in masked:
+            out.append(insight)
+            continue
+        column, rule = insight["column_name"], insight.get("rule")
+        redacted = dict(insight)
+        redacted["evidence"] = {
+            k: v for k, v in (insight.get("evidence") or {}).items()
+            if k not in _VALUE_BEARING_EVIDENCE}
+        if rule not in _VALUE_FREE_MESSAGES:
+            redacted["message"] = (
+                f"'{column}': {rule} — details withheld, this column is masked")
+        out.append(redacted)
+    return out
+
+
 def detect_outlier_bounds(column: dict) -> tuple[float, float, str] | None:
     """Tukey fences for a numeric column, when its extremes fall outside them.
 

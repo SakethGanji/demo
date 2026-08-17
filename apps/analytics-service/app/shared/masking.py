@@ -203,7 +203,17 @@ def redact_profile(profile: dict | None, masked: dict[str, str | None]) -> dict 
     the grid and the column drawer withhold — so handing back a stored profile
     unfiltered leaks the sensitive column by another route. Distribution shape
     (counts, ratios) is preserved; only the values themselves are masked, and
-    the numeric extremes that would narrow them down are dropped.
+    the extremes that would narrow them down are dropped — including
+    ``min_date``/``max_date``, which are the literal earliest and latest cell
+    of a date column and are precisely what a masked date-of-birth withholds.
+
+    The stripped set matches the column drawer's
+    ``explorer.service._VALUE_BEARING_PROFILE_FIELDS``: two surfaces over the
+    same statistics must not disagree about which of them are values.
+
+    A profile also has *insights* computed from it, which quote these same
+    values; those are redacted by
+    :func:`app.features.explorer.insights.redact_insights`.
     """
     if not profile or not masked:
         return profile
@@ -221,7 +231,8 @@ def redact_profile(profile: dict | None, masked: dict[str, str | None]) -> dict 
                 {**tv, "value": mask_value(tv.get("value"), semantic)}
                 for tv in c["top_values"]
             ]
-        for k in ("min", "max", "mean", "median", "q25", "q75", "std", "examples", "histogram"):
+        for k in ("min", "max", "mean", "median", "q25", "q75", "std",
+                  "min_date", "max_date", "examples", "histogram"):
             if k in c:
                 c[k] = None
         cols.append(c)

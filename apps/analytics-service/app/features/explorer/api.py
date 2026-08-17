@@ -191,12 +191,36 @@ async def create_profile_runs(
     principal: Principal = Depends(get_principal),
 ) -> list[ProfileRunOut]:
     """Profile every ready sheet of a version; persist one run per sheet with
-    deterministic insights (idempotent per algorithm version)."""
+    deterministic insights (idempotent per algorithm version).
+
+    **``dataset:read`` is enough here, and deliberately so — unlike
+    ``POST /profile``, which refuses a caller without
+    ``dataset:read_sensitive`` on a dataset that declares one
+    (``sensitive-data-restricted``).** The two are not the same operation:
+
+    * that endpoint hands the profile *straight back* to the caller, over an
+      arbitrary column selection, so refusing is the only control it has;
+    * this one persists a run and answers a **redacted** view of it — every
+      route that reads a run back masks the values of a column the caller may
+      not see, in the profile and in the insights alike (``run_detail``,
+      ``runs_with_context``). What a masked caller gets is the statistics they
+      are entitled to: null rates, cardinality, duplicates, the shape.
+
+    Gating this on ``dataset:read_sensitive`` too would take profiling away
+    from *editors* as well (they are not exempt from masking either, by
+    design), i.e. from the very people who curate the dataset — and it would
+    leave ``/health``, ``/missing`` and the drift signals, all of which read
+    persisted runs, permanently "unknown" on any dataset with a PII column.
+
+    The write is bounded: ``upsert_run`` is keyed on
+    (version, sheet, algorithm_version), so re-profiling replaces rather than
+    accumulates; the residue of a repeated call is one ``jobs`` row.
+    """
     ds = await ensure_dataset_permission(
         principal, dataset_id, Permission.DATASET_READ)
     ver = await resolve_version(dataset_id, version_number=version_number)
     _ensure_version_has_data(ver)
-    return await service.profile_version(ds, ver, principal.user_id)
+    return await service.profile_version(ds, ver, principal)
 
 
 @router.get("/datasets/{dataset_id}/versions/{version_number}/profile-runs",
@@ -228,7 +252,8 @@ async def list_profile_runs(
     runs, total = await repo.list_runs_for_version(
         str(ver["id"]), status=status, algorithm_version=algorithm_version,
         limit=page.limit, offset=page.offset)
-    return Page.of(await service.runs_with_context(ver, runs), total, page)
+    return Page.of(await service.runs_with_context(ver, runs, principal),
+                   total, page)
 
 
 @router.get("/datasets/{dataset_id}/profile-runs/{run_id}",
@@ -238,25 +263,19 @@ async def get_profile_run(
     run_id: str,
     principal: Principal = Depends(get_principal),
 ) -> ProfileRunDetail:
-    """One run with its full persisted profile JSON."""
+    """One run with its full persisted profile JSON.
+
+    The profile's `top_values` are verbatim cell values — the same ones the
+    grid and the column drawer mask — so a caller who may not see a column gets
+    that column redacted here, in the profile and in the insights derived from
+    it. `service.run_detail` owns both halves.
+    """
     await ensure_dataset_permission(principal, dataset_id, Permission.DATASET_READ)
     run = await repo.get_run(dataset_id, run_id)
     if not run:
         raise HTTPException(404, f"Profile run not found: {run_id}")
     ver = await resolve_version(dataset_id, version_id=run["dataset_version_id"])
-    out = (await service.runs_with_context(ver, [run]))[0]
-    # The stored profile's `top_values` are verbatim cell values — the same ones
-    # the grid and the column drawer mask — so a viewer could read a sensitive
-    # column straight out of a profile they are allowed to create.
-    from app.shared.masking import redact_profile, resolve_masking
-    from app.shared.datasets import resolve_version_sheet_row, ensure_sheet_schema
-    profile = run.get("profile")
-    sheet_row = await resolve_version_sheet_row(ver, run.get("sheet_key"))
-    if sheet_row is not None:
-        sheet_row = await ensure_sheet_schema(ver, sheet_row)
-        masked = await resolve_masking(dataset_id, sheet_row, principal)
-        profile = redact_profile(profile, masked)
-    return ProfileRunDetail(**out.model_dump(), profile=profile)
+    return await service.run_detail(ver, run, principal)
 
 
 @router.get("/datasets/{dataset_id}/versions/{version_number}/columns/{column}",
