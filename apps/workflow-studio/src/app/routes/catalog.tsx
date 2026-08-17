@@ -1,9 +1,9 @@
 import { createRoute } from '@tanstack/react-router'
-import { rootRoute } from './__root'
+import { studioLayoutRoute } from './_studio'
 import { CatalogPage } from '@/features/datasets/components/CatalogPage'
 
 export const catalogRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => studioLayoutRoute,
   path: 'catalog',
   component: CatalogRoutePage,
 })

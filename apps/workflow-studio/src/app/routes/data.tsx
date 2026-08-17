@@ -1,9 +1,9 @@
 import { createRoute } from '@tanstack/react-router'
-import { rootRoute } from './__root'
+import { studioLayoutRoute } from './_studio'
 import { DatasetsPage } from '@/features/datasets/components/DatasetsPage'
 
 export const dataRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => studioLayoutRoute,
   path: 'data',
   // `?dataset=<id>` lets the catalog open a specific dataset in the workspace.
   validateSearch: (search: Record<string, unknown>): { dataset?: string } => ({
