@@ -25,6 +25,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.infra.config import settings
 
@@ -145,8 +146,55 @@ async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSON
     return problem_response(500, detail, request.url.path)
 
 
+class UnhandledExceptionMiddleware(BaseHTTPMiddleware):
+    """Turn an escaping exception into problem+json *inside* the middleware stack.
+
+    ``add_exception_handler(Exception, ...)`` alone is not enough, and the
+    reason is structural. Starlette does not treat ``Exception`` (or ``500``)
+    as a normal handler: ``build_middleware_stack`` pops it out and hands it to
+    ``ServerErrorMiddleware``, which it then places at the very TOP of the
+    stack — above every user middleware, CORSMiddleware included. So the 500 it
+    writes is emitted after the response has already left the CORS layer, and
+    nothing ever adds ``Access-Control-Allow-Origin`` to it.
+
+    In a browser that is not a cosmetic difference. A cross-origin response
+    without ACAO is never handed to JS at all: fetch rejects with "blocked by
+    CORS policy" / ``net::ERR_FAILED``, with no status and no body. The client
+    therefore cannot read the ``code`` this service documents for every error,
+    and every 5xx collapses into an indistinguishable network failure — exactly
+    when a caller most needs to tell "the server broke" from "you're offline".
+    A 4xx is unaffected (it is raised as an ``HTTPException`` and handled by
+    ``ExceptionMiddleware``, well below CORS), which is what makes the gap so
+    easy to miss.
+
+    Catching here — as the INNERMOST user middleware — makes the 500 an
+    ordinary response on the way out, so every outer layer decorates it the way
+    it decorates a 200: CORS attaches its headers, ``RequestIDMiddleware``
+    attaches the ``X-Request-Id`` a bug report quotes, ``SecurityHeaders``
+    attaches its set, and ``AuditMiddleware`` records the failure with its real
+    status instead of losing the row.
+
+    ``ServerErrorMiddleware`` stays as the backstop for anything raised by the
+    middleware ABOVE this one, which by definition cannot be repaired here.
+    A failure that happens after a streaming body has started sending is also
+    left alone: it surfaces while the response is being iterated, not inside
+    ``dispatch``, and the status line is already on the wire by then.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        try:
+            return await call_next(request)
+        except Exception as exc:  # noqa: BLE001 — deliberate catch-all; re-rendered
+            # Same handler ServerErrorMiddleware would have used, so the body
+            # is byte-for-byte the envelope callers already branch on, and the
+            # traceback still reaches the server log and only the server log.
+            return await _unhandled_exception_handler(request, exc)
+
+
 def install_error_handlers(app: FastAPI) -> None:
     """Register the problem+json handlers on the app."""
     app.add_exception_handler(StarletteHTTPException, _http_exception_handler)
     app.add_exception_handler(RequestValidationError, _validation_exception_handler)
+    # Backstop only — see UnhandledExceptionMiddleware for why this alone
+    # cannot produce a CORS-decorated 500.
     app.add_exception_handler(Exception, _unhandled_exception_handler)

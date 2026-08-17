@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from fastapi import APIRouter, Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.errors import install_error_handlers
+from app.api.errors import UnhandledExceptionMiddleware, install_error_handlers
 from app.api.middleware import install_middleware
 from app.infra.config import settings
 from app.infra.db.postgres import dispose_engine, init_db
@@ -138,6 +138,14 @@ def create_app() -> FastAPI:
         docs_url="/docs",
         redoc_url="/redoc",
     )
+
+    # Added FIRST so it runs INNERMOST (last-added is outermost). An unhandled
+    # exception has to become a response here, beneath every other layer, or
+    # Starlette's ServerErrorMiddleware writes the 500 from ABOVE CORS and the
+    # browser sees a bare network error instead of the problem+json envelope.
+    # Being innermost also means the 500 still collects X-Request-Id, the
+    # security headers, and an audit row. See UnhandledExceptionMiddleware.
+    application.add_middleware(UnhandledExceptionMiddleware)
 
     install_middleware(application)
 

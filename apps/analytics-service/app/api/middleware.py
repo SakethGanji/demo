@@ -48,11 +48,52 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+def _declared_template(request: Request) -> str | None:
+    """The matched route's own ``path`` — the authoritative template.
+
+    Routing puts the matched ``endpoint`` function on the scope, and the app's
+    route table maps that back to the path as DECLARED. Preferred over deriving
+    the template from the request's own path (below) because the derivation can
+    be steered by caller data: ``/versions/1/sheets/1/query`` has two params
+    with the value ``1``, so the value→name map keeps one name and emits
+    ``/versions/{sheet_name}/sheets/{sheet_name}/query``. That was cosmetic
+    while ``action`` was only ever read by humans; ``request_effects`` keys off
+    it, so a template a sheet name can bend is a classification a sheet name
+    can bend.
+    """
+    endpoint = request.scope.get("endpoint")
+    if endpoint is None:
+        return None
+    app = request.scope.get("app")
+    if app is None:
+        return None
+    templates = getattr(app.state, "audit_route_templates", None)
+    if templates is None:
+        # Built once per app: the route table is fixed after startup. One
+        # function registered on two paths is ambiguous here and is dropped
+        # rather than resolved to whichever route happened to be declared last
+        # — the fallback below is only imprecise, a confidently wrong template
+        # is a lie that classification would then act on.
+        templates = {}
+        for route in app.routes:
+            route_endpoint = getattr(route, "endpoint", None)
+            if route_endpoint is None or not getattr(route, "methods", None):
+                continue
+            if route_endpoint in templates and templates[route_endpoint] != route.path:
+                templates[route_endpoint] = None
+            else:
+                templates.setdefault(route_endpoint, route.path)
+        app.state.audit_route_templates = templates
+    return templates.get(endpoint)
+
+
 def _route_template(path: str, path_params: dict) -> str:
     """``/datasets/<uuid>/tags/production`` → ``/datasets/{dataset_id}/tags/{tag_name}``.
 
-    Substituted segment-wise, never by substring: a one-character sheet name
-    would otherwise rewrite every matching character of the path.
+    The fallback for a request that matched no route (a 404 has no endpoint and
+    no params, and is returned unchanged). Substituted segment-wise, never by
+    substring: a one-character sheet name would otherwise rewrite every
+    matching character of the path.
     """
     if not path_params:
         return path
@@ -72,6 +113,12 @@ class AuditMiddleware(BaseHTTPMiddleware):
     anything at all. While those columns were left NULL, team-scoped audit
     reads answered zero rows for every team, and callers that wanted a
     dataset's history had to LIKE-match the path text.
+
+    Read-shaped POSTs (``/query``, ``/render``, ``/compile``…) are recorded
+    too, and deliberately: a POST body is how the biggest reads in the service
+    are expressed, and dropping them would put real data egress outside the
+    trail. What they are NOT is writes — see ``app/shared/request_effects.py``,
+    which every consumer of this table classifies with.
     """
 
     async def dispatch(self, request: Request, call_next):
@@ -92,10 +139,15 @@ class AuditMiddleware(BaseHTTPMiddleware):
                                (request.scope.get("path_params") or {}).items()
                                if v is not None}
                 team_id, resource_type, resource_id = await audit.resolve_target(path_params)
+                template = (_declared_template(request)
+                            or _route_template(path, path_params))
                 await audit.record(
                     method=request.method,
                     path=path,
-                    action=f"{request.method} {_route_template(path, path_params)}",
+                    # `action` is the row's stable identity across ids AND the
+                    # key `app/shared/request_effects.py` classifies on, so it
+                    # has to be the route as declared, character for character.
+                    action=f"{request.method} {template}",
                     status_code=response.status_code,
                     actor_user_id=getattr(principal, "user_id", None),
                     actor_email=getattr(principal, "email", None),
