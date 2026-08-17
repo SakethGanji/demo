@@ -16,20 +16,39 @@ import {
   isRestricted,
   type ColumnProfile,
 } from '../../hooks/useAnalysis';
-import { errorText } from '../../hooks/useDatasetActions';
+import { errorText } from '@/shared/lib/analyticsClient';
 import {
   DtypeChip,
-  Histogram,
-  LensEmpty,
   LensError,
+  LensList,
   LensRestricted,
-  Meter,
-  MiniBars,
   Row,
   Section,
-  StatusDot,
 } from './primitives';
-import { compact, num } from './format';
+import { Histogram, Meter, MiniBars } from './analyticsMarks';
+import { Status, type StatusKind } from '@/shared/components/instrument/Status';
+import { Guard } from '@/shared/components/instrument/Guard';
+import { Identifier } from '@/shared/components/instrument/Typography';
+import { isIdentityLike, middleTruncate } from '@/shared/components/instrument/shape';
+import { compact, num } from '@/shared/lib/format';
+
+/**
+ * The service's health vocabulary mapped onto the five Instrument states.
+ * Anything unrecognised becomes `unknown` — a ring, which reads as "not
+ * assessed" rather than silently borrowing the look of a pass.
+ */
+function healthKind(status: string): StatusKind {
+  switch (status) {
+    case 'ok':
+      return 'good';
+    case 'warn':
+      return 'warning';
+    case 'fail':
+      return 'critical';
+    default:
+      return 'unknown';
+  }
+}
 
 /** Nulls are the first thing anyone checks; make the threshold visible. */
 function nullTone(pct: number): 'neutral' | 'warning' | 'critical' {
@@ -41,12 +60,21 @@ function nullTone(pct: number): 'neutral' | 'warning' | 'critical' {
 function ColumnCard({ col }: { col: ColumnProfile }) {
   const nullPct = col.null_percent ?? 0;
   const tops = (col.top_values ?? []).filter((t) => t.value !== null && t.value !== undefined);
+  // The shared rule, not a local re-derivation — the column page and this dock
+  // must agree on what counts as identity-like.
+  const identityLike = isIdentityLike({
+    name: col.name,
+    dtype: col.dtype,
+    uniqueCount: col.unique_count ?? null,
+    nonNullCount: col.non_null_count ?? null,
+  });
+  const samples = tops.slice(0, 5).map((t) => String(t.value));
 
   return (
     <div className="mb-2 rounded-md border border-border px-2 py-2" data-testid="profile-column">
       <div className="flex items-center gap-1.5">
         <span
-          className="truncate text-[12px] font-medium"
+          className="truncate text-body font-medium"
           title={col.name}
           data-testid="profile-column-name"
         >
@@ -59,7 +87,7 @@ function ColumnCard({ col }: { col: ColumnProfile }) {
         <Meter value={nullPct} label="null" tone={nullTone(nullPct)} />
       </div>
 
-      <div className="mt-1 flex items-center justify-between text-[10px] text-muted-foreground tabular-nums">
+      <div className="mt-1 flex items-center justify-between text-micro text-muted-foreground tabular-nums">
         <span>{compact(col.unique_count)} distinct</span>
         <span>{compact(col.non_null_count)} filled</span>
       </div>
@@ -75,7 +103,7 @@ function ColumnCard({ col }: { col: ColumnProfile }) {
             }))}
             testid="profile-histogram"
           />
-          <div className="mt-1 flex justify-between text-[10px] text-muted-foreground tabular-nums">
+          <div className="mt-1 flex justify-between text-micro text-muted-foreground tabular-nums">
             <span>min {num(col.min)}</span>
             <span>med {num(col.median)}</span>
             <span>max {num(col.max)}</span>
@@ -83,8 +111,44 @@ function ColumnCard({ col }: { col: ColumnProfile }) {
         </div>
       )}
 
+      {/* SHAPE-R4 — above 95% distinct a top-values chart says nothing: every
+       * bar is one row tall, so it renders as a row of identical `1 · 0%`
+       * stubs that look like data and carry none.
+       *
+       * Replace it with an identity panel, and — the part that actually
+       * matters — SAY the distribution was suppressed. The reference cockpit
+       * drew no card at all for such a column, and a column with no card reads
+       * as a column with no problem. */}
+      {col.dtype !== 'numeric' && identityLike && (
+        <div className="mt-2" data-testid="profile-identity-panel">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="text-micro text-muted-foreground">distinctness</span>
+            <span className="text-micro tabular-nums">
+              {((col.unique_count ?? 0) / (col.non_null_count || 1) * 100).toFixed(1)}%
+            </span>
+          </div>
+          {samples.length > 0 && (
+            <div className="mt-1 flex flex-col gap-0.5">
+              {samples.map((v, i) => (
+                <Identifier
+                  key={`${v}-${i}`}
+                  className="truncate text-micro text-muted-foreground"
+                  title={v}
+                >
+                  {middleTruncate(v, 34)}
+                </Identifier>
+              ))}
+            </div>
+          )}
+          <Guard className="mt-1.5">
+            Distribution suppressed, not omitted — above 95% distinct every bar would be one
+            row. These are sampled values, not the most common ones.
+          </Guard>
+        </div>
+      )}
+
       {/* Everything else: the categories that actually occur. */}
-      {col.dtype !== 'numeric' && tops.length > 0 && (
+      {col.dtype !== 'numeric' && !identityLike && tops.length > 0 && (
         <div className="mt-2">
           <MiniBars
             testid="profile-top-values"
@@ -115,23 +179,28 @@ export function AnalyticsLens({ datasetId, version, sheet }: AnalyticsLensProps)
   return (
     <>
       <Section title="Health">
-        {health.isLoading && <p className="text-[11px] text-muted-foreground">Loading…</p>}
-        {dims.length === 0 && !health.isLoading && <LensEmpty>No health signals yet.</LensEmpty>}
-        {dims.map(([key, dim]) => (
-          <div key={key} className="flex items-start gap-1.5 py-1" data-testid="health-dimension">
-            <span className="mt-1.5">
-              <StatusDot status={dim.status} />
-            </span>
-            <div className="min-w-0">
-              <div className="text-[11px] capitalize">{key.replace(/_/g, ' ')}</div>
-              <div className="text-[10px] leading-tight text-muted-foreground">{dim.summary}</div>
+        <LensList query={health} items={dims} empty="No health signals yet.">
+          {([key, dim]) => (
+            <div key={key} className="py-1" data-testid="health-dimension">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="min-w-0 truncate text-small capitalize">
+                  {key.replace(/_/g, ' ')}
+                </span>
+                {/* The status WORD, not just a dot. This row used to render the
+                 * hue alone, which is the failure rule 6 exists to prevent —
+                 * and "unknown" in particular is unreadable as a grey dot. */}
+                <Status kind={healthKind(dim.status)} className="text-micro">
+                  {dim.status}
+                </Status>
+              </div>
+              <div className="text-micro leading-tight text-muted-foreground">{dim.summary}</div>
             </div>
-          </div>
-        ))}
+          )}
+        </LensList>
       </Section>
 
       <Section title="Column profile">
-        {profile.isLoading && <p className="text-[11px] text-muted-foreground">Profiling…</p>}
+        {profile.isLoading && <p className="text-small text-muted-foreground">Profiling…</p>}
 
         {/* The refusal is a first-class state, not an error. */}
         {isRestricted(profile.error) && <LensRestricted what="Profiling" />}

@@ -21,14 +21,15 @@ import {
 } from '../../hooks/useDatasetActions';
 import type { DatasetInfo } from '../../hooks/useDatasets';
 import { LensEmpty, Row, Section } from './primitives';
+import { fieldClass } from '../fieldStyles';
+import { Metric } from '@/shared/components/instrument/Typography';
+import { compact } from '@/shared/lib/format';
 
 const CLASSIFICATIONS = ['public', 'internal', 'confidential', 'restricted'] as const;
 
 /** Matched case-insensitively server-side; these are the values that mask. */
 const SENSITIVITIES = ['', 'pii', 'confidential', 'restricted', 'sensitive', 'secret', 'phi'];
 
-const inputClass =
-  'h-6 w-full rounded border border-border bg-background px-1.5 text-[11px] outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40';
 
 interface OverviewLensProps {
   dataset: DatasetInfo;
@@ -88,25 +89,25 @@ export function OverviewLens({
       >
         {editing ? (
           <div data-testid="metadata-form">
-            <label className="text-[10px] text-muted-foreground">Name</label>
+            <label className="text-micro text-muted-foreground">Name</label>
             <input
               value={form.name ?? ''}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
               aria-label="Dataset name"
-              className={inputClass}
+              className={fieldClass}
               data-testid="metadata-name"
             />
 
-            <label className="mt-1.5 block text-[10px] text-muted-foreground">Description</label>
+            <label className="mt-1.5 block text-micro text-muted-foreground">Description</label>
             <input
               value={form.description ?? ''}
               onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
               aria-label="Dataset description"
-              className={inputClass}
+              className={fieldClass}
               data-testid="metadata-description"
             />
 
-            <label className="mt-1.5 block text-[10px] text-muted-foreground">Classification</label>
+            <label className="mt-1.5 block text-micro text-muted-foreground">Classification</label>
             <select
               value={form.classification ?? 'internal'}
               onChange={(e) =>
@@ -116,7 +117,7 @@ export function OverviewLens({
                 }))
               }
               aria-label="Dataset classification"
-              className={inputClass}
+              className={fieldClass}
               data-testid="metadata-classification"
             >
               {CLASSIFICATIONS.map((c) => (
@@ -126,16 +127,16 @@ export function OverviewLens({
               ))}
             </select>
 
-            <label className="mt-1.5 block text-[10px] text-muted-foreground">Domain</label>
+            <label className="mt-1.5 block text-micro text-muted-foreground">Domain</label>
             <input
               value={form.domain ?? ''}
               onChange={(e) => setForm((f) => ({ ...f, domain: e.target.value }))}
               aria-label="Dataset domain"
-              className={inputClass}
+              className={fieldClass}
               data-testid="metadata-domain"
             />
 
-            <label className="mt-1.5 flex items-center gap-1.5 text-[11px]">
+            <label className="mt-1.5 flex items-center gap-1.5 text-small">
               <input
                 type="checkbox"
                 checked={form.deprecated ?? false}
@@ -158,6 +159,41 @@ export function OverviewLens({
           </div>
         ) : (
           <>
+            {/* Rule 4 — the numbers that answer "what am I looking at" get to
+             * be figures, not another label/value row. Grouped by space in a
+             * 2x2; wrapping four homogeneous counts in cards is exactly what
+             * rule 8 reserves a surface AGAINST. */}
+            <div className="mb-3 grid grid-cols-2 gap-x-3 gap-y-2.5">
+              <Metric
+                label="Rows"
+                value={compact(dataset.row_count)}
+                size="figure"
+                note={`as-of v${dataset.current_version ?? '—'}`}
+              />
+              <Metric
+                label="Columns"
+                value={String(columns.length)}
+                size="figure"
+                note={
+                  maskedColumns.length > 0
+                    ? `${maskedColumns.length} masked`
+                    : 'none masked'
+                }
+              />
+              <Metric
+                label="Documentation"
+                value={dataset.documentation ?? 'none'}
+                size="figure"
+                note="per-column dictionary"
+              />
+              <Metric
+                label="Classification"
+                value={dataset.classification ?? 'unclassified'}
+                size="figure"
+                note="label only"
+              />
+            </div>
+
             <Row label="Name" value={dataset.name} />
             <Row label="Description" value={dataset.description || '—'} />
             <Row label="Classification" value={dataset.classification} />
@@ -201,12 +237,12 @@ export function OverviewLens({
         <Section title="Masked for this seat">
           <div className="flex flex-wrap gap-1">
             {maskedColumns.map((c) => (
-              <Badge key={c} variant="glass" className="font-mono text-[10px]">
+              <Badge key={c} variant="glass" className="font-mono text-micro">
                 {c}
               </Badge>
             ))}
           </div>
-          <p className="mt-1.5 text-[11px] text-muted-foreground/70">
+          <p className="mt-1.5 text-small text-muted-foreground/70">
             Masking applies to a viewer and an editor. Only admin, owner or superuser see raw
             values.
           </p>
@@ -226,7 +262,7 @@ export function OverviewLens({
                 setSensitivity('');
               }}
               aria-label="Dictionary column"
-              className={inputClass}
+              className={fieldClass}
               data-testid="dict-column"
             >
               <option value="">Choose a column…</option>
@@ -240,25 +276,25 @@ export function OverviewLens({
 
             {dictColumn && (
               <>
-                <label className="mt-1.5 block text-[10px] text-muted-foreground">
+                <label className="mt-1.5 block text-micro text-muted-foreground">
                   Business name
                 </label>
                 <input
                   value={businessName}
                   onChange={(e) => setBusinessName(e.target.value)}
                   aria-label="Column business name"
-                  className={inputClass}
+                  className={fieldClass}
                   data-testid="dict-business-name"
                 />
 
-                <label className="mt-1.5 block text-[10px] text-muted-foreground">
+                <label className="mt-1.5 block text-micro text-muted-foreground">
                   Sensitivity
                 </label>
                 <select
                   value={sensitivity}
                   onChange={(e) => setSensitivity(e.target.value)}
                   aria-label="Column sensitivity"
-                  className={inputClass}
+                  className={fieldClass}
                   data-testid="dict-sensitivity"
                 >
                   {SENSITIVITIES.map((s) => (
@@ -289,7 +325,7 @@ export function OverviewLens({
                   {setColumnMeta.isPending ? 'Saving…' : 'Save column'}
                 </Button>
                 {/* PUT replaces the record, so say what "empty" will do. */}
-                <p className="mt-1 text-[10px] text-muted-foreground/70">
+                <p className="mt-1 text-micro text-muted-foreground/70">
                   Replaces this column's entry — blank fields are cleared. Setting a sensitivity
                   masks the column for viewers and editors immediately.
                 </p>

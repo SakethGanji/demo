@@ -12,9 +12,9 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { analytics, AnalyticsApiError, type Page } from '@/shared/lib/analyticsClient';
+import { analytics, AnalyticsApiError, errorText, type Page } from '@/shared/lib/analyticsClient';
 import { useIdentityStore } from '@/shared/lib/identity';
-import { errorText } from './useDatasetActions';
+
 
 function useSeat() {
   return useIdentityStore((s) => s.identity.userId);
@@ -50,6 +50,18 @@ export interface ColumnProfile {
   min?: number | null;
   max?: number | null;
   histogram?: HistogramBin[] | null;
+  /**
+   * Statistics on this column whose true value has no finite double, and which
+   * are therefore `null` above.
+   *
+   * `null` alone cannot distinguish "the column is empty, the aggregate does
+   * not apply" from "the answer exists but is not representable" — and the
+   * second happens on real, finite data, because STDDEV squares its input and
+   * one legitimate value near 1e308 overflows the accumulator. Rendering a
+   * bare em dash for that is the same silent-wrong-answer shape everything
+   * else here guards against, so the UI names it.
+   */
+  unavailable_stats?: string[] | null;
 }
 
 export interface ProfileResponse {
@@ -224,9 +236,21 @@ export interface Transformation {
   id: string;
   name: string;
   description?: string | null;
-  sheet?: string | null;
+  /**
+   * The STABLE sheet key, which is what `TransformationOut` actually returns —
+   * not `sheet`. The interface used to declare `sheet`, so the field was always
+   * undefined and every saved pipeline rendered "sheet not recorded": on a
+   * multi-sheet workbook that line is the only thing telling you which sheet a
+   * pipeline will run over, and it was telling you nothing while implying
+   * nothing had been recorded.
+   */
+  sheet_key?: string | null;
+  logical_sheet_id?: string | null;
+  version_selector?: string | null;
   steps?: unknown[] | null;
+  created_by?: string | null;
   created_at?: string | null;
+  updated_at?: string | null;
 }
 
 export function useTransformations(datasetId: string | null) {

@@ -18,7 +18,7 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { analytics, AnalyticsApiError } from '@/shared/lib/analyticsClient';
+import { analytics, errorText } from '@/shared/lib/analyticsClient';
 import { useIdentityStore } from '@/shared/lib/identity';
 
 /**
@@ -30,18 +30,6 @@ function useInvalidate() {
   const qc = useQueryClient();
   const seat = useIdentityStore((s) => s.identity.userId);
   return () => qc.invalidateQueries({ queryKey: ['analytics', seat] });
-}
-
-/** Human-readable failure text. Branch on `code`, never on prose. */
-export function errorText(e: unknown): string {
-  if (e instanceof AnalyticsApiError) {
-    // Cross-tenant reads are 404 by design — never say "access denied".
-    if (e.isNotFound) return 'Not found, or not available to this seat.';
-    if (e.isSensitiveRestricted)
-      return 'This dataset declares sensitive columns; only admin, owner or superuser may run this.';
-    return e.detail;
-  }
-  return e instanceof Error ? e.message : String(e);
 }
 
 /**
