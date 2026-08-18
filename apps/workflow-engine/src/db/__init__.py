@@ -19,6 +19,15 @@ from .models import (
     DataTableModel,
     DataTableRowModel,
     ApiTestExecutionModel,
+    AgentModel,
+    AgentToolBindingModel,
+    AgentSessionModel,
+    AgentRunModel,
+    AgentRunEventModel,
+    AgentApprovalModel,
+    ToolConnectorModel,
+    ConnectorToolModel,
+    PromotedToolModel,
 )
 from .seed import seed_workflows
 
@@ -45,5 +54,14 @@ __all__ = [
     "DataTableModel",
     "DataTableRowModel",
     "ApiTestExecutionModel",
+    "AgentModel",
+    "AgentToolBindingModel",
+    "AgentSessionModel",
+    "AgentRunModel",
+    "AgentRunEventModel",
+    "AgentApprovalModel",
+    "ToolConnectorModel",
+    "ConnectorToolModel",
+    "PromotedToolModel",
     "seed_workflows",
 ]

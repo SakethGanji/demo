@@ -73,3 +73,27 @@ def app_id() -> str:
 
 def data_table_id() -> str:
     return generate_id("dt")
+
+
+def agent_id() -> str:
+    return generate_id("agt")
+
+
+def agent_session_id() -> str:
+    return generate_id("ses")
+
+
+def agent_run_id() -> str:
+    return generate_id("arun")
+
+
+def approval_id() -> str:
+    return generate_id("appr")
+
+
+def connector_id() -> str:
+    return generate_id("conn")
+
+
+def promoted_tool_id() -> str:
+    return generate_id("ptool")

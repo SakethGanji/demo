@@ -485,3 +485,227 @@ class ApiTestExecutionModel(SQLModel, table=True):
     error: str | None = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
+
+
+# ---------------------------------------------------------------------------
+# Agents
+#
+# An agent is a DEFINITION, not an actor: it holds no run state, so N people
+# run the same one concurrently. The session owns the workspace and the memory
+# key; the run owns the trace. `settings` is a JSONB bag whose keys are exactly
+# the AIAgent node's parameter names, so AgentRuntime can pass it straight in.
+# ---------------------------------------------------------------------------
+
+
+class AgentModel(SQLModel, table=True):
+    """A saved, runnable agent definition."""
+
+    __tablename__ = "agents"
+
+    id: str = Field(primary_key=True)
+    team_id: str = Field(default="default", foreign_key="teams.id", index=True)
+    folder_id: str | None = Field(default=None, foreign_key="folders.id")
+    name: str = Field(index=True)
+    description: str | None = Field(default=None)
+    role: str = Field(default="asks")  # asks | builds | watches — derived from tools
+    model: str = Field(default="claude-sonnet-4-20250514")
+    system_prompt: str = Field(default="")
+    task_template: str | None = Field(default=None)
+    settings: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+    memory: dict[str, Any] | None = Field(default=None, sa_column=Column(JSONB))
+    output_schema: dict[str, Any] | None = Field(default=None, sa_column=Column(JSONB))
+    version: int = Field(default=1)
+    active: bool = Field(default=True)
+    archived_at: datetime | None = Field(default=None)
+    created_by: str | None = Field(default=None)
+    updated_by: str | None = Field(default=None)
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+
+
+class AgentToolBindingModel(SQLModel, table=True):
+    """Which tools an agent may use, in the order the model sees them."""
+
+    __tablename__ = "agent_tool_bindings"
+    __table_args__ = (Index("ix_atb_agent_pos", "agent_id", "position"),)
+
+    id: int | None = Field(
+        default=None, sa_column=SAColumn(Integer, primary_key=True, autoincrement=True)
+    )
+    agent_id: str = Field(foreign_key="agents.id", index=True)
+    source: str = Field(default="builtin")  # builtin|mcp|openapi|node|promoted
+    connector_id: str | None = Field(default=None)
+    tool_key: str
+    alias: str | None = Field(default=None)
+    config: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+    requires_approval: bool = Field(default=False)
+    enabled: bool = Field(default=True)
+    position: int = Field(default=0)
+    created_at: datetime = Field(default_factory=datetime.now)
+
+
+class AgentSessionModel(SQLModel, table=True):
+    """A continuous body of work with one agent. Owns the workspace + memory key."""
+
+    __tablename__ = "agent_sessions"
+
+    id: str = Field(primary_key=True)
+    agent_id: str = Field(foreign_key="agents.id", index=True)
+    team_id: str = Field(default="default", index=True)
+    title: str
+    status: str = Field(default="active")  # active | idle | archived
+    # Pinned at creation so behaviour never shifts mid-conversation.
+    agent_version: int = Field(default=1)
+    agent_config: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+    app_id: str | None = Field(default=None)
+    workflow_id: str | None = Field(default=None)
+    memory_key: str  # never the literal "default" — that is the cross-tenant leak
+    created_by: str | None = Field(default=None)
+    holder_id: str | None = Field(default=None)  # single-writer lock
+    holder_since: datetime | None = Field(default=None)
+    run_count: int = Field(default=0)
+    last_run_at: datetime | None = Field(default=None)
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+
+
+class AgentRunModel(SQLModel, table=True):
+    """One TURN within a session. Immutable once terminal."""
+
+    __tablename__ = "agent_runs"
+
+    id: str = Field(primary_key=True)
+    session_id: str = Field(foreign_key="agent_sessions.id", index=True)
+    agent_id: str = Field(foreign_key="agents.id", index=True)
+    team_id: str = Field(default="default")
+    turn: int = Field(default=1)
+    status: str = Field(default="queued")
+    trigger: str = Field(default="studio")
+    task: str
+    input: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+    # Frozen copy of the config this turn ran under. Survives an adopt-newer-version.
+    agent_snapshot: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+    response: str | None = Field(default=None)
+    structured_output: dict[str, Any] | None = Field(default=None, sa_column=Column(JSONB))
+    error: str | None = Field(default=None)
+    iterations: int = Field(default=0)
+    tool_call_count: int = Field(default=0)
+    input_tokens: int = Field(default=0)
+    output_tokens: int = Field(default=0)
+    llm_time_ms: float = Field(default=0.0)
+    event_count: int = Field(default=0)
+    parent_execution_id: str | None = Field(default=None)
+    created_by: str | None = Field(default=None)
+    started_at: datetime = Field(default_factory=datetime.now)
+    ended_at: datetime | None = Field(default=None)
+    cancelled_at: datetime | None = Field(default=None)
+
+
+class AgentRunEventModel(SQLModel, table=True):
+    """One agent:* event. Row-per-event so a killed pod still leaves a trace."""
+
+    __tablename__ = "agent_run_events"
+
+    id: int | None = Field(
+        default=None, sa_column=SAColumn(BigInteger, primary_key=True, autoincrement=True)
+    )
+    run_id: str = Field(foreign_key="agent_runs.id", index=True)
+    seq: int
+    type: str
+    node_name: str | None = Field(default=None)
+    payload: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+    truncated: bool = Field(default=False)
+    created_at: datetime = Field(default_factory=datetime.now)
+
+
+class AgentApprovalModel(SQLModel, table=True):
+    """A tool call held pending a human decision."""
+
+    __tablename__ = "agent_approvals"
+
+    id: str = Field(primary_key=True)
+    run_id: str = Field(foreign_key="agent_runs.id", index=True)
+    tool_name: str
+    arguments: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+    reason: str | None = Field(default=None)
+    status: str = Field(default="pending")
+    scope: str | None = Field(default=None)  # once | run | always
+    decided_by: str | None = Field(default=None)
+    decision_note: str | None = Field(default=None)
+    created_at: datetime = Field(default_factory=datetime.now)
+    decided_at: datetime | None = Field(default=None)
+
+
+class ToolConnectorModel(SQLModel, table=True):
+    """A registered MCP server or OpenAPI spec."""
+
+    __tablename__ = "tool_connectors"
+
+    id: str = Field(primary_key=True)
+    team_id: str = Field(default="default", index=True)
+    name: str
+    kind: str  # mcp | openapi
+    base_url: str
+    spec_url: str | None = Field(default=None)
+    tool_prefix: str = Field(default="")
+    config: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+    selection: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+    headers: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+    enabled: bool = Field(default=True)
+    status: str = Field(default="pending")
+    last_error: str | None = Field(default=None)
+    source_hash: str | None = Field(default=None)
+    instructions: str | None = Field(default=None)
+    last_discovered_at: datetime | None = Field(default=None)
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+
+
+class ConnectorToolModel(SQLModel, table=True):
+    """One tool discovered from a connector. Selection survives re-discovery."""
+
+    __tablename__ = "connector_tools"
+
+    id: int | None = Field(
+        default=None, sa_column=SAColumn(BigInteger, primary_key=True, autoincrement=True)
+    )
+    connector_id: str = Field(foreign_key="tool_connectors.id", index=True)
+    remote_id: str
+    tool_name: str  # PINNED at first import; never renamed by re-discovery
+    description: str = Field(default="")
+    input_schema: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+    optional_args: list[str] = Field(default_factory=list, sa_column=Column(JSONB))
+    invoke: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+    selected: bool = Field(default=False)
+    read_only: bool = Field(default=True)
+    unsupported_reason: str | None = Field(default=None)
+    schema_hash: str = Field(default="")
+    est_tokens: int = Field(default=0)
+    first_seen_at: datetime = Field(default_factory=datetime.now)
+    last_seen_at: datetime = Field(default_factory=datetime.now)
+    removed_at: datetime | None = Field(default=None)
+
+
+class PromotedToolModel(SQLModel, table=True):
+    """An accepted workflow registered as a callable tool. Pinned to ONE version."""
+
+    __tablename__ = "promoted_tools"
+
+    id: str = Field(primary_key=True)
+    team_id: str = Field(default="default", index=True)
+    workflow_id: str = Field(foreign_key="workflows.id", index=True)
+    version_id: int | None = Field(default=None)
+    version_number: int | None = Field(default=None)
+    tool_name: str
+    description: str = Field(default="")
+    input_schema: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+    est_tokens: int = Field(default=0)
+    call_count: int = Field(default=0)
+    success_count: int = Field(default=0)
+    fail_count: int = Field(default=0)
+    recent_results: list[Any] = Field(default_factory=list, sa_column=Column(JSONB))
+    demoted_at: datetime | None = Field(default=None)
+    demoted_reason: str | None = Field(default=None)
+    accepted_by: str | None = Field(default=None)
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
