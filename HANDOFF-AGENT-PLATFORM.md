@@ -1,6 +1,7 @@
 # Agent Platform — Handoff
 
 **Written 2026-08-18.** Read this first in a new session; it is the single authoritative record.
+Formal specs: **`VISION.md`** (why) and **`SDK-DESIGN.md`** (the composition surface).
 Companion files: the 16 HTML prototypes in `design-prototypes/terminal-agent-*.html` (start at
 `design-prototypes/agents-index.html`), and the long-form plan at `~/.claude/plans/fizzy-popping-gray.md`.
 

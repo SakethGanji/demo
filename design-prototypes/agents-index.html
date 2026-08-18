@@ -53,7 +53,7 @@ that ordering is the thing under review: if the flow does not hold, no individua
 
   <h1 class="big">Agent platform — prototypes</h1>
   <div class="lede">
-    Thirteen screens, one stylesheet (<code class="mono" style="font-size:11px;color:var(--t2)">_agents-base.css</code>), no build step.
+    Sixteen screens, one stylesheet (<code class="mono" style="font-size:11px;color:var(--t2)">_agents-base.css</code>), no build step.
     Ordered by the path a user walks, because <b>that ordering is the thing under review</b> — if the flow does not hold, no
     individual screen saves it. Every screen is 1440×1024 and states its own design argument in an HTML comment at the top.
   </div>
@@ -159,6 +159,20 @@ that ordering is the thing under review: if the flow does not hold, no individua
         <div class="tags"><span class="tg old">rejected</span><span class="tg old">reference only</span></div>
       </a>
 
+    </div>
+  </div>
+
+  <!-- ══ THE SDK ══ -->
+  <div class="grp">
+    <div class="grphd"><span class="n">Composition</span><span class="d">how the agent actually builds</span><span class="ln3"></span></div>
+    <div class="cards">
+      <a class="card" href="terminal-agent-sdk.html">
+        <div class="ct2"><span class="step">13</span><span class="nm3">The node SDK</span></div>
+        <div class="fn3">terminal-agent-sdk.html</div>
+        <div class="ds2">The agent writes one Python script against an SDK generated from the node registry. Script │ graph assembling from it │ SDK reference and cost. Drawn in the partial-failure state, because that is the interesting one.</div>
+        <div class="dec"><b>Decides:</b> ~650 tokens and 1 model call, against 1,293/18 for the tool ladder. And the line↔node link is <b>provenance, not animation</b> — composition takes milliseconds.</div>
+        <div class="tags"><span class="tg new">current design</span><span class="tg">see SDK-DESIGN.md</span></div>
+      </a>
     </div>
   </div>
 
