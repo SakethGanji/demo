@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<!--
+DESIGN NOTES — DO THIS EVERY MONDAY. A finished session becomes a scheduled workflow.
+
+THIS IS THE HIGHEST-VALUE ACTION IN THE PRODUCT and it is one sentence long. A non-technical person asked a
+question in English, got an answer, and now wants the answer to keep arriving. They are not asking to build a
+workflow — they are asking to stop having to ask. Every other route into the workflow engine requires you to
+already know what a node is. This one requires you to have already got what you wanted once.
+
+IT IS ALSO THE BRIDGE BETWEEN THE TWO HALVES OF THE THING WE ARE BUILDING. The expensive nondeterministic agent
+runs ONCE and its by-product is a cheap deterministic artifact that runs forever with no model in the loop.
+44.1k tokens and 52s become 0 tokens and 2.1s, fifty-two times a year. That comparison is not a footnote on this
+screen, it is a band across the top of the middle column, denominated in tokens, seconds and pounds, because it
+is the entire argument for why an agent platform sitting on a workflow engine is different from a chatbot.
+
+THE WORKFLOW IS NOT INVENTED, IT IS RECORDED — and the screen has to prove that, not assert it. Hence the
+derivation table: fourteen tool calls on the left, six nodes on the right, arrows between them, and three rows
+that map to NOTHING because they were dead ends or clarifying questions. An agent that quietly drops three of
+your fourteen actions and shows you a tidy graph has asked you to trust it. Showing the drops costs one column
+and buys the whole claim.
+
+NOTHING HERE IS NEW ENGINE WORK. Cron and Webhook are shipped trigger nodes, active_triggers is a shipped table,
+the CronScheduler ticks every 30 seconds, and publish/unpublish already syncs triggers. The agent's contribution
+is the derivation, not the runtime — which is exactly the right division of labour, because a runtime that needs
+a model to run is a runtime you cannot afford.
+
+WHAT GETS LOST IS STATED, NOT BURIED. A workflow cannot adapt. The agent would have coped with a renamed column;
+the workflow will fail on it. So the failure route is drawn in the dock as a first-class path back into a
+session, and the guard says the sentence out loud instead of leaving the user to discover it in nine weeks.
+
+WHAT THE DENSITY FORCED:
+ A1 THE DERIVATION IS A TWO-COLUMN MAPPING, NOT A NARRATIVE. "It made these calls, they became these nodes" is a
+    relation, and a relation drawn as prose is an assertion. Grid, arrow glyph, one row per fact.
+ A2 THE DROPPED ROWS STAY IN THE TABLE with an em-dash where the node would be. Deleting them would make the
+    mapping look total, and it is not — 6 of 14 became nodes, 5 folded into parameters, 3 went nowhere.
+ A3 THE COST COMPARISON IS A BAND, NOT A CARD. Two panes divided by a hairline, same four rows in the same
+    order, so the reader compares by scanning down a column rather than by reading two paragraphs.
+ A4 MAGNITUDE ON THE NEUTRAL RAMP (rule 5): the token bar is --m1 against an empty track. Cost is not a status.
+ A5 EVERY FIGURE DENOMINATED (rule 11): "44.1k of 200k context", "6 of 14 tool calls", "7 of 52 weeks",
+    "£16.12 of model spend a year", "in 6d 9h". No bare number anywhere on this screen.
+ A6 ONE QUESTION, AND IT IS THE ONLY ONE THAT CANNOT BE DERIVED — what to do when the numbers move. Everything
+    else was already decided in the session; asking again would be re-interviewing someone you just met.
+ A7 ACCENT — exactly 3 uses: the active route, the ghost node the answer will configure, and the ring on the
+    composer where the answer goes. No lamp: nothing is running, the agent is waiting, and a pulsing accent
+    would say otherwise.
+-->
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Command Studio · Session becomes a schedule</title>
+<link rel="stylesheet" href="_agents-base.css" />
+<style>
+  .body3 { flex:1; display:flex; min-height:0; overflow:hidden; }
+  .mid { flex:1; display:flex; flex-direction:column; min-width:0; min-height:0; background:var(--s3); }
+  .rgt { width:376px; min-width:376px; background:var(--s2); display:flex; flex-direction:column; min-height:0;
+    box-shadow:inset 1px 0 0 rgba(255,255,255,.055); }
+  .colscroll { flex:1; overflow:auto; min-height:0; }
+  .isec { padding:12px 15px; }
+  .isec + .isec { box-shadow:0 -1px 0 rgba(255,255,255,.05); }
+  .kv2 { display:flex; justify-content:space-between; gap:12px; padding:3.5px 0; font-size:11px; }
+  .kv2 .k { color:var(--t3); }
+  .kv2 .v { color:var(--t2); text-align:right; font-family:var(--mono); font-size:10.5px; font-variant-numeric:tabular-nums; }
+  .kv2 .v b { color:var(--t1); font-weight:600; }
+  .cbar2 { display:flex; align-items:center; gap:10px; padding:7px 14px; background:var(--s2);
+    box-shadow:0 1px 0 rgba(255,255,255,.05); flex:none; }
+  .composer2 { background:var(--s0); border-radius:9px;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+  .composer2 textarea { width:100%; background:transparent; border:0; outline:none; resize:none; color:var(--t1);
+    font-family:var(--sans); font-size:11.5px; line-height:1.5; padding:9px 11px 4px; }
+  .composer2 textarea::placeholder { color:var(--t4); }
+  .c2bar { display:flex; align-items:center; gap:6px; padding:4px 7px 6px; }
+
+  /* ── THE TWO ECONOMIES, side by side ───────────────────────────────────────
+   * Same four rows, same order, one hairline between them, so the comparison is
+   * made by scanning down a column instead of by reading two paragraphs. */
+  .econ { display:flex; flex:none; background:var(--s2); box-shadow:0 1px 0 rgba(255,255,255,.05); }
+  .epane { flex:1; padding:9px 15px 10px; min-width:0; }
+  .epane + .epane { box-shadow:inset 1px 0 0 rgba(255,255,255,.055); }
+  .epane .eh { display:flex; align-items:baseline; gap:8px; margin-bottom:6px; }
+  .epane .eh .et { font-size:11px; font-weight:600; color:var(--t1); letter-spacing:-0.006em; }
+  .epane .eh .ew { font-size:10px; color:var(--t3); font-family:var(--mono); }
+  .eln { display:flex; align-items:baseline; gap:9px; padding:1.5px 0; }
+  .eln .ek { width:66px; flex:none; font-size:10.5px; color:var(--t3); }
+  .eln .ev { font-family:var(--mono); font-variant-numeric:tabular-nums; font-size:11.5px; color:var(--t1); font-weight:600; }
+  .eln .eu { font-family:var(--mono); font-variant-numeric:tabular-nums; font-size:10px; color:var(--t3); }
+  .yr { display:flex; align-items:center; gap:10px; padding:6px 15px 7px; background:var(--s2);
+    box-shadow:0 1px 0 rgba(255,255,255,.05); flex:none; }
+
+  /* ── SESSION ACTION → WORKFLOW NODE ────────────────────────────────────────
+   * The claim of this screen is that the workflow was recorded, not invented.
+   * A claim about a correspondence has to be drawn as a correspondence. */
+  .deriv { flex:none; height:288px; overflow-y:auto; background:var(--s3); }
+  .dhd { position:sticky; top:0; z-index:2; background:var(--s3); display:grid;
+    grid-template-columns:1fr 26px 1fr; padding:6px 15px 5px; box-shadow:inset 0 -1px 0 rgba(255,255,255,.07); }
+  .dhd span { font-size:9.5px; font-weight:500; letter-spacing:.11em; text-transform:uppercase; color:var(--t3); }
+  .drow { display:grid; grid-template-columns:1fr 26px 1fr; align-items:center; padding:6px 15px;
+    box-shadow:inset 0 -1px 0 rgba(255,255,255,.032); }
+  .drow:hover { background:rgba(255,255,255,.022); }
+  .drow .fn3 { font-family:var(--mono); font-size:10.5px; color:var(--t1); }
+  .drow .rs3 { font-size:10.5px; color:var(--t3); margin-top:1px; }
+  .drow .arw { text-align:center; font-family:var(--mono); font-size:11px; color:var(--t4); }
+  .drow .nty { font-size:9px; letter-spacing:.09em; text-transform:uppercase; color:var(--t3); }
+  .drow .nnm { font-size:11.5px; font-weight:600; color:var(--t1); margin-top:1px; letter-spacing:-0.008em; }
+  .drow .nnm .fx { font-family:var(--mono); font-size:10px; font-weight:400; color:var(--t3); margin-left:6px; }
+  /* folded: the call survives as a parameter, not as a node */
+  .drow.fold .nnm { font-weight:450; color:var(--t2); }
+  /* dropped: the row STAYS, with an em-dash where the node would be */
+  .drow.drop .fn3 { color:var(--t2); }
+  .drow.drop .arw { color:var(--t4); }
+  .drow.drop .nnm { font-weight:450; color:var(--t3); }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo"></div><span class="wordmark">Command Studio</span>
+      <span class="envchip">LOCAL · :8000</span>
+    </div>
+    <nav class="nav">
+      <a href="#">Workflows</a><a href="#">Datasets</a><a href="#">Catalog</a>
+      <a href="#">Runs</a><a href="#" class="active">Agents</a><a href="#">Admin</a>
+    </nav>
+    <div class="topright">
+      <div class="cmdk"><span>Search agents, tools, runs…</span><span class="kbd">⌘K</span></div>
+      <div class="team"><span class="dot good"></span><span>Growth Analytics</span><span class="caret">▾</span></div>
+      <div class="avatar">SG</div>
+    </div>
+  </div>
+
+  <div class="subhead">
+    <h1 style="font-size:13px;font-weight:550">Net revenue by segment, year to date → every Monday</h1>
+    <span class="idf">ses_2Rm7Kx · turn 6 · finished</span>
+    <span class="st" style="font-size:11.5px;color:var(--t2)"><span class="dot warn"></span>needs your answer</span>
+    <div class="spacer"></div>
+    <div class="ctrl">Derived <b>6</b> nodes of 14 tool calls</div>
+    <div class="ctrl">Open in editor <span class="caret">›</span></div>
+    <button class="btn-ghost">Keep it a session</button>
+    <button class="btn-primary" style="opacity:.4">
+      <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M12 7v5l3 2"/><circle cx="12" cy="12" r="9"/></svg>
+      Schedule it
+    </button>
+  </div>
+
+  <div class="body3">
+
+    <!-- ════ THE AGENT: the session that produced all of this ════ -->
+    <div class="agcol">
+      <div class="aghead">
+        <div class="avatar" style="width:24px;height:24px;font-size:9px">RA</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;font-weight:600;color:var(--t1)">Revenue Analyst</div>
+          <div style="font-size:10px;color:var(--t3)">claude-opus-4-8 · answered in 52s · waiting on you · 1m 08s</div>
+        </div>
+        <span class="dot warn"></span>
+      </div>
+
+      <div class="agstream">
+        <div class="say me">
+          Net revenue by segment, year to date — how are we tracking?
+        </div>
+
+        <div class="act"><span class="fn2">resolve_dataset</span><span class="rs">3 candidates · picked 1</span><span class="ms2">240ms</span></div>
+        <div class="act"><span class="fn2">describe_dataset</span><span class="rs">net_revenue_ytd v7 · 14 cols</span><span class="ms2">180ms</span></div>
+        <div class="act"><span class="fn2">run_sql</span><span class="rs">1.28M of 1.28M rows scanned</span><span class="ms2">1.9s</span></div>
+        <div class="act"><span class="fn2">aggregate</span><span class="rs">6 segments · sum(net_revenue)</span><span class="ms2">62ms</span></div>
+        <div class="act"><span class="fn2">compare_periods</span><span class="rs">vs same period last year</span><span class="ms2">310ms</span></div>
+        <div class="act"><span class="fn2">format_table</span><span class="rs">6 rows × 4 columns</span><span class="ms2">14ms</span></div>
+
+        <div class="say">
+          <b style="color:var(--t1)">£9.87M net revenue year to date</b>, across 6 segments. Enterprise is £4.31M of that (43.7%), up 12.4% on the same period last year; Self-serve is £1.02M and down 3.1%. Table's on the right of the session.
+        </div>
+
+        <div class="say me">
+          Perfect. Do this every Monday and email me.
+        </div>
+
+        <div class="say">
+          I can — and I don't need to invent anything to do it. I'll replay what I actually did in this session as fixed steps, so it runs on a schedule without me in the loop.
+        </div>
+
+        <div class="act"><span class="fn2">derive_workflow</span><span class="rs">14 tool calls · 6 became nodes</span><span class="ms2">410ms</span></div>
+        <div class="act"><span class="fn2">get_node_schema</span><span class="rs">Cron · 4 properties</span><span class="ms2">8ms</span></div>
+        <div class="act"><span class="fn2">add_node ×6</span><span class="rs">Cron · Query · Aggregate · Code · If · SendEmail</span><span class="ms2">—</span></div>
+        <div class="act"><span class="fn2">connect ×5</span><span class="rs">no orphans · 1 branch</span><span class="ms2">—</span></div>
+        <div class="act"><span class="dot warn"></span><span class="fn2">validate</span><span class="rs">5 of 6 configured · 1 needs you</span><span class="ms2">28ms</span></div>
+
+        <div class="plan">
+          <div class="pln done"><span class="bx"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span><span>Freeze the dataset choice — ds_4Kp2 at v7</span></div>
+          <div class="pln done"><span class="bx"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span><span>Copy the SQL verbatim — 41 lines, YTD window</span></div>
+          <div class="pln done"><span class="bx"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span><span>Rebuild the aggregate and the deltas</span></div>
+          <div class="pln done"><span class="bx"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span><span>Trigger: Monday 07:00, Europe/London</span></div>
+          <div class="pln now"><span class="bx"></span><span>Decide what happens when the numbers move</span></div>
+          <div class="pln"><span class="bx"></span><span>Publish — write the trigger, register the tool</span></div>
+        </div>
+
+        <!-- ════ THE ONE THING IT CANNOT DERIVE ════ -->
+        <div class="ask">
+          <div class="qh">
+            <span class="dot warn"></span>
+            <span class="lb3">One answer and I can schedule it</span>
+          </div>
+          <div class="qt">Everything else came out of the session — the dataset, the SQL, the grouping, the recipients, the timezone. This one never came up, because you were sitting here reading the answer.</div>
+
+          <div class="qn">
+            <span class="ix">1</span>
+            <b style="color:var(--t1)">What should happen when a segment moves a lot?</b> On a Monday when Enterprise drops 18%, do you want the same email, or do you want to be told?
+          </div>
+          <div class="opt">
+            <span class="on2">Just send it, every Monday</span>
+            <span class="om">52 of 52 runs identical</span>
+          </div>
+          <div class="opt">
+            <span class="on2">Send it, and flag moves over ±10%</span>
+            <span class="om">adds 1 node · If</span>
+            <span class="rec">use this</span>
+          </div>
+          <div class="opt">
+            <span class="on2">Only email me when something moves</span>
+            <span class="om">7 of 52 weeks would send</span>
+          </div>
+          <div class="orjust">
+            <b style="color:var(--t2)">Why flag rather than only-on-move:</b> over the last 52 weeks, 7 had a segment move more than ±10%. Silence for the other 45 leaves you unable to tell a quiet quarter from a broken job.
+          </div>
+        </div>
+
+        <div style="margin:2px 14px 10px">
+          <div class="guard warn">
+            <b>Whatever you pick becomes a fixed number.</b> ±10% is then ±10% forever — the workflow cannot notice that 9% was unusual this week because the quarter closed on Friday. That judgement is the thing you are trading away for £0.00 a run.
+          </div>
+        </div>
+
+        <div class="say" style="color:var(--t3)">
+          Answer and I'll publish. The session stays — it's the provenance for the workflow, and it's where a failure comes back to.
+        </div>
+      </div>
+
+      <div class="agfoot">
+        <div class="composer2">
+          <textarea rows="2" placeholder="Answer in plain English — or click an option above…"></textarea>
+          <div class="c2bar">
+            <span class="cchip" style="height:22px;font-size:10.5px">+ Context</span>
+            <div class="spacer"></div>
+            <span style="font-size:10px;color:var(--t3)"><span class="kbd">Enter</span> send</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════ THE ARGUMENT: cost, derivation, graph ════ -->
+    <div class="mid">
+
+      <div class="cbar2">
+        <span class="micro">Proposed workflow</span>
+        <span style="font-size:11px;color:var(--t2)">net_revenue_by_segment_weekly · 6 nodes · 5 connections</span>
+        <span class="sev sev-warn">5 of 6 configured · blocked on 1 answer</span>
+        <div class="spacer"></div>
+        <span class="cchip" style="height:22px;font-size:10.5px">Fit</span>
+        <span class="cchip" style="height:22px;font-size:10.5px">Dry run</span>
+      </div>
+
+      <!-- ── the whole argument for the product, in eight numbers ── -->
+      <div class="econ">
+        <div class="epane">
+          <div class="eh">
+            <span class="et">As an agent</span>
+            <span class="ew">ran once · Mon 11 Aug</span>
+            <div class="spacer"></div>
+            <span class="st" style="font-size:10.5px;color:var(--t2)"><span class="dot warn"></span>nondeterministic</span>
+          </div>
+          <div class="eln"><span class="ek">Tokens</span><span class="ev">44.1k</span><span class="eu">of 200k context · 6 turns</span></div>
+          <div class="eln"><span class="ek">Wall clock</span><span class="ev">52s</span><span class="eu">14 tool calls</span></div>
+          <div class="eln"><span class="ek">Cost</span><span class="ev">£0.31</span><span class="eu">per run · model spend</span></div>
+          <div class="bar" style="margin-top:6px"><i class="strong" style="width:100%"></i></div>
+          <div style="font-size:10px;color:var(--t3);margin-top:4px;font-family:var(--mono)">44.1k of 44.1k tokens</div>
+        </div>
+        <div class="epane">
+          <div class="eh">
+            <span class="et">As a workflow</span>
+            <span class="ew">would run 52× a year</span>
+            <div class="spacer"></div>
+            <span class="st" style="font-size:10.5px;color:var(--t2)"><span class="dot good"></span>deterministic</span>
+          </div>
+          <div class="eln"><span class="ek">Tokens</span><span class="ev">0</span><span class="eu">no model in the loop</span></div>
+          <div class="eln"><span class="ek">Wall clock</span><span class="ev">2.1s</span><span class="eu">measured on the dry run</span></div>
+          <div class="eln"><span class="ek">Cost</span><span class="ev">~£0.00</span><span class="eu">£0.0004 per run · compute</span></div>
+          <div class="bar" style="margin-top:6px"><i style="width:0.4%"></i></div>
+          <div style="font-size:10px;color:var(--t3);margin-top:4px;font-family:var(--mono)">0 of 44.1k tokens</div>
+        </div>
+      </div>
+
+      <div class="yr">
+        <span class="micro">Over 52 runs a year</span>
+        <span style="font-size:11px;color:var(--t2)">
+          <b class="mono" style="color:var(--t1);font-size:11.5px">£16.12</b> of model spend and <b class="mono" style="color:var(--t1);font-size:11.5px">45m 04s</b> of waiting,
+          against <b class="mono" style="color:var(--t1);font-size:11.5px">£0.02</b> and <b class="mono" style="color:var(--t1);font-size:11.5px">1m 49s</b>.
+        </span>
+        <div class="spacer"></div>
+        <span class="sev sev-info">the agent's job was to write this once, not to run it 52 times</span>
+      </div>
+
+      <!-- ── SESSION ACTION → WORKFLOW NODE ── -->
+      <div class="deriv">
+        <div class="dhd">
+          <span>What it did in the session · 14 calls</span>
+          <span></span>
+          <span>What that became · 6 nodes</span>
+        </div>
+
+        <div class="drow">
+          <div>
+            <div class="fn3">your words, Mon 11 Aug</div>
+            <div class="rs3">“do this every Monday and email me”</div>
+          </div>
+          <div class="arw">→</div>
+          <div>
+            <div class="nty">Trigger · Cron</div>
+            <div class="nnm">Every Monday 07:00<span class="fx">0 7 * * 1</span></div>
+          </div>
+        </div>
+
+        <div class="drow">
+          <div>
+            <div class="fn3">resolve_dataset("net revenue")</div>
+            <div class="rs3">3 candidates · you kept net_revenue_ytd</div>
+          </div>
+          <div class="arw">→</div>
+          <div>
+            <div class="nty">Action · DatasetQuery</div>
+            <div class="nnm">Read net_revenue_ytd<span class="fx">ds_4Kp2 · pinned v7</span></div>
+          </div>
+        </div>
+
+        <div class="drow">
+          <div>
+            <div class="fn3">run_sql</div>
+            <div class="rs3">41 lines · YTD window · 1.28M of 1.28M rows</div>
+          </div>
+          <div class="arw">→</div>
+          <div>
+            <div class="nty">Action · DatasetQuery</div>
+            <div class="nnm">Read net_revenue_ytd<span class="fx">same 41 lines, verbatim</span></div>
+          </div>
+        </div>
+
+        <div class="drow">
+          <div>
+            <div class="fn3">aggregate</div>
+            <div class="rs3">sum(net_revenue) group by segment · 6 groups</div>
+          </div>
+          <div class="arw">→</div>
+          <div>
+            <div class="nty">Transform · Aggregate</div>
+            <div class="nnm">Net revenue by segment<span class="fx">6 of 6 segments</span></div>
+          </div>
+        </div>
+
+        <div class="drow">
+          <div>
+            <div class="fn3">compare_periods</div>
+            <div class="rs3">vs same period last year · 2 delta columns</div>
+          </div>
+          <div class="arw">→</div>
+          <div>
+            <div class="nty">Transform · Code</div>
+            <div class="nnm">Add deltas &amp; format<span class="fx">6 rows × 4 columns</span></div>
+          </div>
+        </div>
+
+        <div class="drow fold">
+          <div>
+            <div class="fn3">format_table · round_currency · sort_desc</div>
+            <div class="rs3">3 calls that shaped the output you kept</div>
+          </div>
+          <div class="arw">→</div>
+          <div>
+            <div class="nty">folded into parameters</div>
+            <div class="nnm">Add deltas &amp; format<span class="fx">3 of 3 folded, no new node</span></div>
+          </div>
+        </div>
+
+        <div class="drow fold">
+          <div>
+            <div class="fn3">list_recipients · resolve_identity</div>
+            <div class="rs3">“email me” · you + 2 on the finance list</div>
+          </div>
+          <div class="arw">→</div>
+          <div>
+            <div class="nty">Output · SendEmail</div>
+            <div class="nnm">Email the table<span class="fx">3 recipients</span></div>
+          </div>
+        </div>
+
+        <div class="drow drop">
+          <div>
+            <div class="fn3">run_sql ×2 — abandoned</div>
+            <div class="rs3">grouped by region, then by month; you didn't want either</div>
+          </div>
+          <div class="arw">—</div>
+          <div>
+            <div class="nty">not carried over</div>
+            <div class="nnm">the search for the answer isn't part of the answer</div>
+          </div>
+        </div>
+
+        <div class="drow drop">
+          <div>
+            <div class="fn3">your clarification, turn 3</div>
+            <div class="rs3">“net, not gross” — answered once, mid-session</div>
+          </div>
+          <div class="arw">—</div>
+          <div>
+            <div class="nty">not carried over</div>
+            <div class="nnm">became a fixed column, not a question it asks again</div>
+          </div>
+        </div>
+
+        <div class="drow drop">
+          <div>
+            <div class="fn3">describe_dataset</div>
+            <div class="rs3">14 columns · how it worked out which ones to use</div>
+          </div>
+          <div class="arw">—</div>
+          <div>
+            <div class="nty">not carried over</div>
+            <div class="nnm">the workflow already knows; it will not re-check</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── THE PROPOSED GRAPH ── -->
+      <div class="canvas">
+        <svg class="cedge" width="100%" height="100%">
+          <path d="M 133 84  C 133 100, 133 100, 133 116" />
+          <path d="M 133 174 C 133 190, 133 190, 133 206" />
+          <path d="M 226 235 C 292 235, 292 55,  330 55" />
+          <path d="M 423 84  C 423 100, 423 100, 423 116" />
+          <path d="M 423 174 C 423 190, 423 190, 423 206" class="live" />
+        </svg>
+
+        <div class="cnode trigger" style="left:40px; top:26px">
+          <span class="port out"></span>
+          <div class="ty">Trigger · Cron</div>
+          <div class="nn">Every Monday 07:00</div>
+          <div class="pp">0 7 * * 1 · Europe/London</div>
+        </div>
+
+        <div class="cnode action" style="left:40px; top:116px">
+          <span class="port in"></span><span class="port out"></span>
+          <div class="ty">Action · DatasetQuery</div>
+          <div class="nn">Read net_revenue_ytd</div>
+          <div class="pp">ds_4Kp2 · v7 · 41 lines SQL</div>
+        </div>
+
+        <div class="cnode transform" style="left:40px; top:206px">
+          <span class="port in"></span><span class="port out"></span>
+          <div class="ty">Transform · Aggregate</div>
+          <div class="nn">Net revenue by segment</div>
+          <div class="pp">sum(net_revenue) · 6 groups</div>
+        </div>
+
+        <div class="cnode transform" style="left:330px; top:26px">
+          <span class="port in"></span><span class="port out"></span>
+          <div class="ty">Transform · Code</div>
+          <div class="nn">Add deltas &amp; format</div>
+          <div class="pp">6 rows × 4 columns</div>
+        </div>
+
+        <div class="cnode ghost now" style="left:330px; top:116px">
+          <span class="port in"></span><span class="port out"></span>
+          <span class="plabel" style="top:14px">moved</span>
+          <span class="plabel" style="top:44px">quiet</span>
+          <div class="ty">Flow · If</div>
+          <div class="nn">Segment moved ±10%?</div>
+          <div class="pp">waiting on your answer</div>
+        </div>
+
+        <div class="cnode output" style="left:330px; top:206px">
+          <span class="port in"></span>
+          <div class="ty">Output · SendEmail</div>
+          <div class="nn">Email the table</div>
+          <div class="pp">3 recipients · Mon 07:02</div>
+        </div>
+
+        <div style="position:absolute; left:40px; top:300px; width:600px">
+          <div class="guard">
+            <b>The outlined node is the only thing that isn't a recording.</b> Five nodes came out of calls you watched it make; this one is a decision that never came up, because in a session you were the one deciding it. Answering the question on the left fills it in — or deletes it.
+          </div>
+          <div class="guard warn" style="margin-top:11px">
+            <b>What you give up: a workflow cannot adapt.</b> If <span class="mono" style="font-size:10.5px">net_revenue</span> is renamed, or ds_4Kp2 is superseded by a v8 with a different grain, the agent sitting here would have looked, noticed and re-derived. The workflow will fail at node 2 on a Monday morning. That failure is routed, not silent — see the dock.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════ THE DOCK: schedule, failure, and what it becomes ════ -->
+    <div class="rgt">
+      <div style="flex:none;padding:10px 15px 9px;box-shadow:0 1px 0 rgba(255,255,255,.045)">
+        <div style="display:flex;align-items:baseline;gap:9px">
+          <span style="font-size:11.5px;font-weight:600;color:var(--t1)">Schedule</span>
+          <div class="spacer"></div>
+          <span class="micro">5 of 6 nodes ready</span>
+        </div>
+      </div>
+
+      <div class="colscroll">
+
+        <div class="isec">
+          <div class="sect-sub" style="margin-bottom:10px">Filled in from the session and your sentence. Nothing here was typed by you into a form.</div>
+          <div class="row2">
+            <div class="field">
+              <label>Cron expression</label>
+              <input class="input mono" style="font-size:11px" value="0 7 * * 1" />
+              <div class="hint">Every Monday at 07:00</div>
+            </div>
+            <div class="field">
+              <label>Timezone</label>
+              <select class="select"><option>Europe/London</option></select>
+              <div class="hint">Your team default</div>
+            </div>
+          </div>
+          <div class="field">
+            <label>Recipients</label>
+            <input class="input" style="font-size:11.5px" value="you, finance-ops@, r.okafor@" />
+            <div class="hint">“email me” resolved to you; the other 2 are on the finance list this workflow's data already goes to.</div>
+          </div>
+          <div class="kv2"><span class="k">First run</span><span class="v"><b>Mon 24 Aug</b> · 07:00</span></div>
+          <div class="kv2"><span class="k">That is</span><span class="v">in 6d 09h 12m</span></div>
+          <div class="kv2"><span class="k">Runs before year end</span><span class="v">19 of 52</span></div>
+          <div class="kv2"><span class="k">Dataset pin</span><span class="v">ds_4Kp2 · v7 (immutable)</span></div>
+        </div>
+
+        <div class="isec">
+          <div class="sect-title" style="margin-bottom:7px">What “Schedule it” actually does</div>
+          <div class="kv2"><span class="k">Writes</span><span class="v">1 row · active_triggers</span></div>
+          <div class="kv2"><span class="k">Picked up by</span><span class="v">CronScheduler · 30s tick</span></div>
+          <div class="kv2"><span class="k">Live within</span><span class="v">≤ 30s of publish</span></div>
+          <div class="kv2"><span class="k">Unpublish</span><span class="v">deletes the trigger row</span></div>
+          <div style="margin-top:9px" class="guard">
+            <b>No new machinery.</b> Cron is a shipped trigger node and publish already syncs <span class="mono" style="font-size:10.5px">active_triggers</span>. The agent's contribution is the derivation, not the runtime — which is the point, because a runtime that needs a model to run is a runtime you cannot afford 52 times a year.
+          </div>
+        </div>
+
+        <div class="isec">
+          <div class="sect-title" style="margin-bottom:7px">When it fails</div>
+          <div class="inf"><span class="il">Retries</span><span class="iv"><b>1 of 1</b>, after 5 minutes</span></div>
+          <div class="inf"><span class="il">Then</span><span class="iv">fires the <b>ErrorTrigger</b> workflow</span><span class="src2">shipped</span></div>
+          <div class="inf"><span class="il">Which opens</span><span class="iv">a session, this transcript attached</span></div>
+          <div class="inf"><span class="il">Who hears</span><span class="iv"><b>you</b> · not the other 2 recipients</span></div>
+          <div class="inf"><span class="il">Missed email</span><span class="iv">no silent skip — you get the failure</span></div>
+          <div style="margin-top:9px" class="guard warn">
+            <b>The failure route is back into a session</b> — the same agent, holding the transcript that built this. That is the honest version of “a workflow cannot adapt”: it can't, so it hands the problem back to the thing that can, and you pay 44.1k tokens on the one Monday it matters instead of every Monday.
+          </div>
+        </div>
+
+        <div class="isec">
+          <div class="sect-title" style="margin-bottom:7px">It also becomes a tool</div>
+          <div class="kv2"><span class="k">Registered as</span><span class="v">net_revenue_by_segment</span></div>
+          <div class="kv2"><span class="k">Callable by</span><span class="v">4 of 7 agents in this team</span></div>
+          <div class="kv2"><span class="k">Also callable by</span><span class="v">Webhook · 1 trigger</span></div>
+          <div class="kv2"><span class="k">Schema cost</span><span class="v">0.2k of 6.0k tok</span></div>
+          <div style="margin-top:9px" class="guard">
+            <b>The next agent that needs this number will not rebuild it</b> — it will call a 2.1s workflow for 0 tokens. Every session that ends in a schedule makes the next session cheaper, which is the only compounding this architecture actually has.
+          </div>
+        </div>
+
+        <div class="isec">
+          <div class="sect-title" style="margin-bottom:7px">If you'd rather not</div>
+          <div class="inf"><span class="il">Do nothing</span><span class="iv">the session stays, no trigger is written</span></div>
+          <div class="inf"><span class="il">Ask again later</span><span class="iv">a fresh session · <b>~£0.31</b> each time</span></div>
+          <div class="inf"><span class="il">Schedule the agent</span><span class="iv">possible · <b>£16.12</b> a year · 52 of 52 runs</span></div>
+          <div style="margin-top:9px" class="guard">
+            Scheduling the <b>agent</b> is a real option and we won't hide it — for a question whose shape genuinely changes week to week it is the right one. For this question, whose shape has not changed in 6 turns, it is £16.12 a year for the privilege of a different SQL string each Monday.
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

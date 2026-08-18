@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<!--
+DESIGN NOTES — the CHECKPOINT. The agent has stopped and is asking permission.
+
+THE IDEA: "steerable" is a promise that has to become a specific moment, and this is it. A tool bound with
+`requires approval` suspends the run before the call goes out, and the human sees exactly what is about to
+happen — not a paraphrase of it. Approve, edit the arguments, or deny with a reason the agent will read.
+
+WHY A MODAL OVER THE LIVE WORKSPACE rather than its own route: the decision is only answerable in context. You
+need the diff behind it to judge whether the write is warranted, and a full-page takeover would strand you.
+The run is paused, so the workspace behind is frozen, not stale — the dimming says so.
+
+WHAT THE DENSITY FORCED:
+ A1 THE ARGUMENTS ARE THE HERO, verbatim and editable. A prose summary of a mutation is a paraphrase, and a
+    paraphrase is exactly where a wrong approval hides. What you approve is what gets sent, byte for byte.
+ A2 BLAST RADIUS IS ENUMERATED, not adjectival. Not "this is a destructive action" but "creates 1 dataset in
+    Growth Analytics, visible to 12 members, and nothing on this agent's tool surface can delete it." The last
+    clause is the one that matters and it is a real property of the MCP surface.
+ A3 THE FOUR ANSWERS ARE NOT EQUALLY WEIGHTED. "Approve once" wins on value (rule 2). "Always allow" is the
+    dangerous one, so it is the quietest and it says what it changes — it edits the binding, permanently, for
+    every future run.
+ A4 DENY TAKES A REASON, and the reason goes back to the model as the tool result. A denial with no reason is
+    an unexplained failure the agent will simply retry.
+ A5 THE QUEUE IS SHOWN ("1 of 2"). Hiding a second pending approval behind the first is how people click
+    through the one they meant to read.
+ A6 STATUS vs SEVERITY held: `paused` is a state → shape + word. `writes dataset` is a property of the tool →
+    typographic. The timeout is a fact, not a threat.
+ A7 ACCENT — 2 uses here: the active route and the dialog's focus ring. The approve button is VALUE, not hue,
+    so nothing competes with the thing you are being asked to read.
+-->
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Command Studio · Agent checkpoint</title>
+<link rel="stylesheet" href="_agents-base.css" />
+<style>
+  .work { flex:1; display:grid; grid-template-columns:236px 1fr 424px; min-height:0; background:var(--s3); }
+  .col { display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+  .col.rail2 { background:var(--s2); box-shadow:1px 0 0 rgba(255,255,255,.05); }
+  .col.right { background:var(--s2); box-shadow:inset 1px 0 0 rgba(255,255,255,.055); }
+  .colhead { flex:none; padding:9px 12px 8px; box-shadow:0 1px 0 rgba(255,255,255,.045); }
+  .colhead h3 { font-size:11.5px; font-weight:600; color:var(--t1); }
+  .colscroll { flex:1; overflow:auto; min-height:0; }
+  .filebar { display:flex; align-items:center; gap:10px; padding:6px 14px; background:var(--s2);
+    box-shadow:0 1px 0 rgba(255,255,255,.045); flex:none; }
+  .fname { font-family:var(--mono); font-size:11.5px; color:var(--t1); }
+
+  /* the run is PAUSED, so the surface behind is frozen — not stale. */
+  .frozen { filter:saturate(.55) brightness(.62); pointer-events:none; }
+  .scrim { position:fixed; inset:0; background:rgba(6,8,11,.58); z-index:90; }
+
+  /* ── the checkpoint dialog ────────────────────────────────────────────── */
+  .cp { position:fixed; z-index:100; top:50%; left:50%; transform:translate(-50%,-50%);
+    width:788px; max-height:88vh; display:flex; flex-direction:column;
+    background:var(--s3); border-radius:11px;
+    box-shadow:0 0 0 1px rgba(255,255,255,.09), 0 40px 90px -20px rgba(0,0,0,.92), var(--hi); }
+  .cphead { padding:15px 20px 13px; flex:none; box-shadow:0 1px 0 rgba(255,255,255,.055); }
+  .cptitle { display:flex; align-items:center; gap:11px; margin-bottom:5px; }
+  .cptitle h2 { font-size:14.5px; font-weight:600; color:var(--t1); letter-spacing:-0.014em; }
+  .cpsub { font-size:11.5px; color:var(--t3); line-height:1.5; }
+  .cpbody { flex:1; overflow-y:auto; min-height:0; }
+  .cpsect { padding:14px 20px; }
+  .cpsect + .cpsect { box-shadow:0 -1px 0 rgba(255,255,255,.045); }
+  .cpsect h4 { font-size:9.5px; font-weight:500; letter-spacing:.11em; text-transform:uppercase;
+    color:var(--t3); margin-bottom:8px; }
+  .cpfoot { flex:none; padding:13px 20px; display:flex; align-items:center; gap:9px;
+    box-shadow:0 -1px 0 rgba(255,255,255,.055); background:var(--s2); border-radius:0 0 11px 11px; }
+
+  .argwell { background:var(--s0); border-radius:8px; padding:11px 13px; font-family:var(--mono); font-size:11px;
+    line-height:1.65; color:var(--t2); box-shadow:inset 0 1px 2px rgba(0,0,0,.55), 0 0 0 1px var(--sig-line);
+    white-space:pre; overflow-x:auto; }
+  .argwell .k { color:var(--t1); }
+  .argwell .s { color:var(--m2); }
+  .argwell .c { color:var(--t4); }
+
+  .radar { display:grid; grid-template-columns:auto 1fr; gap:5px 13px; font-size:11.5px; align-items:baseline; }
+  .radar .l { color:var(--t3); white-space:nowrap; }
+  .radar .v { color:var(--t2); }
+  .radar .v b { color:var(--t1); font-weight:600; }
+
+  .denybox { width:100%; background:var(--s0); border:0; border-radius:7px; color:var(--t1);
+    font-family:var(--sans); font-size:11.5px; padding:8px 11px; outline:none; resize:none;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.55), inset 0 0 0 1px rgba(255,255,255,.04); }
+  .btn-quiet { height:30px; padding:0 12px; border:0; border-radius:7px; background:transparent; color:var(--t3);
+    font-family:var(--sans); font-size:11.5px; cursor:pointer; }
+  .btn-quiet:hover { color:var(--t1); background:rgba(255,255,255,.045); }
+  .btn-deny { height:30px; padding:0 13px; border:0; border-radius:7px; background:var(--s4); color:var(--t2);
+    font-family:var(--sans); font-size:11.5px; font-weight:550; cursor:pointer; box-shadow:var(--hi); }
+  .btn-deny:hover { color:var(--t1); background:var(--s5); }
+  .btn-big { height:30px; padding:0 15px; border:0; border-radius:7px; background:var(--key); color:#0D1015;
+    font-family:var(--sans); font-size:11.5px; font-weight:650; cursor:pointer; box-shadow:0 1px 2px rgba(0,0,0,.5); }
+  .qchip { font-family:var(--mono); font-size:10px; color:var(--t3); font-variant-numeric:tabular-nums; }
+</style>
+</head>
+<body>
+<div class="shell frozen">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo"></div><span class="wordmark">Command Studio</span>
+      <span class="envchip">LOCAL · :8000</span>
+    </div>
+    <nav class="nav">
+      <a href="#">Workflows</a><a href="#">Datasets</a><a href="#">Catalog</a>
+      <a href="#">Runs</a><a href="#" class="active">Agents</a><a href="#">Admin</a>
+    </nav>
+    <div class="topright">
+      <div class="cmdk"><span>Search agents, tools, runs…</span><span class="kbd">⌘K</span></div>
+      <div class="team"><span class="dot good"></span><span>Growth Analytics</span><span class="caret">▾</span></div>
+      <div class="avatar">SG</div>
+    </div>
+  </div>
+
+  <div class="subhead">
+    <h1>App Builder</h1>
+    <span class="idf">arun_4Tz8vQ2nHy · churn-cohort-explorer</span>
+    <div class="seg"><button>Trace</button><button class="active">Workspace</button></div>
+    <div class="spacer"></div>
+    <div class="ctrl">Iteration <b>9</b> of 30</div>
+    <button class="btn-primary">Accept &amp; publish</button>
+  </div>
+
+  <div class="steer">
+    <div class="now">
+      <span class="dot warn"></span>
+      <span><b>Paused</b> — waiting for your decision on 2 pending actions</span>
+    </div>
+    <div class="inject"><input placeholder="Add a correction the agent will read on its next turn…" /></div>
+    <button class="btn-ghost">Resume</button>
+    <button class="btn-ghost">Stop</button>
+  </div>
+
+  <div class="work">
+    <div class="col rail2">
+      <div class="colhead"><h3>Files</h3></div>
+      <div class="colscroll">
+        <div class="ftree">
+          <div class="fitem dir"><span class="mk none">·</span><span class="nm">▾ src</span></div>
+          <div class="fitem" style="padding-left:13px"><span class="mk m">M</span><span class="nm">App.tsx</span><span class="ct">+18 −4</span></div>
+          <div class="fitem" style="padding-left:13px"><span class="mk a">A</span><span class="nm">CohortGrid.tsx</span><span class="ct">+96</span></div>
+          <div class="fitem" style="padding-left:13px"><span class="mk a">A</span><span class="nm">RetentionCurve.tsx</span><span class="ct">+61</span></div>
+          <div class="fitem sel" style="padding-left:13px"><span class="mk m">M</span><span class="nm">useCohorts.ts</span><span class="ct">+31 −12</span></div>
+          <div class="fitem" style="padding-left:13px"><span class="mk m">M</span><span class="nm">retention.ts</span><span class="ct">+8 −22</span></div>
+          <div class="fitem gone" style="padding-left:13px"><span class="mk d">D</span><span class="nm">legacyCohort.ts</span><span class="ct">−41</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="ptabs"><button class="active">Diff <span class="c">6</span></button><button>Source</button><button>History <span class="c">9</span></button></div>
+      <div class="filebar"><span class="fname">src/hooks/useCohorts.ts</span><span class="mono" style="font-size:10.5px;color:var(--t3)">+31 −12</span></div>
+      <div class="colscroll">
+        <div class="diff">
+          <div class="dl hunk"><span class="ln"></span><span class="sg"></span><span class="tx">@@ -22,18 +25,29 @@</span></div>
+          <div class="dl"><span class="ln">27</span><span class="sg"> </span><span class="tx">  <span class="kw">return</span> useMemo(() =&gt; {</span></div>
+          <div class="dl del"><span class="ln">28</span><span class="sg">−</span><span class="tx">    <span class="kw">const</span> cohorts = rows.map(cohortOf)</span></div>
+          <div class="dl add"><span class="ln">28</span><span class="sg">+</span><span class="tx">    <span class="kw">const</span> buckets = bucketByMonth(rows, <span class="str">'signup_date'</span>)</span></div>
+          <div class="dl add"><span class="ln">29</span><span class="sg">+</span><span class="tx">    <span class="kw">return</span> buckets.map(b =&gt; {</span></div>
+          <div class="dl add"><span class="ln">30</span><span class="sg">+</span><span class="tx">      <span class="kw">const</span> total = b.users.length</span></div>
+          <div class="dl add"><span class="ln">31</span><span class="sg">+</span><span class="tx">      <span class="kw">return</span> { label: b.label, total,</span></div>
+          <div class="dl add"><span class="ln">32</span><span class="sg">+</span><span class="tx">        rate: total === <span class="str">0</span> ? <span class="kw">null</span> : retention(b) / total }</span></div>
+          <div class="dl add"><span class="ln">33</span><span class="sg">+</span><span class="tx">    })</span></div>
+          <div class="dl"><span class="ln">34</span><span class="sg"> </span><span class="tx">  }, [rows])</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col right">
+      <div class="colhead"><h3>Preview</h3></div>
+      <div style="padding:11px 14px">
+        <div class="vp">
+          <div class="vpbar"><span class="d"></span><span class="d"></span><span class="d"></span><span class="u">sandbox://churn-cohort-explorer</span></div>
+          <div class="vpbody">
+            <div style="font-size:13px;font-weight:650;color:#111720">Churn cohorts</div>
+            <div style="font-size:9.5px;color:#5E6879;margin-top:2px;letter-spacing:.08em;text-transform:uppercase">12 cohorts · 48,204 users</div>
+            <div style="display:flex;gap:16px;margin-top:11px">
+              <div>
+                <div style="font-size:8.5px;letter-spacing:.11em;text-transform:uppercase;color:#5E6879">M1 retention</div>
+                <div style="font-family:ui-monospace,monospace;font-size:17px;font-weight:600;color:#111720">71.4%</div>
+                <div style="font-size:9px;color:#5E6879;font-family:ui-monospace,monospace">11 of 12 cohorts</div>
+              </div>
+              <div>
+                <div style="font-size:8.5px;letter-spacing:.11em;text-transform:uppercase;color:#5E6879">M6 retention</div>
+                <div style="font-family:ui-monospace,monospace;font-size:17px;font-weight:600;color:#111720">42.9%</div>
+                <div style="font-size:9px;color:#5E6879;font-family:ui-monospace,monospace">7 of 12 cohorts</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="ptabs"><button>Console <span class="c">12</span></button><button class="active">Tests <span class="c">8</span></button></div>
+      <div class="colscroll">
+        <div style="padding:9px 14px 4px"><span class="v sm mono" style="font-size:15px;color:var(--t1);font-weight:600">8 <span style="font-size:11px;color:var(--t3)">of 8 passed</span></span></div>
+        <div class="trow"><span class="dot good"></span><span class="nm">cohortRetention · empty cohort</span><span class="ms">3ms</span></div>
+        <div class="trow"><span class="dot good"></span><span class="nm">CohortGrid · renders 12 rows</span><span class="ms">318ms</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="scrim"></div>
+
+<!-- ════ THE CHECKPOINT ════ -->
+<div class="cp">
+
+  <div class="cphead">
+    <div class="cptitle">
+      <span class="dot warn"></span>
+      <h2>Approval required</h2>
+      <span class="sev sev-err">writes dataset</span>
+      <div class="spacer"></div>
+      <span class="qchip">1 of 2 pending</span>
+    </div>
+    <div class="cpsub">
+      <b style="color:var(--t2)">Revenue Analyst</b> wants to call <span class="mono" style="font-size:11px;color:var(--t1)">publish_result</span> on <span class="mono" style="font-size:11px">Analytics Service</span>. The run is paused and nothing has been sent.
+    </div>
+  </div>
+
+  <div class="cpbody">
+
+    <div class="cpsect">
+      <h4>Why the agent says it needs this</h4>
+      <div style="font-size:12px;line-height:1.6;color:var(--t2)">
+        “The cohort table is computed in the browser and disappears when the preview reloads. Publishing it as a
+        dataset lets the app read it back through <span class="mono" style="font-size:11px">query_rows</span>
+        instead of recomputing 482k rows on every mount.”
+      </div>
+      <div style="margin-top:9px" class="guard">
+        This is the agent's <b>stated</b> reason, not a verified one. It explains intent; it does not constrain what the call below actually does.
+      </div>
+    </div>
+
+    <div class="cpsect">
+      <h4>Exactly what will be sent — edit before approving</h4>
+      <div class="argwell"><span class="k">run_id</span>:        <span class="s">"agg_7Hn2Kq"</span>
+<span class="k">target</span>:        <span class="s">"new_dataset"</span>
+<span class="k">name</span>:          <span class="s">"churn_cohorts_monthly"</span>
+<span class="k">description</span>:   <span class="s">"Monthly signup cohorts with retention rates."</span>
+<span class="k">team_id</span>:       <span class="s">"tm_growth_analytics"</span>
+<span class="k">classification</span>: <span class="s">"internal"</span>   <span class="c">← agent chose this</span></div>
+      <div style="margin-top:9px" class="guard warn">
+        <b>classification is metadata and enforces nothing.</b> Masking is driven only by human-declared column <span class="mono" style="font-size:10.5px">sensitivity</span> in the data dictionary, which this call does not set. If the source carried PII, the published copy will not mask it.
+      </div>
+    </div>
+
+    <div class="cpsect">
+      <h4>Blast radius</h4>
+      <div class="radar">
+        <span class="l">Creates</span>
+        <span class="v"><b>1 dataset</b>, version 1, from a 4-row artifact</span>
+        <span class="l">In team</span>
+        <span class="v"><b>Growth Analytics</b> — visible to 12 members, 3 of them admins</span>
+        <span class="l">Reversible</span>
+        <span class="v">Not by this agent. <b>Nothing on its tool surface can delete a dataset</b> — an admin would remove it by hand.</span>
+        <span class="l">Cost</span>
+        <span class="v">~11 KB object storage · <b>no</b> retention expiry (published_source is kept forever)</span>
+        <span class="l">Notifies</span>
+        <span class="v">2 webhook subscriptions on <span class="mono" style="font-size:10.5px">dataset.created</span></span>
+        <span class="l">Audit</span>
+        <span class="v">Recorded as <b>S. Ganji</b>, not as the agent — the call carries your seat</span>
+      </div>
+    </div>
+
+    <div class="cpsect">
+      <h4>Why you are being asked</h4>
+      <div style="font-size:11.5px;color:var(--t2);line-height:1.55">
+        <span class="mono" style="font-size:11px;color:var(--t1)">publish_result</span> was bound to this agent with
+        <b style="color:var(--t1)">requires approval</b>. Six other bound tools carry the same flag; the remaining 15 run without asking.
+      </div>
+      <div style="margin-top:9px" class="guard">
+        If you do not answer, the run stays paused — it does <b>not</b> time out into either decision. It will hold until you return or stop it.
+      </div>
+    </div>
+
+    <div class="cpsect">
+      <h4>Deny with a reason <span style="text-transform:none;letter-spacing:0;font-weight:400">— the agent reads this as the tool result</span></h4>
+      <textarea class="denybox" rows="2" placeholder="e.g. Don't publish — read from the artifact by filename instead, it survives the reload."></textarea>
+    </div>
+
+  </div>
+
+  <div class="cpfoot">
+    <button class="btn-quiet">Always allow for this agent</button>
+    <div class="spacer"></div>
+    <button class="btn-deny">Deny</button>
+    <button class="btn-deny">Approve for this run</button>
+    <button class="btn-big">Approve once</button>
+  </div>
+</div>
+
+</body>
+</html>

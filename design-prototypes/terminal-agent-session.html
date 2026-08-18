@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<!--
+DESIGN NOTES — the SESSION. What you see immediately after hitting Start, and for the rest of the run.
+
+THE PROBLEM IT FIXES: the earlier draft had a "Trace" view (a log viewer) and a "Workspace" view (files, diff,
+preview) as two tabs. That is backwards. The trace is *evidence*; the work is the *product*. So the workspace is
+now the default and permanent surface, and the agent gets a column of its own rather than being reduced to a
+scrolling event log.
+
+THREE REGIONS, and the leftmost is the change that matters:
+ · THE AGENT (372px) — presence. Its plan as a live checklist, its narration in its own voice, its tool calls as
+   one-liners rather than a stack trace, and a composer pinned to the bottom so steering is always one line away.
+ · THE WORK (centre) — the diff, with changed files as a horizontal strip rather than a tree. A tree was the
+   right call when files were the subject; here the agent is, and a tree would cost 236px to say less.
+ · THE RESULT (400px) — the app actually running, and whether the tests pass.
+
+WHAT THE DENSITY FORCED:
+ A1 THE PLAN IS A CHECKLIST, NOT A PARAGRAPH. An agent that "makes a plan" and prints prose has given you
+    something unfalsifiable. Six boxes with three ticked is a claim you can check, and it is the fastest way to
+    know whether the agent understood the task before it has spent four minutes proving it did not.
+ A2 THE COMPOSER NEVER LEAVES. In a steerable model the ability to interject is the product; a control that
+    appears only when the agent asks is a control nobody knows they have.
+ A3 YOUR WORDS LOOK DIFFERENT FROM ITS WORDS. Your interjections take a left rule in the accent — the one place
+    the accent marks authorship rather than scope. Everything else in the stream is the agent's.
+ A4 TOOL CALLS ARE ONE LINE HERE, expandable, because in this column they are context for the narration, not the
+    subject. The full trace with arguments and results still exists — one click away, and unchanged.
+ A5 STATUS vs SEVERITY held throughout: `running` is a state → the unknown ring. `writes` is a property of a
+    tool → typographic. `7 of 8 passed` is a figure → denominated.
+ A6 ACCENT — 3 uses: active route, the live lamp, your own interjection. Not one tool call carries it.
+-->
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Command Studio · Session</title>
+<link rel="stylesheet" href="_agents-base.css" />
+<style>
+  .body3 { flex:1; display:flex; min-height:0; overflow:hidden; }
+  .mid { flex:1; display:flex; flex-direction:column; min-width:0; min-height:0; background:var(--s3); }
+  .rgt { width:400px; min-width:400px; background:var(--s2); display:flex; flex-direction:column; min-height:0;
+    box-shadow:inset 1px 0 0 rgba(255,255,255,.055); }
+  .colscroll { flex:1; overflow:auto; min-height:0; }
+  .colhead { flex:none; padding:9px 14px 8px; box-shadow:0 1px 0 rgba(255,255,255,.045); }
+  .colhead h3 { font-size:11.5px; font-weight:600; color:var(--t1); }
+
+  /* changed files as a strip, not a tree */
+  .fstrip { display:flex; align-items:stretch; gap:0; background:var(--s2); box-shadow:0 1px 0 rgba(255,255,255,.05);
+    flex:none; overflow-x:auto; }
+  .ftab { padding:7px 12px; display:flex; align-items:center; gap:7px; cursor:pointer; white-space:nowrap;
+    font-family:var(--mono); font-size:10.5px; color:var(--t3); position:relative; }
+  .ftab:hover { color:var(--t2); background:rgba(255,255,255,.022); }
+  .ftab.on { color:var(--t1); background:var(--s3); }
+  .ftab.on::after { content:""; position:absolute; left:0; right:0; bottom:-1px; height:2px; background:var(--m2); }
+  .ftab .mk2 { font-weight:700; font-size:9.5px; }
+  .ftab .dd { font-size:9.5px; color:var(--t4); }
+
+  .composer2 { background:var(--s0); border-radius:9px;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.05); }
+  .composer2:focus-within { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+  .composer2 textarea { width:100%; background:transparent; border:0; outline:none; resize:none; color:var(--t1);
+    font-family:var(--sans); font-size:11.5px; line-height:1.5; padding:9px 11px 4px; }
+  .composer2 textarea::placeholder { color:var(--t4); }
+  .c2bar { display:flex; align-items:center; gap:6px; padding:4px 7px 6px; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo"></div><span class="wordmark">Command Studio</span>
+      <span class="envchip">LOCAL · :8000</span>
+    </div>
+    <nav class="nav">
+      <a href="#">Workflows</a><a href="#">Datasets</a><a href="#">Catalog</a>
+      <a href="#">Runs</a><a href="#" class="active">Agents</a><a href="#">Admin</a>
+    </nav>
+    <div class="topright">
+      <div class="cmdk"><span>Search agents, tools, runs…</span><span class="kbd">⌘K</span></div>
+      <div class="iconbtn"><svg class="ic" viewBox="0 0 24 24"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg></div>
+      <div class="team"><span class="dot good"></span><span>Growth Analytics</span><span class="caret">▾</span></div>
+      <div class="avatar">SG</div>
+    </div>
+  </div>
+
+  <div class="subhead">
+    <h1 style="font-size:13px;font-weight:550">Monthly signup cohorts and retention</h1>
+    <span class="idf">arun_4Tz8vQ2nHy</span>
+    <div class="spacer"></div>
+    <div class="ctrl">Elapsed <b>4m 12s</b></div>
+    <div class="ctrl">Full trace <span class="caret">›</span></div>
+    <button class="btn-ghost">
+      <svg class="ic" viewBox="0 0 24 24" style="width:12px;height:12px"><path d="M7 4v16M17 4v16"/></svg>Pause
+    </button>
+    <button class="btn-primary">
+      <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M4 12l6 6L20 6"/></svg>Accept
+    </button>
+  </div>
+
+  <div class="body3">
+
+    <!-- ════ THE AGENT ════ -->
+    <div class="agcol">
+      <div class="aghead">
+        <div class="avatar" style="width:24px;height:24px;font-size:9px">AB</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;font-weight:600;color:var(--t1)">App Builder</div>
+          <div style="font-size:10px;color:var(--t3)">claude-opus-4-8 · 9 tools · iteration 7 of 30</div>
+        </div>
+        <span class="lamp"></span>
+      </div>
+
+      <div class="agstream">
+
+        <div class="say me">
+          Build me a dashboard that shows monthly signup cohorts and their retention, and flag any cohort that drops more than 15 points between M1 and M3.
+        </div>
+
+        <div class="say">
+          I'll read the dataset's schema first — I don't want to guess column names, and the grain matters for how I bucket.
+        </div>
+
+        <div class="act"><span class="fn2">describe_dataset</span><span class="rs">11 columns · daily grain</span><span class="ms2">188ms</span></div>
+        <div class="act"><span class="fn2">profile_column</span><span class="rs">signup_date · 0.0% null</span><span class="ms2">241ms</span></div>
+
+        <div class="say">
+          <b style="color:var(--t1)">482,119 rows, one per user-day, 12 signup months.</b> That's enough for cohorts through M5 — the later months don't have the history yet, so I'll show those as gaps rather than zeros.
+        </div>
+
+        <div class="plan">
+          <div class="pln done"><span class="bx"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span><span>Read the schema and confirm the grain</span></div>
+          <div class="pln done"><span class="bx"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span><span>Aggregate users into monthly signup buckets</span></div>
+          <div class="pln done"><span class="bx"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span><span>Build the cohort grid and retention curve</span></div>
+          <div class="pln now"><span class="bx"></span><span>Add the &gt;15pt M1→M3 drop flag</span></div>
+          <div class="pln"><span class="bx"></span><span>Write tests for the empty-cohort case</span></div>
+          <div class="pln"><span class="bx"></span><span>Check it renders at a narrow width</span></div>
+        </div>
+
+        <div class="act"><span class="fn2">aggregate</span><span class="rs">12 groups · agg_7Hn2Kq</span><span class="ms2">1.42s</span></div>
+        <div class="act"><span class="fn2">write_file</span><span class="rs">CohortGrid.tsx · +96</span><span class="ms2">—</span></div>
+        <div class="act"><span class="fn2">write_file</span><span class="rs">RetentionCurve.tsx · +61</span><span class="ms2">—</span></div>
+
+        <div class="say">
+          First build failed — I imported <span class="mono" style="font-size:10.5px">cohortOf</span> from the old helper after deleting it. Fixed and rebuilt.
+        </div>
+        <div class="act"><span class="dot crit"></span><span class="fn2">build</span><span class="rs">2 errors</span><span class="ms2">840ms</span></div>
+        <div class="act"><span class="dot good"></span><span class="fn2">build</span><span class="rs">84 KB</span><span class="ms2">1.24s</span></div>
+
+        <div class="say me">
+          Don't use a rate of 0 for months a cohort hasn't reached yet — that will read as churn.
+        </div>
+
+        <div class="say">
+          Good catch. I've made <span class="mono" style="font-size:10.5px">rate</span> nullable and the grid renders an em-dash for those cells. The retention curve now stops at each cohort's last real month instead of dropping to the axis.
+        </div>
+
+        <div class="act"><span class="fn2">write_file</span><span class="rs">useCohorts.ts · +31 −12</span><span class="ms2">—</span></div>
+        <div class="act"><span class="dot warn"></span><span class="fn2">run_tests</span><span class="rs">7 of 8 passed</span><span class="ms2">620ms</span></div>
+
+        <div class="say">
+          <span class="st"><span class="dot run"></span></span>
+          One test still fails — I guarded the hook but not the helper, so <span class="mono" style="font-size:10.5px">cohortRetention()</span> still divides by zero. Fixing that now, then I'll do the drop flag.
+        </div>
+
+      </div>
+
+      <div class="agfoot">
+        <div class="composer2">
+          <textarea rows="2" placeholder="Interject — the agent reads this on its next turn…"></textarea>
+          <div class="c2bar">
+            <span class="cchip" style="height:22px;font-size:10.5px">
+              <svg class="ic" viewBox="0 0 24 24" style="width:11px;height:11px"><path d="M12 5v14M5 12h14"/></svg>Context
+            </span>
+            <div class="spacer"></div>
+            <span style="font-size:10px;color:var(--t3)"><span class="kbd">Enter</span> send</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════ THE WORK ════ -->
+    <div class="mid">
+      <div class="fstrip">
+        <div class="ftab"><span class="mk2" style="color:var(--t2)">M</span>App.tsx<span class="dd">+18 −4</span></div>
+        <div class="ftab"><span class="mk2" style="color:var(--t1)">A</span>CohortGrid.tsx<span class="dd">+96</span></div>
+        <div class="ftab"><span class="mk2" style="color:var(--t1)">A</span>RetentionCurve.tsx<span class="dd">+61</span></div>
+        <div class="ftab on"><span class="mk2" style="color:var(--t2)">M</span>useCohorts.ts<span class="dd">+31 −12</span></div>
+        <div class="ftab"><span class="mk2" style="color:var(--t2)">M</span>retention.ts<span class="dd">+8 −22</span></div>
+        <div class="ftab"><span class="mk2" style="color:var(--t3)">D</span><span style="text-decoration:line-through">legacyCohort.ts</span></div>
+        <div class="spacer"></div>
+        <div class="ftab" style="color:var(--t3)">All 34 files ›</div>
+      </div>
+
+      <div class="filebar" style="display:flex;align-items:center;gap:10px;padding:6px 14px;background:var(--s2);box-shadow:0 1px 0 rgba(255,255,255,.045);flex:none">
+        <span style="font-family:var(--mono);font-size:11.5px;color:var(--t1)">src/hooks/useCohorts.ts</span>
+        <span class="sev sev-warn">edited 4s ago</span>
+        <div class="spacer"></div>
+        <span class="cchip" style="height:22px;font-size:10.5px">
+          <svg class="ic" viewBox="0 0 24 24" style="width:11px;height:11px"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>Edit
+        </span>
+        <span class="cchip" style="height:22px;font-size:10.5px">Revert</span>
+      </div>
+
+      <div class="colscroll">
+        <div class="diff">
+          <div class="dl hunk"><span class="ln"></span><span class="sg"></span><span class="tx">@@ -1,9 +1,12 @@  imports</span></div>
+          <div class="dl"><span class="ln">1</span><span class="sg"> </span><span class="tx"><span class="kw">import</span> { useMemo } <span class="kw">from</span> <span class="str">'react'</span></span></div>
+          <div class="dl del"><span class="ln">3</span><span class="sg">−</span><span class="tx"><span class="kw">import</span> { cohortOf } <span class="kw">from</span> <span class="str">'../lib/legacyCohort'</span></span></div>
+          <div class="dl add"><span class="ln">3</span><span class="sg">+</span><span class="tx"><span class="kw">import</span> { bucketByMonth, retention } <span class="kw">from</span> <span class="str">'../lib/retention'</span></span></div>
+
+          <div class="dl hunk"><span class="ln"></span><span class="sg"></span><span class="tx">@@ -22,18 +25,29 @@  export function useCohorts()</span></div>
+          <div class="dl"><span class="ln">27</span><span class="sg"> </span><span class="tx">  <span class="kw">return</span> useMemo(() =&gt; {</span></div>
+          <div class="dl del"><span class="ln">28</span><span class="sg">−</span><span class="tx">    <span class="kw">const</span> cohorts = rows.map(cohortOf)</span></div>
+          <div class="dl del"><span class="ln">29</span><span class="sg">−</span><span class="tx">    <span class="kw">return</span> cohorts.map(c =&gt; ({</span></div>
+          <div class="dl del"><span class="ln">30</span><span class="sg">−</span><span class="tx">      label: c.label,</span></div>
+          <div class="dl del"><span class="ln">31</span><span class="sg">−</span><span class="tx">      rate:  c.retained / c.total,</span></div>
+          <div class="dl del"><span class="ln">32</span><span class="sg">−</span><span class="tx">    }))</span></div>
+          <div class="dl add"><span class="ln">28</span><span class="sg">+</span><span class="tx">    <span class="kw">const</span> buckets = bucketByMonth(rows, <span class="str">'signup_date'</span>)</span></div>
+          <div class="dl add"><span class="ln">29</span><span class="sg">+</span><span class="tx"></span></div>
+          <div class="dl add"><span class="ln">30</span><span class="sg">+</span><span class="tx">    <span class="kw">return</span> buckets.map(b =&gt; {</span></div>
+          <div class="dl add"><span class="ln">31</span><span class="sg">+</span><span class="tx">      <span class="kw">const</span> total = b.users.length</span></div>
+          <div class="dl add"><span class="ln">32</span><span class="sg">+</span><span class="tx"></span></div>
+          <div class="dl add"><span class="ln">33</span><span class="sg">+</span><span class="tx">      <span class="kw">return</span> {</span></div>
+          <div class="dl add"><span class="ln">34</span><span class="sg">+</span><span class="tx">        label: b.label,</span></div>
+          <div class="dl add"><span class="ln">35</span><span class="sg">+</span><span class="tx">        total,</span></div>
+          <div class="dl add"><span class="ln">36</span><span class="sg">+</span><span class="tx">        <span class="str">// a cohort that hasn't reached this month has no rate —</span></span></div>
+          <div class="dl add"><span class="ln">37</span><span class="sg">+</span><span class="tx">        <span class="str">// null, not 0, or the grid reads it as total churn</span></span></div>
+          <div class="dl add"><span class="ln">38</span><span class="sg">+</span><span class="tx">        rate: total === <span class="str">0</span> ? <span class="kw">null</span> : retention(b) / total,</span></div>
+          <div class="dl add"><span class="ln">39</span><span class="sg">+</span><span class="tx">      }</span></div>
+          <div class="dl add"><span class="ln">40</span><span class="sg">+</span><span class="tx">    })</span></div>
+          <div class="dl"><span class="ln">41</span><span class="sg"> </span><span class="tx">  }, [rows])</span></div>
+          <div class="dl"><span class="ln">42</span><span class="sg"> </span><span class="tx">}</span></div>
+        </div>
+        <div style="padding:14px 16px 20px">
+          <div class="guard">
+            The comment on line 36 is the agent restating <b>your</b> correction back in the code. That is worth reading — it is the cheapest way to check it understood the reason and not just the instruction.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════ THE RESULT ════ -->
+    <div class="rgt">
+      <div class="colhead">
+        <div style="display:flex;align-items:baseline;gap:9px">
+          <h3>Running</h3>
+          <span class="micro">rebuilt 4s ago · 84 KB</span>
+        </div>
+      </div>
+
+      <div style="padding:11px 14px 12px;flex:none">
+        <div class="vp">
+          <div class="vpbar"><span class="d"></span><span class="d"></span><span class="d"></span><span class="u">sandbox://cohort-explorer</span></div>
+          <div class="vpbody">
+            <div style="font-size:13px;font-weight:650;color:#111720">Churn cohorts</div>
+            <div style="font-size:9px;color:#5E6879;margin-top:2px;letter-spacing:.08em;text-transform:uppercase">12 cohorts · 48,204 users</div>
+            <div style="display:flex;gap:18px;margin:10px 0 11px">
+              <div>
+                <div style="font-size:8px;letter-spacing:.11em;text-transform:uppercase;color:#5E6879">M1 retention</div>
+                <div style="font-family:ui-monospace,monospace;font-size:16px;font-weight:600;color:#111720">71.4%</div>
+                <div style="font-size:8.5px;color:#5E6879;font-family:ui-monospace,monospace">11 of 12 cohorts</div>
+              </div>
+              <div>
+                <div style="font-size:8px;letter-spacing:.11em;text-transform:uppercase;color:#5E6879">M6 retention</div>
+                <div style="font-family:ui-monospace,monospace;font-size:16px;font-weight:600;color:#111720">42.9%</div>
+                <div style="font-size:8.5px;color:#5E6879;font-family:ui-monospace,monospace">7 of 12 cohorts</div>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:38px repeat(6,1fr);gap:2px;font-family:ui-monospace,monospace;font-size:7.5px">
+              <div>&nbsp;</div>
+              <div style="color:#5E6879;text-align:center">M0</div><div style="color:#5E6879;text-align:center">M1</div>
+              <div style="color:#5E6879;text-align:center">M2</div><div style="color:#5E6879;text-align:center">M3</div>
+              <div style="color:#5E6879;text-align:center">M4</div><div style="color:#5E6879;text-align:center">M5</div>
+              <div style="color:#38414E">Jan</div>
+              <div style="background:#2E3742;color:#fff;text-align:center;padding:2px 0">100</div>
+              <div style="background:#5F6B7C;color:#fff;text-align:center;padding:2px 0">74</div>
+              <div style="background:#8B95A3;color:#fff;text-align:center;padding:2px 0">61</div>
+              <div style="background:#B2BBC7;color:#111;text-align:center;padding:2px 0">52</div>
+              <div style="background:#C9D0DA;color:#111;text-align:center;padding:2px 0">47</div>
+              <div style="background:#D3DAE3;color:#111;text-align:center;padding:2px 0">43</div>
+              <div style="color:#38414E">Feb</div>
+              <div style="background:#2E3742;color:#fff;text-align:center;padding:2px 0">100</div>
+              <div style="background:#5F6B7C;color:#fff;text-align:center;padding:2px 0">72</div>
+              <div style="background:#8B95A3;color:#fff;text-align:center;padding:2px 0">58</div>
+              <div style="background:#B2BBC7;color:#111;text-align:center;padding:2px 0">49</div>
+              <div style="background:#C9D0DA;color:#111;text-align:center;padding:2px 0">44</div>
+              <div style="background:#E8ECF1;color:#8B95A3;text-align:center;padding:2px 0">—</div>
+              <div style="color:#38414E">Mar</div>
+              <div style="background:#2E3742;color:#fff;text-align:center;padding:2px 0">100</div>
+              <div style="background:#5F6B7C;color:#fff;text-align:center;padding:2px 0">69</div>
+              <div style="background:#8B95A3;color:#fff;text-align:center;padding:2px 0">55</div>
+              <div style="background:#B2BBC7;color:#111;text-align:center;padding:2px 0">46</div>
+              <div style="background:#E8ECF1;color:#8B95A3;text-align:center;padding:2px 0">—</div>
+              <div style="background:#E8ECF1;color:#8B95A3;text-align:center;padding:2px 0">—</div>
+              <div style="color:#38414E">Apr</div>
+              <div style="background:#2E3742;color:#fff;text-align:center;padding:2px 0">100</div>
+              <div style="background:#5F6B7C;color:#fff;text-align:center;padding:2px 0">70</div>
+              <div style="background:#8B95A3;color:#fff;text-align:center;padding:2px 0">57</div>
+              <div style="background:#E8ECF1;color:#8B95A3;text-align:center;padding:2px 0">—</div>
+              <div style="background:#E8ECF1;color:#8B95A3;text-align:center;padding:2px 0">—</div>
+              <div style="background:#E8ECF1;color:#8B95A3;text-align:center;padding:2px 0">—</div>
+            </div>
+            <div style="font-size:8px;color:#5E6879;margin-top:5px">— the cohort has not reached that month yet, not 0%.</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:7px;margin-top:9px">
+          <button class="btn-ghost" style="flex:1;justify-content:center">Rebuild</button>
+          <button class="btn-ghost" style="flex:1;justify-content:center">Open in tab</button>
+          <button class="btn-ghost" style="flex:1;justify-content:center">Run tests</button>
+        </div>
+      </div>
+
+      <div class="ptabs">
+        <button>Console <span class="c">12</span></button>
+        <button class="active">Tests <span class="c">8</span></button>
+        <button>Network <span class="c">3</span></button>
+      </div>
+
+      <div class="colscroll">
+        <div style="padding:9px 14px 4px;display:flex;align-items:baseline">
+          <span class="mono" style="font-size:15px;font-weight:600;color:var(--t1)">7 <span style="font-size:11px;color:var(--t3)">of 8 passed</span></span>
+          <div class="spacer"></div>
+          <span class="mono" style="font-size:10px;color:var(--t3)">620ms</span>
+        </div>
+        <div class="trow"><span class="dot good"></span><span class="nm">bucketByMonth · groups by signup month</span><span class="ms">4ms</span></div>
+        <div class="trow"><span class="dot good"></span><span class="nm">retention · counts returning users</span><span class="ms">6ms</span></div>
+        <div class="trow"><span class="dot crit"></span><span class="nm">cohortRetention · empty cohort</span><span class="ms">3ms</span></div>
+        <div style="padding:2px 14px 9px 30px">
+          <div class="guard warn" style="font-family:var(--mono);font-size:10px;line-height:1.6">
+            expected <b>null</b>, received <b>NaN</b><br />
+            <span style="color:var(--t4)">at lib/retention.ts:61 · cohortRetention()</span>
+          </div>
+        </div>
+        <div class="trow"><span class="dot good"></span><span class="nm">CohortGrid · renders 12 rows</span><span class="ms">318ms</span></div>
+        <div class="trow"><span class="dot good"></span><span class="nm">CohortGrid · em-dash for future months</span><span class="ms">241ms</span></div>
+        <div class="trow"><span class="dot good"></span><span class="nm">RetentionCurve · stops at last real month</span><span class="ms">45ms</span></div>
+
+        <div style="padding:12px 14px">
+          <div class="guard">
+            The failing assertion was handed back to the agent as a tool result, not just printed here. That is why it is fixing it — see the last line of its column.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

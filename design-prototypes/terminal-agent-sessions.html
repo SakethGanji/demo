@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<!--
+DESIGN NOTES — /agents/{id}?tab=sessions · ONE AGENT, MANY SESSIONS. The screen the set was missing.
+
+WHAT IT FIXES: the session model was formalized in writing but never drawn. Every other screen shows
+agent → runs, which quietly implies an agent is a thing that does ONE thing at a time. It is not. An agent is a
+DEFINITION — config, prompt, tools — and it holds no run state, so N people run the same one simultaneously and
+never touch each other. If that were not true this could not be a team product. This screen is where that stops
+being an assertion and becomes visible.
+
+THE THREE COLUMNS THAT CARRY THE WHOLE MODEL:
+  HOLDER   the single-writer lock. Anyone on the team can READ a session; one person drives. Two of the eight
+           below are held by someone who is not you — including one you would have to take over to answer.
+  PINNED   the agent config frozen at session creation. Three sessions are still on v3 while the agent is on v4,
+           and that is a FACT, not an error — behaviour must not shift mid-conversation. Adopting is one click
+           and is recorded on the session, so turn 4 and turn 9 legitimately ran different configs.
+  MEMORY   keyed (agent, session). Eight sessions, eight isolated stores. Today `sessionId` defaults to the
+           literal string "default" and simple_memory backs it with a module-level global dict, so every agent
+           in every team shares one bucket — a live cross-tenant leak. This column is that leak, closed.
+
+WHAT THE DENSITY FORCED:
+ A1 CONCURRENCY IS SHOWN, NOT COUNTED. Three sessions are active right now, for three different people. A
+    "3 active" statistic would be a claim; three pulsing rows with three different avatars is evidence.
+ A2 OWNS is its own column. A session owns a workspace; a run owns a trace. Some sessions carry an app, some
+    carry nothing but a conversation — and that difference is the reason the split exists.
+ A3 VERSION DRIFT IS TYPOGRAPHIC (rule 7). Being a version behind is a property of a session, not a fault
+    state, so it is weight — never a warning shape.
+ A4 EVERY FIGURE DENOMINATED (rule 11): "8 sessions · 3 active", "24 turns across 8", "5 of 8 on the current
+    version", "2 held by others".
+ A5 ACCENT — 3 uses: active route, the selected session, the live lamp on the one you are driving.
+-->
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Command Studio · Agent sessions</title>
+<link rel="stylesheet" href="_agents-base.css" />
+<style>
+  .body2 { flex:1; display:flex; min-height:0; overflow:hidden; }
+  .mainc { flex:1; display:flex; flex-direction:column; min-width:0; min-height:0; background:var(--s3); }
+  .dock { width:352px; min-width:352px; background:var(--s2); display:flex; flex-direction:column; min-height:0;
+    box-shadow:inset 1px 0 0 rgba(255,255,255,.055); }
+  .dscroll { flex:1; overflow-y:auto; min-height:0; }
+  .dsec { padding:13px 15px; }
+  .dsec + .dsec { box-shadow:0 -1px 0 rgba(255,255,255,.05); }
+  .dhead { padding:13px 18px 0; flex:none; }
+  .dtitle { display:flex; align-items:center; gap:11px; margin-bottom:9px; }
+  .dtitle h2 { font-size:16px; font-weight:600; color:var(--t1); letter-spacing:-0.018em; }
+  .tabs { display:flex; gap:2px; }
+  .tabs button { height:29px; padding:0 12px; border:0; border-radius:7px 7px 0 0; background:transparent;
+    color:var(--t3); font-family:var(--sans); font-size:12px; cursor:pointer; display:inline-flex; align-items:center; gap:7px; }
+  .tabs button.active { background:var(--s3); color:var(--t1); font-weight:600; box-shadow:var(--hi); }
+  .tabs .c { font-family:var(--mono); font-size:10px; color:var(--t3); font-variant-numeric:tabular-nums; }
+  table.ses tbody td { box-shadow:inset 0 -1px 0 rgba(255,255,255,.032); }
+  table.ses td.vr, table.ses th.vr { box-shadow:inset 1px 0 0 rgba(255,255,255,.075), inset 0 -1px 0 rgba(255,255,255,.032); }
+  table.ses thead th.vr { box-shadow:inset 1px 0 0 rgba(255,255,255,.075), inset 0 -1px 0 rgba(255,255,255,.07); }
+  .kv2 { display:flex; justify-content:space-between; gap:12px; padding:3.5px 0; font-size:11px; }
+  .kv2 .k { color:var(--t3); }
+  .kv2 .v { color:var(--t2); text-align:right; font-family:var(--mono); font-size:10.5px; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo"></div><span class="wordmark">Command Studio</span>
+      <span class="envchip">LOCAL · :8000</span>
+    </div>
+    <nav class="nav">
+      <a href="#">Workflows</a><a href="#">Datasets</a><a href="#">Catalog</a>
+      <a href="#">Runs</a><a href="#" class="active">Agents</a><a href="#">Admin</a>
+    </nav>
+    <div class="topright">
+      <div class="cmdk"><span>Search agents, tools, runs…</span><span class="kbd">⌘K</span></div>
+      <div class="iconbtn"><svg class="ic" viewBox="0 0 24 24"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg></div>
+      <div class="team"><span class="dot good"></span><span>Growth Analytics</span><span class="caret">▾</span></div>
+      <div class="avatar">SG</div>
+    </div>
+  </div>
+
+  <div class="subhead">
+    <h1>Agents</h1>
+    <span class="idf" style="font-size:11px">/ Revenue Analyst / sessions</span>
+    <div class="spacer"></div>
+    <div class="ctrl">Agent <b>v4</b> · edited 2h ago</div>
+    <button class="btn-ghost">Duplicate agent</button>
+    <button class="btn-primary">
+      <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M12 5v14M5 12h14"/></svg>
+      New session
+    </button>
+  </div>
+
+  <div class="dhead">
+    <div class="dtitle">
+      <h2>Revenue Analyst</h2>
+      <span class="idf">agt_7Kq2mN4pXr</span>
+      <span class="sev sev-info">definition · not an actor</span>
+    </div>
+    <div class="tabs">
+      <button>Configuration</button>
+      <button>Tools <span class="c">12</span></button>
+      <button class="active">Sessions <span class="c">8</span></button>
+      <button>Runs <span class="c">24</span></button>
+    </div>
+  </div>
+
+  <div class="statband">
+    <div class="stat">
+      <span class="micro">Sessions</span>
+      <span class="v">8</span>
+      <span class="den">3 active · 4 idle · 1 archived</span>
+    </div>
+    <div class="stat">
+      <span class="micro">Turns</span>
+      <span class="v">24</span>
+      <span class="den">across 8 · median 2 · longest 9</span>
+    </div>
+    <div class="stat">
+      <span class="micro">People</span>
+      <span class="v">4</span>
+      <span class="den">of 12 in the team · 2 hold a lock</span>
+    </div>
+    <div class="stat">
+      <span class="micro">On current version</span>
+      <span class="v">5</span>
+      <span class="den">of 8 · 3 pinned to v3</span>
+    </div>
+    <div class="stat">
+      <span class="micro">Memory stores</span>
+      <span class="v">8</span>
+      <span class="den">one per session · 0 shared</span>
+    </div>
+  </div>
+
+  <div class="body2">
+    <div class="mainc">
+      <div class="ptabs">
+        <button class="active">All <span class="c">8</span></button>
+        <button>Mine <span class="c">3</span></button>
+        <button>Active <span class="c">3</span></button>
+        <button>Behind <span class="c">3</span></button>
+        <div class="spacer"></div>
+        <span class="micro">most recent turn first</span>
+      </div>
+
+      <div style="flex:1;overflow:auto;min-height:0">
+        <table class="ses">
+          <thead>
+            <tr>
+              <th style="width:88px">Status</th>
+              <th>Session</th>
+              <th style="width:150px">Holder</th>
+              <th class="num vr" style="width:52px">Turns</th>
+              <th style="width:112px">Pinned</th>
+              <th style="width:132px">Owns</th>
+              <th class="num" style="width:60px">Memory</th>
+              <th class="num" style="width:52px">Last</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="sel sesrow">
+              <td><span class="st"><span class="dot run"></span>active</span></td>
+              <td>
+                <div class="sest">Q3 revenue reconciliation</div>
+                <div class="sesq">“Reconcile Q3 revenue against the ledger and flag anything over 2%”</div>
+              </td>
+              <td><span class="who2 you"><span class="av3">SG</span>you</span> <span class="lock held">driving</span></td>
+              <td class="num vr">9</td>
+              <td><span class="ver cur">v4 · current</span></td>
+              <td><span class="owns none">— conversation</span></td>
+              <td class="num">31k</td>
+              <td class="num">now</td>
+            </tr>
+            <tr class="sesrow">
+              <td><span class="st"><span class="dot run"></span>active</span></td>
+              <td>
+                <div class="sest">Enterprise churn drivers</div>
+                <div class="sesq">“Which accounts churned hardest after the price change?”</div>
+              </td>
+              <td><span class="who2"><span class="av3">MR</span>M. Rao</span> <span class="lock held">driving</span></td>
+              <td class="num vr">4</td>
+              <td><span class="ver old">v3</span> <span class="adopt">· adopt v4</span></td>
+              <td><span class="owns none">— conversation</span></td>
+              <td class="num">18k</td>
+              <td class="num">6m</td>
+            </tr>
+            <tr class="sesrow">
+              <td><span class="st"><span class="dot warn"></span>paused</span></td>
+              <td>
+                <div class="sest">Publish the cohort rollup</div>
+                <div class="sesq">Waiting on approval — publish_result, 4m</div>
+              </td>
+              <td><span class="who2"><span class="av3">JL</span>J. Lin</span> <span class="lock held">holds</span></td>
+              <td class="num vr">3</td>
+              <td><span class="ver cur">v4 · current</span></td>
+              <td><span class="owns">1 artifact</span></td>
+              <td class="num">12k</td>
+              <td class="num">4m</td>
+            </tr>
+            <tr class="sesrow">
+              <td><span class="st"><span class="dot muted"></span>idle</span></td>
+              <td>
+                <div class="sest">Net revenue by segment, YTD</div>
+                <div class="sesq">“Break down net revenue by segment for the year to date”</div>
+              </td>
+              <td><span class="who2 you"><span class="av3">SG</span>you</span> <span class="lock free">free</span></td>
+              <td class="num vr">2</td>
+              <td><span class="ver cur">v4 · current</span></td>
+              <td><span class="owns">1 answer</span></td>
+              <td class="num">9k</td>
+              <td class="num">2h</td>
+            </tr>
+            <tr class="sesrow">
+              <td><span class="st"><span class="dot muted"></span>idle</span></td>
+              <td>
+                <div class="sest">Ledger join + publish</div>
+                <div class="sesq">“Join orders to accounts and publish the result”</div>
+              </td>
+              <td><span class="who2 you"><span class="av3">SG</span>you</span> <span class="lock free">free</span></td>
+              <td class="num vr">2</td>
+              <td><span class="ver old">v3</span> <span class="adopt">· adopt v4</span></td>
+              <td><span class="owns">1 dataset</span></td>
+              <td class="num">14k</td>
+              <td class="num">5h</td>
+            </tr>
+            <tr class="sesrow">
+              <td><span class="st"><span class="dot muted"></span>idle</span></td>
+              <td>
+                <div class="sest">M3 retention explainer</div>
+                <div class="sesq">“Explain the drop in M3 retention for the Mar cohort”</div>
+              </td>
+              <td><span class="who2"><span class="av3">MR</span>M. Rao</span> <span class="lock free">free</span></td>
+              <td class="num vr">1</td>
+              <td><span class="ver cur">v4 · current</span></td>
+              <td><span class="owns">1 answer</span></td>
+              <td class="num">6k</td>
+              <td class="num">1d</td>
+            </tr>
+            <tr class="sesrow">
+              <td><span class="st"><span class="dot muted"></span>idle</span></td>
+              <td>
+                <div class="sest">Weekly finance summary</div>
+                <div class="sesq">“Summarise the weekly finance export for the exec note”</div>
+              </td>
+              <td><span class="who2"><span class="av3">AT</span>A. Torres</span> <span class="lock free">free</span></td>
+              <td class="num vr">2</td>
+              <td><span class="ver old">v3</span> <span class="adopt">· adopt v4</span></td>
+              <td><span class="owns">1 answer</span></td>
+              <td class="num">7k</td>
+              <td class="num">2d</td>
+            </tr>
+            <tr class="sesrow">
+              <td><span class="st"><span class="dot serious"></span>archived</span></td>
+              <td>
+                <div class="sest">Pricing experiment readout</div>
+                <div class="sesq">“Did the March price change move net revenue?”</div>
+              </td>
+              <td><span class="who2"><span class="av3">JL</span>J. Lin</span> <span class="lock free">free</span></td>
+              <td class="num vr">1</td>
+              <td><span class="ver old">v2</span></td>
+              <td><span class="owns none">— conversation</span></td>
+              <td class="num">4k</td>
+              <td class="num">9d</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div style="padding:14px 16px">
+          <div class="guard">
+            <b>All eight run the same definition and touch nothing of each other's.</b> Different memory, different workspace, different holder — the agent contributes config and tools, and nothing else. That is what makes it reusable rather than a queue.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════ DOCK: what a session actually is ════ -->
+    <div class="dock">
+      <div class="dscroll">
+
+        <div class="dsec">
+          <div class="sect-title" style="margin-bottom:3px">Q3 revenue reconciliation</div>
+          <div class="sect-sub" style="margin-bottom:9px">Session <span class="mono" style="font-size:10.5px">ses_2Wq7Kb</span> · turn 9 · you are driving</div>
+          <div class="kv2"><span class="k">Started</span><span class="v">16 Aug · 4d ago</span></div>
+          <div class="kv2"><span class="k">Created by</span><span class="v">S. Ganji</span></div>
+          <div class="kv2"><span class="k">Visible to</span><span class="v">Growth Analytics · 12</span></div>
+          <div class="kv2"><span class="k">Memory key</span><span class="v">sess:ses_2Wq7Kb</span></div>
+          <div class="kv2"><span class="k">Pinned config</span><span class="v">v4 · current</span></div>
+          <div style="display:flex;gap:7px;margin-top:11px">
+            <button class="btn-ghost" style="flex:1;justify-content:center">Release lock</button>
+            <button class="btn-primary" style="flex:1;justify-content:center">Open session</button>
+          </div>
+        </div>
+
+        <div class="dsec">
+          <div class="sect-title" style="margin-bottom:7px">What a session owns</div>
+          <div class="kv2"><span class="k">Workspace / artifact</span><span class="v">session</span></div>
+          <div class="kv2"><span class="k">Accumulated context</span><span class="v">session</span></div>
+          <div class="kv2"><span class="k">Memory store</span><span class="v">session</span></div>
+          <div class="kv2"><span class="k">Pinned agent config</span><span class="v">session</span></div>
+          <div class="kv2" style="margin-top:5px"><span class="k">Tool-call trace</span><span class="v">run</span></div>
+          <div class="kv2"><span class="k">Frozen snapshot</span><span class="v">run</span></div>
+          <div class="kv2" style="margin-top:5px"><span class="k">Prompt · model · tools</span><span class="v">agent</span></div>
+          <div style="margin-top:10px" class="guard">
+            <b>The session owns the workspace; the run owns the trace.</b> That is why turn 9 still sees what turn 1 wrote, while each turn keeps its own tool-call history.
+          </div>
+        </div>
+
+        <div class="dsec">
+          <div class="sect-title" style="margin-bottom:7px">Concurrency</div>
+          <div class="kv2"><span class="k">Sessions running now</span><span class="v">3 of 8</span></div>
+          <div class="kv2"><span class="k">Turns in flight</span><span class="v">1 per session, max</span></div>
+          <div class="kv2"><span class="k">Cross-session contact</span><span class="v">none</span></div>
+          <div style="margin-top:10px" class="guard">
+            Runs <b>serialize within a session</b> so two turns cannot race over the same files. Sessions run <b>concurrently</b> — a second trigger on a busy session is refused with <span class="mono" style="font-size:10px">409 session-busy</span>, not queued behind it.
+          </div>
+        </div>
+
+        <div class="dsec">
+          <div class="sect-title" style="margin-bottom:7px">Version drift</div>
+          <div class="kv2"><span class="k">On v4 (current)</span><span class="v">5 of 8</span></div>
+          <div class="kv2"><span class="k">On v3</span><span class="v">3 of 8</span></div>
+          <div class="kv2"><span class="k">On v2</span><span class="v">1 · archived</span></div>
+          <div style="margin-top:10px" class="guard">
+            Being behind is <b>not an error</b>. A session freezes the config it started with so behaviour never shifts mid-conversation. Adopting v4 is recorded on the session, after which turn 4 and turn 10 legitimately ran different configs — which is why each run also keeps its own snapshot.
+          </div>
+        </div>
+
+        <div class="dsec">
+          <div class="sect-title" style="margin-bottom:7px">Memory isolation</div>
+          <div style="margin-top:2px" class="guard warn">
+            Each session keys its memory on <span class="mono" style="font-size:10px">(agent, session)</span>. Today <span class="mono" style="font-size:10px">sessionId</span> defaults to the literal string <span class="mono" style="font-size:10px">"default"</span> and is backed by a process-global dict — so every agent in every team shares one bucket. This column is that leak closed, and it is the reason sessions need a table rather than a convention.
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

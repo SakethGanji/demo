@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<!--
+DESIGN NOTES — /agents?tab=tools · the tool binder. THIS IS THE HEART OF THE PRODUCT.
+
+THE IDEA: "hook it up to any tool." Tools are not a fixed menu — they are discovered from registered connectors
+(an MCP server, an OpenAPI spec) and a curated subset is bound to an agent. The binder is where a human decides
+what reach an agent has, so it has to make three things impossible to miss: what is bound, what it costs, and
+what each tool can do to your systems.
+
+WHAT THE DENSITY FORCED:
+ A1 THE BUDGET IS A FIRST-CLASS FIGURE, NOT A WARNING. Every tool schema is serialised into context on every
+    model call, so tool count is a real cost. The analytics MCP server capped itself at 27 tools for exactly
+    this reason. The meter is neutral-ramp magnitude (rule 5) and reads "4,180 of 6,000" — a denominated figure,
+    never a bare number, never a red bar.
+ A2 IMPORT ≠ SELECT. The catalog shows 183 discovered tools across three sources; 12 are bound. Discovery is
+    cheap and total; binding is deliberate and small. The two columns make that asymmetry the whole layout.
+ A3 PER-TOOL CONFIG IS A LEFT RULE + INDENT (rule 8), not a card inside a card. It is an attached detail of the
+    row above it, and drawing it as a box would claim it were a peer.
+ A4 "DESTRUCTIVE" IS TYPOGRAPHIC (rule 7). It is a property of the tool, true before it ever runs — not a state,
+    so it cannot take status hue. It is weight and word: `writes` in t1/650, `reads` in t3/400.
+ A5 A DISCOVERED TOOL'S SCHEMA IS SHOWN READ-ONLY. JSON Schema describes what the *model* sends, not what a
+    human fills in. Generating a form from it would be a category error — and the one place we DO offer form
+    fields (argument pinning) declines loudly on anyOf/nested rather than guessing a type.
+ A6 ACCENT — 3 uses: active route, the selected catalog tool, the live-connector lamp. "Bound" is weight plus a
+    check, because 12 rows carry it and the accent would become a texture.
+-->
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Command Studio · Agent tools</title>
+<link rel="stylesheet" href="_agents-base.css" />
+<style>
+  .dhead { padding:13px 18px 0; flex:none; }
+  .dtitle { display:flex; align-items:center; gap:11px; margin-bottom:9px; }
+  .dtitle h2 { font-size:16px; font-weight:600; color:var(--t1); letter-spacing:-0.018em; }
+  .tabs { display:flex; gap:2px; }
+  .tabs button { height:29px; padding:0 12px; border:0; border-radius:7px 7px 0 0; background:transparent;
+    color:var(--t3); font-family:var(--sans); font-size:12px; cursor:pointer; display:inline-flex; align-items:center; gap:7px; }
+  .tabs button.active { background:var(--s3); color:var(--t1); font-weight:600; box-shadow:var(--hi); }
+  .tabs .c { font-family:var(--mono); font-size:10px; color:var(--t3); font-variant-numeric:tabular-nums; }
+
+  .split { flex:1; display:grid; grid-template-columns:1fr 1fr; min-height:0; background:var(--s3); }
+  .pane { display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+  .pane + .pane { box-shadow:inset 1px 0 0 rgba(255,255,255,.055); }
+  .panehead { flex:none; padding:11px 16px 9px; box-shadow:0 1px 0 rgba(255,255,255,.045); }
+  .panehead .tl { display:flex; align-items:baseline; gap:9px; margin-bottom:3px; }
+  .panehead h3 { font-size:12px; font-weight:600; color:var(--t1); }
+  .panescroll { flex:1; overflow-y:auto; min-height:0; }
+
+  /* ── the budget meter ─────────────────────────────────────────────────── */
+  .budget { display:flex; align-items:center; gap:12px; padding:9px 16px; background:var(--s2);
+    box-shadow:0 1px 0 rgba(255,255,255,.05); }
+  .budget .bar { flex:1; height:5px; }
+
+  /* ── bound tool rows ──────────────────────────────────────────────────── */
+  .bt { box-shadow:inset 0 -1px 0 rgba(255,255,255,.035); }
+  .btr { display:flex; align-items:center; gap:10px; padding:8px 16px; cursor:pointer; }
+  .btr:hover { background:rgba(255,255,255,.022); }
+  .bt.open .btr { background:var(--s4); }
+  .grip { color:var(--t4); font-size:11px; letter-spacing:-2px; flex:none; cursor:grab; }
+  .chk { width:14px; height:14px; border-radius:4px; flex:none; background:var(--s5);
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.09); display:grid; place-items:center; }
+  .chk svg { width:9px; height:9px; stroke:var(--t1); stroke-width:2.6; fill:none; }
+  .btname { font-family:var(--mono); font-size:11.5px; color:var(--t1); font-weight:500; }
+  .src { font-size:9.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--t3); font-weight:500; }
+  .btr .caret { margin-left:auto; color:var(--t4); font-size:9px; flex:none; }
+  /* per-tool config: attached detail, left rule + indent (rule 8) */
+  .btcfg { padding:3px 16px 13px 40px; }
+  .btcfg .inner { border-left:2px solid var(--r3); padding-left:13px; }
+  .btcfg .field { margin-bottom:10px; }
+
+  /* ── catalog ──────────────────────────────────────────────────────────── */
+  .srcpick { display:flex; gap:0; padding:0 16px; box-shadow:0 1px 0 rgba(255,255,255,.045); }
+  .srcpick button { padding:8px 0; margin-right:18px; border:0; background:transparent; color:var(--t3);
+    font-family:var(--sans); font-size:11.5px; cursor:pointer; display:flex; align-items:center; gap:7px;
+    position:relative; }
+  .srcpick button.active { color:var(--t1); font-weight:600; }
+  .srcpick button.active::after { content:""; position:absolute; left:0; right:0; bottom:-1px; height:2px; background:var(--m2); }
+  .srcpick .c { font-family:var(--mono); font-size:10px; color:var(--t3); font-variant-numeric:tabular-nums; }
+
+  .ct { display:flex; align-items:flex-start; gap:10px; padding:8px 16px; cursor:pointer;
+    box-shadow:inset 0 -1px 0 rgba(255,255,255,.03); }
+  .ct:hover { background:rgba(255,255,255,.022); }
+  /* SIGNAL — the tool being inspected */
+  .ct.sel { background:var(--s5); position:relative; }
+  .ct.sel::before { content:""; position:absolute; left:0; top:0; bottom:0; width:2px; background:var(--sig); }
+  .ct .body { flex:1; min-width:0; display:flex; flex-direction:column; align-items:flex-start; gap:2px; }
+  .ct .nm { font-family:var(--mono); font-size:11.5px; color:var(--t1); display:flex; align-items:baseline; gap:8px;
+    width:100%; }
+  .ct .ds { display:block; width:100%; font-size:10.5px; color:var(--t3); line-height:1.45; }
+  .bindbtn { height:22px; padding:0 8px; border:0; border-radius:5px; background:var(--s5); color:var(--t2);
+    font-family:var(--sans); font-size:10.5px; font-weight:550; cursor:pointer; box-shadow:var(--hi); flex:none; }
+  .bindbtn:hover { background:var(--s6); color:var(--t1); }
+  .bindbtn.done { background:transparent; box-shadow:none; color:var(--t3); font-weight:400; }
+
+  /* ── schema inspector ─────────────────────────────────────────────────── */
+  .insp { flex:none; background:var(--s2); box-shadow:0 -1px 0 rgba(255,255,255,.06); max-height:340px;
+    display:flex; flex-direction:column; }
+  .insphead { padding:10px 16px 8px; flex:none; }
+  .inspscroll { overflow-y:auto; padding:0 16px 13px; }
+  .well { background:var(--s0); border-radius:7px; padding:10px 12px; font-family:var(--mono); font-size:10.5px;
+    line-height:1.6; color:var(--t2); box-shadow:inset 0 1px 2px rgba(0,0,0,.5); white-space:pre; overflow-x:auto; }
+  .well .k { color:var(--t1); }
+  .well .s { color:var(--m2); }
+  .well .req { color:var(--t1); font-weight:600; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo"></div>
+      <span class="wordmark">Command Studio</span>
+      <span class="envchip">LOCAL · :8000</span>
+    </div>
+    <nav class="nav">
+      <a href="#">Workflows</a><a href="#">Datasets</a><a href="#">Catalog</a>
+      <a href="#">Runs</a><a href="#" class="active">Agents</a><a href="#">Admin</a>
+    </nav>
+    <div class="topright">
+      <div class="cmdk">
+        <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+        <span>Search agents, tools, runs…</span><span class="kbd">⌘K</span>
+      </div>
+      <div class="iconbtn"><svg class="ic" viewBox="0 0 24 24"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg></div>
+      <div class="iconbtn"><svg class="ic" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg></div>
+      <div class="team"><span class="dot good"></span><span>Growth Analytics</span><span class="caret">▾</span></div>
+      <div class="avatar">SG</div>
+    </div>
+  </div>
+
+  <div class="subhead">
+    <h1>Agents</h1>
+    <span class="idf" style="font-size:11px">/ Revenue Analyst / tools</span>
+    <div class="spacer"></div>
+    <div class="ctrl">
+      <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M4 4v6h6M20 20v-6h-6"/><path d="M20 9a8 8 0 00-14.5-3M4 15a8 8 0 0014.5 3"/></svg>
+      Re-discover all
+    </div>
+    <button class="btn-ghost">Discard</button>
+    <button class="btn-primary">
+      <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M5 13l4 4L19 7"/></svg>
+      Save bindings
+    </button>
+  </div>
+
+  <div class="body">
+    <div class="main">
+
+      <div class="dhead">
+        <div class="dtitle">
+          <h2>Revenue Analyst</h2>
+          <span class="idf">agt_7Kq2mN4pXr</span>
+          <span class="sev sev-warn">3 unsaved changes</span>
+        </div>
+        <div class="tabs">
+          <button>Configuration</button>
+          <button class="active">Tools <span class="c">12</span></button>
+          <button>Runs <span class="c">17</span></button>
+        </div>
+      </div>
+
+      <!-- the budget: tool count is a real cost, so it is a denominated figure -->
+      <div class="budget">
+        <div class="stat" style="min-width:132px">
+          <span class="micro">Schema budget</span>
+          <span class="v sm">4,180 <span style="font-size:11px;color:var(--t3)">of 6,000 tok</span></span>
+        </div>
+        <div class="bar" title="70% of budget"><i class="strong" style="width:70%"></i></div>
+        <div class="stat" style="min-width:118px;text-align:right">
+          <span class="micro" style="display:block">Bound</span>
+          <span class="v sm">12 <span style="font-size:11px;color:var(--t3)">of 24 max</span></span>
+        </div>
+        <div style="width:250px" class="guard">
+          Measured with the engine's own estimator. Exceeding either bound is a <b>hard error at run time</b>, not a warning.
+        </div>
+      </div>
+
+      <div class="split">
+
+        <!-- ════ LEFT: bound ════ -->
+        <div class="pane">
+          <div class="panehead">
+            <div class="tl">
+              <h3>Bound to this agent</h3>
+              <span class="micro">12 tools · 3 sources · order is the order the model sees</span>
+            </div>
+          </div>
+          <div class="panescroll">
+
+            <!-- an expanded builtin with per-tool config -->
+            <div class="bt open">
+              <div class="btr">
+                <span class="grip">⣿</span>
+                <span class="chk"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span>
+                <span class="btname">api_request</span>
+                <span class="src">built-in</span>
+                <span class="sev sev-err">writes</span>
+                <span class="caret">▾</span>
+              </div>
+              <div class="btcfg">
+                <div class="inner">
+                  <div class="sect-sub" style="margin-bottom:10px">The URL and method are fixed at bind time. The model only fills a schema-validated body — it cannot widen the surface.</div>
+                  <div class="row2">
+                    <div class="field">
+                      <label>Tool name shown to the model</label>
+                      <input class="input mono" style="font-size:11px" value="post_forecast_note" />
+                    </div>
+                    <div class="field">
+                      <label>Method</label>
+                      <select class="select"><option>POST</option></select>
+                    </div>
+                  </div>
+                  <div class="field">
+                    <label>URL</label>
+                    <input class="input mono" style="font-size:11px" value="http://localhost:8001/api/v1/datasets/{{ $vars.FORECAST_DS }}/annotations" />
+                  </div>
+                  <div class="field" style="margin-bottom:4px">
+                    <label>Timeout</label>
+                    <input class="input mono" style="width:100px;font-size:11px" value="30s" />
+                  </div>
+                  <div class="guard warn">
+                    Private hosts are <b>allowed</b> for this tool because you own the URL. Redirects are not followed.
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="bt">
+              <div class="btr">
+                <span class="grip">⣿</span>
+                <span class="chk"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span>
+                <span class="btname">search_datasets</span>
+                <span class="src">analytics · mcp</span>
+                <span class="sev sev-info">reads</span>
+                <span class="caret">▸</span>
+              </div>
+            </div>
+            <div class="bt">
+              <div class="btr">
+                <span class="grip">⣿</span>
+                <span class="chk"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span>
+                <span class="btname">describe_dataset</span>
+                <span class="src">analytics · mcp</span>
+                <span class="sev sev-info">reads</span>
+                <span class="caret">▸</span>
+              </div>
+            </div>
+            <div class="bt">
+              <div class="btr">
+                <span class="grip">⣿</span>
+                <span class="chk"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span>
+                <span class="btname">query_rows</span>
+                <span class="src">analytics · mcp</span>
+                <span class="sev sev-info">reads</span>
+                <span class="caret">▸</span>
+              </div>
+            </div>
+            <div class="bt">
+              <div class="btr">
+                <span class="grip">⣿</span>
+                <span class="chk"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span>
+                <span class="btname">run_sql</span>
+                <span class="src">analytics · mcp</span>
+                <span class="sev sev-info">reads</span>
+                <span class="caret">▸</span>
+              </div>
+            </div>
+            <div class="bt">
+              <div class="btr">
+                <span class="grip">⣿</span>
+                <span class="chk"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span>
+                <span class="btname">aggregate</span>
+                <span class="src">analytics · mcp</span>
+                <span class="sev sev-info">reads</span>
+                <span class="caret">▸</span>
+              </div>
+            </div>
+            <div class="bt">
+              <div class="btr">
+                <span class="grip">⣿</span>
+                <span class="chk"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span>
+                <span class="btname">pivot</span>
+                <span class="src">analytics · mcp</span>
+                <span class="sev sev-info">reads</span>
+                <span class="caret">▸</span>
+              </div>
+            </div>
+            <div class="bt">
+              <div class="btr">
+                <span class="grip">⣿</span>
+                <span class="chk"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span>
+                <span class="btname">profile_column</span>
+                <span class="src">analytics · mcp</span>
+                <span class="sev sev-info">reads</span>
+                <span class="caret">▸</span>
+              </div>
+            </div>
+            <div class="bt">
+              <div class="btr">
+                <span class="grip">⣿</span>
+                <span class="chk"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span>
+                <span class="btname">read_artifact</span>
+                <span class="src">analytics · mcp</span>
+                <span class="sev sev-info">reads</span>
+                <span class="caret">▸</span>
+              </div>
+            </div>
+            <div class="bt">
+              <div class="btr">
+                <span class="grip">⣿</span>
+                <span class="chk"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span>
+                <span class="btname">engine_list_workflows</span>
+                <span class="src">engine · openapi</span>
+                <span class="sev sev-info">reads</span>
+                <span class="caret">▸</span>
+              </div>
+            </div>
+            <div class="bt">
+              <div class="btr">
+                <span class="grip">⣿</span>
+                <span class="chk"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span>
+                <span class="btname">calculator</span>
+                <span class="src">built-in</span>
+                <span class="sev sev-info">reads</span>
+                <span class="caret">▸</span>
+              </div>
+            </div>
+            <div class="bt">
+              <div class="btr">
+                <span class="grip">⣿</span>
+                <span class="chk"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span>
+                <span class="btname">current_time</span>
+                <span class="src">built-in</span>
+                <span class="sev sev-info">reads</span>
+                <span class="caret">▸</span>
+              </div>
+            </div>
+
+            <div style="padding:14px 16px">
+              <div class="guard">
+                <b>Order matters.</b> Tools are presented to the model in this order, and a tool the model has never tried is more likely to be reached for when it appears early. Drag to reorder.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ════ RIGHT: catalog ════ -->
+        <div class="pane">
+          <div class="panehead">
+            <div class="tl">
+              <h3>Available</h3>
+              <span class="micro">183 discovered · 12 bound</span>
+            </div>
+            <div class="searchbox" style="min-width:0;width:100%;margin-top:6px">
+              <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+              <input placeholder="filter 183 tools by name or description…" />
+            </div>
+          </div>
+
+          <div class="srcpick">
+            <button>Built-in <span class="c">14</span></button>
+            <button class="active">
+              <span class="lamp"></span>Analytics <span class="c">27</span>
+            </button>
+            <button>Engine API <span class="c">142</span></button>
+          </div>
+
+          <div class="panescroll">
+            <div class="ct">
+              <div class="body">
+                <div class="nm">whoami <span class="sev sev-info">reads</span></div>
+                <div class="ds">The acting user and their team memberships. Call this when a request unexpectedly 404s.</div>
+              </div>
+              <button class="bindbtn">bind</button>
+            </div>
+            <div class="ct sel">
+              <div class="body">
+                <div class="nm">get_dataset_health <span class="sev sev-info">reads</span></div>
+                <div class="ds">Seven quality dimensions: schema stability, validation, missing data, duplicates, drift, freshness, documentation.</div>
+              </div>
+              <button class="bindbtn">bind</button>
+            </div>
+            <div class="ct">
+              <div class="body">
+                <div class="nm">search_columns <span class="sev sev-info">reads</span></div>
+                <div class="ds">Find columns by name fragment across every readable dataset.</div>
+              </div>
+              <button class="bindbtn">bind</button>
+            </div>
+            <div class="ct">
+              <div class="body">
+                <div class="nm">get_data_dictionary <span class="sev sev-info">reads</span></div>
+                <div class="ds">Business name, description, semantic type, unit, sensitivity, allowed values, sheet grain and primary key.</div>
+              </div>
+              <button class="bindbtn">bind</button>
+            </div>
+            <div class="ct">
+              <div class="body">
+                <div class="nm">query_rows <span class="sev sev-info">reads</span></div>
+                <div class="ds">Filter, sort, project and page one sheet server-side. No joins, no expressions.</div>
+              </div>
+              <button class="bindbtn done">bound ✓</button>
+            </div>
+            <div class="ct">
+              <div class="body">
+                <div class="nm">compare_versions <span class="sev sev-info">reads</span></div>
+                <div class="ds">Sheet, column, type and row-count diff between two versions.</div>
+              </div>
+              <button class="bindbtn">bind</button>
+            </div>
+            <div class="ct">
+              <div class="body">
+                <div class="nm">get_lineage <span class="sev sev-info">reads</span></div>
+                <div class="ds">Parents and children of a dataset. Walks the whole DAG when full_graph is set.</div>
+              </div>
+              <button class="bindbtn">bind</button>
+            </div>
+            <div class="ct">
+              <div class="body">
+                <div class="nm">join_datasets <span class="sev sev-warn">writes artifact</span></div>
+                <div class="ds">Preview then execute a join. Only works on a CONFIRMED relationship. Preview reveals row explosion before you pay for it.</div>
+              </div>
+              <button class="bindbtn">bind</button>
+            </div>
+            <div class="ct">
+              <div class="body">
+                <div class="nm">publish_result <span class="sev sev-err">writes dataset</span></div>
+                <div class="ds">Promote a join, transform or analytics run into a real dataset or a new version.</div>
+              </div>
+              <button class="bindbtn">bind</button>
+            </div>
+            <div class="ct">
+              <div class="body">
+                <div class="nm">manage_tags <span class="sev sev-err">writes</span></div>
+                <div class="ds">Create, move, delete or read the history of a named pointer to one whole version.</div>
+              </div>
+              <button class="bindbtn">bind</button>
+            </div>
+          </div>
+
+          <!-- ── schema inspector: read-only, on purpose ── -->
+          <div class="insp">
+            <div class="insphead">
+              <div style="display:flex;align-items:baseline;gap:9px">
+                <span class="micro">Input schema</span>
+                <span class="mono" style="font-size:11px;color:var(--t1)">get_dataset_health</span>
+                <div class="spacer"></div>
+                <span class="micro">≈ 210 tok</span>
+              </div>
+            </div>
+            <div class="inspscroll">
+              <div class="well"><span class="k">dataset_id</span>   <span class="s">string</span>   <span class="req">required</span>
+   The dataset to inspect. Obtain it from search_datasets.
+
+<span class="k">version</span>      <span class="s">integer</span>
+   Version number. Defaults to the latest ready version.
+
+<span class="k">dimensions</span>   <span class="s">array&lt;string&gt;</span>
+   Subset of: schema_stability, validation, missing,
+   duplicates, drift, freshness, documentation.</div>
+              <div style="margin-top:10px" class="guard">
+                Shown read-only because a JSON Schema describes what the <b>model</b> sends, not what a person fills in. To fix an argument to a constant, use <b>pin argument</b> — it offers a field only for plain string, number, boolean and enum, and declines on anything nested rather than guessing a type.
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

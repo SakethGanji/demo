@@ -1,0 +1,541 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+ * INSTRUMENT base — shared by the four agent-platform prototypes.
+ * Tokens, grain, status shapes, scrollbar, focus ring and shell chrome are
+ * copied verbatim from terminal-runs.html so these screens are materially the
+ * same surface, not a lookalike. Only the regions below the sub-header differ.
+ *
+ * This file exists because four screens shared ~600 lines; the other 21
+ * prototypes each inline their CSS because each was written standalone.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --s0:#080A0E;  --s1:#0D1015;  --s2:#11151B;  --s3:#161B22;
+  --s4:#1C222B;  --s5:#242C37;  --s6:#38424F;  --key:#E9EEF5;
+  --t1:#E7ECF3;  --t2:#B0BAC8;  --t3:#8B95A4;  --t4:#5C6675; /* t4 = decoration only, NEVER text */
+  --r1:rgba(255,255,255,.042); --r2:rgba(255,255,255,.075); --r3:rgba(255,255,255,.13);
+  --hi:inset 0 1px 0 rgba(255,255,255,.045);
+  --sig:#46D5E8; --sig-dim:rgba(70,213,232,.14); --sig-line:rgba(70,213,232,.40);
+  --st-good:#0ca30c; --st-warn:#fab219; --st-serious:#ec835a; --st-crit:#DC5050;
+  --m1:#CBD3DF; --m2:#A2ACBB; --m3:#7D8797; --m4:#5F6979; --m5:#48515F; --m6:#39414D;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --viz-1:#3987e5; --viz-2:#d95926; --viz-3:#199e70; --viz-4:#c98500;
+  --viz-5:#d55181; --viz-6:#747c04; --viz-7:#9085e9; --viz-8:#e66767;
+  --radius:8px;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+html, body { height:100%; overflow:hidden; }
+html { font-size:13px; }
+body {
+  font-family:var(--sans); color:var(--t2); font-size:12.5px;
+  background:radial-gradient(1180px 560px at 44% -12%, #151B24 0%, rgba(21,27,36,0) 62%), var(--s1);
+  -webkit-font-smoothing:antialiased; line-height:1.4; letter-spacing:-0.004em;
+  display:flex; align-items:center; justify-content:center;
+}
+body::after {
+  content:""; position:fixed; inset:0; pointer-events:none; z-index:200; opacity:.055; mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+.mono, .tnum { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+.tnum { font-family:inherit; }
+/* the ONE eyebrow register — 9.5px, only over hero numbers (rule 4) */
+.micro { font-size:9.5px; font-weight:500; letter-spacing:.11em; text-transform:uppercase; color:var(--t3); }
+::selection { background:rgba(70,213,232,.26); color:#fff; }
+:focus-visible { outline:none; box-shadow:0 0 0 1px var(--s0), 0 0 0 3px rgba(70,213,232,.45); border-radius:6px; }
+::-webkit-scrollbar { width:10px; height:10px; }
+::-webkit-scrollbar-thumb { background:#232B35; border-radius:8px; border:3px solid transparent; background-clip:padding-box; }
+::-webkit-scrollbar-thumb:hover { background:#303945; border:3px solid transparent; background-clip:padding-box; }
+::-webkit-scrollbar-track { background:transparent; }
+.ic { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; flex:none; }
+
+/* ===== STATUS: five states, five SHAPES, always beside a word (rule 6) ===== */
+.dot { width:8px; height:8px; flex:none; display:inline-block; vertical-align:-1px; }
+.dot.good    { border-radius:50%; background:var(--st-good); }
+.dot.warn    { width:0; height:0; border-left:4.5px solid transparent; border-right:4.5px solid transparent;
+               border-bottom:8px solid var(--st-warn); vertical-align:0; }
+.dot.serious { width:7px; height:7px; background:var(--st-serious); border-radius:1px; transform:rotate(45deg); margin:0 1px; }
+.dot.crit    { background:var(--st-crit); border-radius:1px; }
+.dot.muted   { border-radius:50%; background:transparent; box-shadow:inset 0 0 0 1.5px var(--t4); }
+/* running = outcome not yet known: the unknown RING, pulsing. Never the accent. */
+.dot.run     { border-radius:50%; background:transparent; box-shadow:inset 0 0 0 1.5px var(--t2);
+               animation:pulse 2.4s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.34} }
+@media (prefers-reduced-motion: reduce) { .dot.run, .lamp { animation:none !important; } }
+.st { display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+
+/* SEVERITY is typographic — never a hue, never a box (rule 7). */
+.sev      { font-size:11px; letter-spacing:.01em; white-space:nowrap; flex:none; }
+.sev-err  { color:var(--t1); font-weight:650; }
+.sev-warn { color:var(--t2); font-weight:550; }
+.sev-info { color:var(--t3); font-weight:400; }
+
+/* GUARD — an attached caveat: left rule + indent. Never a nested box (rule 8). */
+.guard { border-left:2px solid var(--r3); padding:2px 0 2px 11px; color:var(--t3); font-size:11px; line-height:1.5; }
+.guard b { color:var(--t2); font-weight:600; }
+.guard.warn { border-left-color:var(--st-warn); }
+
+/* ===== SHELL ===== */
+.shell { width:100%; height:100%; background:transparent; display:flex; flex-direction:column; overflow:hidden; }
+.topbar { height:56px; min-height:56px; flex:none; display:flex; align-items:center; gap:18px; padding:0 16px;
+  background:linear-gradient(180deg,#141922,#10141A); box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); z-index:30; }
+.brand { display:flex; align-items:center; gap:10px; }
+.logo { width:21px; height:21px; border-radius:5px; background:linear-gradient(180deg,#2C3542,#191F28);
+  position:relative; box-shadow:var(--hi), 0 1px 2px rgba(0,0,0,.5); }
+.logo::after { content:""; position:absolute; inset:6px; border:1.5px solid var(--t2); border-radius:2px; opacity:.9; }
+.wordmark { font-weight:600; font-size:12.5px; letter-spacing:-0.012em; color:var(--t1); white-space:nowrap; }
+.envchip { font-family:var(--mono); font-size:10px; color:var(--t3); display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+.envchip::before { content:""; width:5px; height:5px; border-radius:50%; background:var(--st-warn); flex:none; }
+.nav { display:flex; align-items:center; gap:2px; }
+.nav a { position:relative; height:30px; padding:0 10px; color:var(--t3); text-decoration:none; font-size:12.5px;
+  font-weight:450; border-radius:7px; display:inline-flex; align-items:center; transition:color .14s, background .14s; }
+.nav a:hover { color:var(--t1); background:rgba(255,255,255,.035); }
+/* SIGNAL — the active route */
+.nav a.active { color:var(--t1); font-weight:550; }
+.nav a.active::after { content:""; position:absolute; left:10px; right:10px; bottom:-14px; height:2px;
+  background:var(--sig); border-radius:2px 2px 0 0; box-shadow:0 0 12px -1px var(--sig); }
+.topright { margin-left:auto; display:flex; align-items:center; gap:8px; }
+.cmdk { width:250px; height:30px; display:flex; align-items:center; gap:9px; padding:0 10px; border-radius:8px;
+  cursor:text; color:var(--t3); font-size:12px; background:var(--s0);
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); }
+.kbd { font-family:var(--mono); font-size:10px; font-weight:500; color:var(--t2);
+  background:linear-gradient(180deg,#232A34,#1A2028); border:0; border-radius:4px; padding:1.5px 5px;
+  line-height:1.4; box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.5); white-space:nowrap; }
+.cmdk .kbd { margin-left:auto; }
+.iconbtn { width:30px; height:30px; border:0; border-radius:7px; background:transparent; color:var(--t3);
+  display:grid; place-items:center; cursor:pointer; transition:color .14s, background .14s; }
+.iconbtn:hover { background:rgba(255,255,255,.05); color:var(--t1); }
+.team { height:28px; display:flex; align-items:center; gap:7px; padding:0 10px; border-radius:7px;
+  background:var(--s4); box-shadow:var(--hi); cursor:pointer; font-size:12px; color:var(--t1); white-space:nowrap; }
+.team .caret { color:var(--t3); font-size:9px; }
+.avatar { width:27px; height:27px; border-radius:7px; background:linear-gradient(180deg,#2A323D,#1D242D);
+  display:grid; place-items:center; font-family:var(--mono); font-size:10px; font-weight:600; color:var(--t2);
+  box-shadow:var(--hi); flex:none; cursor:pointer; }
+
+/* ===== SUB-HEADER ===== */
+.subhead { height:46px; min-height:46px; flex:none; display:flex; align-items:center; gap:12px; padding:0 16px;
+  background:linear-gradient(180deg,var(--s3),#12171E);
+  box-shadow:var(--hi), 0 1px 0 rgba(0,0,0,.55), 0 10px 24px -20px rgba(0,0,0,.9); z-index:20; }
+.subhead h1 { font-size:14px; font-weight:600; color:var(--t1); letter-spacing:-0.014em; }
+.spacer { margin-left:auto; }
+.seg { display:flex; background:var(--s0); border-radius:8px; padding:2px; box-shadow:inset 0 1px 2px rgba(0,0,0,.55); }
+.seg button { height:24px; padding:0 10px; border:0; border-radius:6px; background:transparent; color:var(--t3);
+  font-family:var(--sans); font-size:11.5px; cursor:pointer; display:inline-flex; align-items:center; gap:6px; }
+.seg button.active { background:var(--s4); color:var(--t1); font-weight:550; box-shadow:var(--hi), 0 1px 2px rgba(0,0,0,.4); }
+.seg .c { font-family:var(--mono); font-size:10px; color:var(--t3); font-variant-numeric:tabular-nums; }
+.searchbox { height:28px; display:flex; align-items:center; gap:8px; padding:0 10px; border-radius:8px; background:var(--s0);
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); color:var(--t3); min-width:230px; }
+.searchbox input { border:0; background:transparent; color:var(--t2); font-family:var(--sans); font-size:12px; outline:none; width:100%; }
+.searchbox input::placeholder { color:var(--t4); }
+.ctrl { height:28px; display:inline-flex; align-items:center; gap:7px; padding:0 10px; border-radius:7px;
+  background:var(--s4); box-shadow:var(--hi); color:var(--t2); font-size:11.5px; cursor:pointer; white-space:nowrap; }
+.ctrl b { color:var(--t1); font-weight:600; }
+.ctrl .caret { color:var(--t3); font-size:9px; }
+/* the primary action wins on VALUE, not hue (rule 2) */
+.btn-primary { height:28px; padding:0 12px; border:0; border-radius:7px; background:var(--key); color:#0D1015;
+  font-family:var(--sans); font-size:11.5px; font-weight:650; cursor:pointer; display:inline-flex; align-items:center;
+  gap:7px; box-shadow:0 1px 2px rgba(0,0,0,.5); white-space:nowrap; }
+.btn-primary .ic { stroke:#0D1015; }
+.btn-ghost { height:28px; padding:0 11px; border:0; border-radius:7px; background:var(--s4); color:var(--t2);
+  font-family:var(--sans); font-size:11.5px; font-weight:500; cursor:pointer; display:inline-flex; align-items:center;
+  gap:7px; box-shadow:var(--hi); white-space:nowrap; }
+.btn-ghost:hover { color:var(--t1); background:var(--s5); }
+
+/* ===== REGIONS ===== */
+.body { flex:1; display:flex; min-height:0; overflow:hidden; }
+.rail { width:272px; min-width:272px; background:var(--s2); display:flex; flex-direction:column; min-height:0;
+  box-shadow:1px 0 0 rgba(255,255,255,.05); }
+.railhead { height:34px; flex:none; display:flex; align-items:center; gap:8px; padding:0 12px;
+  box-shadow:0 1px 0 rgba(255,255,255,.05); }
+.railscroll { flex:1; overflow-y:auto; min-height:0; }
+.main { flex:1; display:flex; flex-direction:column; min-width:0; min-height:0; overflow:hidden; }
+
+/* ===== PANEL / SECTION ===== */
+.sect { padding:14px 18px; }
+.sect + .sect { box-shadow:0 -1px 0 rgba(255,255,255,.045); }
+.sect-title { font-size:11.5px; font-weight:600; color:var(--t1); letter-spacing:-0.008em; margin-bottom:2px; }
+.sect-sub { font-size:11px; color:var(--t3); margin-bottom:11px; line-height:1.5; }
+
+/* ===== FIELDS ===== */
+.field { margin-bottom:13px; }
+.field > label { display:block; font-size:11px; font-weight:550; color:var(--t2); margin-bottom:5px; }
+.field .hint { font-size:10.5px; color:var(--t3); margin-top:5px; line-height:1.45; }
+.input, .select, .ta { width:100%; background:var(--s0); border:0; border-radius:7px; color:var(--t1);
+  font-family:var(--sans); font-size:12px; padding:7px 10px; outline:none;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.55), inset 0 0 0 1px rgba(255,255,255,.04); }
+.input:focus, .ta:focus, .select:focus { box-shadow:inset 0 1px 2px rgba(0,0,0,.55), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+.ta { resize:none; line-height:1.55; font-family:var(--mono); font-size:11.5px; }
+.select { appearance:none; cursor:pointer; background-image:linear-gradient(45deg,transparent 50%,var(--t3) 50%),linear-gradient(135deg,var(--t3) 50%,transparent 50%);
+  background-position:calc(100% - 15px) 13px, calc(100% - 10px) 13px; background-size:5px 5px; background-repeat:no-repeat; }
+.row2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.row3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; }
+/* a switch reads as a switch — value + position, not hue */
+.sw { width:30px; height:17px; border-radius:9px; background:var(--s0); position:relative; cursor:pointer; flex:none;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.05); transition:background .15s; }
+.sw::after { content:""; position:absolute; top:2.5px; left:2.5px; width:12px; height:12px; border-radius:50%;
+  background:var(--t4); transition:transform .15s, background .15s; }
+.sw.on { background:var(--s5); }
+.sw.on::after { transform:translateX(13px); background:var(--key); }
+.swrow { display:flex; align-items:center; gap:10px; padding:7px 0; }
+.swrow .lb { font-size:11.5px; color:var(--t2); }
+.swrow .lb b { color:var(--t1); font-weight:550; display:block; }
+.swrow .lb span { font-size:10.5px; color:var(--t3); }
+
+/* ===== STAT — every figure carries its denominator (rule 11) ===== */
+.stat { display:flex; flex-direction:column; gap:2px; }
+.stat .v { font-family:var(--mono); font-variant-numeric:tabular-nums; font-size:19px; font-weight:600;
+  color:var(--t1); letter-spacing:-0.02em; line-height:1.1; }
+.stat .v.sm { font-size:15px; }
+.stat .den { font-size:10px; color:var(--t3); font-family:var(--mono); font-variant-numeric:tabular-nums; }
+.statband { display:flex; gap:0; padding:11px 18px; background:var(--s2); box-shadow:0 1px 0 rgba(255,255,255,.05); }
+.statband > * { flex:1; padding-right:16px; }
+.statband > * + * { padding-left:16px; box-shadow:inset 1px 0 0 rgba(255,255,255,.05); }
+
+/* magnitude uses the NEUTRAL ramp (rule 5) */
+.bar { height:4px; border-radius:2px; background:var(--s0); overflow:hidden; box-shadow:inset 0 0 0 1px rgba(255,255,255,.03); }
+.bar i { display:block; height:100%; background:var(--m3); border-radius:2px; }
+.bar i.strong { background:var(--m1); }
+
+/* ===== TABLE ===== */
+table { width:100%; border-collapse:separate; border-spacing:0; }
+thead th { position:sticky; top:0; z-index:2; background:var(--s2); text-align:left; font-size:9.5px; font-weight:500;
+  letter-spacing:.11em; text-transform:uppercase; color:var(--t3); padding:7px 10px; white-space:nowrap;
+  box-shadow:inset 0 -1px 0 rgba(255,255,255,.07); }
+tbody td { padding:8px 10px; font-size:12px; color:var(--t2); box-shadow:inset 0 -1px 0 rgba(255,255,255,.035); vertical-align:middle; }
+tbody tr:hover td { background:rgba(255,255,255,.022); }
+tbody tr.sel td { background:var(--s5); }
+td.num, th.num { text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
+
+.tag { font-family:var(--mono); font-size:10px; color:var(--t3); }
+.idf { font-family:var(--mono); font-size:10.5px; color:var(--t3); letter-spacing:-0.01em; }
+.lamp { width:6px; height:6px; border-radius:50%; background:var(--sig); box-shadow:0 0 8px var(--sig);
+  animation:pulse 1.8s ease-in-out infinite; flex:none; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * WORKSPACE additions — the code-writing surface.
+ *
+ * DIFF COLOUR, stated up front: status hue is reserved and is never a data
+ * series, so a diff cannot be told in green/red alone. The GLYPH is the
+ * carrier here — every changed line has a literal + or − in the gutter and is
+ * legible with the tint removed. The tint is a 6%-alpha wash that exists to
+ * group runs of lines, not to encode meaning a second time.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── file tree ────────────────────────────────────────────────────────────── */
+.ftree { padding:4px 0; }
+.fitem { display:flex; align-items:center; gap:7px; padding:4px 12px 4px 0; cursor:pointer; font-size:11.5px; color:var(--t2); position:relative; }
+.fitem:hover { background:rgba(255,255,255,.028); }
+.fitem.sel { background:var(--s5); color:var(--t1); }
+.fitem.sel::before { content:""; position:absolute; left:0; top:0; bottom:0; width:2px; background:var(--sig); }
+.fitem .nm { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:var(--mono); font-size:11px; }
+.fitem.dir .nm { font-family:var(--sans); font-size:11.5px; color:var(--t2); }
+/* change markers are a LETTER, not a dot — A/M/D reads at any size and in any theme */
+.mk { width:13px; text-align:center; font-family:var(--mono); font-size:10px; font-weight:700; flex:none; }
+.mk.a { color:var(--t1); }
+.mk.m { color:var(--t2); }
+/* deleted: the letter alone. A strike-through at 10px collides with the D's bowl
+ * and reads as "Đ" — the marker has to survive its own decoration. */
+.mk.d { color:var(--t3); }
+.fitem.gone .nm { color:var(--t3); text-decoration:line-through; text-decoration-color:var(--t4); }
+.mk.none { color:transparent; }
+.fitem .ct { font-family:var(--mono); font-size:9.5px; color:var(--t3); font-variant-numeric:tabular-nums; flex:none; }
+
+/* ── unified diff ─────────────────────────────────────────────────────────── */
+.diff { font-family:var(--mono); font-size:11px; line-height:1.62; }
+.dl { display:flex; white-space:pre; }
+.dl .ln { width:38px; flex:none; text-align:right; padding-right:9px; color:var(--t4); font-variant-numeric:tabular-nums;
+  user-select:none; font-size:10px; }
+.dl .sg { width:15px; flex:none; text-align:center; color:var(--t3); user-select:none; font-weight:700; }
+.dl .tx { flex:1; padding-right:16px; color:var(--t2); overflow-x:auto; }
+.dl.add { background:rgba(120,220,150,.055); }
+.dl.add .sg { color:var(--t1); }
+.dl.add .tx { color:var(--t1); }
+.dl.del { background:rgba(230,120,120,.055); }
+.dl.del .sg { color:var(--t2); }
+.dl.del .tx { color:var(--t3); }
+.dl.hunk { background:var(--s2); }
+.dl.hunk .tx, .dl.hunk .sg, .dl.hunk .ln { color:var(--t3); font-size:10px; }
+.diff .kw { color:var(--m2); }
+.diff .str { color:var(--m3); }
+
+/* ── preview viewport ─────────────────────────────────────────────────────── */
+.vp { background:#fff; border-radius:7px; overflow:hidden; box-shadow:0 8px 30px -12px rgba(0,0,0,.8), 0 0 0 1px rgba(255,255,255,.09); }
+.vpbar { height:24px; background:#EDF0F4; display:flex; align-items:center; gap:6px; padding:0 9px; }
+.vpbar .d { width:7px; height:7px; border-radius:50%; background:#C8CFD8; }
+.vpbar .u { margin-left:6px; font-family:var(--mono); font-size:9px; color:#7C8796; }
+.vpbody { padding:13px 14px; color:#1A2230; font-family:var(--sans); }
+
+/* ── console / test rows ──────────────────────────────────────────────────── */
+.logrow { display:flex; gap:10px; padding:3px 14px; font-family:var(--mono); font-size:10.5px; line-height:1.55; }
+.logrow .ts { color:var(--t4); flex:none; font-variant-numeric:tabular-nums; }
+.logrow .lv { width:40px; flex:none; font-size:9.5px; letter-spacing:.06em; text-transform:uppercase; }
+.logrow .ms { flex:1; color:var(--t2); min-width:0; }
+.logrow.err .lv { color:var(--t1); font-weight:700; }
+.logrow.err .ms { color:var(--t1); }
+.logrow.warn .lv { color:var(--t2); font-weight:600; }
+.logrow.info .lv { color:var(--t3); }
+
+.trow { display:flex; align-items:center; gap:10px; padding:5px 14px; font-size:11.5px;
+  box-shadow:inset 0 -1px 0 rgba(255,255,255,.028); }
+.trow .nm { flex:1; color:var(--t2); font-family:var(--mono); font-size:11px; }
+.trow .ms { font-family:var(--mono); font-size:10px; color:var(--t3); font-variant-numeric:tabular-nums; }
+
+/* ── the steering strip ───────────────────────────────────────────────────── */
+.steer { display:flex; align-items:center; gap:11px; padding:8px 16px; background:var(--s2);
+  box-shadow:0 1px 0 rgba(255,255,255,.05); }
+.steer .now { flex:1; min-width:0; font-size:11.5px; color:var(--t2); display:flex; align-items:center; gap:9px; }
+.steer .now b { color:var(--t1); font-weight:600; }
+.inject { flex:1; max-width:420px; height:28px; display:flex; align-items:center; gap:8px; padding:0 10px; border-radius:7px;
+  background:var(--s0); box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.035); color:var(--t3); }
+.inject input { border:0; background:transparent; color:var(--t2); font-family:var(--sans); font-size:11.5px; outline:none; width:100%; }
+.inject input::placeholder { color:var(--t4); }
+
+/* ── panel tabs (a strip, not the page tabs) ──────────────────────────────── */
+.ptabs { display:flex; align-items:center; gap:0; padding:0 14px; background:var(--s2);
+  box-shadow:0 1px 0 rgba(255,255,255,.05); flex:none; }
+.ptabs button { height:30px; padding:0 0; margin-right:16px; border:0; background:transparent; color:var(--t3);
+  font-family:var(--sans); font-size:11.5px; cursor:pointer; display:inline-flex; align-items:center; gap:7px; position:relative; }
+.ptabs button.active { color:var(--t1); font-weight:600; }
+.ptabs button.active::after { content:""; position:absolute; left:0; right:0; bottom:-1px; height:2px; background:var(--m2); }
+.ptabs .c { font-family:var(--mono); font-size:9.5px; color:var(--t3); font-variant-numeric:tabular-nums; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * FRONT DOOR additions.
+ *
+ * DELIBERATE DENSITY BREAK: every other screen in this system is a cockpit —
+ * dense, tabular, denominated. A front door is the one place where that is
+ * wrong. Density says "you are supervising something"; a front door has to say
+ * "tell me what you want." So this screen runs a centred ~760px column with
+ * large type and a lot of air, and it is the ONLY screen allowed to.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+.stage { flex:1; overflow-y:auto; min-height:0; display:flex; flex-direction:column; align-items:center; }
+.well760 { width:760px; max-width:calc(100% - 48px); }
+
+.greet { font-size:23px; font-weight:600; color:var(--t1); letter-spacing:-0.026em; line-height:1.25; }
+.greet .q { color:var(--t3); font-weight:400; }
+
+/* the composer — the single most important control in the product */
+.composer { background:var(--s3); border-radius:12px; padding:3px;
+  box-shadow:0 0 0 1px rgba(255,255,255,.075), 0 18px 44px -22px rgba(0,0,0,.9), var(--hi);
+  transition:box-shadow .16s; }
+.composer:focus-within { box-shadow:0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim),
+  0 18px 44px -22px rgba(0,0,0,.9); }
+.composer .ta2 { width:100%; background:transparent; border:0; outline:none; resize:none; color:var(--t1);
+  font-family:var(--sans); font-size:14px; line-height:1.55; padding:14px 15px 8px; letter-spacing:-0.008em; }
+.composer .ta2::placeholder { color:var(--t4); }
+.cbar { display:flex; align-items:center; gap:7px; padding:7px 9px 8px; }
+.cchip { height:26px; padding:0 9px; border-radius:7px; background:var(--s4); color:var(--t2); font-size:11px;
+  display:inline-flex; align-items:center; gap:6px; box-shadow:var(--hi); cursor:pointer; white-space:nowrap; }
+.cchip:hover { color:var(--t1); background:var(--s5); }
+.cchip .x { color:var(--t4); font-size:10px; }
+.csend { height:28px; padding:0 13px; border:0; border-radius:7px; background:var(--key); color:#0D1015;
+  font-family:var(--sans); font-size:11.5px; font-weight:650; cursor:pointer; display:inline-flex;
+  align-items:center; gap:7px; box-shadow:0 1px 2px rgba(0,0,0,.5); }
+.csend .ic { stroke:#0D1015; }
+
+/* who will pick this up — inferred, changeable, never hidden */
+.pickup { display:flex; align-items:center; gap:11px; padding:10px 13px; border-radius:9px; background:var(--s2);
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.05); }
+.pickup .av { width:26px; height:26px; border-radius:7px; background:linear-gradient(180deg,#2A323D,#1D242D);
+  display:grid; place-items:center; font-family:var(--mono); font-size:9.5px; font-weight:700; color:var(--t2);
+  box-shadow:var(--hi); flex:none; }
+.pickup .who { flex:1; min-width:0; font-size:12px; color:var(--t2); }
+.pickup .who b { color:var(--t1); font-weight:600; }
+.pickup .why { font-size:10.5px; color:var(--t3); margin-top:1px; }
+
+/* example tasks — the fastest way to teach what this thing is for */
+.egs { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.eg { padding:10px 12px; border-radius:9px; background:var(--s2); cursor:pointer;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.045); }
+.eg:hover { background:var(--s3); box-shadow:inset 0 0 0 1px rgba(255,255,255,.09); }
+.eg .t { font-size:11.5px; color:var(--t1); line-height:1.45; }
+.eg .m { font-size:10px; color:var(--t3); margin-top:4px; font-family:var(--mono); }
+
+/* the two lists under the fold */
+.lrow { display:flex; align-items:center; gap:11px; padding:8px 12px; border-radius:8px; cursor:pointer; }
+.lrow:hover { background:rgba(255,255,255,.028); }
+.lrow .tt { flex:1; min-width:0; font-size:11.5px; color:var(--t2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.lrow .tt b { color:var(--t1); font-weight:550; }
+.lrow .ag { font-size:10.5px; color:var(--t3); white-space:nowrap; }
+.lrow .tm2 { font-family:var(--mono); font-size:10px; color:var(--t3); white-space:nowrap; font-variant-numeric:tabular-nums; }
+/* something is blocked on YOU — this is the one row type that earns emphasis */
+.lrow.wait { background:var(--s2); box-shadow:inset 0 0 0 1px rgba(255,255,255,.06); }
+.lrow.wait .tt { color:var(--t1); }
+
+.hrule { display:flex; align-items:center; gap:11px; margin:0 0 6px; }
+.hrule .lb { font-size:9.5px; font-weight:500; letter-spacing:.11em; text-transform:uppercase; color:var(--t3); white-space:nowrap; }
+.hrule .ln2 { flex:1; height:1px; background:var(--r1); }
+
+/* ── session: the agent's own column ─────────────────────────────────────── */
+.agcol { width:372px; min-width:372px; background:var(--s2); display:flex; flex-direction:column; min-height:0;
+  box-shadow:1px 0 0 rgba(255,255,255,.055); }
+.aghead { flex:none; padding:11px 14px 10px; box-shadow:0 1px 0 rgba(255,255,255,.05); display:flex; align-items:center; gap:9px; }
+.agstream { flex:1; overflow-y:auto; min-height:0; padding:4px 0 10px; }
+.agfoot { flex:none; padding:10px 12px 12px; box-shadow:0 -1px 0 rgba(255,255,255,.05); }
+.say { padding:7px 14px; font-size:11.5px; line-height:1.55; color:var(--t2); }
+.say.me { color:var(--t1); border-left:2px solid var(--sig-line); margin:5px 14px; padding:5px 0 5px 11px; }
+.act { display:flex; align-items:baseline; gap:8px; padding:4px 14px; font-size:11px; }
+.act .fn2 { font-family:var(--mono); font-size:10.5px; color:var(--t2); }
+.act .rs { color:var(--t3); font-size:10.5px; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.act .ms2 { font-family:var(--mono); font-size:9.5px; color:var(--t4); font-variant-numeric:tabular-nums; }
+/* the plan is a checklist, because a plan you cannot check off is a paragraph */
+.plan { margin:6px 14px 8px; border-left:2px solid var(--r2); padding-left:12px; }
+.pln { display:flex; align-items:flex-start; gap:8px; padding:3px 0; font-size:11.5px; color:var(--t3); }
+.pln .bx { width:12px; height:12px; border-radius:3px; flex:none; margin-top:2px; background:var(--s0);
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.11); display:grid; place-items:center; }
+.pln .bx svg { width:8px; height:8px; stroke:var(--t1); stroke-width:3; fill:none; }
+.pln.done { color:var(--t3); }
+.pln.done .bx { background:var(--s5); }
+.pln.now { color:var(--t1); font-weight:550; }
+.pln.now .bx { box-shadow:inset 0 0 0 1.5px var(--t2); animation:pulse 2.4s ease-in-out infinite; }
+
+/* ── the COMMAND STRIP — task-first, but dense. ──────────────────────────────
+ * The airy variant (terminal-agent-home-airy.html) put the composer in a large
+ * soft hero box. It reads as generic — a big prompt on a dark page is the most
+ * copied shape in software right now — and it throws away the one thing this
+ * product has that others do not, at exactly the moment a first impression
+ * forms. Task-first and dense are independent; a terminal has a command line.
+ * So: full-bleed strip, instrument chrome, and the screen behind it stays full
+ * of live information instead of whitespace. */
+.cmdstrip { display:flex; align-items:center; gap:11px; padding:9px 16px; background:var(--s2);
+  box-shadow:0 1px 0 rgba(255,255,255,.05); flex:none; }
+.cmdfield { flex:1; min-width:0; height:32px; display:flex; align-items:center; gap:10px; padding:0 12px;
+  border-radius:8px; background:var(--s0); cursor:text;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.05); }
+.cmdfield:focus-within { box-shadow:inset 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+.cmdfield .caretglyph { color:var(--sig); font-family:var(--mono); font-size:12px; flex:none; }
+.cmdfield input { flex:1; min-width:0; border:0; background:transparent; color:var(--t1);
+  font-family:var(--sans); font-size:12.5px; outline:none; }
+.cmdfield input::placeholder { color:var(--t4); }
+.ctxchip { height:22px; padding:0 8px; border-radius:5px; background:var(--s4); color:var(--t2); font-size:10.5px;
+  display:inline-flex; align-items:center; gap:5px; box-shadow:var(--hi); cursor:pointer; white-space:nowrap; flex:none; }
+.ctxchip .x { color:var(--t4); font-size:10px; }
+/* who picks it up, inline — inferred, stated, one click to change */
+.route { display:inline-flex; align-items:center; gap:7px; height:32px; padding:0 10px; border-radius:8px;
+  background:var(--s4); box-shadow:var(--hi); white-space:nowrap; flex:none; cursor:pointer; }
+.route .av2 { width:18px; height:18px; border-radius:5px; background:linear-gradient(180deg,#2A323D,#1D242D);
+  display:grid; place-items:center; font-family:var(--mono); font-size:8px; font-weight:700; color:var(--t2); flex:none; }
+.route .rn { font-size:11.5px; color:var(--t1); font-weight:550; }
+.route .rw { font-size:10px; color:var(--t3); }
+
+/* ── SESSIONS: the fan-out view ──────────────────────────────────────────────
+ * One agent, many sessions, concurrently, for different people. This is what
+ * makes "an agent is a definition, not an actor" visible rather than asserted.
+ * The holder column is the single-writer lock; the version column is the pin. */
+.sesrow td { padding:7px 10px; font-size:11.5px; }
+.sest { color:var(--t1); }
+.sesq { font-size:10.5px; color:var(--t3); margin-top:2px; }
+.who2 { display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+.who2 .av3 { width:17px; height:17px; border-radius:5px; flex:none; display:grid; place-items:center;
+  font-family:var(--mono); font-size:8px; font-weight:700; color:var(--t2);
+  background:linear-gradient(180deg,#2A323D,#1D242D); box-shadow:var(--hi); }
+.who2.you .av3 { background:linear-gradient(180deg,#31404d,#1f2a33); color:var(--t1); }
+.lock { font-size:9.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--t3); }
+.lock.held { color:var(--t2); font-weight:600; }
+.lock.free { color:var(--t4); }
+/* the pin: a version behind is a fact, not an error */
+.ver { font-family:var(--mono); font-size:10.5px; white-space:nowrap; }
+.ver.cur { color:var(--t3); }
+.ver.old { color:var(--t1); font-weight:600; }
+.adopt { font-size:9.5px; letter-spacing:.05em; text-transform:uppercase; color:var(--t3); cursor:pointer; }
+.adopt:hover { color:var(--t1); }
+.owns { font-family:var(--mono); font-size:10.5px; color:var(--t2); white-space:nowrap; }
+.owns.none { color:var(--t4); }
+
+/* ── THE CANVAS AS THE AGENT'S WORKSPACE ────────────────────────────────────
+ * The workflow analogue of files+diff+preview. The agent places nodes and wires
+ * them; you watch the graph assemble and can grab any node it put down.
+ * Node GROUP is identity, so it takes a categorical slot — but only as a 2px
+ * left bar, never a fill, because a canvas of six saturated boxes is a toy. */
+.canvas { position:relative; flex:1; min-height:0; overflow:auto;
+  background-image:radial-gradient(circle at 1px 1px, rgba(255,255,255,.055) 1px, transparent 0);
+  background-size:19px 19px; }
+.cnode { position:absolute; width:186px; border-radius:8px; background:var(--s4); padding:8px 10px 9px 12px;
+  box-shadow:var(--hi), 0 3px 12px -4px rgba(0,0,0,.75), inset 0 0 0 1px rgba(255,255,255,.06); }
+.cnode::before { content:""; position:absolute; left:0; top:9px; bottom:9px; width:2px; border-radius:2px; background:var(--m4); }
+.cnode.trigger::before { background:var(--viz-4); }
+.cnode.action::before  { background:var(--viz-1); }
+.cnode.flow::before    { background:var(--viz-7); }
+.cnode.transform::before { background:var(--viz-3); }
+.cnode.output::before  { background:var(--viz-6); }
+.cnode .ty { font-size:9px; letter-spacing:.09em; text-transform:uppercase; color:var(--t3); }
+.cnode .nn { font-size:11.5px; font-weight:600; color:var(--t1); margin-top:1px; letter-spacing:-0.008em; }
+.cnode .pp { font-family:var(--mono); font-size:9.5px; color:var(--t3); margin-top:3px;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* the node the agent is configuring right now */
+.cnode.now { box-shadow:var(--hi), 0 3px 12px -4px rgba(0,0,0,.75), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+/* placed but not yet configured — an outline, not a colour */
+.cnode.ghost { background:transparent; box-shadow:inset 0 0 0 1px rgba(255,255,255,.11); }
+.cnode.ghost .nn { color:var(--t3); font-weight:450; }
+.cnode.bad { box-shadow:var(--hi), 0 3px 12px -4px rgba(0,0,0,.75), inset 0 0 0 1px var(--st-crit); }
+.cnode .port { position:absolute; width:7px; height:7px; border-radius:50%; background:var(--s6);
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.18); }
+.cnode .port.in  { left:-4px; top:50%; margin-top:-3.5px; }
+.cnode .port.out { right:-4px; top:50%; margin-top:-3.5px; }
+.cnode .plabel { position:absolute; right:-30px; font-size:9px; color:var(--t3); font-family:var(--mono); }
+.cedge { position:absolute; inset:0; pointer-events:none; overflow:visible; }
+.cedge path { fill:none; stroke:var(--m5); stroke-width:1.5; }
+.cedge path.live { stroke:var(--m2); stroke-dasharray:4 4; }
+
+/* ── THE ASK: the agent stops and needs something from you ───────────────────
+ * Distinct from a checkpoint. A checkpoint asks PERMISSION for something
+ * dangerous; an ask needs INFORMATION it cannot derive. Conflating them would
+ * teach people to skim both. This one is raised and warm-ruled; the checkpoint
+ * is a modal. Different weight, different answer, different consequence. */
+.ask { margin:9px 14px; border-radius:9px; background:var(--s3); padding:11px 13px;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.08), 0 2px 10px -4px rgba(0,0,0,.7); }
+.ask .qh { display:flex; align-items:center; gap:8px; margin-bottom:7px; }
+.ask .qh .lb3 { font-size:9.5px; letter-spacing:.11em; text-transform:uppercase; color:var(--t2); font-weight:600; }
+.ask .qt { font-size:11.5px; line-height:1.55; color:var(--t1); }
+.ask .qn { font-size:11px; line-height:1.5; color:var(--t2); margin-top:9px; padding-left:15px; position:relative; }
+.ask .qn .ix { position:absolute; left:0; top:0; font-family:var(--mono); font-size:10px; color:var(--t3); }
+/* options are REAL things it found, not invented choices */
+.opt { display:flex; align-items:center; gap:9px; padding:6px 9px; border-radius:6px; margin-top:5px;
+  cursor:pointer; box-shadow:inset 0 0 0 1px rgba(255,255,255,.055); }
+.opt:hover { background:var(--s4); box-shadow:inset 0 0 0 1px rgba(255,255,255,.12); }
+.opt .on2 { flex:1; min-width:0; font-family:var(--mono); font-size:10.5px; color:var(--t1); }
+.opt .om { font-size:9.5px; color:var(--t3); white-space:nowrap; font-family:var(--mono); }
+.opt .rec { font-size:9px; letter-spacing:.06em; text-transform:uppercase; color:var(--t2); font-weight:600; }
+.orjust { font-size:10.5px; color:var(--t3); margin-top:9px; }
+/* what it worked out WITHOUT asking — the credibility column */
+.inf { display:flex; gap:9px; padding:5px 0; font-size:11px; align-items:baseline; }
+.inf .il { width:104px; flex:none; color:var(--t3); }
+.inf .iv { flex:1; color:var(--t2); }
+.inf .iv b { color:var(--t1); font-weight:600; }
+.inf .src2 { font-size:9.5px; color:var(--t4); font-family:var(--mono); white-space:nowrap; }
+
+/* ── THE SDK SCRIPT: code on the left, graph assembling on the right ────────
+ * When the agent composes with a script instead of 18 tool calls, the thing
+ * you watch changes. The script is the source of truth and the canvas is its
+ * projection — so the executing LINE and the node it produced have to be
+ * visibly the same event, or you lose the plot. */
+.scriptwrap { font-family:var(--mono); font-size:11px; line-height:1.62; }
+.sl { display:flex; white-space:pre; padding:0 0 0 0; }
+.sl .ln3 { width:30px; flex:none; text-align:right; padding-right:9px; color:var(--t4); font-size:10px; user-select:none; }
+.sl .tx2 { flex:1; color:var(--t2); padding-right:12px; }
+.sl.done .tx2 { color:var(--t2); }
+.sl.done .ln3 { color:var(--t3); }
+/* the line executing right now — the ONE place the accent lands in the script */
+.sl.now2 { background:var(--sig-dim); }
+.sl.now2 .ln3 { color:var(--sig); font-weight:700; }
+.sl.now2 .tx2 { color:var(--t1); }
+.sl.pend .tx2 { color:var(--t4); }
+.sl.pend .ln3 { color:var(--t4); }
+.sl.err2 { background:rgba(230,120,120,.075); }
+.sl.err2 .ln3 { color:var(--st-crit); font-weight:700; }
+.scriptwrap .kw2 { color:var(--m2); }
+.scriptwrap .st2 { color:var(--m3); }
+.scriptwrap .cm2 { color:var(--t4); }
+.scriptwrap .fn4 { color:var(--t1); }
+/* the traceback, pinned under the failing line */
+.trace2 { margin:4px 0 6px 39px; border-left:2px solid var(--st-crit); padding:4px 0 4px 11px;
+  font-family:var(--mono); font-size:10px; line-height:1.6; color:var(--t2); }
+.trace2 b { color:var(--t1); font-weight:600; }
+/* a node that came from a specific line carries its line number */
+.cnode .fromln { position:absolute; top:-7px; left:10px; font-family:var(--mono); font-size:8.5px;
+  color:var(--t3); background:var(--s3); padding:0 4px; border-radius:3px; }
+.cnode.justmade { box-shadow:var(--hi), 0 3px 12px -4px rgba(0,0,0,.75), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+.sdkref { font-family:var(--mono); font-size:10px; line-height:1.7; color:var(--t3);
+  white-space:pre; overflow-x:auto; }
+.sdkref b { color:var(--t1); font-weight:600; }
+.sdkref .g { color:var(--t4); }

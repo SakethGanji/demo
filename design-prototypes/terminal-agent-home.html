@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<!--
+DESIGN NOTES — /agents · THE FRONT DOOR, dense. (Compare terminal-agent-home-airy.html — same structure, wrong skin.)
+
+WHAT THIS TAB IS FOR, since the screen has to answer that in three seconds:
+  A WORKFLOW IS WORK YOU CAN SPECIFY. AN AGENT IS WORK YOU CAN ONLY DESCRIBE.
+  · ASK   — open-ended questions over governed data, RBAC and masking enforced on the path
+  · BUILD — produce an app / workflow / pipeline you then OWN. Accept it and it runs with no model in the loop
+  · WATCH — a few standing agents on triggers, where the judgment cannot be pre-written
+  Only agents have an OPEN TOOL SURFACE: workflows have 28 fixed node types, an agent reaches anything registered.
+  The strip at the foot says all of this in one line, because a tab that cannot explain itself gets ignored.
+
+THE CORRECTION THIS SCREEN MAKES: an earlier draft answered "there is no front door" by building a large soft
+prompt box in a centred column of whitespace. Two things were wrong with it. (1) It conflated *task-first*
+(a structural fix, correct) with *spacious* (an aesthetic move, not implied by it) — a terminal is task-first and
+it has a command line. (2) A big prompt on a dark page is the most copied shape in software right now; spending
+the first impression on it throws away the only differentiated asset here. So the composer became a COMMAND
+STRIP and the screen behind it stays full of live information.
+
+WHAT THE DENSITY FORCED:
+ A1 THE STRIP IS THE ONLY THING ABOVE THE BAND. It is full-bleed, instrument-chromed, and it carries the routing
+    decision inline — you can see who will pick the task up without leaving the field you are typing in.
+ A2 ROUTING IS VISIBLE, NEVER SILENT. `App Builder · matched on "dashboard"` sits in the strip with one click to
+    change it. Silent routing is what makes an "AI does it for you" product feel like a slot machine.
+ A3 WAITING ON YOU OUTRANKS EVERYTHING. In a steerable model a paused run is dead until someone answers, so it
+    is the first dock section and the only row type that gets elevation.
+ A4 THE RUN TABLE IS THE PAGE. Rule 3's heterogeneous-table exception: whisper row rules plus ONE vertical rule
+    before `dur`, splitting WHAT WAS ASKED (status/task/agent) from WHAT IT COST (dur/iter/tools/tokens).
+ A5 EVERY FIGURE DENOMINATED (rule 11) — "1 of 7 running", "6 of 7 succeeded", "31.4k of 180k budget",
+    "14 of 17 reported usage". The token column is the sharp one: models that do not report usage exist, so the
+    average is over the population that did, and the footnote says so.
+ A6 ACCENT — 3 uses: active route, the command field's focus ring, the live lamp on the running row.
+-->
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Command Studio · Agents</title>
+<link rel="stylesheet" href="_agents-base.css" />
+<style>
+  .body2 { flex:1; display:flex; min-height:0; overflow:hidden; }
+  .mainc { flex:1; display:flex; flex-direction:column; min-width:0; min-height:0; background:var(--s3); }
+  .dock { width:326px; min-width:326px; background:var(--s2); display:flex; flex-direction:column; min-height:0;
+    box-shadow:inset 1px 0 0 rgba(255,255,255,.055); }
+  .dscroll { flex:1; overflow-y:auto; min-height:0; }
+  .dsec { padding:12px 14px; }
+  .dsec + .dsec { box-shadow:0 -1px 0 rgba(255,255,255,.05); }
+
+  .agrow { padding:8px 12px; cursor:pointer; box-shadow:inset 0 -1px 0 rgba(255,255,255,.032); position:relative; }
+  .agrow:hover { background:rgba(255,255,255,.022); }
+  .agrow .nm { font-size:11.5px; font-weight:550; color:var(--t1); display:flex; align-items:center; gap:7px; }
+  .agrow .mt { display:flex; align-items:center; gap:8px; font-size:10px; color:var(--t3); margin-top:2px; }
+  .agrow.off .nm { color:var(--t3); font-weight:450; }
+  .agrow .role { font-size:9.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--t3); }
+
+  table.runs tbody td { padding:6px 10px; font-size:11.5px; }
+  table.runs td.vr, table.runs th.vr { box-shadow:inset 1px 0 0 rgba(255,255,255,.075), inset 0 -1px 0 rgba(255,255,255,.032); }
+  table.runs thead th.vr { box-shadow:inset 1px 0 0 rgba(255,255,255,.075), inset 0 -1px 0 rgba(255,255,255,.07); }
+  table.runs .tk { color:var(--t1); }
+  /* every 6th row gets a heavier measure so the eye can count without a zebra */
+  table.runs tbody tr:nth-child(6n) td { box-shadow:inset 0 -1px 0 rgba(255,255,255,.075); }
+
+  .wrow { display:flex; align-items:center; gap:9px; padding:8px 10px; border-radius:7px; background:var(--s3);
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.06); margin-bottom:6px; cursor:pointer; }
+  .wrow .tt { flex:1; min-width:0; font-size:11px; color:var(--t1); line-height:1.4; }
+  .wrow .tt span { color:var(--t3); }
+  .wrow .tm2 { font-family:var(--mono); font-size:10px; color:var(--t3); flex:none; }
+
+  .qs { padding:7px 9px; border-radius:7px; cursor:pointer; box-shadow:inset 0 0 0 1px rgba(255,255,255,.04); margin-bottom:5px; }
+  .qs:hover { background:var(--s3); box-shadow:inset 0 0 0 1px rgba(255,255,255,.09); }
+  .qs .t { font-size:11px; color:var(--t2); line-height:1.45; }
+  .qs .m { font-size:9.5px; color:var(--t3); margin-top:3px; font-family:var(--mono); }
+
+  .purpose { display:flex; align-items:center; gap:0; background:var(--s2); box-shadow:0 -1px 0 rgba(255,255,255,.055);
+    flex:none; }
+  .purpose .p { padding:8px 16px; flex:1; min-width:0; }
+  .purpose .p + .p { box-shadow:inset 1px 0 0 rgba(255,255,255,.05); }
+  .purpose .h { font-size:10.5px; font-weight:600; color:var(--t1); }
+  .purpose .s { font-size:10.5px; color:var(--t3); margin-top:1px; line-height:1.45; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo"></div><span class="wordmark">Command Studio</span>
+      <span class="envchip">LOCAL · :8000</span>
+    </div>
+    <nav class="nav">
+      <a href="#">Workflows</a><a href="#">Datasets</a><a href="#">Catalog</a>
+      <a href="#">Runs</a><a href="#" class="active">Agents</a><a href="#">Admin</a>
+    </nav>
+    <div class="topright">
+      <div class="cmdk">
+        <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+        <span>Search agents, tools, runs…</span><span class="kbd">⌘K</span>
+      </div>
+      <div class="iconbtn"><svg class="ic" viewBox="0 0 24 24"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg></div>
+      <div class="iconbtn"><svg class="ic" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg></div>
+      <div class="team"><span class="dot good"></span><span>Growth Analytics</span><span class="caret">▾</span></div>
+      <div class="avatar">SG</div>
+    </div>
+  </div>
+
+  <div class="subhead">
+    <h1>Agents</h1>
+    <div class="seg">
+      <button class="active">Fleet <span class="c">7</span></button>
+      <button>Mine <span class="c">4</span></button>
+      <button>Archived <span class="c">2</span></button>
+    </div>
+    <div class="spacer"></div>
+    <div class="ctrl">
+      <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><circle cx="12" cy="12" r="3"/></svg>
+      Connectors <b>4</b>
+    </div>
+    <button class="btn-ghost">
+      <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M12 5v14M5 12h14"/></svg>
+      New agent
+    </button>
+  </div>
+
+  <!-- ════ THE COMMAND STRIP — task-first, instrument-chromed ════ -->
+  <div class="cmdstrip">
+    <div class="cmdfield">
+      <span class="caretglyph">▸</span>
+      <input value="Build me a dashboard that shows monthly signup cohorts and their retention, and flag any cohort that drops more than 15 points between M1 and M3." />
+      <span class="ctxchip">finance_revenue_daily <span class="x">×</span></span>
+      <span class="ctxchip">+ context</span>
+    </div>
+    <div class="route" title="Inferred from the task — click to change">
+      <span class="av2">AB</span>
+      <span>
+        <span class="rn">App Builder</span>
+        <span class="rw"> · matched on “dashboard”</span>
+      </span>
+      <span class="caret" style="color:var(--t3);font-size:9px">▾</span>
+    </div>
+    <button class="btn-primary" style="height:32px">
+      <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      Start
+    </button>
+  </div>
+
+  <!-- ════ FLEET STATE ════ -->
+  <div class="statband">
+    <div class="stat">
+      <span class="micro">Agents</span>
+      <span class="v">7</span>
+      <span class="den">5 active · 2 archived · 3 teams</span>
+    </div>
+    <div class="stat">
+      <span class="micro">Running</span>
+      <span class="v">1</span>
+      <span class="den">of 7 · longest 4m 12s</span>
+    </div>
+    <div class="stat">
+      <span class="micro">Waiting on you</span>
+      <span class="v">2</span>
+      <span class="den">oldest 22m · both write</span>
+    </div>
+    <div class="stat">
+      <span class="micro">Tools reachable</span>
+      <span class="v">183</span>
+      <span class="den">39 selected · 4 connectors · 1 unreachable</span>
+    </div>
+    <div class="stat">
+      <span class="micro">Runs today</span>
+      <span class="v">17</span>
+      <span class="den">14 ok · 2 failed · 1 running</span>
+    </div>
+  </div>
+
+  <div class="body2">
+
+    <!-- ════ THE FLEET ════ -->
+    <div class="rail">
+      <div class="railhead"><span class="micro">Fleet · 7 agents</span></div>
+      <div class="railscroll">
+
+        <div class="agrow">
+          <div class="nm"><span class="lamp"></span>App Builder</div>
+          <div class="mt"><span class="role">builds</span><span>·</span><span class="mono">opus-4-8</span><span>·</span><span>9 tools</span></div>
+          <div class="mt"><span class="st"><span class="dot run"></span>running 4m 12s</span></div>
+        </div>
+
+        <div class="agrow">
+          <div class="nm">Revenue Analyst</div>
+          <div class="mt"><span class="role">asks</span><span>·</span><span class="mono">opus-4-8</span><span>·</span><span>12 tools</span></div>
+          <div class="mt"><span class="st"><span class="dot warn"></span>waiting for approval</span></div>
+        </div>
+
+        <div class="agrow">
+          <div class="nm">Data Quality Sentinel</div>
+          <div class="mt"><span class="role">watches</span><span>·</span><span class="mono">sonnet-5</span><span>·</span><span>6 tools</span></div>
+          <div class="mt"><span class="st"><span class="dot warn"></span>waiting for approval</span></div>
+        </div>
+
+        <div class="agrow">
+          <div class="nm">Workflow Author</div>
+          <div class="mt"><span class="role">builds</span><span>·</span><span class="mono">opus-4-8</span><span>·</span><span>9 tools</span></div>
+          <div class="mt"><span class="st"><span class="dot good"></span>idle · 5h ago</span></div>
+        </div>
+
+        <div class="agrow">
+          <div class="nm">Schema Migration Scout</div>
+          <div class="mt"><span class="role">asks</span><span>·</span><span class="mono">sonnet-5</span><span>·</span><span>4 tools</span></div>
+          <div class="mt"><span class="st"><span class="dot crit"></span>failed · yesterday</span></div>
+        </div>
+
+        <div class="agrow">
+          <div class="nm">PII Sweep</div>
+          <div class="mt"><span class="role">watches</span><span>·</span><span class="mono">haiku-4-5</span><span>·</span><span>3 tools</span></div>
+          <div class="mt"><span class="st"><span class="dot serious"></span>cancelled · 2d ago</span></div>
+        </div>
+
+        <div class="agrow off">
+          <div class="nm">Cost Reporter</div>
+          <div class="mt"><span class="role">watches</span><span>·</span><span class="mono">gemini-2.0</span><span>·</span><span>5 tools</span></div>
+          <div class="mt"><span class="st"><span class="dot muted"></span>archived · never run</span></div>
+        </div>
+
+        <div style="padding:12px">
+          <div class="guard">
+            <b>asks</b> answers and stops. <b>builds</b> produces an artifact you accept. <b>watches</b> runs on a trigger. The verb is derived from the tools bound, not declared.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════ RUNS ════ -->
+    <div class="mainc">
+      <div class="ptabs">
+        <button class="active">Sessions <span class="c">24</span></button>
+        <button>Runs <span class="c">41</span></button>
+        <button>Artifacts <span class="c">28</span></button>
+        <button>Activity</button>
+        <div class="spacer"></div>
+        <span class="micro">last 7 days · most recent turn first</span>
+      </div>
+
+      <div style="flex:1;overflow:auto;min-height:0">
+        <table class="runs">
+          <thead>
+            <tr>
+              <th style="width:104px">Status</th>
+              <th>Session</th>
+              <th style="width:132px">Agent</th>
+              <th class="num vr" style="width:48px">Turns</th>
+              <th class="num" style="width:70px">Dur</th>
+              <th class="num" style="width:44px">Iter</th>
+              <th class="num" style="width:62px">Tools</th>
+              <th class="num" style="width:62px">Tokens</th>
+              <th style="width:78px">Produced</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="sel">
+              <td><span class="st"><span class="dot run"></span>running</span></td>
+              <td class="tk">Monthly signup cohorts and retention</td>
+              <td>App Builder</td>
+              <td class="num vr">9</td><td class="num">4m 12s</td><td class="num">7</td><td class="num">5 of 9</td><td class="num">44.1k</td>
+              <td>app</td>
+            </tr>
+            <tr>
+              <td><span class="st"><span class="dot warn"></span>paused</span></td>
+              <td class="tk">Reconcile Q3 revenue against the ledger</td>
+              <td>Revenue Analyst</td>
+              <td class="num vr">4</td><td class="num">1m 08s</td><td class="num">4</td><td class="num">6 of 12</td><td class="num">31.4k</td>
+              <td>—</td>
+            </tr>
+            <tr>
+              <td><span class="st"><span class="dot warn"></span>paused</span></td>
+              <td class="tk">Promote certified tag on finance_revenue_daily</td>
+              <td>Data Quality Sentinel</td>
+              <td class="num vr">3</td><td class="num">22m</td><td class="num">9</td><td class="num">4 of 6</td><td class="num">18.2k</td>
+              <td>—</td>
+            </tr>
+            <tr>
+              <td><span class="st"><span class="dot good"></span>done</span></td>
+              <td class="tk">Net revenue by segment, year to date</td>
+              <td>Revenue Analyst</td>
+              <td class="num vr">2</td><td class="num">52s</td><td class="num">6</td><td class="num">5 of 12</td><td class="num">28.9k</td>
+              <td>answer</td>
+            </tr>
+            <tr>
+              <td><span class="st"><span class="dot good"></span>done</span></td>
+              <td class="tk">Weekly finance export → scheduled workflow</td>
+              <td>Workflow Author</td>
+              <td class="num vr">2</td><td class="num">2m 41s</td><td class="num">11</td><td class="num">7 of 9</td><td class="num">61.7k</td>
+              <td>workflow</td>
+            </tr>
+            <tr>
+              <td><span class="st"><span class="dot good"></span>done</span></td>
+              <td class="tk">Document undocumented columns in finance</td>
+              <td>Data Quality Sentinel</td>
+              <td class="num vr">1</td><td class="num">3m 19s</td><td class="num">14</td><td class="num">6 of 6</td><td class="num">47.0k</td>
+              <td>28 docs</td>
+            </tr>
+            <tr>
+              <td><span class="st"><span class="dot crit"></span>failed</span></td>
+              <td class="tk">Backfill the Q2 dimension tables</td>
+              <td>Migration Scout</td>
+              <td class="num vr">1</td><td class="num">6m 02s</td><td class="num">30</td><td class="num">4 of 4</td><td class="num">180k</td>
+              <td>—</td>
+            </tr>
+            <tr>
+              <td><span class="st"><span class="dot good"></span>done</span></td>
+              <td class="tk">Support plan-history lookup tool</td>
+              <td>App Builder</td>
+              <td class="num vr">2</td><td class="num">5m 48s</td><td class="num">19</td><td class="num">8 of 9</td><td class="num">88.4k</td>
+              <td>app</td>
+            </tr>
+            <tr>
+              <td><span class="st"><span class="dot good"></span>done</span></td>
+              <td class="tk">Which cohorts churned hardest after the price change</td>
+              <td>Revenue Analyst</td>
+              <td class="num vr">1</td><td class="num">1m 12s</td><td class="num">8</td><td class="num">6 of 12</td><td class="num">36.2k</td>
+              <td>answer</td>
+            </tr>
+            <tr>
+              <td><span class="st"><span class="dot serious"></span>cancelled</span></td>
+              <td class="tk">Sweep every dataset for undeclared PII</td>
+              <td>PII Sweep</td>
+              <td class="num vr">1</td><td class="num">14m</td><td class="num">22</td><td class="num">3 of 3</td><td class="num">96.1k</td>
+              <td>partial</td>
+            </tr>
+            <tr>
+              <td><span class="st"><span class="dot good"></span>done</span></td>
+              <td class="tk">Join orders to accounts and publish the result</td>
+              <td>Revenue Analyst</td>
+              <td class="num vr">2</td><td class="num">2m 04s</td><td class="num">12</td><td class="num">9 of 12</td><td class="num">52.8k</td>
+              <td>dataset</td>
+            </tr>
+            <tr>
+              <td><span class="st"><span class="dot good"></span>done</span></td>
+              <td class="tk">Explain the drop in M3 retention for the Mar cohort</td>
+              <td>Revenue Analyst</td>
+              <td class="num vr">1</td><td class="num">44s</td><td class="num">5</td><td class="num">4 of 12</td><td class="num">22.7k</td>
+              <td>answer</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div style="padding:13px 16px">
+          <div class="guard">
+            <b>Tokens is a mean over the runs that reported usage</b> — 14 of 17. Not every provider returns a usage block, and averaging over the ones that do while printing it as if it covered all 17 is the exact shape of a confident wrong number.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════ DOCK ════ -->
+    <div class="dock">
+      <div class="dscroll">
+
+        <div class="dsec">
+          <div class="hrule"><span class="lb">Waiting on you</span><span class="ln2"></span><span class="micro">2</span></div>
+          <div class="wrow">
+            <span class="dot warn"></span>
+            <div class="tt"><b style="font-weight:600">Revenue Analyst</b> <span>wants to publish a dataset</span></div>
+            <span class="tm2">4m</span>
+          </div>
+          <div class="wrow">
+            <span class="dot warn"></span>
+            <div class="tt"><b style="font-weight:600">Data Quality Sentinel</b> <span>wants to promote a tag</span></div>
+            <span class="tm2">22m</span>
+          </div>
+          <div class="guard">
+            A paused run holds indefinitely — it does <b>not</b> time out into approve or deny.
+          </div>
+        </div>
+
+        <div class="dsec">
+          <div class="hrule"><span class="lb">Start from</span><span class="ln2"></span></div>
+          <div class="qs">
+            <div class="t">Find the ten accounts with the steepest revenue drop this quarter and tell me what they have in common.</div>
+            <div class="m">Revenue Analyst · ~40s · asks</div>
+          </div>
+          <div class="qs">
+            <div class="t">Turn the weekly finance export into a scheduled workflow that emails a summary.</div>
+            <div class="m">Workflow Author · ~2m · builds</div>
+          </div>
+          <div class="qs">
+            <div class="t">Build an internal tool for support to look up a customer's plan history.</div>
+            <div class="m">App Builder · ~6m · builds</div>
+          </div>
+        </div>
+
+        <div class="dsec">
+          <div class="hrule"><span class="lb">Artifacts produced</span><span class="ln2"></span><span class="micro">28</span></div>
+          <table>
+            <tbody>
+              <tr><td style="color:var(--t3);padding:4px 0;font-size:11px">Apps</td><td style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--t1)">7</td></tr>
+              <tr><td style="color:var(--t3);padding:4px 0;font-size:11px">Workflows</td><td style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--t1)">4</td></tr>
+              <tr><td style="color:var(--t3);padding:4px 0;font-size:11px">Datasets</td><td style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--t1)">3</td></tr>
+              <tr><td style="color:var(--t3);padding:4px 0;font-size:11px">Documentation</td><td style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--t1)">14</td></tr>
+            </tbody>
+          </table>
+          <div style="margin-top:9px" class="guard">
+            These <b>outlive the agent that made them</b>. An accepted workflow runs with no model in the loop — that is the point of the tab.
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ════ WHAT THIS TAB IS FOR — a tab that cannot explain itself gets ignored ════ -->
+  <div class="purpose">
+    <div class="p">
+      <div class="h">A workflow is work you can specify. An agent is work you can only describe.</div>
+      <div class="s">Use a workflow when you know the steps. Use an agent when the path depends on what the data turns out to be.</div>
+    </div>
+    <div class="p">
+      <div class="h">Ask · Build · Watch</div>
+      <div class="s">Answer a question, produce an artifact you then own, or stand watch on a trigger.</div>
+    </div>
+    <div class="p">
+      <div class="h">Open tool surface</div>
+      <div class="s">Workflows have 28 fixed node types. An agent reaches all 183 tools you have registered.</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

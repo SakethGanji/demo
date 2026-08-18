@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<!--
+DESIGN NOTES — /agents/promote · the moment a workflow becomes a callable tool.
+
+THE IDEA: an agent builds a workflow, you accept it, and it becomes a tool the NEXT agent can call. That is the
+only mechanism in this product that compounds. Week 1 an agent has 27 node types. Week 20 it has 27 node types
+plus 39 connector tools plus 10 team-built workflows, each one a single call that encodes business logic nobody
+should have to re-derive. And because a workflow is deterministic, cheap and logged node-by-node, the agent's
+CAPABILITY grows without its COST or its UNRELIABILITY growing with it. The mechanism already exists —
+src/nodes/ai/tools/workflow_tool.py has shipped for months ("one agent can delegate tasks to entire workflows,
+which may themselves contain agents"). What was missing is the lifecycle: derive, name, bind, version, demote.
+
+WHAT THE DENSITY FORCED:
+
+ A1 PROMOTION IS ZERO-SUM AND THE SCREEN SAYS SO. The binder caps an agent at 24 tools / 6,000 schema tokens,
+    enforced at bind as a hard error. So a promoted workflow does not get added — it COMPETES, against node
+    tools and connector tools, in one ranking. The panel that promotes "Weekly finance close" cannot show a
+    green checkmark for Revenue Analyst; that agent is at 24 of 24 and 5,766 of 6,000, so the panel names the
+    tool that has to be evicted (churn_risk_score, rank 24) and the arithmetic that follows. A promotion UI
+    that hides this teaches people that capability is free, and then the 25th bind fails at run time.
+
+ A2 THE DESCRIPTION IS THE PRODUCT, NOT THE NAME. The one field the model actually reads is the description, and
+    it is NOT the workflow's own description — that one says "weekly close, runs Mondays", which tells a model
+    nothing about WHEN to call it. So the description gets the largest input on the screen and its own hint,
+    and the derived name gets a warning that it is immutable after first bind.
+
+ A3 THE SCHEMA IS DERIVED, NOT AUTHORED, AND THE DROPPED FIELDS ARE NAMED. input_schema comes from the trigger
+    node's inputSchema (ExecuteWorkflowTrigger). Two of its six fields — run_id, actor_email — are injected by
+    the executor and are never offered to a model, the same rule the connectors screen applies to X-User-Id. A
+    derivation that silently drops fields is a derivation you cannot audit, so the count reads "4 of 6".
+
+ A4 A WRONG TOOL IS NOW WRONG EVERYWHERE — drawn, not disclaimed. attribute_spend failed 4 of its last 10 calls
+    across 3 agents, none of which wrote the workflow. Blast radius is BINDINGS, not authorship. Failure state
+    is shape+word (rule 6); "failing" as a property of the row is typographic (rule 7); the auto-demote
+    threshold is stated as a number with its window, because "we monitor it" is not a mechanism.
+
+ A5 A PIN IS A FACT, NOT AN ERROR. pull_quarter_actuals is pinned to v3 while the workflow is on v5. The row is
+    not warned about — it is stated, with what adopting costs: v5 renamed a required field, so adopting
+    re-derives the schema and every bound agent's prompt changes underneath it. .ver.old / .adopt already exist
+    for exactly this on the sessions screen; the pin is the same idea one level up.
+
+ A6 R11 EVERYWHERE, INCLUDING THE UNFLATTERING ONES. 97.4% is "6,669 of 6,850". 60% is "6 of the last 10". The
+    cheapest way to lie in a tool catalogue is a success rate over a call count nobody prints.
+
+ A7 TABLE BORDERS — rule 3's heterogeneous-table exception: whisper row rules plus ONE vertical rule splitting
+    IDENTITY (tool, backing workflow) from BEHAVIOUR AND COST (calls, success, duration, cost, tokens, bindings).
+
+ A8 ACCENT — exactly 3: the active route, the selected workflow in the rail, and the one live lamp over calls
+    in flight. Not on the promote button, which wins on value (--key) like every other primary in this system.
+-->
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Command Studio · Promote to tool</title>
+<link rel="stylesheet" href="_agents-base.css" />
+<style>
+  /* ── rail: accepted workflows queued for the promotion decision ─────────── */
+  .wf { padding:10px 12px; cursor:pointer; box-shadow:inset 0 -1px 0 rgba(255,255,255,.035); position:relative; }
+  .wf:hover { background:rgba(255,255,255,.022); }
+  .wf.sel { background:var(--s5); }
+  .wf.sel::before { content:""; position:absolute; left:0; top:0; bottom:0; width:2px; background:var(--sig); }
+  .wf .nm { font-size:12px; font-weight:550; color:var(--t1); margin-bottom:3px; }
+  .wf.off .nm { color:var(--t3); font-weight:450; }
+  .wf .meta { display:flex; align-items:center; gap:7px; font-size:10.5px; color:var(--t3); margin-top:2px; }
+
+  .dhead { padding:13px 18px 12px; flex:none; }
+  .dtitle { display:flex; align-items:center; gap:11px; margin-bottom:4px; }
+  .dtitle h2 { font-size:16px; font-weight:600; color:var(--t1); letter-spacing:-0.018em; }
+  .dsub { font-size:11px; color:var(--t3); }
+  .mainscroll { flex:1; overflow-y:auto; min-height:0; background:var(--s3); }
+
+  /* the promotion panel: derivation on the left, consequences on the right */
+  .pcols { display:grid; grid-template-columns:1fr 350px; align-items:start; }
+  .pcolr { box-shadow:inset 1px 0 0 rgba(255,255,255,.05); background:var(--s2); min-height:100%; }
+
+  .well { background:var(--s0); border-radius:7px; padding:10px 12px; font-family:var(--mono); font-size:10.5px;
+    line-height:1.62; color:var(--t2); box-shadow:inset 0 1px 2px rgba(0,0,0,.5); white-space:pre; overflow-x:auto; }
+  .well .k { color:var(--t1); }
+  .well .s { color:var(--m2); }
+  .well .c { color:var(--t3); }
+  .well .drop { color:var(--t3); text-decoration:line-through; text-decoration-color:var(--t4); }
+
+  /* target agents — a bind is an arithmetic statement, so it is drawn as one */
+  .tg { padding:8px 0; box-shadow:inset 0 -1px 0 rgba(255,255,255,.035); }
+  .tg .r1 { display:flex; align-items:center; gap:9px; }
+  .tg .an { flex:1; min-width:0; font-size:11.5px; color:var(--t1); font-weight:550; }
+  .tg .r2 { display:flex; align-items:baseline; gap:8px; margin-top:3px; padding-left:23px;
+    font-family:var(--mono); font-size:10px; color:var(--t3); font-variant-numeric:tabular-nums; }
+  .tg .arw { color:var(--t3); }
+  .tg .after { color:var(--t2); }
+  .tg.over .after { color:var(--t1); font-weight:600; }
+  .cb { width:13px; height:13px; border-radius:3.5px; flex:none; background:var(--s0);
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.11); display:inline-grid; place-items:center; vertical-align:-2px; }
+  .cb.on { background:var(--s5); box-shadow:inset 0 0 0 1px rgba(255,255,255,.16); }
+  .cb.on svg { width:9px; height:9px; stroke:var(--t1); stroke-width:2.8; fill:none; }
+
+  /* ── catalogue + competition tables (rule 3 exception: whisper + one vr) ── */
+  table.tools tbody td { padding:6px 10px; font-size:11.5px; }
+  table.tools td.vr, table.tools th.vr { box-shadow:inset 1px 0 0 rgba(255,255,255,.075), inset 0 -1px 0 rgba(255,255,255,.035); }
+  table.tools thead th.vr { box-shadow:inset 1px 0 0 rgba(255,255,255,.075), inset 0 -1px 0 rgba(255,255,255,.07); }
+  .tnm { font-family:var(--mono); font-size:11px; color:var(--t1); }
+  .tnm.dim { color:var(--t3); }
+  /* the denominator that will not fit on the line goes directly under it */
+  .sub { display:block; font-family:var(--mono); font-size:9.5px; color:var(--t3); font-variant-numeric:tabular-nums;
+    margin-top:2px; letter-spacing:-0.01em; }
+  .sub.say { font-family:var(--sans); font-size:10px; letter-spacing:0; }
+  .orig { font-size:9.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--t3); font-weight:500; }
+  .orig.pro { color:var(--t2); font-weight:600; }
+
+  /* the line where the budget runs out — a rule, labelled, not a colour change */
+  .cutrow td { padding:5px 10px; background:var(--s2); border-top:1px dashed var(--s6);
+    box-shadow:inset 0 -1px 0 rgba(255,255,255,.05); }
+  .cutlb { display:flex; align-items:center; gap:10px; font-size:9.5px; font-weight:600; letter-spacing:.11em;
+    text-transform:uppercase; color:var(--t2); }
+  .cutlb .ln3 { flex:1; height:1px; background:var(--r2); }
+  tbody tr.below td { color:var(--t3); }
+  .gaprow td { padding:4px 10px; font-family:var(--mono); font-size:10px; color:var(--t3); background:rgba(255,255,255,.014); }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo"></div><span class="wordmark">Command Studio</span>
+      <span class="envchip">LOCAL · :8000</span>
+    </div>
+    <nav class="nav">
+      <a href="#">Workflows</a><a href="#">Datasets</a><a href="#">Catalog</a>
+      <a href="#">Runs</a><a href="#" class="active">Agents</a><a href="#">Admin</a>
+    </nav>
+    <div class="topright">
+      <div class="cmdk">
+        <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+        <span>Search agents, tools, runs…</span><span class="kbd">⌘K</span>
+      </div>
+      <div class="iconbtn"><svg class="ic" viewBox="0 0 24 24"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg></div>
+      <div class="iconbtn"><svg class="ic" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg></div>
+      <div class="team"><span class="dot good"></span><span>Growth Analytics</span><span class="caret">▾</span></div>
+      <div class="avatar">SG</div>
+    </div>
+  </div>
+
+  <div class="subhead">
+    <h1>Promoted tools</h1>
+    <span class="micro">10 promoted · 39 bindings across 7 agents · 1 awaiting the decision</span>
+    <div class="spacer"></div>
+    <div class="searchbox" style="min-width:210px">
+      <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+      <input placeholder="filter 10 promoted tools…" />
+    </div>
+    <div class="ctrl">
+      <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M4 4v6h6M20 20v-6h-6"/><path d="M20 9a8 8 0 00-14.5-3M4 15a8 8 0 0014.5 3"/></svg>
+      Re-rank all agents
+    </div>
+    <button class="btn-primary">
+      <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+      Promote to tool
+    </button>
+  </div>
+
+  <div class="body">
+
+    <!-- ═════════════════════════ RAIL ═════════════════════════ -->
+    <div class="rail">
+      <div class="railhead"><span class="micro">Accepted · awaiting promotion</span><span class="spacer"></span><span class="micro">4</span></div>
+      <div class="railscroll">
+
+        <div class="wf sel">
+          <div class="nm">Weekly finance close</div>
+          <div class="meta"><span class="idf">wf_9Km2Tq · v5</span></div>
+          <div class="meta">
+            <span class="st"><span class="dot good"></span>accepted</span><span>·</span>
+            <span>6 min ago · 14 nodes</span>
+          </div>
+        </div>
+
+        <div class="wf off">
+          <div class="nm">Duplicate-vendor sweep</div>
+          <div class="meta"><span class="idf">wf_4Rp8Ld · v2</span></div>
+          <div class="meta">
+            <span class="st"><span class="dot muted"></span>not promoted</span><span>·</span>
+            <span>2h ago · 6 nodes</span>
+          </div>
+        </div>
+
+        <div class="wf off">
+          <div class="nm">Contract renewal digest</div>
+          <div class="meta"><span class="idf">wf_7Yn3Wc · v1</span></div>
+          <div class="meta">
+            <span class="st"><span class="dot muted"></span>not promoted</span><span>·</span>
+            <span>yesterday · 9 nodes</span>
+          </div>
+        </div>
+
+        <div class="wf off">
+          <div class="nm">Payroll variance check</div>
+          <div class="meta"><span class="idf">wf_2Bd6Hs · v4</span></div>
+          <div class="meta">
+            <span class="st"><span class="dot warn"></span>cannot promote</span><span>·</span>
+            <span class="sev sev-warn">no trigger schema</span>
+          </div>
+        </div>
+
+        <div style="padding:13px 12px">
+          <div class="guard">
+            <b>Accepting is not promoting.</b> A workflow nobody calls costs nothing. A tool nobody calls still
+            serialises its schema into every model call, on every agent it is bound to, forever.
+          </div>
+          <div class="guard warn" style="margin-top:11px">
+            Payroll variance check declares <b>defaultInput but no inputSchema</b>, so there is nothing for a
+            model to fill. Add fields to its trigger, or promote it as a zero-argument tool and accept that
+            every call runs the identical input.
+          </div>
+        </div>
+
+        <div class="sect" style="box-shadow:0 -1px 0 rgba(255,255,255,.045)">
+          <div class="hrule"><span class="lb">Already promoted</span><span class="ln2"></span><span class="micro">10</span></div>
+          <div class="lrow"><span class="tt"><b>vendor_normalize</b></span><span class="tm2">2,940</span></div>
+          <div class="lrow"><span class="tt"><b>refund_eligibility</b></span><span class="tm2">1,208</span></div>
+          <div class="lrow"><span class="tt"><b>enrich_account</b></span><span class="tm2">806</span></div>
+          <div class="lrow"><span class="tt">…7 more</span><span class="tm2">1,896</span></div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ═════════════════════════ MAIN ═════════════════════════ -->
+    <div class="main">
+
+      <div class="dhead">
+        <div class="dtitle">
+          <h2>Weekly finance close</h2>
+          <span class="idf">wf_9Km2Tq · v5</span>
+          <span class="st" style="font-size:11px;color:var(--t2)"><span class="dot good"></span>accepted 6 min ago</span>
+          <div class="spacer"></div>
+          <button class="btn-ghost">Open workflow</button>
+          <button class="btn-ghost">Rehearse the schema</button>
+        </div>
+        <div class="dsub">
+          Built by <b style="color:var(--t2)">Finance Close Agent</b> over 3 sessions · 14 nodes, 3 of them agent nodes ·
+          accepted by you · 41 rehearsal calls, 41 valid against the derived schema
+        </div>
+      </div>
+
+      <!-- every figure carries its denominator (rule 11) -->
+      <div class="statband">
+        <div class="stat">
+          <span class="micro">Promoted</span>
+          <span class="v">10</span>
+          <span class="den">of 34 accepted workflows · 24 never promoted</span>
+        </div>
+        <div class="stat">
+          <span class="micro">Calls · 30d</span>
+          <span class="v">6,850</span>
+          <span class="den">across 10 tools · 7 agents</span>
+        </div>
+        <div class="stat">
+          <span class="micro">Succeeded</span>
+          <span class="v">6,669</span>
+          <span class="den">of 6,850 calls · 97.4%</span>
+        </div>
+        <div class="stat">
+          <span class="micro">Promoted schema</span>
+          <span class="v">2,088<span style="font-size:11px;color:var(--t3)"> tok</span></span>
+          <span class="den">if one agent bound all 10 · 35% of its 6,000</span>
+          <div class="bar" style="margin-top:5px"><i style="width:35%"></i></div>
+        </div>
+        <div class="stat">
+          <span class="micro">Bindings</span>
+          <span class="v">39</span>
+          <span class="den">of 168 possible · 7 agents × 24 slots</span>
+        </div>
+      </div>
+
+      <div class="mainscroll">
+
+        <!-- ══════════ 1 · THE PROMOTION PANEL ══════════ -->
+        <div class="pcols">
+
+          <div>
+            <div class="sect" style="padding-bottom:10px">
+              <div class="sect-title">Promote this workflow to a tool</div>
+              <div class="sect-sub">
+                Registers it as a call target for <span class="mono" style="font-size:10.5px">WorkflowToolNode</span>.
+                Any agent it is bound to can then do the whole close in one call instead of re-deriving it from
+                27 primitives — and the call is deterministic, replayable and logged node-by-node, which no
+                sequence of 9 model-chosen tool calls is.
+              </div>
+
+              <div class="row2">
+                <div class="field">
+                  <label>Tool name shown to the model</label>
+                  <input class="input mono" style="font-size:11px" value="finance_close_weekly" />
+                  <div class="hint">Derived from the workflow name. <b style="color:var(--t2)">Immutable after the first bind</b> — renaming breaks every stored transcript and every prompt that names it.</div>
+                </div>
+                <div class="field">
+                  <label>Pinned to version</label>
+                  <select class="select"><option>v5 — current (accepted 6 min ago)</option></select>
+                  <div class="hint">A promoted tool always resolves to one version. Publishing v6 does not reach a bound agent until someone adopts it.</div>
+                </div>
+              </div>
+
+              <div class="field">
+                <label>Description shown to the model</label>
+                <textarea class="ta" rows="3">Runs the weekly finance close for one entity and one period: pulls GL actuals, reconciles them against the sub-ledger, and returns every variance line above the threshold. Returns an empty list if the period is already closed. Does not post journal entries.</textarea>
+                <div class="hint">
+                  This is the only text the model reads when deciding whether to call it — so it describes
+                  <b style="color:var(--t2)">when to call and what comes back</b>. It is deliberately not the
+                  workflow's own description, which reads "weekly close, runs Mondays" and tells a model nothing.
+                </div>
+              </div>
+
+              <div class="field" style="margin-bottom:6px">
+                <label>Input schema — derived from the trigger, not authored</label>
+                <div class="well"><span class="c">// from node "Execute workflow" (ExecuteWorkflowTrigger.inputSchema)</span>
+{
+  <span class="k">"type"</span>: <span class="s">"object"</span>,
+  <span class="k">"properties"</span>: {
+    <span class="k">"period"</span>:    { "type": <span class="s">"string"</span>, "pattern": <span class="s">"^\d{4}-\d{2}$"</span>,
+                   "description": <span class="s">"Close period, YYYY-MM"</span> },
+    <span class="k">"entity"</span>:    { "type": <span class="s">"string"</span>, "enum": [<span class="s">"US"</span>, <span class="s">"EU"</span>, <span class="s">"APAC"</span>] },
+    <span class="k">"threshold"</span>: { "type": <span class="s">"number"</span>, "default": 2500,
+                   "description": <span class="s">"Variance floor, USD"</span> },
+    <span class="k">"dry_run"</span>:   { "type": <span class="s">"boolean"</span>, "default": true }
+  },
+  <span class="k">"required"</span>: [<span class="s">"period"</span>, <span class="s">"entity"</span>]
+}
+<span class="c">// dropped, never offered to a model:</span>
+<span class="drop">  "run_id"        injected by the executor</span>
+<span class="drop">  "actor_email"   injected by the executor</span></div>
+                <div class="hint">
+                  <b style="color:var(--t2)">4 of 6 trigger fields exposed.</b> 238 schema tokens by the engine's
+                  own estimator — the same number the binder charges against the 6,000 budget.
+                </div>
+              </div>
+
+              <div class="guard warn">
+                The two dropped fields carry identity. A model that can set <span class="mono">actor_email</span>
+                can attribute a close to somebody else, so they are stripped from the schema and injected last,
+                where nothing in the model's output can override them — the same rule the connectors screen
+                applies to <span class="mono">X-User-Id</span>.
+              </div>
+            </div>
+          </div>
+
+          <!-- consequences of pressing the button -->
+          <div class="pcolr">
+
+            <div class="sect">
+              <div class="sect-title">What it costs to call</div>
+              <div class="sect-sub">Measured over the 41 rehearsal calls, against the 12 agent runs that did this task from primitives before the workflow existed.</div>
+              <div class="row2" style="gap:14px">
+                <div class="stat">
+                  <span class="micro">As a tool</span>
+                  <span class="v sm">$0.004</span>
+                  <span class="den">median of 41 calls · p50 11.2s</span>
+                </div>
+                <div class="stat">
+                  <span class="micro">By hand</span>
+                  <span class="v sm">$0.38</span>
+                  <span class="den">median of 12 runs · p50 4m 38s · 9 calls</span>
+                </div>
+              </div>
+              <div class="guard" style="margin-top:11px">
+                This gap is the entire argument. The agent gets a capability it did not have; the call gets
+                <b>95× cheaper and deterministic</b>. Capability grows, cost and variance do not.
+              </div>
+            </div>
+
+            <div class="sect">
+              <div class="sect-title">Would bind to</div>
+              <div class="sect-sub">238 tokens · 1 slot, on each agent you check. The binder enforces 24 tools / 6,000 tokens as a hard error, so these are the real numbers after.</div>
+
+              <div class="tg over">
+                <div class="r1">
+                  <span class="cb on"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span>
+                  <span class="an">Revenue Analyst</span>
+                  <span class="sev sev-err">over budget</span>
+                </div>
+                <div class="r2">
+                  <span>24 of 24 slots · 5,766 of 6,000 tok</span><span class="arw">→</span>
+                  <span class="after">25 of 24 · 6,004 of 6,000</span>
+                </div>
+              </div>
+
+              <div class="tg">
+                <div class="r1">
+                  <span class="cb on"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span>
+                  <span class="an">Finance Close Agent</span>
+                  <span class="sev sev-info">fits</span>
+                </div>
+                <div class="r2">
+                  <span>11 of 24 slots · 3,102 of 6,000 tok</span><span class="arw">→</span>
+                  <span class="after">12 of 24 · 3,340 of 6,000</span>
+                </div>
+              </div>
+
+              <div class="tg">
+                <div class="r1">
+                  <span class="cb on"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span>
+                  <span class="an">Controller Assistant</span>
+                  <span class="sev sev-info">fits</span>
+                </div>
+                <div class="r2">
+                  <span>19 of 24 slots · 4,880 of 6,000 tok</span><span class="arw">→</span>
+                  <span class="after">20 of 24 · 5,118 of 6,000</span>
+                </div>
+              </div>
+
+              <div class="tg" style="box-shadow:none">
+                <div class="r1">
+                  <span class="cb"></span>
+                  <span class="an" style="color:var(--t3);font-weight:450">Support Triage</span>
+                  <span class="sev sev-info">not selected</span>
+                </div>
+                <div class="r2">
+                  <span>8 of 24 slots · 2,140 of 6,000 tok</span>
+                </div>
+              </div>
+
+              <div class="guard warn" style="margin-top:11px">
+                Revenue Analyst is full. Binding here <b>evicts churn_risk_score</b> — rank 24, score 311,
+                bound to 3 agents — leaving 24 of 24 slots and 5,764 of 6,000 tokens. Promotion is zero-sum;
+                the screen will not pretend a slot appeared.
+              </div>
+
+              <div style="display:flex;gap:8px;margin-top:13px">
+                <button class="btn-primary" style="flex:1;justify-content:center">Promote and bind to 3</button>
+                <button class="btn-ghost">Promote unbound</button>
+              </div>
+              <div class="guard" style="margin-top:10px">
+                <b>Promote unbound</b> registers the tool and binds it to nobody. It costs zero tokens until an
+                agent picks it up, and it is how a tool earns its rank instead of being handed one.
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- ══════════ 2 · THE CATALOGUE ══════════ -->
+        <div class="sect" style="padding-bottom:8px">
+          <div style="display:flex;align-items:center;gap:11px;margin-bottom:2px">
+            <div class="sect-title" style="margin:0">Promoted tools · the team's own capability surface</div>
+            <span class="st" style="font-size:10.5px;color:var(--t3)"><span class="lamp"></span>2 calls in flight now</span>
+            <div class="spacer"></div>
+            <div class="seg">
+              <button class="active">All <span class="c">10</span></button>
+              <button>Bound <span class="c">9</span></button>
+              <button>Needs review <span class="c">2</span></button>
+            </div>
+          </div>
+          <div class="sect-sub" style="margin-bottom:0">
+            27 node types and 39 connector tools were here on day one. These 10 were not — each is a workflow a
+            person on this team accepted. Every figure below is over the trailing 30 days; the Calls column is
+            the denominator for the three columns to its right.
+          </div>
+        </div>
+
+        <table class="tools">
+          <thead>
+            <tr>
+              <th>Tool</th>
+              <th>Backed by</th>
+              <th class="num vr" style="width:74px">Calls · 30d</th>
+              <th class="num" style="width:96px">Success</th>
+              <th class="num" style="width:74px">p50 dur</th>
+              <th class="num" style="width:86px">$ / call</th>
+              <th class="num" style="width:64px">Schema</th>
+              <th style="width:118px">Bound to</th>
+            </tr>
+          </thead>
+          <tbody>
+
+            <tr>
+              <td><span class="tnm">vendor_normalize</span></td>
+              <td>Vendor name normalisation <span class="ver cur">v3</span></td>
+              <td class="num vr">2,940</td>
+              <td class="num">99.8%<span class="sub">2,934 of 2,940</span></td>
+              <td class="num">0.3s</td>
+              <td class="num">$0.000<span class="sub">$0.00 total</span></td>
+              <td class="num">88</td>
+              <td>7 of 7 agents</td>
+            </tr>
+
+            <tr>
+              <td><span class="tnm">refund_eligibility</span></td>
+              <td>Refund eligibility check <span class="ver cur">v2</span></td>
+              <td class="num vr">1,208</td>
+              <td class="num">99.3%<span class="sub">1,199 of 1,208</span></td>
+              <td class="num">1.4s</td>
+              <td class="num">$0.000<span class="sub">$0.41 total</span></td>
+              <td class="num">96</td>
+              <td>7 of 7 agents</td>
+            </tr>
+
+            <tr>
+              <td><span class="tnm">enrich_account</span></td>
+              <td>Account enrichment <span class="ver cur">v11</span></td>
+              <td class="num vr">806</td>
+              <td class="num">94.4%<span class="sub">761 of 806</span></td>
+              <td class="num">4.1s</td>
+              <td class="num">$0.011<span class="sub">$8.87 total</span></td>
+              <td class="num">188</td>
+              <td>6 of 7 agents</td>
+            </tr>
+
+            <tr>
+              <td><span class="tnm">qualify_lead</span></td>
+              <td>Lead qualification <span class="ver cur">v4</span></td>
+              <td class="num vr">604</td>
+              <td class="num">97.5%<span class="sub">589 of 604</span></td>
+              <td class="num">2.6s</td>
+              <td class="num">$0.006<span class="sub">$3.62 total</span></td>
+              <td class="num">172</td>
+              <td>4 of 7 agents</td>
+            </tr>
+
+            <tr>
+              <td><span class="tnm">reconcile_invoices</span></td>
+              <td>Invoice reconciliation <span class="ver cur">v7</span></td>
+              <td class="num vr">412</td>
+              <td class="num">96.1%<span class="sub">396 of 412</span></td>
+              <td class="num">8.2s</td>
+              <td class="num">$0.004<span class="sub">$1.65 total</span></td>
+              <td class="num">214</td>
+              <td>5 of 7 agents</td>
+            </tr>
+
+            <tr>
+              <td><span class="tnm">churn_risk_score</span> <span class="sev sev-warn">eviction candidate</span></td>
+              <td>Churn risk scoring <span class="ver cur">v9</span></td>
+              <td class="num vr">341</td>
+              <td class="num">91.2%<span class="sub">311 of 341</span></td>
+              <td class="num">12.9s</td>
+              <td class="num">$0.019<span class="sub">$6.48 total</span></td>
+              <td class="num">240</td>
+              <td>3 of 7 agents</td>
+            </tr>
+
+            <!-- ── the version pin ── -->
+            <tr>
+              <td>
+                <span class="tnm">pull_quarter_actuals</span>
+                <span class="sub say">pinned schema · 2 versions behind</span>
+              </td>
+              <td>
+                Quarterly actuals pull <span class="ver old">v3</span>
+                <span class="sub say">workflow is on <b style="color:var(--t2)">v5</b> · <span class="adopt">adopt v5 →</span></span>
+              </td>
+              <td class="num vr">233</td>
+              <td class="num">88.0%<span class="sub">205 of 233</span></td>
+              <td class="num">21.4s</td>
+              <td class="num">$0.031<span class="sub">$7.22 total</span></td>
+              <td class="num">262</td>
+              <td>2 of 7 agents</td>
+            </tr>
+
+            <!-- ── the failing tool ── -->
+            <tr>
+              <td>
+                <span class="tnm">attribute_spend</span> <span class="sev sev-err">failing</span>
+                <span class="sub say">4 of the last 10 calls failed · auto-demote at 5</span>
+              </td>
+              <td>Marketing spend attribution <span class="ver cur">v6</span></td>
+              <td class="num vr">197</td>
+              <td class="num">88.3%<span class="sub">174 of 197 lifetime<br />6 of last 10</span></td>
+              <td class="num">6.8s</td>
+              <td class="num">$0.014<span class="sub">$2.76 total</span></td>
+              <td class="num">214</td>
+              <td>
+                <span class="st" style="font-size:11px"><span class="dot serious"></span>flagged</span>
+                <span class="sub say">4 of 7 agents · still bound</span>
+              </td>
+            </tr>
+
+            <tr>
+              <td><span class="tnm">summarize_ticket_batch</span></td>
+              <td>Support ticket digest <span class="ver cur">v2</span></td>
+              <td class="num vr">97</td>
+              <td class="num">92.8%<span class="sub">90 of 97</span></td>
+              <td class="num">33.0s</td>
+              <td class="num">$0.140<span class="sub">$13.58 total</span></td>
+              <td class="num">318</td>
+              <td>1 of 7 agents</td>
+            </tr>
+
+            <!-- ── the one that lost the competition ── -->
+            <tr>
+              <td><span class="tnm dim">forecast_headcount</span> <span class="sev sev-info">unbound</span></td>
+              <td>Headcount forecast <span class="ver cur">v1</span></td>
+              <td class="num vr">12</td>
+              <td class="num">83.3%<span class="sub">10 of 12</span></td>
+              <td class="num">44.1s</td>
+              <td class="num">$0.052<span class="sub">$0.62 total</span></td>
+              <td class="num">296</td>
+              <td><span class="sev sev-info">0 of 7 agents</span><span class="sub say">outranked on every one</span></td>
+            </tr>
+
+          </tbody>
+        </table>
+
+        <div class="sect" style="padding-top:12px">
+          <div class="guard warn">
+            <b>attribute_spend failed 4 of its last 10 calls</b>, and the four failures came from three different
+            agents — none of which wrote the workflow, and none of which can see why it broke. This is the cost
+            of promotion stated plainly: a wrong tool is now wrong everywhere at once, and the blast radius is
+            <b>bindings, not authorship</b>. At 5 failures in a rolling 10 it is unbound from all 4 agents
+            automatically; the promotion survives, the bindings do not. Demotion is reversible in one click.
+            A wrong close is not.
+          </div>
+          <div class="guard" style="margin-top:11px">
+            <b>pull_quarter_actuals is pinned to v3 while the workflow is on v5.</b> That is a fact, not a fault —
+            a pin is what stops a workflow edit from silently changing what two agents can do. Adopting v5
+            re-derives <span class="mono">input_schema</span> from the v5 trigger, which renamed
+            <span class="mono">quarter</span> to <span class="mono">period</span>: the two bound agents get a
+            new argument name mid-conversation, and any transcript that already promised the old one is wrong.
+            Adoption is per-tool and explicit for exactly that reason. Calls in flight finish on v3.
+          </div>
+        </div>
+
+        <!-- ══════════ 3 · THE COMPETITION FOR SLOTS ══════════ -->
+        <div class="sect" style="padding-bottom:8px">
+          <div style="display:flex;align-items:baseline;gap:11px">
+            <div class="sect-title" style="margin:0">The competition for slots · Revenue Analyst</div>
+            <span class="micro">ranked by calls × success · 24 slots · 6,000 tokens</span>
+            <div class="spacer"></div>
+            <div class="ctrl">Agent <b>Revenue Analyst</b> <span class="caret">▾</span></div>
+          </div>
+          <div class="sect-sub" style="margin-bottom:0">
+            A promoted workflow does not get added to an agent — it competes, in one ranking, against node tools
+            and connector tools. Everything above the line is bound; everything below is registered, callable by
+            name in a workflow, and invisible to this agent's model.
+          </div>
+        </div>
+
+        <table class="tools" style="margin-bottom:4px">
+          <thead>
+            <tr>
+              <th class="num" style="width:44px">Rank</th>
+              <th>Tool</th>
+              <th style="width:88px">Origin</th>
+              <th class="num vr" style="width:78px">Score</th>
+              <th class="num" style="width:64px">Schema</th>
+              <th class="num" style="width:104px">Cumulative</th>
+              <th style="width:120px">Slot</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="num">1</td>
+              <td><span class="tnm">query_rows</span></td>
+              <td><span class="orig">connector</span></td>
+              <td class="num vr">4,118<span class="sub">4,140 × 99.5%</span></td>
+              <td class="num">402</td>
+              <td class="num">402 of 6,000</td>
+              <td><span class="sev sev-warn">bound</span></td>
+            </tr>
+            <tr>
+              <td class="num">2</td>
+              <td><span class="tnm">vendor_normalize</span></td>
+              <td><span class="orig pro">promoted</span></td>
+              <td class="num vr">2,934<span class="sub">2,940 × 99.8%</span></td>
+              <td class="num">88</td>
+              <td class="num">490 of 6,000</td>
+              <td><span class="sev sev-warn">bound</span></td>
+            </tr>
+            <tr>
+              <td class="num">3</td>
+              <td><span class="tnm">refund_eligibility</span></td>
+              <td><span class="orig pro">promoted</span></td>
+              <td class="num vr">1,199<span class="sub">1,208 × 99.3%</span></td>
+              <td class="num">96</td>
+              <td class="num">586 of 6,000</td>
+              <td><span class="sev sev-warn">bound</span></td>
+            </tr>
+            <tr class="gaprow">
+              <td colspan="7">ranks 4–21 · 18 tools · 9 node · 6 connector · 3 promoted · 4,622 tok · all bound</td>
+            </tr>
+            <tr>
+              <td class="num">22</td>
+              <td><span class="tnm">reconcile_invoices</span></td>
+              <td><span class="orig pro">promoted</span></td>
+              <td class="num vr">396<span class="sub">412 × 96.1%</span></td>
+              <td class="num">214</td>
+              <td class="num">5,208 of 6,000</td>
+              <td><span class="sev sev-warn">bound</span></td>
+            </tr>
+            <tr>
+              <td class="num">23</td>
+              <td><span class="tnm">run_sql</span></td>
+              <td><span class="orig">connector</span></td>
+              <td class="num vr">352<span class="sub">371 × 94.9%</span></td>
+              <td class="num">318</td>
+              <td class="num">5,526 of 6,000</td>
+              <td><span class="sev sev-warn">bound</span></td>
+            </tr>
+            <tr>
+              <td class="num">24</td>
+              <td><span class="tnm">churn_risk_score</span></td>
+              <td><span class="orig pro">promoted</span></td>
+              <td class="num vr">311<span class="sub">341 × 91.2%</span></td>
+              <td class="num">240</td>
+              <td class="num">5,766 of 6,000</td>
+              <td><span class="sev sev-warn">bound</span> <span class="sev sev-info">last slot</span></td>
+            </tr>
+
+            <tr class="cutrow">
+              <td colspan="7">
+                <div class="cutlb">
+                  <span>24 of 24 slots · 5,766 of 6,000 tokens · the line</span>
+                  <span class="ln3"></span>
+                  <span>234 tokens spare · not enough for one more</span>
+                </div>
+              </td>
+            </tr>
+
+            <tr class="below">
+              <td class="num">25</td>
+              <td><span class="tnm dim">forecast_headcount</span></td>
+              <td><span class="orig pro">promoted</span></td>
+              <td class="num vr">10<span class="sub">12 × 83.3%</span></td>
+              <td class="num">296</td>
+              <td class="num">6,062 of 6,000</td>
+              <td><span class="sev sev-info">unbound · slot 25 of 24</span></td>
+            </tr>
+            <tr class="below">
+              <td class="num">26</td>
+              <td><span class="tnm dim">summarize_ticket_batch</span></td>
+              <td><span class="orig pro">promoted</span></td>
+              <td class="num vr">90<span class="sub">97 × 92.8%</span></td>
+              <td class="num">318</td>
+              <td class="num">6,084 of 6,000</td>
+              <td><span class="sev sev-info">unbound · not this agent's work</span></td>
+            </tr>
+            <tr class="below">
+              <td class="num">27</td>
+              <td><span class="tnm dim">attribute_spend</span></td>
+              <td><span class="orig pro">promoted</span></td>
+              <td class="num vr">174<span class="sub">197 × 88.3% · 6 of last 10</span></td>
+              <td class="num">214</td>
+              <td class="num">5,980 of 6,000</td>
+              <td><span class="sev sev-info">unbound here</span><span class="sub say">fell 9 ranks in 6 days</span></td>
+            </tr>
+            <tr class="below">
+              <td class="num">28</td>
+              <td><span class="tnm dim">finance_close_weekly</span> <span class="sev sev-info">not yet promoted</span></td>
+              <td><span class="orig pro">promoted</span></td>
+              <td class="num vr">41<span class="sub">41 rehearsals × 100%</span></td>
+              <td class="num">238</td>
+              <td class="num">6,004 of 6,000</td>
+              <td><span class="sev sev-warn">needs an eviction</span></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="sect">
+          <div class="guard">
+            <b>The ranking is calls × success, not calls.</b> A tool that is called constantly and fails a fifth
+            of the time outranks nothing — that is how attribute_spend fell nine ranks in six days without
+            anyone filing a bug, and how forecast_headcount, promoted three weeks ago, has never been bound to
+            anything: 12 calls is not evidence. Rank is recomputed nightly and on demand; a rank change alone
+            never rebinds an agent, because a binding that moves overnight is a capability nobody can reason
+            about. It proposes, you apply.
+          </div>
+        </div>
+
+        <div style="height:20px"></div>
+      </div>
+    </div>
+
+    <!-- ═════════════════════════ DOCK ═════════════════════════ -->
+    <div class="rail" style="width:330px;min-width:330px;box-shadow:inset 1px 0 0 rgba(255,255,255,.055)">
+      <div class="railhead"><span class="micro">The flywheel</span></div>
+      <div class="railscroll">
+
+        <div class="sect">
+          <div class="sect-title">What promotion actually does</div>
+          <div class="sect-sub" style="margin-bottom:9px">Three mechanical steps. None of them is new engine work.</div>
+          <div class="inf">
+            <span class="il">1 · Derive</span>
+            <span class="iv"><b>input_schema</b> from the trigger node's inputSchema — the model fills it, so it must exist.</span>
+          </div>
+          <div class="inf">
+            <span class="il">2 · Register</span>
+            <span class="iv">as a call target for <b>WorkflowToolNode</b>, which has shipped for months.</span>
+          </div>
+          <div class="inf">
+            <span class="il">3 · Bind</span>
+            <span class="iv">under the <b>same 24 / 6,000 budget</b> as node and connector tools. No separate allowance.</span>
+          </div>
+          <div class="guard" style="margin-top:10px">
+            <span class="mono" style="font-size:10.5px">src/nodes/ai/tools/workflow_tool.py</span> — "enables
+            hierarchical agent systems where one agent can delegate tasks to entire workflows (which may
+            themselves contain agents)." The mechanism was never the missing part. <b>The lifecycle was.</b>
+          </div>
+        </div>
+
+        <div class="sect">
+          <div class="sect-title">Why it compounds</div>
+          <div class="sect-sub" style="margin-bottom:9px">The only number on this screen that grows without being paid for twice.</div>
+          <div class="row2" style="gap:14px">
+            <div class="stat">
+              <span class="micro">Week 1</span>
+              <span class="v sm">27</span>
+              <span class="den">node types · 0 team-built</span>
+            </div>
+            <div class="stat">
+              <span class="micro">Week 20 · now</span>
+              <span class="v sm">76</span>
+              <span class="den">27 node · 39 connector · 10 promoted</span>
+            </div>
+          </div>
+          <div class="bar" style="margin-top:9px"><i class="strong" style="width:36%"></i></div>
+          <div class="den" style="margin-top:4px;font-family:var(--mono);font-size:10px;color:var(--t3)">
+            10 of 34 accepted workflows promoted · 29%
+          </div>
+          <div class="guard" style="margin-top:11px">
+            Every promotion is one capability the next agent does not have to re-derive, and it arrives
+            <b>deterministic, replayable and priced</b>. The 10 promoted tools ran 6,850 calls for $45.21; the
+            same work through model-chosen primitives priced out at roughly <b>$2,600</b> at the per-run medians
+            these workflows replaced.
+          </div>
+        </div>
+
+        <div class="sect">
+          <div class="sect-title">The risk, stated</div>
+          <div class="sect-sub" style="margin-bottom:9px">Four ways this goes wrong. None of them is hypothetical.</div>
+
+          <div class="guard warn" style="margin-bottom:12px">
+            <b>Wrong once, wrong everywhere.</b> attribute_spend is bound to 4 agents. Its 4 recent failures came
+            from 3 agents that never touched the workflow and cannot debug it. Promotion converts one team's bug
+            into every team's bug, at the speed of binding.
+          </div>
+
+          <div class="guard warn" style="margin-bottom:12px">
+            <b>Auto-demotion is blunt on purpose.</b> 5 failures in a rolling 10 unbinds a tool from every agent
+            without asking. It will sometimes demote a tool over a transient upstream outage. That is the cheaper
+            error: a demotion costs a click, a wrong close costs a restatement.
+          </div>
+
+          <div class="guard warn" style="margin-bottom:12px">
+            <b>Promotion hides depth.</b> One line in a transcript — <span class="mono">finance_close_weekly</span>
+            — is 14 nodes and 3 nested agents. Deepest chain in this catalogue is <b>3 levels</b>. A tool that
+            contains an agent bound to that same tool is a cycle; the binder refuses it at <b>bind time</b>, when
+            it is a message, not at run time, when it is a bill.
+          </div>
+
+          <div class="guard warn">
+            <b>The budget makes this zero-sum.</b> 10 promoted tools already consume 2,088 tokens of a 6,000
+            ceiling. There is no version of this where the catalogue grows to 40 and every agent gets all of
+            them. Promotion is a ranking problem forever, and pretending otherwise just moves the failure to the
+            first bind that throws.
+          </div>
+        </div>
+
+        <div class="sect">
+          <div class="hrule"><span class="lb">Recent lifecycle</span><span class="ln2"></span></div>
+          <div class="lrow"><span class="tt"><b>attribute_spend</b> flagged for review</span><span class="tm2">2h</span></div>
+          <div class="lrow"><span class="tt"><b>enrich_account</b> adopted v11 · 6 agents</span><span class="tm2">yest</span></div>
+          <div class="lrow"><span class="tt"><b>legacy_tax_lookup</b> demoted · 6 of 10 failed</span><span class="tm2">4d</span></div>
+          <div class="lrow"><span class="tt"><b>forecast_headcount</b> promoted unbound</span><span class="tm2">3w</span></div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

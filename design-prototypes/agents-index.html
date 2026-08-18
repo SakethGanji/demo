@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<!--
+The contact sheet for the agent-platform prototypes. Not a screen — a map, so the ten files can be
+reviewed as one argument rather than ten pictures. Grouped by the path a user actually walks, because
+that ordering is the thing under review: if the flow does not hold, no individual screen saves it.
+-->
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Agent platform · prototypes</title>
+<link rel="stylesheet" href="_agents-base.css" />
+<style>
+  html, body { overflow:auto; height:auto; }
+  body { display:block; padding:0; }
+  .wrap { max-width:1180px; margin:0 auto; padding:30px 30px 70px; }
+  h1.big { font-size:22px; font-weight:600; color:var(--t1); letter-spacing:-0.024em; }
+  .lede { font-size:12.5px; color:var(--t3); line-height:1.6; margin-top:7px; max-width:780px; }
+  .lede b { color:var(--t2); font-weight:600; }
+  .grp { margin-top:30px; }
+  .grphd { display:flex; align-items:baseline; gap:11px; margin-bottom:11px; }
+  .grphd .n { font-size:13px; font-weight:600; color:var(--t1); }
+  .grphd .d { font-size:11px; color:var(--t3); }
+  .grphd .ln3 { flex:1; height:1px; background:var(--r1); }
+  .cards { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  a.card { display:block; text-decoration:none; padding:13px 15px; border-radius:9px; background:var(--s2);
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.05); transition:background .13s, box-shadow .13s; }
+  a.card:hover { background:var(--s3); box-shadow:inset 0 0 0 1px rgba(255,255,255,.11); }
+  .ct2 { display:flex; align-items:baseline; gap:9px; margin-bottom:5px; }
+  .ct2 .step { font-family:var(--mono); font-size:10px; color:var(--t4); font-variant-numeric:tabular-nums; }
+  .ct2 .nm3 { font-size:12.5px; font-weight:600; color:var(--t1); letter-spacing:-0.008em; }
+  .fn3 { font-family:var(--mono); font-size:10px; color:var(--t3); margin-bottom:7px; }
+  .ds2 { font-size:11.5px; color:var(--t2); line-height:1.55; }
+  .dec { font-size:11px; color:var(--t3); line-height:1.5; margin-top:7px; border-left:2px solid var(--r3); padding-left:10px; }
+  .dec b { color:var(--t2); font-weight:600; }
+  .tags { display:flex; gap:7px; margin-top:9px; flex-wrap:wrap; }
+  .tg { font-size:9.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--t3); }
+  .tg.new { color:var(--t1); font-weight:600; }
+  .tg.old { color:var(--t4); }
+  .foot { margin-top:34px; padding-top:16px; box-shadow:0 -1px 0 rgba(255,255,255,.055); }
+  .row { display:flex; align-items:baseline; gap:12px; padding:5px 0; font-size:11.5px; }
+  .row .k2 { width:180px; flex:none; color:var(--t3); }
+  .row .v2 { color:var(--t2); }
+  .row .v2 code { font-family:var(--mono); font-size:10.5px; color:var(--t1); }
+  .others { display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; }
+  .others a { font-family:var(--mono); font-size:10px; color:var(--t3); text-decoration:none; padding:3px 7px;
+    border-radius:5px; background:var(--s2); box-shadow:inset 0 0 0 1px rgba(255,255,255,.04); }
+  .others a:hover { color:var(--t1); background:var(--s4); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1 class="big">Agent platform — prototypes</h1>
+  <div class="lede">
+    Thirteen screens, one stylesheet (<code class="mono" style="font-size:11px;color:var(--t2)">_agents-base.css</code>), no build step.
+    Ordered by the path a user walks, because <b>that ordering is the thing under review</b> — if the flow does not hold, no
+    individual screen saves it. Every screen is 1440×1024 and states its own design argument in an HTML comment at the top.
+  </div>
+
+  <!-- ══ THE FLOW ══ -->
+  <div class="grp">
+    <div class="grphd">
+      <span class="n">The flow</span>
+      <span class="d">what a person actually does, in order</span>
+      <span class="ln3"></span>
+    </div>
+    <div class="cards">
+
+      <a class="card" href="terminal-agent-home.html">
+        <div class="ct2"><span class="step">01</span><span class="nm3">Front door</span></div>
+        <div class="fn3">terminal-agent-home.html</div>
+        <div class="ds2">Describe a task in a command strip; the agent is inferred and shown with its reason. Fleet rail, dense run table, waiting-on-you dock, and a footer that states what the tab is for.</div>
+        <div class="dec"><b>Decides:</b> the first object is the task, not the agent — while staying a cockpit, not a chat box.</div>
+        <div class="tags"><span class="tg new">shipping</span><span class="tg">dense rebuild</span></div>
+      </a>
+
+      <a class="card" href="terminal-agent-session.html">
+        <div class="ct2"><span class="step">02</span><span class="nm3">The session</span></div>
+        <div class="fn3">terminal-agent-session.html</div>
+        <div class="ds2">The agent working: its plan as a live checklist, narration in its own voice, tool calls as one-liners, a composer pinned to the bottom — beside the diff and the running app.</div>
+        <div class="dec"><b>Decides:</b> the workspace is the default view, not a tab. The trace is evidence; the work is the product.</div>
+        <div class="tags"><span class="tg new">shipping</span><span class="tg">default run view</span></div>
+      </a>
+
+      <a class="card" href="terminal-agent-checkpoint.html">
+        <div class="ct2"><span class="step">03</span><span class="nm3">The checkpoint</span></div>
+        <div class="fn3">terminal-agent-checkpoint.html</div>
+        <div class="ds2">The agent stops and asks. Arguments shown verbatim and editable, blast radius enumerated rather than adjectival, deny takes a reason the agent reads back.</div>
+        <div class="dec"><b>Decides:</b> steerable becomes a specific moment. It never times out into either answer.</div>
+        <div class="tags"><span class="tg new">shipping</span><span class="tg">modal over the session</span></div>
+      </a>
+
+      <a class="card" href="terminal-agent-workspace.html">
+        <div class="ct2"><span class="step">04</span><span class="nm3">The workspace</span></div>
+        <div class="fn3">terminal-agent-workspace.html</div>
+        <div class="ds2">File tree with A/M/D markers, unified diff, live preview, test results — and the build→error→agent feedback ladder across the top.</div>
+        <div class="dec"><b>Decides:</b> compile and test failures route back to the model. Today they reach only your toast.</div>
+        <div class="tags"><span class="tg new">shipping</span><span class="tg">file-tree variant</span></div>
+      </a>
+
+      <a class="card" href="terminal-agent-code.html">
+        <div class="ct2"><span class="step">05</span><span class="nm3">The corpus</span></div>
+        <div class="fn3">terminal-agent-code.html</div>
+        <div class="ds2">Every file, query and script any agent has written, across all runs, with provenance and the code itself. Filterable by kind, agent and state — scratch included.</div>
+        <div class="dec"><b>Decides:</b> <b>durable</b> (a real row, revertable) vs <b>recovered</b> (a tool-call argument, dies with the run). 84 of 118 are the second kind.</div>
+        <div class="tags"><span class="tg new">shipping</span><span class="tg">view over data already captured</span></div>
+      </a>
+
+      <a class="card" href="terminal-agent-run.html">
+        <div class="ct2"><span class="step">06</span><span class="nm3">Full trace</span></div>
+        <div class="fn3">terminal-agent-run.html</div>
+        <div class="ds2">The unabridged tool-call tree with arguments and results, including a rejected call the agent self-corrected from. Reached from the session, not lived in.</div>
+        <div class="dec"><b>Decides:</b> live and replay are one code path — <code style="font-family:var(--mono);font-size:10.5px">?after_seq=0</code> on a finished run streams the whole thing.</div>
+        <div class="tags"><span class="tg">demoted to a link</span></div>
+      </a>
+
+    </div>
+  </div>
+
+  <!-- ══ MANAGING ══ -->
+  <div class="grp">
+    <div class="grphd">
+      <span class="n">Managing</span>
+      <span class="d">three nested scopes — agent, its tools, the reachable universe</span>
+      <span class="ln3"></span>
+    </div>
+    <div class="cards">
+
+      <a class="card" href="terminal-agents.html">
+        <div class="ct2"><span class="step">07</span><span class="nm3">Agent configuration</span></div>
+        <div class="fn3">terminal-agents.html</div>
+        <div class="ds2">Identity, loop bounds, memory, structured output, capabilities, skills, provenance. Every field rendered from <code style="font-family:var(--mono);font-size:10.5px">GET /api/nodes/AIAgent</code>.</div>
+        <div class="dec"><b>Decides:</b> the form cannot drift from the runtime, because it is generated from it.</div>
+        <div class="tags"><span class="tg">becomes /agents/{id}</span><span class="tg old">drawn pre-reframe</span></div>
+      </a>
+
+      <a class="card" href="terminal-agent-tools.html">
+        <div class="ct2"><span class="step">08</span><span class="nm3">Tool binding</span></div>
+        <div class="fn3">terminal-agent-tools.html</div>
+        <div class="ds2">Bound tools ⟷ catalogue, per-tool config as an attached detail, discovered-tool schemas read-only, and a permanent schema-token budget.</div>
+        <div class="dec"><b>Decides:</b> tool count is a real cost. 12 of 24 max, 4,180 of 6,000 tokens — a hard error at bind, not a warning.</div>
+        <div class="tags"><span class="tg new">the differentiated screen</span></div>
+      </a>
+
+      <a class="card" href="terminal-connectors.html">
+        <div class="ct2"><span class="step">09</span><span class="nm3">Connectors</span></div>
+        <div class="fn3">terminal-connectors.html</div>
+        <div class="ds2">Register an MCP server or OpenAPI spec, browse what it offers, curate by rule, see whose identity the calls carry.</div>
+        <div class="dec"><b>Decides:</b> import ≠ select. And identity headers are stripped from generated schemas — the analytics spec declares <code style="font-family:var(--mono);font-size:10.5px">X-User-Id</code> as a parameter.</div>
+        <div class="tags"><span class="tg new">shipping</span><span class="tg">MCP + OpenAPI</span></div>
+      </a>
+
+      <a class="card" href="terminal-agent-home-airy.html">
+        <div class="ct2"><span class="step">—</span><span class="nm3">Front door, airy</span></div>
+        <div class="fn3">terminal-agent-home-airy.html</div>
+        <div class="ds2">The rejected first attempt: same structure, big soft prompt box, centred column of whitespace. Kept only so the two can be compared directly.</div>
+        <div class="dec"><b>Why rejected:</b> conflated <i>task-first</i> (structural, right) with <i>spacious</i> (aesthetic, not implied) — and looked like every other AI product.</div>
+        <div class="tags"><span class="tg old">rejected</span><span class="tg old">reference only</span></div>
+      </a>
+
+    </div>
+  </div>
+
+  <!-- ══ COMPOUNDING ══ -->
+  <div class="grp">
+    <div class="grphd">
+      <span class="n">Compounding</span>
+      <span class="d">the flywheel, and the two doors onto it</span>
+      <span class="ln3"></span>
+    </div>
+    <div class="cards">
+      <a class="card" href="terminal-agent-schedule.html">
+        <div class="ct2"><span class="step">10</span><span class="nm3">Make it recurring</span></div>
+        <div class="fn3">terminal-agent-schedule.html</div>
+        <div class="ds2">A finished session plus one sentence — “do this every Monday and email me” — becomes a scheduled workflow. 14 tool calls map onto 6 nodes, and three rows show an em-dash where no node came from.</div>
+        <div class="dec"><b>Decides:</b> the workflow is <b>recorded, not invented</b>. £16.12 and 45m a year as an agent against £0.02 and 1m 49s as a workflow.</div>
+        <div class="tags"><span class="tg new">shipping</span><span class="tg">business-user bridge</span></div>
+      </a>
+      <a class="card" href="terminal-agent-promote.html">
+        <div class="ct2"><span class="step">11</span><span class="nm3">Promote to a tool</span></div>
+        <div class="fn3">terminal-agent-promote.html</div>
+        <div class="ds2">An accepted workflow becomes callable by the next agent. Ranked catalogue, usage, success rate, cost per call, and the slot competition that promotion actually is.</div>
+        <div class="dec"><b>Decides:</b> capability compounds while cost and variance do not — $0.004 a call against $0.38 by hand. Promotion is <b>zero-sum</b>: binding evicts rank 24.</div>
+        <div class="tags"><span class="tg new">shipping</span><span class="tg">the flywheel</span></div>
+      </a>
+      <a class="card" href="terminal-agent-devsurface.html">
+        <div class="ct2"><span class="step">12</span><span class="nm3">The programmer surface</span></div>
+        <div class="fn3">terminal-agent-devsurface.html</div>
+        <div class="ds2">Agents as YAML in the repo, tools as typed functions in <span class="mono" style="font-size:10px">tools/</span>, environment promotion as a PR — and the divergence when someone edits a file-backed agent in the UI.</div>
+        <div class="dec"><b>Decides:</b> same object, two doors. <b>Export writes a file; it does not adopt one</b> — so nothing silently claims ownership.</div>
+        <div class="tags"><span class="tg new">shipping</span><span class="tg">agents as code</span></div>
+      </a>
+    </div>
+  </div>
+
+  <!-- ══ WHAT IS STILL OPEN ══ -->
+  <div class="grp">
+    <div class="grphd"><span class="n">Not yet drawn</span><span class="d">known gaps, in priority order</span><span class="ln3"></span></div>
+    <div class="row"><span class="k2">Sessions list</span><span class="v2">The front door's <b>Runs</b> table should become <b>Sessions</b> — turn count, holder, artifact owned. Runs become the expansion.</span></div>
+    <div class="row"><span class="k2">Session header</span><span class="v2">Holder + take-over control, and <code>agent v3 · v4 available</code> with one-click adopt.</span></div>
+    <div class="row"><span class="k2">Re-route mid-run</span><span class="v2">When the router picks wrong, the only move today is Stop and retype. Needs "hand to another agent, keep the context" in the route chip.</span></div>
+    <div class="row"><span class="k2">Failure states</span><span class="v2">Every screen shows a healthy fleet. No screen shows an agent looping to iteration 30, a connector gone dark mid-run, or a budget exceeded at bind.</span></div>
+    <div class="row"><span class="k2">Empty states</span><span class="v2">Zero agents, zero connectors, first-ever run. The front door is drawn with 7 agents and 41 runs already in it.</span></div>
+  </div>
+
+  <div class="foot">
+    <div class="row"><span class="k2">Written plan</span><span class="v2"><code>~/.claude/plans/fizzy-popping-gray.md</code> — 526 lines, phases 0 → 5 with schema sketches</span></div>
+    <div class="row"><span class="k2">Screenshots</span><span class="v2"><code>screenshots/terminal-agent-*.png</code> — gitignored, 2× scale</span></div>
+    <div class="row"><span class="k2">Backend status</span><span class="v2">Nothing built. No migration, no route, no React. These are the spec.</span></div>
+    <div class="row"><span class="k2">Prior prototypes</span><span class="v2">The 21 datasets-cockpit screens these inherit their language from:</span></div>
+    <div class="others">
+      <a href="terminal.html">terminal</a><a href="terminal-cmdk.html">cmdk</a><a href="terminal-query.html">query</a>
+      <a href="terminal-aggregate.html">aggregate</a><a href="terminal-pivot.html">pivot</a><a href="terminal-column.html">column</a>
+      <a href="terminal-sampling.html">sampling</a><a href="terminal-runs.html">runs</a><a href="terminal-admin.html">admin</a>
+      <a href="terminal-ingest.html">ingest</a><a href="terminal-library.html">library</a><a href="terminal-quality.html">quality</a>
+      <a href="terminal-relations.html">relations</a><a href="terminal-transform.html">transform</a><a href="terminal-versions.html">versions</a>
+      <a href="terminal-analytics.html">analytics</a><a href="terminal-workflows.html">workflows</a><a href="terminal-editor.html">editor</a>
+      <a href="terminal-appbuilder.html">appbuilder</a><a href="terminal-adaptive.html">adaptive</a><a href="terminal-shapes.html">shapes</a>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

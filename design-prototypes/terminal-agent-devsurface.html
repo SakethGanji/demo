@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<!--
+DESIGN NOTES — /agents?tab=repo · THE PROGRAMMER SURFACE. Business users get the UI; programmers get git.
+
+THE ARGUMENT: an agent definition is already a bag of AIAgent parameters (model, systemPrompt, maxIterations,
+memoryType, builtinTools…) sitting in a JSONB column. A bag of parameters is a file. So the same object gets two
+doors — a form in the builder, and `agents/revenue-analyst.yaml` in the repo — and the file door buys the three
+things the form door cannot: review, history, and promotion. Reviewing a raised `maxIterations` in a PR is the
+entire point, so a DIFF is on this screen, not behind a tab.
+
+The second half is the mirror image. The engine's tool contract is already
+`ConfigProvider.get_config(node_def) -> {name, description, input_schema, execute}` (src/nodes/ai/_config_base.py,
+tools/api_request_tool.py:151). Nothing in that shape says "MCP". A directory of typed Python functions satisfies
+it identically, which makes `tools/` a connector like any other — discovered, schema-derived, bound per agent.
+
+WHAT THE DENSITY FORCED:
+ A1 TWO DOORS MEANS A CONFLICT, AND THE CONFLICT IS DRAWN. Someone edited a file-backed agent in the builder while
+    the file also moved. That is not an edge case, it is Tuesday. The dock gives it a whole section with both
+    sides shown and three named resolutions — including "detach", because sometimes the UI edit is the right one.
+    Hiding it would make sync look total when it is not.
+ A2 DIFF COLOUR IS THE GLYPH. Status hue is reserved and a diff is not a status, so every changed line carries a
+    literal + or − in the gutter and reads correctly with the 5.5%-alpha tint removed. The tint groups runs of
+    lines; it does not encode a second meaning.
+ A3 THE ONE TOOL WE CANNOT DERIVE IS LISTED FIRST-CLASS, NOT SUPPRESSED. `def pivot(spec: dict, **kw) -> Any`
+    has no shape to read, so there is no input_schema and the tool cannot be bound. Showing five clean tools and
+    silently dropping the sixth would teach that discovery is total. It is not — it is as good as your annotations.
+ A4 SUGAR IS ANNOTATED IN THE SOURCE. `memory.type` → `memoryType` is written in the file as a comment, because a
+    YAML key that does not exist in the engine is a lie the first time someone greps for it.
+ A5 SEVERITY IS TYPOGRAPHIC (rule 7) — `writes`/`reads`/`no schema` are properties of a tool, true before it ever
+    runs, so they take weight and word, never hue. Only sync state, which changes over time, takes a shape (rule 6).
+ A6 EVERY FIGURE DENOMINATED (rule 11): "5 of 7 agents", "6 of 12 tracked files", "4 of 6 schema-derived",
+    "3 of 5 differ from prod", "bound by 2 of 7".
+ A7 ACCENT — 3 uses: the active route, the selected file in the rail, and the lamp on the CI check running now.
+-->
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Command Studio · Agents as code</title>
+<link rel="stylesheet" href="_agents-base.css" />
+<style>
+  .body2 { flex:1; display:flex; min-height:0; overflow:hidden; }
+  .mainc { flex:1; display:flex; flex-direction:column; min-width:0; min-height:0; background:var(--s3); }
+  .mscroll { flex:1; overflow-y:auto; min-height:0; }
+  .dock { width:396px; min-width:396px; background:var(--s2); display:flex; flex-direction:column; min-height:0;
+    box-shadow:inset 1px 0 0 rgba(255,255,255,.055); }
+  .dscroll { flex:1; overflow-y:auto; min-height:0; }
+  .dsec { padding:12px 15px; }
+  .dsec + .dsec { box-shadow:0 -1px 0 rgba(255,255,255,.05); }
+
+  /* file header: what you are looking at and where it lives */
+  .fhead { flex:none; display:flex; align-items:center; gap:10px; padding:8px 16px; background:var(--s2);
+    box-shadow:0 1px 0 rgba(255,255,255,.05); }
+  .fhead .pth { font-family:var(--mono); font-size:11.5px; color:var(--t1); }
+  .fhead .pth i { color:var(--t3); font-style:normal; }
+
+  /* YAML source, rendered through the diff scaffold so the line numbers are real
+     and the hunk headers below can point at them. Tinting uses the ink ramp only. */
+  .srcwell { background:var(--s0); border-radius:7px; padding:7px 0 8px; margin:0 16px 4px;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.55); }
+  .yk { color:var(--m2); }              /* key            */
+  .ys { color:var(--t1); }              /* scalar value   */
+  .yb { color:var(--t3); }              /* block scalar   */
+  .yc { color:var(--t4); }              /* comment        */
+  .yp { color:var(--t4); }              /* punctuation    */
+
+  /* repo tools table */
+  table.rt tbody td { padding:6px 10px; font-size:11.5px; }
+  table.rt .fn { font-family:var(--mono); font-size:11px; color:var(--t1); }
+  table.rt .pp2 { font-family:var(--mono); font-size:10px; color:var(--t3); margin-top:1px; }
+  .der { font-size:9.5px; letter-spacing:.06em; text-transform:uppercase; }
+  .der.auto { color:var(--t2); font-weight:600; }
+  .der.hand { color:var(--t3); font-weight:400; }
+  .der.none { color:var(--t1); font-weight:700; }
+
+  .codewell { background:var(--s0); border-radius:7px; padding:10px 12px; font-family:var(--mono); font-size:10.5px;
+    line-height:1.6; color:var(--t2); box-shadow:inset 0 1px 2px rgba(0,0,0,.55); white-space:pre; overflow-x:auto; }
+  .codewell .kw { color:var(--m2); }
+  .codewell .str { color:var(--m3); }
+  .codewell .cm { color:var(--t4); }
+  .codewell .k2 { color:var(--t1); }
+  .kv2 { display:flex; justify-content:space-between; gap:12px; padding:3.5px 0; font-size:11px; }
+  .kv2 .k { color:var(--t3); }
+  .kv2 .v { color:var(--t2); text-align:right; font-family:var(--mono); font-size:10.5px; }
+
+  /* sync rows: definition on the left, where it actually lives on the right */
+  .sy { display:flex; align-items:center; gap:9px; padding:5.5px 0; box-shadow:inset 0 -1px 0 rgba(255,255,255,.032); }
+  .sy .an { flex:1; min-width:0; font-family:var(--mono); font-size:10.5px; color:var(--t1);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sy .og { font-size:9.5px; letter-spacing:.06em; text-transform:uppercase; width:52px; flex:none; }
+  .sy .og.file { color:var(--t2); font-weight:600; }
+  .sy .og.ui   { color:var(--t3); font-weight:400; }
+  .sy .stx { font-size:10.5px; color:var(--t3); white-space:nowrap; }
+
+  /* the two sides of a divergence, side by side, neither one privileged */
+  .vs { display:grid; grid-template-columns:1fr 1fr; gap:9px; }
+  .vsc { background:var(--s0); border-radius:7px; padding:8px 10px; box-shadow:inset 0 1px 2px rgba(0,0,0,.5); }
+  .vsc .vh { font-size:9.5px; letter-spacing:.09em; text-transform:uppercase; color:var(--t3); margin-bottom:5px; }
+  .vsc .vl { font-family:var(--mono); font-size:10px; line-height:1.6; color:var(--t2); white-space:pre-wrap; }
+  .vsc .vl b { color:var(--t1); font-weight:600; }
+
+  /* promotion: three environments on one line, each pinned to a ref */
+  .envs { display:flex; align-items:stretch; gap:0; }
+  .env { flex:1; padding:7px 10px; background:var(--s0); box-shadow:inset 0 1px 2px rgba(0,0,0,.45); }
+  .env:first-child { border-radius:7px 0 0 7px; }
+  .env:last-child  { border-radius:0 7px 7px 0; }
+  .env + .env { box-shadow:inset 0 1px 2px rgba(0,0,0,.45), inset 1px 0 0 rgba(255,255,255,.06); }
+  .env .en { font-size:9.5px; letter-spacing:.09em; text-transform:uppercase; color:var(--t3); }
+  .env .ev { font-family:var(--mono); font-size:11px; color:var(--t1); margin-top:2px; }
+  .env .ea { font-family:var(--mono); font-size:9.5px; color:var(--t3); margin-top:1px; }
+  .arrow { align-self:center; padding:0 7px; color:var(--t4); font-size:11px; flex:none; }
+
+  .dl2 { display:flex; gap:9px; font-size:11px; padding:3px 0; align-items:baseline; }
+  .dl2 .nm3 { font-family:var(--mono); font-size:10.5px; color:var(--t1); flex:none; }
+  .dl2 .ch { flex:1; color:var(--t3); font-family:var(--mono); font-size:10px; overflow:hidden;
+    text-overflow:ellipsis; white-space:nowrap; }
+
+  /* CI: the agent as a reviewer. One strip, pinned, deliberately small. */
+  .ci { flex:none; padding:9px 16px 11px; background:var(--s2); box-shadow:0 -1px 0 rgba(255,255,255,.06); }
+  .cirow { display:flex; align-items:center; gap:10px; }
+  .cichk { display:flex; align-items:center; gap:8px; font-size:11px; color:var(--t3); }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo"></div><span class="wordmark">Command Studio</span>
+      <span class="envchip">LOCAL · :8000</span>
+    </div>
+    <nav class="nav">
+      <a href="#">Workflows</a><a href="#">Datasets</a><a href="#">Catalog</a>
+      <a href="#">Runs</a><a href="#" class="active">Agents</a><a href="#">Admin</a>
+    </nav>
+    <div class="topright">
+      <div class="cmdk">
+        <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+        <span>Search agents, tools, runs…</span><span class="kbd">⌘K</span>
+      </div>
+      <div class="iconbtn"><svg class="ic" viewBox="0 0 24 24"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg></div>
+      <div class="team"><span class="dot good"></span><span>Growth Analytics</span><span class="caret">▾</span></div>
+      <div class="avatar">SG</div>
+    </div>
+  </div>
+
+  <div class="subhead">
+    <h1>Agents</h1>
+    <span class="idf" style="font-size:11px">/ repo</span>
+    <div class="ctrl" style="margin-left:8px">
+      <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M6 3v12M6 21a3 3 0 100-6 3 3 0 000 6zM6 6a3 3 0 100-6 3 3 0 000 6zM18 12a3 3 0 100-6 3 3 0 000 6zM18 9v3a6 6 0 01-6 6H9"/></svg>
+      <b>growth-analytics/instrument</b> · main <span class="caret">▾</span>
+    </div>
+    <span class="idf">HEAD a91c4e2 · 2d ago</span>
+    <div class="spacer"></div>
+    <div class="ctrl">
+      <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M4 4v6h6M20 20v-6h-6"/><path d="M20 9a8 8 0 00-14.5-3M4 15a8 8 0 0014.5 3"/></svg>
+      Re-scan repo
+    </div>
+    <button class="btn-ghost">Discard 6 changes</button>
+    <button class="btn-primary">
+      <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M12 3v13M7 8l5-5 5 5M5 21h14"/></svg>
+      Open pull request
+    </button>
+  </div>
+
+  <div class="statband">
+    <div class="stat">
+      <span class="micro">Repo-backed agents</span>
+      <span class="v">5</span>
+      <span class="den">of 7 total · 2 exist only in the UI</span>
+    </div>
+    <div class="stat">
+      <span class="micro">Uncommitted</span>
+      <span class="v">6</span>
+      <span class="den">of 12 tracked files · 3 agents, 3 tools</span>
+    </div>
+    <div class="stat">
+      <span class="micro">Repo tools</span>
+      <span class="v">6</span>
+      <span class="den">4 schema-derived · 1 hand-declared · 1 blocked</span>
+    </div>
+    <div class="stat">
+      <span class="micro">Differ from prod</span>
+      <span class="v">3</span>
+      <span class="den">of 5 file-backed · promotion is a PR</span>
+    </div>
+    <div class="stat">
+      <span class="micro">Diverged</span>
+      <span class="v">1</span>
+      <span class="den">of 5 file-backed · edited in the UI</span>
+    </div>
+  </div>
+
+  <div class="body2">
+
+    <!-- ════ THE REPO ════ -->
+    <div class="rail">
+      <div class="railhead">
+        <span class="micro">Working tree</span>
+        <div class="spacer"></div>
+        <span class="micro" style="letter-spacing:.04em">6 of 12 changed</span>
+      </div>
+      <div class="railscroll">
+        <div class="ftree">
+
+          <div class="fitem dir" style="padding-left:10px">
+            <span class="mk none">·</span><span class="nm">agents/</span><span class="ct">5</span>
+          </div>
+          <!-- SIGNAL — the file being read -->
+          <div class="fitem sel" style="padding-left:24px">
+            <span class="mk m">M</span><span class="nm">revenue-analyst.yaml</span><span class="ct">+2 −1</span>
+          </div>
+          <div class="fitem" style="padding-left:24px">
+            <span class="mk m">M</span><span class="nm">migration-scout.yaml</span><span class="ct">+9 −4</span>
+          </div>
+          <div class="fitem" style="padding-left:24px">
+            <span class="mk a">A</span><span class="nm">support-triage.yaml</span><span class="ct">+41</span>
+          </div>
+          <div class="fitem" style="padding-left:24px">
+            <span class="mk none">·</span><span class="nm">quality-sentinel.yaml</span><span class="ct">38</span>
+          </div>
+          <div class="fitem" style="padding-left:24px">
+            <span class="mk none">·</span><span class="nm">workflow-author.yaml</span><span class="ct">52</span>
+          </div>
+
+          <div class="fitem dir" style="padding-left:10px;margin-top:5px">
+            <span class="mk none">·</span><span class="nm">tools/</span><span class="ct">6</span>
+          </div>
+          <div class="fitem" style="padding-left:24px">
+            <span class="mk none">·</span><span class="nm">ledger_reconcile.py</span><span class="ct">2 fn</span>
+          </div>
+          <div class="fitem" style="padding-left:24px">
+            <span class="mk a">A</span><span class="nm">fx_rate.py</span><span class="ct">+19</span>
+          </div>
+          <div class="fitem" style="padding-left:24px">
+            <span class="mk none">·</span><span class="nm">contract_check.py</span><span class="ct">1 fn</span>
+          </div>
+          <div class="fitem" style="padding-left:24px">
+            <span class="mk none">·</span><span class="nm">cohort_window.py</span><span class="ct">1 fn</span>
+          </div>
+          <div class="fitem" style="padding-left:24px">
+            <span class="mk m">M</span><span class="nm">slack_digest.py</span><span class="ct">+6 −6</span>
+          </div>
+          <div class="fitem gone" style="padding-left:24px">
+            <span class="mk d">D</span><span class="nm">legacy_pivot.py</span><span class="ct">−73</span>
+          </div>
+
+          <div class="fitem dir" style="padding-left:10px;margin-top:5px">
+            <span class="mk none">·</span><span class="nm">.instrument/</span><span class="ct">1</span>
+          </div>
+          <div class="fitem" style="padding-left:24px">
+            <span class="mk none">·</span><span class="nm">environments.yaml</span><span class="ct">24</span>
+          </div>
+        </div>
+
+        <div style="padding:12px">
+          <div class="guard">
+            <b>Only these two directories are read.</b> The scanner walks <span class="mono" style="font-size:10.5px">agents/*.yaml</span> and <span class="mono" style="font-size:10.5px">tools/*.py</span> at the configured ref — everything else in the repo is invisible to it, deliberately, so a checkout cannot smuggle in an agent.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════ THE FILE ════ -->
+    <div class="mainc">
+
+      <div class="fhead">
+        <span class="mk m" style="width:auto">M</span>
+        <span class="pth"><i>agents/</i>revenue-analyst.yaml</span>
+        <span class="idf">40 lines · edited 14m ago by saketh</span>
+        <div class="spacer"></div>
+        <span class="cchip">applied as <b style="color:var(--t1);font-weight:600;margin-left:4px">agt_7Kq2mN4pXr</b></span>
+        <span class="cchip">v14 <span class="x">· 3 runs today</span></span>
+        <button class="btn-ghost">Open in builder</button>
+      </div>
+
+      <div class="mscroll">
+
+        <div style="display:flex;align-items:baseline;gap:9px;padding:10px 16px 6px">
+          <span class="micro">Working tree</span>
+          <span class="sev sev-info">this file is the definition — the database row is a projection of it</span>
+        </div>
+
+        <div class="srcwell">
+          <div class="diff">
+            <div class="dl"><span class="ln">1</span><span class="sg"> </span><span class="tx"><span class="yc"># agents/revenue-analyst.yaml — owned by growth-analytics</span></span></div>
+            <div class="dl"><span class="ln">2</span><span class="sg"> </span><span class="tx"><span class="yk">apiVersion</span><span class="yp">:</span> <span class="ys">instrument.dev/v1</span></span></div>
+            <div class="dl"><span class="ln">3</span><span class="sg"> </span><span class="tx"><span class="yk">kind</span><span class="yp">:</span> <span class="ys">Agent</span></span></div>
+            <div class="dl"><span class="ln">4</span><span class="sg"> </span><span class="tx"><span class="yk">metadata</span><span class="yp">:</span></span></div>
+            <div class="dl"><span class="ln">5</span><span class="sg"> </span><span class="tx">  <span class="yk">name</span><span class="yp">:</span> <span class="ys">revenue-analyst</span></span></div>
+            <div class="dl"><span class="ln">6</span><span class="sg"> </span><span class="tx">  <span class="yk">team</span><span class="yp">:</span> <span class="ys">growth-analytics</span>        <span class="yc"># team is the tenancy boundary, not a label</span></span></div>
+            <div class="dl"><span class="ln">7</span><span class="sg"> </span><span class="tx">  <span class="yk">owners</span><span class="yp">: [</span><span class="ys">saketh</span><span class="yp">,</span> <span class="ys">dana</span><span class="yp">]</span></span></div>
+            <div class="dl"><span class="ln">8</span><span class="sg"> </span><span class="tx"><span class="yk">spec</span><span class="yp">:</span>                          <span class="yc"># keys below are AIAgent node parameters, verbatim</span></span></div>
+            <div class="dl"><span class="ln">9</span><span class="sg"> </span><span class="tx">  <span class="yk">model</span><span class="yp">:</span> <span class="ys">claude-sonnet-4-20250514</span></span></div>
+            <div class="dl"><span class="ln">10</span><span class="sg"> </span><span class="tx">  <span class="yk">temperature</span><span class="yp">:</span> <span class="ys">0</span></span></div>
+            <div class="dl"><span class="ln">11</span><span class="sg"> </span><span class="tx">  <span class="yk">maxIterations</span><span class="yp">:</span> <span class="ys">18</span></span></div>
+            <div class="dl"><span class="ln">12</span><span class="sg"> </span><span class="tx">  <span class="yk">maxContextTokens</span><span class="yp">:</span> <span class="ys">120000</span></span></div>
+            <div class="dl"><span class="ln">13</span><span class="sg"> </span><span class="tx">  <span class="yk">maxOutputTokens</span><span class="yp">:</span> <span class="ys">8192</span></span></div>
+            <div class="dl"><span class="ln">14</span><span class="sg"> </span><span class="tx">  <span class="yk">systemPrompt</span><span class="yp">: |</span></span></div>
+            <div class="dl"><span class="ln">15</span><span class="sg"> </span><span class="tx">    <span class="yb">You answer revenue questions from published views only. Never</span></span></div>
+            <div class="dl"><span class="ln">16</span><span class="sg"> </span><span class="tx">    <span class="yb">read a raw upload. If a figure cannot be computed from a published</span></span></div>
+            <div class="dl"><span class="ln">17</span><span class="sg"> </span><span class="tx">    <span class="yb">view, say so and name the view that is missing. Round nothing</span></span></div>
+            <div class="dl"><span class="ln">18</span><span class="sg"> </span><span class="tx">    <span class="yb">before the final answer.</span></span></div>
+            <div class="dl"><span class="ln">19</span><span class="sg"> </span><span class="tx">  <span class="yk">memory</span><span class="yp">:</span>                       <span class="yc"># sugar — expands to the flat memory* params</span></span></div>
+            <div class="dl"><span class="ln">20</span><span class="sg"> </span><span class="tx">    <span class="yk">type</span><span class="yp">:</span> <span class="ys">summaryBuffer</span>          <span class="yc"># → memoryType</span></span></div>
+            <div class="dl"><span class="ln">21</span><span class="sg"> </span><span class="tx">    <span class="yk">maxMessages</span><span class="yp">:</span> <span class="ys">40</span>             <span class="yc"># → memoryMaxMessages</span></span></div>
+            <div class="dl"><span class="ln">22</span><span class="sg"> </span><span class="tx">    <span class="yk">summaryThreshold</span><span class="yp">:</span> <span class="ys">24</span>       <span class="yc"># → memorySummaryThreshold</span></span></div>
+            <div class="dl"><span class="ln">23</span><span class="sg"> </span><span class="tx">    <span class="yk">sessionId</span><span class="yp">:</span> <span class="ys">"{{ $vars.SESSION }}"</span>   <span class="yc"># → memorySessionId</span></span></div>
+            <div class="dl"><span class="ln">24</span><span class="sg"> </span><span class="tx">  <span class="yk">tools</span><span class="yp">:</span></span></div>
+            <div class="dl"><span class="ln">25</span><span class="sg"> </span><span class="tx">    <span class="yk">builtin</span><span class="yp">: [</span><span class="ys">dataProfile</span><span class="yp">,</span> <span class="ys">dataAggregate</span><span class="yp">,</span> <span class="ys">dataSample</span><span class="yp">]</span></span></div>
+            <div class="dl"><span class="ln">26</span><span class="sg"> </span><span class="tx">    <span class="yk">mcp</span><span class="yp">:</span></span></div>
+            <div class="dl"><span class="ln">27</span><span class="sg"> </span><span class="tx">      <span class="yp">-</span> <span class="yk">server</span><span class="yp">:</span> <span class="ys">analytics</span></span></div>
+            <div class="dl"><span class="ln">28</span><span class="sg"> </span><span class="tx">        <span class="yk">bind</span><span class="yp">: [</span><span class="ys">search_datasets</span><span class="yp">,</span> <span class="ys">describe_dataset</span><span class="yp">,</span> <span class="ys">query_rows</span><span class="yp">]</span></span></div>
+            <div class="dl"><span class="ln">29</span><span class="sg"> </span><span class="tx">    <span class="yk">repo</span><span class="yp">:</span>                     <span class="yc"># same contract as mcp, different transport</span></span></div>
+            <div class="dl"><span class="ln">30</span><span class="sg"> </span><span class="tx">      <span class="yp">-</span> <span class="ys">tools/ledger_reconcile.py:reconcile_period</span></span></div>
+            <div class="dl"><span class="ln">31</span><span class="sg"> </span><span class="tx">      <span class="yp">-</span> <span class="ys">tools/fx_rate.py:convert_to_usd</span></span></div>
+            <div class="dl"><span class="ln">32</span><span class="sg"> </span><span class="tx">  <span class="yk">capabilities</span><span class="yp">:</span></span></div>
+            <div class="dl"><span class="ln">33</span><span class="sg"> </span><span class="tx">    <span class="yk">write</span><span class="yp">:</span> <span class="ys">false</span>                  <span class="yc"># enforced at bind time, not by the prompt</span></span></div>
+            <div class="dl"><span class="ln">34</span><span class="sg"> </span><span class="tx">    <span class="yk">publish</span><span class="yp">: [</span><span class="ys">finance.revenue_summary</span><span class="yp">]</span></span></div>
+            <div class="dl"><span class="ln">35</span><span class="sg"> </span><span class="tx">    <span class="yk">escalate</span><span class="yp">:</span> <span class="ys">ask</span></span></div>
+            <div class="dl"><span class="ln">36</span><span class="sg"> </span><span class="tx">    <span class="yk">maxRowsScanned</span><span class="yp">:</span> <span class="ys">5_000_000</span></span></div>
+            <div class="dl"><span class="ln">37</span><span class="sg"> </span><span class="tx">  <span class="yk">datasets</span><span class="yp">:</span></span></div>
+            <div class="dl"><span class="ln">38</span><span class="sg"> </span><span class="tx">    <span class="yp">-</span> <span class="ys">finance.orders_v4</span></span></div>
+            <div class="dl"><span class="ln">39</span><span class="sg"> </span><span class="tx">    <span class="yp">-</span> <span class="ys">finance.accounts_v2</span></span></div>
+            <div class="dl"><span class="ln">40</span><span class="sg"> </span><span class="tx"><span class="yc"># per-environment overlays: .instrument/environments.yaml</span></span></div>
+          </div>
+        </div>
+
+        <div style="padding:0 16px 12px">
+          <div class="guard">
+            <b>Five keys are sugar; the other eleven are the engine's own parameter names.</b> A YAML key that does not exist in <span class="mono" style="font-size:10.5px">AIAgent</span> is a lie the first time someone greps for it, so every expansion is written in the file as a comment rather than in documentation nobody opens.
+          </div>
+        </div>
+
+        <!-- ════ THE DIFF — the reason the file door exists ════ -->
+        <div class="ptabs">
+          <button class="active">Uncommitted diff <span class="c">2 files</span></button>
+          <button>Against staging <span class="c">4</span></button>
+          <button>Against prod <span class="c">7</span></button>
+          <button>History <span class="c">31</span></button>
+          <div class="spacer"></div>
+          <span class="micro">+22 −1 · not yet applied to any agent</span>
+        </div>
+
+        <div class="diff" style="padding:5px 0 0">
+          <div class="dl hunk"><span class="ln"></span><span class="sg"> </span><span class="tx">agents/revenue-analyst.yaml · 2 hunks · +2 −1</span></div>
+          <div class="dl hunk"><span class="ln"></span><span class="sg"> </span><span class="tx">@@ -9,4 +9,4 @@ spec</span></div>
+          <div class="dl"><span class="ln">9</span><span class="sg"> </span><span class="tx">   model: claude-sonnet-4-20250514</span></div>
+          <div class="dl"><span class="ln">10</span><span class="sg"> </span><span class="tx">   temperature: 0</span></div>
+          <div class="dl del"><span class="ln">11</span><span class="sg">−</span><span class="tx">   maxIterations: 12</span></div>
+          <div class="dl add"><span class="ln">11</span><span class="sg">+</span><span class="tx">   maxIterations: 18</span></div>
+          <div class="dl"><span class="ln">12</span><span class="sg"> </span><span class="tx">   maxContextTokens: 120000</span></div>
+          <div class="dl hunk"><span class="ln"></span><span class="sg"> </span><span class="tx">@@ -29,2 +29,3 @@ spec.tools.repo</span></div>
+          <div class="dl"><span class="ln">29</span><span class="sg"> </span><span class="tx">     repo:</span></div>
+          <div class="dl"><span class="ln">30</span><span class="sg"> </span><span class="tx">       - tools/ledger_reconcile.py:reconcile_period</span></div>
+          <div class="dl add"><span class="ln">31</span><span class="sg">+</span><span class="tx">       - tools/fx_rate.py:convert_to_usd</span></div>
+          <div class="dl hunk"><span class="ln"></span><span class="sg"> </span><span class="tx">tools/fx_rate.py · new file · +19 −0 · showing 6</span></div>
+          <div class="dl add"><span class="ln">1</span><span class="sg">+</span><span class="tx">"""Convert a money column to USD at the period's closing rate."""</span></div>
+          <div class="dl add"><span class="ln">3</span><span class="sg">+</span><span class="tx">def convert_to_usd(amount: float, currency: Currency) -> float:</span></div>
+          <div class="dl add"><span class="ln">4</span><span class="sg">+</span><span class="tx">    """Convert `amount` from `currency` to USD at the period close.</span></div>
+          <div class="dl add"><span class="ln">6</span><span class="sg">+</span><span class="tx">    Raises RateUnavailable if the period has not settled yet.</span></div>
+          <div class="dl add"><span class="ln">7</span><span class="sg">+</span><span class="tx">    """</span></div>
+          <div class="dl add"><span class="ln">8</span><span class="sg">+</span><span class="tx">    rate = _closing_rate(currency)</span></div>
+          <div class="dl"><span class="ln"></span><span class="sg"> </span><span class="tx">    … 13 more added lines</span></div>
+        </div>
+
+        <div style="padding:11px 16px 13px">
+          <div class="guard warn">
+            <b>A raised iteration cap is a cost change and a blast-radius change, not a typo.</b> 12 → 18 lifts the worst-case spend of one run from roughly $0.90 to $1.35 and gives the loop six more chances to call a tool. That is exactly the kind of edit a form hides and a diff does not — which is the whole argument for this door.
+          </div>
+        </div>
+
+        <!-- ════ TOOLS DISCOVERED FROM THE REPO ════ -->
+        <div class="ptabs" style="box-shadow:0 1px 0 rgba(255,255,255,.05), 0 -1px 0 rgba(255,255,255,.05)">
+          <button class="active">Tools discovered in <span class="mono" style="font-size:10.5px">tools/</span> <span class="c">6</span></button>
+          <div class="spacer"></div>
+          <span class="micro">4 of 6 schema-derived · 1 hand-declared · 1 blocked</span>
+        </div>
+
+        <table class="rt">
+          <thead>
+            <tr>
+              <th>Function · source path</th>
+              <th style="width:118px">input_schema</th>
+              <th style="width:74px">Effect</th>
+              <th style="width:104px">Bound by</th>
+              <th class="num" style="width:62px">Calls 7d</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                <div class="fn">reconcile_period</div>
+                <div class="pp2">tools/ledger_reconcile.py:41</div>
+              </td>
+              <td><span class="der auto">derived</span><div class="pp2">3 req · 1 opt</div></td>
+              <td><span class="sev sev-info">reads</span></td>
+              <td>2 of 7 agents</td>
+              <td class="num">318</td>
+            </tr>
+            <tr>
+              <td>
+                <div class="fn">convert_to_usd</div>
+                <div class="pp2">tools/fx_rate.py:3 · uncommitted</div>
+              </td>
+              <td><span class="der auto">derived</span><div class="pp2">2 req · 0 opt</div></td>
+              <td><span class="sev sev-info">reads</span></td>
+              <td>1 of 7 agents</td>
+              <td class="num">—</td>
+            </tr>
+            <tr>
+              <td>
+                <div class="fn">columns_dropped</div>
+                <div class="pp2">tools/contract_check.py:12</div>
+              </td>
+              <td><span class="der auto">derived</span><div class="pp2">2 req · 0 opt</div></td>
+              <td><span class="sev sev-info">reads</span></td>
+              <td>3 of 7 agents</td>
+              <td class="num">96</td>
+            </tr>
+            <tr>
+              <td>
+                <div class="fn">window_for</div>
+                <div class="pp2">tools/cohort_window.py:8</div>
+              </td>
+              <td><span class="der auto">derived</span><div class="pp2">1 req · 1 opt</div></td>
+              <td><span class="sev sev-info">reads</span></td>
+              <td>1 of 7 agents</td>
+              <td class="num">44</td>
+            </tr>
+            <tr>
+              <td>
+                <div class="fn">post_digest</div>
+                <div class="pp2">tools/slack_digest.py:19 · uncommitted</div>
+              </td>
+              <td><span class="der hand">hand-declared</span><div class="pp2">@tool_schema(...)</div></td>
+              <td><span class="sev sev-err">writes</span></td>
+              <td>2 of 7 agents</td>
+              <td class="num">27</td>
+            </tr>
+            <tr>
+              <td>
+                <div class="fn" style="color:var(--t3)">pivot</div>
+                <div class="pp2">tools/legacy_pivot.py:31 · deleted in tree</div>
+              </td>
+              <td><span class="der none">no schema</span><div class="pp2">hints too loose</div></td>
+              <td><span class="sev sev-info">unknown</span></td>
+              <td style="color:var(--t3)">0 of 7 agents</td>
+              <td class="num">0</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div style="padding:11px 16px 16px">
+          <div class="guard warn">
+            <b><span class="mono" style="font-size:10.5px">def pivot(spec: dict, **kw) -&gt; Any</span> cannot be turned into a tool.</b> <span class="mono" style="font-size:10.5px">dict</span> and <span class="mono" style="font-size:10.5px">Any</span> carry no shape, so there is no <span class="mono" style="font-size:10.5px">input_schema</span> to hand the model and the function cannot be bound to any agent. Annotate the parameters with a TypedDict or declare the schema by hand — discovery is only as good as your type hints, and pretending otherwise would make the scanner look total when it is not.
+          </div>
+        </div>
+      </div>
+
+      <!-- ════ THE AGENT AS A CI PARTICIPANT — small on purpose ════ -->
+      <div class="ci">
+        <div class="cirow">
+          <span class="lamp"></span>
+          <span style="font-size:11.5px;color:var(--t1);font-weight:600">quality-sentinel</span>
+          <span class="idf">reviewing PR #482 · db/migrations/0043_drop_discount.sql</span>
+          <div class="spacer"></div>
+          <span class="cichk"><span class="dot good"></span>naming 12 of 12</span>
+          <span class="cichk"><span class="dot crit"></span>contracts 1 finding</span>
+          <span class="cichk"><span class="dot run"></span>lineage 8 of 14</span>
+          <button class="btn-ghost">Open the check</button>
+        </div>
+        <div class="guard warn" style="margin-top:8px">
+          <span class="sev sev-err">blocking</span> · <b>Dropping <span class="mono" style="font-size:10.5px">finance.orders_v4.discount_pct</span> breaks 3 of 41 published views</b> — revenue_summary, margin_by_segment, discount_audit — and 2 of 7 agents read those views. Posted as a review comment by <span class="mono" style="font-size:10.5px">tools/contract_check.py:columns_dropped</span>, the same repo tool bound to 3 agents above.
+        </div>
+      </div>
+    </div>
+
+    <!-- ════ THE DOCK: file ↔ database ════ -->
+    <div class="dock">
+      <div class="railhead" style="height:34px;padding:0 15px">
+        <span class="micro">Sync state</span>
+        <div class="spacer"></div>
+        <span class="micro" style="letter-spacing:.04em">last scan 40s ago</span>
+      </div>
+
+      <div class="dscroll">
+
+        <div class="dsec">
+          <div class="sect-title">Where each agent actually lives</div>
+          <div class="sect-sub">7 agents in this team · 5 file-backed, 2 created in the UI and not represented in the repo.</div>
+
+          <div class="sy">
+            <span class="og file">file</span>
+            <span class="an">revenue-analyst</span>
+            <span class="st" style="font-size:11px"><span class="dot warn"></span><span class="stx">1 edit unapplied</span></span>
+          </div>
+          <div class="sy">
+            <span class="og file">file</span>
+            <span class="an">quality-sentinel</span>
+            <span class="st" style="font-size:11px"><span class="dot good"></span><span class="stx">in sync · a91c4e2</span></span>
+          </div>
+          <div class="sy">
+            <span class="og file">file</span>
+            <span class="an">migration-scout</span>
+            <span class="st" style="font-size:11px"><span class="dot crit"></span><span class="stx">diverged</span></span>
+          </div>
+          <div class="sy">
+            <span class="og file">file</span>
+            <span class="an">workflow-author</span>
+            <span class="st" style="font-size:11px"><span class="dot good"></span><span class="stx">in sync · a91c4e2</span></span>
+          </div>
+          <div class="sy">
+            <span class="og file">file</span>
+            <span class="an">support-triage</span>
+            <span class="st" style="font-size:11px"><span class="dot muted"></span><span class="stx">new file · no row yet</span></span>
+          </div>
+          <div class="sy">
+            <span class="og ui">ui</span>
+            <span class="an" style="color:var(--t2)">app-builder</span>
+            <span class="st" style="font-size:11px"><span class="dot muted"></span><span class="stx">no file · 61 runs</span></span>
+          </div>
+          <div class="sy" style="box-shadow:none">
+            <span class="og ui">ui</span>
+            <span class="an" style="color:var(--t2)">cost-watcher</span>
+            <span class="st" style="font-size:11px"><span class="dot muted"></span><span class="stx">no file · 9 runs</span></span>
+          </div>
+
+          <div class="guard" style="margin-top:10px">
+            <b>Export writes a file; it does not adopt one.</b> A UI-created agent stays UI-owned until its exported YAML is committed and the scanner sees it — otherwise two people would each think their copy was the source.
+          </div>
+        </div>
+
+        <!-- the conflict, drawn -->
+        <div class="dsec">
+          <div class="sect-title" style="display:flex;align-items:center;gap:8px">
+            <span class="dot crit"></span>Divergence · migration-scout
+          </div>
+          <div class="sect-sub">The file moved and the builder moved, 1 of 5 file-backed agents. Both edits are real; neither wins by default.</div>
+
+          <div class="vs">
+            <div class="vsc">
+              <div class="vh">File · main a91c4e2</div>
+              <div class="vl">maxIterations: <b>20</b>
+temperature: <b>0</b>
+tools.repo: <b>+contract_check</b>
+<span class="yc">saketh · 2d ago · PR #479</span></div>
+            </div>
+            <div class="vsc">
+              <div class="vh">Builder · db v22</div>
+              <div class="vl">maxIterations: 20
+temperature: <b>0.2</b>
+systemPrompt: <b>+4 lines</b>
+<span class="yc">priya · 2h ago · in the UI</span></div>
+            </div>
+          </div>
+
+          <div class="guard warn" style="margin-top:10px">
+            <b>Sync is paused for this one agent only.</b> Runs keep using db <span class="mono" style="font-size:10.5px">v22</span> — the version Priya edited — so nothing is silently reverted while you decide. The other 4 file-backed agents are unaffected.
+          </div>
+
+          <div style="display:flex;gap:6px;margin-top:11px">
+            <button class="btn-ghost" style="flex:1;justify-content:center">Keep file</button>
+            <button class="btn-ghost" style="flex:1;justify-content:center">Detach</button>
+            <button class="btn-primary" style="flex:1.3;justify-content:center">PR the UI edit</button>
+          </div>
+          <div class="guard" style="margin-top:9px">
+            <b>Detach</b> is not a failure state. Some agents genuinely belong to the person tuning them; making them UI-owned is a decision, and it is reversible by committing the export.
+          </div>
+        </div>
+
+        <!-- promotion -->
+        <div class="dsec">
+          <div class="sect-title">Environments</div>
+          <div class="sect-sub">3 of 5 file-backed agents differ from prod. Promotion is a pull request against the overlay, not a button.</div>
+
+          <div class="envs">
+            <div class="env">
+              <div class="en">dev</div>
+              <div class="ev">4d1c0aa</div>
+              <div class="ea">working tree</div>
+            </div>
+            <span class="arrow">→</span>
+            <div class="env">
+              <div class="en">staging</div>
+              <div class="ev">a91c4e2</div>
+              <div class="ea">2d · 5 of 5</div>
+            </div>
+            <span class="arrow">→</span>
+            <div class="env">
+              <div class="en">prod</div>
+              <div class="ev">71b3ef9</div>
+              <div class="ea">9d · 4 of 5</div>
+            </div>
+          </div>
+
+          <div style="margin-top:10px">
+            <div class="dl2"><span class="nm3">revenue-analyst</span><span class="ch">maxIterations 12 → 18 · +1 repo tool</span></div>
+            <div class="dl2"><span class="nm3">migration-scout</span><span class="ch">blocked — divergence open</span></div>
+            <div class="dl2"><span class="nm3">support-triage</span><span class="ch">absent in prod · new file</span></div>
+          </div>
+
+          <div class="guard" style="margin-top:9px">
+            Overlays may only override <b>7 of 16 keys</b> — model, temperature, the four limits and dataset bindings. Capabilities and tool bindings are pinned across environments on purpose: an agent that can write in prod but not in dev has never been tested.
+          </div>
+        </div>
+
+        <!-- schema derivation -->
+        <div class="dsec">
+          <div class="sect-title">How a repo function becomes a tool</div>
+          <div class="sect-sub">The engine's contract is <span class="mono" style="font-size:10.5px">get_config(node_def) → {name, description, input_schema, execute}</span>. Nothing in that shape says MCP, so a directory of typed functions satisfies it identically.</div>
+
+          <div class="codewell"><span class="cm"># tools/contract_check.py</span>
+<span class="kw">def</span> <span class="k2">columns_dropped</span>(
+    migration_sql: <span class="kw">str</span>,
+    dataset: <span class="kw">str</span>,
+) -&gt; <span class="kw">list</span>[<span class="kw">str</span>]:
+    <span class="str">"""Columns this migration drops that
+    a published view still reads."""</span></div>
+
+          <div style="display:flex;align-items:center;gap:8px;padding:8px 0 6px">
+            <span class="micro">derives</span>
+            <div style="flex:1;height:1px;background:var(--r1)"></div>
+            <span class="micro" style="letter-spacing:.04em">no annotations added</span>
+          </div>
+
+          <div class="codewell">{
+  <span class="k2">"name"</span>: <span class="str">"columns_dropped"</span>,
+  <span class="k2">"description"</span>: <span class="str">"Columns this migration…"</span>,
+  <span class="k2">"input_schema"</span>: {
+    <span class="k2">"type"</span>: <span class="str">"object"</span>,
+    <span class="k2">"properties"</span>: {
+      <span class="k2">"migration_sql"</span>: {<span class="k2">"type"</span>: <span class="str">"string"</span>},
+      <span class="k2">"dataset"</span>: {<span class="k2">"type"</span>: <span class="str">"string"</span>}
+    },
+    <span class="k2">"required"</span>: [<span class="str">"migration_sql"</span>, <span class="str">"dataset"</span>]
+  }
+}</div>
+
+          <div class="kv2" style="margin-top:8px"><span class="k">Description from</span><span class="v">the docstring, first line</span></div>
+          <div class="kv2"><span class="k">Schema budget</span><span class="v">214 of 6,000 tok</span></div>
+          <div class="kv2"><span class="k">Runs as</span><span class="v">the API process · not sandboxed</span></div>
+
+          <div class="guard warn" style="margin-top:9px">
+            <b>A repo tool executes with the server's authority</b>, exactly like the built-in <span class="mono" style="font-size:10.5px">run_code</span> tool — no memory, file or network limit. Merging a file into <span class="mono" style="font-size:10.5px">tools/</span> is therefore a production deploy, and it should need the same review as one.
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

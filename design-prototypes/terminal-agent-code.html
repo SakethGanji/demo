@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<!--
+DESIGN NOTES — /agents?tab=code · EVERYTHING THE AGENTS HAVE WRITTEN, across every run.
+
+THE QUESTION THIS ANSWERS: "how do I see all the scripts it's writing?" The workspace shows one run's files. This
+shows the whole corpus — every file, query, script and definition any agent has produced, with provenance back to
+the task that caused it.
+
+THE DISTINCTION THAT DRIVES THE WHOLE SCREEN — there are two classes of agent-written code and conflating them
+would be a lie:
+
+  DURABLE   App files and workflow definitions live in real tables (`app_files`: path, content, file_type,
+            parsed_index, size_bytes, unique per version). They are versioned, diffable, revertable, and they
+            outlive the run.
+  RECOVERED SQL and Python were never files. They are *arguments to a tool call* — `ai_agent.py:1906` records
+            every call as {tool, input, output, id, is_error}, so `input.code` IS the script. It is genuinely
+            kept, but today it sits inside a JSONB blob on `node_outputs` with no index and no listing, which
+            means in practice nobody can find it. This screen is the listing that blob never had.
+
+  The `SOURCE` column is therefore not decoration. "file" means there is a row you can revert to. "trace" means
+  the code exists only because the run's event log was kept — delete the run and the script is gone with it.
+  Drawing them identically would imply a permanence that does not exist.
+
+WHAT THE DENSITY FORCED:
+ A1 KIND IS A LETTER, not an icon. Five kinds at 11px on a dark rail: an icon set would need a legend, a letter
+    does not, and it survives being copied into a terminal.
+ A2 STATE IS TYPOGRAPHIC (rule 7) — accepted / superseded / scratch are properties of a version, true before
+    anything runs. Only `failed` is a status, and it takes a shape.
+ A3 SCRATCH IS SHOWN, NOT HIDDEN. Most of what an agent writes is thrown away — 61 of 118 here. Hiding it would
+    make the agent look tidier than it is and would remove the single best evidence of *how* it reached an answer.
+ A4 EVERY FIGURE DENOMINATED (rule 11): "118 written · 34 durable", "61 scratch of 118", "ran 4×".
+ A5 THE PREVIEW IS READ-ONLY HERE and says why. This is an inventory, not an editor; editing happens in the
+    workspace where there is a preview to check the edit against.
+ A6 ACCENT — 3 uses: active route, the selected row, the live lamp on the running agent's newest file.
+-->
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Command Studio · Agent code</title>
+<link rel="stylesheet" href="_agents-base.css" />
+<style>
+  .body2 { flex:1; display:flex; min-height:0; overflow:hidden; }
+  .mainc { flex:1; display:flex; flex-direction:column; min-width:0; min-height:0; background:var(--s3); }
+  .insp2 { width:452px; min-width:452px; background:var(--s2); display:flex; flex-direction:column; min-height:0;
+    box-shadow:inset 1px 0 0 rgba(255,255,255,.055); }
+  .iscroll { flex:1; overflow:auto; min-height:0; }
+  .isec { padding:12px 15px; }
+  .isec + .isec { box-shadow:0 -1px 0 rgba(255,255,255,.05); }
+
+  /* kind = a letter, no legend needed */
+  .kd { width:15px; text-align:center; font-family:var(--mono); font-size:10px; font-weight:700; flex:none;
+    display:inline-block; }
+  .kd.f { color:var(--t1); }   /* app file      */
+  .kd.w { color:var(--t1); }   /* workflow def  */
+  .kd.q { color:var(--t2); }   /* sql           */
+  .kd.p { color:var(--t2); }   /* python        */
+  .kd.t { color:var(--t2); }   /* transform     */
+
+  .filt { padding:7px 12px; cursor:pointer; display:flex; align-items:center; gap:9px;
+    box-shadow:inset 0 -1px 0 rgba(255,255,255,.03); position:relative; }
+  .filt:hover { background:rgba(255,255,255,.022); }
+  .filt.on { background:var(--s5); }
+  .filt.on::before { content:""; position:absolute; left:0; top:0; bottom:0; width:2px; background:var(--sig); }
+  .filt .lb2 { flex:1; font-size:11.5px; color:var(--t2); }
+  .filt.on .lb2 { color:var(--t1); font-weight:550; }
+  .filt .n2 { font-family:var(--mono); font-size:10px; color:var(--t3); font-variant-numeric:tabular-nums; }
+
+  table.code tbody td { padding:6px 10px; font-size:11.5px; }
+  table.code td.vr, table.code th.vr { box-shadow:inset 1px 0 0 rgba(255,255,255,.075), inset 0 -1px 0 rgba(255,255,255,.032); }
+  table.code thead th.vr { box-shadow:inset 1px 0 0 rgba(255,255,255,.075), inset 0 -1px 0 rgba(255,255,255,.07); }
+  table.code .pth2 { font-family:var(--mono); font-size:11px; color:var(--t1); }
+  table.code .tsk { color:var(--t3); font-size:10.5px; }
+  .srcw { font-size:9.5px; letter-spacing:.06em; text-transform:uppercase; }
+  .srcw.file { color:var(--t2); font-weight:600; }
+  .srcw.trace { color:var(--t3); font-weight:400; }
+
+  .codewell { background:var(--s0); border-radius:7px; padding:11px 13px; font-family:var(--mono); font-size:10.5px;
+    line-height:1.62; color:var(--t2); box-shadow:inset 0 1px 2px rgba(0,0,0,.55); white-space:pre; overflow-x:auto; }
+  .codewell .kw { color:var(--m2); }
+  .codewell .str { color:var(--m3); }
+  .codewell .cm { color:var(--t4); }
+  .kv2 { display:flex; justify-content:space-between; gap:12px; padding:3.5px 0; font-size:11px; }
+  .kv2 .k { color:var(--t3); }
+  .kv2 .v { color:var(--t2); text-align:right; font-family:var(--mono); font-size:10.5px; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo"></div><span class="wordmark">Command Studio</span>
+      <span class="envchip">LOCAL · :8000</span>
+    </div>
+    <nav class="nav">
+      <a href="#">Workflows</a><a href="#">Datasets</a><a href="#">Catalog</a>
+      <a href="#">Runs</a><a href="#" class="active">Agents</a><a href="#">Admin</a>
+    </nav>
+    <div class="topright">
+      <div class="cmdk">
+        <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+        <span>Search agents, tools, runs…</span><span class="kbd">⌘K</span>
+      </div>
+      <div class="iconbtn"><svg class="ic" viewBox="0 0 24 24"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg></div>
+      <div class="team"><span class="dot good"></span><span>Growth Analytics</span><span class="caret">▾</span></div>
+      <div class="avatar">SG</div>
+    </div>
+  </div>
+
+  <div class="subhead">
+    <h1>Agents</h1>
+    <span class="idf" style="font-size:11px">/ code</span>
+    <div class="searchbox" style="min-width:290px;margin-left:8px">
+      <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+      <input placeholder="search inside 118 files and scripts…" />
+    </div>
+    <div class="spacer"></div>
+    <div class="ctrl">Last <b>7 days</b> <span class="caret">▾</span></div>
+    <button class="btn-ghost">
+      <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M12 3v13M7 12l5 5 5-5M5 21h14"/></svg>
+      Export selected
+    </button>
+  </div>
+
+  <div class="statband">
+    <div class="stat">
+      <span class="micro">Written</span>
+      <span class="v">118</span>
+      <span class="den">across 41 runs · 6 agents</span>
+    </div>
+    <div class="stat">
+      <span class="micro">Durable</span>
+      <span class="v">34</span>
+      <span class="den">of 118 · real rows, revertable</span>
+    </div>
+    <div class="stat">
+      <span class="micro">Recovered from trace</span>
+      <span class="v">84</span>
+      <span class="den">of 118 · lost if the run is deleted</span>
+    </div>
+    <div class="stat">
+      <span class="micro">Accepted</span>
+      <span class="v">27</span>
+      <span class="den">of 34 durable · 7 superseded</span>
+    </div>
+    <div class="stat">
+      <span class="micro">Scratch</span>
+      <span class="v">61</span>
+      <span class="den">of 118 · ran once, kept nothing</span>
+    </div>
+  </div>
+
+  <div class="body2">
+
+    <!-- ════ FILTERS ════ -->
+    <div class="rail" style="width:216px;min-width:216px">
+      <div class="railhead"><span class="micro">Kind</span></div>
+      <div class="railscroll">
+        <div class="filt on"><span class="kd f">F</span><span class="lb2">All</span><span class="n2">118</span></div>
+        <div class="filt"><span class="kd f">F</span><span class="lb2">App files</span><span class="n2">28</span></div>
+        <div class="filt"><span class="kd w">W</span><span class="lb2">Workflow defs</span><span class="n2">6</span></div>
+        <div class="filt"><span class="kd q">Q</span><span class="lb2">SQL</span><span class="n2">47</span></div>
+        <div class="filt"><span class="kd p">P</span><span class="lb2">Python</span><span class="n2">31</span></div>
+        <div class="filt"><span class="kd t">T</span><span class="lb2">Transform steps</span><span class="n2">6</span></div>
+
+        <div class="railhead" style="margin-top:6px"><span class="micro">Agent</span></div>
+        <div class="filt"><span class="lamp"></span><span class="lb2">App Builder</span><span class="n2">41</span></div>
+        <div class="filt"><span style="width:15px"></span><span class="lb2">Revenue Analyst</span><span class="n2">52</span></div>
+        <div class="filt"><span style="width:15px"></span><span class="lb2">Workflow Author</span><span class="n2">14</span></div>
+        <div class="filt"><span style="width:15px"></span><span class="lb2">Quality Sentinel</span><span class="n2">8</span></div>
+        <div class="filt"><span style="width:15px"></span><span class="lb2">Migration Scout</span><span class="n2">3</span></div>
+
+        <div class="railhead" style="margin-top:6px"><span class="micro">State</span></div>
+        <div class="filt"><span style="width:15px"></span><span class="lb2">Accepted</span><span class="n2">27</span></div>
+        <div class="filt"><span style="width:15px"></span><span class="lb2">Superseded</span><span class="n2">7</span></div>
+        <div class="filt"><span style="width:15px"></span><span class="lb2">Scratch</span><span class="n2">61</span></div>
+        <div class="filt"><span style="width:15px"></span><span class="lb2">Failed</span><span class="n2">23</span></div>
+
+        <div style="padding:13px 12px">
+          <div class="guard">
+            <b>Scratch is not noise.</b> It is what the agent tried and discarded — the best available evidence for how it reached an answer.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════ THE CORPUS ════ -->
+    <div class="mainc">
+      <div class="ptabs">
+        <button>Runs <span class="c">41</span></button>
+        <button class="active">Code <span class="c">118</span></button>
+        <button>Artifacts <span class="c">28</span></button>
+        <button>Activity</button>
+        <div class="spacer"></div>
+        <span class="micro">newest first</span>
+      </div>
+
+      <div style="flex:1;overflow:auto;min-height:0">
+        <table class="code">
+          <thead>
+            <tr>
+              <th style="width:22px"></th>
+              <th>Name</th>
+              <th style="width:126px">Agent</th>
+              <th class="vr" style="width:62px">Source</th>
+              <th style="width:92px">State</th>
+              <th class="num" style="width:52px">Lines</th>
+              <th class="num" style="width:44px">Ran</th>
+              <th class="num" style="width:52px">When</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="sel">
+              <td><span class="kd p">P</span></td>
+              <td>
+                <div class="pth2">cohort_retention_check.py</div>
+                <div class="tsk">Monthly signup cohorts and retention</div>
+              </td>
+              <td>App Builder</td>
+              <td class="vr"><span class="srcw trace">trace</span></td>
+              <td><span class="sev sev-info">scratch</span></td>
+              <td class="num">24</td><td class="num">2×</td><td class="num">now</td>
+            </tr>
+            <tr>
+              <td><span class="kd f">F</span></td>
+              <td>
+                <div class="pth2">src/hooks/useCohorts.ts</div>
+                <div class="tsk">Monthly signup cohorts and retention</div>
+              </td>
+              <td>App Builder</td>
+              <td class="vr"><span class="srcw file">file</span></td>
+              <td><span class="sev sev-warn">uncommitted</span></td>
+              <td class="num">62</td><td class="num">—</td><td class="num">4s</td>
+            </tr>
+            <tr>
+              <td><span class="kd f">F</span></td>
+              <td>
+                <div class="pth2">src/components/CohortGrid.tsx</div>
+                <div class="tsk">Monthly signup cohorts and retention</div>
+              </td>
+              <td>App Builder</td>
+              <td class="vr"><span class="srcw file">file</span></td>
+              <td><span class="sev sev-warn">uncommitted</span></td>
+              <td class="num">96</td><td class="num">—</td><td class="num">2m</td>
+            </tr>
+            <tr>
+              <td><span class="kd q">Q</span></td>
+              <td>
+                <div class="pth2">monthly_cohort_rollup.sql</div>
+                <div class="tsk">Monthly signup cohorts and retention</div>
+              </td>
+              <td>App Builder</td>
+              <td class="vr"><span class="srcw trace">trace</span></td>
+              <td><span class="sev sev-info">scratch</span></td>
+              <td class="num">11</td><td class="num">3×</td><td class="num">3m</td>
+            </tr>
+            <tr>
+              <td><span class="kd q">Q</span></td>
+              <td>
+                <div class="pth2">segment_revenue_ytd.sql</div>
+                <div class="tsk">Net revenue by segment, year to date</div>
+              </td>
+              <td>Revenue Analyst</td>
+              <td class="vr"><span class="srcw trace">trace</span></td>
+              <td><span class="sev sev-info">scratch</span></td>
+              <td class="num">8</td><td class="num">1×</td><td class="num">2h</td>
+            </tr>
+            <tr>
+              <td><span class="kd w">W</span></td>
+              <td>
+                <div class="pth2">weekly-finance-export.json</div>
+                <div class="tsk">Weekly finance export → scheduled workflow</div>
+              </td>
+              <td>Workflow Author</td>
+              <td class="vr"><span class="srcw file">file</span></td>
+              <td><span class="sev sev-err">accepted</span></td>
+              <td class="num">184</td><td class="num">6×</td><td class="num">3h</td>
+            </tr>
+            <tr>
+              <td><span class="kd p">P</span></td>
+              <td>
+                <div class="pth2">reconcile_ledger.py</div>
+                <div class="tsk">Reconcile Q3 revenue against the ledger</div>
+              </td>
+              <td>Revenue Analyst</td>
+              <td class="vr"><span class="srcw trace">trace</span></td>
+              <td><span class="st" style="font-size:11px"><span class="dot crit"></span>failed</span></td>
+              <td class="num">41</td><td class="num">1×</td><td class="num">4h</td>
+            </tr>
+            <tr>
+              <td><span class="kd t">T</span></td>
+              <td>
+                <div class="pth2">normalise_account_names</div>
+                <div class="tsk">Join orders to accounts and publish</div>
+              </td>
+              <td>Revenue Analyst</td>
+              <td class="vr"><span class="srcw file">file</span></td>
+              <td><span class="sev sev-err">accepted</span></td>
+              <td class="num">7 steps</td><td class="num">12×</td><td class="num">5h</td>
+            </tr>
+            <tr>
+              <td><span class="kd f">F</span></td>
+              <td>
+                <div class="pth2">src/components/PlanHistory.tsx</div>
+                <div class="tsk">Support plan-history lookup tool</div>
+              </td>
+              <td>App Builder</td>
+              <td class="vr"><span class="srcw file">file</span></td>
+              <td><span class="sev sev-err">accepted</span></td>
+              <td class="num">143</td><td class="num">—</td><td class="num">1d</td>
+            </tr>
+            <tr>
+              <td><span class="kd f">F</span></td>
+              <td>
+                <div class="pth2">src/lib/legacyCohort.ts</div>
+                <div class="tsk">Monthly signup cohorts and retention</div>
+              </td>
+              <td>App Builder</td>
+              <td class="vr"><span class="srcw file">file</span></td>
+              <td><span class="sev sev-info">superseded</span></td>
+              <td class="num">41</td><td class="num">—</td><td class="num">1d</td>
+            </tr>
+            <tr>
+              <td><span class="kd q">Q</span></td>
+              <td>
+                <div class="pth2">undocumented_columns.sql</div>
+                <div class="tsk">Document undocumented columns in finance</div>
+              </td>
+              <td>Quality Sentinel</td>
+              <td class="vr"><span class="srcw trace">trace</span></td>
+              <td><span class="sev sev-info">scratch</span></td>
+              <td class="num">14</td><td class="num">4×</td><td class="num">1d</td>
+            </tr>
+            <tr>
+              <td><span class="kd p">P</span></td>
+              <td>
+                <div class="pth2">backfill_dimensions.py</div>
+                <div class="tsk">Backfill the Q2 dimension tables</div>
+              </td>
+              <td>Migration Scout</td>
+              <td class="vr"><span class="srcw trace">trace</span></td>
+              <td><span class="st" style="font-size:11px"><span class="dot crit"></span>failed</span></td>
+              <td class="num">88</td><td class="num">1×</td><td class="num">1d</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div style="padding:13px 16px">
+          <div class="guard warn">
+            <b>84 of 118 exist only inside their run's event log.</b> They were arguments to a tool call, never files — so deleting a run deletes its scripts. Promote anything worth keeping to a saved query or a transformation before the 30-day retention sweep.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════ THE CODE ITSELF ════ -->
+    <div class="insp2">
+      <div class="colhead" style="flex:none;padding:10px 15px 9px;box-shadow:0 1px 0 rgba(255,255,255,.045)">
+        <div style="display:flex;align-items:center;gap:9px">
+          <span class="kd p">P</span>
+          <span style="font-family:var(--mono);font-size:11.5px;color:var(--t1)">cohort_retention_check.py</span>
+          <div class="spacer"></div>
+          <span class="micro">24 lines · ran 2×</span>
+        </div>
+      </div>
+
+      <div class="iscroll">
+        <div class="isec">
+          <div class="codewell"><span class="cm"># the agent wrote this to check its own arithmetic</span>
+<span class="cm"># before trusting the aggregate it had just run</span>
+<span class="kw">import</span> json
+
+rows = json.loads(data)
+totals = {}
+
+<span class="kw">for</span> r <span class="kw">in</span> rows:
+    m = r[<span class="str">"cohort_month"</span>]
+    totals.setdefault(m, {<span class="str">"n"</span>: 0, <span class="str">"ret"</span>: 0})
+    totals[m][<span class="str">"n"</span>] += 1
+    <span class="kw">if</span> r[<span class="str">"returned_m1"</span>]:
+        totals[m][<span class="str">"ret"</span>] += 1
+
+out = []
+<span class="kw">for</span> m, t <span class="kw">in</span> <span class="kw">sorted</span>(totals.items()):
+    <span class="cm"># guard: a cohort with no users has no rate</span>
+    rate = <span class="kw">None</span> <span class="kw">if</span> t[<span class="str">"n"</span>] == 0 <span class="kw">else</span> t[<span class="str">"ret"</span>] / t[<span class="str">"n"</span>]
+    out.append({<span class="str">"month"</span>: m, <span class="str">"n"</span>: t[<span class="str">"n"</span>], <span class="str">"rate"</span>: rate})
+
+<span class="kw">print</span>(json.dumps(out))</div>
+        </div>
+
+        <div class="isec">
+          <div class="sect-title" style="margin-bottom:7px">Where this came from</div>
+          <div class="kv2"><span class="k">Agent</span><span class="v">App Builder</span></div>
+          <div class="kv2"><span class="k">Run</span><span class="v">arun_4Tz8vQ2nHy</span></div>
+          <div class="kv2"><span class="k">Task</span><span class="v" style="font-family:var(--sans);color:var(--t2)">Monthly signup cohorts…</span></div>
+          <div class="kv2"><span class="k">Called as</span><span class="v">run_code · iteration 5</span></div>
+          <div class="kv2"><span class="k">Ran</span><span class="v">2× · both succeeded</span></div>
+          <div class="kv2"><span class="k">Executed in</span><span class="v">the API process</span></div>
+          <div style="margin-top:9px" class="guard warn">
+            <b>run_code is not sandboxed.</b> It executes in the server process behind a builtins allow-list, with no memory, file or network limit. What you are reading ran with the server's full authority.
+          </div>
+        </div>
+
+        <div class="isec">
+          <div class="sect-title" style="margin-bottom:7px">Retention</div>
+          <div class="kv2"><span class="k">Source</span><span class="v">run trace, not a file</span></div>
+          <div class="kv2"><span class="k">Kept until</span><span class="v">15 Sep · 29 days</span></div>
+          <div class="kv2"><span class="k">Revertable</span><span class="v">no — there is no version</span></div>
+          <div style="margin-top:9px" class="guard">
+            Recovered from the tool call's <b>input</b> argument, which the run recorded verbatim. It is real code that really executed — it just was never a file, so it inherits the <b>run's</b> retention rather than an artifact's.
+          </div>
+        </div>
+
+        <div class="isec">
+          <div style="display:flex;gap:7px;flex-wrap:wrap">
+            <button class="btn-ghost" style="flex:1;justify-content:center">Open the run</button>
+            <button class="btn-ghost" style="flex:1;justify-content:center">Copy</button>
+            <button class="btn-primary" style="flex:1;justify-content:center">Save as query</button>
+          </div>
+          <div style="margin-top:9px" class="guard">
+            Read-only here on purpose — this is an inventory, not an editor. Editing happens in the workspace, where there is a running preview to check the edit against.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

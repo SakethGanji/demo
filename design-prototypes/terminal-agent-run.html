@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<!--
+DESIGN NOTES — /agent-run · the run theatre. Fire a task, watch it work, re-open it later and replay.
+
+THE IDEA: the run surface is FIRE-A-TASK-AND-WATCH, not a chat. You submit a task and get a durable run record
+you monitor — and because every agent:* event is persisted row-per-event with a sequence number, the live view
+and the replay view are the SAME component. Only the source of events differs. Closing this tab does not kill
+the run; the stream observes, it does not own.
+
+WHAT THE DENSITY FORCED:
+ A1 ONE COMPONENT, TWO SOURCES. There is no "live view" and "history view" to drift apart. The lamp and the
+    running ring are the only things that change.
+ A2 THE TRACE IS THE PAGE. Everything else is a band or a dock. An agent run is not a status — it is a sequence
+    of decisions, and the only honest way to show it is the sequence.
+ A3 STATUS IS SHAPE + WORD (rule 6). Running is the UNKNOWN ring, pulsing — never the accent, because the accent
+    already means scope and it would fight the live lamp. Failed tool calls take the crit square beside the word.
+ A4 EVERY FIGURE DENOMINATED (rule 11). "6 iterations" is meaningless without "of 30 max". Token spend says
+    which of input/output. Duration says how much of it was the model versus the tools — that split is the whole
+    reason anyone opens this page when a run is slow.
+ A5 TOOL RESULTS ARE CAPPED AND SAY SO. A 60,000-char analytics response is truncated to 6,000 before the model
+    sees it; showing the untruncated thing here would misrepresent what the agent actually reasoned over.
+ A6 SEVERITY TYPOGRAPHIC (rule 7): `retried` and `truncated` are properties of a call, not states of the run.
+ A7 ACCENT — 3 uses: active route, the run id in the head, the live lamp. Not one tool call carries it.
+-->
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Command Studio · Agent run</title>
+<link rel="stylesheet" href="_agents-base.css" />
+<style>
+  .split { flex:1; display:grid; grid-template-columns:1fr 344px; min-height:0; }
+  .pane { display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+  .dock { background:var(--s2); box-shadow:inset 1px 0 0 rgba(255,255,255,.055); }
+  .panescroll { flex:1; overflow-y:auto; min-height:0; }
+
+  /* ── the trace ────────────────────────────────────────────────────────── */
+  .trace { padding:6px 0 24px; }
+  .iter { padding:11px 20px 4px; display:flex; align-items:center; gap:11px; }
+  .iter .lb { font-size:9.5px; font-weight:600; letter-spacing:.13em; text-transform:uppercase; color:var(--t3); white-space:nowrap; }
+  .iter .rule { flex:1; height:1px; background:var(--r2); }
+  .iter .tm { font-family:var(--mono); font-size:10px; color:var(--t3); font-variant-numeric:tabular-nums; }
+
+  .ev { padding:5px 20px 5px 20px; display:flex; gap:11px; align-items:flex-start; }
+  .ev .gut { width:15px; flex:none; display:flex; justify-content:center; padding-top:3px; color:var(--t4); font-size:10px; }
+  .ev .bd { flex:1; min-width:0; }
+  .think { color:var(--t2); font-size:12px; line-height:1.55; }
+
+  /* a tool call is a unit: name + args + result, hung off one left rule */
+  .call { border-left:2px solid var(--r2); padding-left:13px; margin:3px 0 7px; }
+  .call.err { border-left-color:var(--st-crit); }
+  .callhead { display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
+  .callhead .fn { font-family:var(--mono); font-size:11.5px; color:var(--t1); font-weight:550; }
+  .callhead .src { font-size:9.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--t3); }
+  .callhead .ms { font-family:var(--mono); font-size:10.5px; color:var(--t3); font-variant-numeric:tabular-nums; margin-left:auto; }
+  .args { font-family:var(--mono); font-size:10.5px; color:var(--t3); line-height:1.55; margin-top:4px; white-space:pre-wrap; word-break:break-word; }
+  .args .k { color:var(--t2); }
+  .res { margin-top:5px; background:var(--s0); border-radius:6px; padding:8px 10px; font-family:var(--mono);
+    font-size:10.5px; line-height:1.6; color:var(--t2); box-shadow:inset 0 1px 2px rgba(0,0,0,.5);
+    white-space:pre; overflow-x:auto; }
+  .resmeta { display:flex; align-items:center; gap:10px; margin-top:4px; font-size:10px; color:var(--t3); }
+
+  /* a spawned skill is a nested trace — indent, never a box */
+  .sub { margin:4px 0 6px; border-left:2px solid var(--r3); padding-left:13px; }
+  .subhd { display:flex; align-items:center; gap:9px; padding:3px 0 5px; }
+  .subhd .nm { font-size:11px; color:var(--t1); font-weight:600; }
+  .subhd .mt { font-size:10px; color:var(--t3); }
+
+  /* ── dock ─────────────────────────────────────────────────────────────── */
+  .dsect { padding:13px 16px; }
+  .dsect + .dsect { box-shadow:0 -1px 0 rgba(255,255,255,.05); }
+  .dsect h3 { font-size:11.5px; font-weight:600; color:var(--t1); margin-bottom:7px; }
+  .task { background:var(--s0); border-radius:7px; padding:9px 11px; font-size:11.5px; line-height:1.55; color:var(--t2);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.5); }
+  .kv { display:flex; justify-content:space-between; gap:12px; padding:4px 0; font-size:11px; }
+  .kv .k { color:var(--t3); }
+  .kv .v { color:var(--t2); text-align:right; font-family:var(--mono); font-size:10.5px; font-variant-numeric:tabular-nums; }
+  .answer { font-size:12px; line-height:1.6; color:var(--t2); }
+  .answer b { color:var(--t1); font-weight:600; }
+  .answer ul { margin:7px 0 7px 15px; }
+  .answer li { margin-bottom:4px; }
+  .answer .fig { font-family:var(--mono); font-variant-numeric:tabular-nums; color:var(--t1); }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo"></div><span class="wordmark">Command Studio</span>
+      <span class="envchip">LOCAL · :8000</span>
+    </div>
+    <nav class="nav">
+      <a href="#">Workflows</a><a href="#">Datasets</a><a href="#">Catalog</a>
+      <a href="#">Runs</a><a href="#" class="active">Agents</a><a href="#">Admin</a>
+    </nav>
+    <div class="topright">
+      <div class="cmdk">
+        <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+        <span>Search agents, tools, runs…</span><span class="kbd">⌘K</span>
+      </div>
+      <div class="iconbtn"><svg class="ic" viewBox="0 0 24 24"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg></div>
+      <div class="iconbtn"><svg class="ic" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg></div>
+      <div class="team"><span class="dot good"></span><span>Growth Analytics</span><span class="caret">▾</span></div>
+      <div class="avatar">SG</div>
+    </div>
+  </div>
+
+  <div class="subhead">
+    <h1>Revenue Analyst</h1>
+    <span class="idf">arun_9Fp3xW7bKm</span>
+    <span class="lamp"></span>
+    <span class="st" style="font-size:11.5px;color:var(--t2)"><span class="dot run"></span>running · iteration 4</span>
+    <div class="spacer"></div>
+    <div class="ctrl">Live <b>SSE</b> · seq 41</div>
+    <button class="btn-ghost">
+      <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      Cancel run
+    </button>
+    <button class="btn-primary">
+      <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M5 3l14 9-14 9V3z"/></svg>
+      Run again
+    </button>
+  </div>
+
+  <!-- summary band — every figure denominated -->
+  <div class="statband" style="background:var(--s2)">
+    <div class="stat">
+      <span class="micro">Elapsed</span>
+      <span class="v">1<span style="font-size:11px;color:var(--t3)">m</span> 04<span style="font-size:11px;color:var(--t3)">s</span></span>
+      <span class="den">38s model · 24s tools · 2s idle</span>
+    </div>
+    <div class="stat">
+      <span class="micro">Iterations</span>
+      <span class="v">4</span>
+      <span class="den">of 30 max</span>
+    </div>
+    <div class="stat">
+      <span class="micro">Tool calls</span>
+      <span class="v">7</span>
+      <span class="den">6 ok · 1 retried · 5 of 12 tools used</span>
+    </div>
+    <div class="stat">
+      <span class="micro">Tokens</span>
+      <span class="v">44.1<span style="font-size:11px;color:var(--t3)">k</span></span>
+      <span class="den">41.3k in · 2.8k out · 24% of budget</span>
+    </div>
+    <div class="stat">
+      <span class="micro">Sub-agents</span>
+      <span class="v">1</span>
+      <span class="den">depth 1 of 3 max</span>
+    </div>
+  </div>
+
+  <div class="split">
+
+    <!-- ════ THE TRACE ════ -->
+    <div class="pane">
+      <div class="panescroll">
+        <div class="trace">
+
+          <div class="iter"><span class="lb">Iteration 1</span><span class="rule"></span><span class="tm">+0.0s · 12.4k tok</span></div>
+
+          <div class="ev">
+            <div class="gut">◆</div>
+            <div class="bd">
+              <div class="think">I need the revenue dataset before I can do anything else. <span class="mono" style="font-size:11px">search_datasets</span> is the only tool that returns a dataset_id, so it goes first.</div>
+            </div>
+          </div>
+
+          <div class="ev">
+            <div class="gut">→</div>
+            <div class="bd">
+              <div class="call">
+                <div class="callhead">
+                  <span class="fn">search_datasets</span>
+                  <span class="src">analytics · mcp</span>
+                  <span class="st" style="font-size:10.5px"><span class="dot good"></span>ok</span>
+                  <span class="ms">241ms</span>
+                </div>
+                <div class="args"><span class="k">query</span>: "revenue"  <span class="k">limit</span>: 10</div>
+                <div class="res">id                  | name                  | rows    | updated
+ds_4Km2Qp          | finance_revenue_daily | 482,119 | 2h ago
+ds_9Xr7Lc          | revenue_forecast_q3   |   1,204 | 1d ago
+ds_2Bn5Vt          | revenue_by_segment    |  18,442 | 4d ago</div>
+                <div class="resmeta"><span>3 rows · 412 chars</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="iter"><span class="lb">Iteration 2</span><span class="rule"></span><span class="tm">+8.1s · 13.8k tok</span></div>
+
+          <div class="ev">
+            <div class="gut">◆</div>
+            <div class="bd">
+              <div class="think">Three candidates. <span class="mono" style="font-size:11px">finance_revenue_daily</span> is the grain I want. I'll describe it before querying so I don't guess at column names.</div>
+            </div>
+          </div>
+
+          <div class="ev">
+            <div class="gut">→</div>
+            <div class="bd">
+              <div class="call">
+                <div class="callhead">
+                  <span class="fn">describe_dataset</span>
+                  <span class="src">analytics · mcp</span>
+                  <span class="st" style="font-size:10.5px"><span class="dot good"></span>ok</span>
+                  <span class="ms">188ms</span>
+                </div>
+                <div class="args"><span class="k">dataset_id</span>: "ds_4Km2Qp"</div>
+                <div class="res">sheet: daily  ·  482,119 rows  ·  11 columns  ·  v7 (ready)
+column          | type      | null% | note
+date            | date      |  0.0  | grain
+segment         | varchar   |  0.0  |
+gross_revenue   | double    |  0.0  |
+net_revenue     | double    |  0.2  |
+customer_email  | varchar   |  1.1  | sensitivity: pii</div>
+                <div class="resmeta">
+                  <span>11 columns · 1,840 chars</span>
+                  <span class="sev sev-warn">1 column masked for this seat</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="iter"><span class="lb">Iteration 3</span><span class="rule"></span><span class="tm">+21.6s · 15.2k tok</span></div>
+
+          <div class="ev">
+            <div class="gut">→</div>
+            <div class="bd">
+              <div class="call err">
+                <div class="callhead">
+                  <span class="fn">aggregate</span>
+                  <span class="src">analytics · mcp</span>
+                  <span class="st" style="font-size:10.5px"><span class="dot crit"></span>rejected</span>
+                  <span class="ms">96ms</span>
+                </div>
+                <div class="args"><span class="k">dataset_id</span>: "ds_4Km2Qp"  <span class="k">group_by</span>: ["segement"]  <span class="k">aggregations</span>: [{column: "net_revenue", function: "sum"}]</div>
+                <div class="res">unknown-column: "segement" is not a column of sheet "daily".
+Available: date, segment, gross_revenue, net_revenue, …
+Nothing ran.</div>
+                <div class="resmeta">
+                  <span class="sev sev-warn">retried once</span>
+                  <span>the server named the vocabulary, so the model self-corrected</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="ev">
+            <div class="gut">→</div>
+            <div class="bd">
+              <div class="call">
+                <div class="callhead">
+                  <span class="fn">aggregate</span>
+                  <span class="src">analytics · mcp</span>
+                  <span class="st" style="font-size:10.5px"><span class="dot good"></span>ok</span>
+                  <span class="ms">1.42s</span>
+                </div>
+                <div class="args"><span class="k">dataset_id</span>: "ds_4Km2Qp"  <span class="k">group_by</span>: ["segment"]  <span class="k">aggregations</span>: [{column: "net_revenue", function: "sum"}]  <span class="k">sort_by</span>: "-net_revenue_sum"</div>
+                <div class="res">segment      | net_revenue_sum | share
+Enterprise   |    48,201,884   | 61.2%
+Mid-market   |    19,447,102   | 24.7%
+SMB          |     8,912,441   | 11.3%
+Self-serve   |     2,190,338   |  2.8%
+─────────────┼─────────────────┼───────
+TOTAL        |    78,751,765   | 100.0%</div>
+                <div class="resmeta">
+                  <span>4 groups · artifact <span class="mono">agg_7Hn2Kq.parquet</span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="iter"><span class="lb">Iteration 4</span><span class="rule"></span><span class="tm">+52.0s · 41.3k tok</span></div>
+
+          <div class="ev">
+            <div class="gut">⑂</div>
+            <div class="bd">
+              <div class="sub">
+                <div class="subhd">
+                  <span class="nm">chart-builder</span>
+                  <span class="mt">skill · 3 of 12 tools · depth 1</span>
+                  <span class="spacer"></span>
+                  <span class="st" style="font-size:10.5px"><span class="dot good"></span>returned</span>
+                </div>
+                <div class="call" style="margin-bottom:4px">
+                  <div class="callhead">
+                    <span class="fn">read_artifact</span>
+                    <span class="src">analytics · mcp</span>
+                    <span class="st" style="font-size:10.5px"><span class="dot good"></span>ok</span>
+                    <span class="ms">310ms</span>
+                  </div>
+                  <div class="args"><span class="k">filename</span>: "agg_7Hn2Kq.parquet"  <span class="k">limit</span>: 100</div>
+                </div>
+                <div style="font-size:11px;color:var(--t3);padding:2px 0 4px">Returned a bar spec over 4 segments, neutral ramp, share labelled.</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="ev">
+            <div class="gut">→</div>
+            <div class="bd">
+              <div class="call">
+                <div class="callhead">
+                  <span class="fn">run_sql</span>
+                  <span class="src">analytics · mcp</span>
+                  <span class="st" style="font-size:10.5px"><span class="dot run"></span>running</span>
+                  <span class="ms">4.2s</span>
+                </div>
+                <div class="args"><span class="k">dataset_id</span>: "ds_4Km2Qp"  <span class="k">sql</span>: "SELECT date_trunc('month', date) m, segment, sum(net_revenue) FROM daily WHERE date &gt;= '2026-01-01' GROUP BY 1,2 ORDER BY 1"</div>
+                <div class="resmeta"><span style="color:var(--t3)">awaiting result…</span></div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- ════ DOCK ════ -->
+    <div class="pane dock">
+      <div class="panescroll">
+
+        <div class="dsect">
+          <h3>Task</h3>
+          <div class="task">Break down net revenue by segment for the year to date, and tell me which segment is growing fastest month over month.</div>
+        </div>
+
+        <div class="dsect">
+          <h3>Input</h3>
+          <div class="task mono" style="font-size:10.5px">{
+  "fiscal_year": 2026,
+  "requested_by": "finance-weekly"
+}</div>
+        </div>
+
+        <div class="dsect">
+          <h3>Answer</h3>
+          <div class="guard" style="margin-bottom:9px">
+            Streaming. The final answer is validated against the agent's output schema before this run is marked successful — if validation fails the run is <b>failed</b>, not partially successful.
+          </div>
+          <div class="answer" style="opacity:.55">
+            <b>Enterprise</b> is <span class="fig">61.2%</span> of net revenue year to date (<span class="fig">$48.2M</span> of <span class="fig">$78.8M</span>)…
+          </div>
+        </div>
+
+        <div class="dsect">
+          <h3>Run</h3>
+          <div class="kv"><span class="k">Run id</span><span class="v">arun_9Fp3xW7bKm</span></div>
+          <div class="kv"><span class="k">Agent</span><span class="v">agt_7Kq2mN4pXr</span></div>
+          <div class="kv"><span class="k">Trigger</span><span class="v">studio</span></div>
+          <div class="kv"><span class="k">Started</span><span class="v">14:22:07</span></div>
+          <div class="kv"><span class="k">Model</span><span class="v">claude-opus-4-8</span></div>
+          <div class="kv"><span class="k">Seat</span><span class="v">S. Ganji · editor</span></div>
+          <div style="margin-top:10px" class="guard">
+            This run froze a <b>snapshot</b> of the agent's model, prompt, settings and 12 tool bindings when it was submitted. Editing the agent since then has not changed what you are looking at.
+          </div>
+        </div>
+
+        <div class="dsect">
+          <h3>Artifacts</h3>
+          <div class="kv"><span class="k">agg_7Hn2Kq.parquet</span><span class="v">4 rows</span></div>
+          <div class="kv"><span class="k">sql_2Bp9Lm.parquet</span><span class="v">pending</span></div>
+          <div style="margin-top:9px" class="guard">
+            Artifacts outlive the run. <b>query_output</b> expires in 7 days, <b>aggregation_output</b> in 30.
+          </div>
+        </div>
+
+        <div class="dsect">
+          <h3>What this view cannot show</h3>
+          <div class="guard warn">
+            Token-level streaming. The engine declares an <b>agent:token</b> event but never emits one, so there is no per-token feed to render — the trace advances one tool call at a time. Cancelling is also best-effort: a tool already running in a thread cannot be interrupted, so a cancel can take up to <b>120s</b> to take effect.
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

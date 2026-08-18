@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<!--
+DESIGN NOTES — /agents · THE FRONT DOOR. This screen exists because the first six prototypes did not have one.
+
+THE PROBLEM IT FIXES: in the earlier draft, making an agent do one thing took nine steps — /agents → New agent →
+fill a 28-field Configuration form → Tools tab → pick a source → bind twelve tools → Save → Run task → type it.
+Every screen assumed the agent already existed and was already configured, which meant the design covered the
+second session and never the first. That is a control plane, not a product.
+
+THE FIX: the first object is the TASK, not the agent. You describe what you want; an agent is matched to it and
+shown, not chosen by you up front. Configuration still exists — it just moved behind the door instead of in it.
+
+WHAT THE DENSITY FORCED — and here it forced the opposite of everywhere else:
+ A1 THIS SCREEN BREAKS THE DENSITY RULE ON PURPOSE. Every other surface in this system is a cockpit: tabular,
+    denominated, 11px. That grammar says "you are supervising something." A front door has to say "tell me what
+    you want," so this is a centred 760px column at 14–23px with real air, and it is the ONLY screen allowed to
+    be. Density is not a house style here; it is a claim about what the user is doing, and on this screen the
+    claim would be wrong.
+ A2 THE MATCH IS SHOWN, NOT HIDDEN. An agent is inferred from what you typed, with the reason stated and a
+    one-click change. Silent routing is the thing that makes an "AI does it for you" product feel like a slot
+    machine — you must be able to see who picked this up and why before you commit.
+ A3 WHAT IS BLOCKED ON YOU COMES FIRST, above history. In a steerable model an agent can be paused waiting for
+    an approval, and a paused run is worthless if nobody knows. It is the one row type that earns emphasis.
+ A4 EXAMPLES ARE REAL TASKS, not feature names. "Find the ten accounts with the steepest drop" teaches what this
+    is for in one line; "Data analysis" teaches nothing.
+ A5 DENOMINATORS SURVIVE even here — "7 agents · 183 tools · 4 connectors" is the honest footer, and the running
+    count says how many of how many.
+ A6 ACCENT — 3 uses: active route, the composer focus ring, the live lamp on running work. The send button is
+    VALUE, not hue, so it does not fight the input it belongs to.
+-->
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Command Studio · Agents</title>
+<link rel="stylesheet" href="_agents-base.css" />
+<style>
+  .pad { padding-top:52px; padding-bottom:40px; }
+  .cols2 { display:grid; grid-template-columns:1fr 1fr; gap:26px; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo"></div><span class="wordmark">Command Studio</span>
+      <span class="envchip">LOCAL · :8000</span>
+    </div>
+    <nav class="nav">
+      <a href="#">Workflows</a><a href="#">Datasets</a><a href="#">Catalog</a>
+      <a href="#">Runs</a><a href="#" class="active">Agents</a><a href="#">Admin</a>
+    </nav>
+    <div class="topright">
+      <div class="cmdk">
+        <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+        <span>Search agents, tools, runs…</span><span class="kbd">⌘K</span>
+      </div>
+      <div class="iconbtn" title="Manage agents">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><circle cx="12" cy="12" r="3"/></svg>
+      </div>
+      <div class="iconbtn"><svg class="ic" viewBox="0 0 24 24"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg></div>
+      <div class="team"><span class="dot good"></span><span>Growth Analytics</span><span class="caret">▾</span></div>
+      <div class="avatar">SG</div>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="well760 pad">
+
+      <!-- ════ THE ASK ════ -->
+      <div class="greet" style="margin-bottom:17px">
+        Good afternoon, Saketh.<br />
+        <span class="q">What do you want done?</span>
+      </div>
+
+      <div class="composer">
+        <textarea class="ta2" rows="3">Build me a dashboard that shows monthly signup cohorts and their retention, and flag any cohort that drops more than 15 points between M1 and M3.</textarea>
+        <div class="cbar">
+          <span class="cchip">
+            <svg class="ic" viewBox="0 0 24 24" style="width:12px;height:12px"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+            finance_revenue_daily <span class="x">×</span>
+          </span>
+          <span class="cchip">
+            <svg class="ic" viewBox="0 0 24 24" style="width:12px;height:12px"><path d="M12 5v14M5 12h14"/></svg>
+            Add context
+          </span>
+          <div class="spacer"></div>
+          <span style="font-size:10.5px;color:var(--t3);display:inline-flex;align-items:center;gap:6px">
+            <span class="kbd">Enter</span> start
+            <span class="kbd" style="margin-left:5px">Shift</span><span class="kbd">Enter</span> newline
+          </span>
+          <button class="csend">
+            <svg class="ic" viewBox="0 0 24 24" style="width:12px;height:12px"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            Start
+          </button>
+        </div>
+      </div>
+
+      <!-- ════ WHO PICKS IT UP — inferred, stated, changeable ════ -->
+      <div class="pickup" style="margin-top:11px">
+        <div class="av">AB</div>
+        <div class="who">
+          <div><b>App Builder</b> will take this</div>
+          <div class="why">Matched on “dashboard” · writes React · 9 tools bound · has read access to finance_revenue_daily</div>
+        </div>
+        <span class="cchip">Change</span>
+      </div>
+      <div style="margin-top:9px" class="guard">
+        Two other agents could handle this — <b>Revenue Analyst</b> would answer in prose without building anything, and <b>Data Quality Sentinel</b> lacks write access to apps.
+      </div>
+
+      <!-- ════ EXAMPLES — real tasks, not feature names ════ -->
+      <div style="margin-top:30px">
+        <div class="hrule"><span class="lb">Or start from</span><span class="ln2"></span></div>
+        <div class="egs">
+          <div class="eg">
+            <div class="t">Find the ten accounts with the steepest revenue drop this quarter and tell me what they have in common.</div>
+            <div class="m">Revenue Analyst · ~40s</div>
+          </div>
+          <div class="eg">
+            <div class="t">Document every undocumented column in the finance datasets, then open a review.</div>
+            <div class="m">Data Quality Sentinel · ~3m · writes</div>
+          </div>
+          <div class="eg">
+            <div class="t">Build an internal tool for the support team to look up a customer's plan history.</div>
+            <div class="m">App Builder · ~6m</div>
+          </div>
+          <div class="eg">
+            <div class="t">Turn the weekly finance export into a scheduled workflow that emails a summary.</div>
+            <div class="m">Workflow Author · ~2m · writes</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="cols2" style="margin-top:32px">
+
+        <!-- ════ BLOCKED ON YOU — above history, deliberately ════ -->
+        <div>
+          <div class="hrule"><span class="lb">Waiting on you</span><span class="ln2"></span><span class="micro">2</span></div>
+
+          <div class="lrow wait">
+            <span class="dot warn"></span>
+            <div class="tt"><b>Revenue Analyst</b> wants to publish a dataset</div>
+            <span class="tm2">4m</span>
+          </div>
+          <div class="lrow wait">
+            <span class="dot warn"></span>
+            <div class="tt"><b>Data Quality Sentinel</b> wants to promote a tag</div>
+            <span class="tm2">22m</span>
+          </div>
+
+          <div style="margin-top:11px" class="guard">
+            A paused run holds indefinitely — it does <b>not</b> time out into approve or deny. Nothing moves until you answer.
+          </div>
+        </div>
+
+        <!-- ════ RECENT ════ -->
+        <div>
+          <div class="hrule"><span class="lb">Recent</span><span class="ln2"></span><span class="micro">3 of 41</span></div>
+
+          <div class="lrow">
+            <span class="lamp"></span>
+            <div class="tt">Churn cohort explorer</div>
+            <span class="ag">App Builder</span>
+            <span class="tm2">now</span>
+          </div>
+          <div class="lrow">
+            <span class="dot good"></span>
+            <div class="tt">Net revenue by segment, YTD</div>
+            <span class="ag">Revenue Analyst</span>
+            <span class="tm2">2h</span>
+          </div>
+          <div class="lrow">
+            <span class="dot crit"></span>
+            <div class="tt">Backfill the Q2 dimension tables</div>
+            <span class="ag">Migration Scout</span>
+            <span class="tm2">1d</span>
+          </div>
+
+          <div class="lrow" style="color:var(--t3)">
+            <span style="width:8px"></span>
+            <div class="tt" style="color:var(--t3)">All 41 runs →</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ════ THE HONEST FOOTER ════ -->
+      <div style="margin-top:34px;display:flex;align-items:baseline;gap:14px">
+        <span class="micro">7 agents</span>
+        <span class="micro">183 tools across 4 connectors</span>
+        <span class="micro">1 of 7 running</span>
+        <div class="spacer"></div>
+        <span class="cchip">Manage agents</span>
+        <span class="cchip">Connectors</span>
+      </div>
+
+    </div>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<!--
+DESIGN NOTES — /connectors · where "hook it up to any tool" actually happens.
+
+THE IDEA: register an MCP server or an OpenAPI spec, discover what it offers, curate a subset, and those become
+tools an agent can bind. This is the screen that turns a closed 14-entry dict into an open surface — and it is
+also the screen where you can hurt yourself, so the governance is drawn, not buried.
+
+THE CENTRAL PROBLEM, DRAWN: a spec with 142 operations cannot become 142 tools. Every tool schema is serialised
+into context on every model call. So this screen separates DISCOVERED (total, cheap, automatic) from SELECTED
+(small, deliberate, budgeted) and shows the budget as a denominated figure at all times. Import ≠ select.
+
+WHAT THE DENSITY FORCED:
+ A1 THE SELECTION RULES ARE SHOWN AS RULES, not as 142 checkboxes someone ticked once. Rules re-apply on every
+    re-discovery, so a new endpoint in a selected tag is picked up and a curation is not lost to schema drift.
+    Manual overrides are shown as overrides, distinct from rule matches.
+ A2 DRIFT IS PER-TOOL AND VISIBLE. `changed`, `new`, `removed` are properties of a row (rule 7 — typographic),
+    with the count in the head. A tool that vanished keeps its name forever so a binding cannot silently rebind
+    to something else.
+ A3 THE SECURITY EXCLUSIONS ARE A FIRST-CLASS PANEL, not a footnote. The analytics spec *declares* X-User-Id as
+    an operation parameter — a naive importer would hand the model an impersonation primitive. Saying that out
+    loud is the difference between a feature and an incident.
+ A4 TABLE BORDERS — this is rule 3's heterogeneous-table exception: a whisper row rule, plus ONE vertical rule
+    before `tokens` splitting IDENTITY (select/name/method/path) from COST AND STATE (tokens/status).
+ A5 STATUS vs SEVERITY. Connector reachability is a state → shape + word. Whether a tool writes is a property →
+    typographic. They are never drawn the same way.
+ A6 ACCENT — 3 uses: active route, selected connector in the rail, the live lamp on the reachable server.
+-->
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Command Studio · Connectors</title>
+<link rel="stylesheet" href="_agents-base.css" />
+<style>
+  .conn { padding:10px 12px; cursor:pointer; box-shadow:inset 0 -1px 0 rgba(255,255,255,.035); position:relative; }
+  .conn:hover { background:rgba(255,255,255,.022); }
+  .conn.sel { background:var(--s5); }
+  .conn.sel::before { content:""; position:absolute; left:0; top:0; bottom:0; width:2px; background:var(--sig); }
+  .conn .nm { font-size:12px; font-weight:550; color:var(--t1); display:flex; align-items:center; gap:7px; margin-bottom:3px; }
+  .conn .kind { font-size:9.5px; letter-spacing:.07em; text-transform:uppercase; color:var(--t3); font-weight:500; }
+  .conn .meta { display:flex; align-items:center; gap:8px; font-size:10.5px; color:var(--t3); margin-top:2px; }
+
+  .dhead { padding:13px 18px 12px; flex:none; }
+  .dtitle { display:flex; align-items:center; gap:11px; margin-bottom:4px; }
+  .dtitle h2 { font-size:16px; font-weight:600; color:var(--t1); letter-spacing:-0.018em; }
+  .dsub { font-size:11px; color:var(--t3); }
+  .mainscroll { flex:1; overflow-y:auto; min-height:0; background:var(--s3); }
+
+  .cols { display:grid; grid-template-columns:1fr 318px; align-items:start; }
+  .colr { box-shadow:inset 1px 0 0 rgba(255,255,255,.05); min-height:100%; background:var(--s2); }
+
+  /* rule chips read as rules — mono, with the operator visible */
+  .rule { display:flex; align-items:center; gap:8px; padding:5px 0; font-family:var(--mono); font-size:10.5px; }
+  .rule .op { font-size:9.5px; letter-spacing:.07em; text-transform:uppercase; width:46px; flex:none;
+    font-family:var(--sans); font-weight:600; }
+  .rule .op.inc { color:var(--t1); }
+  .rule .op.exc { color:var(--t3); }
+  .rule .pat { color:var(--t2); flex:1; }
+  .rule .n { color:var(--t3); font-variant-numeric:tabular-nums; }
+
+  /* the tool table — rule 3 exception: whisper rows + ONE vertical rule */
+  table.tools tbody td { padding:6px 10px; font-size:11.5px; }
+  table.tools td.vr, table.tools th.vr { box-shadow:inset 1px 0 0 rgba(255,255,255,.075), inset 0 -1px 0 rgba(255,255,255,.035); }
+  table.tools thead th.vr { box-shadow:inset 1px 0 0 rgba(255,255,255,.075), inset 0 -1px 0 rgba(255,255,255,.07); }
+  .mth { font-family:var(--mono); font-size:10px; letter-spacing:.03em; color:var(--t3); font-weight:600; width:38px; display:inline-block; }
+  .mth.w { color:var(--t1); }
+  .pth { font-family:var(--mono); font-size:10.5px; color:var(--t3); }
+  .cb { width:13px; height:13px; border-radius:3.5px; flex:none; background:var(--s0);
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.11); display:inline-grid; place-items:center; vertical-align:-2px; }
+  .cb.on { background:var(--s5); box-shadow:inset 0 0 0 1px rgba(255,255,255,.16); }
+  .cb.on svg { width:9px; height:9px; stroke:var(--t1); stroke-width:2.8; fill:none; }
+  .ovr { font-size:9.5px; letter-spacing:.05em; text-transform:uppercase; color:var(--t3); }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo"></div><span class="wordmark">Command Studio</span>
+      <span class="envchip">LOCAL · :8000</span>
+    </div>
+    <nav class="nav">
+      <a href="#">Workflows</a><a href="#">Datasets</a><a href="#">Catalog</a>
+      <a href="#">Runs</a><a href="#" class="active">Agents</a><a href="#">Admin</a>
+    </nav>
+    <div class="topright">
+      <div class="cmdk">
+        <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+        <span>Search agents, tools, runs…</span><span class="kbd">⌘K</span>
+      </div>
+      <div class="iconbtn"><svg class="ic" viewBox="0 0 24 24"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg></div>
+      <div class="iconbtn"><svg class="ic" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg></div>
+      <div class="team"><span class="dot good"></span><span>Growth Analytics</span><span class="caret">▾</span></div>
+      <div class="avatar">SG</div>
+    </div>
+  </div>
+
+  <div class="subhead">
+    <h1>Connectors</h1>
+    <span class="micro">4 registered · 183 tools discovered · 39 selected</span>
+    <div class="spacer"></div>
+    <div class="ctrl">
+      <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M4 4v6h6M20 20v-6h-6"/><path d="M20 9a8 8 0 00-14.5-3M4 15a8 8 0 0014.5 3"/></svg>
+      Re-discover all
+    </div>
+    <button class="btn-primary">
+      <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M12 5v14M5 12h14"/></svg>
+      Register connector
+    </button>
+  </div>
+
+  <div class="body">
+
+    <!-- ===== RAIL ===== -->
+    <div class="rail">
+      <div class="railhead"><span class="micro">Registered</span></div>
+      <div class="railscroll">
+
+        <div class="conn sel">
+          <div class="nm"><span class="lamp"></span>Analytics Service</div>
+          <div class="meta"><span class="kind">mcp</span><span>·</span><span class="mono" style="font-size:10px">:8001/api/v1/mcp</span></div>
+          <div class="meta"><span class="st"><span class="dot good"></span>reachable</span><span>·</span><span>27 tools · 21 selected</span></div>
+        </div>
+
+        <div class="conn">
+          <div class="nm">Workflow Engine API</div>
+          <div class="meta"><span class="kind">openapi</span><span>·</span><span class="mono" style="font-size:10px">:8000/openapi.json</span></div>
+          <div class="meta"><span class="st"><span class="dot good"></span>reachable</span><span>·</span><span>68 ops · 12 selected</span></div>
+        </div>
+
+        <div class="conn">
+          <div class="nm">Analytics REST</div>
+          <div class="meta"><span class="kind">openapi</span><span>·</span><span class="mono" style="font-size:10px">:8001/openapi.json</span></div>
+          <div class="meta"><span class="st"><span class="dot warn"></span>drifted</span><span>·</span><span>142 ops · 6 selected</span></div>
+        </div>
+
+        <div class="conn">
+          <div class="nm">Stripe</div>
+          <div class="meta"><span class="kind">mcp</span><span>·</span><span class="mono" style="font-size:10px">mcp.stripe.com</span></div>
+          <div class="meta"><span class="st"><span class="dot crit"></span>unreachable</span><span>·</span><span>cached 18 tools</span></div>
+        </div>
+
+        <div style="padding:13px 12px">
+          <div class="guard">
+            An unreachable server does <b>not</b> fail an agent run. Bound tools resolve from the cached manifest; individual calls fail readably.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== MAIN ===== -->
+    <div class="main">
+      <div class="dhead">
+        <div class="dtitle">
+          <h2>Analytics Service</h2>
+          <span class="idf">conn_3Hm8Rk</span>
+          <span class="st" style="font-size:11px;color:var(--t2)"><span class="dot good"></span>reachable</span>
+          <div class="spacer"></div>
+          <button class="btn-ghost">
+            <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><circle cx="12" cy="12" r="3"/></svg>
+            Test a tool
+          </button>
+          <button class="btn-ghost">Edit</button>
+        </div>
+        <div class="dsub">Streamable-HTTP MCP · stateless · JSON responses · discovered 4 min ago · protocol 2025-06-18</div>
+      </div>
+
+      <!-- budget band -->
+      <div class="statband">
+        <div class="stat">
+          <span class="micro">Discovered</span>
+          <span class="v">27</span>
+          <span class="den">27 supported · 0 unsupported</span>
+        </div>
+        <div class="stat">
+          <span class="micro">Selected</span>
+          <span class="v">21</span>
+          <span class="den">of 24 max · 18 by rule · 3 manual</span>
+        </div>
+        <div class="stat">
+          <span class="micro">Schema cost</span>
+          <span class="v">5.2<span style="font-size:11px;color:var(--t3)">k</span></span>
+          <span class="den">of 6.0k budget · 87%</span>
+          <div class="bar" style="margin-top:5px"><i class="strong" style="width:87%"></i></div>
+        </div>
+        <div class="stat">
+          <span class="micro">Drift</span>
+          <span class="v">2</span>
+          <span class="den">2 changed · 0 new · 0 removed</span>
+        </div>
+        <div class="stat">
+          <span class="micro">Bound by</span>
+          <span class="v">3</span>
+          <span class="den">of 7 agents · 2 workflows</span>
+        </div>
+      </div>
+
+      <div class="mainscroll">
+        <div class="cols">
+
+          <!-- LEFT: the discovered catalogue -->
+          <div>
+            <div class="sect" style="padding-bottom:8px">
+              <div class="sect-title">Discovered tools</div>
+              <div class="sect-sub">Everything the server offers. Nothing here reaches an agent until it is selected — <b style="color:var(--t2)">import is not selection</b>.</div>
+              <div style="display:flex;gap:8px;align-items:center;margin-bottom:2px">
+                <div class="searchbox" style="min-width:0;flex:1">
+                  <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+                  <input placeholder="filter 27 tools…" />
+                </div>
+                <div class="seg">
+                  <button class="active">All <span class="c">27</span></button>
+                  <button>Selected <span class="c">21</span></button>
+                  <button>Changed <span class="c">2</span></button>
+                </div>
+              </div>
+            </div>
+
+            <table class="tools">
+              <thead>
+                <tr>
+                  <th style="width:26px"></th>
+                  <th>Tool</th>
+                  <th>Reach</th>
+                  <th class="num vr" style="width:62px">Tokens</th>
+                  <th style="width:96px">State</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="cb on"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span></td>
+                  <td><span class="mono" style="font-size:11px;color:var(--t1)">whoami</span></td>
+                  <td><span class="sev sev-info">reads</span></td>
+                  <td class="num vr">84</td>
+                  <td><span class="ovr">by rule</span></td>
+                </tr>
+                <tr>
+                  <td><span class="cb on"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span></td>
+                  <td><span class="mono" style="font-size:11px;color:var(--t1)">search_datasets</span></td>
+                  <td><span class="sev sev-info">reads</span></td>
+                  <td class="num vr">196</td>
+                  <td><span class="ovr">by rule</span></td>
+                </tr>
+                <tr>
+                  <td><span class="cb on"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span></td>
+                  <td><span class="mono" style="font-size:11px;color:var(--t1)">describe_dataset</span></td>
+                  <td><span class="sev sev-info">reads</span></td>
+                  <td class="num vr">211</td>
+                  <td><span class="ovr">by rule</span></td>
+                </tr>
+                <tr>
+                  <td><span class="cb on"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span></td>
+                  <td><span class="mono" style="font-size:11px;color:var(--t1)">query_rows</span></td>
+                  <td><span class="sev sev-info">reads</span></td>
+                  <td class="num vr">402</td>
+                  <td><span class="sev sev-warn">changed</span></td>
+                </tr>
+                <tr>
+                  <td><span class="cb on"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span></td>
+                  <td><span class="mono" style="font-size:11px;color:var(--t1)">run_sql</span></td>
+                  <td><span class="sev sev-info">reads</span></td>
+                  <td class="num vr">318</td>
+                  <td><span class="ovr">by rule</span></td>
+                </tr>
+                <tr>
+                  <td><span class="cb on"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span></td>
+                  <td><span class="mono" style="font-size:11px;color:var(--t1)">aggregate</span></td>
+                  <td><span class="sev sev-info">reads</span></td>
+                  <td class="num vr">466</td>
+                  <td><span class="sev sev-warn">changed</span></td>
+                </tr>
+                <tr>
+                  <td><span class="cb on"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span></td>
+                  <td><span class="mono" style="font-size:11px;color:var(--t1)">pivot</span></td>
+                  <td><span class="sev sev-info">reads</span></td>
+                  <td class="num vr">388</td>
+                  <td><span class="ovr">by rule</span></td>
+                </tr>
+                <tr>
+                  <td><span class="cb on"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span></td>
+                  <td><span class="mono" style="font-size:11px;color:var(--t1)">profile_column</span></td>
+                  <td><span class="sev sev-info">reads</span></td>
+                  <td class="num vr">241</td>
+                  <td><span class="ovr">by rule</span></td>
+                </tr>
+                <tr>
+                  <td><span class="cb on"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span></td>
+                  <td><span class="mono" style="font-size:11px;color:var(--t1)">check_quality</span></td>
+                  <td><span class="sev sev-info">reads</span></td>
+                  <td class="num vr">178</td>
+                  <td><span class="ovr">by rule</span></td>
+                </tr>
+                <tr>
+                  <td><span class="cb on"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span></td>
+                  <td><span class="mono" style="font-size:11px;color:var(--t1)">read_artifact</span></td>
+                  <td><span class="sev sev-info">reads</span></td>
+                  <td class="num vr">288</td>
+                  <td><span class="ovr">by rule</span></td>
+                </tr>
+                <tr>
+                  <td><span class="cb on"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span></td>
+                  <td><span class="mono" style="font-size:11px;color:var(--t1)">get_lineage</span></td>
+                  <td><span class="sev sev-info">reads</span></td>
+                  <td class="num vr">142</td>
+                  <td><span class="ovr">manual</span></td>
+                </tr>
+                <tr>
+                  <td><span class="cb on"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span></td>
+                  <td><span class="mono" style="font-size:11px;color:var(--t1)">join_datasets</span></td>
+                  <td><span class="sev sev-warn">writes artifact</span></td>
+                  <td class="num vr">504</td>
+                  <td><span class="ovr">manual</span></td>
+                </tr>
+                <tr>
+                  <td><span class="cb"></span></td>
+                  <td><span class="mono" style="font-size:11px">publish_result</span></td>
+                  <td><span class="sev sev-err">writes dataset</span></td>
+                  <td class="num vr">372</td>
+                  <td><span class="ovr" style="color:var(--t4)">excluded</span></td>
+                </tr>
+                <tr>
+                  <td><span class="cb"></span></td>
+                  <td><span class="mono" style="font-size:11px">manage_tags</span></td>
+                  <td><span class="sev sev-err">writes</span></td>
+                  <td class="num vr">266</td>
+                  <td><span class="ovr" style="color:var(--t4)">excluded</span></td>
+                </tr>
+                <tr>
+                  <td><span class="cb"></span></td>
+                  <td><span class="mono" style="font-size:11px">manage_quality_rules</span></td>
+                  <td><span class="sev sev-err">writes</span></td>
+                  <td class="num vr">418</td>
+                  <td><span class="ovr" style="color:var(--t4)">excluded</span></td>
+                </tr>
+                <tr>
+                  <td><span class="cb"></span></td>
+                  <td><span class="mono" style="font-size:11px">write_documentation</span></td>
+                  <td><span class="sev sev-err">writes</span></td>
+                  <td class="num vr">302</td>
+                  <td><span class="ovr" style="color:var(--t4)">excluded</span></td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div style="padding:13px 18px">
+              <div class="guard">
+                <b>11 of 27 rows are not shown</b> — filtered out by the search box above. The counts in the band above are over all 27, not over what is on screen.
+              </div>
+            </div>
+          </div>
+
+          <!-- RIGHT: config, rules, governance -->
+          <div class="colr">
+
+            <div class="sect">
+              <div class="sect-title">Connection</div>
+              <div class="field" style="margin-top:9px">
+                <label>Endpoint</label>
+                <input class="input mono" style="font-size:10.5px" value="http://localhost:8001/api/v1/mcp" />
+              </div>
+              <div class="row2">
+                <div class="field">
+                  <label>Kind</label>
+                  <select class="select"><option>MCP</option></select>
+                </div>
+                <div class="field">
+                  <label>Tool prefix</label>
+                  <input class="input mono" style="font-size:11px" value="" placeholder="none" />
+                </div>
+              </div>
+              <div class="guard">
+                The prefix namespaces this server's tools so two connectors cannot collide. Empty is allowed only because this is the first connector — names are <b>pinned on import</b> and never renamed by a re-discovery.
+              </div>
+            </div>
+
+            <div class="sect">
+              <div class="sect-title">Identity</div>
+              <div class="sect-sub">This server authenticates by header, not by token. Whose identity does a tool call carry?</div>
+              <div class="field">
+                <label>Mode</label>
+                <select class="select"><option>execution — the user who triggered the run</option></select>
+              </div>
+              <div class="guard warn">
+                If a run has no acting user, this connector contributes <b>zero tools</b> and logs an error. It never falls back to a default seat — a silently-anonymous call against a header-auth service returns a 200 with somebody else's scope.
+              </div>
+            </div>
+
+            <div class="sect">
+              <div class="sect-title">Selection rules</div>
+              <div class="sect-sub">Re-applied on every discovery, so a new read-only tool is picked up automatically and your curation survives schema drift.</div>
+              <div class="rule"><span class="op inc">include</span><span class="pat">annotations.readOnly = true</span><span class="n">18</span></div>
+              <div class="rule"><span class="op exc">exclude</span><span class="pat">publish_* · manage_* · write_*</span><span class="n">4</span></div>
+              <div class="rule"><span class="op inc">manual</span><span class="pat">get_lineage · join_datasets</span><span class="n">2</span></div>
+              <div class="rule"><span class="op inc">manual</span><span class="pat">read_artifact</span><span class="n">1</span></div>
+              <div style="display:flex;gap:8px;margin-top:10px">
+                <button class="btn-ghost" style="flex:1;justify-content:center">Add rule</button>
+                <button class="btn-ghost" style="flex:1;justify-content:center">Re-apply</button>
+              </div>
+            </div>
+
+            <div class="sect">
+              <div class="sect-title">Excluded from every schema</div>
+              <div class="sect-sub">These are never offered to a model, regardless of selection.</div>
+              <div class="rule"><span class="op exc">header</span><span class="pat">X-User-Id</span></div>
+              <div class="rule"><span class="op exc">header</span><span class="pat">X-Team-Id</span></div>
+              <div class="rule"><span class="op exc">header</span><span class="pat">Authorization</span></div>
+              <div class="rule"><span class="op exc">cookie</span><span class="pat">*</span></div>
+              <div style="margin-top:9px" class="guard warn">
+                The analytics OpenAPI document <b>declares X-User-Id as an operation parameter</b>. Importing it as a tool argument would hand the model an impersonation primitive, so identity headers are stripped from the schema and injected by the executor last, where nothing can override them.
+              </div>
+            </div>
+
+            <div class="sect">
+              <div class="sect-title">Server instructions</div>
+              <div class="sect-sub">Returned by <span class="mono" style="font-size:10.5px">initialize</span>. Prepended to the agent's system prompt when any tool from this connector is bound.</div>
+              <div style="background:var(--s0);border-radius:7px;padding:9px 11px;font-size:11px;line-height:1.55;color:var(--t2);box-shadow:inset 0 1px 2px rgba(0,0,0,.5)">
+                Start with <span class="mono" style="font-size:10.5px">search_datasets</span> — it is the only tool that returns a dataset_id. A "not found" can mean the resource exists but belongs to a team you are not in; it is not proof of absence…
+                <div style="color:var(--t3);margin-top:6px">1,840 chars · 12 paragraphs</div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

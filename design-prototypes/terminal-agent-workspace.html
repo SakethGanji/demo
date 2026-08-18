@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<!--
+DESIGN NOTES — /agent-run?view=workspace · WATCH THE AGENT WRITE CODE, THEN RUN IT.
+
+THE IDEA: the run theatre shows an agent's reasoning. This shows its OUTPUT — the files it touched, the exact
+lines it changed, the app actually running, and whether the tests pass. Four regions, one job each: what changed
+(rail), what exactly changed (diff), does it work (preview), did it break anything (console/tests).
+
+Everything here runs on machinery that already exists: esbuild-wasm bundles client-side from
+`features/app-builder/sandbox/esbuild-bundler.ts`, the iframe renders it, and console output already streams
+back. What is genuinely new is the diff, the change markers, the test panel, and the feedback loop.
+
+THE FEEDBACK LOOP IS THE POINT, and it is the band under the steering strip. Today `parse_status: "error"` is
+computed on every write and then never read — bundle failures reach the human's toast and never the model. So
+the agent writes broken code and cannot learn. Drawing the loop as a visible ladder (build failed → returned to
+agent → rebuilt → tests) makes the missing wire obvious and makes the retry legible rather than mysterious.
+
+WHAT THE DENSITY FORCED:
+ A1 DIFF WITHOUT STATUS HUE. Status colour is reserved and never a data series, so +/− cannot be told in
+    green/red alone. The GLYPH carries it — every changed line has a literal + or − in the gutter and reads
+    correctly with the tint removed. The 6%-alpha wash only groups runs of lines.
+ A2 CHANGE MARKERS ARE LETTERS (A/M/D), not dots. A dot needs a legend; a letter does not, and it survives
+    being 11px on a dark rail.
+ A3 STEERING IS ONE STRIP, always in the same place, whether or not the agent is waiting for you. A control
+    that appears only when needed teaches nobody where it lives.
+ A4 EVERY FIGURE DENOMINATED (rule 11): "7 of 8 passed", "6 of 34 files", "+214 −38". A bare "7 passed" hides
+    the one that did not.
+ A5 THE EXECUTION CONTEXT IS A PANEL, NOT A FOOTNOTE. Where this code runs and what it can reach is the first
+    question anyone sensible asks. Preview and publish use DIFFERENT bundlers and DIFFERENT network policy, so
+    "works in preview" does not mean "works published" — that is stated, not discovered later.
+ A6 ACCENT — 3 uses: active route, the selected file, the live lamp.
+-->
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Command Studio · Agent workspace</title>
+<link rel="stylesheet" href="_agents-base.css" />
+<style>
+  .work { flex:1; display:grid; grid-template-columns:236px 1fr 424px; min-height:0; background:var(--s3); }
+  .col { display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+  .col.rail2 { background:var(--s2); box-shadow:1px 0 0 rgba(255,255,255,.05); }
+  .col.right { background:var(--s2); box-shadow:inset 1px 0 0 rgba(255,255,255,.055); }
+  .colhead { flex:none; padding:9px 12px 8px; box-shadow:0 1px 0 rgba(255,255,255,.045); }
+  .colhead .tl { display:flex; align-items:baseline; gap:8px; }
+  .colhead h3 { font-size:11.5px; font-weight:600; color:var(--t1); }
+  .colscroll { flex:1; overflow:auto; min-height:0; }
+
+  /* the feedback ladder — build → error → agent → rebuild → tests */
+  .loop { display:flex; align-items:stretch; gap:0; background:var(--s3); box-shadow:0 1px 0 rgba(255,255,255,.05); flex:none; }
+  .step { padding:7px 15px; display:flex; flex-direction:column; gap:2px; position:relative; min-width:0; }
+  .step + .step { box-shadow:inset 1px 0 0 rgba(255,255,255,.05); }
+  .step .hd { display:flex; align-items:center; gap:7px; font-size:11px; color:var(--t1); font-weight:550; white-space:nowrap; }
+  .step .sb { font-size:10px; color:var(--t3); font-family:var(--mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .step.ret { background:rgba(255,255,255,.022); }
+  .step .arrow { color:var(--t4); font-size:11px; }
+
+  .fname { font-family:var(--mono); font-size:11.5px; color:var(--t1); }
+  .filebar { display:flex; align-items:center; gap:10px; padding:6px 14px; background:var(--s2);
+    box-shadow:0 1px 0 rgba(255,255,255,.045); flex:none; }
+  .editchip { height:22px; padding:0 8px; border-radius:5px; background:var(--s4); color:var(--t2); font-size:10.5px;
+    display:inline-flex; align-items:center; gap:6px; box-shadow:var(--hi); cursor:pointer; }
+  .editchip:hover { color:var(--t1); background:var(--s5); }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo"></div><span class="wordmark">Command Studio</span>
+      <span class="envchip">LOCAL · :8000</span>
+    </div>
+    <nav class="nav">
+      <a href="#">Workflows</a><a href="#">Datasets</a><a href="#">Catalog</a>
+      <a href="#">Runs</a><a href="#" class="active">Agents</a><a href="#">Admin</a>
+    </nav>
+    <div class="topright">
+      <div class="cmdk">
+        <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+        <span>Search agents, tools, runs…</span><span class="kbd">⌘K</span>
+      </div>
+      <div class="iconbtn"><svg class="ic" viewBox="0 0 24 24"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg></div>
+      <div class="iconbtn"><svg class="ic" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg></div>
+      <div class="team"><span class="dot good"></span><span>Growth Analytics</span><span class="caret">▾</span></div>
+      <div class="avatar">SG</div>
+    </div>
+  </div>
+
+  <div class="subhead">
+    <h1>App Builder</h1>
+    <span class="idf">arun_4Tz8vQ2nHy · churn-cohort-explorer</span>
+    <div class="seg">
+      <button>Trace</button>
+      <button class="active">Workspace</button>
+    </div>
+    <div class="spacer"></div>
+    <div class="ctrl">Iteration <b>7</b> of 30</div>
+    <button class="btn-ghost">
+      <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M12 3v13M7 12l5 5 5-5M5 21h14"/></svg>
+      Export files
+    </button>
+    <button class="btn-primary">
+      <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M4 12l6 6L20 6"/></svg>
+      Accept &amp; publish
+    </button>
+  </div>
+
+  <!-- ════ STEERING — always present, whether or not the agent is waiting ════ -->
+  <div class="steer">
+    <div class="now">
+      <span class="lamp"></span>
+      <span><b>Fixing a failing test</b> — cohortRetention() returns NaN when a cohort has zero users</span>
+    </div>
+    <div class="inject">
+      <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M4 12h16M12 4v16"/></svg>
+      <input placeholder="Add a correction the agent will read on its next turn…" />
+    </div>
+    <button class="btn-ghost">
+      <svg class="ic" viewBox="0 0 24 24" style="width:12px;height:12px"><path d="M7 4v16M17 4v16"/></svg>
+      Pause
+    </button>
+    <button class="btn-ghost">
+      <svg class="ic" viewBox="0 0 24 24" style="width:12px;height:12px"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      Stop
+    </button>
+  </div>
+
+  <!-- ════ THE FEEDBACK LOOP — the wire that does not exist today ════ -->
+  <div class="loop">
+    <div class="step">
+      <div class="hd"><span class="micro" style="letter-spacing:.1em">Attempt 1</span></div>
+      <div class="sb">wrote 4 files</div>
+    </div>
+    <div class="step">
+      <div class="hd"><span class="dot crit"></span>Build failed</div>
+      <div class="sb">2 errors · 840ms</div>
+    </div>
+    <div class="step ret">
+      <div class="hd"><span class="arrow">↩</span>Returned to agent</div>
+      <div class="sb">errors as tool result</div>
+    </div>
+    <div class="step">
+      <div class="hd"><span class="micro" style="letter-spacing:.1em">Attempt 2</span></div>
+      <div class="sb">edited 2 files</div>
+    </div>
+    <div class="step">
+      <div class="hd"><span class="dot good"></span>Build ok</div>
+      <div class="sb">1.24s · 84 KB</div>
+    </div>
+    <div class="step">
+      <div class="hd"><span class="dot warn"></span>Tests 7 of 8</div>
+      <div class="sb">1 failing · 620ms</div>
+    </div>
+    <div class="step ret">
+      <div class="hd"><span class="arrow">↩</span>Returned to agent</div>
+      <div class="sb">assertion + stack</div>
+    </div>
+    <div class="step">
+      <div class="hd"><span class="dot run"></span>Attempt 3</div>
+      <div class="sb">editing useCohorts.ts</div>
+    </div>
+    <div class="step" style="flex:1;justify-content:center">
+      <div class="guard" style="font-size:10.5px">
+        A failure is <b>only</b> useful if the agent sees it. Each red step feeds its errors back as a tool result.
+      </div>
+    </div>
+  </div>
+
+  <div class="work">
+
+    <!-- ════ FILES ════ -->
+    <div class="col rail2">
+      <div class="colhead">
+        <div class="tl">
+          <h3>Files</h3>
+          <span class="micro">6 of 34 changed</span>
+        </div>
+        <div style="display:flex;align-items:baseline;gap:9px;margin-top:4px">
+          <span class="mono" style="font-size:11px;color:var(--t1)">+214</span>
+          <span class="mono" style="font-size:11px;color:var(--t3)">−38</span>
+          <span style="font-size:10px;color:var(--t3)">since attempt 1</span>
+        </div>
+      </div>
+      <div class="colscroll">
+        <div class="ftree">
+          <div class="fitem dir"><span class="mk none">·</span><span class="nm">▾ src</span></div>
+
+          <div class="fitem" style="padding-left:13px"><span class="mk m">M</span><span class="nm">App.tsx</span><span class="ct">+18 −4</span></div>
+          <div class="fitem dir" style="padding-left:13px"><span class="mk none">·</span><span class="nm">▾ components</span></div>
+          <div class="fitem" style="padding-left:26px"><span class="mk a">A</span><span class="nm">CohortGrid.tsx</span><span class="ct">+96</span></div>
+          <div class="fitem" style="padding-left:26px"><span class="mk a">A</span><span class="nm">RetentionCurve.tsx</span><span class="ct">+61</span></div>
+          <div class="fitem" style="padding-left:26px"><span class="mk none">·</span><span class="nm">StatTile.tsx</span><span class="ct"></span></div>
+          <div class="fitem" style="padding-left:26px"><span class="mk none">·</span><span class="nm">Toolbar.tsx</span><span class="ct"></span></div>
+
+          <div class="fitem dir" style="padding-left:13px"><span class="mk none">·</span><span class="nm">▾ hooks</span></div>
+          <div class="fitem sel" style="padding-left:26px"><span class="mk m">M</span><span class="nm">useCohorts.ts</span><span class="ct">+31 −12</span></div>
+          <div class="fitem" style="padding-left:26px"><span class="mk none">·</span><span class="nm">useDataset.ts</span><span class="ct"></span></div>
+
+          <div class="fitem dir" style="padding-left:13px"><span class="mk none">·</span><span class="nm">▾ lib</span></div>
+          <div class="fitem" style="padding-left:26px"><span class="mk m">M</span><span class="nm">retention.ts</span><span class="ct">+8 −22</span></div>
+          <div class="fitem gone" style="padding-left:26px"><span class="mk d">D</span><span class="nm">legacyCohort.ts</span><span class="ct">−41</span></div>
+          <div class="fitem" style="padding-left:26px"><span class="mk none">·</span><span class="nm">format.ts</span><span class="ct"></span></div>
+
+          <div class="fitem dir" style="padding-left:13px"><span class="mk none">·</span><span class="nm">▾ __tests__</span></div>
+          <div class="fitem" style="padding-left:26px"><span class="mk none">·</span><span class="nm">retention.test.ts</span><span class="ct"></span></div>
+
+          <div class="fitem" style="padding-left:13px"><span class="mk none">·</span><span class="nm">index.css</span><span class="ct"></span></div>
+          <div class="fitem"><span class="mk none">·</span><span class="nm">index.html</span><span class="ct"></span></div>
+        </div>
+
+        <div style="padding:13px 12px">
+          <div class="guard">
+            <b>D</b> means the agent deleted it. The file is recoverable from the previous version until you accept — nothing is destroyed by a run.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════ THE DIFF ════ -->
+    <div class="col">
+      <div class="ptabs">
+        <button class="active">Diff <span class="c">6</span></button>
+        <button>Source</button>
+        <button>History <span class="c">7</span></button>
+        <div class="spacer"></div>
+        <span class="micro">unified · whitespace shown</span>
+      </div>
+
+      <div class="filebar">
+        <span class="fname">src/hooks/useCohorts.ts</span>
+        <span class="mono" style="font-size:10.5px;color:var(--t3)">+31 −12</span>
+        <span class="sev sev-warn">edited by agent 4s ago</span>
+        <div class="spacer"></div>
+        <span class="editchip">
+          <svg class="ic" viewBox="0 0 24 24" style="width:11px;height:11px"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>
+          Edit
+        </span>
+        <span class="editchip">Revert file</span>
+      </div>
+
+      <div class="colscroll">
+        <div class="diff">
+          <div class="dl hunk"><span class="ln"></span><span class="sg"></span><span class="tx">@@ -1,9 +1,12 @@  imports</span></div>
+          <div class="dl"><span class="ln">1</span><span class="sg"> </span><span class="tx"><span class="kw">import</span> { useMemo } <span class="kw">from</span> <span class="str">'react'</span></span></div>
+          <div class="dl"><span class="ln">2</span><span class="sg"> </span><span class="tx"><span class="kw">import</span> { useDataset } <span class="kw">from</span> <span class="str">'./useDataset'</span></span></div>
+          <div class="dl del"><span class="ln">3</span><span class="sg">−</span><span class="tx"><span class="kw">import</span> { cohortOf } <span class="kw">from</span> <span class="str">'../lib/legacyCohort'</span></span></div>
+          <div class="dl add"><span class="ln">3</span><span class="sg">+</span><span class="tx"><span class="kw">import</span> { bucketByMonth, retention } <span class="kw">from</span> <span class="str">'../lib/retention'</span></span></div>
+          <div class="dl"><span class="ln">4</span><span class="sg"> </span><span class="tx"></span></div>
+
+          <div class="dl hunk"><span class="ln"></span><span class="sg"></span><span class="tx">@@ -22,18 +25,29 @@  export function useCohorts()</span></div>
+          <div class="dl"><span class="ln">25</span><span class="sg"> </span><span class="tx">  <span class="kw">const</span> rows = useDataset(datasetId)</span></div>
+          <div class="dl"><span class="ln">26</span><span class="sg"> </span><span class="tx"></span></div>
+          <div class="dl"><span class="ln">27</span><span class="sg"> </span><span class="tx">  <span class="kw">return</span> useMemo(() =&gt; {</span></div>
+          <div class="dl del"><span class="ln">28</span><span class="sg">−</span><span class="tx">    <span class="kw">const</span> cohorts = rows.map(cohortOf)</span></div>
+          <div class="dl del"><span class="ln">29</span><span class="sg">−</span><span class="tx">    <span class="kw">return</span> cohorts.map(c =&gt; ({</span></div>
+          <div class="dl del"><span class="ln">30</span><span class="sg">−</span><span class="tx">      label: c.label,</span></div>
+          <div class="dl del"><span class="ln">31</span><span class="sg">−</span><span class="tx">      rate:  c.retained / c.total,</span></div>
+          <div class="dl del"><span class="ln">32</span><span class="sg">−</span><span class="tx">    }))</span></div>
+          <div class="dl add"><span class="ln">28</span><span class="sg">+</span><span class="tx">    <span class="kw">const</span> buckets = bucketByMonth(rows, <span class="str">'signup_date'</span>)</span></div>
+          <div class="dl add"><span class="ln">29</span><span class="sg">+</span><span class="tx"></span></div>
+          <div class="dl add"><span class="ln">30</span><span class="sg">+</span><span class="tx">    <span class="kw">return</span> buckets.map(b =&gt; {</span></div>
+          <div class="dl add"><span class="ln">31</span><span class="sg">+</span><span class="tx">      <span class="kw">const</span> total = b.users.length</span></div>
+          <div class="dl add"><span class="ln">32</span><span class="sg">+</span><span class="tx"></span></div>
+          <div class="dl add"><span class="ln">33</span><span class="sg">+</span><span class="tx">      <span class="kw">return</span> {</span></div>
+          <div class="dl add"><span class="ln">34</span><span class="sg">+</span><span class="tx">        label: b.label,</span></div>
+          <div class="dl add"><span class="ln">35</span><span class="sg">+</span><span class="tx">        total,</span></div>
+          <div class="dl add"><span class="ln">36</span><span class="sg">+</span><span class="tx">        <span class="str">// an empty cohort has no rate — not a rate of zero</span></span></div>
+          <div class="dl add"><span class="ln">37</span><span class="sg">+</span><span class="tx">        rate: total === <span class="str">0</span> ? <span class="kw">null</span> : retention(b) / total,</span></div>
+          <div class="dl add"><span class="ln">38</span><span class="sg">+</span><span class="tx">      }</span></div>
+          <div class="dl add"><span class="ln">39</span><span class="sg">+</span><span class="tx">    })</span></div>
+          <div class="dl"><span class="ln">40</span><span class="sg"> </span><span class="tx">  }, [rows])</span></div>
+          <div class="dl"><span class="ln">41</span><span class="sg"> </span><span class="tx">}</span></div>
+
+          <div class="dl hunk"><span class="ln"></span><span class="sg"></span><span class="tx">@@ -48,6 +59,14 @@  helpers</span></div>
+          <div class="dl add"><span class="ln">59</span><span class="sg">+</span><span class="tx"><span class="kw">export function</span> cohortRetention(c: Cohort): <span class="kw">number</span> | <span class="kw">null</span> {</span></div>
+          <div class="dl add"><span class="ln">60</span><span class="sg">+</span><span class="tx">  <span class="kw">if</span> (c.total === <span class="str">0</span>) <span class="kw">return</span> <span class="kw">null</span></span></div>
+          <div class="dl add"><span class="ln">61</span><span class="sg">+</span><span class="tx">  <span class="kw">return</span> c.retained / c.total</span></div>
+          <div class="dl add"><span class="ln">62</span><span class="sg">+</span><span class="tx">}</span></div>
+        </div>
+
+        <div style="padding:14px 16px 20px">
+          <div class="guard">
+            The diff is against the <b>previous accepted version</b>, not the previous attempt — so a fix the agent made to its own mistake does not appear as churn you have to review.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════ PREVIEW + CONSOLE/TESTS ════ -->
+    <div class="col right">
+
+      <div class="colhead">
+        <div class="tl">
+          <h3>Preview</h3>
+          <span class="micro">bundled in browser · 1.24s · 84 KB</span>
+        </div>
+      </div>
+
+      <div style="padding:11px 14px 13px;flex:none">
+        <div class="vp">
+          <div class="vpbar">
+            <span class="d"></span><span class="d"></span><span class="d"></span>
+            <span class="u">sandbox://churn-cohort-explorer</span>
+          </div>
+          <div class="vpbody">
+            <div style="font-size:13px;font-weight:650;color:#111720;letter-spacing:-.01em">Churn cohorts</div>
+            <div style="font-size:9.5px;color:#5E6879;margin-top:2px;letter-spacing:.08em;text-transform:uppercase">Signup month · 12 cohorts · 48,204 users</div>
+
+            <div style="display:flex;gap:16px;margin:11px 0 12px">
+              <div>
+                <div style="font-size:8.5px;letter-spacing:.11em;text-transform:uppercase;color:#5E6879">M1 retention</div>
+                <div style="font-family:ui-monospace,monospace;font-size:17px;font-weight:600;color:#111720">71.4%</div>
+                <div style="font-size:9px;color:#5E6879;font-family:ui-monospace,monospace">11 of 12 cohorts</div>
+              </div>
+              <div>
+                <div style="font-size:8.5px;letter-spacing:.11em;text-transform:uppercase;color:#5E6879">M6 retention</div>
+                <div style="font-family:ui-monospace,monospace;font-size:17px;font-weight:600;color:#111720">42.9%</div>
+                <div style="font-size:9px;color:#5E6879;font-family:ui-monospace,monospace">7 of 12 cohorts</div>
+              </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:52px repeat(6,1fr);gap:2px;font-family:ui-monospace,monospace;font-size:8px">
+              <div style="color:#5E6879">&nbsp;</div>
+              <div style="color:#5E6879;text-align:center">M0</div><div style="color:#5E6879;text-align:center">M1</div>
+              <div style="color:#5E6879;text-align:center">M2</div><div style="color:#5E6879;text-align:center">M3</div>
+              <div style="color:#5E6879;text-align:center">M4</div><div style="color:#5E6879;text-align:center">M5</div>
+
+              <div style="color:#38414E">Jan</div>
+              <div style="background:#2E3742;color:#fff;text-align:center;padding:2px 0">100</div>
+              <div style="background:#5F6B7C;color:#fff;text-align:center;padding:2px 0">74</div>
+              <div style="background:#8B95A3;color:#fff;text-align:center;padding:2px 0">61</div>
+              <div style="background:#B2BBC7;color:#111;text-align:center;padding:2px 0">52</div>
+              <div style="background:#C9D0DA;color:#111;text-align:center;padding:2px 0">47</div>
+              <div style="background:#D3DAE3;color:#111;text-align:center;padding:2px 0">43</div>
+
+              <div style="color:#38414E">Feb</div>
+              <div style="background:#2E3742;color:#fff;text-align:center;padding:2px 0">100</div>
+              <div style="background:#5F6B7C;color:#fff;text-align:center;padding:2px 0">72</div>
+              <div style="background:#8B95A3;color:#fff;text-align:center;padding:2px 0">58</div>
+              <div style="background:#B2BBC7;color:#111;text-align:center;padding:2px 0">49</div>
+              <div style="background:#C9D0DA;color:#111;text-align:center;padding:2px 0">44</div>
+              <div style="background:#E8ECF1;color:#8B95A3;text-align:center;padding:2px 0">—</div>
+
+              <div style="color:#38414E">Mar</div>
+              <div style="background:#2E3742;color:#fff;text-align:center;padding:2px 0">100</div>
+              <div style="background:#5F6B7C;color:#fff;text-align:center;padding:2px 0">69</div>
+              <div style="background:#8B95A3;color:#fff;text-align:center;padding:2px 0">55</div>
+              <div style="background:#B2BBC7;color:#111;text-align:center;padding:2px 0">46</div>
+              <div style="background:#E8ECF1;color:#8B95A3;text-align:center;padding:2px 0">—</div>
+              <div style="background:#E8ECF1;color:#8B95A3;text-align:center;padding:2px 0">—</div>
+
+              <div style="color:#38414E">Apr</div>
+              <div style="background:#2E3742;color:#fff;text-align:center;padding:2px 0">100</div>
+              <div style="background:#5F6B7C;color:#fff;text-align:center;padding:2px 0">70</div>
+              <div style="background:#8B95A3;color:#fff;text-align:center;padding:2px 0">57</div>
+              <div style="background:#E8ECF1;color:#8B95A3;text-align:center;padding:2px 0">—</div>
+              <div style="background:#E8ECF1;color:#8B95A3;text-align:center;padding:2px 0">—</div>
+              <div style="background:#E8ECF1;color:#8B95A3;text-align:center;padding:2px 0">—</div>
+            </div>
+            <div style="font-size:8.5px;color:#5E6879;margin-top:6px">— means the cohort has not reached that month yet, not 0%.</div>
+          </div>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:8px;margin-top:9px">
+          <button class="btn-ghost" style="flex:1;justify-content:center">
+            <svg class="ic" viewBox="0 0 24 24" style="width:12px;height:12px"><path d="M4 4v6h6M20 9a8 8 0 00-14.5-3"/></svg>
+            Rebuild
+          </button>
+          <button class="btn-ghost" style="flex:1;justify-content:center">Open in tab</button>
+          <button class="btn-ghost" style="flex:1;justify-content:center">Run tests</button>
+        </div>
+      </div>
+
+      <div class="ptabs">
+        <button>Console <span class="c">12</span></button>
+        <button class="active">Tests <span class="c">8</span></button>
+        <button>Network <span class="c">3</span></button>
+      </div>
+
+      <div class="colscroll">
+        <div style="padding:9px 14px 4px;display:flex;align-items:baseline;gap:9px">
+          <span class="stat" style="flex-direction:row;align-items:baseline;gap:7px">
+            <span class="v sm">7 <span style="font-size:11px;color:var(--t3)">of 8 passed</span></span>
+          </span>
+          <div class="spacer"></div>
+          <span class="mono" style="font-size:10px;color:var(--t3)">620ms</span>
+        </div>
+
+        <div class="trow"><span class="dot good"></span><span class="nm">bucketByMonth · groups by signup month</span><span class="ms">4ms</span></div>
+        <div class="trow"><span class="dot good"></span><span class="nm">bucketByMonth · ignores null dates</span><span class="ms">2ms</span></div>
+        <div class="trow"><span class="dot good"></span><span class="nm">retention · counts returning users</span><span class="ms">6ms</span></div>
+        <div class="trow"><span class="dot crit"></span><span class="nm">cohortRetention · empty cohort</span><span class="ms">3ms</span></div>
+        <div style="padding:2px 14px 9px 30px">
+          <div class="guard warn" style="font-family:var(--mono);font-size:10px;line-height:1.6">
+            expected <b>null</b>, received <b>NaN</b><br />
+            <span style="color:var(--t4)">at lib/retention.ts:61 · cohortRetention()</span><br />
+            <span style="color:var(--t4)">c.total is 0 — the guard was added to the hook, not the helper</span>
+          </div>
+        </div>
+        <div class="trow"><span class="dot good"></span><span class="nm">cohortRetention · full cohort</span><span class="ms">1ms</span></div>
+        <div class="trow"><span class="dot good"></span><span class="nm">CohortGrid · renders 12 rows</span><span class="ms">318ms</span></div>
+        <div class="trow"><span class="dot good"></span><span class="nm">CohortGrid · em-dash for future months</span><span class="ms">241ms</span></div>
+        <div class="trow"><span class="dot good"></span><span class="nm">RetentionCurve · no series for empty cohorts</span><span class="ms">45ms</span></div>
+
+        <div style="padding:13px 14px">
+          <div class="sect-title" style="margin-bottom:6px">Execution context</div>
+          <div class="kv" style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0">
+            <span style="color:var(--t3)">Bundler</span><span class="mono" style="font-size:10.5px;color:var(--t2)">esbuild-wasm · browser</span>
+          </div>
+          <div class="kv" style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0">
+            <span style="color:var(--t3)">Runtime</span><span class="mono" style="font-size:10.5px;color:var(--t2)">iframe · blob url</span>
+          </div>
+          <div class="kv" style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0">
+            <span style="color:var(--t3)">Network</span><span class="mono" style="font-size:10.5px;color:var(--t2)">proxied · unrestricted</span>
+          </div>
+          <div class="kv" style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0">
+            <span style="color:var(--t3)">Seat</span><span class="mono" style="font-size:10.5px;color:var(--t2)">S. Ganji · editor</span>
+          </div>
+          <div style="margin-top:9px" class="guard warn">
+            <b>Preview is not production.</b> This bundle is unminified and its fetch is proxied through the studio, so it can reach any host. A published app is minified by a different bundler and locked to <span class="mono" style="font-size:10px">connect-src 'self'</span>. Verify after publishing, not before.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

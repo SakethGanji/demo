@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<!--
+DESIGN NOTES — THE AGENT ASKS. The state every other screen was missing.
+
+THE POINT OF THE WHOLE PRODUCT, stated plainly: you describe what you want in English, and the agent asks for
+what it cannot work out. If it cannot ask, "English only" collapses into "specify everything perfectly up
+front" — which is the workflow-building problem this was meant to escape.
+
+AN ASK IS NOT A CHECKPOINT. A checkpoint asks PERMISSION for something dangerous and is a modal that stops the
+world. An ask needs INFORMATION and lives inline in the agent's column. Drawing them the same way would teach
+people to skim both, and skimming a checkpoint is how a dataset gets published by accident.
+
+THE QUALITY BAR IS HOW LITTLE IT ASKS. A bad agent asks fifteen questions and calls it collaboration. A good one
+looks first and asks only what it genuinely cannot derive. So the right-hand panel is the counterweight to the
+question: NINE THINGS IT WORKED OUT WITHOUT ASKING, each with the tool call that established it. Two questions
+next to nine inferences reads as competence; two questions alone reads as a form.
+
+WHY THE OPTIONS ARE REAL: it offers three actual tables with row counts and last-write times, because it
+queried them. This is the difference between a chatbot and something wired into a governed data plane — a
+generic assistant asks you to type a table name and hopes; this one enumerates what you actually have, with the
+permissions of your seat. Free text still works, always. The options are a shortcut, never a cage.
+
+WHAT THE DENSITY FORCED:
+ A1 THE ASK IS RAISED, NOT COLOURED. Elevation plus a warm rule; no alert box, no red. It is a normal part of
+    working, not a fault.
+ A2 EVERY OPTION CARRIES EVIDENCE — row count, last write, size. Choosing between three bare table names is
+    guessing; choosing between three with 4.2M rows / 11 rows / 0 rows is deciding.
+ A3 ONE RECOMMENDATION, MARKED, WITH ITS REASON. An agent that has an opinion should say so; an agent that
+    hides it behind neutral options is pretending it does not.
+ A4 THE CANVAS BEHIND STAYS LIVE AND UNBLURRED. Nothing is dangerous here — you can still inspect the graph
+    while you think. Only the checkpoint dims the world.
+ A5 EVERY FIGURE DENOMINATED (rule 11): "2 questions · 9 resolved", "2 of 20 rows", "4 of 6 configured".
+ A6 ACCENT — 3 uses: active route, the node under construction, the lamp.
+-->
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Command Studio · The agent asks</title>
+<link rel="stylesheet" href="_agents-base.css" />
+<style>
+  .body3 { flex:1; display:flex; min-height:0; overflow:hidden; }
+  .mid { flex:1; display:flex; flex-direction:column; min-width:0; min-height:0; background:var(--s3); }
+  .rgt { width:376px; min-width:376px; background:var(--s2); display:flex; flex-direction:column; min-height:0;
+    box-shadow:inset 1px 0 0 rgba(255,255,255,.055); }
+  .colscroll { flex:1; overflow:auto; min-height:0; }
+  .isec { padding:12px 15px; }
+  .isec + .isec { box-shadow:0 -1px 0 rgba(255,255,255,.05); }
+  .cbar2 { display:flex; align-items:center; gap:10px; padding:7px 14px; background:var(--s2);
+    box-shadow:0 1px 0 rgba(255,255,255,.05); flex:none; }
+  .composer2 { background:var(--s0); border-radius:9px;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px var(--sig-line), 0 0 0 4px var(--sig-dim); }
+  .composer2 textarea { width:100%; background:transparent; border:0; outline:none; resize:none; color:var(--t1);
+    font-family:var(--sans); font-size:11.5px; line-height:1.5; padding:9px 11px 4px; }
+  .composer2 textarea::placeholder { color:var(--t4); }
+  .c2bar { display:flex; align-items:center; gap:6px; padding:4px 7px 6px; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo"></div><span class="wordmark">Command Studio</span>
+      <span class="envchip">LOCAL · :8000</span>
+    </div>
+    <nav class="nav">
+      <a href="#">Workflows</a><a href="#">Datasets</a><a href="#">Catalog</a>
+      <a href="#">Runs</a><a href="#" class="active">Agents</a><a href="#">Admin</a>
+    </nav>
+    <div class="topright">
+      <div class="cmdk"><span>Search agents, tools, runs…</span><span class="kbd">⌘K</span></div>
+      <div class="team"><span class="dot good"></span><span>Growth Analytics</span><span class="caret">▾</span></div>
+      <div class="avatar">SG</div>
+    </div>
+  </div>
+
+  <div class="subhead">
+    <h1 style="font-size:13px;font-weight:550">Weekly finance export → scheduled pipeline</h1>
+    <span class="idf">ses_8Hn3Vq · turn 3</span>
+    <span class="st" style="font-size:11.5px;color:var(--t2)"><span class="dot warn"></span>needs your answer</span>
+    <div class="spacer"></div>
+    <div class="ctrl">Asked <b>2</b> · resolved 9 itself</div>
+    <button class="btn-ghost">Stop</button>
+    <button class="btn-primary" style="opacity:.4">Accept &amp; publish</button>
+  </div>
+
+  <div class="body3">
+
+    <!-- ════ THE AGENT ════ -->
+    <div class="agcol">
+      <div class="aghead">
+        <div class="avatar" style="width:24px;height:24px;font-size:9px">WA</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;font-weight:600;color:var(--t1)">Workflow Author</div>
+          <div style="font-size:10px;color:var(--t3)">claude-opus-4-8 · waiting on you · 40s</div>
+        </div>
+        <span class="dot warn"></span>
+      </div>
+
+      <div class="agstream">
+        <div class="say me">
+          Turn the weekly finance export into a scheduled workflow. Pull it Monday morning, check it isn't empty, load it, and email me a summary. Stop loudly if the file is missing.
+        </div>
+
+        <div class="act"><span class="fn2">list_node_types</span><span class="rs">27 types · 6 groups</span><span class="ms2">12ms</span></div>
+        <div class="act"><span class="fn2">search_datasets</span><span class="rs">finance_weekly_export</span><span class="ms2">210ms</span></div>
+        <div class="act"><span class="fn2">describe_dataset</span><span class="rs">9 columns · 20 rows</span><span class="ms2">188ms</span></div>
+        <div class="act"><span class="fn2">run_sql</span><span class="rs">3 candidate tables</span><span class="ms2">420ms</span></div>
+
+        <div class="say">
+          I've built the trigger, fetch, normalise and branch. Two things I genuinely can't work out from the file, so I've stopped rather than guess.
+        </div>
+
+        <!-- ════ THE ASK ════ -->
+        <div class="ask">
+          <div class="qh">
+            <span class="dot warn"></span>
+            <span class="lb3">I need two answers</span>
+          </div>
+          <div class="qt">Everything else I've settled myself — see the panel on the right.</div>
+
+          <div class="qn">
+            <span class="ix">1</span>
+            Which table should the rows land in? Three in <span class="mono" style="font-size:10.5px">finance</span> look plausible and I don't want to pick for you.
+          </div>
+          <div class="opt">
+            <span class="on2">finance.ledger</span>
+            <span class="om">4.2M rows · written 7d ago</span>
+            <span class="rec">use this</span>
+          </div>
+          <div class="opt">
+            <span class="on2">finance.ledger_staging</span>
+            <span class="om">11 rows · written 2h ago</span>
+          </div>
+          <div class="opt">
+            <span class="on2">finance.ledger_v2</span>
+            <span class="om">0 rows · never written</span>
+          </div>
+          <div class="orjust">
+            <b style="color:var(--t2)">Why ledger:</b> it's the only one with the same 9 columns as the export, and the staging table looks like someone's test.
+          </div>
+
+          <div class="qn" style="margin-top:13px">
+            <span class="ix">2</span>
+            Monday's file has <b style="color:var(--t1)">2 of 20 rows</b> with a null <span class="mono" style="font-size:10.5px">period</span>. What should happen to those?
+          </div>
+          <div class="opt">
+            <span class="on2">Reject them, load the rest</span>
+            <span class="om">18 of 20 land</span>
+            <span class="rec">use this</span>
+          </div>
+          <div class="opt">
+            <span class="on2">Fail the whole run</span>
+            <span class="om">0 land · loud</span>
+          </div>
+          <div class="opt">
+            <span class="on2">Load them with period = the run date</span>
+            <span class="om">20 of 20 land</span>
+          </div>
+          <div class="orjust">
+            Or just tell me in your own words — these are shortcuts, not the only answers.
+          </div>
+        </div>
+
+        <div class="say" style="color:var(--t3)">
+          Once you answer I'll finish the load node, wire the email, and test-run against Monday's file before handing it back.
+        </div>
+      </div>
+
+      <div class="agfoot">
+        <div class="composer2">
+          <textarea rows="2" placeholder="Answer in plain English — or click an option above…"></textarea>
+          <div class="c2bar">
+            <span class="cchip" style="height:22px;font-size:10.5px">+ Context</span>
+            <div class="spacer"></div>
+            <span style="font-size:10px;color:var(--t3)"><span class="kbd">Enter</span> send</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════ THE GRAPH, still live ════ -->
+    <div class="mid">
+      <div class="cbar2">
+        <span class="micro">Draft pipeline</span>
+        <span style="font-size:11px;color:var(--t2)">6 nodes · 5 connections</span>
+        <span class="sev sev-warn">4 of 6 configured · blocked on 2 answers</span>
+        <div class="spacer"></div>
+        <span class="cchip" style="height:22px;font-size:10.5px">Fit</span>
+        <span class="cchip" style="height:22px;font-size:10.5px">Open in editor</span>
+      </div>
+
+      <div class="canvas">
+        <svg class="cedge" width="100%" height="100%">
+          <path d="M 138 88 C 138 105, 138 105, 138 122" />
+          <path d="M 138 178 C 138 195, 138 195, 138 212" />
+          <path d="M 138 268 C 138 285, 138 285, 138 302" />
+          <path d="M 232 328 C 300 328, 300 402, 368 402" />
+          <path d="M 368 428 C 368 452, 368 452, 368 476" class="live" />
+          <path d="M 138 358 C 138 380, 138 380, 138 402" />
+        </svg>
+
+        <div class="cnode trigger" style="left:46px; top:36px">
+          <span class="port out"></span>
+          <div class="ty">Trigger · Cron</div>
+          <div class="nn">Monday 07:00</div>
+          <div class="pp">0 7 * * 1 · Europe/London</div>
+        </div>
+        <div class="cnode action" style="left:46px; top:126px">
+          <span class="port in"></span><span class="port out"></span>
+          <div class="ty">Action · HttpRequest</div>
+          <div class="nn">Fetch export</div>
+          <div class="pp">GET {{ $vars.EXPORT_URL }}</div>
+        </div>
+        <div class="cnode transform" style="left:46px; top:216px">
+          <span class="port in"></span><span class="port out"></span>
+          <div class="ty">Transform · Code</div>
+          <div class="nn">Normalise rows</div>
+          <div class="pp">18 lines · returns items[]</div>
+        </div>
+        <div class="cnode flow" style="left:46px; top:306px">
+          <span class="port in"></span><span class="port out"></span>
+          <span class="plabel" style="top:14px">true</span>
+          <span class="plabel" style="top:44px">false</span>
+          <div class="ty">Flow · If</div>
+          <div class="nn">Has rows?</div>
+          <div class="pp">{{ $json.row_count }} &gt; 0</div>
+        </div>
+        <div class="cnode ghost now" style="left:276px; top:376px">
+          <span class="port in"></span><span class="port out"></span>
+          <div class="ty">Output · Postgres</div>
+          <div class="nn">Load rows</div>
+          <div class="pp">waiting on question 1</div>
+        </div>
+        <div class="cnode ghost" style="left:276px; top:466px">
+          <span class="port in"></span>
+          <div class="ty">Output · SendEmail</div>
+          <div class="nn">Email summary</div>
+          <div class="pp">not configured</div>
+        </div>
+        <div class="cnode flow" style="left:46px; top:396px">
+          <span class="port in"></span>
+          <div class="ty">Flow · StopAndError</div>
+          <div class="nn">Export was empty</div>
+          <div class="pp">error · notify #finance-ops</div>
+        </div>
+
+        <div style="position:absolute; left:46px; top:560px; width:520px">
+          <div class="guard">
+            The graph stays <b>live and inspectable</b> while it waits. An information question is not dangerous, so it does not dim the world — only a checkpoint does that.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════ WHAT IT WORKED OUT WITHOUT ASKING ════ -->
+    <div class="rgt">
+      <div class="colhead" style="flex:none;padding:10px 15px 9px;box-shadow:0 1px 0 rgba(255,255,255,.045)">
+        <div style="display:flex;align-items:baseline;gap:9px">
+          <span style="font-size:11.5px;font-weight:600;color:var(--t1)">Settled without asking</span>
+          <div class="spacer"></div>
+          <span class="micro">9 of 11</span>
+        </div>
+      </div>
+
+      <div class="colscroll">
+        <div class="isec">
+          <div class="sect-sub" style="margin-bottom:10px">The measure of an agent is how <b style="color:var(--t2)">little</b> it has to ask. Each of these was established by a tool call, not assumed.</div>
+
+          <div class="inf"><span class="il">Schedule</span><span class="iv"><b>Monday 07:00</b> Europe/London</span><span class="src2">your words</span></div>
+          <div class="inf"><span class="il">Export URL</span><span class="iv"><b>$vars.EXPORT_URL</b> — already set</span><span class="src2">variables</span></div>
+          <div class="inf"><span class="il">File shape</span><span class="iv"><b>9 columns, 20 rows</b>, CSV</span><span class="src2">describe_dataset</span></div>
+          <div class="inf"><span class="il">Emptiness test</span><span class="iv"><b>row_count &gt; 0</b> — the field exists</span><span class="src2">describe_dataset</span></div>
+          <div class="inf"><span class="il">Credential</span><span class="iv"><b>finance-warehouse</b>, only one with write</span><span class="src2">credentials</span></div>
+          <div class="inf"><span class="il">Failure route</span><span class="iv"><b>StopAndError</b> — you said “loudly”</span><span class="src2">your words</span></div>
+          <div class="inf"><span class="il">Alert channel</span><span class="iv"><b>#finance-ops</b>, used by 3 workflows</span><span class="src2">existing workflows</span></div>
+          <div class="inf"><span class="il">Email target</span><span class="iv"><b>you</b> — you said “email me”</span><span class="src2">your words</span></div>
+          <div class="inf"><span class="il">Timezone</span><span class="iv"><b>Europe/London</b>, your team default</span><span class="src2">team settings</span></div>
+
+          <div style="margin-top:11px" class="guard">
+            <b>Two questions next to nine inferences reads as competence.</b> Two questions alone reads as a form — which is what most “AI builders” actually are.
+          </div>
+        </div>
+
+        <div class="isec">
+          <div class="sect-title" style="margin-bottom:7px">When it asks vs when it acts</div>
+          <div class="inf"><span class="il">Can derive it</span><span class="iv">acts, and shows its source</span></div>
+          <div class="inf"><span class="il">Cannot derive it</span><span class="iv">asks, with real options</span></div>
+          <div class="inf"><span class="il">Reversible + minor</span><span class="iv">picks, and says it picked</span></div>
+          <div class="inf"><span class="il">Irreversible</span><span class="iv">checkpoint — permission, not info</span></div>
+          <div style="margin-top:10px" class="guard warn">
+            An <b>ask</b> and a <b>checkpoint</b> are drawn differently on purpose. Making them look alike teaches people to skim both — and skimming a checkpoint is how a dataset gets published by accident.
+          </div>
+        </div>
+
+        <div class="isec">
+          <div class="sect-title" style="margin-bottom:7px">If you say nothing</div>
+          <div class="inf"><span class="il">Run state</span><span class="iv"><b>held</b>, indefinitely</span></div>
+          <div class="inf"><span class="il">Default applied</span><span class="iv">none — it will not proceed</span></div>
+          <div class="inf"><span class="il">Cost while held</span><span class="iv">zero — no model calls</span></div>
+          <div style="margin-top:10px" class="guard">
+            It will <b>not</b> time out into its own recommendation. An agent that answers its own question after ten minutes has not asked you anything — it has notified you.
+          </div>
+        </div>
+
+        <div class="isec">
+          <div class="sect-title" style="margin-bottom:7px">Answer however you like</div>
+          <div style="font-size:11px;color:var(--t2);line-height:1.6">
+            “<span style="color:var(--t1)">ledger, and drop the null ones</span>” resolves both.<br />
+            So does “<span style="color:var(--t1)">use the staging table for now</span>”.<br />
+            So does clicking two options.
+          </div>
+          <div style="margin-top:9px" class="guard">
+            The options are a <b>shortcut, never a cage</b>. Free text is always accepted, and an answer that changes the plan is treated as a correction, not an error.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

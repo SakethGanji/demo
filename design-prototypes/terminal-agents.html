@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<!--
+DESIGN NOTES — /agents · the agent registry and its config surface.
+
+THE IDEA: an agent stops being a parameter blob buried inside a workflow node and becomes a thing you own —
+named, listed, configured, versioned by its runs. This screen is the "manage your agents" half of the pitch.
+
+WHY MASTER–DETAIL ON ONE ROUTE (not /agents + /agent/:id): the header nav lights via a fuzzy route match, so a
+separate detail path would go dark the moment you opened an agent. /data?dataset= already made this trade.
+
+WHAT THE DENSITY FORCED:
+ A1 ACCENT — cyan means SCOPE + LIVENESS and is spent exactly 3 times: the active route (Agents), the selected
+    agent in the rail, and the live lamp on the one agent currently running. "Enabled", "bound", the primary
+    button and every tab came off the accent. Running is repeated state across the rail, so it is the UNKNOWN
+    ring, pulsing — never the accent, or it becomes a texture.
+ A2 TABS take value + elevation, not the accent. Three tabs is not a navigation problem.
+ A3 EVERY FIGURE CARRIES ITS DENOMINATOR. "8 tools" is meaningless; "8 of 41 discovered" is a fact. Token spend
+    is the sharp case: models that do not report usage exist, so the figure is coverage-qualified
+    ("14 of 17 runs reported usage") rather than silently averaging over a smaller population.
+ A4 THE MODEL FIELD IS NOT A FREE TEXT BOX and the form is not hand-drawn — every control here is rendered by
+    DynamicNodeForm from GET /api/nodes/AIAgent, which already carries ~28 properties including all 12 memory
+    types with their displayOptions branching. Drawing a bespoke form would fork a schema that already exists.
+ A5 THE HONEST GAPS are stated in Guards, not hidden: expressions have no upstream node to resolve against, and
+    a saved agent's edits do not rewrite its past runs (the run freezes a snapshot).
+-->
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Command Studio · Agents</title>
+<link rel="stylesheet" href="_agents-base.css" />
+<style>
+  /* ── rail: the agent list ─────────────────────────────────────────────── */
+  .agent { padding:9px 12px; cursor:pointer; box-shadow:inset 0 -1px 0 rgba(255,255,255,.035); position:relative; }
+  .agent:hover { background:rgba(255,255,255,.022); }
+  /* SIGNAL 2/3 — the selected agent */
+  .agent.sel { background:var(--s5); }
+  .agent.sel::before { content:""; position:absolute; left:0; top:0; bottom:0; width:2px; background:var(--sig); }
+  .agent .nm { font-size:12px; font-weight:550; color:var(--t1); display:flex; align-items:center; gap:7px; margin-bottom:3px; }
+  .agent .meta { display:flex; align-items:center; gap:9px; font-size:10.5px; color:var(--t3); }
+  .agent .meta .mono { font-size:10px; }
+  .agent.off .nm { color:var(--t3); font-weight:450; }
+
+  /* ── detail head ──────────────────────────────────────────────────────── */
+  .dhead { padding:13px 18px 0; flex:none; }
+  .dtitle { display:flex; align-items:center; gap:11px; margin-bottom:3px; }
+  .dtitle h2 { font-size:16px; font-weight:600; color:var(--t1); letter-spacing:-0.018em; }
+  .dsub { display:flex; align-items:center; gap:12px; font-size:11px; color:var(--t3); margin-bottom:11px; }
+  .tabs { display:flex; gap:2px; }
+  .tabs button { height:29px; padding:0 12px; border:0; border-radius:7px 7px 0 0; background:transparent;
+    color:var(--t3); font-family:var(--sans); font-size:12px; cursor:pointer; display:inline-flex; align-items:center; gap:7px; }
+  .tabs button:hover { color:var(--t1); }
+  /* tabs take VALUE + ELEVATION, never the accent */
+  .tabs button.active { background:var(--s3); color:var(--t1); font-weight:600; box-shadow:var(--hi); }
+  .tabs .c { font-family:var(--mono); font-size:10px; color:var(--t3); font-variant-numeric:tabular-nums; }
+  .dscroll { flex:1; overflow-y:auto; min-height:0; background:var(--s3); }
+  .cols { display:grid; grid-template-columns:1fr 300px; gap:0; align-items:start; }
+  .colr { box-shadow:inset 1px 0 0 rgba(255,255,255,.05); min-height:100%; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- ===== TOP BAR ===== -->
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo"></div>
+      <span class="wordmark">Command Studio</span>
+      <span class="envchip">LOCAL · :8000</span>
+    </div>
+    <nav class="nav">
+      <a href="#">Workflows</a>
+      <a href="#">Datasets</a>
+      <a href="#">Catalog</a>
+      <a href="#">Runs</a>
+      <a href="#" class="active">Agents</a>
+      <a href="#">Admin</a>
+    </nav>
+    <div class="topright">
+      <div class="cmdk">
+        <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+        <span>Search agents, tools, runs…</span>
+        <span class="kbd">⌘K</span>
+      </div>
+      <div class="iconbtn" title="Notifications">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg>
+      </div>
+      <div class="iconbtn" title="Theme">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg>
+      </div>
+      <div class="team" title="Switch team">
+        <span class="dot good"></span><span>Growth Analytics</span><span class="caret">▾</span>
+      </div>
+      <div class="avatar">SG</div>
+    </div>
+  </div>
+
+  <!-- ===== SUB-HEADER ===== -->
+  <div class="subhead">
+    <h1>Agents</h1>
+    <div class="seg">
+      <button class="active">All <span class="c">7</span></button>
+      <button>Active <span class="c">5</span></button>
+      <button>Archived <span class="c">2</span></button>
+    </div>
+    <div class="searchbox">
+      <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+      <input placeholder="name, model, bound tool…" />
+    </div>
+    <div class="spacer"></div>
+    <div class="ctrl">
+      <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M4 7h16M4 12h10M4 17h7"/></svg>
+      Sort <b>Last run</b> <span class="caret">▾</span>
+    </div>
+    <button class="btn-primary">
+      <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M12 5v14M5 12h14"/></svg>
+      New agent
+    </button>
+  </div>
+
+  <div class="body">
+
+    <!-- ===== RAIL — the registry ===== -->
+    <div class="rail">
+      <div class="railhead">
+        <span class="micro">7 agents · 3 teams</span>
+      </div>
+      <div class="railscroll">
+
+        <div class="agent sel">
+          <div class="nm"><span class="lamp"></span>Revenue Analyst</div>
+          <div class="meta"><span class="mono">claude-opus-4-8</span><span>·</span><span>12 tools</span></div>
+          <div class="meta" style="margin-top:3px"><span class="st"><span class="dot run"></span>running</span><span>·</span><span>started 40s ago</span></div>
+        </div>
+
+        <div class="agent">
+          <div class="nm">Data Quality Sentinel</div>
+          <div class="meta"><span class="mono">claude-sonnet-5</span><span>·</span><span>6 tools</span></div>
+          <div class="meta" style="margin-top:3px"><span class="st"><span class="dot good"></span>completed</span><span>·</span><span>2h ago</span></div>
+        </div>
+
+        <div class="agent">
+          <div class="nm">Workflow Author</div>
+          <div class="meta"><span class="mono">claude-opus-4-8</span><span>·</span><span>9 tools</span></div>
+          <div class="meta" style="margin-top:3px"><span class="st"><span class="dot good"></span>completed</span><span>·</span><span>5h ago</span></div>
+        </div>
+
+        <div class="agent">
+          <div class="nm">Schema Migration Scout</div>
+          <div class="meta"><span class="mono">claude-sonnet-5</span><span>·</span><span>4 tools</span></div>
+          <div class="meta" style="margin-top:3px"><span class="st"><span class="dot crit"></span>failed</span><span>·</span><span>yesterday</span></div>
+        </div>
+
+        <div class="agent">
+          <div class="nm">PII Sweep</div>
+          <div class="meta"><span class="mono">claude-haiku-4-5</span><span>·</span><span>3 tools</span></div>
+          <div class="meta" style="margin-top:3px"><span class="st"><span class="dot serious"></span>cancelled</span><span>·</span><span>2d ago</span></div>
+        </div>
+
+        <div class="agent off">
+          <div class="nm">Cost Reporter</div>
+          <div class="meta"><span class="mono">gemini-2.0-flash</span><span>·</span><span>5 tools</span></div>
+          <div class="meta" style="margin-top:3px"><span class="st"><span class="dot muted"></span>never run</span><span>·</span><span>archived</span></div>
+        </div>
+
+        <div class="agent off">
+          <div class="nm">Legacy Joiner</div>
+          <div class="meta"><span class="mono">gpt-4o</span><span>·</span><span>2 tools</span></div>
+          <div class="meta" style="margin-top:3px"><span class="st"><span class="dot muted"></span>never run</span><span>·</span><span>archived</span></div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ===== MAIN — the agent ===== -->
+    <div class="main">
+
+      <div class="dhead">
+        <div class="dtitle">
+          <h2>Revenue Analyst</h2>
+          <span class="idf">agt_7Kq2mN4pXr</span>
+          <span class="st" style="font-size:11px;color:var(--t2)"><span class="dot run"></span>running</span>
+          <div class="spacer"></div>
+          <button class="btn-ghost">
+            <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M8 3H5a2 2 0 00-2 2v3m0 8v3a2 2 0 002 2h3m8-18h3a2 2 0 012 2v3m0 8v3a2 2 0 01-2 2h-3"/></svg>
+            Duplicate
+          </button>
+          <button class="btn-primary">
+            <svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M5 3l14 9-14 9V3z"/></svg>
+            Run task
+          </button>
+        </div>
+        <div class="dsub">
+          <span>Answers revenue questions over the finance datasets. Reads only — cannot publish or tag.</span>
+        </div>
+        <div class="tabs">
+          <button class="active">Configuration</button>
+          <button>Tools <span class="c">12</span></button>
+          <button>Runs <span class="c">17</span></button>
+        </div>
+      </div>
+
+      <div class="dscroll">
+
+        <!-- run summary band — every figure denominated -->
+        <div class="statband">
+          <div class="stat">
+            <span class="micro">Runs</span>
+            <span class="v">17</span>
+            <span class="den">14 succeeded · 2 failed · 1 running</span>
+          </div>
+          <div class="stat">
+            <span class="micro">Median duration</span>
+            <span class="v">48<span style="font-size:11px;color:var(--t3)">s</span></span>
+            <span class="den">over 16 of 17 finished</span>
+          </div>
+          <div class="stat">
+            <span class="micro">Median iterations</span>
+            <span class="v">6</span>
+            <span class="den">of 30 max · over 16 runs</span>
+          </div>
+          <div class="stat">
+            <span class="micro">Mean tokens</span>
+            <span class="v">31.4<span style="font-size:11px;color:var(--t3)">k</span></span>
+            <span class="den">14 of 17 runs reported usage</span>
+          </div>
+          <div class="stat">
+            <span class="micro">Tools bound</span>
+            <span class="v">12</span>
+            <span class="den">of 41 discovered · 2 connectors</span>
+          </div>
+        </div>
+
+        <div class="cols">
+
+          <!-- LEFT: the schema-driven form -->
+          <div>
+            <div class="sect">
+              <div class="sect-title">Identity</div>
+              <div class="sect-sub">Rendered by <span class="mono" style="font-size:10.5px">DynamicNodeForm</span> from <span class="mono" style="font-size:10.5px">GET /api/nodes/AIAgent</span> — the backend is the single source of truth for these fields.</div>
+
+              <div class="row2">
+                <div class="field">
+                  <label>Name</label>
+                  <input class="input" value="Revenue Analyst" />
+                </div>
+                <div class="field">
+                  <label>Model</label>
+                  <select class="select"><option>claude-opus-4-8</option></select>
+                </div>
+              </div>
+
+              <div class="field">
+                <label>Description</label>
+                <input class="input" value="Answers revenue questions over the finance datasets. Reads only." />
+              </div>
+
+              <div class="field">
+                <label>System prompt</label>
+                <textarea class="ta" rows="7">You are a revenue analyst working inside a governed data platform.
+
+Always call search_datasets first — it is the only tool that returns a dataset_id, and every other tool needs one.
+
+A "not found" can mean the resource exists but belongs to a team you are not in. It is not proof of absence. Say so rather than concluding the data does not exist.
+
+Never state a figure without its denominator.</textarea>
+                <div class="hint">Supports <span class="mono">{{ $vars.NAME }}</span> and <span class="mono">{{ $execution.id }}</span>.</div>
+              </div>
+
+              <div class="field">
+                <label>Default task template <span style="color:var(--t3);font-weight:400">— optional</span></label>
+                <textarea class="ta" rows="2">Answer the question using only the finance datasets: {{ $json.question }}</textarea>
+                <div class="hint">Used when a run is triggered without an explicit task.</div>
+              </div>
+
+              <div style="margin-top:2px" class="guard">
+                Expression autocomplete is unavailable here. An agent has no upstream node, so <b>{{ $node[…] }}</b> resolves empty — only <b>$vars</b>, <b>$execution</b> and the run's own input payload are in scope.
+              </div>
+            </div>
+
+            <div class="sect">
+              <div class="sect-title">Loop</div>
+              <div class="sect-sub">Bounds on the agent's reasoning. These map one-to-one onto the AIAgent node's parameters.</div>
+              <div class="row3">
+                <div class="field">
+                  <label>Max iterations</label>
+                  <input class="input mono" value="30" />
+                </div>
+                <div class="field">
+                  <label>Temperature</label>
+                  <input class="input mono" value="0" />
+                </div>
+                <div class="field">
+                  <label>Max run time</label>
+                  <input class="input mono" value="3600s" />
+                </div>
+              </div>
+              <div class="row2">
+                <div class="field">
+                  <label>Context budget</label>
+                  <input class="input mono" value="180000" />
+                  <div class="hint">Compaction begins at 80%.</div>
+                </div>
+                <div class="field">
+                  <label>Max output tokens</label>
+                  <input class="input mono" value="8192" />
+                </div>
+              </div>
+            </div>
+
+            <div class="sect">
+              <div class="sect-title">Memory</div>
+              <div class="sect-sub">One of 11 providers. The dependent fields below change with the selection — that branching is declared in the node schema, not written here.</div>
+              <div class="row2">
+                <div class="field">
+                  <label>Provider</label>
+                  <select class="select"><option>summaryBuffer</option></select>
+                </div>
+                <div class="field">
+                  <label>Session key</label>
+                  <input class="input mono" value="{{ $vars.TEAM }}:revenue" />
+                </div>
+              </div>
+              <div class="row2">
+                <div class="field">
+                  <label>Max messages before summary</label>
+                  <input class="input mono" value="20" />
+                </div>
+                <div class="field">
+                  <label>Summary model</label>
+                  <select class="select"><option>claude-haiku-4-5</option></select>
+                </div>
+              </div>
+            </div>
+
+            <div class="sect">
+              <div class="sect-title">Structured output</div>
+              <div class="sect-sub">When set, the agent's final answer is validated against this schema before the run is marked successful.</div>
+              <div class="field">
+                <textarea class="ta" rows="8">{
+  "type": "object",
+  "properties": {
+    "answer":       { "type": "string" },
+    "figures":      { "type": "array", "items": { "type": "object" } },
+    "datasets_used":{ "type": "array", "items": { "type": "string" } },
+    "caveats":      { "type": "string" }
+  },
+  "required": ["answer", "datasets_used"]
+}</textarea>
+              </div>
+            </div>
+          </div>
+
+          <!-- RIGHT: capabilities + provenance -->
+          <div class="colr">
+            <div class="sect">
+              <div class="sect-title">Capabilities</div>
+              <div class="sect-sub">Off by default. Each one widens what the agent can do to your systems.</div>
+
+              <div class="swrow">
+                <div class="sw on"></div>
+                <div class="lb"><b>Planning</b><span>Emits a plan before acting</span></div>
+              </div>
+              <div class="swrow">
+                <div class="sw on"></div>
+                <div class="lb"><b>Scratchpad</b><span>memory_store / memory_recall</span></div>
+              </div>
+              <div class="swrow">
+                <div class="sw"></div>
+                <div class="lb"><b>Sub-agents</b><span>Can spawn children, depth ≤ 3</span></div>
+              </div>
+              <div class="swrow">
+                <div class="sw"></div>
+                <div class="lb"><b>Programmatic tool calling</b><span>Runs a script that calls tools</span></div>
+              </div>
+              <div class="swrow">
+                <div class="sw on"></div>
+                <div class="lb"><b>Reflection</b><span>Critiques its own answer</span></div>
+              </div>
+
+              <div style="margin-top:10px" class="guard warn">
+                <b>Programmatic tool calling executes Python in-process.</b> It is not sandboxed. Leave it off unless this agent is trusted with the same reach as the server.
+              </div>
+            </div>
+
+            <div class="sect">
+              <div class="sect-title">Skills</div>
+              <div class="sect-sub">Named sub-agents with a scoped subset of this agent's tools.</div>
+              <table>
+                <thead><tr><th>Skill</th><th class="num">Tools</th></tr></thead>
+                <tbody>
+                  <tr><td>reconciler</td><td class="num">4 of 12</td></tr>
+                  <tr><td>chart-builder</td><td class="num">3 of 12</td></tr>
+                </tbody>
+              </table>
+              <div style="margin-top:9px" class="guard">
+                Skills are only reachable when <b>delegate_to_skill</b> is offered, which requires at least one skill to be defined.
+              </div>
+            </div>
+
+            <div class="sect">
+              <div class="sect-title">Provenance</div>
+              <table>
+                <tbody>
+                  <tr><td style="color:var(--t3)">Created</td><td style="text-align:right">14 Aug, S. Ganji</td></tr>
+                  <tr><td style="color:var(--t3)">Last edited</td><td style="text-align:right">2h ago, S. Ganji</td></tr>
+                  <tr><td style="color:var(--t3)">Team</td><td style="text-align:right">Growth Analytics</td></tr>
+                  <tr><td style="color:var(--t3)">Used by</td><td style="text-align:right">2 workflows</td></tr>
+                </tbody>
+              </table>
+              <div style="margin-top:10px" class="guard">
+                Editing this agent does <b>not</b> change what its past runs did. Every run freezes a snapshot of the model, prompt, settings and tool bindings at the moment it was submitted.
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
