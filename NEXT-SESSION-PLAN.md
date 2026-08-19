@@ -33,16 +33,17 @@ credit (Claude models appear in the picker but 402; OpenAI has no key).
 ## The plan, ranked by user-visible payoff
 
 ### Now — make the demo credible (small, high impact)
-1. **Reseed a demo workflow that actually runs.** `demo-weekly-export`
-   (the seeded story) still fails when executed — it points at
-   `example.com/export` (404) and a Postgres node with no creds. Swap it for a
-   workflow whose nodes succeed (a reachable/mock endpoint + a Code transform, or
-   a local echo) so "the agent's output runs forever, no model" is demonstrably
-   true. *Payoff: the flywheel slide stops being contradicted on stage.*
-2. **Purge the litter.** 19 of ~20 agents are `uitest-*`/`probe-*`/`Proof
-   Calculator`, and most runs are old failures. Agent-edit can revive the useful
-   ones; delete the rest. **Confirm the delete list with the user first** — it's
-   run history. *Payoff: the fleet/runs screens stop reading as a graveyard.*
+1. ~~**Reseed a demo workflow that actually runs.**~~ **DONE 2026-08-19.**
+   `demo-weekly-export` is now Code-node based (synthesize export → branch →
+   per-region loader), runs to success model-free; seed narration updated.
+2. ~~**Purge the litter.**~~ **DONE 2026-08-19.** Deleted the 19 junk
+   `uitest-*`/`probe-*`/`Proof Calculator`/`runtime-proof` agents (deleting an
+   agent also cleared its runs); roster is now just `Demo Workflow Author` and
+   `gemini-live-eval`, both on `gemini-3.6-flash`, both verified to run live.
+   Also added agent delete + model-heal-on-reseed. **Still open:** the runs
+   table keeps ~24 historical failed runs + 2 zombie `queued` runs (Aug 17,
+   never finalized — the durability gap, no delete-run endpoint). Clearing those
+   needs a delete-run/reaper capability (see the agent-run reaper below).
 
 ### Next — the features that make it more than a build tool
 3. **The "Ask" surface** (VISION's lead job, no UI today). A question-over-data
