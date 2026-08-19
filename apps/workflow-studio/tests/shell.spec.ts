@@ -148,7 +148,7 @@ test('the studio header is present on every route under the shell', async ({ pag
   expect(navLabels.length).toBeGreaterThan(0)
 
   /** Routes the nav actually links to — the only ones it can mark. */
-  const LINKED = new Set<string>(['/data', '/catalog', '/runs', '/admin'])
+  const LINKED = new Set<string>(['/data', '/catalog', '/runs', '/agents', '/build', '/admin'])
 
   for (const route of STUDIO_ROUTES) {
     await goto(page, route)
@@ -284,10 +284,15 @@ test('an empty palette offers navigation, and remembers the dataset you opened',
     .locator('[data-slot="command-item"]')
     .evaluateAll((els) => els.map((e) => e.textContent?.trim() ?? ''))
   for (const label of headerLabels) {
-    // "Admin" is offered as "Governance" in the palette; compare the routes
-    // that both actually reach instead of the words.
+    // Some header labels are offered under a fuller name in the palette
+    // ("Admin" → "Governance", "Build" → "Build (Script → Workflow)"); assert
+    // the destination is offered rather than requiring identical words.
     if (label === 'Admin') {
       expect(goTo).toContain('Governance')
+      continue
+    }
+    if (label === 'Build') {
+      expect(goTo.some((g) => g.startsWith('Build'))).toBe(true)
       continue
     }
     expect(goTo, `palette does not offer ${label}`).toContain(label)
