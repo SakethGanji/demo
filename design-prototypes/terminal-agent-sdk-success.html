@@ -1,56 +1,38 @@
 <!DOCTYPE html>
 <!--
-DESIGN NOTES — THE SDK. The agent writes a Python script; the graph is its projection.
+DESIGN NOTES — THE SDK, CLEAN RUN. Companion to terminal-agent-sdk.html, which deliberately drew the partial-
+failure state because that is the more interesting one to prove a provenance link against. This screen is the
+state that failure implies must also exist: all 28 lines ran, validate() and test_run() both passed, and the
+only thing left is a human decision. Without this screen the set only ever shows the agent being wrong.
 
-THE ARCHITECTURE CHANGE THIS SCREEN EXISTS TO TEST:
-Earlier the agent composed a workflow through a LADDER of 7 tools — add_node, connect, validate — one model
-call per step. It works (a real model built a 6-node graph in 18 calls and self-corrected once), but it is
-expensive and it cannot loop. The better shape is ONE tool: the agent writes Python against an SDK generated
-from the node registry.
-
-    cron  = Cron(expression="0 7 * * 1")
-    fetch = HttpRequest(method="GET", url="{{ $vars.EXPORT_URL }}")
-    cron >> fetch >> check
-    check.true >> Postgres(...)
-
-  · ~650 tokens (204 tool schema + 445 signature reference) instead of 1,293 (ladder) or ~5,412 (28 tools) —
-    corrected from an earlier draft that counted only the 204 and called it 6×; it is 2× the ladder, 8× the tools
-  · one round trip instead of eighteen
-  · LOOPS — "a branch per region" is a for-loop, not twelve calls the model must each get right
-  · the SDK is GENERATED from the registry, so nodes added next year appear with no code change
-  · models write Python far better than they emit long tool-call chains
-
-THE UI PROBLEM IT CREATES, AND THE ANSWER:
-If the agent writes a script instead of making 18 visible calls, what do you watch? A script that runs and
-then a finished graph appears is a magic box — exactly what we spent this design avoiding.
-
-The answer is that the SCRIPT AND THE CANVAS ARE THE SAME EVENT, twice. Every SDK constructor emits the same
-addNode/addConnection the ladder did, so the graph still assembles one node at a time — driven from inside the
-script rather than from tool calls. The executing LINE and the node it just produced carry the same accent, and
-each node wears the line number that made it. Nothing is a black box; you are watching code run, not a result
-arrive.
+THE QUESTION THIS ANSWERS: once the script stops raising, what replaces the traceback? The answer is not "a
+green checkmark" — status hue is reserved and colour is not evidence. It is the actual output of validate() and
+test_run(), read the same way the traceback was: verbatim, in place, denominated. A dry test run that silently
+says "passed" is exactly the kind of unfalsifiable claim rule 11 exists to prevent.
 
 WHAT THE DENSITY FORCED:
- A1 ACCENT MARKS ONE THING: the currently-executing line and the node that line just created. Same event, two
-    places. That is the entire visual argument of the screen, so nothing else may take it.
- A2 EVERY NODE WEARS ITS LINE NUMBER (the small badge). Without it "which line made this?" is a guess, and the
-    link between the two panes is asserted rather than shown.
- A3 PARTIAL FAILURE IS THE INTERESTING STATE, so it is the one drawn. Line 22 raised; lines 1-21 already built
-    six real nodes that are still on the canvas. A ladder would have left the same partial graph — the
-    difference is the script tells you exactly where it stopped, and the traceback is pinned to the line.
- A4 THE ERROR IS AN EXCEPTION, NOT A VALIDATION REPORT. `HttpRequest(endpoint=...)` raises at construction with
-    a did-you-mean. That is a TIGHTER loop than validate-after-the-fact: the agent gets a traceback naming the
-    line, which is the thing models are best in the world at reading.
- A5 EVERY FIGURE DENOMINATED (rule 11): "6 of 8 nodes", "21 of 28 lines", "204 of 6,000 tokens", "1 of 28 node
-    types unavailable".
- A6 THE SCRIPT IS AN ARTIFACT YOU CAN EDIT AND RE-RUN. It is also the provenance record — far better than 18
-    tool calls for answering "why does this workflow look like this?"
+ A1 THE RIGHT PANEL CHANGES JOB. While the build is running it is a reference (what CAN I call). Once the build
+    is clean it is a result (what DID running this actually establish). Same panel, same width, different
+    content — because once the script is done, "here is the SDK signature list" is no longer the answer to the
+    question a reader has.
+ A2 test_run() OUTPUT IS A TABLE OF FACTS, NOT A SENTENCE. "Passed" is not falsifiable. "3 test rows synthesized
+    for HttpRequest · 1 of 1 branch taken (body not empty) · 3 Postgres upserts staged, 0 executed · trigger
+    fires next Mon 07:00 Europe/London" is — each clause is a thing that could have been false and was checked.
+ A3 STATUS IS THE DOT, NOT THE WORD ALONE (rule 6). "Clean" is a state, so it gets dot.good beside the word, the
+    same shape vocabulary as everywhere else in this system — not a new green box invented for this one screen.
+ A4 THE SCRIPT KEEPS ITS LINE NUMBERS ON EVERY NODE even though nothing is executing now. Provenance does not
+    expire when the run finishes — "why does this workflow look like this" is exactly as valid a question a week
+    later, and the answer is still "line 13".
+ A5 EVERY FIGURE DENOMINATED (rule 11): "28 of 28 lines", "8 of 8 nodes", "9 of 9 connections", "0 of 3 writes
+    executed (dry)", "650 of 6,000 tokens".
+ A6 ACCENT — 2 uses: the active route and the composer focus ring. Nothing is "executing" now, so no line or
+    node carries the sig accent — the thing it marks (current execution) genuinely does not exist in this state.
 -->
 <html lang="en" class="dark">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Command Studio · Agent writes the workflow</title>
+<title>Command Studio · Agent writes the workflow — clean run</title>
 <link rel="stylesheet" href="_agents-base.css" />
 <style>
   .body3 { flex:1; display:flex; min-height:0; overflow:hidden; }
@@ -70,6 +52,17 @@ WHAT THE DENSITY FORCED:
   .kv2 .v { color:var(--t2); text-align:right; font-family:var(--mono); font-size:10.5px; }
   .cbar2 { display:flex; align-items:center; gap:10px; padding:7px 14px; background:var(--s2);
     box-shadow:0 1px 0 rgba(255,255,255,.05); flex:none; }
+  /* result block after a passing check — same anatomy as .trace2 (left rule + indent) but neutral,
+     because this is a fact that was verified, not a fault that occurred. Colour is not the carrier here;
+     the content itself — denominated clauses — is. */
+  .trace3 { margin:4px 0 10px 39px; border-left:2px solid var(--r3); padding:4px 0 4px 11px;
+    font-family:var(--mono); font-size:10px; line-height:1.7; color:var(--t2); }
+  .trace3 b { color:var(--t1); font-weight:600; }
+  .trace3 .ok { color:var(--t1); }
+  .nextcard { border-radius:9px; background:var(--s3); padding:11px 13px; margin-top:9px;
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.07); }
+  .nextcard .tt { font-size:11.5px; font-weight:600; color:var(--t1); margin-bottom:3px; }
+  .nextcard .ds { font-size:10.5px; color:var(--t3); line-height:1.5; }
 </style>
 </head>
 <body>
@@ -93,12 +86,12 @@ WHAT THE DENSITY FORCED:
 
   <div class="subhead">
     <h1 style="font-size:13px;font-weight:550">Weekly finance export → scheduled pipeline</h1>
-    <span class="idf">ses_8Hn3Vq · turn 1</span>
-    <span class="st" style="font-size:11.5px;color:var(--t2)"><span class="dot crit"></span>script raised at line 22</span>
+    <span class="idf">ses_8Hn3Vq · turn 2</span>
+    <span class="st" style="font-size:11.5px;color:var(--t2)"><span class="dot good"></span>clean — validate() and test_run() passed</span>
     <div class="spacer"></div>
     <div class="ctrl">1 model call · <b>650</b> tok of tools</div>
     <button class="btn-ghost">Edit &amp; re-run</button>
-    <button class="btn-primary" style="opacity:.4">Accept &amp; publish</button>
+    <button class="btn-primary">Accept &amp; publish</button>
   </div>
 
   <div class="body3">
@@ -109,7 +102,7 @@ WHAT THE DENSITY FORCED:
         <h3>build_workflow.py</h3>
         <span class="micro">written by Workflow Author · 1 call</span>
         <div class="spacer"></div>
-        <span class="micro">21 of 28 lines run</span>
+        <span class="micro">28 of 28 lines run</span>
       </div>
 
       <div class="colscroll" style="padding:9px 0 16px">
@@ -135,35 +128,37 @@ WHAT THE DENSITY FORCED:
           <div class="sl done"><span class="ln3">19</span><span class="tx2">    loaders.append(node)</span></div>
           <div class="sl done"><span class="ln3">20</span><span class="tx2"></span></div>
           <div class="sl done"><span class="ln3">21</span><span class="tx2">check.false <span class="kw2">&gt;&gt;</span> <span class="fn4">StopAndError</span>(message=<span class="st2">"Export was empty"</span>)</span></div>
-
-          <div class="sl err2"><span class="ln3">22</span><span class="tx2">summary = <span class="fn4">SendEmail</span>(recipient=<span class="st2">"finance-ops@"</span>, subject=<span class="st2">"Close"</span>)</span></div>
-          <div class="trace2">
-            <b>TypeError</b> · SendEmail has no parameter <b>recipient</b><br />
-            <span style="color:var(--t4)">did you mean <b style="color:var(--t2)">toEmail</b>?</span><br />
-            <span style="color:var(--t4)">required: toEmail, subject, bodyFormat, body</span><br />
-            <span style="color:var(--t4)">  at build_workflow.py, line 22</span>
+          <div class="sl done"><span class="ln3">22</span><span class="tx2">summary = <span class="fn4">SendEmail</span>(toEmail=<span class="st2">"finance-ops@"</span>, subject=<span class="st2">"Close"</span>, bodyFormat=<span class="st2">"markdown"</span>, body=SUMMARY)</span></div>
+          <div class="sl done"><span class="ln3">23</span><span class="tx2"><span class="kw2">for</span> node <span class="kw2">in</span> loaders:</span></div>
+          <div class="sl done"><span class="ln3">24</span><span class="tx2">    node <span class="kw2">&gt;&gt;</span> summary</span></div>
+          <div class="sl done"><span class="ln3">25</span><span class="tx2"></span></div>
+          <div class="sl done"><span class="ln3">26</span><span class="tx2"><span class="fn4">validate</span>()</span></div>
+          <div class="trace3">
+            <b class="ok">✓ no problems.</b> 8 of 8 nodes reachable from the trigger · 0 dangling ports · 9 of 9
+            connections resolved.
           </div>
-
-          <div class="sl pend"><span class="ln3">23</span><span class="tx2"><span class="kw2">for</span> node <span class="kw2">in</span> loaders:</span></div>
-          <div class="sl pend"><span class="ln3">24</span><span class="tx2">    node <span class="kw2">&gt;&gt;</span> summary</span></div>
-          <div class="sl pend"><span class="ln3">25</span><span class="tx2"></span></div>
-          <div class="sl pend"><span class="ln3">26</span><span class="tx2"><span class="fn4">validate</span>()</span></div>
-          <div class="sl pend"><span class="ln3">27</span><span class="tx2"><span class="fn4">test_run</span>(input={<span class="st2">"body"</span>: SAMPLE})</span></div>
-          <div class="sl pend"><span class="ln3">28</span><span class="tx2"></span></div>
+          <div class="sl done"><span class="ln3">27</span><span class="tx2"><span class="fn4">test_run</span>(input={<span class="st2">"body"</span>: SAMPLE})</span></div>
+          <div class="trace3">
+            <b class="ok">✓ dry run complete, 0 writes executed.</b><br />
+            3 rows synthesized for <b>fetch</b> · branch taken: <b>check.true</b> (body not empty)<br />
+            3 of 3 <b>Postgres</b> upserts staged against finance.ledger, none sent<br />
+            1 <b>SendEmail</b> staged to finance-ops@, not sent · trigger fires next <b>Mon 07:00 Europe/London</b>
+          </div>
+          <div class="sl done"><span class="ln3">28</span><span class="tx2"></span></div>
         </div>
 
         <div style="padding:13px 15px 0">
           <div class="guard">
-            <b>The exception is the feedback loop.</b> A wrong parameter raises at construction with a did-you-mean, and the traceback names the line — which is the single thing models read best. Tighter than validating after the fact.
+            <b>Nothing above has written anything.</b> validate() checks structure; test_run() resolves expressions and counts what would happen. The only thing that can create a real write is Accept &amp; publish.
           </div>
         </div>
       </div>
 
       <div class="agfoot" style="flex:none;padding:10px 14px 12px;box-shadow:0 -1px 0 rgba(255,255,255,.05)">
         <div class="composer2">
-          <textarea rows="2" placeholder="Correct it yourself, or let the agent retry…"></textarea>
+          <textarea rows="2" placeholder="Ask for a change before you accept…"></textarea>
           <div class="c2bar">
-            <span class="cchip" style="height:22px;font-size:10.5px">Let it retry</span>
+            <span class="cchip" style="height:22px;font-size:10.5px">Re-run test_run()</span>
             <div class="spacer"></div>
             <span style="font-size:10px;color:var(--t3)"><span class="kbd">Enter</span> send</span>
           </div>
@@ -175,8 +170,8 @@ WHAT THE DENSITY FORCED:
     <div class="mid">
       <div class="cbar2">
         <span class="micro">Draft</span>
-        <span style="font-size:11px;color:var(--t2)">6 of 8 nodes · 7 connections</span>
-        <span class="sev sev-warn">partial — script stopped at line 22</span>
+        <span style="font-size:11px;color:var(--t2)">8 of 8 nodes · 9 connections</span>
+        <span class="st" style="font-size:11px;color:var(--t2)"><span class="dot good"></span>complete — script ran to line 28</span>
         <div class="spacer"></div>
         <span class="cchip" style="height:22px;font-size:10.5px">Fit</span>
         <span class="cchip" style="height:22px;font-size:10.5px">Open in editor</span>
@@ -191,6 +186,8 @@ WHAT THE DENSITY FORCED:
           <path d="M 232 336 C 290 336, 290 462, 348 462" />
           <path d="M 232 344 C 290 344, 290 552, 348 552" />
           <path d="M 138 358 C 138 400, 138 400, 138 442" />
+          <path d="M 434 372 C 480 372, 480 462, 434 462 C 480 462, 500 500, 500 520" />
+          <path d="M 500 372 C 560 400, 590 500, 590 594" />
         </svg>
 
         <div class="cnode trigger" style="left:46px; top:36px">
@@ -232,7 +229,7 @@ WHAT THE DENSITY FORCED:
           <div class="nn">Load EU</div>
           <div class="pp">upsert · finance.ledger</div>
         </div>
-        <div class="cnode output justmade" style="left:348px; top:526px">
+        <div class="cnode output" style="left:348px; top:526px">
           <span class="fromln">line 13 · APAC</span><span class="port in"></span><span class="port out"></span>
           <div class="ty">Output · Postgres</div>
           <div class="nn">Load APAC</div>
@@ -246,71 +243,64 @@ WHAT THE DENSITY FORCED:
           <div class="pp">Export was empty</div>
         </div>
 
+        <div class="cnode action" style="left:560px; top:480px">
+          <span class="fromln">line 22 · 24</span><span class="port in"></span>
+          <div class="ty">Action · SendEmail</div>
+          <div class="nn">SendEmail</div>
+          <div class="pp">to finance-ops@ · Close</div>
+        </div>
+
         <div style="position:absolute; left:46px; top:600px; width:560px">
           <div class="guard">
-            <b>One for-loop produced three nodes.</b> Each carries the line that made it, so the two panes are the same event twice — not a script and a separate result. A ladder would have needed three round trips and could not have varied the count.
+            <b>Every node still wears the line that made it.</b> Provenance does not expire when the build finishes — a week from now "why does this workflow look like this" has the same answer it does right now.
           </div>
         </div>
       </div>
     </div>
 
-    <!-- ════ SDK + COST ════ -->
+    <!-- ════ RESULT — the panel's job changed from reference to evidence ════ -->
     <div class="rgt">
-      <div class="hd2"><h3>The SDK</h3><span class="micro">generated from the registry</span></div>
+      <div class="hd2"><h3>Build result</h3><span class="micro">validate() + test_run()</span></div>
 
       <div class="colscroll">
         <div class="isec">
-          <div class="sdkref">
-<b>Cron</b>(expression, timezone) <span class="g">→ node</span>
-<b>HttpRequest</b>(method, url, …) <span class="g">→ node</span>
-<b>If</b>(field, operation, value) <span class="g">→ node</span>
-<span class="g">… 28 node types, all generated</span>
-
-a <span class="kw2">&gt;&gt;</span> b          <span class="g">wire main output</span>
-a.true <span class="kw2">&gt;&gt;</span> b     <span class="g">wire a named port</span>
-a <span class="kw2">&gt;&gt;</span> [b, c]     <span class="g">fan out</span>
-
-<b>describe</b>(<span class="st2">"Postgres"</span>) <span class="g">full schema, on demand</span>
-<b>list_nodes</b>(group=…)  <span class="g">compact index</span>
-<b>validate</b>()           <span class="g">raises with the fix</span>
-<b>test_run</b>(input=…)    <span class="g">dry, never writes</span>
-<b>call_tool</b>(name, args) <span class="g">read data mid-build</span>
-          </div>
-          <div style="margin-top:11px" class="guard">
-            <b>Generated from the node registry at import.</b> A node you add next year appears in the SDK with no code change and no prompt edit — that is the compounding property the ladder also had, kept.
+          <div class="sect-title" style="margin-bottom:7px">Structure</div>
+          <div class="kv2"><span class="k">Nodes reachable</span><span class="v">8 of 8</span></div>
+          <div class="kv2"><span class="k">Connections resolved</span><span class="v">9 of 9</span></div>
+          <div class="kv2"><span class="k">Dangling ports</span><span class="v">0</span></div>
+          <div class="kv2"><span class="k">Triggers</span><span class="v">1 · Cron</span></div>
+          <div style="margin-top:9px" class="guard">
+            <b>validate() passed.</b> This only checks shape — reachability, ports, exactly one trigger. It says nothing about what the workflow does when it runs.
           </div>
         </div>
 
         <div class="isec">
-          <div class="sect-title" style="margin-bottom:7px">What it costs</div>
-          <div class="kv2"><span class="k">SDK tool schema</span><span class="v">204 tok</span></div>
-          <div class="kv2"><span class="k">+ signature reference</span><span class="v">445 tok</span></div>
+          <div class="sect-title" style="margin-bottom:7px">Dry run</div>
+          <div class="kv2"><span class="k">Rows synthesized</span><span class="v">3 · for HttpRequest</span></div>
+          <div class="kv2"><span class="k">Branch taken</span><span class="v">check.true</span></div>
+          <div class="kv2"><span class="k">Writes staged</span><span class="v">4 · 0 executed</span></div>
+          <div class="kv2"><span class="k">Next real fire</span><span class="v">Mon 07:00</span></div>
+          <div style="margin-top:9px" class="guard">
+            <b>test_run() is dry.</b> It resolves every expression and counts what would happen — <span class="mono" style="font-size:10.5px">$vars.EXPORT_URL</span> included — and never sends a Postgres write or an email.
+          </div>
+        </div>
+
+        <div class="isec">
+          <div class="sect-title" style="margin-bottom:7px">What it cost</div>
           <div class="kv2"><span class="k">SDK, total</span><span class="v">650 tok</span></div>
-          <div class="kv2" style="margin-top:5px"><span class="k">The 7-tool ladder</span><span class="v">1,293 tok</span></div>
-          <div class="kv2"><span class="k">28 nodes as 28 tools</span><span class="v">~5,412 tok</span></div>
-          <div class="kv2" style="margin-top:5px"><span class="k">Budget</span><span class="v">650 of 6,000</span></div>
-          <div class="kv2"><span class="k">Model calls this build</span><span class="v">1 · was 18</span></div>
-          <div style="margin-top:9px" class="guard">
-            Every tool schema is serialised into context on <b>every</b> model call. The 204 is only the tool schema — the agent also needs the signature reference to write correct calls. Honest total: the SDK is <b>~2×</b> better than the ladder and <b>~8×</b> better than 28 tools, not the 6× an earlier draft claimed by counting the schema alone.
-          </div>
+          <div class="kv2"><span class="k">Model calls</span><span class="v">1 · was 18 on the ladder</span></div>
+          <div class="kv2"><span class="k">Budget</span><span class="v">650 of 6,000</span></div>
         </div>
 
         <div class="isec">
-          <div class="sect-title" style="margin-bottom:7px">Availability</div>
-          <div class="kv2"><span class="k">Node types in SDK</span><span class="v">27 of 28</span></div>
-          <div class="kv2"><span class="k">Excluded</span><span class="v">AIAgent</span></div>
-          <div style="margin-top:9px" class="guard">
-            <b>AIAgent is withheld deliberately.</b> An agent that can place agents inside the workflow it is building makes cost and recursion unpredictable. Bind it by hand if you want it.
+          <div class="sect-title" style="margin-bottom:5px">Next</div>
+          <div class="nextcard">
+            <div class="tt">Accept &amp; publish</div>
+            <div class="ds">Goes live on the stated Cron schedule. Because this workflow writes to finance.ledger, publishing will ask for approval — see the checkpoint.</div>
           </div>
-        </div>
-
-        <div class="isec">
-          <div class="sect-title" style="margin-bottom:7px">What runs the script</div>
-          <div class="kv2"><span class="k">Mechanism</span><span class="v">run_script · exists</span></div>
-          <div class="kv2"><span class="k">Isolation</span><span class="v">in-process</span></div>
-          <div class="kv2"><span class="k">Writes during build</span><span class="v">none · draft only</span></div>
-          <div style="margin-top:9px" class="guard warn">
-            The script runs <b>in the API process</b>, not a sandbox. Building a draft touches nothing, but <span class="mono" style="font-size:10px">call_tool</span> inside it can reach real data. Fine on synthetic data for a POC; a real deployment needs this out of process.
+          <div class="nextcard">
+            <div class="tt">Do this every Monday</div>
+            <div class="ds">Same outcome, framed as scheduling a session rather than publishing a script. See terminal-agent-schedule.html.</div>
           </div>
         </div>
       </div>

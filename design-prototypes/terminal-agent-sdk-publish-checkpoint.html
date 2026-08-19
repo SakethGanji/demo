@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<!--
+DESIGN NOTES — WHERE THE CHECKPOINT ACTUALLY SITS IN THE SDK FLOW.
+
+THE GAP THIS CLOSES: terminal-agent-sdk.html and -sdk-success.html show typed errors and a dry test_run() —
+two of the three verification mechanisms in AGENT-WORKFLOW-AUTHORING.md §3.4. The third, the checkpoint modal,
+existed only in terminal-agent-checkpoint.html, themed around App Builder publishing a dataset. It was never
+drawn IN this context, which left an open question: what, exactly, in a script-writing flow needs a human's
+explicit yes?
+
+THE ANSWER: not construction (building a Cron/Postgres/SendEmail node touches nothing), not validate() or
+test_run() (both are declared dry, by design, in SDK-DESIGN.md §4). The one moment with a real, unattended,
+recurring side effect is publishing — turning this draft into a LIVE trigger that will write to finance.ledger
+and send an email every Monday with no one watching. That is exactly the class of action `requires approval`
+exists for, and it is the same "Accept & publish" button that sits, at full opacity, in the clean-run screen.
+This screen is what clicking it actually does.
+
+WHAT THE DENSITY FORCED:
+ A1 THE BACKGROUND IS THE CLEAN-RUN SCREEN, FROZEN — not a fresh context. The whole argument of "the script is
+    the provenance record" falls apart if the checkpoint cannot show what it is approving in the place that
+    produced it. Same script, same graph, same line numbers, just dimmed.
+ A2 BLAST RADIUS NAMES WHAT'S RECURRING, NOT JUST WHAT'S CREATED. The dataset-publish checkpoint (the other
+    file) blast-radius'd a single write. This one is a **standing** write — "every Monday, unattended, until
+    someone unpublishes it" — because a schedule is a categorically different risk than a one-off, and drawing
+    them identically would understate this one.
+ A3 REVERSIBLE IS TRUE HERE, AND SAID PLAINLY. The other checkpoint's blast radius leaned on "nothing can undo
+    this" to justify caution. Here the honest answer is different — unpublish stops the schedule — and stating
+    that instead of reusing the scarier line is what keeps blast-radius language trustworthy across the product.
+ A4 THE ARGUMENTS ARE THE ACTUAL PUBLISH PAYLOAD, not the workflow's business logic restated. What's being
+    approved is `activate: true` and the cron expression — the human doesn't need the finance query in this box,
+    they need to know exactly what state change is about to happen.
+ A5 EVERY FIGURE DENOMINATED (rule 11): "3 of 3 upserts enabled", "1 of 1 pending", "fires 52×/yr".
+ A6 ACCENT — 2 uses: the active route and the dialog's focus ring, same discipline as the original checkpoint.
+-->
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Command Studio · Publish this workflow?</title>
+<link rel="stylesheet" href="_agents-base.css" />
+<style>
+  .body3 { flex:1; display:flex; min-height:0; overflow:hidden; }
+  .scriptcol { width:452px; min-width:452px; background:var(--s2); display:flex; flex-direction:column;
+    min-height:0; box-shadow:1px 0 0 rgba(255,255,255,.055); }
+  .mid { flex:1; display:flex; flex-direction:column; min-width:0; min-height:0; background:var(--s3); }
+  .rgt { width:330px; min-width:330px; background:var(--s2); display:flex; flex-direction:column; min-height:0;
+    box-shadow:inset 1px 0 0 rgba(255,255,255,.055); }
+  .colscroll { flex:1; overflow:auto; min-height:0; }
+  .hd2 { flex:none; padding:9px 14px 8px; box-shadow:0 1px 0 rgba(255,255,255,.045);
+    display:flex; align-items:baseline; gap:9px; }
+  .hd2 h3 { font-size:11.5px; font-weight:600; color:var(--t1); }
+  .isec { padding:12px 14px; }
+  .isec + .isec { box-shadow:0 -1px 0 rgba(255,255,255,.05); }
+  .kv2 { display:flex; justify-content:space-between; gap:12px; padding:3.5px 0; font-size:11px; }
+  .kv2 .k { color:var(--t3); }
+  .kv2 .v { color:var(--t2); text-align:right; font-family:var(--mono); font-size:10.5px; }
+  .cbar2 { display:flex; align-items:center; gap:10px; padding:7px 14px; background:var(--s2);
+    box-shadow:0 1px 0 rgba(255,255,255,.05); flex:none; }
+  .trace3 { margin:4px 0 10px 39px; border-left:2px solid var(--r3); padding:4px 0 4px 11px;
+    font-family:var(--mono); font-size:10px; line-height:1.7; color:var(--t2); }
+  .trace3 b { color:var(--t1); font-weight:600; }
+
+  /* the run is PAUSED, so the surface behind is frozen — not stale */
+  .frozen { filter:saturate(.55) brightness(.62); pointer-events:none; }
+  .scrim { position:fixed; inset:0; background:rgba(6,8,11,.58); z-index:90; }
+
+  /* ── the checkpoint dialog — same anatomy as terminal-agent-checkpoint.html ─ */
+  .cp { position:fixed; z-index:100; top:50%; left:50%; transform:translate(-50%,-50%);
+    width:788px; max-height:88vh; display:flex; flex-direction:column;
+    background:var(--s3); border-radius:11px;
+    box-shadow:0 0 0 1px rgba(255,255,255,.09), 0 40px 90px -20px rgba(0,0,0,.92), var(--hi); }
+  .cphead { padding:15px 20px 13px; flex:none; box-shadow:0 1px 0 rgba(255,255,255,.055); }
+  .cptitle { display:flex; align-items:center; gap:11px; margin-bottom:5px; }
+  .cptitle h2 { font-size:14.5px; font-weight:600; color:var(--t1); letter-spacing:-0.014em; }
+  .cpsub { font-size:11.5px; color:var(--t3); line-height:1.5; }
+  .cpbody { flex:1; overflow-y:auto; min-height:0; }
+  .cpsect { padding:14px 20px; }
+  .cpsect + .cpsect { box-shadow:0 -1px 0 rgba(255,255,255,.045); }
+  .cpsect h4 { font-size:9.5px; font-weight:500; letter-spacing:.11em; text-transform:uppercase;
+    color:var(--t3); margin-bottom:8px; }
+  .cpfoot { flex:none; padding:13px 20px; display:flex; align-items:center; gap:9px;
+    box-shadow:0 -1px 0 rgba(255,255,255,.055); background:var(--s2); border-radius:0 0 11px 11px; }
+
+  .argwell { background:var(--s0); border-radius:8px; padding:11px 13px; font-family:var(--mono); font-size:11px;
+    line-height:1.65; color:var(--t2); box-shadow:inset 0 1px 2px rgba(0,0,0,.55), 0 0 0 1px var(--sig-line);
+    white-space:pre; overflow-x:auto; }
+  .argwell .k { color:var(--t1); }
+  .argwell .s { color:var(--m2); }
+  .argwell .c { color:var(--t4); }
+
+  .radar { display:grid; grid-template-columns:auto 1fr; gap:5px 13px; font-size:11.5px; align-items:baseline; }
+  .radar .l { color:var(--t3); white-space:nowrap; }
+  .radar .v { color:var(--t2); }
+  .radar .v b { color:var(--t1); font-weight:600; }
+
+  .denybox { width:100%; background:var(--s0); border:0; border-radius:7px; color:var(--t1);
+    font-family:var(--sans); font-size:11.5px; padding:8px 11px; outline:none; resize:none;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.55), inset 0 0 0 1px rgba(255,255,255,.04); }
+  .btn-quiet { height:30px; padding:0 12px; border:0; border-radius:7px; background:transparent; color:var(--t3);
+    font-family:var(--sans); font-size:11.5px; cursor:pointer; }
+  .btn-quiet:hover { color:var(--t1); background:rgba(255,255,255,.045); }
+  .btn-deny { height:30px; padding:0 13px; border:0; border-radius:7px; background:var(--s4); color:var(--t2);
+    font-family:var(--sans); font-size:11.5px; font-weight:550; cursor:pointer; box-shadow:var(--hi); }
+  .btn-deny:hover { color:var(--t1); background:var(--s5); }
+  .btn-big { height:30px; padding:0 15px; border:0; border-radius:7px; background:var(--key); color:#0D1015;
+    font-family:var(--sans); font-size:11.5px; font-weight:650; cursor:pointer; box-shadow:0 1px 2px rgba(0,0,0,.5); }
+  .qchip { font-family:var(--mono); font-size:10px; color:var(--t3); font-variant-numeric:tabular-nums; }
+</style>
+</head>
+<body>
+<div class="shell frozen">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo"></div><span class="wordmark">Command Studio</span>
+      <span class="envchip">LOCAL · :8000</span>
+    </div>
+    <nav class="nav">
+      <a href="#">Workflows</a><a href="#">Datasets</a><a href="#">Catalog</a>
+      <a href="#">Runs</a><a href="#" class="active">Agents</a><a href="#">Admin</a>
+    </nav>
+    <div class="topright">
+      <div class="cmdk"><span>Search agents, tools, runs…</span><span class="kbd">⌘K</span></div>
+      <div class="team"><span class="dot good"></span><span>Growth Analytics</span><span class="caret">▾</span></div>
+      <div class="avatar">SG</div>
+    </div>
+  </div>
+
+  <div class="subhead">
+    <h1 style="font-size:13px;font-weight:550">Weekly finance export → scheduled pipeline</h1>
+    <span class="idf">ses_8Hn3Vq · turn 2</span>
+    <span class="st" style="font-size:11.5px;color:var(--t2)"><span class="dot warn"></span>paused — awaiting approval to publish</span>
+    <div class="spacer"></div>
+    <div class="ctrl">1 model call · <b>650</b> tok of tools</div>
+    <button class="btn-ghost">Edit &amp; re-run</button>
+    <button class="btn-primary" style="opacity:.55">Accept &amp; publish</button>
+  </div>
+
+  <div class="body3">
+
+    <div class="scriptcol">
+      <div class="hd2">
+        <h3>build_workflow.py</h3>
+        <span class="micro">written by Workflow Author · 1 call</span>
+        <div class="spacer"></div>
+        <span class="micro">28 of 28 lines run</span>
+      </div>
+      <div class="colscroll" style="padding:9px 0 16px">
+        <div class="scriptwrap">
+          <div class="sl done"><span class="ln3">3</span><span class="tx2">cron  = <span class="fn4">Cron</span>(expression=<span class="st2">"0 7 * * 1"</span>, timezone=<span class="st2">"Europe/London"</span>)</span></div>
+          <div class="sl done"><span class="ln3">4</span><span class="tx2">fetch = <span class="fn4">HttpRequest</span>(method=<span class="st2">"GET"</span>, url=<span class="st2">"{{ $vars.EXPORT_URL }}"</span>)</span></div>
+          <div class="sl done"><span class="ln3">5</span><span class="tx2">norm  = <span class="fn4">Code</span>(language=<span class="st2">"python"</span>, code=NORMALISE)</span></div>
+          <div class="sl done"><span class="ln3">6</span><span class="tx2">check = <span class="fn4">If</span>(field=<span class="st2">"body"</span>, operation=<span class="st2">"isNotEmpty"</span>)</span></div>
+          <div class="sl done"><span class="ln3">8</span><span class="tx2">cron <span class="kw2">&gt;&gt;</span> fetch <span class="kw2">&gt;&gt;</span> norm <span class="kw2">&gt;&gt;</span> check</span></div>
+          <div class="sl done"><span class="ln3">12</span><span class="tx2"><span class="kw2">for</span> region <span class="kw2">in</span> (<span class="st2">"US"</span>, <span class="st2">"EU"</span>, <span class="st2">"APAC"</span>):</span></div>
+          <div class="sl done"><span class="ln3">13</span><span class="tx2">    node = <span class="fn4">Postgres</span>(name=<span class="st2">f"Load {region}"</span>, operation=<span class="st2">"upsert"</span>, table=<span class="st2">"finance.ledger"</span>)</span></div>
+          <div class="sl done"><span class="ln3">18</span><span class="tx2">    check.true <span class="kw2">&gt;&gt;</span> node</span></div>
+          <div class="sl done"><span class="ln3">21</span><span class="tx2">check.false <span class="kw2">&gt;&gt;</span> <span class="fn4">StopAndError</span>(message=<span class="st2">"Export was empty"</span>)</span></div>
+          <div class="sl done"><span class="ln3">22</span><span class="tx2">summary = <span class="fn4">SendEmail</span>(toEmail=<span class="st2">"finance-ops@"</span>, subject=<span class="st2">"Close"</span>, body=SUMMARY)</span></div>
+          <div class="sl done"><span class="ln3">26</span><span class="tx2"><span class="fn4">validate</span>()</span></div>
+          <div class="trace3"><b>✓ no problems.</b> 8 of 8 nodes reachable · 9 of 9 connections resolved.</div>
+          <div class="sl done"><span class="ln3">27</span><span class="tx2"><span class="fn4">test_run</span>(input={<span class="st2">"body"</span>: SAMPLE})</span></div>
+          <div class="trace3"><b>✓ dry run complete, 0 writes executed.</b> 4 writes staged · trigger fires next Mon 07:00.</div>
+        </div>
+        <div style="padding:13px 15px 0">
+          <div class="guard">
+            <b>Everything above is still true.</b> The script is unchanged and frozen exactly as it validated. The checkpoint is deciding whether it goes live — not re-checking whether it's correct.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mid">
+      <div class="cbar2">
+        <span class="micro">Draft</span>
+        <span style="font-size:11px;color:var(--t2)">8 of 8 nodes · 9 connections</span>
+        <span class="st" style="font-size:11px;color:var(--t2)"><span class="dot good"></span>complete — script ran to line 28</span>
+        <div class="spacer"></div>
+        <span class="cchip" style="height:22px;font-size:10.5px">Fit</span>
+      </div>
+      <div class="canvas">
+        <svg class="cedge" width="100%" height="100%">
+          <path d="M 138 88 C 138 105, 138 105, 138 122" />
+          <path d="M 138 178 C 138 195, 138 195, 138 212" />
+          <path d="M 138 268 C 138 285, 138 285, 138 302" />
+          <path d="M 232 328 C 290 328, 290 372, 348 372" />
+          <path d="M 232 336 C 290 336, 290 462, 348 462" />
+          <path d="M 232 344 C 290 344, 290 552, 348 552" />
+          <path d="M 138 358 C 138 400, 138 400, 138 442" />
+          <path d="M 434 372 C 480 372, 480 462, 434 462 C 480 462, 500 500, 500 520" />
+          <path d="M 500 372 C 560 400, 590 500, 590 594" />
+        </svg>
+        <div class="cnode trigger" style="left:46px; top:36px">
+          <span class="fromln">line 3</span><span class="port out"></span>
+          <div class="ty">Trigger · Cron</div><div class="nn">Cron</div><div class="pp">0 7 * * 1 · Europe/London</div>
+        </div>
+        <div class="cnode action" style="left:46px; top:126px">
+          <span class="fromln">line 4</span><span class="port in"></span><span class="port out"></span>
+          <div class="ty">Action · HttpRequest</div><div class="nn">HttpRequest</div><div class="pp">GET {{ $vars.EXPORT_URL }}</div>
+        </div>
+        <div class="cnode transform" style="left:46px; top:216px">
+          <span class="fromln">line 5</span><span class="port in"></span><span class="port out"></span>
+          <div class="ty">Transform · Code</div><div class="nn">Code</div><div class="pp">python · NORMALISE</div>
+        </div>
+        <div class="cnode flow" style="left:46px; top:306px">
+          <span class="fromln">line 6</span><span class="port in"></span><span class="port out"></span>
+          <span class="plabel" style="top:14px">true</span><span class="plabel" style="top:44px">false</span>
+          <div class="ty">Flow · If</div><div class="nn">If</div><div class="pp">body isNotEmpty</div>
+        </div>
+        <div class="cnode output" style="left:348px; top:346px">
+          <span class="fromln">line 13 · US</span><span class="port in"></span><span class="port out"></span>
+          <div class="ty">Output · Postgres</div><div class="nn">Load US</div><div class="pp">upsert · finance.ledger</div>
+        </div>
+        <div class="cnode output" style="left:348px; top:436px">
+          <span class="fromln">line 13 · EU</span><span class="port in"></span><span class="port out"></span>
+          <div class="ty">Output · Postgres</div><div class="nn">Load EU</div><div class="pp">upsert · finance.ledger</div>
+        </div>
+        <div class="cnode output" style="left:348px; top:526px">
+          <span class="fromln">line 13 · APAC</span><span class="port in"></span><span class="port out"></span>
+          <div class="ty">Output · Postgres</div><div class="nn">Load APAC</div><div class="pp">upsert · finance.ledger</div>
+        </div>
+        <div class="cnode flow" style="left:46px; top:436px">
+          <span class="fromln">line 21</span><span class="port in"></span>
+          <div class="ty">Flow · StopAndError</div><div class="nn">StopAndError</div><div class="pp">Export was empty</div>
+        </div>
+        <div class="cnode action" style="left:560px; top:480px">
+          <span class="fromln">line 22 · 24</span><span class="port in"></span>
+          <div class="ty">Action · SendEmail</div><div class="nn">SendEmail</div><div class="pp">to finance-ops@ · Close</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="rgt">
+      <div class="hd2"><h3>Build result</h3><span class="micro">validate() + test_run()</span></div>
+      <div class="colscroll">
+        <div class="isec">
+          <div class="sect-title" style="margin-bottom:7px">Structure</div>
+          <div class="kv2"><span class="k">Nodes reachable</span><span class="v">8 of 8</span></div>
+          <div class="kv2"><span class="k">Triggers</span><span class="v">1 · Cron</span></div>
+        </div>
+        <div class="isec">
+          <div class="sect-title" style="margin-bottom:7px">What it cost</div>
+          <div class="kv2"><span class="k">SDK, total</span><span class="v">650 tok</span></div>
+          <div class="kv2"><span class="k">Model calls</span><span class="v">1 · was 18 on the ladder</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="scrim"></div>
+
+<!-- ════ THE CHECKPOINT — firing at the one moment that actually writes ════ -->
+<div class="cp">
+
+  <div class="cphead">
+    <div class="cptitle">
+      <span class="dot warn"></span>
+      <h2>Approval required</h2>
+      <span class="sev sev-err">creates a live schedule · writes finance.ledger</span>
+      <div class="spacer"></div>
+      <span class="qchip">1 of 1 pending</span>
+    </div>
+    <div class="cpsub">
+      <b style="color:var(--t2)">Workflow Author</b> wants to call <span class="mono" style="font-size:11px;color:var(--t1)">publish_workflow</span> on <span class="mono" style="font-size:11px">Weekly finance export → scheduled pipeline</span>. The run is paused and nothing has gone live.
+    </div>
+  </div>
+
+  <div class="cpbody">
+
+    <div class="cpsect">
+      <h4>Why the agent says it needs this</h4>
+      <div style="font-size:12px;line-height:1.6;color:var(--t2)">
+        "validate() and test_run() both passed against synthetic input. Publishing activates the Cron trigger so
+        the pipeline runs for real next Monday at 07:00 instead of only on demand."
+      </div>
+      <div style="margin-top:9px" class="guard">
+        This is the agent's <b>stated</b> reason. A clean test_run() means the shape is sound — it does not verify the live export will look like the sample it was given.
+      </div>
+    </div>
+
+    <div class="cpsect">
+      <h4>Exactly what will be sent — edit before approving</h4>
+      <div class="argwell"><span class="k">workflow_id</span>:   <span class="s">"wf_9K2vQnLp4X"</span>
+<span class="k">activate</span>:      <span class="s">true</span>          <span class="c">← flips from draft to live</span>
+<span class="k">trigger</span>:       <span class="s">"cron · 0 7 * * 1 · Europe/London"</span>
+<span class="k">nodes_enabled</span>: <span class="s">8 of 8</span>       <span class="c">3 Postgres writes, 1 email</span>
+<span class="k">actor</span>:         <span class="s">"S. Ganji"</span>    <span class="c">← recorded as you, not the agent</span></div>
+      <div style="margin-top:9px" class="guard warn">
+        <b>This does not re-run validate() or test_run().</b> They already passed against the frozen script on the left. Approving activates it as-is — edit the script first if anything here should change.
+      </div>
+    </div>
+
+    <div class="cpsect">
+      <h4>Blast radius</h4>
+      <div class="radar">
+        <span class="l">Runs</span>
+        <span class="v"><b>Every Monday 07:00</b> Europe/London, unattended — 52×/yr, until unpublished</span>
+        <span class="l">Writes</span>
+        <span class="v"><b>3 Postgres upserts</b> to finance.ledger per run, keyed on (period, account)</span>
+        <span class="l">Sends</span>
+        <span class="v"><b>1 email</b> to finance-ops@ per run, containing the run summary</span>
+        <span class="l">In team</span>
+        <span class="v"><b>Growth Analytics</b> — visible to 12 members, 3 of them admins</span>
+        <span class="l">Reversible</span>
+        <span class="v">Yes — <b>unpublish stops the schedule</b> immediately. Rows already upserted are not rolled back.</span>
+        <span class="l">Audit</span>
+        <span class="v">Every future run is logged as this workflow, not as an agent — no model is in the loop after this</span>
+      </div>
+    </div>
+
+    <div class="cpsect">
+      <h4>Why you are being asked</h4>
+      <div style="font-size:11.5px;color:var(--t2);line-height:1.55">
+        <span class="mono" style="font-size:11px;color:var(--t1)">publish_workflow</span> is bound to this agent with
+        <b style="color:var(--t1)">requires approval</b> whenever the workflow contains a node with a declared write
+        (here: <span class="mono" style="font-size:10.5px">Postgres.upsert</span>, <span class="mono" style="font-size:10.5px">SendEmail</span>). Building and testing never asked, because neither one writes.
+      </div>
+      <div style="margin-top:9px" class="guard">
+        If you do not answer, the run stays paused — it does <b>not</b> time out into either decision.
+      </div>
+    </div>
+
+    <div class="cpsect">
+      <h4>Deny with a reason <span style="text-transform:none;letter-spacing:0;font-weight:400">— the agent reads this as the tool result</span></h4>
+      <textarea class="denybox" rows="2" placeholder="e.g. Hold off — I want finance to review the SendEmail body before this goes live."></textarea>
+    </div>
+
+  </div>
+
+  <div class="cpfoot">
+    <button class="btn-quiet">Always allow publishing for this agent</button>
+    <div class="spacer"></div>
+    <button class="btn-deny">Deny</button>
+    <button class="btn-big">Approve &amp; publish</button>
+  </div>
+</div>
+
+</body>
+</html>

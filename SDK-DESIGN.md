@@ -93,7 +93,7 @@ projections update. Nothing else to touch, no prompt to rewrite.
 | `a >> b` | main output → main input; returns `b`, so chains read left to right |
 | `a.true >> b` | a named port; attributes come from declared `outputs` |
 | `a >> [b, c]` | fan out |
-| `[a, b] >> c` | fan in (c must accept multiple inputs, e.g. `Merge`) |
+| `for s in (a, b): s >> c` | fan in (c must accept multiple inputs, e.g. `Merge`). NOT `[a, b] >> c` — Python cannot define `>>` on a plain list, so that form can never exist; an earlier draft promised it anyway (the same documented-but-impossible class of bug the 2026-08-19 review caught twice elsewhere) |
 
 ### Introspection — inside the script, so it costs no prompt tokens
 `list_nodes(group=…, query=…)` → compact index · `describe("Postgres")` → full property list
