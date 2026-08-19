@@ -16,6 +16,7 @@ import { Button } from '@/shared/components/ui/button';
 import { Input } from '@/shared/components/ui/input';
 import WorkflowSVG from '@/features/workflow-editor/components/WorkflowSVG';
 import { definitionToPreviewData } from '@/features/workflow-editor/lib/workflowTransform';
+import { BuildAttemptView, type BuildAttempt } from './BuildAttemptView';
 import {
   agentsApi,
   workflowsApi,
@@ -64,6 +65,46 @@ function eventSummary(e: AgentRunEvent): string {
     default:
       return JSON.stringify(p);
   }
+}
+
+/** Every build_workflow attempt in a run's event stream: the script from the
+ * tool_call, the outcome from the matching tool_result (paired by id). */
+function buildAttempts(events: AgentRunEvent[] | undefined): BuildAttempt[] {
+  const attempts: Array<BuildAttempt & { callId?: string }> = [];
+  const byCallId = new Map<string, BuildAttempt & { callId?: string }>();
+  for (const e of events ?? []) {
+    const p = e.payload as Record<string, unknown>;
+    if (e.type === 'agent:tool_call') {
+      const args = p.arguments as Record<string, unknown> | undefined;
+      if (args && typeof args.script === 'string') {
+        const attempt = {
+          seq: e.seq,
+          iteration: Number(p.iteration ?? 0),
+          script: args.script,
+          name: typeof args.name === 'string' ? args.name : undefined,
+          result: null,
+          callId: typeof p.id === 'string' ? p.id : undefined,
+        };
+        attempts.push(attempt);
+        if (attempt.callId) byCallId.set(attempt.callId, attempt);
+      }
+    } else if (e.type === 'agent:tool_result' && typeof p.id === 'string') {
+      const attempt = byCallId.get(p.id);
+      if (!attempt) continue;
+      let result: unknown = p.result;
+      if (typeof result === 'string') {
+        try {
+          result = JSON.parse(result);
+        } catch {
+          continue;
+        }
+      }
+      if (result && typeof result === 'object') {
+        attempt.result = result as BuildAttempt['result'];
+      }
+    }
+  }
+  return attempts;
 }
 
 /** Workflow ids the run's build_workflow tool calls persisted, from the
@@ -146,6 +187,7 @@ function ProducedWorkflow({ workflowId }: { workflowId: string }) {
 export function AgentsPage() {
   const queryClient = useQueryClient();
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [openAttemptSeq, setOpenAttemptSeq] = useState<number | null>(null);
   const [agentId, setAgentId] = useState('');
   const [task, setTask] = useState('');
   const [newAgentName, setNewAgentName] = useState('');
@@ -307,6 +349,16 @@ export function AgentsPage() {
           </div>
         )}
 
+        {(() => {
+          const attempt =
+            openAttemptSeq !== null
+              ? buildAttempts(events.data).find((a) => a.seq === openAttemptSeq)
+              : undefined;
+          if (attempt) {
+            return <BuildAttemptView attempt={attempt} onBack={() => setOpenAttemptSeq(null)} />;
+          }
+          return null;
+        })() || (
         <div className="min-h-0 flex-1 overflow-auto" data-testid="runs-table">
           <table className="w-full text-small">
             <thead className="sticky top-0 bg-background text-left text-footnote text-muted-foreground">
@@ -331,7 +383,10 @@ export function AgentsPage() {
                 <tr
                   key={r.id}
                   data-testid="run-row"
-                  onClick={() => setSelectedRunId(r.id)}
+                  onClick={() => {
+                    setSelectedRunId(r.id);
+                    setOpenAttemptSeq(null);
+                  }}
                   className={`cursor-pointer border-b border-border hover:bg-secondary ${
                     selectedRunId === r.id ? 'bg-secondary' : ''
                   }`}
@@ -351,6 +406,7 @@ export function AgentsPage() {
             </tbody>
           </table>
         </div>
+        )}
       </div>
 
       {/* Run detail */}
@@ -403,17 +459,34 @@ export function AgentsPage() {
                   {events.data ? `${events.data.length}` : '—'}
                 </div>
                 <div className="mt-1 space-y-2" data-testid="run-events">
-                  {events.data?.map((e) => (
-                    <div key={e.seq} className="rounded border border-border p-2">
-                      <div className="font-mono text-footnote text-muted-foreground">
-                        {e.seq} · {e.type}
-                        {e.truncated ? ' · truncated' : ''}
+                  {events.data?.map((e) => {
+                    const p = e.payload as Record<string, unknown>;
+                    const isBuildCall =
+                      e.type === 'agent:tool_call' &&
+                      typeof (p.arguments as Record<string, unknown> | undefined)?.script ===
+                        'string';
+                    return (
+                      <div key={e.seq} className="rounded border border-border p-2">
+                        <div className="flex items-center font-mono text-footnote text-muted-foreground">
+                          {e.seq} · {e.type}
+                          {e.truncated ? ' · truncated' : ''}
+                          {isBuildCall && (
+                            <button
+                              type="button"
+                              className="ml-auto underline underline-offset-2"
+                              data-testid="attempt-open"
+                              onClick={() => setOpenAttemptSeq(e.seq)}
+                            >
+                              view build →
+                            </button>
+                          )}
+                        </div>
+                        <div className="mt-0.5 break-words font-mono text-footnote">
+                          {eventSummary(e).slice(0, 500)}
+                        </div>
                       </div>
-                      <div className="mt-0.5 break-words font-mono text-footnote">
-                        {eventSummary(e).slice(0, 500)}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   {events.data?.length === 0 && (
                     <div className="text-footnote text-muted-foreground">
                       No events — a run that fails before its first model call leaves none.

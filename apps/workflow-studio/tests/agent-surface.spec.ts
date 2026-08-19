@@ -1,4 +1,10 @@
+import { execFileSync } from 'node:child_process'
+import * as path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { test, expect, goto } from './fixtures'
+
+// ESM context — no __dirname.
+const HERE = path.dirname(fileURLToPath(import.meta.url))
 
 /**
  * THE AGENT SURFACE: /build (Script → Workflow) and /agents (fleet + runs),
@@ -112,6 +118,45 @@ test('/build saves a workflow the engine API can fetch back', async ({ page }) =
   } finally {
     await engine('DELETE', `/workflows/${workflowId}`)
   }
+})
+
+test('/agents shows a build inside the flow: script, canvas, and produced workflow from a run', async ({ page }) => {
+  // Seed a demo run through the REAL machinery (recorder, sandbox, repo) —
+  // the engine-side script is idempotent and prints the run id.
+  const engineDir = path.resolve(HERE, '../../workflow-engine')
+  const runId = execFileSync('venv/bin/python', ['scripts/seed_demo_agent_run.py'], {
+    cwd: engineDir,
+    encoding: 'utf8',
+  })
+    .trim()
+    .split('\n')
+    .pop()!
+  expect(runId).toMatch(/^arun_/)
+
+  await goto(page, '/agents')
+  await page.getByTestId('run-row').filter({ hasText: 'seeded demo' }).first().click()
+
+  // The run detail carries the event stream and the produced workflow card.
+  await expect(page.getByTestId('run-events')).toContainText('agent:tool_call')
+  const produced = page.getByTestId('run-produced')
+  await expect(produced).toBeVisible({ timeout: 15000 })
+  await expect(produced).toContainText('demo-weekly-export')
+
+  // Open the build attempt INSIDE the agent flow: script left, graph right.
+  await page.getByTestId('attempt-open').first().click()
+  const attempt = page.getByTestId('build-attempt')
+  await expect(attempt).toBeVisible()
+  await expect(page.getByTestId('attempt-script')).toContainText('for region in')
+  // Replay is a real sandbox execution — the strip is computed, not canned.
+  await expect(page.getByTestId('attempt-ok')).toContainText(/valid — \d+ nodes/, {
+    timeout: 20000,
+  })
+  const canvasNodes = page.getByTestId('attempt-canvas').locator('svg rect[rx="12"]')
+  expect(await canvasNodes.count()).toBeGreaterThanOrEqual(7)
+
+  // Back returns to the runs table.
+  await page.getByTestId('attempt-back').click()
+  await expect(page.getByTestId('runs-table')).toBeVisible()
 })
 
 test('/agents creates a builds-verb agent and a triggered run reaches a terminal state on screen', async ({ page }) => {
