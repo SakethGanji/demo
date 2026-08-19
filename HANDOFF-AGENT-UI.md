@@ -85,6 +85,25 @@ committed, tested, and was running live when the session closed.
 8. Deliberately skipped: `.pyi` stub generation (SDK-DESIGN §3) — the
    derivation work prevents drift; stubs only serve humans.
 
+## Shell-agent live test (2026-08-19, after commit)
+
+A Claude Code Sonnet subagent played the platform agent as a black box — HTTP
+only, no source access: read `/api/workflow-sdk/reference`, built
+`shellagent-demo-normalize` and `-report` (0 failed builds), ran both, and
+chained run 2 from run 1's real output ({count: 2, names: [ALPHA, BETA]}).
+Both executions `success`; workflows kept in the DB for inspection. Findings
+worth fixing:
+1. **Code node's runtime item shape is undocumented** — `items` is
+   `[{json: {body: ...}}]`, so the agent's first transform silently no-op'd
+   (pass-through, no error). Document the shape in `signature_reference()`'s
+   Code entry, or normalize it.
+2. **The agent debugged by persisting 12 probe workflows** — empirical and
+   effective, but litter. The toolkit should advertise a dry execution path
+   (POST /api/workflows/run-adhoc exists and was never surfaced to it).
+3. The workflow-Code-node runtime sandbox lacks builtins agents reach for
+   (`dir`, `globals`, `Exception` at that layer) — fine as policy, but the
+   error could teach like the SDK's do.
+
 ## Where the full context lives
 
 Memory: `agent-run-service-fixes`, `agent-sdk-review-fixes`,
