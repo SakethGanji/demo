@@ -434,3 +434,155 @@ export const apiTesterApi = {
     });
   },
 };
+
+// ---------------------------------------------------------------------------
+// Workflow SDK — the script → workflow surface (/api/workflow-sdk/*).
+// Same core the agent's build_workflow tool calls; /build drives it directly.
+// ---------------------------------------------------------------------------
+
+export interface SdkNode {
+  name: string;
+  type: string;
+  parameters: Record<string, unknown>;
+  position?: { x: number; y: number } | null;
+}
+
+export interface SdkConnection {
+  source_node: string;
+  target_node: string;
+  source_output: string;
+  target_input: string;
+}
+
+export interface SdkExecuteResponse {
+  ok: boolean;
+  error: string | null;
+  problems: string[];
+  workflow: { name: string; nodes: SdkNode[]; connections: SdkConnection[] };
+  // node name -> { group, sourceLine, type } — line provenance for the canvas
+  node_meta: Record<string, { group?: string; sourceLine?: number; type?: string }>;
+  results: unknown[];
+  persisted: boolean;
+  workflow_id: string | null;
+}
+
+export const sdkApi = {
+  reference: (): Promise<{ reference: string; types: string[]; excluded: string[] }> => {
+    return apiFetch('/workflow-sdk/reference');
+  },
+
+  execute: (body: { script: string; name?: string; persist?: boolean }): Promise<SdkExecuteResponse> => {
+    return apiFetch('/workflow-sdk/execute', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Agents — fleet, sessions, runs, run events (/api/agents, /api/agent-runs).
+// ---------------------------------------------------------------------------
+
+export interface AgentListItem {
+  id: string;
+  name: string;
+  description?: string | null;
+  role: string; // asks | builds | watches — derived from bound tools
+  model: string;
+  active: boolean;
+  version: number;
+  tool_count?: number;
+  [key: string]: unknown;
+}
+
+export interface AgentToolBinding {
+  source: string;
+  tool_key: string;
+  connector_id?: string | null;
+  alias?: string | null;
+  config?: Record<string, unknown>;
+  requires_approval?: boolean;
+  enabled?: boolean;
+  position?: number;
+}
+
+export interface AgentRunListItem {
+  id: string;
+  session_id: string;
+  agent_id: string;
+  turn: number;
+  status: string; // queued | running | waiting | success | failed | cancelled
+  trigger: string;
+  task: string;
+  iterations: number;
+  tool_call_count: number;
+  event_count: number;
+  started_at: string;
+  ended_at: string | null;
+}
+
+export interface AgentRunDetail extends AgentRunListItem {
+  team_id: string;
+  input: Record<string, unknown>;
+  response: string | null;
+  structured_output: unknown;
+  error: string | null;
+  input_tokens: number;
+  output_tokens: number;
+  llm_time_ms: number;
+  cancelled_at: string | null;
+}
+
+export interface AgentRunEvent {
+  seq: number;
+  type: string; // agent:thinking | agent:tool_call | agent:tool_result | ...
+  node_name: string | null;
+  payload: Record<string, unknown>;
+  truncated: boolean;
+  created_at: string;
+}
+
+export const agentsApi = {
+  list: (): Promise<AgentListItem[]> => {
+    return apiFetch('/agents');
+  },
+
+  create: (body: {
+    name: string;
+    model?: string;
+    system_prompt?: string;
+    description?: string;
+    tools?: AgentToolBinding[];
+  }): Promise<AgentListItem> => {
+    return apiFetch('/agents', { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  tools: (agentId: string): Promise<AgentToolBinding[]> => {
+    return apiFetch(`/agents/${agentId}/tools`);
+  },
+
+  runs: (params?: { agent_id?: string; status?: string; limit?: number }): Promise<AgentRunListItem[]> => {
+    const q = new URLSearchParams();
+    if (params?.agent_id) q.set('agent_id', params.agent_id);
+    if (params?.status) q.set('status', params.status);
+    if (params?.limit) q.set('limit', String(params.limit));
+    const suffix = q.toString() ? `?${q.toString()}` : '';
+    return apiFetch(`/agent-runs${suffix}`);
+  },
+
+  run: (runId: string): Promise<AgentRunDetail> => {
+    return apiFetch(`/agent-runs/${runId}`);
+  },
+
+  runEvents: (runId: string, afterSeq = 0): Promise<AgentRunEvent[]> => {
+    return apiFetch(`/agent-runs/${runId}/events?after_seq=${afterSeq}&limit=500`);
+  },
+
+  trigger: (body: { agent_id: string; task: string; input?: Record<string, unknown> }): Promise<AgentRunDetail> => {
+    return apiFetch('/agent-runs', { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  cancel: (runId: string): Promise<AgentRunDetail> => {
+    return apiFetch(`/agent-runs/${runId}/cancel`, { method: 'POST' });
+  },
+};

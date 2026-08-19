@@ -83,6 +83,8 @@ const ROUTES = [
   { to: '/data', label: 'Datasets', icon: Table2 },
   { to: '/catalog', label: 'Catalog', icon: LayoutGrid },
   { to: '/runs', label: 'Runs', icon: Activity },
+  { to: '/agents', label: 'Agents', icon: Activity },
+  { to: '/build', label: 'Build (Script → Workflow)', icon: Workflow },
   { to: '/admin', label: 'Governance', icon: Shield },
 ] as const
 

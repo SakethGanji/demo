@@ -15,6 +15,8 @@ import { samplingRoute } from './sampling'
 import { runsRoute } from './runs'
 import { adminRoute } from './admin'
 import { ingestRoute } from './ingest'
+import { buildRoute } from './build'
+import { agentsRoute } from './agents'
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
@@ -38,6 +40,8 @@ const routeTree = rootRoute.addChildren([
     runsRoute,
     adminRoute,
     ingestRoute,
+    buildRoute,
+    agentsRoute,
   ]),
 ])
 

@@ -38,6 +38,8 @@ const STUDIO_ROUTES = [
   '/ingest',
   '/runs',
   '/admin',
+  '/build',
+  '/agents',
 ] as const
 
 /** The four routes the shell must never wrap. See the header comment. */

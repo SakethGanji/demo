@@ -11,6 +11,9 @@ interface WorkflowSVGProps {
   edges: Edge[];
   executionData?: Record<string, NodeExecutionData>;
   showIcons?: boolean;
+  /** Render each node's name beneath it — for full-size previews (e.g. /build),
+   * where an unlabeled colored rect says nothing. Thumbnails leave this off. */
+  showLabels?: boolean;
   showDotGrid?: boolean;
   className?: string;
   style?: React.CSSProperties;
@@ -46,7 +49,7 @@ function computeViewBox(nodes: Node<WorkflowNodeData>[]): string {
   return `${minX - PADDING} ${minY - PADDING} ${maxX - minX + PADDING * 2} ${maxY - minY + PADDING * 2}`;
 }
 
-function WorkflowSVG({ nodes, edges, executionData, showIcons, showDotGrid, className, style, width, height }: WorkflowSVGProps) {
+function WorkflowSVG({ nodes, edges, executionData, showIcons, showLabels, showDotGrid, className, style, width, height }: WorkflowSVGProps) {
   const patternId = useId();
   const viewBox = useMemo(() => computeViewBox(nodes), [nodes]);
 
@@ -172,6 +175,30 @@ function WorkflowSVG({ nodes, edges, executionData, showIcons, showDotGrid, clas
               </>
             )}
             {nodeExec && <ExecutionBadge status={nodeExec.status} cx={x + dims.width - 4} cy={y + 4} />}
+            {showLabels && (
+              <>
+                <text
+                  x={x + dims.width / 2}
+                  y={y + dims.height + 16}
+                  textAnchor="middle"
+                  fontSize={12}
+                  fontFamily="ui-monospace, monospace"
+                  fill="var(--foreground)"
+                >
+                  {data.name}
+                </text>
+                <text
+                  x={x + dims.width / 2}
+                  y={y + dims.height + 30}
+                  textAnchor="middle"
+                  fontSize={10}
+                  fontFamily="ui-monospace, monospace"
+                  fill="var(--muted-foreground)"
+                >
+                  {data.type}
+                </text>
+              </>
+            )}
           </g>
         );
       })}

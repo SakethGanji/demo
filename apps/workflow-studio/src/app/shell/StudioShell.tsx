@@ -49,6 +49,8 @@ const NAV = [
   { to: '/data', label: 'Datasets' },
   { to: '/catalog', label: 'Catalog' },
   { to: '/runs', label: 'Runs' },
+  { to: '/agents', label: 'Agents' },
+  { to: '/build', label: 'Build' },
   { to: '/admin', label: 'Admin' },
 ] as const
 
