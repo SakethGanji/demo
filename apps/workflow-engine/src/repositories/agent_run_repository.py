@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Sequence
 
-from sqlalchemy import func, select as sa_select
+from sqlalchemy import func, select as sa_select, update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -211,6 +211,28 @@ class AgentRunRepository:
         await self._session.commit()
         await self._session.refresh(run)
         return run
+
+    async def finalize_run_if_active(
+        self, run_id: str, changes: dict[str, Any]
+    ) -> tuple[AgentRunModel | None, bool]:
+        """Apply ``changes`` only if the run is still in an ACTIVE status.
+
+        Terminal writes race: a cancel that found no live task vs. the task's
+        own finalizer (or another worker's). The status guard lives in the
+        UPDATE itself so the first terminal write wins and a run that already
+        reached a terminal status is never overwritten.
+
+        Returns ``(fresh row or None, whether the changes were applied)``.
+        """
+        result = await self._session.execute(
+            sa_update(AgentRunModel)
+            .where(AgentRunModel.id == run_id)
+            .where(AgentRunModel.status.in_(ACTIVE_STATUSES))
+            .values(**{k: v for k, v in changes.items() if hasattr(AgentRunModel, k)})
+        )
+        await self._session.commit()
+        applied = bool(result.rowcount)
+        return await self.get_run(run_id), applied
 
     # -- events ------------------------------------------------------------
 

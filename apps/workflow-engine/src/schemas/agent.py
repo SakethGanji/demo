@@ -11,7 +11,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-ToolSource = Literal["builtin", "mcp", "openapi", "node", "promoted"]
+ToolSource = Literal["builtin", "mcp", "openapi", "node", "promoted", "sdk"]
 RunStatus = Literal["queued", "running", "waiting", "success", "failed", "cancelled"]
 
 
@@ -61,7 +61,7 @@ class AgentCreateRequest(BaseModel):
 
     name: str = Field(..., min_length=1)
     description: str | None = None
-    model: str = Field("claude-sonnet-4-20250514")
+    model: str = Field("claude-sonnet-5")
     system_prompt: str = Field("")
     task_template: str | None = None
     settings: dict[str, Any] = Field(default_factory=dict, description="AIAgent node parameters")

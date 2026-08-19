@@ -508,7 +508,7 @@ class AgentModel(SQLModel, table=True):
     name: str = Field(index=True)
     description: str | None = Field(default=None)
     role: str = Field(default="asks")  # asks | builds | watches — derived from tools
-    model: str = Field(default="claude-sonnet-4-20250514")
+    model: str = Field(default="claude-sonnet-5")
     system_prompt: str = Field(default="")
     task_template: str | None = Field(default=None)
     settings: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))

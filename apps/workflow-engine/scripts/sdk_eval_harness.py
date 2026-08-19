@@ -307,8 +307,40 @@ def run(trials: int) -> None:
     print(f"\nFull trial data written to {out_path}")
 
 
+def print_prompt(task_key: str) -> None:
+    """Emit the exact one-shot prompt for a task, for an external model runner
+    (e.g. Claude subagents when Gemini is rate-limited) — same preamble, same
+    reference, so results stay comparable across model backends."""
+    task = next((t for t in TASKS if t.key == task_key), None)
+    if task is None:
+        raise SystemExit(f"unknown task '{task_key}' (have: {[t.key for t in TASKS]})")
+    sys.stdout.write(SYSTEM_PREAMBLE.format(signature_reference=signature_reference(), task=task.prompt))
+
+
+def grade_script(task_key: str, script_path: str) -> None:
+    """Grade one externally-produced script; print a JSON verdict to stdout."""
+    task = next((t for t in TASKS if t.key == task_key), None)
+    if task is None:
+        raise SystemExit(f"unknown task '{task_key}' (have: {[t.key for t in TASKS]})")
+    with open(script_path) as f:
+        script = _strip_fences(f.read())
+    result = execute_workflow_script(script)
+    passed, reason = task.grade(result)
+    print(json.dumps({"passed": passed, "reason": reason, "error": result.error, "script": script}))
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--trials", type=int, default=3)
+    parser.add_argument("--print-prompt", metavar="TASK_KEY", help="print the one-shot prompt for TASK_KEY and exit")
+    parser.add_argument("--grade", metavar="TASK_KEY", help="grade a script (from --script-file) against TASK_KEY and exit")
+    parser.add_argument("--script-file", metavar="PATH", help="script to grade with --grade")
     args = parser.parse_args()
-    run(args.trials)
+    if args.print_prompt:
+        print_prompt(args.print_prompt)
+    elif args.grade:
+        if not args.script_file:
+            raise SystemExit("--grade requires --script-file")
+        grade_script(args.grade, args.script_file)
+    else:
+        run(args.trials)

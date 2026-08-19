@@ -1,22 +1,68 @@
 {
+  "_meta": {
+    "model": "claude-sonnet-5 (Claude Code subagents)",
+    "date": "2026-08-19",
+    "trials_per_task": 3,
+    "note": "Run 2, after the SDK-completion ergonomics pass: derived SDK_TYPES with grouped signature_reference, constructor-misuse teaching errors, and the 'every constructor call adds a node' rule in the reference. Run 1 (same prompts pre-change) scored 7/12; its dominant failure was bare unassigned Cron(...) calls."
+  },
   "finance_export": [
     {
-      "passed": false,
-      "reason": "API error: Client error '429 Too Many Requests' for url 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429",
-      "error": "Client error '429 Too Many Requests' for url 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429",
-      "script": ""
+      "passed": true,
+      "reason": "ok",
+      "error": null,
+      "script": "trigger = Cron(mode='cron', cronExpression='0 7 * * 1')\nhttp = HttpRequest(method='GET', url='https://example.com/export', responseType='json')\ntrigger >> http\n\ncheck = If(condition='{{$json.body}}', field='body', operation='isNotEmpty', value='')\nhttp >> check\n\npg = Postgres(\n    connectionString='{{$env.DATABASE_URL}}',\n    operation='query',\n    query='INSERT INTO finance.ledger (data) VALUES ($1) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data',\n    queryParameters='{{$json.body}}'\n)\ncheck.true >> pg\n\nstop = StopAndError(errorType='error', message='Export from https://example.com/export returned an empty body; nothing to upsert into finance.ledger.')\ncheck.false >> stop\n\nvalidate()"
+    },
+    {
+      "passed": true,
+      "reason": "ok",
+      "error": null,
+      "script": "cron = Cron(mode=\"cron\", cronExpression=\"0 7 * * 1\")\nfetch = HttpRequest(method=\"GET\", url=\"https://example.com/export\", responseType=\"json\")\ncheck = If(field=\"{{$json.body}}\", operation=\"isNotEmpty\", value=\"\")\nupsert = Postgres(\n    operation=\"query\",\n    query=\"INSERT INTO finance.ledger (data) VALUES ({{$json.body}}) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data\",\n)\nfail = StopAndError(errorType=\"error\", message=\"Export was empty\")\n\ncron >> fetch >> check\ncheck.true >> upsert\ncheck.false >> fail\n\nvalidate()"
+    },
+    {
+      "passed": true,
+      "reason": "ok",
+      "error": null,
+      "script": "cron = Cron(mode=\"cron\", cronExpression=\"0 7 * * 1\")\n\nhttp = HttpRequest(method=\"GET\", url=\"https://example.com/export\", responseType=\"json\")\n\ncheck = If(condition=\"expression\", field=\"{{$json.body}}\", operation=\"isNotEmpty\", value=\"\")\n\nupsert = Postgres(\n    connectionString=\"{{$env.FINANCE_DB_CONNECTION_STRING}}\",\n    operation=\"query\",\n    query=\"INSERT INTO finance.ledger SELECT * FROM json_populate_recordset(NULL::finance.ledger, %(body)s) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data\",\n    queryParameters={\"body\": \"{{$json.body}}\"},\n)\n\nstop = StopAndError(errorType=\"error\", message=\"Export was empty: GET https://example.com/export returned an empty body\")\n\ncron >> http >> check\ncheck.true >> upsert\ncheck.false >> stop\n\nvalidate()"
+    }
+  ],
+  "regional_loop_large": [
+    {
+      "passed": true,
+      "reason": "ok",
+      "error": null,
+      "script": "start = Cron(mode='cron', cronExpression='0 7 * * 1')\n\nhttp = HttpRequest(method='GET', url='https://example.com/export', responseType='json')\nstart >> http\n\ncheck = If(condition='response body is not empty', field='{{$json.body}}', operation='isNotEmpty', value='')\nhttp >> check\n\nstop = StopAndError(errorType='error', message='Export response was empty; aborting run')\ncheck.false >> stop\n\nregions = ['US', 'CA', 'MX', 'UK', 'DE', 'FR', 'JP', 'AU']\nregion_nodes = []\nfor region in regions:\n    upsert = Postgres(\n        connectionString='{{$env.FINANCE_DB_CONNECTION_STRING}}',\n        operation='query',\n        query=(\n            \"INSERT INTO finance.ledger (region, payload) \"\n            \"VALUES ($1, $2) \"\n            \"ON CONFLICT (region) DO UPDATE SET payload = EXCLUDED.payload\"\n        ),\n        queryParameters=[region, '{{$json.body}}'],\n    )\n    check.true >> upsert\n    region_nodes.append(upsert)\n\nvalidate()"
+    },
+    {
+      "passed": true,
+      "reason": "ok",
+      "error": null,
+      "script": "cron = Cron(mode=\"cron\", cronExpression=\"0 7 * * 1\")  # Monday 07:00 UK time\nfetch = HttpRequest(method=\"GET\", url=\"https://example.com/export\")\ncron >> fetch\n\ncheck = If(field=\"{{$json.body}}\", operation=\"isNotEmpty\")\nfetch >> check\n\nregions = [\"US\", \"CA\", \"MX\", \"UK\", \"DE\", \"FR\", \"JP\", \"AU\"]\npg_nodes = []\nfor region in regions:\n    pg = Postgres(\n        operation=\"query\",\n        query=(\n            f\"INSERT INTO finance.ledger (region, data) VALUES ('{region}', {{{{$json.body}}}}) \"\n            f\"ON CONFLICT (region) DO UPDATE SET data = EXCLUDED.data\"\n        ),\n    )\n    check.true >> pg\n    pg_nodes.append(pg)\n\nstop = StopAndError(errorType=\"error\", message=\"Export response was empty\")\ncheck.false >> stop\n\nvalidate()"
     },
     {
       "passed": false,
-      "reason": "API error: Client error '429 Too Many Requests' for url 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429",
-      "error": "Client error '429 Too Many Requests' for url 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429",
-      "script": ""
+      "reason": "line 1: ImportError: __import__ not found",
+      "error": "line 1: ImportError: __import__ not found",
+      "script": "import datetime\n\nREGIONS = [\"US\", \"CA\", \"MX\", \"UK\", \"DE\", \"FR\", \"JP\", \"AU\"]\n\nstart = Cron(mode=\"cron\", cronExpression=\"0 7 * * 1\")\n\nfetch = HttpRequest(\n    method=\"GET\",\n    url=\"https://example.com/export\",\n    responseType=\"json\",\n)\nstart >> fetch\n\ncheck = If(\n    condition=\"expression\",\n    field=\"{{$json.body}}\",\n    operation=\"isNotEmpty\",\n    value=\"\",\n)\nfetch >> check\n\nfail = StopAndError(\n    errorType=\"error\",\n    message=\"Export response was empty; aborting ledger upsert.\",\n)\ncheck.false >> fail\n\nledger_nodes = []\nfor region in REGIONS:\n    upsert = Postgres(\n        connectionString=\"{{$env.FINANCE_DB_CONNECTION_STRING}}\",\n        operation=\"query\",\n        query=(\n            \"INSERT INTO finance.ledger (region, payload, updated_at) \"\n            \"VALUES ($1, $2, now()) \"\n            \"ON CONFLICT (region) DO UPDATE SET payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at\"\n        ),\n        queryParameters={\"region\": region, \"payload\": \"{{$json.body}}\"},\n    )\n    check.true >> upsert\n    ledger_nodes.append(upsert)\n\nvalidate()"
+    }
+  ],
+  "regional_loop": [
+    {
+      "passed": true,
+      "reason": "ok",
+      "error": null,
+      "script": "trigger = Cron(mode='cron', cronExpression='0 7 * * 1')\n\nfetch = HttpRequest(method='GET', url='https://example.com/export', responseType='json')\ntrigger >> fetch\n\ncheck = If(field='{{$json}}', operation='isNotEmpty')\nfetch >> check\n\nstop = StopAndError(errorType='error', message='Export response was empty')\ncheck.false >> stop\n\nregions = ('US', 'EU', 'APAC')\nledger_writes = []\nfor region in regions:\n    upsert = Postgres(\n        connectionString='{{$env.POSTGRES_CONNECTION_STRING}}',\n        operation='query',\n        query=(\n            \"INSERT INTO finance.ledger (region, data) \"\n            \"VALUES ($1, $2) \"\n            \"ON CONFLICT (region) DO UPDATE SET data = EXCLUDED.data\"\n        ),\n        queryParameters={'1': region, '2': '{{$json}}'},\n    )\n    check.true >> upsert\n    ledger_writes.append(upsert)\n\nvalidate()"
     },
     {
       "passed": false,
-      "reason": "API error: Client error '429 Too Many Requests' for url 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429",
-      "error": "Client error '429 Too Many Requests' for url 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429",
-      "script": ""
+      "reason": "line 1: ImportError: __import__ not found",
+      "error": "line 1: ImportError: __import__ not found",
+      "script": "import datetime\n\ncron = Cron(mode='cron', cronExpression='0 7 * * 1')  # Every Monday, 07:00 UK time\n\nfetch = HttpRequest(method='GET', url='https://example.com/export', responseType='json')\ncron >> fetch\n\ncheck_empty = If(field='body', operation='isNotEmpty', value='')\nfetch >> check_empty\n\nstop = StopAndError(errorType='error', message='Export response was empty')\ncheck_empty.false >> stop\n\nregions = ('US', 'EU', 'APAC')\nledger_nodes = []\nfor region in regions:\n    upsert = Postgres(\n        connectionString='={{$env.FINANCE_DB_CONNECTION_STRING}}',\n        operation='query',\n        query=(\n            \"INSERT INTO finance.ledger (region, payload) \"\n            \"VALUES ('\" + region + \"', $1) \"\n            \"ON CONFLICT (region) DO UPDATE SET payload = EXCLUDED.payload\"\n        ),\n        queryParameters='={{ [$json.body] }}'\n    )\n    check_empty.true >> upsert\n    ledger_nodes.append(upsert)\n\nvalidate()"
+    },
+    {
+      "passed": true,
+      "reason": "ok",
+      "error": null,
+      "script": "trigger = Cron(mode='cron', cronExpression='0 7 * * 1')\n\nfetch = HttpRequest(method='GET', url='https://example.com/export', responseType='json')\ntrigger >> fetch\n\ncheck = If(field='body', operation='isNotEmpty')\nfetch >> check\n\nregions = ('US', 'EU', 'APAC')\npg_nodes = []\nfor region in regions:\n    pg = Postgres(\n        operation='query',\n        query=\"INSERT INTO finance.ledger (region, data) VALUES (%(region)s, %(data)s) \"\n              \"ON CONFLICT (region) DO UPDATE SET data = EXCLUDED.data\",\n        queryParameters={'region': region, 'data': '={{$json.body}}'},\n    )\n    check.true >> pg\n    pg_nodes.append(pg)\n\nstop_empty = StopAndError(errorType='error', message='Export response was empty')\ncheck.false >> stop_empty\n\nvalidate()"
     }
   ],
   "weather_email": [
@@ -24,59 +70,19 @@
       "passed": true,
       "reason": "ok",
       "error": null,
-      "script": "trigger = Cron(mode='cron', cronExpression='0 6 * * *')\nfetch_weather = HttpRequest(method='GET', url='https://api.weather.example.com/current')\ncheck_empty = If(operation='isEmpty')\nerror_node = StopAndError(errorType='error', message='Weather API response was empty.')\nsend_email = SendEmail(\n    toEmail='ops@example.com',\n    subject='Daily weather check',\n    body='The daily weather check completed successfully.',\n    bodyFormat='plain'\n)\n\ntrigger >> fetch_weather\nfetch_weather >> check_empty\ncheck_empty.true >> error_node\ncheck_empty.false >> send_email\n\nvalidate()"
+      "script": "cron = Cron(mode=\"cron\", cronExpression=\"0 6 * * *\")\nhttp = HttpRequest(method=\"GET\", url=\"https://api.weather.example.com/current\", responseType=\"json\")\ncheck_empty = If(condition=\"expression\", field=\"{{$json}}\", operation=\"isEmpty\", value=\"\")\nstop = StopAndError(errorType=\"error\", message=\"Weather API returned an empty response\")\nsend_email = SendEmail(toEmail=\"ops@example.com\", subject=\"Daily weather check\", bodyFormat=\"plain\", body=\"The daily weather check completed successfully.\")\n\ncron >> http\nhttp >> check_empty\ncheck_empty.true >> stop\ncheck_empty.false >> send_email\n\nvalidate()"
     },
     {
-      "passed": false,
-      "reason": "API error: Client error '429 Too Many Requests' for url 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429",
-      "error": "Client error '429 Too Many Requests' for url 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429",
-      "script": ""
+      "passed": true,
+      "reason": "ok",
+      "error": null,
+      "script": "cron = Cron(mode='cron', cronExpression='0 6 * * *')\nfetch_weather = HttpRequest(method='GET', url='https://api.weather.example.com/current', responseType='json')\ncron >> fetch_weather\n\ncheck_empty = If(condition='expression', field='{{$json}}', operation='isEmpty', value='')\nfetch_weather >> check_empty\n\nstop_error = StopAndError(errorType='error', message='Weather API returned an empty response')\ncheck_empty.true >> stop_error\n\nnotify = SendEmail(toEmail='ops@example.com', subject='Daily weather check', bodyFormat='plain', body='The daily weather check completed successfully.')\ncheck_empty.false >> notify\n\nvalidate()"
     },
     {
-      "passed": false,
-      "reason": "API error: Client error '429 Too Many Requests' for url 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429",
-      "error": "Client error '429 Too Many Requests' for url 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429",
-      "script": ""
-    }
-  ],
-  "regional_loop": [
-    {
-      "passed": false,
-      "reason": "API error: Client error '429 Too Many Requests' for url 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429",
-      "error": "Client error '429 Too Many Requests' for url 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429",
-      "script": ""
-    },
-    {
-      "passed": false,
-      "reason": "API error: Client error '429 Too Many Requests' for url 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429",
-      "error": "Client error '429 Too Many Requests' for url 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429",
-      "script": ""
-    },
-    {
-      "passed": false,
-      "reason": "API error: Client error '429 Too Many Requests' for url 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429",
-      "error": "Client error '429 Too Many Requests' for url 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429",
-      "script": ""
-    }
-  ],
-  "regional_loop_large": [
-    {
-      "passed": false,
-      "reason": "API error: Client error '429 Too Many Requests' for url 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429",
-      "error": "Client error '429 Too Many Requests' for url 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429",
-      "script": ""
-    },
-    {
-      "passed": false,
-      "reason": "API error: Client error '429 Too Many Requests' for url 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429",
-      "error": "Client error '429 Too Many Requests' for url 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429",
-      "script": ""
-    },
-    {
-      "passed": false,
-      "reason": "API error: Client error '429 Too Many Requests' for url 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429",
-      "error": "Client error '429 Too Many Requests' for url 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429",
-      "script": ""
+      "passed": true,
+      "reason": "ok",
+      "error": null,
+      "script": "cron = Cron(mode=\"cron\", cronExpression=\"0 6 * * *\")\nhttp = HttpRequest(method=\"GET\", url=\"https://api.weather.example.com/current\", responseType=\"json\")\ncheck = If(condition=\"expression\", field=\"{{$json.body}}\", operation=\"isEmpty\", value=\"\")\nstop = StopAndError(errorType=\"error\", message=\"Weather API returned an empty response\")\nemail = SendEmail(toEmail=\"ops@example.com\", subject=\"Daily weather check\", bodyFormat=\"plain\", body=\"The daily weather check completed successfully.\")\n\ncron >> http >> check\ncheck.true >> stop\ncheck.false >> email\n\nvalidate()"
     }
   ]
 }

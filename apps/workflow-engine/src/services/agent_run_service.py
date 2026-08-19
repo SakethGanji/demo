@@ -50,6 +50,27 @@ _MEMORY_PARAM_MAP = {
 }
 
 
+async def _run_to_completion(coro: Any) -> Any:
+    """Await ``coro`` even if the surrounding task keeps being cancelled.
+
+    ``asyncio.shield`` alone protects the inner work from one cancellation but
+    re-raises CancelledError into the *waiter* — and CancelledError is a
+    BaseException, so the ``except Exception`` guards around final cleanup
+    never stop it. A second cancel() arriving mid-cleanup would then skip the
+    terminal DB write entirely, leaving the run "running" and its session
+    busy forever. Here the shielded work is re-awaited until it actually
+    finishes; only a cancellation of the work itself propagates.
+    """
+    inner = asyncio.ensure_future(coro)
+    while True:
+        try:
+            return await asyncio.shield(inner)
+        except asyncio.CancelledError:
+            if inner.cancelled():
+                raise
+            continue
+
+
 class SessionNotFoundError(Exception):
     def __init__(self, session_id: str) -> None:
         self.session_id = session_id
@@ -248,16 +269,25 @@ class AgentRunService:
         cancelled = execution_registry.cancel(run_id)
         if not cancelled:
             # No live task (different worker, or a restart lost it) — the row
-            # would otherwise be stuck "running" forever.
-            updated = await self._runs.update_run(
+            # would otherwise be stuck "running" forever. Conditional write:
+            # the task may have finished (and committed its real outcome)
+            # between the status check above and here, and that outcome must
+            # not be stamped over.
+            now = datetime.now()
+            updated, applied = await self._runs.finalize_run_if_active(
                 run_id,
                 {
                     "status": "cancelled",
                     "error": "Cancelled; no live task was registered",
-                    "cancelled_at": datetime.now(),
-                    "ended_at": datetime.now(),
+                    "cancelled_at": now,
+                    "ended_at": now,
                 },
             )
+            if applied:
+                # A terminal run always releases its session, same as _finalize.
+                await self._runs.update_session(
+                    run.session_id, {"status": "idle", "last_run_at": now}
+                )
             return _run_response(updated or run)
 
         # The task's own finaliser writes the terminal row.
@@ -285,24 +315,39 @@ class AgentRunService:
         try:
             await self._set_status(run_id, {"status": "running"})
 
-            async with self._session_factory() as db_session:
-                from .agent_tool_resolver import AgentToolResolver
+            from .agent_tool_resolver import AgentToolResolver
 
-                resolved = await AgentToolResolver(db_session).resolve(
-                    snapshot.get("tools") or []
-                )
+            # The resolver gets the session *factory*, not a session: resolved
+            # tools carry live executor closures invoked mid-run, long after
+            # any session opened here would have been closed.
+            resolved = await AgentToolResolver(
+                session_factory=self._session_factory
+            ).resolve(snapshot.get("tools") or [])
             if resolved.unavailable:
                 logger.warning(
                     "run %s: %d bound tool(s) unavailable: %s",
                     run_id, len(resolved.unavailable), resolved.unavailable,
                 )
 
+            # Tools may ship documentation the model needs BEFORE its first
+            # call (the SDK tool ships its signature reference this way).
+            # Splice it into the system prompt and strip the key — the seam
+            # that feeds extra_tools to the model must only see tool fields.
+            system_prompt = snapshot.get("system_prompt") or ""
+            appendixes = [
+                t.pop("system_prompt_appendix")
+                for t in resolved.extra_tools
+                if isinstance(t, dict) and t.get("system_prompt_appendix")
+            ]
+            if appendixes:
+                system_prompt = "\n\n".join([system_prompt, *appendixes]).strip()
+
             spec = AgentRunSpec(
                 run_id=run_id,
                 agent_name=snapshot.get("name") or "agent",
-                model=snapshot.get("model") or "claude-sonnet-4-20250514",
+                model=snapshot.get("model") or "claude-sonnet-5",
                 task=task_text,
-                system_prompt=snapshot.get("system_prompt") or "",
+                system_prompt=system_prompt,
                 parameters=_parameters_from_snapshot(snapshot),
                 builtin_tool_specs=resolved.builtin_tool_specs,
                 extra_tools=resolved.extra_tools,
@@ -328,12 +373,12 @@ class AgentRunService:
             # Always close the recorder: it owns a writer task and a queue of
             # rows that are the only trace of what the agent did.
             try:
-                await asyncio.shield(recorder.close())
+                await _run_to_completion(recorder.close())
             except Exception:
                 logger.warning("recorder close failed for run %s", run_id, exc_info=True)
 
         try:
-            await asyncio.shield(
+            await _run_to_completion(
                 self._finalize(run_id, session_id, outcome, recorder.event_count, cancelled)
             )
         except Exception:
@@ -374,7 +419,9 @@ class AgentRunService:
             from ..repositories.agent_run_repository import AgentRunRepository
 
             repo = AgentRunRepository(db_session)
-            await repo.update_run(run_id, changes)
+            # Conditional: cancel()'s no-live-task branch may have already
+            # written a terminal status; the first terminal write wins.
+            await repo.finalize_run_if_active(run_id, changes)
             await repo.update_session(session_id, {"status": "idle", "last_run_at": now})
 
     async def _set_status(self, run_id: str, changes: dict[str, Any]) -> None:

@@ -37,8 +37,12 @@ BUILTIN_SOURCE = "builtin"
 _CONNECTOR_SOURCES = ("mcp", "openapi")
 
 # (module, attribute) candidates per source. The first that imports and
-# resolves wins. Signature expected: ``fn(bindings, session) -> list[tool_dict]``
-# (awaited if it returns a coroutine).
+# resolves wins. Signature expected:
+# ``fn(bindings, session_factory) -> list[tool_dict]`` (awaited if it returns
+# a coroutine). Providers receive the session *factory*, not a live session:
+# the ``execute`` closures they return run mid-agent-loop, long after resolve
+# time, so call-time DB work must open its own session. (A resolver built with
+# a bare session — tests, legacy callers — passes that session instead.)
 _PROVIDER_CANDIDATES: dict[str, tuple[tuple[str, str], ...]] = {
     "promoted": (
         ("..services.promoted_tool_service", "build_agent_tools"),
@@ -47,6 +51,12 @@ _PROVIDER_CANDIDATES: dict[str, tuple[tuple[str, str], ...]] = {
     "node": (
         ("..nodes.ai.connectors.node_tools", "build_agent_tools"),
         ("..services.node_tool_service", "build_agent_tools"),
+    ),
+    # The workflow SDK as a tool: the agent writes a Python script, gets a
+    # validated (and by default persisted) workflow back. Runs in the
+    # subprocess sandbox, never in-process.
+    "sdk": (
+        ("..services.workflow_sdk_tool_service", "build_agent_tools"),
     ),
 }
 
@@ -67,8 +77,11 @@ class ResolvedTools:
 class AgentToolResolver:
     """Resolves bindings to ``(builtin_tool_specs, extra_tools)``."""
 
-    def __init__(self, session: Any | None = None) -> None:
+    def __init__(
+        self, session: Any | None = None, session_factory: Any | None = None
+    ) -> None:
         self._session = session
+        self._session_factory = session_factory
 
     async def resolve(self, bindings: list[Any]) -> ResolvedTools:
         resolved = ResolvedTools()
@@ -159,7 +172,7 @@ class AgentToolResolver:
                 )
             return
 
-        if self._session is None:
+        if self._session is None and self._session_factory is None:
             for binding in bindings:
                 resolved.unavailable.append(
                     {
@@ -198,9 +211,19 @@ class AgentToolResolver:
         ]
         taken = [t["name"] for t in resolved.extra_tools]
         try:
-            bundle = await resolve_connector_bundle(
-                specs, self._session, taken_names=taken
-            )
+            if self._session_factory is not None:
+                # Fresh session for resolve-time reads only (connector rows,
+                # selected tool entries). Bundle executors must not capture
+                # it — they hold the connector + HTTP client instead — since
+                # the tools outlive this method by the whole run.
+                async with self._session_factory() as session:
+                    bundle = await resolve_connector_bundle(
+                        specs, session, taken_names=taken
+                    )
+            else:
+                bundle = await resolve_connector_bundle(
+                    specs, self._session, taken_names=taken
+                )
             tools = bundle.get("tools") or []
             executors = bundle.get("executors") or {}
             for skip in bundle.get("skipped") or []:
@@ -254,7 +277,9 @@ class AgentToolResolver:
             return
 
         try:
-            produced = provider(bindings, self._session)
+            # Factory preferred: provider-built executors run at tool-call
+            # time, when a session opened during resolve would be closed.
+            produced = provider(bindings, self._session_factory or self._session)
             if inspect.isawaitable(produced):
                 produced = await produced
         except Exception as exc:  # noqa: BLE001 — one bad connector != a dead run

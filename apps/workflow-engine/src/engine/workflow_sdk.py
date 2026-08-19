@@ -30,29 +30,50 @@ from typing import Any
 from .node_registry import node_registry, register_all_nodes
 from .types import Connection, NodeDefinition, Workflow
 
-# All 28 registered node types, minus AIAgent (excluded per SDK-DESIGN.md §5 —
-# an agent placing agents inside the workflow it's building makes cost and
-# recursion unpredictable; bind it by hand if wanted). Extending coverage from
-# the original 8-type slice to all 27 cost exactly this list — the validator
-# itself (_construct, below) already reads the registry generically, so there
-# was no per-type logic to write. This is the concrete proof of SDK-DESIGN.md's
-# central claim: a node added to the registry needs nothing hand-written here.
-SDK_TYPES = [
-    # Triggers
-    "Start", "Webhook", "Cron", "ErrorTrigger", "ExecuteWorkflowTrigger",
-    # Flow control
-    "If", "Switch", "Merge", "Wait", "Loop", "Poll", "ExecuteWorkflow", "StopAndError",
-    # Data / transform
-    "Set", "HttpRequest", "Code", "Filter", "ItemLists", "Sample", "Profile", "Aggregate",
-    # Integrations
-    "SendEmail", "Postgres", "Neo4j", "MongoDB",
-    # AI (AIAgent deliberately excluded)
-    "LLMChat",
-    # UI
-    "ChatInput",
-]
-
+# AIAgent is excluded per SDK-DESIGN.md §5 — an agent placing agents inside the
+# workflow it's building makes cost and recursion unpredictable; bind it by hand
+# (via the Node() escape hatch) if wanted. The exclusion being explicit and
+# tested is the point.
 EXCLUDED_TYPES = {"AIAgent"}
+
+# Presentation order for registry groups in constructors and the signature
+# reference. Groups the registry may grow later sort after these, by name;
+# within a group, registry registration order is kept — both rules exist so
+# the agent-facing prompt text is deterministic across runs.
+_GROUP_ORDER = ("trigger", "flow", "transform", "ai", "ui")
+
+
+def _sdk_types() -> list[str]:
+    """Every registered node type except EXCLUDED_TYPES, DERIVED from the live
+    registry on each call — never hand-maintained. This is the "add a node
+    once" guarantee: registering a new node type is the only step; the
+    constructor, validation, signature_reference() and describe() all follow
+    with zero edits here. (No caching: a type registered mid-process — e.g. by
+    a test — must show up immediately.)"""
+    _ensure_registered()
+
+    def sort_key(item: tuple[int, str]) -> tuple[int, str, int]:
+        registration_index, type_name = item
+        info = node_registry.get_node_type_info(type_name)
+        group = info.group[0] if info and info.group else "transform"
+        group_index = (
+            _GROUP_ORDER.index(group) if group in _GROUP_ORDER else len(_GROUP_ORDER)
+        )
+        return (group_index, group, registration_index)
+
+    indexed = [
+        (i, t) for i, t in enumerate(node_registry.list()) if t not in EXCLUDED_TYPES
+    ]
+    return [t for _, t in sorted(indexed, key=sort_key)]
+
+
+def __getattr__(name: str) -> Any:
+    # PEP 562: `SDK_TYPES` stays importable (tests parametrize over it) without
+    # an import-time register_all_nodes() side effect.
+    if name == "SDK_TYPES":
+        return _sdk_types()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 _registered = False
 
@@ -156,6 +177,10 @@ class _Port:
 def _wire(draft: _Draft, source: NodeHandle, source_port: str, other: Any) -> Any:
     targets = other if isinstance(other, list) else [other]
     for t in targets:
+        if isinstance(t, _NodeFactory):
+            # `node >> Cron` — Python asks the left operand first, so the
+            # factory's own __rrshift__ never gets the chance to explain.
+            raise t._misuse()
         if not isinstance(t, NodeHandle):
             raise TypeError(f"wiring target must be a node, got {type(t).__name__}")
         draft.connections.append(Connection(
@@ -259,26 +284,66 @@ def _looks_like_expression(value: str) -> bool:
     return bool(re.search(r"\{\{.*\}\}", value)) or value.startswith("$")
 
 
+class _NodeFactory:
+    """The constructor injected for one node type. A plain function would do for
+    the happy path; this is a class so the two most common one-shot-model
+    misuses (both observed in the 2026-08-19 Sonnet eval, 5/5 failures) raise a
+    teaching error instead of a bare TypeError:
+
+      Cron >> fetch          # wired the constructor itself, never made a node
+      Cron(...)              # bare call "to configure" — added an orphan node
+    """
+
+    def __init__(self, type_name: str, construct) -> None:
+        self._type = type_name
+        self._construct = construct
+        self.__name__ = type_name
+
+    def __call__(self, **kwargs: Any) -> NodeHandle:
+        return self._construct(kwargs)
+
+    def __repr__(self) -> str:
+        return f"<{self._type} constructor — call it to add a node>"
+
+    def _misuse(self) -> TypeError:
+        return TypeError(
+            f"{self._type} is the CONSTRUCTOR, not a node — calling it is what "
+            f"adds a node. Assign the call to a variable and wire that: "
+            f"`n = {self._type}(...)` then `n >> other` (or `other >> n`)."
+        )
+
+    def __rshift__(self, other: Any) -> Any:
+        raise self._misuse()
+
+    def __rrshift__(self, other: Any) -> Any:
+        raise self._misuse()
+
+    def __getattr__(self, port: str) -> Any:
+        if port.startswith("_"):
+            raise AttributeError(port)
+        raise self._misuse()
+
+
 def build_sdk_namespace(draft: _Draft, current_line_getter) -> dict[str, Any]:
     """Build the callables to inject into a script's exec() globals, all closed over
     the same `draft` instance. `current_line_getter` lets constructors tag each node
     with the source line that created it (the provenance mechanism proven in the
     workflow-studio UI spike — see agent-sdk-demo.tsx)."""
 
-    def _factory(type_name: str):
-        def factory(**kwargs: Any) -> NodeHandle:
+    def _factory(type_name: str) -> _NodeFactory:
+        def construct(kwargs: dict[str, Any]) -> NodeHandle:
             return _construct(draft, type_name, current_line_getter(), kwargs)
-        factory.__name__ = type_name
-        return factory
 
-    ns: dict[str, Any] = {t: _factory(t) for t in SDK_TYPES}
+        return _NodeFactory(type_name, construct)
+
+    ns: dict[str, Any] = {t: _factory(t) for t in _sdk_types()}
 
     def Node(type_name: str, **kwargs: Any) -> NodeHandle:
-        """Escape hatch for any node the fixed SDK_TYPES constructors can't
-        express — e.g. AIAgent (deliberately excluded above) or a type added to
-        the registry that hasn't been added to SDK_TYPES yet. AGENT-WORKFLOW-
-        AUTHORING.md §2.3 documents this; found on self-review that it was
-        documented but never actually implemented."""
+        """Escape hatch for any node without an injected constructor — since
+        SDK_TYPES is derived from the registry, that now means exactly the
+        EXCLUDED_TYPES (AIAgent, deliberately). AGENT-WORKFLOW-AUTHORING.md
+        §2.3 documents this; found on self-review that it was documented but
+        never actually implemented."""
         return _construct(draft, type_name, current_line_getter(), kwargs)
 
     ns["Node"] = Node
@@ -343,7 +408,18 @@ def _validate_draft(draft: _Draft) -> list[str]:
     if len(triggers) == 0:
         problems.append("no trigger node — every workflow needs exactly one")
     elif len(triggers) > 1:
-        problems.append(f"{len(triggers)} trigger nodes found, expected exactly 1")
+        msg = f"{len(triggers)} trigger nodes found, expected exactly 1"
+        # The classic one-shot-model mistake: a bare `Cron(...)` "to configure"
+        # plus a second assigned one to wire. Name the likely culprit.
+        trigger_types = [t.type for t in triggers]
+        duplicated = sorted({t for t in trigger_types if trigger_types.count(t) > 1})
+        if duplicated:
+            msg += (
+                f" — {duplicated[0]}(...) was called more than once; every "
+                f"constructor call ADDS a node, so call it exactly once, keep "
+                f"the returned handle in a variable, and wire that variable"
+            )
+        problems.append(msg)
 
     # dangling connections + bad port names against the node's declared outputs
     _ensure_registered()
@@ -589,12 +665,17 @@ def signature_reference(types: list[str] | None = None) -> str:
     """The compact per-type doc string injected into an eval prompt — the thing
     Tier-1/2 evals are actually testing the clarity of."""
     _ensure_registered()
-    types = types or SDK_TYPES
+    types = types or _sdk_types()
     lines = []
+    current_group: str | None = None
     for t in types:
         info = node_registry.get_node_type_info(t)
         if info is None:
             continue
+        group = info.group[0] if info.group else "transform"
+        if group != current_group:
+            lines.append(f"# {group}")
+            current_group = group
         parts = []
         for p in info.properties:
             req = "required=True with a non-empty default (SDK treats as optional)" if (p.get("required") and p.get("default") not in (None, "", [], {})) else None
@@ -607,6 +688,10 @@ def signature_reference(types: list[str] | None = None) -> str:
     lines.append("(* = required)")
     lines.append("Every name above is ALREADY in scope — do not import anything. There is no")
     lines.append("module to import from; writing e.g. `from workflow_sdk import *` will fail.")
+    lines.append("EVERY constructor call adds a node to the workflow immediately — never call")
+    lines.append("one 'just to configure'. Call each constructor exactly once per node you")
+    lines.append("want, assign the result to a variable, and wire that variable; a bare")
+    lines.append("unassigned call still creates a (probably orphan or duplicate) node.")
     lines.append("a >> b            wire main output -> main input, returns b")
     lines.append("a.PORTNAME >> b   wire a named output port (see -> ports above)")
     lines.append("a.PORTNAME >> [b, c, d]   fan OUT: one port to several independent nodes,")
@@ -669,7 +754,18 @@ def execute_workflow_script(script: str, workflow_name: str = "sdk_script") -> E
     # Mirrors the whitelist already proven safe in ai_agent.py's PTC sandbox
     # (_execute_ptc_script, ai_agent.py:1120) — same posture, not a stricter one,
     # so a script failing here reflects an SDK-usage mistake, not a narrower sandbox.
+    def _no_import(name: str, *args: Any, **kwargs: Any) -> Any:
+        # Without this, `import x` dies with a bare "__import__ not found".
+        # Observed in the 2026-08-19 Sonnet eval run 2: the only failures left
+        # were reflex `import datetime` lines — make the error teach instead.
+        raise ImportError(
+            f"import '{name}' — imports are disabled in workflow scripts; every "
+            f"SDK name is already in scope and nothing else is available. "
+            f"Delete the import statement."
+        )
+
     ns["__builtins__"] = {
+        "__import__": _no_import,
         "len": len, "range": range, "enumerate": enumerate,
         "zip": zip, "map": map, "filter": filter, "sorted": sorted,
         "reversed": reversed, "list": list, "dict": dict, "set": set,

@@ -41,7 +41,7 @@ class AgentRepository:
             name=values["name"],
             description=values.get("description"),
             role=values.get("role") or "asks",
-            model=values.get("model") or "claude-sonnet-4-20250514",
+            model=values.get("model") or "claude-sonnet-5",
             system_prompt=values.get("system_prompt") or "",
             task_template=values.get("task_template"),
             settings=values.get("settings") or {},

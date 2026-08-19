@@ -173,7 +173,7 @@ class AIAgentNode(BaseNode):
                     NodePropertyOption(name="Gemini 1.5 Pro", value="gemini-1.5-pro"),
                     NodePropertyOption(name="GPT-4o", value="gpt-4o"),
                     NodePropertyOption(name="GPT-4o Mini", value="gpt-4o-mini"),
-                    NodePropertyOption(name="Claude Sonnet", value="claude-sonnet-4-20250514"),
+                    NodePropertyOption(name="Claude Sonnet 5", value="claude-sonnet-5"),
                 ],
             ),
             NodeProperty(

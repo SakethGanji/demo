@@ -36,7 +36,8 @@ _CONFIG_FIELDS = (
 #   watches — can read systems of record but not change them
 #   asks    — can only reason and compute
 _BUILDS_TOOLS = {"workflow", "code", "httpRequest", "apiRequest"}
-_BUILDS_SOURCES = {"promoted", "node"}
+# "sdk" builds and runs whole workflows — the strongest effect an agent can have.
+_BUILDS_SOURCES = {"promoted", "node", "sdk"}
 _WATCHES_TOOLS = {
     "dataProfile",
     "dataAggregate",
