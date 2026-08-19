@@ -21,6 +21,9 @@ const routeTree = rootRoute.addChildren([
   editorRoute,
   builderRoute,
   projectsRoute,
+  // agent-sdk-demo.tsx (the SDK feasibility spike) is deliberately NOT
+  // registered: it was an unguarded production route reachable by URL.
+  // Re-add its import here if the spike needs to be shown live again.
   // Everything below shares the studio shell. New studio routes are added HERE
   // rather than to the root, which is why `__root.tsx` has needed no edit as
   // the surface grew from two routes to ten.
