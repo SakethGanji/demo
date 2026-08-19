@@ -19,6 +19,7 @@ import { definitionToPreviewData } from '@/features/workflow-editor/lib/workflow
 import { BuildAttemptView, type BuildAttempt } from './BuildAttemptView';
 import {
   agentsApi,
+  modelsApi,
   workflowsApi,
   type AgentRunEvent,
   type AgentRunListItem,
@@ -191,8 +192,18 @@ export function AgentsPage() {
   const [agentId, setAgentId] = useState('');
   const [task, setTask] = useState('');
   const [newAgentName, setNewAgentName] = useState('');
+  const [model, setModel] = useState('');
 
   const agents = useQuery({ queryKey: ['agents'], queryFn: agentsApi.list });
+  const models = useQuery({ queryKey: ['models'], queryFn: modelsApi.list });
+
+  // Preselect the backend's default (first model with a configured credential),
+  // so a created agent runs instead of dead-ending on a keyless model.
+  const defaultModel = useMemo(() => {
+    const list = models.data ?? [];
+    return (list.find((m) => m.default) ?? list.find((m) => m.available) ?? list[0])?.id ?? '';
+  }, [models.data]);
+  const selectedModel = model || defaultModel;
 
   const runs = useQuery({
     queryKey: ['agent-runs'],
@@ -220,7 +231,7 @@ export function AgentsPage() {
     mutationFn: () =>
       agentsApi.create({
         name: newAgentName.trim(),
-        model: 'claude-sonnet-5',
+        model: selectedModel,
         description: 'Builds and runs workflows from plain-English tasks.',
         system_prompt:
           'You are a workflow author. Use build_workflow to create workflows, ' +
@@ -299,12 +310,25 @@ export function AgentsPage() {
               size="sm"
               variant="outline"
               data-testid="new-agent-create"
-              disabled={!newAgentName.trim() || createAgent.isPending}
+              disabled={!newAgentName.trim() || !selectedModel || createAgent.isPending}
               onClick={() => createAgent.mutate()}
             >
               Create
             </Button>
           </div>
+          <select
+            className="mt-2 h-7 w-full rounded border border-border bg-transparent px-2 text-small"
+            value={selectedModel}
+            onChange={(e) => setModel(e.target.value)}
+            data-testid="new-agent-model"
+          >
+            {(models.data ?? []).map((m) => (
+              <option key={m.id} value={m.id} disabled={!m.available}>
+                {m.label}
+                {m.available ? '' : ' — no credential'}
+              </option>
+            ))}
+          </select>
           <div className="mt-1 text-footnote text-muted-foreground">
             Created with the workflow toolkit bound (build · list · run).
           </div>

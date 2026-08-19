@@ -198,8 +198,32 @@ class AgentRuntime:
         if not isinstance(tool_calls, list):
             tool_calls = []
 
+        # False-success guard: a turn whose EVERY tool call errored accomplished
+        # nothing — the runtime soft-catches tool exceptions into {"error": ...}
+        # and the loop terminating on a final text response would otherwise be
+        # recorded as "success". Report that honestly as failed. (A turn with no
+        # tool calls at all is a legitimate Q&A success and stays success.)
+        status = "success"
+        error: str | None = None
+        errored = [
+            tc for tc in tool_calls if isinstance(tc, dict) and tc.get("is_error")
+        ]
+        if tool_calls and len(errored) == len(tool_calls):
+            status = "failed"
+            last_out = errored[-1].get("output")
+            detail = ""
+            if isinstance(last_out, dict):
+                detail = str(last_out.get("error") or last_out)[:200]
+            elif last_out is not None:
+                detail = str(last_out)[:200]
+            error = (
+                f"All {len(tool_calls)} tool call(s) failed; the agent produced no "
+                f"successful action." + (f" Last error: {detail}" if detail else "")
+            )
+
         return AgentRunOutcome(
-            status="success",
+            status=status,
+            error=error,
             response=payload.get("response") or "",
             structured=structured,
             tool_calls=tool_calls,

@@ -70,7 +70,7 @@ async def main() -> None:
                 {
                     "name": AGENT_NAME,
                     "description": "Seeded demo agent — builds workflows via the SDK toolkit.",
-                    "model": "claude-sonnet-5",
+                    "model": "gemini-3.6-flash",
                     "system_prompt": "You are a workflow author.",
                 }
             )

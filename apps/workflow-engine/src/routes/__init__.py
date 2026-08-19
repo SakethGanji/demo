@@ -20,6 +20,7 @@ from .agents import router as agents_router
 from .agent_runs import router as agent_runs_router
 from .connectors import router as connectors_router
 from .workflow_sdk import router as workflow_sdk_router
+from .models import router as models_router
 
 # Main API router
 api_router = APIRouter(prefix="/api")
@@ -38,6 +39,7 @@ api_router.include_router(agents_router, tags=["Agents"])
 api_router.include_router(agent_runs_router, tags=["Agent Runs"])
 api_router.include_router(connectors_router, tags=["Connectors"])
 api_router.include_router(workflow_sdk_router, tags=["Workflow SDK"])
+api_router.include_router(models_router, tags=["Models"])
 
 # Non-prefixed routers (for webhooks, streaming, and public deployed apps)
 webhook_router = webhooks_router

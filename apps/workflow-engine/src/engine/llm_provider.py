@@ -13,6 +13,7 @@ Routing:
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -36,6 +37,10 @@ class ToolCall:
     name: str
     args: Dict[str, Any]
     raw_args: Optional[str] = None  # Preserved on repair failure for diagnostics
+    # Gemini 3+ returns an opaque thought_signature on each functionCall part and
+    # rejects the follow-up turn (400 INVALID_ARGUMENT) unless it is replayed in
+    # history. Captured on parse, round-tripped through the assistant message.
+    thought_signature: Optional[bytes] = None
 
 
 @dataclass
@@ -71,6 +76,17 @@ class LLMResponse:
                             "name": tc.name,
                             "arguments": json.dumps(tc.args),
                         },
+                        # base64 str so the message stays JSON-serializable;
+                        # decoded back to bytes when rebuilding Gemini history.
+                        **(
+                            {
+                                "thought_signature": base64.b64encode(
+                                    tc.thought_signature
+                                ).decode("ascii")
+                            }
+                            if tc.thought_signature
+                            else {}
+                        ),
                     }
                     for tc in self.tool_calls
                 ],
@@ -83,6 +99,7 @@ class LLMResponse:
 # ---------------------------------------------------------------------------
 
 GEMINI_MODELS: set[str] = {
+    "gemini-3.6-flash",
     "gemini-2.5-pro", "gemini-2.5-flash",
     "gemini-2.0-flash", "gemini-2.0-flash-001",
     "gemini-1.5-flash", "gemini-1.5-flash-latest",
@@ -248,9 +265,16 @@ def _convert_messages_to_gemini_content(
                         )
                     except json.JSONDecodeError:
                         args = {}
-                    parts.append(
-                        Part.from_function_call(name=fn.get("name"), args=args)
-                    )
+                    fc_part = Part.from_function_call(name=fn.get("name"), args=args)
+                    # Replay Gemini 3's thought_signature or the follow-up turn
+                    # 400s (INVALID_ARGUMENT: missing thought_signature).
+                    sig_b64 = tc.get("thought_signature")
+                    if sig_b64:
+                        try:
+                            fc_part.thought_signature = base64.b64decode(sig_b64)
+                        except (ValueError, TypeError):
+                            pass
+                    parts.append(fc_part)
                 contents.append(Content(role="model", parts=parts))
             elif content:
                 contents.append(
@@ -478,6 +502,7 @@ def _parse_gemini_response(response: Any) -> LLMResponse:
                     id=str(uuid.uuid4()),
                     name=fc.name,
                     args=dict(fc.args) if fc.args else {},
+                    thought_signature=getattr(part, "thought_signature", None),
                 ))
             elif getattr(part, "text", None):
                 text_parts.append(part.text)
@@ -521,6 +546,7 @@ def _parse_gemini_response(response: Any) -> LLMResponse:
                     id=str(uuid.uuid4()),
                     name=fc.name,
                     args=dict(fc.args) if fc.args else {},
+                    thought_signature=getattr(part, "thought_signature", None),
                 ))
             elif getattr(part, "text", None):
                 text_parts.append(part.text)

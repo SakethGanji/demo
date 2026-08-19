@@ -163,6 +163,20 @@ test('/agents creates a builds-verb agent and a triggered run reaches a terminal
   const agentName = `${PREFIX}-agent`
   await goto(page, '/agents')
 
+  // The model selector is populated from GET /models and preselects the
+  // backend's default (first provider with a configured credential) — so a
+  // UI-created agent is born on a model that can actually run, not a fixed one.
+  const modelSel = page.getByTestId('new-agent-model')
+  await expect(modelSel).toBeVisible()
+  const chosenModel = await modelSel.inputValue()
+  expect(chosenModel.length).toBeGreaterThan(0)
+  const models = await engine<Array<{ id: string; default: boolean; available: boolean }>>(
+    'GET',
+    '/models',
+  )
+  const wantDefault = models.find((m) => m.default)?.id
+  if (wantDefault) expect(chosenModel).toBe(wantDefault)
+
   await page.getByTestId('new-agent-name').fill(agentName)
   await page.getByTestId('new-agent-create').click()
 

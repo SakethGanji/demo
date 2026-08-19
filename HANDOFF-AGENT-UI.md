@@ -57,6 +57,64 @@ committed, tested, and was running live when the session closed.
 - Browser tests: `npx playwright test agent-surface.spec.ts` (engine API must
   be up; the spec's beforeAll says so loudly).
 
+## Evaluation update (2026-08-19) — read EVALUATION-AGENT-PLATFORM.md first
+
+The honest evaluation ran. Verdict: **good demo of real plumbing, not yet a
+useful product — and not safe to show without fixes.** The list below stands but
+is reordered by what the evaluation proved. New blockers it surfaced, above
+everything previously listed:
+
+- **SECURITY (Tier 0, undeployable until fixed).** The SDK "sandbox" leaks the
+  engine's `.env` (DB password, the key that decrypts every tenant's credentials,
+  a live LLM key) to an **unauthenticated** caller — *proven live* via an
+  attribute-chain escape past the curated `__builtins__`. There is **no auth or
+  team scoping anywhere** (cross-tenant read/write is the default). The Code node
+  is in-process RCE with the full un-scrubbed env. Masking exists only on the
+  analytics HTTP seam, so raw `code`/`neo4jQuery`/Postgres tools leak at exactly
+  the tool call VISION markets as protected. → real sandbox isolation + auth +
+  govern the data plane, not individual tools.
+- **THE ONE DEMO ARTIFACT FAILS WHEN RUN.** `demo-weekly-export` run model-free
+  → `failed` (HttpRequest 404 + Postgres auth). The "£0.02/year, runs forever"
+  workflow has never succeeded. Reseed one that works before any demo.
+- **`requires_approval` is a live, settable NO-OP** (stored, serialized, never
+  enforced). Approvals below are not just missing UI — the flag actively lies.
+- **Orphaned agent runs are never reaped** → run + session stuck forever on a
+  crash (2 zombie `queued` runs prove it). The StaleReaper covers only workflow
+  executions.
+- **Litter is on-screen:** 19 of 20 agents are junk, ~22 of 31 runs failed.
+  Purge before showing (confirm the delete list first).
+- **Role-derivation drift is live:** the seeded agent is bound to `build_workflow`
+  but reports `role:"asks"` — role is stored at write, never derived at read.
+- **Correct-the-record:** empty states ARE handled in the built `/agents` page —
+  the "never drawn" claim is stale, stop repeating it. `/build` is genuinely
+  deterministic and works with no model. The run-detail evidence trail is good.
+
+Deliverables from the session: `EVALUATION-AGENT-PLATFORM.md` (ranked findings +
+Now/Next/Later), `DEMO-SCRIPT.md` (1-page, funded + unfunded tracks),
+`screenshots/eval/*`.
+
+## Feature fixes (2026-08-19, later) — create→run now works in the UI
+
+The two feature breaks the evaluation surfaced are fixed and validated (engine
+suite 146 green, studio tsc 0, 5 agent-surface browser tests green + a live UI
+create→run reaching success):
+
+- **Model selector.** The create-agent form hardcoded `claude-sonnet-5` (dead
+  credit) and had no way to change it. New `GET /api/models`
+  (`src/routes/models.py`) returns a catalog flagged by which provider key is
+  configured; the studio create form (`AgentsPage.tsx`) now has a model
+  `<select>` (`modelsApi` in `api.ts`) that preselects the backend default
+  (`gemini-3.6-flash`, the one with credit). Seed agent model also updated.
+  `gemini-3.6-flash` added to `GEMINI_MODELS`.
+- **False-success fixed.** `agent_runtime.py::_to_outcome` now returns
+  `status=failed` when a turn's tool calls ALL errored (no-tools Q&A and
+  mixed-outcome turns stay `success`). Verified against the pre-fix all-errored
+  case.
+
+Still open from the sweep (not breaks): no agent-edit UI (can't rename/re-model
+an existing agent), and the "open in editor" links use `<a href>` full reloads
+(fine on the dev server; would need SPA fallback on a static host).
+
 ## What is NOT done (the honest list, in the order I'd do it)
 
 1. **LLM credit.** The Anthropic key is valid but out of credit — a triggered

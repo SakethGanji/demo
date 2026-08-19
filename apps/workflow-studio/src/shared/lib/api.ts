@@ -542,6 +542,20 @@ export interface AgentRunEvent {
   created_at: string;
 }
 
+export interface ModelInfo {
+  id: string;
+  label: string;
+  provider: string;
+  available: boolean;
+  default: boolean;
+}
+
+export const modelsApi = {
+  list: (): Promise<ModelInfo[]> => {
+    return apiFetch('/models');
+  },
+};
+
 export const agentsApi = {
   list: (): Promise<AgentListItem[]> => {
     return apiFetch('/agents');

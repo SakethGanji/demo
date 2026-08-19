@@ -158,8 +158,15 @@ async def build_agent_tools(bindings: list[Any], session_factory: Any) -> list[d
     tool_name = alias or TOOL_NAME
 
     async def execute(
-        script: str, name: str | None = None, dry_run: bool = False, **_ignored: Any
+        input_data: Any = None, context: Any = None, **kwargs: Any
     ) -> dict[str, Any]:
+        # Two call conventions reach these executors. The agent runtime
+        # (ai_agent._execute_tool) calls executor(input_data_dict, context);
+        # direct callers and tests pass the arguments as keywords. Normalize.
+        args = {**(input_data if isinstance(input_data, dict) else {}), **kwargs}
+        script = args.get("script", "")
+        name = args.get("name")
+        dry_run = bool(args.get("dry_run", False))
         workflow_name = (name or "").strip() or "agent_workflow"
         payload = await execute_script_isolated(script, workflow_name=workflow_name)
         if not payload["ok"]:
@@ -203,7 +210,11 @@ async def build_agent_tools(bindings: list[Any], session_factory: Any) -> list[d
             "workflow": _summarize(payload),
         }
 
-    async def list_workflows(query: str | None = None, **_ignored: Any) -> dict[str, Any]:
+    async def list_workflows(
+        input_data: Any = None, context: Any = None, **kwargs: Any
+    ) -> dict[str, Any]:
+        args = {**(input_data if isinstance(input_data, dict) else {}), **kwargs}
+        query = args.get("query")
         from ..repositories.workflow_repository import WorkflowRepository
 
         async def _list(session: Any) -> dict[str, Any]:
@@ -229,8 +240,13 @@ async def build_agent_tools(bindings: list[Any], session_factory: Any) -> list[d
         return {"ok": False, "error": "no database session available"}
 
     async def run_workflow(
-        workflow_id: str, input: dict[str, Any] | None = None, **_ignored: Any
+        input_data: Any = None, context: Any = None, **kwargs: Any
     ) -> dict[str, Any]:
+        args = {**(input_data if isinstance(input_data, dict) else {}), **kwargs}
+        workflow_id = args.get("workflow_id")
+        input = args.get("input")
+        if not workflow_id:
+            return {"ok": False, "error": "workflow_id is required"}
         from ..core.exceptions import WorkflowExecutionError, WorkflowNotFoundError
         from ..engine.node_registry import node_registry
         from ..repositories import ExecutionRepository, WorkflowRepository
