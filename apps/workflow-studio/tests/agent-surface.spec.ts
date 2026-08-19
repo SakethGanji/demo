@@ -250,3 +250,26 @@ test('/agents edits an agent onto a working model so a dead agent becomes runnab
 
   await engine('DELETE', `/agents/${created.id}`)
 })
+
+test('/agents deletes an agent from the fleet rail', async ({ page }) => {
+  const created = await engine<{ id: string }>('POST', '/agents', {
+    name: `${PREFIX}-deleteme`,
+    model: 'gemini-3.6-flash',
+    tools: [{ source: 'sdk', tool_key: 'build_workflow', enabled: true }],
+  })
+
+  await goto(page, '/agents')
+  const row = page.getByTestId('agent-row').filter({ hasText: `${PREFIX}-deleteme` })
+  await expect(row).toBeVisible({ timeout: 10000 })
+  await row.hover()
+  await row.locator('..').getByTestId('agent-edit-open').click()
+  await page.getByTestId('agent-edit-delete').click()
+
+  // It leaves the rail, and the engine no longer serves it (deleted or archived
+  // out of the list).
+  await expect(
+    page.getByTestId('agent-row').filter({ hasText: `${PREFIX}-deleteme` }),
+  ).toHaveCount(0, { timeout: 10000 })
+  const list = await engine<Array<{ id: string }>>('GET', '/agents')
+  expect(list.some((a) => a.id === created.id)).toBe(false)
+})

@@ -578,6 +578,10 @@ export const agentsApi = {
     return apiFetch(`/agents/${agentId}`, { method: 'PUT', body: JSON.stringify(body) });
   },
 
+  remove: (agentId: string): Promise<{ message: string }> => {
+    return apiFetch(`/agents/${agentId}`, { method: 'DELETE' });
+  },
+
   tools: (agentId: string): Promise<AgentToolBinding[]> => {
     return apiFetch(`/agents/${agentId}/tools`);
   },

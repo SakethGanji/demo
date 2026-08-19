@@ -258,6 +258,15 @@ export function AgentsPage() {
     },
   });
 
+  const deleteAgent = useMutation({
+    mutationFn: (id: string) => agentsApi.remove(id),
+    onSuccess: (_res, id) => {
+      setEditingAgentId(null);
+      if (agentId === id) setAgentId('');
+      queryClient.invalidateQueries({ queryKey: ['agents'] });
+    },
+  });
+
   const trigger = useMutation({
     mutationFn: () => agentsApi.trigger({ agent_id: agentId, task: task.trim() }),
     onSuccess: (run) => {
@@ -333,6 +342,16 @@ export function AgentsPage() {
                     onClick={() => setEditingAgentId(null)}
                   >
                     Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    data-testid="agent-edit-delete"
+                    disabled={deleteAgent.isPending}
+                    className="ml-auto text-[color:var(--st-crit)]"
+                    onClick={() => deleteAgent.mutate(a.id)}
+                  >
+                    Delete
                   </Button>
                 </div>
               </div>
