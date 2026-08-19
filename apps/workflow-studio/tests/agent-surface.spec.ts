@@ -218,3 +218,35 @@ test('/agents creates a builds-verb agent and a triggered run reaches a terminal
   // Cleanup: archive/delete the agent (hard delete only if sessions allow).
   await engine('DELETE', `/agents/${agent.id}`)
 })
+
+test('/agents edits an agent onto a working model so a dead agent becomes runnable', async ({
+  page,
+}) => {
+  // Born on a model with no credit — the exact stranded state the fix targets.
+  const created = await engine<{ id: string; version: number }>('POST', '/agents', {
+    name: `${PREFIX}-editme`,
+    model: 'claude-sonnet-5',
+    tools: [{ source: 'sdk', tool_key: 'build_workflow', enabled: true }],
+  })
+  const target = (await engine<Array<{ id: string; default: boolean }>>('GET', '/models')).find(
+    (m) => m.default,
+  )!.id
+
+  await goto(page, '/agents')
+  const row = page.getByTestId('agent-row').filter({ hasText: `${PREFIX}-editme` })
+  await expect(row).toBeVisible({ timeout: 10000 })
+  await row.hover()
+  // The edit control lives next to the row (not nested inside its button).
+  await row.locator('..').getByTestId('agent-edit-open').click()
+
+  await page.getByTestId('agent-edit-model').selectOption(target)
+  await page.getByTestId('agent-edit-save').click()
+
+  // The edit inline form closes and the change round-trips (version bumps).
+  await expect(page.getByTestId('agent-edit')).toHaveCount(0, { timeout: 10000 })
+  const after = await engine<{ model: string; version: number }>('GET', `/agents/${created.id}`)
+  expect(after.model).toBe(target)
+  expect(after.version).toBeGreaterThan(created.version)
+
+  await engine('DELETE', `/agents/${created.id}`)
+})

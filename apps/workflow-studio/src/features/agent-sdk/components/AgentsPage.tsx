@@ -193,6 +193,9 @@ export function AgentsPage() {
   const [task, setTask] = useState('');
   const [newAgentName, setNewAgentName] = useState('');
   const [model, setModel] = useState('');
+  const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editModel, setEditModel] = useState('');
 
   const agents = useQuery({ queryKey: ['agents'], queryFn: agentsApi.list });
   const models = useQuery({ queryKey: ['models'], queryFn: modelsApi.list });
@@ -246,6 +249,15 @@ export function AgentsPage() {
     },
   });
 
+  const updateAgent = useMutation({
+    mutationFn: (id: string) =>
+      agentsApi.update(id, { name: editName.trim(), model: editModel }),
+    onSuccess: () => {
+      setEditingAgentId(null);
+      queryClient.invalidateQueries({ queryKey: ['agents'] });
+    },
+  });
+
   const trigger = useMutation({
     mutationFn: () => agentsApi.trigger({ agent_id: agentId, task: task.trim() }),
     onSuccess: (run) => {
@@ -279,23 +291,86 @@ export function AgentsPage() {
               No agents yet — create one below.
             </div>
           )}
-          {agents.data?.map((a) => (
-            <button
-              key={a.id}
-              type="button"
-              data-testid="agent-row"
-              onClick={() => setAgentId(a.id)}
-              className={`block w-full px-4 py-2 text-left hover:bg-secondary ${
-                agentId === a.id ? 'bg-secondary' : ''
-              }`}
-            >
-              <div className="text-small">{a.name}</div>
-              <div className="text-footnote text-muted-foreground">
-                {a.role} · {a.model} · {String(a.tool_count ?? 0)} tool
-                {(a.tool_count ?? 0) === 1 ? '' : 's'}
+          {agents.data?.map((a) =>
+            editingAgentId === a.id ? (
+              <div
+                key={a.id}
+                data-testid="agent-edit"
+                className="flex flex-col gap-2 border-b border-border bg-secondary px-4 py-2"
+              >
+                <Input
+                  className="h-7 text-small"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  data-testid="agent-edit-name"
+                />
+                <select
+                  className="h-7 w-full rounded border border-border bg-transparent px-2 text-small"
+                  value={editModel}
+                  onChange={(e) => setEditModel(e.target.value)}
+                  data-testid="agent-edit-model"
+                >
+                  {(models.data ?? []).map((m) => (
+                    <option key={m.id} value={m.id} disabled={!m.available}>
+                      {m.label}
+                      {m.available ? '' : ' — no credential'}
+                    </option>
+                  ))}
+                </select>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    data-testid="agent-edit-save"
+                    disabled={!editName.trim() || !editModel || updateAgent.isPending}
+                    onClick={() => updateAgent.mutate(a.id)}
+                  >
+                    Save
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setEditingAgentId(null)}
+                  >
+                    Cancel
+                  </Button>
+                </div>
               </div>
-            </button>
-          ))}
+            ) : (
+              <div
+                key={a.id}
+                className={`group flex items-center gap-1 hover:bg-secondary ${
+                  agentId === a.id ? 'bg-secondary' : ''
+                }`}
+              >
+                <button
+                  type="button"
+                  data-testid="agent-row"
+                  onClick={() => setAgentId(a.id)}
+                  className="min-w-0 flex-1 px-4 py-2 text-left"
+                >
+                  <div className="truncate text-small">{a.name}</div>
+                  <div className="text-footnote text-muted-foreground">
+                    {a.role} · {a.model} · {String(a.tool_count ?? 0)} tool
+                    {(a.tool_count ?? 0) === 1 ? '' : 's'}
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  data-testid="agent-edit-open"
+                  title="Edit agent"
+                  onClick={() => {
+                    setEditingAgentId(a.id);
+                    setEditName(a.name);
+                    setEditModel(a.model);
+                  }}
+                  className="mr-2 shrink-0 rounded px-2 py-1 text-footnote text-muted-foreground opacity-0 hover:bg-background group-hover:opacity-100"
+                >
+                  edit
+                </button>
+              </div>
+            ),
+          )}
         </div>
         <div className="border-t border-border p-3">
           <div className="flex gap-2">

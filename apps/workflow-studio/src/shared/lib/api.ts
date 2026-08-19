@@ -571,6 +571,13 @@ export const agentsApi = {
     return apiFetch('/agents', { method: 'POST', body: JSON.stringify(body) });
   },
 
+  update: (
+    agentId: string,
+    body: { name?: string; model?: string; description?: string; system_prompt?: string },
+  ): Promise<AgentListItem> => {
+    return apiFetch(`/agents/${agentId}`, { method: 'PUT', body: JSON.stringify(body) });
+  },
+
   tools: (agentId: string): Promise<AgentToolBinding[]> => {
     return apiFetch(`/agents/${agentId}/tools`);
   },
