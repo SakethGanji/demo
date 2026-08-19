@@ -158,3 +158,91 @@ def test_the_insight_reports_fences_not_values():
     # The outlying values themselves are never recorded.
     assert "outlier_values" not in insight["evidence"]
     assert "examples" not in insight["evidence"]
+
+
+# ---------------------------------------------------------------------------
+# Correlation surfaces under masking — a coefficient is a bare float, so the
+# e2e sentinel sweep is structurally blind to it; these pin the behaviour at
+# the function level instead.
+# ---------------------------------------------------------------------------
+
+from app.features.explorer.insights import redact_insights  # noqa: E402
+from app.shared.masking import redact_profile  # noqa: E402
+
+
+def _corr_insights(insights):
+    return [i for i in insights if i["rule"] == "high-correlation"]
+
+
+def _sym(a, b, r):
+    """A symmetric two-column matrix the way profiling.py stores one."""
+    return {a: {a: 1.0, b: r}, b: {b: 1.0, a: r}}
+
+
+def test_high_correlation_dropped_when_masked_column_sorts_first():
+    p = _profile([_col("aaa_secret"), _col("zeta")],
+                 correlations=_sym("aaa_secret", "zeta", 0.99))
+    ins = compute_insights(p, now=NOW)
+    assert _corr_insights(ins)  # precondition: the rule fired at all
+    assert not _corr_insights(redact_insights(ins, {"aaa_secret": "confidential"}))
+
+
+def test_high_correlation_dropped_when_masked_column_sorts_second():
+    """The previously-leaking ordering: the gate only inspected column_name,
+    which is the alphabetically-first name of the pair, so a masked column
+    sorting second passed through with the full coefficient and message."""
+    p = _profile([_col("alpha"), _col("mmm_secret")],
+                 correlations=_sym("alpha", "mmm_secret", 0.99))
+    ins = compute_insights(p, now=NOW)
+    assert _corr_insights(ins)
+    assert not _corr_insights(redact_insights(ins, {"mmm_secret": "confidential"}))
+
+
+def test_high_correlation_between_unmasked_columns_survives_redaction():
+    p = _profile([_col("alpha"), _col("zeta")],
+                 correlations=_sym("alpha", "zeta", 0.99))
+    ins = compute_insights(p, now=NOW)
+    red = _corr_insights(redact_insights(ins, {"mmm_secret": "confidential"}))
+    assert len(red) == 1
+    assert red[0]["evidence"]["correlation"] == 0.99
+
+
+def test_a_future_rule_cannot_leak_a_correlation_through_evidence():
+    """Defence in depth: even if a rule other than high-correlation ever puts
+    a coefficient in its evidence, the generic path must strip it and withhold
+    the message rather than trusting the allow-list."""
+    insight = {"rule": "some-new-rule", "severity": "info",
+               "column_name": "mmm_secret",
+               "message": "'mmm_secret' correlates (r=0.990)",
+               "evidence": {"correlation": 0.99, "count": 5}}
+    [red] = redact_insights([insight], {"mmm_secret": "confidential"})
+    assert "correlation" not in red["evidence"]
+    assert red["evidence"] == {"count": 5}
+    assert "0.99" not in red["message"]
+
+
+def test_redact_profile_strips_masked_columns_from_correlations():
+    profile = {
+        "columns": [{"name": "alpha"}, {"name": "mmm_secret"}, {"name": "zeta"}],
+        "correlations": {
+            "alpha": {"alpha": 1.0, "mmm_secret": 0.97, "zeta": 0.5},
+            "mmm_secret": {"mmm_secret": 1.0, "alpha": 0.97, "zeta": 0.96},
+            "zeta": {"zeta": 1.0, "alpha": 0.5, "mmm_secret": 0.96},
+        },
+    }
+    out = redact_profile(profile, {"mmm_secret": "confidential"})
+    corr = out["correlations"]
+    # Gone as a row and as every other row's partner…
+    assert "mmm_secret" not in corr
+    assert all("mmm_secret" not in row for row in corr.values())
+    # …while the unmasked pair is untouched (no over-redaction).
+    assert corr["alpha"]["zeta"] == 0.5
+    # The stored run state was rebuilt, not mutated through the shallow copy.
+    assert "mmm_secret" in profile["correlations"]
+    assert profile["correlations"]["alpha"]["mmm_secret"] == 0.97
+
+
+def test_redact_profile_tolerates_absent_or_null_correlations():
+    assert redact_profile({"columns": []}, {"x": None}) == {"columns": []}
+    out = redact_profile({"columns": [], "correlations": None}, {"x": None})
+    assert out["correlations"] is None

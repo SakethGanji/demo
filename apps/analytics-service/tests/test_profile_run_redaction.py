@@ -366,3 +366,95 @@ async def test_the_viewers_own_run_detail_masks_top_values(client, admin_id):
     # A non-sensitive column keeps everything.
     amount = next(c for c in r.json()["profile"]["columns"] if c["name"] == "amount")
     assert amount["max"] == 250.0
+
+
+# --- correlation surfaces -------------------------------------------------
+#
+# A correlation coefficient is a bare float, so the sentinel sweep above is
+# structurally blind to this class of leak. These tests assert on structure
+# instead: the masked column must appear nowhere in the correlation matrix a
+# viewer reads back, and no high-correlation insight may mention it from
+# either side of the pair.
+
+# Three numeric columns, pairwise correlated at r=1.0, named so the sensitive
+# one sorts BETWEEN the other two: the pair (alpha, mmm_secret) puts the
+# masked column second — the ordering the insight gate used to miss entirely —
+# and (mmm_secret, zeta) puts it first. alpha↔zeta is the control pair that
+# must survive redaction untouched.
+CORRELATED_ROWS = [
+    {"alpha": float(i), "mmm_secret": 100.0 * i, "zeta": 100.0 * i + 1.0}
+    for i in range(1, 6)
+]
+
+
+async def _correlated_run(client, admin_id):
+    ds = (await upload_inline(client, admin_id,
+                              json.dumps(CORRELATED_ROWS)))["dataset_id"]
+    await _declare_sensitive(client, admin_id, ds, column="mmm_secret")
+    uid = await _viewer(client, admin_id)
+    created = await client.post(
+        f"/api/v1/datasets/{ds}/versions/1/profile-runs", headers=auth(uid))
+    assert created.status_code == 200, created.text
+    return ds, uid, created.json()
+
+
+async def test_a_masked_numeric_column_leaves_no_trace_in_correlations(
+        client, admin_id):
+    ds, uid, created = await _correlated_run(client, admin_id)
+
+    r = await client.get(f"/api/v1/datasets/{ds}/profile-runs/{created[0]['id']}",
+                         headers=auth(uid))
+    assert r.status_code == 200, r.text
+    detail = r.json()
+
+    corr = (detail.get("profile") or {}).get("correlations") or {}
+    assert corr, "expected a correlation matrix over the unmasked numeric pair"
+    assert "mmm_secret" not in corr
+    assert all("mmm_secret" not in (row or {}) for row in corr.values())
+    # The unmasked pair is untouched — masking must not over-redact.
+    assert corr["alpha"]["zeta"] is not None
+
+    # The superuser still sees the full matrix (redaction is per-caller).
+    r = await client.get(f"/api/v1/datasets/{ds}/profile-runs/{created[0]['id']}",
+                         headers=auth(admin_id))
+    assert r.status_code == 200, r.text
+    admin_corr = r.json()["profile"]["correlations"]
+    assert admin_corr["alpha"]["mmm_secret"] is not None
+
+
+async def test_no_high_correlation_insight_names_a_masked_column(
+        client, admin_id):
+    """Every insight-bearing response a viewer gets: the create response, the
+    listing, and the detail. Checked from BOTH sides of the pair, because the
+    insight attributes itself to the alphabetically-first column only."""
+    ds, uid, created = await _correlated_run(client, admin_id)
+    run_id = created[0]["id"]
+
+    listing = await client.get(
+        f"/api/v1/datasets/{ds}/versions/1/profile-runs", headers=auth(uid))
+    assert listing.status_code == 200, listing.text
+    detail = await client.get(f"/api/v1/datasets/{ds}/profile-runs/{run_id}",
+                              headers=auth(uid))
+    assert detail.status_code == 200, detail.text
+
+    surfaces = {
+        "create response": [i for run in created
+                            for i in run.get("insights") or []],
+        "run list": [i for run in listing.json()["items"]
+                     for i in run.get("insights") or []],
+        "run detail": detail.json().get("insights") or [],
+    }
+    for label, insights in surfaces.items():
+        offenders = [
+            i for i in insights if i["rule"] == "high-correlation" and (
+                "mmm_secret" in (i.get("column_name") or "")
+                or "mmm_secret" in ((i.get("evidence") or {}).get("other_column") or "")
+                or "mmm_secret" in (i.get("message") or ""))]
+        assert not offenders, f"{label} leaked a masked correlation: {offenders}"
+
+    # The control pair's insight survives, full coefficient and all.
+    kept = [i for i in surfaces["run detail"] if i["rule"] == "high-correlation"]
+    assert kept, "the alpha↔zeta correlation insight should survive redaction"
+    for i in kept:
+        assert {i["column_name"], i["evidence"]["other_column"]} == {"alpha", "zeta"}
+        assert i["evidence"]["correlation"] is not None

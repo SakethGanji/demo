@@ -237,4 +237,15 @@ def redact_profile(profile: dict | None, masked: dict[str, str | None]) -> dict 
                 c[k] = None
         cols.append(c)
     out["columns"] = cols
+
+    # A masked numeric column's Pearson row is a statistical fingerprint of
+    # the values every field above just withheld, so the column is removed
+    # from the correlation matrix entirely — as a row and as every other
+    # row's partner. Removed rather than nulled: a null entry would still
+    # reveal that the column is numeric. Rebuilt, not mutated in place —
+    # ``out`` is a shallow copy of the stored run state.
+    if out.get("correlations"):
+        out["correlations"] = {
+            a: {b: v for b, v in (row or {}).items() if b not in masked}
+            for a, row in out["correlations"].items() if a not in masked}
     return out

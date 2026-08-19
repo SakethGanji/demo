@@ -158,15 +158,23 @@ _VALUE_BEARING_EVIDENCE = frozenset({
     "value", "values", "added", "removed", "examples",
     "min", "max", "mean", "median", "std", "q25", "q75",
     "lower_fence", "upper_fence", "min_date", "max_date",
+    # A Pearson coefficient is computed from the values and reconstructs a
+    # linear image of them against any visible column — as value-bearing as a
+    # mean, just better disguised as "only a relationship".
+    "correlation",
 })
 
 # Rules whose *message* quotes nothing from the data, so the prose survives
 # redaction intact. This is an allow-list rather than a deny-list on purpose:
 # a rule added later gets its message withheld until someone confirms it says
 # nothing, which is the safe direction for a control whose job is to withhold.
+# ``high-correlation`` was allow-listed here once, wrongly: its message quotes
+# the coefficient (``r=…``) and the partner column's name, so it was never
+# value-free. It never belongs back — a masked pair's insight is dropped
+# outright in :func:`redact_insights` instead.
 _VALUE_FREE_MESSAGES = frozenset({
     "new-sheet", "duplicate-rows", "likely-primary-key", "constant-column",
-    "high-null-rate", "null-rate-spike", "high-correlation",
+    "high-null-rate", "null-rate-spike",
 })
 
 
@@ -189,13 +197,24 @@ def redact_insights(insights: list[dict],
         return insights
     out = []
     for insight in insights:
-        if insight.get("column_name") not in masked:
+        evidence = insight.get("evidence") or {}
+        # A pair-wise insight names a second column in its evidence, and the
+        # rule attributes itself to the alphabetically-first of the pair — so
+        # gating on ``column_name`` alone let a masked column that sorted
+        # second sail through untouched. Both sides count.
+        if (insight.get("column_name") not in masked
+                and evidence.get("other_column") not in masked):
             out.append(insight)
             continue
         column, rule = insight["column_name"], insight.get("rule")
+        if rule == "high-correlation":
+            # Dropped outright, not redacted: the coefficient is a statistical
+            # fingerprint of the masked values, and even a details-withheld
+            # stub naming the pair confirms the relationship exists.
+            continue
         redacted = dict(insight)
         redacted["evidence"] = {
-            k: v for k, v in (insight.get("evidence") or {}).items()
+            k: v for k, v in evidence.items()
             if k not in _VALUE_BEARING_EVIDENCE}
         if rule not in _VALUE_FREE_MESSAGES:
             redacted["message"] = (
