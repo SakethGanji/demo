@@ -67,6 +67,12 @@ async def main() -> None:
         existing = [a for a in await agents.list() if a.name == AGENT_NAME]
         if existing:
             agent = existing[0]
+            # Converge the model on the reuse path too, so an agent seeded on an
+            # older/keyless model is healed to the runnable one.
+            if agent.model != "gemini-3.6-flash":
+                agent = await agents.update(
+                    agent.id, {"model": "gemini-3.6-flash"}
+                )
         else:
             agent = await agents.create(
                 {
