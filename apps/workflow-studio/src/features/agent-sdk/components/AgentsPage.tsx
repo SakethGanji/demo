@@ -10,12 +10,15 @@
  * A failed run renders its error verbatim — with no LLM credit an agent run
  * fails fast with an auth error, and that truth belongs on screen.
  */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/shared/components/ui/button';
 import { Input } from '@/shared/components/ui/input';
+import WorkflowSVG from '@/features/workflow-editor/components/WorkflowSVG';
+import { definitionToPreviewData } from '@/features/workflow-editor/lib/workflowTransform';
 import {
   agentsApi,
+  workflowsApi,
   type AgentRunEvent,
   type AgentRunListItem,
 } from '@/shared/lib/api';
@@ -61,6 +64,83 @@ function eventSummary(e: AgentRunEvent): string {
     default:
       return JSON.stringify(p);
   }
+}
+
+/** Workflow ids the run's build_workflow tool calls persisted, from the
+ * event stream — the artifact trail that links an agent run to the canvas. */
+function producedWorkflowIds(events: AgentRunEvent[] | undefined): string[] {
+  const ids: string[] = [];
+  for (const e of events ?? []) {
+    if (e.type !== 'agent:tool_result') continue;
+    const raw = (e.payload as Record<string, unknown>).result;
+    let result: unknown = raw;
+    if (typeof raw === 'string') {
+      try {
+        result = JSON.parse(raw);
+      } catch {
+        continue;
+      }
+    }
+    if (result && typeof result === 'object') {
+      const r = result as Record<string, unknown>;
+      if (r.persisted === true && typeof r.workflow_id === 'string') {
+        ids.push(r.workflow_id);
+      }
+    }
+  }
+  return [...new Set(ids)];
+}
+
+/** Inline preview of a workflow an agent produced, straight off the API. */
+function ProducedWorkflow({ workflowId }: { workflowId: string }) {
+  const detail = useQuery({
+    queryKey: ['workflow-detail', workflowId],
+    queryFn: () => workflowsApi.get(workflowId),
+  });
+  const preview = useMemo(() => {
+    const def = detail.data?.definition as
+      | { nodes?: unknown[]; connections?: Array<Record<string, unknown>> }
+      | undefined;
+    if (!def?.nodes?.length) return null;
+    // The stored definition uses snake_case connection keys; the preview
+    // transform expects camelCase — accept either.
+    const definition = {
+      nodes: def.nodes,
+      connections: (def.connections ?? []).map((c) => ({
+        sourceNode: c.sourceNode ?? c.source_node,
+        targetNode: c.targetNode ?? c.target_node,
+        sourceOutput: c.sourceOutput ?? c.source_output ?? 'main',
+        targetInput: c.targetInput ?? c.target_input ?? 'main',
+      })),
+    };
+    return definitionToPreviewData(
+      definition as unknown as Parameters<typeof definitionToPreviewData>[0],
+    );
+  }, [detail.data]);
+
+  if (!preview) return null;
+  return (
+    <div className="mt-2 rounded border border-border" data-testid="run-produced">
+      <div className="flex items-center gap-2 border-b border-border px-2 py-1">
+        <span className="text-footnote text-muted-foreground">produced workflow</span>
+        <span className="font-mono text-footnote">{detail.data?.name}</span>
+        <a
+          className="ml-auto text-footnote underline underline-offset-2"
+          href={`/editor?workflowId=${workflowId}`}
+        >
+          open in editor →
+        </a>
+      </div>
+      <div className="h-40">
+        <WorkflowSVG
+          nodes={preview.nodes}
+          edges={preview.edges}
+          showIcons
+          className="h-full w-full"
+        />
+      </div>
+    </div>
+  );
 }
 
 export function AgentsPage() {
@@ -315,6 +395,9 @@ export function AgentsPage() {
                     {runDetail.data.response}
                   </div>
                 )}
+                {producedWorkflowIds(events.data).map((id) => (
+                  <ProducedWorkflow key={id} workflowId={id} />
+                ))}
                 <div className="mt-3 text-footnote text-muted-foreground">
                   Events{' '}
                   {events.data ? `${events.data.length}` : '—'}
