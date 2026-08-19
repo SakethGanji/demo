@@ -1,5 +1,15 @@
 # SDK Completion — Brief for the next session
 
+> **STATUS 2026-08-19 (later session): DONE.** All four verification-bar items pass (suite 145
+> green). §1: subprocess isolation via `src/engine/workflow_sdk_sandbox.py` (JSON-over-stdio,
+> timeout-killed, env-scrubbed; in-process core kept for tests). §2: `build_workflow` agent tool via
+> the resolver's new `"sdk"` source (`src/services/workflow_sdk_tool_service.py`) with
+> `signature_reference()` spliced into the agent's system prompt; e2e proven against real Postgres
+> in `tests/services/test_workflow_sdk_agent_tool.py`. §3: the four run-service bugs fixed
+> test-first (`tests/services/test_agent_run_service.py`). §4: `SDK_TYPES` derived from the registry
+> (add-a-node drill in `tests/engine/test_workflow_sdk_completion.py`). Eval: 7/12 → **10/12** after
+> constructor-misuse/import teaching errors; results in `scripts/sdk_eval_results.json`.
+
 **Written 2026-08-19.** Goal in one sentence: make the workflow SDK *complete* — a running agent can
 actually reach it, the sandbox is a real boundary, and **adding a node to the registry exposes it in the
 SDK, the prompt reference, and validation with zero SDK edits** — so nodes and SDK surface grow together.
