@@ -29,15 +29,17 @@ AGENT_NAME = "Demo Workflow Author"
 TASK = "(seeded demo) Build a workflow that fetches the weekly export every Monday and loads it into Postgres per region"
 WORKFLOW_NAME = "demo-weekly-export"
 
-SCRIPT = """# Weekly export: fetch, branch on emptiness, load three regions
+SCRIPT = """# Weekly export: build the rows, branch on emptiness, load three regions.
+# Self-contained (Code nodes, no external HTTP/DB) so the compiled workflow
+# actually RUNS with no model in the loop — the demo's whole point.
 cron = Cron(mode="cron", cronExpression="0 7 * * 1")
-fetch = HttpRequest(method="GET", url="https://example.com/export", responseType="json")
-check = If(field="body", operation="isNotEmpty")
-cron >> fetch >> check
+export = Code(code="return [{'json': {'region': r, 'net': n}} for r, n in (('US', 1200), ('EU', 900), ('APAC', 600))]")
+check = If(field="region", operation="isNotEmpty")
+cron >> export >> check
 
 for region in ("US", "EU", "APAC"):
-    node = Postgres(name=f"Load {region}", operation="query", query="INSERT INTO finance.ledger VALUES ($1)")
-    check.true >> node
+    loader = Code(name=f"Load {region}", code=f"return [i for i in items if i['json']['region'] == '{region}']")
+    check.true >> loader
 
 check.false >> StopAndError(errorType="error", message="Export was empty")
 validate()
@@ -162,7 +164,8 @@ async def main() -> None:
                 f"Built and saved '{WORKFLOW_NAME}' "
                 f"({len(result['workflow']['nodes'])} nodes). The false branch "
                 "stops with an error when the export is empty; the true branch "
-                "fans out to one Postgres load per region."
+                "fans out to one loader per region. It runs end-to-end with no "
+                "model in the loop."
             )
         },
     )
