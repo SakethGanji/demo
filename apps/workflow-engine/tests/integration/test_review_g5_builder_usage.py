@@ -227,4 +227,7 @@ def test_c4_publish_with_taken_slug_is_409_slug_taken(api):
     assert r.status_code == 409 and r.json()["detail"]["code"] == "slug_taken"
     # other publish errors keep their 400 string detail
     r = api.post(f"/apps/{a2}/publish", {"slug": slug.upper() + "!!", "access": "public"})
-    assert r.status_code in (400, 422)
+    assert r.status_code == 422 and r.json()["detail"][0]["loc"] == ["body", "slug"], r.text   # pydantic pattern
+    # creating an app never claims a slug (the field is ignored there); slugs are only set via publish / PUT (both 409)
+    r = api.post(f"/projects/{P}/apps", {"name": uniq("a"), "definition": {}, "slug": slug})
+    assert r.status_code == 201 and r.json()["slug"] is None, r.text

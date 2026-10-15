@@ -244,9 +244,19 @@ class CodeModuleService:
     async def update(self, project: ProjectModel, mid: str, source: str, dry_run: bool = False,
                      actor: str | None = None, base_source_sha: str | None = None,
                      base_updated_at: str | None = None, new_name: str | None = None) -> dict[str, Any]:
-        m = await self.get(project, mid)
+        # Audit #5: serialise saves of one module — the sha check and the write happen under a row lock, so two
+        # PUTs with the same base cannot both win (the loser sees the winner's sha → 409 module_changed).
+        m = (await self._s.execute(select(CodeModuleModel).where(CodeModuleModel.id == mid)
+                                   .with_for_update().execution_options(populate_existing=True))).scalars().first()
+        if not m or m.project_id != project.id:
+            raise ProjectError(404, "module_not_found", "Module not found")
         if new_name is not None and new_name != m.name:
             await self._check_name(project, new_name)
+            refs = await self._name_references(project, m)
+            if refs:
+                raise ProjectError(409, "module_referenced",
+                                   f"{m.name}.py is referenced by {len(refs)} place(s); renaming it would break them",
+                                   references=refs)
         stale = (base_source_sha is not None and base_source_sha != m.source_sha) or \
                 (base_updated_at is not None and base_updated_at != m.updated_at.isoformat())
         if stale:  # review B4: never silently overwrite a newer save from another tab / the builder
@@ -263,6 +273,24 @@ class CodeModuleService:
         rev, h, breaking = await self._apply(project, m, plan, actor)
         return {"module": module_to_dict(m), "routes": await self._with_ids(project, m, summary), "errors": [],
                 "spec_revision": rev, "spec_hash": h, "breaking_changes": breaking}
+
+    async def _name_references(self, project: ProjectModel, m: CodeModuleModel) -> list[dict[str, Any]]:
+        """Places that name this module: PythonStep nodes in the project's workflows and other modules' imports."""
+        from ..db.models import WorkflowModel
+
+        refs: list[dict[str, Any]] = []
+        for w in (await self._s.execute(select(WorkflowModel).where(WorkflowModel.project_id == project.id))).scalars().all():
+            for node in (w.draft_definition or {}).get("nodes", []):
+                if node.get("type") == "PythonStep" and (node.get("parameters") or {}).get("module") == m.name:
+                    refs.append({"kind": "workflow", "id": w.id, "name": w.name, "node": node.get("name")})
+        pat = re.compile(rf"^\s*(?:import\s+{re.escape(m.name)}\b|from\s+{re.escape(m.name)}\s+import\b)", re.M)
+        for other in (await self._s.execute(select(CodeModuleModel).where(
+                CodeModuleModel.project_id == project.id, CodeModuleModel.id != m.id))).scalars().all():
+            hit = pat.search(other.source)
+            if hit:
+                refs.append({"kind": "module", "id": other.id, "name": other.name,
+                             "line": other.source.count("\n", 0, hit.start()) + 1})
+        return refs
 
     async def delete(self, project: ProjectModel, mid: str, dry_run: bool = False) -> dict[str, Any]:
         m = await self.get(project, mid)

@@ -148,3 +148,43 @@ def test_c19_client_and_openapi_reject_unknown_environment(api):
     assert api.get(f"/projects/{P}/openapi.json").status_code == 200
     # the studio's "default" keeps mapping to the project default (G23-style)
     assert api.get(f"/projects/{P}/client.ts?environment=default").status_code == 200
+
+
+def test_audit7_a_blocked_release_creates_no_app_or_workflow_versions(api):
+    """AUDIT #7: versions are created only after the checks pass; a blocked release leaves apps/workflows alone."""
+    P, S = new_project(api, "a7")
+    W = _route_wf(api, P)
+    src = f"export default function App(){{ fetch('/api/p/{S}/a'); return <div/> }}"
+    A = api.post(f"/projects/{P}/apps", {"name": uniq("app"), "definition": {}}).json()["id"]
+    assert api.put(f"/apps/{A}", {"source_code": src}).status_code == 200            # draft only
+    # a failing check: an app with no source at all
+    B = api.post(f"/projects/{P}/apps", {"name": uniq("empty"), "definition": {}}).json()["id"]
+    wf_versions_before = {w["id"]: len(api.get(f"/workflows/{w['id']}/versions").json())
+                          for w in api.get(f"/projects/{P}/workflows").json()}
+    r = api.post(f"/projects/{P}/releases", {"environment": "dev"})
+    assert r.status_code == 422 and r.json()["detail"]["code"] == "checks_failed"
+    assert api.get(f"/apps/{A}/versions").json() == [], "blocked release still versioned the app"
+    assert {w["id"]: len(api.get(f"/workflows/{w['id']}/versions").json())
+            for w in api.get(f"/projects/{P}/workflows").json()} == wf_versions_before, "blocked release versioned a workflow"
+    assert wf_versions_before[W] == 0
+    # fixing the problem lets the release through, and only now is a version made
+    api.delete(f"/apps/{B}")
+    assert api.post(f"/projects/{P}/releases", {"environment": "dev"}).status_code == 201
+    assert len(api.get(f"/apps/{A}/versions").json()) == 1
+
+
+def test_audit7_migration_turns_legacy_active_dev_releases_into_snapshots(api, test_db):
+    from pathlib import Path
+
+    P, _ = new_project(api, "a7m")
+    _route_wf(api, P)
+    dev = api.post(f"/projects/{P}/releases", {"environment": "dev"}).json()
+    prod = api.post(f"/projects/{P}/releases/{dev['id']}/promote", {"to_environment": "prod"})
+    assert prod.status_code == 201 and prod.json()["is_active"] is True
+    test_db.query("UPDATE releases SET status = 'active', is_active = true WHERE id = %s", (dev["id"],))   # legacy row
+    up = Path(__file__).resolve().parents[2] / "src/db/migrations/20261015130000_release_legacy_dev_snapshot.sql"
+    sql = up.read_text().split("-- migrate:up", 1)[1].split("-- migrate:down", 1)[0]
+    test_db.query(sql)
+    rows = dict(test_db.query("SELECT id, status || ':' || is_active::text FROM releases WHERE project_id = %s", (P,)))
+    assert rows[dev["id"]] == "snapshot:false"
+    assert rows[prod.json()["id"]] == "active:true"

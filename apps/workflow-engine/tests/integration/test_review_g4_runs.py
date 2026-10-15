@@ -180,11 +180,32 @@ def test_d6_retention_cleaner_prunes_old_and_orphaned_broker_calls(api, test_db)
     test_db.query("update broker_calls set created_at = now() - interval '40 days' where id = %s", (cid,))
     test_db.query("insert into broker_calls (id, execution_id, project_id, environment, origin, node_type, params_redacted, status, created_at) "
                   "values (%s, 'exec_gone_forever', %s, 'dev', 'python_route', 'Set', '{}', 'ok', now())", ("bcall_orphan_" + uniq(), P))
-    from src.engine.retention_cleaner import prune_broker_calls_sql
-    for stmt in prune_broker_calls_sql():
-        test_db.query(stmt, (30,) if "%s" in stmt else ())
+    # Audit #6: run the REAL cleaner tick (not the SQL by hand) against the test database.
+    import asyncio
+
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from src.engine.retention_cleaner import RetentionCleaner
+
+    async def tick() -> None:
+        e = create_async_engine(f"postgresql+asyncpg://{test_db.env()['WORKFLOW_DB_USER']}:{test_db.env()['WORKFLOW_DB_PASSWORD']}"
+                                f"@{test_db.env()['WORKFLOW_DB_HOST']}:{test_db.env()['WORKFLOW_DB_PORT']}/{test_db.name}",
+                                connect_args={"server_settings": {"search_path": '"workflow-app"'}})
+        try:
+            await RetentionCleaner(sessionmaker(e, class_=AsyncSession, expire_on_commit=False))._tick()
+        finally:
+            await e.dispose()
+
+    asyncio.run(tick())
     assert test_db.query("select count(*) from broker_calls where id = %s", (cid,))[0][0] == 0
     assert test_db.query("select count(*) from broker_calls where execution_id = 'exec_gone_forever'")[0][0] == 0
+    # a fresh, parented call is NOT pruned
+    api.post("/broker/call", {"function": "set", "parameters": {"mode": "manual", "fields": [], "keepOnlySet": True}},
+             headers=bearer(tok))
+    assert test_db.query("select count(*) from broker_calls where project_id = %s", (P,))[0][0] == 1
+    asyncio.run(tick())
+    assert test_db.query("select count(*) from broker_calls where project_id = %s", (P,))[0][0] == 1
 
 
 # ── C13 ──────────────────────────────────────────────────────────────────────

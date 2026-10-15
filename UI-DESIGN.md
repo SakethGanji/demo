@@ -1202,7 +1202,7 @@ None are rejected. "Accepted (no change)" is used only where the review itself a
 | D7 | major | §9 D7 (`POST` dry run honoured; unsupported `dry_run` → 422); the client-side regex path removed (§4.3); T11 asserts the module count is unchanged. |
 | D8 | major | §9 D8 (snapshot modules for pinned PythonStep); engine test. |
 | D9 | major | §9 D9 (`DELETE ?dry_run=true`) drives the delete confirm (§6.1, `dialogs.png`); T33. |
-| D10 | major | Every release code is documented with its UI; blocked releases are badged in history; diff filtered; no "active" on draft environments; unversioned apps fail checks (§3.8, `release.png`); T29/T30. |
+| D10 | major | Every release code is documented with its UI; blocked releases are badged in history; diff filtered; no "active" on draft environments; only apps with no source at all fail checks, draft-only apps are versioned into the release (§3.8, `release.png`); T29/T30. |
 | D11 | major | `auth_loosened` is breaking and requires confirmation (§9 D11, `dialogs.png`); T32. |
 | D12 | minor | §9 D12. |
 | D13 | minor | §9 D12–D15 row (root type change breaking). |

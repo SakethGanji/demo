@@ -67,7 +67,8 @@ async def run_python_route(session: AsyncSession, project, spec: dict[str, Any],
     await ExecutionRepository(session, max_records=100).start(
         exec_id, spec["id"], f"{spec['method']} {spec['path']}", "api", project_id=project.id, environment=env,
         metadata={"trigger": trigger, "labels": {"env": env}, "handler": "python"})
-    secrets = await load_run_secrets(environment=env, project_id=project.id)
+    # Audit #4: include the project's TEAM secrets (stored trace + node-output error are redacted with these).
+    secrets = await load_run_secrets(environment=env, team_id=project.team_id, project_id=project.id)
 
     async def finish(status: str, trace: dict[str, Any], error: str | None = None) -> None:
         row = await session.get(ExecutionModel, exec_id)

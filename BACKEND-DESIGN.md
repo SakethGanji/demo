@@ -1043,3 +1043,27 @@ they need are in place, as are the `draft_test` / `generate_self_test` trigger t
 **Spec disagreement noted:** UI-DESIGN §3.8/§9 D10 says apps *without a saved version* fail `app_calls_resolve`;
 §3.9 here (and the fix brief) says such apps are versioned into the release. Implemented: versioned when the app has
 draft source; failing the check ("Save the app once before releasing") only when there is no source at all.
+
+### 13.x Audit follow-ups (AUDIT-BACKEND-FIXES, 2026-10-15) — CHANGED
+
+- **#2 Release pinning for published apps.** `POST /a/{slug}/api/workflow/{W}/run` in a *release* environment now runs the
+  active release's pinned workflow version and module sources (as router runs do). No active release yet → drafts (same
+  fallback as `route_set`). A workflow the active release does not pin → `409 workflow_not_in_release`. **Cron** triggers
+  always run in the project's default (draft) environment, so there is nothing to pin; **webhooks** reach a release
+  environment only when the caller passes `?env=` / `X-Env`, and are *not* pinned (documented gap, management-surface).
+- **#3 App tokens.** Behavioural tests: a password change and a switch to private kill outstanding page tokens and
+  unlock cookies. (Runtime JS refresh-on-401 is proven in the Playwright E2E, not by string-matching.)
+- **#4 Team secrets.** Python-route stored trace and node-output error are redacted with team secrets too
+  (`load_run_secrets(team_id=…)`). The broker already redacts upstream responses, so a handler never sees a plaintext
+  secret; this is defense in depth.
+- **#5 Module saves.** `PUT …/modules/{id}` takes a row lock; of N concurrent saves with the same `base_sha` exactly one
+  wins, the rest get `409 module_changed`. A **rename** is refused with `409 module_referenced {references:[…]}` while a
+  PythonStep node or another module's `import` names the module (dry run included).
+- **#7 Releases.** Versions of apps/workflows are created only after the checks pass; a blocked release leaves apps and
+  workflows untouched. Migration `20261015130000_release_legacy_dev_snapshot` turns legacy "active" draft-env releases
+  into snapshots. **The live `workflows` DB must run it before new dev releases are created.**
+- **#6/#8** retention is tested through the real `RetentionCleaner._tick`; `POST /apps` ignores a `slug` (slugs are set
+  by publish/PUT, both 409 on a clash); the harness strips provider env vars so tests never make paid LLM calls.
+- **#9 Team scoping.** `team_id` is client-asserted on the unauthenticated management API: it is a filter, **not**
+  isolation. Do not describe it as such.
+

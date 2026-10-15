@@ -306,12 +306,17 @@ class ReleaseService:
                      actor: str | None = None) -> dict[str, Any]:
         env = env or project.default_environment
         self._check_env(project, env)
-        snapshot = await self.build_snapshot(project, dry=dry_run)
+        # Audit #7: check on a side-effect-free snapshot first; app/workflow versions are only created
+        # once the checks pass, so a blocked release leaves apps and workflows untouched.
+        snapshot = await self.build_snapshot(project, dry=True)
         checks = await self.run_checks(project, snapshot, env)
         if dry_run:
             active = await self.baseline(project.id, env)
             return {"checks": checks, "diff": self._diff(active.snapshot if active else {}, snapshot),
                     "snapshot_apps": snapshot.get("apps") or []}
+        if not any(c["status"] == "fail" for c in checks):
+            snapshot = await self.build_snapshot(project, dry=False)
+            checks = await self.run_checks(project, snapshot, env)
         return release_to_dict(await self._store(project, env, snapshot, checks, notes, actor, None), with_snapshot=False,
                                project=project)
 

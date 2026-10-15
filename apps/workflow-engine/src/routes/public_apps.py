@@ -466,6 +466,7 @@ async def _run_app_workflow(app: AppModel, workflow_id: str, body: dict, exec_se
     from ..core.exceptions import WorkflowExecutionError, WorkflowNotFoundError
     from ..db.models import ProjectModel, WorkflowModel
     from ..services.http_response import build_response
+    from ..services.project_service import env_kind
     from ..services.vars_substitution import redact_deep
 
     session = exec_service._workflow_repo._session
@@ -476,10 +477,25 @@ async def _run_app_workflow(app: AppModel, workflow_id: str, body: dict, exec_se
         raise HTTPException(status_code=403, detail={"code": "workflow_not_in_project", "message": "workflow is not in this app's project"})
     project = await session.get(ProjectModel, app.project_id)
     env = environment or (project.live_environment if project else "default")
+    # Audit #2 / D8: in a release environment the app runs the ACTIVE RELEASE's pinned workflow version and
+    # module sources, never the drafts (same as router runs). A workflow the release does not pin is refused.
+    version_id, extras = None, None
+    if project is not None and env_kind(project, env) == "release":
+        from ..services.release_service import ReleaseService
+        from ..services.route_dispatcher import release_extras
+
+        rel = await ReleaseService(session).active_release(project.id, env)
+        if rel is not None:   # no release yet → drafts, exactly like RouteDispatcher.route_set
+            pin = next((w for w in (rel.snapshot or {}).get("workflows") or [] if w["workflow_id"] == workflow_id), None)
+            if pin is None:
+                return JSONResponse({"error": "workflow_not_in_release",
+                                     "message": "this workflow is not part of the active release"}, status_code=409)
+            version_id, extras = pin["version_id"], release_extras(rel)
     try:
         _, context = await exec_service.run_saved_workflow(
             workflow_id, body or None, environment=env, mode=mode, substitute_inputs=False,
             timeout_s=_PUBLIC_RUN_TIMEOUT_S, metadata={"trigger": {"type": trigger_type, "app_id": app.id}},
+            version_id=version_id, extras=extras,
         )
     except asyncio.TimeoutError:
         return JSONResponse({"status": "timeout"}, status_code=504)
