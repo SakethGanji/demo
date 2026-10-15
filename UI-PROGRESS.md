@@ -31,7 +31,7 @@ Studio: `VITE_WORKFLOW_API_URL=http://127.0.0.1:8710 npx vite --port 5190`.
 ## Counts
 - tsc -b: baseline 53 → 44 → **0**; production Vite build passes (large-chunk warning remains)
 - unit (vitest): 23
-- engine: **285 passed**, no skips (5 existing Pydantic warnings)
+- engine: **296 passed**, no skips (5 existing Pydantic warnings)
 - browser: **46 scenarios / 47 cases passed** across the full run and affected generation-spec rerun
 - final captures: **28 PNGs**, light + dark, under `screenshots/ui-built/`; strict capture run passed
 
@@ -53,6 +53,20 @@ Studio: `VITE_WORKFLOW_API_URL=http://127.0.0.1:8710 npx vite --port 5190`.
   Exact data assertions confirmed Green mug/count 1/EUR; no browser page errors occurred. See E2E.md.
   Gemini tool signatures, model selection, bounded retries and same-model error handling were corrected.
   No audit agent was spawned.
+
+
+## Postgres dashboard validation
+
+- Real Gemini generated and refined an external Postgres backend, then generated its dashboard UI.
+- Database credentials were saved through the UI in dev/prod, persisted after reload, and replaced
+  through the UI after rotating the real database password. The old password failed authentication.
+- A read-only database role queried three seeded rows. After updating the database and adding a fourth
+  row, preview Refresh and the published app displayed all four rows, EUR, and total 76.25.
+- Credentials were absent from generated source and browser response bodies. Broker Postgres calls now
+  check parsed destinations against project/secret host restrictions, rejecting alternate destinations.
+- Automatic generation self-tests still block external SQL (`read_only`); saved routes, preview and
+  published calls were separately verified against real data. See E2E.md and tests/live/README.md.
+- Screenshots and report: `screenshots/postgres-dashboard/` (local only).
 
 ## Deviations (so far)
 - The AI draft is applied to the editor on the terminal `result` (one transaction), not streamed line by line;

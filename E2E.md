@@ -162,3 +162,36 @@ set +a
 # The file needs GEMINI_API_KEY plus WORKFLOW_MODULE_GEN_MODEL and WORKFLOW_APP_BUILDER_MODEL.
 # Choose models available to your project and with sufficient quota.
 ```
+
+## Saved database credentials and generated dashboard
+
+The opt-in real-provider check is documented in
+`apps/workflow-engine/tests/live/README.md`. It starts an independent UTF-8 Postgres cluster
+with SCRAM authentication, seeds three inventory rows, and grants a dashboard login SELECT only.
+The engine uses a separate throwaway integration database.
+
+The browser creates PG_USER, PG_PASSWORD and PG_DATABASE using the Secrets form in dev and prod,
+reloads to check persistence, rotates the actual database password, and replaces both saved
+passwords through the UI. Gemini Generate and Refine create real Postgres-backed routes; Create
+UI generates a dashboard using their typed API client. After an actual UPDATE and INSERT, the
+preview Refresh and published page must display four rows, including Green mug and Fountain pen,
+and EUR. No generated code changes are used to simulate the database update.
+
+Postgres broker calls now enforce the project allowlist and each referenced secret's host binding
+on the parsed connection destination after secret substitution. Services, Unix sockets, hostaddr
+and multiple hosts/ports are refused so they cannot bypass the binding. Unbound secrets remain
+refused. The existing ordinary workflow-node behavior is unchanged.
+
+**Generation's automatic self-tests still refuse external SQL with `read_only`.** These are recorded
+as blocked checks, not passing self-tests. The saved route tests and browser preview/published
+requests separately prove actual database execution. Keeping this restriction avoids running
+potentially writing generated SQL during an automatic generation self-test.
+
+Focused regression coverage checks destination bypass attempts, a project allowlist mismatch,
+read-only generation policy, a real sandbox/broker/database call using an encrypted write-only
+credential, redaction of run details, and rejection after changing the secret's allowed host.
+Local screenshots and the live report are under `screenshots/postgres-dashboard/` and are not committed.
+
+After the Postgres changes, the complete engine regression suite passed **296 tests**, with no skips
+and five existing Pydantic deprecation warnings. The real Gemini browser run also passed the
+credential replacement, generated backend/UI, live database refresh and published-app checks.

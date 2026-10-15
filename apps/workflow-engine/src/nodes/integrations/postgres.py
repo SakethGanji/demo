@@ -142,6 +142,9 @@ class PostgresNode(BaseNode):
             input_data, context.node_states, context.execution_id, 0,
         )
         conn_string = str(expression_engine.resolve(conn_template, first_ctx))
+        guard = context.extras.get("broker_egress_guard")
+        if guard is not None:
+            guard.check_postgres_connection(conn_string)
 
         if operation == "transaction":
             return await self._exec_transaction(

@@ -63,6 +63,8 @@ def egress_kind(node_type: str) -> str:
         return "none"
     if node_type in EGRESS_HTTP:
         return "http"
+    if node_type == "Postgres":
+        return "postgres"
     return "opaque"
 
 
@@ -213,6 +215,26 @@ class EgressGuard:
                                              f"secret '{key}' may not be sent to host '{host}'", host=host, key=key)
                 raise self.violation
 
+    def check_postgres_connection(self, connection_string: str) -> None:
+        """Validate the actual libpq destination after secret substitution.
+
+        Only a single explicit TCP host is supported. Alternative destinations
+        (hostaddr, services, sockets and failover lists) must not bypass bindings.
+        """
+        from psycopg.conninfo import conninfo_to_dict
+
+        try:
+            info = conninfo_to_dict(connection_string)
+        except Exception:
+            raise PolicyError("invalid_connection", 422, "Invalid PostgreSQL connection string") from None
+        host = info.get("host", "")
+        if (not host or any(c in host for c in ",/ ") or
+                any(k in info for k in ("hostaddr", "service", "servicefile")) or
+                "," in info.get("port", "")):
+            raise PolicyError("invalid_connection", 422,
+                              "PostgreSQL requires one explicit TCP host; services, hostaddr and sockets are not supported")
+        self.check_host(host)
+
     async def httpx_hook(self, request) -> None:
         self.check_host(request.url.host)
         if self.read_only:
@@ -243,6 +265,8 @@ def check_read_only(node_type: str, parameters: dict[str, Any]) -> None:
         if not isinstance(method, str) or method.strip().upper() not in READ_ONLY_HTTP_METHODS:
             deny(f"http_request method '{method}' is not GET/HEAD", operation=str(method))
         return
+    if node_type == "Postgres":
+        deny("external SQL cannot be safely checked for writes")
     if node_type == "SendEmail":
         deny("send_email sends data out")
     if egress_kind(node_type) == "opaque":

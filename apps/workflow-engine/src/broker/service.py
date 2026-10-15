@@ -136,7 +136,7 @@ class BrokerService:
             secret_hosts: dict[str, list[str]] = {}
             for k in sorted(secret_keys):
                 hosts = rows[k].allowed_hosts
-                if not hosts or kind != "http":
+                if not hosts or kind not in {"http", "postgres"}:
                     raise PolicyError("secret_not_bound", 403,
                                       f"secret '{k}' is not bound to any host for '{snake(node_type)}'"
                                       if not hosts else f"secret '{k}' cannot be used with '{snake(node_type)}'",
@@ -191,7 +191,8 @@ class BrokerService:
             wf, "fn", initial, "manual",
             variables=variables, secret_values=secrets,
             project_id=claims.project_id, environment=claims.environment, team_id=claims.team_id,
-            extras={"broker_origin": claims.origin, "parent_execution_id": claims.execution_id},
+            extras={"broker_origin": claims.origin, "parent_execution_id": claims.execution_id,
+                    "broker_egress_guard": guard},
             http_client_options={"follow_redirects": False, "event_hooks": {"request": [guard.httpx_hook]}},
         )
         if guard.violation is not None:
