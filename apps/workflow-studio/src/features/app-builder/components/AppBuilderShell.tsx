@@ -1,487 +1,607 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
-import { Link } from '@tanstack/react-router'
+/**
+ * App builder (UI-DESIGN §5.2, `builder.png`): `[Backend 288] [Preview] [Chat 360]` under a
+ * floating top bar `luna / Project / App ⇕ · vN · saved · Preview|Code · history · settings ·
+ * Publish`. Below 1280px the Backend panel is a 44px rail, chat is 320 and the URL pill hides.
+ */
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useNavigate, useSearch } from '@tanstack/react-router'
+import { useQueryClient } from '@tanstack/react-query'
 import {
-  ChevronLeft,
-  Save,
-  Loader2,
-  Sparkles,
-  ScrollText,
+  AppWindow,
+  Check,
+  ChevronsUpDown,
+  CodeXml,
+  Eye,
   History,
-  MessageSquare,
-  Globe,
+  Plus,
   Send,
+  Settings2,
+  Trash2,
+  X,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { ToolbarSeparator } from '@/shared/components/ui/toolbar'
-import { useAppDocumentStore } from '../stores'
-import { useAppBuilderChatStore } from '../stores/appBuilderChatStore'
-import { AppPreviewPanel } from './AppPreviewPanel'
-import { AppBuilderChatPanel } from './AppBuilderChatPanel'
-import { ApiTesterPanel, SavedQueriesPanel } from './ApiTesterPanel'
-import { BottomPanel } from '../panels'
+import { useProjectCtx } from '@/features/project/ProjectContext'
+import { useProjectApps, useProjectSummary, useRoutes } from '@/features/project/hooks/useProjectData'
+import { Brand, ThemeToggle, healthTone } from '@/features/project/components/ProjectTopBar'
 import { appsApi, type ApiAppDetail } from '@/shared/lib/api'
 import { backends } from '@/shared/lib/config'
+import { errorMessage } from '@/shared/api/http'
+import { qk } from '@/shared/api/queryKeys'
+import { Button } from '@/shared/components/ui/button'
+import { Badge } from '@/shared/components/ui/badge'
+import { Segmented } from '@/shared/components/ui/segmented'
+import { Popover, PopoverContent, PopoverTrigger } from '@/shared/components/ui/popover'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/components/ui/tooltip'
+import { EmptyState } from '@/shared/components/ui/empty-state'
+import { Spinner } from '@/shared/components/ui/spinner'
+import { Kbd } from '@/shared/components/ui/kbd'
+import { useViewportWidth } from '@/shared/hooks/useViewport'
+import { cn } from '@/shared/lib/utils'
+import type { AppSearch } from '@/app/routes/project'
+import { useAppDocumentStore, useConsoleStore } from '../stores'
+import { useAppBuilderChatStore } from '../stores/appBuilderChatStore'
+import { usePreviewSession } from '../stores/previewSessionStore'
+import { useApiUsage, useApp, useClientTs, useSaveApp, useSpecRevision } from '../hooks/useAppData'
+import { usePreviewToken } from '../hooks/usePreviewToken'
+import { useAppBuilderChat } from '../hooks/useAppBuilderChat'
+import { CLIENT_PATH, entrySource, matchRoute, routeIdsOf, slugify, stripClient } from '../lib/appModel'
+import type { BridgeCall } from '../sandbox/IframeSandbox'
+import { AppPreviewPanel, type BuilderMode } from './AppPreviewPanel'
+import { AppBuilderChatPanel, type ComposerHandle } from './AppBuilderChatPanel'
+import { BackendPanel, BackendRail, useOpCounts } from './BackendPanel'
+import { ApiTesterPanel, SavedQueriesPanel } from './ApiTesterPanel'
 import { VersionHistory } from './VersionHistory'
 import { PublishDialog } from './PublishDialog'
+import { AppSettingsSheet } from './AppSettingsSheet'
+import { DeleteAppDialog, UnpublishDialog } from './AppDialogs'
 
-/**
- * Build the absolute public URL for a published app. Uses the same engine
- * origin the rest of the studio talks to (`backends.workflow`) so dev and
- * deployed environments both work without extra config. Falls back to the
- * current document origin so a misconfigured backends.workflow doesn't
- * produce a broken `/a/...` link.
- */
-function buildPublicUrl(slug: string): string {
+const panel = 'rounded-xl border border-panel-border bg-card shadow-xs overflow-hidden'
+
+/** Prompts already auto-sent (module scope: survives StrictMode remounts and URL rewrites). */
+const autoSent = new Set<string>()
+
+function publicUrl(slug: string): string {
   const base = backends.workflow || window.location.origin
   return `${base.replace(/\/+$/, '')}/a/${slug}`
 }
 
-const btnClass =
-  'h-8 w-8 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed'
+// ── top bar pieces ──────────────────────────────────────────────────────────
 
-const floatingPanel = 'bg-card rounded-xl shadow-lg border border-border overflow-hidden'
-const panelTransition = 'transition-all duration-300 ease-out'
+function AppSwitcher({ app, onDelete }: { app: ApiAppDetail; onDelete: () => void }) {
+  const { pid, slug } = useProjectCtx()
+  const apps = useProjectApps(pid)
+  const navigate = useNavigate()
+  const [open, setOpen] = useState(false)
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        data-testid="app-switcher"
+        className="inline-flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2 font-medium hover:bg-accent"
+      >
+        <AppWindow className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="max-w-48 truncate" data-testid="app-name">
+          {app.name}
+        </span>
+        <ChevronsUpDown className="size-3 shrink-0 text-muted-foreground" />
+      </PopoverTrigger>
+      <PopoverContent className="w-64 p-1" align="start">
+        <div className="px-2 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Apps</div>
+        <div className="max-h-72 overflow-y-auto">
+          {(apps.data ?? []).map((a) => (
+            <button
+              key={a.id}
+              type="button"
+              onClick={() => {
+                setOpen(false)
+                if (a.id !== app.id) navigate({ to: '/p/$project/apps/$appId', params: { project: slug, appId: a.id } })
+              }}
+              className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left hover:bg-accent"
+              data-testid={`app-switcher-item-${a.id}`}
+            >
+              <AppWindow className="size-3.5 text-muted-foreground" />
+              <span className="flex-1 truncate">{a.name}</span>
+              {a.active && <Badge variant="success" className="h-[18px] px-1.5 text-[10.5px]">live</Badge>}
+              {a.id === app.id && <Check className="size-3.5 text-muted-foreground" />}
+            </button>
+          ))}
+        </div>
+        <div className="my-1 h-px bg-border" />
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(false)
+            navigate({ to: '/p/$project', params: { project: slug }, search: { dialog: 'create-ui' } })
+          }}
+          className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-muted-foreground hover:bg-accent hover:text-foreground"
+          data-testid="app-switcher-new"
+        >
+          <Plus className="size-3.5" /> New app from the backend
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(false)
+            onDelete()
+          }}
+          className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-destructive hover:bg-destructive/10"
+          data-testid="app-delete"
+        >
+          <Trash2 className="size-3.5" /> Delete {app.name}…
+        </button>
+      </PopoverContent>
+    </Popover>
+  )
+}
 
-/**
- * App builder shell — LLM-driven editor layout:
- *   - Center: live app preview (iframe sandbox) — full viewport
- *   - Right: AI Chat panel (floating)
- *   - Bottom: Console (floating)
- */
-export function AppBuilderShell({ appId }: { appId?: string }) {
+function VersionBadge({ saving, error, onSave }: { saving: boolean; error: string | null; onSave: () => void }) {
+  const version = useAppDocumentStore((s) => s.currentVersion)
+  const dirty = useAppDocumentStore((s) => s.dirty)
   const files = useAppDocumentStore((s) => s.files)
-  const sourceCode = useAppDocumentStore((s) => s.sourceCode)
-  const setSourceCode = useAppDocumentStore((s) => s.setSourceCode)
-  const setCurrentVersion = useAppDocumentStore((s) => s.setCurrentVersion)
+  const label = saving
+    ? 'saving…'
+    : error
+      ? 'save failed'
+      : dirty
+        ? 'unsaved'
+        : version
+          ? 'saved'
+          : files?.length
+            ? 'not saved'
+            : 'empty'
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={saving || !files?.length}
+            className={cn(
+              'ml-1 inline-flex h-5 items-center gap-1 rounded-full bg-secondary px-2 text-xs font-medium whitespace-nowrap text-secondary-foreground hover:bg-secondary/70 disabled:cursor-default disabled:hover:bg-secondary',
+              (error || dirty) && 'bg-warning/13 text-warning-text',
+              error && 'bg-destructive/10 text-destructive',
+            )}
+            data-testid="builder-save"
+            data-state={label}
+          />
+        }
+      >
+        <span data-testid="builder-version">{version ? `v${version.version_number}` : 'draft'}</span> · {label}
+      </TooltipTrigger>
+      <TooltipContent>
+        {error ? `Couldn't save: ${error}. Click to retry.` : 'Save a version'} <Kbd>⌘S</Kbd>
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+// ── shell ───────────────────────────────────────────────────────────────────
+
+export function AppBuilderShell({ appId }: { appId: string }) {
+  const { project, pid, slug } = useProjectCtx()
+  const search = useSearch({ strict: false }) as AppSearch
+  const navigate = useNavigate()
+  const qc = useQueryClient()
+  const width = useViewportWidth()
+  const narrow = width < 1280
+
+  const appQ = useApp(appId)
+  const app = appQ.data
+  const routesQ = useRoutes(pid)
+  const usageQ = useApiUsage(appId)
+  const env = project.default_environment
+  const clientQ = useClientTs(pid, env)
+  const revision = useSpecRevision(pid).data ?? null
+  const summary = useProjectSummary(pid)
+  const token = usePreviewToken(pid, appId)
+  const save = useSaveApp(appId)
+
+  const files = useAppDocumentStore((s) => s.files)
   const currentVersion = useAppDocumentStore((s) => s.currentVersion)
-  const [appName, setAppName] = useState('Untitled App')
-  const [isEditingName, setIsEditingName] = useState(false)
-  const [editedName, setEditedName] = useState('')
-  const nameInputRef = useRef<HTMLInputElement>(null)
-  const [loaded, setLoaded] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [isSaving, setIsSaving] = useState(false)
-  const [bottomPanelOpen, setBottomPanelOpen] = useState(false)
+  const [loadedFor, setLoadedFor] = useState<string | null>(null)
+  const [mode, setMode] = useState<BuilderMode>('preview')
+  const [codeFocus, setCodeFocus] = useState<string | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
-  const [chatOpen, setChatOpen] = useState(true)
-  const [testerOpen, setTesterOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [publishOpen, setPublishOpen] = useState(false)
-  const [appDetail, setAppDetail] = useState<ApiAppDetail | null>(null)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [unpublishOpen, setUnpublishOpen] = useState(false)
+  const [testerOpen, setTesterOpen] = useState(false)
+  const [railOpen, setRailOpen] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const composerRef = useRef<ComposerHandle>(null)
 
-  // Auto-focus name input when editing
-  useEffect(() => {
-    if (isEditingName && nameInputRef.current) {
-      nameInputRef.current.focus()
-      nameInputRef.current.select()
-    }
-  }, [isEditingName])
-
-  // Submit name change
-  const handleNameSubmit = useCallback(() => {
-    const trimmed = editedName.trim()
-    if (trimmed && trimmed !== appName) {
-      setAppName(trimmed)
-      if (appId) {
-        appsApi.update(appId, { name: trimmed }).catch(() => {
-          // revert on failure
-          setAppName(appName)
-        })
-      }
-    } else {
-      setEditedName(appName)
-    }
-    setIsEditingName(false)
-  }, [editedName, appName, appId])
-
-  // Reset stores + load app whenever appId changes
+  // Reset per app.
   useEffect(() => {
     useAppDocumentStore.getState().reset()
     useAppBuilderChatStore.getState().clearHistory()
-    setLoaded(false)
-    setError(null)
+    usePreviewSession.getState().reset(appId)
+    useConsoleStore.getState().clear()
+    setLoadedFor(null)
+    setMode('preview')
+    setHistoryOpen(false)
+  }, [appId])
 
-    if (!appId) {
-      setLoaded(true)
-      return
+  // Seed the document once per app from the query.
+  useEffect(() => {
+    if (!app || loadedFor === appId || app.id !== appId) return
+    const doc = useAppDocumentStore.getState()
+    const appFiles = stripClient(app.files)
+    if (appFiles.length) doc.setFiles(appFiles)
+    else if (app.source_code) doc.setSourceCode(app.source_code)
+    doc.setCurrentVersion(app.current_version ?? null)
+    setLoadedFor(appId)
+  }, [app, appId, loadedFor])
+  const loaded = loadedFor === appId
+
+  const execIds = app?.api_execution_ids
+  const attached = useMemo(() => execIds ?? [], [execIds])
+  const chat = useAppBuilderChat({ appId, pid, apiExecutionIds: attached })
+  const sendMessage = chat.sendMessage
+
+  // Auto-send the Create UI prompt once, then drop it from the URL (§5.1 step 3).
+  useEffect(() => {
+    if (!loaded || !search.prompt) return
+    const key = `${appId}\0${search.prompt}`
+    if (!autoSent.has(key)) {
+      autoSent.add(key)
+      void sendMessage(search.prompt)
     }
+    navigate({
+      to: '.',
+      search: (s: Record<string, unknown>) => {
+        const next = { ...s }
+        delete next.prompt
+        return next
+      },
+      replace: true,
+    } as never)
+  }, [loaded, search.prompt, appId, sendMessage, navigate])
 
-    let cancelled = false
-    appsApi.get(appId).then((data) => {
-      if (cancelled) return
-      setAppName(data.name)
-      setAppDetail(data)
-      const setFiles = useAppDocumentStore.getState().setFiles
-      if (data.files && data.files.length > 0) {
-        setFiles(data.files)
-      } else if (data.source_code) {
-        setSourceCode(data.source_code)
-      }
-      if (data.current_version) {
-        setCurrentVersion(data.current_version)
-      }
-      setLoaded(true)
-    }).catch((err) => {
-      if (cancelled) return
-      setError(err instanceof Error ? err.message : 'Failed to load app')
-      setLoaded(true)
-    })
-    return () => { cancelled = true }
-  }, [appId, setSourceCode, setCurrentVersion])
+  // Preview files: the app's files + the current generated client (§5.2).
+  const previewFiles = useMemo(() => {
+    if (!files?.length) return files
+    const own = stripClient(files)
+    return clientQ.data ? [...own, { path: CLIENT_PATH, content: clientQ.data }] : own
+  }, [files, clientQ.data])
 
-  // Manual save — creates a version with trigger='manual'
+  const routes = routesQ.data
+  const onApiCall = useCallback(
+    (c: BridgeCall) => {
+      const prefix = `/api/p/${slug}`
+      const bare = c.path.split('?')[0]
+      const rest = bare.startsWith(prefix) ? bare.slice(prefix.length) || '/' : null
+      const r = rest != null ? matchRoute(routes ?? [], c.method, rest) : undefined
+      usePreviewSession.getState().record({ ...c, at: Date.now(), routeId: r?.id })
+    },
+    [routes, slug],
+  )
+
+  const refreshUsage = useCallback(() => {
+    void qc.invalidateQueries({ queryKey: qk.apiUsage(appId) })
+  }, [qc, appId])
+
   const handleSave = useCallback(async () => {
-    if (!appId || isSaving) return
-    setIsSaving(true)
+    const cur = useAppDocumentStore.getState().files
+    if (!cur?.length || saving) return
+    setSaving(true)
+    setSaveError(null)
     try {
-      const currentFiles = useAppDocumentStore.getState().files
-      const result = await appsApi.update(appId, {
-        source_code: sourceCode ?? '',
-        files: currentFiles ?? undefined,
-        create_version: true,
-        version_trigger: 'manual',
-      })
-      if (result.current_version) {
-        setCurrentVersion(result.current_version)
-      }
-      toast.success('App saved')
-    } catch (err) {
-      toast.error('Failed to save', {
-        description: err instanceof Error ? err.message : 'Unknown error',
-      })
+      const own = stripClient(cur)
+      const res = await save({ source_code: entrySource(own), files: own, create_version: true, version_trigger: 'manual' })
+      if (res.current_version) useAppDocumentStore.getState().setCurrentVersion(res.current_version)
+      useAppDocumentStore.getState().setDirty(false)
+    } catch (e) {
+      setSaveError(errorMessage(e))
     } finally {
-      setIsSaving(false)
+      setSaving(false)
+      refreshUsage()
     }
-  }, [appId, isSaving, sourceCode, setCurrentVersion])
+  }, [save, saving, refreshUsage])
 
-  // Handle version revert from history panel
-  const handleRevert = useCallback(async (versionId: number) => {
-    if (!appId) return
-    try {
-      const result = await appsApi.revertToVersion(appId, versionId)
-      const setFiles = useAppDocumentStore.getState().setFiles
-      if (result.files && result.files.length > 0) {
-        setFiles(result.files)
-      } else if (result.source_code) {
-        setSourceCode(result.source_code)
+  const handleRevert = useCallback(
+    async (versionId: number) => {
+      try {
+        const res = await appsApi.revertToVersion(appId, versionId)
+        const doc = useAppDocumentStore.getState()
+        const own = stripClient(res.files)
+        if (own.length) doc.setFiles(own)
+        else if (res.source_code) doc.setSourceCode(res.source_code)
+        if (res.current_version) doc.setCurrentVersion(res.current_version)
+        doc.setDirty(false)
+        qc.setQueryData(qk.app(appId), (old: ApiAppDetail | undefined) => (old ? { ...old, ...res, definition: old.definition } : old))
+        void qc.invalidateQueries({ queryKey: qk.app(appId) })
+        refreshUsage()
+        toast.success(`Reverted to v${res.current_version?.version_number ?? '?'}`)
+      } catch (e) {
+        toast.error("Couldn't revert", { description: errorMessage(e) })
       }
-      if (result.current_version) {
-        setCurrentVersion(result.current_version)
+    },
+    [appId, qc, refreshUsage],
+  )
+
+  // ⌘S save, ⌘I focus the composer (§8.2).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return
+      const k = e.key.toLowerCase()
+      if (k === 's') {
+        e.preventDefault()
+        void handleSave()
+      } else if (k === 'i') {
+        e.preventDefault()
+        composerRef.current?.focus()
       }
-      toast.success(`Reverted to v${result.current_version?.version_number ?? '?'}`)
-    } catch (err) {
-      toast.error('Failed to revert', {
-        description: err instanceof Error ? err.message : 'Unknown error',
-      })
     }
-  }, [appId, setSourceCode, setCurrentVersion])
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [handleSave])
 
-  // ── Canvas content ──
-  const renderCanvas = () => {
-    if (error) {
-      return (
-        <div className="relative h-full w-full text-foreground flex items-center justify-center">
-          <div className="text-center space-y-2">
-            <p className="text-destructive font-medium">Failed to load app</p>
-            <p className="text-sm text-muted-foreground">{error}</p>
-          </div>
-        </div>
-      )
-    }
+  const openClient = useCallback(() => {
+    setCodeFocus(CLIENT_PATH)
+    setMode('code')
+    setRailOpen(false)
+  }, [])
 
-    if (!loaded) {
-      return (
-        <div className="h-full w-full text-foreground flex items-center justify-center">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-        </div>
-      )
-    }
+  const onUse = useCallback((op: string) => {
+    usePreviewSession.getState().setDraft(`Use api.${op}() to `)
+    setRailOpen(false)
+  }, [])
 
-    if (!sourceCode) {
-      return (
-        <div
-          className="relative h-full w-full text-foreground flex items-center justify-center"
-        >
-          <div className="text-center space-y-3 px-6" style={{ maxWidth: 280 }}>
-            <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mx-auto">
-              <Sparkles size={24} className="text-muted-foreground" />
-            </div>
-            <p className="text-sm font-medium text-foreground">No app yet</p>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Describe what you want to build in the AI chat and it will generate your app here.
-            </p>
-          </div>
-        </div>
-      )
-    }
+  const { used, total } = useOpCounts(routes, usageQ.data)
+  const publishSlug = app?.slug ?? search.slug ?? slugify(app?.name ?? '')
+  const tone = healthTone(summary.data?.health.status)
 
+  if (appQ.isError) {
     return (
-      <AppPreviewPanel files={files} />
+      <div className="flex h-full items-center justify-center bg-canvas" data-testid="builder-load-error">
+        <EmptyState
+          title="Couldn't load this app"
+          actions={
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => appQ.refetch()}>
+                Retry
+              </Button>
+              <Button variant="ghost" size="sm" render={<Link to="/p/$project" params={{ project: slug }} />}>
+                Back to {project.name}
+              </Button>
+            </div>
+          }
+        >
+          {errorMessage(appQ.error)}
+        </EmptyState>
+      </div>
     )
   }
 
-  // CSS expressions for responsive panel widths
-  const chatWidth = 'min(384px, 45vw)'
-  const historyWidth = 'min(220px, 20vw)'
-  const savedWidth = 'min(260px, 24vw)'
-
-  // Build bottom panel right offset using CSS calc so it adapts to viewport
-  let bottomRight = '12px'
-  if (chatOpen && historyOpen && appId) {
-    bottomRight = `calc(${chatWidth} + ${historyWidth} + 48px)` // 3 gaps + base
-  } else if (chatOpen) {
-    bottomRight = `calc(${chatWidth} + 24px)`
-  } else if (historyOpen && appId) {
-    bottomRight = `calc(${historyWidth} + 24px)`
-  }
+  const backendPanel = (
+    <BackendPanel
+      pid={pid}
+      appId={appId}
+      projectName={project.name}
+      projectSlug={slug}
+      healthTone={tone}
+      env={env}
+      routes={routes}
+      routesLoading={routesQ.isLoading}
+      usage={usageQ.data}
+      usageLoading={usageQ.isLoading}
+      usageError={usageQ.error}
+      onRetryUsage={() => usageQ.refetch()}
+      onRefresh={() => {
+        void routesQ.refetch()
+        void usageQ.refetch()
+        void clientQ.refetch()
+      }}
+      client={clientQ.data}
+      revision={revision}
+      onOpenClient={openClient}
+      onUse={onUse}
+    />
+  )
 
   return (
-    <div className="h-full w-full relative bg-muted dark:bg-black/60">
-      {/* Layer 0: Preview area — fills left of chat, below navbar */}
-      <div
-        className={[
-          'absolute top-[68px] left-3 bottom-3 z-0',
-          floatingPanel,
-          panelTransition,
-        ].join(' ')}
-        style={{ right: chatOpen ? `calc(${chatWidth} + 24px)` : '12px' }}
+    <div className="relative h-full w-full overflow-hidden bg-canvas" data-testid="app-builder">
+      {/* top bar */}
+      <header
+        data-testid="builder-topbar"
+        className="absolute inset-x-3 top-3 z-20 flex h-11 items-center gap-1 rounded-xl border border-panel-border bg-card/82 pl-2.5 pr-2 shadow-lg backdrop-blur-xl"
       >
-        {renderCanvas()}
-      </div>
-
-      {/* Layer 2: Floating navbar */}
-      <div className="absolute top-3 left-3 right-3 z-20">
-        <div className={`flex items-center h-11 px-3 ${floatingPanel} gap-1`}>
-          <Link
-            to="/projects"
-            className="h-8 px-1.5 flex items-center gap-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors text-xs"
-            title="Back to projects"
-          >
-            <ChevronLeft size={14} />
-            <span className="hidden sm:inline">Projects</span>
-          </Link>
-
-          <ToolbarSeparator />
-
-          {/* App name — click to rename */}
-          {isEditingName ? (
-            <input
-              ref={nameInputRef}
-              type="text"
-              value={editedName}
-              onChange={(e) => setEditedName(e.target.value)}
-              onBlur={handleNameSubmit}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleNameSubmit()
-                if (e.key === 'Escape') {
-                  setEditedName(appName)
-                  setIsEditingName(false)
-                }
-              }}
-              className="h-8 w-36 px-2 text-[13px] font-medium text-foreground bg-transparent outline-none border border-border rounded-md"
-            />
-          ) : (
-            <button
-              onClick={() => {
-                setEditedName(appName)
-                setIsEditingName(true)
-              }}
-              className="h-8 px-2 text-[13px] font-medium text-foreground hover:bg-accent transition-colors rounded-md truncate max-w-40"
-              title="Click to rename"
-            >
-              {appName}
-            </button>
-          )}
-
-          {/* Version indicator — distinguishes the version being edited from
-              the version live at /a/{slug}. Collapses to a single label when
-              they're the same. */}
-          {currentVersion && (() => {
-            const liveVersion = appDetail?.published_version
-            const liveDiffers = liveVersion && liveVersion.id !== currentVersion.id
-            return (
-              <span className="ml-2 text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded font-mono whitespace-nowrap">
-                {liveDiffers ? (
-                  <>editing v{currentVersion.version_number} · live v{liveVersion.version_number}</>
-                ) : (
-                  <>v{currentVersion.version_number}</>
-                )}
-              </span>
-            )
-          })()}
-
-          {/* Live-URL pill — persistent affordance for the public link. Only
-              shown when the app is currently published with a slug. */}
-          {appDetail?.active && appDetail.slug && (
-            <a
-              href={buildPublicUrl(appDetail.slug)}
-              target="_blank"
-              rel="noreferrer noopener"
-              className="ml-1.5 inline-flex items-center gap-1 h-6 px-2 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[11px] font-medium hover:bg-emerald-500/15 transition-colors max-w-[180px]"
-              title={`Open ${buildPublicUrl(appDetail.slug)}`}
-            >
-              <Globe size={10} className="shrink-0" />
-              <span className="truncate font-mono">/a/{appDetail.slug}</span>
-            </a>
-          )}
-
-          <div className="flex-1" />
-
-          {/* Version history toggle */}
-          {appId && (
-            <button
-              onClick={() => setHistoryOpen(!historyOpen)}
-              className={btnClass + (historyOpen ? ' !text-primary' : '')}
-              title="Version history"
-            >
-              <History size={14} />
-            </button>
-          )}
-
-          {/* API Tester toggle */}
-          <button
-            onClick={() => setTesterOpen(!testerOpen)}
-            className={btnClass + (testerOpen ? ' !text-primary' : '')}
-            title="API Tester"
-          >
-            <Send size={14} />
-          </button>
-
-          {/* AI Chat toggle */}
-          <button
-            onClick={() => setChatOpen(!chatOpen)}
-            className={btnClass + (chatOpen ? ' !text-primary' : '')}
-            title="Toggle AI chat"
-          >
-            <MessageSquare size={14} />
-          </button>
-
-          {/* Console toggle */}
-          <button
-            onClick={() => setBottomPanelOpen(!bottomPanelOpen)}
-            className={btnClass + (bottomPanelOpen ? ' !text-primary' : '')}
-            title="Toggle console"
-          >
-            <ScrollText size={14} />
-          </button>
-
-          <ToolbarSeparator />
-
-          {/* Save */}
-          {appId && (
-            <button
-              onClick={handleSave}
-              disabled={isSaving}
-              className={btnClass}
-              title="Save (Ctrl+S)"
-            >
-              {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-            </button>
-          )}
-
-          {/* Publish */}
-          {appId && appDetail && sourceCode && (
-            <button
-              onClick={() => setPublishOpen(true)}
-              className="ml-1 h-8 px-2.5 flex items-center gap-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors"
-              title="Publish app"
-            >
-              <Globe size={12} />
-              {appDetail.active ? 'Republish' : 'Publish'}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Publish dialog */}
-      {appId && appDetail && publishOpen && (
-        <PublishDialog
-          appId={appId}
-          app={appDetail}
-          onClose={() => setPublishOpen(false)}
-          onPublished={(updated) => setAppDetail(updated)}
-        />
-      )}
-
-      {/* Layer 1: Floating AI Chat panel (right) */}
-      <div
-        className={[
-          'absolute top-[68px] right-3 bottom-3 z-10',
-          floatingPanel,
-          panelTransition,
-          chatOpen ? 'translate-x-0 opacity-100' : 'translate-x-[calc(100%+12px)] opacity-0 pointer-events-none',
-        ].join(' ')}
-        style={{ width: chatWidth }}
-      >
-        <AppBuilderChatPanel appId={appId} onClose={() => setChatOpen(false)} />
-      </div>
-
-      {/* Layer 1: Floating Version History panel */}
-      {appId && (
-        <div
-          className={[
-            'absolute top-[68px] bottom-3 z-10',
-            floatingPanel,
-            panelTransition,
-            historyOpen ? 'translate-x-0 opacity-100' : 'translate-x-[calc(100%+12px)] opacity-0 pointer-events-none',
-          ].join(' ')}
-          style={{
-            width: historyWidth,
-            right: chatOpen ? `calc(${chatWidth} + 24px)` : 12,
-          }}
+        <Brand />
+        <span className="mx-0.5 text-base text-border">/</span>
+        <Link
+          to="/p/$project"
+          params={{ project: slug }}
+          className="inline-flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2 text-muted-foreground hover:bg-accent hover:text-foreground"
+          data-testid="builder-project-link"
         >
-          <VersionHistory
-            appId={appId}
-            currentVersionId={currentVersion?.id ?? null}
-            publishedVersionId={appDetail?.published_version?.id ?? null}
-            onRevert={handleRevert}
-            onClose={() => setHistoryOpen(false)}
+          <span className={cn('size-1.5 shrink-0 rounded-full', tone === 'ok' ? 'bg-success' : tone === 'warn' ? 'bg-warning' : tone === 'err' ? 'bg-destructive' : tone === 'running' ? 'bg-primary' : 'bg-border')} />
+          <span className="max-w-40 truncate">{project.name}</span>
+        </Link>
+        <span className="mx-0.5 text-base text-border">/</span>
+        {app ? <AppSwitcher app={app} onDelete={() => setDeleteOpen(true)} /> : <span className="px-2 text-muted-foreground">Loading…</span>}
+        {app && <VersionBadge saving={saving} error={saveError} onSave={() => void handleSave()} />}
+        {app && (
+          <Badge
+            variant={app.active ? 'success' : 'neutral'}
+            className="ml-1"
+            data-testid="app-publish-status"
+            data-state={app.active ? 'published' : 'draft'}
+          >
+            {app.active ? 'Published' : 'Draft'}
+          </Badge>
+        )}
+        <div className="flex-1" />
+        <Segmented<BuilderMode>
+          value={mode}
+          onChange={(m) => {
+            setMode(m)
+            if (m === 'code') setCodeFocus(null)
+          }}
+          aria-label="View"
+          options={[
+            { key: 'preview', label: 'Preview', icon: <Eye className="size-3" />, testId: 'builder-mode-preview' },
+            { key: 'code', label: 'Code', icon: <CodeXml className="size-3" />, testId: 'builder-mode-code' },
+          ]}
+        />
+        <span className="mx-1.5 h-4 w-px bg-border" />
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className={cn(historyOpen && 'bg-muted text-foreground')}
+                onClick={() => setHistoryOpen((o) => !o)}
+                aria-label="Version history"
+                aria-pressed={historyOpen}
+                data-testid="builder-history"
+              />
+            }
+          >
+            <History />
+          </TooltipTrigger>
+          <TooltipContent>Version history</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button variant="ghost" size="icon-sm" onClick={() => setSettingsOpen(true)} disabled={!app} aria-label="App settings" data-testid="builder-settings" />
+            }
+          >
+            <Settings2 />
+          </TooltipTrigger>
+          <TooltipContent>App settings</TooltipContent>
+        </Tooltip>
+        <ThemeToggle />
+        <Button
+          size="sm"
+          className="ml-1"
+          onClick={() => setPublishOpen(true)}
+          disabled={!app || !files?.length}
+          data-testid="builder-publish"
+        >
+          <Send /> {app?.active ? 'Republish' : 'Publish'}
+        </Button>
+      </header>
+
+      {/* work area */}
+      <div className="absolute inset-x-3 bottom-3 top-[68px] flex gap-3">
+        <section className={cn(panel, 'relative shrink-0', narrow ? 'w-11' : 'w-[288px]')} data-testid="builder-backend">
+          {narrow ? (
+            <BackendRail used={used} total={total} open={railOpen} onToggle={() => setRailOpen((o) => !o)} onOpenClient={openClient} />
+          ) : (
+            backendPanel
+          )}
+        </section>
+        {narrow && railOpen && (
+          <section className={cn(panel, 'absolute bottom-0 left-14 top-0 z-30 w-[288px] shadow-2xl')} data-testid="builder-backend-overlay">
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="absolute right-9 top-2.5 z-10"
+              onClick={() => setRailOpen(false)}
+              aria-label="Close backend panel"
+            >
+              <X />
+            </Button>
+            {backendPanel}
+          </section>
+        )}
+
+        <section className={cn(panel, 'relative min-w-0 flex-1')} data-testid="builder-preview-panel">
+          {!loaded ? (
+            <div className="flex h-full items-center justify-center" data-testid="builder-loading">
+              <Spinner className="text-muted-foreground" />
+            </div>
+          ) : (
+            <AppPreviewPanel
+              files={previewFiles}
+              mode={mode}
+              slug={publishSlug}
+              env={env}
+              publishedUrl={app?.active && app.slug ? publicUrl(app.slug) : null}
+              showUrl={!narrow}
+              getToken={token.get}
+              refreshToken={token.refresh}
+              onApiCall={onApiCall}
+              codeFocus={codeFocus}
+            />
+          )}
+          {historyOpen && (
+            <div className="absolute bottom-2 right-2 top-2 z-30 w-[248px] overflow-hidden rounded-lg border border-border shadow-lg">
+              <VersionHistory
+                appId={appId}
+                currentVersionId={currentVersion?.id ?? null}
+                publishedVersionId={app?.published_version?.id ?? null}
+                onRevert={handleRevert}
+                onClose={() => setHistoryOpen(false)}
+              />
+            </div>
+          )}
+        </section>
+
+        <section className={cn(panel, 'shrink-0', narrow ? 'w-[320px]' : 'w-[360px]')} data-testid="builder-chat-panel">
+          <AppBuilderChatPanel
+            ref={composerRef}
+            projectName={project.name}
+            routes={routes ?? []}
+            routeIds={routeIdsOf(app)}
+            onSaveRoutes={(ids) => save({ studio: { route_ids: ids } })}
+            attached={attached}
+            onAttach={(ids) => {
+              void save({ api_execution_ids: ids }).catch((e) => toast.error("Couldn't attach", { description: errorMessage(e) }))
+            }}
+            isStreaming={chat.isStreaming}
+            onSend={(t) => void chat.sendMessage(t)}
+            onRetry={() => void chat.retry()}
+            onStop={chat.cancelStream}
           />
-        </div>
+        </section>
+
+        {testerOpen && (
+          <div className={cn(panel, 'absolute inset-0 z-40 flex shadow-2xl')} data-testid="builder-api-tester">
+            <div className="w-[260px] shrink-0 overflow-hidden border-r border-border">
+              <SavedQueriesPanel onClose={() => setTesterOpen(false)} />
+            </div>
+            <div className="relative min-w-0 flex-1 overflow-hidden">
+              <ApiTesterPanel onClose={() => setTesterOpen(false)} />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {app && (
+        <>
+          <PublishDialog
+            open={publishOpen}
+            onClose={() => setPublishOpen(false)}
+            app={app}
+            project={project}
+            summary={summary.data}
+            routes={routes}
+            usage={usageQ.data}
+            usageLoading={usageQ.isLoading}
+            slugHint={search.slug}
+          />
+          <AppSettingsSheet
+            open={settingsOpen}
+            onClose={() => setSettingsOpen(false)}
+            app={app}
+            pid={pid}
+            routes={routes ?? []}
+            onOpenTester={() => {
+              setSettingsOpen(false)
+              setTesterOpen(true)
+            }}
+            onUnpublish={() => setUnpublishOpen(true)}
+            onDelete={() => setDeleteOpen(true)}
+          />
+          <DeleteAppDialog app={app} pid={pid} projectSlug={slug} open={deleteOpen} onOpenChange={setDeleteOpen} />
+          <UnpublishDialog app={app} pid={pid} open={unpublishOpen} onOpenChange={setUnpublishOpen} onDone={() => setSettingsOpen(false)} />
+        </>
       )}
-
-      {/* Layer 1: Saved queries — docked rail on the left, flush against
-          the navbar/viewport edges. Border on the right marks the seam. */}
-      <div
-        className={[
-          'absolute top-[68px] left-0 bottom-0 z-10',
-          'bg-card border-r border-border overflow-hidden',
-          panelTransition,
-          testerOpen ? 'translate-x-0 opacity-100' : '-translate-x-full opacity-0 pointer-events-none',
-        ].join(' ')}
-        style={{ width: savedWidth }}
-      >
-        {testerOpen && <SavedQueriesPanel onClose={() => setTesterOpen(false)} />}
-      </div>
-
-      {/* Layer 1: API Tester — docked, flat. Sits to the right of the saved
-          rail and left of the chat panel (when open). */}
-      <div
-        className={[
-          'absolute top-[68px] bottom-0 z-10',
-          'bg-card border-l border-border overflow-hidden',
-          panelTransition,
-          testerOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
-        ].join(' ')}
-        style={{
-          left: savedWidth,
-          right: chatOpen ? `calc(${chatWidth} + 24px)` : '0',
-        }}
-      >
-        {testerOpen && <ApiTesterPanel onClose={() => setTesterOpen(false)} />}
-      </div>
-
-      {/* Layer 1: Floating bottom panel (console) */}
-      <div
-        className={[
-          'absolute left-3 bottom-3 z-10 h-[min(240px,40vh)]',
-          floatingPanel,
-          panelTransition,
-          bottomPanelOpen ? 'translate-y-0 opacity-100' : 'translate-y-[calc(100%+12px)] opacity-0 pointer-events-none',
-        ].join(' ')}
-        style={{ right: bottomRight }}
-      >
-        <BottomPanel />
-      </div>
     </div>
   )
 }

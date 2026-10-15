@@ -71,13 +71,15 @@ export function VersionHistory({ appId, currentVersionId, publishedVersionId, on
   const versionById = new Map(versions.map((v) => [v.id, v]))
 
   return (
-    <div className="h-full flex flex-col bg-card text-foreground">
+    <div className="h-full flex flex-col bg-card text-foreground" data-testid="version-history">
       {/* Header */}
       <div className="flex items-center justify-between h-10 px-3 border-b border-border shrink-0">
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
           Version History
         </span>
         <button
+          type="button"
+          aria-label="Close version history"
           onClick={onClose}
           className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
         >
@@ -107,19 +109,28 @@ export function VersionHistory({ appId, currentVersionId, publishedVersionId, on
 
               return (
                 <div key={v.id} className="group relative">
-                  <button
+                  <div
+                    role="button"
+                    tabIndex={isCurrent ? -1 : 0}
+                    aria-disabled={isCurrent}
+                    data-testid={`version-row-${v.version_number}`}
                     onClick={() => { if (!isCurrent) onRevert(v.id) }}
-                    disabled={isCurrent}
-                    className={`w-full text-left px-3 py-2 transition-colors ${
+                    onKeyDown={(e) => {
+                      if ((e.key === 'Enter' || e.key === ' ') && !isCurrent && e.target === e.currentTarget) {
+                        e.preventDefault()
+                        onRevert(v.id)
+                      }
+                    }}
+                    className={`w-full cursor-pointer text-left px-3 py-2 transition-colors outline-none focus-visible:bg-accent/40 ${
                       isCurrent
-                        ? 'bg-accent/50'
+                        ? 'cursor-default bg-accent/50'
                         : 'hover:bg-accent/30'
                     }`}
                   >
                     <div className="flex items-center gap-2">
                       <Icon size={12} className={`shrink-0 ${
-                        v.trigger === 'ai' ? 'text-violet-400' :
-                        v.trigger === 'publish' ? 'text-green-400' :
+                        v.trigger === 'ai' ? 'text-ai' :
+                        v.trigger === 'publish' ? 'text-success-text' :
                         'text-muted-foreground'
                       }`} />
                       <span className="text-xs font-mono font-medium">
@@ -130,7 +141,7 @@ export function VersionHistory({ appId, currentVersionId, publishedVersionId, on
                       )}
                       {isLive && (
                         <span
-                          className="inline-flex items-center gap-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1 py-0.5 rounded"
+                          className="inline-flex items-center gap-0.5 text-[10px] font-medium text-success-text bg-success/10 px-1 py-0.5 rounded"
                           title="This version is live at the public URL"
                         >
                           <Globe size={9} />
@@ -160,6 +171,8 @@ export function VersionHistory({ appId, currentVersionId, publishedVersionId, on
                           onBlur={() => handleLabelSave(v)}
                         />
                         <button
+                          type="button"
+                          aria-label="Save label"
                           onClick={() => handleLabelSave(v)}
                           className="shrink-0 text-muted-foreground hover:text-foreground"
                         >
@@ -178,6 +191,8 @@ export function VersionHistory({ appId, currentVersionId, publishedVersionId, on
                           </span>
                         )}
                         <button
+                          type="button"
+                          aria-label="Edit label"
                           onClick={(e) => {
                             e.stopPropagation()
                             setEditingId(v.id)
@@ -192,12 +207,12 @@ export function VersionHistory({ appId, currentVersionId, publishedVersionId, on
 
                     {/* Branch indicator */}
                     {isBranched && branchParent && (
-                      <div className="mt-0.5 flex items-center gap-1 text-[10px] text-amber-400">
+                      <div className="mt-0.5 flex items-center gap-1 text-[10px] text-warning-text">
                         <GitBranch size={9} />
                         <span>branched from v{branchParent.version_number}</span>
                       </div>
                     )}
-                  </button>
+                  </div>
                 </div>
               )
             })}

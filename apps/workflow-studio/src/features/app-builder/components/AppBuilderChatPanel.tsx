@@ -1,387 +1,456 @@
-import { useState, useMemo, useRef, useEffect } from 'react'
+/**
+ * "Build with AI" (UI-DESIGN §5.2): chat with tool rows (Wrote files +N, Uses ops, Declared
+ * METHOD /path stub), a composer with the route-picker chip, and the stream/save error state
+ * (`builder-stream-error`) with Retry.
+ */
+import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Link2, Check, Brain, Send } from 'lucide-react'
-import { ChatMessageList, ChatInput, ChatPanel, ChatPanelFooter } from '@/shared/components/chat'
-import { useAppBuilderChatStore, type AppChatMessage, type ToolCallEntry } from '../stores/appBuilderChatStore'
-import { useAppBuilderChat } from '../hooks/useAppBuilderChat'
-import { apiTesterApi, appsApi, type ApiTestExecutionListItem } from '@/shared/lib/api'
-import { Tool, ToolHeader, ToolContent, ToolInput, ToolOutput } from '@/components/ai-elements/tool'
-import { Task, TaskTrigger, TaskContent, TaskItem, TaskItemFile } from '@/components/ai-elements/task'
+import {
+  AlertTriangle,
+  ArrowUp,
+  Brain,
+  Check,
+  FilePlus2,
+  Paperclip,
+  Plug,
+  PlugZap,
+  RotateCw,
+  Send,
+  Sparkles,
+  Square,
+  SquarePen,
+  Wrench,
+} from 'lucide-react'
+import { useAppBuilderChatStore, type AppChatMessage } from '../stores/appBuilderChatStore'
+import { usePreviewSession } from '../stores/previewSessionStore'
+import { apiTesterApi, type ApiTestExecutionListItem } from '@/shared/lib/api'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/shared/components/ui/collapsible'
-import type { ToolPart } from '@/components/ai-elements/tool'
+import { Button } from '@/shared/components/ui/button'
+import { Badge } from '@/shared/components/ui/badge'
+import { Checkbox } from '@/shared/components/ui/checkbox'
+import { Input } from '@/shared/components/ui/input'
+import { Popover, PopoverContent, PopoverTrigger } from '@/shared/components/ui/popover'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/components/ui/tooltip'
+import { MethodBadge } from '@/shared/components/api/MethodBadge'
+import { cn } from '@/shared/lib/utils'
+import type { Route } from '@/shared/api/types'
+import { RoutePicker } from './RoutePicker'
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-const FRIENDLY_NAMES: Record<string, string> = {
-  write_files: 'Write Files',
-  read_files: 'Read Files',
-  edit_files: 'Edit Files',
-  delete_file: 'Delete File',
-  list_files: 'List Files',
-  search_files: 'Search Files',
-  escalate: 'Escalate',
+const TOOL_LABEL: Record<string, string> = {
+  write_files: 'Writing',
+  edit_files: 'Editing',
+  read_files: 'Reading',
+  delete_file: 'Deleting',
+  list_files: 'Listing files',
+  search_files: 'Searching',
+  declare_endpoint: 'Declaring an endpoint',
 }
 
-function friendlyName(tool: string): string {
-  return FRIENDLY_NAMES[tool] ?? tool.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-}
-
-function toolStatusToState(status: ToolCallEntry['status']): ToolPart['state'] {
-  switch (status) {
-    case 'running': return 'input-available'
-    case 'completed': return 'output-available'
-    case 'error': return 'output-error'
+function toolTarget(args: Record<string, unknown>): string {
+  const files = (args.files ?? args.paths ?? args.edits) as unknown
+  if (Array.isArray(files)) {
+    const names = files
+      .map((f) => (typeof f === 'string' ? f : (f as { path?: string })?.path))
+      .filter(Boolean)
+      .map((p) => String(p).split('/').pop())
+    if (names.length) return [...new Set(names)].join(', ')
   }
+  if (typeof args.path === 'string') return args.path
+  if (typeof args.pattern === 'string') return args.pattern
+  if (typeof args.method === 'string') return `${args.method} ${args.path ?? ''}`
+  return ''
 }
 
-// ── Tool Call Rendering ──────────────────────────────────────────────────────
-
-function renderToolCalls(msg: AppChatMessage) {
-  if (!msg.toolCalls?.length) return null
-
-  return (
-    <div className="space-y-2">
-      {msg.toolCalls.map((tc) => {
-        if (tc.tool === 'search_files') {
-          return (
-            <Task key={tc.id} defaultOpen={false}>
-              <TaskTrigger title={`Search: ${tc.args.pattern ?? '...'}`} />
-              <TaskContent>
-                {tc.result && (
-                  <TaskItem>
-                    <pre className="whitespace-pre-wrap text-xs text-muted-foreground font-mono">
-                      {tc.result.slice(0, 500)}
-                    </pre>
-                  </TaskItem>
-                )}
-              </TaskContent>
-            </Task>
-          )
-        }
-
-        return (
-          <Tool key={tc.id} defaultOpen={false}>
-            <ToolHeader
-              type="dynamic-tool"
-              toolName={friendlyName(tc.tool)}
-              state={toolStatusToState(tc.status)}
-            />
-            <ToolContent>
-              <ToolInput input={tc.args} />
-              {(tc.status === 'completed' || tc.status === 'error') && (
-                <ToolOutput
-                  output={tc.result ?? null}
-                  errorText={tc.status === 'error' ? tc.result ?? 'Unknown error' : undefined}
-                />
-              )}
-            </ToolContent>
-          </Tool>
-        )
-      })}
-    </div>
-  )
+function activityLabel(msg: AppChatMessage): string {
+  const running = [...(msg.toolCalls ?? [])].reverse().find((t) => t.status === 'running')
+  if (running) {
+    const target = toolTarget(running.args)
+    return `${TOOL_LABEL[running.tool] ?? running.tool.replace(/_/g, ' ')}${target ? ` ${target}` : ''}…`
+  }
+  return msg.phase || 'Thinking…'
 }
 
-// ── Reasoning Rendering ──────────────────────────────────────────────────────
-
-function renderReasoning(msg: AppChatMessage, isStreaming: boolean) {
-  if (!msg.thinking?.length) return null
-
+function ToolRow({ icon, children, meta, testId }: { icon: React.ReactNode; children: React.ReactNode; meta?: React.ReactNode; testId?: string }) {
   return (
-    <Collapsible defaultOpen={isStreaming}>
-      <CollapsibleTrigger className="group flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer mb-2">
-        <Brain size={12} />
-        <span>Reasoning</span>
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <div className="mb-3 space-y-1 border-l-2 border-muted pl-3">
-          {msg.thinking.map((t, i) => (
-            <p key={i} className="text-xs text-muted-foreground leading-relaxed">
-              {t}
-            </p>
-          ))}
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
-  )
-}
-
-// ── Extra Rendering (app updated badge with file list) ───────────────────────
-
-function renderExtra(msg: AppChatMessage) {
-  if (!msg.appPayload) return null
-
-  const payload = msg.appPayload as { type?: string; files?: { path: string }[] }
-  const files = payload?.files
-
-  return (
-    <div className="rounded-md border border-border bg-muted px-2.5 py-1.5 flex items-center gap-2 flex-wrap">
-      <span className="text-xs text-muted-foreground">App updated</span>
-      {files?.map((f) => (
-        <TaskItemFile key={f.path}>
-          {f.path.split('/').pop()}
-        </TaskItemFile>
-      ))}
-    </div>
-  )
-}
-
-// ── Chat Panel ───────────────────────────────────────────────────────────────
-
-export function AppBuilderChatPanel({
-  appId,
-  onClose,
-}: {
-  appId?: string
-  onClose?: () => void
-}) {
-  const messages = useAppBuilderChatStore((s) => s.messages)
-  const [selectedExecutionIds, setSelectedExecutionIds] = useState<string[]>([])
-  const [contextOpen, setContextOpen] = useState(false)
-
-  // Track whether selectedExecutionIds has been initialized from the app row.
-  // Without this, the empty-array initial render would PATCH and clobber any
-  // existing allow-list before we've loaded it.
-  const initializedRef = useRef(false)
-
-  // Load existing allow-list when the app changes — so the popover shows the
-  // saved selection, and so we don't overwrite it on first render.
-  useEffect(() => {
-    if (!appId) {
-      initializedRef.current = true
-      return
-    }
-    initializedRef.current = false
-    let cancelled = false
-    appsApi.get(appId).then((app) => {
-      if (cancelled) return
-      setSelectedExecutionIds(app.api_execution_ids ?? [])
-      initializedRef.current = true
-    }).catch(() => {
-      if (cancelled) return
-      initializedRef.current = true
-    })
-    return () => { cancelled = true }
-  }, [appId])
-
-  // Persist the allow-list whenever the selection changes — so the published
-  // app's runtime gets the captured-URL → execution-id map without requiring
-  // the user to send a chat message first.
-  useEffect(() => {
-    if (!appId || !initializedRef.current) return
-    appsApi.update(appId, { api_execution_ids: selectedExecutionIds }).catch(() => {
-      // Silent — the next chat send will retry via auto-grant.
-    })
-  }, [appId, selectedExecutionIds])
-
-  const chatOptions = useMemo(
-    () => ({ appId, apiExecutionIds: selectedExecutionIds }),
-    [appId, selectedExecutionIds],
-  )
-  const { sendMessage, isStreaming, cancelStream } = useAppBuilderChat(chatOptions)
-
-  const contextCount = selectedExecutionIds.length
-
-  return (
-    <ChatPanel
-      onClose={onClose}
-      actions={
-        <div className="relative">
-          <button
-            onClick={() => setContextOpen(!contextOpen)}
-            className={`relative p-1 rounded transition-colors ${
-              contextCount > 0
-                ? 'text-primary hover:bg-primary/10'
-                : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-            }`}
-            title="Attach saved API endpoint"
-          >
-            <Link2 size={14} />
-            {contextCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 h-3.5 w-3.5 rounded-full bg-primary text-[9px] font-bold text-primary-foreground flex items-center justify-center">
-                {contextCount}
-              </span>
-            )}
-          </button>
-
-          {contextOpen && (
-            <EndpointPopover
-              selectedIds={selectedExecutionIds}
-              onChange={setSelectedExecutionIds}
-              onClose={() => setContextOpen(false)}
-            />
-          )}
-        </div>
-      }
+    <div
+      className="flex h-[30px] items-center gap-2 rounded-lg border border-border bg-background px-2.5 text-xs [&>svg]:size-3.5 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
+      data-testid={testId}
     >
-      <ChatMessageList<AppChatMessage>
-        messages={messages}
-        isStreaming={isStreaming}
-        emptyTitle="App Builder"
-        emptyDescription="Describe the app you want to build and I'll generate it for you."
-        filterMessage={(msg) =>
-          !(msg.role === 'assistant' && !msg.content && !msg.appPayload && !msg.toolCalls?.length && !msg.thinking?.length)
-        }
-        renderReasoning={renderReasoning}
-        renderToolCalls={renderToolCalls}
-        renderAssistantContent={(msg) => (
-          <div className="prose prose-sm prose-neutral dark:prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_pre]:bg-muted [&_pre]:rounded [&_pre]:p-2 [&_pre]:text-xs [&_code]:text-xs [&_code]:bg-muted [&_code]:px-1 [&_code]:rounded [&_p]:my-1.5 [&_ul]:my-1.5 [&_ol]:my-1.5 [&_li]:my-0.5">
+      {icon}
+      <span className="min-w-0 flex-1 truncate">{children}</span>
+      {meta && <span className="shrink-0 text-muted-foreground">{meta}</span>}
+    </div>
+  )
+}
+
+const mono = 'font-mono text-[11.5px]'
+
+function AssistantMessage({
+  msg,
+  streaming,
+  onRetry,
+}: {
+  msg: AppChatMessage
+  streaming: boolean
+  onRetry: () => void
+}) {
+  const otherTools = (msg.toolCalls ?? []).filter((t) => !['write_files', 'edit_files', 'declare_endpoint'].includes(t.tool))
+  return (
+    <div className="flex gap-2.5" data-testid="chat-assistant-message">
+      <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-ai-soft text-ai-text">
+        <Sparkles className="size-3.5" />
+      </span>
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        {!!msg.thinking?.length && (
+          <Collapsible>
+            <CollapsibleTrigger className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
+              <Brain className="size-3" /> Reasoning
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="mt-1.5 space-y-1 border-l-2 border-border pl-3 text-xs leading-relaxed text-muted-foreground">
+                {msg.thinking.map((t, i) => (
+                  <p key={i}>{t}</p>
+                ))}
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+        )}
+        {msg.wrote && msg.wrote.paths.length > 0 && (
+          <ToolRow icon={<FilePlus2 />} meta={`+${msg.wrote.added}`} testId="chat-tool-wrote">
+            Wrote{' '}
+            {msg.wrote.paths.map((p, i) => (
+              <span key={p}>
+                {i > 0 && ', '}
+                <span className={mono}>{p.split('/').pop()}</span>
+              </span>
+            ))}
+          </ToolRow>
+        )}
+        {msg.uses && msg.uses.length > 0 && (
+          <ToolRow icon={<Plug />} testId="chat-tool-uses">
+            Uses{' '}
+            {msg.uses.map((op, i) => (
+              <span key={op}>
+                {i > 0 && ', '}
+                <span className={mono}>{op}</span>
+              </span>
+            ))}
+          </ToolRow>
+        )}
+        {msg.declared?.map((d, i) => (
+          <ToolRow
+            key={i}
+            icon={<PlugZap />}
+            testId="chat-tool-declared"
+            meta={d.status === 'created' ? <Badge variant="stub">stub</Badge> : d.status === 'existing' ? 'exists' : d.error ? 'failed' : null}
+          >
+            Declared <MethodBadge method={d.method} size="sm" className="mx-0.5 align-middle" /> <span className={mono}>{d.path}</span>
+          </ToolRow>
+        ))}
+        {otherTools.length > 0 && !streaming && (
+          <Collapsible>
+            <CollapsibleTrigger className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground hover:text-foreground">
+              <Wrench className="size-3" /> {otherTools.length} more {otherTools.length === 1 ? 'step' : 'steps'}
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="mt-1.5 flex flex-col gap-1">
+                {otherTools.map((t) => (
+                  <div key={t.id} className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
+                    {t.status === 'error' ? <AlertTriangle className="size-3 text-destructive" /> : <Check className="size-3" />}
+                    <span className="truncate">
+                      {TOOL_LABEL[t.tool] ?? t.tool} {toolTarget(t.args)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+        )}
+        {msg.content.trim() && (
+          <div className="prose prose-sm prose-neutral max-w-none text-[13px] leading-[19px] dark:prose-invert [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:text-xs [&_p]:my-1.5 [&_pre]:rounded [&_pre]:bg-muted [&_pre]:p-2 [&_pre]:text-xs">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
           </div>
         )}
-        renderExtra={renderExtra}
-      />
-
-      <ChatPanelFooter>
-        <ChatInput
-          onSend={sendMessage}
-          isStreaming={isStreaming}
-          onCancel={cancelStream}
-          placeholder="Describe your app..."
-        />
-      </ChatPanelFooter>
-    </ChatPanel>
-  )
-}
-
-// ── Endpoint Popover ─────────────────────────────────────────────────────────
-// Lists saved API tester executions. Selecting one attaches its captured
-// request/response as context for the LLM.
-
-function EndpointPopover({
-  selectedIds,
-  onChange,
-  onClose,
-}: {
-  selectedIds: string[]
-  onChange: (ids: string[]) => void
-  onClose: () => void
-}) {
-  const [executions, setExecutions] = useState<ApiTestExecutionListItem[]>([])
-  const [loading, setLoading] = useState(false)
-  const [search, setSearch] = useState('')
-  const containerRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    apiTesterApi
-      .list()
-      .then((data) => {
-        if (!cancelled) {
-          setExecutions(data)
-          setLoading(false)
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        onClose()
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [onClose])
-
-  const toggle = (id: string) => {
-    onChange(
-      selectedIds.includes(id)
-        ? selectedIds.filter((s) => s !== id)
-        : [...selectedIds, id],
-    )
-  }
-
-  const filtered = search
-    ? executions.filter(
-        (e) =>
-          (e.name || '').toLowerCase().includes(search.toLowerCase()) ||
-          e.url.toLowerCase().includes(search.toLowerCase()),
-      )
-    : executions
-
-  return (
-    <div
-      ref={containerRef}
-      className="absolute left-0 top-full mt-1 w-80 rounded-lg border border-border bg-popover shadow-lg z-50"
-    >
-      <div className="px-2 py-1.5 border-b border-border/50 flex items-center justify-between">
-        <span className="text-[11px] font-medium text-muted-foreground">Saved endpoints</span>
-        <a
-          href="/api-tester"
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
-        >
-          <Send size={10} />
-          Open tester
-        </a>
-      </div>
-
-      <div className="p-2">
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search..."
-          className="w-full h-7 rounded-md border border-border bg-background px-2 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-          autoFocus
-        />
-      </div>
-
-      <div className="max-h-64 overflow-y-auto px-2 pb-2">
-        {loading ? (
-          <div className="py-3 text-center text-xs text-muted-foreground">Loading...</div>
-        ) : filtered.length === 0 ? (
-          <div className="py-3 text-center text-xs text-muted-foreground">
-            {search
-              ? 'No matches'
-              : 'No saved endpoints. Use the API Tester to capture one first.'}
+        {streaming && (
+          <div className="flex items-center gap-2 text-muted-foreground" data-testid="chat-activity">
+            <span className="inline-block size-3 animate-spin rounded-full border-[1.5px] border-border border-t-ai" />
+            <span className="truncate">{activityLabel(msg)}</span>
           </div>
-        ) : (
-          <div className="space-y-0.5">
-            {filtered.map((ex) => {
-              const isSelected = selectedIds.includes(ex.id)
-              return (
-                <button
-                  key={ex.id}
-                  onClick={() => toggle(ex.id)}
-                  className={`w-full flex items-start gap-2 px-2 py-1.5 rounded-md text-xs text-left transition-colors ${
-                    isSelected ? 'bg-primary/10 text-primary' : 'text-foreground hover:bg-accent'
-                  }`}
-                >
-                  <div
-                    className={`mt-0.5 h-3.5 w-3.5 rounded-sm border flex items-center justify-center shrink-0 ${
-                      isSelected
-                        ? 'border-primary bg-primary text-primary-foreground'
-                        : 'border-border'
-                    }`}
-                  >
-                    {isSelected && <Check size={10} />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-mono font-bold text-[10px]">{ex.method}</span>
-                      <span className="truncate">{ex.name || ex.url}</span>
-                    </div>
-                    {ex.name && (
-                      <div className="text-[10px] text-muted-foreground truncate">{ex.url}</div>
-                    )}
-                  </div>
-                </button>
-              )
-            })}
+        )}
+        {msg.error && (
+          <div
+            className="flex items-start gap-2 rounded-lg border border-destructive/25 bg-destructive/5 px-2.5 py-2 text-xs"
+            role="alert"
+            data-testid="builder-stream-error"
+            data-error-kind={msg.error.kind}
+          >
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-destructive" />
+            <div className="min-w-0 flex-1">
+              <div className="font-medium text-foreground">
+                {msg.error.kind === 'save' ? "This version wasn't saved" : 'The assistant stopped unexpectedly'}
+              </div>
+              <div className="mt-0.5 break-words text-muted-foreground">{msg.error.message}</div>
+            </div>
+            <Button variant="outline" size="xs" onClick={onRetry} data-testid="builder-stream-retry">
+              <RotateCw /> Retry
+            </Button>
           </div>
         )}
       </div>
     </div>
   )
 }
+
+// ── Saved API attachments (the existing API tester integration) ─────────────
+
+function AttachApiPopover({ selected, onChange }: { selected: string[]; onChange: (ids: string[]) => void }) {
+  const [open, setOpen] = useState(false)
+  const [items, setItems] = useState<ApiTestExecutionListItem[] | null>(null)
+  const [search, setSearch] = useState('')
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    apiTesterApi
+      .list()
+      .then((d) => !cancelled && setItems(d))
+      .catch(() => !cancelled && setItems([]))
+    return () => {
+      cancelled = true
+    }
+  }, [open])
+  const q = search.toLowerCase()
+  const filtered = (items ?? []).filter((e) => !q || (e.name || '').toLowerCase().includes(q) || e.url.toLowerCase().includes(q))
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label="Attach a saved external API"
+            title="Attach a saved external API (API tester)"
+            data-testid="chat-attach-api"
+            className="relative"
+          />
+        }
+      >
+        <Paperclip />
+        {selected.length > 0 && (
+          <span className="absolute -right-0.5 -top-0.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground">
+            {selected.length}
+          </span>
+        )}
+      </PopoverTrigger>
+      <PopoverContent side="top" align="end" className="w-80 p-0">
+        <div className="flex items-center justify-between border-b border-border px-3 py-2">
+          <span className="text-[11.5px] font-medium text-muted-foreground">Saved external APIs</span>
+          <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+            <Send className="size-3" /> from the API tester
+          </span>
+        </div>
+        <div className="p-2">
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search…" className="h-7 text-xs" />
+        </div>
+        <div className="max-h-64 overflow-y-auto px-2 pb-2">
+          {items === null ? (
+            <div className="py-3 text-center text-xs text-muted-foreground">Loading…</div>
+          ) : filtered.length === 0 ? (
+            <div className="py-3 text-center text-xs text-muted-foreground">
+              {search ? 'No matches' : 'No saved APIs. Capture one in the API tester (App settings).'}
+            </div>
+          ) : (
+            filtered.map((ex) => (
+              <label key={ex.id} className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-muted">
+                <Checkbox
+                  className="mt-0.5"
+                  checked={selected.includes(ex.id)}
+                  onCheckedChange={(c) => onChange(c ? [...selected, ex.id] : selected.filter((s) => s !== ex.id))}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-mono text-[10px] font-bold">{ex.method}</span>
+                    <span className="truncate">{ex.name || ex.url}</span>
+                  </div>
+                  {ex.name && <div className="truncate text-[10px] text-muted-foreground">{ex.url}</div>}
+                </div>
+              </label>
+            ))
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+// ── Composer ────────────────────────────────────────────────────────────────
+
+export interface ComposerHandle {
+  focus: () => void
+}
+
+const Composer = forwardRef<
+  ComposerHandle,
+  {
+    streaming: boolean
+    onSend: (t: string) => void
+    onStop: () => void
+    routes: Route[]
+    routeIds: string[]
+    onSaveRoutes: (ids: string[]) => Promise<unknown>
+    attached: string[]
+    onAttach: (ids: string[]) => void
+  }
+>(function Composer({ streaming, onSend, onStop, routes, routeIds, onSaveRoutes, attached, onAttach }, ref) {
+  const [text, setText] = useState('')
+  const taRef = useRef<HTMLTextAreaElement>(null)
+  const draft = usePreviewSession((s) => s.composerDraft)
+  useImperativeHandle(ref, () => ({ focus: () => taRef.current?.focus() }))
+  useEffect(() => {
+    if (draft) {
+      setText(draft.text)
+      requestAnimationFrame(() => {
+        const ta = taRef.current
+        if (ta) {
+          ta.focus()
+          ta.setSelectionRange(ta.value.length, ta.value.length)
+        }
+      })
+    }
+  }, [draft])
+  const submit = () => {
+    const t = text.trim()
+    if (!t || streaming) return
+    onSend(t)
+    setText('')
+  }
+  return (
+    <div className="mx-3 mb-3 rounded-xl border border-border bg-background focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/25">
+      <textarea
+        ref={taRef}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+            e.preventDefault()
+            submit()
+          }
+        }}
+        rows={2}
+        placeholder="Ask for a change…"
+        className="block max-h-40 min-h-11 w-full resize-none bg-transparent px-3 pt-2.5 text-[13px] leading-5 outline-none placeholder:text-muted-foreground"
+        data-testid="chat-input"
+      />
+      <div className="flex items-center gap-1.5 px-1.5 pb-1.5 pl-2 pt-1">
+        <RoutePicker routes={routes} value={routeIds} onSave={onSaveRoutes} />
+        <div className="flex-1" />
+        <AttachApiPopover selected={attached} onChange={onAttach} />
+        {streaming ? (
+          <Button size="icon-sm" variant="secondary" onClick={onStop} aria-label="Stop" data-testid="chat-stop">
+            <Square className="fill-current" />
+          </Button>
+        ) : (
+          <Button size="icon-sm" onClick={submit} disabled={!text.trim()} aria-label="Send" data-testid="chat-send">
+            <ArrowUp />
+          </Button>
+        )}
+      </div>
+    </div>
+  )
+})
+
+// ── Panel ───────────────────────────────────────────────────────────────────
+
+export const AppBuilderChatPanel = forwardRef<
+  ComposerHandle,
+  {
+    projectName: string
+    routes: Route[]
+    routeIds: string[]
+    onSaveRoutes: (ids: string[]) => Promise<unknown>
+    attached: string[]
+    onAttach: (ids: string[]) => void
+    isStreaming: boolean
+    onSend: (t: string) => void
+    onRetry: () => void
+    onStop: () => void
+  }
+>(function AppBuilderChatPanel(
+  { projectName, routes, routeIds, onSaveRoutes, attached, onAttach, isStreaming, onSend, onRetry, onStop },
+  ref,
+) {
+  const messages = useAppBuilderChatStore((s) => s.messages)
+  const clear = useAppBuilderChatStore((s) => s.clearHistory)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const attachedCount = routeIds.filter((id) => routes.some((r) => r.id === id)).length
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [messages])
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border pl-3.5 pr-2.5">
+        <Sparkles className="size-3.5 text-ai" />
+        <span className="font-semibold">Build with AI</span>
+        <div className="flex-1" />
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={clear}
+                disabled={isStreaming || messages.length === 0}
+                aria-label="New chat"
+                data-testid="chat-new"
+              />
+            }
+          >
+            <SquarePen />
+          </TooltipTrigger>
+          <TooltipContent>New chat (the app keeps its code)</TooltipContent>
+        </Tooltip>
+      </div>
+      <div ref={scrollRef} className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto p-3.5" data-testid="chat-messages">
+        <div className="flex items-center justify-center gap-2 text-[11.5px] text-muted-foreground" data-testid="chat-context">
+          <PlugZap className="size-3" />
+          {attachedCount > 0
+            ? `Started from ${projectName} · ${attachedCount} ${attachedCount === 1 ? 'route' : 'routes'} attached`
+            : `${projectName} · no routes attached`}
+        </div>
+        {messages.length === 0 && (
+          <div className="mt-6 text-center text-xs leading-5 text-muted-foreground" data-testid="chat-empty">
+            Describe the UI you want. The AI writes React on your typed <span className="font-mono">api</span> client and the
+            preview calls your backend.
+          </div>
+        )}
+        {messages.map((m, i) =>
+          m.role === 'user' ? (
+            <div
+              key={m.id}
+              className={cn('max-w-[88%] self-end whitespace-pre-wrap rounded-xl rounded-br bg-secondary px-3 py-2 leading-[19px]')}
+              data-testid="chat-user-message"
+            >
+              {m.content}
+            </div>
+          ) : (
+            <AssistantMessage key={m.id} msg={m} streaming={isStreaming && i === messages.length - 1} onRetry={onRetry} />
+          ),
+        )}
+      </div>
+      <Composer
+        ref={ref}
+        streaming={isStreaming}
+        onSend={onSend}
+        onStop={onStop}
+        routes={routes}
+        routeIds={routeIds}
+        onSaveRoutes={onSaveRoutes}
+        attached={attached}
+        onAttach={onAttach}
+      />
+    </div>
+  )
+})

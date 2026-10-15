@@ -52,9 +52,21 @@ export const SANDBOX_RUNTIME_CODE = `
 
       // postMessage can clone strings/arraybuffers but not Streams/FormData
       // reliably across browsers — keep the LLM-generated path on plain types.
+      // Headers may be a Headers instance (not cloneable) — send a plain object (F14).
+      var plainHeaders = {};
+      var h = opts && opts.headers;
+      if (h) {
+        if (typeof h.forEach === 'function' && !Array.isArray(h)) {
+          h.forEach(function(v, k) { plainHeaders[k] = String(v); });
+        } else if (Array.isArray(h)) {
+          h.forEach(function(p) { if (p && p.length >= 2) plainHeaders[String(p[0])] = String(p[1]); });
+        } else {
+          Object.keys(h).forEach(function(k) { if (h[k] != null) plainHeaders[k] = String(h[k]); });
+        }
+      }
       var safeOpts = opts ? {
         method: opts.method,
-        headers: opts.headers,
+        headers: plainHeaders,
         body: typeof opts.body === 'string' ? opts.body : undefined,
       } : {};
 
@@ -73,6 +85,11 @@ export const SANDBOX_RUNTIME_CODE = `
 
   // Override fetch — every call goes through the parent bridge.
   window.fetch = function(url, opts) {
+    if (url && typeof url === 'object' && typeof url.url === 'string' && !(url instanceof URL)) {
+      // a Request object: carry its method and headers unless opts override them
+      opts = Object.assign({ method: url.method, headers: url.headers }, opts || {});
+      url = url.url;
+    }
     return proxyFetch(typeof url === 'string' ? url : String(url), opts);
   };
 

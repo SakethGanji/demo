@@ -1,256 +1,456 @@
-import { useEffect, useState, useCallback } from 'react'
-import { X, Loader2, Globe, Lock, KeyRound, Copy, CheckCheck, ExternalLink, PowerOff } from 'lucide-react'
+/**
+ * Publish (UI-DESIGN §5.3, `publish.png`): address `/a/<slug>`, Access (Public default / Password /
+ * Private, always sent, review C4), a pre-flight that never blocks, inline `slug_taken` and the
+ * esbuild stderr, then the success state with Copy/Open and Unpublish (§6.3).
+ */
+import { useEffect, useMemo, useState } from 'react'
+import { Link } from '@tanstack/react-router'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  ChevronRight,
+  CircleCheck,
+  CircleX,
+  Copy,
+  Database,
+  ExternalLink,
+  Globe,
+  Info,
+  Lock,
+  Send,
+  TriangleAlert,
+} from 'lucide-react'
 import { toast } from 'sonner'
-import { appsApi, type ApiAppDetail, type ApiAppAccess } from '@/shared/lib/api'
+import { appsApi, type ApiAppAccess, type ApiAppDetail } from '@/shared/lib/api'
+import { secretsApi } from '@/shared/api/endpoints'
+import { errorMessage, isApiError } from '@/shared/api/http'
+import { invalidate, qk } from '@/shared/api/queryKeys'
+import type { ApiUsage, MissingSecret, Project, ProjectSummary, Route } from '@/shared/api/types'
+import { Button } from '@/shared/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/shared/components/ui/dialog'
+import { Input } from '@/shared/components/ui/input'
+import { Segmented } from '@/shared/components/ui/segmented'
+import { Spinner } from '@/shared/components/ui/spinner'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/shared/components/ui/collapsible'
+import { CreateSecretPopover } from '@/features/secrets/CreateSecretPopover'
+import { cn } from '@/shared/lib/utils'
 import { useAppDocumentStore } from '../stores'
+import { slugError, slugify } from '../lib/appModel'
+import { CreateStubPopover } from './BackendPanel'
+import { UnpublishDialog } from './AppDialogs'
+import { backends } from '@/shared/lib/config'
 
 interface PublishDialogProps {
-  appId: string
-  app: ApiAppDetail
+  open: boolean
   onClose: () => void
-  onPublished: (updated: ApiAppDetail) => void
+  app: ApiAppDetail
+  project: Project
+  summary: ProjectSummary | undefined
+  routes: Route[] | undefined
+  usage: ApiUsage[] | undefined
+  usageLoading: boolean
+  /** the address chosen in Create UI (`?slug=`) */
+  slugHint?: string
 }
 
-const ACCESS_OPTIONS: { value: ApiAppAccess; icon: typeof Globe; label: string; help: string }[] = [
-  { value: 'public', icon: Globe, label: 'Public', help: 'Anyone with the link can view.' },
-  { value: 'password', icon: KeyRound, label: 'Password', help: 'Visitors enter a password to view.' },
-  { value: 'private', icon: Lock, label: 'Private', help: 'Only signed-in admins. URL returns 404 publicly.' },
-]
+function publicUrl(slug: string): string {
+  const base = backends.workflow || window.location.origin
+  return `${base.replace(/\/+$/, '')}/a/${slug}`
+}
 
-export function PublishDialog({ appId, app, onClose, onPublished }: PublishDialogProps) {
-  // Local form state seeded from the app. The dialog drives a single PUT
-  // (to update slug/access/password) before calling POST /publish — keeps
-  // the publish endpoint clean and lets the user preview the slug they
-  // just typed without an extra round-trip.
-  const [slug, setSlug] = useState(app.slug ?? '')
-  const [access, setAccess] = useState<ApiAppAccess>(app.access)
+const pfRow = 'flex items-start gap-2.5 border-b border-border/70 px-3 py-2.5 text-[13px] leading-5 last:border-b-0 [&>svg]:mt-[3px] [&>svg]:size-3.5 [&>svg]:shrink-0'
+
+function joinOps(ops: string[]) {
+  return ops.map((o, i) => (
+    <span key={o}>
+      {i > 0 && ', '}
+      <span className="font-mono text-[12px]">{o}</span>
+    </span>
+  ))
+}
+
+export function PublishDialog({ open, onClose, app, project, summary, routes, usage, usageLoading, slugHint }: PublishDialogProps) {
+  const qc = useQueryClient()
+  const pid = project.id
+  const live = project.live_environment
+  const liveKind = project.environments.find((e) => e.name === live)?.kind ?? 'draft'
+  const [slug, setSlug] = useState('')
+  const [access, setAccess] = useState<ApiAppAccess>('public')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
-  const [publishedUrl, setPublishedUrl] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
+  const [slugTaken, setSlugTaken] = useState<string | null>(null)
+  const [buildError, setBuildError] = useState<string | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [done, setDone] = useState<{ url: string; version: number | null } | null>(null)
+  const [unpublishOpen, setUnpublishOpen] = useState(false)
+  const [secretOpen, setSecretOpen] = useState<string | null>(null)
 
-  // Derive a slug suggestion from the app name when the input is empty.
   useEffect(() => {
-    if (!slug && app.name) {
-      const suggested = app.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 63)
-      setSlug(suggested)
-    }
+    if (!open) return
+    setSlug(app.slug ?? slugHint ?? slugify(app.name))
+    setAccess(app.active ? app.access : 'public')
+    setPassword('')
+    setSlugTaken(null)
+    setBuildError(null)
+    setFormError(null)
+    setDone(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [app.name])
+  }, [open])
 
-  const handlePublish = useCallback(async () => {
+  // ── pre-flight ──
+  const missing = useQuery({
+    queryKey: qk.missing(pid, live),
+    queryFn: () => secretsApi.missing(pid, live),
+    enabled: open,
+  })
+  const calls = useMemo(() => usage ?? [], [usage])
+  const ops = useMemo(() => [...new Set(calls.map((u) => u.operation).filter(Boolean))] as string[], [calls])
+  const missingOps = calls.filter((u) => u.status === 'missing')
+  const stubOps = [...new Set(calls.filter((u) => u.status === 'stub').map((u) => u.operation))]
+  const usedRoutes = useMemo(() => {
+    const ids = new Set(calls.map((u) => u.route_id).filter(Boolean))
+    return (routes ?? []).filter((r) => ids.has(r.id))
+  }, [calls, routes])
+  const secretRows = useMemo(() => {
+    const out: Array<{ m: MissingSecret; ops: string[] }> = []
+    for (const m of missing.data ?? []) {
+      if (!m.missing_in.includes(live)) continue
+      const hit = usedRoutes.filter((r) =>
+        m.referenced_by.some(
+          (ref) =>
+            (ref.kind === 'module' && r.handler.type === 'python' && r.handler.module_id === ref.id) ||
+            (ref.kind === 'workflow' && r.handler.type === 'workflow' && r.handler.workflow_id === ref.id),
+        ),
+      )
+      if (hit.length) out.push({ m, ops: hit.map((r) => r.name) })
+    }
+    return out
+  }, [missing.data, usedRoutes, live])
+  const activeRelease = summary?.active_releases?.[live] ?? null
+  const warnings = missingOps.length + stubOps.length + secretRows.length
+
+  const sErr = slugError(slug)
+  const needsPassword = access === 'password' && !password && !app.access_password_set
+  const canPublish = !busy && !!slug && !sErr && !needsPassword && (access !== 'password' || !password || password.length >= 4)
+
+  const publish = async () => {
     setBusy(true)
+    setSlugTaken(null)
+    setBuildError(null)
+    setFormError(null)
     try {
-      const result = await appsApi.publish(appId, {
-        slug: slug || undefined,
+      const res = await appsApi.publish(app.id, {
+        slug,
         access,
         access_password: access === 'password' && password ? password : undefined,
       })
-      const refreshed = await appsApi.get(appId)
-      onPublished(refreshed)
-      // Keep the document store's currentVersion in sync — the engine may
-      // have promoted current_version_id (e.g. when snapshotting a draft as
-      // a publish-triggered version). Without this the toolbar shows stale
-      // data like "editing v1 · live v2".
-      if (refreshed.current_version) {
-        useAppDocumentStore.getState().setCurrentVersion(refreshed.current_version)
-      }
-      setPublishedUrl(result.public_url)
-      toast.success('App published')
-    } catch (err) {
-      toast.error('Publish failed', {
-        description: err instanceof Error ? err.message : 'Unknown error',
-      })
+      const fresh = await appsApi.get(app.id)
+      qc.setQueryData(qk.app(app.id), fresh)
+      if (fresh.current_version) useAppDocumentStore.getState().setCurrentVersion(fresh.current_version)
+      await invalidate.appPublished(qc, pid, app.id)
+      setDone({ url: res.public_url ?? publicUrl(res.slug ?? slug), version: fresh.published_version?.version_number ?? null })
+    } catch (e) {
+      if (isApiError(e, 'slug_taken') || (isApiError(e) && e.status === 409)) setSlugTaken(`/a/${slug} is taken by another app. Pick another address.`)
+      else if (isApiError(e) && /^bundle failed/i.test(e.message)) setBuildError(e.message.replace(/^bundle failed:\s*/i, ''))
+      else setFormError(errorMessage(e))
     } finally {
       setBusy(false)
     }
-  }, [appId, slug, access, password, onPublished])
+  }
 
-  const handleCopy = useCallback(() => {
-    if (!publishedUrl) return
-    navigator.clipboard.writeText(publishedUrl).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    })
-  }, [publishedUrl])
-
-  const handleUnpublish = useCallback(async () => {
-    if (!window.confirm('Take this app offline? The bundle is preserved — you can republish anytime.')) return
-    setBusy(true)
-    try {
-      await appsApi.unpublish(appId)
-      const refreshed = await appsApi.get(appId)
-      onPublished(refreshed)
-      if (refreshed.current_version) {
-        useAppDocumentStore.getState().setCurrentVersion(refreshed.current_version)
-      }
-      toast.success('App unpublished')
-      onClose()
-    } catch (err) {
-      toast.error('Unpublish failed', {
-        description: err instanceof Error ? err.message : 'Unknown error',
-      })
-    } finally {
-      setBusy(false)
-    }
-  }, [appId, onPublished, onClose])
+  const copy = (url: string) =>
+    navigator.clipboard
+      .writeText(url)
+      .then(() => toast.success('Link copied'))
+      .catch(() => toast.error("Couldn't copy"))
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div
-        className="w-[460px] max-w-[92vw] rounded-xl bg-card border border-border shadow-2xl p-5"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-base font-semibold text-foreground">Publish app</h2>
-          <button
-            onClick={onClose}
-            className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-          >
-            <X size={14} />
-          </button>
-        </div>
-
-        {publishedUrl ? (
-          // Success state — URL with copy + open buttons.
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">Your app is live.</p>
-            <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-2 py-1.5">
-              <code className="flex-1 truncate text-xs font-mono text-foreground">{publishedUrl}</code>
-              <button
-                onClick={handleCopy}
-                className="shrink-0 h-7 w-7 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                title="Copy URL"
-              >
-                {copied ? <CheckCheck size={13} /> : <Copy size={13} />}
-              </button>
-              <a
-                href={publishedUrl}
-                target="_blank"
-                rel="noreferrer noopener"
-                className="shrink-0 h-7 w-7 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                title="Open"
-              >
-                <ExternalLink size={13} />
-              </a>
-            </div>
-            <div className="flex justify-end">
-              <button
-                onClick={onClose}
-                className="px-3 py-1.5 rounded-md bg-accent text-foreground text-xs font-medium hover:bg-accent/80 transition-colors"
-              >
-                Done
-              </button>
-            </div>
+    <>
+      <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+        <DialogContent className="gap-0 p-0 sm:max-w-[600px]" data-testid="publish-dialog">
+          <div className="px-[22px] pb-0 pr-12 pt-5">
+            <DialogTitle className="text-base font-semibold leading-[22px]">
+              {done ? `Published · ${done.version != null ? `v${done.version}` : app.name}` : `Publish ${app.name}`}
+            </DialogTitle>
+            <DialogDescription className="mt-0.5 text-[13px] text-muted-foreground">
+              {access === 'private'
+                ? 'Only reachable from the studio preview.'
+                : access === 'password'
+                  ? 'Visitors enter a password to open it.'
+                  : 'Anyone with the link can open it.'}{' '}
+              It calls your Python backend in <b className="font-medium text-foreground">{live}</b>.
+            </DialogDescription>
           </div>
-        ) : (
-          // Form state.
-          <div className="space-y-4">
-            {/* Slug */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-foreground">URL</label>
-              <div className="flex items-center rounded-md border border-border bg-background overflow-hidden focus-within:ring-1 focus-within:ring-ring">
-                <span className="text-xs text-muted-foreground px-2 py-1.5 bg-muted/40 border-r border-border whitespace-nowrap">
-                  /a/
+
+          {done ? (
+            <div className="flex flex-col gap-2 px-[22px] pb-5 pt-4" data-testid="publish-success">
+              <div className="flex items-center gap-2">
+                <CircleCheck className="size-3.5 text-success" />
+                <b className="font-semibold">Live</b>
+                <span className="text-muted-foreground">
+                  · {access}
                 </span>
-                <input
-                  type="text"
-                  value={slug}
-                  onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
-                  placeholder="my-app"
-                  maxLength={63}
-                  className="flex-1 bg-transparent px-2 py-1.5 text-xs font-mono outline-none"
-                />
-              </div>
-              <p className="text-[11px] text-muted-foreground">3–63 characters, lowercase letters, numbers, hyphens.</p>
-            </div>
-
-            {/* Access mode */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-foreground">Access</label>
-              <div className="grid grid-cols-3 gap-1.5">
-                {ACCESS_OPTIONS.map((opt) => {
-                  const Icon = opt.icon
-                  const selected = access === opt.value
-                  return (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => setAccess(opt.value)}
-                      className={`flex flex-col items-center gap-1 px-2 py-2 rounded-md border text-[11px] transition-colors ${
-                        selected
-                          ? 'border-primary bg-primary/10 text-primary'
-                          : 'border-border text-muted-foreground hover:text-foreground hover:bg-accent'
-                      }`}
-                    >
-                      <Icon size={14} />
-                      <span className="font-medium">{opt.label}</span>
-                    </button>
-                  )
-                })}
-              </div>
-              <p className="text-[11px] text-muted-foreground">
-                {ACCESS_OPTIONS.find((o) => o.value === access)?.help}
-              </p>
-            </div>
-
-            {/* Password input — only when needed. Existing password persists if input is left empty. */}
-            {access === 'password' && (
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-foreground">
-                  Password {app.access_password_set && <span className="text-muted-foreground font-normal">(leave blank to keep current)</span>}
-                </label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder={app.access_password_set ? '••••••••' : 'Set a password'}
-                  className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-ring"
-                />
-              </div>
-            )}
-
-            {/* Actions. Unpublish lives on the left so it doesn't sit next to
-                the primary action — destructive-ish, easy to find, hard to
-                hit by accident. */}
-            <div className="flex items-center justify-between gap-2 pt-2">
-              <div>
-                {app.active && (
-                  <button
-                    onClick={handleUnpublish}
-                    disabled={busy}
-                    className="px-3 py-1.5 rounded-md text-xs text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50 flex items-center gap-1.5"
-                  >
-                    <PowerOff size={12} />
-                    Unpublish
-                  </button>
-                )}
               </div>
               <div className="flex items-center gap-2">
-              <button
-                onClick={onClose}
-                disabled={busy}
-                className="px-3 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handlePublish}
-                disabled={busy || (access === 'password' && !password && !app.access_password_set)}
-                className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center gap-1.5"
-              >
-                {busy ? <Loader2 size={12} className="animate-spin" /> : <Globe size={12} />}
-                Publish
-              </button>
+                <Input readOnly value={done.url} className="h-8 flex-1 font-mono text-xs" data-testid="publish-url" onFocus={(e) => e.currentTarget.select()} />
+                <Button variant="outline" size="sm" onClick={() => copy(done.url)} data-testid="publish-copy">
+                  <Copy /> Copy
+                </Button>
+                <Button size="sm" render={<a href={done.url} target="_blank" rel="noreferrer noopener" />} data-testid="publish-open">
+                  <ExternalLink /> Open
+                </Button>
+              </div>
+              <div className="flex items-center gap-2 text-[11.5px] leading-4 text-muted-foreground">
+                <span>
+                  Calls <span className="font-mono">/api/p/{project.slug}/…</span> with an app token that refreshes itself.
+                </span>
+                <div className="flex-1" />
+                <button
+                  type="button"
+                  className="font-medium text-destructive hover:underline"
+                  onClick={() => setUnpublishOpen(true)}
+                  data-testid="publish-unpublish"
+                >
+                  Unpublish
+                </button>
               </div>
             </div>
-          </div>
-        )}
-      </div>
-    </div>
+          ) : (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault()
+                // forms in portaled popovers (Add to prod) bubble through React: ignore them
+                if (e.target !== e.currentTarget) return
+                if (canPublish) void publish()
+              }}
+              onKeyDown={(e) => {
+                if (!e.currentTarget.contains(e.target as Node)) return // portaled popovers
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && canPublish) {
+                  e.preventDefault()
+                  void publish()
+                }
+              }}
+            >
+              <div className="flex flex-col gap-4 px-[22px] py-4">
+                <div className="flex flex-wrap items-start gap-3">
+                  <div className="flex min-w-[220px] flex-1 flex-col gap-1.5">
+                    <label htmlFor="publish-slug" className="text-xs font-medium">
+                      Address
+                    </label>
+                    <div
+                      className={cn(
+                        'flex h-8 items-center rounded-lg border border-input bg-background pl-2.5 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50',
+                        (slugTaken || sErr) && 'border-destructive',
+                      )}
+                    >
+                      <span className="font-mono text-xs text-muted-foreground">/a/</span>
+                      <input
+                        id="publish-slug"
+                        value={slug}
+                        maxLength={63}
+                        onChange={(e) => {
+                          setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))
+                          setSlugTaken(null)
+                        }}
+                        className="h-full min-w-0 flex-1 bg-transparent px-1.5 font-mono text-xs outline-none"
+                        data-testid="publish-slug"
+                        autoComplete="off"
+                      />
+                    </div>
+                    {slugTaken ? (
+                      <div className="text-[11.5px] leading-4 text-destructive" role="alert" data-testid="publish-slug-taken">
+                        {slugTaken}
+                      </div>
+                    ) : sErr ? (
+                      <div className="text-[11.5px] leading-4 text-destructive" role="alert" data-testid="publish-slug-invalid">
+                        {sErr}
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-xs font-medium">Access</span>
+                    <Segmented<ApiAppAccess>
+                      value={access}
+                      onChange={setAccess}
+                      aria-label="Access"
+                      className="h-8"
+                      data-testid="publish-access"
+                      options={[
+                        { key: 'public', label: 'Public', icon: <Globe className="size-3" />, testId: 'publish-access-public' },
+                        { key: 'password', label: 'Password', icon: <Lock className="size-3" />, testId: 'publish-access-password' },
+                        { key: 'private', label: 'Private', testId: 'publish-access-private' },
+                      ]}
+                    />
+                  </div>
+                </div>
+                {access === 'password' && (
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="publish-password" className="text-xs font-medium">
+                      Password {app.access_password_set && <span className="font-normal text-muted-foreground">(leave blank to keep the current one)</span>}
+                    </label>
+                    <Input
+                      id="publish-password"
+                      type="password"
+                      autoComplete="new-password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder={app.access_password_set ? '••••••••' : 'At least 4 characters'}
+                      className="h-8"
+                      data-testid="publish-password"
+                    />
+                  </div>
+                )}
+                {access === 'private' && (
+                  <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground" data-testid="publish-private-note">
+                    <Lock className="size-3.5 shrink-0" />
+                    <span>
+                      Only reachable from the studio preview; <span className="font-mono">/a/{slug || '<slug>'}</span> returns 404.
+                    </span>
+                  </div>
+                )}
+
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-xs font-medium">Pre-flight</span>
+                  <div className="overflow-hidden rounded-[10px] border border-border" data-testid="publish-preflight">
+                    {usageLoading && !usage ? (
+                      <div className={pfRow}>
+                        <Spinner className="mt-[3px] size-3.5" />
+                        <span className="text-muted-foreground">Checking the operations it calls…</span>
+                      </div>
+                    ) : missingOps.length > 0 ? (
+                      missingOps.map((u, i) => (
+                        <div key={`${u.operation}-${i}`} className={cn(pfRow, 'bg-destructive/5')} data-testid="publish-pf-missing">
+                          <CircleX className="text-destructive" />
+                          <span className="min-w-0 flex-1">
+                            <span className="font-mono text-[12px]">{u.operation}</span> ({u.file}:{u.line}) has no route; it will fail.
+                          </span>
+                          <CreateStubPopover pid={pid} appId={app.id} row={{ name: u.operation, method: u.method ?? 'GET', path: u.path }} testIdPrefix="publish-pf" />
+                        </div>
+                      ))
+                    ) : ops.length > 0 ? (
+                      <div className={pfRow} data-testid="publish-pf-ops">
+                        <CircleCheck className="text-success" />
+                        <span className="min-w-0 flex-1">
+                          All {ops.length} {ops.length === 1 ? 'operation' : 'operations'} it calls exist: {joinOps(ops)}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className={pfRow} data-testid="publish-pf-ops">
+                        <Info className="text-muted-foreground" />
+                        <span className="min-w-0 flex-1 text-muted-foreground">The app doesn't call your backend yet.</span>
+                      </div>
+                    )}
+                    {stubOps.length > 0 && (
+                      <div className={cn(pfRow, 'bg-warning/8')} data-testid="publish-pf-stub">
+                        <TriangleAlert className="text-warning-text" />
+                        <span className="min-w-0 flex-1">{joinOps(stubOps as string[])} {stubOps.length === 1 ? 'is a stub and answers' : 'are stubs and answer'} 501 until implemented.</span>
+                      </div>
+                    )}
+                    {missing.isLoading && (
+                      <div className={pfRow}>
+                        <Spinner className="mt-[3px] size-3.5" />
+                        <span className="text-muted-foreground">Checking {live} secrets…</span>
+                      </div>
+                    )}
+                    {secretRows.map(({ m, ops: needOps }) => (
+                      <div key={m.key} className={cn(pfRow, 'items-center bg-warning/8 [&>svg]:mt-0')} data-testid={`publish-pf-secret-${m.key}`}>
+                        <TriangleAlert className="text-warning-text" />
+                        <span className="min-w-0 flex-1">
+                          <b className="font-medium">{m.key}</b> isn't set in {live}; {joinOps(needOps)} {needOps.length === 1 ? 'needs' : 'need'} it and will fail.
+                        </span>
+                        <CreateSecretPopover
+                          open={secretOpen === m.key}
+                          onOpenChange={(o) => setSecretOpen(o ? m.key : null)}
+                          secretKey={m.key}
+                          keyReadOnly
+                          environments={[live]}
+                          testId={`publish-secret-form-${m.key}`}
+                          trigger={
+                            <Button variant="outline" size="xs" type="button" data-testid={`publish-add-secret-${m.key}`}>
+                              Add to {live}
+                            </Button>
+                          }
+                        />
+                      </div>
+                    ))}
+                    {liveKind === 'release' && (
+                      <div className={pfRow} data-testid="publish-pf-release">
+                        <Info className="text-muted-foreground" />
+                        <span className="min-w-0 flex-1">
+                          {activeRelease ? (
+                            <>
+                              {live} serves release #{activeRelease.number}; changes saved since then aren't live.
+                            </>
+                          ) : (
+                            <>
+                              {live} has no release, so it serves your <b className="font-medium">latest saved</b> backend.{' '}
+                              <Link
+                                to="/p/$project"
+                                params={{ project: project.slug }}
+                                search={{ sheet: 'release' }}
+                                className="text-primary hover:underline"
+                              >
+                                Create a release
+                              </Link>{' '}
+                              to pin it.
+                            </>
+                          )}
+                        </span>
+                      </div>
+                    )}
+                    <div className={pfRow} data-testid="publish-pf-tables">
+                      <Database className="text-muted-foreground" />
+                      <span className="min-w-0 flex-1">The published app reads and writes the same tables as {project.default_environment}.</span>
+                    </div>
+                  </div>
+                </div>
+
+                {buildError && (
+                  <Collapsible className="rounded-[10px] border border-destructive/30 bg-destructive/5" data-testid="publish-build-failed">
+                    <CollapsibleTrigger className="group flex w-full items-center gap-2 px-3 py-2 text-left text-[13px]">
+                      <CircleX className="size-3.5 shrink-0 text-destructive" />
+                      <span className="flex-1 font-medium">The build failed: {buildError.split('\n')[0].slice(0, 120)}</span>
+                      <ChevronRight className="size-3.5 text-muted-foreground transition-transform group-data-[panel-open]:rotate-90" />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <pre className="max-h-48 overflow-auto whitespace-pre-wrap border-t border-destructive/20 px-3 py-2 font-mono text-[11px] leading-4 text-foreground" data-scroll-x="allowed">
+                        {buildError}
+                      </pre>
+                    </CollapsibleContent>
+                  </Collapsible>
+                )}
+                {formError && (
+                  <div className="text-[11.5px] text-destructive" role="alert" data-testid="publish-error">
+                    {formError}
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-2 rounded-b-xl border-t border-border bg-muted/40 px-[22px] py-3.5">
+                <span className="text-xs text-muted-foreground" data-testid="publish-warning-count">
+                  {warnings > 0 ? `${warnings} ${warnings === 1 ? 'warning' : 'warnings'} · you can publish anyway` : 'Ready to publish'}
+                </span>
+                <div className="flex-1" />
+                <Button variant="ghost" size="sm" type="button" onClick={onClose}>
+                  Cancel
+                </Button>
+                <Button size="sm" type="submit" disabled={!canPublish} data-testid="publish-submit">
+                  {busy ? <Spinner className="size-3.5" /> : <Send />}
+                  {app.active ? 'Republish' : 'Publish'}
+                </Button>
+              </div>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+      <UnpublishDialog
+        app={app}
+        pid={pid}
+        open={unpublishOpen}
+        onOpenChange={setUnpublishOpen}
+        onDone={() => {
+          setDone(null)
+          onClose()
+        }}
+      />
+    </>
   )
 }
