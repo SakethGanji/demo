@@ -56,7 +56,8 @@ async def run_in_sandbox(context: Any, *, kind: str, payload: dict[str, Any], en
         if err.get("type") == "BrokerError":
             raise SandboxNodeError(f"Code execution failed: {err.get('message')}", err.get("code"), err.get("details") or {})
         if err.get("type") == "SyntaxError":
-            raise SandboxNodeError(f"Syntax Error in code: {err.get('message')}", "syntax_error")
+            raise SandboxNodeError(f"Syntax Error in code: {err.get('message')}", "syntax_error", {"line": err.get("line")})
         raise SandboxNodeError(f"Code execution failed: {err.get('message')}", "code_error",
-                               {"type": err.get("type"), "traceback": (err.get("traceback") or "")[-2000:]})
+                               {"type": err.get("type"), "traceback": (err.get("traceback") or "")[-2000:],
+                                "line": err.get("line")})
     return out.get("result"), {**trace, "logs": out.get("logs") or []}

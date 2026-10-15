@@ -79,8 +79,9 @@ class DataTableNode(BaseNode):
             async with async_session_factory() as session:
                 svc = DataTableService(session)
                 t = await svc.table_by_name(project_id, str(p.get("table") or ""))
-                if t is None:
-                    raise ValueError(f"table '{p.get('table')}' not found in this project")
+                if t is None:  # review B1: a distinct code so callers can offer "Create table"
+                    raise ProjectError(404, "table_not_found", f"table '{p.get('table')}' not found in this project",
+                                       table=str(p.get("table") or ""))
                 if op == "insert":
                     rows = p.get("data")
                     rows = rows if isinstance(rows, list) else ([rows] if isinstance(rows, dict) else [i.json for i in items])

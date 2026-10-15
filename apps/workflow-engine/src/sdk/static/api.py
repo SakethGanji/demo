@@ -43,7 +43,8 @@ class HTTPError(Exception):
 
 
 def _route(method: str):
-    def decorator_factory(path: str, *, auth: str = "none", name: str | None = None, **_: Any) -> Callable:
+    def decorator_factory(path: str, *, auth: str = "none", name: str | None = None,
+                          description: str | None = None) -> Callable:
         def decorator(fn: Callable) -> Callable:
             _ROUTES.append({"method": method, "path": path, "auth": auth, "name": name, "function": fn.__name__})
             return fn

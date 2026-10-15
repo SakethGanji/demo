@@ -50,6 +50,13 @@ async def sdk_functions():
     return catalogue()
 
 
+@router.get("/sdk/reference")
+async def sdk_reference():
+    """Review C14: the static SDK reference (api decorators, Response, HTTPError, secret, db) from the SDK source."""
+    from ..sdk.generate import reference
+    return reference()
+
+
 @router.get("/sdk/python")
 async def sdk_python():
     from ..sdk.generate import generate_python_sdk

@@ -166,10 +166,18 @@ def diff_specs(old: dict[str, Any] | None, new: dict[str, Any] | None) -> list[d
             ch("operation_renamed", b, True, before=a["op"].get("operationId"), after=b["op"].get("operationId"))
         aa, ba = _auth_of(a["op"]), _auth_of(b["op"])
         if aa != ba:
-            ch("auth_changed", b, AUTH_RANK[ba] > AUTH_RANK[aa], before=aa, after=ba)
+            # G28 / review D11: every auth change is breaking. Tightening breaks callers; loosening
+            # (e.g. api_key → none) makes a route public — a security change that must be confirmed.
+            ch("auth_changed", b, True, before=aa, after=ba,
+               security="loosened" if AUTH_RANK[ba] < AUTH_RANK[aa] else "tightened")
         fields: list[tuple[str, str, bool]] = []
         _walk(_req_schema(a["op"]), _req_schema(b["op"]), "", "request", fields)
-        _walk(_resp_schema(a["op"]), _resp_schema(b["op"]), "", "response", fields)
+        ra, rb = _resp_schema(a["op"]), _resp_schema(b["op"])
+        if ra.get("type") and rb.get("type") and ra.get("type") != rb.get("type"):
+            # Review D13: the root response type changed (e.g. object → array) — breaking.
+            ch("response_type_changed", b, True, before=ra.get("type"), after=rb.get("type"))
+        else:
+            _walk(ra, rb, "", "response", fields)
         for kind, field, breaking in fields:
             ch(kind, b, breaking, field=field)
     return changes

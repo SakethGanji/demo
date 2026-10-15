@@ -283,6 +283,13 @@ def test_d7_unsupported_dry_run_is_rejected_not_ignored(api):
     r = api.post(f"/projects/{P}/tables?dry_run=1", {"name": "t", "columns": [{"name": "a", "type": "string"}]})
     assert r.status_code == 422 and r.json()["detail"]["code"] == "dry_run_unsupported"
     assert api.get(f"/projects/{P}/tables").json() == []
+    # user-defined API routes own their query string: ?dry_run reaches the handler untouched
+    W = api.post(f"/projects/{P}/workflows", chain(uniq("q"), {"name": "Respond", "type": "Respond", "position": {"x": 1, "y": 1},
+                 "parameters": {"statusCode": 200, "headers": [], "body": "{{ $json.query }}"}})).json()["id"]
+    api.post(f"/projects/{P}/routes", {"method": "POST", "path": "/q", "handler": {"type": "workflow", "workflow_id": W}})
+    slug = api.get(f"/projects/{P}").json()["slug"]
+    r = api.raw("POST", f"/api/p/{slug}/q?dry_run=true", json={})
+    assert r.status_code == 200 and r.json() == {"dry_run": "true"}, r.text
     # dry_run=false is harmless; supported endpoints keep working
     assert api.post(f"/projects/{P}/tables?dry_run=false", {"name": "t", "columns": [{"name": "a", "type": "string"}]}).status_code == 201
 

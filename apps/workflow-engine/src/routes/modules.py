@@ -22,6 +22,9 @@ class ModuleCreate(BaseModel):
 
 class ModuleUpdate(BaseModel):
     source: str
+    # Review B4: optimistic concurrency — the version the editor started from (either one; or If-Match).
+    base_source_sha: str | None = None
+    base_updated_at: str | None = None
 
 
 async def _ctx(project: str, session: AsyncSession):
@@ -63,15 +66,19 @@ async def create_module(project: str, body: ModuleCreate, request: Request, dry_
 
 @router.get("/projects/{project}/modules/{mid}")
 async def get_module(project: str, mid: str, session: AsyncSession = Depends(get_db_session)):
+    from fastapi.responses import JSONResponse
     p, svc = await _ctx(project, session)
-    return module_to_dict(await _g(svc.get(p, mid)))
+    m = await _g(svc.get(p, mid))
+    return JSONResponse(module_to_dict(m), headers={"ETag": f'"{m.source_sha}"'})
 
 
 @router.put("/projects/{project}/modules/{mid}")
 async def update_module(project: str, mid: str, body: ModuleUpdate, request: Request, dry_run: bool = False,
                         session: AsyncSession = Depends(get_db_session)):
     p, svc = await _ctx(project, session)
-    return await _g(svc.update(p, mid, body.source, dry_run=dry_run, actor=get_actor(request)))
+    if_match = (request.headers.get("if-match") or "").strip().strip('"') or None
+    return await _g(svc.update(p, mid, body.source, dry_run=dry_run, actor=get_actor(request),
+                               base_source_sha=body.base_source_sha or if_match, base_updated_at=body.base_updated_at))
 
 
 @router.delete("/projects/{project}/modules/{mid}")

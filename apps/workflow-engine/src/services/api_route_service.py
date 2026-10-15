@@ -88,13 +88,35 @@ class ApiRouteService:
             return {}
         return await ApiUsageService(self._s).used_by_counts(project)
 
+    async def _python_lines(self, project_id: str) -> dict[tuple[str, str], int]:
+        """(module_id, function) → decorator line, from a static parse (review G-UI-10)."""
+        from ..db.models import CodeModuleModel
+        from .code_module_service import discover_routes
+        rows = (await self._s.execute(select(CodeModuleModel).where(CodeModuleModel.project_id == project_id))).scalars().all()
+        out: dict[tuple[str, str], int] = {}
+        for m in rows:
+            try:
+                for d in discover_routes(m.source):
+                    out.setdefault((m.id, d["function"]), d["line"])
+            except ProjectError:
+                continue
+        return out
+
+    def _with_line(self, d: dict[str, Any], lines: dict[tuple[str, str], int]) -> dict[str, Any]:
+        h = d.get("handler") or {}
+        if h.get("type") == "python":
+            d["handler"] = {**h, "line": lines.get((h.get("module_id"), h.get("function")))}
+        return d
+
     async def list(self, project: ProjectModel) -> list[dict[str, Any]]:
         counts = await self.used_by_counts(project)
-        return [route_to_dict(r, project.slug, counts.get(r.id, 0)) for r in await self.rows(project.id)]
+        lines = await self._python_lines(project.id)
+        return [self._with_line(route_to_dict(r, project.slug, counts.get(r.id, 0)), lines) for r in await self.rows(project.id)]
 
     async def to_dict(self, project: ProjectModel, r: ApiRouteModel) -> dict[str, Any]:
         counts = await self.used_by_counts(project)
-        return route_to_dict(r, project.slug, counts.get(r.id, 0))
+        lines = await self._python_lines(project.id) if r.handler_type == "python" else {}
+        return self._with_line(route_to_dict(r, project.slug, counts.get(r.id, 0)), lines)
 
     # ── specs ────────────────────────────────────────────────────────────
 
@@ -164,6 +186,21 @@ class ApiRouteService:
                 raise ProjectError(409, "route_conflict", f"{o.method} {o.path} already exists", route_id=o.id)
             if o.name == spec["name"]:
                 raise ProjectError(409, "name_taken", f"operation name '{spec['name']}' is already used", route_id=o.id)
+
+    async def handler_info(self, route_id: str | None) -> dict[str, Any] | None:
+        """Who handles a route: {type, id, name[, function]} (review C7, for conflict messages)."""
+        r = await self._s.get(ApiRouteModel, route_id) if route_id else None
+        if r is None:
+            return None
+        if r.handler_type == "workflow":
+            wf = await self._s.get(WorkflowModel, r.handler_workflow_id)
+            return {"type": "workflow", "id": r.handler_workflow_id, "name": wf.name if wf else None}
+        if r.handler_type == "python":
+            from ..db.models import CodeModuleModel
+            mod = await self._s.get(CodeModuleModel, r.handler_module_id) if r.handler_module_id else None
+            return {"type": "python", "id": r.handler_module_id, "name": mod.name if mod else None,
+                    "function": r.handler_function}
+        return {"type": "stub", "id": None, "name": None}
 
     def _unique_name(self, base: str, taken: set[str]) -> str:
         name, n = base, 2

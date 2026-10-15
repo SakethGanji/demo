@@ -66,7 +66,8 @@ def discover_routes(source: str) -> list[dict[str, Any]]:
                 _bad_decorator(dec, f"auth must be one of {', '.join(sorted(ROUTE_AUTHS))}")
             found.append({"method": METHODS[dec.func.attr], "path": dec.args[0].value, "function": node.name,
                           "auth": kw.get("auth", "none"), "name": kw.get("name"),
-                          "description": kw.get("description") or ast.get_docstring(node), "line": dec.lineno})
+                          "description": kw.get("description") or ast.get_docstring(node),
+                          "description_explicit": "description" in kw, "line": dec.lineno})
     return found
 
 
@@ -98,24 +99,39 @@ class CodeModuleService:
             raise ProjectError(404, "module_not_found", "Module not found")
         return m
 
-    async def _plan(self, project: ProjectModel, module_id: str | None, source: str) -> dict[str, Any]:
+    async def _plan(self, project: ProjectModel, module_id: str | None, source: str,
+                    old_source: str | None = None) -> dict[str, Any]:
         """Compute route changes for a module source without writing anything."""
         decls = discover_routes(source)
+        # Review C8: a description the code produced last time (decorator/docstring) follows the code;
+        # one edited through route settings is preserved unless the decorator now sets description=.
+        old_desc: dict[str, Any] = {}
+        if old_source is not None:
+            try:
+                old_desc = {o["function"]: o["description"] for o in discover_routes(old_source)}
+            except ProjectError:
+                old_desc = {}
         all_routes = await self._routes.rows(project.id)
         mine = {r.handler_function: r for r in all_routes if r.source == "code" and r.handler_module_id == module_id} if module_id else {}
         others = [r for r in all_routes if not (r.source == "code" and r.handler_module_id == module_id and module_id)]
         taken_names = {o.name for o in others}
-        seen_shapes: set[tuple[str, str]] = set()
+        seen_shapes: dict[tuple[str, str], dict[str, Any]] = {}
         create, update = [], []
         for d in decls:
             shape = (d["method"], path_shape(d["path"]))
             if shape in seen_shapes:
-                raise ProjectError(409, "route_conflict", f"{d['method']} {d['path']} is declared twice in this module",
-                                   line=d["line"])
-            seen_shapes.add(shape)
+                first = seen_shapes[shape]
+                msg = f"{d['method']} {d['path']} is declared twice in this module (first on line {first['line']})"
+                raise ProjectError(409, "route_conflict", msg, line=d["line"], existing_route_id=None,
+                                   handler={"type": "python", "id": module_id, "name": None, "function": first["function"]},
+                                   errors=[{"line": d["line"], "column": None, "message": msg}])
+            seen_shapes[shape] = d
             existing = mine.get(d["function"])
             spec = {"name": d["name"] or (existing.name if existing else default_name(d["method"], d["path"])),
-                    "method": d["method"], "path": d["path"], "auth": d["auth"], "description": d["description"],
+                    "method": d["method"], "path": d["path"], "auth": d["auth"],
+                    "description": d["description"] if (not existing or d["description_explicit"]
+                                                         or existing.description == old_desc.get(d["function"]))
+                                   else existing.description,
                     "request_schema": existing.request_schema if existing else None,
                     "response_schema": existing.response_schema if existing else None,
                     "response_mode": "auto", "validate_request": existing.validate_request if existing else False,
@@ -124,7 +140,19 @@ class CodeModuleService:
                 base, n = spec["name"], 2
                 while spec["name"] in taken_names:
                     spec["name"], n = f"{base}{n}", n + 1
-            await self._routes._validate(project, spec, existing.id if existing else None, others)
+            try:
+                await self._routes._validate(project, spec, existing.id if existing else None, others)
+            except ProjectError as e:
+                # Review C7: point at the decorator line and say who owns the clashing route.
+                extra = {"line": d["line"], "errors": [{"line": d["line"], "column": None, "message": e.message}]}
+                if e.code in ("route_conflict", "name_taken"):
+                    rid = e.extra.get("route_id")
+                    handler = await self._routes.handler_info(rid)
+                    if handler and handler["type"] == "workflow" and e.code == "route_conflict":
+                        e.message = f"{e.message}, handled by workflow '{handler['name']}'"
+                        extra["errors"][0]["message"] = e.message
+                    extra.update({"existing_route_id": rid, "handler": handler})
+                raise ProjectError(e.status, e.code, e.message, **{**e.extra, **extra}) from None
             taken_names.add(spec["name"])
             (update if existing else create).append((d, spec, existing))
         keep = {d["function"] for d in decls}
@@ -201,9 +229,15 @@ class CodeModuleService:
         return summary
 
     async def update(self, project: ProjectModel, mid: str, source: str, dry_run: bool = False,
-                     actor: str | None = None) -> dict[str, Any]:
+                     actor: str | None = None, base_source_sha: str | None = None,
+                     base_updated_at: str | None = None) -> dict[str, Any]:
         m = await self.get(project, mid)
-        plan = await self._plan(project, m.id, source)
+        stale = (base_source_sha is not None and base_source_sha != m.source_sha) or \
+                (base_updated_at is not None and base_updated_at != m.updated_at.isoformat())
+        if stale:  # review B4: never silently overwrite a newer save from another tab / the builder
+            raise ProjectError(409, "module_changed", f"{m.name}.py changed since you opened it",
+                               current={"source_sha": m.source_sha, "updated_at": m.updated_at.isoformat()})
+        plan = await self._plan(project, m.id, source, old_source=m.source)
         summary = self._summary(project, plan)
         if dry_run:
             return await self._dry_result(project, plan, module_to_dict(m))

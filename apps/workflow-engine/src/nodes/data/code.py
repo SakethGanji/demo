@@ -265,8 +265,11 @@ __result__ = __user_code__()
                     exec(wrapped_code, restricted_globals, exec_locals)
                     return exec_locals.get("__result__")
                 except SyntaxError as e:
-                    # Enhance syntax error message with line number
-                    raise SyntaxError(f"Line {e.lineno}: {e.msg}") from e
+                    # Report the user's line: the code is wrapped in `def __user_code__():` (+1 line).
+                    line = max(1, (e.lineno or 2) - 1)
+                    err = SyntaxError(f"Line {line}: {e.msg}")
+                    err.user_line = line  # type: ignore[attr-defined]
+                    raise err from e
 
             import contextvars
             loop = asyncio.get_event_loop()
@@ -285,7 +288,7 @@ __result__ = __user_code__()
             if studio_mod is not None and isinstance(e, studio_mod._transport.BrokerError):
                 raise NodeCallError(f"Code execution failed: {e}", e.code, {**e.details}) from e
             if isinstance(e, SyntaxError):
-                raise RuntimeError(f"Syntax Error in code: {e}")
+                raise NodeCallError(f"Syntax Error in code: {e}", "syntax_error", {"line": getattr(e, "user_line", None)})
             raise RuntimeError(f"Code execution failed: {e}")
         finally:
             if broker_token:

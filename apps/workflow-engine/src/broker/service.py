@@ -168,7 +168,10 @@ class BrokerService:
             v = guard.violation
             return v.status, {"ok": False, "error": {"code": v.code, "message": v.message, **v.extra}}
         if context.errors:
-            return 502, {"ok": False, "error": {"code": "node_failed", "message": context.errors[0].error}}
+            e = context.errors[0]
+            # A node failure with a stable code (e.g. table_not_found, row_invalid) keeps it; others are node_failed.
+            return 502, {"ok": False, "error": {"code": e.error_code or "node_failed", "message": e.error,
+                                                **{k: v for k, v in (e.details or {}).items() if k not in ("code", "message")}}}
         out = context.node_states.get("fn") or []
         metrics = dict(context.node_metrics.get("fn") or {})
         for k in ("startedAt", "completedAt", "executionOrder", "retries", "maxRetries",

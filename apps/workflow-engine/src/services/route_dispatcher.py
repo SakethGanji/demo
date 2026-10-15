@@ -39,6 +39,8 @@ class DispatchResult:
     headers: dict[str, str] = field(default_factory=dict)
     content_type: str = "application/json"
     execution_id: str | None = None
+    # Review D16: structured handler error for management callers (/test, run-draft); never sent by the router.
+    error: dict[str, Any] | None = None
 
 
 @dataclass
@@ -221,8 +223,13 @@ class RouteDispatcher:
             body = redact_deep(wr.body, secrets) if isinstance(wr.body, (dict, list, str)) else wr.body
             return DispatchResult(wr.status_code, body, dict(wr.headers or {}), wr.content_type or "application/json", xid)
         if context.errors:
-            return DispatchResult(502, {"error": "handler_failed", "execution_id": xid,
-                                        "message": redact_deep(context.errors[0].error, secrets)}, execution_id=xid)
+            e = context.errors[0]
+            body = {"error": "handler_failed", "execution_id": xid, "message": redact_deep(e.error, secrets)}
+            if e.error_code:
+                body["error_code"] = e.error_code
+            return DispatchResult(502, body, execution_id=xid,
+                                  error={"type": "NodeError", "node": e.node_name, "message": e.error, "code": e.error_code,
+                                         "details": e.details, "traceback": None, "line": None, "module": None})
         items = []
         if context.last_completed_node and context.last_completed_node in context.node_states:
             items = [d.json for d in context.node_states[context.last_completed_node]]
@@ -252,6 +259,8 @@ def redact_result(res: DispatchResult, secrets: set[str]) -> DispatchResult:
         return res
     if isinstance(res.body, (dict, list, str)):
         res.body = redact_deep(res.body, variants, expanded=True)
+    if res.error is not None:
+        res.error = redact_deep(res.error, variants, expanded=True)
     res.headers = {str(k): redact_deep(str(v), variants, expanded=True) for k, v in (res.headers or {}).items()}
     return res
 

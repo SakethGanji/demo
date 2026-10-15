@@ -74,7 +74,11 @@ def _run_code(payload):
     try:
         compiled = compile(src, "<code>", "exec")
     except SyntaxError as e:
-        raise SyntaxError(f"Line {(e.lineno or 1)}: {e.msg}")
+        # The user's code is wrapped in `def __user_code__():` (one extra line) — report the user's line.
+        line = max(1, (e.lineno or 2) - 1)
+        err = SyntaxError(f"Line {line}: {e.msg}")
+        err.user_line = line
+        raise err from None
     exec(compiled, g)
     return {"result": g["__user_code__"](), "logs": logs}
 
@@ -109,10 +113,17 @@ def main():
         else:
             _write({"ok": False, "error": {"type": "ValueError", "message": f"unknown kind {kind}"}})
     except _transport.BrokerError as e:
-        _write({"ok": False, "error": {"type": "BrokerError", "code": e.code, "message": str(e), "details": e.details}})
-    except BaseException as e:  # noqa: BLE001 - report everything back to the engine
-        _write({"ok": False, "error": {"type": type(e).__name__, "message": str(e),
+        _write({"ok": False, "error": {"type": "BrokerError", "code": e.code, "message": str(e), "details": e.details,
                                        "traceback": traceback.format_exc()[-4000:]}})
+    except BaseException as e:  # noqa: BLE001 - report everything back to the engine
+        tb = traceback.format_exc()
+        line = getattr(e, "user_line", None)
+        if line is None and kind == "code":
+            import re
+            frames = re.findall(r'File "<code>", line (\d+)', tb)
+            line = max(1, int(frames[-1]) - 1) if frames else None
+        _write({"ok": False, "error": {"type": type(e).__name__, "message": str(e),
+                                       "traceback": tb[-4000:], "line": line}})
 
 
 if __name__ == "__main__":

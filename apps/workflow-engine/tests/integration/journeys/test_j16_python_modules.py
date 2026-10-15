@@ -39,7 +39,8 @@ def test_j16_python_modules_and_trace(api):
     assert api.get(f"/projects/{P}/modules/{M}").json()["source"] == SRC1
     routes = api.get(f"/projects/{P}/routes").json()                                           # 4
     py = next(r for r in routes if r["name"] == "getPyOrder")
-    assert py["source"] == "code" and py["handler"] == {"type": "python", "module_id": M, "function": "get_order"}
+    # handler.line is additive (review G-UI-10): the decorator's line in the module
+    assert py["source"] == "code" and py["handler"] == {"type": "python", "module_id": M, "function": "get_order", "line": 4}
     r = api.raw("GET", f"/api/p/{S}/py/orders/7")                                              # 5
     assert r.status_code == 200 and r.json() == {"id": "7", "via": "python"}
     XP = r.headers["x-execution-id"]

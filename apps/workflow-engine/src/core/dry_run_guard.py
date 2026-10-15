@@ -32,7 +32,10 @@ class DryRunGuard:
         return True  # unmatched → let the router answer 404/405
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] == "http" and scope.get("method") in MUTATING:
+        path = scope.get("path") or ""
+        # Only management endpoints. User-defined surfaces (/api/p/…, /webhook/…, /a/…) own their query strings.
+        if (scope["type"] == "http" and scope.get("method") in MUTATING
+                and path.startswith("/api/") and not path.startswith("/api/p/")):
             qs = parse_qs((scope.get("query_string") or b"").decode("latin-1"))
             values = [v.strip().lower() for v in qs.get("dry_run", [])]
             if any(v in TRUTHY for v in values) and not self._supports(scope):

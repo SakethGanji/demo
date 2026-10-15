@@ -180,13 +180,8 @@ async def project_run_detail(project: str, execution_id: str, svc: ProjectServic
     e = await exec_repo.get(execution_id)
     if not e or (e.project_id or "proj_default") != p.id:
         raise HTTPException(status_code=404, detail={"code": "run_not_found", "message": "Run not found"})
-    trace = dict((e.metadata or {}).get("trace") or {})
-    try:
-        from ..repositories.broker_call_repository import BrokerCallRepository
-        calls = await BrokerCallRepository(svc._s).list(execution_id=execution_id)
-        trace["broker_calls"] = calls
-    except ImportError:
-        pass
+    from .api_routes import run_trace
+    trace = await run_trace(svc._s, execution_id)
     return {
         **_run_item(e),
         "errors": [{"node_name": x.node_name, "error": x.error, "timestamp": x.timestamp.isoformat(),

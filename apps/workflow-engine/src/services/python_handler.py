@@ -13,6 +13,30 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
+_FRAME_RE = None
+
+
+def structured_error(err: dict[str, Any]) -> dict[str, Any]:
+    """Review D16: {type, message, traceback, line, module, code, details} from the runner's error.
+
+    ``line``/``module`` come from the innermost traceback frame in a project module
+    (``/run/job/in/modules/<name>.py``), so the UI can link straight to the editor line."""
+    import re
+
+    global _FRAME_RE
+    if _FRAME_RE is None:
+        _FRAME_RE = re.compile(r'File "/run/job/in/modules/([A-Za-z_][A-Za-z0-9_]*)\.py", line (\d+)')
+    tb = err.get("traceback") or ""
+    frames = _FRAME_RE.findall(tb)
+    module, line = (frames[-1][0], int(frames[-1][1])) if frames else (None, None)
+    message = err.get("message")
+    if err.get("type") == "BrokerError" and err.get("code") and isinstance(message, str) \
+            and message.startswith(f"{err['code']}: "):
+        message = message[len(err["code"]) + 2:]
+    return {"type": err.get("type"), "message": message, "traceback": tb or None, "line": line, "module": module,
+            "code": err.get("code"), "details": err.get("details") or None}
+
+
 async def run_python_route(session: AsyncSession, project, spec: dict[str, Any], handler: dict[str, Any],
                            item: dict[str, Any], env: str, trigger: dict[str, Any], release) -> Any:
     from ..db.models import CodeModuleModel, ExecutionModel
@@ -69,11 +93,13 @@ async def run_python_route(session: AsyncSession, project, spec: dict[str, Any],
         return DispatchResult(504, {"error": "timeout", "execution_id": exec_id}, execution_id=exec_id)
     out = result.output or {}
     if not out.get("ok"):
-        err = out.get("error") or {"type": "SandboxError", "message": (result.stderr or "no output")[-2000:]}
+        err = structured_error(out.get("error") or {"type": "SandboxError", "message": (result.stderr or "no output")[-2000:]})
         await finish("failed", {**trace, "error": err}, f"{err.get('type')}: {err.get('message')}")
-        return DispatchResult(502, {"error": "handler_failed", "execution_id": exec_id,
-                                    "message": redact_deep(f"{err.get('type')}: {err.get('message')}", secrets)},
-                              execution_id=exec_id)
+        body = {"error": "handler_failed", "execution_id": exec_id,
+                "message": redact_deep(f"{err.get('type')}: {err.get('message')}", secrets)}
+        if err.get("code"):
+            body["error_code"] = err["code"]
+        return DispatchResult(502, body, execution_id=exec_id, error=redact_deep(err, secrets))
     res = out.get("result") or {}
     await finish("success", trace)
     body = res.get("body")

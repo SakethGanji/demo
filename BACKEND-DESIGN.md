@@ -1003,3 +1003,15 @@ section it names; all response changes are additive unless marked **BREAKING**.
 | C9 | §3.5/G9/G32: every dry run (route PUT/DELETE, module POST/PUT/DELETE) carries `{dry_run:true, routes:{created,updated,removed}, changes, breaking_changes, spec_revision, spec_hash}` (`Change` = `{kind,route,operation,route_id,field,breaking,affected:[…]}`). Route PUT dry-run keeps `route` and its current `spec_revision`. |
 | C1 | CORS `expose_headers = X-Next-Cursor, X-Execution-Id, ETag, Allow`. |
 | D17 | §3.3/G24: public-app run `errors[]` items carry `error_code` and `details`. |
+| B4 | §3.8: `PUT …/modules/{mid}` accepts `base_source_sha` / `base_updated_at` (or `If-Match: "<source_sha>"`); a mismatch → `409 module_changed {current:{source_sha,updated_at}}` (dry runs too). `GET …/modules/{mid}` sends `ETag: "<source_sha>"`. No base = last write wins (compatible). |
+| C7 | §3.8: module-save `409 route_conflict` / `name_taken` carry `{line, errors:[{line,column,message}], existing_route_id, handler:{type,id,name[,function]}}`; the message names the owning workflow. Same-module duplicates carry the line of the second declaration. |
+| C8 | §3.8: a module save keeps route-level `description` edited through route settings; the decorator owns it only when it passes `description=` (or when the stored value is still what the previous source produced). Schemas, `timeout_s`, `validate_request`, `response_mode` were already preserved. |
+| G-UI-10 | `Route.handler.line` (decorator line) for python routes. |
+| D16 | `POST …/routes/{rid}/test` adds `error: {type, message, traceback, line, module, code, details[, node]} \| null` (redacted). Python: `line`/`module` from the innermost `/run/job/in/modules/<name>.py` frame. Never sent by the public router. |
+| G-UI-4 | `/test` adds `trace` (same object as `GET …/runs/{id}.trace`, broker calls expanded). |
+| B1 | DataTable on a missing table fails with `error_code:"table_not_found"`, `details:{table}` (canvas runs, broker `error.code`, router 502 body `error_code`, `/test` `error.code`). Broker node failures keep the node's error code (e.g. `row_invalid`) instead of `node_failed` when it has one. |
+| D11 | G28: **every** `auth_changed` is breaking; it carries `security: "loosened"\|"tightened"`. |
+| D13 | New change kind `response_type_changed` (breaking, `field:null`, `before`/`after`) when the root response type changes. |
+| D15 | Code node (sandbox and legacy): syntax and runtime errors report the **user's** line (`Line N:` and `details.line`); legacy syntax errors now carry `error_code:"syntax_error"`. |
+| G-UI-5 | `/api/sdk/functions[].python = {signature, params:[{name, property, type, default, required, enum, description}]}`. |
+| C14 | New `GET /api/sdk/reference` → `{version, entries:[{name, kind, signature, params, doc,…}], rules:{secrets, decorators, responses}}`, generated from `sdk/static/*.py` by `inspect` (one source for the studio reference and the LLM context). `api.get/...` decorators now declare `description=` explicitly (no `**_`). |

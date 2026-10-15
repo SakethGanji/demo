@@ -145,7 +145,11 @@ async def test_route(project: str, rid: str, body: RouteTestBody, request: Reque
                 "response_schema": infer_json_schema(res.body) if isinstance(res.body, (dict, list)) else None}
     out: dict[str, Any] = {"status": res.status, "headers": {"content-type": res.content_type, **res.headers},
                            "body": res.body, "duration_ms": duration, "execution_id": res.execution_id,
-                           "inferred": inferred, "applied": False}
+                           "inferred": inferred, "applied": False,
+                           # review D16: structured, redacted handler error (null on success)
+                           "error": res.error,
+                           # review G-UI-4: the run's trace inline (same as GET …/runs/{id}.trace)
+                           "trace": await run_trace(session, res.execution_id) if res.execution_id else None}
     if body.apply_schemas and 200 <= res.status < 300:
         upd = {"request_schema": inferred["request_schema"]}
         if inferred["response_schema"] is not None:
@@ -153,6 +157,19 @@ async def test_route(project: str, rid: str, body: RouteTestBody, request: Reque
         result = await _guard(svc.update(p, rid, upd, actor=get_actor(request), allow_code=True))
         out.update({"applied": True, **result})
     return out
+
+
+async def run_trace(session: AsyncSession, execution_id: str) -> dict[str, Any]:
+    """The run's trace with broker calls expanded — shared with GET …/runs/{id}."""
+    from ..db.models import ExecutionModel
+    from ..repositories.broker_call_repository import BrokerCallRepository
+
+    row = await session.get(ExecutionModel, execution_id)
+    if row is not None:
+        await session.refresh(row)
+    trace = dict(((row.exec_metadata or {}) if row else {}).get("trace") or {})
+    trace["broker_calls"] = await BrokerCallRepository(session).list(execution_id=execution_id)
+    return trace
 
 
 # ── spec ─────────────────────────────────────────────────────────────────────
