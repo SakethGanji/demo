@@ -960,3 +960,4 @@ For G27 the alternative (refuse direct publish with `409 managed_by_release`) wa
 | J9.4 / J9.11 | cross-project `workflow_ids` accepted at write, refused at run | G22: write → `422`; the run-time `403 workflow_not_in_project` is exercised by moving an allow-listed workflow to another project after publishing. |
 | J9.8 | `SET_WF("{{ $json.x }}")` | Public runs wrap input like `/api/workflows/{id}/run` and webhooks (`{body, headers, query, method}`); journey uses `{{ $json.body.x }}`. |
 | J1.5 / J1.48 | `counts` equality vs G4's extra counts | G4 extras are top-level summary fields (see G4). |
+| J5.5 | body `mode_hint:null` → 422 (schema is a Literal, default `"auto"`) | The studio always sends a value (`useAIChat.ts:21`, default `'auto'`); journey uses `"auto"`. Backend unchanged. |
