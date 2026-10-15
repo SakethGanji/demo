@@ -100,8 +100,11 @@ class CodeModuleService:
         return m
 
     async def _plan(self, project: ProjectModel, module_id: str | None, source: str,
-                    old_source: str | None = None) -> dict[str, Any]:
-        """Compute route changes for a module source without writing anything."""
+                    old_source: str | None = None, collect: list[ProjectError] | None = None) -> dict[str, Any]:
+        """Compute route changes for a module source without writing anything.
+
+        ``collect``: instead of raising on the first route clash, append each clash (with its decorator line)
+        and keep planning the other routes — the generate analysis reports all of them at once."""
         decls = discover_routes(source)
         # Review C8: a description the code produced last time (decorator/docstring) follows the code;
         # one edited through route settings is preserved unless the decorator now sets description=.
@@ -155,7 +158,11 @@ class CodeModuleService:
                     extra.update({"existing_route_id": rid, "handler": handler,
                                   "conflicts": [{"method": d["method"], "path": d["path"], "line": d["line"],
                                                  "existing_route_id": rid, "handler": handler, "message": e.message}]})
-                raise ProjectError(e.status, e.code, e.message, **{**e.extra, **extra}) from None
+                clash = ProjectError(e.status, e.code, e.message, **{**e.extra, **extra})
+                if collect is not None and e.code in ("route_conflict", "name_taken"):
+                    collect.append(clash)
+                    continue
+                raise clash from None
             taken_names.add(spec["name"])
             (update if existing else create).append((d, spec, existing))
         keep = {d["function"] for d in decls}

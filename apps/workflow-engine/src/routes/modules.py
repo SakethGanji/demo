@@ -114,6 +114,89 @@ async def run_draft(project: str, request: Request, session: AsyncSession = Depe
         return _err(e.status, e.code, e.message, **e.extra)
 
 
+MAX_GENERATE_BODY_BYTES = 1024 * 1024
+
+
+def _generate_error_response(ev: dict[str, Any], problems: list[dict[str, Any]]) -> JSONResponse:
+    """JSON mode (§10.1): a terminal ``error`` event as an HTTP status."""
+    code = ev["code"]
+    if code == "generation_invalid":
+        return _err(422, code, ev["message"], errors=problems, draft=ev.get("draft"), analysis=ev.get("analysis"))
+    status = {"llm_failed": 502, "timeout": 504}.get(code, 500)
+    return _err(status, code, ev["message"], **({"draft": ev["draft"]} if ev.get("draft") else {}))
+
+
+@router.post("/projects/{project}/modules/generate")
+async def generate_module(project: str, request: Request, session: AsyncSession = Depends(get_db_session)):
+    """UI-DESIGN §10.1: prompt (+ current source) → a validated module draft. Never writes modules, routes,
+    tables or secrets (the only rows are the self-test executions)."""
+    from sse_starlette.sse import EventSourceResponse, ServerSentEvent
+    from starlette.background import BackgroundTask
+
+    from ..core.config import settings
+    from ..db.models import CodeModuleModel
+    from ..engine import llm_provider
+    from ..services import module_generator as mg
+    from ..services.draft_runner import check_module_name
+
+    try:
+        p = await ProjectService(session).require(project)
+    except ProjectError as e:
+        return _err(e.status, e.code, e.message, **e.extra)
+    raw = await request.body()
+    if len(raw) > MAX_GENERATE_BODY_BYTES:
+        return _err(422, "invalid_request", f"request is larger than {MAX_GENERATE_BODY_BYTES} bytes")
+    try:
+        data = json.loads(raw or b"null")
+    except ValueError:
+        return _err(422, "invalid_request", "body must be JSON")
+    try:
+        body = mg.GenerateRequest.model_validate(data)
+    except ValidationError as e:
+        return invalid_request(e)
+    if body.module_name is not None:
+        try:
+            check_module_name(body.module_name)
+        except ProjectError as e:
+            return _err(e.status, e.code, e.message, **e.extra)
+    if body.module_id is not None:
+        saved = await session.get(CodeModuleModel, body.module_id)
+        if saved is None or saved.project_id != p.id:
+            return _err(404, "module_not_found", "Module not found")
+    if not llm_provider.is_configured(settings.module_gen_model):
+        return _err(503, "llm_unavailable", "No AI model is configured for module generation")
+    key = mg.try_acquire(p.id, get_actor(request))
+    if key is None:
+        return _err(409, "generation_in_progress", "Another generation is already running for this project")
+
+    gen = mg.Generation(p.id, body, request.is_disconnected)
+    accept = request.headers.get("accept", "")
+    if "application/json" in accept and "text/event-stream" not in accept:
+        try:
+            last: dict[str, Any] | None = None
+            async for ev in gen.events():
+                last = ev
+        finally:
+            mg.release(key)
+        if last is None or last["type"] not in ("result", "error"):   # client went away mid-generation
+            return _err(499, "client_closed", "client disconnected")
+        if last["type"] == "error":
+            return _generate_error_response(last, gen.last_problems)
+        return JSONResponse({k: v for k, v in last.items() if k != "type"})
+
+    async def stream():
+        seq = 0
+        try:
+            async for ev in gen.events():
+                seq += 1
+                yield ServerSentEvent(data=json.dumps({**ev, "seq": seq}, default=str), event="message")
+            yield ServerSentEvent(data="{}", event="done")
+        finally:
+            mg.release(key)
+
+    return EventSourceResponse(stream(), background=BackgroundTask(mg.release, key))
+
+
 @router.get("/sandbox/status")
 async def sandbox_status():
     from ..sandbox.backend import backend_status

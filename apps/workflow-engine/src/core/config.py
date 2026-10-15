@@ -75,6 +75,10 @@ class Settings(BaseSettings):
     llm_proxy_project: str = ""
     ssl_cert_file: str | None = None
 
+    # POST /projects/{p}/modules/generate (UI-DESIGN §10.1)
+    module_gen_model: str = "claude-sonnet-4-6"
+    module_gen_timeout_s: float = 120.0
+
 
 @lru_cache
 def get_settings() -> Settings:
