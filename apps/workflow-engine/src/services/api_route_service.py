@@ -287,6 +287,8 @@ class ApiRouteService:
             latest = await self.latest_revision(project.id)
             return {"route": {**route_to_dict(r, project.slug), **spec}, "spec_revision": latest.revision if latest else None,
                     "spec_hash": latest.spec_hash if latest else None, "dry_run": True,
+                    "routes": {"created": [], "removed": [],
+                               "updated": [{"id": r.id, "name": spec["name"], "method": spec["method"], "path": spec["path"]}]},
                     "breaking_changes": [c for c in changes if c["breaking"]], "changes": changes}
         r.name, r.method, r.path, r.path_shape = spec["name"], spec["method"], spec["path"], path_shape(spec["path"])
         r.auth, r.description = spec["auth"], spec["description"]
@@ -309,7 +311,9 @@ class ApiRouteService:
         if dry_run:
             others = [route_spec(o) for o in await self.rows(project.id) if o.id != r.id]
             changes = await self._preview(project, others)
-            return {"spec_revision": None, "spec_hash": None, "dry_run": True,
+            return {"spec_revision": None, "spec_hash": None, "dry_run": True, "changes": changes,
+                    "routes": {"created": [], "updated": [],
+                               "removed": [{"id": r.id, "name": r.name, "method": r.method, "path": r.path}]},
                     "breaking_changes": [c for c in changes if c["breaking"]]}
         await self._s.delete(r)
         await self._s.commit()

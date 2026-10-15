@@ -77,3 +77,11 @@ to send the preview token for `/api/p/` — UI work per UI-INTEGRATION §4.7).
   and restart the engine — only with the owner's OK.
 - Studio typecheck (`npx tsc -b --noEmit`) reports 53 errors that pre-date this work (studio files are
   unchanged from 5684ba5).
+
+## Review fixes (UI-DESIGN-REVIEW.md, 2026-10-15)
+Baseline before: **108 passed**. Tests live in `tests/integration/test_review_g*_*.py` (+ unit tests in
+`tests/unit/test_review_*.py`); each was written first and seen failing. Design deltas: BACKEND-DESIGN §13.
+
+| Group | Findings | Tests (total) | Commit |
+|---|---|---|---|
+| 1 security + dry runs | D1, D2, D4, D7, D9, C9, C1, D17 (partial) | 123 | (see git log) |

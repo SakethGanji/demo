@@ -441,14 +441,20 @@ async def _run_app_workflow(app: AppModel, workflow_id: str, body: dict, exec_se
     except WorkflowNotFoundError:
         raise HTTPException(status_code=404, detail="workflow not found")
     except WorkflowExecutionError as e:
-        return JSONResponse({"status": "failed", "execution_id": None, "data": [],
-                             "errors": [{"node_name": "", "error": e.message}]})
+        from ..services.variable_loader import load_run_secrets
+        secrets = await load_run_secrets(environment=env, team_id=project.team_id if project else "default",
+                                         project_id=app.project_id)
+        return JSONResponse(redact_deep({"status": "failed", "execution_id": None, "data": [],
+                                         "errors": [{"node_name": "", "error": e.message, "error_code": "workflow_invalid",
+                                                     "details": None}]}, secrets))
 
     secrets = context.extras.get("secret_values") or set()
     if context.webhook_response is not None:
+        # Review D4: Respond-node headers are redacted like the body.
         resp = context.webhook_response
         if isinstance(resp.body, (dict, list, str)):
             resp.body = redact_deep(resp.body, secrets)
+        resp.headers = {str(k): redact_deep(str(v), secrets) for k, v in (resp.headers or {}).items()}
         return build_response(resp, {"X-Execution-Id": context.execution_id})
 
     data: list = []
@@ -458,7 +464,9 @@ async def _run_app_workflow(app: AppModel, workflow_id: str, body: dict, exec_se
         "status": "failed" if context.errors else "success",
         "execution_id": context.execution_id,
         "data": data,
-        "errors": [{"node_name": e.node_name, "error": e.error} for e in context.errors],
+        # G24 / review D17: error_code + details, as on every other run surface.
+        "errors": [{"node_name": e.node_name, "error": e.error, "error_code": getattr(e, "error_code", None),
+                    "details": getattr(e, "details", None)} for e in context.errors],
     }
     return JSONResponse(redact_deep(payload, secrets), headers={"X-Execution-Id": context.execution_id})
 

@@ -142,6 +142,14 @@ class RouteDispatcher:
             cred = Credential("api_key", forced_env) if forced_env else await self.authenticate(project, req.headers)
         except AuthError as e:
             return DispatchResult(e.status, {"error": e.error})
+        result = await self._dispatch(project, req, cred)
+        # Review D4: one redactor for everything that leaves the router — body, headers and
+        # error messages, for every handler type (workflow, Respond node, python).
+        from .variable_loader import load_run_secrets
+        return redact_result(result, await load_run_secrets(environment=cred.environment, team_id=project.team_id,
+                                                            project_id=project.id))
+
+    async def _dispatch(self, project: ProjectModel, req: RouteRequest, cred: Credential) -> DispatchResult:
         specs, release = await self.route_set(project, cred.environment)
         spec, params, allowed = match_route(specs, req.method.upper(), req.path)
         if spec is None:
@@ -233,6 +241,19 @@ class RouteDispatcher:
         except ImportError:
             return DispatchResult(503, {"error": "sandbox_unavailable"})
         return await run_python_route(self._s, project, spec, handler, item, env, trigger, release)
+
+
+def redact_result(res: DispatchResult, secrets: set[str]) -> DispatchResult:
+    """Redact secret values (and their encoded variants) from a response's body and headers."""
+    from .vars_substitution import expand_secret_variants, redact_deep
+
+    variants = expand_secret_variants(set(secrets or ()))
+    if not variants:
+        return res
+    if isinstance(res.body, (dict, list, str)):
+        res.body = redact_deep(res.body, variants, expanded=True)
+    res.headers = {str(k): redact_deep(str(v), variants, expanded=True) for k, v in (res.headers or {}).items()}
+    return res
 
 
 def parse_body(raw: bytes, content_type: str) -> Any:

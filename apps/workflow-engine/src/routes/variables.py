@@ -70,18 +70,27 @@ async def list_variables(
     ]
 
 
-@router.get("/{variable_id}", response_model=VariableResponse)
-async def get_variable(variable_id: int, repo: VariableRepoDep) -> VariableResponse:
+async def _team_row(repo: VariableRepository, variable_id: int, team_id: str):
+    """Review D2: this legacy API only reaches team-shared rows of the given team.
+
+    Project-scoped rows (project secrets) are managed through /api/projects/{p}/secrets and
+    answer 404 here, as do rows of another team (404 hides existence)."""
     variable = await repo.get(variable_id)
-    if not variable:
+    if not variable or variable.team_id != team_id or variable.project_id is not None:
         raise HTTPException(status_code=404, detail="Variable not found")
-    return _to_response(variable)
+    return variable
+
+
+@router.get("/{variable_id}", response_model=VariableResponse)
+async def get_variable(variable_id: int, repo: VariableRepoDep, team_id: str = Query("default")) -> VariableResponse:
+    return _to_response(await _team_row(repo, variable_id, team_id))
 
 
 @router.put("/{variable_id}", response_model=VariableResponse)
 async def update_variable(
-    variable_id: int, body: VariableUpdateRequest, repo: VariableRepoDep
+    variable_id: int, body: VariableUpdateRequest, repo: VariableRepoDep, team_id: str = Query("default"),
 ) -> VariableResponse:
+    await _team_row(repo, variable_id, team_id)
     sent = body.model_dump(exclude_unset=True)
     variable = await repo.update(
         variable_id,
@@ -94,7 +103,8 @@ async def update_variable(
 
 
 @router.delete("/{variable_id}", response_model=SuccessResponse)
-async def delete_variable(variable_id: int, repo: VariableRepoDep) -> SuccessResponse:
+async def delete_variable(variable_id: int, repo: VariableRepoDep, team_id: str = Query("default")) -> SuccessResponse:
+    await _team_row(repo, variable_id, team_id)
     deleted = await repo.delete(variable_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Variable not found")

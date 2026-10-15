@@ -98,13 +98,19 @@ def create_app() -> FastAPI:
         debug=settings.debug,
     )
 
-    # CORS middleware
+    # Review D7: ?dry_run=true on a write without a dry-run mode → 422 (never a silent real write).
+    # Added before CORS so CORS stays the outermost middleware (its headers land on the 422 too).
+    from .core.dry_run_guard import DryRunGuard
+    app.add_middleware(DryRunGuard, fastapi_app=app)
+
+    # CORS middleware. Review C1: the studio is cross-origin, so the headers it reads must be exposed.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=settings.cors_allow_credentials,
         allow_methods=settings.cors_allow_methods,
         allow_headers=settings.cors_allow_headers,
+        expose_headers=["X-Next-Cursor", "X-Execution-Id", "ETag", "Allow"],
     )
 
     # Include routers. The project router (/api/p/...) goes first so it can't be shadowed.

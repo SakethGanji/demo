@@ -986,3 +986,20 @@ For G27 the alternative (refuse direct publish with `409 managed_by_release`) wa
 - **Code routes** (`source:"code"`): method/path/auth/handler are owned by the module; PUT on them only
   accepts schema/description/response_mode/validate_request/timeout fields (`409 route_managed_by_code`).
 - **Workflows used as route handlers** cannot be deleted or moved (`409 workflow_in_use`).
+
+## 13. UI-DESIGN-REVIEW.md fixes (2026-10-15) — CHANGED
+
+Fixes for every engine finding in `UI-DESIGN-REVIEW.md` except the generate / run-draft / fake-LLM
+endpoints (§8.1/§8.2/E-section; built later from a revised spec). Each item below **amends** the
+section it names; all response changes are additive unless marked **BREAKING**.
+
+| Review # | Change (CHANGED) |
+|---|---|
+| D1 | §3.8: decorator `auth`/`name`/`description` must be **string literals**; `**kwargs`, extra positional args, unknown keywords and an `auth` outside `none\|app_token\|api_key` → `422 invalid_decorator {errors:[{line,column,message}]}`. Never falls back to `auth="none"`. |
+| D2 | §3.2: `/api/variables/{id}` GET/PUT/DELETE take `?team_id=` (default `default`) and only reach **team-shared** rows of that team; project secrets and other teams' rows → `404`. |
+| D4 | §5.3: the router redacts **body, headers and error messages** of every response centrally (`route_dispatcher.redact_result`, secret values + encoded variants), so Respond-node headers, python-route headers and `502 handler_failed.message` are covered; public-app runs redact Respond headers and the `WorkflowExecutionError` message. |
+| D7 | §3.8: `POST …/modules?dry_run=true` → `200` dry-run result, nothing stored. Any write (`POST/PUT/PATCH/DELETE`) with a truthy `dry_run` on an endpoint without a dry-run mode → `422 {"detail":{"code":"dry_run_unsupported"}}` (ASGI `core/dry_run_guard.py`), never a silent real write. |
+| D9 | G32: `DELETE …/modules/{mid}?dry_run=true` → dry-run result listing `routes.removed` + `breaking_changes`, nothing deleted. |
+| C9 | §3.5/G9/G32: every dry run (route PUT/DELETE, module POST/PUT/DELETE) carries `{dry_run:true, routes:{created,updated,removed}, changes, breaking_changes, spec_revision, spec_hash}` (`Change` = `{kind,route,operation,route_id,field,breaking,affected:[…]}`). Route PUT dry-run keeps `route` and its current `spec_revision`. |
+| C1 | CORS `expose_headers = X-Next-Cursor, X-Execution-Id, ETag, Allow`. |
+| D17 | §3.3/G24: public-app run `errors[]` items carry `error_code` and `details`. |

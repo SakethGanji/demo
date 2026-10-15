@@ -51,9 +51,14 @@ async def list_modules(project: str, session: AsyncSession = Depends(get_db_sess
 
 
 @router.post("/projects/{project}/modules", status_code=201)
-async def create_module(project: str, body: ModuleCreate, request: Request, session: AsyncSession = Depends(get_db_session)):
+async def create_module(project: str, body: ModuleCreate, request: Request, dry_run: bool = False,
+                        session: AsyncSession = Depends(get_db_session)):
     p, svc = await _ctx(project, session)
-    return await _g(svc.create(p, body.name, body.source, actor=get_actor(request)))
+    out = await _g(svc.create(p, body.name, body.source, actor=get_actor(request), dry_run=dry_run))
+    if dry_run:  # review D7: a preview creates nothing → 200, not 201
+        from fastapi.responses import JSONResponse
+        return JSONResponse(out, status_code=200)
+    return out
 
 
 @router.get("/projects/{project}/modules/{mid}")
@@ -70,6 +75,6 @@ async def update_module(project: str, mid: str, body: ModuleUpdate, request: Req
 
 
 @router.delete("/projects/{project}/modules/{mid}")
-async def delete_module(project: str, mid: str, session: AsyncSession = Depends(get_db_session)):
+async def delete_module(project: str, mid: str, dry_run: bool = False, session: AsyncSession = Depends(get_db_session)):
     p, svc = await _ctx(project, session)
-    return await _g(svc.delete(p, mid))
+    return await _g(svc.delete(p, mid, dry_run=dry_run))

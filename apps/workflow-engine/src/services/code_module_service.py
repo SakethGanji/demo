@@ -23,6 +23,13 @@ from .project_service import ProjectError
 
 MODULE_NAME_RE = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 METHODS = {"get": "GET", "post": "POST", "put": "PUT", "patch": "PATCH", "delete": "DELETE"}
+DECORATOR_KEYWORDS = {"auth", "name", "description"}
+ROUTE_AUTHS = {"none", "app_token", "api_key"}
+
+
+def _bad_decorator(dec: ast.AST, message: str) -> None:
+    raise ProjectError(422, "invalid_decorator", message,
+                       errors=[{"line": dec.lineno, "column": dec.col_offset + 1, "message": message}])
 
 
 def discover_routes(source: str) -> list[dict[str, Any]]:
@@ -42,12 +49,21 @@ def discover_routes(source: str) -> list[dict[str, Any]]:
                     and dec.func.attr in METHODS):
                 continue
             if not dec.args or not isinstance(dec.args[0], ast.Constant) or not isinstance(dec.args[0].value, str):
-                raise ProjectError(422, "invalid_decorator", "route path must be a string literal",
-                                   errors=[{"line": dec.lineno, "message": "path must be a string literal"}])
+                _bad_decorator(dec, "path must be a string literal")
+            if len(dec.args) > 1:
+                _bad_decorator(dec, "only the path may be positional; pass auth=/name= as keywords")
+            # Review D1: a non-literal auth/name must never silently become "none" (a public route).
             kw = {}
             for k in dec.keywords:
-                if k.arg in ("auth", "name", "description") and isinstance(k.value, ast.Constant):
-                    kw[k.arg] = k.value.value
+                if k.arg is None:
+                    _bad_decorator(dec, "**kwargs are not allowed in route decorators; use literal auth=/name=")
+                if k.arg not in DECORATOR_KEYWORDS:
+                    _bad_decorator(dec, f"unknown decorator argument '{k.arg}' (allowed: {', '.join(sorted(DECORATOR_KEYWORDS))})")
+                if not (isinstance(k.value, ast.Constant) and isinstance(k.value.value, str)):
+                    _bad_decorator(dec, f"'{k.arg}' must be a string literal")
+                kw[k.arg] = k.value.value
+            if "auth" in kw and kw["auth"] not in ROUTE_AUTHS:
+                _bad_decorator(dec, f"auth must be one of {', '.join(sorted(ROUTE_AUTHS))}")
             found.append({"method": METHODS[dec.func.attr], "path": dec.args[0].value, "function": node.name,
                           "auth": kw.get("auth", "none"), "name": kw.get("name"),
                           "description": kw.get("description") or ast.get_docstring(node), "line": dec.lineno})
@@ -139,13 +155,32 @@ class CodeModuleService:
         rev, h, changes = await self._routes._record_revision(project)
         return rev, h, [c for c in changes if c["breaking"]]
 
-    async def create(self, project: ProjectModel, name: str, source: str, actor: str | None = None) -> dict[str, Any]:
+    async def _dry_result(self, project: ProjectModel, plan: dict[str, Any], module: dict[str, Any]) -> dict[str, Any]:
+        """Review C9/D7/D9: every dry run (route or module, save or delete) has one shape:
+        {dry_run, routes:{created,updated,removed}, changes, breaking_changes, spec_revision:null, spec_hash:null}."""
+        removed_ids = {r.id for r in plan["remove"]}
+        by_id = {s["id"]: s for s in (route_spec(r) for r in await self._routes.rows(project.id)) if s["id"] not in removed_ids}
+        for d, spec, e in plan["update"]:
+            by_id[e.id] = {**by_id[e.id], **{k: spec[k] for k in ("name", "method", "path", "auth", "description")}}
+        for d, spec, _ in plan["create"]:
+            by_id[f"new:{d['function']}"] = {**spec, "id": f"new:{d['function']}"}
+        changes = await self._routes._preview(project, list(by_id.values()))
+        return {"module": module, "routes": self._summary(project, plan), "errors": [], "dry_run": True,
+                "spec_revision": None, "spec_hash": None, "changes": changes,
+                "breaking_changes": [c for c in changes if c["breaking"]]}
+
+    async def create(self, project: ProjectModel, name: str, source: str, actor: str | None = None,
+                     dry_run: bool = False) -> dict[str, Any]:
         if not MODULE_NAME_RE.match(name or "") or name in ("studio",):
             raise ProjectError(422, "invalid_name", "module name must be a lowercase python identifier (not 'studio')")
         if (await self._s.execute(select(CodeModuleModel).where(CodeModuleModel.project_id == project.id,
                                                                 CodeModuleModel.name == name))).scalars().first():
             raise ProjectError(409, "name_taken", f"module '{name}' already exists")
         plan = await self._plan(project, None, source)
+        if dry_run:
+            return await self._dry_result(project, plan, {"id": None, "project_id": project.id, "name": name,
+                                                          "source_sha": hashlib.sha256(source.encode()).hexdigest(),
+                                                          "source": source})
         now = datetime.now()
         m = CodeModuleModel(id=generate_id("mod"), project_id=project.id, name=name, source=source,
                             source_sha=hashlib.sha256(source.encode()).hexdigest(), created_by=actor,
@@ -171,24 +206,18 @@ class CodeModuleService:
         plan = await self._plan(project, m.id, source)
         summary = self._summary(project, plan)
         if dry_run:
-            specs = [route_spec(r) for r in await self._routes.rows(project.id) if r not in plan["remove"]]
-            by_id = {s["id"]: s for s in specs}
-            for d, spec, e in plan["update"]:
-                by_id[e.id] = {**by_id[e.id], **{k: spec[k] for k in ("name", "method", "path", "auth", "description")}}
-            for d, spec, _ in plan["create"]:
-                by_id[f"new:{d['function']}"] = {**spec, "id": f"new:{d['function']}"}
-            changes = await self._routes._preview(project, list(by_id.values()))
-            return {"module": module_to_dict(m), "routes": summary, "errors": [], "dry_run": True,
-                    "spec_revision": None, "spec_hash": None, "breaking_changes": [c for c in changes if c["breaking"]]}
+            return await self._dry_result(project, plan, module_to_dict(m))
         m.source, m.source_sha, m.updated_at = source, hashlib.sha256(source.encode()).hexdigest(), datetime.now()
         rev, h, breaking = await self._apply(project, m, plan, actor)
         return {"module": module_to_dict(m), "routes": await self._with_ids(project, m, summary), "errors": [],
                 "spec_revision": rev, "spec_hash": h, "breaking_changes": breaking}
 
-    async def delete(self, project: ProjectModel, mid: str) -> dict[str, Any]:
+    async def delete(self, project: ProjectModel, mid: str, dry_run: bool = False) -> dict[str, Any]:
         m = await self.get(project, mid)
         mine = [r for r in await self._routes.rows(project.id) if r.handler_module_id == m.id]
         removed = [{"name": r.name, "method": r.method, "path": r.path, "id": r.id} for r in mine]
+        if dry_run:  # review D9: what a delete would remove/break, without deleting
+            return await self._dry_result(project, {"create": [], "update": [], "remove": mine}, module_to_dict(m))
         for r in mine:
             await self._s.delete(r)
         await self._s.flush()
