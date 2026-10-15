@@ -148,7 +148,8 @@ async def project_create_app(project: str, body: AppCreateRequest, request: Requ
 
 def _run_item(e) -> dict[str, Any]:
     trigger = (e.metadata or {}).get("trigger") or {}
-    route = f"{trigger.get('method')} {trigger.get('route')}" if trigger.get("route") else None
+    route = (f"{trigger.get('method')} {trigger.get('route')}" if trigger.get("method") else trigger.get("route")) \
+        if trigger.get("route") else None  # draft runs store "GET /path" in trigger.route
     duration = round((e.end_time - e.start_time).total_seconds() * 1000, 2) if e.end_time else None
     return {
         "id": e.id, "workflow_id": e.workflow_id, "workflow_name": e.workflow_name, "status": e.status,

@@ -18,7 +18,8 @@ class SandboxService:
                   modules: dict[str, str] | None = None, timeout_s: float = 30.0,
                   team_id: str = "default", read_only: bool = False,
                   allowed_functions: set[str] | None = None,
-                  virtual_tables: set[str] | None = None) -> tuple[SandboxResult, list[str]]:
+                  virtual_tables: set[str] | None = None,
+                  max_calls: int | None = None) -> tuple[SandboxResult, list[str]]:
         """Returns (result, broker call ids made during the run). Raises SandboxUnavailable."""
         backend = get_backend()
         ok, reason = availability(backend)
@@ -32,6 +33,8 @@ class SandboxService:
                               origin=origin, team_id=team_id, read_only=read_only,
                               virtual_tables=set(virtual_tables) if virtual_tables else None,
                               allowed_functions=set(allowed_functions) if allowed_functions else set(function_index().values()))
+        if max_calls:
+            claims.max_calls = max(1, min(int(max_calls), claims.max_calls))
         token = registry.mint(claims, ttl_s=timeout_s + 5)
         try:
             os.makedirs(os.path.join(job_dir, "in", "modules"))

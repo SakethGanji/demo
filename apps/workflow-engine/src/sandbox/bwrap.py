@@ -87,6 +87,17 @@ class BwrapBackend:
         timed_out = False
         try:
             out, err = await asyncio.wait_for(proc.communicate(), timeout=job.timeout_s)
+        except asyncio.CancelledError:
+            # UI-DESIGN §10.1 cancellation: a cancelled run never leaves a sandbox process group behind.
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            try:
+                await asyncio.shield(proc.wait())
+            except BaseException:
+                pass
+            raise
         except asyncio.TimeoutError:
             timed_out = True
             try:
