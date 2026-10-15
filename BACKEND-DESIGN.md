@@ -890,8 +890,8 @@ Risks:
   detection is only as good as the schemas, so the UI must let users edit them.
 - **The LLM-dependent parts** (app builder spec usage, "generate UI for this API", agent tool use)
   cannot be exercised end to end without a key. Only prompt construction and tool executors are tested.
-- **Public app token TTL is 1 h** (`public_tokens.py:30`). A long-open page fails after that. This is
-  existing behaviour; a refresh endpoint is a follow-up.
+- **Public app token TTL is 1 h** (`public_tokens.py:30`). **CHANGED (§13 D3):** tokens are bound to the
+  app + a rotation key and refreshed through `POST /a/{slug}/_token`, so long-open pages keep working.
 
 ## 9. Decisions (owner answers, 2026-10-14)
 1. **Inbound `$vars` expansion** — KEPT for existing `/webhook/...` routes (the seeded *Vars Redaction
@@ -1032,3 +1032,14 @@ section it names; all response changes are additive unless marked **BREAKING**.
 | D12 | `PUT /api/projects/{p}?dry_run=true` runs the same validation as the save (`ProjectService._apply_update`, then rollback): `environment_in_use`, `unknown_environment`, `invalid_environment`, `invalid_name`, `invalid_settings`, `invalid_slug`, `slug_taken`. `project` in the response is now the full would-be project (environments etc.), still with `affected_apps` (B7 / G26). |
 | C17 | Summary adds top-level `modules: int` (`counts` keeps its 4 keys). |
 | C19 | `client.ts` / `openapi.json` with an environment not in the project → `422 unknown_environment` (`default` still maps to the project default when the project has no `default` env). |
+| D17 | (test) public-app and G20 preview run `errors[]` carry `error_code`/`details` (e.g. `table_not_found` + `{table}`). |
+| C10 | (pinned by a test) `/test`: non-draft env → `422 environment_not_draft`; stubs → `status 501`, `execution_id:null`, `trace:null`; `apply_schemas` is a no-op on non-2xx (`applied:false`). |
+
+**Not done here (by scope):** `POST …/modules/generate`, `POST …/modules/run-draft`, the fake LLM provider and
+`/api/_test/*` (review §E, B1 `analysis.tables`, D16 for run-draft) — another agent builds them from the revised spec.
+The `read_only` + `virtual_tables` broker claims and `SandboxService.run(read_only=, allowed_functions=, virtual_tables=)`
+they need are in place, as are the `draft_test` / `generate_self_test` trigger types.
+
+**Spec disagreement noted:** UI-DESIGN §3.8/§9 D10 says apps *without a saved version* fail `app_calls_resolve`;
+§3.9 here (and the fix brief) says such apps are versioned into the release. Implemented: versioned when the app has
+draft source; failing the check ("Save the app once before releasing") only when there is no source at all.

@@ -92,3 +92,10 @@ Baseline before: **108 passed**. Tests live in `tests/integration/test_review_g*
 | 5a builder + usage + publish | C5, C6, C11, D14, C4 | 154 | (see git log) |
 | 5b app tokens | D3 | 159 | (see git log) |
 | 6 releases + projects | D10, D12, C17, C19, B7 (verified) | 166 | (see git log) |
+| 7 misc pins | D17 (test), C10 (pinned) | 168 | (see git log) |
+
+After: **168 passed** (108 before; +60 = 56 new review tests + parametrised D1 cases; 4 existing journey
+assertions updated for required contract changes: j16 `handler.line`, j14 api-usage `stub`, j01/j17 draft-env
+releases are `snapshot`). Failing-first was observed for every new test (D17 and D3 re-verified by temporarily
+reverting the fix). Out of scope (another agent): modules/generate, modules/run-draft, fake LLM + `/api/_test/*`.
+Resume from BACKEND-DESIGN §13 (every change, codes and the one spec disagreement, D10 unversioned apps).
