@@ -52,3 +52,18 @@ baseline, none in new files). vitest 23.
   apps/analytics-service/web/, .coverage).
 - `for … break` over an httpx `iter_lines()` closes the connection (it disconnects the client!); use `next()`.
 - `pgrep -f` matches your own shell; use the `/proc` scan in `test_ui_generate.sandbox_procs()`.
+
+## Added at the end of the session
+- **Screenshots (not final):** `screenshots/ui-latest/` (10 PNGs, light + dark: projects, overview, backend editor, data, runs;
+  untracked, not committed). Viewable at https://claude.ai/artifact/KGfry2Aowju3a3cdQm487k (private; republish the same file
+  to update). Taken by a throwaway Playwright spec on the isolated stack (seeded "Payments Ops"); not yet captured: builder,
+  publish/release/settings sheets, workflows list + canvas. Final set still goes to `screenshots/ui-built/` (step 5 above).
+- **Workflow editor still exists** (routes `/p/{project}/workflows` and `/workflows/{id}`; canvas, node creator, NDV, execution
+  logs, AI chat, env-variables modal all in `src/features/workflow-editor`). It has NOT been exercised in a browser this session;
+  spec 07 (T40 open+run a workflow, T45 responsive) is the first check. Slice 7 (workflows list page) is unverified.
+- **Real-LLM coverage is narrow:** only the generate endpoint, twice, via a script against Gemini (`gemini-3.8-flash`). Every
+  browser E2E uses the fake LLM, so the Generate button, Refine, and the app-builder "Create UI" have never run against a real
+  model. Do a live UI pass (load `.env.local`, run the engine with `GEMINI_API_KEY` and `WORKFLOW_MODULE_GEN_MODEL`) before the
+  final report.
+- **Pushed:** this branch is on GitHub as `origin/revert-to-5684ba5` (owner approved despite old keys in history). `clean-main`
+  untouched. Push again with `git push origin revert-to-5684ba5`.
