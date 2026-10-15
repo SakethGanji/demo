@@ -8,7 +8,10 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "postinstall": "cp node_modules/esbuild-wasm/esbuild.wasm public/esbuild.wasm 2>/dev/null || true"
+    "postinstall": "cp node_modules/esbuild-wasm/esbuild.wasm public/esbuild.wasm 2>/dev/null || true",
+    "test:unit": "vitest run",
+    "test:e2e": "playwright test -c e2e",
+    "e2e": "playwright test -c e2e"
   },
   "dependencies": {
     "@base-ui/react": "^1.3.0",
@@ -59,7 +62,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
-    "@playwright/test": "^1.62.1",
+    "@playwright/test": "1.62.1",
     "@tailwindcss/typography": "^0.5.19",
     "@types/node": "^24.10.1",
     "@types/react": "^18.3.12",
