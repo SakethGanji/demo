@@ -16,6 +16,7 @@ from ..core.exceptions import (
 )
 from ..core.dependencies import get_workflow_repository, get_execution_repository
 from ..engine.types import WebhookResponse
+from ..services.http_response import build_response
 from ..services.webhook_service import WebhookService
 from ..repositories import WorkflowRepository, ExecutionRepository
 
@@ -23,52 +24,8 @@ router = APIRouter()
 
 
 def _build_response(result: dict[str, Any] | WebhookResponse) -> Response:
-    """Build appropriate FastAPI response from service result."""
-    if isinstance(result, WebhookResponse):
-        headers = result.headers or {}
-
-        if result.body is None:
-            return Response(
-                status_code=result.status_code,
-                headers=headers,
-            )
-
-        # Binary response (bytes body or binary flag)
-        if result.is_binary or isinstance(result.body, bytes):
-            return Response(
-                content=result.body,
-                status_code=result.status_code,
-                media_type=result.content_type,
-                headers=headers,
-            )
-
-        if result.content_type == "text/plain":
-            return PlainTextResponse(
-                content=str(result.body),
-                status_code=result.status_code,
-                headers=headers,
-            )
-        elif result.content_type == "text/html":
-            return HTMLResponse(
-                content=str(result.body),
-                status_code=result.status_code,
-                headers=headers,
-            )
-        elif result.content_type == "application/xml":
-            return Response(
-                content=str(result.body),
-                status_code=result.status_code,
-                media_type="application/xml",
-                headers=headers,
-            )
-        else:
-            return JSONResponse(
-                content=result.body,
-                status_code=result.status_code,
-                headers=headers,
-            )
-    else:
-        return JSONResponse(content=result)
+    """Build appropriate FastAPI response from service result (see services/http_response.py)."""
+    return build_response(result)
 
 
 def get_webhook_service(

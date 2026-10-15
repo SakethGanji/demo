@@ -66,3 +66,63 @@ def redact_secrets(text: str, secret_values: set[str], min_len: int = 4) -> str:
         if v and len(v) >= min_len:
             out = out.replace(v, "***")
     return out
+
+
+def expand_secret_variants(secret_values: set[str], min_len: int = 4) -> set[str]:
+    """Secret values plus common encodings (base64, base64url, URL-quoted, JSON-escaped).
+
+    Used for full-response redaction (BACKEND-DESIGN §5.3): a value echoed back
+    base64-encoded (e.g. inside a Basic auth header) is still masked.
+    """
+    import base64
+    import json as _json
+    from urllib.parse import quote, quote_plus
+
+    out: set[str] = set()
+    for v in secret_values or set():
+        if not v or len(v) < min_len:
+            continue
+        raw = v.encode()
+        for cand in (
+            v,
+            base64.b64encode(raw).decode(),
+            base64.b64encode(raw).decode().rstrip("="),
+            base64.urlsafe_b64encode(raw).decode().rstrip("="),
+            quote(v, safe=""),
+            quote_plus(v),
+            _json.dumps(v)[1:-1],
+        ):
+            if cand and len(cand) >= min_len:
+                out.add(cand)
+    return out
+
+
+def redact_deep(value: Any, secret_values: set[str], *, expanded: bool = False) -> Any:
+    """Walk a JSON-shaped value and redact secret values (and their encodings) in every string.
+
+    Dict keys are redacted too. Non-string scalars pass through.
+    """
+    if not secret_values:
+        return value
+    variants = secret_values if expanded else expand_secret_variants(secret_values)
+    # Longest first so a value that contains another secret is fully masked.
+    ordered = sorted(variants, key=len, reverse=True)
+
+    def _r(s: str) -> str:
+        for v in ordered:
+            if v in s:
+                s = s.replace(v, "***")
+        return s
+
+    def _walk(x: Any) -> Any:
+        if isinstance(x, str):
+            return _r(x)
+        if isinstance(x, list):
+            return [_walk(i) for i in x]
+        if isinstance(x, tuple):
+            return [_walk(i) for i in x]
+        if isinstance(x, dict):
+            return {(_r(k) if isinstance(k, str) else k): _walk(v) for k, v in x.items()}
+        return x
+
+    return _walk(value)

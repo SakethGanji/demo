@@ -31,7 +31,7 @@ from fastapi import APIRouter, Cookie, Depends, Form, HTTPException, Request, Re
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
-from ..core.dependencies import get_app_service, get_api_test_repository
+from ..core.dependencies import get_app_service, get_api_test_repository, get_execution_service
 from ..core.public_tokens import PublicTokenError, issue_token, verify_token
 from ..db.models import AppModel
 from ..repositories import ApiTestRepository
@@ -147,9 +147,15 @@ function findReplayId(url){
 
 window.fetch=function(url,opts){
   var o=opts||{};
-  // 1) Workflow proxy paths
+  // 0) Project API routes (/api/p/{project}/...) — same origin, stamped with the app token
+  if(typeof url==='string' && url.indexOf('/api/p/')===0){
+    var h0=Object.assign({},o.headers||{});
+    if(token) h0['Authorization']='Bearer '+token;
+    return origFetch(url,Object.assign({},o,{headers:h0}));
+  }
+  // 1) Workflow proxy paths. '/api/workflow/{id}/run' → '/a/{slug}/api/workflow/{id}/run'
   if(typeof url==='string' && (url.indexOf('/api/')===0 || url.indexOf('/webhook/')===0)){
-    var rewritten=base+url;
+    var rewritten=(url.indexOf('/api/workflow/')===0)?(base+url.slice(4)):(base+url);
     var h1=Object.assign({},o.headers||{});
     if(token) h1['Authorization']='Bearer '+token;
     return origFetch(rewritten,Object.assign({},o,{headers:h1}));
@@ -376,6 +382,7 @@ async def run_workflow_for_public_app(
     workflow_id: str,
     request: Request,
     service: AppService = Depends(get_app_service),
+    exec_service=Depends(get_execution_service),
 ):
     app = await _resolve_app(slug, service)
     claims = _verify_request_token(request.headers.get("authorization"))
@@ -395,20 +402,67 @@ async def run_workflow_for_public_app(
         body = await request.json()
     except Exception:
         body = {}
+    if not isinstance(body, dict):
+        body = {"value": body}
 
-    # The actual run-workflow path lives elsewhere; for now we just stub a
-    # response so the route is wired and the frontend can be built against
-    # it. Replace with a call into the real ExecutionService when its
-    # public-friendly entry point is settled.
-    return JSONResponse(
-        {
-            "ok": True,
-            "workflow_id": workflow_id,
-            "app_id": app.id,
-            "echo": body,
-            "note": "TODO wire into ExecutionService.run_workflow_async",
-        }
-    )
+    return await _run_app_workflow(app, workflow_id, body, exec_service)
+
+
+async def _run_app_workflow(app: AppModel, workflow_id: str, body: dict, exec_service) -> Response:
+    """Run an allow-listed workflow for a published app (phase 3, BACKEND-DESIGN §3.3).
+
+    * The workflow must be in the app's project.
+    * Environment = the project's live environment.
+    * Caller payload is NOT $vars-substituted (anonymous surface); outputs are redacted.
+    """
+    import asyncio
+
+    from ..core.exceptions import WorkflowExecutionError, WorkflowNotFoundError
+    from ..db.models import ProjectModel, WorkflowModel
+    from ..services.http_response import build_response
+    from ..services.vars_substitution import redact_deep
+
+    session = exec_service._workflow_repo._session
+    wf = await session.get(WorkflowModel, workflow_id)
+    if wf is None:
+        raise HTTPException(status_code=404, detail="workflow not found")
+    if wf.project_id != app.project_id:
+        raise HTTPException(status_code=403, detail="workflow_not_in_project")
+    project = await session.get(ProjectModel, app.project_id)
+    env = project.live_environment if project else "default"
+    try:
+        _, context = await exec_service.run_saved_workflow(
+            workflow_id, body or None, environment=env, mode="app", substitute_inputs=False,
+            timeout_s=_PUBLIC_RUN_TIMEOUT_S, metadata={"trigger": {"type": "app", "app_id": app.id}},
+        )
+    except asyncio.TimeoutError:
+        return JSONResponse({"status": "timeout"}, status_code=504)
+    except WorkflowNotFoundError:
+        raise HTTPException(status_code=404, detail="workflow not found")
+    except WorkflowExecutionError as e:
+        return JSONResponse({"status": "failed", "execution_id": None, "data": [],
+                             "errors": [{"node_name": "", "error": e.message}]})
+
+    secrets = context.extras.get("secret_values") or set()
+    if context.webhook_response is not None:
+        resp = context.webhook_response
+        if isinstance(resp.body, (dict, list, str)):
+            resp.body = redact_deep(resp.body, secrets)
+        return build_response(resp, {"X-Execution-Id": context.execution_id})
+
+    data: list = []
+    if context.last_completed_node and context.last_completed_node in context.node_states:
+        data = [d.json for d in context.node_states[context.last_completed_node]]
+    payload = {
+        "status": "failed" if context.errors else "success",
+        "execution_id": context.execution_id,
+        "data": data,
+        "errors": [{"node_name": e.node_name, "error": e.error} for e in context.errors],
+    }
+    return JSONResponse(redact_deep(payload, secrets), headers={"X-Execution-Id": context.execution_id})
+
+
+_PUBLIC_RUN_TIMEOUT_S = 120.0
 
 
 # ── External-URL replay proxy ────────────────────────────────────────────────
