@@ -170,9 +170,12 @@ class StudioClient:
 
     STUDIO_HEADERS = {"Content-Type": "application/json"}
 
+    hits: list[tuple[str, str]] = []  # (METHOD, path) of every request sent — for the coverage check
+
     def __init__(self, base_url: str) -> None:
         self.base_url = base_url
-        self.http = httpx.Client(base_url=base_url, timeout=60)
+        self.http = httpx.Client(base_url=base_url, timeout=60,
+                                 event_hooks={"request": [lambda req: StudioClient.hits.append((req.method, req.url.path))]})
 
     # /api/... through apiFetch (always JSON content-type, even for GET/DELETE)
     def _api(self, method: str, endpoint: str, json_body: Any = None, **kw) -> httpx.Response:
