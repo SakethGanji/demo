@@ -225,6 +225,21 @@ class _EchoHandler(BaseHTTPRequestHandler):
         length = int(self.headers.get("content-length") or 0)
         raw = self.rfile.read(length) if length else b""
         u = urlparse(self.path)
+        if u.path.startswith("/b64"):
+            import base64 as _b64
+            tok = self.headers.get("x-tok", "")
+            data = json.dumps({"encoded": _b64.b64encode(tok.encode()).decode()}).encode()
+            self.send_response(200)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        if u.path.startswith("/redirect"):
+            self.send_response(302)
+            self.send_header("location", "http://localhost:1/elsewhere")
+            self.end_headers()
+            return
         if u.path.startswith("/status/"):
             code = int(u.path.split("/")[2])
             self.send_response(code)

@@ -248,6 +248,12 @@ class WorkflowRunner:
                     ),
                 )
 
+        # Revoke any broker tokens minted for this run (Code node, agent tools, ...).
+        if context.parent_execution_id is None:
+            from ..broker.tokens import registry as _broker_tokens
+            for k in [k for k in context.extras if k.startswith("broker_token:")]:
+                _broker_tokens.revoke(context.extras.pop(k))
+
         # Emit execution complete event
         self._emit_event(
             on_event,

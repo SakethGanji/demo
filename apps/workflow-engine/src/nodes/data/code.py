@@ -150,6 +150,30 @@ External imports and file system access are limited.""",
             "log": log,
         }
 
+        # Nodes-as-functions (phase 4): `studio.nodes.<fn>(...)` via the broker, in-process.
+        # Unsandboxed until phase 8 moves this node into the sandbox.
+        import asyncio as _asyncio
+        loop_for_broker = _asyncio.get_running_loop()
+        broker_token = None
+        studio_transport = None
+        try:
+            from ...broker.service import BrokerService, mint_for_context
+            from ...sdk.generate import load_in_process
+
+            studio_mod = load_in_process()
+            broker_token = mint_for_context(context, "code_node")
+
+            def studio_transport(node: str, parameters: dict, items_: list) -> dict:
+                fut = _asyncio.run_coroutine_threadsafe(
+                    BrokerService().call_with_token(broker_token, None, node, parameters, items_), loop_for_broker)
+                status, body = fut.result(timeout=120)
+                body["status"] = status
+                return body
+
+            restricted_globals["studio"] = studio_mod
+        except Exception:  # SDK unavailable → Code node keeps working without `studio`
+            studio_mod = None
+
         # Add safe modules
         import json
         import math
@@ -202,6 +226,8 @@ __result__ = __user_code__()
 
             def execute_code() -> Any:
                 exec_locals: dict[str, Any] = {}
+                if studio_mod is not None and studio_transport is not None:
+                    studio_mod._transport.use(studio_transport)
                 try:
                     exec(wrapped_code, restricted_globals, exec_locals)
                     return exec_locals.get("__result__")
@@ -209,14 +235,16 @@ __result__ = __user_code__()
                     # Enhance syntax error message with line number
                     raise SyntaxError(f"Line {e.lineno}: {e.msg}") from e
 
+            import contextvars
             loop = asyncio.get_event_loop()
+            ctx = contextvars.copy_context()
             with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = loop.run_in_executor(executor, execute_code)
+                future = loop.run_in_executor(executor, ctx.run, execute_code)
                 result = await asyncio.wait_for(future, timeout=5.0)
 
             # Normalize result
             output = self._normalize_output(result)
-            return self.output(output)
+            return self.output(output, metadata={"sandboxed": False})
 
         except asyncio.TimeoutError:
             raise RuntimeError("Code execution timed out (5 second limit)")
@@ -224,6 +252,10 @@ __result__ = __user_code__()
             raise RuntimeError(f"Syntax Error in code: {e}")
         except Exception as e:
             raise RuntimeError(f"Code execution failed: {e}")
+        finally:
+            if broker_token:
+                from ...broker.service import revoke_for_context
+                revoke_for_context(context, "code_node")
 
     def _normalize_output(self, result: Any) -> list[NodeData]:
         """Normalize code output to NodeData list."""

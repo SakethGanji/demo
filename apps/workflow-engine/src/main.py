@@ -32,6 +32,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Initialize database tables
     await init_db()
     register_all_nodes()
+    try:
+        from .sdk.generate import sdk_dir
+        sdk_dir()  # generate the studio SDK (nodes as functions) for this registry
+    except Exception:
+        logger.warning("studio SDK generation failed", exc_info=True)
 
     # Auto-seed demo workflows in dev. On by default; set SEED=0 to disable.
     if os.environ.get("SEED", "1").strip().lower() not in ("0", "false", "no"):

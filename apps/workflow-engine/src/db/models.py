@@ -522,3 +522,27 @@ class ApiTestExecutionModel(SQLModel, table=True):
     error: str | None = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
+
+
+# ---------------------------------------------------------------------------
+# Broker call log (phase 4)
+# ---------------------------------------------------------------------------
+
+
+class BrokerCallModel(SQLModel, table=True):
+    """One node-as-function call made through the broker (parameters redacted)."""
+
+    __tablename__ = "broker_calls"
+
+    id: str = Field(primary_key=True)
+    execution_id: str | None = Field(default=None, index=True)
+    project_id: str | None = Field(default=None)
+    environment: str | None = Field(default=None)
+    origin: str | None = Field(default=None)
+    node_type: str | None = Field(default=None)
+    params_redacted: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB, nullable=False, server_default="{}"))
+    status: str
+    error_code: str | None = Field(default=None)
+    error: str | None = Field(default=None)
+    duration_ms: float | None = Field(default=None)
+    created_at: datetime = Field(default_factory=datetime.now)

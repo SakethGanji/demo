@@ -18,6 +18,7 @@ from .public_apps import router as public_apps_router
 from .api_tester import router as api_tester_router
 from .projects import router as projects_router
 from .project_secrets import router as project_secrets_router
+from .broker import router as broker_router
 
 # Main API router
 api_router = APIRouter(prefix="/api")
@@ -33,6 +34,7 @@ api_router.include_router(folders_router, tags=["Folders"])
 api_router.include_router(variables_router, tags=["Variables"])
 api_router.include_router(api_tester_router, tags=["API Tester"])
 api_router.include_router(project_secrets_router, tags=["Project Secrets"])
+api_router.include_router(broker_router, tags=["Broker & SDK"])
 api_router.include_router(projects_router, tags=["Projects"])
 
 # Non-prefixed routers (for webhooks, streaming, and public deployed apps)

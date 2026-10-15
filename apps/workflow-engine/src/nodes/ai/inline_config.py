@@ -111,6 +111,7 @@ def _get_tool_classes() -> dict[str, type]:
     from .tools.data_report_tool import DataReportToolNode
     from .tools.mongo_query_tool import MongoQueryToolNode
     from .tools.api_request_tool import ApiRequestToolNode
+    from .tools.studio_function_tool import StudioFunctionToolNode
 
     return {
         "calculator": CalculatorToolNode,
@@ -127,6 +128,7 @@ def _get_tool_classes() -> dict[str, type]:
         "dataReport": DataReportToolNode,
         "mongoQuery": MongoQueryToolNode,
         "apiRequest": ApiRequestToolNode,
+        "studioFunction": StudioFunctionToolNode,
     }
 
 
