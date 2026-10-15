@@ -332,8 +332,10 @@ class WorkflowService:
         from .execution_service import ExecutionService
 
         svc = ExecutionService(self._execution_repo, self._workflow_repo)
+        # Review C2: a studio run is "manual" even when it carries input_data (was stored as "webhook").
         _, context = await svc.run_saved_workflow(workflow_id, input_data, environment=environment,
-                                                  strict_environment=True)
+                                                  strict_environment=True, mode="manual",
+                                                  metadata={"trigger": {"type": "manual"}})
         return self._build_execution_response(context)
 
     async def run_adhoc_workflow(self, request: WorkflowCreateRequest) -> ExecutionResponse:

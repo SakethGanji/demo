@@ -60,12 +60,13 @@ async def run_python_route(session: AsyncSession, project, spec: dict[str, Any],
     if not mod_name:
         return DispatchResult(502, {"error": "handler_failed", "message": "handler module not found"})
 
+    from ..repositories.execution_repository import ExecutionRepository
+
     exec_id = gen_exec_id()
-    started = datetime.now()
-    session.add(ExecutionModel(id=exec_id, workflow_id=spec["id"], workflow_name=f"{spec['method']} {spec['path']}",
-                               status="running", mode="api", start_time=started, project_id=project.id, environment=env,
-                               exec_metadata={"trigger": trigger, "labels": {"env": env}, "handler": "python"}))
-    await session.commit()
+    # Review D6: through the repository so retention (newest 100, cascading) applies here too.
+    await ExecutionRepository(session, max_records=100).start(
+        exec_id, spec["id"], f"{spec['method']} {spec['path']}", "api", project_id=project.id, environment=env,
+        metadata={"trigger": trigger, "labels": {"env": env}, "handler": "python"})
     secrets = await load_run_secrets(environment=env, project_id=project.id)
 
     async def finish(status: str, trace: dict[str, Any], error: str | None = None) -> None:

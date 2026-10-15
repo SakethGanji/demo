@@ -88,3 +88,4 @@ Baseline before: **108 passed**. Tests live in `tests/integration/test_review_g*
 | 2 modules + routes | B4, C7, C8, G-UI-10, D16, G-UI-4, B1, D11, D13, D15, G-UI-5, C14 | 136 | (see git log) |
 | 3 broker + release pinning | D5, D8 | 140 | (see git log) |
 | 3b align with UI-DESIGN §9 | D11 kind, C7 conflicts[], B4 base_sha/rename, D5 virtual_tables | 141 | (see git log) |
+| 4 runs | C2, C3, D6, C13 | 148 | (see git log) |

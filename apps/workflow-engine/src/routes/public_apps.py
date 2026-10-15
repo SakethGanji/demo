@@ -409,7 +409,8 @@ async def run_workflow_for_public_app(
 
 
 async def _run_app_workflow(app: AppModel, workflow_id: str, body: dict, exec_service,
-                            environment: str | None = None, mode: str = "app") -> Response:
+                            environment: str | None = None, mode: str = "app",
+                            trigger_type: str = "app") -> Response:
     """Run an allow-listed workflow for a published app (phase 3, BACKEND-DESIGN §3.3).
 
     * The workflow must be in the app's project.
@@ -434,7 +435,7 @@ async def _run_app_workflow(app: AppModel, workflow_id: str, body: dict, exec_se
     try:
         _, context = await exec_service.run_saved_workflow(
             workflow_id, body or None, environment=env, mode=mode, substitute_inputs=False,
-            timeout_s=_PUBLIC_RUN_TIMEOUT_S, metadata={"trigger": {"type": "app", "app_id": app.id}},
+            timeout_s=_PUBLIC_RUN_TIMEOUT_S, metadata={"trigger": {"type": trigger_type, "app_id": app.id}},
         )
     except asyncio.TimeoutError:
         return JSONResponse({"status": "timeout"}, status_code=504)

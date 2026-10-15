@@ -308,7 +308,12 @@ async def preview_token(project: str, app_id: str, session: AsyncSession = Depen
     env = p.default_environment
     token = issue_token(app.id, 0, ttl_seconds=3600, env=env, preview=True)
     exp = verify_token(token).exp
-    return {"token": token, "environment": env, "expires_at": datetime.fromtimestamp(exp).isoformat(timespec="seconds")}
+    return {"token": token, "environment": env, "expires_at": utc_iso(exp)}  # review C13: UTC with Z
+
+
+def utc_iso(epoch: float) -> str:
+    from datetime import datetime, timezone
+    return datetime.fromtimestamp(epoch, tz=timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 # ── the project router ───────────────────────────────────────────────────────

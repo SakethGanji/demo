@@ -17,6 +17,17 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+_MODE_TRIGGER = {"manual": "manual", "webhook": "webhook", "cron": "cron", "retry": "retry", "app": "app",
+                 "api": "public", "sandbox": "draft_test"}
+TRIGGER_TYPES = {"manual", "webhook", "cron", "retry", "route_test", "draft_test", "generate_self_test", "app",
+                 "app_preview", "api_key", "public"}
+
+
+def default_trigger_type(mode: str | None) -> str:
+    """Review C2: every execution carries metadata.trigger.type; callers that know better set it."""
+    return _MODE_TRIGGER.get(mode or "", mode or "manual")
+
+
 class ExecutionRepository:
     """Repository for execution history persistence."""
 
@@ -43,6 +54,10 @@ class ExecutionRepository:
             wf = await self._session.get(WorkflowModel, workflow_id)
             project_id = wf.project_id if wf else "proj_default"
 
+        meta = dict(metadata or {})
+        trigger = dict(meta.get("trigger") or {})
+        trigger.setdefault("type", default_trigger_type(mode))
+        meta["trigger"] = trigger
         db_execution = ExecutionModel(
             id=execution_id,
             workflow_id=workflow_id,
@@ -52,7 +67,7 @@ class ExecutionRepository:
             start_time=datetime.now(),
             project_id=project_id,
             environment=environment,
-            exec_metadata=metadata or {},
+            exec_metadata=meta,
         )
 
         self._session.add(db_execution)
@@ -81,7 +96,11 @@ class ExecutionRepository:
         """Update execution with final state."""
         db_execution = await self._session.get(ExecutionModel, context.execution_id)
 
+        created_here = False
         if not db_execution:
+            # Paths that never called start() (cron, retry): same defaults as start() (review C2/D6).
+            from ..db.models import WorkflowModel
+            wf = await self._session.get(WorkflowModel, workflow_id)
             db_execution = ExecutionModel(
                 id=context.execution_id,
                 workflow_id=workflow_id,
@@ -89,9 +108,13 @@ class ExecutionRepository:
                 status="running",
                 mode=context.mode,
                 start_time=context.start_time,
+                project_id=getattr(context, "project_id", None) or (wf.project_id if wf else "proj_default"),
+                environment=getattr(context, "environment", None),
+                exec_metadata={"trigger": {"type": default_trigger_type(context.mode)}},
             )
             self._session.add(db_execution)
             await self._session.flush()
+            created_here = True
 
         # Update execution status
         db_execution.status = "failed" if context.errors else "success"
@@ -171,8 +194,10 @@ class ExecutionRepository:
         # Read back node outputs for the return value
         node_outputs = await self._get_node_outputs(context.execution_id)
         node_data, node_metrics = self._outputs_to_dicts(node_outputs)
-
-        return self._to_execution_record(db_execution, node_outputs, node_metrics)
+        record = self._to_execution_record(db_execution, node_outputs, node_metrics)
+        if created_here:
+            await self._cleanup()
+        return record
 
     async def get(self, execution_id: str) -> ExecutionRecord | None:
         """Get an execution record by ID."""
@@ -188,6 +213,7 @@ class ExecutionRepository:
         self, workflow_id: str | None = None, project_id: str | None = None,
         mode: str | None = None, status: str | None = None, limit: int | None = None,
         before: str | None = None, route_id: str | None = None, environment: str | None = None,
+        trigger: str | None = None,
     ) -> list[ExecutionRecord]:
         """List execution records, optionally filtered by workflow / project / mode / status."""
         statement = select(ExecutionModel).order_by(ExecutionModel.start_time.desc())
@@ -204,13 +230,17 @@ class ExecutionRepository:
             statement = statement.where(ExecutionModel.environment == environment)
         if route_id:
             statement = statement.where(ExecutionModel.exec_metadata["trigger"]["route_id"].astext == route_id)
+        if trigger:
+            statement = statement.where(ExecutionModel.exec_metadata["trigger"]["type"].astext == trigger)
         if before:
             pivot = await self._session.get(ExecutionModel, before)
-            if pivot is not None:
-                statement = statement.where(
-                    (ExecutionModel.start_time < pivot.start_time)
-                    | ((ExecutionModel.start_time == pivot.start_time) & (ExecutionModel.id < pivot.id))
-                )
+            if pivot is None:
+                # Review D6: the cursor row was pruned (or never existed) — an empty page, never page 1 again.
+                return []
+            statement = statement.where(
+                (ExecutionModel.start_time < pivot.start_time)
+                | ((ExecutionModel.start_time == pivot.start_time) & (ExecutionModel.id < pivot.id))
+            )
             statement = statement.order_by(None).order_by(ExecutionModel.start_time.desc(), ExecutionModel.id.desc())
         if limit:
             statement = statement.limit(limit)
@@ -336,23 +366,25 @@ class ExecutionRepository:
         await self._session.commit()
 
     async def _cleanup(self) -> None:
-        """Remove old records if over max."""
-        statement = select(ExecutionModel).order_by(ExecutionModel.start_time.desc())
-        result = await self._session.execute(statement)
-        executions = result.scalars().all()
+        """Keep the newest ``max_records`` executions (review D6: called on every insert path).
 
-        if len(executions) > self._max_records:
-            to_delete = executions[self._max_records:]
-            for execution in to_delete:
-                # Delete node outputs first
-                stmt = select(NodeOutputModel).where(
-                    NodeOutputModel.execution_id == execution.id
-                )
-                res = await self._session.execute(stmt)
-                for output in res.scalars().all():
-                    await self._session.delete(output)
-                await self._session.delete(execution)
-            await self._session.commit()
+        Pruned executions take their node outputs and broker-call rows with them."""
+        from sqlalchemy import delete as sa_delete
+
+        from ..db.models import BrokerCallModel
+
+        ids = (await self._session.execute(
+            select(ExecutionModel.id).order_by(ExecutionModel.start_time.desc(), ExecutionModel.id.desc())
+            .offset(self._max_records))).scalars().all()
+        if not ids:
+            return
+        await self._session.execute(sa_delete(NodeOutputModel).where(NodeOutputModel.execution_id.in_(ids)))
+        await self._session.execute(sa_delete(BrokerCallModel).where(BrokerCallModel.execution_id.in_(ids)))
+        await self._session.execute(sa_delete(ExecutionModel).where(ExecutionModel.id.in_(ids)))
+        await self._session.commit()
+
+    async def cleanup(self) -> None:
+        await self._cleanup()
 
     async def _get_node_outputs(self, execution_id: str) -> list[NodeOutputModel]:
         """Get all node outputs for an execution."""

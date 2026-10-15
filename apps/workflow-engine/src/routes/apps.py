@@ -165,7 +165,7 @@ async def preview_workflow_run(app_id: str, workflow_id: str, request: Request,
     project = await service._session.get(ProjectModel, app.project_id)
     return await _run_app_workflow(app, workflow_id, body if isinstance(body, dict) else {"value": body}, exec_service,
                                    environment=claims.env or (project.default_environment if project else "default"),
-                                   mode="app")
+                                   mode="app", trigger_type="app_preview")
 
 
 # ── Version endpoints ────────────────────────────────────────────────────────

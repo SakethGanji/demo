@@ -49,6 +49,17 @@ class Credential:
     environment: str
     app_id: str | None = None
     key_id: str | None = None
+    preview: bool = False
+    test: bool = False  # /test (management call, auth bypassed)
+
+    @property
+    def trigger_type(self) -> str:
+        """Review C2: route_test | app_preview | app | api_key | public."""
+        if self.test:
+            return "route_test"
+        if self.kind == "app_token":
+            return "app_preview" if self.preview else "app"
+        return "api_key" if self.kind == "api_key" else "public"
 
 
 class AuthError(Exception):
@@ -129,7 +140,7 @@ class RouteDispatcher:
                 env = claims.env or project.default_environment
                 if env_kind(project, env) != "draft":
                     raise AuthError()
-                return Credential("app_token", env, app_id=app.id)
+                return Credential("app_token", env, app_id=app.id, preview=True)
             if claims.version_id != app.published_version_id:
                 raise AuthError()
             return Credential("app_token", project.live_environment, app_id=app.id)
@@ -141,15 +152,35 @@ class RouteDispatcher:
 
     async def handle(self, project: ProjectModel, req: RouteRequest, *, forced_env: str | None = None) -> DispatchResult:
         try:
-            cred = Credential("api_key", forced_env) if forced_env else await self.authenticate(project, req.headers)
+            cred = Credential("api_key", forced_env, test=True) if forced_env else await self.authenticate(project, req.headers)
         except AuthError as e:
             return DispatchResult(e.status, {"error": e.error})
         result = await self._dispatch(project, req, cred)
         # Review D4: one redactor for everything that leaves the router — body, headers and
         # error messages, for every handler type (workflow, Respond node, python).
         from .variable_loader import load_run_secrets
-        return redact_result(result, await load_run_secrets(environment=cred.environment, team_id=project.team_id,
-                                                            project_id=project.id))
+        secrets = await load_run_secrets(environment=cred.environment, team_id=project.team_id, project_id=project.id)
+        result = redact_result(result, secrets)
+        if result.execution_id:
+            await self._record_exchange(result, req, secrets)
+        return result
+
+    async def _record_exchange(self, res: DispatchResult, req: RouteRequest, secrets: set[str]) -> None:
+        """Review C3: metadata.request / metadata.response on the run — redacted, 16 KB each."""
+        from ..repositories.execution_repository import ExecutionRepository
+        from .vars_substitution import redact_deep
+
+        req_part = {"method": req.method.upper(), "path": req.path, "query": dict(req.query or {}),
+                    "headers": {k: v for k, v in (req.headers or {}).items() if k.lower() not in STRIP_HEADERS}}
+        req_part = {**redact_deep(req_part, secrets), **capped_body(redact_deep(req.body, secrets)
+                                                                    if isinstance(req.body, (dict, list, str)) else req.body)}
+        resp_part = {"status": res.status, "headers": dict(res.headers or {}), "content_type": res.content_type,
+                     **capped_body(res.body)}
+        try:
+            await ExecutionRepository(self._s).set_metadata(res.execution_id, {"request": req_part, "response": resp_part})
+        except Exception:  # never fail a request because the run row could not be annotated
+            import logging
+            logging.getLogger(__name__).warning("could not store request/response on %s", res.execution_id, exc_info=True)
 
     async def _dispatch(self, project: ProjectModel, req: RouteRequest, cred: Credential) -> DispatchResult:
         specs, release = await self.route_set(project, cred.environment)
@@ -171,7 +202,7 @@ class RouteDispatcher:
         if handler.get("type") == "stub":
             return DispatchResult(501, {"error": "not_implemented", "route": f"{spec['method']} {spec['path']}",
                                         "operation": spec["name"]})
-        trigger = {"type": "api", "route_id": spec["id"], "method": spec["method"], "route": spec["path"],
+        trigger = {"type": cred.trigger_type, "route_id": spec["id"], "method": spec["method"], "route": spec["path"],
                    "path": req.path, "app_id": cred.app_id, "api_key_id": cred.key_id, "auth": cred.kind,
                    "release_id": getattr(release, "id", None)}
         item = {
@@ -252,6 +283,22 @@ class RouteDispatcher:
         except ImportError:
             return DispatchResult(503, {"error": "sandbox_unavailable"})
         return await run_python_route(self._s, project, spec, handler, item, env, trigger, release)
+
+
+BODY_CAP_BYTES = 16384
+
+
+def capped_body(body: Any) -> dict[str, Any]:
+    """{body, truncated[, body_preview]}: bodies over 16 KB (serialized) are replaced by a preview."""
+    try:
+        text = body if isinstance(body, str) else json.dumps(body, default=str)
+    except (TypeError, ValueError):
+        text = str(body)
+    raw = text.encode("utf-8", "replace") if text is not None else b""
+    if len(raw) <= BODY_CAP_BYTES:
+        return {"body": body, "truncated": False}
+    return {"body": None, "truncated": True, "size_bytes": len(raw),
+            "body_preview": raw[:BODY_CAP_BYTES].decode("utf-8", "ignore")}
 
 
 def release_extras(release) -> dict[str, Any] | None:

@@ -254,7 +254,7 @@ async def stream_adhoc_execution(
                 }
             )
         ]
-        mode = "webhook"
+        mode = "manual"  # review C2: studio runs with input are still manual runs
     else:
         initial_data = [
             NodeData(
@@ -376,7 +376,7 @@ async def stream_workflow_execution_with_input(
                 }
             )
         ]
-        mode = "webhook"
+        mode = "manual"  # review C2: studio runs with input are still manual runs
     else:
         initial_data = [
             NodeData(

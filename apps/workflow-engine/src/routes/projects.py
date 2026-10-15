@@ -161,12 +161,12 @@ def _run_item(e) -> dict[str, Any]:
 @router.get("/{project}/runs")
 async def project_runs(project: str, response: Response, limit: int = Query(50, ge=1, le=500), mode: str | None = None,
                        status: str | None = None, before: str | None = None, workflow_id: str | None = None,
-                       route_id: str | None = None, environment: str | None = None,
+                       route_id: str | None = None, environment: str | None = None, trigger: str | None = None,
                        svc: ProjectService = Depends(get_project_service),
                        exec_repo=Depends(get_execution_repository)):
     p = await require_project(project, svc)
     rows = await exec_repo.list(project_id=p.id, workflow_id=workflow_id, mode=mode, status=status, limit=limit + 1,
-                                before=before, route_id=route_id, environment=environment)
+                                before=before, route_id=route_id, environment=environment, trigger=trigger)
     if len(rows) > limit:
         rows = rows[:limit]
         response.headers["X-Next-Cursor"] = rows[-1].id
@@ -182,6 +182,12 @@ async def project_run_detail(project: str, execution_id: str, svc: ProjectServic
         raise HTTPException(status_code=404, detail={"code": "run_not_found", "message": "Run not found"})
     from .api_routes import run_trace
     trace = await run_trace(svc._s, execution_id)
+    release = None
+    rid = ((e.metadata or {}).get("trigger") or {}).get("release_id")
+    if rid:  # review C3: resolve the release number for the run sheet
+        from ..db.models import ReleaseModel
+        rel = await svc._s.get(ReleaseModel, rid)
+        release = {"id": rid, "number": rel.number if rel else None, "environment": rel.environment if rel else None}
     return {
         **_run_item(e),
         "errors": [{"node_name": x.node_name, "error": x.error, "timestamp": x.timestamp.isoformat(),
@@ -190,4 +196,5 @@ async def project_run_detail(project: str, execution_id: str, svc: ProjectServic
         "node_metrics": e.node_metrics,
         "metadata": e.metadata,
         "trace": trace,
+        "release": release,
     }
