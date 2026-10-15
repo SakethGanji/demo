@@ -17,6 +17,7 @@ import logging
 from typing import Any, AsyncGenerator
 
 from ..engine.llm_provider import call_llm
+from ..core.config import settings
 from ..repositories.api_test_repository import ApiTestRepository
 from .app_service import AppService
 from ..db.models import ApiTestExecutionModel
@@ -26,8 +27,8 @@ from .tsx_parser import parse_tsx_file
 
 logger = logging.getLogger(__name__)
 
-_HEAVY_MODEL = "claude-sonnet-4-6"
-_LIGHT_MODEL = "claude-sonnet-4-6"
+_HEAVY_MODEL = settings.app_builder_model or "claude-sonnet-4-6"
+_LIGHT_MODEL = settings.app_builder_model or "claude-sonnet-4-6"
 MAX_AGENT_TURNS = 25
 MAX_CONSECUTIVE_ERRORS = 3
 
@@ -510,7 +511,7 @@ class AppBuilderAIService:
             if response.malformed_tool_call:
                 consecutive_errors += 1
                 logger.warning("Turn %d: malformed tool call (consecutive_errors=%d)", turn, consecutive_errors)
-                if consecutive_errors >= 2 and current_model == _LIGHT_MODEL:
+                if consecutive_errors >= 2 and current_model == _LIGHT_MODEL and _LIGHT_MODEL != _HEAVY_MODEL:
                     logger.info("App builder: auto-escalating after malformed tool calls")
                     yield _sse("message", {"type": "phase", "phase": "escalating", "message": "Switching to advanced model"})
                     current_model = _HEAVY_MODEL
@@ -591,7 +592,7 @@ class AppBuilderAIService:
                 })
 
             # Auto-escalate after 2 consecutive errors (before hitting the hard stop at 3)
-            if consecutive_errors >= 2 and current_model == _LIGHT_MODEL:
+            if consecutive_errors >= 2 and current_model == _LIGHT_MODEL and _LIGHT_MODEL != _HEAVY_MODEL:
                 logger.info("App builder: auto-escalating after %d consecutive errors", consecutive_errors)
                 yield _sse("message", {"type": "phase", "phase": "escalating", "message": "Switching to advanced model after errors"})
                 current_model = _HEAVY_MODEL

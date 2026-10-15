@@ -56,6 +56,8 @@ class LLMResponse:
     usage: Optional[LLMUsage] = None
     response_time_ms: Optional[float] = None
     malformed_tool_call: bool = False
+    # JSON-safe native model content retains Gemini's opaque thought signatures.
+    gemini_content: Optional[Dict[str, Any]] = None
 
     def get_assistant_message(self) -> Dict:
         """Return the model's response as an OpenAI-format message dict."""
@@ -63,6 +65,7 @@ class LLMResponse:
             return {
                 "role": "assistant",
                 "content": self.text,
+                **({"_gemini_content": self.gemini_content} if self.gemini_content else {}),
                 "tool_calls": [
                     {
                         "id": tc.id,
@@ -75,7 +78,8 @@ class LLMResponse:
                     for tc in self.tool_calls
                 ],
             }
-        return {"role": "assistant", "content": self.text}
+        return {"role": "assistant", "content": self.text,
+                **({"_gemini_content": self.gemini_content} if self.gemini_content else {})}
 
 
 # ---------------------------------------------------------------------------
@@ -262,7 +266,9 @@ def _convert_messages_to_gemini_content(
             )
 
         elif role == "assistant":
-            if msg.get("tool_calls"):
+            if msg.get("_gemini_content"):
+                contents.append(Content.model_validate(msg["_gemini_content"]))
+            elif msg.get("tool_calls"):
                 parts = []
                 for tc in msg["tool_calls"]:
                     fn = tc.get("function", {})
@@ -485,6 +491,8 @@ def _parse_gemini_response(response: Any) -> LLMResponse:
         return LLMResponse(text="[Model returned no candidates]")
 
     candidate = response.candidates[0]
+    native_content = (candidate.content.model_dump(mode="json", exclude_none=True)
+                      if candidate.content is not None and hasattr(candidate.content, "model_dump") else None)
     finish = getattr(candidate, "finish_reason", None)
     finish_name = getattr(finish, "name", None)
 
@@ -513,6 +521,7 @@ def _parse_gemini_response(response: Any) -> LLMResponse:
             return LLMResponse(
                 text="\n".join(text_parts) if text_parts else None,
                 tool_calls=tool_calls,
+                gemini_content=native_content,
             )
         # No recoverable tool calls — try JSON repair on text parts
         if text_parts:
@@ -554,6 +563,7 @@ def _parse_gemini_response(response: Any) -> LLMResponse:
         return LLMResponse(
             text="\n".join(text_parts) if text_parts else None,
             tool_calls=tool_calls,
+            gemini_content=native_content,
         )
 
     text = None
@@ -567,7 +577,7 @@ def _parse_gemini_response(response: Any) -> LLMResponse:
         if finish_name and finish_name != "STOP":
             text += f" (finish_reason={finish_name})"
 
-    return LLMResponse(text=text)
+    return LLMResponse(text=text, gemini_content=native_content)
 
 
 # ---------------------------------------------------------------------------
@@ -606,7 +616,7 @@ async def _call_openai_compat(
 
     completion_kwargs: dict[str, Any] = {
         "model": model,
-        "messages": messages,
+        "messages": [{k: v for k, v in m.items() if k != "_gemini_content"} for m in messages],
         "temperature": temperature,
     }
     if api_tools:
@@ -799,8 +809,8 @@ _RETRY_BASE_DELAY = 1.0  # seconds
 def _is_retryable(exc: Exception) -> bool:
     """Check if an exception is transient and worth retrying."""
     # OpenAI / Anthropic SDK errors
-    status = getattr(exc, "status_code", None) or getattr(exc, "status", None)
-    if status in (429, 500, 502, 503, 529):
+    if any(getattr(exc, attr, None) in (429, 500, 502, 503, 529)
+           for attr in ("status_code", "status", "code")):
         return True
     # google-genai wraps HTTP errors in google.api_core.exceptions
     cls_name = type(exc).__name__
@@ -810,6 +820,25 @@ def _is_retryable(exc: Exception) -> bool:
     if isinstance(exc, (ConnectionError, TimeoutError, asyncio.TimeoutError)):
         return True
     return False
+
+
+def _retry_delay(exc: Exception, attempt: int) -> float:
+    """Honor Gemini's RetryInfo instead of retrying inside its quota window."""
+    delay = _RETRY_BASE_DELAY * (2 ** attempt)
+    body = getattr(exc, "details", None)
+    if isinstance(body, dict):
+        error = body.get("error", body)
+        details = (error.get("details") or []) if isinstance(error, dict) else []
+        for detail in details:
+            if not isinstance(detail, dict) or not str(detail.get("@type", "")).endswith("google.rpc.RetryInfo"):
+                continue
+            duration = detail.get("retryDelay")
+            if isinstance(duration, str) and duration.endswith("s"):
+                try:
+                    delay = max(delay, float(duration[:-1]) + 0.25)
+                except ValueError:
+                    pass
+    return delay
 
 
 async def call_llm(
@@ -841,7 +870,11 @@ async def call_llm(
             last_exc = exc
             if not _is_retryable(exc) or attempt == _MAX_RETRIES - 1:
                 raise
-            delay = _RETRY_BASE_DELAY * (2 ** attempt)
+            delay = _retry_delay(exc, attempt)
+            if delay > 60:
+                # Daily/exhausted quota needs outside action; never hold a run
+                # open for hours or repeatedly hammer the same failed request.
+                raise
             logger.warning(
                 "LLM call failed (attempt %d/%d), retrying in %.1fs: %s",
                 attempt + 1, _MAX_RETRIES, delay, exc,

@@ -31,7 +31,7 @@ Studio: `VITE_WORKFLOW_API_URL=http://127.0.0.1:8710 npx vite --port 5190`.
 ## Counts
 - tsc -b: baseline 53 → 44 → **0**; production Vite build passes (large-chunk warning remains)
 - unit (vitest): 23
-- engine: **276 passed**, no skips (5 existing Pydantic warnings)
+- engine: **285 passed**, no skips (5 existing Pydantic warnings)
 - browser: **46 scenarios / 47 cases passed** across the full run and affected generation-spec rerun
 - final captures: **28 PNGs**, light + dark, under `screenshots/ui-built/`; strict capture run passed
 
@@ -47,8 +47,12 @@ Studio: `VITE_WORKFLOW_API_URL=http://127.0.0.1:8710 npx vite --port 5190`.
 - Existing TypeScript errors were resolved with actual event/prop types, string/schema guards and boolean JSX conditions;
   compiler checks were not disabled and no assertions were cast to `any`.
 - `e2e/capture.config.ts` captures the main screens and sheets into `screenshots/ui-built/` in light/dark themes.
-- AI calls remain simulated for these browser checks. The owner deferred real Gemini Generate/Refine/Create UI validation
-  until after UI completion; no successful live flow is claimed in this update. No audit agent was spawned.
+- The 47-case browser suite uses simulated AI. Separate real Gemini browser runs verified Generate,
+  Refine, Create UI, preview refresh after changing backend data, and the published app. The final
+  UI pass used a replacement key and reused the previously generated/refined real backend source.
+  Exact data assertions confirmed Green mug/count 1/EUR; no browser page errors occurred. See E2E.md.
+  Gemini tool signatures, model selection, bounded retries and same-model error handling were corrected.
+  No audit agent was spawned.
 
 ## Deviations (so far)
 - The AI draft is applied to the editor on the terminal `result` (one transaction), not streamed line by line;

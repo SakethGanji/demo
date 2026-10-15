@@ -78,6 +78,8 @@ class Settings(BaseSettings):
     # POST /projects/{p}/modules/generate (UI-DESIGN §10.1)
     module_gen_model: str = "claude-sonnet-4-6"
     module_gen_timeout_s: float = 120.0
+    # Optional provider/model override for the app builder (both agent tiers).
+    app_builder_model: str | None = None
 
 
 @lru_cache

@@ -112,3 +112,53 @@ Latest passing verification by spec (full run plus the affected generation-spec 
 The generation-spec rerun also verifies the save/analysis race fix: saving cancels queued and
 in-flight analysis and pauses it until the saved module id is installed, preventing a stale
 new-module preview from reporting `409 name_taken` after a successful save.
+
+## Live Gemini validation (2026-10-15)
+
+Real Gemini browser testing used a separate `workflows_test_e2e_*` database, real sandbox and
+real APIs, with no fake LLM or mocked application requests. Provider keys were loaded only as
+environment variables from the ignored engine `.env.local`; no key is in the committed files.
+
+- **Generate passed**, using `gemini-3.5-flash`: generated `inventory_api`, saved it, and executed
+  `GET /items` successfully. Its generation self-test passed 1/1.
+- **Refine passed**: added `GET /items/summary`, saved it, and executed the refined route successfully.
+  Its self-tests passed 2/2; both saved route tests returned 200.
+- **Create UI passed**, using `gemini-3.5-flash` with the replacement key: generated and saved
+  `App.tsx`, compiled it, and rendered actual item/count/currency values from the real backend.
+- **Refresh and publish passed**: after changing the backend from Blue mug/USD to Green mug/EUR,
+  Refresh made two successful API calls and rendered the changed values. The published app also
+  rendered Green mug, count 1, and EUR. No browser page errors were recorded.
+
+Generate and Refine were verified in an earlier live browser run. The final Create UI run reused
+that real generated/refined source in a fresh isolated database, avoiding duplicate generation
+calls. It did not use mocked source or mocked APIs. Earlier attempts encountered provider quota,
+high demand, and malformed tool responses; those failed attempts are not counted as passes.
+An initial static-label assertion was replaced with exact rendered-value assertions and changed
+backend data, so loading screens cannot satisfy the final check.
+
+Live testing found and fixed these provider issues:
+
+1. `WORKFLOW_APP_BUILDER_MODEL` can now override both app-builder agent tiers; unset, the existing
+   Claude default remains. `WORKFLOW_MODULE_GEN_MODEL` selects the backend generation model.
+2. Gemini's native model content, including opaque thought signatures, survives multi-turn tool
+   calls and JSON serialization. This metadata is excluded from OpenAI requests.
+3. Retry handling recognizes the google-genai SDK's numeric `code`, honors short RetryInfo quota
+   windows, and surfaces quota windows longer than 60 seconds without waiting for hours.
+4. Repeated errors stop after the configured limit when both agent tiers use the same model;
+   switching to the same model no longer resets the error counter.
+
+Nine focused regression cases were added; the complete engine suite passes **285 tests**.
+Local live evidence is under `screenshots/live-gemini/` (not committed): `report.json`,
+`03-create-ui.png`, `03b-refresh.png`, and `04-published.png`. The report includes generated source,
+self-test results, successful API responses, and changed-data assertions.
+
+For local Gemini startup, explicitly export the ignored file before starting the engine:
+
+```bash
+cd apps/workflow-engine
+set -a
+. ./.env.local
+set +a
+# The file needs GEMINI_API_KEY plus WORKFLOW_MODULE_GEN_MODEL and WORKFLOW_APP_BUILDER_MODEL.
+# Choose models available to your project and with sufficient quota.
+```
