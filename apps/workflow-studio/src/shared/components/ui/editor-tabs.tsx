@@ -24,7 +24,7 @@ function EditorTabList({ className, children, ...props }: React.HTMLAttributes<H
 */
 interface EditorTabProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   active?: boolean
-  icon?: React.ComponentType<{ size?: number }>
+  icon?: React.ComponentType<{ size?: number | string }>
 }
 
 function EditorTab({ active, icon: Icon, children, className, ...props }: EditorTabProps) {

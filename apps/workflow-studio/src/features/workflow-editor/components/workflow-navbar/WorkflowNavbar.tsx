@@ -41,11 +41,13 @@ import { useSaveWorkflow, usePublishWorkflow, useImportWorkflow } from '../../ho
 import { toast } from 'sonner';
 import { toBackendWorkflow } from '../../lib/workflowTransform';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/components/ui/tooltip';
+import { useEditorProjectStore } from '../../stores/editorProjectStore';
 import { ToolbarGroup, ToolbarSeparator } from '@/shared/components/ui/toolbar';
 import { EnvProfileSelector } from '../env-profiles/EnvProfileSelector';
 import type { WorkflowNodeData } from '../../types/workflow';
 import type { Node } from '@xyflow/react';
 export default function WorkflowNavbar() {
+  const projectSlug = useEditorProjectStore((s) => s.slug);
   const workflowName = useWorkflowStore((s) => s.workflowName);
   const workflowId = useWorkflowStore((s) => s.workflowId);
   const isActive = useWorkflowStore((s) => s.isActive);
@@ -125,12 +127,14 @@ export default function WorkflowNavbar() {
       <div className="flex items-center h-11 px-3 bg-[var(--surface)]/80 backdrop-blur-xl rounded-xl shadow-lg border border-border/30 gap-1">
         {/* Left section: Back + Name */}
         <Link
-          to="/projects"
+          to="/p/$project/workflows"
+          params={{ project: projectSlug }}
           className="h-8 px-1.5 flex items-center gap-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors text-xs"
-          title="Back to projects"
+          title="Back to workflows"
+          data-testid="editor-back"
         >
           <ChevronLeft size={14} />
-          <span className="hidden sm:inline">Projects</span>
+          <span className="hidden sm:inline">Workflows</span>
         </Link>
 
         <ToolbarSeparator />
@@ -260,29 +264,33 @@ export default function WorkflowNavbar() {
         {/* Publish / Unpublish */}
         {isActive ? (
           <Tooltip>
-            <TooltipTrigger>
-              <button
-                onClick={() => unpublish()}
-                disabled={isPublishing || !workflowId}
-                className="h-7 px-2.5 flex items-center gap-1.5 rounded-md text-xs font-medium bg-[var(--success)]/15 text-[var(--success)] hover:bg-[var(--success)]/25 transition-colors disabled:opacity-40"
-              >
-                {isPublishing ? <Loader2 size={12} className="animate-spin" /> : <div className="w-1.5 h-1.5 rounded-full bg-[var(--success)]" />}
-                <span>Live</span>
-              </button>
+            <TooltipTrigger
+              render={
+                <button
+                  onClick={() => unpublish()}
+                  disabled={isPublishing || !workflowId}
+                  className="h-7 px-2.5 flex items-center gap-1.5 rounded-md text-xs font-medium bg-[var(--success)]/15 text-[var(--success)] hover:bg-[var(--success)]/25 transition-colors disabled:opacity-40"
+                />
+              }
+            >
+              {isPublishing ? <Loader2 size={12} className="animate-spin" /> : <div className="w-1.5 h-1.5 rounded-full bg-[var(--success)]" />}
+              <span>Live</span>
             </TooltipTrigger>
             <TooltipContent>Click to unpublish</TooltipContent>
           </Tooltip>
         ) : (
           <Tooltip>
-            <TooltipTrigger>
-              <button
-                onClick={() => publish()}
-                disabled={isPublishing || !workflowId}
-                className="h-7 px-2.5 flex items-center gap-1.5 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-40"
-              >
-                {isPublishing ? <Loader2 size={12} className="animate-spin" /> : <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50" />}
-                <span>Publish</span>
-              </button>
+            <TooltipTrigger
+              render={
+                <button
+                  onClick={() => publish()}
+                  disabled={isPublishing || !workflowId}
+                  className="h-7 px-2.5 flex items-center gap-1.5 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-40"
+                />
+              }
+            >
+              {isPublishing ? <Loader2 size={12} className="animate-spin" /> : <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50" />}
+              <span>Publish</span>
             </TooltipTrigger>
             <TooltipContent>Publish a new version and enable triggers</TooltipContent>
           </Tooltip>

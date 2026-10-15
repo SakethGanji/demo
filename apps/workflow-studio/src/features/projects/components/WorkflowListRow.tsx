@@ -53,7 +53,7 @@ export function WorkflowListRow({ workflow, lastRun }: WorkflowListRowProps) {
           <span className="text-[13px] font-medium truncate block">{workflow.name}</span>
         </div>
 
-        <Badge variant={workflow.active ? 'success' : 'glass'} className="shrink-0">
+        <Badge variant={workflow.active ? 'success' : 'neutral'} className="shrink-0">
           {workflow.active ? 'Active' : 'Inactive'}
         </Badge>
 
@@ -91,10 +91,8 @@ export function WorkflowListRow({ workflow, lastRun }: WorkflowListRowProps) {
             )}
           </Button>
           <DropdownMenu>
-            <DropdownMenuTrigger onClick={(e) => e.stopPropagation()}>
-              <Button variant="ghost" size="icon-sm">
-                <MoreHorizontal className="h-3.5 w-3.5" />
-              </Button>
+            <DropdownMenuTrigger onClick={(e) => e.stopPropagation()} render={<Button variant="ghost" size="icon-sm" />}>
+              <MoreHorizontal className="h-3.5 w-3.5" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
               <DropdownMenuItem onClick={handleOpen}>Open in Editor</DropdownMenuItem>

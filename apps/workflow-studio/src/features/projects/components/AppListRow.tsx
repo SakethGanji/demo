@@ -52,10 +52,11 @@ export function AppListRow({ app }: AppListRowProps) {
         <span className="text-xs text-muted-foreground">{formatDate(app.createdAt)}</span>
         <span className="text-xs text-muted-foreground">{formatRelative(app.updatedAt)}</span>
         <DropdownMenu>
-          <DropdownMenuTrigger onClick={(e) => e.stopPropagation()}>
-            <Button variant="ghost" size="icon-sm" className="h-7 w-7">
-              <MoreHorizontal size={14} />
-            </Button>
+          <DropdownMenuTrigger
+            onClick={(e) => e.stopPropagation()}
+            render={<Button variant="ghost" size="icon-sm" className="h-7 w-7" />}
+          >
+            <MoreHorizontal size={14} />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
             <DropdownMenuItem onClick={handleOpen}>

@@ -39,12 +39,15 @@ export interface BackendWorkflow {
   name: string;
   nodes: BackendNodeDefinition[];
   connections: BackendConnection[];
+  project_id?: string;
+  settings?: Record<string, unknown>;
 }
 
 // Summary returned by GET /api/workflows (list endpoint)
 export interface ApiWorkflowSummary {
   id: string;
   name: string;
+  project_id?: string;
   active: boolean;
   webhook_url: string;
   node_count: number;
@@ -92,6 +95,7 @@ export interface ApiExecutionListItem {
 export interface ApiWorkflowDetail {
   id: string;
   name: string;
+  project_id?: string;
   active: boolean;
   definition: {
     nodes: Array<{

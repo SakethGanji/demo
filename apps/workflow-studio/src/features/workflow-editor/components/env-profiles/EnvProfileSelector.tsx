@@ -12,6 +12,7 @@ import {
 import { useEnvProfilesStore } from '../../stores/envProfilesStore';
 import { useVariableEnvironments } from '../../hooks/useVariablesApi';
 import { EnvVariablesModal } from './EnvVariablesModal';
+import { useEditorProjectStore } from '../../stores/editorProjectStore';
 
 // Fallback list when the API hasn't surfaced any envs yet (fresh DB / offline).
 const FALLBACK_ENVIRONMENTS = ['default', 'dev', 'uat', 'prod'] as const;
@@ -22,18 +23,27 @@ export function EnvProfileSelector() {
   const [manageOpen, setManageOpen] = useState(false);
 
   const { data: envsFromApi } = useVariableEnvironments();
+  const projectId = useEditorProjectStore((s) => s.projectId);
+  const projectEnvs = useEditorProjectStore((s) => s.environments);
 
-  // Merge API-known envs with fallbacks; always include the active env so it's selectable.
-  const envSet = new Set<string>(FALLBACK_ENVIRONMENTS);
-  for (const e of envsFromApi ?? []) envSet.add(e);
-  envSet.add(activeEnvironment);
-  const options = [...envSet].sort();
+  // Projects other than Default list exactly their environments (UI-DESIGN §6.6). The Default
+  // project keeps the legacy behaviour: API-known envs merged with fallbacks.
+  let options: string[];
+  if (projectId !== 'proj_default' && projectEnvs.length > 0) {
+    options = projectEnvs;
+  } else {
+    const envSet = new Set<string>(FALLBACK_ENVIRONMENTS);
+    for (const e of envsFromApi ?? []) envSet.add(e);
+    envSet.add(activeEnvironment);
+    options = [...envSet].sort();
+  }
 
   return (
     <>
       <DropdownMenu>
         <DropdownMenuTrigger
           title={`Workflow runs use variables from environment: ${activeEnvironment}`}
+          data-testid="editor-env-select"
           className="h-7 px-2.5 flex items-center gap-1.5 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
         >
           <Layers size={12} />

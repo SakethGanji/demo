@@ -160,10 +160,11 @@ export default function LandingPage() {
             to="/projects"
             className="px-4 py-2 rounded-md transition-all font-medium flex items-center gap-2 text-slate-400 hover:text-white hover:bg-white/5"
           >
-            Workflows
+            Projects
           </Link>
           <Link
-            to="/editor"
+            to="/p/$project/workflows/$workflowId"
+            params={{ project: 'default', workflowId: 'new' }}
             className="px-4 py-2 rounded-md transition-all font-medium flex items-center gap-2 text-slate-400 hover:text-white hover:bg-white/5"
           >
             Editor
@@ -207,7 +208,8 @@ export default function LandingPage() {
               <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-1" />
             </Link>
             <Link
-              to="/editor"
+              to="/p/$project/workflows/$workflowId"
+              params={{ project: 'default', workflowId: 'new' }}
               className="inline-flex items-center gap-2 rounded-xl bg-[#1a1a1a] border border-white/10 px-10 py-4 text-base font-bold text-white hover:bg-[#222] transition-all"
             >
               <Play className="h-4 w-4 fill-current" />

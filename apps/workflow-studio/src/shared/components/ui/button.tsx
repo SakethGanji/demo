@@ -1,3 +1,4 @@
+import * as React from "react"
 import { Button as ButtonPrimitive } from "@base-ui/react/button"
 import { cva, type VariantProps } from "class-variance-authority"
 
@@ -18,6 +19,7 @@ const buttonVariants = cva(
         destructive:
           "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
         link: "text-primary underline-offset-4 hover:underline",
+        ai: "bg-ai text-white hover:bg-ai/90",
       },
       size: {
         default:
@@ -40,19 +42,25 @@ const buttonVariants = cva(
   }
 )
 
-function Button({
-  className,
-  variant = "default",
-  size = "default",
-  ...props
-}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+/**
+ * forwardRef so it can be a Base UI `render` target (triggers pass refs). When `render` swaps
+ * the element (e.g. a router <Link>), native button semantics are off unless asked for.
+ */
+const Button = React.forwardRef<
+  HTMLElement,
+  ButtonPrimitive.Props & VariantProps<typeof buttonVariants>
+>(function Button({ className, variant = "default", size = "default", render, nativeButton, ...props }, ref) {
   return (
     <ButtonPrimitive
+      ref={ref as React.Ref<HTMLButtonElement>}
       data-slot="button"
+      data-variant={variant ?? undefined}
       className={cn(buttonVariants({ variant, size, className }))}
+      render={render}
+      nativeButton={nativeButton ?? (render ? false : undefined)}
       {...props}
     />
   )
-}
+})
 
 export { Button, buttonVariants }

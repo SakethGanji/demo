@@ -50,14 +50,11 @@ export function AppCard({ app }: AppCardProps) {
           </div>
           <div className="absolute top-2.5 right-2.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
             <DropdownMenu>
-              <DropdownMenuTrigger onClick={(e) => e.stopPropagation()}>
-                <Button
-                  variant="secondary"
-                  size="icon-sm"
-                  className="h-7 w-7 rounded-full shadow-sm"
-                >
-                  <MoreHorizontal className="h-3.5 w-3.5" />
-                </Button>
+              <DropdownMenuTrigger
+                onClick={(e) => e.stopPropagation()}
+                render={<Button variant="secondary" size="icon-sm" className="h-7 w-7 rounded-full shadow-sm" />}
+              >
+                <MoreHorizontal className="h-3.5 w-3.5" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
                 <DropdownMenuItem onClick={handleOpen}>

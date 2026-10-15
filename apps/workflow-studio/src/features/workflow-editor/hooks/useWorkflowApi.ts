@@ -9,6 +9,8 @@ import { useCallback, useRef } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { workflowsApi } from '@/shared/lib/api';
+import { projectsApi } from '@/shared/api/endpoints';
+import { useEditorProjectStore } from '../stores/editorProjectStore';
 import { useWorkflowStore } from '../stores/workflowStore';
 import type { BackendWorkflow } from '@/shared/lib/backendTypes';
 import {
@@ -30,9 +32,11 @@ export function useSaveWorkflow() {
   const isSavingRef = useRef(false);
 
   const createMutation = useMutation({
-    mutationFn: (workflow: BackendWorkflow) => workflowsApi.create(workflow),
+    mutationFn: (workflow: BackendWorkflow) =>
+      projectsApi.createWorkflow(useEditorProjectStore.getState().projectId, workflow),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workflows'] });
+      queryClient.invalidateQueries({ queryKey: ['project'] });
     },
   });
 
@@ -41,6 +45,7 @@ export function useSaveWorkflow() {
       workflowsApi.update(id, workflow),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workflows'] });
+      queryClient.invalidateQueries({ queryKey: ['project'] });
     },
   });
 
@@ -75,8 +80,8 @@ export function useSaveWorkflow() {
         useWorkflowStore.getState().setWorkflowId(result.id);
         // Update URL to include the new workflow ID
         navigate({
-          to: '/editor',
-          search: { workflowId: result.id },
+          to: '/p/$project/workflows/$workflowId',
+          params: { project: useEditorProjectStore.getState().slug, workflowId: result.id },
           replace: true,
         });
         useWorkflowStore.getState().markAsSaved();
@@ -112,9 +117,11 @@ export function useImportWorkflow() {
   const queryClient = useQueryClient();
 
   const createMutation = useMutation({
-    mutationFn: (workflow: BackendWorkflow) => workflowsApi.create(workflow),
+    mutationFn: (workflow: BackendWorkflow) =>
+      projectsApi.createWorkflow(useEditorProjectStore.getState().projectId, workflow),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workflows'] });
+      queryClient.invalidateQueries({ queryKey: ['project'] });
     },
   });
 
@@ -150,8 +157,8 @@ export function useImportWorkflow() {
 
       // Navigate to the editor with the new workflow
       navigate({
-        to: '/editor',
-        search: { workflowId: created.id },
+        to: '/p/$project/workflows/$workflowId',
+        params: { project: useEditorProjectStore.getState().slug, workflowId: created.id },
         replace: true,
       });
 

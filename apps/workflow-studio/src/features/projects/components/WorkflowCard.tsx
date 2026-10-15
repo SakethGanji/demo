@@ -35,7 +35,7 @@ interface WorkflowCardProps {
   lastRun?: LatestExecution;
 }
 
-export function WorkflowCard({ workflow, lastRun }: WorkflowCardProps) {
+export function WorkflowCard({ workflow }: WorkflowCardProps) {
   const {
     isRunning,
     isDeleting,
@@ -63,14 +63,11 @@ export function WorkflowCard({ workflow, lastRun }: WorkflowCardProps) {
           {/* Hover actions overlay */}
           <div className="absolute top-2.5 right-2.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
             <DropdownMenu>
-              <DropdownMenuTrigger onClick={(e) => e.stopPropagation()}>
-                <Button
-                  variant="secondary"
-                  size="icon-sm"
-                  className="h-7 w-7 rounded-full shadow-sm"
-                >
-                  <MoreHorizontal className="h-3.5 w-3.5" />
-                </Button>
+              <DropdownMenuTrigger
+                onClick={(e) => e.stopPropagation()}
+                render={<Button variant="secondary" size="icon-sm" className="h-7 w-7 rounded-full shadow-sm" />}
+              >
+                <MoreHorizontal className="h-3.5 w-3.5" />
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 align="end"
@@ -110,7 +107,7 @@ export function WorkflowCard({ workflow, lastRun }: WorkflowCardProps) {
               {workflow.name}
             </h3>
             <Badge
-              variant={workflow.active ? 'success' : 'glass'}
+              variant={workflow.active ? 'success' : 'neutral'}
               className="shrink-0 text-[10px]"
             >
               {workflow.active ? 'Active' : 'Inactive'}

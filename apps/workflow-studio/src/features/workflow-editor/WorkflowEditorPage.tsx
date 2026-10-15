@@ -1,13 +1,12 @@
 import { lazy, Suspense, useEffect } from 'react'
-import { createRoute } from '@tanstack/react-router'
 import { ReactFlowProvider } from '@xyflow/react'
 import { Loader2, X, Blocks, Sparkles } from 'lucide-react'
+import { toast } from 'sonner'
 import { EditorTabList, EditorTab } from '@/shared/components/ui/editor-tabs'
-import { rootRoute } from './__root'
 import { useWorkflowStore } from '@/features/workflow-editor/stores/workflowStore'
 import { useEditorLayoutStore, type RightPanelTab } from '@/features/workflow-editor/stores/editorLayoutStore'
 import { fromBackendWorkflow } from '@/features/workflow-editor/lib/workflowTransform'
-import { backends } from '@/shared/lib/config'
+import { workflowsApi } from '@/shared/lib/api'
 import { useNodeTypes } from '@/features/workflow-editor/hooks/useNodeTypes'
 import type { NodeTypeMetadata } from '@/features/workflow-editor/lib/createNodeData'
 // Lazy load heavy components
@@ -76,17 +75,11 @@ function EditorLoadingFallback() {
   )
 }
 
-export const editorRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: 'editor',
-  validateSearch: (search: Record<string, unknown>): { workflowId?: string } => ({
-    workflowId: search.workflowId as string | undefined,
-  }),
-  component: EditorPage,
-})
-
-function EditorPage() {
-  const { workflowId } = editorRoute.useSearch()
+/**
+ * Today's canvas editor, unchanged inside (UI-DESIGN §2.1). Mounted at
+ * `/p/$project/workflows/$workflowId` (`new` = a fresh workflow).
+ */
+export function WorkflowEditorPage({ workflowId }: { workflowId?: string }) {
   const loadWorkflow = useWorkflowStore((s) => s.loadWorkflow)
   const resetWorkflow = useWorkflowStore((s) => s.resetWorkflow)
   const currentWorkflowId = useWorkflowStore((s) => s.workflowId)
@@ -131,13 +124,11 @@ function EditorPage() {
 
     async function fetchWorkflow() {
       try {
-        const res = await fetch(`${backends.workflow}/api/workflows/${workflowId}`)
-        if (!res.ok) throw new Error('Failed to fetch workflow')
-        const data = await res.json()
+        const data = await workflowsApi.get(workflowId!)
         const transformed = fromBackendWorkflow(data)
         loadWorkflow(transformed)
       } catch (error) {
-        console.error('Failed to load workflow:', error)
+        toast.error('Could not load workflow', { description: error instanceof Error ? error.message : String(error) })
       }
     }
 

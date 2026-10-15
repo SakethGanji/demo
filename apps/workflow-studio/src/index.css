@@ -55,6 +55,30 @@
   --tracking-normal: 0em;
   --spacing: 0.25rem;
 
+  /* ── UI-DESIGN §7.2 tokens (floating workbench) ── */
+  --canvas: #f1f3f5;
+  --panel-border: rgb(0 0 0 / 0.06);
+  --code-bg: #fbfbfc;
+  --code-gutter: #80878e;
+  --line-added: color-mix(in srgb, var(--success) 9%, transparent);
+  --method-get: #0d7a41;
+  --method-post: #0a6fb8;
+  --method-put: #94600a;
+  --method-patch: #0f766e;
+  --method-delete: #b8300f;
+  --warning-text: #8f5a07;
+  --success-text: #0d7a41;
+  --ai: #7b61ff;
+  --ai-text: #6a4fe6;
+  --ai-soft: color-mix(in srgb, var(--ai) 9%, transparent);
+  --syn-keyword: #c2185b;
+  --syn-string: #0d7a41;
+  --syn-number: #94600a;
+  --syn-fn: #0b6fc0;
+  --syn-comment: #737a82;
+  --syn-deco: #94600a;
+  --focus-ring: color-mix(in srgb, var(--ring) 45%, transparent);
+
   /* Node colors */
   --node-bg: var(--surface);
   --node-trigger: #e8264d;
@@ -151,6 +175,30 @@
   --shadow-xl: 0 4px 8px 0 rgb(0 0 0 / 0.06), 0 16px 44px -8px rgb(0 0 0 / 0.22), 0 0 1px 0 rgb(0 0 0 / 0.1);
   --shadow-2xl: 0 8px 16px 0 rgb(0 0 0 / 0.08), 0 24px 60px -12px rgb(0 0 0 / 0.3), 0 0 1px 0 rgb(0 0 0 / 0.1);
 
+  /* ── UI-DESIGN §7.2 tokens (dark) ── */
+  --canvas: #0a0a0a;
+  --panel-border: rgb(255 255 255 / 0.06);
+  --code-bg: #141414;
+  --code-gutter: #6e6e6e;
+  --line-added: color-mix(in srgb, var(--success) 12%, transparent);
+  --method-get: #34c77b;
+  --method-post: #4db5ff;
+  --method-put: #e0a84f;
+  --method-patch: #2dd4bf;
+  --method-delete: #ff6b4a;
+  --warning-text: #e0a84f;
+  --success-text: #34c77b;
+  --ai: #a78bfa;
+  --ai-text: #b9a3ff;
+  --ai-soft: color-mix(in srgb, var(--ai) 9%, transparent);
+  --syn-keyword: #ff7ab6;
+  --syn-string: #5fd394;
+  --syn-number: #e0a84f;
+  --syn-fn: #6cc0ff;
+  --syn-comment: #8a8a8a;
+  --syn-deco: #e0a84f;
+  --focus-ring: color-mix(in srgb, var(--ring) 45%, transparent);
+
   /* Node colors — dark mode */
   --node-bg: var(--surface);
   --node-trigger: #ff2d55;
@@ -235,6 +283,22 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-canvas: var(--canvas);
+  --color-panel-border: var(--panel-border);
+  --color-code-bg: var(--code-bg);
+  --color-code-gutter: var(--code-gutter);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-success-text: var(--success-text);
+  --color-warning-text: var(--warning-text);
+  --color-ai: var(--ai);
+  --color-ai-text: var(--ai-text);
+  --color-ai-soft: var(--ai-soft);
+  --color-method-get: var(--method-get);
+  --color-method-post: var(--method-post);
+  --color-method-put: var(--method-put);
+  --color-method-patch: var(--method-patch);
+  --color-method-delete: var(--method-delete);
 
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);

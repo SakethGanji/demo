@@ -55,31 +55,17 @@ interface NodeTypeInfo {
 // API Client
 // ============================================================================
 
-import { backends } from './config';
+import { request } from '@/shared/api/http';
 
 /**
- * Generic fetch wrapper with error handling
+ * Generic fetch wrapper with error handling. Delegates to the shared HTTP core, so failures
+ * throw `ApiError` (which extends `Error`, keeping `error.message` call sites working).
  */
 async function apiFetch<T>(
   endpoint: string,
   options?: RequestInit
 ): Promise<T> {
-  const url = `${backends.workflow}/api${endpoint}`;
-
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error || `HTTP ${response.status}`);
-  }
-
-  return response.json();
+  return request<T>(`/api${endpoint}`, options as never);
 }
 
 // ============================================================================
@@ -151,6 +137,11 @@ export interface ApiAppListItem {
   name: string;
   created_at: string;
   updated_at: string;
+  project_id?: string;
+  slug?: string | null;
+  active?: boolean;
+  published_at?: string | null;
+  current_version_number?: number | null;
 }
 
 export interface ApiAppVersion {
@@ -181,6 +172,8 @@ export type ApiAppAccess = 'private' | 'public' | 'password';
 export interface ApiAppDetail {
   id: string;
   name: string;
+  project_id?: string;
+  description?: string | null;
   definition: Record<string, unknown>;
   active: boolean;
   workflow_ids: string[];
