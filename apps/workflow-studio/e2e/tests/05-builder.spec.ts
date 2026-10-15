@@ -22,7 +22,8 @@ async function createUi(page: Page, api: EngineApi, p: P, studioUrl: string, rou
   const chat = page.waitForRequest((r) => r.url().endsWith('/api/ai/app-builder/chat') && r.method() === 'POST')
   await dlg.getByTestId('create-ui-submit').click()
   const req = await chat
-  await expect(page).toHaveURL(/\/apps\/app_[^?]+$/)
+  // the builder drops `prompt` after sending it and keeps `slug` (the publish default), §5 step 3
+  await expect(page).toHaveURL(/\/apps\/app_[^?]+(\?slug=[a-z0-9-]+)?$/)
   const appId = new URL(page.url()).pathname.split('/').pop()!
   return { appId, chatBody: req.postDataJSON() as { project_id: string; route_ids: string[]; message: string; app_id: string } }
 }
@@ -112,8 +113,12 @@ test('T22 route picker selection is saved with the app', async ({ page, api, s }
   await expect.poll(stored).toEqual(two)
   await page.reload()
   await page.getByTestId('builder-routes-chip').click()
-  await expect(page.getByTestId('builder-route-picker').getByTestId('route-picker-row-listRefunds')).not.toHaveAttribute('data-checked', 'true')
-  await expect(page.getByTestId('builder-route-picker').getByTestId('route-picker-row-refundStats')).toHaveAttribute('data-checked', 'true')
+  for (const op of ['createRefund', 'listRefunds', 'refundStats']) console.log('PROBE', op, JSON.stringify(await page.getByTestId(`route-picker-row-${op}`).evaluate((e) => [...e.attributes].map((a) => `${a.name}=${a.value}`))))
+  console.log('PROBE stored', JSON.stringify(await stored()), 'two', JSON.stringify(two))
+  // Base UI marks a checked row with the PRESENCE of `data-checked` (its value is empty)
+  await expect(page.getByTestId('builder-route-picker').getByTestId('route-picker-row-listRefunds')).not.toHaveAttribute('data-checked')
+  await expect(page.getByTestId('builder-route-picker').getByTestId('route-picker-row-refundStats')).toHaveAttribute('data-checked')
+  await expect(page.getByTestId('builder-route-picker').getByTestId('route-picker-row-createRefund')).toHaveAttribute('data-checked')
   expect(await stored()).toEqual(two)
 })
 

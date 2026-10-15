@@ -141,6 +141,7 @@ class AppDetailResponse(BaseModel):
 
     id: str
     name: str
+    description: str | None = None
     definition: dict[str, Any]
     active: bool
     project_id: str = "proj_default"

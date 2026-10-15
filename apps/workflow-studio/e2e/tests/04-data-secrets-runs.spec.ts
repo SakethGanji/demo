@@ -143,7 +143,7 @@ def leak(req):
 def leak_fail(req):
     r = studio.nodes.http_request(
         method="GET",
-        url=f"{UPSTREAM}/v1/leak?fail=1",
+        url=f"{UPSTREAM}/v1/leak",  # the JSON echo: the handler receives whatever the broker returns
         headers=[{"name": "Authorization", "value": f"Bearer {studio.secret('PAYMENTS_TOKEN')}"}],
     )
     raise ValueError(f"upstream said {r[0]['body']}")
@@ -161,7 +161,8 @@ def leak_fail(req):
   await expect(page.getByTestId('response-body')).toContainText('***')
   await page.getByTestId('res-tab-headers').click()
   await page.getByTestId('res-tab-body').click()
-  await expect(page.getByTestId('trace')).toContainText('***')
+  // a successful call's trace shows the secret's NAME (the broker placeholder), never the value
+  await expect(page.getByTestId('trace')).toContainText('{{ $vars.PAYMENTS_TOKEN }}')
   await page.getByTestId('test-route-picker').click()
   await page.getByTestId('test-route-option-leakFail').click()
   await page.getByTestId('test-send').click()
@@ -170,7 +171,7 @@ def leak_fail(req):
   await page.getByTestId('test-execution-link').click()
   const sheet = page.getByTestId('run-sheet')
   await expect(sheet.getByTestId('run-error')).toContainText('***')
-  await expect(sheet.getByTestId('trace')).toContainText('***')
+  await expect(sheet.getByTestId('trace')).toContainText('{{ $vars.PAYMENTS_TOKEN }}') // the name, never the value
   expect(await page.evaluate(() => document.body.innerText)).not.toContain(value)
   expect(net.bodies.filter((b) => b.text.includes(value)).map((b) => b.url)).toEqual([])
   // backend copies (run detail, broker calls) are redacted too

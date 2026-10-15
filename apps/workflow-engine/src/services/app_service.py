@@ -722,6 +722,7 @@ class AppService:
         return AppDetailResponse(
             id=row.id,
             name=row.name,
+            description=row.description,
             definition=row.draft_definition or {},
             active=row.active,
             project_id=row.project_id,
