@@ -408,7 +408,8 @@ async def run_workflow_for_public_app(
     return await _run_app_workflow(app, workflow_id, body, exec_service)
 
 
-async def _run_app_workflow(app: AppModel, workflow_id: str, body: dict, exec_service) -> Response:
+async def _run_app_workflow(app: AppModel, workflow_id: str, body: dict, exec_service,
+                            environment: str | None = None, mode: str = "app") -> Response:
     """Run an allow-listed workflow for a published app (phase 3, BACKEND-DESIGN §3.3).
 
     * The workflow must be in the app's project.
@@ -429,10 +430,10 @@ async def _run_app_workflow(app: AppModel, workflow_id: str, body: dict, exec_se
     if wf.project_id != app.project_id:
         raise HTTPException(status_code=403, detail={"code": "workflow_not_in_project", "message": "workflow is not in this app's project"})
     project = await session.get(ProjectModel, app.project_id)
-    env = project.live_environment if project else "default"
+    env = environment or (project.live_environment if project else "default")
     try:
         _, context = await exec_service.run_saved_workflow(
-            workflow_id, body or None, environment=env, mode="app", substitute_inputs=False,
+            workflow_id, body or None, environment=env, mode=mode, substitute_inputs=False,
             timeout_s=_PUBLIC_RUN_TIMEOUT_S, metadata={"trigger": {"type": "app", "app_id": app.id}},
         )
     except asyncio.TimeoutError:

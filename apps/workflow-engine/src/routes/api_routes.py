@@ -212,6 +212,68 @@ async def revoke_key(project: str, key_id: str, session: AsyncSession = Depends(
     return {"success": True}
 
 
+# ── app ↔ API (phase 6) ──────────────────────────────────────────────────────
+
+
+class StubsBody(BaseModel):
+    app_id: str | None = None
+    routes: list[dict[str, Any]]
+
+
+async def client_source(session: AsyncSession, p, environment: str | None = None) -> tuple[str, str]:
+    from ..services.client_codegen import generate_client
+    env = environment or p.default_environment
+    specs, release = await RouteDispatcher(session).route_set(p, env)
+    if release is not None:
+        rev, h = None, release.snapshot.get("spec_hash") or ""
+    else:
+        latest = await ApiRouteService(session).latest_revision(p.id)
+        rev = latest.revision if latest else None
+        h = spec_hash(build_openapi(p, specs, rev))
+    return generate_client(p.slug, specs, rev, h), h
+
+
+@router.get("/client.ts")
+async def client_ts(project: str, environment: str | None = None, session: AsyncSession = Depends(get_db_session)):
+    p = await _project(project, session)
+    src, h = await client_source(session, p, environment)
+    return Response(src, media_type="text/typescript", headers={"ETag": f'"{h}"'})
+
+
+@router.get("/routes/{rid}/used-by")
+async def route_used_by(project: str, rid: str, session: AsyncSession = Depends(get_db_session)):
+    from ..services.api_usage import ApiUsageService
+    p = await _project(project, session)
+    await _guard(ApiRouteService(session).get(p, rid))
+    return await ApiUsageService(session).used_by(p, rid)
+
+
+@router.post("/routes/stubs", status_code=201)
+async def create_stubs(project: str, body: StubsBody, request: Request, session: AsyncSession = Depends(get_db_session)):
+    from ..db.models import AppModel
+    from ..services.api_route_service import path_shape
+    p = await _project(project, session)
+    if body.app_id:
+        app = await session.get(AppModel, body.app_id)
+        if not app or app.project_id != p.id:
+            raise_project_error(ProjectError(404, "app_not_found", "App not found in this project"))
+    svc = ApiRouteService(session)
+    created, existing = [], []
+    for spec in body.routes:
+        method = str(spec.get("method") or "GET").upper()
+        path = spec.get("path")
+        match = next((r for r in await svc.rows(p.id)
+                      if r.method == method and isinstance(path, str) and r.path_shape == path_shape(path)), None)
+        if match:
+            existing.append(await svc.to_dict(p, match))
+            continue
+        payload = {k: spec[k] for k in ("name", "description", "request_schema", "response_schema", "auth") if spec.get(k) is not None}
+        res = await _guard(svc.create(p, {**payload, "method": method, "path": path, "handler": {"type": "stub"}},
+                                      actor=get_actor(request), source="app_stub"))
+        created.append(res["route"])
+    return {"created": created, "existing": existing}
+
+
 # ── preview tokens (phase 6; used by the studio preview iframe) ───────────────
 
 

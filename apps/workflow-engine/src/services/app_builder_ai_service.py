@@ -218,6 +218,29 @@ Keep comments architectural, not obvious. "Renders a button" is useless. "Primar
 """
 
 
+def build_spec_summary(slug: str, specs: list[dict[str, Any]], focus: set[str] | None = None) -> str:
+    """System-prompt section describing the project's API (replaces the single attached endpoint)."""
+    from .client_codegen import CLIENT_PATH
+    lines = [
+        "## Project API",
+        f"This app belongs to a project with a typed API client at `{CLIENT_PATH}` (generated — never edit it).",
+        "Import it from the entry file as `import { api } from './api/client'` (from `src/App.tsx`: `'../api/client'`).",
+        "Call operations as `await api.<operation>(params?, body?, query?)`. Do not hand-write fetch() for these routes.",
+        "If the UI needs an endpoint that is not listed, call the `declare_endpoint` tool instead of inventing one.",
+        "",
+    ]
+    for s in sorted(specs, key=lambda x: x["name"]):
+        if s.get("auth") == "api_key":
+            continue
+        mark = " ← focus" if focus and s["id"] in focus else ""
+        stub = " (stub: returns 501 until implemented)" if (s.get("handler") or {}).get("type") == "stub" else ""
+        lines.append(f"- `api.{s['name']}` — {s['method']} {s['path']}{stub}{mark}")
+        if s.get("response_schema"):
+            import json as _json
+            lines.append(f"  response: `{_json.dumps(s['response_schema'])[:600]}`")
+    return "\n".join(lines)
+
+
 # ── Service Class ─────────────────────────────────────────────────────
 
 
@@ -259,6 +282,16 @@ class AppBuilderAIService:
                 except Exception:
                     logger.warning("grant_api_executions failed", exc_info=True)
 
+        # 2b. Project API context (phase 6): spec summary, typed client in the working set,
+        #     declare_endpoint tool for endpoints the UI needs.
+        self._project = None
+        self._spec_summary = None
+        self._declared: list[dict[str, Any]] = []
+        try:
+            await self._load_project_api(request, working_set)
+        except Exception:
+            logger.warning("app builder: project API context failed", exc_info=True)
+
         # 3. Snapshot initial state to detect if agent modified anything
         initial_snapshot = {f["path"]: f["content"] for f in working_set}
 
@@ -294,7 +327,55 @@ class AppBuilderAIService:
             })
         # else: question-only flow — text already emitted, no code event needed
 
+        if self._declared and self._project is not None:
+            try:
+                created = await self._create_declared_stubs()
+                yield _sse("message", {"type": "endpoints_declared", "routes": created})
+            except Exception:
+                logger.warning("declare_endpoint stubs failed", exc_info=True)
+
         yield _sse("done", {"type": "done"})
+
+    async def _load_project_api(self, request: AppBuilderChatRequest, working_set: list[dict]) -> None:
+        from ..db.models import AppModel, ProjectModel
+        from .client_codegen import CLIENT_PATH
+
+        session = self._app_service._session
+        project = None
+        app = await session.get(AppModel, request.app_id) if request.app_id else None
+        if request.project_id:
+            from .project_service import resolve_project
+            project = await resolve_project(session, request.project_id)
+        elif app is not None:
+            project = await session.get(ProjectModel, app.project_id)
+        if project is None:
+            return
+        self._project = project
+        from .api_route_service import ApiRouteService, route_spec
+        specs = [route_spec(r) for r in await ApiRouteService(session).rows(project.id)]
+        if not specs:
+            return
+        self._spec_summary = build_spec_summary(project.slug, specs, focus=set(request.route_ids or []))
+        from ..routes.api_routes import client_source
+        src, _ = await client_source(session, project, project.default_environment)
+        working_set[:] = [f for f in working_set if f["path"] != CLIENT_PATH]
+        working_set.append({"path": CLIENT_PATH, "content": src, "parsed_index": None})
+
+    async def _create_declared_stubs(self) -> list[dict[str, Any]]:
+        from .api_route_service import ApiRouteService, path_shape
+        svc = ApiRouteService(self._app_service._session)
+        out = []
+        for d in self._declared:
+            method = str(d.get("method") or "GET").upper()
+            path = d.get("path")
+            rows = await svc.rows(self._project.id)
+            if any(r.method == method and isinstance(path, str) and r.path_shape == path_shape(path) for r in rows):
+                continue
+            payload = {k: d[k] for k in ("name", "description", "request_schema", "response_schema") if d.get(k)}
+            res = await svc.create(self._project, {**payload, "method": method, "path": path, "handler": {"type": "stub"}},
+                                   source="app_stub")
+            out.append(res["route"])
+        return out
 
     # ── Agent Loop ────────────────────────────────────────────────────
 
@@ -469,6 +550,22 @@ class AppBuilderAIService:
     # ── Agent Tools ───────────────────────────────────────────────────
 
     def _build_agent_tools(self) -> list[dict]:
+        tools = self._base_agent_tools()
+        if getattr(self, "_project", None) is not None:
+            tools.append({
+                "name": "declare_endpoint",
+                "description": "Declare an API endpoint this UI needs that does not exist yet; it becomes a stub route.",
+                "parameters": {"type": "object", "properties": {
+                    "method": {"type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"]},
+                    "path": {"type": "string", "description": "e.g. /orders/{id}"},
+                    "name": {"type": "string", "description": "camelCase operation name"},
+                    "description": {"type": "string"},
+                    "response_schema": {"type": "object"},
+                }, "required": ["method", "path"]},
+            })
+        return tools
+
+    def _base_agent_tools(self) -> list[dict]:
         return [
             {
                 "name": "list_files",
@@ -556,6 +653,8 @@ class AppBuilderAIService:
         ]
 
     def _execute_agent_tool(self, name: str, args: dict, working_set: list[dict]) -> str:
+        if name == "declare_endpoint":
+            return self._tool_declare_endpoint(args, working_set)
         dispatch = {
             "list_files": self._tool_list_files,
             "read_files": self._tool_read_files,
@@ -568,6 +667,16 @@ class AppBuilderAIService:
         if not handler:
             return f"Error: Unknown tool '{name}'"
         return handler(args, working_set)
+
+    def _tool_declare_endpoint(self, args: dict, working_set: list[dict]) -> str:
+        if getattr(self, "_project", None) is None:
+            return "Error: no project context — endpoints can only be declared for project apps."
+        method, path = str(args.get("method") or "").upper(), args.get("path")
+        if method not in ("GET", "POST", "PUT", "PATCH", "DELETE") or not isinstance(path, str) or not path.startswith("/"):
+            return "Error: method must be GET/POST/PUT/PATCH/DELETE and path must start with '/'."
+        self._declared.append({**args, "method": method})
+        return (f"Declared {method} {path} as a stub route (returns 501 until implemented). "
+                "Call it through the generated client once it exists, or fetch('/api/p/<slug>" + path + "').")
 
     def _tool_read_files(self, args: dict, working_set: list[dict]) -> str:
         paths = args.get("paths", [])
@@ -752,6 +861,8 @@ class AppBuilderAIService:
 
     def _build_agent_system_prompt(self, api_executions: list[ApiTestExecutionModel]) -> str:
         parts = [_AGENT_SYSTEM_PROMPT]
+        if getattr(self, "_spec_summary", None):
+            parts.append(self._spec_summary)
         for ex in api_executions:
             parts.append(self._api_execution_context(ex))
         return "\n\n".join(parts)

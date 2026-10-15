@@ -71,7 +71,6 @@ def test_j11_router_semantics(api):
     assert api.raw("GET", f"/api/p/{S}/items").status_code == 404
 
 
-@pending(6)
 def test_j12_api_keys_and_auth_modes(api):
     P, S = new_project(api, "j12")                                                             # 1
     r = api.post(f"/projects/{P}/routes", {"method": "GET", "path": "/admin/stats", "auth": "api_key",

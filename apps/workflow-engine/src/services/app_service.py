@@ -557,15 +557,34 @@ class AppService:
 
     async def _files_for_publish(self, row: AppModel) -> list[AppFileInput]:
         """Resolve the file list to bundle. Prefer current_version_id files
-        (richer multi-file structure); fall back to the single draft source."""
+        (richer multi-file structure); fall back to the single draft source.
+        The project's typed client (api/client.ts) is always regenerated (phase 6, G18)."""
+        files: list[AppFileInput] | None = None
         if row.current_version_id:
             file_dicts = await self._file_storage.get_files(row.current_version_id)
             if file_dicts:
-                return [
-                    AppFileInput(path=f["path"], content=f["content"])
-                    for f in file_dicts
-                ]
-        return [AppFileInput(path="App.tsx", content=row.draft_source_code or "")]
+                files = [AppFileInput(path=f["path"], content=f["content"]) for f in file_dicts]
+        if files is None:
+            files = [AppFileInput(path="App.tsx", content=row.draft_source_code or "")]
+        client = await self.project_client(row, live=True)
+        if client is not None:
+            from .client_codegen import CLIENT_PATH
+            files = [f for f in files if f.path != CLIENT_PATH] + [AppFileInput(path=CLIENT_PATH, content=client)]
+        return files
+
+    async def project_client(self, row: AppModel, live: bool = False) -> str | None:
+        """Generated client for the app's project (None when the project has no routes)."""
+        from ..db.models import ApiRouteModel, ProjectModel
+        project = await self._session.get(ProjectModel, row.project_id)
+        if project is None:
+            return None
+        n = (await self._session.execute(select(func.count()).select_from(ApiRouteModel).where(
+            ApiRouteModel.project_id == project.id))).scalar_one()
+        if not n:
+            return None
+        from ..routes.api_routes import client_source
+        src, _ = await client_source(self._session, project, project.live_environment if live else project.default_environment)
+        return src
 
     async def _next_version_number(self, aid: str) -> int:
         stmt = (

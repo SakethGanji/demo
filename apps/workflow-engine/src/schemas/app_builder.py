@@ -12,4 +12,6 @@ class AppBuilderChatRequest(BaseModel):
     app_id: str | None = None
     current_version_id: int | None = None
     api_execution_ids: list[str] = []  # Captured API test executions to attach as context
+    project_id: str | None = None  # phase 6: project whose API spec the app builds against
+    route_ids: list[str] = []  # phase 6: focus routes ("generate UI for this API")
     conversation_history: list[dict[str, str]] = []  # [{role: "user", content: "..."}, {role: "assistant", content: "..."}]
