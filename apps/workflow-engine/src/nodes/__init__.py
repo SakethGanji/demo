@@ -37,6 +37,7 @@ from .data.sample import SampleNode
 from .data.profile import ProfileNode
 from .data.aggregate import AggregateNode
 from .data.set_node import SetNode
+from .data.data_table import DataTableNode
 
 # Integration nodes — external services and APIs.
 from .integrations.http_request import HttpRequestNode
@@ -74,6 +75,7 @@ __all__ = [
     "SwitchNode",
     "WaitNode",
     "RespondNode",
+    "DataTableNode",
     "CodeNode",
     "FilterNode",
     "ItemListsNode",
