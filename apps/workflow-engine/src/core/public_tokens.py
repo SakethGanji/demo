@@ -34,9 +34,9 @@ DEFAULT_TTL_SECONDS = _DEFAULT_TTL_SECONDS
 def app_token_ttl(app) -> int:
     """TTL for a published app's token. Review D3: a per-app ``settings.token_ttl_s`` is honoured
     **only** when ``WORKFLOW_TEST_MODE=1`` (so tests can expire tokens); otherwise 1 hour."""
-    import os
+    from .test_mode import enabled
 
-    if os.environ.get("WORKFLOW_TEST_MODE") == "1":
+    if enabled():  # N7: WORKFLOW_TEST_MODE=1 *and* a workflows_test_* database
         ttl = (getattr(app, "settings", None) or {}).get("token_ttl_s")
         if isinstance(ttl, int) and ttl > 0:
             return ttl

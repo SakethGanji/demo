@@ -200,6 +200,33 @@ from .tool_schema import (
     safe_repair_json,
 )
 
+
+
+def _normalize_tools(tools: Optional[list], provider: str = "anthropic") -> list[dict]:
+    """The one tool normaliser (UI-DESIGN §10.3, review E7): callables or dicts →
+    ``[{name, description, parameters}]`` hardened for ``provider``. Every adapter and the
+    test-only fake LLM use it, so the fake logs exactly the schemas a real provider would get."""
+    if not tools:
+        return []
+    return prepare_tools_for_provider(list(tools), provider)
+
+
+def is_configured(model: str) -> bool:
+    """Whether ``model`` can be called (credentials present). The fake LLM, when installed, decides
+    (``PUT /api/_test/fake-llm/state {unavailable}``)."""
+    from . import fake_llm
+
+    if fake_llm.ACTIVE is not None:
+        return not fake_llm.ACTIVE.unavailable
+    if model in GEMINI_MODELS or model.startswith("gemini-"):
+        return bool(_get_env("GEMINI_API_KEY") or os.environ.get("GOOGLE_CLOUD_PROJECT") or _get_env("LLM_PROXY_PROJECT"))
+    if model in LLAMA_MODELS:
+        return bool(os.environ.get("COIN_TOKEN"))
+    if model.startswith("claude-"):
+        return bool(_get_env("ANTHROPIC_API_KEY"))
+    return bool(_get_env("OPENAI_API_KEY"))
+
+
 # Models where OpenAI strict mode is safe to use
 _OPENAI_STRICT_MODELS = frozenset({
     "gpt-4o", "gpt-4o-mini", "gpt-4o-2024-05-13", "gpt-4o-2024-08-06",
@@ -378,7 +405,7 @@ async def _call_gemini_vertex(
     # Build tools — wrap in Tool(function_declarations=...)
     gemini_tools = None
     if tools:
-        prepared = prepare_tools_for_provider(tools, "gemini")
+        prepared = _normalize_tools(tools, "gemini")
         declarations = []
         for schema in prepared:
             declarations.append(FunctionDeclaration(
@@ -561,9 +588,7 @@ async def _call_openai_compat(
     # Build schema lookup for JSON repair
     _tool_schema_lookup: dict[str, dict] = {}
     if tools:
-        prepared = prepare_tools_for_provider(
-            tools, "openai" if is_strict else "llama",
-        )
+        prepared = _normalize_tools(tools, "openai" if is_strict else "llama")
         api_tools = []
         for schema in prepared:
             _tool_schema_lookup[schema["name"]] = schema["parameters"]
@@ -677,7 +702,7 @@ async def _call_anthropic(
 
     api_tools = None
     if tools:
-        prepared = prepare_tools_for_provider(tools, "anthropic")
+        prepared = _normalize_tools(tools, "anthropic")
         api_tools = []
         for schema in prepared:
             api_tools.append({
@@ -833,6 +858,10 @@ async def _call_llm_once(
     **kwargs: Any,
 ) -> LLMResponse:
     """Single attempt to call an LLM backend."""
+    from . import fake_llm  # UI-DESIGN §10.3: test-only fake, below the retry loop
+
+    if fake_llm.ACTIVE is not None:
+        return await fake_llm.ACTIVE.call(model, messages, temperature, tools, **kwargs)
     if model in GEMINI_MODELS or model.startswith("gemini-"):
         return await _call_gemini_vertex(
             model, messages, temperature, tools=tools, **kwargs,

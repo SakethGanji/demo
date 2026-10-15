@@ -1,5 +1,6 @@
 """Application configuration using pydantic-settings."""
 
+import os
 from functools import lru_cache
 from typing import Literal
 
@@ -10,7 +11,8 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        # UI-DESIGN §10.3 condition 6: WORKFLOW_DISABLE_DOTENV=1 → nothing can come from .env.
+        env_file=None if os.environ.get("WORKFLOW_DISABLE_DOTENV") == "1" else ".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
         env_prefix="WORKFLOW_",

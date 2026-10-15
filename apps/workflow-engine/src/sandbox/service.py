@@ -9,7 +9,7 @@ import tempfile
 from typing import Any
 
 from ..broker.tokens import BrokerClaims, registry
-from .backend import SandboxJob, SandboxResult, SandboxUnavailable, get_backend
+from .backend import SandboxJob, SandboxResult, SandboxUnavailable, availability, get_backend
 
 
 class SandboxService:
@@ -21,7 +21,7 @@ class SandboxService:
                   virtual_tables: set[str] | None = None) -> tuple[SandboxResult, list[str]]:
         """Returns (result, broker call ids made during the run). Raises SandboxUnavailable."""
         backend = get_backend()
-        ok, reason = backend.available()
+        ok, reason = availability(backend)
         if not ok:
             raise SandboxUnavailable(reason)
         job_dir = tempfile.mkdtemp(prefix="sbx-", dir="/tmp")

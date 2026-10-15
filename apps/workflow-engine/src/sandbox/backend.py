@@ -42,6 +42,19 @@ class SandboxUnavailable(RuntimeError):
     pass
 
 
+# UI-DESIGN §10.3: ``PUT /api/_test/sandbox {available:false}`` (test mode only) forces "unavailable"
+# for /api/sandbox/status, python-route dispatch, run-draft and the generate self-test.
+# None = no override; True clears it (it can never make a missing bwrap work).
+TEST_OVERRIDE_AVAILABLE: bool | None = None
+TEST_OVERRIDE_REASON = "sandbox disabled by the test harness"
+
+
+def availability(backend: "SandboxBackend | None" = None) -> tuple[bool, str]:
+    if TEST_OVERRIDE_AVAILABLE is False:
+        return False, TEST_OVERRIDE_REASON
+    return (backend or get_backend()).available()
+
+
 class SandboxBackend(Protocol):
     name: str
 
@@ -78,7 +91,7 @@ def get_backend() -> SandboxBackend:
 
 def backend_status() -> dict[str, Any]:
     b = get_backend()
-    ok, reason = b.available()
+    ok, reason = availability(b)
     out: dict[str, Any] = {"backend": b.name, "available": ok}
     if ok and b.name == "bwrap":
         try:

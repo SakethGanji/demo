@@ -115,9 +115,33 @@ class TestDatabase:
         conn.close()
 
 
+PROVIDER_ENV_PREFIXES = ("ANTHROPIC_", "OPENAI_", "GOOGLE_", "GEMINI_", "WORKFLOW_ANTHROPIC_", "WORKFLOW_OPENAI_",
+                         "WORKFLOW_GEMINI_", "COIN_TOKEN", "LLM_PROVIDER", "WORKFLOW_LLM_", "WORKFLOW_FAKE_LLM_")
+
+
+def _base_env() -> dict[str, str]:
+    """The inherited environment minus every LLM provider credential/switch (audit #8: no paid calls)."""
+    return {k: v for k, v in os.environ.items() if not k.startswith(PROVIDER_ENV_PREFIXES)}
+
+
+FAKE_LLM_TOKEN = "fake-llm-token-" + secrets.token_hex(24)
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
+FAKE_SCRIPT = FIXTURES / "fake_llm" / "llm-script.json"
+
+
+def fake_env(db: "TestDatabase", **extra: str) -> dict[str, str]:
+    """UI-DESIGN §10.3 / §12.1: the env that starts the engine with the test-only fake LLM."""
+    return {"WORKFLOW_LLM_PROVIDER": "fake", "WORKFLOW_TEST_MODE": "1", "WORKFLOW_BIND_HOST": "127.0.0.1",
+            "WORKFLOW_FAKE_LLM_TOKEN": FAKE_LLM_TOKEN, "WORKFLOW_DISABLE_DOTENV": "1",
+            "WORKFLOW_FAKE_LLM_SCRIPT": str(FAKE_SCRIPT), **db.env(), **extra}
+
+
 class EngineServer:
-    def __init__(self, db: TestDatabase) -> None:
+    def __init__(self, db: TestDatabase, extra_env: dict[str, str] | None = None, cwd: str | None = None,
+                 label: str = "") -> None:
         self.db = db
+        self.extra_env = extra_env or {}
+        self.cwd = cwd
         self.port = _free_port()
         if self.port == 8000:
             raise RuntimeError("refusing to start test engine on :8000")
@@ -125,11 +149,11 @@ class EngineServer:
         self.encryption_key = __import__("cryptography.fernet", fromlist=["Fernet"]).Fernet.generate_key().decode()
         self.proc: subprocess.Popen | None = None
         LOG_DIR.mkdir(exist_ok=True)
-        self.log_path = LOG_DIR / f"engine-{db.name}.log"
+        self.log_path = LOG_DIR / f"engine-{db.name}{label}.log"
 
     def start(self) -> None:
         env = {
-            **os.environ,
+            **_base_env(),
             **self.db.env(),
             "SEED": "0",
             "WORKFLOW_ENCRYPTION_KEY": self.encryption_key,
@@ -138,11 +162,13 @@ class EngineServer:
             "WORKFLOW_LOG_LEVEL": "warning",
             # test-only knobs (e.g. per-app token_ttl_s, review D3) are honoured only with this set
             "WORKFLOW_TEST_MODE": "1",
+            **self.extra_env,
         }
         self._log = open(self.log_path, "w")
         self.proc = subprocess.Popen(
-            [sys.executable, "-m", "uvicorn", "src.main:app", "--host", "127.0.0.1", "--port", str(self.port)],
-            cwd=ENGINE_DIR, env=env, stdout=self._log, stderr=subprocess.STDOUT,
+            [sys.executable, "-m", "uvicorn", "src.main:app", "--app-dir", str(ENGINE_DIR),
+             "--host", "127.0.0.1", "--port", str(self.port)],
+            cwd=self.cwd or ENGINE_DIR, env=env, stdout=self._log, stderr=subprocess.STDOUT,
         )
         deadline = time.time() + 60
         while time.time() < deadline:
@@ -225,11 +251,22 @@ class StudioClient:
 
 class _EchoHandler(BaseHTTPRequestHandler):
     server_version = "EchoUpstream"
+    seen: list[dict[str, Any]] = []  # every request received: {method, path, headers}
 
     def _handle(self) -> None:
         length = int(self.headers.get("content-length") or 0)
         raw = self.rfile.read(length) if length else b""
         u = urlparse(self.path)
+        _EchoHandler.seen.append({"method": self.command, "path": u.path,
+                                  "headers": {k.lower(): v for k, v in self.headers.items()}})
+        if u.path == "/v1/balance":  # UI-DESIGN §12.1 upstream (refunds.py fixture)
+            data = json.dumps({"available": 12840.25}).encode()
+            self.send_response(200)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if u.path.startswith("/b64"):
             import base64 as _b64
             tok = self.headers.get("x-tok", "")
@@ -310,6 +347,32 @@ def engine(test_db: TestDatabase) -> Iterator[EngineServer]:
 @pytest.fixture(scope="session")
 def api(engine: EngineServer) -> StudioClient:
     return StudioClient(engine.base_url)
+
+
+@pytest.fixture(scope="session")
+def fake_stack(upstream, tmp_path_factory) -> Iterator[tuple[EngineServer, TestDatabase]]:
+    """A second engine in fake-LLM mode (UI-DESIGN §10.3) on its own workflows_test_ DB, started from an
+    empty cwd (no .env) with dotenv disabled. ``E2E_UPSTREAM_URL`` feeds the script's ${…} interpolation."""
+    db = TestDatabase()
+    db.name = db.name.replace("workflows_test_", "workflows_test_fake_", 1) if not os.environ.get("TEST_DB_NAME") else db.name + "_fake"
+    db.create()
+    srv = None
+    try:
+        db.migrate("apply")
+        srv = EngineServer(db, extra_env=fake_env(db, E2E_UPSTREAM_URL=upstream),
+                           cwd=str(tmp_path_factory.mktemp("fake-engine-cwd")), label="-fake")
+        srv.start()
+        yield srv, db
+    finally:
+        if srv:
+            srv.stop()
+        if os.environ.get("KEEP_TEST_DB") != "1":
+            db.drop()
+
+
+@pytest.fixture(scope="session")
+def fake_api(fake_stack) -> StudioClient:
+    return StudioClient(fake_stack[0].base_url)
 
 
 @pytest.fixture(scope="session")

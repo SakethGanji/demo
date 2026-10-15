@@ -29,6 +29,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     setup_logging(settings.log_level)
     logger = logging.getLogger(__name__)
 
+    # UI-DESIGN §10.3 / re-review N7: test mode only on a workflows_test_* DB; the test-only fake LLM
+    # only when all six activation conditions hold (else RuntimeError — startup aborts). Both read
+    # os.environ only, and run before anything touches the database.
+    from .core import test_mode
+    from .engine import fake_llm
+    installed = fake_llm.install()
+    test_mode.check_startup()
+    if installed is not None:
+        from .routes.test_hooks import router as test_hooks_router
+        app.include_router(test_hooks_router)
+        logger.warning("FAKE LLM INSTALLED (test mode, db=%s) — /api/_test/* is enabled", settings.db_name)
+
     # Initialize database tables
     await init_db()
     register_all_nodes()
@@ -102,6 +114,10 @@ def create_app() -> FastAPI:
     # Added before CORS so CORS stays the outermost middleware (its headers land on the 422 too).
     from .core.dry_run_guard import DryRunGuard
     app.add_middleware(DryRunGuard, fastapi_app=app)
+
+    # UI-DESIGN §10.3 / N7: /api/_test/* from a non-loopback client is always a 404.
+    from .routes.test_hooks import LoopbackOnlyTestPaths
+    app.add_middleware(LoopbackOnlyTestPaths)
 
     # CORS middleware. Review C1: the studio is cross-origin, so the headers it reads must be exposed.
     app.add_middleware(

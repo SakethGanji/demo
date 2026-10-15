@@ -1,0 +1,132 @@
+{
+ "request": {
+  "model": "claude-sonnet-4-6",
+  "messages": [
+   {
+    "role": "user",
+    "content": "Make refunds"
+   },
+   {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "tool_use",
+      "id": "call_1",
+      "name": "emit_module",
+      "input": {
+       "module_name": "a",
+       "source": "x"
+      }
+     }
+    ]
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "tool_result",
+      "tool_use_id": "call_1",
+      "content": "ok"
+     }
+    ]
+   },
+   {
+    "role": "user",
+    "content": "Fix these problems"
+   }
+  ],
+  "max_tokens": 8000,
+  "system": "You write modules.",
+  "tools": [
+   {
+    "name": "emit_module",
+    "description": "Emit the module",
+    "input_schema": {
+     "type": "object",
+     "required": [
+      "module_name",
+      "source"
+     ],
+     "properties": {
+      "module_name": {
+       "type": "string"
+      },
+      "source": {
+       "type": "string"
+      },
+      "tables": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "properties": {
+         "name": {
+          "type": "string"
+         }
+        },
+        "additionalProperties": false
+       }
+      }
+     },
+     "additionalProperties": false
+    }
+   },
+   {
+    "name": "write_file",
+    "description": "Write files to the app.",
+    "input_schema": {
+     "type": "object",
+     "properties": {
+      "path": {
+       "type": "string",
+       "description": "the file path"
+      },
+      "size": {
+       "type": "integer",
+       "description": "expected size in bytes"
+      }
+     },
+     "required": [
+      "path"
+     ],
+     "additionalProperties": false
+    }
+   }
+  ],
+  "temperature": 0.2
+ },
+ "response": {
+  "id": "msg_01",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-sonnet-4-6",
+  "stop_reason": "tool_use",
+  "usage": {
+   "input_tokens": 812,
+   "output_tokens": 96
+  },
+  "content": [
+   {
+    "type": "text",
+    "text": "Here is the module."
+   },
+   {
+    "type": "tool_use",
+    "id": "toolu_01",
+    "name": "emit_module",
+    "input": {
+     "module_name": "refunds",
+     "source": "print(1)"
+    }
+   },
+   {
+    "type": "tool_use",
+    "id": "toolu_02",
+    "name": "write_file",
+    "input": {
+     "path": "App.tsx",
+     "size": 10
+    }
+   }
+  ]
+ }
+}

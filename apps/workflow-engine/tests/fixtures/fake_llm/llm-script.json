@@ -1,0 +1,230 @@
+{
+ "rules": [
+  {
+   "id": "flaky",
+   "when": {
+    "tool": "emit_module",
+    "last_user_matches": "__llm_flaky__"
+   },
+   "times": 2,
+   "respond": {
+    "raise": "retryable",
+    "status": 529
+   }
+  },
+  {
+   "id": "flaky-ok",
+   "when": {
+    "tool": "emit_module",
+    "last_user_matches": "__llm_flaky__"
+   },
+   "respond": {
+    "tool_calls": [
+     {
+      "name": "emit_module",
+      "args": {
+       "module_name": "flaky",
+       "source": "@file:modules/hello.py",
+       "summary": "Hello.",
+       "tables": []
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "fail",
+   "when": {
+    "last_user_matches": "__llm_fail__"
+   },
+   "respond": {
+    "raise": "fatal"
+   }
+  },
+  {
+   "id": "repair",
+   "when": {
+    "tool": "emit_module",
+    "any_user_matches": "__broken__",
+    "last_user_matches": "^Fix these problems in the module you emitted:"
+   },
+   "respond": {
+    "tool_calls": [
+     {
+      "name": "emit_module",
+      "args": {
+       "module_name": "broken",
+       "source": "@file:modules/broken_fixed.py",
+       "summary": "Fixed the syntax error.",
+       "tables": []
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "gen-broken",
+   "when": {
+    "tool": "emit_module",
+    "last_user_matches": "__broken__"
+   },
+   "respond": {
+    "tool_calls": [
+     {
+      "name": "emit_module",
+      "args": {
+       "module_name": "broken",
+       "source": "@file:modules/broken.py",
+       "summary": "x",
+       "tables": []
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "gen-scrub",
+   "when": {
+    "tool": "emit_module",
+    "last_user_matches": "__scrub__"
+   },
+   "respond": {
+    "tool_calls": [
+     {
+      "name": "emit_module",
+      "args": {
+       "module_name": "refunds",
+       "source": "@file:modules/refunds.py",
+       "summary": "Unchanged.",
+       "tables": [
+        {
+         "name": "refunds",
+         "columns": [
+          {
+           "name": "reason",
+           "type": "string",
+           "required": true
+          },
+          {
+           "name": "amount",
+           "type": "number",
+           "required": true
+          }
+         ]
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "gen-secret-missing",
+   "when": {
+    "tool": "emit_module",
+    "last_user_matches": "__webhook__"
+   },
+   "respond": {
+    "tool_calls": [
+     {
+      "name": "emit_module",
+      "args": {
+       "module_name": "refunds",
+       "source": "@file:modules/refunds_webhook.py",
+       "summary": "Adds a webhook notification.",
+       "tables": [
+        {
+         "name": "refunds",
+         "columns": [
+          {
+           "name": "reason",
+           "type": "string",
+           "required": true
+          },
+          {
+           "name": "amount",
+           "type": "number",
+           "required": true
+          }
+         ]
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "gen-refunds",
+   "when": {
+    "tool": "emit_module",
+    "last_user_matches": "__refunds__"
+   },
+   "respond": {
+    "tool_calls": [
+     {
+      "name": "emit_module",
+      "args": {
+       "module_name": "refunds",
+       "source": "@file:modules/refunds.py",
+       "summary": "Refunds table with create, list and stats routes.",
+       "tables": [
+        {
+         "name": "refunds",
+         "columns": [
+          {
+           "name": "reason",
+           "type": "string",
+           "required": true
+          },
+          {
+           "name": "amount",
+           "type": "number",
+           "required": true
+          }
+         ]
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "builder-write",
+   "when": {
+    "tool": "write_files",
+    "last_role": "user",
+    "system_matches": "api\\.refundStats"
+   },
+   "respond": {
+    "tool_calls": [
+     {
+      "name": "write_files",
+      "args": {
+       "files": [
+        {
+         "path": "App.tsx",
+         "content": "@file:apps/RefundsApp.tsx"
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "builder-done",
+   "when": {
+    "tool": "write_files",
+    "last_role": "tool"
+   },
+   "respond": {
+    "text": "Built a refunds dashboard on your typed client."
+   }
+  }
+ ],
+ "default": {
+  "raise": "unmatched"
+ }
+}

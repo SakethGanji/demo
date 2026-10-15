@@ -1,0 +1,156 @@
+{
+ "request": {
+  "model": "gpt-4o",
+  "messages": [
+   {
+    "role": "system",
+    "content": "You write modules."
+   },
+   {
+    "role": "user",
+    "content": "Make refunds"
+   },
+   {
+    "role": "assistant",
+    "content": null,
+    "tool_calls": [
+     {
+      "id": "call_1",
+      "type": "function",
+      "function": {
+       "name": "emit_module",
+       "arguments": "{\"module_name\": \"a\", \"source\": \"x\"}"
+      }
+     }
+    ]
+   },
+   {
+    "role": "tool",
+    "tool_call_id": "call_1",
+    "content": "ok"
+   },
+   {
+    "role": "user",
+    "content": "Fix these problems"
+   }
+  ],
+  "temperature": 0.2,
+  "tools": [
+   {
+    "type": "function",
+    "function": {
+     "name": "emit_module",
+     "description": "Emit the module",
+     "parameters": {
+      "type": "object",
+      "required": [
+       "module_name",
+       "source",
+       "tables"
+      ],
+      "properties": {
+       "module_name": {
+        "type": "string"
+       },
+       "source": {
+        "type": "string"
+       },
+       "tables": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "properties": {
+          "name": {
+           "type": "string"
+          }
+         },
+         "additionalProperties": false,
+         "required": [
+          "name"
+         ]
+        }
+       }
+      },
+      "additionalProperties": false
+     },
+     "strict": true
+    }
+   },
+   {
+    "type": "function",
+    "function": {
+     "name": "write_file",
+     "description": "Write files to the app.",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "path": {
+        "type": "string",
+        "description": "the file path"
+       },
+       "size": {
+        "type": "integer",
+        "description": "expected size in bytes"
+       }
+      },
+      "required": [
+       "path",
+       "size"
+      ],
+      "additionalProperties": false
+     },
+     "strict": true
+    }
+   }
+  ],
+  "tool_choice": "auto",
+  "parallel_tool_calls": true,
+  "max_tokens": 8000
+ },
+ "response": {
+  "id": "chatcmpl-1",
+  "object": "chat.completion",
+  "model": "gpt-4o",
+  "usage": {
+   "prompt_tokens": 700,
+   "completion_tokens": 80,
+   "total_tokens": 780
+  },
+  "choices": [
+   {
+    "index": 0,
+    "finish_reason": "tool_calls",
+    "message": {
+     "role": "assistant",
+     "content": null,
+     "tool_calls": [
+      {
+       "id": "call_a",
+       "type": "function",
+       "function": {
+        "name": "emit_module",
+        "arguments": "{\"module_name\": \"refunds\", \"source\": \"print(1)\", \"tables\": []}"
+       }
+      },
+      {
+       "id": "call_b",
+       "type": "function",
+       "function": {
+        "name": "write_file",
+        "arguments": "{'path': 'App.tsx', 'size': 10,}"
+       }
+      },
+      {
+       "id": "call_c",
+       "type": "function",
+       "function": {
+        "name": "write_file",
+        "arguments": "{{{ not json"
+       }
+      }
+     ]
+    }
+   }
+  ]
+ }
+}

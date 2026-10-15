@@ -111,23 +111,19 @@ def test_d3_runtime_and_generated_client_refresh_on_401(api):
     assert "__APP_REFRESH" in client and "res.status === 401" in client
 
 
-def test_d3_token_ttl_override_is_test_mode_only():
-    import os
-
+def test_d3_token_ttl_override_is_test_mode_only(monkeypatch):
     from src.core.public_tokens import DEFAULT_TTL_SECONDS, app_token_ttl
 
     class App:
         settings = {"token_ttl_s": 5}
-    old = os.environ.get("WORKFLOW_TEST_MODE")
-    try:
-        os.environ["WORKFLOW_TEST_MODE"] = "1"
-        assert app_token_ttl(App()) == 5
-        os.environ["WORKFLOW_TEST_MODE"] = "0"
-        assert app_token_ttl(App()) == DEFAULT_TTL_SECONDS
-        os.environ.pop("WORKFLOW_TEST_MODE")
-        assert app_token_ttl(App()) == DEFAULT_TTL_SECONDS == 3600
-    finally:
-        if old is None:
-            os.environ.pop("WORKFLOW_TEST_MODE", None)
-        else:
-            os.environ["WORKFLOW_TEST_MODE"] = old
+    # re-review N7: test mode counts only on a workflows_test_* database
+    monkeypatch.setenv("WORKFLOW_DB_NAME", "workflows_test_ttl")
+    monkeypatch.setenv("WORKFLOW_TEST_MODE", "1")
+    assert app_token_ttl(App()) == 5
+    monkeypatch.setenv("WORKFLOW_DB_NAME", "workflows")
+    assert app_token_ttl(App()) == DEFAULT_TTL_SECONDS
+    monkeypatch.setenv("WORKFLOW_DB_NAME", "workflows_test_ttl")
+    monkeypatch.setenv("WORKFLOW_TEST_MODE", "0")
+    assert app_token_ttl(App()) == DEFAULT_TTL_SECONDS
+    monkeypatch.delenv("WORKFLOW_TEST_MODE")
+    assert app_token_ttl(App()) == DEFAULT_TTL_SECONDS == 3600
