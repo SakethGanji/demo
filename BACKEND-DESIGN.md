@@ -961,3 +961,28 @@ For G27 the alternative (refuse direct publish with `409 managed_by_release`) wa
 | J9.8 | `SET_WF("{{ $json.x }}")` | Public runs wrap input like `/api/workflows/{id}/run` and webhooks (`{body, headers, query, method}`); journey uses `{{ $json.body.x }}`. |
 | J1.5 / J1.48 | `counts` equality vs G4's extra counts | G4 extras are top-level summary fields (see G4). |
 | J5.5 | body `mode_hint:null` → 422 (schema is a Literal, default `"auto"`) | The studio always sends a value (`useAIChat.ts:21`, default `'auto'`); journey uses `"auto"`. Backend unchanged. |
+| J1.20 | client must contain `'/api/p/<S>'` (single quotes) | Codegen emits `export const BASE = '/api/p/<slug>'` (slugs are `[a-z0-9-]`, safe unquoted-escape). |
+| J6.6 | "`GET /api/workflows` contains W **and more**" depends on test order | The journey creates one extra Default-project workflow first. |
+
+## 12. As-built notes (deviations found while implementing)
+- **Environment mapping** (phase 1): the studio always sends `environment:"default"`; for projects
+  without a `default` env this means `default_environment` (`project_service.effective_environment`).
+- **Extra migration** `20261015100000_execution_modes.sql`: the baseline CHECK on `executions.mode`
+  had to admit `app`, `api`, `sandbox`.
+- **Executions retention unchanged**: `ExecutionRepository._cleanup` still keeps only the newest 100
+  executions globally, so Runs history is short.
+- **Broker host policy** is enforced with an httpx request hook on the run's client (every outgoing
+  request, after expression resolution), not by pre-parsing parameters; broker runs use
+  `follow_redirects=False`. Nodes with opaque egress (SMTP, DB drivers, LLM SDKs) are refused when the
+  project allowlist is non-empty or a secret is referenced.
+- **Release dry-run** pins nothing: workflows whose draft differs from their latest version are marked
+  `version_id: -1` ("would create") in the preview snapshot.
+- **Release envs and app allow-lists**: release snapshots pin route-handler workflows and app
+  versions. Published-app workflow runs (`/a/{slug}/api/workflow/...`) still run the **draft**
+  (as before); only router traffic is pinned.
+- **Code paths moved into the sandbox**: Code node, PythonStep, agent `run_code` tool. The agent's PTC
+  `run_script` (`ai_agent.py:1159`) and `calculator_tool` `eval` remain in-process (out of scope).
+- **Extra diff kinds** beyond G13: `request_field_removed` (non-breaking), `operation_renamed` (breaking).
+- **Code routes** (`source:"code"`): method/path/auth/handler are owned by the module; PUT on them only
+  accepts schema/description/response_mode/validate_request/timeout fields (`409 route_managed_by_code`).
+- **Workflows used as route handlers** cannot be deleted or moved (`409 workflow_in_use`).
