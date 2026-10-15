@@ -1,112 +1,161 @@
-import { useEffect, useRef, useCallback } from 'react';
-import { EditorView, keymap, placeholder as placeholderExt } from '@codemirror/view';
-import { EditorState, Compartment } from '@codemirror/state';
-import { json } from '@codemirror/lang-json';
-import { javascript } from '@codemirror/lang-javascript';
-import { defaultKeymap, indentWithTab } from '@codemirror/commands';
-import { syntaxHighlighting, HighlightStyle, indentOnInput, bracketMatching, foldGutter, foldKeymap } from '@codemirror/language';
-import { tags } from '@lezer/highlight';
-import { lineNumbers, highlightActiveLineGutter, highlightActiveLine } from '@codemirror/view';
-import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
-import { history, historyKeymap } from '@codemirror/commands';
+/**
+ * CodeMirror 6 editor (UI-DESIGN §7.1, review B5).
+ *
+ * The EditorView is created once and never recreated on prop changes: language, theme,
+ * readOnly, line wrapping, placeholder and caller extensions live in Compartments and are
+ * reconfigured in place. `editorRef` exposes the view and `applyTransaction` so callers can
+ * apply AI drafts as one undoable transaction.
+ */
+import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
+import { EditorView, keymap, placeholder as placeholderExt, lineNumbers, highlightActiveLineGutter, highlightActiveLine } from '@codemirror/view'
+import { EditorState, Compartment, type Extension, type TransactionSpec } from '@codemirror/state'
+import { json } from '@codemirror/lang-json'
+import { javascript } from '@codemirror/lang-javascript'
+import { python } from '@codemirror/lang-python'
+import { defaultKeymap, indentWithTab, history, historyKeymap } from '@codemirror/commands'
+import { syntaxHighlighting, HighlightStyle, indentOnInput, bracketMatching, foldGutter, foldKeymap, indentUnit } from '@codemirror/language'
+import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
+import { setDiagnostics, type Diagnostic } from '@codemirror/lint'
+import { tags } from '@lezer/highlight'
 
-interface CodeEditorProps {
-  value: string;
-  onChange: (value: string) => void;
-  language?: 'json' | 'javascript';
-  placeholder?: string;
-  minHeight?: string;
-  maxHeight?: string;
-  className?: string;
+export type CodeLanguage = 'json' | 'javascript' | 'python'
+
+export interface CodeEditorHandle {
+  view: EditorView | null
+  applyTransaction: (spec: TransactionSpec) => void
 }
 
-// Maps syntax tokens to existing theme CSS variables so the editor
-// automatically follows whatever palette is defined in index.css.
-function buildTheme() {
-  const s = getComputedStyle(document.documentElement);
-  const v = (name: string) => s.getPropertyValue(name).trim();
+export interface CodeEditorProps {
+  value: string
+  onChange?: (value: string) => void
+  language?: CodeLanguage
+  placeholder?: string
+  minHeight?: string
+  maxHeight?: string
+  /** fixed height (e.g. '100%') */
+  height?: string
+  className?: string
+  readOnly?: boolean
+  /** caller extensions (lint gutter, widgets, completions…), reconfigured in place */
+  extensions?: Extension[]
+  /** lint diagnostics pushed with `setDiagnostics` (needs a lint extension, added automatically) */
+  diagnostics?: Diagnostic[]
+  /** soft-wrap long lines (default: true for json/javascript, false for python) */
+  wrap?: boolean
+  onReady?: (view: EditorView) => void
+  testId?: string
+  /** drop the outer border/rounding (when embedded in a panel) */
+  bare?: boolean
+}
 
-  const fg = v('--foreground');
-  const muted = v('--muted-foreground');
-  const bg = v('--secondary');
-  const border = v('--border');
-  const primary = v('--primary');
-  const success = v('--success');
-  const warning = v('--warning');
-  const destructive = v('--destructive');
-  const purple = v('--chart-2');
+function cssVar(s: CSSStyleDeclaration, name: string, fallback: string) {
+  return s.getPropertyValue(name).trim() || fallback
+}
+
+/** Reads `--code-bg`, `--code-gutter` and `--syn-*` so the editor follows the theme. */
+function buildTheme(): Extension {
+  const s = getComputedStyle(document.documentElement)
+  const fg = cssVar(s, '--foreground', '#1e1e1e')
+  const codeBg = cssVar(s, '--code-bg', '#fbfbfc')
+  const gutter = cssVar(s, '--code-gutter', '#80878e')
+  const border = cssVar(s, '--border', '#dee2e6')
+  const primary = cssVar(s, '--primary', '#18a0fb')
+  const kw = cssVar(s, '--syn-keyword', '#c2185b')
+  const str = cssVar(s, '--syn-string', '#0d7a41')
+  const num = cssVar(s, '--syn-number', '#94600a')
+  const fn = cssVar(s, '--syn-fn', '#0b6fc0')
+  const comment = cssVar(s, '--syn-comment', '#737a82')
+  const deco = cssVar(s, '--syn-deco', '#94600a')
 
   const highlight = HighlightStyle.define([
-    { tag: tags.string, color: success },
-    { tag: tags.number, color: warning },
-    { tag: tags.bool, color: purple },
-    { tag: tags.null, color: muted },
-    { tag: tags.propertyName, color: primary },
-    { tag: tags.punctuation, color: fg },
-    { tag: tags.keyword, color: destructive },
-    { tag: tags.function(tags.variableName), color: purple },
+    { tag: [tags.keyword, tags.controlKeyword, tags.operatorKeyword, tags.definitionKeyword, tags.moduleKeyword], color: kw },
+    { tag: [tags.string, tags.special(tags.string)], color: str },
+    { tag: [tags.number, tags.bool, tags.null], color: num },
+    { tag: [tags.function(tags.variableName), tags.function(tags.propertyName)], color: fn },
+    { tag: tags.definition(tags.function(tags.variableName)), color: fn },
+    { tag: tags.propertyName, color: fn },
+    { tag: tags.className, color: fn },
+    { tag: tags.meta, color: deco },
+    { tag: tags.comment, color: comment, fontStyle: 'italic' },
     { tag: tags.variableName, color: fg },
-    { tag: tags.comment, color: muted, fontStyle: 'italic' },
-    { tag: tags.operator, color: destructive },
-    { tag: tags.className, color: purple },
-    { tag: tags.definition(tags.variableName), color: warning },
-  ]);
+    { tag: tags.punctuation, color: fg },
+    { tag: tags.operator, color: fg },
+  ])
 
   const base = EditorView.theme({
-    '&': { backgroundColor: bg, color: fg },
-    '.cm-content': {
-      caretColor: fg,
-      fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
-      fontSize: '13px',
-      lineHeight: '1.5',
-      padding: '8px 0',
-    },
-    '.cm-gutters': {
-      backgroundColor: bg,
-      borderRight: `1px solid ${border}`,
-      color: muted,
-    },
-    '.cm-lineNumbers .cm-gutterElement': { padding: '0 8px 0 12px', minWidth: '32px' },
-    '.cm-activeLine': { backgroundColor: `color-mix(in srgb, ${fg} 4%, transparent)` },
-    '.cm-activeLineGutter': { backgroundColor: `color-mix(in srgb, ${fg} 4%, transparent)` },
+    '&': { backgroundColor: codeBg, color: fg, height: '100%' },
+    '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '20px' },
+    '.cm-content': { caretColor: fg, fontSize: '12.5px', padding: '10px 0' },
+    '.cm-gutters': { backgroundColor: codeBg, borderRight: 'none', color: gutter },
+    '.cm-lineNumbers .cm-gutterElement': { padding: '0 10px 0 12px', minWidth: '40px' },
+    '.cm-activeLine': { backgroundColor: `color-mix(in srgb, ${primary} 5%, transparent)` },
+    '.cm-activeLineGutter': { backgroundColor: 'transparent', color: fg },
     '&.cm-focused': { outline: 'none' },
-    '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': {
-      backgroundColor: `color-mix(in srgb, ${primary} 25%, transparent) !important`,
+    '.cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection': {
+      backgroundColor: `color-mix(in srgb, ${primary} 22%, transparent) !important`,
     },
-    '.cm-placeholder': { color: muted, fontStyle: 'italic' },
+    '.cm-placeholder': { color: gutter, fontStyle: 'italic' },
     '.cm-foldGutter': { width: '12px' },
-  });
-
-  return [base, syntaxHighlighting(highlight)];
+    '.cm-tooltip': { border: `1px solid ${border}`, borderRadius: '8px', overflow: 'hidden' },
+  })
+  return [base, syntaxHighlighting(highlight)]
 }
 
-export default function CodeEditor({
-  value,
-  onChange,
-  language = 'json',
-  placeholder,
-  minHeight = '150px',
-  maxHeight = '400px',
-  className = '',
-}: CodeEditorProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const viewRef = useRef<EditorView | null>(null);
-  const themeCompartment = useRef(new Compartment());
-  const onChangeRef = useRef(onChange);
+function languageExt(lang: CodeLanguage): Extension {
+  if (lang === 'python') return [python(), indentUnit.of('    ')]
+  if (lang === 'javascript') return javascript()
+  return json()
+}
 
-  useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
+const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function CodeEditor(
+  {
+    value,
+    onChange,
+    language = 'json',
+    placeholder,
+    minHeight = '150px',
+    maxHeight = '400px',
+    height,
+    className = '',
+    readOnly = false,
+    extensions,
+    diagnostics,
+    wrap,
+    onReady,
+    testId,
+    bare = false,
+  },
+  ref,
+) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const viewRef = useRef<EditorView | null>(null)
+  const c = useRef({
+    lang: new Compartment(),
+    theme: new Compartment(),
+    readOnly: new Compartment(),
+    wrap: new Compartment(),
+    placeholder: new Compartment(),
+    extra: new Compartment(),
+  })
+  const onChangeRef = useRef(onChange)
+  onChangeRef.current = onChange
+  const shouldWrap = wrap ?? language !== 'python'
 
-  const getLanguageExtension = useCallback(() => {
-    return language === 'javascript' ? javascript() : json();
-  }, [language]);
+  useImperativeHandle(ref, () => ({
+    get view() {
+      return viewRef.current
+    },
+    applyTransaction: (spec: TransactionSpec) => viewRef.current?.dispatch(spec),
+  }))
 
+  // Create the view once.
   useEffect(() => {
-    if (!containerRef.current) return;
-
+    if (!containerRef.current) return
+    const cc = c.current
     const state = EditorState.create({
       doc: value,
       extensions: [
-        getLanguageExtension(),
+        cc.lang.of(languageExt(language)),
         lineNumbers(),
         highlightActiveLineGutter(),
         highlightActiveLine(),
@@ -115,44 +164,75 @@ export default function CodeEditor({
         indentOnInput(),
         bracketMatching(),
         closeBrackets(),
+        cc.extra.of(extensions ?? []),
         keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap, ...foldKeymap, indentWithTab]),
-        EditorView.lineWrapping,
-        themeCompartment.current.of(buildTheme()),
-        EditorView.updateListener.of((update) => {
-          if (update.docChanged) onChangeRef.current(update.state.doc.toString());
+        cc.wrap.of(shouldWrap ? EditorView.lineWrapping : []),
+        cc.theme.of(buildTheme()),
+        cc.readOnly.of([EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)]),
+        cc.placeholder.of(placeholder ? placeholderExt(placeholder) : []),
+        EditorView.updateListener.of((u) => {
+          if (u.docChanged) onChangeRef.current?.(u.state.doc.toString())
         }),
-        ...(placeholder ? [placeholderExt(placeholder)] : []),
       ],
-    });
+    })
+    const view = new EditorView({ state, parent: containerRef.current })
+    viewRef.current = view
+    onReady?.(view)
 
-    const view = new EditorView({ state, parent: containerRef.current });
-    viewRef.current = view;
-
-    // Rebuild theme when light/dark class changes
     const observer = new MutationObserver((mutations) => {
       for (const m of mutations) {
-        if (m.attributeName === 'class') {
-          view.dispatch({ effects: themeCompartment.current.reconfigure(buildTheme()) });
-        }
+        if (m.attributeName === 'class') view.dispatch({ effects: cc.theme.reconfigure(buildTheme()) })
       }
-    });
-    observer.observe(document.documentElement, { attributes: true });
-
-    return () => { observer.disconnect(); view.destroy(); };
-  }, [getLanguageExtension, placeholder]);
-
-  useEffect(() => {
-    const view = viewRef.current;
-    if (view && value !== view.state.doc.toString()) {
-      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value } });
+    })
+    observer.observe(document.documentElement, { attributes: true })
+    return () => {
+      observer.disconnect()
+      view.destroy()
+      viewRef.current = null
     }
-  }, [value]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Reconfigure in place.
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: c.current.lang.reconfigure(languageExt(language)) })
+  }, [language])
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: c.current.readOnly.reconfigure([EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)]),
+    })
+  }, [readOnly])
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: c.current.wrap.reconfigure(shouldWrap ? EditorView.lineWrapping : []) })
+  }, [shouldWrap])
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: c.current.placeholder.reconfigure(placeholder ? placeholderExt(placeholder) : []) })
+  }, [placeholder])
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: c.current.extra.reconfigure(extensions ?? []) })
+  }, [extensions])
+  useEffect(() => {
+    const view = viewRef.current
+    if (view && diagnostics) view.dispatch(setDiagnostics(view.state, diagnostics))
+  }, [diagnostics])
+
+  // External value changes (e.g. switching documents) replace the doc.
+  useEffect(() => {
+    const view = viewRef.current
+    if (view && value !== view.state.doc.toString()) {
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value }, userEvent: 'external' })
+    }
+  }, [value])
 
   return (
     <div
       ref={containerRef}
-      className={`rounded-md border border-input overflow-auto focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/20 ${className}`}
-      style={{ minHeight, maxHeight }}
+      data-testid={testId}
+      data-scroll-x="allowed"
+      className={`${bare ? '' : 'rounded-md border border-input focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/20'} overflow-auto ${className}`}
+      style={height ? { height } : { minHeight, maxHeight }}
     />
-  );
-}
+  )
+})
+
+export default CodeEditor
