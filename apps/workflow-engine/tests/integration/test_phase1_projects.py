@@ -10,46 +10,31 @@ from .conftest import TestDatabase, start_set_workflow, uniq
 
 pytestmark = pytest.mark.integration
 
-PROJECTS_MIGRATION = "20261015090000"
-
-
-def test_phase1_migration_backfills_legacy_rows_and_rolls_back():
+def test_phase1_baseline_seeds_default_project_and_defaults_project_id():
     db = TestDatabase()
     db.create()
     try:
         db.migrate("apply")
-        db.migrate("rollback", PROJECTS_MIGRATION)
-        assert db.query("SELECT to_regclass('projects')") == [(None,)]
-        # Legacy rows written by the old engine
-        db.query("INSERT INTO workflows (id, team_id, name, active, draft_definition, created_at, updated_at) "
-                 "VALUES ('wf_legacy','default','legacy',false,'{}',now(),now())")
-        db.query("INSERT INTO apps (id, team_id, name, active, draft_definition, workflow_ids, api_execution_ids, access, embed_enabled, created_at, updated_at) "
-                 "VALUES ('app_legacy','default','legacy',false,'{}','[]','[]','private',false,now(),now())")
-        db.query("INSERT INTO folders (id, team_id, name, created_at, updated_at) VALUES ('fold_legacy','default','f',now(),now())")
-        db.query("INSERT INTO data_tables (id, team_id, name, columns, created_at, updated_at) VALUES ('dt_legacy','default','t','[]',now(),now())")
-        db.query("INSERT INTO variables (team_id, environment, key, value, type, created_at, updated_at) "
-                 "VALUES ('default','staging','K','v','string',now(),now())")
-        db.query("INSERT INTO executions (id, workflow_id, workflow_name, team_id, status, mode, completed_nodes, depth, start_time, error_count, metadata) "
-                 "VALUES ('exec_legacy','wf_legacy','legacy','default','success','manual',0,0,now(),0,'{}')")
-
-        db.migrate("apply")
-        assert db.query("SELECT project_id FROM workflows WHERE id='wf_legacy'") == [("proj_default",)]
-        assert db.query("SELECT project_id FROM apps WHERE id='app_legacy'") == [("proj_default",)]
-        assert db.query("SELECT project_id FROM folders WHERE id='fold_legacy'") == [("proj_default",)]
-        assert db.query("SELECT project_id FROM data_tables WHERE id='dt_legacy'") == [("proj_default",)]
-        assert db.query("SELECT project_id FROM executions WHERE id='exec_legacy'") == [("proj_default",)]
-        # Variables stay team-shared
-        assert db.query("SELECT project_id FROM variables WHERE key='K'") == [(None,)]
         envs, de, le = db.query("SELECT environments, default_environment, live_environment FROM projects WHERE id='proj_default'")[0]
-        assert sorted(e["name"] for e in envs) == ["default", "staging"]
+        assert [e["name"] for e in envs] == ["default"]
         assert (de, le) == ("default", "default")
-        # Old-engine style INSERT (no project_id) still works
+        # Rows inserted without project_id land in the Default project
         db.query("INSERT INTO workflows (id, team_id, name, active, draft_definition, created_at, updated_at) "
-                 "VALUES ('wf_old_code','default','x',false,'{}',now(),now())")
-        assert db.query("SELECT project_id FROM workflows WHERE id='wf_old_code'") == [("proj_default",)]
-        # Round trip again
-        db.migrate("rollback", PROJECTS_MIGRATION)
-        db.migrate("apply")
+                 "VALUES ('wf_plain','default','plain',false,'{}',now(),now())")
+        db.query("INSERT INTO apps (id, team_id, name, active, draft_definition, workflow_ids, api_execution_ids, access, embed_enabled, created_at, updated_at) "
+                 "VALUES ('app_plain','default','plain',false,'{}','[]','[]','private',false,now(),now())")
+        db.query("INSERT INTO folders (id, team_id, name, created_at, updated_at) VALUES ('fold_plain','default','f',now(),now())")
+        db.query("INSERT INTO data_tables (id, team_id, name, columns, created_at, updated_at) VALUES ('dt_plain','default','t','[]',now(),now())")
+        db.query("INSERT INTO variables (team_id, environment, key, value, type, created_at, updated_at) "
+                 "VALUES ('default','default','K','v','string',now(),now())")
+        assert db.query("SELECT project_id FROM workflows WHERE id='wf_plain'") == [("proj_default",)]
+        assert db.query("SELECT project_id FROM apps WHERE id='app_plain'") == [("proj_default",)]
+        assert db.query("SELECT project_id FROM folders WHERE id='fold_plain'") == [("proj_default",)]
+        assert db.query("SELECT project_id FROM data_tables WHERE id='dt_plain'") == [("proj_default",)]
+        # Variables without project_id stay team-shared
+        assert db.query("SELECT project_id FROM variables WHERE key='K'") == [(None,)]
+        # Full rollback + re-apply of the single baseline works
+        db.migrate("reset")
     finally:
         db.drop()
 

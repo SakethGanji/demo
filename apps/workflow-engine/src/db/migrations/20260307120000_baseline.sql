@@ -36,6 +36,29 @@ CREATE TABLE IF NOT EXISTS teams (
 INSERT INTO teams (id, name, slug) VALUES ('default', 'Default', 'default')
     ON CONFLICT (id) DO NOTHING;
 
+-- Projects: the unit of ownership (apps, workflows, routes, tables, secrets, releases)
+CREATE TABLE IF NOT EXISTS projects (
+    id                  TEXT PRIMARY KEY,
+    team_id             TEXT NOT NULL REFERENCES teams(id),
+    name                TEXT NOT NULL,
+    slug                TEXT NOT NULL,
+    description         TEXT,
+    environments        JSONB NOT NULL DEFAULT '[{"name":"dev","kind":"draft"},{"name":"prod","kind":"release"}]',
+    default_environment TEXT NOT NULL DEFAULT 'dev',
+    live_environment    TEXT NOT NULL DEFAULT 'prod',
+    settings            JSONB NOT NULL DEFAULT '{}',
+    created_by          TEXT,
+    created_at          TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at          TIMESTAMP NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_team_slug ON projects (team_id, lower(slug));
+
+-- Seed default project (required by project_id defaults below)
+INSERT INTO projects (id, team_id, name, slug, environments, default_environment, live_environment)
+VALUES ('proj_default', 'default', 'Default project', 'default',
+        '[{"name":"default","kind":"draft"}]', 'default', 'default')
+    ON CONFLICT (id) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS team_members (
     id          SERIAL PRIMARY KEY,
     team_id     TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
@@ -52,12 +75,14 @@ CREATE TABLE IF NOT EXISTS folders (
     id              TEXT PRIMARY KEY,
     team_id         TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
     parent_folder_id TEXT REFERENCES folders(id) ON DELETE CASCADE,
+    project_id      TEXT NOT NULL DEFAULT 'proj_default' REFERENCES projects(id),
     name            TEXT NOT NULL,
     created_by      TEXT,
     created_at      TIMESTAMP NOT NULL DEFAULT now(),
     updated_at      TIMESTAMP NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS ix_folders_team_id ON folders (team_id);
+CREATE INDEX IF NOT EXISTS ix_folders_project ON folders (project_id);
 CREATE INDEX IF NOT EXISTS idx_folders_team_parent ON folders (team_id, parent_folder_id);
 
 CREATE TABLE IF NOT EXISTS tags (
@@ -75,6 +100,7 @@ CREATE TABLE IF NOT EXISTS workflows (
     id                   TEXT PRIMARY KEY,
     team_id              TEXT NOT NULL DEFAULT 'default' REFERENCES teams(id) ON DELETE CASCADE,
     folder_id            TEXT REFERENCES folders(id) ON DELETE SET NULL,
+    project_id           TEXT NOT NULL DEFAULT 'proj_default' REFERENCES projects(id),
     name                 TEXT NOT NULL,
     description          TEXT,
     active               BOOLEAN NOT NULL DEFAULT FALSE,
@@ -86,6 +112,7 @@ CREATE TABLE IF NOT EXISTS workflows (
     created_at           TIMESTAMP NOT NULL DEFAULT now(),
     updated_at           TIMESTAMP NOT NULL DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS ix_workflows_project ON workflows (project_id);
 CREATE INDEX IF NOT EXISTS ix_workflows_name ON workflows (name);
 CREATE INDEX IF NOT EXISTS ix_workflows_active ON workflows (active);
 CREATE INDEX IF NOT EXISTS ix_workflows_team_id ON workflows (team_id);
@@ -122,6 +149,7 @@ CREATE TABLE IF NOT EXISTS apps (
     id                   TEXT PRIMARY KEY,
     team_id              TEXT NOT NULL DEFAULT 'default' REFERENCES teams(id) ON DELETE CASCADE,
     folder_id            TEXT REFERENCES folders(id) ON DELETE SET NULL,
+    project_id           TEXT NOT NULL DEFAULT 'proj_default' REFERENCES projects(id),
     name                 TEXT NOT NULL,
     description          TEXT,
     slug                 TEXT UNIQUE,
@@ -143,6 +171,7 @@ CREATE TABLE IF NOT EXISTS apps (
     updated_at           TIMESTAMP NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS ix_apps_team_id ON apps (team_id);
+CREATE INDEX IF NOT EXISTS ix_apps_project ON apps (project_id);
 CREATE INDEX IF NOT EXISTS ix_apps_folder_id ON apps (folder_id);
 CREATE INDEX IF NOT EXISTS ix_apps_slug ON apps (slug) WHERE slug IS NOT NULL;
 
@@ -199,8 +228,11 @@ CREATE TABLE IF NOT EXISTS executions (
     workflow_version_id   INTEGER,
     workflow_name         TEXT NOT NULL,
     team_id               TEXT NOT NULL DEFAULT 'default' REFERENCES teams(id) ON DELETE CASCADE,
+    project_id            TEXT,
+    environment           TEXT,
     status                TEXT NOT NULL CHECK (status IN ('queued','running','success','failed','cancelled','waiting')),
-    mode                  TEXT NOT NULL CHECK (mode IN ('manual','webhook','cron','interval','retry','sub_workflow')),
+    mode                  TEXT NOT NULL CONSTRAINT executions_mode_check
+                          CHECK (mode IN ('manual','webhook','cron','interval','retry','sub_workflow','app','api','sandbox')),
     total_nodes           INTEGER,
     completed_nodes       INTEGER NOT NULL DEFAULT 0,
     parent_execution_id   TEXT,
@@ -221,6 +253,7 @@ CREATE INDEX IF NOT EXISTS ix_executions_start_time ON executions (start_time);
 CREATE INDEX IF NOT EXISTS ix_executions_parent ON executions (parent_execution_id);
 CREATE INDEX IF NOT EXISTS ix_executions_resume_at ON executions (resume_at) WHERE status = 'waiting';
 CREATE INDEX IF NOT EXISTS ix_executions_team_start ON executions (team_id, start_time DESC);
+CREATE INDEX IF NOT EXISTS ix_executions_project_start ON executions (project_id, start_time DESC);
 
 CREATE TABLE IF NOT EXISTS node_outputs (
     id           SERIAL PRIMARY KEY,
@@ -290,22 +323,26 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_shared_creds_unique ON shared_credentials 
 CREATE TABLE IF NOT EXISTS variables (
     id          SERIAL PRIMARY KEY,
     team_id     TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    project_id  TEXT REFERENCES projects(id),          -- NULL = team-shared; project value wins
     environment TEXT NOT NULL DEFAULT 'default',
     key         TEXT NOT NULL,
     value       TEXT NOT NULL,
     type        TEXT NOT NULL DEFAULT 'string',
     description TEXT,
+    allowed_hosts JSONB,                                -- broker host allowlist for this secret
     created_at  TIMESTAMP NOT NULL DEFAULT now(),
     updated_at  TIMESTAMP NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS ix_variables_team_id ON variables (team_id);
 CREATE INDEX IF NOT EXISTS ix_variables_team_env ON variables (team_id, environment);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_variables_team_env_key ON variables (team_id, environment, key);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_variables_team_scope ON variables (team_id, environment, key) WHERE project_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_variables_project_scope ON variables (project_id, environment, key) WHERE project_id IS NOT NULL;
 
 -- Data tables
 CREATE TABLE IF NOT EXISTS data_tables (
     id          TEXT PRIMARY KEY,
     team_id     TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    project_id  TEXT NOT NULL DEFAULT 'proj_default' REFERENCES projects(id),
     name        TEXT NOT NULL,
     description TEXT,
     columns     JSONB NOT NULL,
@@ -314,7 +351,7 @@ CREATE TABLE IF NOT EXISTS data_tables (
     updated_at  TIMESTAMP NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS ix_data_tables_team_id ON data_tables (team_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_data_tables_team_name ON data_tables (team_id, name);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_data_tables_project_name ON data_tables (project_id, name);
 
 CREATE TABLE IF NOT EXISTS data_table_rows (
     id          BIGSERIAL PRIMARY KEY,
@@ -324,6 +361,8 @@ CREATE TABLE IF NOT EXISTS data_table_rows (
     updated_at  TIMESTAMP NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_data_table_rows_table ON data_table_rows (table_id);
+CREATE INDEX IF NOT EXISTS idx_data_table_rows_gin ON data_table_rows USING GIN (data jsonb_path_ops);
+CREATE INDEX IF NOT EXISTS idx_data_table_rows_table_created ON data_table_rows (table_id, id DESC);
 
 -- API tester captured executions — used as LLM context for the app builder
 -- and replayed by published apps via the public-app proxy.
@@ -356,6 +395,109 @@ CREATE TABLE IF NOT EXISTS api_test_executions (
 );
 CREATE INDEX IF NOT EXISTS ix_api_test_executions_team_id ON api_test_executions (team_id);
 CREATE INDEX IF NOT EXISTS ix_api_test_executions_created_at ON api_test_executions (created_at DESC);
+
+-- Broker call log (nodes-as-functions); parameters stored redacted
+CREATE TABLE IF NOT EXISTS broker_calls (
+    id              TEXT PRIMARY KEY,
+    execution_id    TEXT,
+    project_id      TEXT,
+    environment     TEXT,
+    origin          TEXT,
+    node_type       TEXT,
+    params_redacted JSONB NOT NULL DEFAULT '{}',
+    status          TEXT NOT NULL,
+    error_code      TEXT,
+    error           TEXT,
+    duration_ms     REAL,
+    created_at      TIMESTAMP NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_broker_calls_execution ON broker_calls (execution_id);
+CREATE INDEX IF NOT EXISTS ix_broker_calls_project_created ON broker_calls (project_id, created_at DESC);
+
+-- Python modules (route handlers / PythonStep functions)
+CREATE TABLE IF NOT EXISTS code_modules (
+    id          TEXT PRIMARY KEY,
+    project_id  TEXT NOT NULL REFERENCES projects(id),
+    name        TEXT NOT NULL,
+    source      TEXT NOT NULL,
+    source_sha  TEXT NOT NULL,
+    created_by  TEXT,
+    created_at  TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMP NOT NULL DEFAULT now(),
+    UNIQUE (project_id, name)
+);
+
+-- API routes, per-project API keys, spec revisions
+CREATE TABLE IF NOT EXISTS api_routes (
+    id                  TEXT PRIMARY KEY,
+    project_id          TEXT NOT NULL REFERENCES projects(id),
+    name                TEXT NOT NULL,
+    method              TEXT NOT NULL CHECK (method IN ('GET','POST','PUT','PATCH','DELETE')),
+    path                TEXT NOT NULL,
+    path_shape          TEXT NOT NULL,
+    auth                TEXT NOT NULL DEFAULT 'none' CHECK (auth IN ('none','app_token','api_key')),
+    description         TEXT,
+    request_schema      JSONB,
+    response_schema     JSONB,
+    response_mode       TEXT NOT NULL DEFAULT 'auto' CHECK (response_mode IN ('auto','first_item','all_items')),
+    validate_request    BOOLEAN NOT NULL DEFAULT false,
+    handler_type        TEXT NOT NULL CHECK (handler_type IN ('workflow','python','stub')),
+    handler_workflow_id TEXT REFERENCES workflows(id),
+    handler_module_id   TEXT CONSTRAINT fk_route_module REFERENCES code_modules(id),
+    handler_function    TEXT,
+    source              TEXT NOT NULL DEFAULT 'ui' CHECK (source IN ('ui','code','app_stub')),
+    timeout_s           INT NOT NULL DEFAULT 30,
+    created_by          TEXT,
+    created_at          TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at          TIMESTAMP NOT NULL DEFAULT now(),
+    CHECK ((handler_type = 'workflow') = (handler_workflow_id IS NOT NULL))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_api_routes_shape ON api_routes (project_id, method, path_shape);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_api_routes_name ON api_routes (project_id, name);
+CREATE INDEX IF NOT EXISTS ix_api_routes_workflow ON api_routes (handler_workflow_id);
+
+CREATE TABLE IF NOT EXISTS api_keys (
+    id           TEXT PRIMARY KEY,
+    project_id   TEXT NOT NULL REFERENCES projects(id),
+    environment  TEXT NOT NULL,
+    name         TEXT NOT NULL,
+    prefix       TEXT NOT NULL,
+    key_hash     TEXT NOT NULL UNIQUE,
+    created_by   TEXT,
+    created_at   TIMESTAMP NOT NULL DEFAULT now(),
+    last_used_at TIMESTAMP,
+    revoked_at   TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS ix_api_keys_project ON api_keys (project_id);
+
+CREATE TABLE IF NOT EXISTS api_spec_revisions (
+    id          SERIAL PRIMARY KEY,
+    project_id  TEXT NOT NULL REFERENCES projects(id),
+    revision    INT NOT NULL,
+    spec_hash   TEXT NOT NULL,
+    spec        JSONB NOT NULL,
+    changes     JSONB NOT NULL DEFAULT '[]',
+    created_at  TIMESTAMP NOT NULL DEFAULT now(),
+    UNIQUE (project_id, revision)
+);
+
+-- Releases: immutable per-environment snapshots
+CREATE TABLE IF NOT EXISTS releases (
+    id                TEXT PRIMARY KEY,
+    project_id        TEXT NOT NULL REFERENCES projects(id),
+    environment       TEXT NOT NULL,
+    number            INT NOT NULL,
+    is_active         BOOLEAN NOT NULL DEFAULT false,
+    status            TEXT NOT NULL CHECK (status IN ('active','superseded','rolled_back','blocked')),
+    snapshot          JSONB NOT NULL,
+    checks            JSONB NOT NULL DEFAULT '[]',
+    source_release_id TEXT REFERENCES releases(id),
+    notes             TEXT,
+    created_by        TEXT,
+    created_at        TIMESTAMP NOT NULL DEFAULT now(),
+    UNIQUE (project_id, environment, number)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_releases_active ON releases (project_id, environment) WHERE is_active;
 
 -- migrate:down
 DROP SCHEMA IF EXISTS "workflow-app" CASCADE;
