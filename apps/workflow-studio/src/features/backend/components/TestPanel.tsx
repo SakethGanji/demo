@@ -29,6 +29,7 @@ import { formatMs, timeAgo } from '@/features/project/lib/format'
 import { cn } from '@/shared/lib/utils'
 import { JsonBlock, jsonText } from './JsonBlock'
 import type { RecentTest } from '../docStore'
+import { RouteSettingsButton } from './RouteSettings'
 
 export interface TestRoute {
   method: string
@@ -281,7 +282,12 @@ export function TestPanel({
           Python can't run on this server (bubblewrap unavailable). You can still edit and save; routes return 503.
         </div>
       )}
-      <RoutePicker routes={routes} route={route} onSelect={onSelect} />
+      <div className="flex items-center gap-1.5">
+        <div className="min-w-0 flex-1">
+          <RoutePicker routes={routes} route={route} onSelect={onSelect} />
+        </div>
+        {route?.routeId && !route.draft && <RouteSettingsButton routeId={route.routeId} />}
+      </div>
       <div className={cn('flex items-center gap-2', narrow && 'flex-wrap')}>
         <Segmented<ReqTab>
           value={reqTab}

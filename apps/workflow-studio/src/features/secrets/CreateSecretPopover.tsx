@@ -2,7 +2,7 @@
  * CreateSecretPopover (UI-DESIGN §3.5): shared by the code widget, release checks, publish
  * pre-flight, the Secrets view and setup step 1. One `POST …/secrets` per checked environment.
  */
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useProjectCtx } from '@/features/project/ProjectContext'
 import { useCreateSecrets } from './useSecretMutations'
 import { isApiError, errorMessage } from '@/shared/api/http'
@@ -45,7 +45,11 @@ export function CreateSecretForm({
   const [error, setError] = useState<string | null>(null)
   const create = useCreateSecrets(pid)
 
-  useEffect(() => setKey(secretKey), [secretKey])
+  const [prevKey, setPrevKey] = useState(secretKey)
+  if (prevKey !== secretKey) {
+    setPrevKey(secretKey)
+    setKey(secretKey)
+  }
 
   return (
     <form

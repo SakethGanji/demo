@@ -173,9 +173,9 @@ export const tablesApi = {
       },
     }),
   insert: (p: string, t: string, data: Record<string, unknown>) =>
-    request<Row>(`${P(p)}/tables/${enc(t)}/rows`, { method: 'POST', body: data }),
+    request<Row>(`${P(p)}/tables/${enc(t)}/rows`, { method: 'POST', body: { data } }),
   patchRow: (p: string, t: string, id: number, data: Record<string, unknown>) =>
-    request<Row>(`${P(p)}/tables/${enc(t)}/rows/${id}`, { method: 'PATCH', body: data }),
+    request<Row>(`${P(p)}/tables/${enc(t)}/rows/${id}`, { method: 'PATCH', body: { data } }),
   deleteRow: (p: string, t: string, id: number) =>
     request<unknown>(`${P(p)}/tables/${enc(t)}/rows/${id}`, { method: 'DELETE' }),
 }
