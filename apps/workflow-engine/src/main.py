@@ -118,6 +118,9 @@ def create_app() -> FastAPI:
     # UI-DESIGN §10.3 / N7: /api/_test/* from a non-loopback client is always a 404.
     from .routes.test_hooks import LoopbackOnlyTestPaths
     app.add_middleware(LoopbackOnlyTestPaths)
+    # Audit #1: remember our own listening port so read-only broker egress can never call back in.
+    from .core.self_address import RecordOwnPort
+    app.add_middleware(RecordOwnPort)
 
     # CORS middleware. Review C1: the studio is cross-origin, so the headers it reads must be exposed.
     app.add_middleware(

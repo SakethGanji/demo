@@ -25,6 +25,9 @@ def _call(api, tok, function, parameters, items=None):
 
 def test_d5_read_only_token_denies_writes_and_opaque_egress(api, upstream):
     P, _ = new_project(api, "d5")
+    # audit #1: a read-only GET to a loopback host needs that host allowlisted for the call
+    from urllib.parse import urlparse
+    api.put(f"/projects/{P}", {"settings": {"egress_allowlist": [urlparse(upstream).hostname]}})
     api.post(f"/projects/{P}/tables", {"name": "t", "columns": [{"name": "a", "type": "string"}]})
     rw = _token(api, P)["token"]
     assert _call(api, rw, "data_table", {"table": "t", "operation": "insert", "data": {"a": "x"}}).status_code == 200
@@ -76,7 +79,8 @@ def test_d5_allowed_functions_are_enforced(api, upstream):
     assert _call(api, t["token"], "set", {"mode": "manual", "fields": [], "keepOnlySet": True}).status_code == 200
     r = api.post(f"/projects/{P}/broker-tokens", {"environment": "dev", "functions": ["nope_fn"]})
     assert r.status_code == 422 and r.json()["detail"]["code"] == "unknown_function"
-    assert _token(api, P)["allowed_functions"] is None or isinstance(_token(api, P)["allowed_functions"], list)
+    # audit #8: a dev token without `functions` is unscoped (None = every function-exposed node)
+    assert _token(api, P)["allowed_functions"] is None
 
 
 def test_d5_sandbox_and_agent_tokens_carry_scoped_claims():

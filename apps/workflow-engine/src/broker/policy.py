@@ -116,13 +116,91 @@ def host_matches(host: str, patterns: list[str]) -> bool:
     return False
 
 
+# ── engine self-address (audit #1) ──────────────────────────────────────────
+
+# Ports this engine serves on: recorded from every request's ASGI scope (core middleware) plus the
+# configured port. A read-only token may never reach any of them on a local address.
+OWN_PORTS: set[int] = set()
+_LOCAL_ALIASES = {"localhost", "localhost.localdomain", "ip6-localhost", "ip6-loopback"}
+
+
+def note_own_port(port: int | None) -> None:
+    if port:
+        OWN_PORTS.add(int(port))
+
+
+def _own_ports() -> set[int]:
+    from ..core.config import settings
+    return OWN_PORTS | {int(settings.port)}
+
+
+def _is_internal_ip(ip) -> bool:
+    return bool(ip.is_loopback or ip.is_private or ip.is_link_local or ip.is_unspecified or ip.is_reserved
+                or ip.is_multicast or getattr(ip, "ipv4_mapped", None) and _is_internal_ip(ip.ipv4_mapped))
+
+
+async def _resolve(host: str) -> list:
+    import asyncio
+    import ipaddress
+    import socket
+
+    h = host.strip("[]")
+    try:
+        return [ipaddress.ip_address(h)]
+    except ValueError:
+        pass
+    try:
+        infos = await asyncio.get_running_loop().getaddrinfo(h, None, type=socket.SOCK_STREAM)
+    except OSError:
+        return []
+    out = []
+    for info in infos:
+        try:
+            out.append(ipaddress.ip_address(info[4][0].split("%")[0]))
+        except ValueError:
+            continue
+    return out
+
+
 class EgressGuard:
     """Per-call host policy, enforced on every request the run's httpx client sends."""
 
-    def __init__(self, project_allowlist: list[str], secret_hosts: dict[str, list[str]]) -> None:
+    def __init__(self, project_allowlist: list[str], secret_hosts: dict[str, list[str]],
+                 read_only: bool = False) -> None:
         self.project_allowlist = project_allowlist or []
         self.secret_hosts = secret_hosts  # referenced secret key -> allowed hosts
+        self.read_only = read_only
         self.violation: PolicyError | None = None
+
+    def _explicitly_allowed(self, host: str) -> bool:
+        """A host the owner named for this call: the project allowlist or a used secret's allowed_hosts."""
+        pats = list(self.project_allowlist) + [h for hosts in self.secret_hosts.values() for h in hosts]
+        return bool(pats) and host_matches(host, pats)
+
+    def _deny_ro(self, why: str, host: str) -> None:
+        self.violation = PolicyError("read_only", 403, f"read-only token: {why}", function="http_request", host=host)
+        raise self.violation
+
+    async def check_read_only_destination(self, url) -> None:
+        """Audit #1: a read-only token never reaches the engine itself (any local alias on an engine port,
+        or the public base URL) and reaches loopback/private/link-local addresses only when the host is
+        explicitly allowlisted for this call. DNS is resolved here, before connecting; redirects are off."""
+        host = (url.host or "").lower().strip("[]")
+        port = url.port or (443 if url.scheme == "https" else 80)
+        from ..core.config import settings
+        if settings.public_base_url:
+            from urllib.parse import urlparse
+            pub = urlparse(settings.public_base_url)
+            if (pub.hostname or "").lower() == host and (pub.port or (443 if pub.scheme == "https" else 80)) == port:
+                self._deny_ro("requests to this engine are not allowed", host)
+        ips = await _resolve(host)
+        if not ips and host not in _LOCAL_ALIASES:
+            self._deny_ro(f"cannot resolve '{host}'", host)
+        local = host in _LOCAL_ALIASES or any(_is_internal_ip(ip) for ip in ips)
+        if local and port in _own_ports():
+            self._deny_ro("requests to this engine are not allowed", host)
+        if local and not self._explicitly_allowed(host):
+            self._deny_ro(f"'{host}' is a local/private address that is not allowlisted for this call", host)
 
     def check_host(self, host: str) -> None:
         host = (host or "").lower()
@@ -137,6 +215,8 @@ class EgressGuard:
 
     async def httpx_hook(self, request) -> None:
         self.check_host(request.url.host)
+        if self.read_only:
+            await self.check_read_only_destination(request.url)
 
 
 # ── read-only claim (review D5) ──────────────────────────────────────────────

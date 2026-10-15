@@ -146,7 +146,7 @@ class BrokerService:
             if kind == "opaque" and allowlist:
                 raise PolicyError("host_not_allowed", 403,
                                   f"'{snake(node_type)}' egress cannot be checked against the project allowlist")
-            guard = EgressGuard(allowlist, secret_hosts)
+            guard = EgressGuard(allowlist, secret_hosts, read_only=claims.read_only)
 
             # Own task => the runner's contextvars (execution id, $vars, secrets) never leak into the caller.
             status, body = await asyncio.create_task(
