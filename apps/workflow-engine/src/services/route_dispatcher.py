@@ -232,7 +232,8 @@ class RouteDispatcher:
                 body["error_code"] = e.error_code
             return DispatchResult(502, body, execution_id=xid,
                                   error={"type": "NodeError", "node": e.node_name, "message": e.error, "code": e.error_code,
-                                         "details": e.details, "traceback": None, "line": None, "module": None})
+                                         "details": e.details, "traceback": None, "line": None, "module": None,
+                                         "table": (e.details or {}).get("table")})
         items = []
         if context.last_completed_node and context.last_completed_node in context.node_states:
             items = [d.json for d in context.node_states[context.last_completed_node]]

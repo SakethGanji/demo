@@ -76,6 +76,10 @@ def revoke_for_context(context: Any, origin: str, allowed_functions: set[str] | 
     registry.revoke(context.extras.pop(_slot(origin, allowed_functions), None))
 
 
+class _VirtualResult(Exception):
+    """Internal: a list on a virtual (not yet created) table → an empty result."""
+
+
 class BrokerService:
     def __init__(self, session_factory=None) -> None:
         if session_factory is None:
@@ -105,6 +109,16 @@ class BrokerService:
             if claims.allowed_functions is not None and node_type not in claims.allowed_functions \
                     and snake(node_type) not in claims.allowed_functions:
                 raise PolicyError("function_not_allowed", 403, f"'{snake(node_type)}' is not allowed for this token")
+            if node_type == "DataTable" and claims.virtual_tables and parameters.get("table") in claims.virtual_tables:
+                claims.calls_used += 1
+                op = str(parameters.get("operation") or "list").strip().lower()
+                if op == "list":
+                    raise _VirtualResult()
+                if op == "get":
+                    raise PolicyError("row_not_found", 404, f"row not found in '{parameters.get('table')}' (table not created yet)",
+                                      table=parameters.get("table"))
+                raise PolicyError("table_not_found", 404, f"table '{parameters.get('table')}' not found in this project",
+                                  table=parameters.get("table"))
             if claims.read_only:
                 check_read_only(node_type, parameters)
             if claims.calls_used >= claims.max_calls:
@@ -137,6 +151,8 @@ class BrokerService:
             # Own task => the runner's contextvars (execution id, $vars, secrets) never leak into the caller.
             status, body = await asyncio.create_task(
                 self._run_node(claims, node_type, parameters, items, variables, secrets, guard))
+        except _VirtualResult:
+            status, body = 200, {"ok": True, "call_id": call_id, "items": [], "metadata": {"virtual_table": True}}
         except PolicyError as e:
             status, body = e.status, {"ok": False, "call_id": call_id,
                                       "error": {"code": e.code, "message": e.message, **e.extra}}

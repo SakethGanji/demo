@@ -122,8 +122,8 @@ class CodeModuleService:
             if shape in seen_shapes:
                 first = seen_shapes[shape]
                 msg = f"{d['method']} {d['path']} is declared twice in this module (first on line {first['line']})"
-                raise ProjectError(409, "route_conflict", msg, line=d["line"], existing_route_id=None,
-                                   handler={"type": "python", "id": module_id, "name": None, "function": first["function"]},
+                # UI-DESIGN §4.4: a duplicate inside one module is an invalid decorator (422), not a conflict.
+                raise ProjectError(422, "invalid_decorator", msg, line=d["line"],
                                    errors=[{"line": d["line"], "column": None, "message": msg}])
             seen_shapes[shape] = d
             existing = mine.get(d["function"])
@@ -134,7 +134,8 @@ class CodeModuleService:
                                    else existing.description,
                     "request_schema": existing.request_schema if existing else None,
                     "response_schema": existing.response_schema if existing else None,
-                    "response_mode": "auto", "validate_request": existing.validate_request if existing else False,
+                    "response_mode": existing.response_mode if existing else "auto",
+                    "validate_request": existing.validate_request if existing else False,
                     "timeout_s": existing.timeout_s if existing else 30, "handler": {"type": "python"}}
             if not d["name"] and not existing:
                 base, n = spec["name"], 2
@@ -151,7 +152,9 @@ class CodeModuleService:
                     if handler and handler["type"] == "workflow" and e.code == "route_conflict":
                         e.message = f"{e.message}, handled by workflow '{handler['name']}'"
                         extra["errors"][0]["message"] = e.message
-                    extra.update({"existing_route_id": rid, "handler": handler})
+                    extra.update({"existing_route_id": rid, "handler": handler,
+                                  "conflicts": [{"method": d["method"], "path": d["path"], "line": d["line"],
+                                                 "existing_route_id": rid, "handler": handler, "message": e.message}]})
                 raise ProjectError(e.status, e.code, e.message, **{**e.extra, **extra}) from None
             taken_names.add(spec["name"])
             (update if existing else create).append((d, spec, existing))
@@ -197,13 +200,16 @@ class CodeModuleService:
                 "spec_revision": None, "spec_hash": None, "changes": changes,
                 "breaking_changes": [c for c in changes if c["breaking"]]}
 
-    async def create(self, project: ProjectModel, name: str, source: str, actor: str | None = None,
-                     dry_run: bool = False) -> dict[str, Any]:
+    async def _check_name(self, project: ProjectModel, name: str) -> None:
         if not MODULE_NAME_RE.match(name or "") or name in ("studio",):
             raise ProjectError(422, "invalid_name", "module name must be a lowercase python identifier (not 'studio')")
         if (await self._s.execute(select(CodeModuleModel).where(CodeModuleModel.project_id == project.id,
                                                                 CodeModuleModel.name == name))).scalars().first():
             raise ProjectError(409, "name_taken", f"module '{name}' already exists")
+
+    async def create(self, project: ProjectModel, name: str, source: str, actor: str | None = None,
+                     dry_run: bool = False) -> dict[str, Any]:
+        await self._check_name(project, name)
         plan = await self._plan(project, None, source)
         if dry_run:
             return await self._dry_result(project, plan, {"id": None, "project_id": project.id, "name": name,
@@ -230,17 +236,22 @@ class CodeModuleService:
 
     async def update(self, project: ProjectModel, mid: str, source: str, dry_run: bool = False,
                      actor: str | None = None, base_source_sha: str | None = None,
-                     base_updated_at: str | None = None) -> dict[str, Any]:
+                     base_updated_at: str | None = None, new_name: str | None = None) -> dict[str, Any]:
         m = await self.get(project, mid)
+        if new_name is not None and new_name != m.name:
+            await self._check_name(project, new_name)
         stale = (base_source_sha is not None and base_source_sha != m.source_sha) or \
                 (base_updated_at is not None and base_updated_at != m.updated_at.isoformat())
         if stale:  # review B4: never silently overwrite a newer save from another tab / the builder
             raise ProjectError(409, "module_changed", f"{m.name}.py changed since you opened it",
+                               current_sha=m.source_sha, updated_at=m.updated_at.isoformat(),
                                current={"source_sha": m.source_sha, "updated_at": m.updated_at.isoformat()})
         plan = await self._plan(project, m.id, source, old_source=m.source)
         summary = self._summary(project, plan)
         if dry_run:
-            return await self._dry_result(project, plan, module_to_dict(m))
+            return await self._dry_result(project, plan, {**module_to_dict(m), **({"name": new_name} if new_name else {})})
+        if new_name:
+            m.name = new_name
         m.source, m.source_sha, m.updated_at = source, hashlib.sha256(source.encode()).hexdigest(), datetime.now()
         rev, h, breaking = await self._apply(project, m, plan, actor)
         return {"module": module_to_dict(m), "routes": await self._with_ids(project, m, summary), "errors": [],

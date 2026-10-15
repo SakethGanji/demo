@@ -46,7 +46,11 @@ def test_b4_module_put_with_stale_base_is_409_module_changed(api):
     r = api.put(f"/projects/{P}/modules/{M}", {"source": MOD.replace('"hi"', '"two"'), "base_source_sha": sha0})
     assert r.status_code == 409, r.text
     d = r.json()["detail"]
-    assert d["code"] == "module_changed" and d["current"]["source_sha"] == sha1 and d["current"]["updated_at"]
+    assert d["code"] == "module_changed" and d["current_sha"] == sha1 and d["updated_at"]
+    assert d["current"] == {"source_sha": sha1, "updated_at": d["updated_at"]}
+    # UI-DESIGN §9 B4 spells the field base_sha
+    r = api.put(f"/projects/{P}/modules/{M}", {"source": MOD, "base_sha": sha0})
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "module_changed"
     r = api.put(f"/projects/{P}/modules/{M}", {"source": MOD, "base_updated_at": at0})
     assert r.status_code == 409 and r.json()["detail"]["code"] == "module_changed"
     assert api.get(f"/projects/{P}/modules/{M}").json()["source"] == src1
@@ -59,6 +63,13 @@ def test_b4_module_put_with_stale_base_is_409_module_changed(api):
     assert g.headers["etag"] == f'"{g.json()["source_sha"]}"'
     assert api.put(f"/projects/{P}/modules/{M}", {"source": src1}, headers={"If-Match": f'"{sha1}"'}).status_code == 409
     assert api.put(f"/projects/{P}/modules/{M}", {"source": src1}, headers={"If-Match": g.headers["etag"]}).status_code == 200
+    # optional rename (UI-DESIGN §9 B4), validated like create
+    other = _mod(api, P, 'def f(items):\n    return items\n', name="other")["module"]["id"]
+    assert api.put(f"/projects/{P}/modules/{M}", {"source": src1, "name": "other"}).json()["detail"]["code"] == "name_taken"
+    assert api.put(f"/projects/{P}/modules/{M}", {"source": src1, "name": "Bad-Name"}).status_code == 422
+    r = api.put(f"/projects/{P}/modules/{M}", {"source": src1, "name": "greetings"})
+    assert r.status_code == 200 and r.json()["module"]["name"] == "greetings"
+    assert {m["name"] for m in api.get(f"/projects/{P}/modules").json()} == {"greetings", "other"} and other
 
 
 # ── C7: route_conflict says who owns the route, and where ────────────────────
@@ -78,7 +89,15 @@ def test_c7_route_conflict_payload_names_handler_and_line(api):
     assert d["code"] == "route_conflict" and d["line"] == 4 and d["errors"][0]["line"] == 4
     assert d["existing_route_id"] == rid
     assert d["handler"] == {"type": "workflow", "id": W, "name": "Create order"}
-    # same-module duplicate keeps its line; another module's route names that module
+    assert d["conflicts"] == [{"method": "POST", "path": "/orders", "line": 4, "existing_route_id": rid,
+                               "handler": {"type": "workflow", "id": W, "name": "Create order"}, "message": d["message"]}]
+    assert "Create order" in d["message"]
+    # a duplicate inside one module is an invalid decorator, on the second declaration's line
+    dup = 'from studio import api\n@api.get("/d")\ndef d1(req):\n    return {}\n\n@api.get("/d")\ndef d2(req):\n    return {}\n'
+    r = api.post(f"/projects/{P}/modules", {"name": "dup", "source": dup})
+    assert r.status_code == 422 and r.json()["detail"]["code"] == "invalid_decorator"
+    assert r.json()["detail"]["errors"][0]["line"] == 6
+    # another module's route names that module
     _mod(api, P, 'from studio import api\n@api.get("/a")\ndef a(req):\n    return {}\n', name="first")
     r = api.post(f"/projects/{P}/modules", {"name": "second", "source": 'from studio import api\n\n@api.get("/a")\ndef a2(req):\n    return {}\n'})
     d = r.json()["detail"]
@@ -160,6 +179,7 @@ def test_d16_g_ui_4_b1_route_test_error_trace_and_table_not_found(api):
     r = api.post(f"/projects/{P}/routes/{routes['/refunds']}/test", {"body": {"reason": "damaged"}}).json()
     assert r["status"] == 502 and r["body"]["error_code"] == "table_not_found"
     assert r["error"]["code"] == "table_not_found" and r["error"]["details"]["table"] == "refunds"
+    assert r["error"]["table"] == "refunds"   # UI-DESIGN §4.4: error.table
     calls = r["trace"]["broker_calls"]
     assert len(calls) == 1 and calls[0]["error_code"] == "table_not_found"
     api.post(f"/projects/{P}/tables", {"name": "refunds", "columns": [{"name": "reason", "type": "string"}]})

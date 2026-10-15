@@ -34,7 +34,8 @@ def structured_error(err: dict[str, Any]) -> dict[str, Any]:
             and message.startswith(f"{err['code']}: "):
         message = message[len(err["code"]) + 2:]
     return {"type": err.get("type"), "message": message, "traceback": tb or None, "line": line, "module": module,
-            "code": err.get("code"), "details": err.get("details") or None}
+            "code": err.get("code"), "details": err.get("details") or None,
+            "table": (err.get("details") or {}).get("table")}  # UI-DESIGN §4.4: error.table for table_not_found
 
 
 async def run_python_route(session: AsyncSession, project, spec: dict[str, Any], handler: dict[str, Any],

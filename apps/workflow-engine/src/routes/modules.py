@@ -23,8 +23,10 @@ class ModuleCreate(BaseModel):
 class ModuleUpdate(BaseModel):
     source: str
     # Review B4: optimistic concurrency — the version the editor started from (either one; or If-Match).
-    base_source_sha: str | None = None
+    base_sha: str | None = None          # UI-DESIGN §9 B4 name
+    base_source_sha: str | None = None   # alias
     base_updated_at: str | None = None
+    name: str | None = None              # optional rename (UI-DESIGN §9 B4)
 
 
 async def _ctx(project: str, session: AsyncSession):
@@ -78,7 +80,8 @@ async def update_module(project: str, mid: str, body: ModuleUpdate, request: Req
     p, svc = await _ctx(project, session)
     if_match = (request.headers.get("if-match") or "").strip().strip('"') or None
     return await _g(svc.update(p, mid, body.source, dry_run=dry_run, actor=get_actor(request),
-                               base_source_sha=body.base_source_sha or if_match, base_updated_at=body.base_updated_at))
+                               base_source_sha=body.base_sha or body.base_source_sha or if_match,
+                               base_updated_at=body.base_updated_at, new_name=body.name))
 
 
 @router.delete("/projects/{project}/modules/{mid}")

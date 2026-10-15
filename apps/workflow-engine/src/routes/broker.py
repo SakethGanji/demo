@@ -30,6 +30,7 @@ class BrokerTokenRequest(BaseModel):
     max_calls: int | None = None  # optional lower call budget (≤ server max)
     functions: list[str] | None = None  # review D5: limit to these functions (snake names or node types)
     read_only: bool = False  # review D5: deny writes and non-GET egress
+    virtual_tables: list[str] | None = None  # UI-DESIGN §9 D5
 
 
 def _bearer(request: Request) -> str | None:
@@ -96,7 +97,8 @@ async def dev_broker_token(project: str, body: BrokerTokenRequest, session: Asyn
                                              functions=unknown))
         allowed = {idx.get(f, f) for f in body.functions}
     claims = BrokerClaims(project_id=p.id, environment=env, execution_id=None, origin="dev", team_id=p.team_id,
-                          allowed_functions=allowed, read_only=body.read_only)
+                          allowed_functions=allowed, read_only=body.read_only,
+                          virtual_tables=set(body.virtual_tables) if body.virtual_tables else None)
     if body.max_calls:
         claims.max_calls = max(1, min(body.max_calls, claims.max_calls))
     token = registry.mint(claims, ttl_s=3600)

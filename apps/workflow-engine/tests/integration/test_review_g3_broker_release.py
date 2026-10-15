@@ -48,6 +48,9 @@ def test_d5_read_only_token_denies_writes_and_opaque_egress(api, upstream):
         r = _call(api, tok, fn, params)
         assert r.status_code == 403, (fn, params, r.text)
         assert r.json()["error"]["code"] == "read_only", (fn, r.text)
+        assert r.json()["error"]["function"] == fn
+    r = _call(api, tok, "data_table", {"table": "t", "operation": "insert", "data": {"a": "y"}})
+    assert r.json()["error"]["operation"] == "insert"
     # reads still work
     r = _call(api, tok, "data_table", {"table": "t", "operation": "list"})
     assert r.status_code == 200 and [i["a"] for i in r.json()["items"]] == ["x"]
@@ -61,7 +64,7 @@ def test_d5_read_only_token_denies_writes_and_opaque_egress(api, upstream):
     rows = api.get(f"/projects/{P}/tables").json()[0]
     assert rows["row_count"] == 1
     log = api.get(f"/projects/{P}/broker-calls?status=denied").json()
-    assert sum(1 for c in log if c["error_code"] == "read_only") == len(denied)
+    assert sum(1 for c in log if c["error_code"] == "read_only") == len(denied) + 1  # + the operation check
 
 
 def test_d5_allowed_functions_are_enforced(api, upstream):
@@ -159,3 +162,19 @@ def test_d8_python_step_in_pinned_release_uses_snapshot_module(api):
     assert r.status_code == 200 and r.json() == {"v": 2}, r.text
     rid = api.get(f"/projects/{P}/routes").json()[0]["id"]
     assert api.post(f"/projects/{P}/routes/{rid}/test", {}).json()["body"] == {"v": 3}
+
+
+def test_d5_virtual_tables_behave_as_empty_and_never_touch_real_rows(api):
+    P, _ = new_project(api, "d5v")
+    t = _token(api, P, read_only=True, virtual_tables=["refunds"])
+    r = _call(api, t["token"], "data_table", {"table": "refunds", "operation": "list"})
+    assert r.status_code == 200 and r.json()["items"] == []
+    r = _call(api, t["token"], "data_table", {"table": "refunds", "operation": "get", "rowId": 1})
+    assert r.status_code == 404 and r.json()["error"]["code"] == "row_not_found"
+    r = _call(api, t["token"], "data_table", {"table": "refunds", "operation": "insert", "data": {"a": 1}})
+    assert r.status_code == 404 and r.json()["error"]["code"] == "table_not_found"
+    assert r.json()["error"]["table"] == "refunds"
+    assert api.get(f"/projects/{P}/tables").json() == []
+    # a table that is not virtual and does not exist is still the normal error
+    r = _call(api, t["token"], "data_table", {"table": "other", "operation": "list"})
+    assert r.json()["error"]["code"] == "table_not_found"

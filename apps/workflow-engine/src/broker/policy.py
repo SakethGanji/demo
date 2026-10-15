@@ -150,18 +150,18 @@ def check_read_only(node_type: str, parameters: dict[str, Any]) -> None:
 
     Parameters are checked as given (before expression resolution): an expression where a
     literal operation/method is expected is refused, since it could resolve to a write."""
-    def deny(why: str) -> None:
-        raise PolicyError("read_only", 403, f"read-only token: {why}", function=snake(node_type))
+    def deny(why: str, **extra: Any) -> None:
+        raise PolicyError("read_only", 403, f"read-only token: {why}", function=snake(node_type), **extra)
 
     if node_type == "DataTable":
         op = parameters.get("operation", "list")
         if not isinstance(op, str) or op.strip().lower() not in READ_ONLY_DATA_OPS:
-            deny(f"data_table operation '{op}' writes data (only get/list are allowed)")
+            deny(f"data_table operation '{op}' writes data (only get/list are allowed)", operation=str(op))
         return
     if node_type == "HttpRequest":
         method = parameters.get("method", "GET")
         if not isinstance(method, str) or method.strip().upper() not in READ_ONLY_HTTP_METHODS:
-            deny(f"http_request method '{method}' is not GET/HEAD")
+            deny(f"http_request method '{method}' is not GET/HEAD", operation=str(method))
         return
     if node_type == "SendEmail":
         deny("send_email sends data out")

@@ -24,6 +24,9 @@ class BrokerClaims:
     # Review D5: read-only tokens (generate self-tests) may only read: no DataTable writes, no
     # send_email, no non-GET/HEAD http_request, no opaque-egress function. Denials → error_code read_only.
     read_only: bool = False
+    # UI-DESIGN §9 D5: tables a draft declares but that don't exist yet (generate self-test):
+    # list → [], get → 404 row_not_found, writes → 404 table_not_found. Never touches real tables.
+    virtual_tables: set[str] | None = None
     max_calls: int = 500
     calls_used: int = 0
     expires_at: float = 0.0

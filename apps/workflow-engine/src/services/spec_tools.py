@@ -168,8 +168,9 @@ def diff_specs(old: dict[str, Any] | None, new: dict[str, Any] | None) -> list[d
         if aa != ba:
             # G28 / review D11: every auth change is breaking. Tightening breaks callers; loosening
             # (e.g. api_key → none) makes a route public — a security change that must be confirmed.
-            ch("auth_changed", b, True, before=aa, after=ba,
-               security="loosened" if AUTH_RANK[ba] < AUTH_RANK[aa] else "tightened")
+            loosened = AUTH_RANK[ba] < AUTH_RANK[aa]
+            ch("auth_loosened" if loosened else "auth_changed", b, True, before=aa, after=ba,
+               security="loosened" if loosened else "tightened")
         fields: list[tuple[str, str, bool]] = []
         _walk(_req_schema(a["op"]), _req_schema(b["op"]), "", "request", fields)
         ra, rb = _resp_schema(a["op"]), _resp_schema(b["op"])

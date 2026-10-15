@@ -17,7 +17,8 @@ class SandboxService:
                   origin: str, payload: dict[str, Any], entry: str | None = None,
                   modules: dict[str, str] | None = None, timeout_s: float = 30.0,
                   team_id: str = "default", read_only: bool = False,
-                  allowed_functions: set[str] | None = None) -> tuple[SandboxResult, list[str]]:
+                  allowed_functions: set[str] | None = None,
+                  virtual_tables: set[str] | None = None) -> tuple[SandboxResult, list[str]]:
         """Returns (result, broker call ids made during the run). Raises SandboxUnavailable."""
         backend = get_backend()
         ok, reason = backend.available()
@@ -29,6 +30,7 @@ class SandboxService:
         # Review D5: explicit function scope on every sandbox token; read_only for self-tests.
         claims = BrokerClaims(project_id=project_id, environment=environment, execution_id=execution_id,
                               origin=origin, team_id=team_id, read_only=read_only,
+                              virtual_tables=set(virtual_tables) if virtual_tables else None,
                               allowed_functions=set(allowed_functions) if allowed_functions else set(function_index().values()))
         token = registry.mint(claims, ttl_s=timeout_s + 5)
         try:

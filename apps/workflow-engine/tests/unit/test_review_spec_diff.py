@@ -22,11 +22,14 @@ def _diff(old, new):
 
 def test_d11_loosening_auth_is_breaking_and_flagged_as_security():
     ch = _diff(_route(auth="api_key"), _route(auth="none"))
-    auth = next(c for c in ch if c["kind"] == "auth_changed")
+    # UI-DESIGN §9 D11: loosening is its own kind, auth_loosened, and breaking
+    auth = next(c for c in ch if c["kind"] == "auth_loosened")
     assert auth["breaking"] is True and auth["security"] == "loosened"
     assert auth["before"] == "api_key" and auth["after"] == "none"
-    ch = _diff(_route(auth="app_token"), _route(auth="none"))
-    assert next(c for c in ch if c["kind"] == "auth_changed")["security"] == "loosened"
+    assert not [c for c in ch if c["kind"] == "auth_changed"]
+    for before, after in (("app_token", "none"), ("api_key", "app_token")):
+        ch = _diff(_route(auth=before), _route(auth=after))
+        assert next(c for c in ch if c["kind"] == "auth_loosened")["breaking"] is True
 
 
 def test_d11_tightening_auth_stays_breaking():
