@@ -318,11 +318,13 @@ class ProjectService:
         from ..db.models import FolderModel
         await self._s.execute(sa_delete(VariableModel).where(VariableModel.project_id == p.id))
         await self._s.execute(sa_delete(FolderModel).where(FolderModel.project_id == p.id))
-        try:
-            from ..db.models import ApiKeyModel, ApiSpecRevisionModel
-            await self._s.execute(sa_delete(ApiKeyModel).where(ApiKeyModel.project_id == p.id))
-            await self._s.execute(sa_delete(ApiSpecRevisionModel).where(ApiSpecRevisionModel.project_id == p.id))
-        except ImportError:
-            pass
+        from ..db.models import ApiKeyModel, ApiSpecRevisionModel, CodeModuleModel, ReleaseModel
+        if (await self._s.execute(select(func.count()).select_from(CodeModuleModel).where(
+                CodeModuleModel.project_id == p.id))).scalar_one():
+            raise ProjectError(409, "project_not_empty", "Project still has python modules", counts=counts)
+        await self._s.execute(sa_delete(ApiKeyModel).where(ApiKeyModel.project_id == p.id))
+        await self._s.execute(sa_delete(ApiSpecRevisionModel).where(ApiSpecRevisionModel.project_id == p.id))
+        await self._s.execute(ReleaseModel.__table__.update().where(ReleaseModel.project_id == p.id).values(source_release_id=None))
+        await self._s.execute(sa_delete(ReleaseModel).where(ReleaseModel.project_id == p.id))
         await self._s.delete(p)
         await self._s.commit()

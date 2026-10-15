@@ -326,6 +326,29 @@ class AppService:
             public_url=None,  # route layer fills this with the absolute URL
         )
 
+    async def publish_release_version(self, aid: str, version_id: int, client_src: str | None) -> bool:
+        """Phase 9: serve a release-pinned app version at /a/{slug} (promote/rollback into the live env).
+        Only for apps that are already published (slug + active). Returns True if re-published."""
+        from .client_codegen import CLIENT_PATH
+        row = await self._session.get(AppModel, aid)
+        version = await self._session.get(AppVersionModel, version_id)
+        if not row or not version or version.app_id != aid or not row.slug or not row.active:
+            return False
+        file_dicts = await self._file_storage.get_files(version_id)
+        files = [AppFileInput(path=f["path"], content=f["content"]) for f in file_dicts if f["path"] != CLIENT_PATH] \
+            or [AppFileInput(path="App.tsx", content=version.source_code or "")]
+        if client_src:
+            files.append(AppFileInput(path=CLIENT_PATH, content=client_src))
+        try:
+            artifact = await bundle_app(files)
+        except (BundlerUnavailableError, BundleBuildError) as e:
+            raise AppPublishError(f"bundle failed: {e}") from e
+        await self._bundle_storage.save_bundle(version_id, artifact)
+        row.published_version_id = version_id
+        row.published_at = datetime.now()
+        await self._session.commit()
+        return True
+
     async def unpublish_app(self, aid: str) -> AppPublishResponse:
         """Take a published app offline. Bundle bytes stay on the version row
         (re-publish is then a no-op rebuild) and history is preserved — we

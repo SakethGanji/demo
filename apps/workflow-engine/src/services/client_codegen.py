@@ -60,7 +60,7 @@ def generate_client(slug: str, routes: list[dict[str, Any]], revision: int | Non
         "  constructor(public status: number, public body: unknown) { super(`HTTP ${status}`) }",
         "}",
         "",
-        f"export const BASE = {json.dumps('/api/p/' + slug)}",
+        f"export const BASE = '/api/p/{slug}'",
         "",
         "function qs(query?: Record<string, unknown>): string {",
         "  if (!query) return ''",

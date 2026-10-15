@@ -622,3 +622,25 @@ class CodeModuleModel(SQLModel, table=True):
     created_by: str | None = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
+
+
+# ---------------------------------------------------------------------------
+# Releases (phase 9)
+# ---------------------------------------------------------------------------
+
+
+class ReleaseModel(SQLModel, table=True):
+    __tablename__ = "releases"
+
+    id: str = Field(primary_key=True)
+    project_id: str = Field(foreign_key="projects.id", index=True)
+    environment: str
+    number: int
+    is_active: bool = Field(default=False)
+    status: str
+    snapshot: dict[str, Any] = Field(sa_column=Column(JSONB, nullable=False))
+    checks: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(JSONB, nullable=False, server_default="[]"))
+    source_release_id: str | None = Field(default=None, foreign_key="releases.id")
+    notes: str | None = Field(default=None)
+    created_by: str | None = Field(default=None)
+    created_at: datetime = Field(default_factory=datetime.now)
