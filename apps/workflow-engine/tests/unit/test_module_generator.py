@@ -107,3 +107,13 @@ def test_lock_is_per_project_and_actor_and_release_is_idempotent():
         mg.release(k)
     assert mg.try_acquire("p1", None) == k1
     mg.release(k1)
+
+
+def test_undefined_sdk_names():
+    assert mg.undefined_sdk_names("from studio import api\n@api.get('/x')\ndef f(req):\n    return {}\n") == []
+    assert mg.undefined_sdk_names("import studio\nfrom studio import api, Response as R\ndef f():\n    R(); HTTPError(1)\n") \
+        == [("HTTPError", 4)]
+    assert mg.undefined_sdk_names("@api.get('/x')\ndef f(req):\n    return studio.db.table('t').list()\n") \
+        == [("api", 1), ("studio", 3)]
+    assert mg.undefined_sdk_names("def api(): pass\n@api\ndef g(): pass\n") == []
+    assert mg.undefined_sdk_names("def (:") == []

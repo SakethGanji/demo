@@ -122,6 +122,8 @@ class _Timeout(Exception):
 # ── system prompt ────────────────────────────────────────────────────────────
 
 RULES = """You write one Python backend module for a studio project. Reply by calling emit_module with the COMPLETE module.
+- The module is a standalone file: start it with the imports it needs, e.g. `from studio import api, Response, HTTPError`
+  and `import studio` (api, Response, HTTPError and studio are NOT available unless imported).
 - Routes are plain functions decorated with @api.get / @api.post / @api.put / @api.patch / @api.delete. Decorator
   arguments are string literals only (path positionally; auth= and name= as keywords; auth is none, app_token or api_key).
 - Secrets: studio.secret('K') with a string literal (f-strings like f"Bearer {studio.secret('K')}" are fine). Never
@@ -256,6 +258,34 @@ def scan_usage(source: str) -> dict[str, Any]:
     return {"tables": tables, "secrets": secrets, "dynamic_tables": dyn_tables, "dynamic_secrets": dyn_secrets}
 
 
+SDK_NAMES = {"api": "from studio import api", "studio": "import studio",
+             "Response": "from studio import Response", "HTTPError": "from studio import HTTPError"}
+
+
+def undefined_sdk_names(source: str) -> list[tuple[str, int]]:
+    """SDK names (api, studio, Response, HTTPError) used but never imported or defined: ``[(name, first line)]``.
+    Models often forget the imports; the handler would die with NameError on its first request."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []
+    bound: set[str] = set()
+    for n in ast.walk(tree):
+        if isinstance(n, (ast.Import, ast.ImportFrom)):
+            bound |= {(a.asname or a.name).split(".")[0] for a in n.names}
+        elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            bound.add(n.name)
+        elif isinstance(n, ast.Name) and isinstance(n.ctx, (ast.Store, ast.Del)):
+            bound.add(n.id)
+        elif isinstance(n, ast.arg):
+            bound.add(n.arg)
+    first: dict[str, int] = {}
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load) and n.id in SDK_NAMES and n.id not in bound:
+            first[n.id] = min(first.get(n.id, n.lineno), n.lineno)
+    return sorted(first.items(), key=lambda kv: (kv[1], kv[0]))
+
+
 def _route_item(d: dict[str, Any], name: str | None = None) -> dict[str, Any]:
     return {"method": d["method"], "path": d["path"], "name": name or d.get("name"), "function": d["function"],
             "line": d.get("line"), "auth": d.get("auth", "none")}
@@ -304,6 +334,10 @@ async def analyse(session: Any, project: ProjectModel, *, source: str, module_id
         check_module_name(module_name)
     except ProjectError as e:
         errors.append({"code": "invalid_module_name", "line": None, "column": None, "message": e.message})
+
+    for name, line in undefined_sdk_names(source):
+        errors.append({"code": "undefined_name", "line": line, "column": None,
+                       "message": f"'{name}' is used but not imported (add: {SDK_NAMES[name]})"})
 
     decls: list[dict[str, Any]] = []
     try:

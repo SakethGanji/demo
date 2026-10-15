@@ -145,6 +145,11 @@ def _custom_rules() -> list[dict]:
          "respond": _emit("undeclared", SELFTEST_SRC.split("@api.get(\"/w\")")[0])},
         {"id": "t-textonly", "when": {"last_user_matches": "__textonly__"},
          "respond": {"text": "Here you go:\n```python\n" + CONFLICT_FIXED + "```\n"}},
+        {"id": "t-noimport-fix", "when": {"tool": "emit_module", "any_user_matches": "__noimport__",
+                                           "last_user_matches": "^Fix these problems in the module you emitted:"},
+         "respond": _emit("noimp", CONFLICT_FIXED)},
+        {"id": "t-noimport", "when": {"tool": "emit_module", "last_user_matches": "__noimport__"},
+         "respond": _emit("noimp", CONFLICT_FIXED.split("\n\n\n", 1)[1])},
         {"id": "t-nocode", "when": {"last_user_matches": "__nocode__"}, "respond": {"text": "I cannot help"}},
         {"id": "t-nocode-repair", "when": {"any_user_matches": "__nocode__",
                                             "last_user_matches": "^Fix these problems in the module you emitted:"},
@@ -693,3 +698,19 @@ def test_generate_budget_exhausted_is_a_timeout_error_with_the_draft_and_kills_t
     r = api.post(f"/projects/{P}/modules/generate", {"prompt": "slow __slow__"}, headers={"Accept": "application/json"})
     assert r.status_code == 504 and r.json()["detail"]["code"] == "timeout"
     assert r.json()["detail"]["draft"]["module_name"] == "slow"
+
+
+def test_generate_missing_sdk_imports_are_caught_statically_and_repaired(fake_api, upstream, script):
+    """Found with a real model (it omitted `from studio import api`): it must not reach save."""
+    P, _ = _project(fake_api, upstream)
+    status, msgs, _ = gen(fake_api, P, "no imports __noimport__", self_test=False)
+    assert status == 200
+    first = [m for m in msgs if m["type"] == "analysis"][0]
+    assert [(e["code"], e["line"]) for e in first["errors"]] == [("undefined_name", 1)]
+    assert "'api'" in first["errors"][0]["message"] and "from studio import api" in first["errors"][0]["message"]
+    res = terminal(msgs)
+    assert res["type"] == "result" and res["attempts"] == 2
+    repair = [x for x in calls(fake_api) if x["tools"]][1]["messages"][-1]["content"].split("\n")
+    assert repair[1].startswith("- undefined_name line 1: 'api' is used but not imported")
+    system = [x for x in calls(fake_api) if x["tools"]][0]["messages"][0]["content"]
+    assert "from studio import api" in system
