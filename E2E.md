@@ -195,3 +195,46 @@ Local screenshots and the live report are under `screenshots/postgres-dashboard/
 After the Postgres changes, the complete engine regression suite passed **296 tests**, with no skips
 and five existing Pydantic deprecation warnings. The real Gemini browser run also passed the
 credential replacement, generated backend/UI, live database refresh and published-app checks.
+
+## Banking operations app (real Gemini + Postgres)
+
+The larger benchmark uses five related tables: 600 synthetic transactions, 40 accounts, eight
+branches, 100 exception cases, and 1,200 audit events. Six generated APIs provide aggregate metrics,
+filtered/paginated transactions, joined transaction detail with audit/case records, daily trends,
+accounts and exceptions. The generated app has Overview, Transactions, Accounts and Exceptions views.
+The reusable source and seed SQL are retained under `examples/banking-operations/`.
+
+Real testing exposed and fixed these generation issues:
+
+- Gemini reasoning could exhaust the 16k response budget before emitting files. App generation now
+  uses a 32k budget for Gemini, with LOW thinking on Gemini 3. MAX_TOKENS is an explicit failure;
+  partial file-writing calls are never executed as successful generation.
+- Applied route-test response schemas now feed the larger benchmark's typed client. The app-builder
+  context preserves complete nested schemas up to 6,000 characters, rather than cutting JSON at 600.
+  Larger schemas direct the builder to read the complete client types. Missing schemas must not lead
+  the builder to invent response aliases or plausible zero defaults.
+- Saved draft entry source is available to refinement even before a file version exists. The replay
+  setup also creates a proper saved version, preserving the original generated app during refinement.
+- Generated code is checked with esbuild on stdin before completion. Compiler failures receive at most
+  two repair requests; unrepaired source produces an error/done stream without a code event. A final
+  guard prevents another early loop exit from emitting invalid source. The check parses source without
+  materializing model-provided paths. Publishing still performs the full bundle/import check.
+
+The browser verifies all six saved APIs against independent database expectations, then checks both
+preview and published app navigation, 15 trend bars, 25-row pagination, status/region filters, empty
+results, exact transaction search, joined account/audit/case detail, 40 account rows and 100 case rows.
+It verifies actual outgoing pagination/filter queries and a real database change (exception count
+100 to 99). For recovery, the test disables the database login, requires an error/Retry action,
+restores login, and waits for a new successful summary response and loaded chart after Retry.
+
+Backend and UI were genuinely generated with Gemini and then refined iteratively. Replays reuse those
+real generated sources against fresh databases to avoid duplicate paid generation calls; they do not
+mock application APIs or database results. Local screenshots and reports are in `screenshots/banking-app/`.
+Automatic generation self-tests continue to block external SQL as described above. This is a functional
+app benchmark, not a load-test or enterprise authorization certification; real Splunk is not tested.
+
+The completed banking pass and final exact-source replay passed all checks. The replay additionally
+requires chart bar heights to vary with actual response values; a small manual flex-layout correction
+was retained in the example UI. It waits for a fresh 200 summary response and all 15 chart bars after
+recovery, so stale KPI values cannot satisfy Retry. The complete engine suite passed **304 tests**,
+with no skips and five existing deprecation warnings.

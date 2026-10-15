@@ -37,3 +37,34 @@ Generation's automatic read-only self-tests intentionally refuse external SQL. T
 results are recorded separately; the saved route tests and preview/published calls must
 actually execute against the external database and return 200. Do not loosen that policy to
 make generation's self-tests green.
+
+## Banking operations benchmark
+
+For the larger multi-view app, use the same prerequisites and credentials, then run:
+
+```bash
+PG_BINDIR=/path/to/postgresql/bin apps/workflow-engine/venv/bin/python \
+  apps/workflow-engine/tests/live/run_banking_app.py
+```
+
+The benchmark seeds 600 synthetic transactions, 40 accounts, eight branches, 100 exception
+cases and 1,200 audit events across five related tables. Real Gemini generates six backend
+routes and a React app with Overview, Transactions, Accounts and Exceptions views. Before UI
+checks, saved routes are compared against independent database expectations, and successful
+representative responses are applied as schemas to the typed client (no response values are
+added to the model context). Browser checks
+cover server pagination, status/region filters, search, an empty result, joined transaction
+and audit details, account/case tables, publishing and refresh after a database change.
+Artifacts are local under `screenshots/banking-app/`.
+
+This is a functional app-generation benchmark with synthetic data, not a banking production
+or load-test certification. It does not connect to a real Splunk instance. Splunk connector
+onboarding, enterprise identity and per-user data access remain separate platform milestones.
+
+For a diagnostic rerun, `BANKING_BACKEND_PROOF` may point at a previous local report to reuse its
+real generated backend (only the ephemeral Postgres port is retargeted). `BANKING_UI_PROOF` may
+point at a previous report to refine its real generated UI. `BANKING_REFINEMENT_FILE` optionally
+supplies a focused refinement prompt. `BANKING_REPLAY_UI=1` with a UI proof skips additional AI
+calls and verifies that exact generated source against a fresh real database, including publishing
+and fresh-response recovery. The report marks source reuse/replay explicitly. No AI event stream
+or application response is fabricated during replay.

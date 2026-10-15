@@ -96,3 +96,31 @@ def test_same_model_errors_stop_instead_of_resetting_on_escalation(monkeypatch):
     payloads = [json.loads(event["data"]) for event in events]
     assert not any(p.get("phase") == "escalating" for p in payloads)
     assert "trouble generating" in payloads[-1]["content"]
+
+
+@pytest.mark.parametrize("has_partial_call", [False, True])
+def test_truncated_gemini_response_never_executes_partial_tool_calls(has_partial_call):
+    partial = types.Content(role="model", parts=[types.Part.from_function_call(
+        name="write_files", args={"files": [{"path": "App.tsx", "content": "incomplete"}]})])
+    response = types.GenerateContentResponse(candidates=[types.Candidate(content=partial if has_partial_call else None, finish_reason="MAX_TOKENS")])
+    parsed = _parse_gemini_response(response)
+    assert parsed.output_truncated
+    assert not parsed.tool_calls
+
+
+def test_builder_reports_truncation_instead_of_silent_completion(monkeypatch):
+    from src.services import app_builder_ai_service as builder
+    call = AsyncMock(return_value=llm_provider.LLMResponse(output_truncated=True))
+    monkeypatch.setattr(builder, "call_llm", call)
+    monkeypatch.setattr(builder, "_HEAVY_MODEL", "gemini-3.5-flash")
+    service = builder.AppBuilderAIService.__new__(builder.AppBuilderAIService)
+    monkeypatch.setattr(service, "_build_agent_system_prompt", lambda _: "Build UI")
+
+    async def collect():
+        return [event async for event in service._run_agent_loop([], [], "Build UI")]
+
+    with pytest.raises(builder._LLMFailed, match="output limit"):
+        asyncio.run(collect())
+    assert call.await_count == 1
+    assert call.call_args.kwargs["max_tokens"] == 32_000
+    assert call.call_args.kwargs["thinking_level"] == "LOW"

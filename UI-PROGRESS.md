@@ -31,7 +31,7 @@ Studio: `VITE_WORKFLOW_API_URL=http://127.0.0.1:8710 npx vite --port 5190`.
 ## Counts
 - tsc -b: baseline 53 → 44 → **0**; production Vite build passes (large-chunk warning remains)
 - unit (vitest): 23
-- engine: **296 passed**, no skips (5 existing Pydantic warnings)
+- engine: **304 passed**, no skips (5 existing Pydantic warnings)
 - browser: **46 scenarios / 47 cases passed** across the full run and affected generation-spec rerun
 - final captures: **28 PNGs**, light + dark, under `screenshots/ui-built/`; strict capture run passed
 
@@ -67,6 +67,21 @@ Studio: `VITE_WORKFLOW_API_URL=http://127.0.0.1:8710 npx vite --port 5190`.
 - Automatic generation self-tests still block external SQL (`read_only`); saved routes, preview and
   published calls were separately verified against real data. See E2E.md and tests/live/README.md.
 - Screenshots and report: `screenshots/postgres-dashboard/` (local only).
+
+
+## Banking operations app
+
+- Retained a generated backend and a generated/refined four-view React app in `examples/banking-operations/`,
+  with safe synthetic seed SQL. It covers 600 transactions, 40 accounts, eight branches, 100 cases and
+  1,200 audit events across five related tables and six APIs.
+- Real Gemini build/refinement plus Playwright checks verified server filters/pagination/search,
+  joined details/audit, trend chart, account/case views, publishing, real database refresh, and error/Retry.
+  Final replay waited for a fresh successful recovery response and loaded chart; no additional AI calls
+  were needed for replay. A small manual CSS correction preserves visible chart value differences.
+- Fixed Gemini budget exhaustion/truncation handling, incomplete schema context, draft-source loading,
+  and generated-source syntax validation with bounded compiler-feedback repair.
+- Engine regression suite: **304 passed**, no skips, five existing warnings. Local evidence is under
+  `screenshots/banking-app/`. Splunk and enterprise identity/data authorization are outside this benchmark.
 
 ## Deviations (so far)
 - The AI draft is applied to the editor on the terminal `result` (one transaction), not streamed line by line;

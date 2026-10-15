@@ -12,7 +12,9 @@ React with useState/useEffect/useCallback and native HTML elements.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import shutil
 import logging
 from typing import Any, AsyncGenerator
 
@@ -146,6 +148,32 @@ def _truncate_for_display(result: str) -> str:
     return result
 
 
+async def _generated_syntax_errors(files: list[dict]) -> str | None:
+    """Parse generated source on stdin; never materialize model-provided paths."""
+    source_files = [f for f in files if f["path"].endswith((".tsx", ".ts", ".jsx", ".js"))]
+    if not source_files:
+        return None
+    binary = shutil.which("esbuild")
+    if not binary:
+        return "Code validation requires esbuild on the engine PATH."
+    for file in source_files:
+        loader = file["path"].rsplit(".", 1)[-1]
+        process = await asyncio.create_subprocess_exec(
+            binary, f"--loader={loader}", f"--sourcefile={file['path']}", "--log-level=error",
+            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            _, stderr = await asyncio.wait_for(process.communicate(file["content"].encode()), timeout=15)
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
+            return f"Syntax validation timed out for {file['path']}"
+        if process.returncode:
+            return stderr.decode(errors="replace")[:4000]
+    return None
+
+
 # ── Agent System Prompt ───────────────────────────────────────────────
 
 _AGENT_SYSTEM_PROMPT = """\
@@ -227,6 +255,8 @@ def build_spec_summary(slug: str, specs: list[dict[str, Any]], focus: set[str] |
         f"This app belongs to a project with a typed API client at `{CLIENT_PATH}` (generated — never edit it).",
         "Import it from the entry file as `import { api } from './api/client'` (from `src/App.tsx`: `'../api/client'`).",
         "Call operations as `await api.<operation>(params?, body?, query?)`. Do not hand-write fetch() for these routes.",
+        "Use response field names exactly as typed; do not invent aliases or hide missing required fields with zero defaults.",
+        "If a response schema is missing, use an explicit user-provided contract or ask them to run the route test and Use as schema before binding data.",
         "If the UI needs an endpoint that is not listed, call the `declare_endpoint` tool instead of inventing one.",
         "",
     ]
@@ -238,7 +268,11 @@ def build_spec_summary(slug: str, specs: list[dict[str, Any]], focus: set[str] |
         lines.append(f"- `api.{s['name']}` — {s['method']} {s['path']}{stub}{mark}")
         if s.get("response_schema"):
             import json as _json
-            lines.append(f"  response: `{_json.dumps(s['response_schema'])[:600]}`")
+            schema_json = _json.dumps(s['response_schema'], separators=(",", ":"))
+            if len(schema_json) <= 6000:
+                lines.append(f"  response: `{schema_json}`")
+            else:
+                lines.append("  Response schema is large; read the complete response type in api/client.ts before using this operation.")
     return "\n".join(lines)
 
 
@@ -332,6 +366,9 @@ class AppBuilderAIService:
         files_changed = current_snapshot != initial_snapshot
 
         if working_set and files_changed:
+            errors = await _generated_syntax_errors(working_set)
+            if errors:
+                raise _LLMFailed(RuntimeError("Generated code did not pass syntax validation: " + errors))
             _ENTRY_PATHS = {"App.tsx", "src/App.tsx", "app.tsx", "src/app.tsx"}
             entry = next(
                 (f for f in working_set if f["path"] in _ENTRY_PATHS),
@@ -483,6 +520,8 @@ class AppBuilderAIService:
         else:
             tools = self._build_agent_tools()
 
+        original_files = {f["path"]: f["content"] for f in working_set}
+        syntax_repairs = 0
         turn = 0
         consecutive_errors = 0
         last_tool_sig: str | None = None
@@ -502,10 +541,19 @@ class AppBuilderAIService:
                     messages=messages,
                     tools=tools,
                     temperature=0.3,
-                    max_tokens=16_000,
+                    max_tokens=32_000 if current_model.startswith("gemini-") else 16_000,
+                    # Gemini 3 reasoning shares the output budget with the code.
+                    # Keep space for multi-view apps rather than spending it all
+                    # on thinking before a write_files call can be emitted.
+                    **({"thinking_level": "LOW"} if current_model.startswith("gemini-3") else {}),
                 )
             except Exception as e:  # review C5: surfaced as an `error` event, then `done`
                 raise _LLMFailed(e) from e
+
+            if response.output_truncated:
+                raise _LLMFailed(RuntimeError(
+                    "The model reached its output limit before completing the app. "
+                    "Try building one view at a time or splitting the app into smaller files."))
 
             # Malformed tool call — count as error and retry the turn
             if response.malformed_tool_call:
@@ -527,6 +575,18 @@ class AppBuilderAIService:
 
             # No tool calls = agent is done
             if not response.tool_calls:
+                changed = {f["path"]: f["content"] for f in working_set} != original_files
+                errors = await _generated_syntax_errors(working_set) if changed else None
+                if errors:
+                    syntax_repairs += 1
+                    if syntax_repairs > 2:
+                        raise _LLMFailed(RuntimeError("Generated code still fails syntax validation after two repairs: " + errors))
+                    messages.append(response.get_assistant_message())
+                    messages.append({"role": "user", "content":
+                        "The generated files failed syntax validation. Fix the compiler errors using the file tools, "
+                        "preserving existing behavior. Do not declare success until repaired:\n" + errors})
+                    yield _sse("message", {"type": "phase", "phase": "repairing", "message": "Repairing generated code syntax"})
+                    continue
                 text = response.text or ""
                 if text:
                     yield _sse("message", {"type": "text", "content": text})
@@ -1038,6 +1098,10 @@ class AppBuilderAIService:
                 app_detail = await self._app_service.get_app(request.app_id)
                 if app_detail and app_detail.files:
                     return [{"path": f.path, "content": f.content, "parsed_index": f.parsed_index} for f in app_detail.files], None
+                if app_detail and app_detail.source_code:
+                    # Legacy/saved drafts may have entry source without a file
+                    # version yet. Refinement must not start over in that case.
+                    return [{"path": "App.tsx", "content": app_detail.source_code, "parsed_index": None}], None
             except Exception:
                 logger.warning("Failed to resolve files for app %s", request.app_id, exc_info=True)
 

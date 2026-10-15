@@ -56,6 +56,7 @@ class LLMResponse:
     usage: Optional[LLMUsage] = None
     response_time_ms: Optional[float] = None
     malformed_tool_call: bool = False
+    output_truncated: bool = False
     # JSON-safe native model content retains Gemini's opaque thought signatures.
     gemini_content: Optional[Dict[str, Any]] = None
 
@@ -432,6 +433,8 @@ async def _call_gemini_vertex(
         # Pro requires >=128 (API error otherwise); Flash supports 0 (fully off).
         budget = 128 if "pro" in model else 0
         config_kwargs["thinking_config"] = ThinkingConfig(thinking_budget=budget)
+    if kwargs.get("thinking_level") is not None:
+        config_kwargs["thinking_config"] = ThinkingConfig(thinking_level=kwargs["thinking_level"])
     if gemini_tools:
         config_kwargs["tools"] = gemini_tools
         # Map tool_choice kwarg to Gemini's function_calling_mode
@@ -495,6 +498,12 @@ def _parse_gemini_response(response: Any) -> LLMResponse:
                       if candidate.content is not None and hasattr(candidate.content, "model_dump") else None)
     finish = getattr(candidate, "finish_reason", None)
     finish_name = getattr(finish, "name", None)
+
+    if finish_name == "MAX_TOKENS":
+        # Never execute a partial file-writing tool call or report an empty
+        # reasoning-only response as a completed app generation.
+        return LLMResponse(text="The model exceeded its output token limit.",
+                           output_truncated=True, gemini_content=native_content)
 
     # Gemini returns MALFORMED_FUNCTION_CALL when function call output is
     # garbled — signal to the agent loop so it can retry the turn.

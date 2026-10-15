@@ -40,3 +40,31 @@ def test_client_codegen_and_usage_scan_roundtrip():
         {"kind": "client_call", "operation": "getOrdersById", "method": None, "path": None, "line": 1},
         {"kind": "literal", "operation": None, "method": "GET", "path": "/orders/{_}", "line": 2},
     ]
+
+
+def test_spec_context_preserves_nested_response_fields_beyond_old_cutoff():
+    import json
+    schema = {"type": "object", "properties": {
+        "transaction": {"type": "object", "properties": {
+            f"field_{i}": {"type": "string"} for i in range(30)}},
+        "events": {"type": "array", "items": {"type": "object", "properties": {"message": {"type": "string"}}}},
+    }}
+    spec = {**SPECS[0], "response_schema": schema}
+    summary = build_spec_summary("shop", [spec])
+    response = summary.split("  response: `", 1)[1].split("`", 1)[0]
+    assert json.loads(response) == schema
+    assert '"events"' in response and '"message"' in response
+
+
+def test_refinement_loads_saved_entry_source_without_a_file_version():
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from src.schemas.app_builder import AppBuilderChatRequest
+
+    source = "export default function App() { return <div>Existing draft</div> }"
+    service = AppBuilderAIService.__new__(AppBuilderAIService)
+    service._app_service = SimpleNamespace(get_app=AsyncMock(return_value=SimpleNamespace(files=[], source_code=source)))
+    files, warning = asyncio.run(service._resolve_current_files(AppBuilderChatRequest(app_id="existing", message="Add retry")))
+    assert warning is None
+    assert files == [{"path": "App.tsx", "content": source, "parsed_index": None}]
