@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Confirm dialogs — mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/tokens.css"><link rel="stylesheet" href="assets/studio.css">
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<style>
+.sheet { position: absolute; top: 12px; right: 12px; bottom: 12px; z-index: 21; background: var(--card); border-radius: 14px; box-shadow: var(--shadow-2xl); border: 1px solid var(--panel-border); display: flex; flex-direction: column; overflow: hidden; }
+.sh-h { padding: 16px 18px 12px; border-bottom: 1px solid var(--border); }
+.sh-t { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.sh-b { padding: 16px 18px; overflow: hidden; flex: 1; display: flex; flex-direction: column; gap: 14px; }
+.sh-f { padding: 12px 18px; border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: center; background: color-mix(in srgb, var(--muted) 40%, var(--card)); }
+.content { height: 100%; overflow: hidden; padding: 24px 28px; }
+.h2 { font-size: 18px; line-height: 24px; font-weight: 600; letter-spacing: -0.01em; }
+.chk { display: flex; gap: 10px; padding: 10px 12px; border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent); align-items: flex-start; }
+.chk:last-child { border-bottom: 0; }
+.ico-ok { color: var(--success); } .ico-warn { color: var(--warning); } .ico-fail { color: var(--destructive); }
+.wrap3 { position: absolute; inset: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; padding: 40px 28px; align-items: start; background: rgb(15 18 22 / .08); }
+.dlgc { background: var(--card); border-radius: 14px; box-shadow: var(--shadow-2xl); border: 1px solid var(--panel-border); padding: 20px; }
+.t { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.chg { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent); font-size: 12.5px; }
+.aff { display: flex; align-items: center; gap: 6px; padding: 7px 12px 9px 26px; border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent); font-size: 12px; background: color-mix(in srgb, var(--destructive) 3%, transparent); }
+.card > :last-child { border-bottom: 0; }
+</style>
+</head>
+<body data-noside="1">
+<div class="app">
+<div class="wrap3"><div class="dlgc" data-testid="breaking-dialog">
+  <div class="row gap-2"><i data-lucide="triangle-alert" class="i14 ico-warn"></i><span class="t">Saving refunds.py breaks 1 app</span></div>
+  <div class="muted" style="margin-top:4px">From <span class="mono">PUT …/modules/{id}?dry_run=true</span>. Nothing is saved yet.</div>
+  <div class="card" style="margin-top:12px;overflow:hidden">
+    <div class="chg"><span class="badge destructive mono" style="font-size:10.5px">route_removed</span><span class="method get">GET</span><span class="mono">/refunds/stats</span></div>
+    <div class="aff"><i data-lucide="app-window" class="i12 muted"></i>Orders dashboard <span class="mono muted">App.tsx:31</span> <span class="muted">calls api.refundStats</span></div>
+    <div class="chg"><span class="badge destructive mono" style="font-size:10.5px">auth_loosened</span><span class="method post">POST</span><span class="mono">/refunds</span><span class="muted">api_key → none: becomes public</span></div>
+    <div class="chg"><span class="badge neutral mono" style="font-size:10.5px">field_added</span><span class="method get">GET</span><span class="mono">/refunds</span><span class="muted">non-breaking</span></div>
+  </div>
+  <div class="row gap-2" style="margin-top:14px"><div class="grow"></div><span class="btn ghost sm">Cancel</span><span class="btn destructive sm">Save anyway</span></div>
+</div><div class="dlgc" data-testid="delete-module-dialog">
+  <div class="row gap-2"><i data-lucide="trash-2" class="i14 ico-fail"></i><span class="t">Delete refunds.py?</span></div>
+  <div class="muted" style="margin-top:4px">These routes stop working in dev and in prod (prod has no release, so it serves your latest saved code). <span class="muted">With a prod release: "prod keeps serving release #N until you promote".</span></div>
+  <div class="card" style="margin-top:12px;overflow:hidden">
+    <div class="chg"><span class="method post">POST</span><span class="mono">/refunds</span></div>
+    <div class="chg"><span class="method get">GET</span><span class="mono">/refunds</span></div>
+    <div class="chg"><span class="method get">GET</span><span class="mono">/refunds/stats</span><span class="badge warning" style="margin-left:auto">used by Orders dashboard</span></div>
+  </div>
+  <div class="help" style="margin-top:8px">The <span class="mono">refunds</span> table and its 3 rows are kept.</div>
+  <div class="col gap-1h" style="margin-top:10px"><span class="label">Type <span class="mono">refunds</span> to confirm</span><span class="input mono" style="font-size:12.5px">refunds</span></div>
+  <div class="row gap-2" style="margin-top:14px"><div class="grow"></div><span class="btn ghost sm">Cancel</span><span class="btn destructive sm">Delete module</span></div>
+</div><div class="dlgc" data-testid="module-changed">
+  <div class="row gap-2"><i data-lucide="git-merge" class="i14" style="color:var(--primary)"></i><span class="t">refunds.py changed since you opened it</span></div>
+  <div class="muted" style="margin-top:4px">Saved 2m ago in another tab (or by the app builder). Save returned <span class="mono">409 module_changed</span>; your edits are still here.</div>
+  <div class="row gap-2" style="margin-top:14px"><span class="btn outline sm"><i data-lucide="git-compare" class="i14"></i>Show diff</span><span class="btn outline sm">Reload theirs</span><div class="grow"></div><span class="btn destructive sm">Overwrite</span></div>
+  <div class="hr" style="margin:16px 0 12px"></div>
+  <div class="row gap-2"><i data-lucide="file-pen-line" class="i14 muted"></i><span class="t" style="font-size:13px">New module</span></div>
+  <div class="col gap-1h" style="margin-top:10px"><span class="label">Module name</span><span class="input mono" style="font-size:12.5px;border-color:var(--destructive)">new</span><span style="color:var(--destructive);font-size:12px">"new" is reserved. Use letters, digits and _, starting with a letter.</span></div>
+  <div class="col gap-1h" style="margin-top:10px"><span class="label">Start from</span><div class="row gap-2"><span class="chip" style="border-color:var(--primary)">Empty</span><span class="chip">Table CRUD</span><span class="chip">External API</span></div></div>
+</div></div>
+</div>
+<script src="assets/shell.js"></script>
+<script>lucide.createIcons();</script>
+</body>
+</html>

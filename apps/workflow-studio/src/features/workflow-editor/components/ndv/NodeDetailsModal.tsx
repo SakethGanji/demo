@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 
-import { Dialog, DialogContent, DialogOverlay, DialogPortal, DialogTitle } from '@/shared/components/ui/dialog';
+import { Dialog, DialogContent, DialogTitle } from '@/shared/components/ui/dialog';
 import { useNDVStore } from '../../stores/ndvStore';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useNodeById, useNodeExecution } from '../../hooks/useWorkflowSelectors';
@@ -131,21 +131,26 @@ export default function NodeDetailsModal() {
     }
   };
 
-  // Handle Escape: if editing name, cancel edit instead of closing dialog
-  const handleEscapeKeyDown = useCallback((e: KeyboardEvent) => {
-    if (isEditingName) {
-      e.preventDefault();
-      handleCancelEdit();
-    }
-  }, [isEditingName, handleCancelEdit]);
+  // Escape while editing the name cancels the edit instead of closing the dialog (Base UI:
+  // the close request carries its reason and can be cancelled).
+  const handleOpenChange = useCallback(
+    (open: boolean, details?: { reason?: string; cancel?: () => void }) => {
+      if (open) return;
+      if (details?.reason === 'escape-key' && isEditingName) {
+        details.cancel?.();
+        handleCancelEdit();
+        return;
+      }
+      closeNDV();
+    },
+    [isEditingName, handleCancelEdit, closeNDV],
+  );
 
   if (!activeNode) return null;
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => { if (!open) closeNDV(); }}>
-      <DialogPortal>
-        <DialogOverlay />
-        <DialogContent onEscapeKeyDown={handleEscapeKeyDown} showCloseButton={false} className="!max-w-[90vw] !w-[90vw] !h-[85vh] !p-0 !gap-0 flex flex-col !bg-background">
+    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
+        <DialogContent showCloseButton={false} className="!max-w-[90vw] !w-[90vw] !h-[85vh] !p-0 !gap-0 flex flex-col !bg-background">
           {/* Accessible title (visually hidden — header is custom) */}
           <VisuallyHidden>
             <DialogTitle>{activeNode.data.label} - Node Details</DialogTitle>
@@ -307,7 +312,6 @@ export default function NodeDetailsModal() {
             </PanelGroup>
           </div>
         </DialogContent>
-      </DialogPortal>
     </Dialog>
   );
 }

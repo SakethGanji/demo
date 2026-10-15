@@ -307,7 +307,10 @@ export default function WorkflowNavbar() {
           </button>
         ) : (
           <button
+            data-testid="editor-run"
             onClick={() => {
+              // Show the run's logs (status + output) instead of running into a closed panel.
+              openBottomPanel('logs');
               const raw = useEditorLayoutStore.getState().payloadInput;
               if (!raw || !raw.trim()) {
                 executeWorkflow({});

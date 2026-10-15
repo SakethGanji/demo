@@ -331,6 +331,13 @@ export default function ExecutionLogsPanel() {
     }
   }, [hasLogs, logs, selectedLogId]);
 
+  // When a run finishes, show the last node's output (the workflow's result).
+  const lastLogId = logs[logs.length - 1]?.id ?? null;
+  useEffect(() => {
+    if (!isRunning && lastLogId) setSelectedLogId(lastLogId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRunning]);
+
   // Reset data tab when switching nodes
   useEffect(() => {
     setDataTab('output');
@@ -351,19 +358,19 @@ export default function ExecutionLogsPanel() {
             <>
               <div className="w-px h-3 bg-border" />
               {isRunning ? (
-                <span className="flex items-center gap-1 text-[10px] text-[var(--warning)]">
+                <span className="flex items-center gap-1 text-[10px] text-[var(--warning)]" data-testid="execution-status" data-status="running">
                   <Loader2 size={10} className="animate-spin" />
-                  Running
+                  running
                 </span>
               ) : hasErrors ? (
-                <span className="flex items-center gap-1 text-[10px] text-destructive">
+                <span className="flex items-center gap-1 text-[10px] text-destructive" data-testid="execution-status" data-status="error">
                   <XCircle size={10} />
-                  Failed
+                  error
                 </span>
               ) : (
-                <span className="flex items-center gap-1 text-[10px] text-[var(--success)]">
+                <span className="flex items-center gap-1 text-[10px] text-[var(--success)]" data-testid="execution-status" data-status="success">
                   <CheckCircle2 size={10} />
-                  {formatDuration(totalDuration)}
+                  success · {formatDuration(totalDuration)}
                 </span>
               )}
               {!isRunning && (

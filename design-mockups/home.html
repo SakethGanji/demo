@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Projects home — mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/tokens.css"><link rel="stylesheet" href="assets/studio.css">
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<style>
+  .page { position: absolute; top: 56px; left: 0; right: 0; bottom: 0; overflow: hidden; display: flex; justify-content: center; padding: 36px 32px; }
+  .wrap { width: 100%; max-width: 1176px; }
+  .h1 { font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: -0.015em; }
+  .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
+  .pcard { background: var(--card); border: 1px solid var(--panel-border); border-radius: 14px; box-shadow: var(--shadow-xs); display: flex; flex-direction: column; overflow: hidden; }
+  .pcard:hover, .pcard.hover { box-shadow: var(--shadow-md); border-color: var(--border); }
+  .ptop { padding: 16px 16px 12px; }
+  .pname { font-weight: 600; font-size: 14px; line-height: 20px; }
+  .routes { margin: 0 12px; border: 1px solid var(--border); border-radius: 10px; background: color-mix(in srgb, var(--muted) 40%, var(--card)); padding: 6px 0; height: 112px; overflow: hidden; }
+  .r { height: 24px; display: flex; align-items: center; gap: 8px; padding: 0 10px; font: 11.5px/1 var(--font-mono); color: var(--foreground); }
+  .r { font-family: var(--font-mono); }
+  .r .method { width: 38px; height: 16px; font-size: 9.5px; }
+  .r .op { margin-left: auto; color: var(--muted-foreground); font-size: 11px; }
+  .pfoot { display: flex; align-items: center; gap: 14px; padding: 12px 16px; margin-top: 12px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted-foreground); }
+  .pfoot .it { display: inline-flex; align-items: center; gap: 5px; }
+  .newcard { border: 1px dashed var(--input); border-radius: 14px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--muted-foreground); min-height: 252px; background: color-mix(in srgb, var(--card) 40%, transparent); }
+  .plus { width: 40px; height: 40px; border-radius: 12px; background: var(--card); box-shadow: var(--shadow-sm); display: inline-flex; align-items: center; justify-content: center; color: var(--primary); }
+  .emptyroutes { height: 112px; margin: 0 12px; border: 1px dashed var(--border); border-radius: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--muted-foreground); font-size: 12px; }
+  .wfthumb { height: 112px; margin: 0 12px; border-radius: 10px; border: 1px solid var(--border); background: radial-gradient(circle, color-mix(in srgb, var(--foreground) 9%, transparent) 1px, transparent 1px) 0 0 / 12px 12px; position: relative; }
+  .node { position: absolute; width: 18px; height: 18px; border-radius: 5px; top: 47px; }
+  .edge { position: absolute; height: 1.5px; background: var(--border); top: 55px; }
+.page .seg { background: color-mix(in srgb, var(--foreground) 5%, transparent); }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar floating">
+    <span class="brand">luna</span>
+    <span class="sep-v"></span>
+    <span class="input sm" style="width:320px;border-color:transparent;background:transparent;padding-left:4px"><i data-lucide="search" class="i14 muted"></i><span class="ph">Search projects, routes, apps…</span></span>
+    <div class="grow"></div>
+    <span class="btn ghost sm"><i data-lucide="arrow-up-down" class="i14"></i>Recent</span>
+    <span class="btn ghost icon sm"><i data-lucide="upload" class="i14"></i></span>
+    <span class="btn ghost icon sm"><i data-lucide="sun" class="i14"></i></span>
+    <span class="sep-v"></span>
+    <span class="btn default sm"><i data-lucide="plus" class="i14"></i>New project</span>
+  </div>
+
+  <div class="page">
+    <div class="wrap">
+      <div class="row" style="justify-content:space-between;align-items:flex-end">
+        <div>
+          <div class="h1">Projects</div>
+          <div class="muted" style="margin-top:2px">Each project has a Python backend, its data, and the apps built on it.</div>
+        </div>
+        <div class="seg"><span class="on">All <span class="muted">5</span></span><span>Healthy</span><span>Needs attention <span class="muted">2</span></span></div>
+      </div>
+
+      <div class="grid">
+        <!-- Payments Ops -->
+        <div class="pcard hover">
+          <div class="ptop">
+            <div class="row gap-2"><span class="pname">Payments Ops</span><div class="grow"></div><span class="btn ghost icon xs" title="Settings · Delete"><i data-lucide="ellipsis" class="i14"></i></span><span class="badge warning"><span class="dot warn"></span>Degraded</span></div>
+            <div class="mono muted" style="font-size:11.5px;margin-top:2px">/api/p/payments-ops</div>
+          </div>
+          <div class="routes">
+            <div class="r"><span class="method post">POST</span>/orders<span class="op">createOrder</span></div>
+            <div class="r"><span class="method get">GET</span>/orders/summary<span class="op">ordersSummary</span></div>
+            <div class="r"><span class="method post">POST</span>/refunds<span class="op">createRefund</span></div>
+            <div class="r"><span class="method get">GET</span>/refunds/stats<span class="op">refundStats</span></div>
+          </div>
+          <div class="pfoot"><span class="it"><i data-lucide="route" class="i12"></i>5 routes</span><span class="it"><i data-lucide="app-window" class="i12"></i>1 app</span><span class="it" style="color:var(--warning-text)"><i data-lucide="key-round" class="i12"></i>1 missing secret</span><div class="grow"></div><span>2m ago</span></div>
+        </div>
+
+        <!-- Support Inbox -->
+        <div class="pcard">
+          <div class="ptop">
+            <div class="row gap-2"><span class="pname">Support Inbox</span><div class="grow"></div><span class="btn ghost icon xs" title="Settings · Delete"><i data-lucide="ellipsis" class="i14"></i></span><span class="badge warning"><span class="dot warn"></span>Degraded</span></div>
+            <div class="mono muted" style="font-size:11.5px;margin-top:2px">/api/p/support-inbox</div>
+          </div>
+          <div class="routes">
+            <div class="r"><span class="method get">GET</span>/tickets<span class="op">listTickets</span></div>
+            <div class="r"><span class="method post">POST</span>/tickets/{id}/reply<span class="op">replyTicket</span></div>
+            <div class="r"><span class="method patch">PATCH</span>/tickets/{id}<span class="op">updateTicket</span></div>
+            <div class="r"><span class="method post">POST</span>/triage<span class="op" style="color:var(--warning-text)">stub · 501</span></div>
+          </div>
+          <div class="pfoot"><span class="it"><i data-lucide="route" class="i12"></i>4 routes</span><span class="it"><i data-lucide="app-window" class="i12"></i>2 apps</span><span class="it" style="color:var(--warning-text)"><i data-lucide="key-round" class="i12"></i>1 missing secret</span><div class="grow"></div><span>1h ago</span></div>
+        </div>
+
+        <!-- Refunds desk (new) -->
+        <div class="pcard">
+          <div class="ptop">
+            <div class="row gap-2"><span class="pname">Refunds Desk</span><div class="grow"></div><span class="btn ghost icon xs" title="Settings · Delete"><i data-lucide="ellipsis" class="i14"></i></span><span class="badge secondary">New</span></div>
+            <div class="mono muted" style="font-size:11.5px;margin-top:2px">/api/p/refunds-desk</div>
+          </div>
+          <div class="emptyroutes"><i data-lucide="sparkles" class="i14" style="color:var(--ai)"></i>No backend yet — <span style="color:var(--primary);font-weight:500">Set up</span></div>
+          <div class="pfoot"><span class="it"><i data-lucide="list-checks" class="i12"></i>Setup 0 / 4</span><div class="grow"></div><span>just now</span></div>
+        </div>
+
+        <!-- Default project -->
+        <div class="pcard">
+          <div class="ptop">
+            <div class="row gap-2"><span class="pname">Default project</span><div class="grow"></div><span class="btn ghost icon xs" title="Settings · Delete"><i data-lucide="ellipsis" class="i14"></i></span><span class="badge outline">Legacy</span></div>
+            <div class="muted" style="font-size:12px;margin-top:2px">Workflows created before projects existed</div>
+          </div>
+          <div class="routes">
+            <div class="r"><i data-lucide="workflow" class="i12 muted"></i>Prompt Evaluator<span class="op">4 nodes</span></div>
+            <div class="r"><i data-lucide="workflow" class="i12 muted"></i>Vars Redaction Demo<span class="op">3 nodes</span></div>
+            <div class="r"><i data-lucide="workflow" class="i12 muted"></i>PromptLab<span class="op">10 nodes</span></div>
+          </div>
+          <div class="pfoot"><span class="it"><i data-lucide="workflow" class="i12"></i>3 workflows</span><span class="it"><i data-lucide="app-window" class="i12"></i>0 apps</span><div class="grow"></div><span>Oct 14</span></div>
+        </div>
+
+        <!-- Growth -->
+        <div class="pcard">
+          <div class="ptop">
+            <div class="row gap-2"><span class="pname">Growth Analytics</span><div class="grow"></div><span class="btn ghost icon xs" title="Settings · Delete"><i data-lucide="ellipsis" class="i14"></i></span><span class="badge success"><span class="dot ok" style="box-shadow:none"></span>Healthy</span></div>
+            <div class="mono muted" style="font-size:11.5px;margin-top:2px">/api/p/growth</div>
+          </div>
+          <div class="routes">
+            <div class="r"><span class="method get">GET</span>/funnels/{name}<span class="op">getFunnel</span></div>
+            <div class="r"><span class="method get">GET</span>/cohorts<span class="op">listCohorts</span></div>
+            <div class="r"><span class="method post">POST</span>/events<span class="op">trackEvent</span></div>
+            <div class="r"><span class="method delete">DELETE</span>/events/{id}<span class="op">deleteEvent</span></div>
+          </div>
+          <div class="pfoot"><span class="it"><i data-lucide="route" class="i12"></i>4 routes</span><span class="it"><i data-lucide="app-window" class="i12"></i>3 apps</span><span class="it"><i data-lucide="rocket" class="i12"></i>prod #12</span><div class="grow"></div><span>yesterday</span></div>
+        </div>
+
+        <div class="newcard">
+          <span class="plus"><i data-lucide="plus"></i></span>
+          <div style="color:var(--foreground);font-weight:500">New project</div>
+          <div style="font-size:12px">A backend, data and apps — together</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>lucide.createIcons();</script>
+</body>
+</html>

@@ -317,7 +317,10 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     // Apply the changes
     const updatedNodes = applyNodeChanges(changes, nodes);
 
-    set({ nodes: updatedNodes, nodeCount: countWorkflowNodes(updatedNodes), _isDirty: true });
+    // Selection and React Flow's own size measurements are not edits: only they would leave the
+    // workflow "unsaved" right after it is opened or saved.
+    const edited = changes.some((c) => c.type !== 'select' && c.type !== 'dimensions');
+    set({ nodes: updatedNodes, nodeCount: countWorkflowNodes(updatedNodes), ...(edited ? { _isDirty: true } : {}) });
   },
 
   onEdgesChange: (changes) => {
@@ -328,10 +331,11 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     }
 
     const newEdges = applyEdgeChanges(changes, get().edges);
+    const edited = changes.some((c) => c.type !== 'select');
     set({
       edges: newEdges,
       edgeCount: newEdges.length,
-      _isDirty: true,
+      ...(edited ? { _isDirty: true } : {}),
     });
   },
 

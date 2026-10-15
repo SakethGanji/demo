@@ -36,21 +36,33 @@ function validateField(
 }
 
 // --- Inlined from useDebouncedCallback.ts ---
-function useDebouncedCallback<T extends (...args: unknown[]) => void>(
-  callback: T,
+/**
+ * Debounces `onChange(key, value)` per key: a pending edit of one field is never cancelled by an
+ * edit of another field (one shared timer used to drop the first field's change).
+ */
+function useKeyedDebouncedChange(
+  callback: (key: string, value: unknown) => void,
   delay: number
-): T {
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+): (key: string, value: unknown) => void {
+  const timersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const callbackRef = useRef(callback);
   callbackRef.current = callback;
 
   return useCallback(
-    (...args: unknown[]) => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      timeoutRef.current = setTimeout(() => callbackRef.current(...args), delay);
+    (key: string, value: unknown) => {
+      const timers = timersRef.current;
+      const t = timers.get(key);
+      if (t) clearTimeout(t);
+      timers.set(
+        key,
+        setTimeout(() => {
+          timers.delete(key);
+          callbackRef.current(key, value);
+        }, delay)
+      );
     },
     [delay]
-  ) as T;
+  );
 }
 
 // Type definitions matching the API schema
@@ -157,11 +169,13 @@ export default memo(function DynamicNodeForm({
   touchedFieldsRef.current = touchedFields;
 
   // Debounced onChange for text-input types
-  const debouncedOnChange = useDebouncedCallback(onChange, 300);
+  const debouncedOnChange = useKeyedDebouncedChange(onChange, 300);
 
   // Determine which onChange to use based on field type
   const getOnChange = useCallback((property: NodeProperty) => {
-    const immediateTypes: NodePropertyType[] = ['boolean', 'options', 'workflowSelector', 'filePath'];
+    // `collection` is immediate: each item edit is built from the current prop value, so a
+    // debounced edit would be overwritten by the next edit of a sibling field in the same item.
+    const immediateTypes: NodePropertyType[] = ['boolean', 'options', 'workflowSelector', 'filePath', 'collection'];
     if (immediateTypes.includes(property.type)) {
       return onChange;
     }
