@@ -47,7 +47,7 @@ def test_j14_app_api(api):
     r = api.post(f"/projects/{P}/routes/stubs", {"app_id": A, "routes": [{"method": "POST", "path": "/refunds", "name": "createRefund"}]})  # 5
     assert r.status_code == 201 and r.json()["created"] == [] and [x["id"] for x in r.json()["existing"]] == [RST]
     row = next(u for u in api.get(f"/apps/{A}/api-usage").json() if u["path"] == "/refunds")   # 6
-    assert row["route_id"] == RST and row["status"] == "ok"
+    assert row["route_id"] == RST and row["status"] == "stub"   # review C11: a stub route is `stub` (was `ok`)
     r = api.raw("POST", f"/api/p/{S}/refunds")                                                  # 7
     assert r.status_code == 501 and r.json()["operation"] == "createRefund"
     assert "createRefund" in api.raw("GET", f"/api/projects/{P}/client.ts").text

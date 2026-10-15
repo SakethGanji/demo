@@ -61,6 +61,13 @@ class PostgresFileStorage:
             parsed_index: dict[str, Any] | None = None
             if file_type in _PARSEABLE_TYPES:
                 parsed_index = parse_tsx_file(content)
+                # Review D14: cache the API-usage scan at version creation (read by api_usage).
+                try:
+                    from .api_usage import API_CALLS_VERSION, scan_api_calls
+                    parsed_index = {**(parsed_index or {}), "api_calls": scan_api_calls(content),
+                                    "api_calls_v": API_CALLS_VERSION}
+                except Exception:
+                    pass
 
             row = AppFileModel(
                 version_id=version_id,

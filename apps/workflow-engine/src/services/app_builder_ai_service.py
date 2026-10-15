@@ -244,6 +244,12 @@ def build_spec_summary(slug: str, specs: list[dict[str, Any]], focus: set[str] |
 # ── Service Class ─────────────────────────────────────────────────────
 
 
+class _LLMFailed(Exception):
+    def __init__(self, cause: BaseException) -> None:
+        super().__init__(str(cause))
+        self.cause = cause
+
+
 class AppBuilderAIService:
     """Generates and modifies React TSX apps via a tool-based agent loop."""
 
@@ -260,8 +266,26 @@ class AppBuilderAIService:
     async def stream_chat(
         self, request: AppBuilderChatRequest
     ) -> AsyncGenerator[dict[str, Any], None]:
-        """Stream app builder response as SSE event dicts."""
+        """Stream app builder response as SSE event dicts.
 
+        Review C5: the stream always ends with ``done``; any failure first yields a
+        ``message`` event ``{type:"error", code:"llm_failed"|"internal", message}``."""
+        try:
+            async for event in self._stream_chat(request):
+                yield event
+        except _LLMFailed as e:
+            logger.warning("app builder: LLM call failed: %s", e.cause, exc_info=e.cause)
+            yield _sse("message", {"type": "error", "code": "llm_failed",
+                                   "message": f"The AI provider failed ({type(e.cause).__name__}): {str(e.cause)[:300]}"})
+        except Exception as e:  # noqa: BLE001 - always end the stream cleanly
+            logger.exception("app builder: stream failed")
+            yield _sse("message", {"type": "error", "code": "internal",
+                                   "message": f"The assistant stopped unexpectedly ({type(e).__name__})."})
+        yield _sse("done", {"type": "done"})
+
+    async def _stream_chat(
+        self, request: AppBuilderChatRequest
+    ) -> AsyncGenerator[dict[str, Any], None]:
         # 1. Resolve current files (multi-file aware)
         working_set, resolve_warning = await self._resolve_current_files(request)
         if resolve_warning:
@@ -327,14 +351,7 @@ class AppBuilderAIService:
             })
         # else: question-only flow — text already emitted, no code event needed
 
-        if self._declared and self._project is not None:
-            try:
-                created = await self._create_declared_stubs()
-                yield _sse("message", {"type": "endpoints_declared", "routes": created})
-            except Exception:
-                logger.warning("declare_endpoint stubs failed", exc_info=True)
-
-        yield _sse("done", {"type": "done"})
+        # (review C6: stubs are created inside each declare_endpoint call, see _declare_endpoint_now)
 
     async def _load_project_api(self, request: AppBuilderChatRequest, working_set: list[dict]) -> None:
         from ..db.models import AppModel, ProjectModel
@@ -361,21 +378,48 @@ class AppBuilderAIService:
         working_set[:] = [f for f in working_set if f["path"] != CLIENT_PATH]
         working_set.append({"path": CLIENT_PATH, "content": src, "parsed_index": None})
 
-    async def _create_declared_stubs(self) -> list[dict[str, Any]]:
+    async def _declare_endpoint_now(self, args: dict, working_set: list[dict]) -> tuple[str, dict[str, Any]]:
+        """Review C6: create (or find) the stub inside the tool call, report a per-stub result, and
+        regenerate api/client.ts in the working set before the next model turn."""
         from .api_route_service import ApiRouteService, path_shape
-        svc = ApiRouteService(self._app_service._session)
-        out = []
-        for d in self._declared:
-            method = str(d.get("method") or "GET").upper()
-            path = d.get("path")
-            rows = await svc.rows(self._project.id)
-            if any(r.method == method and isinstance(path, str) and r.path_shape == path_shape(path) for r in rows):
-                continue
-            payload = {k: d[k] for k in ("name", "description", "request_schema", "response_schema") if d.get(k)}
-            res = await svc.create(self._project, {**payload, "method": method, "path": path, "handler": {"type": "stub"}},
-                                   source="app_stub")
-            out.append(res["route"])
-        return out
+        from .client_codegen import CLIENT_PATH
+        from .project_service import ProjectError
+
+        method, path = str(args.get("method") or "").upper(), args.get("path")
+        info: dict[str, Any] = {"method": method, "path": path, "status": "error", "route": None, "error": None}
+        if getattr(self, "_project", None) is None:
+            info["error"] = {"code": "no_project", "message": "endpoints can only be declared for project apps"}
+            return "Error: no project context — endpoints can only be declared for project apps.", info
+        if method not in ("GET", "POST", "PUT", "PATCH", "DELETE") or not isinstance(path, str) or not path.startswith("/"):
+            info["error"] = {"code": "invalid_route", "message": "method must be GET/POST/PUT/PATCH/DELETE and path must start with '/'"}
+            return "Error: method must be GET/POST/PUT/PATCH/DELETE and path must start with '/'.", info
+        session = self._app_service._session
+        svc = ApiRouteService(session)
+        existing = next((r for r in await svc.rows(self._project.id)
+                         if r.method == method and r.path_shape == path_shape(path)), None)
+        if existing is not None:
+            info.update(status="existing", route=await svc.to_dict(self._project, existing))
+            text = f"{method} {path} already exists as operation '{existing.name}' — call api.{existing.name}(...)."
+        else:
+            payload = {k: args[k] for k in ("name", "description", "request_schema", "response_schema") if args.get(k)}
+            try:
+                res = await svc.create(self._project, {**payload, "method": method, "path": path, "handler": {"type": "stub"}},
+                                       source="app_stub")
+            except ProjectError as e:  # validation errors are raised before anything is written
+                info["error"] = {"code": e.code, "message": e.message}
+                return f"Error: could not declare {method} {path}: {e.code}: {e.message}", info
+            info.update(status="created", route=res["route"])
+            self._declared.append(res["route"])
+            text = (f"Declared {method} {path}: created stub operation '{res['route']['name']}' (returns 501 until "
+                    f"implemented). api/client.ts now has api.{res['route']['name']}(...).")
+        try:  # the next turn sees the regenerated client
+            from ..routes.api_routes import client_source
+            src, _ = await client_source(session, self._project, self._project.default_environment)
+            working_set[:] = [f for f in working_set if f["path"] != CLIENT_PATH]
+            working_set.append({"path": CLIENT_PATH, "content": src, "parsed_index": None})
+        except Exception:
+            logger.warning("app builder: client regeneration failed", exc_info=True)
+        return text, info
 
     # ── Agent Loop ────────────────────────────────────────────────────
 
@@ -433,7 +477,8 @@ class AppBuilderAIService:
         # expose write_files.  Fewer tools = fewer MALFORMED_FUNCTION_CALL
         # errors from Gemini 2.5 Pro's thinking mode.
         if is_first_request:
-            tools = [t for t in self._build_agent_tools() if t["name"] == "write_files"]
+            # Review C6: declare_endpoint is offered on every turn, including the first.
+            tools = [t for t in self._build_agent_tools() if t["name"] in ("write_files", "declare_endpoint")]
         else:
             tools = self._build_agent_tools()
 
@@ -450,13 +495,16 @@ class AppBuilderAIService:
             if turn > 2:
                 messages = self._trim_tool_context(messages)
 
-            response = await call_llm(
-                model=current_model,
-                messages=messages,
-                tools=tools,
-                temperature=0.3,
-                max_tokens=16_000,
-            )
+            try:
+                response = await call_llm(
+                    model=current_model,
+                    messages=messages,
+                    tools=tools,
+                    temperature=0.3,
+                    max_tokens=16_000,
+                )
+            except Exception as e:  # review C5: surfaced as an `error` event, then `done`
+                raise _LLMFailed(e) from e
 
             # Malformed tool call — count as error and retry the turn
             if response.malformed_tool_call:
@@ -518,12 +566,20 @@ class AppBuilderAIService:
 
                 yield _sse("message", {"type": "tool_call", "id": tc.id, "tool": tc.name, "args": _summarize_tool_args(tc.args)})
 
+                declared = None
                 try:
-                    result = self._execute_agent_tool(tc.name, tc.args, working_set)
+                    if tc.name == "declare_endpoint":
+                        result, declared = await self._declare_endpoint_now(tc.args, working_set)
+                    else:
+                        result = self._execute_agent_tool(tc.name, tc.args, working_set)
                     consecutive_errors = 0
                 except Exception as e:
                     result = f"Error: {e}"
                     consecutive_errors += 1
+                if declared is not None:
+                    yield _sse("message", {"type": "endpoints_declared",
+                                           "routes": [declared["route"]] if declared["status"] == "created" else [],
+                                           "results": [declared]})
 
                 yield _sse("message", {"type": "tool_result", "id": tc.id, "tool": tc.name, "result": _truncate_for_display(result)})
 
@@ -669,6 +725,8 @@ class AppBuilderAIService:
         return handler(args, working_set)
 
     def _tool_declare_endpoint(self, args: dict, working_set: list[dict]) -> str:
+        """Sync validation-only variant (kept for callers without a DB session); the agent loop uses
+        _declare_endpoint_now, which creates the stub inside the call (review C6)."""
         if getattr(self, "_project", None) is None:
             return "Error: no project context — endpoints can only be declared for project apps."
         method, path = str(args.get("method") or "").upper(), args.get("path")

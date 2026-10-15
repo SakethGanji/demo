@@ -45,6 +45,17 @@ class AppPublishError(RuntimeError):
     bundler down, etc). The message is safe to surface to the caller."""
 
 
+class SlugTakenError(AppPublishError):
+    """Review C4: the slug belongs to another app → 409 {"detail":{"code":"slug_taken"}}."""
+
+    def __init__(self, slug: str) -> None:
+        super().__init__(f"slug '{slug}' is already in use")
+        self.slug = slug
+
+    def detail(self) -> dict:
+        return {"code": "slug_taken", "message": str(self), "slug": self.slug}
+
+
 class AppValidationError(ValueError):
     def __init__(self, code: str, message: str, **extra) -> None:
         super().__init__(message)
@@ -530,7 +541,7 @@ class AppService:
         if row.slug == slug:
             return
         if await self._slug_exists(slug, exclude_id=row.id):
-            raise AppPublishError(f"slug '{slug}' is already in use")
+            raise SlugTakenError(slug)
         row.slug = slug
 
     async def _apply_access(
