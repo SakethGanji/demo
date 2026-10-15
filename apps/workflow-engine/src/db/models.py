@@ -570,7 +570,7 @@ class ApiRouteModel(SQLModel, table=True):
     validate_request: bool = Field(default=False)
     handler_type: str
     handler_workflow_id: str | None = Field(default=None, foreign_key="workflows.id")
-    handler_module_id: str | None = Field(default=None)
+    handler_module_id: str | None = Field(default=None, foreign_key="code_modules.id")
     handler_function: str | None = Field(default=None)
     source: str = Field(default="ui")
     timeout_s: int = Field(default=30)
@@ -604,3 +604,21 @@ class ApiSpecRevisionModel(SQLModel, table=True):
     spec: dict[str, Any] = Field(sa_column=Column(JSONB, nullable=False))
     changes: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(JSONB, nullable=False, server_default="[]"))
     created_at: datetime = Field(default_factory=datetime.now)
+
+
+# ---------------------------------------------------------------------------
+# Python modules (phase 8)
+# ---------------------------------------------------------------------------
+
+
+class CodeModuleModel(SQLModel, table=True):
+    __tablename__ = "code_modules"
+
+    id: str = Field(primary_key=True)
+    project_id: str = Field(foreign_key="projects.id", index=True)
+    name: str
+    source: str
+    source_sha: str
+    created_by: str | None = Field(default=None)
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)

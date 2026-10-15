@@ -86,6 +86,30 @@ External imports and file system access are limited.""",
         node_definition: NodeDefinition,
         input_data: list[NodeData],
     ) -> NodeExecutionResult:
+        """Phase 8: run in the bubblewrap sandbox; legacy in-process exec only when unavailable."""
+        from ...sandbox.node_runner import SandboxNodeError, legacy_code_allowed, run_in_sandbox
+
+        if legacy_code_allowed():
+            return await self._execute_in_process(context, node_definition, input_data)
+        code = self.get_parameter(node_definition, "code", "return items")
+        node_data = {name: {"json": data[0].json if data else {}, "data": [d.json for d in data]}
+                     for name, data in context.node_states.items()}
+        payload = {"code": code, "items": [{"json": i.json} for i in input_data],
+                   "node_data": node_data, "execution": {"id": context.execution_id, "mode": context.mode}}
+        try:
+            result, trace = await run_in_sandbox(context, kind="code", payload=payload, timeout_s=5.0, origin="code_node")
+        except SandboxNodeError as e:
+            raise NodeCallError(str(e), e.code, e.details) from None
+        return self.output(self._normalize_output(result), metadata={
+            "sandboxed": True, "sandbox": {k: trace[k] for k in ("exit_code", "duration_ms", "broker_calls", "logs")}})
+
+    async def _execute_in_process(
+        self,
+        context: ExecutionContext,
+        node_definition: NodeDefinition,
+        input_data: list[NodeData],
+    ) -> NodeExecutionResult:
+        """Legacy path (pre-phase-8): restricted exec in a thread — NOT a security boundary."""
 
         code = self.get_parameter(node_definition, "code", "return items")
 

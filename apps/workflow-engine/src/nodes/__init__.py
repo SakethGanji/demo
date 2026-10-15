@@ -38,6 +38,7 @@ from .data.profile import ProfileNode
 from .data.aggregate import AggregateNode
 from .data.set_node import SetNode
 from .data.data_table import DataTableNode
+from .data.python_step import PythonStepNode
 
 # Integration nodes — external services and APIs.
 from .integrations.http_request import HttpRequestNode
@@ -76,6 +77,7 @@ __all__ = [
     "WaitNode",
     "RespondNode",
     "DataTableNode",
+    "PythonStepNode",
     "CodeNode",
     "FilterNode",
     "ItemListsNode",

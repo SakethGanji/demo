@@ -10,7 +10,7 @@ from ._helpers import SET_WF, SIMPLE_APP, needs_esbuild, new_project, pending
 pytestmark = pytest.mark.integration
 
 
-@pending(8)
+
 def test_j02_legacy_editor_default_project(api):
     assert all("project_id" in w for w in api.get("/workflows").json())                      # 1
     r = api.post("/workflows", SET_WF("{{ 20 + 22 }}"))                                       # 2
@@ -150,6 +150,7 @@ def test_j06_projects_home_shell_redirects(api):
     W = r.json()["id"]
     assert [w["id"] for w in api.get(f"/projects/{P}/workflows").json()] == [W]               # 6
     assert [w["id"] for w in api.get(f"/workflows?project_id={P}").json()] == [W]
+    api.post("/workflows", SET_WF("{{ 0 }}"))  # make "and more" independent of test order
     allw = [w["id"] for w in api.get("/workflows").json()]
     assert W in allw and len(allw) > 1
     r = api.post(f"/projects/{P}/apps", {"name": "Billing UI", "definition": {"sourceCode": None}})  # 7

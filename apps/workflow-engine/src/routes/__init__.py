@@ -21,6 +21,7 @@ from .project_secrets import router as project_secrets_router
 from .broker import router as broker_router
 from .api_routes import router as api_routes_router, project_router as project_api_router
 from .tables import router as tables_router
+from .modules import router as modules_router
 
 # Main API router
 api_router = APIRouter(prefix="/api")
@@ -39,6 +40,7 @@ api_router.include_router(project_secrets_router, tags=["Project Secrets"])
 api_router.include_router(broker_router, tags=["Broker & SDK"])
 api_router.include_router(api_routes_router, tags=["API Routes"])
 api_router.include_router(tables_router, tags=["Data Tables"])
+api_router.include_router(modules_router, tags=["Python Modules"])
 api_router.include_router(projects_router, tags=["Projects"])
 
 # Non-prefixed routers (for webhooks, streaming, and public deployed apps)
