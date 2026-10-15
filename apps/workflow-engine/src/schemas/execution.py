@@ -24,6 +24,8 @@ class ExecutionErrorSchema(BaseModel):
     node_name: str
     error: str
     timestamp: str
+    error_code: str | None = None
+    details: dict[str, Any] | None = None
 
 
 class ExecutionResponse(BaseModel):

@@ -27,8 +27,15 @@ class BrokerCallRepository:
         self._s.add(row)
         await self._s.commit()
 
-    async def list(self, execution_id: str | None = None, project_id: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
+    async def list(self, execution_id: str | None = None, project_id: str | None = None, limit: int = 200,
+                   before: str | None = None, status: str | None = None) -> list[dict[str, Any]]:
         stmt = select(BrokerCallModel)
+        if status:
+            stmt = stmt.where(BrokerCallModel.status == status)
+        if before:
+            pivot = await self._s.get(BrokerCallModel, before)
+            if pivot is not None:
+                stmt = stmt.where(BrokerCallModel.created_at < pivot.created_at)
         if execution_id:
             stmt = stmt.where(BrokerCallModel.execution_id == execution_id)
         if project_id:

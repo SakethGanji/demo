@@ -155,6 +155,8 @@ class WorkflowListItem(BaseModel):
     node_count: int
     created_at: str
     updated_at: str
+    description: str | None = None
+    handler_for: list[dict[str, Any]] = []
 
 
 class WorkflowDetailResponse(BaseModel):

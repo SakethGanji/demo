@@ -38,7 +38,13 @@ def test_phase3_published_app_runs_workflow_with_redaction(api, upstream):
     leak_id = api.post(f"/projects/{pid}/workflows", leak).json()["id"]
     other_id = api.post("/workflows", start_set_workflow()).json()["id"]  # Default project
 
-    aid, slug, token = _published_app(api, pid, [calc_id, leak_id, other_id])
+    # G22: cross-project workflow ids are refused at write time
+    probe = api.post(f"/projects/{pid}/apps", {"name": uniq("app"), "definition": {}}).json()["id"]
+    r = api.put(f"/apps/{probe}", {"workflow_ids": [calc_id, other_id]})
+    assert r.status_code == 422 and r.json()["detail"]["code"] == "workflow_not_in_project"
+    assert r.json()["detail"]["workflow_ids"] == [other_id]
+    moved_id = api.post(f"/projects/{pid}/workflows", start_set_workflow()).json()["id"]
+    aid, slug, token = _published_app(api, pid, [calc_id, leak_id, moved_id])
     auth = {"Authorization": f"Bearer {token}"}
 
     # Real run (was a stub echo before)
@@ -60,14 +66,20 @@ def test_phase3_published_app_runs_workflow_with_redaction(api, upstream):
     # Caller payload {{ $vars.X }} is NOT expanded on the public surface
     echo = start_set_workflow(expr="{{ $json.body.x }}", field="x")
     echo_id = api.post(f"/projects/{pid}/workflows", echo).json()["id"]
-    api.put(f"/apps/{aid}", {"workflow_ids": [calc_id, leak_id, other_id, echo_id]})
+    api.put(f"/apps/{aid}", {"workflow_ids": [calc_id, leak_id, moved_id, echo_id]})
     api.post(f"/apps/{aid}/publish", {})
     page = api.raw("GET", f"/a/{slug}").text
     auth = {"Authorization": "Bearer " + json.loads(re.search(r"window.__APP_TOKEN=(\"[^\"]+\")", page).group(1))}
     r = api.raw("POST", f"/a/{slug}/api/workflow/{echo_id}/run", json={"x": f"{{{{ $vars.{key} }}}}"}, headers=auth)
     assert r.json()["data"] == [{"x": f"{{{{ $vars.{key} }}}}"}]
 
-    # Allow-list + project scoping + auth
+    # Allow-list + project scoping + auth: an allow-listed workflow moved to another project is refused at run time
+    other_proj = api.post("/projects", {"name": uniq("other")}).json()["id"]
+    wf = api.get(f"/workflows/{moved_id}").json()
+    api.put(f"/workflows/{moved_id}", {"name": wf["name"], "nodes": wf["definition"]["nodes"],
+                                        "connections": wf["definition"]["connections"], "project_id": other_proj})
+    r = api.raw("POST", f"/a/{slug}/api/workflow/{moved_id}/run", json={}, headers=auth)
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "workflow_not_in_project"
     assert api.raw("POST", f"/a/{slug}/api/workflow/{other_id}/run", json={}, headers=auth).status_code == 403
     not_listed = api.post(f"/projects/{pid}/workflows", start_set_workflow()).json()["id"]
     assert api.raw("POST", f"/a/{slug}/api/workflow/{not_listed}/run", json={}, headers=auth).status_code == 403

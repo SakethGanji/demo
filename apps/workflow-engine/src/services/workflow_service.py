@@ -50,6 +50,7 @@ class WorkflowService:
     async def list_workflows(self, folder_id: str | None = None, project_id: str | None = None) -> list[WorkflowListItem]:
         """List all workflows, optionally filtered by folder / project."""
         workflows = await self._workflow_repo.list(folder_id=folder_id, project_id=project_id)
+        handler_for = await self._handler_index([w.id for w in workflows])
         return [
             WorkflowListItem(
                 id=w.id,
@@ -57,6 +58,8 @@ class WorkflowService:
                 active=w.active,
                 webhook_url=f"/webhook/{w.id}",
                 project_id=w.project_id,
+                description=w.workflow.description,
+                handler_for=handler_for.get(w.id, []),
                 node_count=len(w.workflow.nodes),
                 created_at=w.created_at.isoformat(),
                 updated_at=w.updated_at.isoformat(),
@@ -285,6 +288,22 @@ class WorkflowService:
         db_workflow.published_version_id = version.id
         await self._workflow_repo._session.commit()
 
+    async def _handler_index(self, workflow_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+        """G5: which API routes each workflow serves."""
+        try:
+            from sqlalchemy import select
+            from ..db.models import ApiRouteModel
+        except ImportError:
+            return {}
+        if not workflow_ids:
+            return {}
+        rows = (await self._workflow_repo._session.execute(
+            select(ApiRouteModel).where(ApiRouteModel.handler_workflow_id.in_(workflow_ids)))).scalars().all()
+        out: dict[str, list[dict[str, Any]]] = {}
+        for r in rows:
+            out.setdefault(r.handler_workflow_id, []).append({"route_id": r.id, "method": r.method, "path": r.path})
+        return out
+
     async def _check_movable(self, workflow_id: str) -> None:
         """A workflow used as a route handler cannot leave its project."""
         try:
@@ -311,7 +330,8 @@ class WorkflowService:
         from .execution_service import ExecutionService
 
         svc = ExecutionService(self._execution_repo, self._workflow_repo)
-        _, context = await svc.run_saved_workflow(workflow_id, input_data, environment=environment)
+        _, context = await svc.run_saved_workflow(workflow_id, input_data, environment=environment,
+                                                  strict_environment=True)
         return self._build_execution_response(context)
 
     async def run_adhoc_workflow(self, request: WorkflowCreateRequest) -> ExecutionResponse:
@@ -326,7 +346,7 @@ class WorkflowService:
         from .project_service import effective_environment, resolve_project
         project_id = await self._resolve_project_id(getattr(request, "project_id", None))
         project = await resolve_project(self._workflow_repo._session, project_id) if project_id else None
-        env = effective_environment(project, request.environment)
+        env = effective_environment(project, request.environment, strict=True)
         variables = await load_run_variables(environment=env, project_id=project_id)
         secrets = await load_run_secrets(environment=env, project_id=project_id)
         # Resolve {{ $vars.X }} in the caller payload before the workflow runs.
@@ -555,6 +575,8 @@ class WorkflowService:
                     node_name=e.node_name,
                     error=e.error,
                     timestamp=e.timestamp.isoformat(),
+                    error_code=getattr(e, "error_code", None),
+                    details=getattr(e, "details", None),
                 )
                 for e in context.errors
             ],

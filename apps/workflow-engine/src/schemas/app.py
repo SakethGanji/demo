@@ -90,6 +90,10 @@ class AppListItem(BaseModel):
     created_at: str
     updated_at: str
     project_id: str = "proj_default"
+    slug: str | None = None
+    active: bool = False
+    published_at: str | None = None
+    current_version_number: int | None = None
 
 
 # ── Version schemas ──────────────────────────────────────────────────────────

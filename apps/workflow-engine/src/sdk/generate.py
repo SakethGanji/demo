@@ -160,7 +160,7 @@ def generate_python_sdk() -> dict[str, Any]:
     cat = catalogue()
     static = {n: (STATIC_DIR / n).read_text() for n in ("_transport.py", "secret.py")}
     static.update(_optional_static())
-    digest = hashlib.sha256(json.dumps([cat, sorted(static.items())], sort_keys=True, default=str).encode()).hexdigest()[:16]
+    digest = hashlib.sha256(json.dumps([cat, sorted(static.items())], sort_keys=True, default=str).encode()).hexdigest()
     init = _INIT.format(version=digest)
     extra_imports = ""
     if "db.py" in static:

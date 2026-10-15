@@ -45,6 +45,7 @@ class ExecutionService:
         metadata: dict[str, Any] | None = None,
         extras: dict[str, Any] | None = None,
         on_context_ready: Any | None = None,
+        strict_environment: bool = False,
     ):
         """The single path for running a saved workflow (BACKEND-DESIGN §4.3).
 
@@ -74,7 +75,7 @@ class ExecutionService:
             raise WorkflowNotFoundError(workflow_id)
 
         project = await resolve_project(self._workflow_repo._session, stored.project_id)
-        env = effective_environment(project, environment)
+        env = effective_environment(project, environment, strict=strict_environment)
         runner = WorkflowRunner(db_session_factory=async_session_factory)
         start_node = runner.find_start_node(stored.workflow)
         variables = await load_run_variables(environment=env, project_id=stored.project_id)
@@ -170,6 +171,8 @@ class ExecutionService:
                     node_name=e.node_name,
                     error=e.error,
                     timestamp=e.timestamp.isoformat(),
+                    error_code=getattr(e, "error_code", None),
+                    details=getattr(e, "details", None),
                 )
                 for e in execution.errors
             ],

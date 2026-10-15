@@ -326,7 +326,7 @@ in `routes/public_apps.py:373-397`.
    "headers":[{"name":"Authorization","value":"Bearer {{ $vars.STRIPE_KEY }}"}]},
  "items":[{}]}                          // input items' json; default [{}]
 // 200
-{"ok":true,"call_id":"bcall_…","items":[{"status":200,"body":{…}}],"metadata":{"httpStatus":200}}
+{"ok":true,"call_id":"bcall_…","items":[{"statusCode":200,"headers":{…},"body":{…}}],"metadata":{"responseStatusCode":200}}  // CHANGED (§11): real HttpRequest item shape
 // error (HTTP status in brackets)
 {"ok":false,"call_id":"bcall_…","error":{"code":"host_not_allowed","message":"…","host":"evil.com"}}
 ```
@@ -905,3 +905,58 @@ Risks:
    Inferred schemas are never auto-enforced: `/test` with `apply_schemas:true` never flips `validate_request`.
    Migration M3 gains `validate_request BOOLEAN NOT NULL DEFAULT false`.
 5. **Sandbox pandas** — read-only bind of the engine venv's site-packages at `/opt/site` (as in §5.5).
+
+## 10. Contract gap decisions (UI-INTEGRATION.md §7, G1–G34)
+
+Rule: existing endpoints change **additively only**; new endpoints may get new shapes. Items
+marked **CHANGED** amend §3. Totals: **accept 30 · accept-modified 3 · accept-later 1 · reject 0**.
+
+| # | Decision | What the backend does |
+|---|---|---|
+| G1 | accept | All **new** management endpoints (`/api/projects/…`, new `/api/apps/{id}/…` endpoints, new `/a/{slug}/api/…` errors) return `{"detail":{"code","message",…extra}}` — incl. `row_invalid` (`detail.errors`), `syntax_error` (`detail.errors`), `checks_failed` (`detail.checks`, `detail.release_id`, `detail.number`), `rows_incompatible` (`detail.count`). **CHANGED** §3.7–3.9 (top-level `code` → `detail.code`). Router keeps `{"error":…}`, broker keeps `{"ok":false,"error":{…}}`. Existing string `detail`s (e.g. public-app `401 missing token`, `403 workflow not allowed by this app`) are unchanged. |
+| G2 | accept | `environment` optional on `GET …/secrets` and `…/secrets/missing`; omitted = every project env, each row carries `environment` (already built). |
+| G3 | accept | `GET …/runs`: `before=<execution_id>` cursor (response stays a list; `X-Next-Cursor` header when more), filters `workflow_id`, `route_id`, `environment`, `mode`, `status`; items gain `route_id`, `route` (`"GET /orders/{id}"`), `app_id`, `duration_ms`. Mode values: `manual, webhook, cron, retry, app, api, sandbox`. **CHANGED** §3.1. |
+| G4 | accept-modified | `summary.missing_secrets: int` (distinct keys). Instead of adding keys to `counts` (J1/J6 assert `counts` equality with 4 keys), summary gains top-level `stub_routes: int`, `api_keys: int` (active), `active_releases: {<env>: {release_id, number, created_at} \| null}`. **CHANGED** §3.1. |
+| G5 | accept | `AppListItem += {project_id, slug, active, published_at, current_version_number}`; `WorkflowListItem += {project_id, description, handler_for:[{route_id, method, path}]}`. |
+| G6 | accept | `Route.handler` is always resolved (`{type:"workflow", workflow_id}` after `create:true`); `spec_revision: int`; write/delete results add `spec_hash`. |
+| G7 | accept | `/test` with `apply_schemas:true` also returns `route`, `spec_revision`, `breaking_changes`. |
+| G8 | accept | `/test` `environment` must be a draft env else `422 environment_not_draft`; default `default_environment`; always HTTP `200` with `status`/`headers`/`body` = what the router would have returned (incl. `handler_failed`, `not_implemented`). |
+| G9 | accept | `DELETE …/routes/{rid}?dry_run=true` → `200 {spec_revision:null, spec_hash:null, breaking_changes}` without deleting. |
+| G10 | accept | `POST …/releases?dry_run=true` and `POST …/releases/{rid}/promote?dry_run=true` → `200 {checks, diff}`, nothing stored. |
+| G11 | accept | `422 checks_failed` includes `detail.release_id`, `detail.number`; blocked releases consume a number. |
+| G12 | accept | Rollback reactivates the target row (`status:"active"`), previous active → `rolled_back`; response = target Release with re-run (warn-only) checks; no previous release → `409 no_previous_release`. |
+| G13 | accept | `diff?against=active\|<release_id>` + optional `environment=`; `Change.kind ∈ {route_removed, route_added, method_changed, path_changed, auth_changed, request_required_added, request_field_type_changed, response_field_type_changed, response_field_removed, field_added}`. |
+| G14 | accept | `Release = {id, project_id, environment, number, is_active, status, checks, source_release_id, notes, created_by, created_at}` (+`snapshot` on detail). |
+| G15 | accept | Shapes as in UI-INTEGRATION §3.2; PATCH/PUT rows take `{data}`; every DELETE returns `200 {"success":true}` except routes/modules (which return breaking-change info, §3.5/G32). |
+| G16 | accept | `GET …/rows?count=true` adds `count`; `Table += row_count`. |
+| G17 | accept (+ later) | api-usage rows: `kind:"client_call"\|"literal"`, `method`/`path` nullable; `changed` = a breaking change recorded for that operation in a spec revision newer than the scanned app version. The optional unsaved-files scan (`POST …/api-usage`) is **accept-later** (phase 6 follow-up). |
+| G18 | accept | Client always at `api/client.ts`; publish and the AI working set overwrite any saved copy; prompt states the import path. |
+| G19 | accept | Client emits `qs()`; header is a legal comment `/*! @generated by studio — spec rev N, spec_hash H */` (survives esbuild); `ETag: "<spec_hash>"` on `client.ts` and `openapi.json`. |
+| G20 | accept | `POST /api/apps/{app_id}/workflow/{workflow_id}/run` with a preview token (same body/response/allow-list as §3.3, env = `default_environment`). **CHANGED** §3.6 (new endpoint). |
+| G21 | accept | Expired app/preview tokens → `401 {"error":"token_expired"}` on the router; preview tokens never need a published version. |
+| G22 | accept-modified | `PUT/POST /api/apps` with `workflow_ids` containing a workflow that **exists in another project** → `422 {"detail":{"code":"workflow_not_in_project","workflow_ids":[…]}}`. Unknown ids stay accepted (compat). The run-time `403 {"detail":{"code":"workflow_not_in_project"}}` remains for workflows moved later. J9 adjusted (§11). |
+| G23 | accept | Studio runs (`/run`, `run-adhoc`, both SSE) in a non-Default project with an explicit environment not in `project.environments` → `422 {"detail":{"code":"unknown_environment"}}` (`"default"` still maps to the project default). |
+| G24 | accept | `errors[]` items (run responses, execution detail, project run detail) and SSE `node:error` events gain optional `error_code` and `details` (e.g. broker `missing_secret` → `{"key","environment"}`). |
+| G25 | accept-later | `project_id` in `/api/ai/chat` body is accepted and ignored until phase 10. |
+| G26 | accept | `PUT /api/projects/{p}?dry_run=true` returns `{project, affected_apps:[{app_id, name}]}` (apps whose files reference `/api/p/<old slug>/` or that are published) without saving. |
+| G27 | accept (document) | Direct `POST /api/apps/{id}/publish` stays allowed as a hotfix; the next promote into the live env replaces it. No code change. |
+| G28 | accept | Auth changes are breaking (`auth_changed`); `breaking_vs_active` warns; `app_calls_resolve` fails only for missing operations/paths. |
+| G29 | accept | `VariableUpdateRequest.description` optional, applied only if sent (sending `null` still clears — modal unchanged). |
+| G30 | accept-modified | `workflow_id`/`workflow_name` stay non-null strings (DB NOT NULL, existing readers). Python-handler runs use `workflow_id = <route_id>`, `workflow_name = "GET /path"` and carry `route_id`/`route`. |
+| G31 | accept | Test-only: harness uses `raw` for the studio's header-less call sites. |
+| G32 | accept | `DELETE …/modules/{mid}` → `200 {routes:{removed}, spec_revision, breaking_changes}`; `PUT …/modules/{mid}?dry_run=true` → same shape as save without saving. |
+| G33 | accept | `GET …/broker-calls`: `limit` (default 100), `before`, `status`; latest 100 for the project when no `execution_id`. |
+| G34 | accept | OpenAPI `servers:[{"url":"/api/p/<slug>"}]`. |
+
+Rejected: none. **G25** is deferred to phase 10, and G17's optional unsaved-files scan is deferred.
+For G27 the alternative (refuse direct publish with `409 managed_by_release`) was not chosen.
+
+## 11. Journey ↔ design reconciliations
+
+| Journey step | Disagreement | Resolution |
+|---|---|---|
+| J10.2 | expects SDK `version` = 64 hex; design said a hash | **CHANGED**: `version` is the full sha256 (64 hex). |
+| J10.11 | expects `items[0].status` | The HttpRequest node's output item is `{statusCode, headers, body}` (`nodes/integrations/http_request.py`); §3.4's example was wrong and is corrected — journey asserts `items[0].statusCode`. |
+| J9.4 / J9.11 | cross-project `workflow_ids` accepted at write, refused at run | G22: write → `422`; the run-time `403 workflow_not_in_project` is exercised by moving an allow-listed workflow to another project after publishing. |
+| J9.8 | `SET_WF("{{ $json.x }}")` | Public runs wrap input like `/api/workflows/{id}/run` and webhooks (`{body, headers, query, method}`); journey uses `{{ $json.body.x }}`. |
+| J1.5 / J1.48 | `counts` equality vs G4's extra counts | G4 extras are top-level summary fields (see G4). |

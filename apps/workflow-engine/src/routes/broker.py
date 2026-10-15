@@ -86,10 +86,12 @@ async def dev_broker_token(project: str, body: BrokerTokenRequest, session: Asyn
 
 
 @router.get("/projects/{project}/broker-calls")
-async def list_broker_calls(project: str, execution_id: str | None = None, session: AsyncSession = Depends(get_db_session)):
+async def list_broker_calls(project: str, execution_id: str | None = None, limit: int = 100, before: str | None = None,
+                            status: str | None = None, session: AsyncSession = Depends(get_db_session)):
     try:
         p = await ProjectService(session).require(project)
     except ProjectError as e:
         raise_project_error(e)
     from ..repositories.broker_call_repository import BrokerCallRepository
-    return await BrokerCallRepository(session).list(execution_id=execution_id, project_id=p.id)
+    return await BrokerCallRepository(session).list(execution_id=execution_id, project_id=p.id,
+                                                    limit=max(1, min(limit, 500)), before=before, status=status)

@@ -42,7 +42,7 @@ def test_phase4_sdk_catalogue_and_package_imports(api, tmp_path):
     assert "url" in fns["http_request"]["parameters"]["properties"]
 
     sdk = api.get("/sdk/python").json()
-    assert len(sdk["version"]) == 16
+    assert len(sdk["version"]) == 64
     for path, src in sdk["files"].items():
         p = tmp_path / path
         p.parent.mkdir(parents=True, exist_ok=True)

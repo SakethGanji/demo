@@ -82,10 +82,11 @@ async def get_variable(variable_id: int, repo: VariableRepoDep) -> VariableRespo
 async def update_variable(
     variable_id: int, body: VariableUpdateRequest, repo: VariableRepoDep
 ) -> VariableResponse:
+    sent = body.model_dump(exclude_unset=True)
     variable = await repo.update(
         variable_id,
         value=body.value,
-        description=body.description,
+        description=sent["description"] if "description" in sent else ...,
     )
     if not variable:
         raise HTTPException(status_code=404, detail="Variable not found")

@@ -68,6 +68,9 @@ def _event_to_dict(event: ExecutionEvent) -> dict[str, Any]:
         result["progress"] = event.progress
     if event.metrics:
         result["metrics"] = event.metrics
+        if event.metrics.get("errorCode"):
+            result["error_code"] = event.metrics["errorCode"]
+            result["details"] = event.metrics.get("errorDetails") or {}
     if event.subworkflow_parent_node:
         result["subworkflowParentNode"] = event.subworkflow_parent_node
     if event.subworkflow_id:
@@ -162,7 +165,7 @@ async def _run_workflow_with_events(
 
 async def _project_env(workflow_repo, project_ref: str | None, workflow_id: str | None, requested: str | None):
     """(project, effective env) for a streamed run: explicit project, else the saved workflow's."""
-    from ..services.project_service import effective_environment, get_project_for_workflow, resolve_project
+    from ..services.project_service import ProjectError, effective_environment, get_project_for_workflow, resolve_project
     session = workflow_repo._session
     project = None
     if project_ref:
@@ -173,7 +176,10 @@ async def _project_env(workflow_repo, project_ref: str | None, workflow_id: str 
         from ..db.models import WorkflowModel
         if await session.get(WorkflowModel, workflow_id):
             project = await get_project_for_workflow(session, workflow_id)
-    return project, effective_environment(project, requested)
+    try:
+        return project, effective_environment(project, requested, strict=True)
+    except ProjectError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail())
 
 
 # ============================================================================

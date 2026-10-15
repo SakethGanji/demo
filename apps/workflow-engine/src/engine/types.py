@@ -133,6 +133,8 @@ class ExecutionError:
     node_name: str
     error: str
     timestamp: datetime
+    error_code: str | None = None
+    details: dict[str, Any] | None = None
 
 
 @dataclass

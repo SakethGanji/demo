@@ -13,6 +13,7 @@ from ..core.exceptions import (
     ValidationError,
 )
 from ..core.dependencies import get_workflow_service
+from ..services.project_service import ProjectError
 from ..services.workflow_service import WorkflowService
 from ..schemas.workflow import (
     WorkflowCreateRequest,
@@ -163,6 +164,8 @@ async def run_workflow(
         input_data = body.input_data if body else None
         environment = body.environment if body else "default"
         return await service.run_workflow(workflow_id, input_data, environment=environment)
+    except ProjectError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail())
     except WorkflowNotFoundError as e:
         raise HTTPException(status_code=404, detail=e.message)
     except WorkflowExecutionError as e:
@@ -177,6 +180,8 @@ async def run_adhoc_workflow(
     """Run an ad-hoc workflow without saving."""
     try:
         return await service.run_adhoc_workflow(workflow)
+    except ProjectError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail())
     except ValidationError as e:
         raise HTTPException(status_code=400, detail=e.message)
     except WorkflowExecutionError as e:

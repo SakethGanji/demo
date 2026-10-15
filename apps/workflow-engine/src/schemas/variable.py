@@ -14,7 +14,7 @@ class VariableCreateRequest(BaseModel):
 
 class VariableUpdateRequest(BaseModel):
     value: str | None = Field(default=None)
-    description: str | None = Field(default=..., max_length=500)
+    description: str | None = Field(default=None, max_length=500)
 
 
 class VariableResponse(BaseModel):

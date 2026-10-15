@@ -13,7 +13,7 @@ from ..schemas.app import (
     CreateVersionRequest,
     UpdateVersionLabelRequest,
 )
-from ..services.app_service import AppPublishError, AppService
+from ..services.app_service import AppPublishError, AppService, AppValidationError
 
 router = APIRouter(prefix="/apps")
 
@@ -34,6 +34,8 @@ async def create_app(
 ):
     try:
         return await service.create_app(req)
+    except AppValidationError as e:
+        raise HTTPException(status_code=422, detail=e.detail()) from e
     except AppPublishError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
 
@@ -57,6 +59,8 @@ async def update_app(
 ):
     try:
         result = await service.update_app(app_id, req)
+    except AppValidationError as e:
+        raise HTTPException(status_code=422, detail=e.detail()) from e
     except AppPublishError as e:
         if str(e).startswith("project "):
             raise HTTPException(status_code=422, detail=str(e)) from e

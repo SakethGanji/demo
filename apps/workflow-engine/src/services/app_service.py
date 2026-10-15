@@ -45,6 +45,15 @@ class AppPublishError(RuntimeError):
     bundler down, etc). The message is safe to surface to the caller."""
 
 
+class AppValidationError(ValueError):
+    def __init__(self, code: str, message: str, **extra) -> None:
+        super().__init__(message)
+        self.code, self.message, self.extra = code, message, extra
+
+    def detail(self) -> dict:
+        return {"code": self.code, "message": self.message, **self.extra}
+
+
 class AppService:
     """Handles app persistence using the dedicated apps table."""
 
@@ -69,6 +78,12 @@ class AppService:
         stmt = stmt.order_by(AppModel.updated_at.desc())
         result = await self._session.execute(stmt)
         rows = result.scalars().all()
+        vids = [r.current_version_id for r in rows if r.current_version_id]
+        numbers: dict[int, int] = {}
+        if vids:
+            vres = await self._session.execute(
+                select(AppVersionModel.id, AppVersionModel.version_number).where(AppVersionModel.id.in_(vids)))
+            numbers = {vid: n for vid, n in vres.all()}
         return [
             AppListItem(
                 id=r.id,
@@ -76,6 +91,10 @@ class AppService:
                 created_at=r.created_at.isoformat(),
                 updated_at=r.updated_at.isoformat(),
                 project_id=r.project_id,
+                slug=r.slug,
+                active=r.active,
+                published_at=r.published_at.isoformat() if r.published_at else None,
+                current_version_number=numbers.get(r.current_version_id) if r.current_version_id else None,
             )
             for r in rows
         ]
@@ -104,9 +123,22 @@ class AppService:
             raise AppPublishError(f"project '{ref}' not found")
         return p.id
 
+    async def check_workflow_ids(self, project_id: str, workflow_ids: list[str] | None) -> None:
+        """G22: allow-listed workflows that exist must belong to the app's project."""
+        if not workflow_ids:
+            return
+        from ..db.models import WorkflowModel
+        res = await self._session.execute(
+            select(WorkflowModel.id, WorkflowModel.project_id).where(WorkflowModel.id.in_(list(workflow_ids))))
+        bad = sorted(wid for wid, pid in res.all() if pid != project_id)
+        if bad:
+            raise AppValidationError("workflow_not_in_project",
+                                     "workflow_ids must belong to the app's project", workflow_ids=bad)
+
     async def create_app(self, req: AppCreateRequest, created_by: str | None = None) -> AppDetailResponse:
         now = datetime.now()
         project_id = await self._project_id(getattr(req, "project_id", None))
+        await self.check_workflow_ids(project_id or "proj_default", req.workflow_ids)
         row = AppModel(
             id=app_id(),
             name=req.name,
@@ -135,6 +167,9 @@ class AppService:
             row.name = req.name
         if getattr(req, "project_id", None):
             row.project_id = await self._project_id(req.project_id)
+        if req.workflow_ids is not None or getattr(req, "project_id", None):
+            await self.check_workflow_ids(
+                row.project_id, req.workflow_ids if req.workflow_ids is not None else list(row.workflow_ids or []))
         if req.definition is not None:
             row.draft_definition = req.definition
         if req.description is not None:

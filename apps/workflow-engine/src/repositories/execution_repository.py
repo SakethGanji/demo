@@ -187,6 +187,7 @@ class ExecutionRepository:
     async def list(
         self, workflow_id: str | None = None, project_id: str | None = None,
         mode: str | None = None, status: str | None = None, limit: int | None = None,
+        before: str | None = None, route_id: str | None = None, environment: str | None = None,
     ) -> list[ExecutionRecord]:
         """List execution records, optionally filtered by workflow / project / mode / status."""
         statement = select(ExecutionModel).order_by(ExecutionModel.start_time.desc())
@@ -199,6 +200,18 @@ class ExecutionRepository:
             statement = statement.where(ExecutionModel.mode == mode)
         if status:
             statement = statement.where(ExecutionModel.status == status)
+        if environment:
+            statement = statement.where(ExecutionModel.environment == environment)
+        if route_id:
+            statement = statement.where(ExecutionModel.exec_metadata["trigger"]["route_id"].astext == route_id)
+        if before:
+            pivot = await self._session.get(ExecutionModel, before)
+            if pivot is not None:
+                statement = statement.where(
+                    (ExecutionModel.start_time < pivot.start_time)
+                    | ((ExecutionModel.start_time == pivot.start_time) & (ExecutionModel.id < pivot.id))
+                )
+            statement = statement.order_by(None).order_by(ExecutionModel.start_time.desc(), ExecutionModel.id.desc())
         if limit:
             statement = statement.limit(limit)
 
@@ -383,11 +396,14 @@ class ExecutionRepository:
                 for item in items
             ]
             if o.status == "error" and o.error:
+                m = o.metrics or {}
                 errors.append(
                     ExecutionError(
                         node_name=o.node_name,
                         error=o.error,
                         timestamp=o.created_at,
+                        error_code=m.get("errorCode"),
+                        details=m.get("errorDetails"),
                     )
                 )
 

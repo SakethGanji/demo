@@ -16,6 +16,15 @@ if TYPE_CHECKING:
     from ...engine.types import ExecutionContext, NodeData, NodeDefinition, NodeExecutionResult
 
 
+class NodeCallError(RuntimeError):
+    """A node failure with a stable code (e.g. a broker policy error) — surfaced as error_code."""
+
+    def __init__(self, message: str, code: str, details: dict | None = None) -> None:
+        super().__init__(message)
+        self.code = code
+        self.details = details or {}
+
+
 class CodeNode(BaseNode):
     """Code node - execute custom Python code in a sandboxed environment."""
 
@@ -248,9 +257,11 @@ __result__ = __user_code__()
 
         except asyncio.TimeoutError:
             raise RuntimeError("Code execution timed out (5 second limit)")
-        except SyntaxError as e:
-            raise RuntimeError(f"Syntax Error in code: {e}")
         except Exception as e:
+            if studio_mod is not None and isinstance(e, studio_mod._transport.BrokerError):
+                raise NodeCallError(f"Code execution failed: {e}", e.code, {**e.details}) from e
+            if isinstance(e, SyntaxError):
+                raise RuntimeError(f"Syntax Error in code: {e}")
             raise RuntimeError(f"Code execution failed: {e}")
         finally:
             if broker_token:

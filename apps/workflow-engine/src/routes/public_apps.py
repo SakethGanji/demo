@@ -427,7 +427,7 @@ async def _run_app_workflow(app: AppModel, workflow_id: str, body: dict, exec_se
     if wf is None:
         raise HTTPException(status_code=404, detail="workflow not found")
     if wf.project_id != app.project_id:
-        raise HTTPException(status_code=403, detail="workflow_not_in_project")
+        raise HTTPException(status_code=403, detail={"code": "workflow_not_in_project", "message": "workflow is not in this app's project"})
     project = await session.get(ProjectModel, app.project_id)
     env = project.live_environment if project else "default"
     try:

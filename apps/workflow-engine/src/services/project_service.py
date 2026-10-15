@@ -53,7 +53,7 @@ def env_kind(project: ProjectModel, env: str) -> str:
     return "draft"
 
 
-def effective_environment(project: ProjectModel | None, requested: str | None) -> str:
+def effective_environment(project: ProjectModel | None, requested: str | None, strict: bool = False) -> str:
     """Map a run's requested environment onto the project.
 
     The studio always sends ``environment: "default"`` (schemas default). For projects that
@@ -65,6 +65,9 @@ def effective_environment(project: ProjectModel | None, requested: str | None) -
     names = env_names(project)
     if not requested or (requested == "default" and "default" not in names):
         return project.default_environment
+    if strict and project.id != DEFAULT_PROJECT_ID and requested not in names:
+        raise ProjectError(422, "unknown_environment", f"environment '{requested}' is not one of {names}",
+                           environment=requested)
     return requested
 
 
@@ -252,6 +255,52 @@ class ProjectService:
             last_run = {"execution_id": last.id, "status": last.status, "mode": last.mode,
                         "start_time": last.start_time.isoformat()}
         return last_run, {"status": status, "runs_24h": total, "failed_24h": failed}
+
+    async def summary_extras(self, p: ProjectModel) -> dict[str, Any]:
+        """G4: stub_routes, api_keys (active), active_releases per environment."""
+        out: dict[str, Any] = {"stub_routes": 0, "api_keys": 0, "active_releases": {e: None for e in env_names(p)}}
+        try:
+            from ..db.models import ApiKeyModel, ApiRouteModel
+            out["stub_routes"] = (await self._s.execute(select(func.count()).select_from(ApiRouteModel).where(
+                ApiRouteModel.project_id == p.id, ApiRouteModel.handler_type == "stub"))).scalar_one()
+            out["api_keys"] = (await self._s.execute(select(func.count()).select_from(ApiKeyModel).where(
+                ApiKeyModel.project_id == p.id, ApiKeyModel.revoked_at.is_(None)))).scalar_one()
+        except ImportError:
+            pass
+        try:
+            from ..db.models import ReleaseModel
+            rows = (await self._s.execute(select(ReleaseModel).where(
+                ReleaseModel.project_id == p.id, ReleaseModel.is_active.is_(True)))).scalars().all()
+            for r in rows:
+                out["active_releases"][r.environment] = {"release_id": r.id, "number": r.number,
+                                                         "created_at": r.created_at.isoformat()}
+        except ImportError:
+            pass
+        return out
+
+    async def preview_update(self, ref: str, body: dict[str, Any]) -> dict[str, Any]:
+        """G26: what an update would affect (slug change → apps that call /api/p/<old>/ or are published)."""
+        p = await self.require(ref)
+        affected: list[dict[str, Any]] = []
+        new_slug = body.get("slug")
+        if new_slug is not None and new_slug != p.slug:
+            self._validate_slug(new_slug)
+            if await self._slug_taken(new_slug, exclude_id=p.id):
+                raise ProjectError(409, "slug_taken", f"Slug '{new_slug}' is already used")
+            from ..db.models import AppFileModel
+            apps = (await self._s.execute(select(AppModel).where(AppModel.project_id == p.id))).scalars().all()
+            needle = f"/api/p/{p.slug}/"
+            for a in apps:
+                uses = False
+                if a.current_version_id:
+                    files = (await self._s.execute(select(AppFileModel).where(AppFileModel.version_id == a.current_version_id))).scalars().all()
+                    uses = any(needle in (f.content or "") for f in files)
+                uses = uses or needle in (a.draft_source_code or "")
+                if uses or a.published_version_id:
+                    affected.append({"app_id": a.id, "name": a.name, "references_slug": uses,
+                                     "published": a.published_version_id is not None})
+        preview = {**project_to_dict(p), **{k: v for k, v in body.items() if k in ("name", "slug", "description")}}
+        return {"project": preview, "affected_apps": affected}
 
     async def list_item(self, p: ProjectModel) -> dict[str, Any]:
         last_run, health = await self.last_run_and_health(p.id)

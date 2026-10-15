@@ -691,11 +691,15 @@ class WorkflowRunner:
         if last_error or not result:
             error_msg = str(last_error) if last_error else "Unknown execution error"
             retry_info = f" (after {max_retries + 1} attempts)" if max_retries > 0 else ""
+            error_code = getattr(last_error, "code", None) if isinstance(getattr(last_error, "code", None), str) else None
+            error_details = getattr(last_error, "details", None) if isinstance(getattr(last_error, "details", None), dict) else None
             context.errors.append(
                 ExecutionError(
                     node_name=job.node_name,
                     error=f"{error_msg}{retry_info}",
                     timestamp=datetime.now(),
+                    error_code=error_code,
+                    details=error_details,
                 )
             )
 
@@ -710,6 +714,9 @@ class WorkflowRunner:
                 "inputItemCount": len(job.input_data),
                 "status": "error",
             }
+            if error_code:
+                error_metrics["errorCode"] = error_code
+                error_metrics["errorDetails"] = error_details or {}
             context.node_metrics[job.node_name] = error_metrics
 
             self._emit_event(
