@@ -91,3 +91,4 @@ Baseline before: **108 passed**. Tests live in `tests/integration/test_review_g*
 | 4 runs | C2, C3, D6, C13 | 148 | (see git log) |
 | 5a builder + usage + publish | C5, C6, C11, D14, C4 | 154 | (see git log) |
 | 5b app tokens | D3 | 159 | (see git log) |
+| 6 releases + projects | D10, D12, C17, C19, B7 (verified) | 166 | (see git log) |

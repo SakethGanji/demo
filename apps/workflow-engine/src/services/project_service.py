@@ -158,6 +158,14 @@ class ProjectService:
 
     async def update(self, ref: str, body: dict[str, Any]) -> ProjectModel:
         p = await self.require(ref)
+        await self._apply_update(p, body)
+        await self._s.commit()
+        await self._s.refresh(p)
+        return p
+
+    async def _apply_update(self, p: ProjectModel, body: dict[str, Any]) -> None:
+        """Validate and apply an update to ``p`` in memory (no commit). Shared by the real save and
+        the dry run (review D12), so both refuse exactly the same bodies."""
         if "name" in body and body["name"] is not None:
             if not str(body["name"]).strip():
                 raise ProjectError(422, "invalid_name", "name is required")
@@ -199,9 +207,6 @@ class ProjectService:
                 raise ProjectError(422, "invalid_settings", "egress_allowlist must be a list of host patterns")
             p.settings = settings
         p.updated_at = datetime.now()
-        await self._s.commit()
-        await self._s.refresh(p)
-        return p
 
     async def _env_in_use(self, project_id: str, env: str) -> bool:
         n = (await self._s.execute(
@@ -258,7 +263,9 @@ class ProjectService:
 
     async def summary_extras(self, p: ProjectModel) -> dict[str, Any]:
         """G4: stub_routes, api_keys (active), active_releases per environment."""
-        out: dict[str, Any] = {"stub_routes": 0, "api_keys": 0, "active_releases": {e: None for e in env_names(p)}}
+        out: dict[str, Any] = {"stub_routes": 0, "api_keys": 0, "modules": 0,
+                               "active_releases": {e: None for e in env_names(p)},
+                               "latest_releases": {e: None for e in env_names(p)}}
         try:
             from ..db.models import ApiKeyModel, ApiRouteModel
             out["stub_routes"] = (await self._s.execute(select(func.count()).select_from(ApiRouteModel).where(
@@ -272,8 +279,21 @@ class ProjectService:
             rows = (await self._s.execute(select(ReleaseModel).where(
                 ReleaseModel.project_id == p.id, ReleaseModel.is_active.is_(True)))).scalars().all()
             for r in rows:
+                if env_kind(p, r.environment) != "release":  # review D10: draft envs have no active release
+                    continue
                 out["active_releases"][r.environment] = {"release_id": r.id, "number": r.number,
                                                          "created_at": r.created_at.isoformat()}
+            # Latest non-blocked release/snapshot per environment ("dev: snapshot #2 taken 3m ago").
+            latest = (await self._s.execute(select(ReleaseModel).where(
+                ReleaseModel.project_id == p.id, ReleaseModel.status != "blocked")
+                .order_by(ReleaseModel.number.desc()))).scalars().all()
+            for r in latest:
+                if r.environment in out["latest_releases"] and out["latest_releases"][r.environment] is None:
+                    out["latest_releases"][r.environment] = {"release_id": r.id, "number": r.number, "status": r.status,
+                                                             "created_at": r.created_at.isoformat()}
+            from ..db.models import CodeModuleModel  # review C17: summary counts modules
+            out["modules"] = (await self._s.execute(select(func.count()).select_from(CodeModuleModel).where(
+                CodeModuleModel.project_id == p.id))).scalar_one()
         except ImportError:
             pass
         return out
@@ -299,7 +319,12 @@ class ProjectService:
                 if uses or a.published_version_id:
                     affected.append({"app_id": a.id, "name": a.name, "references_slug": uses,
                                      "published": a.published_version_id is not None})
-        preview = {**project_to_dict(p), **{k: v for k, v in body.items() if k in ("name", "slug", "description")}}
+        # Review D12: the dry run runs the same validation as the save, then discards the changes.
+        try:
+            await self._apply_update(p, body)
+            preview = project_to_dict(p)
+        finally:
+            await self._s.rollback()
         return {"project": preview, "affected_apps": affected}
 
     async def list_item(self, p: ProjectModel) -> dict[str, Any]:

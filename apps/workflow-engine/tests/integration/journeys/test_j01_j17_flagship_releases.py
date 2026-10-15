@@ -95,7 +95,8 @@ def test_j01_flagship(api):
     r = api.post(f"/projects/{P}/releases", {"environment": "dev", "notes": "r1"})              # 29
     assert r.status_code == 201, r.text
     rel = r.json()
-    assert rel["id"].startswith("rel_") and (rel["environment"], rel["number"], rel["is_active"], rel["status"]) == ("dev", 1, True, "active")
+    # review D10: a draft env's release is a snapshot — never "active" (dev always serves drafts)
+    assert rel["id"].startswith("rel_") and (rel["environment"], rel["number"], rel["is_active"], rel["status"]) == ("dev", 1, False, "snapshot")
     assert all(c["status"] in ("pass", "warn") for c in rel["checks"])
     assert any(c["id"] == "app_calls_resolve" and c["status"] == "pass" for c in rel["checks"])
     REL1 = rel["id"]
@@ -120,7 +121,7 @@ def test_j01_flagship(api):
         AT = app_token(api, S + "-ui")
         assert api.raw("GET", f"/api/p/{S}/orders/42", headers=bearer(AT)).json()["greeting"] == "hello-prod"
     r = api.post(f"/projects/{P}/releases", {"environment": "dev", "notes": "r2"})              # 40
-    assert r.status_code == 201 and r.json()["number"] == 2 and r.json()["is_active"] is True
+    assert r.status_code == 201 and r.json()["number"] == 2 and r.json()["status"] == "snapshot"   # review D10
     REL2 = r.json()["id"]
     r = api.post(f"/projects/{P}/releases/{REL2}/promote", {"to_environment": "prod"})         # 41
     assert r.status_code == 201 and r.json()["is_active"] is True
@@ -160,7 +161,7 @@ def test_j17_release_gates_and_rollback(api):
     r = api.post(f"/projects/{P}/releases?dry_run=true", {"environment": "dev"})                # G10 preview
     assert r.status_code == 200 and {"checks", "diff"} <= set(r.json())
     r = api.post(f"/projects/{P}/releases", {"environment": "dev", "notes": "with stub"})       # 6
-    assert r.status_code == 201 and r.json()["is_active"] is True
+    assert r.status_code == 201 and r.json()["status"] == "snapshot" and r.json()["is_active"] is False   # review D10
     ch = r.json()["checks"]
     assert any(c["id"] == "stub_routes" and c["status"] == "warn" and c["details"]["routes"] == ["GET /missing"] for c in ch)
     assert any(c["id"] == "app_calls_resolve" and c["status"] == "pass" for c in ch)

@@ -62,7 +62,7 @@ async def create_release(project: str, body: ReleaseCreate, request: Request, dr
 @router.get("/releases/{rid}")
 async def get_release(project: str, rid: str, session: AsyncSession = Depends(get_db_session)):
     p, svc = await _ctx(project, session)
-    return release_to_dict(await _g(svc.get(p, rid)), with_snapshot=True)
+    return release_to_dict(await _g(svc.get(p, rid)), with_snapshot=True, project=p)
 
 
 @router.post("/releases/{rid}/promote", status_code=201)

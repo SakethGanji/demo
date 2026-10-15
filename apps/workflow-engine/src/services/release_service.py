@@ -19,14 +19,17 @@ from ..db.models import AppModel, AppVersionModel, CodeModuleModel, ProjectModel
 from ..repositories.version_repository import VersionRepository
 from ..utils.ids import generate_id
 from .api_route_service import ApiRouteService, route_spec
-from .project_service import ProjectError, env_names
+from .project_service import ProjectError, env_kind, env_names
 from .secret_service import VAR_REF_RE, _flatten, fingerprint
 from .spec_tools import build_openapi, diff_specs, spec_hash
 
 
-def release_to_dict(r: ReleaseModel, with_snapshot: bool = False) -> dict[str, Any]:
+def release_to_dict(r: ReleaseModel, with_snapshot: bool = False, project: ProjectModel | None = None) -> dict[str, Any]:
+    # Review D10: `serving` = this release is what the router serves (an active release of a release env).
+    serving = bool(r.is_active) and (env_kind(project, r.environment) == "release" if project is not None else True)
     out = {"id": r.id, "project_id": r.project_id, "environment": r.environment, "number": r.number,
-           "is_active": r.is_active, "status": r.status, "checks": r.checks, "source_release_id": r.source_release_id,
+           "is_active": r.is_active, "status": r.status, "serving": serving, "checks": r.checks,
+           "source_release_id": r.source_release_id,
            "notes": r.notes, "created_by": r.created_by, "created_at": r.created_at.isoformat()}
     if with_snapshot:
         out["snapshot"] = r.snapshot
@@ -44,12 +47,24 @@ class ReleaseService:
             ReleaseModel.project_id == project_id, ReleaseModel.environment == env, ReleaseModel.is_active.is_(True)))
         ).scalars().first()
 
+    async def baseline(self, project_id: str, env: str, before_number: int | None = None) -> ReleaseModel | None:
+        """What a new release of ``env`` is compared with: the active release, or — in a draft
+        environment, which never has one (review D10) — the latest non-blocked snapshot."""
+        active = await self.active_release(project_id, env)
+        if active is not None:
+            return active
+        q = select(ReleaseModel).where(
+            ReleaseModel.project_id == project_id, ReleaseModel.environment == env, ReleaseModel.status != "blocked")
+        if before_number is not None:
+            q = q.where(ReleaseModel.number < before_number)
+        return (await self._s.execute(q.order_by(ReleaseModel.number.desc()).limit(1))).scalars().first()
+
     async def list(self, project: ProjectModel, environment: str | None = None) -> list[dict[str, Any]]:
         stmt = select(ReleaseModel).where(ReleaseModel.project_id == project.id)
         if environment:
             stmt = stmt.where(ReleaseModel.environment == environment)
         rows = (await self._s.execute(stmt.order_by(ReleaseModel.environment, ReleaseModel.number.desc()))).scalars().all()
-        return [release_to_dict(r) for r in rows]
+        return [release_to_dict(r, project=project) for r in rows]
 
     async def get(self, project: ProjectModel, rid: str) -> ReleaseModel:
         r = await self._s.get(ReleaseModel, rid)
@@ -101,10 +116,15 @@ class ReleaseService:
         mods = (await self._s.execute(select(CodeModuleModel).where(CodeModuleModel.project_id == project.id))).scalars().all()
         modules = [{"module_id": m.id, "name": m.name, "source_sha": m.source_sha, "source": m.source} for m in mods]
         apps = (await self._s.execute(select(AppModel).where(AppModel.project_id == project.id))).scalars().all()
-        app_pins = []
+        app_pins, unversioned = [], []
         for a in apps:
             if a.current_version_id:
                 app_pins.append({"app_id": a.id, "version_id": a.current_version_id})
+            elif a.draft_source_code:
+                # §3.9 / review D10: an app with only a draft gets a version (trigger "release") so it can be pinned.
+                app_pins.append({"app_id": a.id, "version_id": -1 if dry else await self._version_app(a)})
+            else:
+                unversioned.append(a.id)  # nothing to snapshot → app_calls_resolve fails
             for wid in a.workflow_ids or []:
                 await self._pin_workflow(wid, pins, dry)
         await self._s.flush()
@@ -125,9 +145,22 @@ class ReleaseService:
             refs.update(VAR_REF_RE.findall(m["source"]))
             refs.update(sec_call.findall(m["source"]))
         spec = build_openapi(project, routes)
-        return {"apps": app_pins, "workflows": [{"workflow_id": w, "version_id": v} for w, v in sorted(pins.items())],
+        return {"apps": app_pins, "unversioned_apps": unversioned,
+                "workflows": [{"workflow_id": w, "version_id": v} for w, v in sorted(pins.items())],
                 "modules": modules, "routes": routes, "spec": spec, "spec_hash": spec_hash(spec),
                 "referenced_vars": sorted(refs), "secret_bindings": []}
+
+    async def _version_app(self, app: AppModel) -> int:
+        from .app_service import AppService
+        from .bundle_storage import PostgresBundleStorage
+        from .file_storage import PostgresFileStorage
+
+        svc = AppService(self._s, PostgresFileStorage(self._s), PostgresBundleStorage(self._s))
+        v = await svc._create_version_row(app, source_code=app.draft_source_code or "", trigger="release",
+                                          message="created for a release",
+                                          files=[{"path": "App.tsx", "content": app.draft_source_code or ""}])
+        await self._s.flush()
+        return v.id
 
     # ── checks ───────────────────────────────────────────────────────────
 
@@ -142,12 +175,16 @@ class ReleaseService:
         # 1. app_calls_resolve
         missing = []
         for pin in snapshot.get("apps") or []:
-            files = (await self._s.execute(select(AppFileModel).where(AppFileModel.version_id == pin["version_id"]))).scalars().all()
-            if not files:
-                v = await self._s.get(AppVersionModel, pin["version_id"])
-                files_iter = [("App.tsx", v.source_code if v else "")]
+            if pin["version_id"] == -1:  # dry run: the version would be created from the draft
+                a = await self._s.get(AppModel, pin["app_id"])
+                files_iter = [("App.tsx", (a.draft_source_code if a else "") or "")]
             else:
-                files_iter = [(f.path, f.content) for f in files if f.path != "api/client.ts"]
+                files = (await self._s.execute(select(AppFileModel).where(AppFileModel.version_id == pin["version_id"]))).scalars().all()
+                if not files:
+                    v = await self._s.get(AppVersionModel, pin["version_id"])
+                    files_iter = [("App.tsx", v.source_code if v else "")]
+                else:
+                    files_iter = [(f.path, f.content) for f in files if f.path != "api/client.ts"]
             for path, content in files_iter:
                 if not path.endswith((".tsx", ".ts", ".jsx", ".js")):
                     continue
@@ -157,9 +194,12 @@ class ReleaseService:
                     if not ok:
                         missing.append({"app_id": pin["app_id"], "file": path, "line": c["line"],
                                         "operation": c["operation"], "method": c["method"], "path": c["path"]})
-        checks.append({"id": "app_calls_resolve", "status": "fail" if missing else "pass",
-                       "message": f"{len(missing)} app call(s) have no matching route" if missing else "all app calls resolve",
-                       "details": {"missing": missing}})
+        unversioned = list(snapshot.get("unversioned_apps") or [])
+        msg = f"{len(missing)} app call(s) have no matching route" if missing else "all app calls resolve"
+        if unversioned:
+            msg = (msg + "; " if missing else "") + f"{len(unversioned)} app(s) have no saved code — Save the app once before releasing"
+        checks.append({"id": "app_calls_resolve", "status": "fail" if (missing or unversioned) else "pass",
+                       "message": msg, "details": {"missing": missing, "unversioned": unversioned}})
         # 2. handlers_exist
         bad = []
         mod_names = {m["module_id"]: m for m in snapshot.get("modules") or []}
@@ -194,7 +234,7 @@ class ReleaseService:
         stubs = [f"{r['method']} {r['path']}" for r in routes if r["handler"].get("type") == "stub"]
         checks.append({"id": "stub_routes", "status": "warn" if stubs else "pass", "details": {"routes": stubs}})
         # 6. breaking_vs_active (warn, G28)
-        active = await self.active_release(project.id, env)
+        active = await self.baseline(project.id, env)
         changes = diff_specs(active.snapshot.get("spec"), snapshot.get("spec")) if active else []
         breaking = [c for c in changes if c["breaking"]]
         checks.append({"id": "breaking_vs_active", "status": "warn" if breaking else "pass",
@@ -253,7 +293,12 @@ class ReleaseService:
             await self._s.commit()
             raise ProjectError(422, "checks_failed", "release checks failed", checks=checks,
                                release_id=rel.id, number=rel.number)
-        await self._activate(project, rel)
+        if env_kind(project, env) == "draft":
+            # Review D10: a draft environment always serves the drafts — its releases are snapshots
+            # (numbered, promotable), never "active".
+            rel.status = "snapshot"
+        else:
+            await self._activate(project, rel)
         await self._s.commit()
         return rel
 
@@ -264,9 +309,11 @@ class ReleaseService:
         snapshot = await self.build_snapshot(project, dry=dry_run)
         checks = await self.run_checks(project, snapshot, env)
         if dry_run:
-            active = await self.active_release(project.id, env)
-            return {"checks": checks, "diff": self._diff(active.snapshot if active else {}, snapshot)}
-        return release_to_dict(await self._store(project, env, snapshot, checks, notes, actor, None), with_snapshot=False)
+            active = await self.baseline(project.id, env)
+            return {"checks": checks, "diff": self._diff(active.snapshot if active else {}, snapshot),
+                    "snapshot_apps": snapshot.get("apps") or []}
+        return release_to_dict(await self._store(project, env, snapshot, checks, notes, actor, None), with_snapshot=False,
+                               project=project)
 
     async def promote(self, project: ProjectModel, rid: str, to_env: str, dry_run: bool = False,
                       actor: str | None = None) -> dict[str, Any]:
@@ -277,12 +324,16 @@ class ReleaseService:
         snapshot = {k: v for k, v in src.snapshot.items()}
         checks = await self.run_checks(project, snapshot, to_env)
         if dry_run:
-            active = await self.active_release(project.id, to_env)
-            return {"checks": checks, "diff": self._diff(active.snapshot if active else {}, snapshot)}
-        return release_to_dict(await self._store(project, to_env, snapshot, checks, src.notes, actor, src.id))
+            active = await self.baseline(project.id, to_env)
+            return {"checks": checks, "diff": self._diff(active.snapshot if active else {}, snapshot),
+                    "snapshot_apps": snapshot.get("apps") or []}
+        return release_to_dict(await self._store(project, to_env, snapshot, checks, src.notes, actor, src.id), project=project)
 
     async def rollback(self, project: ProjectModel, env: str, release_id: str | None = None) -> dict[str, Any]:
         self._check_env(project, env)
+        if env_kind(project, env) != "release":  # review D10: draft envs serve drafts, nothing to roll back
+            raise ProjectError(422, "not_a_release_environment", f"'{env}' is a draft environment; it always serves the latest saved code",
+                               environment=env)
         current = await self.active_release(project.id, env)
         if release_id:
             target = await self.get(project, release_id)
@@ -307,7 +358,7 @@ class ReleaseService:
         if current is None or current.id != target.id:
             await self._activate(project, target, previous_status="rolled_back")
         await self._s.commit()
-        return release_to_dict(target)
+        return release_to_dict(target, project=project)
 
     # ── diff ─────────────────────────────────────────────────────────────
 
@@ -320,8 +371,9 @@ class ReleaseService:
         os_, ns = idx(old.get("secret_bindings"), "key"), idx(new.get("secret_bindings"), "key")
         apps = [{"app_id": k, "from_version": (oa.get(k) or {}).get("version_id"), "to_version": (na.get(k) or {}).get("version_id")}
                 for k in sorted(set(oa) | set(na)) if (oa.get(k) or {}).get("version_id") != (na.get(k) or {}).get("version_id")]
+        # Review D10: unchanged workflows are not "changes".
         wfs = [{"workflow_id": k, "from_version": (ow.get(k) or {}).get("version_id"), "to_version": (nw.get(k) or {}).get("version_id")}
-               for k in sorted(set(ow) | set(nw))]
+               for k in sorted(set(ow) | set(nw)) if (ow.get(k) or {}).get("version_id") != (nw.get(k) or {}).get("version_id")]
         secrets = []
         for k in sorted(set(os_) | set(ns)):
             if k not in os_:
@@ -335,7 +387,10 @@ class ReleaseService:
     async def diff(self, project: ProjectModel, rid: str, against: str = "active", environment: str | None = None) -> dict[str, Any]:
         rel = await self.get(project, rid)
         if against == "active":
-            other = await self.active_release(project.id, environment or rel.environment)
+            env = environment or rel.environment
+            other = await self.baseline(project.id, env, before_number=rel.number if env == rel.environment else None)
+            if other is not None and other.id == rel.id:
+                other = None
         else:
             other = await self.get(project, against)
         base = other.snapshot if other is not None else {}

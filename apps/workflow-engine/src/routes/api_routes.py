@@ -175,10 +175,20 @@ async def run_trace(session: AsyncSession, execution_id: str) -> dict[str, Any]:
 # ── spec ─────────────────────────────────────────────────────────────────────
 
 
+def _known_env(p, environment: str | None) -> str:
+    """Review C19: an unknown environment is a 422, not silently the draft env ("default" = project default)."""
+    if environment is None or environment == "default" and "default" not in env_names(p):
+        return p.default_environment
+    if environment not in env_names(p):
+        raise_project_error(ProjectError(422, "unknown_environment", f"environment '{environment}' is not in this project",
+                                         environment=environment))
+    return environment
+
+
 @router.get("/openapi.json")
 async def openapi(project: str, environment: str | None = None, session: AsyncSession = Depends(get_db_session)):
     p = await _project(project, session)
-    env = environment or p.default_environment
+    env = _known_env(p, environment)
     specs, release = await RouteDispatcher(session).route_set(p, env)
     if release is not None and release.snapshot.get("spec"):
         spec = release.snapshot["spec"]
@@ -253,7 +263,7 @@ async def client_source(session: AsyncSession, p, environment: str | None = None
 @router.get("/client.ts")
 async def client_ts(project: str, environment: str | None = None, session: AsyncSession = Depends(get_db_session)):
     p = await _project(project, session)
-    src, h = await client_source(session, p, environment)
+    src, h = await client_source(session, p, _known_env(p, environment))
     return Response(src, media_type="text/typescript", headers={"ETag": f'"{h}"'})
 
 
