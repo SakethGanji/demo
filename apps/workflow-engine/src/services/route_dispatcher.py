@@ -1,0 +1,249 @@
+"""Project router dispatch: auth → environment → match → handler (BACKEND-DESIGN §3.5, phase 5).
+
+* The caller never chooses the environment: API key → its env; app token → live env
+  (preview token → default env); no credential → live env.
+* Inbound payloads are never ``$vars``-substituted (decision 1).
+* JSON responses are secret-redacted; every handled request carries ``X-Execution-Id``.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import re
+from dataclasses import dataclass, field
+from typing import Any
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..db.models import AppModel, ProjectModel
+from .project_service import env_kind
+from .spec_tools import PARAM_RE, validate
+
+STRIP_HEADERS = {"authorization", "x-api-key", "cookie", "host", "content-length"}
+
+
+@dataclass
+class RouteRequest:
+    method: str
+    path: str
+    query: dict[str, Any] = field(default_factory=dict)
+    headers: dict[str, str] = field(default_factory=dict)
+    body: Any = None
+
+
+@dataclass
+class DispatchResult:
+    status: int
+    body: Any = None
+    headers: dict[str, str] = field(default_factory=dict)
+    content_type: str = "application/json"
+    execution_id: str | None = None
+
+
+@dataclass
+class Credential:
+    kind: str  # none | api_key | app_token
+    environment: str
+    app_id: str | None = None
+    key_id: str | None = None
+
+
+class AuthError(Exception):
+    def __init__(self, error: str = "unauthorized", status: int = 401) -> None:
+        self.error, self.status = error, status
+
+
+def compile_path(path: str) -> re.Pattern:
+    parts = []
+    for seg in [s for s in path.split("/") if s]:
+        m = PARAM_RE.fullmatch(seg)
+        parts.append(f"(?P<{m.group(1)}>[^/]+)" if m else re.escape(seg))
+    return re.compile("^/" + "/".join(parts) + "$") if parts else re.compile("^/?$")
+
+
+def _specificity(path: str) -> tuple:
+    segs = [s for s in path.split("/") if s]
+    return (-sum(1 for s in segs if not PARAM_RE.fullmatch(s)), sum(1 for s in segs if PARAM_RE.fullmatch(s)), -len(segs))
+
+
+def match_route(specs: list[dict[str, Any]], method: str, path: str) -> tuple[dict | None, dict[str, str], list[str]]:
+    """(route spec, path params, allowed methods for this path)."""
+    path = "/" + path.strip("/") if path.strip("/") else "/"
+    hits = []
+    for s in specs:
+        m = compile_path(s["path"]).match(path)
+        if m:
+            hits.append((s, m.groupdict()))
+    hits.sort(key=lambda h: _specificity(h[0]["path"]))
+    allowed = sorted({h[0]["method"] for h in hits})
+    for s, params in hits:
+        if s["method"] == method:
+            return s, params, allowed
+    return None, {}, allowed
+
+
+class RouteDispatcher:
+    def __init__(self, session: AsyncSession) -> None:
+        self._s = session
+
+    # ── route source (phase 9: release snapshots) ────────────────────────
+
+    async def route_set(self, project: ProjectModel, env: str) -> tuple[list[dict[str, Any]], Any]:
+        if env_kind(project, env) == "release":
+            try:
+                from .release_service import ReleaseService
+                rel = await ReleaseService(self._s).active_release(project.id, env)
+            except ImportError:
+                rel = None
+            if rel is not None:
+                return list(rel.snapshot.get("routes") or []), rel
+        from .api_route_service import ApiRouteService, route_spec
+        return [route_spec(r) for r in await ApiRouteService(self._s).rows(project.id)], None
+
+    # ── auth ─────────────────────────────────────────────────────────────
+
+    async def authenticate(self, project: ProjectModel, headers: dict[str, str]) -> Credential:
+        from ..core.public_tokens import PublicTokenError, verify_token
+        from .api_key_service import ApiKeyService
+
+        auth = headers.get("authorization") or ""
+        bearer = auth.split(" ", 1)[1].strip() if auth.lower().startswith("bearer ") else None
+        api_key = headers.get("x-api-key") or (bearer if bearer and bearer.startswith("sk_") else None)
+        if api_key:
+            k = await ApiKeyService(self._s).verify(project.id, api_key)
+            if not k:
+                raise AuthError()
+            return Credential("api_key", k.environment, key_id=k.id)
+        if bearer:
+            try:
+                claims = verify_token(bearer)
+            except PublicTokenError as e:
+                raise AuthError("token_expired" if "expired" in str(e) else "unauthorized")
+            app = await self._s.get(AppModel, claims.app_id)
+            if not app or app.project_id != project.id:
+                raise AuthError()
+            if claims.preview:
+                env = claims.env or project.default_environment
+                if env_kind(project, env) != "draft":
+                    raise AuthError()
+                return Credential("app_token", env, app_id=app.id)
+            if claims.version_id != app.published_version_id:
+                raise AuthError()
+            return Credential("app_token", project.live_environment, app_id=app.id)
+        if auth:
+            raise AuthError()
+        return Credential("none", project.live_environment)
+
+    # ── entry point ──────────────────────────────────────────────────────
+
+    async def handle(self, project: ProjectModel, req: RouteRequest, *, forced_env: str | None = None) -> DispatchResult:
+        try:
+            cred = Credential("api_key", forced_env) if forced_env else await self.authenticate(project, req.headers)
+        except AuthError as e:
+            return DispatchResult(e.status, {"error": e.error})
+        specs, release = await self.route_set(project, cred.environment)
+        spec, params, allowed = match_route(specs, req.method.upper(), req.path)
+        if spec is None:
+            if allowed:
+                return DispatchResult(405, {"error": "method_not_allowed", "allowed": allowed},
+                                      headers={"Allow": ", ".join(allowed)})
+            return DispatchResult(404, {"error": "route_not_found"})
+        if spec["auth"] == "api_key" and cred.kind != "api_key":
+            return DispatchResult(401, {"error": "unauthorized"})
+        if spec["auth"] == "app_token" and cred.kind not in ("app_token", "api_key"):
+            return DispatchResult(401, {"error": "unauthorized"})
+        if spec.get("validate_request") and spec.get("request_schema"):
+            errors = validate({"params": params, "query": req.query, "body": req.body}, spec["request_schema"])
+            if errors:
+                return DispatchResult(422, {"error": "request_invalid", "errors": errors})
+        handler = spec.get("handler") or {}
+        if handler.get("type") == "stub":
+            return DispatchResult(501, {"error": "not_implemented", "route": f"{spec['method']} {spec['path']}",
+                                        "operation": spec["name"]})
+        trigger = {"type": "api", "route_id": spec["id"], "method": spec["method"], "route": spec["path"],
+                   "path": req.path, "app_id": cred.app_id, "api_key_id": cred.key_id, "auth": cred.kind,
+                   "release_id": getattr(release, "id", None)}
+        item = {
+            "req": {"method": req.method.upper(), "path": req.path, "route": spec["path"], "params": params,
+                    "query": req.query, "headers": {k: v for k, v in req.headers.items() if k.lower() not in STRIP_HEADERS},
+                    "body": req.body},
+            "params": params, "query": req.query,
+            "headers": {k: v for k, v in req.headers.items() if k.lower() not in STRIP_HEADERS},
+            "body": req.body, "method": req.method.upper(),
+        }
+        if handler.get("type") == "workflow":
+            return await self._run_workflow(spec, handler, item, cred.environment, trigger)
+        if handler.get("type") == "python":
+            return await self._run_python(project, spec, handler, item, cred.environment, trigger, release)
+        return DispatchResult(500, {"error": "invalid_handler"})
+
+    # ── handlers ─────────────────────────────────────────────────────────
+
+    async def _run_workflow(self, spec, handler, item, env, trigger) -> DispatchResult:
+        from ..core.exceptions import WorkflowExecutionError, WorkflowNotFoundError
+        from ..repositories.execution_repository import ExecutionRepository
+        from ..repositories.workflow_repository import WorkflowRepository
+        from .execution_service import ExecutionService
+        from .vars_substitution import redact_deep
+
+        svc = ExecutionService(ExecutionRepository(self._s, max_records=100), WorkflowRepository(self._s))
+        exec_ids: list[str] = []
+
+        async def remember(exec_id, _env, _stored):
+            exec_ids.append(exec_id)
+
+        try:
+            _, context = await svc.run_saved_workflow(
+                handler["workflow_id"], None, environment=env, mode="api", substitute_inputs=False,
+                initial_item=item, version_id=handler.get("version_id"), timeout_s=float(spec.get("timeout_s") or 30),
+                metadata={"trigger": trigger}, on_context_ready=remember,
+            )
+        except asyncio.TimeoutError:
+            xid = exec_ids[0] if exec_ids else None
+            return DispatchResult(504, {"error": "timeout", "execution_id": xid}, execution_id=xid)
+        except (WorkflowNotFoundError, WorkflowExecutionError) as e:
+            xid = exec_ids[0] if exec_ids else None
+            return DispatchResult(502, {"error": "handler_failed", "execution_id": xid,
+                                        "message": getattr(e, "message", str(e))}, execution_id=xid)
+        secrets = context.extras.get("secret_values") or set()
+        xid = context.execution_id
+        if context.webhook_response is not None:
+            wr = context.webhook_response
+            body = redact_deep(wr.body, secrets) if isinstance(wr.body, (dict, list, str)) else wr.body
+            return DispatchResult(wr.status_code, body, dict(wr.headers or {}), wr.content_type or "application/json", xid)
+        if context.errors:
+            return DispatchResult(502, {"error": "handler_failed", "execution_id": xid,
+                                        "message": redact_deep(context.errors[0].error, secrets)}, execution_id=xid)
+        items = []
+        if context.last_completed_node and context.last_completed_node in context.node_states:
+            items = [d.json for d in context.node_states[context.last_completed_node]]
+        mode = spec.get("response_mode") or "auto"
+        if mode == "all_items":
+            body: Any = items
+        elif mode == "first_item":
+            body = items[0] if items else None
+        else:
+            body = items[0] if len(items) == 1 else items
+        return DispatchResult(200, redact_deep(body, secrets), execution_id=xid)
+
+    async def _run_python(self, project, spec, handler, item, env, trigger, release) -> DispatchResult:
+        try:
+            from .python_handler import run_python_route
+        except ImportError:
+            return DispatchResult(503, {"error": "sandbox_unavailable"})
+        return await run_python_route(self._s, project, spec, handler, item, env, trigger, release)
+
+
+def parse_body(raw: bytes, content_type: str) -> Any:
+    if not raw:
+        return None
+    if "application/json" in (content_type or "") or raw[:1] in (b"{", b"["):
+        try:
+            return json.loads(raw)
+        except (ValueError, UnicodeDecodeError):
+            pass
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return None

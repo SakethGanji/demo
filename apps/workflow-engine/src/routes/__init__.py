@@ -19,6 +19,7 @@ from .api_tester import router as api_tester_router
 from .projects import router as projects_router
 from .project_secrets import router as project_secrets_router
 from .broker import router as broker_router
+from .api_routes import router as api_routes_router, project_router as project_api_router
 
 # Main API router
 api_router = APIRouter(prefix="/api")
@@ -35,16 +36,19 @@ api_router.include_router(variables_router, tags=["Variables"])
 api_router.include_router(api_tester_router, tags=["API Tester"])
 api_router.include_router(project_secrets_router, tags=["Project Secrets"])
 api_router.include_router(broker_router, tags=["Broker & SDK"])
+api_router.include_router(api_routes_router, tags=["API Routes"])
 api_router.include_router(projects_router, tags=["Projects"])
 
 # Non-prefixed routers (for webhooks, streaming, and public deployed apps)
 webhook_router = webhooks_router
 stream_router = streaming_router
 public_app_router = public_apps_router
+project_router = project_api_router
 
 __all__ = [
     "api_router",
     "webhook_router",
     "stream_router",
     "public_app_router",
+    "project_router",
 ]

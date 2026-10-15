@@ -35,6 +35,8 @@ class PublicTokenClaims:
     app_id: str
     version_id: int
     exp: int  # unix seconds
+    env: str | None = None  # environment override (preview tokens)
+    preview: bool = False  # studio preview token (draft env, no published version needed)
 
 
 class PublicTokenError(Exception):
@@ -62,12 +64,17 @@ def _b64u_decode(s: str) -> bytes:
     return base64.urlsafe_b64decode(s + pad)
 
 
-def issue_token(app_id: str, version_id: int, ttl_seconds: int = _DEFAULT_TTL_SECONDS) -> str:
+def issue_token(app_id: str, version_id: int, ttl_seconds: int = _DEFAULT_TTL_SECONDS, *,
+                env: str | None = None, preview: bool = False) -> str:
     payload = {
         "app_id": app_id,
         "version_id": version_id,
         "exp": int(time.time()) + ttl_seconds,
     }
+    if env is not None:
+        payload["env"] = env
+    if preview:
+        payload["preview"] = True
     body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
     body_b64 = _b64u_encode(body)
     sig = hmac.new(_signing_secret(), body_b64.encode("ascii"), hashlib.sha256).digest()
@@ -105,4 +112,6 @@ def verify_token(token: str) -> PublicTokenClaims:
         app_id=str(payload["app_id"]),
         version_id=int(payload["version_id"]),
         exp=int(payload["exp"]),
+        env=payload.get("env"),
+        preview=bool(payload.get("preview", False)),
     )

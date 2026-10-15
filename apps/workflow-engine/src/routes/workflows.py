@@ -98,6 +98,8 @@ async def delete_workflow(
         return SuccessResponse(message="Workflow deleted")
     except WorkflowNotFoundError as e:
         raise HTTPException(status_code=404, detail=e.message)
+    except ConflictError as e:
+        raise HTTPException(status_code=409, detail={"code": e.code, "message": e.message})
 
 
 @router.post("/{workflow_id}/publish", response_model=WorkflowPublishResponse)

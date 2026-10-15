@@ -155,7 +155,9 @@ class WorkflowService:
         )
 
     async def delete_workflow(self, workflow_id: str) -> bool:
-        """Delete a workflow."""
+        """Delete a workflow (refused while it is an API route handler)."""
+        if await self._workflow_repo.get(workflow_id):
+            await self._check_movable(workflow_id)
         deleted = await self._workflow_repo.delete(workflow_id)
         if not deleted:
             raise WorkflowNotFoundError(workflow_id)

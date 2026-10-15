@@ -16,7 +16,6 @@ def _move(api, wid: str, project_id: str):
                                           "connections": wf["definition"]["connections"], "project_id": project_id})
 
 
-@pending(5)
 def test_j07_settings_environments_moves_delete(api):
     P, _ = new_project(api, "j7")                                                              # 1
     P2, _ = new_project(api, "j7b")

@@ -546,3 +546,61 @@ class BrokerCallModel(SQLModel, table=True):
     error: str | None = Field(default=None)
     duration_ms: float | None = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.now)
+
+
+# ---------------------------------------------------------------------------
+# API section (phase 5)
+# ---------------------------------------------------------------------------
+
+
+class ApiRouteModel(SQLModel, table=True):
+    __tablename__ = "api_routes"
+
+    id: str = Field(primary_key=True)
+    project_id: str = Field(foreign_key="projects.id", index=True)
+    name: str
+    method: str
+    path: str
+    path_shape: str
+    auth: str = Field(default="none")
+    description: str | None = Field(default=None)
+    request_schema: dict[str, Any] | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
+    response_schema: dict[str, Any] | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
+    response_mode: str = Field(default="auto")
+    validate_request: bool = Field(default=False)
+    handler_type: str
+    handler_workflow_id: str | None = Field(default=None, foreign_key="workflows.id")
+    handler_module_id: str | None = Field(default=None)
+    handler_function: str | None = Field(default=None)
+    source: str = Field(default="ui")
+    timeout_s: int = Field(default=30)
+    created_by: str | None = Field(default=None)
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+
+
+class ApiKeyModel(SQLModel, table=True):
+    __tablename__ = "api_keys"
+
+    id: str = Field(primary_key=True)
+    project_id: str = Field(foreign_key="projects.id", index=True)
+    environment: str
+    name: str
+    prefix: str
+    key_hash: str
+    created_by: str | None = Field(default=None)
+    created_at: datetime = Field(default_factory=datetime.now)
+    last_used_at: datetime | None = Field(default=None)
+    revoked_at: datetime | None = Field(default=None)
+
+
+class ApiSpecRevisionModel(SQLModel, table=True):
+    __tablename__ = "api_spec_revisions"
+
+    id: int | None = Field(default=None, sa_column=Column(Integer, primary_key=True, autoincrement=True))
+    project_id: str = Field(foreign_key="projects.id", index=True)
+    revision: int
+    spec_hash: str
+    spec: dict[str, Any] = Field(sa_column=Column(JSONB, nullable=False))
+    changes: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(JSONB, nullable=False, server_default="[]"))
+    created_at: datetime = Field(default_factory=datetime.now)

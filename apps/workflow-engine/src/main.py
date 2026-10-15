@@ -14,7 +14,7 @@ import os
 from .core.config import settings
 from .engine.node_registry import register_all_nodes
 from .engine.logging import setup_logging
-from .routes import api_router, webhook_router, stream_router, public_app_router
+from .routes import api_router, webhook_router, stream_router, public_app_router, project_router
 from .schemas.common import RootResponse, HealthResponse
 from .db import init_db
 
@@ -107,7 +107,8 @@ def create_app() -> FastAPI:
         allow_headers=settings.cors_allow_headers,
     )
 
-    # Include routers
+    # Include routers. The project router (/api/p/...) goes first so it can't be shadowed.
+    app.include_router(project_router, tags=["Project API"])
     app.include_router(api_router)
     app.include_router(webhook_router, tags=["Webhooks"])
     app.include_router(stream_router, tags=["Streaming"])

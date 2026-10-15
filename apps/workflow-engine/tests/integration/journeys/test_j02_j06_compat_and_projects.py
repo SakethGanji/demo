@@ -127,7 +127,6 @@ def test_j05_api_tester_and_ai_chats(api, upstream):
             assert resp.status_code != 422 and resp.status_code == 200
 
 
-@pending(5)
 def test_j05_step7_app_builder_chat_with_project_context(api):
     P, _ = new_project(api, "j5")
     R = api.post(f"/projects/{P}/routes", {"method": "GET", "path": "/x", "handler": {"type": "stub"}}).json()["route"]["id"]

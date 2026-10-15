@@ -202,6 +202,7 @@ def register_all_nodes() -> None:
         PollNode,
         ExecuteWorkflowNode,
         StopAndErrorNode,
+        RespondNode,
         # Data / Transform
         SetNode,
         HttpRequestNode,
@@ -239,6 +240,7 @@ def register_all_nodes() -> None:
         PollNode,
         ExecuteWorkflowNode,
         StopAndErrorNode,
+        RespondNode,
         # Data / Transform
         SetNode,
         HttpRequestNode,

@@ -27,6 +27,7 @@ from .flow.poll import PollNode
 from .flow.stop_and_error import StopAndErrorNode
 from .flow.switch import SwitchNode
 from .flow.wait import WaitNode
+from .flow.respond import RespondNode
 
 # Data nodes — data manipulation and transformation.
 from .data.code import CodeNode
@@ -72,6 +73,7 @@ __all__ = [
     "StopAndErrorNode",
     "SwitchNode",
     "WaitNode",
+    "RespondNode",
     "CodeNode",
     "FilterNode",
     "ItemListsNode",
