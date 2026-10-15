@@ -34,6 +34,10 @@ export async function assertNoClipping(page: Page) {
           anc = anc.parentElement
         }
         const r = c.getBoundingClientRect()
+        // A panel can itself be the vertical scroller. Controls wholly below
+        // its fold are reachable by scrolling, just like those in nested scrollers.
+        const panelScrollsY = /(auto|scroll)/.test(getComputedStyle(p).overflowY) && p.scrollHeight > p.clientHeight
+        if (clip === pr && panelScrollsY && (r.bottom <= pr.top || r.top >= pr.bottom)) continue
         // controls scrolled out of a scrolling container are fine; only a partial cut is a bug
         const outside = r.bottom <= clip.top || r.top >= clip.bottom || r.right <= clip.left || r.left >= clip.right
         if (outside && clip !== pr) continue

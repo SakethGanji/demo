@@ -429,6 +429,11 @@ export function PublishDialog({ open, onClose, app, project, summary, routes, us
                   {warnings > 0 ? `${warnings} ${warnings === 1 ? 'warning' : 'warnings'} · you can publish anyway` : 'Ready to publish'}
                 </span>
                 <div className="flex-1" />
+                {app.active && (
+                  <Button variant="ghost" size="sm" type="button" className="text-destructive" onClick={() => setUnpublishOpen(true)} data-testid="publish-unpublish">
+                    Unpublish
+                  </Button>
+                )}
                 <Button variant="ghost" size="sm" type="button" onClick={onClose}>
                   Cancel
                 </Button>

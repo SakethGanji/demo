@@ -12,11 +12,16 @@ npm run test:e2e                                   # full suite (also: npm run e
 npx playwright test -c e2e -g T14                  # one scenario (every scenario seeds its own state)
 KEEP_E2E=1 npx playwright test -c e2e -g T14       # keep the stack (engine, Vite, DB) for debugging
 npm run test:unit                                  # vitest unit tests (contrast, line diff)
+npx playwright test -c e2e/capture.config.ts        # final screenshots, same isolated stack
 ```
 
-Prerequisites: Postgres on `localhost:5433` (user/password `workflow`), the engine venv
-(`apps/workflow-engine/venv`), `esbuild` on `PATH`, `/usr/bin/bwrap`, and the pinned Playwright
+Prerequisites: Postgres on `localhost:5433` (user/password `workflow`, with permission to create test databases), the engine venv
+(`apps/workflow-engine/venv`), `esbuild` and Node on `PATH`, installed studio dependencies (`npm ci`), `/usr/bin/bwrap`, and the pinned Playwright
 Chromium (`npx playwright install chromium`; `/usr/bin/chromium` is used with a warning if missing).
+Publishing compiles Tailwind utilities using the lockfile-pinned `tailwindcss-v3` compiler; the
+published page serves the resulting CSS instead of loading the Tailwind development CDN.
+App-supplied Tailwind configuration is never executed. Bubblewrap must be allowed to create
+user namespaces; run in the supported cloud execution context if an outer command sandbox prevents it.
 
 ## What the global setup builds (`e2e/global-setup.ts`)
 
@@ -58,7 +63,52 @@ apps/workflow-studio/e2e/
   fixtures/  test.ts (stack, API client, policies)  seed.ts  editor.ts  layout.ts
              llm-script.json  modules/*.py  apps/*.tsx
   tests/     01-shell  02-backend-manual  03-generate  04-data-secrets-runs
-             05-builder  06-publish-release-settings  07-workflows-responsive
+             05-builder  06-publish-release-settings  07-workflows-responsive  08-release-settings
+  capture.config.ts  capture.spec.ts               # screenshots/ui-built/ (not committed)
 ```
 
 Results: `e2e/.stack/results.json` (JSON reporter) and traces for failures in `e2e/.stack/test-output/`.
+
+## UI completion verification (2026-10-15)
+
+All 46 required scenario IDs are implemented. There are 47 test cases because T45 runs at two sizes.
+T29/T30 verify snapshot/promotion and rollback through the release sheet while a published browser
+keeps its app token. T36 covers rename/republish, project-secret scope, one-time API keys, revocation,
+and inline nonempty-project deletion errors. AI calls in this suite use the gated fake provider;
+the engine, database, sandbox, published runtime and browser requests are real. Live Gemini checks
+are a separate follow-up and are not claimed by these results.
+
+Corrections to test assumptions, with the original behavioral assertions retained:
+
+- T22 checks the nested checkbox; its test id belongs to a label with no checked-state attribute.
+- T24 reads the browser's SSE stream with the existing fetch tee, since Playwright cannot reliably
+  retrieve a streamed response body after completion.
+- T25 uses the secret form's scoped ids, supplies its required host binding, and checks the URL
+  input's value rather than its empty text content.
+- T27 pauses browser timers while server time advances, so proactive refresh cannot conceal the
+  expired-token → one 401 → refresh → retry path. Normal proactive refresh remains enabled.
+- T7 counts persisted writes separately from `?dry_run=true` analysis requests.
+- The clipping check allows controls wholly below the fold of a vertically scrolling panel;
+  partial clipping and horizontal overflow still fail.
+
+The final capture command seeds a Payments Ops project and saves the main screens, settings,
+release and publish dialogs, workflow canvas, and backend response in both light and dark themes.
+It uses the same strict network, console and layout fixtures as the scenario suite.
+
+Latest passing verification by spec (full run plus the affected generation-spec rerun):
+
+| Spec | Passed |
+| --- | ---: |
+| 01 shell | 4 |
+| 02 backend manual | 10 |
+| 03 generate | 12 |
+| 04 data, secrets, runs | 5 |
+| 05 builder | 5 |
+| 06 publish | 5 |
+| 07 workflows, responsive | 3 |
+| 08 releases, settings | 3 |
+| Total | 47 |
+
+The generation-spec rerun also verifies the save/analysis race fix: saving cancels queued and
+in-flight analysis and pauses it until the saved module id is installed, preventing a stale
+new-module preview from reporting `409 name_taken` after a successful save.

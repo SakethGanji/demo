@@ -306,7 +306,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   setEdges: (edges) => set({ edges }),
 
   onNodesChange: (changes) => {
-    const { nodes, edges, isUndoRedoAction, saveToHistory } = get();
+    const { nodes, isUndoRedoAction, saveToHistory } = get();
 
     // Save to history if nodes are being removed (for undo support)
     const hasRemovals = changes.some((c) => c.type === 'remove');

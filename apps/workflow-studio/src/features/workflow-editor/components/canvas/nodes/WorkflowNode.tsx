@@ -2,7 +2,6 @@ import { memo, useState, useMemo, useRef, useEffect } from 'react';
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import { Plus, Check, X } from 'lucide-react';
 import { useEditorLayoutStore } from '../../../stores/editorLayoutStore';
-import { useNDVStore } from '../../../stores/ndvStore';
 import { useWorkflowStore } from '../../../stores/workflowStore';
 import type { WorkflowNodeData } from '../../../types/workflow';
 import {
@@ -45,7 +44,6 @@ function WorkflowNode({ id, data, selected }: NodeProps<Node<WorkflowNodeData>>)
   const labelInputRef = useRef<HTMLInputElement>(null);
 
   const openForConnection = useEditorLayoutStore((s) => s.openForConnection);
-  const openNDV = useNDVStore((s) => s.openNDV);
   const executionData = useNodeExecution(id);
   const isDragging = useWorkflowStore((s) => s.draggedNodeType !== null);
   const isExecActive = useWorkflowStore((s) => s.isAnyNodeRunning);

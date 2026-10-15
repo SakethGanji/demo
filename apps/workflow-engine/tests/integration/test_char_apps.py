@@ -98,14 +98,40 @@ def test_publish_public_page_and_unpublish(api):
     page = api.raw("GET", f"/a/{slug}")
     assert page.status_code == 200
     assert "window.__APP_TOKEN=" in page.text
+    assert "frame-ancestors" in page.headers["content-security-policy"]
+    assert '<meta http-equiv="Content-Security-Policy"' not in page.text
+    assert '<script src="https://cdn.tailwindcss.com"' not in page.text
     js = re.search(rf"/a/{slug}/_assets/([0-9a-f]+)\.js", page.text).group(1)
     asset = api.raw("GET", f"/a/{slug}/_assets/{js}.js")
     assert asset.status_code == 200 and "immutable" in asset.headers["cache-control"]
+    css = api.raw("GET", f"/a/{slug}/_assets/{js}.css")
+    assert css.status_code == 200 and ".p-4{" in css.text
     assert api.get(f"/apps/{aid}").json()["published_version"] is not None
 
     # PublishDialog.tsx:81
     assert api.post(f"/apps/{aid}/unpublish").status_code == 200
     assert api.raw("GET", f"/a/{slug}").status_code == 404
+
+
+@needs_esbuild
+def test_publish_compiles_utilities_without_executing_app_tailwind_config(api):
+    aid = _new_app(api)["id"]
+    r = api.put(f"/apps/{aid}", {
+        "source_code": APP_TSX,
+        "files": [
+            {"path": "App.tsx", "content": APP_TSX},
+            {"path": "tailwind.config.js", "content": 'throw new Error("App config must never execute on the host")'},
+        ],
+        "create_version": True,
+    })
+    assert r.status_code == 200, r.text
+    slug = uniq("css")
+    r = api.post(f"/apps/{aid}/publish", {"slug": slug, "access": "public"})
+    assert r.status_code == 200, r.text
+    page = api.raw("GET", f"/a/{slug}")
+    asset_path = re.search(r'href="([^"]+\.css)"', page.text).group(1)
+    css = api.raw("GET", asset_path)
+    assert css.status_code == 200 and ".p-4{" in css.text
 
 
 @needs_esbuild

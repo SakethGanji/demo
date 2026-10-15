@@ -27,8 +27,10 @@ test('T25 publish with pre-flight', async ({ page, context, api, s }) => {
   // PAYMENTS_TOKEN is used by the app's operations and missing in prod
   await expect(dlg.getByTestId('publish-pf-secret-PAYMENTS_TOKEN')).toBeVisible()
   await dlg.getByTestId('publish-add-secret-PAYMENTS_TOKEN').click()
-  await page.getByTestId('create-secret-value').fill(`sk_prod_${rand(12)}`)
-  await page.getByTestId('create-secret-save').click()
+  await page.getByTestId('publish-secret-form-PAYMENTS_TOKEN-value').fill(`sk_prod_${rand(12)}`)
+  await page.getByTestId('publish-secret-form-PAYMENTS_TOKEN-hosts-input').fill('127.0.0.1')
+  await page.getByTestId('publish-secret-form-PAYMENTS_TOKEN-hosts-input').press('Enter')
+  await page.getByTestId('publish-secret-form-PAYMENTS_TOKEN-save').click()
   await expect(dlg.getByTestId('publish-pf-secret-PAYMENTS_TOKEN')).toHaveCount(0)
   const secrets = await api.get<Array<{ key: string; environment: string }>>(`/projects/${p.id}/secrets`)
   expect(secrets.filter((x) => x.key === 'PAYMENTS_TOKEN').map((x) => x.environment).sort()).toEqual(['dev', 'prod'])
@@ -37,7 +39,7 @@ test('T25 publish with pre-flight', async ({ page, context, api, s }) => {
   await dlg.getByTestId('publish-submit').click()
   expect((await pub).postDataJSON()).toMatchObject({ slug, access: 'public' })
   await expect(dlg.getByTestId('publish-success')).toBeVisible({ timeout: 60_000 })
-  await expect(dlg.getByTestId('publish-url')).toContainText(`/a/${slug}`)
+  await expect(dlg.getByTestId('publish-url')).toHaveValue(`${s.engineUrl}/a/${slug}`)
   const detail = await api.get<{ active: boolean; slug: string; access: string }>(`/apps/${app.id}`)
   expect(detail).toMatchObject({ active: true, slug, access: 'public' })
   // the published page calls the backend with an app token
@@ -72,8 +74,12 @@ test('T27 the published app refreshes its token', async ({ page, api, s, net }) 
   await api.put(`/apps/${app.id}`, { token_ttl_s: 5 })
   const slug = `ttl-${rand()}`
   await seedPublished(api, app.id, slug)
+  // Freeze browser timers so proactive refresh cannot hide the expired-token path.
+  // The server clock still advances and the user action must recover through a 401.
+  await page.clock.install()
   await page.goto(`${s.engineUrl}/a/${slug}`)
   await expect(page.getByTestId('refund-count')).not.toHaveText('…')
+  await page.clock.pauseAt(new Date())
   await page.waitForTimeout(6500)
   const seenBefore = net.responses.length
   await net.expect([{ method: 'GET', url: /\/api\/p\//, status: 401 }], async () => {

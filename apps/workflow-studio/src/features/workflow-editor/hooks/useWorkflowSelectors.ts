@@ -80,8 +80,9 @@ export function useAllNodeExecData() {
       const result: Record<string, Record<string, unknown>[]> = {};
       for (const n of s.nodes) {
         const nodeName = n.data?.name || n.data?.label;
-        if (nodeName && s.executionData[n.id]?.output?.items) {
-          result[nodeName] = s.executionData[n.id].output.items as Record<string, unknown>[];
+        const output = s.executionData[n.id]?.output;
+        if (typeof nodeName === 'string' && output?.items) {
+          result[nodeName] = output.items as Record<string, unknown>[];
         }
       }
       return result;

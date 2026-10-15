@@ -182,7 +182,7 @@ function formatTime(isoString: string): string {
 interface MetricEntry {
   label: string;
   value: string;
-  icon?: React.ComponentType<{ size?: number; className?: string }>;
+  icon?: React.ComponentType<import('lucide-react').LucideProps>;
   color?: string;
 }
 
@@ -291,9 +291,9 @@ export default function ExecutionLogsPanel() {
 
         return {
           id: nodeId,
-          nodeName: node.data.name || nodeId,
-          nodeLabel: node.data.label || node.data.name || 'Unknown',
-          nodeType: node.data.type || '',
+          nodeName: typeof node.data.name === 'string' ? node.data.name : nodeId,
+          nodeLabel: typeof node.data.label === 'string' ? node.data.label : typeof node.data.name === 'string' ? node.data.name : 'Unknown',
+          nodeType: typeof node.data.type === 'string' ? node.data.type : '',
           status: data.status,
           timestamp: data.startTime || Date.now(),
           duration: data.metrics?.executionTimeMs,

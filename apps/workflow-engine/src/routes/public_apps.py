@@ -239,7 +239,6 @@ def _html_shell(
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="{csp}">
 <title>{html.escape(app.name)}</title>
 <link rel="stylesheet" href="/a/{html.escape(slug)}/_assets/{bundle_hash}.css">
 <style>html,body,#root{{height:100%;margin:0}}body{{font-family:ui-sans-serif,system-ui,sans-serif}}</style>
@@ -248,7 +247,6 @@ def _html_shell(
 <div id="root"></div>
 <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://cdn.tailwindcss.com"></script>
 <script>window.__APP_SLUG={escaped_slug};window.__APP_TOKEN={escaped_token};window.__APP_TOKEN_TTL={ttl};window.__APP_API_MAP={escaped_api_map};</script>
 <script src="/a/{html.escape(slug)}/_assets/{bundle_hash}.js"></script>
 <script>{runtime}</script>
@@ -362,7 +360,7 @@ async def refresh_app_token(
 
     app = await _resolve_app(slug, service)
     if app.access == "password" and not _check_unlock_cookie(app, app_unlock):
-        return JSONResponse({"error": "locked"}, status_code=401)
+        return JSONResponse({"error": "unlock_required"}, status_code=401)
     ttl = app_token_ttl(app)
     token = issue_token(app.id, app.published_version_id, ttl, rk=await service.ensure_token_key(app))
     exp = verify_token(token).exp

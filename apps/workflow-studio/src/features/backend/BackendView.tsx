@@ -261,7 +261,7 @@ function BackendWorkspace({ doc, savedUpdatedAt }: { doc: ModuleDoc; savedUpdate
     moduleId: doc.moduleId,
     moduleName: doc.module,
     source: doc.source,
-    enabled: !streaming,
+    enabled: !streaming && !saver.saving,
     skipSource: doc.isNew ? null : doc.savedSource,
   })
 
@@ -376,12 +376,13 @@ function BackendWorkspace({ doc, savedUpdatedAt }: { doc: ModuleDoc; savedUpdate
         toast.error('Name the module first', { description: 'Generate a module, or use New module to start one by hand.' })
         return
       }
+      analysis.cancel()
       const r = await saver.save(cur, opts)
       if (r.ok) {
         clearOutline(pid, cur.module)
       }
     },
-    [pid, doc.module, saver, streaming, clearOutline],
+    [pid, doc.module, saver, streaming, clearOutline, analysis.cancel],
   )
   saveRef.current = () => void doSave()
 

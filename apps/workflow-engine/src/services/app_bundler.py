@@ -24,6 +24,7 @@ import shutil
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 
 from .bundle_storage import BundleArtifact
 
@@ -160,6 +161,28 @@ async def bundle_app(files: list[AppFileInput]) -> BundleArtifact:
                 out_js = contents
             elif name.endswith(".css"):
                 out_css = contents
+
+        # Compile the utilities at publish time instead of running Tailwind's
+        # development CDN compiler in every visitor's browser.
+        cli = Path(__file__).resolve().parents[3] / "workflow-studio/node_modules/tailwindcss-v3/lib/cli.js"
+        node = shutil.which("node")
+        if not node or not cli.is_file():
+            raise BundlerUnavailableError("Tailwind compiler unavailable: install workflow-studio dependencies and put node on PATH")
+        css_input = Path(tmp) / "__tailwind_input.css"
+        css_output = Path(outdir) / "__tailwind.css"
+        css_config = Path(tmp) / "__tailwind_config.json"
+        css_input.write_text("@tailwind base;\n@tailwind components;\n@tailwind utilities;\n")
+        # Never discover/execute a tailwind.config.js supplied in the app files.
+        css_config.write_text(json.dumps({"content": [str(Path(tmp) / "**/*.{tsx,jsx,ts,js,html}")]}))
+        proc = await asyncio.create_subprocess_exec(
+            node, str(cli), "-i", str(css_input), "-o", str(css_output),
+            "--config", str(css_config), "--minify",
+            cwd=tmp, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        _, css_error = await proc.communicate()
+        if proc.returncode != 0:
+            raise BundleBuildError("Tailwind compilation failed", stderr=css_error.decode("utf-8", errors="replace"))
+        out_css = css_output.read_text() + "\n" + out_css
 
     if not out_js:
         raise BundleBuildError(

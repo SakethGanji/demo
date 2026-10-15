@@ -6,7 +6,7 @@ import { useWorkflowStore } from '../../stores/workflowStore';
 import { useNDVStore } from '../../stores/ndvStore';
 import { useNodeTypes } from '../../hooks/useNodeTypes';
 import RunDataDisplay from './RunDataDisplay';
-import SchemaDisplay from './SchemaDisplay';
+import SchemaDisplay, { type OutputSchema } from './SchemaDisplay';
 
 // --- Inlined from graphUtils.ts ---
 interface UpstreamNode {
@@ -119,7 +119,9 @@ const InputPanel = memo(function InputPanel({ nodeId, executionData }: InputPane
     const nodeType = selectedReactFlowNode.data?.type;
     if (!nodeType) return null;
     const typeDef = nodeTypes.find((t) => t.type === nodeType);
-    return typeDef?.outputs?.[0]?.schema || null;
+    const schema = typeDef?.outputs?.[0]?.schema;
+    if (!schema || typeof schema !== 'object' || !('type' in schema) || typeof schema.type !== 'string') return null;
+    return schema as OutputSchema;
   }, [selectedReactFlowNode, nodeTypes]);
 
   // Get data for the selected node

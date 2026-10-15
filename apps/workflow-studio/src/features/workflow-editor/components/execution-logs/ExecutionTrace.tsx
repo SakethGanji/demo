@@ -141,7 +141,7 @@ function TraceRow({ node, depth, isRoot = false }: TraceRowProps) {
       )}
 
       {/* Spawn detail (input/result) — shown when expanded, before child agent subtree */}
-      {node.kind === 'spawn' && expanded && (node.input || node.result) && (
+      {node.kind === 'spawn' && expanded && Boolean(node.input || node.result) && (
         <div className="pb-1" style={{ paddingLeft: `${depth * 14 + 22}px`, paddingRight: '4px' }}>
           <SpawnDetail node={node} />
         </div>
@@ -197,7 +197,7 @@ function getLabel(node: TraceNode): React.ReactNode {
       return (
         <span>
           <span className="font-mono font-medium">{node.tool}</span>
-          {node.input && (
+          {Boolean(node.input) && (
             <span className="text-muted-foreground ml-1 font-mono text-[10px]">
               {typeof node.input === 'string' ? node.input : JSON.stringify(node.input)}
             </span>
@@ -310,7 +310,7 @@ function DetailContent({ node }: { node: TraceNode }) {
 function SpawnDetail({ node }: { node: TraceNode & { kind: 'spawn' } }) {
   return (
     <div className="mt-1 mb-1 space-y-1.5">
-      {node.input && (
+      {Boolean(node.input) && (
         <div>
           <span className="text-[10px] text-muted-foreground/70">Input</span>
           <CodeBlock content={typeof node.input === 'string' ? node.input : JSON.stringify(node.input, null, 2)} />

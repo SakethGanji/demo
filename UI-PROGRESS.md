@@ -1,6 +1,6 @@
 # UI-PROGRESS — studio rebuild per UI-DESIGN.md v2.1
 
-Branch `revert-to-5684ba5` (local commits only). Spec: `UI-DESIGN.md` (v2.1, approved).
+Branch `revert-to-5684ba5` (owner approved pushing this branch; `clean-main` is untouched). Spec: `UI-DESIGN.md` (v2.1, approved).
 E2E how-to: `E2E.md`.
 
 ## Coordinator notes applied
@@ -23,14 +23,32 @@ Studio: `VITE_WORKFLOW_API_URL=http://127.0.0.1:8710 npx vite --port 5190`.
 | 2 backend view (editor, analysis, save, test panel, reference, client.ts, dialogs, composer client) | done | 2afac7c |
 | 4 data / secrets / runs (+ route settings) | done | f2d8ba3 |
 | 5 + 6a create-UI, builder, route picker, preview bridge, publish, app settings | done | 68f8c78 |
-| 6b settings sheet, release sheet; 7 workflows list | in progress (sub-agent) | |
-| B2 engine: fake LLM, run-draft, generate, audit fixes, gaps, e2e_stack.py | in progress (engine sub-agent) | |
-| 3 composer/drafts in the browser | code done in slice 2; verified once the engine endpoints land | |
-| E2E (46 scenarios) | specs written for 01–05, 07; 06 pending; first run blocked on engine fake mode + e2e_stack.py | |
+| 6b settings sheet, release sheet; 7 workflows list | implemented and browser-verified: rename/republish, keys, deletion blockers, snapshots, promote, rollback, canvas run, responsive layouts | this update |
+| B2 engine: fake LLM, run-draft, generate, audit fixes, gaps, e2e_stack.py | implemented; release/settings dry-run compatibility fixed for lazy included FastAPI routers | this update |
+| 3 composer/drafts in the browser | verified with the gated fake LLM and real sandbox/backend | this update |
+| E2E (46 scenarios) | all scenario IDs implemented in specs 01–08; 47 cases including both responsive sizes | see E2E.md |
 
 ## Counts
-- tsc -b: baseline 53 → 44
+- tsc -b: baseline 53 → 44 → **0**; production Vite build passes (large-chunk warning remains)
 - unit (vitest): 23
+- engine: **276 passed**, no skips (5 existing Pydantic warnings)
+- browser: **46 scenarios / 47 cases passed** across the full run and affected generation-spec rerun
+- final captures: **28 PNGs**, light + dark, under `screenshots/ui-built/`; strict capture run passed
+
+## Completion fixes (2026-10-15)
+
+- Route-picker assertions target the checkbox inside the label; builder stream errors use the existing SSE reader.
+- Saving cancels queued/in-flight live analysis and pauses it during the write, preventing a false post-save name conflict.
+- Publish dialog exposes Unpublish for an already-published app without requiring another publish.
+- Published CSS is compiled with pinned Tailwind v3 at publish time; no development CDN script or ignored CSP meta tag.
+  The full CSP remains an HTTP header, and app-supplied Tailwind config is never executed.
+- Password app token refresh returns the specified `unlock_required` code.
+- Release-step controls wait for release history and pending writes, avoiding an initialization race.
+- Existing TypeScript errors were resolved with actual event/prop types, string/schema guards and boolean JSX conditions;
+  compiler checks were not disabled and no assertions were cast to `any`.
+- `e2e/capture.config.ts` captures the main screens and sheets into `screenshots/ui-built/` in light/dark themes.
+- AI calls remain simulated for these browser checks. The owner deferred real Gemini Generate/Refine/Create UI validation
+  until after UI completion; no successful live flow is claimed in this update. No audit agent was spawned.
 
 ## Deviations (so far)
 - The AI draft is applied to the editor on the terminal `result` (one transaction), not streamed line by line;

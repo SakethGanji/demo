@@ -151,7 +151,8 @@ test('T7 save creates the tables, then the module', async ({ page, api, s, net }
   await expect(page.getByTestId('create-table-refunds')).toBeChecked()
   await save(page)
   await expect(page.getByText('Saved refunds.py · 3 routes created · table refunds created')).toBeVisible()
-  const writes = net.responses.filter((r) => r.method === 'POST' && /\/(tables|modules)$/.test(new URL(r.url).pathname))
+  // Live analysis also POSTs to /modules?dry_run=true; count persisted writes.
+  const writes = net.responses.filter((r) => r.method === 'POST' && /\/(tables|modules)$/.test(new URL(r.url).pathname) && new URL(r.url).searchParams.get('dry_run') !== 'true')
   expect(writes.map((w) => new URL(w.url).pathname.split('/').pop())).toEqual(['tables', 'modules'])
   const routes = await api.get<Array<{ name: string; source: string; handler: { line: number } }>>(`/projects/${p.id}/routes`)
   expect(routes.map((r) => r.name).sort()).toEqual(['createRefund', 'listRefunds', 'refundStats'])

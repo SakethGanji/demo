@@ -102,18 +102,28 @@ export function useLiveAnalysis(opts: {
   enabled: boolean
   /** skip analysis for the text the editor was loaded with (it is the saved source) */
   skipSource?: string | null
-}): AnalysisState & { runNow: () => void } {
+}): AnalysisState & { runNow: () => void; cancel: () => void } {
   const { pid, moduleId, moduleName, source, enabled, skipSource } = opts
   const [state, setState] = useState<AnalysisState>({ pending: false, result: null, problems: [], error: null, source: null })
   const seq = useRef(0)
   const timer = useRef<number | null>(null)
+  const request = useRef<AbortController | null>(null)
+  const cancel = () => {
+    ++seq.current
+    if (timer.current) window.clearTimeout(timer.current)
+    request.current?.abort()
+    request.current = null
+  }
 
   const run = (src: string) => {
+    request.current?.abort()
+    const controller = new AbortController()
+    request.current = controller
     const my = ++seq.current
     setState((s) => ({ ...s, pending: true }))
     const p = moduleId
-      ? modulesApi.updateDryRun(pid, moduleId, { source: src })
-      : modulesApi.createDryRun(pid, { name: moduleName, source: src })
+      ? modulesApi.updateDryRun(pid, moduleId, { source: src }, controller.signal)
+      : modulesApi.createDryRun(pid, { name: moduleName, source: src }, controller.signal)
     p.then(
       (result) => {
         if (my === seq.current) setState({ pending: false, result, problems: [], error: null, source: src })
@@ -128,7 +138,10 @@ export function useLiveAnalysis(opts: {
   }
 
   useEffect(() => {
-    if (!enabled || !moduleName || moduleName === '~new') return
+    if (!enabled || !moduleName || moduleName === '~new') {
+      setState((s) => ({ ...s, pending: false }))
+      return
+    }
     if (skipSource != null && source === skipSource) {
       setState({ pending: false, result: null, problems: [], error: null, source: null })
       return
@@ -136,10 +149,10 @@ export function useLiveAnalysis(opts: {
     if (timer.current) window.clearTimeout(timer.current)
     timer.current = window.setTimeout(() => run(source), 600)
     return () => {
-      if (timer.current) window.clearTimeout(timer.current)
+      cancel()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pid, moduleId, moduleName, source, enabled, skipSource])
 
-  return { ...state, runNow: () => run(source) }
+  return { ...state, runNow: () => run(source), cancel }
 }

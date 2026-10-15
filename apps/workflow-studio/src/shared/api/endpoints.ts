@@ -185,12 +185,12 @@ export const modulesApi = {
   get: (p: string, m: string) => request<CodeModule>(`${P(p)}/modules/${enc(m)}`),
   create: (p: string, b: { name: string; source: string }) =>
     request<ModuleWriteResult>(`${P(p)}/modules`, { method: 'POST', body: b }),
-  createDryRun: (p: string, b: { name: string; source: string }) =>
-    request<DryRunResult>(`${P(p)}/modules`, { method: 'POST', body: b, query: { dry_run: true } }),
+  createDryRun: (p: string, b: { name: string; source: string }, signal?: AbortSignal) =>
+    request<DryRunResult>(`${P(p)}/modules`, { method: 'POST', body: b, query: { dry_run: true }, signal }),
   update: (p: string, m: string, b: { source?: string; base_sha?: string | null; name?: string }) =>
     request<ModuleWriteResult>(`${P(p)}/modules/${enc(m)}`, { method: 'PUT', body: b }),
-  updateDryRun: (p: string, m: string, b: { source: string; base_sha?: string | null }) =>
-    request<DryRunResult>(`${P(p)}/modules/${enc(m)}`, { method: 'PUT', body: b, query: { dry_run: true } }),
+  updateDryRun: (p: string, m: string, b: { source: string; base_sha?: string | null }, signal?: AbortSignal) =>
+    request<DryRunResult>(`${P(p)}/modules/${enc(m)}`, { method: 'PUT', body: b, query: { dry_run: true }, signal }),
   remove: (p: string, m: string) => request<unknown>(`${P(p)}/modules/${enc(m)}`, { method: 'DELETE' }),
   removeDryRun: (p: string, m: string) =>
     request<{ routes: { removed: Array<Record<string, unknown>> }; breaking_changes: Change[] }>(

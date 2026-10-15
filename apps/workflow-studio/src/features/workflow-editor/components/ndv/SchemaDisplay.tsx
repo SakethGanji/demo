@@ -13,7 +13,7 @@ interface SchemaProperty {
   items?: SchemaProperty;
 }
 
-interface OutputSchema {
+export interface OutputSchema {
   type: string;
   description?: string;
   properties?: Record<string, SchemaProperty>;

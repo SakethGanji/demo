@@ -4,6 +4,7 @@
 import type { Page } from '@playwright/test'
 import { test, expect, type EngineApi } from '../fixtures/test'
 import { seedProject, seedRefunds, type P } from '../fixtures/seed'
+import { watchSse, readSse } from '../fixtures/sse'
 
 const UI_PROMPT = 'A refunds dashboard: show the refund count and a form to create a refund. '
 
@@ -113,12 +114,10 @@ test('T22 route picker selection is saved with the app', async ({ page, api, s }
   await expect.poll(stored).toEqual(two)
   await page.reload()
   await page.getByTestId('builder-routes-chip').click()
-  for (const op of ['createRefund', 'listRefunds', 'refundStats']) console.log('PROBE', op, JSON.stringify(await page.getByTestId(`route-picker-row-${op}`).evaluate((e) => [...e.attributes].map((a) => `${a.name}=${a.value}`))))
-  console.log('PROBE stored', JSON.stringify(await stored()), 'two', JSON.stringify(two))
-  // Base UI marks a checked row with the PRESENCE of `data-checked` (its value is empty)
-  await expect(page.getByTestId('builder-route-picker').getByTestId('route-picker-row-listRefunds')).not.toHaveAttribute('data-checked')
-  await expect(page.getByTestId('builder-route-picker').getByTestId('route-picker-row-refundStats')).toHaveAttribute('data-checked')
-  await expect(page.getByTestId('builder-route-picker').getByTestId('route-picker-row-createRefund')).toHaveAttribute('data-checked')
+  // The test id belongs to the label; checked state belongs to its checkbox.
+  await expect(page.getByTestId('route-picker-row-listRefunds').getByRole('checkbox')).not.toBeChecked()
+  await expect(page.getByTestId('route-picker-row-refundStats').getByRole('checkbox')).toBeChecked()
+  await expect(page.getByTestId('route-picker-row-createRefund').getByRole('checkbox')).toBeChecked()
   expect(await stored()).toEqual(two)
 })
 
@@ -150,13 +149,12 @@ test('T24 builder stream error', async ({ page, api, s }) => {
   await createUi(page, api, p, s.studioUrl, ['refundStats'])
   await waitForTurn(page)
   await api.clearLlmCalls()
-  const res = page.waitForResponse((x) => x.url().endsWith('/api/ai/app-builder/chat'))
+  await watchSse(page, '/api/ai/app-builder/chat')
   await page.getByTestId('chat-input').fill('Break please __llm_fail__')
   await page.getByTestId('chat-send').click()
-  const body = await (await res).text()
   await expect(page.getByTestId('builder-stream-error')).toBeVisible()
   await expect(page.getByTestId('builder-stream-retry')).toBeVisible()
-  const events = [...body.matchAll(/^event: (\w+)\ndata: (.*)$/gm)].map((m) => ({ event: m[1], data: m[2] }))
+  const events = (await readSse(page, '/api/ai/app-builder/chat')).map(([event, data]) => ({ event, data }))
   const last = events.slice(-2)
   expect(JSON.parse(last[0].data).type).toBe('error')
   expect(last[1].event).toBe('done')

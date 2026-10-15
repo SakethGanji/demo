@@ -15,7 +15,7 @@ interface Shortcut {
 interface KeyboardShortcutsHelpProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  shortcuts: Shortcut[];
+  shortcuts: readonly Shortcut[];
 }
 
 export function KeyboardShortcutsHelp({

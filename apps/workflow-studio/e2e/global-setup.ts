@@ -148,7 +148,7 @@ export default async function globalSetup() {
   // the SDK cache lives under TMPDIR=<tmp>; sandbox jobs use short /tmp/sbx-* dirs (AF_UNIX path limit)
   fs.mkdirSync(engineCwd, { recursive: true })
   const engineEnv: Record<string, string> = {
-    PATH: [path.join(ENGINE_DIR, 'venv/bin'), path.dirname(esbuild), '/usr/bin', '/bin'].join(':'),
+    PATH: [path.join(ENGINE_DIR, 'venv/bin'), path.dirname(esbuild), path.dirname(process.execPath), '/usr/bin', '/bin'].join(':'),
     HOME: tmp,
     TMPDIR: tmp,
     LANG: 'C.UTF-8',

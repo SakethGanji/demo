@@ -25,6 +25,17 @@ class DryRunGuard:
 
     def _supports(self, scope) -> bool:
         for route in self._fastapi.router.routes:
+            # FastAPI's lazy included routers expose prefixed route contexts
+            # instead of APIRoutes directly. Match the leaf signature, not the
+            # wrapper (which has no dependant and would reject every preview).
+            contexts = getattr(route, "effective_route_contexts", None)
+            if callable(contexts):
+                for candidate in contexts():
+                    if (scope.get("method") in (candidate.methods or set())
+                            and candidate.path_regex.fullmatch(scope.get("path", ""))):
+                        dep = getattr(candidate, "dependant", None)
+                        return bool(dep and any(q.name == "dry_run" for q in dep.query_params))
+                continue
             match, _ = route.matches(scope)
             if match == Match.FULL:
                 dep = getattr(route, "dependant", None)

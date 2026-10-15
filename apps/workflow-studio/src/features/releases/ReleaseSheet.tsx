@@ -194,7 +194,7 @@ function ReleaseBody() {
               onChange={setStepPick}
               aria-label="Release step"
               data-testid="release-steps"
-              options={stepOptions}
+              options={stepOptions.map((option) => ({ ...option, disabled: !releases.isSuccess || writing }))}
               className="self-start"
             />
           )}

@@ -74,6 +74,7 @@ interface NodePropertyOption {
 }
 
 interface NodePropertyTypeOptions {
+  extensions?: string;
   password?: boolean;
   rows?: number;
   language?: string;
