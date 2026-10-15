@@ -11,7 +11,7 @@ venv/bin/python -m pytest tests/integration/journeys -q  # UI journeys J1–J17
 venv/bin/python -m pytest tests/integration -q -k j14    # one journey
 KEEP_TEST_DB=1 venv/bin/python -m pytest tests/integration -x
 ```
-Harness (`tests/integration/conftest.py`): creates `workflows_test_<hex>` on localhost:5433
+Harness (`tests/integration/conftest.py`, engine env adds `WORKFLOW_TEST_MODE=1` for test-only knobs): creates `workflows_test_<hex>` on localhost:5433
 (override WORKFLOW_DB_HOST/PORT/USER/PASSWORD), applies all migrations with the real migrator,
 starts `uvicorn src.main:app` on a free port (SEED=0), drops the DB afterwards. Refuses the
 `workflows` DB and port 8000. Engine logs: `tests/integration/.logs/`. Run one pytest at a time.
@@ -90,3 +90,4 @@ Baseline before: **108 passed**. Tests live in `tests/integration/test_review_g*
 | 3b align with UI-DESIGN §9 | D11 kind, C7 conflicts[], B4 base_sha/rename, D5 virtual_tables | 141 | (see git log) |
 | 4 runs | C2, C3, D6, C13 | 148 | (see git log) |
 | 5a builder + usage + publish | C5, C6, C11, D14, C4 | 154 | (see git log) |
+| 5b app tokens | D3 | 159 | (see git log) |

@@ -136,6 +136,8 @@ class EngineServer:
             "WORKFLOW_PUBLIC_TOKEN_SECRET": "test-public-token-secret",
             "WORKFLOW_RELOAD": "false",
             "WORKFLOW_LOG_LEVEL": "warning",
+            # test-only knobs (e.g. per-app token_ttl_s, review D3) are honoured only with this set
+            "WORKFLOW_TEST_MODE": "1",
         }
         self._log = open(self.log_path, "w")
         self.proc = subprocess.Popen(

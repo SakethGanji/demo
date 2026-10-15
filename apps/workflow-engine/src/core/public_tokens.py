@@ -28,6 +28,19 @@ from .config import settings
 
 
 _DEFAULT_TTL_SECONDS = 60 * 60  # 1 hour
+DEFAULT_TTL_SECONDS = _DEFAULT_TTL_SECONDS
+
+
+def app_token_ttl(app) -> int:
+    """TTL for a published app's token. Review D3: a per-app ``settings.token_ttl_s`` is honoured
+    **only** when ``WORKFLOW_TEST_MODE=1`` (so tests can expire tokens); otherwise 1 hour."""
+    import os
+
+    if os.environ.get("WORKFLOW_TEST_MODE") == "1":
+        ttl = (getattr(app, "settings", None) or {}).get("token_ttl_s")
+        if isinstance(ttl, int) and ttl > 0:
+            return ttl
+    return _DEFAULT_TTL_SECONDS
 
 
 @dataclass(frozen=True)
@@ -37,6 +50,7 @@ class PublicTokenClaims:
     exp: int  # unix seconds
     env: str | None = None  # environment override (preview tokens)
     preview: bool = False  # studio preview token (draft env, no published version needed)
+    rk: str | None = None  # review D3: app rotation key — token bound to the app, not to a version
 
 
 class PublicTokenError(Exception):
@@ -65,7 +79,7 @@ def _b64u_decode(s: str) -> bytes:
 
 
 def issue_token(app_id: str, version_id: int, ttl_seconds: int = _DEFAULT_TTL_SECONDS, *,
-                env: str | None = None, preview: bool = False) -> str:
+                env: str | None = None, preview: bool = False, rk: str | None = None) -> str:
     payload = {
         "app_id": app_id,
         "version_id": version_id,
@@ -75,6 +89,8 @@ def issue_token(app_id: str, version_id: int, ttl_seconds: int = _DEFAULT_TTL_SE
         payload["env"] = env
     if preview:
         payload["preview"] = True
+    if rk is not None:
+        payload["rk"] = rk
     body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
     body_b64 = _b64u_encode(body)
     sig = hmac.new(_signing_secret(), body_b64.encode("ascii"), hashlib.sha256).digest()
@@ -114,4 +130,21 @@ def verify_token(token: str) -> PublicTokenClaims:
         exp=int(payload["exp"]),
         env=payload.get("env"),
         preview=bool(payload.get("preview", False)),
+        rk=payload.get("rk"),
     )
+
+
+def app_token_key(app) -> str | None:
+    return (getattr(app, "settings", None) or {}).get("token_key")
+
+
+def app_token_valid_for(app, claims: PublicTokenClaims) -> bool:
+    """A (non-preview) published-app token is valid for ``app`` if it names the app and carries
+    the app's current rotation key (review D3). Legacy tokens without ``rk`` keep the old rule:
+    they must name the currently published version."""
+    if claims.app_id != app.id or app.published_version_id is None or not getattr(app, "active", True):
+        return False
+    if claims.rk is not None:
+        key = app_token_key(app)
+        return key is not None and hmac.compare_digest(claims.rk, key)
+    return claims.version_id == app.published_version_id

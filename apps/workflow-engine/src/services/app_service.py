@@ -65,6 +65,20 @@ class AppValidationError(ValueError):
         return {"code": self.code, "message": self.message, **self.extra}
 
 
+def rotate_token_key(row: AppModel) -> str:
+    """Review D3: the published-app token rotation key lives in ``apps.settings.token_key``."""
+    import secrets as _secrets
+    from sqlalchemy.orm.attributes import flag_modified
+
+    key = _secrets.token_urlsafe(16)
+    row.settings = {**(row.settings or {}), "token_key": key}
+    try:
+        flag_modified(row, "settings")
+    except Exception:
+        pass
+    return key
+
+
 class AppService:
     """Handles app persistence using the dedicated apps table."""
 
@@ -203,6 +217,9 @@ class AppService:
         elif req.access_password is not None:
             # Setting/clearing the password without changing access mode.
             await self._apply_access(row, row.access, req.access_password)
+
+        if getattr(req, "token_ttl_s", None) is not None:  # test-only knob (review D3), honoured in test mode
+            row.settings = {**(row.settings or {}), "token_ttl_s": int(req.token_ttl_s)}
 
         row.updated_at = datetime.now()
 
@@ -360,6 +377,14 @@ class AppService:
         await self._session.commit()
         return True
 
+    async def ensure_token_key(self, row: AppModel) -> str:
+        """The app's current token rotation key, created on first use (review D3)."""
+        key = (row.settings or {}).get("token_key")
+        if not key:
+            key = rotate_token_key(row)
+            await self._session.commit()
+        return key
+
     async def unpublish_app(self, aid: str) -> AppPublishResponse:
         """Take a published app offline. Bundle bytes stay on the version row
         (re-publish is then a no-op rebuild) and history is preserved — we
@@ -370,6 +395,7 @@ class AppService:
         row.active = False
         row.published_version_id = None
         row.published_at = None
+        rotate_token_key(row)  # review D3: tokens of the unpublished app die even if it is re-published
         row.updated_at = datetime.now()
         await self._session.commit()
         return AppPublishResponse(
@@ -557,6 +583,7 @@ class AppService:
                 if not password:
                     raise AppPublishError("password may not be empty")
                 row.access_password_hash = _password_hasher.hash(password)
+                rotate_token_key(row)  # a new password invalidates outstanding page tokens
             elif not row.access_password_hash:
                 raise AppPublishError(
                     "access='password' requires access_password to be set"
@@ -566,6 +593,8 @@ class AppService:
             # don't carry around stale credentials.
             if password == "":
                 row.access_password_hash = None
+            if access == "private" and row.access != "private":
+                rotate_token_key(row)
 
         row.access = access
 

@@ -117,7 +117,7 @@ class RouteDispatcher:
     # ── auth ─────────────────────────────────────────────────────────────
 
     async def authenticate(self, project: ProjectModel, headers: dict[str, str]) -> Credential:
-        from ..core.public_tokens import PublicTokenError, verify_token
+        from ..core.public_tokens import PublicTokenError, app_token_valid_for, verify_token
         from .api_key_service import ApiKeyService
 
         auth = headers.get("authorization") or ""
@@ -141,7 +141,7 @@ class RouteDispatcher:
                 if env_kind(project, env) != "draft":
                     raise AuthError()
                 return Credential("app_token", env, app_id=app.id, preview=True)
-            if claims.version_id != app.published_version_id:
+            if not app_token_valid_for(app, claims):  # review D3: app + rotation key, not the version
                 raise AuthError()
             return Credential("app_token", project.live_environment, app_id=app.id)
         if auth:

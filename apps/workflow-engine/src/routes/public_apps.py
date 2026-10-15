@@ -32,7 +32,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
 from ..core.dependencies import get_app_service, get_api_test_repository, get_execution_service
-from ..core.public_tokens import PublicTokenError, issue_token, verify_token
+from ..core.public_tokens import PublicTokenError, app_token_ttl, app_token_valid_for, issue_token, verify_token
 from ..db.models import AppModel
 from ..repositories import ApiTestRepository
 from ..services.app_service import AppService
@@ -132,6 +132,28 @@ var apiMap=window.__APP_API_MAP||{};
 var base='/a/'+slug+'/api';
 var origFetch=window.fetch.bind(window);
 
+// Review D3: tokens expire (1h) and are refreshed from /a/{slug}/_token — on a 401, and shortly before expiry.
+var refreshing=null;
+function refreshToken(){
+  if(refreshing) return refreshing;
+  refreshing=origFetch('/a/'+slug+'/_token',{method:'POST',credentials:'same-origin'})
+    .then(function(r){return r.ok?r.json():null;})
+    .then(function(j){ if(j&&j.token){ token=j.token; window.__APP_TOKEN=token; schedule(j.expires_in); } return j?j.token:null; })
+    .catch(function(){return null;})
+    .then(function(t){ refreshing=null; return t; });
+  return refreshing;
+}
+window.__APP_REFRESH=refreshToken;
+function schedule(sec){ if(typeof sec==='number'&&sec>0){ setTimeout(refreshToken, Math.max(5, sec-60)*1000); } }
+schedule(window.__APP_TOKEN_TTL);
+function authed(url,o,build){
+  var once=function(){ return origFetch(url,build(token)); };
+  return once().then(function(res){
+    if(res.status===401&&token){ return refreshToken().then(function(t){ return t?once():res; }); }
+    return res;
+  });
+}
+
 function normalizeBase(u){
   if(typeof u!=='string') return '';
   var i=u.indexOf('?'); if(i>=0) u=u.slice(0,i);
@@ -149,33 +171,32 @@ window.fetch=function(url,opts){
   var o=opts||{};
   // 0) Project API routes (/api/p/{project}/...) — same origin, stamped with the app token
   if(typeof url==='string' && url.indexOf('/api/p/')===0){
-    var h0=Object.assign({},o.headers||{});
-    if(token) h0['Authorization']='Bearer '+token;
-    return origFetch(url,Object.assign({},o,{headers:h0}));
+    return authed(url,o,function(t){
+      var h0=Object.assign({},o.headers||{});
+      if(t) h0['Authorization']='Bearer '+t;
+      return Object.assign({},o,{headers:h0});
+    });
   }
   // 1) Workflow proxy paths. '/api/workflow/{id}/run' → '/a/{slug}/api/workflow/{id}/run'
   if(typeof url==='string' && (url.indexOf('/api/')===0 || url.indexOf('/webhook/')===0)){
     var rewritten=(url.indexOf('/api/workflow/')===0)?(base+url.slice(4)):(base+url);
-    var h1=Object.assign({},o.headers||{});
-    if(token) h1['Authorization']='Bearer '+token;
-    return origFetch(rewritten,Object.assign({},o,{headers:h1}));
+    return authed(rewritten,o,function(t){
+      var h1=Object.assign({},o.headers||{});
+      if(t) h1['Authorization']='Bearer '+t;
+      return Object.assign({},o,{headers:h1});
+    });
   }
   // 2) External-URL replay (captured API tester executions)
   var replayId=findReplayId(url);
   if(replayId){
-    var headers={'Content-Type':'application/json'};
-    if(token) headers['Authorization']='Bearer '+token;
     var bodyStr=null;
     if(typeof o.body==='string') bodyStr=o.body;
     else if(o.body!=null) try{ bodyStr=JSON.stringify(o.body); }catch(e){ bodyStr=null; }
-    return origFetch('/a/'+slug+'/api-tester/replay/'+replayId,{
-      method:'POST',
-      headers:headers,
-      body:JSON.stringify({
-        method:o.method||'GET',
-        headers:o.headers||null,
-        body:bodyStr,
-      }),
+    return authed('/a/'+slug+'/api-tester/replay/'+replayId,o,function(t){
+      var headers={'Content-Type':'application/json'};
+      if(t) headers['Authorization']='Bearer '+t;
+      return {method:'POST', headers:headers,
+              body:JSON.stringify({method:o.method||'GET', headers:o.headers||null, body:bodyStr})};
     });
   }
   return origFetch(url,opts);
@@ -201,12 +222,14 @@ def _html_shell(
     bundle_hash: str,
     csp: str,
     api_map: dict[str, str],
+    token_key: str | None = None,
 ) -> str:
     """Standalone HTML for the published app. Loads the fingerprinted assets,
     injects the slug + short-lived API token + captured-URL→execution-id map
     into globals, then runs the inline runtime."""
     slug = app.slug or ""
-    token = issue_token(app.id, version_id)
+    ttl = app_token_ttl(app)
+    token = issue_token(app.id, version_id, ttl, rk=token_key)
     runtime = _runtime_inline()
     escaped_token = json.dumps(token)
     escaped_slug = json.dumps(slug)
@@ -226,7 +249,7 @@ def _html_shell(
 <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.tailwindcss.com"></script>
-<script>window.__APP_SLUG={escaped_slug};window.__APP_TOKEN={escaped_token};window.__APP_API_MAP={escaped_api_map};</script>
+<script>window.__APP_SLUG={escaped_slug};window.__APP_TOKEN={escaped_token};window.__APP_TOKEN_TTL={ttl};window.__APP_API_MAP={escaped_api_map};</script>
 <script src="/a/{html.escape(slug)}/_assets/{bundle_hash}.js"></script>
 <script>{runtime}</script>
 </body>
@@ -285,7 +308,7 @@ async def render_app(
         for ex in execs:
             api_map[ex.url] = ex.id
 
-    body = _html_shell(app, version.id, version.bundle_hash, csp, api_map)
+    body = _html_shell(app, version.id, version.bundle_hash, csp, api_map, await service.ensure_token_key(app))
     return HTMLResponse(body, headers={"Content-Security-Policy": csp})
 
 
@@ -324,6 +347,28 @@ async def get_asset(
             "ETag": f'"{asset.hash}"',
         },
     )
+
+
+@router.post("/{slug}/_token")
+async def refresh_app_token(
+    slug: str,
+    app_unlock: str | None = Cookie(default=None, alias=_UNLOCK_COOKIE),
+    service: AppService = Depends(get_app_service),
+):
+    """Review D3: a fresh page token for a published app (the runtime and the generated client call
+    this on a 401 and shortly before expiry). Same gate as loading the page: private / unpublished
+    apps 404, password apps need the unlock cookie."""
+    from datetime import datetime, timezone
+
+    app = await _resolve_app(slug, service)
+    if app.access == "password" and not _check_unlock_cookie(app, app_unlock):
+        return JSONResponse({"error": "locked"}, status_code=401)
+    ttl = app_token_ttl(app)
+    token = issue_token(app.id, app.published_version_id, ttl, rk=await service.ensure_token_key(app))
+    exp = verify_token(token).exp
+    return JSONResponse({"token": token, "expires_in": ttl,
+                         "expires_at": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")},
+                        headers={"Cache-Control": "no-store"})
 
 
 @router.post("/{slug}/_unlock")
@@ -387,10 +432,9 @@ async def run_workflow_for_public_app(
     app = await _resolve_app(slug, service)
     claims = _verify_request_token(request.headers.get("authorization"))
 
-    # Token must match this app + the currently-published version. If the
-    # owner publishes a new version, old in-flight tokens stop working — that
-    # is intentional and bounded by the 1h TTL.
-    if claims.app_id != app.id or claims.version_id != app.published_version_id:
+    # Review D3: the token is bound to this app (+ its rotation key), not to one published version,
+    # so open pages keep working across re-publish / promote / rollback.
+    if not app_token_valid_for(app, claims):
         raise HTTPException(status_code=401, detail="token scope mismatch")
 
     # Allow-list: app may only run workflows it explicitly references.
@@ -527,7 +571,7 @@ async def replay_api_test_execution(
     app = await _resolve_app(slug, service)
     claims = _verify_request_token(request.headers.get("authorization"))
 
-    if claims.app_id != app.id or claims.version_id != app.published_version_id:
+    if not app_token_valid_for(app, claims):
         raise HTTPException(status_code=401, detail="token scope mismatch")
 
     allowed = set(app.api_execution_ids or [])

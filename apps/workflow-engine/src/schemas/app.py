@@ -69,6 +69,8 @@ class AppUpdateRequest(BaseModel):
     )
     embed_enabled: bool | None = Field(None, description="Allow embedding in iframes")
     project_id: str | None = Field(None, description="Move the app to this project (id or slug)")
+    token_ttl_s: int | None = Field(None, ge=1, le=86400,
+                                    description="Test-only: published-token TTL; honoured only when WORKFLOW_TEST_MODE=1")
 
 
 class AppPublishRequest(BaseModel):
