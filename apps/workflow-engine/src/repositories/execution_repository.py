@@ -29,10 +29,19 @@ class ExecutionRepository:
         execution_id: str,
         workflow_id: str,
         workflow_name: str,
-        mode: Literal["manual", "webhook", "cron"],
+        mode: str,
+        project_id: str | None = None,
+        environment: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> ExecutionRecord:
         """Create a new execution record when workflow starts."""
         from ..engine.types import ExecutionRecord
+
+        if project_id is None:
+            # Derive the owning project from the workflow row (adhoc runs stay NULL→default).
+            from ..db.models import WorkflowModel
+            wf = await self._session.get(WorkflowModel, workflow_id)
+            project_id = wf.project_id if wf else "proj_default"
 
         db_execution = ExecutionModel(
             id=execution_id,
@@ -41,6 +50,9 @@ class ExecutionRepository:
             status="running",
             mode=mode,
             start_time=datetime.now(),
+            project_id=project_id,
+            environment=environment,
+            exec_metadata=metadata or {},
         )
 
         self._session.add(db_execution)
@@ -51,6 +63,14 @@ class ExecutionRepository:
         await self._cleanup()
 
         return self._to_execution_record(db_execution, [], {})
+
+    async def set_metadata(self, execution_id: str, patch: dict[str, Any]) -> None:
+        """Merge keys into executions.metadata (e.g. the per-request trace)."""
+        db_execution = await self._session.get(ExecutionModel, execution_id)
+        if not db_execution:
+            return
+        db_execution.exec_metadata = {**(db_execution.exec_metadata or {}), **patch}
+        await self._session.commit()
 
     async def complete(
         self,
@@ -164,12 +184,23 @@ class ExecutionRepository:
         _, node_metrics = self._outputs_to_dicts(node_outputs)
         return self._to_execution_record(db_execution, node_outputs, node_metrics)
 
-    async def list(self, workflow_id: str | None = None) -> list[ExecutionRecord]:
-        """List execution records, optionally filtered by workflow ID."""
+    async def list(
+        self, workflow_id: str | None = None, project_id: str | None = None,
+        mode: str | None = None, status: str | None = None, limit: int | None = None,
+    ) -> list[ExecutionRecord]:
+        """List execution records, optionally filtered by workflow / project / mode / status."""
         statement = select(ExecutionModel).order_by(ExecutionModel.start_time.desc())
 
         if workflow_id:
             statement = statement.where(ExecutionModel.workflow_id == workflow_id)
+        if project_id:
+            statement = statement.where(ExecutionModel.project_id == project_id)
+        if mode:
+            statement = statement.where(ExecutionModel.mode == mode)
+        if status:
+            statement = statement.where(ExecutionModel.status == status)
+        if limit:
+            statement = statement.limit(limit)
 
         result = await self._session.execute(statement)
         executions = result.scalars().all()
@@ -252,6 +283,16 @@ class ExecutionRepository:
         await self._session.delete(db_execution)
         await self._session.commit()
         return True
+
+    async def mark_failed(self, execution_id: str, error: str) -> None:
+        db_execution = await self._session.get(ExecutionModel, execution_id)
+        if not db_execution:
+            return
+        db_execution.status = "failed"
+        db_execution.end_time = datetime.now()
+        db_execution.error_count = max(1, db_execution.error_count or 0)
+        db_execution.exec_metadata = {**(db_execution.exec_metadata or {}), "error": error}
+        await self._session.commit()
 
     async def cancel(self, execution_id: str) -> bool:
         """Mark an execution as cancelled."""
@@ -361,4 +402,7 @@ class ExecutionRepository:
             node_data=node_data,
             errors=errors,
             node_metrics=node_metrics,
+            project_id=getattr(db_execution, "project_id", None),
+            environment=getattr(db_execution, "environment", None),
+            metadata=dict(db_execution.exec_metadata or {}),
         )

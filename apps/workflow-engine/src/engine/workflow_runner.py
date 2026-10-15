@@ -61,6 +61,11 @@ class WorkflowRunner:
         pre_populated_states: dict[str, list[NodeData]] | None = None,
         variables: dict[str, str] | None = None,
         secret_values: set[str] | None = None,
+        project_id: str | None = None,
+        environment: str | None = None,
+        team_id: str = "default",
+        extras: dict[str, Any] | None = None,
+        http_client_options: dict[str, Any] | None = None,
     ) -> ExecutionContext:
         """
         Run a workflow from a starting node.
@@ -86,6 +91,12 @@ class WorkflowRunner:
         context.on_event = on_event
         if variables:
             context.variables = variables
+        context.project_id = project_id
+        context.environment = environment
+        context.team_id = team_id or "default"
+        if extras:
+            context.extras.update(extras)
+        context.extras.setdefault("secret_values", secret_values or set())
 
         # Set execution_id for structured logging correlation
         execution_id_var.set(context.execution_id)
@@ -153,7 +164,10 @@ class WorkflowRunner:
         # Shared HTTP client for all nodes. Timeout sized for slow LLM-backed
         # endpoints (e.g. PromptLab full-stage eval on ~1000-row datasets with
         # long system prompts can take 60–180s).
-        async with httpx.AsyncClient(timeout=900.0, follow_redirects=True) as http_client:
+        client_opts: dict[str, Any] = {"timeout": 900.0, "follow_redirects": True}
+        if http_client_options:
+            client_opts.update(http_client_options)
+        async with httpx.AsyncClient(**client_opts) as http_client:
             context.http_client = http_client
 
             while queue and iteration < max_iterations:
@@ -292,6 +306,10 @@ class WorkflowRunner:
 
         # Subworkflows inherit the parent's $vars so secrets resolve identically.
         child_context.variables = parent_context.variables
+        child_context.project_id = parent_context.project_id
+        child_context.environment = parent_context.environment
+        child_context.team_id = parent_context.team_id
+        child_context.extras = parent_context.extras
 
         # Propagate event callback for nested subworkflows
         child_context.on_event = on_event
@@ -600,7 +618,7 @@ class WorkflowRunner:
         credential_id = resolved_node_def.parameters.get("credentialId")
         if credential_id and self._db_session:
             try:
-                cred_data = await self._resolve_credential(credential_id)
+                cred_data = await self._resolve_credential(credential_id, context.team_id)
                 if cred_data:
                     resolved_params = {**resolved_node_def.parameters, "_credentials": cred_data}
                     resolved_node_def = NodeDefinition(
@@ -959,8 +977,8 @@ class WorkflowRunner:
         return execution_id()
 
 
-    async def _resolve_credential(self, credential_id: str) -> dict[str, Any] | None:
-        """Load and decrypt a credential by ID."""
+    async def _resolve_credential(self, credential_id: str, team_id: str = "default") -> dict[str, Any] | None:
+        """Load and decrypt a credential by ID — only if it belongs to the run's team."""
         if not self._db_session:
             return None
         from ..services.credential_service import decrypt
@@ -968,7 +986,7 @@ class WorkflowRunner:
         async with self._db_session() as session:
             repo = CredentialRepository(session)
             cred = await repo.get(credential_id)
-            if not cred:
+            if not cred or (cred.team_id or "default") != (team_id or "default"):
                 return None
             return decrypt(cred.data)
 

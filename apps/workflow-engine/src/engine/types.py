@@ -118,6 +118,13 @@ class ExecutionContext:
     # in the expression engine. Loaded once per execution from VariableRepository.
     variables: dict[str, str] = field(default_factory=dict)
 
+    # Ownership / environment of this run (BACKEND-DESIGN §2.3). None = legacy/unscoped.
+    project_id: str | None = None
+    environment: str | None = None
+    team_id: str = "default"
+    # Opaque per-run extras (broker token, trace collector, ...).
+    extras: dict[str, Any] = field(default_factory=dict)
+
 
 @dataclass
 class ExecutionError:
@@ -166,6 +173,9 @@ class ExecutionRecord:
     node_data: dict[str, list[NodeData]] = field(default_factory=dict)
     errors: list[ExecutionError] = field(default_factory=list)
     node_metrics: dict[str, dict[str, Any]] = field(default_factory=dict)
+    project_id: str | None = None
+    environment: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -178,6 +188,7 @@ class StoredWorkflow:
     active: bool
     created_at: datetime
     updated_at: datetime
+    project_id: str = "proj_default"
 
 
 class ExecutionEventType(str, Enum):

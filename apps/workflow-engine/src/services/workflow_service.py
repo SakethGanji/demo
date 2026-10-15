@@ -47,15 +47,16 @@ class WorkflowService:
         self._node_service = node_service
         self._node_registry = node_registry
 
-    async def list_workflows(self, folder_id: str | None = None) -> list[WorkflowListItem]:
-        """List all workflows, optionally filtered by folder."""
-        workflows = await self._workflow_repo.list(folder_id=folder_id)
+    async def list_workflows(self, folder_id: str | None = None, project_id: str | None = None) -> list[WorkflowListItem]:
+        """List all workflows, optionally filtered by folder / project."""
+        workflows = await self._workflow_repo.list(folder_id=folder_id, project_id=project_id)
         return [
             WorkflowListItem(
                 id=w.id,
                 name=w.name,
                 active=w.active,
                 webhook_url=f"/webhook/{w.id}",
+                project_id=w.project_id,
                 node_count=len(w.workflow.nodes),
                 created_at=w.created_at.isoformat(),
                 updated_at=w.updated_at.isoformat(),
@@ -74,18 +75,30 @@ class WorkflowService:
             name=stored.name,
             active=stored.active,
             webhook_url=f"/webhook/{stored.id}",
+            project_id=stored.project_id,
             definition=self._workflow_to_dict(stored.workflow),
             created_at=stored.created_at.isoformat(),
             updated_at=stored.updated_at.isoformat(),
         )
 
-    async def create_workflow(self, request: WorkflowCreateRequest) -> WorkflowResponse:
+    async def _resolve_project_id(self, ref: str | None) -> str | None:
+        if not ref:
+            return None
+        from .project_service import resolve_project
+        p = await resolve_project(self._workflow_repo._session, ref)
+        if not p:
+            raise ValidationError(f"Project '{ref}' not found", field="project_id")
+        return p.id
+
+    async def create_workflow(self, request: WorkflowCreateRequest, created_by: str | None = None) -> WorkflowResponse:
         """Create a new workflow."""
         self._validate_workflow(request)
 
         internal_workflow = self._request_to_workflow(request)
+        project_id = await self._resolve_project_id(getattr(request, "project_id", None))
         stored = await self._workflow_repo.create(
-            internal_workflow, folder_id=getattr(request, "folder_id", None)
+            internal_workflow, folder_id=getattr(request, "folder_id", None), project_id=project_id,
+            created_by=created_by,
         )
 
         return WorkflowResponse(
@@ -93,6 +106,7 @@ class WorkflowService:
             name=stored.name,
             active=stored.active,
             webhook_url=f"/webhook/{stored.id}",
+            project_id=stored.project_id,
             created_at=stored.created_at.isoformat(),
         )
 
@@ -117,8 +131,11 @@ class WorkflowService:
             settings=request.settings or existing.workflow.settings,
         )
 
+        project_id = await self._resolve_project_id(getattr(request, "project_id", None))
+        if project_id and project_id != existing.project_id:
+            await self._check_movable(workflow_id)
         updated = await self._workflow_repo.update(
-            workflow_id, internal_workflow, folder_id=getattr(request, "folder_id", None)
+            workflow_id, internal_workflow, folder_id=getattr(request, "folder_id", None), project_id=project_id,
         )
         if not updated:
             raise WorkflowNotFoundError(workflow_id)
@@ -128,6 +145,7 @@ class WorkflowService:
             name=updated.name,
             active=updated.active,
             webhook_url=f"/webhook/{updated.id}",
+            project_id=updated.project_id,
             definition=self._workflow_to_dict(updated.workflow),
             created_at=updated.created_at.isoformat(),
             updated_at=updated.updated_at.isoformat(),
@@ -267,76 +285,33 @@ class WorkflowService:
         db_workflow.published_version_id = version.id
         await self._workflow_repo._session.commit()
 
+    async def _check_movable(self, workflow_id: str) -> None:
+        """A workflow used as a route handler cannot leave its project."""
+        try:
+            from sqlalchemy import select, func
+            from ..db.models import ApiRouteModel
+        except ImportError:
+            return
+        n = (await self._workflow_repo._session.execute(
+            select(func.count()).select_from(ApiRouteModel).where(ApiRouteModel.handler_workflow_id == workflow_id)
+        )).scalar_one()
+        if n:
+            from ..core.exceptions import ConflictError
+            raise ConflictError("workflow_in_use", "Workflow is the handler of an API route and cannot be moved")
+
     async def run_workflow(
         self,
         workflow_id: str,
         input_data: dict[str, Any] | None = None,
         environment: str = "default",
     ) -> ExecutionResponse:
-        """Run a saved workflow with optional input data.
-        Uses published version if available, falls back to draft."""
-        stored = await self._workflow_repo.get(workflow_id)
-        if not stored:
-            raise WorkflowNotFoundError(workflow_id)
+        """Run a saved workflow (draft definition) with optional input data.
 
-        from ..db.session import async_session_factory
-        from .variable_loader import load_run_variables, load_run_secrets
-        from .vars_substitution import substitute_vars
-        runner = WorkflowRunner(db_session_factory=async_session_factory)
-        start_node = runner.find_start_node(stored.workflow)
-        variables = await load_run_variables(environment=environment)
-        secrets = await load_run_secrets(environment=environment)
-        # Resolve any {{ $vars.X }} placeholders in the caller's payload before
-        # the workflow sees it — secret never leaves the backend.
-        input_data = substitute_vars(input_data, variables)
+        Delegates to ExecutionService.run_saved_workflow — the single run path."""
+        from .execution_service import ExecutionService
 
-        if not start_node:
-            raise WorkflowExecutionError(
-                "No start node found in workflow", workflow_id=workflow_id
-            )
-
-        # Build initial data - wrap in webhook-style format for consistency
-        if input_data:
-            initial_data = [
-                NodeData(
-                    json={
-                        "body": input_data,
-                        "headers": {},
-                        "query": {},
-                        "method": "POST",
-                        "triggeredAt": datetime.now().isoformat(),
-                    }
-                )
-            ]
-            mode = "webhook"
-        else:
-            initial_data = [
-                NodeData(
-                    json={
-                        "triggeredAt": datetime.now().isoformat(),
-                        "mode": "manual",
-                    }
-                )
-            ]
-            mode = "manual"
-
-        # Pre-create execution row so node_outputs FK is satisfied during run
-        from ..utils.ids import execution_id as gen_exec_id
-        exec_id = gen_exec_id()
-        await self._execution_repo.start(exec_id, stored.id, stored.name, mode)
-
-        context = await runner.run(
-            stored.workflow,
-            start_node.name,
-            initial_data,
-            mode,
-            workflow_repository=self._workflow_repo,
-            execution_id=exec_id,
-            variables=variables,
-            secret_values=secrets,
-        )
-        await self._execution_repo.complete(context, stored.id, stored.name)
-
+        svc = ExecutionService(self._execution_repo, self._workflow_repo)
+        _, context = await svc.run_saved_workflow(workflow_id, input_data, environment=environment)
         return self._build_execution_response(context)
 
     async def run_adhoc_workflow(self, request: WorkflowCreateRequest) -> ExecutionResponse:
@@ -348,8 +323,12 @@ class WorkflowService:
         from .vars_substitution import substitute_vars
         runner = WorkflowRunner()
         start_node = runner.find_start_node(internal_workflow)
-        variables = await load_run_variables(environment=request.environment)
-        secrets = await load_run_secrets(environment=request.environment)
+        from .project_service import effective_environment, resolve_project
+        project_id = await self._resolve_project_id(getattr(request, "project_id", None))
+        project = await resolve_project(self._workflow_repo._session, project_id) if project_id else None
+        env = effective_environment(project, request.environment)
+        variables = await load_run_variables(environment=env, project_id=project_id)
+        secrets = await load_run_secrets(environment=env, project_id=project_id)
         # Resolve {{ $vars.X }} in the caller payload before the workflow runs.
         if request.input_data is not None:
             request.input_data = substitute_vars(request.input_data, variables)
@@ -386,7 +365,10 @@ class WorkflowService:
         from ..utils.ids import execution_id as gen_exec_id
         exec_id = gen_exec_id()
         wf_id = internal_workflow.id or "adhoc"
-        await self._execution_repo.start(exec_id, wf_id, internal_workflow.name, mode)
+        await self._execution_repo.start(
+            exec_id, wf_id, internal_workflow.name, mode,
+            project_id=project_id or "proj_default", environment=env,
+        )
 
         context = await runner.run(
             internal_workflow,
@@ -397,6 +379,8 @@ class WorkflowService:
             execution_id=exec_id,
             variables=variables,
             secret_values=secrets,
+            project_id=project_id,
+            environment=env,
         )
         await self._execution_repo.complete(context, wf_id, internal_workflow.name)
 

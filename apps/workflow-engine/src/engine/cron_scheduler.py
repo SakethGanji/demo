@@ -89,8 +89,11 @@ class CronScheduler:
                 ]
 
                 from ..services.variable_loader import load_run_variables, load_run_secrets
-                variables = await load_run_variables(environment="default")
-                secrets = await load_run_secrets(environment="default")
+                from ..services.project_service import effective_environment, resolve_project
+                project = await resolve_project(session, stored.project_id)
+                env = effective_environment(project, "default")
+                variables = await load_run_variables(environment=env, project_id=stored.project_id)
+                secrets = await load_run_secrets(environment=env, project_id=stored.project_id)
 
                 context = await runner.run(
                     stored.workflow,
@@ -100,6 +103,8 @@ class CronScheduler:
                     workflow_repository=workflow_repo,
                     variables=variables,
                     secret_values=secrets,
+                    project_id=stored.project_id,
+                    environment=env,
                 )
 
                 exec_repo = ExecutionRepository(session)

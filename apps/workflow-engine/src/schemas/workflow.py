@@ -101,6 +101,7 @@ class WorkflowCreateRequest(BaseModel):
     # For ad-hoc execution with input
     input_data: dict[str, Any] | None = Field(None, description="Input data for ad-hoc execution")
     environment: str = Field("default", description="Which variable environment to resolve $vars against")
+    project_id: str | None = Field(None, description="Owning project (id or slug); default: Default project")
 
     def to_workflow(self) -> Workflow:
         """Convert to engine Workflow dataclass."""
@@ -123,6 +124,7 @@ class WorkflowUpdateRequest(BaseModel):
     description: str | None = Field(None, max_length=1000, description="Workflow description")
     settings: dict[str, Any] | None = Field(None, description="Workflow settings")
     folder_id: str | None = Field(None, description="Folder ID, or null to move to root")
+    project_id: str | None = Field(None, description="Move the workflow to this project (id or slug)")
 
 
 class PublishRequest(BaseModel):
@@ -137,6 +139,7 @@ class WorkflowResponse(BaseModel):
     id: str
     name: str
     active: bool
+    project_id: str = "proj_default"
     webhook_url: str
     created_at: str
 
@@ -147,6 +150,7 @@ class WorkflowListItem(BaseModel):
     id: str
     name: str
     active: bool
+    project_id: str = "proj_default"
     webhook_url: str
     node_count: int
     created_at: str
@@ -159,6 +163,7 @@ class WorkflowDetailResponse(BaseModel):
     id: str
     name: str
     active: bool
+    project_id: str = "proj_default"
     webhook_url: str
     definition: dict[str, Any]
     created_at: str

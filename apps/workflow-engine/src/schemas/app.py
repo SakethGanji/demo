@@ -36,6 +36,7 @@ class AppCreateRequest(BaseModel):
     folder_id: str | None = Field(None, description="Folder to organize this app in")
     workflow_ids: list[str] = Field(default_factory=list, description="Linked workflow IDs for data binding")
     api_execution_ids: list[str] = Field(default_factory=list, description="Saved API tester executions this app may replay")
+    project_id: str | None = Field(None, description="Owning project (id or slug); default: Default project")
 
 
 class AppUpdateRequest(BaseModel):
@@ -67,6 +68,7 @@ class AppUpdateRequest(BaseModel):
         description="Plaintext password (write-only). Hashed at rest. Pass empty string to clear.",
     )
     embed_enabled: bool | None = Field(None, description="Allow embedding in iframes")
+    project_id: str | None = Field(None, description="Move the app to this project (id or slug)")
 
 
 class AppPublishRequest(BaseModel):
@@ -87,6 +89,7 @@ class AppListItem(BaseModel):
     name: str
     created_at: str
     updated_at: str
+    project_id: str = "proj_default"
 
 
 # ── Version schemas ──────────────────────────────────────────────────────────
@@ -134,6 +137,7 @@ class AppDetailResponse(BaseModel):
     name: str
     definition: dict[str, Any]
     active: bool
+    project_id: str = "proj_default"
     workflow_ids: list[str] = []
     api_execution_ids: list[str] = []
     source_code: str | None = None

@@ -7,6 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..core.exceptions import (
+    ConflictError,
     WorkflowNotFoundError,
     WorkflowExecutionError,
     ValidationError,
@@ -38,9 +39,10 @@ WorkflowServiceDep = Annotated[WorkflowService, Depends(get_workflow_service)]
 async def list_workflows(
     service: WorkflowServiceDep,
     folder_id: str | None = None,
+    project_id: str | None = None,
 ) -> list[WorkflowListItem]:
-    """List all workflows, optionally filtered by folder."""
-    return await service.list_workflows(folder_id=folder_id)
+    """List all workflows, optionally filtered by folder / project (id)."""
+    return await service.list_workflows(folder_id=folder_id, project_id=project_id)
 
 
 @router.get("/{workflow_id}", response_model=WorkflowDetailResponse)
@@ -78,6 +80,8 @@ async def update_workflow(
         return await service.update_workflow(workflow_id, workflow)
     except WorkflowNotFoundError as e:
         raise HTTPException(status_code=404, detail=e.message)
+    except ConflictError as e:
+        raise HTTPException(status_code=409, detail={"code": e.code, "message": e.message})
     except ValidationError as e:
         raise HTTPException(status_code=400, detail=e.message)
 

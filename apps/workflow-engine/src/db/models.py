@@ -61,6 +61,35 @@ class TeamMemberModel(SQLModel, table=True):
 
 
 # ---------------------------------------------------------------------------
+# Projects (BACKEND-DESIGN §2 M1)
+# ---------------------------------------------------------------------------
+
+DEFAULT_PROJECT_ID = "proj_default"
+
+
+class ProjectModel(SQLModel, table=True):
+    """A project: the unit that owns apps, routes, workflows, tables, secrets, releases."""
+
+    __tablename__ = "projects"
+
+    id: str = Field(primary_key=True)
+    team_id: str = Field(default="default", foreign_key="teams.id", index=True)
+    name: str
+    slug: str
+    description: str | None = Field(default=None)
+    environments: list[dict[str, Any]] = Field(
+        default_factory=lambda: [{"name": "dev", "kind": "draft"}, {"name": "prod", "kind": "release"}],
+        sa_column=Column(JSONB, nullable=False),
+    )
+    default_environment: str = Field(default="dev")
+    live_environment: str = Field(default="prod")
+    settings: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB, nullable=False, server_default="{}"))
+    created_by: str | None = Field(default=None)
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+
+
+# ---------------------------------------------------------------------------
 # Organization
 # ---------------------------------------------------------------------------
 
@@ -75,6 +104,7 @@ class FolderModel(SQLModel, table=True):
 
     id: str = Field(primary_key=True)
     team_id: str = Field(foreign_key="teams.id", index=True)
+    project_id: str = Field(default=DEFAULT_PROJECT_ID, foreign_key="projects.id", index=True)
     parent_folder_id: str | None = Field(default=None, foreign_key="folders.id")
     name: str
     created_by: str | None = Field(default=None)
@@ -122,6 +152,7 @@ class WorkflowModel(SQLModel, table=True):
 
     id: str = Field(primary_key=True)
     team_id: str = Field(default="default", foreign_key="teams.id", index=True)
+    project_id: str = Field(default=DEFAULT_PROJECT_ID, foreign_key="projects.id", index=True)
     folder_id: str | None = Field(default=None, foreign_key="folders.id", index=True)
     name: str = Field(index=True)
     description: str | None = Field(default=None)
@@ -171,6 +202,7 @@ class AppModel(SQLModel, table=True):
 
     id: str = Field(primary_key=True)
     team_id: str = Field(default="default", foreign_key="teams.id", index=True)
+    project_id: str = Field(default=DEFAULT_PROJECT_ID, foreign_key="projects.id", index=True)
     folder_id: str | None = Field(default=None, foreign_key="folders.id", index=True)
     name: str
     description: str | None = Field(default=None)
@@ -260,6 +292,8 @@ class ExecutionModel(SQLModel, table=True):
     workflow_version_id: int | None = Field(default=None)
     workflow_name: str
     team_id: str = Field(default="default", foreign_key="teams.id", index=True)
+    project_id: str | None = Field(default=None, index=True)
+    environment: str | None = Field(default=None)
 
     status: str = Field(index=True)  # running, success, failed, cancelled, waiting
     mode: str  # manual, webhook, cron
@@ -385,12 +419,14 @@ class VariableModel(SQLModel, table=True):
 
     __tablename__ = "variables"
     __table_args__ = (
-        Index("idx_variables_team_env_key", "team_id", "environment", "key", unique=True),
         Index("ix_variables_team_env", "team_id", "environment"),
     )
 
     id: int | None = Field(default=None, sa_column=Column(Integer, primary_key=True, autoincrement=True))
     team_id: str = Field(foreign_key="teams.id", index=True)
+    # NULL = team-shared; set = project-scoped (project value wins at run time).
+    project_id: str | None = Field(default=None, foreign_key="projects.id", index=True)
+    allowed_hosts: list[str] | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
     environment: str = Field(default="default")
     key: str
     value: str  # Fernet ciphertext when type='secret', otherwise plaintext.
@@ -410,11 +446,12 @@ class DataTableModel(SQLModel, table=True):
 
     __tablename__ = "data_tables"
     __table_args__ = (
-        Index("idx_data_tables_team_name", "team_id", "name", unique=True),
+        Index("idx_data_tables_project_name", "project_id", "name", unique=True),
     )
 
     id: str = Field(primary_key=True)
     team_id: str = Field(foreign_key="teams.id", index=True)
+    project_id: str = Field(default=DEFAULT_PROJECT_ID, foreign_key="projects.id", index=True)
     name: str
     description: str | None = Field(default=None)
     # Column schema: [{"name": "email", "type": "string", "required": true}, ...]

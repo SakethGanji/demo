@@ -115,9 +115,12 @@ class WebhookService:
         from .variable_loader import load_run_variables, load_run_secrets
         from .vars_substitution import substitute_vars
 
+        from .project_service import effective_environment, resolve_project
         env = headers.pop("x-env", None) or query_params.pop("env", None) or "default"
-        variables = await load_run_variables(environment=env)
-        secrets = await load_run_secrets(environment=env)
+        project = await resolve_project(self._workflow_repo._session, stored.project_id)
+        env = effective_environment(project, env)
+        variables = await load_run_variables(environment=env, project_id=stored.project_id)
+        secrets = await load_run_secrets(environment=env, project_id=stored.project_id)
         body = substitute_vars(body, variables)
         headers = substitute_vars(headers, variables)
         query_params = substitute_vars(query_params, variables)
@@ -186,7 +189,7 @@ class WebhookService:
             # Pre-create execution row so node_outputs FK is satisfied during run
             async with async_session_factory() as session:
                 exec_repo = ExecutionRepository(session)
-                await exec_repo.start(execution_id, stored.id, stored.name, "webhook")
+                await exec_repo.start(execution_id, stored.id, stored.name, "webhook", project_id=stored.project_id)
 
             runner = WorkflowRunner(db_session_factory=async_session_factory)
             context = await runner.run(
@@ -198,6 +201,7 @@ class WebhookService:
                 execution_id=execution_id,
                 variables=variables,
                 secret_values=secrets,
+                project_id=stored.project_id,
             )
 
             # Use a fresh DB session for background persistence
@@ -257,6 +261,7 @@ class WebhookService:
             execution_id=exec_id,
             variables=variables,
             secret_values=secrets,
+            project_id=stored.project_id,
         )
 
         await self._execution_repo.complete(context, stored.id, stored.name)

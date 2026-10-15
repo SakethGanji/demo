@@ -55,6 +55,7 @@ def _admin_conn():
 
 
 class TestDatabase:
+    __test__ = False
     def __init__(self) -> None:
         self.name = os.environ.get("TEST_DB_NAME") or f"workflows_test_{uuid.uuid4().hex[:8]}"
         if self.name in PROTECTED_DBS or not self.name.startswith("workflows_test_"):

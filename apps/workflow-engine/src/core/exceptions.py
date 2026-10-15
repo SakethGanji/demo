@@ -96,3 +96,11 @@ class WorkflowInactiveError(WorkflowEngineError):
             details={"workflow_id": workflow_id},
         )
         self.workflow_id = workflow_id
+
+
+class ConflictError(WorkflowEngineError):
+    """A request conflicts with existing state (HTTP 409)."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message, {"code": code})
+        self.code = code

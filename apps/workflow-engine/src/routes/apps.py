@@ -21,9 +21,10 @@ router = APIRouter(prefix="/apps")
 @router.get("")
 async def list_apps(
     folder_id: str | None = None,
+    project_id: str | None = None,
     service: AppService = Depends(get_app_service),
 ):
-    return await service.list_apps(folder_id)
+    return await service.list_apps(folder_id, project_id=project_id)
 
 
 @router.post("", status_code=201)
@@ -31,7 +32,10 @@ async def create_app(
     req: AppCreateRequest,
     service: AppService = Depends(get_app_service),
 ):
-    return await service.create_app(req)
+    try:
+        return await service.create_app(req)
+    except AppPublishError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
 
 
 @router.get("/{app_id}")
@@ -51,7 +55,12 @@ async def update_app(
     req: AppUpdateRequest,
     service: AppService = Depends(get_app_service),
 ):
-    result = await service.update_app(app_id, req)
+    try:
+        result = await service.update_app(app_id, req)
+    except AppPublishError as e:
+        if str(e).startswith("project "):
+            raise HTTPException(status_code=422, detail=str(e)) from e
+        raise
     if not result:
         raise HTTPException(status_code=404, detail="App not found")
     return result

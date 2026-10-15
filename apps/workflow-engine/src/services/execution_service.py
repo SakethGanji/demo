@@ -31,6 +31,108 @@ class ExecutionService:
         self._execution_repo = execution_repo
         self._workflow_repo = workflow_repo
 
+    async def run_saved_workflow(
+        self,
+        workflow_id: str,
+        input_data: dict[str, Any] | None = None,
+        *,
+        environment: str | None = "default",
+        mode: str | None = None,
+        substitute_inputs: bool = True,
+        initial_item: dict[str, Any] | None = None,
+        version_id: int | None = None,
+        timeout_s: float | None = None,
+        metadata: dict[str, Any] | None = None,
+        extras: dict[str, Any] | None = None,
+        on_context_ready: Any | None = None,
+    ):
+        """The single path for running a saved workflow (BACKEND-DESIGN §4.3).
+
+        Used by /api/workflows/{id}/run, published apps, the project router and releases.
+        * environment is mapped onto the workflow's project (``effective_environment``).
+        * input_data is wrapped webhook-style ({body, headers, query, method}) as before;
+          ``initial_item`` replaces the wrapper entirely (route requests).
+        * ``substitute_inputs=False`` disables inbound {{ $vars.X }} expansion (anonymous surfaces).
+        * ``version_id`` runs a pinned immutable version instead of the draft.
+        Returns ``(stored_workflow, ExecutionContext)``. Raises WorkflowNotFoundError /
+        WorkflowExecutionError / asyncio.TimeoutError.
+        """
+        from ..core.exceptions import WorkflowNotFoundError, WorkflowExecutionError
+        from ..db.session import async_session_factory
+        from ..engine.types import NodeData
+        from ..engine.workflow_runner import WorkflowRunner
+        from ..utils.ids import execution_id as gen_exec_id
+        from .project_service import effective_environment, resolve_project
+        from .variable_loader import load_run_secrets, load_run_variables
+        from .vars_substitution import substitute_vars
+
+        if version_id is not None:
+            stored = await self._workflow_repo.get_version_workflow(workflow_id, version_id)
+        else:
+            stored = await self._workflow_repo.get(workflow_id)
+        if not stored:
+            raise WorkflowNotFoundError(workflow_id)
+
+        project = await resolve_project(self._workflow_repo._session, stored.project_id)
+        env = effective_environment(project, environment)
+        runner = WorkflowRunner(db_session_factory=async_session_factory)
+        start_node = runner.find_start_node(stored.workflow)
+        variables = await load_run_variables(environment=env, project_id=stored.project_id)
+        secrets = await load_run_secrets(environment=env, project_id=stored.project_id)
+        if substitute_inputs and input_data is not None:
+            input_data = substitute_vars(input_data, variables)
+
+        if not start_node:
+            raise WorkflowExecutionError("No start node found in workflow", workflow_id=workflow_id)
+
+        if initial_item is not None:
+            initial_data = [NodeData(json={**initial_item, "triggeredAt": datetime.now().isoformat()})]
+            run_mode = mode or "api"
+        elif input_data:
+            initial_data = [NodeData(json={
+                "body": input_data, "headers": {}, "query": {}, "method": "POST",
+                "triggeredAt": datetime.now().isoformat(),
+            })]
+            run_mode = mode or "webhook"
+        else:
+            initial_data = [NodeData(json={"triggeredAt": datetime.now().isoformat(), "mode": "manual"})]
+            run_mode = mode or "manual"
+
+        exec_id = gen_exec_id()
+        meta = {"labels": {"env": env}, **(metadata or {})}
+        await self._execution_repo.start(
+            exec_id, stored.id, stored.name, run_mode,
+            project_id=stored.project_id, environment=env, metadata=meta,
+        )
+        if on_context_ready:
+            await on_context_ready(exec_id, env, stored)
+
+        coro = runner.run(
+            stored.workflow,
+            start_node.name,
+            initial_data,
+            run_mode,
+            workflow_repository=self._workflow_repo,
+            execution_id=exec_id,
+            version_id=version_id,
+            variables=variables,
+            secret_values=secrets,
+            project_id=stored.project_id,
+            environment=env,
+            extras=extras,
+        )
+        if timeout_s:
+            try:
+                context = await asyncio.wait_for(coro, timeout=timeout_s)
+            except asyncio.TimeoutError:
+                await self._execution_repo.mark_failed(exec_id, f"timed out after {timeout_s}s")
+                raise
+        else:
+            context = await coro
+        await self._execution_repo.complete(context, stored.id, stored.name)
+        context.extras["secret_values"] = secrets
+        return stored, context
+
     async def list_executions(self, workflow_id: str | None = None) -> list[ExecutionListItem]:
         """List execution history."""
         executions = await self._execution_repo.list(workflow_id)
@@ -147,8 +249,11 @@ class ExecutionService:
         ]
 
         from .variable_loader import load_run_variables, load_run_secrets
-        variables = await load_run_variables(environment="default")
-        secrets = await load_run_secrets(environment="default")
+        from .project_service import effective_environment, resolve_project
+        project = await resolve_project(self._workflow_repo._session, stored.project_id)
+        env = effective_environment(project, "default")
+        variables = await load_run_variables(environment=env, project_id=stored.project_id)
+        secrets = await load_run_secrets(environment=env, project_id=stored.project_id)
 
         async def _run() -> None:
             try:
@@ -160,6 +265,8 @@ class ExecutionService:
                     pre_populated_states=pre_populated,
                     variables=variables,
                     secret_values=secrets,
+                    project_id=stored.project_id,
+                    environment=env,
                 )
                 async with async_session_factory() as session:
                     from ..repositories.execution_repository import ExecutionRepository

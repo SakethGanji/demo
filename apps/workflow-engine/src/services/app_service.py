@@ -60,10 +60,12 @@ class AppService:
 
     # ── List / Get / Create / Update / Delete ────────────────────────────────
 
-    async def list_apps(self, folder_id: str | None = None) -> list[AppListItem]:
+    async def list_apps(self, folder_id: str | None = None, project_id: str | None = None) -> list[AppListItem]:
         stmt = select(AppModel)
         if folder_id is not None:
             stmt = stmt.where(AppModel.folder_id == folder_id)
+        if project_id is not None:
+            stmt = stmt.where(AppModel.project_id == project_id)
         stmt = stmt.order_by(AppModel.updated_at.desc())
         result = await self._session.execute(stmt)
         rows = result.scalars().all()
@@ -73,6 +75,7 @@ class AppService:
                 name=r.name,
                 created_at=r.created_at.isoformat(),
                 updated_at=r.updated_at.isoformat(),
+                project_id=r.project_id,
             )
             for r in rows
         ]
@@ -92,8 +95,18 @@ class AppService:
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def create_app(self, req: AppCreateRequest) -> AppDetailResponse:
+    async def _project_id(self, ref: str | None) -> str | None:
+        if not ref:
+            return None
+        from .project_service import resolve_project
+        p = await resolve_project(self._session, ref)
+        if not p:
+            raise AppPublishError(f"project '{ref}' not found")
+        return p.id
+
+    async def create_app(self, req: AppCreateRequest, created_by: str | None = None) -> AppDetailResponse:
         now = datetime.now()
+        project_id = await self._project_id(getattr(req, "project_id", None))
         row = AppModel(
             id=app_id(),
             name=req.name,
@@ -105,7 +118,10 @@ class AppService:
             draft_definition=req.definition,
             created_at=now,
             updated_at=now,
+            created_by=created_by,
         )
+        if project_id:
+            row.project_id = project_id
         self._session.add(row)
         await self._session.commit()
         await self._session.refresh(row)
@@ -117,6 +133,8 @@ class AppService:
             return None
         if req.name is not None:
             row.name = req.name
+        if getattr(req, "project_id", None):
+            row.project_id = await self._project_id(req.project_id)
         if req.definition is not None:
             row.draft_definition = req.definition
         if req.description is not None:
@@ -589,6 +607,7 @@ class AppService:
             name=row.name,
             definition=row.draft_definition or {},
             active=row.active,
+            project_id=row.project_id,
             workflow_ids=row.workflow_ids or [],
             api_execution_ids=row.api_execution_ids or [],
             source_code=row.draft_source_code,

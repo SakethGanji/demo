@@ -38,6 +38,7 @@ class AdhocWorkflowRequest(BaseModel):
     settings: dict[str, Any] = {}
     input_data: dict[str, Any] | None = None  # Test input for webhook/trigger
     environment: str = "default"
+    project_id: str | None = None
 
 
 class WorkflowTestRequest(BaseModel):
@@ -91,6 +92,8 @@ async def _run_workflow_with_events(
     workflow_repo: WorkflowRepository | None = None,
     variables: dict[str, str] | None = None,
     secret_values: set[str] | None = None,
+    project_id: str | None = None,
+    environment: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """Run workflow and yield SSE events.
 
@@ -109,7 +112,7 @@ async def _run_workflow_with_events(
     # Pre-create execution row so node_outputs FK is satisfied during run
     exec_id = gen_exec_id()
     wf_id = workflow.id or "adhoc"
-    await execution_repo.start(exec_id, wf_id, workflow.name, mode)
+    await execution_repo.start(exec_id, wf_id, workflow.name, mode, project_id=project_id, environment=environment)
 
     event_bus = _get_event_bus()
     runner = WorkflowRunner(db_session_factory=async_session_factory, event_bus=event_bus)
@@ -128,6 +131,8 @@ async def _run_workflow_with_events(
                 execution_id=exec_id,
                 variables=variables,
                 secret_values=secret_values,
+                project_id=project_id,
+                environment=environment,
             )
             await execution_repo.complete(context, wf_id, workflow.name)
         except Exception as e:
@@ -153,6 +158,22 @@ async def _run_workflow_with_events(
     finally:
         if not task.done():
             task.cancel()
+
+
+async def _project_env(workflow_repo, project_ref: str | None, workflow_id: str | None, requested: str | None):
+    """(project, effective env) for a streamed run: explicit project, else the saved workflow's."""
+    from ..services.project_service import effective_environment, get_project_for_workflow, resolve_project
+    session = workflow_repo._session
+    project = None
+    if project_ref:
+        project = await resolve_project(session, project_ref)
+        if not project:
+            raise HTTPException(status_code=422, detail=f"Project '{project_ref}' not found")
+    elif workflow_id:
+        from ..db.models import WorkflowModel
+        if await session.get(WorkflowModel, workflow_id):
+            project = await get_project_for_workflow(session, workflow_id)
+    return project, effective_environment(project, requested)
 
 
 # ============================================================================
@@ -208,8 +229,10 @@ async def stream_adhoc_execution(
     if not start_node:
         raise HTTPException(status_code=400, detail="No start node found in workflow")
 
-    variables = await load_run_variables(environment=workflow.environment)
-    secrets = await load_run_secrets(environment=workflow.environment)
+    project, env = await _project_env(workflow_repo, workflow.project_id, workflow.id, workflow.environment)
+    project_id = project.id if project else None
+    variables = await load_run_variables(environment=env, project_id=project_id)
+    secrets = await load_run_secrets(environment=env, project_id=project_id)
     resolved_input = substitute_vars(workflow.input_data, variables) if workflow.input_data else None
 
     # Build initial data - wrap in webhook-style format for consistency
@@ -247,6 +270,8 @@ async def stream_adhoc_execution(
             workflow_repo=workflow_repo,
             variables=variables,
             secret_values=secrets,
+            project_id=project_id,
+            environment=env,
         ):
             yield event
 
@@ -281,8 +306,10 @@ async def stream_workflow_execution(
     ]
 
     from ..services.variable_loader import load_run_variables, load_run_secrets
-    variables = await load_run_variables(environment=environment)
-    secrets = await load_run_secrets(environment=environment)
+    project, env = await _project_env(workflow_repo, None, stored.id, environment)
+    project_id = project.id if project else None
+    variables = await load_run_variables(environment=env, project_id=project_id)
+    secrets = await load_run_secrets(environment=env, project_id=project_id)
 
     async def event_generator() -> AsyncGenerator[str, None]:
         async for event in _run_workflow_with_events(
@@ -294,6 +321,8 @@ async def stream_workflow_execution(
             workflow_repo=workflow_repo,
             variables=variables,
             secret_values=secrets,
+            project_id=project_id,
+            environment=env,
         ):
             yield event
 
@@ -320,8 +349,10 @@ async def stream_workflow_execution_with_input(
 
     from ..services.variable_loader import load_run_variables, load_run_secrets
     from ..services.vars_substitution import substitute_vars
-    variables = await load_run_variables(environment=request.environment)
-    secrets = await load_run_secrets(environment=request.environment)
+    project, env = await _project_env(workflow_repo, None, stored.id, request.environment)
+    project_id = project.id if project else None
+    variables = await load_run_variables(environment=env, project_id=project_id)
+    secrets = await load_run_secrets(environment=env, project_id=project_id)
     resolved_input = (
         substitute_vars(request.input_data, variables) if request.input_data is not None else None
     )
@@ -361,6 +392,8 @@ async def stream_workflow_execution_with_input(
             workflow_repo=workflow_repo,
             variables=variables,
             secret_values=secrets,
+            project_id=project_id,
+            environment=env,
         ):
             yield event
 
