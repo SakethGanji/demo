@@ -792,7 +792,7 @@ The stream ends with exactly **one terminal event** (`result` **or** `error`), a
 | `draft` | `{attempt, module_name, source, summary, tables}` |
 | `analysis` | `{attempt, routes, errors, conflicts, tables, secrets, warnings}` |
 | `self_test` | `{results:[…]}` |
-| `result` (terminal) | `{module_name, source, summary, attempts, model, analysis, self_test}` |
+| `result` (terminal) | `{module_name, source, summary, attempts, model, analysis, self_test}`; `self_test` is the **array** of self-test results (the same items as the `self_test` event's `results`), or `null` when no self-test ran |
 | `error` (terminal) | `{code, message, draft?: {module_name, source}, analysis?}` with `code ∈ {llm_failed, generation_invalid, timeout, internal}`. `generation_invalid` carries the last draft and its analysis. |
 
 **JSON mode**: `200 <result object>`; `422 {"detail":{"code":"generation_invalid","message","errors","draft"}}`;
@@ -1082,7 +1082,7 @@ the fallback system font is accepted.
 | T2 | Setup step 1: secret | `PAYMENTS_TOKEN` (dev+prod, host 127.0.0.1); matrix `set/set`; API `value:null`; **the value string is absent from `document.body.innerText` and from every API response body** |
 | T3 | Generate (prompt "Store refunds … __refunds__") | Phases; draft in the editor; result "3 routes · self-test **2/2**" (`GET /refunds`, `GET /refunds/stats`); tables row "Create table refunds"; `GET …/modules` empty and **`GET …/tables` lacks `refunds`**; call log: `rule_id` `gen-refunds`, the system prompt contains `http_request`, `PAYMENTS_TOKEN` and the existing tables, the tools contain the `emit_module` schema, no message contains the secret value; self-test runs have `trigger.type=generate_self_test` |
 | T4 | Secret scrub | Paste the secret value into a comment in the editor, Refine with the prompt "Keep everything as is __scrub__" → `rule_id` `gen-scrub`; the call log (all messages, including the `Current module` message) lacks the value and contains `***`; the `secret_scrubbed` warning is shown |
-| T5 | Draft test GET /refunds/stats | 200, `count:0` (virtual table); upstream saw `Authorization: Bearer <value>`; UI shows `***`; run `trigger.type=draft_test` |
+| T5 | Draft test GET /refunds/stats | 200, `count:0` (virtual table); upstream saw `Authorization: Bearer <value>`; the trace shows the placeholder `{{ $vars.PAYMENTS_TOKEN }}`, never the value; run `trigger.type=draft_test` |
 | T6 | Draft write before save | POST /refunds → inner 502, `error.code=table_not_found` card → *Create table now* → `GET …/tables` has `refunds` → resend → inner 200 |
 | T7 | Save | Create-table checkbox → POST tables then modules; 3 routes `source:"code"`; outline settles; client.ts tab has `createRefund`, `listRefunds`, `refundStats`; Overview lists them; `handler.line` used by "Open in editor" |
 | T8 | Saved-route tests | POST /refunds `{reason:"damaged",amount:84.5}` → inner **200** (dict return) with `id`; without amount → inner 422 shown amber; GET stats `count:1`; Runs shows `route_test`; run sheet trace, `metadata.request` shown |

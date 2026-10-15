@@ -17,7 +17,7 @@ test('T8 saved-route tests', async ({ page, api, s }) => {
   await expect(pill).toHaveAttribute('data-status', '200')
   await expect(page.getByTestId('response-body')).toContainText('"id"')
   // backend: the row exists and the run is a route_test
-  const rows = await api.get<{ rows: Array<{ data: { amount: number } }>; count: number }>(`/projects/${p.id}/tables/refunds/rows?count=true`)
+  const rows = await api.get<{ rows: Array<{ data: { amount: number } }>; count: number }>(`${await api.tablePath(p.id, 'refunds')}/rows?count=true`)
   expect(rows.count).toBe(1)
   expect(rows.rows[0].data.amount).toBe(84.5)
   // without amount → inner 422, shown amber
@@ -129,6 +129,8 @@ test('T12 autocomplete', async ({ page, api, s }) => {
   await expect(first.locator('.cm-completionLabel')).toHaveText('http_request')
   await expect(first.locator('.cm-completionDetail')).toHaveText(/^\(\*, method, url/)
   await expect(first.getByTestId('completion-type')).toHaveText('HttpRequest')
+  // CodeMirror ignores accept keys for 75 ms after the list opens (autocompletion `interactionDelay`)
+  await page.waitForTimeout(250)
   await page.keyboard.press('Enter')
   await expect.poll(async () => (await editorText(page)).split('\n').pop()).toBe('x = studio.nodes.http_request(method="GET", url="")')
   await page.keyboard.press('ControlOrMeta+End')
@@ -266,7 +268,10 @@ test('T33 delete module', async ({ page, api, s }) => {
   await page.getByTestId('module-delete').click()
   const dlg = page.getByTestId('delete-module-dialog')
   await expect(dlg.getByTestId('delete-module-routes').locator('[data-method]')).toHaveCount(3)
-  await expect(dlg.getByTestId('delete-module-used-by')).toContainText('Refunds app')
+  // the app calls createRefund and refundStats → both routes carry the badge
+  const usedBy = dlg.getByTestId('delete-module-used-by')
+  await expect(usedBy).toHaveCount(2)
+  for (const b of await usedBy.all()) await expect(b).toContainText('used by Refunds app')
   await expect(dlg).toContainText('table and its rows are kept')
   await expect(dlg.getByTestId('delete-module-confirm')).toBeDisabled()
   await dlg.getByTestId('delete-module-confirm-input').fill('refunds')

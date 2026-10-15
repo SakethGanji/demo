@@ -133,6 +133,9 @@ interface DocState {
   docs: Record<string, ModuleDoc>
   /** module tabs opened this session, per project */
   open: Record<string, string[]>
+  /** docKey(from) → new name, while a rename is waiting for the router to leave the old URL (so the old doc is not re-created) */
+  renamed: Record<string, string>
+  clearRenamed: (projectId: string, from: string) => void
   put: (doc: ModuleDoc) => void
   patch: (projectId: string, module: string, patch: Partial<ModuleDoc>) => void
   rename: (projectId: string, from: string, to: string) => void
@@ -144,6 +147,15 @@ interface DocState {
 export const useDocStore = create<DocState>((set, get) => ({
   docs: {},
   open: {},
+  renamed: {},
+  clearRenamed: (projectId, from) =>
+    set((s) => {
+      const k = docKey(projectId, from)
+      if (!(k in s.renamed)) return s
+      const renamed = { ...s.renamed }
+      delete renamed[k]
+      return { renamed }
+    }),
   put: (doc) => {
     persist(doc)
     set((s) => ({ docs: { ...s.docs, [docKey(doc.projectId, doc.module)]: doc } }))
@@ -164,7 +176,7 @@ export const useDocStore = create<DocState>((set, get) => ({
       delete docs[docKey(projectId, from)]
       if (cur) docs[docKey(projectId, to)] = { ...cur, module: to }
       const open = { ...s.open, [projectId]: (s.open[projectId] ?? []).map((m) => (m === from ? to : m)) }
-      return { docs, open }
+      return { docs, open, renamed: { ...s.renamed, [docKey(projectId, from)]: to } }
     })
     const moved = get().docs[docKey(projectId, to)]
     if (moved) persist(moved)

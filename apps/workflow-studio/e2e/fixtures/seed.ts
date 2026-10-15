@@ -58,7 +58,7 @@ export function seedTable(api: EngineApi, p: P, name: string, columns = REFUND_C
 }
 
 export async function seedRows(api: EngineApi, p: P, table: string, rows: Array<Record<string, unknown>>) {
-  for (const r of rows) await api.post(`/projects/${p.id}/tables/${table}/rows`, { data: r })
+  for (const r of rows) await api.post(`${await api.tablePath(p.id, table)}/rows`, { data: r })
 }
 
 export interface SeededModule {
@@ -96,6 +96,7 @@ export async function seedApp(
   const app = await api.post<{ id: string; definition: Record<string, unknown> }>(`/projects/${p.id}/apps`, { name, definition: BLANK_DEFINITION })
   await api.put(`/apps/${app.id}`, {
     definition: { ...app.definition, studio: { route_ids: routeIds } },
+    source_code: files.find((f) => f.path === 'App.tsx')?.content, // api-usage scans the entry source
     files,
     create_version: true,
     version_trigger: 'manual',

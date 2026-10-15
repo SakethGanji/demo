@@ -604,7 +604,7 @@ class Generation:
                 if req.self_test:
                     async for ev in self._self_test(project, analysis, source, name, deadline):
                         if ev["type"] == "self_test":
-                            self_test = {"results": ev["results"]}
+                            self_test = ev["results"]   # `result.self_test` is the results array (or null), UI-DESIGN §10.1
                         yield ev
                 yield {"type": "result", "module_name": name, "source": source, "summary": summary,
                        "attempts": attempt, "model": self.model, "analysis": self._public(analysis),

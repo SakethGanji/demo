@@ -47,7 +47,7 @@ test('T25 publish with pre-flight', async ({ page, context, api, s }) => {
   const res = await call
   expect(res.status()).toBe(200)
   expect(res.request().headers()['authorization']).toMatch(/^Bearer .+/)
-  const count = (await api.get<{ count: number }>(`/projects/${p.id}/tables/refunds/rows?count=true`)).count
+  const count = (await api.get<{ count: number }>(`${await api.tablePath(p.id, 'refunds')}/rows?count=true`)).count
   await expect(pubPage.getByTestId('refund-count')).toHaveText(String(count))
   await pubPage.close()
 })

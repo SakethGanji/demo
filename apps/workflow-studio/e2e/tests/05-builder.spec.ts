@@ -130,7 +130,7 @@ test('T23 the preview calls the backend through the bridge', async ({ page, api,
   expect(new URL(req.url()).origin).toBe(s.engineUrl)
   expect(req.headers()['authorization']).toMatch(/^Bearer .+/)
   const frame = page.frameLocator('[data-testid="preview-iframe"]')
-  const count = async () => (await api.get<{ count: number }>(`/projects/${p.id}/tables/refunds/rows?count=true`)).count
+  const count = async () => (await api.get<{ count: number }>(`${await api.tablePath(p.id, 'refunds')}/rows?count=true`)).count
   await expect(frame.getByTestId('refund-count')).toHaveText(String(await count()))
   const before = await count()
   await frame.getByTestId('refund-amount').fill('7.5')

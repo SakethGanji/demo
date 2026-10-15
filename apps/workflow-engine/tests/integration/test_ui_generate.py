@@ -293,7 +293,7 @@ def test_generate_happy_path_framing_context_layout_and_no_writes(fake_api, upst
     assert s["present_in"] == ["dev"] and s["missing_in"] == ["prod"] and s["bound"] is True
     assert s["allowed_hosts"] == [urlparse(upstream).hostname] and s["lines"]
     # self-test: GET /refunds and GET /refunds/stats ran (virtual table, real secret + upstream), POST skipped
-    st = {r["route"]: r for r in res["self_test"]["results"]}
+    st = {r["route"]: r for r in res["self_test"]}
     assert st["POST /refunds"] == {"route": "POST /refunds", "skipped": "writes"}
     assert st["GET /refunds"]["ok"] is True and st["GET /refunds"]["status"] == 200
     assert st["GET /refunds"]["execution_id"].startswith("exec_") and st["GET /refunds"]["body_preview"] == "[]"
@@ -337,7 +337,7 @@ def test_generate_json_mode_equals_sse_result(fake_api, upstream, script):
 
     def norm(x: dict) -> dict:  # execution ids / durations differ run to run
         x = json.loads(json.dumps({k: v for k, v in x.items() if k not in ("type", "seq")}))
-        for res in x["self_test"]["results"]:
+        for res in x["self_test"]:
             res.pop("execution_id", None)
             res.pop("duration_ms", None)
         return x
@@ -504,7 +504,7 @@ def test_generate_self_test_is_read_only_virtual_limited_and_never_sent_to_the_l
     assert status == 200
     res = terminal(msgs)
     assert res["type"] == "result", res
-    st = {r["route"]: r for r in res["self_test"]["results"]}
+    st = {r["route"]: r for r in res["self_test"]}
     assert st["GET /a"]["ok"] is True and st["GET /a"]["body_preview"] == "[]"                # virtual table: empty read
     assert st["GET /w"]["ok"] is False and st["GET /w"]["error_code"] == "read_only"          # http POST denied
     assert st["GET /d"]["ok"] is False and st["GET /d"]["error_code"] == "table_not_found"    # virtual write
@@ -513,7 +513,7 @@ def test_generate_self_test_is_read_only_virtual_limited_and_never_sent_to_the_l
     ran = [k for k, v in st.items() if "ok" in v]
     assert ran == ["GET /a", "GET /w", "GET /d", "GET /e", "GET /l1"]        # at most 5, in order
     assert st["GET /l2"]["skipped"] == "limit" and st["GET /l3"]["skipped"] == "limit"
-    assert [r["route"] for r in res["self_test"]["results"]][:3] == ["GET /a", "GET /w", "GET /d"]
+    assert [r["route"] for r in res["self_test"]][:3] == ["GET /a", "GET /w", "GET /d"]
     for r in st.values():
         if "ok" in r:
             assert set(r) >= {"route", "ok", "status", "duration_ms", "error_code", "body_preview", "execution_id"}

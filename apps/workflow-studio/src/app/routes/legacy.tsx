@@ -3,7 +3,7 @@
  * QueryClient and redirects; unknown ids land on /projects with a toast.
  */
 import { createRoute, redirect } from '@tanstack/react-router'
-import { toast } from 'sonner'
+import { queueToast } from '@/shared/lib/pendingToast'
 import { rootRoute } from './__root'
 import { workflowsApi, appsApi } from '@/shared/lib/api'
 import { projectsApi } from '@/shared/api/endpoints'
@@ -32,7 +32,7 @@ export const editorRedirectRoute = createRoute({
       slug = await slugFor(context.queryClient, wf.project_id)
     } catch (e) {
       if (isApiError(e, undefined, 404)) {
-        toast.error('Workflow not found')
+        queueToast('error', 'Workflow not found')
         throw redirect({ to: '/projects', replace: true })
       }
       throw e
@@ -61,7 +61,7 @@ export const builderRedirectRoute = createRoute({
       slug = await slugFor(context.queryClient, app.project_id)
     } catch (e) {
       if (isApiError(e, undefined, 404)) {
-        toast.error('App not found')
+        queueToast('error', 'App not found')
         throw redirect({ to: '/projects', replace: true })
       }
       throw e

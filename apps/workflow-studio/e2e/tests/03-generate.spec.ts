@@ -4,7 +4,8 @@
 import type { Page } from '@playwright/test'
 import { test, expect, type EngineApi } from '../fixtures/test'
 import { cursorLine, editorText, openModule, save, setSource } from '../fixtures/editor'
-import { fixture, seedModule, seedProject, seedRefunds, seedSecret, seedTable, type P } from '../fixtures/seed'
+import { readSse, watchSse } from '../fixtures/sse'
+import { fixture, refundsAppFile, seedApp, seedModule, seedProject, seedRefunds, seedSecret, seedTable, type P } from '../fixtures/seed'
 
 const REFUNDS_PROMPT = 'Store refunds in a table. POST /refunds creates one, GET /refunds lists them, GET /refunds/stats totals them by reason __refunds__'
 
@@ -25,6 +26,7 @@ async function recordComposer(page: Page) {
 const seen = (page: Page) => page.evaluate(() => [...(window as unknown as { __seen: Set<string> }).__seen])
 
 async function generate(page: Page, prompt: string) {
+  await expect(page.getByTestId('composer')).toBeVisible()
   const input = page.getByTestId('composer-input')
   if (!(await input.isVisible())) await page.getByTestId('composer-submit').click()
   await input.fill(prompt)
@@ -64,6 +66,9 @@ test('T3 generate a module', async ({ page, api, s }) => {
   await expect(page.locator('[data-testid="composer-tables"][data-table="refunds"]')).toContainText('Create table refunds on save')
   await expect(page.getByTestId('outline-draft-table-refunds')).toContainText('created on save')
   await expect(page.getByTestId('outline-new-route')).toHaveCount(3)
+  // the generated draft took the module's name: no leftover "untitled" draft entry
+  await expect(page.locator('[data-testid^="outline-module-"]')).toHaveCount(1)
+  await expect(page.getByTestId('outline-module-refunds')).toContainText('draft')
   expect(await api.get<unknown[]>(`/projects/${p.id}/modules`)).toEqual([])
   expect((await api.get<Array<{ name: string }>>(`/projects/${p.id}/tables`)).map((t) => t.name)).not.toContain('refunds')
   // call log: the right rule, the real context and schema, no secret value anywhere
@@ -112,7 +117,8 @@ test('T5 draft test of GET /refunds/stats', async ({ page, api, s }) => {
   // the upstream received the real secret; the UI only ever shows ***
   const log = (await (await fetch(`${s.upstreamUrl}/__log`)).json()) as Array<{ path: string; headers: Record<string, string> }>
   expect(log.find((x) => x.path === '/v1/balance')?.headers.authorization).toBe(`Bearer ${value}`)
-  await expect(page.getByTestId('trace')).toContainText('***')
+  // the trace shows the secret's NAME as the broker's placeholder, never its value
+  await expect(page.getByTestId('trace')).toContainText('{{ $vars.PAYMENTS_TOKEN }}')
   expect(await page.evaluate(() => document.body.innerText)).not.toContain(value)
   const runs = await api.get<Array<{ trigger: { type: string; module_name?: string } }>>(`/projects/${p.id}/runs?trigger=draft_test`)
   expect(runs.length).toBe(1)
@@ -135,7 +141,7 @@ test('T6 draft write before save → Create table now', async ({ page, api, s })
   expect(t.find((x) => x.name === 'refunds')?.columns.map((c) => c.name)).toEqual(['reason', 'amount'])
   await page.getByTestId('test-send').click()
   await expect(page.getByTestId('test-response').getByTestId('status-pill')).toHaveAttribute('data-status', '200')
-  const rows = await api.get<{ count: number }>(`/projects/${p.id}/tables/refunds/rows?count=true`)
+  const rows = await api.get<{ count: number }>(`${await api.tablePath(p.id, 'refunds')}/rows?count=true`)
   expect(rows.count).toBe(1)
 })
 
@@ -156,12 +162,11 @@ test('T7 save creates the tables, then the module', async ({ page, api, s, net }
   // client.ts has the operations
   await page.getByTestId('inspector-tab-client').click()
   for (const op of ['createRefund', 'listRefunds', 'refundStats']) await expect(page.getByTestId('client-ts-source')).toContainText(op)
-  // Overview lists them
-  await page.getByTestId('outline-overview').click()
-  for (const op of ['createRefund', 'listRefunds', 'refundStats']) await expect(page.getByTestId(`route-row-${op}`)).toBeVisible()
   // "Open in editor" from a run lands on handler.line
   const create = routes.find((r) => r.name === 'createRefund')!
-  await page.getByTestId('route-test-createRefund').click()
+  await page.getByTestId('outline-route-createRefund').click()
+  await page.getByTestId('inspector-tab-test').click()
+  await page.getByTestId('req-tab-body').click()
   await page.getByTestId('req-body').fill('{"reason":"x","amount":1}')
   await page.getByTestId('test-send').click()
   await expect(page.getByTestId('test-response').getByTestId('status-pill')).toHaveAttribute('data-status', '200')
@@ -169,6 +174,11 @@ test('T7 save creates the tables, then the module', async ({ page, api, s, net }
   await page.getByTestId('run-open-editor').click()
   await expect(page.getByTestId('backend-view')).toBeVisible()
   await expect.poll(() => cursorLine(page)).toBe(create.handler.line)
+  // Overview lists the routes (the first-run guide gives way to it once all 4 steps are done: route tested + an app, T43)
+  await seedApp(api, p, 'Refunds app', [refundsAppFile()], [routes.find((r) => r.name === 'refundStats')!.id])
+  await page.reload()
+  await page.getByTestId('outline-overview').click()
+  for (const op of ['createRefund', 'listRefunds', 'refundStats']) await expect(page.getByTestId(`route-row-${op}`)).toBeVisible()
 })
 
 test('T10 missing-secret widget', async ({ page, api, s }) => {
@@ -200,7 +210,7 @@ test('T14 repair loop', async ({ page, api, s }) => {
   await api.clearLlmCalls()
   await generate(page, 'Make a module __broken__')
   await expect(page.getByTestId('composer-result')).toBeVisible({ timeout: 60_000 })
-  expect(await seen(page)).toContain('status:repairing')
+  expect(await seen(page)).toContain('phase-repairing') // the persistent chip (a transient status value can be coalesced)
   await expect(page.getByTestId('composer-attempts')).toHaveAttribute('data-attempts', '2')
   const calls = await api.llmCalls()
   expect(calls.map((c) => c.rule_id)).toEqual(['gen-broken', 'repair'])
@@ -216,12 +226,11 @@ test('T15 LLM failure, then a retried success', async ({ page, api, s }) => {
   await openModule(page, s.studioUrl, p.slug, 'hello')
   const before = await editorText(page)
   await api.clearLlmCalls()
-  const sse = page.waitForResponse((r) => r.url().endsWith('/modules/generate'))
+  await watchSse(page, '/modules/generate')
   await generate(page, 'x __llm_fail__')
-  const body = await (await sse).text()
   await expect(page.getByTestId('composer-error')).toBeVisible()
   expect(await editorText(page)).toBe(before)
-  const events = [...body.matchAll(/event: (\w+)\ndata: (.*)/g)].map((m) => [m[1], m[2]])
+  const events = await readSse(page, '/modules/generate')
   const last2 = events.slice(-2)
   expect(last2[0][0]).toBe('message')
   expect(JSON.parse(last2[0][1]).type).toBe('error')
@@ -273,7 +282,7 @@ test('T18 traceback link goes to the line', async ({ page, api, s }) => {
   ].join('\n')
   await setSource(page, src)
   await page.getByTestId('test-send').click()
-  await expect(page.getByTestId('test-response').getByTestId('status-pill')).toHaveAttribute('data-status', '500')
+  await expect(page.getByTestId('test-response').getByTestId('status-pill')).toHaveAttribute('data-status', '502') // run-draft: a failing handler is an inner 502 (§10.2)
   await expect(page.getByTestId('run-error-message')).toContainText('ValueError: boom on purpose')
   await page.getByTestId('go-to-line').click()
   await expect.poll(() => cursorLine(page)).toBe(12)

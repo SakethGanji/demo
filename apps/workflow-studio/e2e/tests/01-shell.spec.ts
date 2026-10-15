@@ -96,6 +96,7 @@ test('T43 first-run gating and completion', async ({ page, open, api }) => {
   // 4. an app → the guide is replaced by the Overview
   const routes = await api.get<Array<{ id: string }>>(`/projects/${p.id}/routes`)
   await seedApp(api, p, 'Hello app', [refundsAppFile()], [routes[0].id])
+  await page.reload() // seeded behind the UI's back, like the module in step 2
   await page.getByTestId('outline-overview').click()
   await expect(page.getByTestId('overview-panel')).toBeVisible()
   await expect(guide).toHaveCount(0)

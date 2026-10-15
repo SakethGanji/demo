@@ -41,7 +41,7 @@ test('T19 data view', async ({ page, api, s, net }) => {
   await page.goto(`${s.studioUrl}/p/${p.slug}/data/refunds`)
   await expect(page.getByTestId('data-row')).toHaveCount(2)
   await expect(page.getByTestId('data-panel')).toContainText('84.5')
-  const count = async () => (await api.get<{ count: number }>(`/projects/${p.id}/tables/refunds/rows?count=true`)).count
+  const count = async () => (await api.get<{ count: number }>(`${await api.tablePath(p.id, 'refunds')}/rows?count=true`)).count
   expect(await count()).toBe(2)
   // invalid row → 422 row_invalid, field error at the cell
   await page.getByTestId('data-add-row').click()
@@ -63,7 +63,7 @@ test('T19 data view', async ({ page, api, s, net }) => {
   await page.getByTestId('cell-editor').fill('very late')
   await page.getByTestId('cell-editor').press('Enter')
   await expect(late.getByTestId('cell-reason')).toHaveText('very late')
-  await expect.poll(async () => (await api.get<{ data: { reason: string } }>(`/projects/${p.id}/tables/refunds/rows/${id}`)).data.reason).toBe('very late')
+  await expect.poll(async () => (await api.get<{ data: { reason: string } }>(`${await api.tablePath(p.id, 'refunds')}/rows/${id}`)).data.reason).toBe('very late')
   await page.reload()
   await expect(page.locator(`[data-testid="data-row"][data-row-id="${id}"]`).getByTestId('cell-reason')).toHaveText('very late')
 })

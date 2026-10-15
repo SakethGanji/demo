@@ -72,6 +72,13 @@ export class EngineApi {
   del<T = unknown>(path: string) {
     return this.ok<T>('DELETE', path)
   }
+  /** `/projects/{p}/tables/{id}` for a table NAME (the REST API is keyed by id, like the studio). */
+  async tablePath(projectId: string, name: string): Promise<string> {
+    const tables = await this.get<Array<{ id: string; name: string }>>(`/projects/${projectId}/tables`)
+    const t = tables.find((x) => x.name === name)
+    if (!t) throw new Error(`table '${name}' not found in ${projectId}: ${tables.map((x) => x.name).join(', ') || '(none)'}`)
+    return `/projects/${projectId}/tables/${t.id}`
+  }
   /** test-only endpoints (`/api/_test/*`, token-gated) */
   testApi<T = unknown>(method: string, path: string, body?: unknown) {
     return this.ok<T>(method, `/api/_test/${path}`, body, { 'X-Test-Token': this.token })

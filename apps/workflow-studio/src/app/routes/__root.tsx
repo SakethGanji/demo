@@ -5,6 +5,7 @@ import { Toaster } from 'sonner'
 
 import { ThemeProvider } from '@/shared/components/theme-provider'
 import { ErrorBoundary } from '@/shared/components/ErrorBoundary'
+import { flushPendingToasts } from '@/shared/lib/pendingToast'
 import { useEditorLayoutStore } from '@/features/workflow-editor/stores/editorLayoutStore'
 
 export interface RouterContext {
@@ -19,6 +20,9 @@ function RootLayout() {
   const closePanel = useEditorLayoutStore((s) => s.closeCreatorPanel)
   const matchRoute = useMatchRoute()
   const isLandingRoute = matchRoute({ to: '/', fuzzy: false })
+
+  // Toasts queued by router redirects before first render (the Toaster is mounted by now: children's effects run first)
+  useEffect(() => flushPendingToasts(), [])
 
   // Global keyboard shortcuts
   useEffect(() => {

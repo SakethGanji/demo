@@ -66,8 +66,16 @@ export function BackendView() {
   })
 
   // Initialise the document once: from sessionStorage (draft survives reload), else the saved source.
+  const renamedTo = useDocStore((s) => s.renamed[docKey(pid, module)])
+  const clearRenamed = useDocStore((s) => s.clearRenamed)
+  // the router reached the new name: the rename marker (keyed by the OLD name) has done its job
+  const renamedMap = useDocStore((s) => s.renamed)
+  useEffect(() => {
+    for (const [k, to] of Object.entries(renamedMap)) if (k.startsWith(`${pid}:`) && to === module) clearRenamed(pid, k.slice(pid.length + 1))
+  }, [renamedMap, module, pid, clearRenamed])
   useEffect(() => {
     if (doc) return
+    if (renamedTo) return // renamed (e.g. ~new → refunds) and the router has not navigated yet: don't re-create the old doc
     if (module === '~new') {
       const p = loadPersisted(pid, '~new')
       put({
@@ -308,7 +316,9 @@ function BackendWorkspace({ doc, savedUpdatedAt }: { doc: ModuleDoc; savedUpdate
     for (const key of keys) {
       let presentIn: string[]
       let bound = true
-      const a = fromAnalysis?.find((s) => s.key === key)
+      // the generation-time analysis is only a stand-in until the live secrets load: after that the live list is
+      // fresher (a secret fixed from the widget must clear it)
+      const a = secrets.data ? undefined : fromAnalysis?.find((s) => s.key === key)
       if (a) {
         presentIn = a.present_in
         bound = a.bound
@@ -544,10 +554,14 @@ function BackendWorkspace({ doc, savedUpdatedAt }: { doc: ModuleDoc; savedUpdate
       const n = r.routes?.removed?.length ?? 0
       removeDoc(pid, doc.module)
       clearOutline(pid, doc.module)
-      await invalidate.modulesChanged(qc, pid)
-      toast.success(`Deleted ${doc.module}.py · ${n} route${n === 1 ? '' : 's'} removed`)
+      // The delete succeeded. The module's own queries (detail, delete dry-run) must not be refetched — they
+      // would 404 — so close the dialog, stop and drop them, then leave the page and refresh the lists.
       setDialog(null)
+      qc.setQueryData<Array<{ id: string }>>(qk.modules(pid), (old) => old?.filter((m) => m.id !== doc.moduleId)) // → the parent's detail query is disabled
+      qc.removeQueries({ queryKey: qk.module(pid, doc.moduleId) })
+      toast.success(`Deleted ${doc.module}.py · ${n} route${n === 1 ? '' : 's'} removed`)
       navigate({ to: '/p/$project', params: { project: slug } })
+      invalidate.modulesChanged(qc, pid).catch((e) => console.warn('refreshing after delete failed', e))
     } catch (e) {
       toast.error('Could not delete the module', { description: errorMessage(e) })
     } finally {
