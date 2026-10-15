@@ -37,8 +37,12 @@ async def run_in_sandbox(context: Any, *, kind: str, payload: dict[str, Any], en
     from .service import SandboxService
 
     project_id = getattr(context, "project_id", None) or "proj_default"
-    async with async_session_factory() as session:
-        modules = await CodeModuleService(session).sources(project_id)
+    pinned = (getattr(context, "extras", None) or {}).get("release_modules")
+    if pinned is not None:  # review D8: release-pinned runs import the release snapshot's modules
+        modules = dict(pinned)
+    else:
+        async with async_session_factory() as session:
+            modules = await CodeModuleService(session).sources(project_id)
     try:
         result, calls = await SandboxService().run(
             kind=kind, project_id=project_id, environment=getattr(context, "environment", None) or "default",

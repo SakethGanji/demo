@@ -137,3 +137,33 @@ class EgressGuard:
 
     async def httpx_hook(self, request) -> None:
         self.check_host(request.url.host)
+
+
+# ── read-only claim (review D5) ──────────────────────────────────────────────
+
+READ_ONLY_DATA_OPS = {"get", "list"}
+READ_ONLY_HTTP_METHODS = {"GET", "HEAD"}
+
+
+def check_read_only(node_type: str, parameters: dict[str, Any]) -> None:
+    """Raise ``read_only`` (403) for anything that can write data or send data out.
+
+    Parameters are checked as given (before expression resolution): an expression where a
+    literal operation/method is expected is refused, since it could resolve to a write."""
+    def deny(why: str) -> None:
+        raise PolicyError("read_only", 403, f"read-only token: {why}", function=snake(node_type))
+
+    if node_type == "DataTable":
+        op = parameters.get("operation", "list")
+        if not isinstance(op, str) or op.strip().lower() not in READ_ONLY_DATA_OPS:
+            deny(f"data_table operation '{op}' writes data (only get/list are allowed)")
+        return
+    if node_type == "HttpRequest":
+        method = parameters.get("method", "GET")
+        if not isinstance(method, str) or method.strip().upper() not in READ_ONLY_HTTP_METHODS:
+            deny(f"http_request method '{method}' is not GET/HEAD")
+        return
+    if node_type == "SendEmail":
+        deny("send_email sends data out")
+    if egress_kind(node_type) == "opaque":
+        deny(f"'{snake(node_type)}' has egress that cannot be checked")

@@ -58,7 +58,8 @@ async def run_studio_function(node_type: str, input_data: dict[str, Any], contex
 
     if context is None:
         return {"error": "studio functions need an execution context"}
-    token = mint_for_context(context, "agent")
+    # Review D5: the token can call exactly this tool's node, nothing else.
+    token = mint_for_context(context, "agent", allowed_functions={node_type})
     status, body = await BrokerService().call_with_token(
         token, None, node_type, input_data.get("parameters") or {}, input_data.get("items"))
     if not body.get("ok"):

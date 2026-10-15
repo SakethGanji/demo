@@ -183,14 +183,14 @@ class RouteDispatcher:
             "body": req.body, "method": req.method.upper(),
         }
         if handler.get("type") == "workflow":
-            return await self._run_workflow(spec, handler, item, cred.environment, trigger)
+            return await self._run_workflow(spec, handler, item, cred.environment, trigger, release)
         if handler.get("type") == "python":
             return await self._run_python(project, spec, handler, item, cred.environment, trigger, release)
         return DispatchResult(500, {"error": "invalid_handler"})
 
     # ── handlers ─────────────────────────────────────────────────────────
 
-    async def _run_workflow(self, spec, handler, item, env, trigger) -> DispatchResult:
+    async def _run_workflow(self, spec, handler, item, env, trigger, release=None) -> DispatchResult:
         from ..core.exceptions import WorkflowExecutionError, WorkflowNotFoundError
         from ..repositories.execution_repository import ExecutionRepository
         from ..repositories.workflow_repository import WorkflowRepository
@@ -208,6 +208,9 @@ class RouteDispatcher:
                 handler["workflow_id"], None, environment=env, mode="api", substitute_inputs=False,
                 initial_item=item, version_id=handler.get("version_id"), timeout_s=float(spec.get("timeout_s") or 30),
                 metadata={"trigger": trigger}, on_context_ready=remember,
+                # Review D8: a release-pinned run's PythonStep/Code nodes import the release's module
+                # sources, not the drafts.
+                extras=release_extras(release),
             )
         except asyncio.TimeoutError:
             xid = exec_ids[0] if exec_ids else None
@@ -248,6 +251,13 @@ class RouteDispatcher:
         except ImportError:
             return DispatchResult(503, {"error": "sandbox_unavailable"})
         return await run_python_route(self._s, project, spec, handler, item, env, trigger, release)
+
+
+def release_extras(release) -> dict[str, Any] | None:
+    if release is None:
+        return None
+    return {"release_id": release.id,
+            "release_modules": {m["name"]: m["source"] for m in (release.snapshot or {}).get("modules") or []}}
 
 
 def redact_result(res: DispatchResult, secrets: set[str]) -> DispatchResult:

@@ -28,6 +28,8 @@ class BrokerCallRequest(BaseModel):
 class BrokerTokenRequest(BaseModel):
     environment: str | None = None
     max_calls: int | None = None  # optional lower call budget (≤ server max)
+    functions: list[str] | None = None  # review D5: limit to these functions (snake names or node types)
+    read_only: bool = False  # review D5: deny writes and non-GET egress
 
 
 def _bearer(request: Request) -> str | None:
@@ -83,13 +85,25 @@ async def dev_broker_token(project: str, body: BrokerTokenRequest, session: Asyn
     if env_kind(p, env) != "draft":
         raise_project_error(ProjectError(403, "release_environment", "developer broker tokens are only issued for draft environments"))
     import time
-    from datetime import datetime
-    claims = BrokerClaims(project_id=p.id, environment=env, execution_id=None, origin="dev", team_id=p.team_id)
+    from datetime import datetime, timezone
+    allowed = None
+    if body.functions is not None:
+        from ..broker.service import function_index
+        idx = function_index()
+        unknown = [f for f in body.functions if f not in idx and f not in idx.values()]
+        if unknown:
+            raise_project_error(ProjectError(422, "unknown_function", f"unknown function(s): {', '.join(unknown)}",
+                                             functions=unknown))
+        allowed = {idx.get(f, f) for f in body.functions}
+    claims = BrokerClaims(project_id=p.id, environment=env, execution_id=None, origin="dev", team_id=p.team_id,
+                          allowed_functions=allowed, read_only=body.read_only)
     if body.max_calls:
         claims.max_calls = max(1, min(body.max_calls, claims.max_calls))
     token = registry.mint(claims, ttl_s=3600)
-    return {"token": token, "environment": env,
-            "expires_at": datetime.fromtimestamp(claims.expires_at).isoformat(timespec="seconds")}
+    from ..broker.policy import snake
+    return {"token": token, "environment": env, "read_only": claims.read_only,
+            "allowed_functions": sorted(snake(f) for f in allowed) if allowed is not None else None,
+            "expires_at": datetime.fromtimestamp(claims.expires_at, tz=timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")}
 
 
 @router.get("/projects/{project}/broker-calls")

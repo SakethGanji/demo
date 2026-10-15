@@ -20,7 +20,10 @@ class BrokerClaims:
     execution_id: str | None
     origin: str  # code_node | python_step | python_route | agent | dev
     team_id: str = "default"
-    allowed_functions: set[str] | None = None  # None = every function-exposed node
+    allowed_functions: set[str] | None = None  # node types (or snake names); None = every function-exposed node
+    # Review D5: read-only tokens (generate self-tests) may only read: no DataTable writes, no
+    # send_email, no non-GET/HEAD http_request, no opaque-egress function. Denials → error_code read_only.
+    read_only: bool = False
     max_calls: int = 500
     calls_used: int = 0
     expires_at: float = 0.0

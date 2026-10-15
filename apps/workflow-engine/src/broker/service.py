@@ -16,7 +16,7 @@ from ..db.models import BrokerCallModel, ProjectModel
 from ..engine.types import NodeData, NodeDefinition, Workflow
 from ..services.vars_substitution import expand_secret_variants, redact_deep
 from ..utils.ids import generate_id
-from .policy import EgressGuard, PolicyError, check_parameters, egress_kind, is_exposed, snake
+from .policy import EgressGuard, PolicyError, check_parameters, check_read_only, egress_kind, is_exposed, snake
 from .tokens import BrokerClaims, registry
 
 logger = logging.getLogger(__name__)
@@ -40,11 +40,21 @@ def resolve_function(function: str | None, node: str | None) -> str:
     raise PolicyError("function_not_allowed", 403, f"function '{function}' is not callable")
 
 
-def mint_for_context(context: Any, origin: str, ttl_s: float = 600.0, max_calls: int | None = None) -> str:
-    """Mint (or reuse) the run-scoped token for an ExecutionContext. Revoke with ``revoke_for_context``."""
+def _slot(origin: str, allowed_functions: set[str] | None) -> str:
+    return f"broker_token:{origin}" + (":" + ",".join(sorted(allowed_functions)) if allowed_functions else "")
+
+
+def mint_for_context(context: Any, origin: str, ttl_s: float = 600.0, max_calls: int | None = None,
+                     allowed_functions: set[str] | None = None, read_only: bool = False) -> str:
+    """Mint (or reuse) the run-scoped token for an ExecutionContext. Revoke with ``revoke_for_context``.
+
+    Review D5: ``allowed_functions`` is always set on the claims — the given set (e.g. an agent tool's
+    own node), or else every function-exposed node at mint time. Tokens are kept per
+    (origin, function set), so two tools of one agent never share a wider token."""
     from ..core.config import settings
 
-    existing = context.extras.get(f"broker_token:{origin}")
+    slot = _slot(origin, allowed_functions)
+    existing = context.extras.get(slot)
     if existing and registry.verify(existing):
         return existing
     claims = BrokerClaims(
@@ -54,14 +64,16 @@ def mint_for_context(context: Any, origin: str, ttl_s: float = 600.0, max_calls:
         origin=origin,
         team_id=getattr(context, "team_id", "default"),
         max_calls=max_calls or getattr(settings, "broker_max_calls", 500),
+        allowed_functions=set(allowed_functions) if allowed_functions else set(function_index().values()),
+        read_only=read_only,
     )
     token = registry.mint(claims, ttl_s)
-    context.extras[f"broker_token:{origin}"] = token
+    context.extras[slot] = token
     return token
 
 
-def revoke_for_context(context: Any, origin: str) -> None:
-    registry.revoke(context.extras.pop(f"broker_token:{origin}", None))
+def revoke_for_context(context: Any, origin: str, allowed_functions: set[str] | None = None) -> None:
+    registry.revoke(context.extras.pop(_slot(origin, allowed_functions), None))
 
 
 class BrokerService:
@@ -93,6 +105,8 @@ class BrokerService:
             if claims.allowed_functions is not None and node_type not in claims.allowed_functions \
                     and snake(node_type) not in claims.allowed_functions:
                 raise PolicyError("function_not_allowed", 403, f"'{snake(node_type)}' is not allowed for this token")
+            if claims.read_only:
+                check_read_only(node_type, parameters)
             if claims.calls_used >= claims.max_calls:
                 raise PolicyError("call_limit_exceeded", 429, f"broker call limit ({claims.max_calls}) reached")
             claims.calls_used += 1
