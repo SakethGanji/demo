@@ -46,6 +46,22 @@ resolution would need to extend this single-module analyzer.
 
 Screenshots and browser evidence are in `screenshots/code-graph-complex/`.
 
+## Exploration controls
+
+- **Auto layout** orders functions within dependency layers with barycenter sweeps.
+  This is a crossing-reduction heuristic, not a guarantee of a crossing-free diagram.
+- Hover or keyboard-focus a function to highlight its neighborhood and fade other
+  nodes and edges. Edge labels appear for highlighted relationships.
+- The target button on a function pins that highlight and selects it for inspection;
+  **Clear pin** restores the ordinary overview. Pins do not change source code.
+- **Explore** chooses callers, dependencies, or both; **Depth** selects one or two
+  hops. These controls determine highlighting and the **Focus selection** subset.
+- Filter by function name, endpoint, connector, unresolved call, or secret reference.
+  The module caption counts omitted functions. **Reset filters** clears these filters.
+- **Show all functions** gives the overview, subject to the explicit search/type filters.
+
+Browser evidence for these controls is in `screenshots/code-map-explore/`.
+
 ## Synchronization contract
 
 - The AST result includes a SHA-256 hash of the exact source analyzed.
