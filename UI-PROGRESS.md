@@ -30,9 +30,9 @@ Studio: `VITE_WORKFLOW_API_URL=http://127.0.0.1:8710 npx vite --port 5190`.
 
 ## Counts
 - tsc -b: baseline 53 → 44 → **0**; production Vite build passes (large-chunk warning remains)
-- unit (vitest): 23
-- engine: **304 passed**, no skips (5 existing Pydantic warnings)
-- browser: **46 scenarios / 47 cases passed** across the full run and affected generation-spec rerun
+- unit (vitest): **34**
+- engine: **307 passed**, no skips (5 existing Pydantic warnings)
+- browser: **48 cases passed** in a fresh complete isolated-stack run (46 original scenario IDs / 47 cases plus the preview-boundary regression; 2026-10-16)
 - final captures: **28 PNGs**, light + dark, under `screenshots/ui-built/`; strict capture run passed
 
 ## Completion fixes (2026-10-15)
@@ -89,3 +89,9 @@ Studio: `VITE_WORKFLOW_API_URL=http://127.0.0.1:8710 npx vite --port 5190`.
 - Live analysis dry-runs omit `base_sha` (the save path sends it), so typing never 409s.
 - Data grid: the new-row editor is the first row (newest-first sort); grid panel marked `data-scroll-x="allowed"`.
 - Builder: `vN · saved` badge doubles as the manual save; API tester opens from App settings.
+
+## Demo hardening (2026-10-16)
+
+See `DEMO-READINESS.md` for fixes, verification, and the supported isolated single-worker deployment.
+Preview requests are limited to selected routes and bound workflow runs; runtime assets are local.
+Release publication is transactional, sandbox pipe capture is bounded, and preview/selection races are guarded.

@@ -68,3 +68,6 @@ supplies a focused refinement prompt. `BANKING_REPLAY_UI=1` with a UI proof skip
 calls and verifies that exact generated source against a fresh real database, including publishing
 and fresh-response recovery. The report marks source reuse/replay explicitly. No AI event stream
 or application response is fabricated during replay.
+
+Replay setup explicitly binds the retained app to the current project’s generated route IDs.
+The preview bridge rejects apps without route bindings; replay does not bypass that policy.

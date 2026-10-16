@@ -7,6 +7,10 @@ import { SANDBOX_RUNTIME_CODE } from './sandbox-runtime'
 import { bundleFiles } from './esbuild-bundler'
 import type { AppFile } from './esbuild-bundler'
 import { config } from '@/shared/lib/config'
+import { previewRequestUrl, type PreviewRoute } from './requestPolicy'
+import reactRuntime from '../../../../node_modules/react/umd/react.production.min.js?raw'
+import reactDomRuntime from '../../../../node_modules/react-dom/umd/react-dom.production.min.js?raw'
+import tailwindRuntime from '@tailwindcss/browser?raw'
 import { Spinner } from '@/shared/components/ui/spinner'
 
 export interface BridgeCall {
@@ -19,6 +23,9 @@ export interface BridgeCall {
 
 interface IframeSandboxProps {
   files: AppFile[] | null
+  projectSlug: string
+  allowedRoutes: PreviewRoute[]
+  workflowPaths: string[]
   /** preview token for `/api/p/` calls (§5.2, C12) */
   getToken?: () => Promise<string | null>
   refreshToken?: () => Promise<string | null>
@@ -44,18 +51,13 @@ export function normaliseHeaders(h: unknown): Record<string, string> {
   return out
 }
 
-/** Engine origin the preview's relative URLs resolve against (§11.4: `config.workflowApiUrl`). */
-function engineBase(): string {
-  return config.workflowApiUrl || config.engineOrigin
-}
-
 /**
  * Sandbox renderer — a sandboxed iframe with React, ReactDOM and Tailwind pre-loaded. Project
  * files are bundled with esbuild-wasm here and sent to the iframe via postMessage. Every
  * `fetch` from the app is proxied through this bridge (C12): relative URLs resolve against the
- * engine origin, and `/api/p/` calls to the engine get the preview token.
+ * engine origin. Only selected project routes and bound workflow runs are permitted.
  */
-export function IframeSandbox({ files, getToken, refreshToken, onApiCall }: IframeSandboxProps) {
+export function IframeSandbox({ files, projectSlug, allowedRoutes, workflowPaths, getToken, refreshToken, onApiCall }: IframeSandboxProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -63,8 +65,10 @@ export function IframeSandbox({ files, getToken, refreshToken, onApiCall }: Ifra
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const pendingFilesRef = useRef<AppFile[] | null>(null)
   const lastHashRef = useRef<string | null>(null)
-  const propsRef = useRef({ getToken, refreshToken, onApiCall })
-  propsRef.current = { getToken, refreshToken, onApiCall }
+  const generation = useRef(0)
+  const propsRef = useRef({ projectSlug, allowedRoutes, workflowPaths, getToken, refreshToken, onApiCall })
+  propsRef.current = { projectSlug, allowedRoutes, workflowPaths, getToken, refreshToken, onApiCall }
+  useEffect(() => () => { generation.current++ }, [])
 
   const log = useConsoleStore.getState().log
 
@@ -73,8 +77,10 @@ export function IframeSandbox({ files, getToken, refreshToken, onApiCall }: Ifra
       const hash = hashFiles(appFiles)
       if (hash === lastHashRef.current) return
       lastHashRef.current = hash
+      const current = ++generation.current
       bundleFiles(appFiles)
         .then(({ code, css, errors }) => {
+          if (current !== generation.current) return
           if (errors.length > 0) {
             const message = errors.join('\n')
             setError(message)
@@ -85,6 +91,7 @@ export function IframeSandbox({ files, getToken, refreshToken, onApiCall }: Ifra
           if (iframeRef.current) postToIframe(iframeRef.current, { type: 'render', source: code, css: css || undefined })
         })
         .catch((err) => {
+          if (current !== generation.current) return
           const message = err instanceof Error ? err.message : 'Bundle failed'
           setError(message)
           log('error', 'bundle', message)
@@ -99,15 +106,17 @@ export function IframeSandbox({ files, getToken, refreshToken, onApiCall }: Ifra
     const reply = (msg: Record<string, unknown>, transfer?: Transferable[]) =>
       win.postMessage({ type: 'apiResponse', reqId, ...msg }, '*', transfer ?? [])
     try {
-      const resolved = new URL(url, engineBase())
+      const method = (opts?.method ?? 'GET').toUpperCase()
+      const resolved = previewRequestUrl(url, method, config.engineOrigin, propsRef.current.projectSlug, propsRef.current.allowedRoutes, propsRef.current.workflowPaths)
       const headers = normaliseHeaders(opts?.headers)
       const hasAuth = Object.keys(headers).some((k) => k.toLowerCase() === 'authorization')
       const isPreviewApi = resolved.origin === config.engineOrigin && resolved.pathname.startsWith('/api/p/')
-      const addToken = isPreviewApi && !hasAuth && !!propsRef.current.getToken
-      const method = (opts?.method ?? 'GET').toUpperCase()
+      const addToken = !hasAuth && !!propsRef.current.getToken
       const doFetch = async (token: string | null) =>
         fetch(resolved.toString(), {
           method,
+          credentials: 'omit',
+          redirect: 'error',
           headers: token ? { ...headers, Authorization: `Bearer ${token}` } : headers,
           body: typeof opts?.body === 'string' && method !== 'GET' && method !== 'HEAD' ? opts.body : undefined,
         })
@@ -186,6 +195,12 @@ export function IframeSandbox({ files, getToken, refreshToken, onApiCall }: Ifra
     return () => window.removeEventListener('message', handleMessage)
   }, [handleMessage])
 
+  useEffect(() => {
+    if (ready || !blobUrl) return
+    const timeout = setTimeout(() => { setLoading(false); setError('Preview could not start. Retry to reload its runtime.') }, 15000)
+    return () => clearTimeout(timeout)
+  }, [ready, blobUrl])
+
   // One blob document per mount.
   useEffect(() => {
     const url = URL.createObjectURL(new Blob([buildIframeHTML()], { type: 'text/html' }))
@@ -220,7 +235,12 @@ export function IframeSandbox({ files, getToken, refreshToken, onApiCall }: Ifra
             onClick={() => {
               setError(null)
               lastHashRef.current = null
-              if (files) sendToIframe(files)
+              if (!ready) {
+                const next = URL.createObjectURL(new Blob([buildIframeHTML()], { type: 'text/html' }))
+                if (blobUrl) URL.revokeObjectURL(blobUrl)
+                setLoading(true)
+                setBlobUrl(next)
+              } else if (files) sendToIframe(files)
             }}
             className="shrink-0 rounded p-0.5 hover:bg-destructive/10"
             aria-label="Retry"
@@ -246,21 +266,22 @@ export function IframeSandbox({ files, getToken, refreshToken, onApiCall }: Ifra
 
 // ── HTML Template ──────────────────────────────────────────────────────────
 
+function inlineScript(source: string): string { return source.replace(/<\/script/gi, '<\\/script') }
+
 function buildIframeHTML(): string {
   // The iframe has an opaque origin (no allow-same-origin: a blob: document would otherwise share
   // the studio's origin and could reach the parent), so storage is shimmed in memory.
-  // The Tailwind Play CDN prints a "should not be used in production" warning on load; the
-  // preview is not production and E2E fails on any iframe warning (§12.3), so that one line is dropped.
+  // Dependencies are packaged with Studio; the preview never needs public script CDNs.
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <script>(function(){function mem(){var d={};return{getItem:function(k){return Object.prototype.hasOwnProperty.call(d,k)?d[k]:null},setItem:function(k,v){d[k]=String(v)},removeItem:function(k){delete d[k]},clear:function(){d={}},key:function(i){return Object.keys(d)[i]||null},get length(){return Object.keys(d).length}}};['localStorage','sessionStorage'].forEach(function(n){try{void window[n].length}catch(e){try{Object.defineProperty(window,n,{value:mem(),configurable:true})}catch(e2){}}})})();<\/script>
-  <script>(function(){var w=console.warn;console.warn=function(){var a=arguments[0];if(typeof a==='string'&&a.indexOf('cdn.tailwindcss.com should not be used in production')!==-1)return;return w.apply(console,arguments)}})();<\/script>
-  <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"><\/script>
-  <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"><\/script>
-  <script src="https://cdn.tailwindcss.com"><\/script>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data: blob: https:; font-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'" />
+  <script>${inlineScript(reactRuntime)}<\/script>
+  <script>${inlineScript(reactDomRuntime)}<\/script>
+  <script>${inlineScript(tailwindRuntime)}<\/script>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
     html, body { margin: 0 !important; padding: 0 !important; height: 100% !important; overflow: auto; }

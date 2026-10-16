@@ -1,5 +1,7 @@
 # Handoff 2 — studio UI + E2E (written 2026-10-15, after HANDOFF-UI-FINISH.md steps 1–3 and part of 5)
 
+> Historical handoff, superseded by [UI-PROGRESS.md](UI-PROGRESS.md), [E2E.md](E2E.md), and [DEMO-READINESS.md](DEMO-READINESS.md). The unfinished-test and type-error statements below describe the earlier state.
+
 Branch `revert-to-5684ba5`, local commits. **Do not push** (history holds live Google keys; see HANDOFF-UI-FINISH.md).
 A Gemini key was supplied by the owner for live testing. It lives in the git-IGNORED file `apps/workflow-engine/.env.local`
 (never commit it; `set -a; . apps/workflow-engine/.env.local; set +a` to load it). Use it only as an env var

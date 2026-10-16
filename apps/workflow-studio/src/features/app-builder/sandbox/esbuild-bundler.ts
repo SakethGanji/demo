@@ -3,7 +3,7 @@
  *
  * Bundles multiple TSX/TS files from a virtual filesystem into a single
  * IIFE that sets `window.__AppModule` with a `default` export.
- * React and ReactDOM are mapped to window globals (loaded via CDN in the iframe).
+ * React and ReactDOM are mapped to window globals (packaged locally in the iframe).
  *
  * The esbuild WASM binary is served from our own static assets (copied to
  * public/ at install time) so it works behind corporate firewalls.
@@ -58,7 +58,7 @@ function join(...parts: string[]): string {
 const EXTENSIONS = ['.tsx', '.ts', '.jsx', '.js']
 const INDEX_FILES = EXTENSIONS.map((e) => `index${e}`)
 
-/** Map of global externals — these come from CDN scripts, not the bundle. */
+/** Map of global externals — these come from packaged runtime scripts, not the bundle. */
 const GLOBAL_EXTERNALS: Record<string, string> = {
   react: 'window.React',
   'react-dom': 'window.ReactDOM',

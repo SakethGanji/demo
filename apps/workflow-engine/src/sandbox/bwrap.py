@@ -20,6 +20,17 @@ STREAM_CAP = 64 * 1024
 OUTPUT_CAP = 10 * 1024 * 1024
 
 
+async def _capture_stream(stream: asyncio.StreamReader) -> tuple[bytes, bool]:
+    """Drain continuously without retaining unbounded output in the engine."""
+    captured = bytearray()
+    truncated = False
+    while chunk := await stream.read(STREAM_CAP):
+        remaining = STREAM_CAP - len(captured)
+        captured.extend(chunk[:remaining])
+        truncated |= len(chunk) > remaining
+    return bytes(captured), truncated
+
+
 def _site_packages() -> str | None:
     p = sysconfig.get_paths().get("purelib")
     return p if p and Path(p).is_dir() else None
@@ -84,9 +95,11 @@ class BwrapBackend:
             *argv, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
             preexec_fn=limits, start_new_session=True, env={"PATH": "/usr/bin:/bin"},
         )
+        stdout = asyncio.create_task(_capture_stream(proc.stdout))
+        stderr = asyncio.create_task(_capture_stream(proc.stderr))
         timed_out = False
         try:
-            out, err = await asyncio.wait_for(proc.communicate(), timeout=job.timeout_s)
+            await asyncio.wait_for(proc.wait(), timeout=job.timeout_s)
         except asyncio.CancelledError:
             # UI-DESIGN §10.1 cancellation: a cancelled run never leaves a sandbox process group behind.
             try:
@@ -97,6 +110,7 @@ class BwrapBackend:
                 await asyncio.shield(proc.wait())
             except BaseException:
                 pass
+            await asyncio.gather(stdout, stderr, return_exceptions=True)
             raise
         except asyncio.TimeoutError:
             timed_out = True
@@ -104,9 +118,10 @@ class BwrapBackend:
                 os.killpg(proc.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
-            out, err = await proc.communicate()
+            await proc.wait()
+        (out, out_truncated), (err, err_truncated) = await asyncio.gather(stdout, stderr)
         duration = round((time.perf_counter() - started) * 1000, 2)
-        truncated = len(out) > STREAM_CAP or len(err) > STREAM_CAP
+        truncated = out_truncated or err_truncated
         output = None
         out_path = Path(job.job_dir) / "out" / "out.json"
         if out_path.exists() and out_path.stat().st_size <= OUTPUT_CAP:

@@ -517,6 +517,10 @@ export function AppBuilderShell({ appId }: { appId: string }) {
             </div>
           ) : (
             <AppPreviewPanel
+              key={appId}
+              projectSlug={slug}
+              workflowPaths={(app?.workflow_ids ?? []).map((id) => `/api/apps/${encodeURIComponent(appId)}/workflow/${encodeURIComponent(id)}/run`)}
+              allowedRoutes={(routes ?? []).filter((route) => routeIdsOf(app).includes(route.id))}
               files={previewFiles}
               mode={mode}
               slug={publishSlug}

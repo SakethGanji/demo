@@ -152,7 +152,7 @@ function Body({ onClose, preselectModule }: { onClose: () => void; preselectModu
   const autoPrompt = defaultPrompt(template, subject.toLowerCase(), selectedRoutes)
   const effPrompt = promptTouched ? prompt : autoPrompt
   const sErr = slugError(effSlug)
-  const canSubmit = !busy && !!effName.trim() && !sErr && !!effSlug
+  const canSubmit = ready && selected !== null && !busy && !!effName.trim() && !sErr && !!effSlug
 
   const submit = async () => {
     if (!canSubmit) return
@@ -264,7 +264,7 @@ function Body({ onClose, preselectModule }: { onClose: () => void; preselectModu
               </span>
             )}
           </div>
-          {routesQ.isLoading ? (
+          {routesQ.isLoading || (ready && selected === null) ? (
             <div className="flex flex-col gap-2 rounded-[10px] border border-border p-3">
               <Skeleton className="h-4 w-3/4" />
               <Skeleton className="h-4 w-2/3" />

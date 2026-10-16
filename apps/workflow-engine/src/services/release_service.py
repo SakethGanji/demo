@@ -249,6 +249,8 @@ class ReleaseService:
         return (n or 0) + 1
 
     async def _activate(self, project: ProjectModel, rel: ReleaseModel, previous_status: str = "superseded") -> None:
+        if rel.environment == project.live_environment:
+            await self._publish_apps(project, rel)
         prev = await self.active_release(project.id, rel.environment)
         if prev is not None and prev.id != rel.id:
             prev.is_active = False
@@ -257,11 +259,9 @@ class ReleaseService:
         rel.is_active = True
         rel.status = "active"
         await self._s.flush()
-        if rel.environment == project.live_environment:
-            await self._publish_apps(project, rel)
 
     async def _publish_apps(self, project: ProjectModel, rel: ReleaseModel) -> None:
-        from .app_service import AppService
+        from .app_service import AppService, AppPublishError
         from .bundle_storage import PostgresBundleStorage
         from .client_codegen import generate_client
         from .file_storage import PostgresFileStorage
@@ -272,9 +272,10 @@ class ReleaseService:
         for pin in rel.snapshot.get("apps") or []:
             try:
                 await svc.publish_release_version(pin["app_id"], pin["version_id"], client)
-            except Exception:
-                import logging
-                logging.getLogger(__name__).warning("release re-publish failed for %s", pin["app_id"], exc_info=True)
+            except AppPublishError as exc:
+                await self._s.rollback()
+                raise ProjectError(422, "release_publish_failed", "Release activation failed; published apps were not changed",
+                                   app_id=pin["app_id"]) from exc
 
     def _check_env(self, project: ProjectModel, env: str) -> None:
         if env not in env_names(project):

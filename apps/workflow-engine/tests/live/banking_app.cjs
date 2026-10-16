@@ -60,7 +60,7 @@ async function generate(prompt,label){
  await page.reload();await expect(page.getByTestId('secret-cell-PG_PASSWORD-dev')).toHaveAttribute('data-state','set');
  await page.screenshot({path:out+'/00-saved-secrets.png'});report.checks.secrets={saved_via_ui:true,persist_after_reload:true,environments:['dev','prod'],keys:Object.keys(credentials.secrets),write_only:true};
  await page.goto(`${state.studioUrl}/p/${p.slug}/backend/~new`);
- console.log('Generating real Postgres backend through browser');
+ console.log(process.env.BANKING_BACKEND_PROOF ? 'Reusing generated Postgres backend against a fresh database' : 'Generating real Postgres backend through browser');
  const expected=JSON.parse(fs.readFileSync(state.tmp+'/banking-expected.json','utf8'));
  const connection=`Call studio.nodes.postgres(connection_string=f"host=127.0.0.1 port=${credentials.port} user={studio.secret('PG_USER')} password={studio.secret('PG_PASSWORD')} dbname={studio.secret('PG_DATABASE')}",operation="query",query=sql,query_parameters=params). The first result item has rows. No direct database drivers. No studio.db tables. External Postgres tables already exist. Use parameterized SQL with %s placeholders, never interpolate request inputs into SQL. Dates may be cast to text. Import api, HTTPError from studio and import studio. Secret NAMES only.`;
  const schema=`bank_branches(id int,name text,region text); bank_accounts(id int,name text,branch_id int,balance numeric); bank_transactions(id text,account_id int,amount numeric,status text,booked_at date,channel text,reference text); bank_cases(id text,transaction_id text,severity text,owner text,state text,reason text); bank_events(id int,transaction_id text,occurred_at timestamp,message text). Join transactions.account_id=accounts.id and accounts.branch_id=branches.id; cases/events.transaction_id=transactions.id. status is settled/pending/exception. All data synthetic.`;
@@ -111,7 +111,7 @@ async function generate(prompt,label){
  let before,ev,appId,replayedEntry;
  if(process.env.BANKING_UI_PROOF){
   const proof=JSON.parse(fs.readFileSync(process.env.BANKING_UI_PROOF,'utf8'));
-  const seeded=await api('POST','/apps',{name:'Banking Operations',project_id:p.id,definition:{nodes:[],rootNodeId:null}});appId=seeded.id;
+  const seeded=await api('POST','/apps',{name:'Banking Operations',project_id:p.id,definition:{nodes:[],rootNodeId:null,studio:{route_ids:routes.map(route=>route.id)}}});appId=seeded.id;
   await api('PUT',`/apps/${appId}`,{files:proof.generated_files,source_code:proof.generated_files.find(f=>f.path==='App.tsx').content,create_version:true});
   await page.goto(`${state.studioUrl}/p/${p.slug}/apps/${appId}`);
   if(process.env.BANKING_REPLAY_UI==='1'){

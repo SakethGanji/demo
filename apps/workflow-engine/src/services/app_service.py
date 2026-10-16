@@ -374,7 +374,9 @@ class AppService:
         await self._bundle_storage.save_bundle(version_id, artifact)
         row.published_version_id = version_id
         row.published_at = datetime.now()
-        await self._session.commit()
+        # The release service owns the transaction: app pointers and the active
+        # backend release must become visible together, or all roll back.
+        await self._session.flush()
         return True
 
     async def ensure_token_key(self, row: AppModel) -> str:

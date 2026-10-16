@@ -29,6 +29,9 @@ export type BuilderMode = 'preview' | 'code'
 type Device = 'desktop' | 'tablet' | 'phone'
 
 interface AppPreviewPanelProps {
+  workflowPaths: string[]
+  projectSlug: string
+  allowedRoutes: import('../sandbox/requestPolicy').PreviewRoute[]
   files: AppFile[] | null
   mode: BuilderMode
   /** the publish address shown in the URL pill */
@@ -230,6 +233,9 @@ const DEVICE_WIDTH: Record<Device, string> = { desktop: '100%', tablet: '768px',
 
 export function AppPreviewPanel({
   files,
+  projectSlug,
+  allowedRoutes,
+  workflowPaths,
   mode,
   slug,
   env,
@@ -323,7 +329,7 @@ export function AppPreviewPanel({
           </EmptyState>
         ) : (
           <div className="mx-auto h-full transition-[width] duration-150" style={{ width: DEVICE_WIDTH[device], maxWidth: '100%' }}>
-            <IframeSandbox key={reloadKey} files={files} getToken={getToken} refreshToken={refreshToken} onApiCall={onApiCall} />
+            <IframeSandbox key={reloadKey} projectSlug={projectSlug} workflowPaths={workflowPaths} allowedRoutes={allowedRoutes} files={files} getToken={getToken} refreshToken={refreshToken} onApiCall={onApiCall} />
           </div>
         )}
         {consoleOpen && (

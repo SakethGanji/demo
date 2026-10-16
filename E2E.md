@@ -1,6 +1,7 @@
 # E2E — Playwright, UI → backend, on an isolated stack
 
 The studio's end-to-end suite implements the scenarios of `UI-DESIGN.md` §12.4 (T1–T45 plus T27b).
+An additional preview-boundary regression covers management/cross-project/external request denial and local runtime assets.
 Every scenario drives the real studio in Chromium against a real engine and asserts **backend state
 through the API**, not just UI text.
 
@@ -68,6 +69,8 @@ apps/workflow-studio/e2e/
 ```
 
 Results: `e2e/.stack/results.json` (JSON reporter) and traces for failures in `e2e/.stack/test-output/`.
+The 2026-10-16 full 48-case report is preserved locally at
+`screenshots/demo-verification/2026-10-16/playwright-full.json` so focused reruns do not replace its evidence.
 
 ## UI completion verification (2026-10-15)
 
@@ -95,7 +98,7 @@ The final capture command seeds a Payments Ops project and saves the main screen
 release and publish dialogs, workflow canvas, and backend response in both light and dark themes.
 It uses the same strict network, console and layout fixtures as the scenario suite.
 
-Latest passing verification by spec (full run plus the affected generation-spec rerun):
+Latest full-suite verification (2026-10-16, one uninterrupted isolated-stack run):
 
 | Spec | Passed |
 | --- | ---: |
@@ -107,7 +110,8 @@ Latest passing verification by spec (full run plus the affected generation-spec 
 | 06 publish | 5 |
 | 07 workflows, responsive | 3 |
 | 08 releases, settings | 3 |
-| Total | 47 |
+| 09 preview boundary | 1 |
+| Total | 48 |
 
 The generation-spec rerun also verifies the save/analysis race fix: saving cancels queued and
 in-flight analysis and pauses it until the saved module id is installed, preventing a stale

@@ -1,5 +1,7 @@
 # Handoff — finish the studio UI + E2E (sequentially)
 
+> Historical handoff, superseded by [UI-PROGRESS.md](UI-PROGRESS.md), [E2E.md](E2E.md), and [DEMO-READINESS.md](DEMO-READINESS.md). The unfinished-test and type-error statements below describe the earlier state.
+
 Written 2026-10-15 ~07:50. Branch `revert-to-5684ba5`, **local commits only — never push**
 (history contains live Google API keys). Do not look at other branches/tags.
 

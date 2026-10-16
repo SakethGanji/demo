@@ -9,18 +9,23 @@ import { parseUtc } from '../lib/appModel'
 const EARLY_MS = 5 * 60_000
 
 export function usePreviewToken(pid: string, appId: string) {
-  const tokenRef = useRef<{ token: string; exp: number } | null>(null)
-  const inflight = useRef<Promise<string | null> | null>(null)
+  const identity = `${pid}:${appId}`
+  const currentIdentity = useRef(identity)
+  currentIdentity.current = identity
+  const tokenRef = useRef<{ token: string; exp: number; identity: string } | null>(null)
+  const inflight = useRef<{ identity: string; promise: Promise<string | null> } | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const refetch = useRef<() => Promise<string | null>>(() => Promise.resolve(null))
 
   const fetchToken = useCallback((): Promise<string | null> => {
-    if (inflight.current) return inflight.current
+    if (currentIdentity.current !== identity) return Promise.resolve(null)
+    if (inflight.current?.identity === identity) return inflight.current.promise
     const p = appApiApi
       .previewToken(pid, appId)
       .then((t) => {
+        if (currentIdentity.current !== identity) return null
         const exp = parseUtc(t.expires_at)
-        tokenRef.current = { token: t.token, exp }
+        tokenRef.current = { token: t.token, exp, identity }
         if (timer.current) clearTimeout(timer.current)
         const wait = Math.max(30_000, exp - EARLY_MS - Date.now())
         timer.current = setTimeout(() => void refetch.current(), Math.min(wait, 2 ** 31 - 1))
@@ -28,29 +33,31 @@ export function usePreviewToken(pid: string, appId: string) {
       })
       .catch(() => null)
       .finally(() => {
-        inflight.current = null
+        if (inflight.current?.promise === p) inflight.current = null
       })
-    inflight.current = p
+    inflight.current = { identity, promise: p }
     return p
-  }, [pid, appId])
+  }, [pid, appId, identity])
 
   useEffect(() => {
     refetch.current = fetchToken
   }, [fetchToken])
 
   useEffect(() => {
+    currentIdentity.current = identity
     tokenRef.current = null
     void fetchToken()
     return () => {
       if (timer.current) clearTimeout(timer.current)
+      currentIdentity.current = ''
     }
-  }, [fetchToken])
+  }, [fetchToken, identity])
 
   const get = useCallback(async () => {
     const t = tokenRef.current
-    if (t && t.exp - EARLY_MS > Date.now()) return t.token
+    if (t?.identity === identity && t.exp - EARLY_MS > Date.now()) return t.token
     return fetchToken()
-  }, [fetchToken])
+  }, [fetchToken, identity])
 
   const refresh = useCallback(() => {
     tokenRef.current = null
