@@ -136,9 +136,10 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
-        if self.path == '/api/source':
-            source = EXAMPLE.read_text()
-            return self.send_json({'name': EXAMPLE.name, 'source': source, 'model': analyze(source)})
+        if self.path in {'/api/source', '/api/source?example=complex'}:
+            example = HERE / 'examples/risk_operations.py' if self.path.endswith('=complex') else EXAMPLE
+            source = example.read_text()
+            return self.send_json({'name': example.name, 'source': source, 'model': analyze(source)})
         files = {'/': ('index.html', 'text/html'), '/app.js': ('app.js', 'text/javascript'), '/style.css': ('style.css', 'text/css')}
         if self.path not in files:
             return self.send_json({'error': 'Not found'}, 404)

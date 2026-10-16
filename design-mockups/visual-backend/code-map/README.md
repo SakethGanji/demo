@@ -28,6 +28,24 @@ adding/removing functions or calls changes the diagram. **Add example helper** i
 way to demonstrate this. Reload restores the repository example. Draft edits are not saved
 to the repository, and submitted code is never imported, executed or sent to an LLM.
 
+## Complex application example
+
+The application selector also loads `examples/risk_operations.py`: an illustrative
+risk/case-management backend with 22 functions, 6 endpoints and 28 resolved local
+call sites. It includes review and reconciliation, policy-based scoring, shared
+Postgres access, Splunk-style activity search, notifications and audit ingestion.
+The connector calls illustrate boundaries; their SDK contracts and external services
+are not verified or executed. A custom scoring callback deliberately remains unresolved.
+No secret values or real customer records are embedded.
+
+Start with the case-review focus; choose **Show all functions** and **Collapse all**
+for the application overview. Select a function and choose **Focus selection** to
+inspect its immediate callers and dependencies. Layers are derived from the call
+relationships. For a real multi-module application, module discovery and import
+resolution would need to extend this single-module analyzer.
+
+Screenshots and browser evidence are in `screenshots/code-graph-complex/`.
+
 ## Synchronization contract
 
 - The AST result includes a SHA-256 hash of the exact source analyzed.
