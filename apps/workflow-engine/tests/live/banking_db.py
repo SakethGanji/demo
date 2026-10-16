@@ -1,5 +1,6 @@
 """Synthetic banking operations data for the opt-in real-provider benchmark."""
 import json
+import os
 from decimal import Decimal
 
 from psycopg2 import sql
@@ -39,6 +40,15 @@ class BankingDatabase(DemoDatabase):
             cur.executemany('INSERT INTO bank_cases VALUES (%s,%s,%s,%s,%s,%s)',cases)
             cur.executemany('INSERT INTO bank_events VALUES (%s,%s,%s,%s)',events)
             cur.execute(sql.SQL('GRANT SELECT ON bank_branches,bank_accounts,bank_transactions,bank_cases,bank_events TO {}').format(sql.Identifier(self.user)))
+        if os.environ.get('BANKING_FULL_E2E') == '1':
+            with self.admin() as conn, conn.cursor() as cur:
+                cur.execute("""CREATE TABLE bank_case_actions (
+                    id bigserial PRIMARY KEY, case_id text REFERENCES bank_cases(id),
+                    state text NOT NULL, owner text NOT NULL, note text NOT NULL,
+                    occurred_at timestamptz NOT NULL DEFAULT now())""")
+                cur.execute(sql.SQL('GRANT UPDATE ON bank_cases TO {}').format(sql.Identifier(self.user)))
+                cur.execute(sql.SQL('GRANT SELECT,INSERT ON bank_case_actions TO {}').format(sql.Identifier(self.user)))
+                cur.execute(sql.SQL('GRANT USAGE,SELECT ON SEQUENCE bank_case_actions_id_seq TO {}').format(sql.Identifier(self.user)))
         with self.admin() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("SELECT count(*)::int AS transactions, sum(amount) AS volume, count(*) FILTER(WHERE status='exception')::int AS exceptions, count(*) FILTER(WHERE status='pending')::int AS pending FROM bank_transactions")
             expected=dict(cur.fetchone())

@@ -7,11 +7,18 @@ ENGINE=ROOT/'apps/workflow-engine'
 STUDIO=ROOT/'apps/workflow-studio'
 PY=sys.executable
 example = os.environ.get('BANKING_EXAMPLE') == '1'
-assert example or os.environ.get('GEMINI_API_KEY'), 'Load the key as an environment variable first'
+casework_example = os.environ.get('BANKING_CASEWORK_EXAMPLE') == '1'
+if casework_example:
+    assert os.environ.get('BANKING_FULL_E2E') == '1', 'Casework example requires full checks'
+if os.environ.get('BANKING_FULL_E2E') == '1':
+    assert not example, 'Full E2E does not use the designed example'
+    if os.environ.get('BANKING_BACKEND_PROOF') or os.environ.get('BANKING_UI_PROOF'):
+        assert os.environ.get('BANKING_FULL_RESUME') == '1', 'Explicitly mark diagnostic source reuse'
+assert example or casework_example or os.environ.get('GEMINI_API_KEY'), 'Load the key as an environment variable first'
 model=os.environ.get('WORKFLOW_MODULE_GEN_MODEL','gemini-3.5-flash')
 db='workflows_test_e2e_'+secrets.token_hex(4)
 tmp=pathlib.Path(tempfile.mkdtemp(prefix='gemini-live-'))
-base={k:v for k,v in os.environ.items() if k in ('PATH','HOME','LANG','HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','NO_PROXY','http_proxy','https_proxy','all_proxy','no_proxy','SSL_CERT_FILE','SSL_CERT_DIR','REQUESTS_CA_BUNDLE','CURL_CA_BUNDLE','CHROMIUM_PATH','BANKING_BACKEND_PROOF','BANKING_UI_PROOF','BANKING_REFINEMENT_FILE','BANKING_REPLAY_UI','BANKING_DESIGN_PASS','BANKING_EXAMPLE')}
+base={k:v for k,v in os.environ.items() if k in ('PATH','HOME','LANG','HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','NO_PROXY','http_proxy','https_proxy','all_proxy','no_proxy','SSL_CERT_FILE','SSL_CERT_DIR','REQUESTS_CA_BUNDLE','CURL_CA_BUNDLE','CHROMIUM_PATH','BANKING_BACKEND_PROOF','BANKING_UI_PROOF','BANKING_REFINEMENT_FILE','BANKING_REPLAY_UI','BANKING_DESIGN_PASS','BANKING_EXAMPLE','BANKING_FULL_E2E','BANKING_FULL_RESUME','BANKING_CASEWORK_EXAMPLE')}
 base['PATH']=str(STUDIO/'node_modules/.bin')+':'+base.get('PATH','/usr/bin:/bin')
 subprocess.run([PY,'tests/e2e_stack.py','up'],cwd=ENGINE,env={**base,'TEST_DB_NAME':db},capture_output=True,text=True,check=True)
 def port():
@@ -51,7 +58,7 @@ try:
  base['DASHBOARD_STATE_FILE']=str(state_path)
  base['DASHBOARD_ROOT']=str(ROOT)
  base['DASHBOARD_PYTHON']=PY
- print('Retained-source browser stack ready:' if example else 'Real Gemini browser stack ready:',model,db,flush=True)
+ print('Retained-source browser stack ready:' if example or casework_example or os.environ.get('BANKING_REPLAY_UI') == '1' else 'Real Gemini browser stack ready:',model,db,flush=True)
  result=subprocess.run(['node',str(pathlib.Path(__file__).with_name('banking_app.cjs'))],env=base,text=True)
  raise SystemExit(result.returncode)
 finally:

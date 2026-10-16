@@ -102,3 +102,49 @@ Local reports and preview/published screenshots are under `screenshots/app-ideas
 For the redesigned retained banking showcase, run `BANKING_EXAMPLE=1 BANKING_DESIGN_PASS=1`
 with `run_banking_app.py`. This mode needs no provider key and makes no AI calls; it uses real
 Postgres and the real preview/published runtimes. See `examples/banking-operations/README.md`.
+
+
+## Full banking app: generation, case writes, graph and publication
+
+Run the banking benchmark with `BANKING_FULL_E2E=1` and the real Gemini key loaded
+only into the process environment from the ignored engine `.env.local`:
+
+```bash
+BANKING_FULL_E2E=1 PG_BINDIR=/path/to/postgresql/bin \
+  apps/workflow-engine/venv/bin/python apps/workflow-engine/tests/live/run_banking_app.py
+```
+
+This mode generates a fresh six-route backend through Studio, refines it through
+Studio to add case updates and audit history, and generates the entire dashboard
+through Create UI. It defaults to fresh generation and refuses the hand-designed
+example mode. Diagnostic reuse of recorded generated source requires the explicit
+`BANKING_FULL_RESUME=1` flag and is marked in the report. `BANKING_REPLAY_UI=1`
+replays exact generated UI; omitting that flag with `BANKING_UI_PROOF` makes a real
+Gemini Refine call. Preserve the initial generation report when iterating so the
+original provider calls and subsequent source replay remain distinguishable. The separate synthetic database
+role may read the banking data, update cases, and append case-action records; it
+cannot write transaction amounts. Case updates and audit insertion use one atomic
+parameterized SQL statement. Independently executed SQL checks verify browser writes,
+invalid forms, read-after-write behavior, and persistence after published-page reload.
+The native code map is checked against the exact generated backend. Publishing uses
+the actual Studio publish dialog. The original banking checks also exercise all four
+views, joins, pagination, server filters, chart variation, fresh database changes,
+and an actual database-login outage with Retry recovery. Additional captures cover
+light/dark and narrow screens. Artifacts are local in `screenshots/full-banking-app/`.
+This is functional coverage of a synthetic banking app; it is not a live bank/Splunk
+integration, load test, or production authorization certification.
+
+The retained real-Gemini result can also be exercised without additional model calls:
+
+```bash
+BANKING_FULL_E2E=1 BANKING_CASEWORK_EXAMPLE=1 PG_BINDIR=/path/to/postgresql/bin \
+  apps/workflow-engine/venv/bin/python apps/workflow-engine/tests/live/run_banking_app.py
+```
+
+See [the retained casework example](../../../../examples/banking-casework/README.md).
+This replay creates a fresh real database and runs the browser checks against the
+retained generated sources. Its report explicitly records that no provider calls
+were made. During validation, the real Generate, Refine and Create UI flow and this
+retained-source replay passed; the separate deterministic Studio suite passed all
+51 tests. Initial generated chart, search and responsive problems required a real
+Gemini UI refinement before the complete flow passed.
