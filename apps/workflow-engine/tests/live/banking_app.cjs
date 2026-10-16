@@ -4,7 +4,7 @@ const state=JSON.parse(fs.readFileSync(process.env.DASHBOARD_STATE_FILE,'utf8'))
 const credentials=JSON.parse(fs.readFileSync(process.env.DASHBOARD_CREDENTIAL_FILE,'utf8'));
 const privateValues=Object.values(credentials.secrets);
 const out=process.env.DASHBOARD_ROOT+'/screenshots/banking-app';fs.mkdirSync(out,{recursive:true});
-const report={model:state.model,database:state.dbName,provider:'real Gemini',checks:{},errors:[]};
+const report={model:process.env.BANKING_EXAMPLE==='1' ? 'retained source; no AI calls' : state.model,database:state.dbName,provider:process.env.BANKING_EXAMPLE==='1' ? 'retained generated backend and designed UI' : 'real Gemini',checks:{},errors:[]};
 let browser,page;
 const {execFileSync}=require('child_process');
 async function api(method,path,body){const r=await fetch(state.engineUrl+'/api'+path,{method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});const text=await r.text();if(!r.ok)throw Error(`${method} ${path}: ${r.status} ${text.slice(0,500)}`);return text?JSON.parse(text):null;}
@@ -60,7 +60,7 @@ async function generate(prompt,label){
  await page.reload();await expect(page.getByTestId('secret-cell-PG_PASSWORD-dev')).toHaveAttribute('data-state','set');
  await page.screenshot({path:out+'/00-saved-secrets.png'});report.checks.secrets={saved_via_ui:true,persist_after_reload:true,environments:['dev','prod'],keys:Object.keys(credentials.secrets),write_only:true};
  await page.goto(`${state.studioUrl}/p/${p.slug}/backend/~new`);
- console.log(process.env.BANKING_BACKEND_PROOF ? 'Reusing generated Postgres backend against a fresh database' : 'Generating real Postgres backend through browser');
+ console.log((process.env.BANKING_BACKEND_PROOF || process.env.BANKING_EXAMPLE==='1') ? 'Reusing generated Postgres backend against a fresh database' : 'Generating real Postgres backend through browser');
  const expected=JSON.parse(fs.readFileSync(state.tmp+'/banking-expected.json','utf8'));
  const connection=`Call studio.nodes.postgres(connection_string=f"host=127.0.0.1 port=${credentials.port} user={studio.secret('PG_USER')} password={studio.secret('PG_PASSWORD')} dbname={studio.secret('PG_DATABASE')}",operation="query",query=sql,query_parameters=params). The first result item has rows. No direct database drivers. No studio.db tables. External Postgres tables already exist. Use parameterized SQL with %s placeholders, never interpolate request inputs into SQL. Dates may be cast to text. Import api, HTTPError from studio and import studio. Secret NAMES only.`;
  const schema=`bank_branches(id int,name text,region text); bank_accounts(id int,name text,branch_id int,balance numeric); bank_transactions(id text,account_id int,amount numeric,status text,booked_at date,channel text,reference text); bank_cases(id text,transaction_id text,severity text,owner text,state text,reason text); bank_events(id int,transaction_id text,occurred_at timestamp,message text). Join transactions.account_id=accounts.id and accounts.branch_id=branches.id; cases/events.transaction_id=transactions.id. status is settled/pending/exception. All data synthetic.`;
@@ -73,8 +73,8 @@ async function generate(prompt,label){
  /ops/cases name opsCases: {items:[{id,transaction_id,severity,owner,state,reason,amount,account_name}]} joined transactions/accounts, ORDER BY case id DESC.
  Every handler accepts req. Keep helper query and filter functions concise. Return all routes in one module, don't declare new tables.`;
  let generated;
- if(process.env.BANKING_BACKEND_PROOF){
-  const proof=JSON.parse(fs.readFileSync(process.env.BANKING_BACKEND_PROOF,'utf8'));
+ if(process.env.BANKING_BACKEND_PROOF || process.env.BANKING_EXAMPLE==='1'){
+  const proof=process.env.BANKING_EXAMPLE==='1' ? {checks:{'01-generate':{module:'banking_ops',source:fs.readFileSync(process.env.DASHBOARD_ROOT+'/examples/banking-operations/banking_ops.py','utf8').replace(/DB_PORT = \d+/,`DB_PORT = ${credentials.port}`)}}} : JSON.parse(fs.readFileSync(process.env.BANKING_BACKEND_PROOF,'utf8'));
   generated={...proof.checks['01-generate'],source:proof.checks['01-generate'].source.replace(/port=\d+/,`port=${credentials.port}`)};
   await api('POST',`/projects/${p.id}/modules`,{name:generated.module,source:generated.source});
   report.checks['01-generate']={...generated,reused_real_generated_source:true,retargeted_isolated_port:true};
@@ -109,13 +109,13 @@ async function generate(prompt,label){
  Exceptions: joined case severity/owner/state/reason/amount and link to transaction detail using opsCases; rows data-testid case-row, 100rows.
  Refresh button data-testid app-refresh refreshes the current view and summary. All requests have visible loading/error/retry states and empty-state data-testid empty-state when filtered list empty. Changing filters or pagination must request backend, not filter25 rows locally. Guard race conditions and cancel stale requests on filter changes. Start on Overview and fetch data. Keep money formatted USD. Use responsive layout with no horizontal page overflow. Keyboard accessible sidebar, forms and detail close. A compact footer identifies read-only database access. Do not invent workflows or endpoints.`;
  let before,ev,appId,replayedEntry;
- if(process.env.BANKING_UI_PROOF){
-  const proof=JSON.parse(fs.readFileSync(process.env.BANKING_UI_PROOF,'utf8'));
+ if(process.env.BANKING_UI_PROOF || process.env.BANKING_EXAMPLE==='1'){
+  const proof=process.env.BANKING_EXAMPLE==='1' ? {generated_files:[{path:'App.tsx',content:fs.readFileSync(process.env.DASHBOARD_ROOT+'/examples/banking-operations/App.tsx','utf8')}]} : JSON.parse(fs.readFileSync(process.env.BANKING_UI_PROOF,'utf8'));
   const seeded=await api('POST','/apps',{name:'Banking Operations',project_id:p.id,definition:{nodes:[],rootNodeId:null,studio:{route_ids:routes.map(route=>route.id)}}});appId=seeded.id;
   await api('PUT',`/apps/${appId}`,{files:proof.generated_files,source_code:proof.generated_files.find(f=>f.path==='App.tsx').content,create_version:true});
   await page.goto(`${state.studioUrl}/p/${p.slug}/apps/${appId}`);
-  if(process.env.BANKING_REPLAY_UI==='1'){
-   ev=[];replayedEntry=proof.generated_files.find(f=>f.path==='App.tsx');report.replayed_real_generated_ui=true;
+  if(process.env.BANKING_REPLAY_UI==='1' || process.env.BANKING_EXAMPLE==='1'){
+   ev=[];replayedEntry=proof.generated_files.find(f=>f.path==='App.tsx');report.replayed_real_generated_ui=process.env.BANKING_EXAMPLE!=='1';report.replayed_retained_designed_ui=process.env.BANKING_EXAMPLE==='1';
   }else{
   await expect(page.getByTestId('chat-input')).toBeVisible();before=await streamCount();
   await page.getByTestId('chat-input').fill(process.env.BANKING_REFINEMENT_FILE ? fs.readFileSync(process.env.BANKING_REFINEMENT_FILE,'utf8') : `Fix this existing generated app to use the now-applied typed API response contracts. Read api/client.ts and App.tsx first; use edit_files or write_files. The backend was tested and is correct. Never change the backend or client. Summary is exactly {transactions,volume,exceptions,pending,accounts,branches}, not transactionsCount/totalTransactions. opsTransaction returns {transaction:{id,account_name,region,amount,status,...},events:[{id,occurred_at,message}],cases:[{id,reason,...}]}; use detail.transaction for metadata and detail.events for audit. opsTrends returns {items:[{day,volume,count}]}; opsAccounts/opsCases return {items:[...]}. opsTransactions takes query directly (not {query:...}) and returns {items,total,page,page_size}; fields are snake_case (account_name,branch_name,booked_at,transaction_count). Preserve all views, chart and testids. Every feature in the following original specification must actually use live responses, not invented aliases or dummy defaults. ${uiPrompt}`);
@@ -160,6 +160,46 @@ async function generate(prompt,label){
  await checkApp(frame,'preview');
  const published=await api('POST',`/apps/${appId}/publish`,{slug:'banking-ops-'+Date.now(),access:'public'});
  const pub=await context.newPage();await pub.goto(state.engineUrl+'/a/'+published.slug);await checkApp(pub,'published');
+ if(process.env.BANKING_DESIGN_PASS==='1'){
+  await pub.getByTestId('nav-overview').click();
+  await expect(pub.getByTestId('volume-chart').getByTestId('trend-bar')).toHaveCount(15);
+  await pub.screenshot({path:out+'/design-overview-light.png'});
+  await pub.getByTestId('volume-chart').getByTestId('trend-bar').first().focus();
+  await expect(pub.locator('.m-chart-stats')).toContainText('Oct 1');
+  await pub.getByTestId('theme-toggle').click();await expect(pub.locator('.meridian')).toHaveAttribute('data-theme','dark');
+  await expect(pub.getByTestId('app-refresh')).toHaveCSS('background-color','rgb(26, 38, 46)');
+  await expect(pub.locator('.m-health-note button')).toHaveCSS('color','rgb(229, 237, 240)');
+  await pub.screenshot({path:out+'/design-overview-dark.png',animations:'disabled'});
+  await pub.getByTestId('theme-toggle').click();
+  await expect(pub.getByTestId('app-refresh')).toHaveCSS('background-color','rgb(255, 255, 255)');
+  await pub.locator('.m-main').evaluate(el=>el.scrollTop=el.scrollHeight);await pub.screenshot({path:out+'/design-portfolio.png'});
+  await pub.getByTestId('nav-accounts').click();await expect(pub.getByTestId('account-row')).toHaveCount(40);
+  await pub.getByTestId('account-search').fill('Synthetic Client 040');await expect(pub.getByTestId('account-row')).toHaveCount(1);
+  await pub.getByTestId('account-search').fill('');await pub.getByTestId('account-sort').click();await expect(pub.getByTestId('account-row').first()).toContainText('Synthetic Client 040');
+  await pub.screenshot({path:out+'/design-accounts.png'});
+  await pub.getByTestId('nav-exceptions').click();await pub.getByTestId('case-filter-high').click();await expect(pub.getByTestId('case-row')).toHaveCount(50);
+  await pub.getByTestId('case-filter-medium').click();await expect(pub.getByTestId('case-row')).toHaveCount(50);
+  await pub.getByTestId('case-filter-all').click();await pub.getByTestId('case-search').fill('Reconciliation mismatch');await expect(pub.getByTestId('case-row')).toHaveCount(50);
+  await pub.getByTestId('case-search').fill('');await expect(pub.getByTestId('case-row')).toHaveCount(100);await pub.screenshot({path:out+'/design-exceptions.png'});
+  await pub.getByTestId('nav-transactions').click();await expect(pub.getByTestId('transaction-row')).toHaveCount(1);
+  const downloadPromise=pub.waitForEvent('download');await pub.getByRole('button',{name:'Export page'}).click();
+  const download=await downloadPromise;const csv=fs.readFileSync(await download.path(),'utf8');expect(csv).toContain('TX-000600');expect(csv).toContain('account_name');
+  await pub.getByRole('button',{name:'View details TX-000600'}).click();await expect(pub.getByRole('dialog')).toBeVisible();
+  await pub.keyboard.press('Tab');await expect(pub.getByTestId('detail-close')).toBeFocused();await pub.keyboard.press('Escape');await expect(pub.getByRole('dialog')).toHaveCount(0);
+  await expect(pub.getByRole('button',{name:'View details TX-000600'})).toBeFocused();
+  await pub.screenshot({path:out+'/design-transactions.png'});
+  for(const width of [1024,390]){
+   await pub.setViewportSize({width,height:900});await pub.getByTestId('nav-overview').click();
+   await expect(pub.getByTestId('volume-chart').getByTestId('trend-bar')).toHaveCount(15);
+   const dimensions=await pub.evaluate(()=>{const main=document.querySelector('.m-main');return {outside:Array.from(document.querySelectorAll('*')).filter(el=>!el.closest('.m-main')&&el.getBoundingClientRect().right>innerWidth+1).map(el=>({tag:el.tagName,class:el.className,right:el.getBoundingClientRect().right})),viewport:innerWidth,page:document.documentElement.scrollWidth,main:main.clientWidth,scroll:main.scrollWidth,children:Array.from(main.children).map(el=>({class:el.className,width:el.clientWidth,scroll:el.scrollWidth}))}});
+   report.checks['design_dimensions_'+width]=dimensions;
+   await pub.screenshot({path:out+'/design-responsive-'+width+'.png'});
+   expect(dimensions.page,'page must fit '+width+'px').toBeLessThanOrEqual(dimensions.viewport);
+   expect(dimensions.scroll,'main content must fit '+width+'px: '+JSON.stringify(dimensions.children)).toBeLessThanOrEqual(dimensions.main+1);
+  }
+  await pub.setViewportSize({width:1440,height:900});
+  report.checks.design={light_dark:true,chart_keyboard_focus:true,account_search_sort:true,severity_and_case_search:true,csv_export:true,drawer_keyboard:true,responsive_1024_and_390:true};
+ }
  // Mutate the actual database and prove summary refresh without changing generated code.
  execFileSync(process.env.DASHBOARD_PYTHON,['-c',`import json,psycopg2
 from pathlib import Path
@@ -195,5 +235,5 @@ with psycopg2.connect(host=${JSON.stringify(state.tmp)},port=cfg['port'],dbname=
  report.checks.database_error_and_retry=true;
  await pub.screenshot({path:out+'/published-refreshed.png'});
  for(const value of privateValues){expect(JSON.stringify(app.files)).not.toContain(value);expect(responses.some(t=>t.includes(value))).toBe(false);}
- expect(report.errors).toEqual([]);report.passed=true;console.log('PASS: complex banking app, real Gemini/Postgres, filters, pagination, joined drilldowns, cases, accounts, publish and live refresh');
+ expect(report.errors).toEqual([]);report.passed=true;console.log(process.env.BANKING_EXAMPLE==='1' ? 'PASS: redesigned banking app, retained source, real Postgres, interactions and publishing' : 'PASS: complex banking app, real Gemini/Postgres, filters, pagination, joined drilldowns, cases, accounts, publish and live refresh');
 })().catch(async e=>{report.passed=false;report.failure=privateValues.reduce((t,v)=>t.split(v).join('[REDACTED]'),e.message);console.log('Banking browser validation failed:',report.failure.slice(0,2000));if(page)await page.screenshot({path:out+'/failure.png'}).catch(()=>{});process.exitCode=1;}).finally(async()=>{fs.writeFileSync(out+'/report.json',privateValues.reduce((t,v)=>t.split(v).join('[REDACTED]'),JSON.stringify(report,null,2)));await browser?.close();});

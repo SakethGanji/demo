@@ -92,3 +92,21 @@ No product-code changes were needed for these cases. The opt-in runner is
 Evidence: `screenshots/app-ideas/report.json` plus three preview and three published screenshots.
 This verifies these specific journeys; it does not establish arbitrary app correctness or
 production commerce readiness.
+
+## Banking showcase redesign (2026-10-16)
+
+The retained banking UI was redesigned around the existing real API contracts. It adds light/dark
+themes, volume and settlement visualizations, regional portfolio exposure, priority queue,
+account search/sort, exception severity/search, CSV page export, and a keyboard-accessible drawer.
+Missing summary values render as unavailable instead of invented zeros; detail requests discard
+stale results. Existing server filters, pagination, joins, refresh and error recovery are preserved.
+
+Exact retained source passed the complete preview/published banking journey against fresh real
+Postgres. Additional checks passed for theme contrast, chart keyboard focus, account search/sort,
+case filtering, CSV download, drawer focus/Escape, and no horizontal overflow at 1024px and 390px.
+The phone fix establishes the scroll container as the containing block for hidden table labels;
+it does not hide overflow at the page level.
+
+This pass used the retained AI-generated backend and manually designed UI, with no new model calls.
+Repeat with `BANKING_EXAMPLE=1 BANKING_DESIGN_PASS=1` and `run_banking_app.py`; no Gemini key is needed.
+Local screenshots and JSON report are archived under `screenshots/banking-redesign/`.

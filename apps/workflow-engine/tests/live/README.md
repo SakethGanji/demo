@@ -98,3 +98,7 @@ response schemas to the client generator; write-request schemas are explicitly c
 The tests do not fabricate AI responses, application data, or successful writes. Each idea
 reports independently, so a failure does not prevent exercising the remaining ideas.
 Local reports and preview/published screenshots are under `screenshots/app-ideas/`.
+
+For the redesigned retained banking showcase, run `BANKING_EXAMPLE=1 BANKING_DESIGN_PASS=1`
+with `run_banking_app.py`. This mode needs no provider key and makes no AI calls; it uses real
+Postgres and the real preview/published runtimes. See `examples/banking-operations/README.md`.
