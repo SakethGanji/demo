@@ -22,6 +22,16 @@
   // "Lean in" layer: crisper corners, entity colour, space atmosphere. ?lean=0 compares without it.
   if (new URLSearchParams(location.search).get('lean') !== '0') document.write('<link rel="stylesheet" href="assets/lean.css">');
   document.write('<link rel="stylesheet" href="assets/accent.css"><script src="assets/accent.js"><\/script>');
+  // Refine layer: usability and consistency fixes. ?refine=0 compares without it.
+  // The accent and layout pills are for comparing variants, so they only show when one was asked for.
+  const qs = new URLSearchParams(location.search);
+  root.dataset.page = (location.pathname.split('/').pop() || 'index.html').replace('.html', '');
+  if (qs.has('accent') || qs.has('layout') || qs.has('compare') || qs.get('refine') === '0') root.dataset.compare = '';
+  if (qs.get('refine') !== '0') {
+    document.write('<link rel="stylesheet" href="assets/refine.css">');
+    // Projects home: a denser sky over a slight gradient, and frosted glass cards. ?hero=0 compares without it.
+    if (root.dataset.page === 'projects' && qs.get('hero') !== '0') { root.dataset.hero = ''; document.write('<script src="assets/home-sky.js"><\/script>'); }
+  }
   document.addEventListener('DOMContentLoaded', () => setTimeout(() => {
     if (document.querySelector('.lay-switch')) return;
     let asked = new URLSearchParams(location.search).has('layout'); try { asked = asked || !!localStorage.getItem('cs-layout'); } catch (e) {}

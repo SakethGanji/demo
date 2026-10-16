@@ -57,7 +57,7 @@
       const x = R() * w, y = R() * h, u = R();
       const r = 0.28 + Math.pow(u, 16) * (o.max || 2.7);          // power law: mostly pinpricks, rare bright stars
       let a = 0.14 + Math.pow(R(), 2.2) * 0.5 + (r > 1 ? 0.3 : 0);
-      const t = dark ? temp(R()) : [38, 34, 28]; if (!dark) a *= 0.32;
+      const t = dark ? temp(R()) : [28, 52, 118]; if (!dark) a *= 0.7;       // light: navy stars, same sky
       const col = (al) => `rgba(${t[0]},${t[1]},${t[2]},${Math.min(1, al)})`;
       if (dark && r > 1.05) {                                  // soft halo
         const g = ctx.createRadialGradient(x, y, 0, x, y, r * 4.5); g.addColorStop(0, col(a * .3)); g.addColorStop(1, col(0));

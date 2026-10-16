@@ -12,7 +12,8 @@
 
    Keep the studio's --node-*, --sticky-* and --chart-* blocks until the canvas is restyled.
    Every value is a var() into tokens.css, so light / dark switch with the .dark class on <html>.
-   The recipes are the final rules of the mockups' lean.css §4–§13, with dark's edgeless glass.
+   The recipes are the final rules of the mockups' lean.css §4–§13 and refine.css §9: one glass recipe in both
+   themes (fill, 20px blur, 1px glass edge, top light, shadow); the tokens carry the light and dark values.
    ══════════════════════════════════════════════════════════════════════════════════════════════ */
 
 @theme inline {
@@ -154,8 +155,9 @@
 
 /* ════════════════════════════════════════ recipes ════════════════════════════════════════ */
 
-/* Glass (lean §13): the boxes. Dark = white 6% frost, 11.6px blur, a 1px top light and a soft drop, NO outline.
-   Light = a solid slate tile, no shadow (the tokens switch it; nothing here is mode-specific). */
+/* Glass (refine §9): every tile, card, pane, stats strip and table well, in BOTH themes. Dark = white 6% frost;
+   light = white 50% frost. Both: blur(20px) saturate(160%), a 1px glass edge, a top light and a soft drop.
+   Text inside goes in a `well`, never straight on the frost. */
 @utility glass {
   border: 0;
   border-radius: var(--r-panel);
@@ -165,7 +167,7 @@
   box-shadow: var(--glass-elevation);
 }
 
-/* Tile: alias of glass for bento tiles and cards. Hover (cards) lifts the frost a step. */
+/* Tile: alias of glass for bento tiles and cards. Hover (clickable cards) lifts the frost a step. */
 @utility tile {
   border: 0;
   border-radius: var(--r-panel);
@@ -173,9 +175,10 @@
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
   box-shadow: var(--glass-elevation);
+  &:is(a, button, [role="button"]):hover { background: var(--glass-fill-hover); }
 }
 
-/* Editor panels (backend / data split views): a thinner frost than tiles; merged into the sheet in light. */
+/* Editor panels (backend / workflows split views): a thinner frost than tiles in dark, a denser one in light. */
 @utility glass-editor {
   border: 0;
   background: var(--glass-fill-editor);
@@ -191,10 +194,9 @@
   .glass-overlay { background: var(--popover); }
 }
 
-/* Chrome (lean §9 + §13): top bar and sidebar sit on the canvas. A faint frost in dark, no edge, no shadow.
-   Light: transparent, the top bar keeps a light blur for content scrolling under it.
-   The mockup's top bar renders transparent in dark too: use `glass-chrome bg-transparent!` there to match
-   (the `!` is needed: recipes sort after plain colour utilities). */
+/* Chrome (refine §9): the top bar. The glass fill at 60% with the same blur, no edge, no shadow, both themes.
+   The sidebar sits on the canvas: use `glass-chrome bg-transparent!` there (the `!` is needed: recipes sort
+   after plain colour utilities). */
 @utility glass-chrome {
   border: 0;
   background: var(--chrome-fill);
@@ -214,9 +216,9 @@
   box-shadow: var(--overlay-shadow);
 }
 
-/* Sheet (layout.css linear + lean §12/§13): the one large content surface, inset from the window by
-   --sheet-gutter on the right and bottom. 10px radius. Dark: transparent, no edge (tiles float on space).
-   Light: white with a hairline ring. */
+/* Sheet (layout.css linear + refine §9): the one large content surface, inset from the window by
+   --sheet-gutter on the right and bottom. 10px radius. Transparent with no edge in both themes, so the glass
+   tiles inside it frost the sky. */
 @utility sheet {
   position: relative;
   overflow: hidden;
@@ -225,8 +227,8 @@
   box-shadow: var(--sheet-ring);
 }
 
-/* Well (lean §4/§13): a flat recessed area inside a tile (tables, lists, code). Fill only, no ring.
-   Dark: black 35% under the frost; light: white inside the slate tile. Never a well in a well. */
+/* Well (lean §4, refine §9): a flat recessed area inside a glass tile (tables, lists, code). Fill only, no ring.
+   Dark: black 35%; light: white 60%. Never a well in a well. */
 @utility well {
   border: 0;
   border-radius: var(--r-well);
@@ -249,7 +251,8 @@
   box-shadow: var(--raise-sm);
 }
 
-/* Slot: a dashed empty slot ("New project"). Transparent fill. */
+/* Slot: a dashed empty slot. Not used by the final design: "New project" is a `tile` (refine §10). Kept for
+   drop zones such as CSV import. */
 @utility slot {
   border: 1px dashed var(--slot-line);
   border-radius: var(--r-panel);
@@ -274,8 +277,9 @@
   background-position: 0 0;
 }
 
-/* Nebula (lean §12): the canvas colour plus, in dark, a barely-there bloom fixed behind the content.
-   Put it on <body>; the app root needs `relative z-[1]` to sit above the bloom. */
+/* Nebula (lean §12, refine §9): the canvas colour plus a faint bloom fixed behind the content, in both themes
+   (light uses the logo's steel blue and aqua). Put it on <body>; the app root needs `relative z-[1]` to sit
+   above the bloom. Projects home replaces it with paintHomeSky() from starfield.js. */
 @utility nebula {
   background: var(--canvas);
   &::after {

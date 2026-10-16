@@ -1,27 +1,27 @@
 # HANDOFF: implement the Command Studio design in the studio app
 
-**Final, 2026-10-16.**
+**Final, 2026-10-16 (refine pass).**
 - **Target:** `demo/apps/workflow-studio` (React 18, Vite, Tailwind v4, shadcn-style on Base UI, `@xyflow/react`, `motion`, `sonner`).
 - **Repo:** `demo/`, branch `revert-to-5684ba5`. The design lives in `demo/design/`; it was `ui-redo/` while being built.
 
-The design is finished and approved: **frosted glass over a near-black space, a Linear-style sheet, steel-blue brand, and no borders**. Rebuild it in the real app one phase at a time, with tests green at every step.
+The design is finished and approved: **frosted glass over a starfield, one design in light and dark, a Linear-style sheet, and a steel-blue brand**. Rebuild it in the real app one phase at a time, with tests green at every step.
 
-**Translate the mockups; don't paste them.** Their CSS is a stack of experimental layers, the final decisions sit in `assets/lean.css` (later sections win), and their class names collide with Tailwind.
+**Translate the mockups; don't paste them.** Their CSS is a stack of experimental layers, the final decisions sit in `assets/lean.css` and then `assets/refine.css` (later sections win, and refine wins over lean), and their class names collide with Tailwind.
 
 ## 0. Read first, in this order
 
 | File | What it is |
 |---|---|
 | `DESIGN.md` | **The single design spec**: layout, dark and light, colour, surfaces, type, space and art, motion, components, guardrails. Read all of it. |
-| `handoff/tokens.css` | **The values.** 149 tokens. Light values sit on `:root` as hex; dark values on `.dark`. Every value was computed in a browser from the final mockups. |
+| `handoff/tokens.css` | **The values.** 152 tokens. Light values sit on `:root`; dark values on `.dark`. Values were computed in a browser from the mockups, then the glass, canvas and sky values were updated to the refine pass. |
 | `handoff/tailwind-theme.css` | Tailwind v4 `@theme inline` plus `@utility` recipes: `glass`, `tile`, `glass-editor`, `glass-chrome`, `glass-overlay`, `sheet`, `well`, `recess`, `raise`, `slot`, `field`, `stardust`, `nebula`. Compiled cleanly with the studio's Tailwind 4.1.17. |
-| `handoff/starfield.js` | The canvas starfield as a framework-free module: `paintStarfield(canvas, opts)`, `starDustDataURL(opts)`, and the presets `SKY`, `SHEET`, `DUST`. The usage comment shows a React `useEffect`. |
+| `handoff/starfield.js` | The canvas starfield as a framework-free module: `paintStarfield(canvas, opts)` for the sky inside a project, `paintHomeSky(canvas, opts)` for the Projects home sky, `starDustDataURL(opts)`, and the presets `SKY`, `SHEET`, `DUST`. The usage comment shows a React `useEffect`. |
 | `handoff/MAPPING.md` | Each mockup piece mapped to a studio component or file, plus the E2E couplings, risks and data gaps. **Read §6 before writing code.** Where it describes visuals (borders, indigo, floating panels), **`DESIGN.md` wins**. The file paths and risks still hold. |
 | `handoff/fonts/` | `inter-v4.woff2` (variable, opsz; family "Inter Var") and `jbmono.woff2` |
 | `handoff/logo.svg` | The mark: a white `>_` on a steel-blue → cyan tile. Use it for the favicon and the top-bar brand. |
 | `_archive/` | The superseded layered DESIGN and HANDOFF, kept for history only. **Don't build from them.** |
 
-**Reference pages:** open these in a browser with `?theme=dark`; dark is the primary experience.
+**Reference pages:** open these in a browser with `?theme=dark` and `?theme=light`. Both themes are the same design; check each page in both.
 
 | Mockup | Studio surface |
 |---|---|
@@ -33,24 +33,23 @@ The design is finished and approved: **frosted glass over a near-black space, a 
 | `workflows.html` | Workflow editor |
 | `index.html` | Component reference |
 
-`overview-classic.html` is the earlier layout, kept for reference only. `?layout=floating|docked` and `?accent=scaffold|none` are comparison variants, **not** the design.
+`overview-classic.html` is the earlier layout, kept for reference only. `?layout=floating|docked` and `?accent=scaffold|none` are comparison variants, **not** the design; their switcher shows only with `?compare`. `?refine=0` shows a page before the refine pass, and `?hero=0` shows Projects without its sky.
 
 ## 1. The design on one page
 Full rules are in `DESIGN.md`.
 
-- **Layout.** The top bar and the sidebar sit on the background. All content lives in **one sheet**: 10px radius, 8px from the window edge, transparent in dark. Overview is a **bento grid**.
-- **Dark mode, the hero.**
-  - The canvas is near-black `#050507`.
-  - A faint starfield sits behind everything at 40% opacity, with a barely visible blue nebula bloom.
-  - Every box is **frosted glass**: `rgba(255,255,255,.06)`, `blur(11.6px)`, a whisper of top light, and a soft `0 10px 40px` shadow. **No outlines.**
-  - Text sits in darker recesses, never directly on the frost.
-- **Light mode.** Pure white and cool slate. Only the top bar is frosted. Never warm grey.
+- **Layout.** The top bar and the sidebar sit on the background. All content lives in **one sheet**: 10px radius, 8px from the window edge, transparent in both themes. Overview is a **bento grid**.
+- **One design, two themes.** Light and dark share the sky, the glass and the layout; only the palette changes.
+  - **Canvas:** near-black `#050507` in dark, pure white `#ffffff` in light.
+  - **Sky:** inside a project, a faint starfield (16% dark, 40% light in navy ink) and a faint steel-blue and aqua bloom. Projects home has a fuller sky (`paintHomeSky`): denser stars, a Milky Way band and the logo's two colours.
+  - **Glass:** every tile, card, pane and table well. A translucent fill (white 6% dark, 50% light), `blur(20px) saturate(160%)`, a 1px glass edge, a top light and a soft shadow. It's one recipe; the tokens switch it.
+  - Text sits in recesses inside the glass, never directly on the frost.
 - **Colour.**
   - A calm steel-blue primary: `#2a5fc4` light, `#3567c8` dark.
   - Each kind of thing has its own hue, used only on icons and small tints: backend, data, runs, apps, secrets, ai, workflows, release.
   - Status colours are for status only.
   - **No purple or indigo** as the brand.
-- **Surfaces.** No borders, and nothing inside a box has a gradient. **Recessed** means the control holds a value; **raised** means it marks a choice or an action.
+- **Surfaces.** No drawn borders (the glass edge is part of the glass), and nothing inside a box has a gradient. **Recessed** means the control holds a value; **raised** means it marks a choice or an action.
 - **Corners.** 10 sheet · 8 tiles and menus · 6 controls and wells · 4 chips · 3 kbd.
 - **Type.** Inter v4 (opsz, `cv01`/`ss03`) with JetBrains Mono for code. Tabular numerals everywhere. Sentence-case labels.
 - **Art.** Line art drawn from real data, with one glowing focal node per drawing. Packets fire **once per real event**. Nothing loops.
@@ -67,12 +66,14 @@ Get the existing E2E specs green before restyling. Specs 05 (T22, T24), 06 and 0
    - Light values go **directly in `:root`, as hex**. `contrast.test.ts` parses the literal `:root {` and `.dark {` blocks; all 20 checks pass with the new tokens.
    - Keep `--node-*`, `--sticky-*` and `--chart-2` in `index.css` until the workflow canvas and the JSON viewer are restyled.
 2. **Tailwind.** Append `handoff/tailwind-theme.css`.
-   - Recipes sort after plain colour utilities. Where the top bar must stay transparent, write `glass-chrome bg-transparent!`.
+   - Recipes sort after plain colour utilities. For the sidebar, which sits on the canvas, write `glass-chrome bg-transparent!`.
    - Check that the `backdrop-filter` fallback (`@supports`) works.
+   - The `tile` hover uses nested CSS; it compiles with the studio's Tailwind (checked with `@tailwindcss/node`).
 3. **Fonts.** Serve both fonts from `public/fonts/` and fix the `@font-face` URLs.
 4. **Space.** Add a `<SpaceBackground/>` to the root layout:
-   - one fixed full-screen `<canvas>` painted with `paintStarfield(SKY)`, at 40% opacity in dark;
-   - the `nebula` utility on the body;
+   - one fixed full-screen `<canvas>` painted with `paintStarfield(SKY)`, at `var(--sky-opacity)` (.16 dark, .4 light);
+   - the `nebula` utility on the body, in both themes;
+   - on Projects home only, instead: one absolutely positioned canvas the height of the page, painted with `paintHomeSky`, behind `<main>`, with the SKY canvas and the nebula hidden;
    - a repaint on resize and on theme change;
    - `aria-hidden` and `pointer-events: none`.
 5. **Primitives** (`src/shared/components/ui/*`, cva variants against the recipes; the full table is in MAPPING §3):
@@ -132,8 +133,8 @@ Get the existing E2E specs green before restyling. Specs 05 (T22, T24), 06 and 0
    - CSV import: dropzone, preview and column mapping.
    - Star dust (`stardust`) below the last row.
 5. **Projects home.**
-   - The greeting, the workspace pulse panel and the attention alert, whose one-click fix cascades through the page.
-   - Glass project cards with system diagrams and activity strips.
+   - The greeting, its sub-line (which carries the missing-secret link) and the three-figure stats strip. **No attention banner**, and no beam, grid, sparkles or workspace diagram.
+   - Glass project cards with system diagrams and activity strips. "New project" is a glass tile, not a dashed slot.
    - Templates with line art, and "Describe it instead".
 6. **Workflows.**
    - The canvas sits in a recessed well. Nodes are raised glass, and their icons take the entity hue. **Drop the rainbow `--node-*` palette.**
@@ -170,20 +171,24 @@ Either mock these behind a flag or build the endpoints first. MAPPING §6.8 has 
 
 ## 5. Known token caveats
 These come from the token pass.
-- **Light canvas:** the token is `#f8f9fb`, but the mockup renders `#fafaf9` because of a higher-specificity rule in `layout.css`. Use the token.
+- **Light canvas:** pure white `#ffffff`. The old `#f8f9fb` and the `#fafaf9` that `layout.css` leaked are both gone.
 - **Code gutter:** raised to `#878e9e` (light) and `#676d7c` (dark) to pass the 3:1 contrast test. The mockup's gutter fails it.
-- **Warm values still left:** a few light-mode values haven't had the cool pass yet: `--faint`, `--code-bg`, `--syn-comment`, `--border`, `--input`, and the `--raise-*` and `--shadow-*` layers. Cool them if they ever show warm.
+- **Warm values still left:** a few light-mode values haven't had the cool pass yet: `--code-bg`, `--syn-comment`, `--border`, `--input`, and the `--raise-*` and `--shadow-*` layers. Cool them if they ever show warm.
 - **AI colour:** `--ai` and `--ai-text` keep the violet for AI components. `--hue-ai` is the calmer entity hue.
 
 ## 6. Guardrails
-Never reintroduce these (full list in DESIGN §11):
-- Borders or outlines on boxes.
+Never reintroduce these (full list in DESIGN §10):
+- Different UIs for light and dark (for example glass in one theme and solid cards in the other).
+- Grey light-mode backgrounds.
+- Large illustrations or a warning banner on Projects home.
+- Drawn borders on boxes, other than the glass edge.
 - Gradients inside tiles.
 - Purple as the brand.
 - Warm-grey cards.
 - A navy veil over the background.
 - Heavy stars or glow.
 - Glass with nothing behind it.
+- Gradients that fade to transparent black (they turn grey on white).
 - Floating-card layouts.
 - Springy motion.
 - Looping decorations.
@@ -194,5 +199,5 @@ Other rules:
 - **Never put a recess inside a recess.** A control inside a well is raised.
 - **Every new interactive element gets a `data-testid`.** Keep all existing testids and the `data-*` attributes the specs read (MAPPING §6.4).
 - **Verify visually.** Take headless Chromium screenshots at 1440×900 in both themes and compare them with the mockups.
-  - Headless doesn't render `backdrop-filter` blur and freezes transitions, so check the blur in a real browser.
+  - Headless Chromium **does** render `backdrop-filter` blur (tested), so screenshots show the glass. It freezes transitions, though: a rolling digit can be caught mid-roll. Use `--force-prefers-reduced-motion` to see values at rest.
 - **When in doubt, favour legibility.**

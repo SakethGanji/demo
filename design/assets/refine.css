@@ -1,0 +1,110 @@
+/* Refine: usability and consistency pass on the final design. Loaded last by shell.js; ?refine=0 compares without it.
+   Nothing here changes the direction (glass on near-black, steel blue, no borders). It fixes what gets in a user's way. */
+
+/* ── 1. prototype controls stay out of the product. The Stars / Scaffold / None and layout pills only show when
+   a comparison was asked for (?accent=, ?layout= or ?compare). They overlapped the Describe-it card on Projects. ── */
+html:not([data-compare]) .acc-switch, html:not([data-compare]) .lay-switch { display: none !important; }
+
+/* ── 2. one page-title size. Runs had a 14px panel title while Data and Overview use 26px. ── */
+html[data-page="runs"] .runs-panel > .panel-head { padding-top: 20px; padding-bottom: 12px; }
+html[data-page="runs"] .runs-panel > .panel-head h3 { display: flex; align-items: center; gap: 10px;
+  font-size: 26px; font-weight: 650; letter-spacing: -.03em; line-height: 1.15; }
+html[data-page="runs"] .runs-panel > .panel-head h3 .badge { font-size: 12px; letter-spacing: 0; font-weight: 500; }
+
+/* ── 3. no box outlines and no gradients inside boxes, on Projects too (it was the one page still drawing them) ── */
+body .pulse, body .alert .box { border: 0 !important; outline: 0 !important; }
+html.dark body .pulse, html.dark body .alert .box { box-shadow: 0 10px 40px rgb(0 0 0 / .5), inset 0 1px 0 var(--gl-top) !important; }
+html:not(.dark) body .pulse, html:not(.dark) body .alert .box { box-shadow: var(--shadow-xs, 0 1px 2px rgb(15 23 42 / .06)) !important; }
+body .pulse .pc:first-child { background: none !important; }
+body .pulse::before, body .pulse::after { display: none !important; }
+body .ai-card { background: var(--card) !important; }
+html.dark body .ai-card { background: rgba(255, 255, 255, .06) !important; }
+body .ai-card textarea { border: 0 !important; background: var(--recess-fill, rgb(0 0 0 / .04)) !important; box-shadow: var(--inset-sm, none) !important; }
+html.dark body .ai-card textarea { background: rgb(0 0 0 / .35) !important; }
+body .ai-card textarea:focus { box-shadow: var(--inset-sm, none), 0 0 0 2px var(--ring) !important; }
+
+/* ── 4. dense tables read on a deeper recess, so stars never sit behind rows of text ── */
+html.dark body .runs-well, html.dark body .grid-well, html.dark body .bt-routes .well, html.dark body .bt-recent .well { background: rgb(0 0 0 / .5) !important; }
+
+/* ── 5. comfortable hit targets: nothing clickable under 24px, rows and nav items at 30px ── */
+.ov-snip .seg > button { height: 24px !important; padding: 0 10px !important; }
+.sidebar .outline-nav .item { min-height: 30px; }
+.group-head button { min-width: 22px; min-height: 22px; }
+.btn.icon-sm, .btn.ghost.icon-sm { min-width: 28px; min-height: 28px; }
+.seg > button, .seg > a { min-height: 24px; }
+
+/* ── 6. clear hover and focus on everything clickable. Hover is a soft fill, focus is the 2px ring. ── */
+.sidebar .outline-nav .item:not(.on):hover { background: color-mix(in srgb, var(--foreground) 6%, transparent); }
+.table tbody tr { transition: background-color var(--d-fast, 140ms); }
+.table tbody tr:hover { background: color-mix(in srgb, var(--foreground) 4%, transparent); }
+.card.proj:focus-visible, .tpl:focus-visible, .bt.panel a:focus-visible, .item:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+/* ── 7. light mode is pure cool white, never the warm #fafaf9 that layout.css was leaking ── */
+html:not(.dark) body { background: #f8f9fb !important; }
+
+/* ── 8. quieter tooltips over glass: denser frost so the text reads at a glance ── */
+html.dark .m-tip { background: rgb(18 20 28 / .92) !important; }
+
+/* ── 9. One system, two themes. Light and dark share the same sky, the same glass and the same layout; only the
+   palette changes. Projects (the front door) gets the full sky from home-sky.js; inside a project the sky is a faint
+   hint, enough for the glass to catch and never behind what you read. ── */
+:root {
+  --g-fill: rgb(255 255 255 / .5); --g-strong: rgb(255 255 255 / .62); --g-hover: rgb(255 255 255 / .72);
+  --g-edge: rgb(255 255 255 / .8); --g-line: rgb(30 50 110 / .10); --g-top: rgb(255 255 255 / 1);
+  --g-shadow: 0 1px 2px rgb(20 30 60 / .05), 0 12px 32px rgb(30 50 100 / .09);
+  --g-well: rgb(255 255 255 / .6); --g-blur: blur(20px) saturate(160%);
+}
+html.dark {
+  --g-fill: rgb(255 255 255 / .06); --g-strong: rgb(255 255 255 / .045); --g-hover: rgb(255 255 255 / .09);
+  --g-edge: rgb(255 255 255 / .10); --g-line: transparent; --g-top: rgb(255 255 255 / .10);
+  --g-shadow: 0 10px 40px rgb(0 0 0 / .5);
+  --g-well: rgb(0 0 0 / .35);
+}
+
+/* the ground: a page colour, the logo's two colours as a faint bloom, and the stars */
+html:not(.dark) body { background: #ffffff !important; }               /* light mode is pure white; the colour comes from the blooms */
+html:not(.dark) body::after { content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 0 !important;
+  opacity: 1 !important; mix-blend-mode: normal !important; background-size: auto !important; background:
+    radial-gradient(40% 40% at 12% 0%, rgb(74 118 222 / .16), transparent 70%),
+    radial-gradient(34% 36% at 96% 22%, rgb(56 186 204 / .14), transparent 70%) !important; }
+html .workspace { position: relative; z-index: 1; }
+html.dark[data-page]:not([data-page="projects"]) .cs-sky { opacity: .16 !important; }
+html:not(.dark)[data-page]:not([data-page="projects"]) .cs-sky { opacity: .4 !important; }
+
+/* the sheet is see-through in both themes, so the glass inside it has something to frost */
+html:root[data-layout="linear"] body .main { background: transparent !important; box-shadow: none !important; }
+html:root body .main > .panel { background: transparent !important; box-shadow: none !important; }
+
+/* glass: every card, tile and pane, in both themes. A translucent fill with blur, a visible edge, light along
+   the top and a soft shadow */
+html:root body .main .page .bt.panel, html:root body .bt-runs, html:root body .card.panel, html:root body .tpl,
+html:root body .pulse, html:root body .main > .panel .panel, html:root body .main > .editor > .panel,
+html:root body .ai-card, html:root body .card.new, html:root body .runs-well, html:root body .grid-well, html:root body .band {
+  background: var(--g-fill) !important; -webkit-backdrop-filter: var(--g-blur); backdrop-filter: var(--g-blur);
+  box-shadow: var(--g-shadow), 0 0 0 1px var(--g-line), inset 0 0 0 1px var(--g-edge), inset 0 1px 0 var(--g-top) !important;
+  border: 0 !important; outline: 0 !important; }
+html:root body .main > .editor > .panel { background: var(--g-strong) !important; }
+html:root body .card.panel:hover, html:root body .tpl.press:hover, html:root body .card.new:hover { background: var(--g-hover) !important; }
+/* text sits in a recess inside the glass, never on bare frost */
+html:root body .bt .well, html:root body .card .well, html:root body .tpl .pic, html:root body .card-body,
+html:root body pre.json, html:root body .main .code, html:root body .codewrap { background: var(--g-well) !important; box-shadow: none !important; }
+html:root body .pulse .pc { border-left-color: var(--hairline) !important; }
+html:root body .ai-card textarea { background: var(--g-well) !important; }
+/* chrome is a lighter frost over the same ground */
+html:root .workspace .topbar, html:root .home-top { background: color-mix(in srgb, var(--g-fill) 60%, transparent) !important;
+  -webkit-backdrop-filter: var(--g-blur); backdrop-filter: var(--g-blur); }
+
+/* ── 10. Projects home: clean. No warning banner (the sub-line and the Needs attention stat carry it), no beam,
+   grid, sparkles or workspace diagram. ── */
+html[data-hero] #alert { display: none !important; }
+html[data-hero] .hero > .vx-beam, html[data-hero] .hero > .vx-grid, html[data-hero] .sparkle { display: none !important; }
+html[data-hero] .hero .constel { visibility: hidden; }
+html[data-hero] .cs-sky, html[data-hero] body::after { display: none !important; }
+html[data-hero] .hs-scene { position: absolute; top: 0; left: 0; width: 100%; z-index: 0; pointer-events: none; overflow: hidden; }
+html[data-hero] .hs-scene canvas { display: block; }
+html[data-hero] main { position: relative; z-index: 1; }
+html[data-hero] .card.new .bp { opacity: .8; }
+
+@media (prefers-reduced-motion: reduce) {
+  .table tbody tr, .sidebar .outline-nav .item { transition: none; }
+}
