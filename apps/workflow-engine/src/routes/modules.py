@@ -83,6 +83,39 @@ def invalid_request(e: ValidationError) -> JSONResponse:
                 errors=[{"loc": list(x.get("loc", ())), "message": x.get("msg")} for x in e.errors()])
 
 
+class CodeMapRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source: str
+    module_id: str | None = None
+
+
+@router.post("/projects/{project}/modules/code-map")
+async def code_map(project: str, request: Request, session: AsyncSession = Depends(get_db_session)):
+    """Analyze the exact editor draft, without persisting, importing or running it."""
+    from starlette.concurrency import run_in_threadpool
+    from ..services.code_map import analyze_code_map
+
+    p, svc = await _ctx(project, session)
+    raw = bytearray()
+    async for chunk in request.stream():
+        raw.extend(chunk)
+        if len(raw) > MAX_DRAFT_REQUEST_BYTES:
+            return _err(413, "payload_too_large", "Code-map request is too large")
+    try:
+        body = CodeMapRequest.model_validate_json(bytes(raw))
+    except ValidationError as e:
+        return invalid_request(e)
+    if len(body.source.encode("utf-8")) > MAX_SOURCE_BYTES:
+        return _err(413, "payload_too_large", f"Source exceeds {MAX_SOURCE_BYTES} bytes")
+    if body.module_id:
+        await _g(svc.get(p, body.module_id))
+    try:
+        result = await run_in_threadpool(analyze_code_map, body.source)
+    except RecursionError:
+        return _err(422, "analysis_limit", "Source nesting exceeds the code-map analysis limit")
+    return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+
 @router.post("/projects/{project}/modules/run-draft")
 async def run_draft(project: str, request: Request, session: AsyncSession = Depends(get_db_session)):
     """UI-DESIGN §10.2: run unsaved module source for one request, in the sandbox, in default_environment."""

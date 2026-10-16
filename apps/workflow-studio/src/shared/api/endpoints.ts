@@ -181,6 +181,8 @@ export const tablesApi = {
 }
 
 export const modulesApi = {
+  codeMap: (p: string, source: string, moduleId: string | null, signal?: AbortSignal) =>
+    request<import('./codeMapTypes').CodeMapResult>(`${P(p)}/modules/code-map`, { method: 'POST', body: { source, module_id: moduleId }, signal }),
   list: (p: string) => request<CodeModule[]>(`${P(p)}/modules`),
   get: (p: string, m: string) => request<CodeModule>(`${P(p)}/modules/${enc(m)}`),
   create: (p: string, b: { name: string; source: string }) =>

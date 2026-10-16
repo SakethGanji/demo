@@ -84,6 +84,12 @@ test('T3 generate a module', async ({ page, api, s }) => {
   // self-test executions are recorded as such
   const runs = await api.get<Array<{ trigger: { type: string } }>>(`/projects/${p.id}/runs?trigger=generate_self_test`)
   expect(runs.length).toBe(2)
+  // The visual projection consumes the completed AI draft without saving it or calling the LLM again.
+  await page.getByTestId('backend-view-visual').click()
+  await expect(page.getByTestId('map-sync')).toContainText('Synced with current code')
+  await expect(page.getByTestId('map-function-refund_stats')).toBeVisible()
+  expect(await api.get<unknown[]>(`/projects/${p.id}/modules`)).toEqual([])
+  expect((await api.llmCalls()).length).toBe(calls.length)
 })
 
 test('T4 secret values are scrubbed before the LLM', async ({ page, api, s }) => {

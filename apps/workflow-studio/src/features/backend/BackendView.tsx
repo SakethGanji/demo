@@ -24,6 +24,7 @@ import { useProjectCtx } from '@/features/project/ProjectContext'
 import { useModules, useRoutes, useSandboxStatus, useSdkFunctions, useSdkReference, useSecrets, useTables } from '@/features/project/hooks/useProjectData'
 import { CreateSecretForm } from '@/features/secrets/CreateSecretPopover'
 import { useUpdateSecret } from '@/features/secrets/useSecretMutations'
+import { CodeMapPanel } from './code-map/CodeMapPanel'
 import { modulesApi } from '@/shared/api/endpoints'
 import { errorMessage, isApiError } from '@/shared/api/http'
 import { invalidate, qk } from '@/shared/api/queryKeys'
@@ -240,6 +241,7 @@ function BackendWorkspace({ doc, savedUpdatedAt }: { doc: ModuleDoc; savedUpdate
   const [cursor, setCursor] = useState({ line: 1, col: 1 })
   const [inspectorTab, setInspectorTab] = useState<'test' | 'reference' | 'client'>('test')
   const [inspectorOpen, setInspectorOpen] = useState(true)
+  const [editorMode, setEditorMode] = useState<'code' | 'visual' | 'split'>('code')
   const [selectedRoute, setSelectedRoute] = useState<string | null>(search.route ?? null)
   const [dismissed, setDismissed] = useState<Set<string>>(new Set())
   const [fix, setFix] = useState<{ issue: SecretIssue; anchor: HTMLElement } | null>(null)
@@ -703,6 +705,11 @@ function BackendWorkspace({ doc, savedUpdatedAt }: { doc: ModuleDoc; savedUpdate
           </div>
         )}
 
+        <div className="flex shrink-0 items-center gap-1 border-b border-border px-3 py-1.5" role="group" aria-label="Backend editor view">
+          {(['visual', 'split', 'code'] as const).map(view => <Button key={view} size="xs" variant={editorMode === view ? 'secondary' : 'ghost'} aria-pressed={editorMode === view} onClick={() => setEditorMode(view)} data-testid={`backend-view-${view}`}>{view === 'visual' ? 'Visual map' : view === 'split' ? 'Visual + code' : 'Code'}</Button>)}
+          <span className="ml-auto text-[10px] text-muted-foreground">Code is authoritative</span>
+        </div>
+
         <PromptComposer
           ref={composerRef}
           state={gen.state}
@@ -760,7 +767,12 @@ function BackendWorkspace({ doc, savedUpdatedAt }: { doc: ModuleDoc; savedUpdate
             </EmptyState>
           </div>
         ) : (
-          <div className="relative mt-2.5 min-h-0 flex-1 border-t border-border">
+          <div className={cn('relative mt-2.5 flex min-h-0 flex-1 border-t border-border', editorMode === 'split' && 'flex-col xl:flex-row')}>
+            {editorMode !== 'code' && <div className="min-h-0 min-w-0 flex-1" data-testid="backend-map-pane">
+              <CodeMapPanel pid={pid} moduleId={doc.moduleId} moduleName={doc.module} source={doc.source} enabled={!streaming} onJump={line => {setEditorMode('split'); requestAnimationFrame(() => {goToLine(line)})}} />
+            </div>}
+            <div className={cn('relative min-h-0 min-w-0 flex-1', editorMode === 'visual' && 'hidden', editorMode === 'split' && 'border-t border-border xl:border-l xl:border-t-0')}>
+
             {streaming && (
               <span className="absolute right-3 top-2 z-10 rounded-md border border-border bg-card px-2 py-0.5 text-[11.5px] text-muted-foreground" data-testid="readonly-tag">
                 Read-only while generating
@@ -780,6 +792,7 @@ function BackendWorkspace({ doc, savedUpdatedAt }: { doc: ModuleDoc; savedUpdate
               diagnostics={diagnostics}
               placeholder={doc.module === '~new' ? 'Describe your API above, or start writing Python…' : undefined}
             />
+            </div>
           </div>
         )}
 
@@ -819,7 +832,7 @@ function BackendWorkspace({ doc, savedUpdatedAt }: { doc: ModuleDoc; savedUpdate
         </div>
       </section>
 
-      {inspectorOpen && (
+      {inspectorOpen && editorMode === 'code' && (
         <section className={cn(panel, 'flex shrink-0 flex-col overflow-hidden')} style={{ width: inspectorW }} data-testid="inspector-panel">
           <Tabs value={inspectorTab} onValueChange={(v) => setInspectorTab(v as typeof inspectorTab)} className="h-full">
             <TabsList>

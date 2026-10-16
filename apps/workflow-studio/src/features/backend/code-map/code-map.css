@@ -1,0 +1,411 @@
+.product-code-map {
+  --map-edge: var(--success, #5b9878);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  font-size: 11px;
+  color: var(--foreground);
+  background: var(--background);
+}
+.map-toolbar {
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+  background: var(--card);
+}
+.map-toolbar label {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  color: var(--muted-foreground);
+  font-size: 10px;
+}
+.map-toolbar select,
+.map-toolbar input {
+  padding: 5px 7px;
+  min-width: 0;
+  max-width: 190px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--card);
+  color: var(--foreground);
+  font: inherit;
+}
+.map-toolbar input {
+  width: 135px;
+}
+.map-sync {
+  padding: 6px 12px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: 10px;
+}
+.map-sync span {
+  margin-left: auto;
+}
+.map-sync b {
+  font-size: 9px;
+  font-weight: 500;
+}
+.map-sync-stale {
+  color: var(--warning-foreground, var(--muted-foreground));
+  background: var(--muted);
+}
+.map-sync button {
+  text-decoration: underline;
+}
+.map-workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.map-canvas {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 300px;
+}
+.map-canvas.is-stale .react-flow__viewport {
+  opacity: 0.4;
+  filter: grayscale(0.6);
+}
+.map-highlight {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  max-width: calc(100% - 20px);
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--muted-foreground);
+  border-radius: 5px;
+  font-size: 10px;
+  pointer-events: none;
+}
+.code-map-module {
+  height: 100%;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--card) 65%, transparent);
+  pointer-events: none;
+  padding: 20px 24px;
+}
+.code-map-module strong {
+  display: block;
+  font-size: 16px;
+}
+.code-map-module > span {
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--muted-foreground);
+}
+.code-map-function {
+  width: 320px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: 0 5px 15px #00000008;
+  transition: opacity 0.12s;
+  overflow: visible;
+}
+.code-map-function.is-active {
+  border-color: var(--map-edge);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--map-edge) 15%, transparent);
+}
+.code-map-function.is-muted {
+  opacity: 0.16;
+}
+.code-map-function-head {
+  display: flex;
+  align-items: center;
+  padding: 12px 10px;
+  gap: 5px;
+}
+.map-name {
+  display: flex;
+  align-items: center;
+  text-align: left;
+  gap: 9px;
+  flex: 1;
+  min-width: 0;
+}
+.map-name > span:nth-child(2) {
+  min-width: 0;
+  flex: 1;
+}
+.map-name strong {
+  font-size: 12px;
+  font-weight: 550;
+  display: block;
+}
+.map-name code {
+  font-size: 9px;
+  display: block;
+  color: var(--muted-foreground);
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.map-f-icon {
+  border-radius: 5px;
+  background: var(--muted);
+  color: var(--map-edge);
+  padding: 6px 9px;
+  font-family: monospace;
+}
+.map-pin {
+  border-radius: 4px;
+  padding: 2px 6px;
+  color: var(--muted-foreground);
+  font-size: 18px;
+}
+.map-pin[aria-pressed='true'] {
+  background: var(--map-edge);
+  color: var(--card);
+}
+.map-routes {
+  padding: 0 12px 8px;
+  font-size: 9px;
+  color: var(--muted-foreground);
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.map-routes b {
+  color: var(--map-edge);
+  font-weight: 500;
+}
+.map-function-meta {
+  border-top: 1px solid var(--border);
+  padding: 7px 12px;
+  font-size: 9px;
+  color: var(--muted-foreground);
+}
+.map-function-body {
+  padding: 12px 17px 12px 28px;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--muted) 40%, var(--card));
+  border-radius: 0 0 9px 9px;
+}
+.map-body-label {
+  font-size: 8px;
+  letter-spacing: 1px;
+  margin-bottom: 12px;
+  color: var(--muted-foreground);
+}
+.map-call {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 48px;
+  margin-bottom: 10px;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--card);
+}
+.map-call:before {
+  content: '';
+  position: absolute;
+  left: -15px;
+  top: -11px;
+  height: 35px;
+  width: 14px;
+  border-left: 1px dashed var(--map-edge);
+  border-bottom: 1px dashed var(--map-edge);
+}
+.map-call > span {
+  color: var(--map-edge);
+}
+.map-call button {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+.map-call strong {
+  display: block;
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.map-call small {
+  display: block;
+  font-size: 8px;
+  color: var(--muted-foreground);
+}
+.map-call > code {
+  font-size: 8px;
+  color: var(--muted-foreground);
+}
+.map-call.custom {
+  border-style: dashed;
+}
+.map-function-body p {
+  font-size: 9px;
+  line-height: 1.6;
+  margin: 8px 0;
+  color: var(--muted-foreground);
+}
+.map-secret-refs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  margin: 8px 0;
+}
+.map-secret-refs span {
+  font: 8px monospace;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 4px;
+  overflow-wrap: anywhere;
+}
+.product-code-map .react-flow__handle {
+  width: 6px;
+  height: 6px;
+  background: var(--card);
+  border: 1px solid var(--map-edge);
+}
+.product-code-map .react-flow__controls button {
+  background: var(--card);
+  border-color: var(--border);
+  color: var(--foreground);
+  fill: var(--foreground);
+}
+.map-inspector {
+  width: 230px;
+  flex-shrink: 0;
+  padding: 18px;
+  border-left: 1px solid var(--border);
+  background: var(--card);
+  overflow: auto;
+}
+.map-inspector > small {
+  font-size: 8px;
+  letter-spacing: 1px;
+  color: var(--muted-foreground);
+}
+.map-inspector h3 {
+  font-size: 17px;
+  margin: 14px 0 4px;
+}
+.map-inspector > code {
+  font-size: 10px;
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+.map-inspector p {
+  font-size: 10px;
+  line-height: 1.8;
+  color: var(--muted-foreground);
+  margin: 10px 0;
+  overflow-wrap: anywhere;
+}
+.map-inspector h4 {
+  font-size: 10px;
+  margin: 18px 0 6px;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.map-inspector > button:not([data-slot]) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  font-size: 10px;
+  color: var(--map-edge);
+  padding: 6px 0;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.map-inspector button code {
+  font-size: 9px;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+}
+.map-caveat {
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.map-empty {
+  position: absolute;
+  top: 45%;
+  left: 10%;
+  width: 80%;
+  text-align: center;
+  padding: 20px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  pointer-events: none;
+}
+.map-empty button {
+  display: block;
+  margin: 10px auto;
+  text-decoration: underline;
+  pointer-events: auto;
+}
+.map-call button:disabled,
+.map-inspector button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+@media (max-width: 1400px) {
+  .map-inspector {
+    width: 190px;
+    padding: 12px;
+  }
+}
+@media (max-width: 900px) {
+  .map-inspector {
+    display: none;
+  }
+  .map-toolbar {
+    gap: 5px;
+  }
+  .map-toolbar select {
+    max-width: 150px;
+  }
+}
+.map-edge-label {
+  position: absolute;
+  font-size: 9px;
+  border-radius: 3px;
+  padding: 1px 3px;
+  pointer-events: none;
+  color: var(--foreground);
+}
+/* Panning uses transforms, never native scrolling (including automatic focus scroll). */
+.product-code-map .react-flow,
+.product-code-map .react-flow__renderer,
+.product-code-map .react-flow__pane,
+.map-canvas {
+  overflow: clip;
+}
+.map-canvas[data-layout-ready='false'] .react-flow__viewport {
+  opacity: 0;
+  pointer-events: none;
+}
+.map-fit-button {
+  position: absolute;
+  bottom: 15px;
+  left: 45px;
+  background: var(--card);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 6px 10px;
+  font-size: 10px;
+}
