@@ -1,0 +1,102 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Backend · luna</title><link rel="stylesheet" href="assets/tokens.css"><link rel="stylesheet" href="assets/components.css"><script src="assets/lucide.min.js"></script><script src="assets/shell.js"></script><style>
+ .editor{display:flex;gap:12px;flex:1;min-height:0}.ed{flex:1.15;min-width:0;display:flex;flex-direction:column}.side{flex:1;min-width:0;display:flex;flex-direction:column}
+ .ed-head{display:flex;align-items:center;gap:12px;height:44px;padding:0 8px;border-bottom:1px solid var(--border)}
+ .file-chip{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 10px;border:1px solid var(--border);border-radius:var(--r-lg);font:12.5px var(--font-mono)}
+ .codewrap{flex:1;overflow:auto;display:grid;grid-template-columns:48px 1fr}.codewrap .ln{padding:8px 12px 8px 0;white-space:pre}.codewrap pre{margin:0;padding:8px 0;font:inherit;white-space:pre}
+ .status{display:flex;align-items:center;gap:16px;height:28px;padding:0 12px;border-top:1px solid var(--border);font-size:11.5px;color:var(--muted-foreground)}.status span{display:inline-flex;align-items:center;gap:6px}.status svg{width:12px;height:12px}
+ .inline-warn{display:inline-flex;align-items:center;gap:8px;margin:2px 0 2px 4px;padding:3px 10px;border:1px solid color-mix(in srgb,var(--warning) 45%,transparent);border-radius:var(--r-md);background:color-mix(in srgb,var(--warning) 12%,var(--card));color:var(--foreground);font:12px var(--font-sans)}
+ .sec{padding:12px 16px}.sec+.sec{border-top:1px solid var(--border)}
+ .row{display:flex;align-items:center;gap:8px}
+ .trace{display:grid;grid-template-columns:150px 1fr 56px;gap:8px;align-items:center;font-size:12px;padding:3px 0}
+</style></head><body><div id="shell"></div>
+<template id="page"><div class="editor">
+ <div class="ed panel">
+  <div class="ed-head"><span class="file-chip"><i data-lucide="file-code-2" style="width:14px;height:14px"></i>refunds.py</span><div class="spacer"></div><span class="muted" style="font-size:12px">Saved now</span><button class="btn ghost sm"><i data-lucide="book-open"></i> SDK</button><button class="btn ghost icon-sm">···</button><button class="btn sm">Save <span class="kbd">⌘S</span></button></div>
+  <div style="padding:12px"><div class="ai-bar"><span class="ico"><i data-lucide="sparkles" style="width:14px;height:14px"></i></span><input placeholder="Ask for a change…"><button class="btn ai sm"><i data-lucide="wand-sparkles"></i> Refine <span class="kbd">⌘↵</span></button></div></div>
+  <div class="codewrap code">
+<div class="ln">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26</div>
+<pre><span class="k">from</span> studio <span class="k">import</span> api, HTTPError
+<span class="k">import</span> studio
+
+refunds = studio.db.<span class="f">table</span>(<span class="s">"refunds"</span>)
+UPSTREAM = <span class="s">"http://127.0.0.1:41759"</span>
+
+
+<span class="d">@api.post</span>(<span class="s">"/refunds"</span>, name=<span class="s">"createRefund"</span>)
+<span class="k">def</span> <span class="f">create_refund</span>(req):
+    body = req.<span class="f">body</span> <span class="k">or</span> {}
+    <span class="k">if</span> <span class="s">"amount"</span> <span class="k">not in</span> body:
+        <span class="k">raise</span> <span class="f">HTTPError</span>(<span class="n">422</span>, {<span class="s">"error"</span>: <span class="s">"amount is required"</span>})
+    <span class="k">return</span> refunds.<span class="f">insert</span>({<span class="s">"reason"</span>: body.<span class="f">get</span>(<span class="s">"reason"</span>, <span class="s">""</span>), <span class="s">"amount"</span>: body[<span class="s">"amount"</span>]})
+
+
+<span class="d">@api.get</span>(<span class="s">"/refunds"</span>, name=<span class="s">"listRefunds"</span>)
+<span class="k">def</span> <span class="f">list_refunds</span>(req):
+    <span class="k">return</span> refunds.<span class="f">list</span>(limit=<span class="f">int</span>(req.query.<span class="f">get</span>(<span class="s">"limit"</span>, <span class="n">50</span>)))
+
+
+<span class="d">@api.get</span>(<span class="s">"/refunds/stats"</span>, name=<span class="s">"refundStats"</span>)
+<span class="k">def</span> <span class="f">refund_stats</span>(req):
+    balance = studio.nodes.<span class="f">http_request</span>(
+        method=<span class="s">"GET"</span>,
+        url=<span class="s">f"{UPSTREAM}/v1/balance"</span>,
+        headers=[{<span class="s">"name"</span>: <span class="s">"Authorization"</span>, <span class="s">"value"</span>: <span class="s">f"Bearer {studio.secret('PAYMENTS_TOKEN')}"</span>}],
+    )</pre></div>
+  <div style="padding:0 12px 8px"><span class="inline-warn"><i data-lucide="key-round" style="width:12px;height:12px;color:var(--warning-text)"></i><span><b style="font-weight:600">PAYMENTS_TOKEN</b> is set in <b style="font-weight:600">dev</b>, missing in <b style="font-weight:600">prod</b></span><button class="btn outline xs">Add to prod</button></span></div>
+  <div class="status"><span class="success-text" style="color:var(--success-text)"><i data-lucide="circle-check"></i>No syntax errors</span><span class="warn-text"><i data-lucide="triangle-alert"></i>1 warning</span><div class="spacer"></div><span>Ln 1, Col 1</span><span>Python 3</span><span><i data-lucide="shield-check"></i>Sandbox · bwrap</span></div>
+ </div>
+ <div class="side panel">
+  <div class="tabs"><button class="tab active"><i data-lucide="play"></i>Test</button><button class="tab"><i data-lucide="book-open"></i>Reference</button><button class="tab"><i data-lucide="file-type"></i>client.ts</button></div>
+  <div style="overflow:auto;flex:1">
+   <div class="sec" style="display:flex;flex-direction:column;gap:12px">
+    <div class="row"><div class="input" style="display:flex;align-items:center;gap:8px;height:34px;flex:1"><span class="method get">GET</span><span class="mono" style="font-size:12.5px">/refunds/stats</span><div class="spacer"></div><i data-lucide="chevron-down" class="muted" style="width:14px;height:14px"></i></div><button class="btn ghost icon"><i data-lucide="sliders-horizontal"></i></button></div>
+    <div class="row"><div class="seg" id="req"><button>Params</button><button class="on">Query</button><button>Body</button><button>Headers</button></div><div class="spacer"></div><button class="btn sm"><i data-lucide="send"></i> Send <span class="kbd">⌘↵</span></button></div>
+    <div class="row"><input class="input mono" placeholder="name"><input class="input mono" placeholder="value"></div>
+    <p class="muted" style="font-size:12px">Runs the saved route with <b style="font-weight:500;color:var(--foreground)">dev</b> secrets. Writes go to your real tables (shared by dev and prod).</p>
+   </div>
+   <div class="sec" style="display:flex;flex-direction:column;gap:12px">
+    <div class="row"><span class="badge success mono">200</span><span class="muted">127 ms · exec_01a1…53a8</span><div class="spacer"></div><button class="btn ghost xs"><i data-lucide="file-json"></i> Use as schema</button></div>
+    <div class="seg" style="align-self:flex-start"><button class="on">Body</button><button>Headers</button><button>Schema</button></div>
+<pre class="json">{
+  <span class="s">"count"</span>: <span class="n">3</span>,
+  <span class="s">"by_reason"</span>: {
+    <span class="s">"damaged"</span>: <span class="n">96.5</span>,
+    <span class="s">"late"</span>: <span class="n">20</span>
+  },
+  <span class="s">"available"</span>: <span class="n">12840.25</span>
+}</pre>
+   </div>
+   <div class="sec"><div class="row" style="font-size:12px;margin-bottom:6px"><i data-lucide="chevron-down" style="width:14px;height:14px"></i><b>Trace</b><span class="muted">· 2 node calls · sandbox 115 ms</span></div>
+    <div class="trace"><span class="row" style="gap:6px"><i data-lucide="box" style="width:14px;height:14px" class="muted"></i>Sandbox</span><div class="bar" style="background:color-mix(in srgb,var(--foreground) 14%,transparent)"><i style="width:100%;background:color-mix(in srgb,var(--foreground) 35%,transparent)"></i></div><span class="muted num" style="text-align:right">115 ms</span></div>
+    <div class="trace"><span class="row" style="gap:6px"><span class="dot ok flat"></span>DataTable.list</span><div class="bar"><i style="width:9%"></i></div><span class="muted" style="text-align:right">10 ms</span></div>
+    <div class="trace"><span class="row" style="gap:6px"><span class="dot ok flat"></span>HttpRequest</span><div class="bar"><i style="width:10%"></i></div><span class="muted" style="text-align:right">11 ms</span></div></div>
+   <div class="sec"><div class="row" style="font-size:12px;margin-bottom:8px"><i data-lucide="history" class="muted" style="width:14px;height:14px"></i><b>Recent tests</b></div>
+    <div class="row" style="font-size:12px"><span class="badge success mono">200</span><span>GET /refunds/stats</span><div class="spacer"></div><span class="muted">127 ms · now</span></div></div>
+  </div>
+ </div></div></template>
+<script>Shell.mount({active:'backend'})</script></body></html>

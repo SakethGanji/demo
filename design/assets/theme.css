@@ -1,0 +1,69 @@
+/* Refreshed light and dark palettes for the original floating design. Overrides tokens only, plus a few
+   material details (panel edges, button depth). Layout and components are unchanged. Load after components.css. */
+:root {
+  --canvas: #f3f3f5;
+  --background: #ffffff; --card: #ffffff; --popover: #ffffff;
+  --foreground: #18181b; --card-foreground: #18181b; --popover-foreground: #18181b; --secondary-foreground: #18181b; --accent-foreground: #18181b;
+  --secondary: #f4f4f6; --muted: #f4f4f6; --accent: #f1f1f4; --surface: #f4f4f6;
+  --muted-foreground: #6b6b74;
+  --border: #e7e7ea; --input: #dcdce1; --panel-border: rgb(15 15 25 / .06);
+  --primary: #2563eb; --primary-foreground: #ffffff; --ring: #2563eb;
+  --sidebar: #f3f3f5; --sidebar-foreground: #3f3f46; --sidebar-accent: #e9e9ed; --sidebar-border: #e7e7ea;
+  --success: #16a34a; --success-text: #15803d; --warning: #d97706; --warning-text: #a15c07; --destructive: #dc2626;
+  --method-get: #15803d; --method-post: #1d4ed8; --method-put: #a15c07; --method-patch: #0f766e; --method-delete: #b91c1c;
+  --ai: #6d5bd0; --ai-text: #5b48c2;
+  --code-bg: #fafafb; --code-gutter: #a1a1aa;
+  --syn-keyword: #c0266b; --syn-string: #15803d; --syn-number: #a15c07; --syn-fn: #1d4ed8; --syn-comment: #8a8a93; --syn-deco: #a15c07;
+  --shadow-xs: 0 1px 2px rgb(15 15 25 / .04), 0 2px 8px -2px rgb(15 15 25 / .05);
+  --shadow-md: 0 2px 4px rgb(15 15 25 / .04), 0 8px 20px -6px rgb(15 15 25 / .10);
+  --shadow-lg: 0 1px 2px rgb(15 15 25 / .04), 0 6px 16px -6px rgb(15 15 25 / .08), 0 16px 40px -16px rgb(15 15 25 / .12);
+  --shadow-2xl: 0 2px 6px rgb(15 15 25 / .05), 0 24px 56px -16px rgb(15 15 25 / .22);
+}
+
+.dark, :root[data-theme="dark"] {
+  --canvas: #09090b;
+  --background: #0f0f12; --card: #131316; --popover: #18181c;
+  --foreground: #ededf0; --card-foreground: #ededf0; --popover-foreground: #ededf0; --secondary-foreground: #ededf0; --accent-foreground: #ededf0;
+  --secondary: #1c1c21; --muted: #1b1b20; --accent: #1f1f25; --surface: #18181c;
+  --muted-foreground: #8e8e98;
+  --border: rgb(255 255 255 / .07); --input: rgb(255 255 255 / .1); --panel-border: rgb(255 255 255 / .07);
+  --primary: #2f6fed; --primary-foreground: #ffffff; --ring: #6b9bff;
+  --sidebar: #0f0f12; --sidebar-foreground: #d4d4d8; --sidebar-accent: #1f1f25; --sidebar-border: rgb(255 255 255 / .07);
+  --success: #22c55e; --success-text: #4ade80; --warning: #f59e0b; --warning-text: #fbbf24; --destructive: #f87171;
+  --method-get: #4ade80; --method-post: #7ea6ff; --method-put: #fbbf24; --method-patch: #2dd4bf; --method-delete: #f87171;
+  --ai: #a78bfa; --ai-text: #c4b5fd;
+  --code-bg: #0e0e11; --code-gutter: #55555e;
+  --syn-keyword: #ff7ab6; --syn-string: #86efac; --syn-number: #fcd34d; --syn-fn: #93b4ff; --syn-comment: #6b6b75; --syn-deco: #fcd34d;
+  --shadow-xs: 0 1px 2px rgb(0 0 0 / .4), 0 8px 24px -12px rgb(0 0 0 / .6);
+  --shadow-md: 0 2px 4px rgb(0 0 0 / .4), 0 12px 28px -10px rgb(0 0 0 / .65);
+  --shadow-lg: 0 2px 4px rgb(0 0 0 / .4), 0 16px 40px -16px rgb(0 0 0 / .7);
+  --shadow-2xl: 0 4px 10px rgb(0 0 0 / .45), 0 28px 64px -16px rgb(0 0 0 / .8);
+}
+
+/* floating panels: a crisp hairline edge; in dark, a faint top highlight so cards lift off the canvas */
+.panel, .topbar, .menu, .dialog { box-shadow: 0 0 0 .5px var(--panel-border), var(--shadow-xs); }
+.topbar { box-shadow: 0 0 0 .5px var(--panel-border), var(--shadow-lg); }
+.dark .panel, .dark .topbar, .dark .menu, .dark .dialog { box-shadow: inset 0 1px 0 rgb(255 255 255 / .045), var(--shadow-xs); }
+.dark .topbar { background: color-mix(in srgb, var(--card) 86%, transparent); }
+.dark .panel .panel { box-shadow: inset 0 1px 0 rgb(255 255 255 / .03); background: color-mix(in srgb, var(--card) 60%, var(--background)); }
+
+/* primary button: a little depth instead of a flat fill */
+.btn:not(.outline):not(.ghost):not(.secondary):not(.destructive):not(.link):not(.ai) {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .14), 0 1px 2px rgb(15 15 25 / .18); }
+.btn:not(.outline):not(.ghost):not(.secondary):not(.destructive):not(.link):not(.ai):hover { background: color-mix(in srgb, var(--primary) 88%, #000); }
+.dark .btn:not(.outline):not(.ghost):not(.secondary):not(.destructive):not(.link):not(.ai):hover { background: color-mix(in srgb, var(--primary) 88%, #fff); }
+.btn.outline { box-shadow: 0 1px 1px rgb(15 15 25 / .04); }
+.dark .btn.outline { background: rgb(255 255 255 / .03); border-color: rgb(255 255 255 / .09); box-shadow: inset 0 1px 0 rgb(255 255 255 / .03); }
+.dark .btn.outline:hover { background: rgb(255 255 255 / .06); }
+
+/* calmer tints */
+.badge.success { background: color-mix(in srgb, var(--success) 10%, transparent); }
+.badge.warning { background: color-mix(in srgb, var(--warning) 11%, transparent); }
+.badge.secondary, .badge.neutral { background: var(--muted); }
+.dark .badge.outline { border-color: rgb(255 255 255 / .12); }
+.method { background: color-mix(in srgb, currentColor 10%, transparent) !important; }
+.dark .seg.soft, .dark .seg { background: rgb(255 255 255 / .04); }
+.dark .seg > .on, .dark .seg > .m-thumb { background: rgb(255 255 255 / .08); box-shadow: inset 0 1px 0 rgb(255 255 255 / .05); }
+.dark .kbd { background: rgb(255 255 255 / .05); border-color: rgb(255 255 255 / .08); }
+.dark .table tbody tr:hover td { background: rgb(255 255 255 / .025); }
+.dark .table .group-row td { background: rgb(255 255 255 / .02); }

@@ -1,0 +1,84 @@
+/* "Paper & Graphite" (from the 2025–26 product research; see DESIGN.md §4).
+   Light: warm stone neutrals with white panels. Dark: Graphite unchanged except a dot lattice instead of a line grid.
+   Radii follow Linear's 12 / 8 / 8 / 6. Inter v4 with the optical-size axis, plus cv01/ss03. Loaded last. */
+@font-face { font-family: 'Inter Var'; src: url(inter-v4.woff2) format('woff2'); font-weight: 100 900; font-display: block; }
+:root { --font-sans: 'Inter Var', 'Inter', ui-sans-serif, system-ui, sans-serif; }
+body { font-optical-sizing: auto; font-feature-settings: 'cv01', 'ss03'; }
+h1, .hero-num, .stat .value, .pulse .v { font-optical-sizing: auto; }
+:root {
+  --r-panel: 12px; --r-well: 8px; --r-ctl: 8px; --r-chip: 6px; --r-kbd: 4px;
+  --r-xl: var(--r-panel); --r-lg: var(--r-well); --r-md: var(--r-ctl); --r-sm: var(--r-chip);
+}
+
+/* ── light: "Paper" — warm stone neutrals, white panels ── */
+html:not(.dark) {
+  --ink: 38 34 28;                      /* #26221c, warm near-black, used for every alpha line */
+  --canvas: #efeeea;
+  --canvas-top: #f4f3f0;
+  --background: #ffffff; --card: #ffffff; --popover: #ffffff;
+  --foreground: #1c1b18; --card-foreground: #1c1b18; --popover-foreground: #1c1b18; --secondary-foreground: #1c1b18; --accent-foreground: #1c1b18;
+  --muted-foreground: #65625c;          /* 5.9:1 on white, 5.6:1 in a well */
+  --faint: #a29e96;                     /* decorative only */
+  --secondary: #f5f4f1; --muted: #f5f4f1; --accent: #f0efeb; --surface: #f5f4f1;
+  --well: #f7f6f3; --well-ring: rgb(var(--ink) / .07);
+  --border: rgb(var(--ink) / .10);
+  --input: rgb(var(--ink) / .16);
+  --panel-border: rgb(var(--ink) / .08);
+  --hairline: rgb(var(--ink) / .065);
+  --edge-ring: rgb(var(--ink) / .085);
+  --recess-fill: rgb(var(--ink) / .03);
+  --sidebar-foreground: #3d3a35; --sidebar-accent: rgb(var(--ink) / .055);
+
+  --primary: #5753c6; --ring: #6b67d6;  /* indigo nudged ~4° toward violet; 6.1:1 with white text */
+  --brand-1: #5f5bd4; --brand-2: #8466ee;
+  --code-bg: #fbfaf8; --code-gutter: #a29e96; --syn-comment: #77736b;
+
+  --shadow-xs: 0 1px 2px rgb(var(--ink) / .05), 0 2px 6px -2px rgb(var(--ink) / .05);
+  --mat-top: #ffffff; --mat-bottom: #fefefd;
+  --mat-edge-top: rgb(var(--ink) / .05); --mat-edge-bottom: rgb(var(--ink) / .12);
+  --mat-shadow: inset 0 1px 0 #fff, 0 1px 2px rgb(var(--ink) / .05), 0 4px 10px -4px rgb(var(--ink) / .06), 0 18px 40px -22px rgb(var(--ink) / .16);
+
+  --art-line: rgb(var(--ink) / .20);
+  --art-faint: rgb(var(--ink) / .10);
+  --eg-grid: rgb(var(--ink) / .075);
+}
+html:not(.dark) body, html:not(.dark) .workspace {
+  background:
+    radial-gradient(40% 28% at 14% -6%, color-mix(in srgb, var(--brand-1) 6%, transparent), transparent 70%),
+    linear-gradient(180deg, var(--canvas-top), var(--canvas) 420px),
+    var(--canvas);
+  background-attachment: fixed;
+}
+
+/* ── dark: keep Graphite; swap the line mesh for a dot lattice on the same 32px module ── */
+.dark {
+  --art-faint: rgb(255 255 255 / .08);
+  --grid-dot: rgb(255 255 255 / .13);
+}
+.dark .vx-grid {
+  background-image: radial-gradient(circle at 1px 1px, var(--grid-dot) 1px, transparent 1.5px);
+  background-size: 32px 32px; background-position: 0 0; opacity: 1;
+  -webkit-mask: radial-gradient(55% 65% at 70% 30%, #000 0%, rgb(0 0 0 / .5) 45%, transparent 75%);
+          mask: radial-gradient(55% 65% at 70% 30%, #000 0%, rgb(0 0 0 / .5) 45%, transparent 75%);
+}
+.dark { --eg-grid: rgb(255 255 255 / .08); }
+.dark .eg-field > .eg-grid {
+  background-image: radial-gradient(circle at .5px .5px, var(--grid-dot) .9px, transparent 1.4px);
+}
+
+/* ── light: pure white (owner, 2026-10-15). Canvas and panels are white; panels separate by ring + soft shadow,
+   wells use a barely-there neutral, grey is reserved for small recesses only. ── */
+html:not(.dark) {
+  --canvas: #ffffff; --canvas-top: #ffffff;
+  --background: #ffffff; --card: #ffffff;
+  --well: #fbfbfa; --well-ring: rgb(var(--ink) / .065);
+  --secondary: #f7f7f5; --muted: #f7f7f5; --accent: #f4f4f2; --surface: #f7f7f5;
+  --recess-fill: rgb(var(--ink) / .025);
+  --panel-border: rgb(var(--ink) / .09);
+  --mat-top: #ffffff; --mat-bottom: #ffffff;
+  --mat-edge-top: rgb(var(--ink) / .08); --mat-edge-bottom: rgb(var(--ink) / .13);
+  --mat-shadow: 0 1px 2px rgb(var(--ink) / .04), 0 6px 16px -8px rgb(var(--ink) / .08), 0 22px 44px -26px rgb(var(--ink) / .14);
+}
+html:not(.dark) body, html:not(.dark) .workspace {
+  background: radial-gradient(40% 26% at 14% -8%, color-mix(in srgb, var(--brand-1) 5%, transparent), transparent 70%), #ffffff !important;
+}

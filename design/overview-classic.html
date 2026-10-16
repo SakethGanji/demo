@@ -1,0 +1,206 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Overview (classic) · Command Studio</title><link rel="stylesheet" href="assets/tokens.css"><link rel="stylesheet" href="assets/components.css"><link rel="stylesheet" href="assets/theme.css"><link rel="stylesheet" href="assets/character.css"><link rel="stylesheet" href="assets/system.css"><link rel="stylesheet" href="assets/inset.css"><link rel="stylesheet" href="assets/edges.css"><link rel="stylesheet" href="assets/light.css"><link rel="stylesheet" href="assets/paper.css"><link rel="stylesheet" href="assets/kit.css"><link rel="stylesheet" href="assets/motion.css"><script src="assets/motion.js"></script><script src="assets/art.js"></script><script src="assets/edges.js"></script><script src="assets/kit.js"></script><script src="assets/lucide.min.js"></script><script src="assets/shell.js"></script><style>
+ /* page scroller (not .pad: that name belongs to .well.pad) */
+ .page{padding:28px var(--s8);overflow-y:auto;flex:1}
+
+ /* hero: the system diagram sits on a hairline grid that bleeds to the panel edges and fades out */
+ .hero-zone{margin:-28px calc(-1 * var(--s8)) 0;padding:var(--s6) var(--s8) 0;border-radius:var(--r-panel) var(--r-panel) 0 0;overflow:hidden}
+ .hero-zone .vx-grid{-webkit-mask:radial-gradient(46% 90% at 74% 42%,#000 20%,transparent 80%);mask:radial-gradient(46% 90% at 74% 42%,#000 20%,transparent 80%)}
+ .hero{margin:0;grid-template-columns:minmax(0,1fr) minmax(0,520px)}
+ .dark .hero-zone .vx-grid{opacity:1}
+ .hero-title{display:flex;align-items:center;gap:var(--s3)}
+ .hero-meta{display:flex;align-items:center;gap:var(--s3);margin-top:var(--s2);color:var(--muted-foreground);font-size:12.5px;flex-wrap:wrap}
+ .hero-actions{margin-top:var(--s4)}
+ /* snippet: a small segmented control picks the form; the value is recessed, the copy button raised inside it.
+    All three panes share one grid cell, so switching tabs never changes the hero's height.
+    Not .url: kit.js/motion.js wire .url to "Copied URL"; this snippet owns its own copy + toast. */
+ .ov-snip{margin-top:var(--s2);width:min(100%,536px)}
+ .ov-snip-head{display:flex;align-items:center;justify-content:space-between;gap:var(--s3);margin-bottom:6px}
+ .ov-snip-head .hero-meta{margin:0;min-width:0}
+ .ov-snip .seg{flex-shrink:0}
+ .ov-snip .seg>button{height:20px;padding:0 9px;font-size:11.5px;font-weight:500}
+ .ov-snip-val{position:relative;display:grid;align-items:center;min-height:42px;padding:4px 42px 4px var(--s3);border-radius:var(--r-ctl);background:var(--recess-fill);box-shadow:var(--inset-sm)}
+ .ov-snip-val pre{grid-area:1/1;margin:0;font:12px/17px var(--font-mono);white-space:pre;overflow:hidden;text-overflow:ellipsis;color:var(--foreground);visibility:hidden;background:none;border:0;padding:0}
+ .ov-snip-val pre.on{visibility:visible}
+ .ov-snip-val .ov-dim{color:var(--muted-foreground)}
+ .ov-snip-copy{position:absolute;right:7px;top:50%;margin-top:-14px;width:28px;height:28px;display:grid;place-items:center;padding:0;border:0;border-radius:calc(var(--r-ctl) - 2px);
+   background:var(--raise-fill);box-shadow:var(--raise-sm);color:var(--muted-foreground);cursor:pointer;transition:color var(--d-fast),transform var(--d-instant),box-shadow var(--d-instant)}
+ .ov-snip-copy:hover{color:var(--foreground)}
+ .ov-snip-copy:active{transform:scale(.98);box-shadow:var(--raise-press)}
+ .ov-snip-copy:focus-visible{outline:0;box-shadow:0 0 0 1px var(--ring),var(--focus-ring)}
+
+ /* 30-day activity: a quiet 6th stat cell; calendar weeks as rows (Mon→Sun), indigo steps, red dot = failures */
+ .statrow .stat.ov-30{display:flex;align-items:center;gap:14px;padding:0 var(--s5) 0 var(--s4)}
+ .ov-30 .label{align-self:flex-start;margin-top:14px;white-space:nowrap}
+ .ov-cal{display:grid;grid-template-columns:repeat(7,10px);grid-auto-rows:10px;gap:3px}
+ .ov-cal i{position:relative;border-radius:2px;background:var(--recess-fill);box-shadow:inset 0 0 0 1px var(--edge-ring);transition:background-color var(--d-slow) var(--ease-out)}
+ .ov-cal i[data-tip]{cursor:default}
+ .ov-cal i.l1{background:color-mix(in srgb,var(--primary) 16%,transparent);box-shadow:none}
+ .ov-cal i.l2{background:color-mix(in srgb,var(--primary) 32%,transparent);box-shadow:none}
+ .ov-cal i.l3{background:color-mix(in srgb,var(--primary) 54%,transparent);box-shadow:none}
+ .ov-cal i.l4{background:color-mix(in srgb,var(--primary) 82%,transparent);box-shadow:none}
+ .ov-cal i.ov-fail::after{content:'';position:absolute;top:-1px;right:-1px;width:4px;height:4px;border-radius:50%;background:var(--destructive);box-shadow:0 0 0 1.5px var(--well)}
+ .ov-cal i.ov-today{outline:1px solid color-mix(in srgb,var(--foreground) 35%,transparent);outline-offset:1px}
+
+ /* stats: a well, hairline dividers that stop short of the edges, Runs is the focal cell */
+ .statrow{display:grid;grid-template-columns:repeat(5,minmax(0,1fr)) auto;margin:var(--s5) 0 0}
+ .statrow .stat{position:relative;padding:14px var(--s5);border-right:0 !important;font-variant-numeric:tabular-nums}
+ .statrow .stat+.stat::after{content:'';position:absolute;left:0;top:var(--s4);bottom:var(--s4);width:1px;background:var(--hairline)}
+ .statrow .stat:nth-child(4)::after,.statrow .stat:nth-child(5)::after{display:none}
+ .statrow .stat:nth-child(4){background:none;isolation:isolate;border-radius:calc(var(--r-well) - 2px)}
+ .statrow .stat.vx-edge::before{inset:var(--s1);border-radius:calc(var(--r-well) - 3px)}
+ .statrow .stat.vx-edge{box-shadow:none}
+ .statrow .stat.vx-edge .tile{position:absolute;inset:var(--s1);z-index:-1;border-radius:calc(var(--r-well) - 3px);pointer-events:none;
+   background:linear-gradient(180deg,var(--brand-soft),transparent 80%),var(--card);box-shadow:var(--shadow-xs)}
+ .dark .statrow .stat.vx-edge .tile{background:linear-gradient(180deg,var(--brand-soft),transparent 80%),rgb(255 255 255 / .02)}
+
+ /* columns */
+ .cols{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:var(--s4);margin-top:var(--s4);align-items:start}
+ .stack{display:flex;flex-direction:column;gap:var(--s4)}
+ .panel-head .btn svg{width:14px;height:14px}
+
+ /* table + lists in wells: rows get the same quiet hover */
+ .well>.table th{height:34px}
+ .well>.table th:first-child,.well>.table td:first-child{padding-left:var(--s4)}
+ .well>.table td.num,.well>.table th.num{font-variant-numeric:tabular-nums}
+ .well>.table tbody tr:not(.group-row):hover td{background:var(--hairline)}
+ .well>.table .group-row td{height:30px;font:12px var(--font-mono);color:var(--muted-foreground)}
+ .last-call{display:inline-flex;align-items:center;gap:6px}
+ .runs .li{display:flex;align-items:center;gap:10px;height:34px;padding:0 var(--s3);border-bottom:1px solid var(--hairline);font-size:12.5px;font-variant-numeric:tabular-nums;transition:background-color var(--d-fast)}
+ .runs .li:hover{background:var(--hairline)}
+ .runs .li .method{background:none !important;min-width:38px;justify-content:flex-start;padding:0}
+ .runs .li .r{margin-left:auto;color:var(--muted-foreground)}
+
+ /* apps, secrets, releases */
+ .app-row{display:flex;align-items:center;gap:var(--s4)}
+ .app-row .art-thumb{border-radius:7px;transition:transform var(--d-fast) var(--ease-out)}
+ .app-row:hover .art-thumb{transform:translateY(-1px)}
+ .app-title{display:flex;align-items:center;gap:var(--s2);font-weight:500}
+ .app-sub{font-size:12px;margin-top:2px}
+ .secret{display:flex;align-items:center;gap:var(--s2)}
+ .secret>svg{width:14px;height:14px;color:var(--muted-foreground)}
+ .badge[data-tip]{cursor:help}
+ .rel-art.well{padding:var(--s2) var(--s4) var(--s1)}
+ .well.pad.secret{padding:10px var(--s3)}
+</style></head><body><div id="shell"></div>
+<template id="page"><div class="panel" style="flex:1;display:flex;flex-direction:column;min-height:0"><div class="page">
+ <div class="hero-zone vx-host"><div class="vx-grid"></div>
+  <div class="hero"><div class="hero-l">
+   <div class="hero-title"><span class="p-avatar">P</span><h1>Payments Ops</h1><span class="badge success"><span class="dot ok flat"></span>Healthy</span></div>
+   <div class="ov-snip">
+    <div class="ov-snip-head"><div class="hero-meta">Python · 1 module · 3 routes · prod has no release yet</div>
+    <div class="seg" role="tablist" aria-label="Snippet format"><button class="on" role="tab" aria-selected="true" data-pane="0">URL</button><button role="tab" aria-selected="false" data-pane="1">curl</button><button role="tab" aria-selected="false" data-pane="2">Python</button></div></div>
+    <div class="ov-snip-val">
+     <pre class="on" data-what="URL">https://commandstudio.dev/api/p/payments-ops</pre>
+     <pre data-what="curl command"><span class="ov-dim">curl</span> https://commandstudio.dev/api/p/payments-ops/refunds/stats</pre>
+     <pre data-what="Python snippet"><span class="ov-dim">from studio import client</span>
+client("payments-ops").get("/refunds/stats")</pre>
+     <button class="ov-snip-copy" aria-label="Copy" data-tip="Copy"><span class="m-swap"><i data-lucide="copy" class="a"></i><i data-lucide="check" class="b"></i></span></button>
+    </div></div>
+   <div class="hero-actions"><button class="btn"><i data-lucide="wand-sparkles"></i> Create UI from backend</button><button class="btn outline"><i data-lucide="sparkles" style="color:var(--ai)"></i> Generate</button></div></div>
+   <div class="hero-art" data-art="system"></div></div>
+ </div>
+ <div class="well statrow">
+  <div class="stat"><div class="label">Routes</div><div class="value">3</div></div>
+  <div class="stat"><div class="label">Tables</div><div class="value">1 <small>· 3 rows</small></div></div>
+  <div class="stat"><div class="label">Apps</div><div class="value">1 <small>· 0 published</small></div></div>
+  <div class="stat vx-edge"><span class="tile" aria-hidden="true"></span><div class="label">Runs · 24h</div><div class="value">128</div></div>
+  <div class="stat"><div class="label">Failed · 24h</div><div class="value">1 <small>· p50 112 ms</small></div></div>
+  <div class="stat ov-30"><div class="label">30 days</div><div class="ov-cal" role="img" aria-label="Runs per day, last 30 days"></div></div>
+ </div>
+ <div class="cols" data-edge="field" data-edge-from=":scope > .stack:first-child" data-edge-gap="16" data-edge-inset="0" data-edge-quiet>
+  <div class="stack">
+   <div class="panel"><div class="panel-head"><i data-lucide="server"></i><h3>Backend</h3><div class="spacer"></div><a class="btn ghost sm" href="backend.html"><i data-lucide="code-xml"></i> Open editor</a></div>
+    <div class="well"><table class="table"><thead><tr><th>Method</th><th>Path</th><th>Operation</th><th>Auth</th><th>Last call · 24h</th><th class="num">p50</th><th></th></tr></thead><tbody>
+     <tr class="group-row"><td colspan="7">refunds.py</td></tr>
+     <tr><td><span class="method get">GET</span></td><td class="mono">/refunds</td><td class="mono muted">listRefunds</td><td><span class="badge outline">public</span></td><td><span class="dot ok flat" style="margin-right:6px"></span><span data-ts="2026-10-15T09:11:02Z">14 min ago</span></td><td class="num">61 ms</td><td><i data-lucide="play"></i></td></tr>
+     <tr><td><span class="method post">POST</span></td><td class="mono">/refunds</td><td class="mono muted">createRefund</td><td><span class="badge outline">public</span></td><td><span class="dot err" style="margin-right:6px"></span><span class="err-text">422</span> · <span data-ts="2026-10-15T09:23:10Z">2 min ago</span></td><td class="num">38 ms</td><td><i data-lucide="play"></i></td></tr>
+     <tr><td><span class="method get">GET</span></td><td class="mono">/refunds/stats</td><td class="mono muted">refundStats</td><td><span class="badge outline">public</span></td><td><span class="dot ok flat" style="margin-right:6px"></span>success · <span data-ts="2026-10-15T09:25:14Z">now</span></td><td class="num">113 ms</td><td><i data-lucide="play"></i></td></tr>
+    </tbody></table></div></div>
+   <div class="panel"><div class="panel-head"><i data-lucide="app-window"></i><h3>Apps</h3><div class="spacer"></div><button class="btn ghost sm"><i data-lucide="plus"></i> New app</button></div>
+    <div class="well pad app-row"><div class="art-thumb" data-art="app"></div>
+     <div style="flex:1;min-width:0"><div class="app-title">Refunds dashboard <span class="badge neutral">Draft</span><span class="badge secondary">v1</span></div><div class="muted app-sub truncate">Uses refundStats, createRefund · 2 of 3 operations</div></div>
+     <button class="btn outline sm">Open builder</button></div></div>
+  </div>
+  <div class="stack">
+   <div class="panel"><div class="panel-head"><i data-lucide="history"></i><h3>Recent runs</h3><div class="spacer"></div><a class="btn ghost sm" href="runs.html">View all</a></div>
+    <div class="well runs">
+     <div class="li"><span class="dot ok flat"></span><span class="method get">GET</span><span class="mono">/refunds/stats</span><span class="r">112 ms &nbsp; <span data-ts="2026-10-15T09:25:14Z">now</span></span></div>
+     <div class="li"><span class="dot ok flat"></span><span class="method get">GET</span><span class="mono">/refunds/stats</span><span class="r">113 ms &nbsp; <span data-ts="2026-10-15T09:25:02Z">now</span></span></div>
+     <div class="li"><span class="dot err"></span><span class="method post">POST</span><span class="mono">/refunds</span><span class="r"><span class="err-text">422</span> &nbsp; 38 ms &nbsp; <span data-ts="2026-10-15T09:23:10Z">2 min ago</span></span></div>
+     <div class="li"><span class="dot ok flat"></span><span class="method get">GET</span><span class="mono">/refunds/stats</span><span class="r">149 ms &nbsp; <span data-ts="2026-10-15T09:20:41Z">5 min ago</span></span></div></div></div>
+   <div class="panel"><div class="panel-head"><i data-lucide="key-round"></i><h3>Secrets</h3><div class="spacer"></div><button class="btn ghost sm"><i data-lucide="plus"></i> Add</button></div>
+    <div class="well pad secret"><span class="mono" style="font-size:12px">PAYMENTS_TOKEN</span><div class="spacer"></div><span class="badge success">dev</span><span class="badge warning" data-tip="Missing: your code uses it and it isn’t set in prod. Not set: unused there."><span class="dot warn"></span>missing in prod</span></div></div>
+   <div class="panel"><div class="panel-head"><i data-lucide="rocket"></i><h3>Releases</h3><div class="spacer"></div><button class="btn ghost sm">Create release</button></div>
+    <div class="well rel-art" data-art="release"></div></div>
+  </div></div>
+</div></div></template>
+<script>Shell.mount({active:'overview'})
+;(function () {
+  /* hero art: the refunds table is the focal node */
+  if (window.LunaArt) LunaArt.draw();
+  const sys = document.querySelector('.hero-art .art');
+  const node = sys && [...sys.querySelectorAll(':scope > g')].find((g) => /3 rows/.test(g.textContent));
+  if (node) node.classList.add('a-glow');
+
+  /* snippet: tabs switch the pane in place; copy swaps the icon to a check for 2 s and toasts once */
+  const snip = document.querySelector('.ov-snip');
+  if (snip) {
+    const panes = [...snip.querySelectorAll('pre')], tabs = [...snip.querySelectorAll('.seg > button')], copy = snip.querySelector('.ov-snip-copy');
+    snip.querySelector('.seg').addEventListener('click', (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      tabs.forEach((t) => t.setAttribute('aria-selected', t === b));
+      panes.forEach((p, i) => p.classList.toggle('on', i === +b.dataset.pane));
+    });
+    let t;
+    copy.addEventListener('click', () => {
+      const p = snip.querySelector('pre.on');
+      try { navigator.clipboard.writeText(p.textContent).catch(() => {}); } catch (e) {}
+      const sw = copy.querySelector('.m-swap'); sw.classList.add('done'); clearTimeout(t); t = setTimeout(() => sw.classList.remove('done'), 2000);
+      if (window.Kit) Kit.toast({ tone: 'ok', title: 'Copied', desc: p.dataset.what });
+    });
+  }
+
+  /* 30-day activity: Sep 16 → today (Thu Oct 15), weeks as rows Mon→Sun */
+  const cal = document.querySelector('.ov-cal');
+  const RUNS = [118, 131, 104, 46, 38, 122, 139, 147, 156, 112, 52, 41, 96, 133, 141, 128, 109, 57, 33, 127, 151, 144, 136, 101, 63, 44, 119, 137, 142, 128];
+  const FAILS = { 8: 2, 20: 1, 29: 1 };                 /* Sep 24, Oct 6, today (POST /refunds 422) */
+  const step = (n) => (n >= 129 ? 4 : n >= 110 ? 3 : n >= 70 ? 2 : n > 0 ? 1 : 0);
+  const DAY0 = Date.UTC(2026, 8, 16), dayMs = 864e5, lead = 2; /* Sep 16 is a Wednesday: 2 blank slots before it */
+  const label = (i, n) => new Date(DAY0 + i * dayMs).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' }) + ` · ${n} runs · ${FAILS[i] || 0} failed`;
+  const paint = (el, i, n) => { el.className = 'l' + step(n) + (FAILS[i] ? ' ov-fail' : '') + (i === RUNS.length - 1 ? ' ov-today' : ''); el.dataset.tip = label(i, n); };
+  let todayEl = null;
+  if (cal) {
+    for (let s = 0; s < 35; s++) {
+      const el = document.createElement('i'), i = s - lead;
+      if (i >= 0 && i < RUNS.length) { paint(el, i, RUNS[i]); if (i === RUNS.length - 1) todayEl = el; }
+      cal.appendChild(el);
+    }
+    /* the live run (motion.js) rolls #m-runs 128 → 129; read the rolled digits and add the difference to today */
+    const runsCell = document.querySelector('.statrow .stat.vx-edge'), base = 128, today = RUNS.length - 1;
+    const read = () => {
+      const r = document.getElementById('m-runs'); if (!r || !r.children.length) return null;
+      const ds = [...r.children].map((d) => { const m = /translateY\(-?([\d.]+)em\)/.exec(d.style.transform); return m ? Math.round(+m[1] / 1.2) : NaN; });
+      return ds.some(isNaN) ? null : +ds.join('');
+    };
+    if (runsCell && todayEl) new MutationObserver(() => {
+      const v = read(); if (v == null || v <= base) return;
+      const n = RUNS[today] + (v - base); if (todayEl.dataset.n == n) return;
+      todayEl.dataset.n = n; paint(todayEl, today, n);
+    }).observe(runsCell, { subtree: true, childList: true, attributes: true, attributeFilter: ['style'] });
+  }
+
+  /* the live run (motion.js) lands after the panel head; keep it inside the runs well, and give its "now" an exact time */
+  const tip = (iso) => new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: 'UTC' }) + ' UTC';
+  const NOW = '2026-10-15T09:25:31Z';
+  const stamp = (txt) => { const s = document.createElement('span'); s.dataset.ts = NOW; s.dataset.tip = tip(NOW); s.textContent = txt; return s; };
+  const fixNow = (el) => { [...el.childNodes].forEach((t) => { if (t.nodeType === 3 && /now\s*$/.test(t.data)) { t.data = t.data.replace(/now\s*$/, ''); el.appendChild(stamp('now')); } }); };
+  const well = document.querySelector('.well.runs'), table = document.querySelector('.well > .table tbody');
+  if (!well) return;
+  new MutationObserver(() => {
+    const run = document.getElementById('m-run');
+    if (run && run.parentNode !== well) { well.prepend(run); fixNow(run.querySelector('.r')); }
+  }).observe(well.parentNode, { childList: true });
+  if (table) new MutationObserver((ms) => ms.forEach((m) => { const td = m.target.closest && m.target.closest('td'); if (td && !td.querySelector('[data-ts]')) fixNow(td); }))
+    .observe(table, { childList: true, subtree: true });
+})();
+</script></body></html>

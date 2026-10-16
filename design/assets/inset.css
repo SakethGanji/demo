@@ -1,0 +1,174 @@
+/* Inset scale: see DESIGN.md §1b.
+   The canvas → panel → well logic repeated at control size. Every small control is either
+   RECESSED (a mini-well: it holds a value) or RAISED (a mini-panel: it marks a choice or an action).
+   One ring alpha, one light direction (from above), radii from --r-*. Loaded after system.css. */
+
+/* ── tokens ── */
+:root {
+  --edge-ring: rgb(var(--ink, 24 24 48) / .085); /* the one 1px ring, raised and recessed alike */
+  --edge-hi: rgb(255 255 255 / .95);         /* top highlight on raised things */
+  --edge-lo: rgb(var(--ink, 24 24 48) / .06);            /* top inner shadow in recesses */
+  --recess-fill: rgb(var(--ink, 24 24 48) / .03);       /* a recess is a touch darker than what it sits in */
+  --raise-fill: #ffffff;
+  --row-raise: rgb(255 255 255 / .8);        /* a table row lifting out of its well */
+  --slot-line: rgb(var(--ink, 24 24 48) / .16);
+  --ctl-ring: var(--input);                  /* the one exception: a checkbox or switch you must find */
+
+  --inset-sm: inset 0 1px 1px var(--edge-lo), inset 0 0 0 1px var(--edge-ring);
+  --inset-md: inset 0 1px 2px var(--edge-lo), inset 0 0 0 1px var(--edge-ring);
+  --inset-lg: inset 0 0 0 1px var(--well-ring), inset 0 1px 2px rgb(24 24 48 / .025);              /* = .well */
+  --raise-sm: inset 0 1px 0 var(--edge-hi), 0 0 0 1px var(--edge-ring), 0 1px 2px rgb(24 24 48 / .06);
+  --raise-md: inset 0 1px 0 var(--edge-hi), 0 0 0 1px var(--edge-ring), 0 1px 2px rgb(24 24 48 / .05), 0 3px 8px -3px rgb(24 24 48 / .1);
+  --raise-press: 0 0 0 1px var(--edge-ring);                                                           /* raised, pressed flat */
+  --focus-ring: 0 0 0 3px var(--ring-soft);
+}
+.dark {
+  --edge-ring: rgb(255 255 255 / .08);
+  --edge-hi: rgb(255 255 255 / .075);
+  --edge-lo: rgb(0 0 0 / .4);
+  --recess-fill: rgb(0 0 0 / .2);
+  --raise-fill: rgb(255 255 255 / .07);
+  --row-raise: rgb(255 255 255 / .028);
+  --slot-line: rgb(255 255 255 / .12);
+  --ctl-ring: rgb(255 255 255 / .16);
+
+  /* dark: the cue is the edge, not the shadow. Recess = darkened top edge; raise = lit top edge. */
+  --inset-sm: inset 0 1px 0 var(--edge-lo), inset 0 0 0 1px var(--edge-ring);
+  --inset-md: inset 0 1px 0 var(--edge-lo), inset 0 0 0 1px var(--edge-ring);
+  --inset-lg: inset 0 1px 0 rgb(0 0 0 / .25), inset 0 0 0 1px var(--well-ring);
+  --raise-sm: inset 0 1px 0 var(--edge-hi), 0 0 0 1px var(--edge-ring), 0 1px 2px rgb(0 0 0 / .35);
+  --raise-md: inset 0 1px 0 rgb(255 255 255 / .09), 0 0 0 1px var(--edge-ring), 0 1px 2px rgb(0 0 0 / .4), 0 4px 10px -4px rgb(0 0 0 / .5);
+}
+
+/* ── utilities ── */
+.recess { background: var(--recess-fill); box-shadow: var(--inset-sm); border-radius: var(--r-ctl); }
+.raise  { background: var(--raise-fill);  box-shadow: var(--raise-sm); border-radius: var(--r-ctl); }
+.slot   { border: 1px dashed var(--slot-line); border-radius: var(--r-well); background: color-mix(in srgb, var(--recess-fill) 50%, transparent); }
+
+/* ── L3 well: wells and code blocks share one recess (light from above, so the top edge is the shadowed one) ── */
+.well, .dark .well { box-shadow: var(--inset-lg); }
+pre.json, :root pre.json.well { background: var(--well) !important; box-shadow: var(--inset-lg) !important; border: 0 !important; border-radius: var(--r-well) !important; }
+
+/* ════════ RECESSED: fields, tracks, value chips ════════ */
+
+/* fields: inset-md */
+:root .input, html:root textarea {
+  border-color: transparent; background: var(--recess-fill); box-shadow: var(--inset-md); }
+:root .input:hover, html:root textarea:hover { background: color-mix(in srgb, var(--recess-fill) 140%, transparent); }
+:root .input:focus-visible, html:root textarea:focus, html:root textarea:focus-visible {
+  border-color: transparent; background: var(--recess-fill); box-shadow: inset 0 0 0 1px var(--ring), var(--focus-ring); }
+
+/* search: a field in the top bar; its kbd is the one raised key inside it (never a recess inside a recess) */
+:root .search-trigger { background: var(--recess-fill); box-shadow: var(--inset-sm); }
+:root .search-trigger:hover { background: color-mix(in srgb, var(--recess-fill) 160%, transparent); }
+:root .search-trigger .kbd { background: var(--raise-fill); box-shadow: var(--raise-sm); }
+
+/* the AI bar is a field too: same recess under its brand ring */
+:root .ai-bar { box-shadow: inset 0 1px 1px var(--edge-lo), inset 0 0 0 1px color-mix(in srgb, var(--brand-1) 28%, transparent); }
+.ai-bar .ico { box-shadow: inset 0 1px 0 rgb(255 255 255 / .22), 0 1px 2px rgb(24 24 48 / .12); }
+
+/* kbd: a small recessed key-cap slot */
+:root .kbd { border-color: transparent; background: var(--recess-fill); box-shadow: var(--inset-sm); border-radius: calc(var(--r-chip) - 1px); }
+:root .btn:not(.outline):not(.ghost):not(.secondary) .kbd { box-shadow: inset 0 1px 1px rgb(0 0 0 / .14), inset 0 0 0 1px rgb(255 255 255 / .14); }
+:root .m-tip .kbd { box-shadow: none; }
+
+/* segmented track */
+:root .seg, :root .seg.soft { background: var(--recess-fill); box-shadow: var(--inset-sm); }
+
+/* checkbox and switch: the box and the track are recesses; the tick and knob are raised */
+:root .check { border-color: transparent; background: var(--recess-fill); box-shadow: inset 0 1px 1px var(--edge-lo), inset 0 0 0 1px var(--ctl-ring); border-radius: calc(var(--r-chip) - 2px); }
+:root .check:hover { border-color: transparent; box-shadow: inset 0 1px 1px var(--edge-lo), inset 0 0 0 1px color-mix(in srgb, var(--primary) 50%, transparent); }
+:root .check.on { border-color: transparent; background: var(--primary);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .2), 0 0 0 1px color-mix(in srgb, var(--primary) 80%, #000), 0 1px 2px color-mix(in srgb, var(--primary) 35%, transparent); }
+:root .switch { background: color-mix(in srgb, var(--foreground) 9%, transparent); box-shadow: inset 0 1px 1px var(--edge-lo), inset 0 0 0 1px var(--ctl-ring); }
+.dark .switch { background: rgb(255 255 255 / .08); }
+:root .switch.on { background: var(--primary); box-shadow: inset 0 1px 1px rgb(0 0 0 / .18), inset 0 0 0 1px color-mix(in srgb, var(--primary) 70%, #000); }
+:root .switch::after { box-shadow: 0 0 0 1px var(--edge-ring), 0 1px 2px rgb(24 24 48 / .18); }
+
+/* progress tracks (the runs histogram .bar is a chart, not a track: only bars that hold a fill) */
+:root .bar:has(> i), :root .dbar, :root .p-bar { box-shadow: var(--inset-sm); }
+:root .bar:has(> i) { background: var(--recess-fill); }
+
+/* value chips: a URL, the open file, a row count. Mono values sit in the surface, not on it */
+:root .url { border-color: transparent; background: var(--recess-fill); box-shadow: var(--inset-sm); }
+:root .url:hover { background: color-mix(in srgb, var(--recess-fill) 170%, transparent); }
+:root .file-chip { background: var(--recess-fill); box-shadow: var(--inset-sm); }
+:root .rows-chip { background: var(--recess-fill); box-shadow: var(--inset-sm); }
+
+/* method chips: tiny inset chips, ringed in their own colour */
+:root .method { box-shadow: inset 0 1px 1px var(--edge-lo), inset 0 0 0 1px color-mix(in srgb, currentColor 18%, transparent); border-radius: calc(var(--r-chip) - 1px); }
+
+/* empty slots */
+:root .p-avatar.muted-tile { background: var(--recess-fill); box-shadow: var(--inset-sm); }
+:root .card.new { border-color: var(--slot-line) !important; }
+
+/* ════════ RAISED: thumbs, active items, buttons, tiles ════════ */
+
+/* segmented thumb (static .on, or the sliding .m-thumb once motion.js takes over) */
+:root .seg:not(.m-ready) > .on, :root .seg > .m-thumb { background: var(--raise-fill); box-shadow: var(--raise-sm); border-radius: var(--r-chip); }
+:root .seg > button, :root .seg > a { border-radius: var(--r-chip); }
+
+/* buttons */
+:root .btn.outline { border-color: transparent; background: var(--raise-fill); box-shadow: var(--raise-sm); }
+:root .btn.outline:hover { background: color-mix(in srgb, var(--raise-fill) 92%, var(--foreground)); }
+.dark .btn.outline:hover { background: rgb(255 255 255 / .085); }
+:root .btn.secondary { background: var(--secondary); box-shadow: inset 0 1px 0 var(--edge-hi), 0 0 0 1px var(--edge-ring); }
+:root .btn.secondary:hover { background: color-mix(in srgb, var(--secondary) 80%, var(--foreground) 4%); }
+.dark .btn.secondary { background: rgb(255 255 255 / .06); }
+:root .btn.outline:active, :root .btn.secondary:active { box-shadow: var(--raise-press); }
+:root .btn.outline:focus-visible, :root .btn.secondary:focus-visible { border-color: transparent; box-shadow: 0 0 0 1px var(--ring), var(--focus-ring); }
+
+/* the active sidebar item is a mini-panel; when motion.js slides an .m-pill, the pill carries it */
+:root .item.on:not(.m-pilled .item), :root .m-pill { background: var(--raise-fill); box-shadow: var(--raise-sm); }
+:root .m-pill { border-radius: var(--r-ctl) !important; }
+.dark .item.on:not(.m-pilled .item), .dark .m-pill { background: var(--raise-fill); }
+
+/* menu and palette items lift on hover */
+:root .menu .item:hover, :root .m-pal .mi.hl { background: var(--raise-fill); box-shadow: var(--raise-sm); }
+
+/* tabs: the active tab sits on a small raised chip above its underline */
+:root .tab { position: relative; isolation: isolate; }
+:root .tab::before { content: ''; position: absolute; inset: 7px 2px; z-index: -1; border-radius: calc(var(--r-ctl) - 2px); pointer-events: none;
+  transition: background-color var(--d-fast), box-shadow var(--d-fast); }
+:root .tab:hover::before { background: var(--recess-fill); }
+:root .tab.active::before { background: var(--raise-fill); box-shadow: var(--raise-sm); }
+
+/* project avatar: a raised brand tile with a lit top edge */
+:root .p-avatar:not(.muted-tile) { box-shadow: inset 0 1px 0 rgb(255 255 255 / .3), inset 0 0 0 1px rgb(255 255 255 / .08), 0 0 0 1px var(--edge-ring),
+  0 1px 2px rgb(24 24 48 / .12), 0 4px 12px -4px color-mix(in srgb, var(--brand-2) 55%, transparent); }
+.switcher::before { box-shadow: inset 0 1px 0 rgb(255 255 255 / .28), 0 0 0 1px var(--edge-ring); }
+
+/* stat focus cell: the highlighted cell lifts out of the stat well */
+:root .stat.vx-edge .tile { box-shadow: var(--raise-sm); }
+
+/* badges: tinted badges get a ring in their own colour; neutral ones are raised when they sit on a well */
+:root .badge:not(.stub):not(.outline) { box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 14%, transparent); }
+:root .badge:not(.stub):not(.outline):not(.secondary):not(.neutral):not(.success):not(.warning):not(.destructive):not(.ai):not(.primary) {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .18), 0 0 0 1px color-mix(in srgb, var(--primary) 80%, #000); }
+:root .badge.outline { border-color: transparent; background: transparent; box-shadow: inset 0 0 0 1px var(--edge-ring); }
+:root .well .badge.outline, :root .well .badge.secondary, :root .well .badge.neutral { background: var(--raise-fill); box-shadow: var(--raise-sm); }
+
+/* ── nesting: a raised element on a well always takes raise-sm (no recess-in-recess, no drop shadows deeper than one step) ── */
+:root .well .btn.outline, :root .well .btn.secondary, :root .well .raise { box-shadow: var(--raise-sm); }
+
+/* table rows inside a well lift faintly on hover and when selected */
+:root .well .table tbody tr:not(.on):not(.sel):not(.err):not(.group-row):hover td { background: var(--row-raise); }
+:root .well .table tbody tr.on td, :root .well .table tbody tr.sel td { box-shadow: inset 0 1px 0 color-mix(in srgb, var(--edge-hi) 50%, transparent); }
+
+/* ── where light.css (loaded later, html:not(.dark) …) contradicts the scale, the scale wins.
+   :root:root lifts specificity just past it, without !important. ── */
+:root:root .btn.outline { border-color: transparent; background: var(--raise-fill); box-shadow: var(--raise-sm); }
+:root:root .btn.outline:hover { background: color-mix(in srgb, var(--raise-fill) 94%, var(--foreground)); }
+.dark:root .btn.outline:hover { background: rgb(255 255 255 / .09); }
+:root:root .btn.outline:active { box-shadow: var(--raise-press); }
+:root:root .btn.outline:focus-visible { box-shadow: 0 0 0 1px var(--ring), var(--focus-ring); }
+:root:root .kbd { border-color: transparent; background: var(--recess-fill); box-shadow: var(--inset-sm); }
+:root:root .search-trigger .kbd { background: var(--raise-fill); box-shadow: var(--raise-sm); }
+:root:root .btn:not(.outline):not(.ghost):not(.secondary) .kbd { background: rgb(255 255 255 / .15); box-shadow: inset 0 1px 1px rgb(0 0 0 / .14), inset 0 0 0 1px rgb(255 255 255 / .14); }
+:root:root .m-tip .kbd { background: transparent; box-shadow: none; }
+:root:root .search-trigger { box-shadow: var(--inset-sm); }
+:root:root .item.on:not(.m-pilled .item) { background: var(--raise-fill); box-shadow: var(--raise-sm); }
+:root:root .seg:not(.m-ready) > .on, :root:root .seg > .m-thumb { box-shadow: var(--raise-sm); }
+:root:root .well .table tbody tr:not(.on):not(.sel):not(.err):not(.group-row):hover td { background: var(--row-raise); }
+:root:root .badge.outline { border-color: transparent; background: transparent; box-shadow: inset 0 0 0 1px var(--edge-ring); }
+:root:root .well .badge.outline, :root:root .well .badge.secondary, :root:root .well .badge.neutral { background: var(--raise-fill); box-shadow: var(--raise-sm); }

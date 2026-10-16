@@ -1,0 +1,637 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Refund triage · Workflows · Command Studio</title><link rel="stylesheet" href="assets/tokens.css"><link rel="stylesheet" href="assets/components.css"><link rel="stylesheet" href="assets/theme.css"><link rel="stylesheet" href="assets/character.css"><link rel="stylesheet" href="assets/system.css"><link rel="stylesheet" href="assets/inset.css"><link rel="stylesheet" href="assets/edges.css"><link rel="stylesheet" href="assets/light.css"><link rel="stylesheet" href="assets/paper.css"><link rel="stylesheet" href="assets/kit.css"><link rel="stylesheet" href="assets/motion.css"><script src="assets/motion.js"></script><script src="assets/art.js"></script><script src="assets/edges.js"></script><script src="assets/kit.js"></script><script src="assets/lucide.min.js"></script><script src="assets/shell.js"></script><style>
+ /* ── page tokens: nodes are raised mini-panels on the recessed canvas well ── */
+ :root{--wf-node:#ffffff;--wf-solid-raise:#ffffff;--wf-grid:rgb(var(--ink,38 34 28) / .055);--wf-node-drop:0 1px 2px rgb(var(--ink,38 34 28) / .06),0 6px 14px -8px rgb(var(--ink,38 34 28) / .14)}
+ .dark{--wf-node:color-mix(in srgb,#fff 5.5%,var(--card));--wf-solid-raise:#2a2a30;--wf-grid:rgb(255 255 255 / .11);--wf-node-drop:0 1px 2px rgb(0 0 0 / .45),0 8px 18px -10px rgb(0 0 0 / .7)}
+
+ /* ── layout: editor panel (header + canvas well) | inspector ── */
+ .wf-ed{display:flex;gap:var(--s4);flex:1;min-height:0}
+ .wf-main{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}
+ .wf-insp{width:340px;flex-shrink:0;display:flex;flex-direction:column;overflow:hidden}
+
+ /* header row: 48 tall, no rule */
+ .wf-head{display:flex;align-items:center;gap:var(--s2);height:48px;padding:0 var(--s3) 0 var(--s5);flex-shrink:0;min-width:0}
+ .wf-crumb{display:flex;align-items:center;gap:6px;font-size:13px;min-width:0;white-space:nowrap}
+ .wf-crumb > a{color:var(--muted-foreground);text-decoration:none;transition:color var(--d-instant)}
+ .wf-crumb > a:hover{color:var(--foreground)}
+ .wf-crumb > svg{width:13px;height:13px;color:var(--faint);flex-shrink:0}
+ .wf-pick{display:inline-flex;align-items:center;gap:6px;height:28px;margin-left:-4px;padding:0 6px 0 8px;border:0;border-radius:var(--r-ctl);background:transparent;font:600 13.5px var(--font-sans);letter-spacing:-.01em;color:var(--foreground);cursor:pointer;transition:background-color var(--d-instant),transform var(--d-fast) var(--ease-out)}
+ .wf-pick:hover{background:var(--recess-fill)}
+ .wf-pick:active{transform:scale(.98)}
+ .wf-pick svg{width:13px;height:13px;color:var(--muted-foreground)}
+ .wf-pick[aria-expanded="true"]{background:var(--raise-fill);box-shadow:var(--raise-sm)}
+ .wf-live{gap:6px;margin-left:2px;font-variant-numeric:tabular-nums}
+ .wf-live .dot{width:6px;height:6px}
+ .wf-saved{font-size:12px;color:var(--muted-foreground);white-space:nowrap;margin-right:var(--s1)}
+ .wf-head .btn .spin{display:none;width:12px;height:12px;border-radius:50%;border:1.5px solid currentColor;border-right-color:transparent;animation:wf-spin 600ms linear infinite;flex-shrink:0}
+ .wf-head .btn.busy svg{display:none}.wf-head .btn.busy .spin{display:inline-block;margin:0 1px}
+ @keyframes wf-spin{to{transform:rotate(360deg)}}
+
+ /* ── canvas: a recessed well; dot lattice in dark, faint grid in light; moves with the view ── */
+ .wf-well{position:relative;flex:1;min-height:0;margin-top:0;touch-action:none;cursor:default;user-select:none;-webkit-user-select:none;
+   background-color:var(--well);
+   background-image:linear-gradient(var(--wf-grid) 1px,transparent 1px),linear-gradient(90deg,var(--wf-grid) 1px,transparent 1px);
+   background-size:var(--gs,32px) var(--gs,32px);background-position:var(--gx,0) var(--gy,0)}
+ .dark .wf-well{background-image:radial-gradient(circle at 1px 1px,var(--wf-grid) 1px,transparent 1.6px)}
+ .wf-well.panning,.wf-well.hand{cursor:grab}.wf-well.panning{cursor:grabbing}
+ .wf-vp{position:absolute;left:0;top:0;width:0;height:0;transform-origin:0 0}
+ .wf-wires{position:absolute;left:0;top:0;width:1px;height:1px;overflow:visible;pointer-events:none}
+
+ /* wires: art line style; hot once data has crossed them; dim when skipped */
+ .wf-wires .a-wire{transition:stroke var(--d-slow) var(--ease-out),opacity var(--d-slow) var(--ease-out)}
+ .wf-wires .a-wire.hot{stroke:color-mix(in srgb,var(--brand-1) 55%,transparent)}
+ html:not(.dark) .wf-wires .a-wire.hot{stroke:color-mix(in srgb,var(--brand-1) 70%,transparent)}
+ .wf-wires .a-wire.dim{opacity:.35;stroke-dasharray:3 4}
+ .wf-elabel{position:absolute;transform:translate(-50%,-50%);height:20px;padding:0 8px;border-radius:999px;display:inline-flex;align-items:center;gap:5px;white-space:nowrap;
+   font:500 11px/1 var(--font-sans);color:var(--muted-foreground);background:var(--wf-node);box-shadow:var(--raise-sm);pointer-events:none;transition:opacity var(--d-slow) var(--ease-out),color var(--d-slow)}
+ .wf-elabel b{font:500 10.5px var(--font-mono);color:var(--foreground)}
+ .wf-elabel.dim{opacity:.4}
+ .wf-elabel.hot b{color:var(--foreground)}
+ .wf-elabel.hot{color:var(--foreground)}
+
+ /* nodes: 220px raised mini-panels */
+ .wfn{position:absolute;width:220px;border-radius:10px;background:var(--wf-node);box-shadow:inset 0 1px 0 var(--edge-hi),0 0 0 1px var(--edge-ring),var(--wf-node-drop);
+   cursor:pointer;transition:box-shadow var(--d-fast),opacity var(--d-slow) var(--ease-out)}
+ .wfn:hover{box-shadow:inset 0 1px 0 var(--edge-hi),0 0 0 1px color-mix(in srgb,var(--foreground) 16%,transparent),var(--wf-node-drop)}
+ .wfn.sel,.wfn.sel:hover{box-shadow:inset 0 1px 0 var(--edge-hi),0 0 0 1px var(--ring),0 0 0 4px color-mix(in srgb,var(--ring) 16%,transparent),var(--wf-node-drop)}
+ .wfn.drag{cursor:grabbing;transition:none;z-index:3}
+ .wfn.st-running{box-shadow:inset 0 1px 0 var(--edge-hi),0 0 0 1px color-mix(in srgb,var(--primary) 55%,transparent),0 0 24px -8px var(--glow),var(--wf-node-drop)}
+ .wfn.sel.st-running{box-shadow:inset 0 1px 0 var(--edge-hi),0 0 0 1px var(--ring),0 0 0 4px color-mix(in srgb,var(--ring) 16%,transparent),0 0 24px -8px var(--glow),var(--wf-node-drop)}
+ .wfn.st-skipped{opacity:.5}
+ .wfn-type{position:absolute;left:2px;bottom:calc(100% + 5px);font-size:11px;font-weight:500;color:var(--muted-foreground);white-space:nowrap;pointer-events:none}
+ .wfn-row{display:flex;align-items:center;gap:10px;height:56px;padding:0 12px 0 12px}
+ .wfn-ico{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;flex-shrink:0;background:var(--raise-fill);box-shadow:var(--raise-sm);color:var(--muted-foreground)}
+ .dark .wfn-ico{background:rgb(255 255 255 / .05)}
+ .wfn-ico svg{width:15px;height:15px}
+ .wfn-ico.ai{background:linear-gradient(135deg,var(--brand-1),var(--brand-2));color:#fff;box-shadow:inset 0 1px 0 rgb(255 255 255 / .22),0 0 0 1px color-mix(in srgb,var(--brand-1) 60%,#000),0 2px 6px -2px color-mix(in srgb,var(--brand-2) 55%,transparent)}
+ .wfn-txt{flex:1;min-width:0}
+ .wfn-t{font-size:13px;font-weight:550;letter-spacing:-.005em;line-height:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .wfn-s{display:flex;align-items:center;gap:5px;margin-top:2px;font:11px/15px var(--font-mono);color:var(--muted-foreground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .wfn-s .method{height:15px;padding:0 4px;font-size:9.5px;line-height:15px}
+ .wfn-st{position:absolute;top:11px;right:11px;display:flex}
+ .wfn-ms{position:absolute;right:2px;bottom:calc(100% + 5px);font:10.5px/13px var(--font-mono);color:var(--muted-foreground);font-variant-numeric:tabular-nums;opacity:0;transition:opacity var(--d-fast);pointer-events:none}
+ .wfn-ms:not(:empty){opacity:1}
+ .wfn-st .dot{width:6px;height:6px}
+ .wfn-st .dot.wf-idle{background:transparent;box-shadow:inset 0 0 0 1.25px var(--faint)}
+ .wfn-st .dot.wf-pend{background:var(--recess-fill);box-shadow:var(--inset-sm),inset 0 0 0 1.25px var(--faint)}
+ .wfn-row{padding-right:26px}
+ .wfn-foot{display:flex;align-items:center;gap:6px;height:30px;margin:0 6px 6px;padding:0 8px;border-radius:7px;background:var(--recess-fill);box-shadow:var(--inset-sm);
+   font:11.5px var(--font-mono);color:var(--muted-foreground);text-decoration:none;transition:color var(--d-instant),background-color var(--d-instant)}
+ .wfn-foot svg{width:13px;height:13px}
+ .wfn-foot .wf-py{color:var(--foreground)}
+ .wfn-foot .wf-go{margin-left:auto;display:inline-flex;align-items:center;gap:3px;font-family:var(--font-sans);font-size:11.5px}
+ .wfn-foot .wf-go svg{width:12px;height:12px}
+ .wfn-foot:hover{color:var(--foreground);background:color-mix(in srgb,var(--recess-fill) 170%,transparent)}
+ .wfn-port{position:absolute;width:9px;height:9px;margin-left:-4.5px;border-radius:50%;background:var(--wf-node);box-shadow:0 0 0 1px var(--art-line);pointer-events:none}
+ .wfn-port.in{top:-5px;left:50%}.wfn-port.out{bottom:-5px;left:50%}
+
+ /* floating toolbar: menu glass, bottom centre */
+ .wf-tb.menu{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);width:auto;display:flex;align-items:center;gap:2px;padding:4px;border-radius:11px;z-index:4;cursor:default}
+ .wf-tb .btn{color:var(--muted-foreground)}
+ .wf-tb .btn:hover{color:var(--foreground)}
+ .wf-tb .btn.on{background:var(--raise-fill);box-shadow:var(--raise-sm);color:var(--foreground)}
+ .wf-tb .btn.sm .kbd{margin-left:2px}
+ .wf-tb-sep{width:1px;height:16px;margin:0 4px;background:var(--hairline)}
+ .wf-zoom{min-width:48px;height:28px;padding:0 4px;border:0;border-radius:calc(var(--r-ctl) - 1px);background:transparent;font:500 12px var(--font-sans);font-variant-numeric:tabular-nums;color:var(--foreground);cursor:pointer}
+ .wf-zoom:hover{background:var(--muted)}
+
+ /* minimap: a raised tile on the well */
+ .wf-mini{position:absolute;right:12px;bottom:12px;width:168px;height:108px;border-radius:9px;background:var(--wf-node);box-shadow:inset 0 1px 0 var(--edge-hi),0 0 0 1px var(--edge-ring),var(--wf-node-drop);z-index:4;overflow:hidden;cursor:pointer}
+ .wf-mini svg{display:block;width:100%;height:100%}
+ .wf-mini .mm-n{fill:color-mix(in srgb,var(--foreground) 14%,transparent)}
+ .wf-mini .mm-n.sel{fill:var(--primary)}
+ .wf-mini .mm-n.skip{fill:color-mix(in srgb,var(--foreground) 6%,transparent)}
+ .wf-mini .mm-v{fill:color-mix(in srgb,var(--primary) 5%,transparent);stroke:color-mix(in srgb,var(--ring) 60%,transparent);stroke-width:1;vector-effect:non-scaling-stroke}
+
+ /* canvas corner note: the pinned test event */
+ .wf-note{position:absolute;left:12px;top:12px;z-index:4;display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border-radius:999px;font-size:11.5px;color:var(--muted-foreground);background:var(--wf-node);box-shadow:var(--raise-sm);pointer-events:none}
+ .wf-note svg{width:12px;height:12px}
+ .wf-note .mono{color:var(--foreground);font-size:11px}
+
+ /* ── inspector ── */
+ .wf-ih{display:flex;align-items:center;gap:10px;height:56px;padding:0 var(--s3) 0 var(--s5);flex-shrink:0}
+ .wf-ih .wfn-ico{width:28px;height:28px}
+ .wf-ih-t{font-size:13.5px;font-weight:600;letter-spacing:-.01em;line-height:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .wf-ih .wfn-s{margin-top:1px}
+ .wf-insp .tabs{height:40px;border-bottom:1px solid var(--hairline);padding:0 var(--s3);align-items:stretch;flex-shrink:0}
+ .wf-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+ .wf-pane{display:none;flex-direction:column;gap:var(--s5);padding:var(--s5) 0 var(--s6)}
+ .wf-pane.on{display:flex;animation:wf-in var(--d-base) var(--ease-out) both}
+ @keyframes wf-in{from{opacity:0;transform:translateY(3px)}}
+ .wf-f{display:flex;flex-direction:column;gap:7px;padding:0 var(--s5)}
+ .wf-f > .well{margin:0 calc(var(--s3) * -1)}
+ .wf-lbl{display:flex;align-items:center;gap:var(--s2);min-height:20px;font-size:12px;font-weight:500;color:var(--foreground)}
+ .wf-lbl .muted{font-weight:400;color:var(--muted-foreground)}
+ .wf-lbl .wf-r{margin-left:auto;display:inline-flex;align-items:center;gap:6px}
+ .wf-lbl .btn.xs{color:var(--muted-foreground);margin-right:-6px}
+ .wf-hint{font-size:12px;line-height:1.5;color:var(--muted-foreground)}
+ .wf-sel{display:flex;align-items:center;gap:8px;height:34px;cursor:pointer;text-align:left;font:inherit;color:var(--foreground)}
+ .wf-sel .mono{font-size:12.5px}
+ .wf-sel .muted{font-size:12px;color:var(--muted-foreground)}
+ .wf-sel > .wf-chev{margin-left:auto;width:14px;height:14px;color:var(--muted-foreground);transition:transform var(--d-base) var(--ease-io)}
+ .wf-sel[aria-expanded="true"] > .wf-chev{transform:rotate(180deg)}
+ .wf-sel:focus-visible{outline:none;box-shadow:inset 0 0 0 1px var(--ring),var(--focus-ring)}
+ .wf-gem{width:14px;height:14px;border-radius:4px;background:linear-gradient(135deg,var(--brand-1),var(--brand-2));flex-shrink:0;box-shadow:inset 0 1px 0 rgb(255 255 255 / .25)}
+ .wf-in-mono{font-family:var(--font-mono);font-size:12.5px}
+ .wf-row2{display:grid;grid-template-columns:1fr 1fr;gap:var(--s2)}
+ /* the prompt editor: a recess holding text and raised field tokens */
+ .wf-prompt.input{height:auto;min-height:112px;padding:9px 11px;font:13px/22px var(--font-sans);white-space:pre-wrap;outline:none;cursor:text}
+ .wf-tok{display:inline-flex;align-items:center;height:19px;padding:0 6px;margin:0 1px;border-radius:5px;vertical-align:1px;background:var(--wf-solid-raise);box-shadow:var(--raise-sm);
+   font:500 11.5px/19px var(--font-mono);color:var(--foreground);white-space:nowrap;cursor:default;user-select:all}
+ .wf-tok i{font-style:normal;color:var(--faint)}
+ .wf-tok.hl{animation:wf-tok 900ms var(--ease-out) both}
+ @keyframes wf-tok{from{box-shadow:var(--raise-sm),0 0 0 3px color-mix(in srgb,var(--ring) 35%,transparent)}}
+ /* schema / mapping rows in a well */
+ .wf-rows{padding:2px 0}
+ .wf-rw{display:flex;align-items:center;gap:var(--s2);min-height:40px;padding:6px var(--s3)}
+ .wf-rw + .wf-rw{border-top:1px solid var(--hairline)}
+ .wf-rw .mono{font-size:12.5px}
+ .wf-rw .wf-k{min-width:84px}
+ .wf-rw .wf-v{flex:1;min-width:0;font-size:12px;color:var(--muted-foreground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .wf-rw .wf-arrow{width:13px;height:13px;color:var(--faint);flex-shrink:0}
+ .wf-ty{display:inline-flex;align-items:center;height:19px;padding:0 6px;border-radius:5px;background:var(--raise-fill);box-shadow:var(--raise-sm);font:500 11px/19px var(--font-mono);color:var(--muted-foreground);flex-shrink:0}
+ .wf-rw .btn.xs{margin-left:auto}
+ .wf-add{align-self:flex-start;margin-left:calc(var(--s2) * -1);color:var(--muted-foreground)}
+ /* temperature: recessed track, raised thumb */
+ .wf-range{-webkit-appearance:none;appearance:none;width:100%;height:18px;margin:0;background:transparent;cursor:pointer;--p:20%}
+ .wf-range:focus-visible{outline:none}
+ .wf-range::-webkit-slider-runnable-track{height:6px;border-radius:999px;background:linear-gradient(90deg,var(--primary) 0 var(--p),transparent var(--p)),var(--recess-fill);box-shadow:var(--inset-sm)}
+ .wf-range::-moz-range-track{height:6px;border-radius:999px;background:linear-gradient(90deg,var(--primary) 0 var(--p),transparent var(--p)),var(--recess-fill);box-shadow:var(--inset-sm)}
+ .wf-range::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;margin-top:-5px;border-radius:50%;background:var(--wf-solid-raise);box-shadow:inset 0 1px 0 var(--edge-hi),0 0 0 1px var(--edge-ring),0 1px 3px rgb(0 0 0 / .18)}
+ .wf-range::-moz-range-thumb{width:16px;height:16px;border:0;border-radius:50%;background:var(--wf-solid-raise);box-shadow:inset 0 1px 0 var(--edge-hi),0 0 0 1px var(--edge-ring),0 1px 3px rgb(0 0 0 / .18)}
+ .wf-range:focus-visible::-webkit-slider-thumb{box-shadow:0 0 0 1px var(--ring),var(--focus-ring)}
+ .wf-scale{display:flex;justify-content:space-between;font:10.5px var(--font-mono);color:var(--muted-foreground);margin-top:-2px}
+ .wf-val{font:500 12px var(--font-mono);font-variant-numeric:tabular-nums;color:var(--foreground)}
+ .wf-sw{display:flex;align-items:center;gap:var(--s3);padding:0 var(--s5);font-size:12.5px}
+ .wf-sw .wf-hint{font-size:12px}
+ .wf-sw .switch{margin-left:auto;cursor:pointer}
+ .wf-cond{display:grid;grid-template-columns:minmax(0,1.4fr) 52px minmax(0,1fr);gap:var(--s2)}
+ .wf-cond .input{display:flex;align-items:center;height:34px}
+ .wf-seg.seg{display:flex;width:100%;height:30px;padding:2px}
+ .wf-seg.seg > button{flex:1;font-size:12.5px}
+ /* output / input */
+ .wf-run{display:flex;align-items:center;gap:var(--s2);padding:0 var(--s5);font-size:12.5px;min-width:0}
+ .wf-run b{font-weight:550}
+ .wf-run .muted{color:var(--muted-foreground);white-space:nowrap}
+ .wf-run .badge{margin-left:auto}
+ .wf-json.json.well{margin:0 var(--s2);padding:var(--s3) var(--s4);font:12px/19px var(--font-mono);white-space:pre;overflow:auto;color:var(--foreground)}
+ .wf-json .jk{color:var(--foreground)}
+ .wf-json .js{color:var(--syn-string)}
+ .wf-json .jn{color:var(--syn-number)}
+ .wf-json .jp{color:var(--muted-foreground)}
+ .wf-meta{display:flex;flex-wrap:wrap;gap:4px 14px;padding:0 var(--s5);font-size:12px;color:var(--muted-foreground)}
+ .wf-meta span{display:inline-flex;align-items:center;gap:5px}
+ .wf-meta svg{width:12px;height:12px}
+ .wf-meta b{font-weight:500;color:var(--foreground);font-variant-numeric:tabular-nums}
+ .wf-kv .kit-kv{min-height:38px;padding:6px var(--s3)}
+ .wf-kv .kit-kv-k{width:84px;font-size:12px}
+ .wf-kv .kit-kv-v{font-size:12.5px}
+ .wf-kv .kit-kv-v a{color:var(--foreground);text-decoration:none;display:inline-flex;align-items:center;gap:5px}
+ .wf-kv .kit-kv-v a:hover{text-decoration:underline}
+ .wf-kv .kit-kv-v a svg{width:12px;height:12px;color:var(--muted-foreground)}
+ .wf-empty{padding:var(--s6) var(--s5);font-size:12.5px;color:var(--muted-foreground);text-align:center}
+ @media (prefers-reduced-motion:reduce){.wf-pane.on{animation:none}}
+</style></head><body><div id="shell"></div>
+<template id="page"><div class="editor wf-ed">
+ <section class="panel wf-main" aria-label="Workflow editor">
+  <div class="wf-head">
+   <nav class="wf-crumb" aria-label="Breadcrumb"><a href="overview.html">Payments Ops</a><i data-lucide="chevron-right"></i><a href="workflows.html">Workflows</a><i data-lucide="chevron-right"></i>
+    <button class="wf-pick" id="wf-pick" aria-haspopup="listbox" aria-expanded="false" data-tip="Switch workflow">Refund triage<i data-lucide="chevrons-up-down"></i></button></nav>
+   <span class="badge success wf-live" id="wf-live" data-tip="Published · serving POST /hooks/refund"><span class="dot ok flat"></span><span id="wf-ver">Live · v14</span></span>
+   <div class="spacer"></div>
+   <span class="wf-saved" id="wf-saved" data-ts="2026-10-15T09:39:00Z">Saved · 2 min ago</span>
+   <button class="btn ghost icon-sm" data-tip="Executions" aria-label="Executions" onclick="location.href='runs.html'"><i data-lucide="history"></i></button>
+   <button class="btn outline sm" id="wf-test" data-tip="Run with the pinned event on dev" data-kbd="⌘↵"><i data-lucide="play"></i><span class="spin"></span> Test run <span class="kbd">⌘↵</span></button>
+   <button class="btn sm" id="wf-pub" data-tip="Publish a new version to live"><i data-lucide="upload"></i> Publish</button>
+  </div>
+  <div class="well wf-well" id="wf-well" aria-label="Canvas. Drag nodes to move them, drag the background to pan.">
+   <div class="wf-vp" id="wf-vp"><svg class="wf-wires art" id="wf-wires" aria-hidden="true"></svg></div>
+   <span class="wf-note"><i data-lucide="pin"></i>Test event <span class="mono">ord_8812</span></span>
+   <div class="menu wf-tb" role="toolbar" aria-label="Canvas tools">
+    <button class="btn ghost icon-sm on" data-tool="select" data-tip="Select" data-kbd="V" aria-label="Select"><i data-lucide="mouse-pointer-2"></i></button>
+    <button class="btn ghost icon-sm" data-tool="hand" data-tip="Hand" data-kbd="H" aria-label="Hand"><i data-lucide="hand"></i></button>
+    <span class="wf-tb-sep"></span>
+    <button class="btn ghost sm" id="wf-add" aria-haspopup="listbox" aria-expanded="false" data-tip="Add a node" data-kbd="N"><i data-lucide="plus"></i> Add node <span class="kbd">N</span></button>
+    <span class="wf-tb-sep"></span>
+    <button class="btn ghost icon-sm" id="wf-zo" data-tip="Zoom out" data-kbd="−" aria-label="Zoom out"><i data-lucide="minus"></i></button>
+    <button class="wf-zoom" id="wf-z" data-tip="Reset to 100%" data-kbd="0">100%</button>
+    <button class="btn ghost icon-sm" id="wf-zi" data-tip="Zoom in" data-kbd="+" aria-label="Zoom in"><i data-lucide="plus"></i></button>
+    <button class="btn ghost icon-sm" id="wf-fit" data-tip="Fit to view" data-kbd="⇧1" aria-label="Fit to view"><i data-lucide="scan"></i></button>
+   </div>
+   <div class="wf-mini" id="wf-mini" data-tip="Minimap · click to fit" aria-hidden="true"><svg id="wf-mm"></svg></div>
+  </div>
+ </section>
+ <aside class="panel wf-insp" aria-label="Node inspector">
+  <div class="wf-ih" id="wf-ih"></div>
+  <div class="tabs" id="wf-tabs" role="tablist"><button class="tab active" data-tab="params" role="tab">Parameters</button><button class="tab" data-tab="input" role="tab">Input</button><button class="tab" data-tab="output" role="tab">Output</button></div>
+  <div class="wf-body" id="wf-body"></div>
+ </aside>
+</div></template>
+<script>Shell.mount({tab:'workflows',active:'workflows'})</script>
+<script>
+(function () {
+  'use strict';
+  const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const I = (n, c) => `<i data-lucide="${n}"${c ? ` class="${c}"` : ''}></i>`;
+  const M = (m) => `<span class="method ${m.toLowerCase()}">${m}</span>`;
+  const tok = (f) => `<span class="wf-tok" contenteditable="false"><i>{{</i>${f}<i>}}</i></span>`;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const icons = () => Shell.icons();
+  const NS = 'http://www.w3.org/2000/svg';
+
+  /* ── data: the workflow "Refund triage" ── */
+  const EVENT = { order_id: 'ord_8812', amount: 84.5, reason_text: 'Box arrived crushed, the mug inside is broken.', customer: 'cus_311', received_at: '2026-10-15T09:41:07Z' };
+  const CLASS = { label: 'damaged', confidence: 0.93, summary: 'Item arrived broken' };
+  const NODES = [
+    { id: 'hook', type: 'Trigger', icon: 'webhook', title: 'Webhook trigger', sub: `${M('POST')}<span>/hooks/refund</span>`, x: 0, y: 0, ms: '3 ms', dur: 200 },
+    { id: 'cls', type: 'AI', icon: 'sparkles', ai: true, title: 'Classify reason', sub: '<span>AI · gemini-2.5-flash</span>', x: 0, y: 100, ms: '1.18 s', dur: 900 },
+    { id: 'route', type: 'If / else', icon: 'split', title: 'Route by confidence', sub: '<span>confidence ≥ 0.8</span>', x: 0, y: 200, ms: '1 ms', dur: 160, ports: [.3, .7] },
+    { id: 'refund', type: 'Backend route', icon: 'file-code-2', title: 'Call createRefund', sub: `${M('POST')}<span>/refunds</span>`, x: -136, y: 322, ms: '41 ms', dur: 380, foot: true },
+    { id: 'review', type: 'Slack', icon: 'message-square-text', title: 'Ask #refunds-review', sub: '<span>Slack · await reply</span>', x: 136, y: 322, ms: '', dur: 300 },
+    { id: 'log', type: 'Table', icon: 'table-2', title: 'Log to refunds', sub: '<span>refunds · insert</span>', x: 0, y: 470, ms: '12 ms', dur: 220 },
+  ];
+  const EDGES = [
+    { id: 'e-hook-cls', from: 'hook', to: 'cls' },
+    { id: 'e-cls-route', from: 'cls', to: 'route' },
+    { id: 'e-route-refund', from: 'route', port: 0, to: 'refund', label: '<b>≥ 0.8</b> auto' },
+    { id: 'e-route-review', from: 'route', port: 1, to: 'review', label: '<b>else</b> review' },
+    { id: 'e-refund-log', from: 'refund', to: 'log' },
+    { id: 'e-review-log', from: 'review', to: 'log' },
+  ];
+  const byId = (id) => NODES.find((n) => n.id === id);
+  let runNo = 4821, lastRun = { no: 4821, ago: '6 min ago', ts: '2026-10-15T09:35:12Z' }, selected = 'cls', tool = 'select';
+  const view = { x: 0, y: 0, z: 1 };
+
+  /* ── per-node inspector content ── */
+  const outFor = {
+    hook: () => EVENT,
+    cls: () => CLASS,
+    route: () => ({ branch: 'auto', matched: 'confidence ≥ 0.8', value: CLASS.confidence }),
+    refund: () => ({ status: 200, body: { id: 3, reason: 'damaged', amount: 84.5 } }),
+    review: () => null,
+    log: () => ({ inserted: 1, table: 'refunds', row: { order_id: 'ord_8812', reason: 'damaged', amount: 84.5 } }),
+  };
+  const inFor = { hook: () => null, cls: () => EVENT, route: () => CLASS, refund: () => ({ ...CLASS, amount: 84.5, order_id: 'ord_8812' }), review: () => ({ ...CLASS, amount: 84.5, order_id: 'ord_8812' }), log: () => outFor.refund() };
+  const fromOf = { cls: 'Webhook trigger', route: 'Classify reason', refund: 'Route by confidence · auto', review: 'Route by confidence · review', log: 'Call createRefund' };
+  const tokens = { hook: [], cls: ['order_id', 'reason_text', 'amount', 'customer'], route: ['label', 'confidence', 'summary'], refund: ['label', 'confidence', 'amount', 'order_id'], review: ['label', 'confidence', 'amount', 'order_id'], log: ['id', 'reason', 'amount', 'order_id'] };
+
+  const sw = (label, hint, on) => `<div class="wf-sw"><div><div>${label}</div>${hint ? `<div class="wf-hint">${hint}</div>` : ''}</div><span class="switch${on ? ' on' : ''}" role="switch" tabindex="0" aria-checked="${!!on}" aria-label="${label}"></span></div>`;
+  const PARAMS = {
+    hook: () => `
+      <div class="wf-f"><div class="wf-lbl">Endpoint</div><div class="input wf-sel" style="cursor:default">${M('POST')}<span class="mono">/hooks/refund</span><button class="btn ghost icon-xs" style="margin-left:auto" data-tip="Copy URL" aria-label="Copy URL">${I('copy')}</button></div>
+        <div class="wf-hint">Production URL <span class="mono" style="font-size:11.5px;color:var(--foreground)">…/p/payments-ops/hooks/refund</span></div></div>
+      <div class="wf-f"><div class="wf-lbl">Authentication</div><button class="input wf-sel" data-menu="auth">${I('shield-check')}<span>HMAC signature</span><span class="muted mono">X-Signature</span>${I('chevron-down', 'wf-chev')}</button></div>
+      <div class="wf-f"><div class="wf-lbl">Respond</div><div class="seg wf-seg" data-static><button class="on">Immediately</button><button>When last node finishes</button></div></div>
+      ${sw('Pin test event', 'Test runs replay <span class="mono" style="font-size:11.5px">ord_8812</span>', true)}`,
+    cls: () => `
+      <div class="wf-f"><div class="wf-lbl">Model</div><button class="input wf-sel" data-menu="model" aria-haspopup="listbox" aria-expanded="false"><span class="wf-gem"></span><span class="mono" id="wf-model">gemini-2.5-flash</span><span class="muted">Google</span>${I('chevron-down', 'wf-chev')}</button></div>
+      <div class="wf-f"><div class="wf-lbl">Prompt<span class="wf-r"><button class="btn ghost xs" data-menu="field" aria-haspopup="listbox" aria-expanded="false">${I('braces')} Insert field</button></span></div>
+        <div class="input wf-prompt" id="wf-prompt" contenteditable="true" spellcheck="false" aria-label="Prompt">Classify the refund request for order ${tok('order_id')} into exactly one label.
+Customer wrote: ${tok('reason_text')}
+Amount: ${tok('amount')} USD. Return the label and your confidence.</div>
+        <div class="wf-hint">Fields come from <b style="font-weight:500;color:var(--foreground)">Webhook trigger</b>.</div></div>
+      <div class="wf-f"><div class="wf-lbl">Output schema <span class="muted">· structured JSON</span></div>
+        <div class="well wf-rows">
+          <div class="wf-rw"><span class="mono wf-k">label</span><span class="wf-ty">enum</span><span class="wf-v mono" data-tip="damaged · late · wrong_item · other">damaged · late · wrong_item · other</span></div>
+          <div class="wf-rw"><span class="mono wf-k">confidence</span><span class="wf-ty">number</span><span class="wf-v mono">0 – 1</span></div>
+          <div class="wf-rw"><span class="mono wf-k">summary</span><span class="wf-ty">string</span><span class="wf-v">optional · ≤ 80 chars</span></div>
+        </div>
+        <button class="btn ghost xs wf-add">${I('plus')} Add field</button></div>
+      <div class="wf-f"><div class="wf-lbl">Temperature<span class="wf-r wf-val" id="wf-temp-v">0.2</span></div>
+        <input type="range" class="wf-range" id="wf-temp" min="0" max="1" step="0.1" value="0.2" aria-label="Temperature">
+        <div class="wf-scale"><span>precise</span><span>creative</span></div></div>
+      ${sw('Retry on failure', '2 attempts · 1 s backoff', true)}`,
+    route: () => `
+      <div class="wf-f"><div class="wf-lbl">Condition</div>
+        <div class="wf-cond"><div class="input">${tok('confidence')}</div><button class="input wf-sel" style="justify-content:center;padding:0" data-menu="op">≥</button><input class="input wf-in-mono" value="0.8" aria-label="Threshold"></div>
+        <div class="wf-hint">Number comparison · last run: <span class="mono" style="font-size:11.5px;color:var(--foreground)">0.93 ≥ 0.8</span> → auto</div></div>
+      <div class="wf-f"><div class="wf-lbl">Outputs</div>
+        <div class="well wf-rows">
+          <div class="wf-rw"><span class="wf-ty">true</span><span class="mono wf-k" style="min-width:0">auto</span>${I('arrow-right', 'wf-arrow')}<span class="wf-v" style="color:var(--foreground)">Call createRefund</span></div>
+          <div class="wf-rw"><span class="wf-ty">false</span><span class="mono wf-k" style="min-width:0">review</span>${I('arrow-right', 'wf-arrow')}<span class="wf-v" style="color:var(--foreground)">Ask #refunds-review</span></div>
+        </div></div>
+      ${sw('Treat missing as false', 'A missing confidence goes to review', true)}`,
+    refund: () => `
+      <div class="wf-f"><div class="wf-lbl">Backend route</div><button class="input wf-sel" data-menu="route" aria-haspopup="listbox" aria-expanded="false"><span id="wf-rt">${M('POST')}<span class="mono">/refunds</span></span><span class="muted mono" id="wf-rt-n">createRefund</span>${I('chevron-down', 'wf-chev')}</button></div>
+      <div class="wf-f"><div class="well wf-kv">
+          <div class="kit-kv"><span class="kit-kv-k">Module</span><span class="kit-kv-v"><a href="backend.html" class="mono">${I('file-code-2')}refunds.py${I('arrow-up-right')}</a></span></div>
+          <div class="kit-kv"><span class="kit-kv-k">Function</span><span class="kit-kv-v"><span class="mono">create_refund</span><span class="muted kit-end">line 8</span></span></div>
+          <div class="kit-kv"><span class="kit-kv-k">Last 24h</span><span class="kit-kv-v"><span class="dot err flat"></span><span>1 failed</span><span class="muted mono kit-end" data-tip="POST /refunds · 422 · raised at refunds.py:12 · 2 min ago">422 amount is required</span></span></div>
+        </div></div>
+      <div class="wf-f"><div class="wf-lbl">Request body</div>
+        <div class="well wf-rows">
+          <div class="wf-rw"><span class="mono wf-k">amount</span>${I('arrow-left', 'wf-arrow')}<span>${tok('amount')}</span><span class="wf-ty" style="margin-left:auto">required</span></div>
+          <div class="wf-rw"><span class="mono wf-k">reason</span>${I('arrow-left', 'wf-arrow')}<span>${tok('label')}</span></div>
+        </div>
+        <div class="wf-hint">Mapped from the route's input schema. <b style="font-weight:500;color:var(--foreground)">amount</b> is required, or the route returns 422.</div></div>
+      ${sw('Fail workflow on 4xx', 'Stops the run and records the error', true)}`,
+    review: () => `
+      <div class="wf-f"><div class="wf-lbl">Channel</div><button class="input wf-sel" data-menu="chan">${I('hash')}<span>refunds-review</span><span class="muted">6 members</span>${I('chevron-down', 'wf-chev')}</button></div>
+      <div class="wf-f"><div class="wf-lbl">Message<span class="wf-r"><button class="btn ghost xs" data-menu="field">${I('braces')} Insert field</button></span></div>
+        <div class="input wf-prompt" id="wf-prompt" contenteditable="true" spellcheck="false" style="min-height:88px">Refund for ${tok('order_id')} · ${tok('amount')} USD, classified as ${tok('label')} at ${tok('confidence')}. Approve?</div></div>
+      <div class="wf-f"><div class="wf-lbl">Buttons</div><div class="wf-row2"><div class="input wf-sel" style="cursor:default">${I('check')}<span>Approve</span></div><div class="input wf-sel" style="cursor:default">${I('x')}<span>Reject</span></div></div></div>
+      ${sw('Wait for reply', 'Times out after 4 h → reject', true)}
+      <div class="wf-f"><div class="well wf-kv"><div class="kit-kv"><span class="kit-kv-k">Credential</span><span class="kit-kv-v"><span class="mono">SLACK_BOT_TOKEN</span><span class="kit-end" style="display:inline-flex;align-items:center;gap:6px;color:var(--success-text)"><span class="dot ok flat"></span>set</span></span></div></div></div>`,
+    log: () => `
+      <div class="wf-f"><div class="wf-lbl">Table</div><button class="input wf-sel" data-menu="table">${I('table-2')}<span class="mono">refunds</span><span class="muted">3 rows</span>${I('chevron-down', 'wf-chev')}</button></div>
+      <div class="wf-f"><div class="wf-lbl">Operation</div><div class="seg wf-seg" data-static><button class="on">Insert</button><button>Upsert</button><button>Update</button></div></div>
+      <div class="wf-f"><div class="wf-lbl">Columns</div>
+        <div class="well wf-rows">
+          <div class="wf-rw"><span class="mono wf-k">order_id</span>${I('arrow-left', 'wf-arrow')}<span>${tok('order_id')}</span></div>
+          <div class="wf-rw"><span class="mono wf-k">reason</span>${I('arrow-left', 'wf-arrow')}<span>${tok('reason')}</span></div>
+          <div class="wf-rw"><span class="mono wf-k">amount</span>${I('arrow-left', 'wf-arrow')}<span>${tok('amount')}</span></div>
+        </div></div>`,
+    custom: (n) => `<div class="wf-empty">${I('sliders-horizontal')}<div style="margin-top:8px">Configure <b style="font-weight:550;color:var(--foreground)">${n.title}</b>, then wire it in.</div></div>`,
+  };
+
+  /* ── JSON in a well, with page-scoped highlight classes ── */
+  const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  function json(o) {
+    return esc(JSON.stringify(o, null, 2))
+      .replace(/("(?:\\.|[^"\\])*")(\s*:)?|(-?\d+(?:\.\d+)?)/g, (m, s, colon, num) => s ? (colon ? `<span class="jk">${s}</span><span class="jp">:</span>` : `<span class="js">${s}</span>`) : `<span class="jn">${num}</span>`);
+  }
+
+  /* ── canvas ── */
+  const well = $('#wf-well'), vp = $('#wf-vp'), svg = $('#wf-wires');
+  const nodeEl = {}, wireEl = {}, labelEl = {};
+  function nodeHTML(n) {
+    return `<span class="wfn-type">${n.type}</span><span class="wfn-port in"></span>
+      <div class="wfn-row"><span class="wfn-ico${n.ai ? ' ai' : ''}">${I(n.icon)}</span><div class="wfn-txt"><div class="wfn-t">${n.title}</div><div class="wfn-s">${n.sub}</div></div></div>
+      <span class="wfn-ms"></span><span class="wfn-st"><span class="dot wf-idle"></span></span>
+      ${n.foot ? `<a class="wfn-foot" href="backend.html" data-tip="Open createRefund in the Python backend">${I('file-code-2')}<span><span class="wf-py">refunds.py</span>:8</span><span class="wf-go">Open${I('arrow-up-right')}</span></a>` : ''}
+      ${(n.ports || [.5]).map((p) => `<span class="wfn-port out" style="left:${p * 100}%"></span>`).join('')}`;
+  }
+  function mountNode(n) {
+    const el = document.createElement('div');
+    el.className = 'wfn'; el.dataset.id = n.id; el.tabIndex = 0; el.setAttribute('role', 'button'); el.setAttribute('aria-label', `${n.type}: ${n.title}`);
+    el.innerHTML = nodeHTML(n); vp.appendChild(el); nodeEl[n.id] = el; place(n);
+    return el;
+  }
+  const place = (n) => { nodeEl[n.id].style.transform = `translate(${n.x}px,${n.y}px)`; };
+  function port(n, kind, i) {
+    const el = nodeEl[n.id], w = el.offsetWidth, h = el.offsetHeight;
+    return kind === 'in' ? [n.x + w / 2, n.y] : [n.x + w * ((n.ports || [.5])[i || 0]), n.y + h];
+  }
+  function wires() {
+    EDGES.forEach((e) => {
+      const a = byId(e.from), b = byId(e.to); if (!a || !b) return;
+      const [x1, y1] = port(a, 'out', e.port), [x2, y2] = port(b, 'in');
+      const dy = Math.max(28, Math.abs(y2 - y1) * .5);
+      let p = wireEl[e.id];
+      if (!p) { p = document.createElementNS(NS, 'path'); p.setAttribute('class', 'a-wire'); p.id = e.id; svg.appendChild(p); wireEl[e.id] = p; }
+      p.setAttribute('d', `M${x1} ${y1} C ${x1} ${y1 + dy}, ${x2} ${y2 - dy}, ${x2} ${y2}`);
+      if (e.label) {
+        let l = labelEl[e.id];
+        if (!l) { l = document.createElement('span'); l.className = 'wf-elabel'; l.innerHTML = e.label; vp.appendChild(l); labelEl[e.id] = l; }
+        const pt = p.getPointAtLength(p.getTotalLength() * .42);
+        l.style.left = pt.x + 'px'; l.style.top = pt.y + 'px';
+      }
+    });
+  }
+
+  /* view: pan + zoom; the grid travels with it */
+  function apply() {
+    vp.style.transform = `translate(${view.x}px,${view.y}px) scale(${view.z})`;
+    const gs = 32 * view.z;
+    well.style.setProperty('--gs', gs + 'px'); well.style.setProperty('--gx', (view.x % gs) + 'px'); well.style.setProperty('--gy', (view.y % gs) + 'px');
+    $('#wf-z').textContent = Math.round(view.z * 100) + '%';
+    mini();
+  }
+  function bounds() {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    NODES.forEach((n) => { const el = nodeEl[n.id]; x0 = Math.min(x0, n.x); y0 = Math.min(y0, n.y - 18); x1 = Math.max(x1, n.x + el.offsetWidth); y1 = Math.max(y1, n.y + el.offsetHeight); });
+    return { x0, y0, x1, y1, w: x1 - x0, h: y1 - y0 };
+  }
+  function fit(maxZ = 1) {
+    const b = bounds(), W = well.clientWidth, H = well.clientHeight - 56, pad = 32;
+    view.z = Math.max(.5, Math.min(maxZ, (W - pad * 2) / b.w, (H - pad * 2) / b.h));
+    if (view.z > .9 && maxZ >= 1) view.z = 1; else view.z = Math.floor(view.z * 20) / 20;
+    view.x = (W - b.w * view.z) / 2 - b.x0 * view.z; view.y = (H - b.h * view.z) / 2 - b.y0 * view.z + 4;
+    apply();
+  }
+  function zoomBy(f, cx, cy) {
+    const z = Math.max(.5, Math.min(1.5, Math.round(view.z * f * 10) / 10));
+    if (cx == null) { cx = well.clientWidth / 2; cy = well.clientHeight / 2; }
+    view.x = cx - (cx - view.x) * (z / view.z); view.y = cy - (cy - view.y) * (z / view.z); view.z = z; apply();
+  }
+
+  /* minimap: nodes plus the visible area */
+  function mini() {
+    const mm = $('#wf-mm'); if (!mm || !NODES.length) return;
+    const b = bounds(), W = well.clientWidth, H = well.clientHeight;
+    const v = { x0: -view.x / view.z, y0: -view.y / view.z, x1: (W - view.x) / view.z, y1: (H - view.y) / view.z };
+    const x0 = Math.min(b.x0, v.x0), y0 = Math.min(b.y0, v.y0), x1 = Math.max(b.x1, v.x1), y1 = Math.max(b.y1, v.y1);
+    const pad = 60, w = x1 - x0 + pad * 2, h = y1 - y0 + pad * 2;
+    mm.setAttribute('viewBox', `${x0 - pad} ${y0 - pad} ${w} ${h}`); mm.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    mm.innerHTML = NODES.map((n) => { const el = nodeEl[n.id]; return `<rect class="mm-n${n.id === selected ? ' sel' : ''}${el.classList.contains('st-skipped') ? ' skip' : ''}" x="${n.x}" y="${n.y}" width="${el.offsetWidth}" height="${el.offsetHeight}" rx="14"/>`; }).join('') +
+      `<rect class="mm-v" x="${v.x0}" y="${v.y0}" width="${v.x1 - v.x0}" height="${v.y1 - v.y0}" rx="12"/>`;
+  }
+
+  /* ── selection + inspector ── */
+  function select(id, tab) {
+    selected = id;
+    NODES.forEach((n) => nodeEl[n.id].classList.toggle('sel', n.id === id));
+    renderInspector(tab); mini();
+  }
+  let curTab = 'params';
+  function renderInspector(tab) {
+    const n = byId(selected); if (!n) return;
+    if (tab) curTab = tab;
+    $('#wf-ih').innerHTML = `<span class="wfn-ico${n.ai ? ' ai' : ''}">${I(n.icon)}</span><div style="flex:1;min-width:0"><div class="wf-ih-t">${n.title}</div><div class="wfn-s">${n.type} · ${n.sub.replace(/<span class="method[^>]*>([A-Z]+)<\/span>/, '$1 ').replace(/^<span>(AI|Slack) · /, '<span>')}</div></div>
+      <button class="btn ghost icon-sm" data-tip="Run this node" aria-label="Run this node" id="wf-run1">${I('play')}</button><button class="btn ghost icon-sm" data-tip="More" aria-label="More">${I('ellipsis')}</button>`;
+    const out = n.custom ? null : outFor[n.id](), inp = n.custom ? null : inFor[n.id]();
+    const st = nodeEl[n.id].dataset.st || 'done';
+    const runRow = (what) => {
+      if (st === 'skipped') return `<div class="wf-run"><span class="dot wf-idle" style="box-shadow:inset 0 0 0 1.25px var(--faint);background:transparent"></span><b>Run #${lastRun.no}</b><span class="muted">· skipped (confidence ≥ 0.8)</span></div>`;
+      if (st === 'running' || st === 'pending') return `<div class="wf-run"><span class="dot m-live"></span><b>Run #${runNo}</b><span class="muted">· ${st}…</span></div>`;
+      return `<div class="wf-run"><span class="dot ok flat"></span><b>Run #${lastRun.no}</b><span class="muted" data-ts="${lastRun.ts}">· ${n.ms || '—'} · ${lastRun.ago}</span><span class="badge outline mono">${what}</span></div>`;
+    };
+    const params = (PARAMS[n.custom ? 'custom' : n.id])(n);
+    const input = !inp ? `<div class="wf-empty">${I('webhook')}<div style="margin-top:8px">Triggers have no input. This node starts the run with the request body.</div></div>`
+      : `<div class="wf-run"><span class="muted">From</span><b>${fromOf[n.id]}</b>${n.id === 'cls' ? '<span class="badge outline mono" style="margin-left:auto">pinned</span>' : ''}</div><pre class="json well wf-json">${json(inp)}</pre>`;
+    const output = st === 'skipped' || !out ? `${runRow('')}<div class="wf-empty">No output: the <b style="font-weight:500;color:var(--foreground)">else review</b> branch didn’t run.</div>`
+      : `${runRow(n.id === 'refund' ? '200' : 'JSON')}<pre class="json well wf-json">${json(out)}</pre>${n.id === 'cls' ? `<div class="wf-meta"><span>${I('cpu')}<b>212</b> in · <b>14</b> out tokens</span><span>${I('timer')}<b>1.18 s</b></span></div>` : ''}`;
+    $('#wf-body').innerHTML = `<div class="wf-pane" data-pane="params">${params}</div><div class="wf-pane" data-pane="input">${input}</div><div class="wf-pane" data-pane="output">${output}</div>`;
+    showTab(curTab, true); icons();
+    $$('#wf-body [data-ts]').forEach((el) => { const d = new Date(el.dataset.ts); el.dataset.tip = d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: 'UTC' }) + ' UTC'; });
+    const r = $('#wf-temp'); if (r) { const set = () => { r.style.setProperty('--p', r.value * 100 + '%'); $('#wf-temp-v').textContent = (+r.value).toFixed(1); }; r.addEventListener('input', set); set(); }
+  }
+  function showTab(t, quiet) {
+    curTab = t;
+    $$('#wf-tabs .tab').forEach((b) => { b.classList.toggle('active', b.dataset.tab === t); b.setAttribute('aria-selected', b.dataset.tab === t); });
+    $$('#wf-body .wf-pane').forEach((p) => p.classList.toggle('on', p.dataset.pane === t));
+    if (quiet) $$('#wf-body .wf-pane.on').forEach((p) => { p.style.animation = 'none'; });
+    const tabs = $('#wf-tabs'), a = tabs.querySelector('.tab.active'), l = tabs.querySelector('.m-tabline');
+    if (a && l) { l.style.width = a.offsetWidth + 'px'; l.style.transform = `translateX(${a.offsetLeft}px)`; }
+  }
+  $('#wf-tabs').addEventListener('click', (e) => { const b = e.target.closest('.tab'); if (b) showTab(b.dataset.tab); });
+
+  /* inspector controls: menus, switches, segmented, field tokens */
+  const MODELS = [['gemini-2.5-flash', 'fast · cheap'], ['gemini-2.5-pro', 'slower · best'], ['gemini-2.0-flash-lite', 'cheapest']];
+  const ROUTES = [['POST', '/refunds', 'createRefund'], ['GET', '/refunds', 'listRefunds'], ['GET', '/refunds/stats', 'refundStats']];
+  $('#wf-body').addEventListener('click', (e) => {
+    const s = e.target.closest('.switch'); if (s) { s.classList.toggle('on'); s.setAttribute('aria-checked', s.classList.contains('on')); return; }
+    const sb = e.target.closest('.wf-seg > button'); if (sb) { $$(':scope > button', sb.parentNode).forEach((x) => x.classList.toggle('on', x === sb)); return; }
+    const m = e.target.closest('[data-menu]'); if (!m) return;
+    const kind = m.dataset.menu;
+    if (kind === 'model') {
+      const cur = $('#wf-model').textContent;
+      Kit.menu(m, { width: m.offsetWidth, items: MODELS.map(([k, sub]) => ({ group: 'Google', label: `<span class="mono">${k}</span>`, sub, checked: k === cur, onSelect: () => { $('#wf-model').textContent = k; byId('cls').sub = `<span>AI · ${k}</span>`; nodeEl.cls.querySelector('.wfn-s').innerHTML = byId('cls').sub; renderInspector(); } })) });
+    } else if (kind === 'field') {
+      Kit.menu(m, { search: true, placeholder: 'Search fields…', align: 'end', width: 240, items: tokens[selected].map((f) => ({ group: fromOf[selected] || 'Input', label: `<span class="mono">${f}</span>`, icon: 'braces', onSelect: () => {
+        const p = $('#wf-prompt'); p.insertAdjacentHTML('beforeend', ' ' + tok(f)); const t = p.lastElementChild; t.classList.add('hl'); } })) });
+    } else if (kind === 'route') {
+      Kit.menu(m, { width: m.offsetWidth, search: true, placeholder: 'Search routes…', items: ROUTES.map(([mm, p, n]) => ({ group: 'refunds.py', label: `<span class="mono">${p}</span>`, method: mm, sub: n, checked: n === $('#wf-rt-n').textContent,
+        onSelect: () => { $('#wf-rt').innerHTML = `${M(mm)}<span class="mono">${p}</span>`; $('#wf-rt-n').textContent = n; const nd = byId('refund'); nd.title = 'Call ' + n; nd.sub = `${M(mm)}<span>${p}</span>`; nodeEl.refund.querySelector('.wfn-t').textContent = nd.title; nodeEl.refund.querySelector('.wfn-s').innerHTML = nd.sub; } })) });
+    } else {
+      const opts = { auth: [['HMAC signature', 'X-Signature'], ['Bearer token', 'Authorization'], ['None', 'public']], op: [['≥', 'at least'], ['>', 'greater than'], ['=', 'equals'], ['<', 'less than']], chan: [['#refunds-review', '6 members'], ['#payments-ops', '14 members']], table: [['refunds', '3 rows']] }[kind] || [];
+      Kit.menu(m, { width: Math.max(200, m.offsetWidth), items: opts.map(([l, sub], i) => ({ label: l, sub, checked: i === 0, onSelect: () => {} })) });
+    }
+  });
+  $('#wf-body').addEventListener('keydown', (e) => { const s = e.target.closest('.switch'); if (s && (e.key === ' ' || e.key === 'Enter')) { e.preventDefault(); s.click(); } });
+
+  /* ── pointer: drag nodes, pan the background ── */
+  let drag = null;
+  well.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || e.target.closest('.wf-tb, .wf-mini, .wfn-foot')) return;
+    const nEl = e.target.closest('.wfn');
+    if (nEl && tool === 'select') {
+      const n = byId(nEl.dataset.id); if (selected !== n.id) select(n.id);
+      drag = { kind: 'node', n, el: nEl, sx: e.clientX, sy: e.clientY, ox: n.x, oy: n.y, moved: false };
+    } else {
+      drag = { kind: 'pan', sx: e.clientX, sy: e.clientY, ox: view.x, oy: view.y }; well.classList.add('panning');
+    }
+    well.setPointerCapture(e.pointerId);
+  });
+  well.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+    if (drag.kind === 'pan') { view.x = drag.ox + dx; view.y = drag.oy + dy; apply(); return; }
+    if (!drag.moved && Math.hypot(dx, dy) < 3) return;
+    drag.moved = true; drag.el.classList.add('drag');
+    drag.n.x = Math.round(drag.ox + dx / view.z); drag.n.y = Math.round(drag.oy + dy / view.z);
+    place(drag.n); wires(); mini();
+  });
+  const end = () => { if (!drag) return; if (drag.el) drag.el.classList.remove('drag'); well.classList.remove('panning'); drag = null; };
+  well.addEventListener('pointerup', end); well.addEventListener('pointercancel', end);
+  well.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    if (e.ctrlKey || e.metaKey) { const r = well.getBoundingClientRect(); zoomBy(e.deltaY < 0 ? 1.1 : 1 / 1.1, e.clientX - r.left, e.clientY - r.top); }
+    else { view.x -= e.deltaX; view.y -= e.deltaY; apply(); }
+  }, { passive: false });
+  well.addEventListener('keydown', (e) => { const nEl = e.target.closest('.wfn'); if (nEl && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); select(nEl.dataset.id); } });
+
+  /* ── toolbar ── */
+  function setTool(t) { tool = t; $$('.wf-tb [data-tool]').forEach((b) => b.classList.toggle('on', b.dataset.tool === t)); well.classList.toggle('hand', t === 'hand'); }
+  $$('.wf-tb [data-tool]').forEach((b) => b.addEventListener('click', () => setTool(b.dataset.tool)));
+  $('#wf-zo').addEventListener('click', () => zoomBy(1 / 1.1));
+  $('#wf-zi').addEventListener('click', () => zoomBy(1.1));
+  $('#wf-z').addEventListener('click', () => zoomBy(1 / view.z));
+  $('#wf-fit').addEventListener('click', () => fit());
+  $('#wf-mini').addEventListener('click', () => fit());
+
+  /* add node: a searchable Kit.menu of node types; backend routes link the workflow to the Python backend */
+  const TYPES = [
+    { group: 'Triggers', label: 'Webhook', icon: 'webhook', sub: 'HTTP request' }, { group: 'Triggers', label: 'Schedule', icon: 'clock', sub: 'cron' }, { group: 'Triggers', label: 'Error trigger', icon: 'triangle-alert', sub: 'on failure' },
+    { group: 'Backend · refunds.py', label: '<span class="mono">/refunds</span>', method: 'POST', sub: 'createRefund', t: 'Call createRefund', ty: 'Backend route', s: `${M('POST')}<span>/refunds</span>`, ic: 'file-code-2' },
+    { group: 'Backend · refunds.py', label: '<span class="mono">/refunds</span>', method: 'GET', sub: 'listRefunds', t: 'Call listRefunds', ty: 'Backend route', s: `${M('GET')}<span>/refunds</span>`, ic: 'file-code-2' },
+    { group: 'Backend · refunds.py', label: '<span class="mono">/refunds/stats</span>', method: 'GET', sub: 'refundStats', t: 'Call refundStats', ty: 'Backend route', s: `${M('GET')}<span>/refunds/stats</span>`, ic: 'file-code-2' },
+    { group: 'AI', label: 'LLM classify', icon: 'sparkles', sub: 'structured output' }, { group: 'AI', label: 'AI agent', icon: 'bot', sub: 'tools + memory' },
+    { group: 'Flow', label: 'If / else', icon: 'split' }, { group: 'Flow', label: 'Switch', icon: 'route' }, { group: 'Flow', label: 'Merge', icon: 'git-merge' }, { group: 'Flow', label: 'Wait', icon: 'timer' },
+    { group: 'Data', label: 'Table insert', icon: 'table-2', sub: 'refunds' }, { group: 'Data', label: 'Table query', icon: 'database', sub: 'refunds' },
+    { group: 'Integrations', label: 'Slack message', icon: 'message-square-text' }, { group: 'Integrations', label: 'Send email', icon: 'mail' }, { group: 'Integrations', label: 'HTTP request', icon: 'globe' },
+  ];
+  let added = 0;
+  function addNode(t) {
+    const W = well.clientWidth, H = well.clientHeight, id = 'n' + (++added);
+    const n = { id, custom: true, type: t.ty || t.group.replace(/ ·.*/, '').replace(/s$/, ''), icon: t.ic || t.icon, ai: t.group === 'AI', title: t.t || t.label.replace(/<[^>]+>/g, ''), sub: t.s || `<span>${t.sub || 'not configured'}</span>`,
+      x: Math.round((W / 2 - view.x) / view.z - 110 + added * 16), y: Math.round((H / 2 - view.y) / view.z - 28 + added * 16), ms: '' };
+    NODES.push(n); const el = mountNode(n); icons(); el.querySelector('.dot').className = 'dot wf-idle'; el.dataset.st = 'idle';
+    select(id, 'params');
+    Kit.toast({ title: `Added <b style="font-weight:550">${n.title}</b>`, desc: 'Drag it into place, then wire it in.', tone: 'ok', action: { label: 'Undo', onClick: () => { NODES.splice(NODES.indexOf(n), 1); el.remove(); delete nodeEl[id]; select('cls'); } } });
+  }
+  function openAdd() { return Kit.menu($('#wf-add'), { search: true, placeholder: 'Search nodes…', width: 280, items: TYPES.map((t) => ({ ...t, onSelect: () => addNode(t) })) }); }
+  $('#wf-add').addEventListener('click', openAdd);
+
+  /* workflow switcher in the crumb */
+  $('#wf-pick').addEventListener('click', (e) => Kit.menu(e.currentTarget, { width: 260, items: [
+    { group: 'Payments Ops', label: 'Refund triage', dot: 'ok', sub: 'live · v14', checked: true, onSelect: () => {} },
+    { group: 'Payments Ops', label: 'Daily payouts', dot: 'ok', sub: 'cron 06:00', onSelect: () => Kit.toast({ title: 'Daily payouts', desc: 'This mockup shows Refund triage only.' }) },
+    { group: 'Payments Ops', label: 'Chargeback sync', dot: 'idle', sub: 'draft', onSelect: () => Kit.toast({ title: 'Chargeback sync', desc: 'This mockup shows Refund triage only.' }) },
+    { separator: true }, { label: 'New workflow', icon: 'plus', onSelect: () => {} } ] }));
+
+  /* ── execution: pending → running → done, one packet per wire as data flows ── */
+  let running = false;
+  function setSt(id, st, ms) {
+    const el = nodeEl[id]; if (!el) return; el.dataset.st = st;
+    el.classList.toggle('st-running', st === 'running'); el.classList.toggle('st-skipped', st === 'skipped');
+    el.querySelector('.wfn-st .dot').className = 'dot ' + ({ pending: 'wf-pend', running: 'm-live', done: 'ok flat', skipped: 'wf-idle', idle: 'wf-idle' }[st]);
+    el.querySelector('.wfn-ms').textContent = st === 'done' ? (ms || '') : st === 'skipped' ? 'skipped' : '';
+    if (id === selected && !el.classList.contains('drag')) renderInspector();
+  }
+  function wire(id, cls) { const p = wireEl[id], l = labelEl[id]; if (!p) return; p.classList.remove('hot', 'dim'); if (cls) p.classList.add(cls); if (l) { l.classList.remove('hot', 'dim'); if (cls) l.classList.add(cls); } }
+  async function flow(id) { wire(id, 'hot'); LunaArt.pulse(wireEl[id], { duration: 520 }); await sleep(500); }
+  async function step(id) { const n = byId(id); setSt(id, 'running'); await sleep(n.dur); setSt(id, 'done', n.ms); }
+  async function run() {
+    if (running) return; running = true; runNo += 1;
+    const btn = $('#wf-test'); btn.classList.add('busy');
+    const t = Kit.toast({ title: `Run #${runNo} · running`, desc: 'Refund triage · test event <span class="mono">ord_8812</span>', tone: 'busy' });
+    NODES.forEach((n) => setSt(n.id, n.custom ? 'idle' : 'pending')); EDGES.forEach((e) => wire(e.id, null)); mini();
+    await sleep(240);
+    await step('hook'); await flow('e-hook-cls');
+    await step('cls'); await flow('e-cls-route');
+    await step('route');
+    setSt('review', 'skipped'); wire('e-route-review', 'dim'); wire('e-review-log', 'dim'); mini();
+    await flow('e-route-refund');
+    await step('refund'); await flow('e-refund-log');
+    await step('log');
+    lastRun = { no: runNo, ago: 'just now', ts: new Date().toISOString() };
+    if (selected) renderInspector();
+    t.update({ title: `Run #${runNo} · 1.4 s · succeeded`, desc: '5 nodes ran · <span class="mono">else review</span> skipped', tone: 'ok', action: { label: 'View', onClick: () => select('log', 'output') } });
+    btn.classList.remove('busy'); running = false;
+  }
+  $('#wf-test').addEventListener('click', run);
+
+  /* publish: a small sheet */
+  let ver = 14;
+  $('#wf-pub').addEventListener('click', () => {
+    const tested = lastRun.no > 4821;
+    const sh = Kit.sheet({ title: `Publish Refund triage`, width: 420,
+      body: `<p class="kit-lead">Publishes <b style="font-weight:550;color:var(--foreground)">v${ver + 1}</b> to live. <span class="mono" style="font-size:12px">POST /hooks/refund</span> switches over with no downtime; runs in flight finish on v${ver}.</p>
+        <div class="well">
+          <div class="kit-kv"><span class="kit-kv-k">Version</span><span class="kit-kv-v"><span class="mono">v${ver}</span>${I('arrow-right')}<span class="mono">v${ver + 1}</span></span></div>
+          <div class="kit-kv"><span class="kit-kv-k">Changes</span><span class="kit-kv-v">Classify reason · prompt, temperature</span></div>
+          <div class="kit-kv"><span class="kit-kv-k">Calls</span><span class="kit-kv-v">${M('POST')}<span class="mono">/refunds</span><span class="muted kit-end">refunds.py</span></span></div>
+          <div class="kit-kv"><span class="kit-kv-k">Test run</span><span class="kit-kv-v">${tested ? `<span class="dot ok flat"></span>Run #${lastRun.no} succeeded<span class="muted kit-end">1.4 s</span>` : `<span class="dot warn"></span>Not tested since the last edit`}</span></div>
+        </div>`,
+      footer: `<span class="kit-grow"></span><button class="btn ghost sm" data-x>Cancel</button><button class="btn sm" data-go>${I('upload')} Publish v${ver + 1}</button>` });
+    icons();
+    sh.el.querySelector('[data-x]').addEventListener('click', () => sh.close());
+    sh.el.querySelector('[data-go]').addEventListener('click', () => {
+      sh.close(); ver += 1; $('#wf-ver').textContent = `Live · v${ver}`;
+      Kit.toast({ title: `Published v${ver}`, desc: 'Refund triage is live on <span class="mono">POST /hooks/refund</span>', tone: 'ok' });
+    });
+  });
+
+  /* keys: ⌘↵ test run · N add node · V/H tools · +/−/0 zoom · ⇧1 fit */
+  addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); run(); return; }
+    if (e.metaKey || e.ctrlKey || e.altKey || e.target.closest('input, textarea, [contenteditable="true"], .kit-sheet, .menu')) return;
+    const k = e.key.toLowerCase();
+    if (k === 'n') { e.preventDefault(); openAdd(); }
+    else if (k === 'v') setTool('select'); else if (k === 'h') setTool('hand');
+    else if (e.key === '=' || e.key === '+') zoomBy(1.1); else if (e.key === '-') zoomBy(1 / 1.1);
+    else if (e.key === '0') zoomBy(1 / view.z); else if (e.key === '!' && e.shiftKey) fit();
+  });
+
+  /* ── boot ── */
+  NODES.forEach(mountNode); icons();
+  NODES.forEach((n) => setSt(n.id, n.id === 'review' ? 'skipped' : 'done', n.ms));
+  EDGES.forEach((e) => wire(e.id, /review/.test(e.id) ? 'dim' : 'hot'));
+  const boot = () => { wires(); EDGES.forEach((e) => wire(e.id, /review/.test(e.id) ? 'dim' : null)); fit(); select('cls', 'params'); };
+  boot();
+  (document.fonts ? document.fonts.ready : Promise.resolve()).then(() => { wires(); fit(); });
+  addEventListener('resize', () => { wires(); mini(); });
+  if (!/[?&]autorun=0/.test(location.search)) setTimeout(run, 1500);
+  window.WF = { run, select, showTab, fit, zoomBy, addNode, openAdd, setTool, NODES, view, TYPES };
+})();
+</script></body></html>

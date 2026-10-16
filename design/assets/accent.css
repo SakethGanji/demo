@@ -1,0 +1,72 @@
+/* Accent options on top of the final design. html[data-accent]:
+   stars    — sparse starfield inside the sheet's empty space, star dust instead of grid fields, a few sparkles at focal points
+   scaffold — workbench / modern terminal: rulers with coordinates on the sheet, tile labels, corner ticks, a status line */
+
+/* ───────────── STARS (space theme) ─────────────
+   Real starfields are drawn on canvas by accent.js (power-law sizes, colour temperature, glows, rare spikes):
+   .cs-sky       fixed behind the whole app (always on in dark)
+   .cs-sky-sheet inside the content sheet, masked to its margins and gaps (accent = stars)
+   --star-tile   a generated tile used as star dust in empty fields (accent = stars) */
+.cs-sky { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 0; }
+.cs-sky-sheet { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0;
+  -webkit-mask: radial-gradient(80% 75% at 50% 45%, rgb(0 0 0 / .15) 30%, #000 85%); mask: radial-gradient(80% 75% at 50% 45%, rgb(0 0 0 / .15) 30%, #000 85%); }
+html:not([data-accent="stars"]) .cs-sky-sheet { display: none; }
+html[data-accent="stars"] .main > *:not(.cs-sky-sheet) { position: relative; z-index: 1; }
+/* the old CSS-gradient stars are replaced by the canvas */
+.dark .workspace::before, .dark body:not(:has(.workspace))::before { display: none !important; }
+html[data-accent="stars"] .eg-field .eg-grid, html[data-accent="stars"] .vx-grid {
+  background-image: var(--star-tile) !important; background-size: 480px 480px !important; background-position: 0 0 !important; opacity: 1 !important; }
+html[data-accent="stars"] .eg-ruler, html[data-accent="stars"] .eg-field .eg-reg { display: none !important; }
+/* glints: a thin four-point star at a few focal points */
+.sparkle { position: absolute; width: 18px; height: 18px; pointer-events: none; z-index: 2; color: var(--glint); }
+.sparkle::before { content: ''; position: absolute; inset: 0; background: currentColor;
+  clip-path: polygon(50% 0, 53.5% 46.5%, 100% 50%, 53.5% 53.5%, 50% 100%, 46.5% 53.5%, 0 50%, 46.5% 46.5%); opacity: .9; }
+.sparkle::after { content: ''; position: absolute; left: 50%; top: 50%; width: 3px; height: 3px; margin: -1.5px; border-radius: 50%; background: #fff; box-shadow: 0 0 6px 2px var(--glint); }
+.sparkle.sm { width: 11px; height: 11px; }
+html { --glint: rgb(31 111 255 / .55); }
+html.dark { --glint: rgb(190 225 255 / .9); }
+html:not([data-accent="stars"]) .sparkle { display: none; }
+
+/* ───────────── SCAFFOLD ───────────── */
+html[data-accent="scaffold"] { --sc-line: color-mix(in srgb, var(--foreground) 10%, transparent); --sc-ink: color-mix(in srgb, var(--foreground) 38%, transparent); }
+/* rulers along the sheet's top and left edges */
+.sc-ruler { position: absolute; pointer-events: none; z-index: 3; font: 500 9.5px/1 var(--font-mono); color: var(--sc-ink); letter-spacing: .04em; }
+.sc-ruler.top { left: 0; right: 0; top: 0; height: 14px;
+  background-image: repeating-linear-gradient(90deg, var(--sc-line) 0 1px, transparent 1px 8px), repeating-linear-gradient(90deg, var(--sc-ink) 0 1px, transparent 1px 80px);
+  background-size: 100% 4px, 100% 8px; background-repeat: no-repeat; background-position: 0 0, 0 0; }
+.sc-ruler.left { top: 0; bottom: 0; left: 0; width: 14px;
+  background-image: repeating-linear-gradient(180deg, var(--sc-line) 0 1px, transparent 1px 8px), repeating-linear-gradient(180deg, var(--sc-ink) 0 1px, transparent 1px 80px);
+  background-size: 4px 100%, 8px 100%; background-repeat: no-repeat; }
+.sc-ruler span { position: absolute; }
+.sc-ruler.top span { top: 5px; transform: translateX(3px); }
+.sc-ruler.left span { left: 5px; transform: translateY(3px); }
+html:not([data-accent="scaffold"]) .sc-ruler, html:not([data-accent="scaffold"]) .sc-label, html:not([data-accent="scaffold"]) .sc-tick, html:not([data-accent="scaffold"]) .sc-status { display: none !important; }
+/* tile labels sit on the tile's top edge like drawing callouts */
+.sc-label { position: absolute; top: -13px; left: 1px; z-index: 3; pointer-events: none; font: 500 9.5px/1 var(--font-mono); letter-spacing: .08em;
+  color: var(--sc-ink); text-transform: uppercase; }
+.sc-label b { color: color-mix(in srgb, var(--foreground) 60%, transparent); font-weight: 600; }
+/* corner ticks on tiles */
+.sc-tick { position: absolute; width: 7px; height: 7px; pointer-events: none; z-index: 3; border-color: var(--sc-ink); border-style: solid; border-width: 0; }
+.sc-tick.tl { top: -1px; left: -1px; border-top-width: 1px; border-left-width: 1px; }
+.sc-tick.tr { top: -1px; right: -1px; border-top-width: 1px; border-right-width: 1px; }
+.sc-tick.bl { bottom: -1px; left: -1px; border-bottom-width: 1px; border-left-width: 1px; }
+.sc-tick.br { bottom: -1px; right: -1px; border-bottom-width: 1px; border-right-width: 1px; }
+html[data-accent="scaffold"] .main .page .bt.panel, html[data-accent="scaffold"] .card.panel, html[data-accent="scaffold"] .tpl, html[data-accent="scaffold"] .pulse { border-radius: 4px !important; }
+/* status line along the bottom of the sheet */
+.sc-status { position: absolute; left: 0; right: 0; bottom: 0; height: 24px; z-index: 4; display: flex; align-items: center; gap: 18px; padding: 0 14px 0 22px;
+  font: 500 10.5px/1 var(--font-mono); color: var(--sc-ink); letter-spacing: .02em; background: var(--card); border-top: 1px solid var(--sc-line); }
+.dark .sc-status { background: #0f0f12; }
+.sc-status b { color: color-mix(in srgb, var(--foreground) 72%, transparent); font-weight: 500; }
+.sc-status .ok { color: var(--success-text); } .sc-status .warn { color: var(--warning-text); }
+.sc-status .sp { flex: 1; }
+.sc-status kbd { font: inherit; padding: 1px 4px; border-radius: 3px; background: color-mix(in srgb, var(--foreground) 8%, transparent); color: color-mix(in srgb, var(--foreground) 70%, transparent); }
+html[data-accent="scaffold"] .main { padding-bottom: 24px; }
+/* fields keep the grid, a touch crisper */
+html[data-accent="scaffold"] .vx-grid { opacity: 1 !important; }
+/* the accent switcher */
+.acc-switch { position: fixed; left: 24px; bottom: 140px; z-index: 300; display: inline-flex; gap: 2px; padding: 3px; border-radius: 6px;
+  background: var(--popover); box-shadow: 0 0 0 1px var(--panel-border); font: 500 12px var(--font-sans); }
+.acc-switch button { height: 24px; padding: 0 10px; border-radius: 4px; color: var(--muted-foreground); }
+.acc-switch button[aria-pressed="true"] { background: var(--foreground); color: var(--background); }
+
+body:not(:has(.sidebar)) .acc-switch { left: auto; right: 16px; bottom: 36px; }

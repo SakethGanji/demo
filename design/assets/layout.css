@@ -1,0 +1,82 @@
+/* Layout variants. html[data-layout]:
+   floating (default) — separate floating panels
+   docked  — one surface: top bar, sidebar and content edge to edge, separated by hairlines
+   linear  — top bar + sidebar sit on the canvas; the content is one large inset sheet (Linear-style)
+   Inner panels (editor/test split, workflow canvas/inspector) merge into the sheet and split with hairlines. */
+
+html[data-layout="docked"], html[data-layout="linear"] {
+  --lay-line: var(--hairline);
+}
+
+/* ── shared: top bar becomes a strip, body loses its gutters ── */
+html[data-layout="docked"] .workspace .topbar,
+html[data-layout="linear"] .workspace .topbar {
+  inset: 0 0 auto 0 !important; height: 48px; border-radius: 0 !important; padding: 0 12px 0 14px;
+  background: var(--canvas) !important; box-shadow: none !important; border: 0 !important;
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+html[data-layout="docked"] .workspace .topbar::after, html[data-layout="linear"] .workspace .topbar::after,
+html[data-layout="docked"] .workspace .topbar::before, html[data-layout="linear"] .workspace .topbar::before { display: none !important; }
+html[data-layout="docked"] .workspace-body, html[data-layout="linear"] .workspace-body { inset: 48px 0 0 0 !important; gap: 0 !important; }
+
+/* sidebar: part of the canvas, no card */
+html[data-layout="docked"] .sidebar.panel, html[data-layout="linear"] .sidebar.panel {
+  width: 240px; border-radius: 0 !important; background: var(--canvas) !important; border: 0 !important; box-shadow: none !important;
+}
+html[data-layout="docked"] .sidebar.panel::after, html[data-layout="linear"] .sidebar.panel::after,
+html[data-layout="docked"] .sidebar.panel::before, html[data-layout="linear"] .sidebar.panel::before { display: none !important; }
+
+/* inner panels merge into one sheet */
+html[data-layout="docked"] .main > .panel, html[data-layout="linear"] .main > .panel,
+html[data-layout="docked"] .main > .editor > .panel, html[data-layout="linear"] .main > .editor > .panel {
+  border-radius: 0 !important; border: 0 !important; box-shadow: none !important; background: var(--card) !important;
+}
+html[data-layout="docked"] .main > .panel::after, html[data-layout="linear"] .main > .panel::after,
+html[data-layout="docked"] .main > .editor > .panel::after, html[data-layout="linear"] .main > .editor > .panel::after,
+html[data-layout="docked"] .main > .panel::before, html[data-layout="linear"] .main > .panel::before,
+html[data-layout="docked"] .main > .editor > .panel::before, html[data-layout="linear"] .main > .editor > .panel::before { display: none !important; }
+html[data-layout="docked"] .main > .editor, html[data-layout="linear"] .main > .editor { gap: 0 !important; }
+html[data-layout="docked"] .main > .editor > .panel + .panel, html[data-layout="linear"] .main > .editor > .panel + .panel { box-shadow: -1px 0 0 var(--lay-line) !important; }
+
+/* gap registration marks have no gaps to sit in */
+html[data-layout="docked"] .eg-reg, html[data-layout="linear"] .eg-reg { display: none !important; }
+
+/* ── docked: hairlines between top bar, sidebar and content; content flush ── */
+html[data-layout="docked"] .workspace .topbar { box-shadow: 0 1px 0 var(--lay-line) !important; }
+html[data-layout="docked"] .sidebar.panel { box-shadow: 1px 0 0 var(--lay-line) !important; position: relative; z-index: 1; }
+html[data-layout="docked"] .main { background: var(--card); }
+html.dark[data-layout="docked"] .workspace .topbar, html.dark[data-layout="docked"] .sidebar.panel { background: #0b0b0d !important; }
+
+/* ── linear: one inset sheet ── */
+html[data-layout="linear"] .main {
+  margin: 0 8px 8px 0; border-radius: 12px; overflow: hidden; background: var(--card);
+  box-shadow: 0 0 0 1px var(--panel-border), 0 1px 2px rgb(0 0 0 / .04), 0 12px 32px -20px rgb(0 0 0 / .18);
+}
+html.dark[data-layout="linear"] .main {
+  background: linear-gradient(180deg, #131316, #101013);
+  box-shadow: 0 0 0 1px rgb(255 255 255 / .07), inset 0 1px 0 rgb(255 255 255 / .05), 0 20px 48px -24px rgb(0 0 0 / .8);
+}
+html:not(.dark)[data-layout="linear"] .workspace, html:not(.dark)[data-layout="linear"] body { background: #fafaf9 !important; }
+html:not(.dark)[data-layout="linear"] .workspace .topbar, html:not(.dark)[data-layout="linear"] .sidebar.panel { background: #fafaf9 !important; }
+html[data-layout="linear"] .main > .panel, html[data-layout="linear"] .main > .editor > .panel { background: transparent !important; }
+
+/* projects home (no sidebar): its sticky header becomes a full-width strip */
+html[data-layout="docked"] .home-top, html[data-layout="linear"] .home-top {
+  margin: 0 !important; top: 0 !important; border-radius: 0 !important; height: 52px; padding: 0 16px;
+  box-shadow: 0 1px 0 var(--lay-line) !important; border: 0 !important;
+}
+html[data-layout="docked"] .home-top::after, html[data-layout="linear"] .home-top::after { display: none !important; }
+
+/* switcher */
+.lay-switch { position: fixed; left: 24px; bottom: 104px; z-index: 300; display: inline-flex; gap: 2px; padding: 3px; border-radius: 999px;
+  background: var(--popover); box-shadow: 0 0 0 1px var(--panel-border), 0 8px 24px -8px rgb(0 0 0 / .35); font: 500 12px var(--font-sans); }
+.lay-switch button { height: 26px; padding: 0 11px; border-radius: 999px; color: var(--muted-foreground); }
+.lay-switch button:hover { color: var(--foreground); }
+.lay-switch button[aria-pressed="true"] { background: var(--foreground); color: var(--background); }
+
+/* linear: the sidebar has no panel behind it, so the active item carries a little more weight */
+html[data-layout="linear"] .sidebar .item.on, html[data-layout="linear"] .sidebar .m-pill {
+  background: var(--card) !important; box-shadow: 0 0 0 1px var(--panel-border), 0 1px 2px rgb(0 0 0 / .06) !important; }
+html.dark[data-layout="linear"] .sidebar .item.on, html.dark[data-layout="linear"] .sidebar .m-pill {
+  background: rgb(255 255 255 / .065) !important; box-shadow: inset 0 0 0 1px rgb(255 255 255 / .06), inset 0 1px 0 rgb(255 255 255 / .05) !important; }
+html[data-layout="linear"] .sidebar .item.on > svg { color: var(--primary) !important; }

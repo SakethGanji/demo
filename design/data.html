@@ -1,0 +1,640 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Data · Command Studio</title><link rel="stylesheet" href="assets/tokens.css"><link rel="stylesheet" href="assets/components.css"><link rel="stylesheet" href="assets/theme.css"><link rel="stylesheet" href="assets/character.css"><link rel="stylesheet" href="assets/system.css"><link rel="stylesheet" href="assets/inset.css"><link rel="stylesheet" href="assets/edges.css"><link rel="stylesheet" href="assets/light.css"><link rel="stylesheet" href="assets/paper.css"><link rel="stylesheet" href="assets/kit.css"><link rel="stylesheet" href="assets/motion.css"><script src="assets/motion.js"></script><script src="assets/art.js"></script><script src="assets/edges.js"></script><script src="assets/kit.js"></script><script src="assets/lucide.min.js"></script><script src="assets/shell.js"></script><style>
+ /* ── hero: title, the one hero number, and the lineage drawing over a hairline grid ── */
+ .dh{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:var(--s10);align-items:center;padding:28px var(--s8) var(--s6)}
+ .dh .vx-grid{border-radius:var(--r-panel) var(--r-panel) 0 0}
+ .dh-l{min-width:0;display:flex;flex-direction:column}
+ .dh-eb{display:flex;align-items:center;gap:var(--s2);font-size:12px;font-weight:500;color:var(--muted-foreground)}
+ .dh-eb .tile{width:22px;height:22px;border-radius:var(--r-chip);display:grid;place-items:center;color:var(--primary);background:var(--brand-soft)}
+ .dh-eb .tile svg{width:13px;height:13px}
+ .dh-eb .slash{color:var(--faint)}
+ .dh-ttl{display:flex;align-items:center;gap:var(--s3);margin-top:var(--s3)}
+ .dh-ttl h1{font-family:var(--font-mono);font-size:26px !important;font-weight:600 !important;letter-spacing:-.04em !important;line-height:1.15}
+ .dh-meta{display:flex;align-items:center;gap:var(--s2);margin-top:var(--s4);flex-wrap:wrap}
+ .schema{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;border-radius:var(--r-chip);background:color-mix(in srgb,var(--muted) 70%,transparent);font:11.5px var(--font-mono);color:var(--muted-foreground);white-space:nowrap}
+ .dark .schema{background:rgb(255 255 255 / .04)}
+ .schema b{font-weight:600;color:var(--foreground)}
+ .schema i{font-style:normal;color:var(--faint)}
+ .rows-chip{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:999px;font-size:12px;color:var(--muted-foreground);box-shadow:inset 0 0 0 1px var(--hairline)}
+ .m-roll{vertical-align:top}
+ .rows-chip > span:not(.m-roll), .eot-cap > span:last-child{display:inline-flex;align-items:center;line-height:1.2em}
+ .table .check{vertical-align:middle}
+ .hero-n{display:flex;align-items:baseline;gap:var(--s2);margin-top:var(--s5)}
+ .hero-n .v{font-size:28px;font-weight:600;letter-spacing:-.03em;line-height:1.1;font-variant-numeric:tabular-nums}
+ .hero-n .l{font-size:12px;color:var(--muted-foreground)}
+ .lineage{width:360px;cursor:default}
+ .lineage [data-tip]{cursor:help}
+ @media (max-width:1100px){.dh{grid-template-columns:1fr}.lineage{display:none}}
+
+ /* ── toolbar: view controls cross-fade with the selection bar; table actions stay put ── */
+ .tb{display:flex;align-items:center;gap:var(--s2);padding:0 var(--s6) var(--s2);font-size:12px;color:var(--muted-foreground)}
+ .tb-swap{position:relative;flex:1;min-height:28px;display:flex;align-items:center}
+ .tb-norm,.tb-sel{display:flex;align-items:center;gap:var(--s1);flex:1;transition:opacity var(--d-fast) var(--ease-out),transform var(--d-fast) var(--ease-out)}
+ .tb-sel{position:absolute;inset:0;opacity:0;transform:translateY(2px);pointer-events:none;color:var(--foreground);gap:var(--s2)}
+ .tb.sel .tb-norm{opacity:0;pointer-events:none}.tb.sel .tb-sel{opacity:1;transform:none;pointer-events:auto}
+ .tb-sel .sel-count{font-weight:500;padding-left:var(--s2)}.tb-sel .tb-dot{color:var(--faint)}
+ .tb-sel .del{color:var(--destructive)}.tb-sel .del:hover{background:color-mix(in srgb,var(--destructive) 9%,transparent)}
+ .tb-act{display:flex;align-items:center;gap:var(--s1)}
+ .tb-act .btn.ghost{color:var(--muted-foreground)}.tb-act .btn.ghost:hover{color:var(--foreground)}
+
+ /* ── the table sits in a well; hairlines only between rows ── */
+ .grid-well{flex:1;min-height:0;display:flex;flex-direction:column}
+ .grid-wrap{flex:1;min-height:0;overflow:auto}
+ .grid-wrap .table th{background:transparent}
+ .table td:first-child,.table th:first-child{width:40px;padding-left:var(--s6);padding-right:0}
+ .table td:last-child,.table th:last-child{width:52px;padding-right:var(--s4);text-align:right}
+ .table thead tr:first-child th{border-bottom:0 !important;height:36px}
+
+ /* column profile row */
+ .table thead tr.prof th{height:36px;padding-top:0;padding-bottom:0;vertical-align:middle;font-size:10.5px;color:var(--muted-foreground);font-weight:400}
+ .prof .cap{font-size:11px;line-height:13px;color:var(--muted-foreground);white-space:nowrap}
+ .p-stack{display:flex;flex-direction:column;gap:5px;justify-content:center}
+ .p-bar{display:flex;height:4px;width:100%;max-width:280px;border-radius:2px;overflow:hidden;background:var(--art-faint);gap:1px}
+ .p-bar i{height:100%;background:linear-gradient(90deg,var(--brand-1),var(--brand-2));transition:flex-grow var(--d-slow) var(--ease-out)}
+ .p-inline{display:flex;align-items:center;gap:var(--s2)}
+ th.num .p-inline{justify-content:flex-end}
+ .p-hist{display:flex;align-items:flex-end;gap:2px;height:16px}
+ .p-hist i{width:9px;min-height:1.5px;border-radius:1.5px 1.5px 0 0;background:color-mix(in srgb,var(--brand-1) 55%,transparent);transition:height var(--d-slow) var(--ease-out),background-color var(--d-slow)}
+ .p-hist i.zero{background:var(--art-line)}
+ .p-ticks{position:relative;width:64px;height:12px;border-bottom:1px solid var(--art-line)}
+ .p-ticks b{position:absolute;bottom:0;width:1.5px;height:9px;border-radius:1px;background:var(--primary)}
+ .p-ticks span{position:absolute;bottom:0;width:1px;height:3px;background:var(--art-line)}
+
+ /* rows: selection, inline edit, row actions */
+ .check{cursor:pointer;transition:border-color var(--d-instant),background-color var(--d-instant),transform var(--d-fast) var(--ease-out)}
+ .check:hover{border-color:color-mix(in srgb,var(--primary) 60%,var(--input))}
+ .check:active{transform:scale(.9)}
+ .table tbody tr.on td{background:var(--brand-soft)}
+ .table td.editing{box-shadow:inset 0 0 0 1.5px var(--ring);outline:none;background:var(--card);border-radius:var(--r-chip)}
+ .table td[data-col]{cursor:default}
+ .table td.c-flash{animation:m-flash 900ms ease-out both}
+ .table tbody tr.gone{opacity:0;transition:opacity var(--d-fast) var(--ease-in)}
+ .table td.ph:empty::before{content:attr(data-ph);color:var(--muted-foreground);opacity:.6}
+ .row-more{display:inline-grid;place-items:center;width:24px;height:24px;border:0;padding:0;border-radius:var(--r-ctl);background:transparent;color:var(--faint);cursor:pointer;opacity:.0;
+  transition:opacity 100ms,background-color var(--d-instant),color var(--d-instant),transform var(--d-fast) var(--ease-out)}
+ .row-more svg{width:14px;height:14px}
+ .table tr:hover .row-more,.table tr:focus-within .row-more,.table tr.on .row-more{opacity:1}
+ .row-more:hover{background:var(--muted);color:var(--foreground)}.row-more:active{transform:scale(.94)}
+ .dark .row-more:hover{background:rgb(255 255 255 / .06)}
+
+ /* end of table: a quiet terminal line instead of a void */
+ .eot{display:flex;align-items:center;gap:var(--s3);padding:var(--s5) var(--s6) var(--s4);font-size:12px;color:var(--muted-foreground)}
+ .eot-line{flex:1;height:1px;background-image:radial-gradient(circle,var(--art-line) .75px,transparent 1px);background-size:6px 1px;background-repeat:repeat-x;background-position:center;
+  -webkit-mask:linear-gradient(90deg,transparent,#000 40%);mask:linear-gradient(90deg,transparent,#000 40%)}
+ .eot-line.r{-webkit-mask:linear-gradient(270deg,transparent,#000 40%);mask:linear-gradient(270deg,transparent,#000 40%)}
+ .eot-cap{display:inline-flex;align-items:center;gap:var(--s2);white-space:nowrap}
+ .eot-cap .pip{width:5px;height:5px;border-radius:999px;box-shadow:inset 0 0 0 1px var(--art-line)}
+ .eot .btn.ghost{color:var(--muted-foreground);height:22px;padding:0 6px}
+ .eot .btn.ghost:hover{color:var(--foreground)}
+
+ /* footer: plain text under the well, spacing instead of a rule */
+ .foot{display:flex;align-items:center;gap:6px;height:24px;padding:0 var(--s8);margin:-2px 0 var(--s2);font-size:12px;color:var(--muted-foreground)}
+ .foot .hint{color:var(--muted-foreground)}
+ .foot .mono{font-size:11.5px;color:var(--muted-foreground)}
+
+ /* ── wave 2: rolling total, column visibility, filter chips, row menu, CSV import ── */
+ .dt-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+ .hero-n .v{display:inline-flex;align-items:baseline}
+ .hero-n .v .m-roll{height:1.2em;line-height:1.2em;vertical-align:baseline;align-self:center}
+ .hero-n .v.dt-still .m-dg{transition:none}
+ .hero-n .l{transition:color var(--d-fast)}
+ .hero-n .v [hidden]{display:none}
+
+ /* columns: fade, then leave the layout */
+ .grid-wrap .table th,.grid-wrap .table td{transition:opacity var(--d-fast) var(--ease-out)}
+ .table.dt-fx-id :is(th,td):nth-child(2),.table.dt-fx-reason :is(th,td):nth-child(3),.table.dt-fx-amount :is(th,td):nth-child(4),.table.dt-fx-created :is(th,td):nth-child(5){opacity:0}
+ .table.dt-off-id :is(th,td):nth-child(2),.table.dt-off-reason :is(th,td):nth-child(3),.table.dt-off-amount :is(th,td):nth-child(4),.table.dt-off-created :is(th,td):nth-child(5){display:none}
+ .tb-act .dt-hidden-n{color:var(--faint);font-weight:400}
+
+ /* filter chips: the value is recessed, its remove button raised */
+ .dt-chips{display:inline-flex;align-items:center;gap:6px;margin:0 var(--s1)}
+ .dt-chips:empty{display:none}
+ .dt-chip{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 3px 0 8px;border-radius:var(--r-ctl);background:var(--recess-fill);box-shadow:var(--inset-sm);
+  font:11.5px/1 var(--font-mono);color:var(--foreground);white-space:nowrap;animation:dt-chip-in var(--d-fast) var(--ease-out) both}
+ .dt-chip .dt-op{color:var(--muted-foreground)}
+ .dt-chip.dt-leave{opacity:0;transform:scale(.96);transition:opacity var(--d-fast) var(--ease-in),transform var(--d-fast) var(--ease-in)}
+ @keyframes dt-chip-in{from{opacity:0;transform:scale(.96)}}
+ .dt-chip-x{display:grid;place-items:center;width:18px;height:18px;border:0;padding:0;border-radius:calc(var(--r-ctl) - 3px);background:var(--raise-fill);box-shadow:var(--raise-sm);
+  color:var(--muted-foreground);cursor:pointer;transition:color var(--d-instant),box-shadow var(--d-instant),transform var(--d-fast) var(--ease-out)}
+ .dt-chip-x svg{width:11px;height:11px;stroke-width:2}
+ .dt-chip-x:hover{color:var(--foreground)}.dt-chip-x:active{box-shadow:var(--raise-press);transform:scale(.94)}
+ .tb-norm .btn[aria-expanded="true"],.tb-act .btn[aria-expanded="true"]{color:var(--foreground);background:var(--muted)}
+ .dark .tb-norm .btn[aria-expanded="true"],.dark .tb-act .btn[aria-expanded="true"]{background:rgb(255 255 255 / .06)}
+ .table tbody tr.dt-hid{display:none}
+ .row-more[aria-expanded="true"]{opacity:1;background:var(--muted);color:var(--foreground)}
+ .dark .row-more[aria-expanded="true"]{background:rgb(255 255 255 / .06)}
+ .kit-mi .dt-danger{color:var(--destructive)}
+
+ /* drag a file over the page: the table becomes one drop target */
+ .dt-dropover{position:absolute;inset:0;z-index:4;padding:var(--s2);border-radius:inherit;background:linear-gradient(color-mix(in srgb,var(--well) 92%,transparent),color-mix(in srgb,var(--well) 92%,transparent)),color-mix(in srgb,var(--card) 92%,transparent);
+  opacity:0;visibility:hidden;pointer-events:none;transition:opacity var(--d-fast) var(--ease-out),visibility 0s linear var(--d-fast)}
+ .grid-well.dt-drag .dt-dropover{opacity:1;visibility:visible;transition:opacity var(--d-fast) var(--ease-out)}
+ .dt-dropslot{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;
+  transition:border-color var(--d-fast),background-color var(--d-fast)}
+ .grid-well.dt-over .dt-dropslot{border-color:var(--ring);background:color-mix(in srgb,var(--ring) 5%,transparent)}
+ .dt-ico{display:grid;place-items:center;width:32px;height:32px;margin-bottom:4px;border-radius:var(--r-ctl);background:var(--raise-fill);box-shadow:var(--raise-sm);color:var(--muted-foreground);transition:color var(--d-fast)}
+ .dt-ico svg{width:15px;height:15px}
+ .grid-well.dt-over .dt-ico,.dt-zone.dt-over .dt-ico{color:var(--primary)}
+ .dt-dz-t{font-size:13px;font-weight:500;color:var(--foreground)}
+ .dt-dz-s{font-size:12px;color:var(--muted-foreground)}
+ .dt-dz-s .mono,.dt-alt .mono,.dt-err .mono{font-size:11.5px}
+
+ /* import sheet */
+ .dt-imp{padding:0 var(--s5)}
+ .dt-zone{display:flex;flex-direction:column;align-items:center;gap:6px;padding:var(--s6) var(--s4);text-align:center;cursor:pointer;outline:none;
+  transition:border-color var(--d-fast),background-color var(--d-fast),box-shadow var(--d-fast),padding var(--d-base) var(--ease-out)}
+ .dt-zone:hover{border-color:color-mix(in srgb,var(--ring) 45%,var(--slot-line))}
+ .dt-zone:focus-visible{border-color:var(--ring);box-shadow:var(--focus-ring)}
+ .dt-zone.dt-over{border-color:var(--ring);background:color-mix(in srgb,var(--ring) 5%,transparent)}
+ .dt-zone.dt-bad{border-color:color-mix(in srgb,var(--destructive) 55%,transparent)}
+ .dt-zone .dt-a{color:var(--primary)}
+ .dt-zone.dt-has{flex-direction:row;justify-content:center;gap:var(--s2);padding:10px var(--s4)}
+ .dt-zone.dt-has .dt-ico{width:24px;height:24px;margin:0}.dt-zone.dt-has .dt-ico svg{width:13px;height:13px}
+ .dt-zone.dt-has .dt-dz-t{font-weight:400;font-size:12.5px;color:var(--muted-foreground)}
+ .dt-zone.dt-has .dt-dz-s{display:none}
+ .dt-alt{display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12px;color:var(--muted-foreground)}
+ .dt-link{border:0;padding:0;background:none;font:inherit;color:var(--primary);cursor:pointer;border-radius:3px}
+ .dt-link:hover{text-decoration:underline;text-underline-offset:3px}
+ .dt-err{display:flex;align-items:flex-start;gap:8px;margin-top:10px;font-size:12.5px;line-height:18px;color:color-mix(in srgb,var(--destructive) 85%,var(--foreground))}
+ .dt-err .dot{flex:none;margin-top:6px;width:6px;height:6px}
+ .dt-err[hidden],.dt-prev[hidden]{display:none}
+ .dt-prev{animation:m-row var(--d-slow) var(--ease-out) both}
+ .dt-fline{display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:var(--s5) var(--s5) var(--s1);font-size:12px;color:var(--muted-foreground)}
+ .dt-fline .dt-mid{color:var(--faint)}
+ .dt-file{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;border-radius:var(--r-chip);background:var(--recess-fill);box-shadow:var(--inset-sm);font:11.5px var(--font-mono);color:var(--foreground)}
+ .dt-file svg{width:12px;height:12px;color:var(--muted-foreground)}
+ .dt-pwell{overflow-x:auto}
+ .dt-ptab{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-numeric:tabular-nums}
+ .dt-ptab th{height:32px;padding:0 var(--s3);text-align:left;font:500 11.5px var(--font-mono);color:var(--muted-foreground);white-space:nowrap}
+ .dt-ptab td{height:32px;padding:0 var(--s3);border-top:1px solid var(--hairline);white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis}
+ .dt-ptab th:first-child,.dt-ptab td:first-child{padding-left:var(--s4)}.dt-ptab th:last-child,.dt-ptab td:last-child{padding-right:var(--s4)}
+ .dt-ptab .num{text-align:right}
+ .dt-ptab .dt-unm{color:var(--faint)}
+ .dt-ptab .dt-more td{color:var(--muted-foreground);font-size:12px}
+ .dt-maps{display:flex;flex-wrap:wrap;gap:6px;padding:0 var(--s5) var(--s3)}
+ .dt-map{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 8px;border-radius:var(--r-chip);background:var(--recess-fill);box-shadow:var(--inset-sm);
+  font:11.5px var(--font-mono);color:var(--muted-foreground);white-space:nowrap}
+ .dt-map b{font-weight:500;color:var(--foreground)}
+ .dt-map .dt-arr{color:var(--faint);font-family:var(--font-sans)}
+ .dt-map.dt-skip b{color:var(--muted-foreground);font-weight:400}
+ .dt-map .dot{width:6px;height:6px}
+</style></head><body><div id="shell"></div>
+<template id="page"><div class="panel" style="flex:1;display:flex;flex-direction:column;min-height:0">
+ <header class="dh vx-host"><div class="vx-grid"></div>
+  <div class="dh-l">
+   <div class="dh-eb"><span class="tile"><i data-lucide="table-2"></i></span>Table<span class="slash">/</span>Payments Ops</div>
+   <div class="dh-ttl"><h1>refunds</h1><span class="rows-chip"><span class="m-roll" data-rows></span>&nbsp;rows</span></div>
+   <div class="hero-n"><span class="v dt-still" id="total"><span class="dt-sr" id="tot-sr">116.5</span><span id="tot-s" aria-hidden="true" hidden>−</span><span class="m-roll" id="tot-i" aria-hidden="true"></span><span id="tot-p" aria-hidden="true">.</span><span class="m-roll" id="tot-d" aria-hidden="true"></span></span><span class="l" id="tot-l">total amount</span></div>
+   <div class="dh-meta"><span class="schema" data-tip="Column reason: text, required on every row"><b>reason</b>string<i>·</i>required</span><span class="schema" data-tip="Column amount: number, required on every row"><b>amount</b>number<i>·</i>required</span></div>
+  </div>
+  <div class="lineage" data-art="data-lineage"></div>
+ </header>
+ <div class="tb" id="tb">
+  <div class="tb-swap">
+   <div class="tb-norm"><button class="btn ghost xs" id="filter-btn"><i data-lucide="list-filter"></i> Filter</button><span class="dt-chips" id="chips" aria-label="Active filters"></span><button class="btn ghost xs"><i data-lucide="arrow-down-wide-narrow"></i> Newest first</button></div>
+   <div class="tb-sel" aria-live="polite"><span class="sel-count" id="sel-n">1 selected</span><span class="tb-dot">·</span><button class="btn ghost xs del" id="del"><i data-lucide="trash-2"></i> Delete</button><div class="spacer"></div><button class="btn ghost xs" id="sel-clear">Clear selection</button></div>
+  </div>
+  <div class="tb-act"><button class="btn ghost sm" id="cols-btn"><i data-lucide="columns-3"></i> Columns<span class="dt-hidden-n" id="cols-n"></span></button><button class="btn sm" id="add-row" data-tip="Add a row at the top"><i data-lucide="plus"></i> Add row</button><button class="btn ghost icon-sm" id="more-btn" aria-label="More table actions" data-tip="More table actions"><i data-lucide="ellipsis"></i></button></div>
+ </div>
+ <div class="well grid-well" data-edge="field" data-edge-from=".eot" data-edge-gap="4"><div class="grid-wrap"><table class="table"><thead><tr><th><span class="check" id="check-all" role="checkbox" aria-label="Select all rows" data-tip="Select all rows"></span></th><th>id</th><th>reason</th><th class="num">amount</th><th class="sorted">created <span class="muted" style="font-weight:400">· row metadata</span> <i data-lucide="arrow-down" style="width:12px;height:12px;vertical-align:-2px"></i></th><th></th></tr>
+  <tr class="prof"><th></th><th><span class="cap" id="p-id">3 unique</span></th>
+   <th><div class="p-stack"><div class="p-bar" id="p-bar"></div><span class="cap" id="p-reason">2 values · damaged 67%</span></div></th>
+   <th class="num"><div class="p-inline"><div class="p-hist" id="p-hist"><i></i><i></i><i></i><i></i><i></i></div><span class="cap mono" id="p-amt">12 – 84.5</span></div></th>
+   <th><div class="p-inline"><div class="p-ticks" id="p-ticks" data-tip="All 3 rows created Oct 15 (UTC)"></div><span class="cap" id="p-created">all today</span></div></th><th></th></tr></thead><tbody id="rows">
+  <tr><td><span class="check" role="checkbox" aria-label="Select row 3"></span></td><td class="muted">3</td><td data-col="reason">damaged</td><td class="num" data-col="amount">12</td><td class="muted" data-t="564" data-ts="2026-10-15T09:24:47Z">1 min ago</td><td><button class="row-more" aria-label="Row actions" data-tip="Row actions"><i data-lucide="ellipsis"></i></button></td></tr>
+  <tr><td><span class="check" role="checkbox" aria-label="Select row 2"></span></td><td class="muted">2</td><td data-col="reason">late</td><td class="num" data-col="amount">20</td><td class="muted" data-t="564" data-ts="2026-10-15T09:24:31Z">1 min ago</td><td><button class="row-more" aria-label="Row actions" data-tip="Row actions"><i data-lucide="ellipsis"></i></button></td></tr>
+  <tr><td><span class="check" role="checkbox" aria-label="Select row 1"></span></td><td class="muted">1</td><td data-col="reason">damaged</td><td class="num" data-col="amount">84.5</td><td class="muted" data-t="564" data-ts="2026-10-15T09:24:18Z">1 min ago</td><td><button class="row-more" aria-label="Row actions" data-tip="Row actions"><i data-lucide="ellipsis"></i></button></td></tr></tbody></table>
+  <div class="eot"><span class="eot-line"></span><span class="eot-cap"><span class="pip"></span><span><span class="m-roll" data-rows></span>&nbsp;<span id="eot-tail">rows · that's everything</span></span></span><button class="btn ghost xs" id="eot-add" data-tip="Add a row at the top"><i data-lucide="plus"></i> Add row</button><span class="eot-line r"></span></div>
+ </div>
+ <div class="dt-dropover" aria-hidden="true"><div class="slot dt-dropslot"><span class="dt-ico"><i data-lucide="file-up"></i></span><span class="dt-dz-t">Drop a CSV to import into <span class="mono">refunds</span></span><span class="dt-dz-s">Columns are matched by name: <span class="mono">reason</span>, <span class="mono">amount</span>, <span class="mono">created</span></span></div></div>
+ </div>
+ <div class="foot"><span class="hint">Double-click a cell to edit</span><div class="spacer"></div><span class="mono" data-tip="Read and write these rows from any route">studio.db.table("refunds")</span></div></div></template>
+<script>Shell.mount({active:'data'})</script>
+<script>
+/* hero lineage: who writes and who reads this table, drawn from the project's routes and app */
+LunaArt.add('data-lineage', () => {
+  const v = LunaArt.v, id = 'ln';
+  const reader = (y, tip, inner) => `<g data-tip="${tip}" transform="translate(240 ${y})"><rect x=".5" y=".5" width="119" height="20" rx="6" class="a-card"/>${inner}</g>`;
+  const get = (p) => `<text x="9" y="14" class="a-mono" style="font-size:9.5px"><tspan class="a-strong" style="fill:${v('method-get')}">GET</tspan> ${p}</text>`;
+  return `<svg viewBox="0 0 360 90" class="art" role="img" aria-label="POST /refunds writes into the refunds table. GET /refunds, GET /refunds/stats and the Refunds dashboard read it.">${LunaArt.defs(id)}
+    <ellipse cx="172" cy="45" rx="46" ry="38" fill="url(#${id}-glow)"/>
+    <!-- write -->
+    <g data-tip="POST /refunds inserts a row on every successful call">
+      <rect x=".5" y="34.5" width="98" height="21" rx="6" class="a-card"/>
+      <text x="9" y="49" class="a-mono" style="font-size:9.5px"><tspan class="a-strong" style="fill:${v('method-post')}">POST</tspan> /refunds</text>
+    </g>
+    <linearGradient id="${id}-wg" gradientUnits="userSpaceOnUse" x1="99" y1="0" x2="152" y2="0"><stop offset="0" style="stop-color:${v('brand-1')};stop-opacity:.35"/><stop offset="1" style="stop-color:${v('brand-2')}"/></linearGradient>
+    <path id="${id}-w" d="M99 45 H151" fill="none" style="stroke:url(#${id}-wg)" stroke-width="1.25"/>
+    <circle cx="99" cy="45" r="1.6" style="fill:${v('brand-1')}"/>
+    <text x="124.5" y="39" text-anchor="middle" class="a-label" style="font-size:9px">write</text>
+    <!-- packets are fired by real writes (see pulseWrite); reduced motion flashes this overlay instead -->
+    <path id="${id}-wf" d="M99 45 H151" fill="none" style="stroke:${v('brand-2')};opacity:0" stroke-width="2.25" stroke-linecap="round"/>
+    <!-- read -->
+    <path d="M194 45 C 216 45, 216 15.5, 238 15.5" class="a-wire"/>
+    <path d="M194 45 H238" class="a-wire"/>
+    <path d="M194 45 C 216 45, 216 75.5, 238 75.5" class="a-wire"/>
+    <circle cx="194" cy="45" r="1.6" style="fill:${v('art-line')}"/>
+    <text x="224" y="41" text-anchor="middle" class="a-label" style="font-size:9px">read</text>
+    ${reader(5, 'GET /refunds lists rows, newest first', get('/refunds'))}
+    ${reader(35, 'GET /refunds/stats sums amount by reason', get('/refunds/stats'))}
+    ${reader(65, 'The Refunds dashboard app reads this table', `<g transform="translate(9 6)" style="fill:none;stroke:${v('muted-foreground')}" stroke-width="1"><rect x=".5" y=".5" width="10" height="8" rx="1.5"/><path d="M.5 3 H10.5"/></g><text x="25" y="14" class="a-label" style="font-size:9.5px;fill:${v('foreground')}">Refunds dashboard</text>`)}
+    <!-- the table: the focal node -->
+    <g class="a-glow" data-tip="refunds · 2 columns, written by 1 route, read by 3" transform="translate(152 29)">
+      <path d="M0 5 v22 a20 5 0 0 0 40 0 v-22" style="fill:${v('card')};stroke:url(#${id}-brand)" stroke-width="1.25"/>
+      <path d="M0 5 v22 a20 5 0 0 0 40 0 v-22" fill="url(#${id}-fade)"/>
+      <path d="M0 16 a20 5 0 0 0 40 0" fill="none" style="stroke:url(#${id}-brand)" stroke-width="1" opacity=".45"/>
+      <ellipse cx="20" cy="5" rx="20" ry="5" style="fill:${v('card')};stroke:url(#${id}-brand)" stroke-width="1.25"/>
+      <ellipse cx="20" cy="5" rx="20" ry="5" fill="url(#${id}-fade)"/>
+    </g>
+    <text x="172" y="80" text-anchor="middle" class="a-mono a-strong" style="font-size:10px">refunds</text>
+  </svg>`;
+});
+
+(function () {
+  const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const body = $('#rows'), tb = $('#tb'), table = $('.grid-wrap .table'), well = $('.grid-well');
+  const fmt = (n) => String(Math.round(n * 10) / 10);
+  const num = (s) => { const t = String(s).trim(); return t === '' || isNaN(+t) ? null : +t; };
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const NOW = Date.parse('2026-10-15T09:25:14Z'), TODAY = '2026-10-15'; // canonical "now"
+  const idOf = (tr) => +tr.children[1].textContent;
+  const cell = (tr, c) => $(`[data-col="${c}"]`, tr).textContent.trim();
+  const dayOf = (tr) => (tr.querySelector('[data-ts]')?.dataset.ts || '').slice(0, 10);
+  const live = () => $$('tr', body).filter((r) => !r.classList.contains('gone'));
+  const shown = () => live().filter((r) => !r.classList.contains('dt-hid'));
+  const edges = () => window.Edges && Edges.refresh();
+
+  /* row count: rolls everywhere it appears (header chip, end of table, sidebar) */
+  const tail = $('.item.on .tail'); if (tail) tail.innerHTML = '<span class="m-roll" data-rows></span>&nbsp;rows';
+  const setRows = (n, total) => $$('[data-rows]').forEach((el) => {
+    const v = el.closest('.item') ? total : n; // the sidebar counts the table, not the filtered view
+    Motion.setRoll(el, v);
+    const t = el.nextSibling; if (t && t.nodeType === 3 && /row/.test(t.textContent)) t.textContent = v === 1 ? '\u00a0row' : '\u00a0rows';
+  });
+
+  /* hero total: digit rolls (Motion.setRoll), integer and decimal parts on either side of a static point */
+  const rollTo = (el, s) => { while (el.children.length > s.length) el.firstElementChild.remove(); Motion.setRoll(el, s); };
+  function setTotal(v) {
+    const s = fmt(v), neg = s[0] === '-', [i, d] = s.replace('-', '').split('.');
+    $('#tot-s').hidden = !neg; rollTo($('#tot-i'), i);
+    $('#tot-p').hidden = $('#tot-d').hidden = !d; if (d) rollTo($('#tot-d'), d);
+    $('#tot-sr').textContent = s;
+  }
+
+  /* writes: one packet down the write wire per real write; reduced motion flashes the wire once */
+  function pulseWrite(n = 1) {
+    const svg = $('.lineage svg'); if (!svg || !svg.getBoundingClientRect().width) return;
+    if (reduced()) { const f = $('#ln-wf', svg); if (f) f.animate([{ opacity: 0 }, { opacity: .9, offset: .25 }, { opacity: 0 }], { duration: 700, easing: 'ease-out' }); return; }
+    const glow = $('.a-glow', svg);
+    for (let k = 0; k < Math.min(n, 4); k++) setTimeout(() => {
+      const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      c.setAttribute('cx', 99); c.setAttribute('cy', 45); c.setAttribute('r', 2); c.setAttribute('class', 'a-packet'); c.style.opacity = 0;
+      svg.insertBefore(c, glow); // slides in under the table glyph
+      const a = c.animate([{ transform: 'translateX(0)', opacity: 0 }, { opacity: 1, offset: .18 }, { opacity: 1, offset: .82 }, { transform: 'translateX(53px)', opacity: 0 }],
+        { duration: 720, easing: 'cubic-bezier(.4,0,.6,1)' });
+      a.onfinish = a.oncancel = () => c.remove();
+      setTimeout(() => c.remove(), 1200);
+    }, k * 150);
+  }
+
+  /* column profile, recomputed from the visible rows on every change */
+  function profile() {
+    const all = live(), rows = shown();
+    const reasons = rows.map((r) => cell(r, 'reason')).filter(Boolean);
+    const amts = rows.map((r) => num(cell(r, 'amount'))).filter((x) => x != null);
+    setRows(rows.length, all.length);
+    $('#eot-tail').textContent = filters.length ? `of ${all.length} row${all.length === 1 ? '' : 's'} · ${rows.length ? `${filters.length} filter${filters.length > 1 ? 's' : ''}` : 'nothing matches the filter'}` : `row${rows.length === 1 ? '' : 's'} · that's everything`;
+    $('#tot-l').textContent = filters.length ? 'total amount · filtered' : 'total amount';
+    $('#p-id').textContent = `${new Set(rows.map(idOf)).size} unique`;
+    // reason: stacked bar, most common first
+    const cnt = {}; reasons.forEach((x) => (cnt[x] = (cnt[x] || 0) + 1));
+    const order = Object.entries(cnt).sort((a, b) => b[1] - a[1]), op = [1, .35, .2, .12];
+    $('#p-bar').innerHTML = order.map(([k, c], i) => `<i style="flex-grow:${c};opacity:${op[Math.min(i, 3)]}" title="${esc(k)} ${c}"></i>`).join('');
+    $('#p-reason').textContent = order.length ? `${order.length} value${order.length > 1 ? 's' : ''} · ${order[0][0]} ${Math.round(order[0][1] / reasons.length * 100)}%` : 'no values';
+    // amount: 5-bin histogram over min..max
+    const lo = amts.length ? Math.min(...amts) : 0, hi = amts.length ? Math.max(...amts) : 0, bins = [0, 0, 0, 0, 0];
+    amts.forEach((a) => bins[hi === lo ? 0 : Math.min(4, Math.floor((a - lo) / (hi - lo) * 5))]++);
+    const mx = Math.max(1, ...bins);
+    $$('#p-hist i').forEach((b, i) => { b.style.height = (bins[i] ? 4 + bins[i] / mx * 12 : 1.5) + 'px'; b.classList.toggle('zero', !bins[i]); });
+    $('#p-hist').dataset.tip = amts.length ? bins.map((c, i) => `${fmt(lo + (hi - lo) / 5 * i)}–${fmt(lo + (hi - lo) / 5 * (i + 1))}: ${c}`).join(' · ') : 'No amounts';
+    $('#p-amt').textContent = amts.length ? `${fmt(lo)} – ${fmt(hi)}` : '—';
+    // created: ticks on today's 24h strip; older rows are counted, not drawn
+    const today = rows.filter((r) => dayOf(r) === TODAY), older = rows.length - today.length;
+    const ts = [...new Set(today.map((r) => +r.querySelector('[data-t]').dataset.t))];
+    $('#p-ticks').innerHTML = [6, 12, 18].map((h) => `<span style="left:${h / 24 * 100}%"></span>`).join('') + ts.map((m) => `<b style="left:calc(${m / 1440 * 100}% - .75px)"></b>`).join('');
+    $('#p-ticks').dataset.tip = older ? `${today.length} of ${rows.length} rows created Oct 15 (UTC), ${older} earlier` : `${rows.length} rows, all created Oct 15 (UTC)`;
+    $('#p-created').textContent = !rows.length ? '—' : older ? `${today.length} today · ${older} earlier` : 'all today';
+    setTotal(amts.reduce((s, a) => s + a, 0));
+    edges();
+  }
+
+  /* inline edit: double-click, Enter commits and flashes, Esc reverts */
+  let edit = null;
+  function startEdit(td) {
+    if (edit) commit(false);
+    edit = { td, was: td.textContent };
+    td.contentEditable = 'true'; td.classList.add('editing'); td.focus();
+    const r = document.createRange(); r.selectNodeContents(td); const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+  }
+  function commit(flash) {
+    if (!edit) return; const { td, was } = edit; edit = null;
+    let val = td.textContent.trim();
+    if (td.dataset.col === 'amount' && val !== '' && num(val) == null) val = was; // not a number: keep the old value
+    if (td.dataset.col === 'amount' && num(val) != null) val = fmt(num(val));
+    td.textContent = val; td.contentEditable = 'false'; td.classList.remove('editing');
+    if (flash && val !== was) { td.classList.remove('c-flash'); void td.offsetWidth; td.classList.add('c-flash'); }
+    if (val !== was) { pulseWrite(); applyFilters(); }
+  }
+  function cancel() { if (!edit) return; const { td, was } = edit; edit = null; td.textContent = was; td.contentEditable = 'false'; td.classList.remove('editing'); }
+  body.addEventListener('dblclick', (e) => { const td = e.target.closest('td[data-col]'); if (td && td !== edit?.td) startEdit(td); });
+  body.addEventListener('keydown', (e) => {
+    if (!edit) return;
+    if (e.key === 'Enter') { e.preventDefault(); const td = edit.td; commit(true); td.blur(); }
+    else if (e.key === 'Escape') { e.preventDefault(); const td = edit.td; cancel(); td.blur(); }
+  });
+  body.addEventListener('focusout', (e) => { if (edit && e.target === edit.td) commit(true); });
+
+  /* rows: one builder for add, duplicate, import and undo */
+  let nextId = 4;
+  const tipOf = (d) => d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: 'UTC' }) + ' UTC';
+  const rel = (ms) => { const m = Math.floor((NOW - ms) / 60000); return m < 1 ? 'now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.floor(m / 60)} h ago` : m < 2880 ? 'yesterday' : `${Math.floor(m / 1440)} d ago`; };
+  function rowEl(id, reason = '', amount = '', ms = NOW) {
+    const d = new Date(ms), iso = d.toISOString().replace('.000', '');
+    const t = document.createElement('tbody');
+    t.innerHTML = `<tr class="m-new"><td><span class="check" role="checkbox" aria-label="Select row ${id}"></span></td><td class="muted">${id}</td><td data-col="reason" class="ph" data-ph="reason">${esc(reason)}</td><td class="num ph" data-col="amount" data-ph="amount">${esc(amount)}</td><td class="muted" data-t="${d.getUTCHours() * 60 + d.getUTCMinutes()}" data-ts="${iso}" data-tip="${tipOf(d)}">${rel(ms)}</td><td><button class="row-more" aria-label="Row actions" data-tip="Row actions">${Shell.I('ellipsis')}</button></td></tr>`;
+    const tr = t.firstElementChild; tr.addEventListener('animationend', () => tr.classList.remove('m-new'), { once: true });
+    return tr;
+  }
+  /* newest first: a row goes above the first row created before it */
+  const place = (tr) => { const ms = Date.parse(tr.querySelector('[data-ts]').dataset.ts); body.insertBefore(tr, live().find((r) => r !== tr && Date.parse(r.querySelector('[data-ts]').dataset.ts) <= ms) || null); };
+  function addRow(vals) {
+    const tr = rowEl(nextId++, vals?.reason, vals?.amount, vals?.ms);
+    if (vals?.ms) place(tr); else body.prepend(tr);
+    return tr;
+  }
+  function addEmpty() {
+    const tr = addRow(); Shell.icons(); profile(); pulseWrite(); startEdit($('[data-col="reason"]', tr));
+  }
+  $('#add-row').addEventListener('click', addEmpty);
+  $('#eot-add').addEventListener('click', () => { $('.grid-wrap').scrollTop = 0; addEmpty(); });
+
+  /* selection: the toolbar becomes "N selected · Delete" (visible rows only) */
+  function syncSel() {
+    const sel = shown().filter((r) => r.querySelector('.check.on'));
+    $$('tr', body).forEach((r) => r.classList.toggle('on', !!r.querySelector('.check.on')));
+    $$('.check', body).forEach((c) => c.setAttribute('aria-checked', c.classList.contains('on')));
+    if (sel.length) $('#sel-n').textContent = `${sel.length} selected`;
+    tb.classList.toggle('sel', sel.length > 0);
+    $('#check-all').classList.toggle('on', sel.length > 0 && sel.length === shown().length);
+  }
+  body.addEventListener('click', (e) => {
+    const c = e.target.closest('.check'); if (c) { c.classList.toggle('on'); syncSel(); return; }
+    const m = e.target.closest('.row-more'); if (m) rowMenu(m);
+  });
+  $('#check-all').addEventListener('click', (e) => { const on = !e.currentTarget.classList.contains('on'); shown().forEach((r) => $('.check', r).classList.toggle('on', on)); syncSel(); });
+  $('#sel-clear').addEventListener('click', () => { $$('.check', body).forEach((c) => c.classList.remove('on')); syncSel(); });
+  $('#del').addEventListener('click', () => deleteRows(shown().filter((r) => r.querySelector('.check.on'))));
+
+  /* delete with undo: rows fade out and leave; Undo puts them back in place */
+  function deleteRows(trs) {
+    if (!trs.length) return;
+    if (edit && trs.includes(edit.td.parentNode)) cancel();
+    trs.forEach((r) => { r.classList.add('gone'); $('.check', r).classList.remove('on'); });
+    profile(); pulseWrite();
+    const t = setTimeout(() => { trs.forEach((r) => r.remove()); syncSel(); edges(); }, 160);
+    const one = trs.length === 1;
+    Kit.toast({
+      tone: 'ok', title: one ? `Deleted row <span class="mono">${idOf(trs[0])}</span>` : `Deleted ${trs.length} rows`,
+      desc: `From <span class="mono">refunds</span> · ${live().length} row${live().length === 1 ? '' : 's'} left`,
+      action: { label: 'Undo', onClick() { clearTimeout(t); restore(trs); } },
+    });
+  }
+  function restore(trs) {
+    trs.forEach((tr) => {
+      tr.classList.remove('gone', 'on', 'm-new');
+      if (!tr.isConnected) place(tr);
+      void tr.offsetWidth; tr.classList.add('m-new'); tr.addEventListener('animationend', () => tr.classList.remove('m-new'), { once: true });
+    });
+    syncSel(); applyFilters(); pulseWrite();
+    Kit.toast({ tone: 'ok', title: trs.length === 1 ? `Restored row <span class="mono">${idOf(trs[0])}</span>` : `Restored ${trs.length} rows`, duration: 2400 });
+  }
+
+  /* row actions: ··· opens the Kit menu */
+  function rowMenu(btn) {
+    const tr = btn.closest('tr'), id = idOf(tr);
+    Kit.menu(btn, {
+      align: 'end', width: 208,
+      items: [
+        { label: 'Edit', icon: 'pencil', sub: 'reason', onSelect() { if (hidden.has('reason')) toggleCol('reason'); startEdit($('[data-col="reason"]', tr)); } },
+        { label: 'Duplicate', icon: 'copy-plus', onSelect() {
+          const copy = addRow({ reason: cell(tr, 'reason'), amount: cell(tr, 'amount') });
+          Shell.icons(); applyFilters(); pulseWrite();
+          Kit.toast({ tone: 'ok', title: `Duplicated row <span class="mono">${id}</span>`, desc: `Added as row <span class="mono">${idOf(copy)}</span> at the top.` });
+        } },
+        { label: 'Copy id', icon: 'hash', onSelect() {
+          try { navigator.clipboard.writeText(String(id)).catch(() => {}); } catch (e) {}
+          Kit.toast({ tone: 'ok', title: `Copied id <span class="mono">${id}</span>`, duration: 2400 });
+        } },
+        { separator: true },
+        { label: '<span class="dt-danger">Delete</span>', icon: 'trash-2', onSelect() { deleteRows([tr]); } },
+      ],
+    });
+  }
+
+  /* columns: the Kit menu toggles each one; at least one stays */
+  const COLS = [['id', 'id'], ['reason', 'reason'], ['amount', 'amount'], ['created', 'created', 'row metadata']];
+  const hidden = new Set();
+  function toggleCol(k) {
+    if (hidden.has(k)) {
+      hidden.delete(k); table.classList.add('dt-fx-' + k); table.classList.remove('dt-off-' + k);
+      void table.offsetWidth; table.classList.remove('dt-fx-' + k);
+    } else {
+      if (hidden.size >= COLS.length - 1) return;
+      hidden.add(k); table.classList.add('dt-fx-' + k);
+      setTimeout(() => { if (hidden.has(k)) table.classList.add('dt-off-' + k); edges(); }, reduced() ? 0 : 150);
+    }
+    $('#cols-n').textContent = hidden.size ? ` · ${hidden.size} hidden` : '';
+    edges();
+  }
+  $('#cols-btn').addEventListener('click', (e) => {
+    const last = COLS.length - hidden.size === 1;
+    Kit.menu(e.currentTarget, {
+      align: 'end', width: 220,
+      items: COLS.map(([k, label, sub]) => ({ group: 'Show columns', label: `<span class="mono">${label}</span>`, sub: last && !hidden.has(k) ? 'last one shown' : sub, checked: !hidden.has(k), disabled: last && !hidden.has(k), onSelect: () => toggleCol(k) })),
+    });
+  });
+
+  /* filters: chips in the toolbar; the table, counts, total and profile follow */
+  const FILTERS = {
+    damaged: { label: 'reason is damaged', chip: ['reason', '=', 'damaged'], field: 'reason', test: (r) => cell(r, 'reason') === 'damaged' },
+    late: { label: 'reason is late', chip: ['reason', '=', 'late'], field: 'reason', test: (r) => cell(r, 'reason') === 'late' },
+    amt: { label: 'amount &gt; 15', chip: ['amount', '&gt;', '15'], field: 'amount', test: (r) => (num(cell(r, 'amount')) ?? -Infinity) > 15 },
+    today: { label: 'created today', chip: ['created', '=', 'today'], field: 'created', test: (r) => dayOf(r) === TODAY },
+  };
+  let filters = [];
+  function applyFilters() {
+    live().forEach((r) => {
+      const out = !(edit && edit.td.parentNode === r) && filters.some((k) => !FILTERS[k].test(r));
+      r.classList.toggle('dt-hid', out); if (out) $('.check', r).classList.remove('on');
+    });
+    syncSel(); profile();
+  }
+  function renderChips() {
+    const box = $('#chips');
+    $$('.dt-chip', box).forEach((c) => { if (!filters.includes(c.dataset.f)) { c.classList.add('dt-leave'); setTimeout(() => c.remove(), reduced() ? 0 : 140); } });
+    filters.forEach((k) => {
+      if ($(`.dt-chip[data-f="${k}"]:not(.dt-leave)`, box)) return;
+      const [f, op, v] = FILTERS[k].chip;
+      box.insertAdjacentHTML('beforeend', `<span class="dt-chip" data-f="${k}">${f} <span class="dt-op">${op}</span> ${v}<button class="dt-chip-x" aria-label="Remove filter ${f} ${op} ${v}" data-tip="Remove filter">${Shell.I('x')}</button></span>`);
+    });
+    Shell.icons();
+  }
+  function setFilter(k, on) {
+    filters = filters.filter((x) => x !== k && !(on && FILTERS[x].field === 'reason' && FILTERS[k].field === 'reason')); // one reason at a time
+    if (on) filters.push(k);
+    renderChips(); applyFilters();
+  }
+  $('#filter-btn').addEventListener('click', (e) => {
+    Kit.menu(e.currentTarget, {
+      width: 232,
+      items: Object.entries(FILTERS).map(([k, f]) => ({ group: 'Filter rows where', label: f.label, icon: { reason: 'type', amount: 'hash', created: 'calendar' }[f.field], checked: filters.includes(k), onSelect: () => setFilter(k, !filters.includes(k)) })),
+    });
+  });
+  $('#chips').addEventListener('click', (e) => { const x = e.target.closest('.dt-chip-x'); if (x) { const k = x.closest('.dt-chip').dataset.f; setFilter(k, false); $('#filter-btn').focus({ preventScroll: true }); } });
+
+  /* header ··· menu */
+  $('#more-btn').addEventListener('click', (e) => {
+    Kit.menu(e.currentTarget, {
+      align: 'end', width: 236,
+      items: [
+        { label: 'Import CSV', icon: 'file-up', sub: 'or drop a file', onSelect: () => openImport() },
+        { label: 'Export CSV', icon: 'download', onSelect: () => Kit.toast({ tone: 'ok', title: 'Exported <span class="mono">refunds.csv</span>', desc: `${shown().length} rows · reason, amount, created` }) },
+        { separator: true },
+        { label: 'Copy table reference', icon: 'code', onSelect() {
+          try { navigator.clipboard.writeText('studio.db.table("refunds")').catch(() => {}); } catch (e) {}
+          Kit.toast({ tone: 'ok', title: 'Copied <span class="mono">studio.db.table("refunds")</span>', duration: 2400 });
+        } },
+      ],
+    });
+  });
+
+  /* ── CSV import ── */
+  const SAMPLE = 'reason,amount,created\ndamaged,18,2026-10-15T08:40Z\nlate,9.5,2026-10-15T07:55Z\nwrong item,42,2026-10-14T16:20Z\nlate,25,2026-10-15T09:02Z\n';
+  const split = (l) => l.split(',').map((x) => x.trim().replace(/^"(.*)"$/, '$1'));
+  function parse(name, text) {
+    const lines = String(text).replace(/^﻿/, '').split(/\r?\n/).filter((l) => l.trim());
+    if (!lines.length) return { err: `<span class="mono">${esc(name)}</span> is empty.` };
+    const head = split(lines[0]), key = head.map((h) => h.toLowerCase());
+    const ri = key.indexOf('reason'), ai = key.indexOf('amount'), ci = key.indexOf('created');
+    if (ri < 0 && ai < 0) {
+      const found = head.slice(0, 5).map((h) => `<span class="mono">${esc(h) || '(blank)'}</span>`).join(', ') + (head.length > 5 ? ` and ${head.length - 5} more` : '');
+      return { err: `<span class="mono">${esc(name)}</span> has no <span class="mono">reason</span> or <span class="mono">amount</span> column. Its header row has ${found}.` };
+    }
+    const rows = lines.slice(1).map(split);
+    if (!rows.length) return { err: `<span class="mono">${esc(name)}</span> has a header row but no rows to import.` };
+    return { name, head, key, rows, ri, ai, ci, match: [ri, ai, ci].filter((i) => i >= 0).length };
+  }
+  function importRows(d) {
+    const added = d.rows.map((r) => {
+      const a = d.ai >= 0 ? num(r[d.ai] ?? '') : null, ms = d.ci >= 0 ? Date.parse(r[d.ci]) : NaN;
+      return addRow({ reason: d.ri >= 0 ? r[d.ri] || '' : '', amount: a == null ? '' : fmt(a), ms: isNaN(ms) ? NOW : Math.min(ms, NOW) });
+    });
+    Shell.icons(); applyFilters(); pulseWrite(added.length);
+    const off = added.filter((r) => r.classList.contains('dt-hid')).length, ids = added.map(idOf);
+    Kit.toast({ tone: 'ok', title: `Imported ${added.length} row${added.length === 1 ? '' : 's'}`,
+      desc: `<span class="mono">${esc(d.name)}</span> → <span class="mono">refunds</span> · ids ${ids.length > 1 ? `${Math.min(...ids)}–${Math.max(...ids)}` : ids[0]}${off ? ` · ${off} hidden by the filter` : ''}` });
+  }
+  let imp = null;
+  function openImport(file) {
+    if (imp) { if (file) imp.read(file); return; }
+    const body = `
+      <p class="kit-lead">Add rows to <span class="mono">refunds</span> from a CSV with a header row. Columns are matched by name.</p>
+      <div class="dt-imp">
+        <div class="slot dt-zone" role="button" tabindex="0" aria-label="Choose a CSV file, or drop one here">
+          <span class="dt-ico">${Shell.I('file-up')}</span>
+          <span class="dt-dz-t">Drop a CSV here, or <span class="dt-a">choose a file</span></span>
+          <span class="dt-dz-s">Header row required · <span class="mono">reason</span>, <span class="mono">amount</span>, <span class="mono">created</span></span>
+        </div>
+        <input type="file" accept=".csv,text/csv" hidden>
+        <div class="dt-err" role="alert" hidden></div>
+        <div class="dt-alt">No file handy? <button class="dt-link" data-act="sample">Use sample file</button></div>
+      </div>
+      <div class="dt-prev" hidden></div>`;
+    const s = Kit.sheet({ title: 'Import into <span class="mono">refunds</span>', width: 460, body,
+      footer: `<button class="btn ghost" data-act="cancel">Cancel</button><button class="btn" data-act="import" disabled>${Shell.I('file-up')} Import rows</button>`,
+      onClose: () => { imp = null; } });
+    const el = s.el, zone = $('.dt-zone', el), input = $('input[type=file]', el), err = $('.dt-err', el), prev = $('.dt-prev', el);
+    let data = null;
+    const go = () => $('[data-act="import"]', el);
+    const zoneText = (has) => { $('.dt-dz-t', zone).innerHTML = has ? 'Drop another CSV to replace, or <span class="dt-a">choose a file</span>' : 'Drop a CSV here, or <span class="dt-a">choose a file</span>'; };
+    function fail(html) {
+      data = null; err.innerHTML = `<span class="dot err"></span><span>${html}</span>`; err.hidden = false; prev.hidden = true;
+      zone.classList.add('dt-bad'); zone.classList.remove('dt-has'); zoneText(false);
+      const b = go(); if (b) { b.disabled = true; b.innerHTML = `${Shell.I('file-up')} Import rows`; Shell.icons(); }
+    }
+    function show(d) {
+      if (d.err) return fail(d.err);
+      data = d; err.hidden = true; zone.classList.remove('dt-bad'); zone.classList.add('dt-has'); zoneText(true);
+      const n = d.rows.length, cols = d.head.map((h, i) => ({ h, i, on: [d.ri, d.ai, d.ci].includes(i), isNum: i === d.ai }));
+      const first = d.rows.slice(0, 4);
+      prev.innerHTML = `
+        <div class="dt-fline"><span class="dt-file">${Shell.I('file-text')}${esc(d.name)}</span><span class="dt-mid">·</span>${n} row${n === 1 ? '' : 's'}<span class="dt-mid">·</span>${d.match} column${d.match === 1 ? '' : 's'} match</div>
+        <div class="kit-sec"><h4>Preview</h4><span>${n > 4 ? 'first 4 rows' : `${n === 1 ? 'the row' : `all ${n} rows`}`}</span></div>
+        <div class="well dt-pwell"><table class="dt-ptab"><thead><tr>${cols.map((c) => `<th class="${c.isNum ? 'num' : ''}${c.on ? '' : ' dt-unm'}">${esc(c.h) || '—'}</th>`).join('')}</tr></thead>
+          <tbody>${first.map((r) => `<tr>${cols.map((c) => `<td class="${c.isNum ? 'num' : ''}${c.on ? '' : ' dt-unm'}" title="${esc(r[c.i] ?? '')}">${esc(r[c.i] ?? '')}</td>`).join('')}</tr>`).join('')}
+          ${n > 4 ? `<tr class="dt-more"><td colspan="${cols.length}">and ${n - 4} more</td></tr>` : ''}</tbody></table></div>
+        <div class="kit-sec"><h4>Column mapping</h4><span>matched by name</span></div>
+        <div class="dt-maps">${cols.map((c) => c.on
+          ? `<span class="dt-map"><span class="dot ok flat"></span>${esc(c.h)}<span class="dt-arr">→</span><b>${d.key[c.i]}</b></span>`
+          : `<span class="dt-map dt-skip" data-tip="No column named ${esc(c.h)} in refunds; it won't be imported">${esc(c.h) || '(blank)'}<span class="dt-arr">→</span><b>skip</b></span>`).join('')}</div>`;
+      prev.hidden = false; prev.style.animation = 'none'; void prev.offsetWidth; prev.style.animation = '';
+      const b = go(); b.disabled = false; b.innerHTML = `${Shell.I('file-up')} Import ${n} row${n === 1 ? '' : 's'}`; Shell.icons();
+    }
+    function read(f) {
+      if (!f) return;
+      if (f.size > 5e6) return fail(`<span class="mono">${esc(f.name)}</span> is ${(f.size / 1e6).toFixed(1)} MB. Previews take files up to 5 MB.`);
+      const r = new FileReader();
+      r.onload = () => show(parse(f.name, r.result));
+      r.onerror = () => fail(`Couldn’t read <span class="mono">${esc(f.name)}</span>.`);
+      r.readAsText(f);
+    }
+    zone.addEventListener('click', () => input.click());
+    zone.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); } });
+    input.addEventListener('change', () => { read(input.files[0]); input.value = ''; });
+    zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('dt-over'); });
+    zone.addEventListener('dragleave', (e) => { if (!zone.contains(e.relatedTarget)) zone.classList.remove('dt-over'); });
+    zone.addEventListener('drop', (e) => { e.preventDefault(); zone.classList.remove('dt-over'); read(e.dataTransfer.files[0]); });
+    el.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-act]'); if (!b || b.disabled) return;
+      if (b.dataset.act === 'sample') show(parse('refunds-oct.csv', SAMPLE));
+      if (b.dataset.act === 'cancel') s.close();
+      if (b.dataset.act === 'import' && data) { const d = data; s.close(); importRows(d); }
+    });
+    imp = { read, show, el, close: s.close };
+    if (file) read(file);
+    return imp;
+  }
+
+  /* dragging a file anywhere: the table turns into a drop target */
+  let depth = 0;
+  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+  const dragEnd = () => { depth = 0; well.classList.remove('dt-drag', 'dt-over'); };
+  document.addEventListener('dragenter', (e) => { if (!hasFiles(e)) return; depth++; if (!imp) well.classList.add('dt-drag'); });
+  document.addEventListener('dragleave', (e) => { if (!hasFiles(e)) return; if (--depth <= 0) dragEnd(); });
+  document.addEventListener('dragover', (e) => {
+    if (!hasFiles(e)) return; e.preventDefault();
+    const onWell = !imp && well.contains(e.target), onZone = !!e.target.closest?.('.dt-zone');
+    well.classList.toggle('dt-over', onWell); e.dataTransfer.dropEffect = onWell || onZone ? 'copy' : 'none';
+  });
+  document.addEventListener('drop', (e) => {
+    if (!hasFiles(e)) return; e.preventDefault();
+    const onWell = !imp && well.contains(e.target); dragEnd();
+    if (onWell && e.dataTransfer.files[0]) openImport(e.dataTransfer.files[0]);
+  });
+
+  profile();
+  requestAnimationFrame(() => requestAnimationFrame(() => $('#total').classList.remove('dt-still')));
+  window.DataPage = { openImport, setFilter, toggleCol, deleteRows, pulseWrite, rowMenu }; // handy for scripted checks
+})();
+</script>
+</body></html>

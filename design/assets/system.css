@@ -1,0 +1,202 @@
+/* Command Studio design system (see DESIGN.md). Loaded after character.css on every page.
+   Light "Mist" + dark "Graphite", one indigo accent, borderless surfaces with inset wells, a 4pt spacing scale,
+   Linear-style vector primitives, and the small things. */
+
+/* ── tokens ── */
+:root {
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s8: 32px; --s10: 40px;
+  --r-panel: 14px; --r-well: 10px; --r-ctl: 8px; --r-chip: 6px;
+  --r-xl: var(--r-panel); --r-lg: var(--r-well); --r-md: var(--r-ctl); --r-sm: var(--r-chip);
+
+  /* light · Mist */
+  --canvas: #f3f3f7;
+  --background: #ffffff; --card: #ffffff; --popover: #ffffff;
+  --foreground: #17171c; --card-foreground: #17171c; --popover-foreground: #17171c; --secondary-foreground: #17171c; --accent-foreground: #17171c;
+  --secondary: #f2f2f6; --muted: #f2f2f6; --accent: #efeff4; --surface: #f2f2f6;
+  --muted-foreground: #64646f; --faint: #a3a3ae;
+  --border: rgb(24 24 48 / .08); --input: rgb(24 24 48 / .14); --panel-border: rgb(24 24 48 / .07);
+  --hairline: rgb(24 24 48 / .06);
+  --primary: #5059c9; --primary-foreground: #ffffff; --ring: #5b64d6;
+  --brand-1: #5e6ad2; --brand-2: #8b6cf0;
+  --brand-soft: color-mix(in srgb, #5e6ad2 8%, transparent);
+  --ai: #7c5fe6; --ai-text: #6447d1; --ai-soft: color-mix(in srgb, #7c5fe6 9%, transparent);
+  --method-post: #4b55c4;
+  --syn-fn: #4b55c4;
+  --sidebar-foreground: #3c3c46; --sidebar-accent: rgb(24 24 48 / .06);
+  --well: #f7f7fa; --well-ring: rgb(24 24 48 / .05);
+  --panel-ring: 0 0 0 1px var(--panel-border);
+  --shadow-xs: 0 1px 2px rgb(24 24 48 / .04), 0 2px 6px -2px rgb(24 24 48 / .05);
+  --shadow-md: 0 2px 4px rgb(24 24 48 / .04), 0 10px 24px -8px rgb(24 24 48 / .12);
+  --shadow-lg: 0 1px 2px rgb(24 24 48 / .04), 0 8px 20px -8px rgb(24 24 48 / .10), 0 20px 44px -20px rgb(24 24 48 / .14);
+  --edge: rgb(255 255 255 / 0);
+  --glow: color-mix(in srgb, var(--brand-1) 18%, transparent);
+  --art-line: rgb(24 24 48 / .16); --art-faint: rgb(24 24 48 / .11);
+}
+.dark {
+  /* dark · Graphite */
+  --canvas: #08080a;
+  --background: #0e0e11; --card: #111114; --popover: #161619;
+  --foreground: #ececef; --card-foreground: #ececef; --popover-foreground: #ececef; --secondary-foreground: #ececef; --accent-foreground: #ececef;
+  --muted-foreground: #8d8d97; --faint: #55555e;
+  --secondary: #1a1a1e; --muted: #19191d; --accent: #1d1d22; --surface: #161619;
+  --border: rgb(255 255 255 / .07); --input: rgb(255 255 255 / .1); --panel-border: rgb(255 255 255 / .06);
+  --hairline: rgb(255 255 255 / .055);
+  --primary: #5e6ad2; --primary-foreground: #ffffff; --ring: #8b93ec;
+  --brand-1: #6e7bf2; --brand-2: #9b7bff;
+  --brand-soft: color-mix(in srgb, #6e7bf2 13%, transparent);
+  --ai: #a08bff; --ai-text: #c0b2ff; --ai-soft: color-mix(in srgb, #a08bff 12%, transparent);
+  --method-post: #9aa4ff; --syn-fn: #a3adff;
+  --sidebar-foreground: #c9c9d1; --sidebar-accent: rgb(255 255 255 / .06);
+  --well: rgb(255 255 255 / .022); --well-ring: rgb(255 255 255 / .045);
+  --shadow-xs: 0 1px 2px rgb(0 0 0 / .5), 0 8px 24px -14px rgb(0 0 0 / .7);
+  --shadow-md: 0 2px 4px rgb(0 0 0 / .5), 0 14px 32px -12px rgb(0 0 0 / .75);
+  --shadow-lg: 0 2px 4px rgb(0 0 0 / .5), 0 18px 44px -18px rgb(0 0 0 / .8);
+  --edge: rgb(255 255 255 / .11);
+  --glow: color-mix(in srgb, var(--brand-1) 26%, transparent);
+  --art-line: rgb(255 255 255 / .16); --art-faint: rgb(255 255 255 / .09);
+}
+
+/* ── canvas ── */
+body, .workspace { background-color: var(--canvas); }
+.workspace { background:
+  radial-gradient(50% 36% at 14% -8%, var(--glow), transparent 70%),
+  radial-gradient(36% 28% at 88% -6%, color-mix(in srgb, var(--brand-2) 8%, transparent), transparent 70%),
+  var(--canvas); }
+.dark body::after { content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 1000; opacity: .035; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+
+/* ── panels: ring + shadow, never a border; dark gets a light-catching top edge ── */
+.panel, .topbar, .home-top, .menu, .dialog { border: 0 !important; box-shadow: var(--panel-ring), var(--shadow-xs) !important; }
+.topbar, .home-top { box-shadow: var(--panel-ring), var(--shadow-lg) !important; }
+.panel .panel { box-shadow: var(--panel-ring) !important; }
+.sidebar.panel, .card, .tpl, .pulse, .stats { position: relative; }
+.dark .topbar::after, .dark .home-top::after, .dark .sidebar.panel::after, .dark .main > .panel::after, .dark .editor > .panel::after, .dark .card.panel::after, .dark .tpl::after, .dark .pulse::after {
+  content: ''; position: absolute; left: 12%; right: 12%; top: 0; height: 1px; pointer-events: none; z-index: 1;
+  background: linear-gradient(90deg, transparent, var(--edge), transparent); }
+.sidebar.panel, .main > .panel, .editor > .panel { border-radius: var(--r-panel); }
+
+/* panel headers: no rule underneath; spacing does the work */
+.panel-head { border-bottom: 0 !important; height: 48px; padding: 0 var(--s5); }
+.panel-head h3 { font-size: 13.5px; font-weight: 600; letter-spacing: -.01em; }
+
+/* ── wells: inset areas inside a panel ── */
+.well { margin: 0 var(--s2) var(--s2); border-radius: var(--r-well); background: var(--well); box-shadow: inset 0 0 0 1px var(--well-ring); overflow: hidden; }
+.well.pad { padding: var(--s3) var(--s4); }
+.dark .well { box-shadow: inset 0 0 0 1px var(--well-ring), inset 0 1px 0 rgb(255 255 255 / .02); }
+
+/* ── tables and lists: hairlines only ── */
+.table th { border-bottom: 1px solid var(--hairline) !important; font-weight: 500; }
+.table td { border-bottom: 1px solid var(--hairline) !important; }
+.table tr:last-child td { border-bottom: 0 !important; }
+.table .group-row td { background: transparent !important; color: var(--muted-foreground); }
+.li { border-bottom-color: var(--hairline) !important; }
+.li:last-child { border-bottom: 0 !important; }
+.stat { border-right-color: var(--hairline) !important; }
+.well .table th { background: transparent; }
+
+/* ── controls ── */
+.btn { border-radius: var(--r-ctl); }
+.btn.sm, .btn.xs, .btn.icon-sm, .btn.icon-xs { border-radius: calc(var(--r-ctl) - 1px); }
+.btn.outline { border-color: var(--input); }
+.btn:not(.outline):not(.ghost):not(.secondary):not(.destructive):not(.link):not(.ai) {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 92%, #fff), var(--primary));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .16), 0 0 0 1px color-mix(in srgb, var(--primary) 80%, #000), 0 2px 6px -2px color-mix(in srgb, var(--primary) 55%, transparent); }
+.btn.ai { background: linear-gradient(135deg, var(--brand-1), var(--brand-2)); color: #fff; box-shadow: inset 0 1px 0 rgb(255 255 255 / .2), 0 2px 8px -2px color-mix(in srgb, var(--brand-2) 55%, transparent); }
+.btn.ai:hover { filter: brightness(1.06); }
+.input { border-radius: var(--r-ctl); border-color: var(--input); }
+.badge, .method, .kbd { border-radius: var(--r-chip); }
+.badge { height: 20px; }
+.seg { border-radius: var(--r-ctl); background: var(--muted); }
+.seg > button, .seg > a, .seg > .m-thumb { border-radius: calc(var(--r-ctl) - 2px); }
+.dark .seg, .dark .seg.soft { background: rgb(255 255 255 / .04); }
+.item { border-radius: var(--r-ctl); }
+.m-pill { border-radius: var(--r-ctl) !important; }
+
+/* ── type ── */
+h1 { letter-spacing: -.03em !important; }
+.eyebrow { text-transform: none !important; letter-spacing: 0 !important; font-size: 12px !important; font-weight: 500 !important; color: var(--muted-foreground) !important; }
+
+/* ── small things ── */
+svg.lucide { stroke-width: 1.75; }
+::selection { background: color-mix(in srgb, var(--primary) 22%, transparent); }
+.mono, code { font-feature-settings: 'zero' 1; }
+a:not(.btn):not(.item):not(.card):not(.tpl) { text-underline-offset: 3px; }
+.truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+
+/* ── vector primitives ── */
+.vx-host { position: relative; isolation: isolate; }
+.vx-grid { position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background-image: linear-gradient(var(--art-faint) 1px, transparent 1px), linear-gradient(90deg, var(--art-faint) 1px, transparent 1px);
+  background-size: 32px 32px; background-position: -1px -1px;
+  -webkit-mask: radial-gradient(60% 70% at 70% 30%, #000 10%, transparent 75%); mask: radial-gradient(60% 70% at 70% 30%, #000 10%, transparent 75%); opacity: .7; }
+.vx-beam { position: absolute; z-index: -1; pointer-events: none; top: -40px; left: 50%; width: 720px; height: 380px; transform: translateX(-50%);
+  background: conic-gradient(from 160deg at 50% 0%, transparent 0deg, var(--glow) 16deg, color-mix(in srgb, var(--brand-2) 20%, transparent) 20deg, var(--glow) 24deg, transparent 40deg);
+  -webkit-mask: linear-gradient(#000, transparent 85%); mask: linear-gradient(#000, transparent 85%); filter: blur(6px); opacity: .9; }
+.vx-edge { position: relative; }
+.vx-edge::before { content: ''; position: absolute; inset: 0; border-radius: inherit; padding: 1px; pointer-events: none; z-index: 2;
+  background: linear-gradient(140deg, color-mix(in srgb, var(--brand-1) 70%, transparent), transparent 35%, transparent 65%, color-mix(in srgb, var(--brand-2) 45%, transparent));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
+.a-glow, .art .a-glow { filter: drop-shadow(0 0 6px var(--glow)) drop-shadow(0 0 14px var(--glow)); }
+.art .a-faint { fill: var(--faint); }
+
+/* ── shell polish ── */
+.brand { background: none !important; box-shadow: none !important; color: var(--foreground) !important; padding: 0 6px 0 2px !important; display: inline-flex; align-items: center; gap: 8px;
+  font-size: 14.5px !important; font-weight: 650 !important; letter-spacing: -.035em !important; line-height: 28px !important; }
+.brand::before { content: none !important; }
+.crumb-sep { color: var(--faint) !important; }
+.search-trigger { min-width: 240px; height: 30px; padding: 0 6px 0 10px; border-radius: var(--r-ctl); background: var(--muted); box-shadow: inset 0 0 0 1px var(--hairline); color: var(--muted-foreground); }
+.search-trigger .kbd { margin-left: auto; }
+.search-trigger:hover { background: color-mix(in srgb, var(--muted) 60%, var(--card)); }
+.outline-scroll { padding: 12px 10px 0 !important; }
+.group-head { padding: 14px 8px 4px !important; }
+.outline-bottom { border-top-color: var(--hairline) !important; margin: auto 10px 0 !important; }
+.item { height: 30px; }
+.item.route { height: 26px; }
+.topbar .divider-v, .home-top .divider-v { background: var(--hairline); }
+
+/* ── shared fixes from the page pass ── */
+.vx-orbit { position: relative; display: grid; place-items: center; }
+.vx-orbit::before, .vx-orbit::after { content: ''; position: absolute; border-radius: 50%; border: 1px dashed var(--art-line); pointer-events: none; }
+.vx-orbit::before { width: 120px; height: 120px; }
+.vx-orbit::after { width: 180px; height: 180px; opacity: .6; }
+.check { vertical-align: middle; }
+.tabs { border-bottom-color: var(--hairline) !important; }
+.ai-bar { border-radius: var(--r-ctl); border: 0 !important; background: linear-gradient(90deg, color-mix(in srgb, var(--brand-1) 7%, transparent), color-mix(in srgb, var(--brand-2) 6%, transparent)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-1) 28%, transparent); }
+.ai-bar .ico { background: linear-gradient(135deg, var(--brand-1), var(--brand-2)) !important; color: #fff !important; }
+pre.json { border: 0 !important; background: var(--well) !important; box-shadow: inset 0 0 0 1px var(--well-ring); border-radius: var(--r-well) !important; }
+.stats { box-shadow: none !important; }
+.stat:nth-child(4) { background: none; }
+.rel-art { padding: var(--s3) var(--s4) var(--s2); }
+.hero { margin-top: 0; }
+
+/* ── panel material: a sheen and a light-catching gradient edge (replaces glass on big panels) ── */
+:root {
+  --mat-top: #ffffff; --mat-bottom: #fcfcfe;
+  --mat-edge-top: rgb(24 24 48 / .07); --mat-edge-bottom: rgb(24 24 48 / .11);
+  --mat-shadow: inset 0 1px 0 #fff, 0 1px 2px rgb(24 24 48 / .05), 0 4px 10px -4px rgb(24 24 48 / .07), 0 18px 40px -22px rgb(24 24 48 / .18);
+}
+.dark {
+  --mat-top: #151519; --mat-bottom: #101013;
+  --mat-edge-top: rgb(255 255 255 / .13); --mat-edge-bottom: rgb(255 255 255 / .035);
+  --mat-shadow: inset 0 1px 0 rgb(255 255 255 / .04), 0 1px 2px rgb(0 0 0 / .5), 0 20px 48px -20px rgb(0 0 0 / .85);
+}
+.topbar, .sidebar.panel, .main > .panel, .editor > .panel, .card.panel, .tpl, .pulse {
+  border: 1px solid transparent !important;
+  background:
+    linear-gradient(180deg, var(--mat-top), var(--mat-bottom)) padding-box,
+    linear-gradient(180deg, var(--mat-edge-top), var(--mat-edge-bottom)) border-box !important;
+  box-shadow: var(--mat-shadow) !important;
+}
+.topbar { background:
+    linear-gradient(180deg, color-mix(in srgb, var(--mat-top) 92%, transparent), color-mix(in srgb, var(--mat-bottom) 92%, transparent)) padding-box,
+    linear-gradient(180deg, var(--mat-edge-top), var(--mat-edge-bottom)) border-box !important; }
+.card.panel:hover, .tpl:hover { box-shadow: var(--mat-shadow), 0 0 0 1px color-mix(in srgb, var(--brand-1) 22%, transparent) !important; }
+.dark .card.panel:hover, .dark .tpl:hover { box-shadow: var(--mat-shadow), 0 0 0 1px color-mix(in srgb, var(--brand-1) 30%, transparent), 0 0 32px -12px var(--glow) !important; }
+
+/* ── Command Studio brand ── */
+.brand { gap: 9px !important; padding: 0 8px 0 2px !important; }
+.brand-mark { width: 22px; height: 22px; flex-shrink: 0; border-radius: 7px; background: url("logo.svg") center / contain no-repeat;
+  box-shadow: 0 1px 2px rgb(40 30 120 / .25), 0 4px 12px -4px color-mix(in srgb, var(--brand-2) 60%, transparent); display: inline-block; }
+.brand-mark.sm { width: 18px; height: 18px; border-radius: 6px; vertical-align: -4px; }
+.brand-word { font-size: 14px; font-weight: 650; letter-spacing: -.025em; color: var(--foreground); white-space: nowrap; }
+.brand-word > span { font-weight: 450; color: var(--muted-foreground); }

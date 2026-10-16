@@ -1,0 +1,429 @@
+/* Lean in: crisper (Linear) corners, entity colour carried through the whole app, and more of the space
+   atmosphere in dark. Loaded last by shell.js; ?lean=0 turns it off to compare. */
+
+/* ── 1. corners: Linear-tight ── */
+:root { --r-panel: 8px; --r-well: 6px; --r-ctl: 6px; --r-chip: 4px; --r-kbd: 3px; --radius: 6px; }
+html[data-layout="linear"] .main { border-radius: 10px !important; }
+.menu, .pop, .m-pal, .kit-menu, .kit-sheet, .kit-sheet-panel, .kit-toast, .dialog { border-radius: 8px !important; }
+.card.panel, .tpl, .pulse, .stats, .alert .box, .bt.panel { border-radius: var(--r-panel) !important; }
+.p-avatar { border-radius: 6px !important; } .p-avatar.sm { border-radius: 5px !important; }
+.brand-mark { border-radius: 6px !important; }
+.badge { border-radius: 4px !important; }
+
+/* ── 2. entity colour: one hue per kind of thing, used everywhere that thing appears ── */
+:root {
+  --hue-backend: #1663f0; --hue-data: #0b8a5a; --hue-runs: #0b8aa8; --hue-apps: #c45a12;
+  --hue-secrets: #a66a00; --hue-ai: #8a4fd8; --hue-flow: #c03a85; --hue-release: #4d7c0f; --hue-home: #5a5f6e;
+}
+.dark {
+  --hue-backend: #5ea3ff; --hue-data: #34d399; --hue-runs: #22d3ee; --hue-apps: #fb923c;
+  --hue-secrets: #facc15; --hue-ai: #c084fc; --hue-flow: #f472b6; --hue-release: #a3e635; --hue-home: #a1a1aa;
+}
+svg.lucide-server, svg.lucide-file-code-2, svg.lucide-code-xml, svg.lucide-route { --hue: var(--hue-backend); }
+svg.lucide-table-2, svg.lucide-database { --hue: var(--hue-data); }
+svg.lucide-history, svg.lucide-activity { --hue: var(--hue-runs); }
+svg.lucide-app-window { --hue: var(--hue-apps); }
+svg.lucide-key-round, svg.lucide-key, svg.lucide-lock-keyhole { --hue: var(--hue-secrets); }
+svg.lucide-sparkles, svg.lucide-wand-sparkles { --hue: var(--hue-ai); }
+svg.lucide-workflow { --hue: var(--hue-flow); }
+svg.lucide-rocket { --hue: var(--hue-release); }
+svg.lucide-layout-grid { --hue: var(--hue-home); }
+
+/* sidebar + top tabs: the icon carries the hue, the label stays neutral */
+.sidebar .item > svg[class*="lucide"], .topbar .seg svg[class*="lucide"], .toptabs svg[class*="lucide"] { color: var(--hue, currentColor) !important; opacity: .9; }
+.sidebar .item:not(.on) > svg[class*="lucide"] { opacity: .75; }
+
+/* section icon tiles: a tint of the hue behind a hue stroke */
+.panel-head > svg[class*="lucide"] {
+  color: var(--hue, var(--primary)) !important;
+  background: color-mix(in srgb, var(--hue, var(--primary)) 13%, transparent) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hue, var(--primary)) 22%, transparent) !important;
+  border-radius: 5px !important;
+}
+.dark .panel-head > svg[class*="lucide"] { background: color-mix(in srgb, var(--hue, var(--primary)) 16%, transparent) !important; }
+
+/* status and method chips get a touch more saturation */
+.dark .badge.success { background: color-mix(in srgb, #22c55e 16%, transparent) !important; color: #4ade80 !important; }
+.dark .badge.warning { background: color-mix(in srgb, #f59e0b 16%, transparent) !important; color: #fbbf24 !important; }
+.dark .method.get { color: #4ade80 !important; } .dark .method.post { color: #a5abff !important; }
+
+/* ── 3. space: a nebula and a sparse starfield on the dark canvas ── */
+.dark body, .dark .workspace {
+  background:
+    radial-gradient(34% 40% at 0% 0%, color-mix(in srgb, #2f7cff 20%, transparent), transparent 70%),
+    radial-gradient(26% 34% at 100% 0%, color-mix(in srgb, #22d3ee 10%, transparent), transparent 70%),
+    radial-gradient(30% 36% at 6% 100%, color-mix(in srgb, #2dd4bf 9%, transparent), transparent 70%),
+    radial-gradient(30% 30% at 100% 100%, color-mix(in srgb, #38bdf8 8%, transparent), transparent 70%),
+    #07070a !important;
+  background-attachment: fixed !important;
+}
+.dark .workspace::before, .dark body:not(:has(.workspace))::before {
+  content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: .9;
+  background-image:
+    radial-gradient(1px 1px at 12% 18%, rgb(255 255 255 / .55), transparent 60%),
+    radial-gradient(1px 1px at 27% 62%, rgb(255 255 255 / .35), transparent 60%),
+    radial-gradient(1.2px 1.2px at 8% 84%, rgb(200 210 255 / .5), transparent 60%),
+    radial-gradient(1px 1px at 18% 38%, rgb(255 255 255 / .3), transparent 60%),
+    radial-gradient(1px 1px at 4% 52%, rgb(255 255 255 / .4), transparent 60%),
+    radial-gradient(1.3px 1.3px at 15% 6%, rgb(220 200 255 / .5), transparent 60%),
+    radial-gradient(1px 1px at 92% 4%, rgb(255 255 255 / .4), transparent 60%),
+    radial-gradient(1px 1px at 72% 2%, rgb(255 255 255 / .3), transparent 60%),
+    radial-gradient(1px 1px at 55% 3%, rgb(200 230 255 / .35), transparent 60%),
+    radial-gradient(1.4px 1.4px at 38% 27%, rgb(255 255 255 / .5), transparent 60%),
+    radial-gradient(1px 1px at 63% 71%, rgb(255 255 255 / .35), transparent 60%),
+    radial-gradient(1.2px 1.2px at 84% 44%, rgb(190 220 255 / .45), transparent 60%),
+    radial-gradient(1px 1px at 47% 91%, rgb(255 255 255 / .3), transparent 60%);
+  background-size: 520px 520px;
+}
+.dark .workspace > * { position: relative; z-index: 1; }
+.workspace { position: relative; z-index: 1; background-color: transparent; }
+.dark .workspace > .topbar { position: absolute; }
+.dark .workspace-body { position: absolute !important; }
+/* the sidebar lets the space show through (linear layout puts it on the canvas) */
+html.dark[data-layout="linear"] .sidebar.panel, html.dark[data-layout="linear"] .workspace .topbar { background: transparent !important; }
+/* the content sheet catches a little nebula light along its top edge */
+html.dark[data-layout="linear"] .main {
+  box-shadow: 0 0 0 1px rgb(255 255 255 / .07), inset 0 1px 0 rgb(255 255 255 / .06),
+    0 -18px 60px -30px color-mix(in srgb, #2f7cff 35%, transparent), 0 24px 56px -28px rgb(0 0 0 / .85) !important;
+}
+
+/* ── light: crisp white, with a faint colour wash in the corners instead of space ── */
+html:not(.dark) body, html:not(.dark) .workspace {
+  background:
+    radial-gradient(30% 34% at 0% 0%, color-mix(in srgb, #2f7cff 7%, transparent), transparent 70%),
+    radial-gradient(24% 30% at 100% 0%, color-mix(in srgb, #22d3ee 5%, transparent), transparent 70%),
+    #fbfbfa !important;
+}
+html:not(.dark)[data-layout="linear"] .workspace .topbar, html:not(.dark)[data-layout="linear"] .sidebar.panel { background: transparent !important; }
+
+/* entity hue on small inline icons too (card footers, stat links, template meta, kit sheets) */
+.card-foot svg[class*="lucide"], .bt-foot svg[class*="lucide"], .tpl svg[class*="lucide"], .kit-sheet svg[class*="lucide"],
+.toptabs a svg[class*="lucide"], .alert .ic svg[class*="lucide"] { color: var(--hue, currentColor); }
+
+/* workflow nodes: the icon tile takes the hue of what the node touches */
+svg.lucide-webhook { --hue: var(--hue-flow); }
+svg.lucide-split, svg.lucide-git-branch { --hue: var(--hue-home); }
+svg.lucide-message-square { --hue: var(--hue-apps); }
+[class*="wfn"] svg[class*="lucide"] { color: var(--hue, currentColor) !important; }
+.wfn-ico {
+  background: color-mix(in srgb, var(--hue, var(--muted-foreground)) 12%, transparent) !important; }
+
+/* ── 4. flat inside (owner: inner borders + inner gradients read dated).
+   Rule: only the outer sheet/tiles have an edge. Inside, things separate by fill and spacing; colours are flat.
+   The brand gradient survives only on the logo, project avatars and the art's focal stroke. ── */
+html:not(.dark), html.dark {
+  --edge-ring: transparent !important; --well-ring: transparent !important;
+  --inset-sm: none !important; --inset-md: none !important; --inset-lg: none !important;
+  --raise-press: none !important;
+}
+html:not(.dark) {
+  --well: #f6f6f4 !important; --recess-fill: rgb(38 34 28 / .045) !important; --muted: #f3f3f1 !important;
+  --raise-sm: 0 1px 2px rgb(38 34 28 / .08), 0 0 0 .5px rgb(38 34 28 / .06) !important;
+  --raise-md: 0 1px 2px rgb(38 34 28 / .07), 0 4px 12px -4px rgb(38 34 28 / .12) !important;
+}
+html.dark {
+  --well: rgb(255 255 255 / .03) !important; --recess-fill: rgb(255 255 255 / .045) !important;
+  --raise-sm: inset 0 1px 0 rgb(255 255 255 / .06), 0 1px 2px rgb(0 0 0 / .4) !important;
+  --raise-md: inset 0 1px 0 rgb(255 255 255 / .06), 0 4px 14px -4px rgb(0 0 0 / .6) !important;
+}
+
+/* wells, code, recesses: fill only */
+.well, pre.json, .recess, .slot { box-shadow: none !important; border: 0 !important; }
+.input, textarea.input, .field input, .search-trigger, .seg, .kbd, .url, .file-chip, .rows-chip, .check, .switch, .bar, .ov-snip-val, .ai-bar {
+  border-color: transparent !important; box-shadow: none !important; }
+.input, textarea.input, .search-trigger, .ov-snip-val { background: var(--recess-fill) !important; }
+.input:focus, .input:focus-visible, textarea.input:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 45%, transparent) !important; }
+.check { background: var(--recess-fill) !important; box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--foreground) 22%, transparent) !important; }
+.check.on { box-shadow: none !important; }
+
+/* chips and badges: a flat tint, no ring */
+.method, .badge, .badge.outline, .badge.secondary, .badge.neutral, .tag { box-shadow: none !important; border-color: transparent !important; }
+.method { background: color-mix(in srgb, currentColor 13%, transparent) !important; }
+.badge.outline { background: var(--recess-fill) !important; color: var(--muted-foreground) !important; }
+
+/* tiles and cards inside the sheet: one flat fill, a hairline edge, no inner gradient */
+.main .bt.panel, .card.panel, .tpl, .pulse, .main > .panel .panel {
+  background: var(--card) !important; border: 0 !important;
+  box-shadow: 0 0 0 1px var(--panel-border), 0 1px 2px rgb(0 0 0 / .04) !important; }
+.dark .main .bt.panel, .dark .card.panel, .dark .tpl, .dark .pulse, .dark .main > .panel .panel {
+  background: #141417 !important; box-shadow: 0 0 0 1px rgb(255 255 255 / .06) !important; }
+.bt.panel::after, .card.panel::after, .tpl::after, .pulse::after { display: none !important; }
+
+/* the focal tile keeps one quiet accent: a solid indigo edge, no wash, no gradient ring */
+.vx-edge::before { display: none !important; }
+.vx-edge, .bt-runs { box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 45%, transparent) !important; background: var(--card) !important; }
+.dark .vx-edge, .dark .bt-runs { background: #141417 !important; box-shadow: 0 0 0 1px color-mix(in srgb, #5ea3ff 35%, transparent) !important; }
+.stat:nth-child(4), .pulse .pc:first-child, .ai-card { background: transparent !important; }
+
+/* buttons: flat fills */
+.btn:not(.outline):not(.ghost):not(.secondary):not(.destructive):not(.link):not(.ai) {
+  background: var(--primary) !important; box-shadow: inset 0 1px 0 rgb(255 255 255 / .12) !important; }
+.btn:not(.outline):not(.ghost):not(.secondary):not(.destructive):not(.link):not(.ai):hover { background: color-mix(in srgb, var(--primary) 88%, #fff) !important; }
+.btn.ai { background: var(--primary) !important; color: #fff !important; box-shadow: inset 0 1px 0 rgb(255 255 255 / .14) !important; }
+.dark .btn.ai { background: var(--primary) !important; }
+.btn.outline { border-color: transparent !important; background: var(--recess-fill) !important; box-shadow: none !important; }
+.btn.outline:hover { background: color-mix(in srgb, var(--foreground) 9%, transparent) !important; }
+.ai-bar { background: color-mix(in srgb, var(--hue-ai) 9%, transparent) !important; }
+.ai-bar .ico, .ai-card .spark-ic, .spark-ic { background: var(--hue-ai) !important; box-shadow: none !important; }
+
+/* alerts: a flat tint instead of a ring and wash */
+.alert .box { background: color-mix(in srgb, var(--warning) 8%, var(--card)) !important; box-shadow: none !important; }
+.alert.ok .box { background: color-mix(in srgb, var(--success) 8%, var(--card)) !important; }
+.inline-warn { border: 0 !important; background: color-mix(in srgb, var(--warning) 11%, transparent) !important; }
+/* overview's focal tile had its own gradient wash (higher specificity); flatten it */
+.main .page .bt-runs.panel { background: var(--card) !important; }
+.dark .main .page .bt-runs.panel { background: #141417 !important; }
+/* sidebar active item: a fill, no ring */
+html:not(.dark)[data-layout="linear"] .sidebar .item.on, html:not(.dark)[data-layout="linear"] .sidebar .m-pill {
+  background: rgb(38 34 28 / .055) !important; box-shadow: none !important; }
+html.dark[data-layout="linear"] .sidebar .item.on, html.dark[data-layout="linear"] .sidebar .m-pill {
+  background: rgb(255 255 255 / .07) !important; box-shadow: none !important; }
+
+/* ── 5. no borders, no shadows on tiles and cards (fill only). html body prefix beats page-level !important rules ── */
+html body .main .page .bt.panel, html body .main .page .bt-runs.panel, html body .card.panel, html body .tpl, html body .pulse,
+html body .main > .panel .panel, html body .alert .box, html body .vx-edge {
+  background: var(--tile, #f7f7f5) !important; box-shadow: none !important; border: 0 !important; outline: 0 !important; }
+html { --tile: #f6f6f4; }
+html.dark { --tile: #16161a; }
+html body .card.panel:hover, html body .tpl:hover { background: color-mix(in srgb, var(--tile) 100%, var(--foreground) 3%) !important; box-shadow: none !important; transform: none !important; }
+html body .new { border: 1px dashed color-mix(in srgb, var(--foreground) 14%, transparent) !important; background: transparent !important; box-shadow: none !important; }
+/* wells inside a tile go one step further, still fill only */
+html body .bt .well, html body .card .well, html body .tpl .pic, html body .card-body { background: color-mix(in srgb, var(--tile) 100%, var(--foreground) 3%) !important; }
+html.dark body .bt .well, html.dark body .card .well, html.dark body .tpl .pic { background: rgb(255 255 255 / .03) !important; }
+/* the alert keeps its meaning through a warm fill only */
+html body .alert .box { background: color-mix(in srgb, var(--warning) 9%, var(--tile)) !important; }
+html body .alert.ok .box { background: color-mix(in srgb, var(--success) 9%, var(--tile)) !important; }
+/* the focal tile: no edge at all; its number and chart carry the focus */
+html body .vx-edge::before, html body .vx-edge::after { display: none !important; }
+/* sheet: hairline only, no drop shadow */
+html[data-layout="linear"] body .main { box-shadow: 0 0 0 1px var(--panel-border) !important; }
+html.dark[data-layout="linear"] body .main { box-shadow: 0 0 0 1px rgb(255 255 255 / .07), 0 -18px 60px -30px color-mix(in srgb, #2f7cff 30%, transparent) !important; }
+/* top bar / sticky home header: no shadow */
+html body .topbar, html body .home-top { box-shadow: none !important; }
+html body .home-top { border-bottom: 1px solid var(--hairline) !important; }
+/* dark: beat the earlier .dark tile rules so tiles stay fill-only */
+html.dark body .main .page .bt.panel, html.dark body .main .page .bt-runs.panel, html.dark body .card.panel, html.dark body .tpl,
+html.dark body .pulse, html.dark body .main > .panel .panel, html.dark body .vx-edge, html.dark body .bt-runs {
+  background: var(--tile) !important; box-shadow: none !important; border: 0 !important; }
+
+
+/* ── 6. palette: electric azure → cyan (replaces indigo/violet as the brand) ── */
+html:not(.dark) {
+  --primary: #1663f0 !important; --ring: #2f7cff !important; --primary-foreground: #ffffff !important;
+  --brand-1: #1f6fff !important; --brand-2: #0bb5d6 !important;
+  --brand-soft: color-mix(in srgb, #1f6fff 8%, transparent) !important;
+  --glow: color-mix(in srgb, #1f6fff 18%, transparent) !important;
+  --method-post: #1663f0 !important; --syn-fn: #1663f0 !important; --accent-ink: #1663f0;
+}
+html.dark {
+  --primary: #2a74f0 !important; --ring: #5ea3ff !important; --primary-foreground: #ffffff !important;
+  --brand-1: #3b8bff !important; --brand-2: #22d3ee !important;
+  --brand-soft: color-mix(in srgb, #3b8bff 14%, transparent) !important;
+  --glow: color-mix(in srgb, #3b8bff 28%, transparent) !important;
+  --method-post: #7fb6ff !important; --syn-fn: #8cc0ff !important; --accent-ink: #7fb6ff;
+}
+.dark .method.post { color: #7fb6ff !important; }
+html.dark body .main { box-shadow: 0 0 0 1px rgb(255 255 255 / .07), 0 -18px 60px -30px color-mix(in srgb, #3b8bff 30%, transparent) !important; }
+/* the canvas sky lives behind the workspace: the body carries the nebula, the workspace is see-through */
+html body .workspace { background: transparent !important; }
+
+/* ── 7. neutral pass: same design, quieter. Calmer azure, muted entity hues, dimmer nebula ── */
+html:not(.dark) {
+  --primary: #2a5fc4 !important; --ring: #4a7fd6 !important;
+  --brand-1: #3a6fd0 !important; --brand-2: #4aa9bf !important;
+  --brand-soft: color-mix(in srgb, #3a6fd0 7%, transparent) !important; --glow: color-mix(in srgb, #3a6fd0 12%, transparent) !important;
+  --method-post: #2a5fc4 !important; --syn-fn: #2a5fc4 !important;
+  --hue-backend: #3a67b8; --hue-data: #2f7d62; --hue-runs: #2f7f93; --hue-apps: #a8643a;
+  --hue-secrets: #8f7426; --hue-ai: #7a62b0; --hue-flow: #a2557d; --hue-release: #5a7a2a; --hue-home: #6a6e78;
+}
+html.dark {
+  --primary: #3567c8 !important; --ring: #7ea3e0 !important;
+  --brand-1: #5b8ee0 !important; --brand-2: #6cc3d6 !important;
+  --brand-soft: color-mix(in srgb, #5b8ee0 11%, transparent) !important; --glow: color-mix(in srgb, #5b8ee0 20%, transparent) !important;
+  --method-post: #93b2e6 !important; --syn-fn: #9cbbe8 !important;
+  --hue-backend: #86a8e0; --hue-data: #6cc4a2; --hue-runs: #74c4d4; --hue-apps: #dca27a;
+  --hue-secrets: #d6bf6a; --hue-ai: #ad9ad9; --hue-flow: #d495b6; --hue-release: #a9c870; --hue-home: #9a9aa4;
+}
+.dark .method.post { color: #93b2e6 !important; } .dark .method.get { color: #7fcf9d !important; }
+.dark .badge.success { color: #7fd6a0 !important; background: color-mix(in srgb, #4ade80 12%, transparent) !important; }
+/* icons: the hue is a hint, the active item is the only bright one */
+.sidebar .item:not(.on) > svg[class*="lucide"] { opacity: .6 !important; }
+.panel-head > svg[class*="lucide"] { background: color-mix(in srgb, var(--hue, var(--primary)) 10%, transparent) !important; box-shadow: none !important; }
+/* nebula: dimmer and cooler-neutral */
+.dark body {
+  background:
+    radial-gradient(34% 40% at 0% 0%, color-mix(in srgb, #3b6fd0 13%, transparent), transparent 70%),
+    radial-gradient(26% 34% at 100% 0%, color-mix(in srgb, #5fb3c6 7%, transparent), transparent 70%),
+    radial-gradient(30% 36% at 6% 100%, color-mix(in srgb, #4f9e8a 5%, transparent), transparent 70%),
+    radial-gradient(30% 30% at 100% 100%, color-mix(in srgb, #5b7fc0 5%, transparent), transparent 70%),
+    #08080a !important;
+  background-attachment: fixed !important;
+}
+html.dark body .main { box-shadow: 0 0 0 1px rgb(255 255 255 / .07) !important; }
+.cs-sky { opacity: .8; } .cs-sky-sheet { opacity: .7; }
+html:not(.dark) body { background: radial-gradient(30% 30% at 0% 0%, color-mix(in srgb, #3a6fd0 5%, transparent), transparent 70%), #fbfbfa !important; }
+
+/* ── 8. cool slate neutrals: tiles, sheet and wells share the sky's temperature (no warm greys) ── */
+html.dark {
+  --tile: #131722 !important; --card: #0e1016 !important; --background: #0e1016 !important; --popover: #151925 !important;
+  --muted: #171b26 !important; --secondary: #171b26 !important; --accent: #1a1f2b !important;
+  --muted-foreground: #8b93a7 !important; --hairline: rgb(170 190 255 / .07) !important; --panel-border: rgb(170 190 255 / .08) !important;
+  --well: rgb(150 175 255 / .035) !important; --recess-fill: rgb(150 175 255 / .055) !important;
+}
+html:not(.dark) {
+  --tile: #f4f6fa !important; --muted: #f1f3f7 !important; --secondary: #f1f3f7 !important; --accent: #eef1f6 !important;
+  --muted-foreground: #5d6475 !important; --hairline: rgb(30 45 80 / .07) !important; --panel-border: rgb(30 45 80 / .09) !important;
+  --well: #eef1f6 !important; --recess-fill: rgb(30 45 80 / .045) !important; --foreground: #141821 !important;
+}
+html.dark[data-layout="linear"] body .main { background: #0e1016 !important; }
+html.dark body .main .page .bt.panel, html.dark body .main .page .bt-runs.panel, html.dark body .card.panel, html.dark body .tpl,
+html.dark body .pulse, html.dark body .main > .panel .panel, html.dark body .vx-edge, html.dark body .bt-runs { background: var(--tile) !important; }
+html.dark body .main > .panel, html.dark body .main > .editor > .panel { background: transparent !important; }
+html.dark body .bt .well, html.dark body .card .well, html.dark body .tpl .pic, html.dark body .card-body { background: rgb(150 175 255 / .035) !important; }
+html:not(.dark) body .bt .well, html:not(.dark) body .card .well, html:not(.dark) body .tpl .pic, html:not(.dark) body .card-body { background: #ffffff !important; }
+html:not(.dark) body { background: radial-gradient(30% 30% at 0% 0%, color-mix(in srgb, #3a6fd0 5%, transparent), transparent 70%), #f8f9fb !important; }
+html:not(.dark)[data-layout="linear"] .workspace .topbar, html:not(.dark)[data-layout="linear"] .sidebar.panel { background: transparent !important; }
+
+/* ── 9. glass (dark, space theme): the chrome and the boxes are frosted slate, so the sky shows through, softly blurred.
+   The sheet itself is only lightly tinted (no blur) so each tile blurs the real sky behind the app. Text sits on ≥55% fill. ── */
+html.dark {
+  --gl-fill: rgb(19 24 36 / .52); --gl-fill-strong: rgb(16 20 30 / .66); --gl-chrome: rgb(12 15 22 / .42);
+  --gl-edge: rgb(180 205 255 / .10); --gl-top: rgb(200 220 255 / .16);
+  --gl-blur: blur(18px) saturate(150%);
+}
+/* the sheet: a light veil, no blur, so the stars stay visible behind everything */
+html.dark[data-layout="linear"] body .main { background: rgb(12 14 20 / .38) !important; }
+html.dark body .main > .panel, html.dark body .main > .editor > .panel { background: transparent !important; }
+html.dark .cs-sky-sheet { display: none !important; }
+html.dark .cs-sky { opacity: .95 !important; }
+/* top bar + sidebar: frosted chrome */
+html.dark .workspace .topbar, html.dark .home-top {
+  background: var(--gl-chrome) !important; -webkit-backdrop-filter: var(--gl-blur); backdrop-filter: var(--gl-blur);
+  box-shadow: inset 0 -1px 0 var(--gl-edge) !important; }
+html.dark[data-layout="linear"] .sidebar.panel {
+  background: var(--gl-chrome) !important; -webkit-backdrop-filter: var(--gl-blur); backdrop-filter: var(--gl-blur);
+  box-shadow: inset -1px 0 0 var(--gl-edge) !important; }
+/* the boxes: frosted tiles with a hairline that catches light at the top */
+html.dark body .main .page .bt.panel, html.dark body .main .page .bt-runs.panel, html.dark body .card.panel, html.dark body .tpl,
+html.dark body .pulse, html.dark body .main > .panel .panel, html.dark body .bt-runs, html.dark body .alert .box,
+html.dark body .main > .editor > .panel {
+  background: var(--gl-fill) !important; -webkit-backdrop-filter: var(--gl-blur); backdrop-filter: var(--gl-blur);
+  box-shadow: inset 0 0 0 1px var(--gl-edge), inset 0 1px 0 var(--gl-top) !important; }
+html.dark body .main > .editor > .panel { background: var(--gl-fill-strong) !important; }
+html.dark body .alert .box { background: color-mix(in srgb, #f2b84b 10%, rgb(19 24 36 / .55)) !important; }
+/* inside a glass tile: wells and code get a deeper, solid-ish recess so text stays crisp */
+html.dark body .bt .well, html.dark body .card .well, html.dark body .tpl .pic, html.dark body .card-body,
+html.dark body pre.json, html.dark body .main .code, html.dark body .codewrap { background: rgb(8 10 16 / .55) !important; }
+html.dark body .card.panel:hover, html.dark body .tpl:hover { background: rgb(26 32 48 / .6) !important; }
+/* floating layers: a stronger frost */
+html.dark .m-pal, html.dark .menu, html.dark .pop, html.dark .kit-menu, html.dark .kit-toast, html.dark .kit-sheet-panel, html.dark .kit-sheet {
+  background: rgb(18 22 32 / .72) !important; -webkit-backdrop-filter: blur(24px) saturate(160%); backdrop-filter: blur(24px) saturate(160%);
+  box-shadow: inset 0 0 0 1px var(--gl-edge), inset 0 1px 0 var(--gl-top), 0 24px 60px -20px rgb(0 0 0 / .7) !important; }
+/* light mode: a subtle frost on the chrome only; content stays solid */
+html:not(.dark) .workspace .topbar, html:not(.dark) .home-top { background: rgb(248 249 251 / .7) !important; -webkit-backdrop-filter: blur(16px) saturate(160%); backdrop-filter: blur(16px) saturate(160%); }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  html.dark body .card.panel, html.dark body .main .page .bt.panel, html.dark body .tpl, html.dark body .pulse { background: #131722 !important; }
+}
+/* glass needs something to frost: a quiet nebula bloom behind the content area, and clearer tiles */
+html.dark { --gl-fill: rgb(18 23 35 / .40); --gl-fill-strong: rgb(15 19 28 / .62); }
+html.dark[data-layout="linear"] body .main { background: rgb(10 12 18 / .22) !important; }
+html.dark body::after { content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background:
+    radial-gradient(28% 30% at 38% 34%, rgb(70 120 220 / .16), transparent 70%),
+    radial-gradient(24% 28% at 72% 62%, rgb(80 170 200 / .10), transparent 70%),
+    radial-gradient(30% 26% at 55% 92%, rgb(90 110 200 / .09), transparent 70%); }
+html.dark .workspace { z-index: 1; }
+html.dark body::after { opacity: 1 !important; mix-blend-mode: normal !important; z-index: 0 !important; background-size: auto !important; }
+/* stronger frost: a lighter, bluer translucent fill reads as glass on near-black; the bloom behind is brighter */
+html.dark { --gl-fill: rgb(40 52 80 / .30); --gl-fill-strong: rgb(22 28 42 / .62); --gl-chrome: rgb(16 20 30 / .40);
+  --gl-edge: rgb(190 210 255 / .12); --gl-top: rgb(210 228 255 / .22); --gl-blur: blur(22px) saturate(170%); }
+html.dark body::after { background:
+    radial-gradient(30% 32% at 36% 30%, rgb(70 125 235 / .30), transparent 70%),
+    radial-gradient(26% 30% at 74% 58%, rgb(70 175 210 / .20), transparent 70%),
+    radial-gradient(34% 30% at 50% 96%, rgb(90 110 220 / .18), transparent 70%),
+    radial-gradient(20% 24% at 90% 12%, rgb(120 140 240 / .14), transparent 70%) !important; }
+/* readability: table and list rows sit in a deeper recess so text never floats on the frost */
+html.dark body .bt .well, html.dark body .card .well, html.dark body .tpl .pic, html.dark body .card-body { background: rgb(8 10 16 / .5) !important; }
+html.dark body .workspace, html:not(.dark) body .workspace { background: transparent !important; }
+
+/* ── 10. calmer space: less glow, quieter stars, so the content reads first ── */
+html.dark body::after { background:
+    radial-gradient(30% 32% at 36% 30%, rgb(70 125 235 / .17), transparent 70%),
+    radial-gradient(26% 30% at 74% 58%, rgb(70 175 210 / .11), transparent 70%),
+    radial-gradient(34% 30% at 50% 96%, rgb(90 110 220 / .10), transparent 70%),
+    radial-gradient(20% 24% at 90% 12%, rgb(120 140 240 / .08), transparent 70%) !important; }
+html.dark .cs-sky { opacity: .5 !important; }
+html.dark { --gl-top: rgb(210 228 255 / .14); --gl-edge: rgb(190 210 255 / .09); --glow: color-mix(in srgb, #5b8ee0 13%, transparent) !important; }
+.sparkle { opacity: .55; }
+.art .a-glow { filter: drop-shadow(0 0 4px var(--glow)) !important; }
+
+/* ── 10. blue glass: a denser, bluer frost. The sky hints through but never competes; content always reads ── */
+html.dark {
+  --gl-fill: rgb(24 38 70 / .58); --gl-fill-strong: rgb(18 28 52 / .74); --gl-chrome: rgb(14 22 42 / .62);
+  --gl-edge: rgb(150 185 255 / .13); --gl-top: rgb(190 215 255 / .16);
+  --gl-blur: blur(26px) saturate(140%);
+  --glow: color-mix(in srgb, #5b8ee0 14%, transparent) !important;
+}
+html.dark[data-layout="linear"] body .main { background: rgb(12 20 38 / .45) !important; }
+html.dark body .bt .well, html.dark body .card .well, html.dark body .tpl .pic, html.dark body .card-body,
+html.dark body pre.json, html.dark body .main .code, html.dark body .codewrap { background: rgb(8 14 28 / .55) !important; }
+html.dark body .card.panel:hover, html.dark body .tpl:hover { background: rgb(30 46 82 / .62) !important; }
+html.dark body .alert .box { background: color-mix(in srgb, #f2b84b 9%, rgb(24 38 70 / .6)) !important; }
+/* quieter sky and bloom so the blue glass reads as the surface, not the stars */
+html.dark .cs-sky { opacity: .55 !important; }
+html.dark body::after { background:
+    radial-gradient(32% 34% at 36% 30%, rgb(60 110 220 / .20), transparent 70%),
+    radial-gradient(28% 30% at 74% 60%, rgb(60 150 210 / .12), transparent 70%),
+    radial-gradient(34% 30% at 50% 96%, rgb(70 100 210 / .12), transparent 70%) !important; }
+.sparkle { opacity: .5; }
+.art .a-glow { filter: drop-shadow(0 0 4px var(--glow)) !important; }
+
+/* ── 11. css.glass recipe (owner): white 7% frost, 11.6px blur, soft drop shadow. The blue comes from what's behind
+   (a navy sheet veil + the nebula), so the glass itself stays neutral. Corners stay at our 8px. ── */
+html.dark {
+  --gl-fill: rgba(255, 255, 255, 0.07); --gl-fill-strong: rgba(255, 255, 255, 0.05);
+  --gl-chrome: rgba(255, 255, 255, 0.04); --gl-blur: blur(11.6px);
+  --gl-edge: rgba(255, 255, 255, 0.10); --gl-top: rgba(255, 255, 255, 0.14);
+}
+html.dark[data-layout="linear"] body .main { background: rgb(12 22 44 / .55) !important; }
+html.dark body .main .page .bt.panel, html.dark body .main .page .bt-runs.panel, html.dark body .card.panel, html.dark body .tpl,
+html.dark body .pulse, html.dark body .main > .panel .panel, html.dark body .bt-runs, html.dark body .main > .editor > .panel {
+  background: var(--gl-fill) !important; -webkit-backdrop-filter: var(--gl-blur); backdrop-filter: var(--gl-blur);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1), inset 0 0 0 1px var(--gl-edge), inset 0 1px 0 var(--gl-top) !important; }
+html.dark body .main > .editor > .panel { background: var(--gl-fill-strong) !important; }
+html.dark body .card.panel:hover, html.dark body .tpl:hover { background: rgba(255, 255, 255, 0.10) !important; }
+html.dark body .alert .box { background: color-mix(in srgb, #f2b84b 10%, rgba(255, 255, 255, 0.07)) !important;
+  -webkit-backdrop-filter: var(--gl-blur); backdrop-filter: var(--gl-blur); }
+/* text keeps a darker recess so it never sits on bare frost */
+html.dark body .bt .well, html.dark body .card .well, html.dark body .tpl .pic, html.dark body .card-body,
+html.dark body pre.json, html.dark body .main .code, html.dark body .codewrap { background: rgb(6 12 26 / .45) !important; }
+
+/* ── 12. mostly black, glass pops (owner): near-black everywhere, the space barely there; the glass carries the light ── */
+html.dark body { background: #050507 !important; }
+html.dark[data-layout="linear"] body .main { background: transparent !important; box-shadow: 0 0 0 1px rgb(255 255 255 / .06) !important; }
+html.dark body::after { background:
+    radial-gradient(34% 34% at 38% 30%, rgb(70 110 200 / .09), transparent 70%),
+    radial-gradient(28% 30% at 74% 62%, rgb(70 140 200 / .06), transparent 70%) !important; }
+html.dark .cs-sky { opacity: .4 !important; }
+html.dark {
+  --gl-fill: rgba(255, 255, 255, 0.055); --gl-fill-strong: rgba(255, 255, 255, 0.04); --gl-chrome: rgba(255, 255, 255, 0.025);
+  --gl-edge: rgba(255, 255, 255, 0.11); --gl-top: rgba(255, 255, 255, 0.24);
+}
+html.dark body .main .page .bt.panel, html.dark body .main .page .bt-runs.panel, html.dark body .card.panel, html.dark body .tpl,
+html.dark body .pulse, html.dark body .main > .panel .panel, html.dark body .bt-runs, html.dark body .main > .editor > .panel {
+  box-shadow: 0 8px 32px rgb(0 0 0 / .55), inset 0 0 0 1px var(--gl-edge), inset 0 1px 0 var(--gl-top) !important; }
+html.dark body .bt .well, html.dark body .card .well, html.dark body .tpl .pic, html.dark body .card-body,
+html.dark body pre.json, html.dark body .main .code, html.dark body .codewrap { background: rgb(0 0 0 / .35) !important; }
+html.dark body .card.panel:hover, html.dark body .tpl:hover { background: rgba(255, 255, 255, 0.08) !important; }
+
+/* ── 13. edgeless glass (owner): no outlines. The frost, a whisper of top light and the shadow define each box ── */
+html.dark { --gl-edge: transparent; --gl-top: rgba(255, 255, 255, 0.07); }
+html.dark body .main .page .bt.panel, html.dark body .main .page .bt-runs.panel, html.dark body .card.panel, html.dark body .tpl,
+html.dark body .pulse, html.dark body .main > .panel .panel, html.dark body .bt-runs, html.dark body .main > .editor > .panel, html.dark body .alert .box {
+  background: rgba(255, 255, 255, 0.06) !important;
+  box-shadow: 0 10px 40px rgb(0 0 0 / .5), inset 0 1px 0 var(--gl-top) !important; border: 0 !important; outline: 0 !important; }
+html.dark body .main > .editor > .panel { background: rgba(255, 255, 255, 0.045) !important; }
+html.dark body .alert .box { background: color-mix(in srgb, #f2b84b 9%, rgba(255, 255, 255, 0.05)) !important; }
+html.dark[data-layout="linear"] body .main { box-shadow: none !important; }
+html.dark .workspace .topbar, html.dark .home-top, html.dark[data-layout="linear"] .sidebar.panel { box-shadow: none !important; }
+html.dark body .new { border-color: rgb(255 255 255 / .07) !important; }

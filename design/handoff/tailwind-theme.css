@@ -1,0 +1,298 @@
+/* ══════════════════════════════════════════════════════════════════════════════════════════════
+   Command Studio · Tailwind CSS v4 theme + recipes (final)
+   For demo/apps/workflow-studio/src/index.css. Replace that file's light/dark token blocks and its
+   @theme inline block with:
+
+     @import "tailwindcss";
+     @import "tw-animate-css";
+     @plugin "@tailwindcss/typography";
+     @import "./tokens.css";              ← handoff/tokens.css (unlayered, so it beats Tailwind's theme layer)
+     @custom-variant dark (&:is(.dark *));
+     … then everything below.
+
+   Keep the studio's --node-*, --sticky-* and --chart-* blocks until the canvas is restyled.
+   Every value is a var() into tokens.css, so light / dark switch with the .dark class on <html>.
+   The recipes are the final rules of the mockups' lean.css §4–§13, with dark's edgeless glass.
+   ══════════════════════════════════════════════════════════════════════════════════════════════ */
+
+@theme inline {
+  /* ── colours: shadcn ── */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* ── colours: surfaces, text, lines ── */
+  --color-canvas: var(--canvas);
+  --color-sheet: var(--sheet);
+  --color-tile: var(--tile);
+  --color-well: var(--well);
+  --color-recess: var(--recess);
+  --color-raise: var(--raise);
+  --color-surface: var(--surface);
+  --color-faint: var(--faint);
+  --color-hairline: var(--hairline);
+  --color-panel-border: var(--panel-border);
+  --color-slot-line: var(--slot-line);
+
+  /* ── colours: brand, status, methods, code ── */
+  --color-brand-1: var(--brand-1);
+  --color-brand-2: var(--brand-2);
+  --color-brand-soft: var(--brand-soft);
+  --color-glow: var(--glow);
+  --color-success: var(--success);
+  --color-success-text: var(--success-text);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-text: var(--warning-text);
+  --color-warning-soft: var(--warning-soft);
+  --color-ai: var(--ai);
+  --color-ai-text: var(--ai-text);
+  --color-ai-soft: var(--ai-soft);
+  --color-method-get: var(--method-get);
+  --color-method-post: var(--method-post);
+  --color-method-put: var(--method-put);
+  --color-method-patch: var(--method-patch);
+  --color-method-delete: var(--method-delete);
+  --color-code-bg: var(--code-bg);
+  --color-code-gutter: var(--code-gutter);
+  --color-line-added: var(--line-added);
+  --color-syn-keyword: var(--syn-keyword);
+  --color-syn-string: var(--syn-string);
+  --color-syn-number: var(--syn-number);
+  --color-syn-fn: var(--syn-fn);
+  --color-syn-comment: var(--syn-comment);
+  --color-syn-deco: var(--syn-deco);
+
+  /* ── colours: entity hues (text-hue-data, bg-hue-flow/10 …) ── */
+  --color-hue-backend: var(--hue-backend);
+  --color-hue-data: var(--hue-data);
+  --color-hue-runs: var(--hue-runs);
+  --color-hue-apps: var(--hue-apps);
+  --color-hue-secrets: var(--hue-secrets);
+  --color-hue-ai: var(--hue-ai);
+  --color-hue-flow: var(--hue-flow);
+  --color-hue-release: var(--hue-release);
+  --color-hue-home: var(--hue-home);
+
+  /* ── radii: shadcn steps follow the system (sm 4 · md 6 · lg 6 · xl 8 · 2xl 10), plus named roles ── */
+  --radius-xs: var(--r-kbd);
+  --radius-sm: var(--r-chip);
+  --radius-md: var(--r-ctl);
+  --radius-lg: var(--r-well);
+  --radius-xl: var(--r-panel);
+  --radius-2xl: var(--r-sheet);
+  --radius-sheet: var(--r-sheet);
+  --radius-panel: var(--r-panel);
+  --radius-well: var(--r-well);
+  --radius-ctl: var(--r-ctl);
+  --radius-chip: var(--r-chip);
+  --radius-kbd: var(--r-kbd);
+
+  /* ── shadows: shadcn scale, then the system's ── */
+  --shadow-2xs: var(--shadow-2xs);
+  --shadow-xs: var(--shadow-xs);
+  --shadow-sm: var(--shadow-sm);
+  --shadow: var(--shadow);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-xl: var(--shadow-xl);
+  --shadow-2xl: var(--shadow-2xl);
+  --shadow-glass: var(--glass-elevation);
+  --shadow-overlay: var(--overlay-shadow);
+  --shadow-sheet: var(--sheet-ring);
+  --shadow-raise-sm: var(--raise-sm);
+  --shadow-raise-md: var(--raise-md);
+  --shadow-focus: var(--shadow-focus);
+
+  /* ── type ── */
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --text-kbd: var(--text-kbd);
+  --text-meta: var(--text-meta);
+  --text-body: var(--text-body);
+  --text-panel-title: var(--text-panel-title);
+  --text-section: var(--text-section);
+  --text-title: var(--text-title);
+  --text-hero: var(--text-hero);
+  --tracking-tighter: calc(var(--tracking-normal) - 0.05em);
+  --tracking-tight: calc(var(--tracking-normal) - 0.025em);
+  --tracking-normal: var(--tracking-normal);
+  --tracking-wide: calc(var(--tracking-normal) + 0.025em);
+  --tracking-wider: calc(var(--tracking-normal) + 0.05em);
+  --tracking-widest: calc(var(--tracking-normal) + 0.1em);
+
+  /* ── motion ── */
+  --ease-out: var(--ease-out);
+  --ease-io: var(--ease-io);
+  --ease-in: var(--ease-in);
+}
+
+
+/* ════════════════════════════════════════ recipes ════════════════════════════════════════ */
+
+/* Glass (lean §13): the boxes. Dark = white 6% frost, 11.6px blur, a 1px top light and a soft drop, NO outline.
+   Light = a solid slate tile, no shadow (the tokens switch it; nothing here is mode-specific). */
+@utility glass {
+  border: 0;
+  border-radius: var(--r-panel);
+  background: var(--glass-fill);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-elevation);
+}
+
+/* Tile: alias of glass for bento tiles and cards. Hover (cards) lifts the frost a step. */
+@utility tile {
+  border: 0;
+  border-radius: var(--r-panel);
+  background: var(--glass-fill);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-elevation);
+}
+
+/* Editor panels (backend / data split views): a thinner frost than tiles; merged into the sheet in light. */
+@utility glass-editor {
+  border: 0;
+  background: var(--glass-fill-editor);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-elevation);
+}
+
+/* No backdrop-filter: fall back to the solid slate tile so text never sits on bare space. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass, .tile, .glass-editor { background: var(--tile); }
+  .glass-chrome { background: var(--canvas); }
+  .glass-overlay { background: var(--popover); }
+}
+
+/* Chrome (lean §9 + §13): top bar and sidebar sit on the canvas. A faint frost in dark, no edge, no shadow.
+   Light: transparent, the top bar keeps a light blur for content scrolling under it.
+   The mockup's top bar renders transparent in dark too: use `glass-chrome bg-transparent!` there to match
+   (the `!` is needed: recipes sort after plain colour utilities). */
+@utility glass-chrome {
+  border: 0;
+  background: var(--chrome-fill);
+  -webkit-backdrop-filter: var(--chrome-blur);
+  backdrop-filter: var(--chrome-blur);
+  box-shadow: none;
+}
+
+/* Overlay (lean §9): menus, ⌘K palette, popovers, toasts, sheets. A stronger frost.
+   Dark: top light + deep drop, no outline. Light: white glass with a faint ring. */
+@utility glass-overlay {
+  border: 0;
+  border-radius: var(--r-panel);
+  background: var(--overlay-fill);
+  -webkit-backdrop-filter: var(--overlay-blur);
+  backdrop-filter: var(--overlay-blur);
+  box-shadow: var(--overlay-shadow);
+}
+
+/* Sheet (layout.css linear + lean §12/§13): the one large content surface, inset from the window by
+   --sheet-gutter on the right and bottom. 10px radius. Dark: transparent, no edge (tiles float on space).
+   Light: white with a hairline ring. */
+@utility sheet {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--r-sheet);
+  background: var(--sheet);
+  box-shadow: var(--sheet-ring);
+}
+
+/* Well (lean §4/§13): a flat recessed area inside a tile (tables, lists, code). Fill only, no ring.
+   Dark: black 35% under the frost; light: white inside the slate tile. Never a well in a well. */
+@utility well {
+  border: 0;
+  border-radius: var(--r-well);
+  background: var(--well);
+  box-shadow: none;
+}
+
+/* Recess (lean §4): controls that hold a value: seg tracks, chips, search, outline buttons. Fill only. */
+@utility recess {
+  border-color: transparent;
+  border-radius: var(--r-ctl);
+  background: var(--recess);
+  box-shadow: none;
+}
+
+/* Raise: the one lifted thing inside a recess (seg thumb, kbd on a search field). */
+@utility raise {
+  border-radius: var(--r-chip);
+  background: var(--raise);
+  box-shadow: var(--raise-sm);
+}
+
+/* Slot: a dashed empty slot ("New project"). Transparent fill. */
+@utility slot {
+  border: 1px dashed var(--slot-line);
+  border-radius: var(--r-panel);
+  background: transparent;
+  box-shadow: none;
+}
+
+/* Field (lean §4): text inputs and textareas. A recess, no ring until focus. */
+@utility field {
+  border: 1px solid transparent;
+  border-radius: var(--r-ctl);
+  background: var(--recess);
+  box-shadow: none;
+  &:focus, &:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
+}
+
+/* Star dust (accent "stars"): the empty-field texture. Set --star-dust with starDustDataURL() from
+   starfield.js (see its usage note); without it, nothing is drawn. */
+@utility stardust {
+  background-image: var(--star-dust, none);
+  background-size: 480px 480px;
+  background-position: 0 0;
+}
+
+/* Nebula (lean §12): the canvas colour plus, in dark, a barely-there bloom fixed behind the content.
+   Put it on <body>; the app root needs `relative z-[1]` to sit above the bloom. */
+@utility nebula {
+  background: var(--canvas);
+  &::after {
+    content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background: var(--nebula);
+  }
+}
+
+/* Body defaults (Inter v4 optical sizing + features, tabular numbers, 13px). */
+@layer base {
+  body {
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    line-height: 1.5;
+    font-optical-sizing: auto;
+    font-feature-settings: var(--font-features);
+    font-variant-numeric: var(--font-numeric);
+  }
+  .font-mono, code, pre { font-feature-settings: var(--font-features-mono); }
+}

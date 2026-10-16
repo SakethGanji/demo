@@ -1,0 +1,590 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Backend · Command Studio</title><link rel="stylesheet" href="assets/tokens.css"><link rel="stylesheet" href="assets/components.css"><link rel="stylesheet" href="assets/theme.css"><link rel="stylesheet" href="assets/character.css"><link rel="stylesheet" href="assets/system.css"><link rel="stylesheet" href="assets/inset.css"><link rel="stylesheet" href="assets/edges.css"><link rel="stylesheet" href="assets/light.css"><link rel="stylesheet" href="assets/paper.css"><link rel="stylesheet" href="assets/kit.css"><link rel="stylesheet" href="assets/motion.css"><script src="assets/motion.js"></script><script src="assets/art.js"></script><script src="assets/edges.js"></script><script src="assets/kit.js"></script><script src="assets/lucide.min.js"></script><script src="assets/shell.js"></script><style>
+ .editor{display:flex;gap:var(--s4);flex:1;min-height:0}.ed{flex:1.15;min-width:0;display:flex;flex-direction:column;overflow:hidden}.side{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}
+ /* editor header: 48 tall, no rule; the AI bar and the code fill do the separating */
+ .ed-head{display:flex;align-items:center;gap:var(--s2);height:48px;padding:0 var(--s3);flex-shrink:0}
+ .ed-head .saved{font-size:12px;color:var(--muted-foreground);margin-right:var(--s1);transition:color var(--d-fast)}
+ .file-chip{display:inline-flex;align-items:center;gap:var(--s2);height:28px;padding:0 var(--s3) 0 var(--s2);border-radius:var(--r-ctl);background:color-mix(in srgb,var(--foreground) 5%,transparent);font:12.5px var(--font-mono)}
+ .file-chip svg{width:14px;height:14px;color:var(--muted-foreground)}
+ .fc-dot{width:0;height:6px;border-radius:3px;background:var(--foreground);opacity:0;margin-left:calc(var(--s2) * -1);transition:opacity var(--d-fast) var(--ease-out),width var(--d-fast) var(--ease-out),margin var(--d-fast) var(--ease-out)}
+ .file-chip.dirty .fc-dot{width:6px;margin-left:-2px;opacity:.75}
+ /* AI bar: the brand-gradient treatment (gradient ring, tinted fill, gradient glyph) */
+ .ai-wrap{padding:0 var(--s3) var(--s3);flex-shrink:0}
+ .ed .ai-bar{position:relative;border:0;border-radius:var(--r-well);padding:var(--s1) var(--s1) var(--s1) var(--s2);
+   background:linear-gradient(90deg,color-mix(in srgb,var(--brand-1) 8%,transparent),color-mix(in srgb,var(--brand-2) 5%,transparent))}
+ .ed .ai-bar::before{content:'';position:absolute;inset:0;border-radius:inherit;padding:1px;pointer-events:none;
+   background:linear-gradient(100deg,color-mix(in srgb,var(--brand-1) 60%,transparent),color-mix(in srgb,var(--brand-2) 22%,transparent) 55%,color-mix(in srgb,var(--brand-2) 50%,transparent));
+   -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;transition:opacity var(--d-fast)}
+ .ed .ai-bar:not(:focus-within)::before{opacity:.75}
+ .ed .ai-bar:focus-within{box-shadow:0 0 0 3px color-mix(in srgb,var(--brand-1) 14%,transparent)}
+ .ed .ai-bar .ico{background:linear-gradient(135deg,var(--brand-1),var(--brand-2));color:#fff;box-shadow:inset 0 1px 0 rgb(255 255 255 / .2)}
+ /* code: full-bleed in the panel; gutter numbers are generated from the code so they always match */
+ .codewrap{flex:1;overflow:auto;display:grid;grid-template-columns:48px 1fr;align-items:start}
+ .codewrap .ln{padding:var(--s3) var(--s3) var(--s3) 0;white-space:pre}
+ .codewrap pre{margin:0;padding:var(--s3) var(--s4) var(--s3) 0;font:inherit;white-space:pre;outline:0;caret-color:var(--primary);min-height:100%}
+ .status{display:flex;align-items:center;gap:var(--s4);height:32px;padding:0 var(--s3);flex-shrink:0;font-size:11.5px;color:var(--muted-foreground)}.status span{display:inline-flex;align-items:center;gap:6px}.status svg{width:12px;height:12px}
+ .status .num{font-variant-numeric:tabular-nums}
+ .inline-warn{display:inline-flex;align-items:center;gap:var(--s2);padding:3px 4px 3px 10px;border:1px solid color-mix(in srgb,var(--warning) 40%,transparent);border-radius:var(--r-ctl);background:color-mix(in srgb,var(--warning) 10%,var(--card));color:var(--foreground);font:12px var(--font-sans)}
+ .row{display:flex;align-items:center;gap:var(--s2)}
+ /* test panel: groups separated by spacing and wells, never by rules */
+ .side .tabs{height:48px;border-bottom:0;padding:0 var(--s3);align-items:stretch}
+ .tp{overflow:auto;flex:1;display:flex;flex-direction:column;padding-bottom:var(--s3)}
+ .tp-req{display:flex;flex-direction:column;gap:var(--s3);padding:var(--s1) var(--s5) 0}
+ .tp-req .hint{font-size:12px;color:var(--muted-foreground);line-height:1.5}
+ .tp-res{display:flex;flex-direction:column;gap:var(--s6)}
+ .tp-grp{display:flex;flex-direction:column;gap:var(--s3)}
+ .tp-grp > :not(.well){margin:0 var(--s5)}
+ .tp-grp > .well{margin:0 var(--s2)}
+ .tp-h{font-size:12px;gap:6px}.tp-h b{font-weight:600}.tp-h svg{width:14px;height:14px;color:var(--muted-foreground)}
+ pre.json.well{border:0;padding:var(--s3);background:var(--well);font:12px/18px var(--font-mono)}
+ .wf-well{padding:var(--s3) var(--s3) var(--s2)}
+ /* hero vector: the request path */
+ .rp{padding:var(--s1) var(--s5) 0;margin-bottom:calc(var(--s2) * -1)}
+ .rp .vx-grid{-webkit-mask:radial-gradient(55% 90% at 42% 50%,#000 10%,transparent 80%);mask:radial-gradient(55% 90% at 42% 50%,#000 10%,transparent 80%)}
+ .rp-svg .rp-w{transition:stroke var(--d-base) var(--ease-out)}
+ .rp-svg.run .rp-w{stroke:color-mix(in srgb,var(--brand-1) 55%,transparent)}
+ .rp-svg .rp-g{fill:var(--card);stroke:var(--art-line);stroke-width:1;transition:stroke var(--d-fast)}
+ .rp-svg .rp-leaf .a-label{transition:fill var(--d-fast)}
+ .rp-svg .rp-leaf.on .rp-g{stroke:var(--brand-1)}
+ .rp-svg .rp-leaf.on .a-label{fill:var(--foreground)}
+ .rp-svg .rp-ep{fill:var(--muted-foreground)}
+ .rp-svg .rp-num{font-variant-numeric:tabular-nums}
+ .rp-svg #rp-sb{transition:filter var(--d-base) var(--ease-out)}
+ .rp-svg .a-packet{transition:none}
+ /* trace waterfall: fixed 22px rows so the drop-lines can be pure CSS */
+ .wf{display:grid;grid-template-columns:150px 1fr 56px;column-gap:8px;font-size:12px}
+ .wf-row{display:contents}
+ .wf-name{display:flex;align-items:center;gap:6px;height:22px;white-space:nowrap}.wf-name svg{width:14px;height:14px;color:var(--muted-foreground)}
+ .wf-dur{height:22px;line-height:22px;text-align:right;color:var(--muted-foreground);font-variant-numeric:tabular-nums}
+ .wf-track{position:relative;height:22px}
+ .wf-ruler .wf-track{height:16px;border-bottom:1px solid var(--hairline);margin-bottom:2px}
+ .wf-tick{position:absolute;bottom:0;height:4px;border-left:1px solid var(--art-line)}
+ .wf-tick span{position:absolute;bottom:5px;left:0;transform:translateX(-50%);font:10px/1 var(--font-mono);color:var(--muted-foreground);white-space:nowrap}
+ .wf-tick.first span{transform:none;left:-1px}
+ .wf-bed{position:absolute;inset:8px 0 auto;height:6px;border-radius:3px;background:color-mix(in srgb,var(--foreground) 6%,transparent)}
+ .wf-bar{position:absolute;top:8px;height:6px;left:var(--l);width:var(--w);border-radius:3px;transform-origin:left;
+   transition:transform var(--d-slow) var(--ease-out) calc(var(--i) * 40ms)}
+ .wf-bar.sb{background:color-mix(in srgb,var(--foreground) 26%,transparent)}
+ .wf-bar.br{background:linear-gradient(90deg,var(--brand-1),var(--brand-2))}
+ .wf-drop{position:absolute;left:var(--l);width:1px;top:calc(14px - 22px * var(--k));height:calc(22px * var(--k) - 6px);background:var(--art-line);
+   transition:opacity var(--d-base) var(--ease-out) calc(var(--i) * 40ms + 80ms)}
+ .wf.reset .wf-bar{transform:scaleX(0);transition:none}.wf.reset .wf-drop{opacity:0;transition:none}
+ .wf-dur.strong{color:var(--foreground)}
+ /* response */
+ .hero-ms{font-size:20px;font-weight:600;letter-spacing:-.02em;line-height:1.2;display:inline-flex;align-items:baseline;gap:3px}.hero-ms small{font-size:12.5px;font-weight:500;color:var(--muted-foreground);letter-spacing:0}
+ .m-xb{display:inline-grid}.m-xb>*{grid-area:1/1;transition:opacity var(--d-base) var(--ease-out)}
+ .m-xb .b{opacity:0}.m-xb.done .a{opacity:0}.m-xb.done .b{opacity:1}
+ .pending{opacity:.5;transition:opacity var(--d-fast)}
+ .m-reenter{animation:m-enter var(--d-base) var(--ease-out) both}
+ #resp,#trace{transition:opacity var(--d-fast)}
+ /* send: width locked, icon becomes a spinner */
+ .spin{display:none;width:12px;height:12px;border-radius:50%;border:1.5px solid currentColor;border-right-color:transparent;animation:spin 600ms linear infinite;flex-shrink:0}
+ .btn.sending svg{display:none}.btn.sending .spin{display:inline-block;margin:0 1px}
+ @keyframes spin{to{transform:rotate(360deg)}}
+ .tests{display:flex;flex-direction:column;gap:8px}
+ /* secret fix cascade */
+ .warn-wrap{flex-shrink:0;padding:var(--s2) var(--s3) 0;overflow:hidden;transition:height var(--d-base) var(--ease-io),padding var(--d-base) var(--ease-io),opacity var(--d-base) var(--ease-io)}
+ .inline-warn{transition:border-color var(--d-base),background-color var(--d-base)}
+ .inline-warn svg{transition:color var(--d-base)}
+ .inline-warn.fixed{border-color:color-mix(in srgb,var(--success) 45%,transparent);background:color-mix(in srgb,var(--success) 10%,var(--card))}
+ .inline-warn.fixed>svg{color:var(--success-text)!important}
+ .inline-warn .btn.ok{color:var(--success-text);width:var(--w0);justify-content:center}
+ .inline-warn .btn.ok svg{width:13px;height:13px}
+ #warn-count{transition:color var(--d-base)}#warn-count.clear{color:var(--muted-foreground)!important}
+ #warn-count span{gap:0}#warn-count .m-roll{margin-right:.3em;align-items:flex-start}
+ /* ── AI generation flow: an inline region between the AI bar and the code ── */
+ .ai-bar .btn.ai .spin{margin:0 1px}
+ .ai-flow{display:grid;grid-template-rows:0fr;opacity:0;margin-top:0;transition:grid-template-rows var(--d-slow) var(--ease-io),opacity var(--d-base) var(--ease-out),margin-top var(--d-slow) var(--ease-io)}
+ .ai-flow.open{grid-template-rows:1fr;opacity:1;margin-top:var(--s2)}
+ .ai-in{min-height:0;overflow:hidden;display:grid;grid-template-rows:auto 1fr}
+ .ai-head{display:flex;align-items:center;gap:var(--s2);height:28px;padding:0 0 0 var(--s2);font-size:12.5px;min-width:0}
+ .ai-glyph{display:grid;width:14px;height:14px;flex-shrink:0}
+ .ai-glyph > *{grid-area:1/1;width:14px!important;height:14px!important;opacity:0;transition:opacity var(--d-fast) var(--ease-out)}
+ .ai-glyph .ai-g-run{color:var(--brand-1)}.ai-glyph .ai-g-ok{color:var(--success-text)}.ai-glyph .ai-g-no{color:var(--muted-foreground)}
+ .ai-flow[data-phase="run"] .ai-g-run,.ai-flow[data-phase="ready"] .ai-g-run,.ai-flow[data-phase="applied"] .ai-g-ok,.ai-flow[data-phase="discarded"] .ai-g-no{opacity:1}
+ .ai-status{color:var(--muted-foreground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+ .ai-status b{font-weight:550;color:var(--foreground)}
+ .ai-status.ai-gen{background:linear-gradient(90deg,var(--muted-foreground) 0%,var(--muted-foreground) 30%,var(--brand-1) 45%,var(--brand-2) 55%,var(--muted-foreground) 70%,var(--muted-foreground) 100%);
+   background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:ai-sweep 1.6s linear infinite}
+ @keyframes ai-sweep{from{background-position:100% 0}to{background-position:0 0}}
+ .ai-time{margin-left:auto;font:11.5px var(--font-mono);color:var(--muted-foreground);font-variant-numeric:tabular-nums;white-space:nowrap}
+ .ai-body{display:grid;grid-template-rows:1fr;transition:grid-template-rows var(--d-slow) var(--ease-io),opacity var(--d-base) var(--ease-out)}
+ .ai-flow.folded .ai-body{grid-template-rows:0fr;opacity:0}
+ .ai-body-in{min-height:0;overflow:hidden;display:flex;flex-direction:column;gap:var(--s2)}
+ .ai-scroll{max-height:min(380px,42vh);overflow:auto;display:flex;flex-direction:column;gap:var(--s3);padding-top:var(--s1);overscroll-behavior:contain}
+ .ai-flow.folded .ai-scroll{overflow:hidden}
+ .ai-confirm[hidden]{display:none}
+ .ai-show{animation:m-enter var(--d-base) var(--ease-out) both}
+ /* task log: a well with hairline rows; each step pending → running → done */
+ .ai-log.well{margin:0;flex-shrink:0}
+ .ai-step + .ai-step{border-top:1px solid var(--hairline)}
+ .ai-row{display:flex;align-items:center;gap:10px;width:100%;height:28px;padding:0 var(--s3);border:0;background:none;font:12.5px var(--font-sans);color:var(--foreground);text-align:left;cursor:default;transition:background-color var(--d-instant)}
+ .ai-step[data-state="done"] .ai-row{cursor:pointer}
+ .ai-step[data-state="done"] .ai-row:hover{background:var(--row-raise)}
+ .ai-row:focus-visible{outline:2px solid var(--ring);outline-offset:-2px;border-radius:var(--r-chip)}
+ .ai-st{display:grid;place-items:center;width:14px;height:14px;flex-shrink:0}
+ .ai-st > *{grid-area:1/1;opacity:0;transition:opacity var(--d-fast) var(--ease-out)}
+ .ai-st-p{width:8px;height:8px;border-radius:50%;box-shadow:inset 0 0 0 1.25px var(--faint)}
+ .ai-st svg{width:14px;height:14px;color:var(--success-text)}
+ .ai-step[data-state="pending"] .ai-st-p,.ai-step[data-state="running"] .ai-st .dot,.ai-step[data-state="done"] .ai-st svg{opacity:1}
+ .ai-step:not([data-state="running"]) .ai-st .dot::after{animation:none}
+ .ai-tool{width:14px;height:14px;color:var(--muted-foreground);flex-shrink:0}
+ .ai-lbl{display:grid;flex:1;min-width:0}
+ .ai-lbl > span{grid-area:1/1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:opacity var(--d-fast) var(--ease-out),color var(--d-fast)}
+ .ai-lbl .ai-l-done{opacity:0}
+ .ai-step[data-state="pending"] .ai-l-run{color:var(--muted-foreground);opacity:.7}
+ .ai-step[data-state="done"] .ai-l-run{opacity:0}.ai-step[data-state="done"] .ai-l-done{opacity:1}
+ .ai-lbl .mono{font-size:12px}
+ .ai-plus{color:var(--success-text);font-variant-numeric:tabular-nums}.ai-minus{color:var(--destructive);font-variant-numeric:tabular-nums}
+ .ai-meta{font:11px var(--font-mono);color:var(--muted-foreground);opacity:0;transition:opacity var(--d-fast)}
+ .ai-chev{width:12px!important;height:12px!important;color:var(--muted-foreground);opacity:0;transition:opacity var(--d-fast),transform var(--d-base) var(--ease-io)}
+ .ai-step[data-state="done"] .ai-meta,.ai-step[data-state="done"] .ai-chev{opacity:1}
+ .ai-step.open .ai-chev{transform:rotate(90deg)}
+ .ai-detail{display:grid;grid-template-rows:0fr;transition:grid-template-rows var(--d-base) var(--ease-io)}
+ .ai-step.open .ai-detail{grid-template-rows:1fr}
+ .ai-detail > div{min-height:0;overflow:hidden}
+ .ai-io{display:grid;grid-template-columns:1fr 1fr;gap:var(--s2);padding:2px var(--s3) var(--s3) 36px}
+ .ai-io-h{font-size:11px;color:var(--muted-foreground);margin-bottom:4px}
+ /* recessed by tone only: a ring here would be a recess inside the well */
+ pre.ai-json{margin:0;padding:6px var(--s2);border-radius:var(--r-chip);background:var(--recess-fill);font:11px/16px var(--font-mono);white-space:pre;overflow:auto;color:var(--foreground)}
+ /* streamed one-line explanation */
+ .ai-say{margin:0;padding:0 var(--s2);font-size:12.5px;line-height:1.55;color:var(--foreground);flex-shrink:0}
+ .ai-say:empty{display:none}
+ .ai-say code{font:12px var(--font-mono)}
+ .ai-chunk{animation:ai-arrive var(--d-base) var(--ease-out) both}
+ @keyframes ai-arrive{from{opacity:0;filter:blur(2px)}}
+ /* diff code block */
+ .ai-diff.well{margin:0;flex-shrink:0}
+ .ai-diff-head{display:flex;align-items:center;gap:var(--s2);height:38px;padding:0 6px 0 var(--s2)}
+ .ai-diff .file-chip{height:22px;padding:0 var(--s2) 0 6px;gap:6px;font-size:11.5px;border-radius:var(--r-chip);background:var(--raise-fill);box-shadow:var(--raise-sm)}
+ .ai-diff .file-chip svg{width:12px;height:12px}
+ .ai-diff-fn{font:11.5px var(--font-mono);color:var(--muted-foreground)}
+ .ai-diff-n{font:11.5px var(--font-mono);display:inline-flex;gap:6px}
+ .ai-lines{overflow-x:auto;padding:0 0 var(--s2);font:12px/20px var(--font-mono)}
+ .ai-lines-in{display:inline-flex;flex-direction:column;min-width:100%}
+ .ai-ln{display:grid;grid-template-columns:34px 20px auto;white-space:pre;padding-right:var(--s4)}
+ .ai-ln .ai-no{color:var(--code-gutter);text-align:right;user-select:none}
+ .ai-ln .ai-mk{text-align:center;user-select:none;color:var(--faint)}
+ .ai-ln.add{background:color-mix(in srgb,var(--success) 7%,transparent)}
+ .ai-ln.add .ai-mk{color:var(--success-text)}
+ .ai-ln.del{background:color-mix(in srgb,var(--destructive) 7%,transparent)}
+ .ai-ln.del .ai-mk{color:var(--destructive)}
+ .ai-ln.del .ai-cd{opacity:.72}
+ .dark .ai-ln.add{background:color-mix(in srgb,var(--success) 8%,transparent)}.dark .ai-ln.del{background:color-mix(in srgb,var(--destructive) 8%,transparent)}
+ /* confirmation bar */
+ .ai-confirm{display:flex;align-items:center;gap:var(--s2);padding:0 0 0 var(--s2);flex-shrink:0}
+ .ai-confirm .ai-note{font-size:12px;color:var(--muted-foreground);display:inline-flex;align-items:center;gap:6px}
+ .ai-confirm .ai-note svg{width:13px;height:13px;color:var(--success-text)}
+ /* code: lines the AI just wrote tint once */
+ .ai-ins{animation:ai-flash 1600ms var(--ease-out) both;border-radius:2px}
+ @keyframes ai-flash{from{background:color-mix(in srgb,var(--success) 16%,transparent)}to{background:transparent}}
+ @media (prefers-reduced-motion:reduce){
+   .ai-status.ai-gen{animation:none;background:none;color:var(--muted-foreground)}
+   .ai-chunk{animation:none}
+ }
+ /* route picker trigger */
+ .rp-pick{cursor:pointer}
+ .rp-pick:focus-visible{outline:none;box-shadow:inset 0 0 0 1px var(--ring),var(--focus-ring)}
+ .rp-pick .rp-pick-chev{transition:transform var(--d-base) var(--ease-io)}
+ .rp-pick[aria-expanded="true"] .rp-pick-chev{transform:rotate(180deg)}
+</style></head><body><div id="shell"></div>
+<template id="page"><div class="editor">
+ <div class="ed panel">
+  <div class="ed-head"><span class="file-chip" id="file-chip"><i data-lucide="file-code-2"></i>refunds.py<span class="fc-dot" aria-hidden="true"></span></span><div class="spacer"></div><span class="saved" id="saved">Saved now</span><button class="btn ghost sm" data-tip="Open the studio SDK reference"><i data-lucide="book-open"></i> SDK</button><button class="btn ghost icon-sm" data-tip="More actions" aria-label="More actions"><i data-lucide="ellipsis"></i></button><button class="btn sm" id="save" data-tip="Save refunds.py" data-kbd="⌘S">Save <span class="kbd">⌘S</span></button></div>
+  <div class="ai-wrap"><div class="ai-bar"><span class="ico"><i data-lucide="sparkles" style="width:14px;height:14px"></i></span><input id="ai-q" placeholder="Ask for a change…" aria-label="Ask AI for a change"><button class="btn ai sm" id="ai-go" data-tip="Apply the change with AI" data-kbd="⌘↵"><i data-lucide="wand-sparkles"></i><span class="spin"></span> Refine <span class="kbd">⌘↵</span></button></div>
+   <div class="ai-flow" id="ai-flow" data-phase="idle" aria-live="polite"><div class="ai-in">
+    <div class="ai-head"><span class="ai-glyph" aria-hidden="true"><i data-lucide="sparkles" class="ai-g-run"></i><i data-lucide="circle-check" class="ai-g-ok"></i><i data-lucide="circle-x" class="ai-g-no"></i></span><span class="ai-status" id="ai-status"></span><span class="ai-time" id="ai-time"></span><button class="btn ghost icon-xs" id="ai-x" data-tip="Dismiss" aria-label="Dismiss"><i data-lucide="x"></i></button></div>
+    <div class="ai-body"><div class="ai-body-in"><div class="ai-scroll" id="ai-scroll">
+     <div class="well ai-log" id="ai-log" role="list" aria-label="AI steps"></div>
+     <p class="ai-say" id="ai-say"></p>
+     <div class="well ai-diff" id="ai-diff" hidden><div class="ai-diff-head"><span class="file-chip"><i data-lucide="file-code-2"></i>refunds.py</span><span class="ai-diff-fn">create_refund</span><div class="spacer"></div><span class="ai-diff-n"><span class="ai-plus">+3</span><span class="ai-minus">−1</span></span><button class="btn ghost icon-xs" id="ai-copy" data-tip="Copy the new code" aria-label="Copy the new code"><span class="m-swap"><i data-lucide="copy" class="a"></i><i data-lucide="check" class="b"></i></span></button></div><div class="ai-lines"><div class="ai-lines-in" id="ai-lines"></div></div></div>
+</div>
+     <div class="ai-confirm" id="ai-confirm" hidden><span class="ai-note"><i data-lucide="flask-conical"></i>Self-test passed on dev</span><div class="spacer"></div><button class="btn ghost sm" id="ai-discard">Discard</button><button class="btn sm" id="ai-apply" data-tip="Apply to refunds.py" data-kbd="⇧⌘↵">Apply change</button></div>
+    </div></div>
+   </div></div>
+  </div>
+  <div class="codewrap code">
+<div class="ln" id="gutter" aria-hidden="true"></div>
+<pre id="code" contenteditable="plaintext-only" spellcheck="false" aria-label="refunds.py"><span class="k">from</span> studio <span class="k">import</span> api, HTTPError
+<span class="k">import</span> studio
+
+refunds = studio.db.<span class="f">table</span>(<span class="s">"refunds"</span>)
+UPSTREAM = <span class="s">"http://127.0.0.1:41759"</span>
+
+
+<span class="d">@api.post</span>(<span class="s">"/refunds"</span>, name=<span class="s">"createRefund"</span>)
+<span class="k">def</span> <span class="f">create_refund</span>(req):
+    body = req.<span class="f">body</span> <span class="k">or</span> {}
+    <span class="k">if</span> <span class="s">"amount"</span> <span class="k">not in</span> body:
+        <span class="k">raise</span> <span class="f">HTTPError</span>(<span class="n">422</span>, {<span class="s">"error"</span>: <span class="s">"amount is required"</span>})
+    <span class="k">return</span> refunds.<span class="f">insert</span>({<span class="s">"reason"</span>: body.<span class="f">get</span>(<span class="s">"reason"</span>, <span class="s">""</span>), <span class="s">"amount"</span>: body[<span class="s">"amount"</span>]})
+
+
+<span class="d">@api.get</span>(<span class="s">"/refunds"</span>, name=<span class="s">"listRefunds"</span>)
+<span class="k">def</span> <span class="f">list_refunds</span>(req):
+    <span class="k">return</span> refunds.<span class="f">list</span>(limit=<span class="f">int</span>(req.query.<span class="f">get</span>(<span class="s">"limit"</span>, <span class="n">50</span>)))
+
+
+<span class="d">@api.get</span>(<span class="s">"/refunds/stats"</span>, name=<span class="s">"refundStats"</span>)
+<span class="k">def</span> <span class="f">refund_stats</span>(req):
+    balance = studio.nodes.<span class="f">http_request</span>(
+        method=<span class="s">"GET"</span>,
+        url=<span class="s">f"{UPSTREAM}/v1/balance"</span>,
+        headers=[{<span class="s">"name"</span>: <span class="s">"Authorization"</span>, <span class="s">"value"</span>: <span class="s">f"Bearer {studio.secret('PAYMENTS_TOKEN')}"</span>}],
+    )</pre></div>
+  <div class="warn-wrap" id="warn-wrap"><span class="inline-warn" id="warn"><i data-lucide="key-round" style="width:12px;height:12px;color:var(--warning-text)"></i><span id="warn-msg"><b style="font-weight:600">PAYMENTS_TOKEN</b> is set in <b style="font-weight:600">dev</b>, missing in <b style="font-weight:600">prod</b></span><button class="btn outline xs" id="add-prod">Add to prod</button></span></div>
+  <div class="status"><span class="success-text" style="color:var(--success-text)"><i data-lucide="circle-check"></i>No syntax errors</span><span class="warn-text" id="warn-count"><i data-lucide="triangle-alert"></i><span><span class="m-roll" id="warn-n"></span> <span id="warn-word">warning</span></span></span><div class="spacer"></div><span class="num">Ln 1, Col 1</span><span>Python 3</span><span><i data-lucide="shield-check"></i>Sandbox · bwrap</span></div>
+ </div>
+ <div class="side panel">
+  <div class="tabs"><button class="tab active"><i data-lucide="play"></i>Test</button><button class="tab"><i data-lucide="book-open"></i>Reference</button><button class="tab"><i data-lucide="file-type"></i>client.ts</button></div>
+  <div class="tp">
+   <div class="tp-req">
+    <div class="row"><div class="input rp-pick" id="rp-pick" role="combobox" tabindex="0" aria-haspopup="listbox" aria-expanded="false" aria-label="Route" data-tip="Switch route" style="display:flex;align-items:center;gap:8px;height:34px;flex:1"><span class="method get" id="rp-pick-m">GET</span><span class="mono" style="font-size:12.5px" id="rp-pick-p">/refunds/stats</span><div class="spacer"></div><i data-lucide="chevron-down" class="muted rp-pick-chev" style="width:14px;height:14px"></i></div><button class="btn ghost icon" data-tip="Request options" aria-label="Request options"><i data-lucide="sliders-horizontal"></i></button></div>
+    <div class="row"><div class="seg" id="req"><button>Params</button><button class="on">Query</button><button>Body</button><button>Headers</button></div><div class="spacer"></div><button class="btn sm" id="send" data-tip="Run with dev secrets" data-kbd="⌘↵"><i data-lucide="send"></i><span class="spin"></span> Send <span class="kbd">⌘↵</span></button></div>
+    <div class="row"><input class="input mono" placeholder="name" aria-label="Query name"><input class="input mono" placeholder="value" aria-label="Query value"></div>
+    <p class="hint">Runs the saved route with <b style="font-weight:500;color:var(--foreground)">dev</b> secrets. Writes go to your real tables (shared by dev and prod).</p>
+   </div>
+   <div class="tp-res">
+    <div class="rp vx-host"><div class="vx-grid"></div><div data-art="reqpath"></div></div>
+    <div class="tp-grp" id="resp">
+     <div class="row"><span class="m-xb" id="resp-badge"><span class="badge neutral mono a">···</span><span class="badge success mono b">200</span></span><span class="hero-ms"><span class="m-roll" id="resp-ms"></span><small>ms</small></span><span class="muted mono truncate" style="font-size:12px" id="resp-id">· exec_01a1…53a8</span><div class="spacer"></div><div class="seg"><button class="on">Body</button><button>Headers</button><button>Schema</button></div><button class="btn ghost icon-sm" data-tip="Use as the route's output schema" aria-label="Use as schema"><i data-lucide="file-json"></i></button></div>
+<pre class="json well">{
+  <span class="s">"count"</span>: <span class="n">3</span>,
+  <span class="s">"by_reason"</span>: {
+    <span class="s">"damaged"</span>: <span class="n">96.5</span>,
+    <span class="s">"late"</span>: <span class="n">20</span>
+  },
+  <span class="s">"available"</span>: <span class="n">12840.25</span>
+}</pre>
+    </div>
+    <div class="tp-grp" id="trace">
+     <div class="row tp-h"><i data-lucide="activity"></i><b>Trace</b><span class="muted" id="trace-sum"></span></div>
+     <div class="well wf-well"><div class="wf" id="wf"></div></div>
+    </div>
+    <div class="tp-grp">
+     <div class="row tp-h"><i data-lucide="history"></i><b>Recent tests</b></div>
+     <div class="tests" id="tests">
+      <div class="row" style="font-size:12px"><span class="badge success mono">200</span><span>GET /refunds/stats</span><div class="spacer"></div><span class="muted" data-ts="2026-10-15T09:41:12Z">113 ms · now</span></div>
+      <div class="row" style="font-size:12px"><span class="badge success mono">200</span><span>GET /refunds/stats</span><div class="spacer"></div><span class="muted" data-ts="2026-10-15T09:40:58Z">112 ms · now</span></div>
+     </div>
+    </div>
+   </div>
+  </div>
+ </div></div></template>
+<script>Shell.mount({active:'backend'})</script>
+<script>
+(() => {
+  const $ = (q) => document.querySelector(q), M = window.Motion, S = 115; /* waterfall scale: the sandbox span fills the track */
+  const prev = { ms: 113, id: 'exec_7c2e…19b0', sb: 101, kids: [['DataTable.list', 55, 9], ['HttpRequest', 66, 12]] };
+  const next = { ms: 127, id: 'exec_01a1…53a8', sb: 115, kids: [['DataTable.list', 62, 10], ['HttpRequest', 74, 11]] };
+  const pc = (v) => (v / S * 100).toFixed(2) + '%';
+  const wf = $('#wf'), resp = $('#resp'), trace = $('#trace'), badge = $('#resp-badge');
+  let cur = prev;
+  const toast = (o) => window.Kit?.toast?.(o);
+  /* the route under test; the picker changes it */
+  const ROUTES = [{ m: 'GET', p: '/refunds', n: 'listRefunds' }, { m: 'POST', p: '/refunds', n: 'createRefund' }, { m: 'GET', p: '/refunds/stats', n: 'refundStats' }];
+  let route = ROUTES[2];
+
+  /* hero vector: the request path, drawn from the same data as the trace.
+     client → route → sandbox (focal) → DataTable.list / HttpRequest → upstream */
+  const ms = (n) => n + ' ms';
+  LunaArt.add('reqpath', () => {
+    const v = LunaArt.v, k = cur.kids;
+    return `<svg viewBox="0 0 520 72" class="art rp-svg" id="rp" role="img" aria-label="${route.m} ${route.p} runs in the sandbox, which calls DataTable.list and an HttpRequest to :41759/v1/balance.">${LunaArt.defs('rp')}
+      <path id="rp-main" d="M9 34 H164" class="a-wire rp-w"/>
+      <path id="rp-b0" d="M232 34 C 245 34, 241 12, 254 12" class="a-wire rp-w"/>
+      <path id="rp-b1" d="M232 34 C 245 34, 241 58, 254 58" class="a-wire rp-w"/>
+      <path id="rp-ep" d="M386 58 H398" class="a-wire rp-w" stroke-dasharray="2 2.5"/>
+      <g id="rp-pk"></g>
+      <circle cx="5" cy="34" r="4" class="a-card"/>
+      <text x="0" y="65" class="a-label">client</text>
+      <g transform="translate(20 23)"><rect width="132" height="22" rx="6" class="a-card"/>
+        <text x="9" y="14.5" class="a-mono a-strong" id="rp-r-m" style="fill:${v('method-' + route.m.toLowerCase())}">${route.m}</text><text x="${route.m.length > 3 ? 40 : 35}" y="14.5" class="a-mono" id="rp-r-p">${route.p}</text></g>
+      <text x="86" y="65" text-anchor="middle" class="a-label" id="rp-r-n">${route.n}</text>
+      <g id="rp-sb"><rect x="164" y="23" width="68" height="22" rx="6" class="a-card" style="stroke:url(#rp-brand)"/>
+        <text x="198" y="37.5" text-anchor="middle" class="a-mono a-strong">sandbox</text></g>
+      <text x="198" y="65" text-anchor="middle" class="a-label rp-num" id="rp-ms-sb">${ms(cur.sb)}</text>
+      <g class="rp-leaf" id="rp-k0">
+        <path d="M254 6.5 v11 a6 2.2 0 0 0 12 0 v-11" class="rp-g"/><ellipse cx="260" cy="6.5" rx="6" ry="2.2" class="rp-g"/>
+        <text x="273" y="15.5" class="a-mono">${k[0][0]}</text><text x="366" y="15.5" class="a-label rp-num" id="rp-ms-0">${ms(k[0][2])}</text></g>
+      <g class="rp-leaf" id="rp-k1">
+        <circle cx="260" cy="58" r="6" class="rp-g"/><ellipse cx="260" cy="58" rx="2.4" ry="6" class="rp-g" style="fill:none"/><path d="M254 58 h12" class="rp-g"/>
+        <text x="273" y="61.5" class="a-mono">${k[1][0]}</text><text x="351" y="61.5" class="a-label rp-num" id="rp-ms-1">${ms(k[1][2])}</text></g>
+      <circle cx="402" cy="58" r="3.5" class="a-card"/>
+      <text x="410" y="61.5" class="a-mono rp-ep">:41759/v1/balance</text>
+    </svg>`;
+  });
+  function pathLabels(d) {
+    const set = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
+    set('rp-ms-sb', ms(d.sb)); d.kids.forEach((k, i) => set('rp-ms-' + i, ms(k[2])));
+  }
+
+  /* packets fly while a Send is in flight. Ingress and egress get a fixed beat; inside the sandbox
+     window each call lands on its leaf at its real trace offset and lights it for its real duration. */
+  const IO = 140, TRAVEL = 120, MIN_ON = 120;
+  const flightMs = (d) => Math.round(d.ms * 6);
+  const ease = (u) => (u < .5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2);
+  function flight(d, D) {
+    const svg = $('#rp'); if (!svg) return;
+    const sb = $('#rp-sb'), layer = $('#rp-pk'), k = (D - IO * 2) / d.sb;
+    const legs = [{ p: '#rp-main', a: 0, b: IO }];
+    const lit = [];
+    d.kids.forEach((c, i) => {
+      const s = IO + c[1] * k, e = s + Math.max(c[2] * k, MIN_ON);
+      legs.push({ p: '#rp-b' + i, a: s - TRAVEL, b: s });
+      lit.push({ el: $('#rp-k' + i), a: s, b: e });
+      if (i === 1) legs.push({ p: '#rp-ep', a: s, b: e, pp: 1 });
+    });
+    legs.push({ p: '#rp-main', a: D - IO, b: D, rev: 1 });
+    svg.classList.add('run'); sb.classList.add('a-glow');
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    legs.forEach((l) => { l.path = $(l.p); l.len = l.path.getTotalLength(); if (!reduce) { layer.insertAdjacentHTML('beforeend', '<circle r="2.6" class="a-packet" style="opacity:0"/>'); l.dot = layer.lastElementChild; } });
+    const t0 = performance.now();
+    (function tick(now) {
+      const t = now - t0;
+      legs.forEach((l) => {
+        if (!l.dot) return;
+        const on = t >= l.a && t <= l.b; l.dot.style.opacity = on ? 1 : 0; if (!on) return;
+        let u = ease((t - l.a) / (l.b - l.a)); if (l.pp) u = u < .5 ? u * 2 : 2 - u * 2; if (l.rev) u = 1 - u;
+        const pt = l.path.getPointAtLength(u * l.len); l.dot.setAttribute('cx', pt.x); l.dot.setAttribute('cy', pt.y);
+      });
+      lit.forEach((x) => x.el.classList.toggle('on', t >= x.a && t <= x.b));
+      if (t < D) requestAnimationFrame(tick);
+      else { layer.innerHTML = ''; svg.classList.remove('run'); sb.classList.remove('a-glow'); lit.forEach((x) => x.el.classList.remove('on')); }
+    })(t0);
+  }
+
+  /* editor: gutter is generated from the code, the file chip shows a dirty dot on edit */
+  const code = $('#code'), gutter = $('#gutter'), chip = $('#file-chip'), saved = $('#saved');
+  const lines = () => { const t = code.innerText; return t.split('\n').length - (t.endsWith('\n') ? 1 : 0); };
+  const numberLines = () => { gutter.textContent = Array.from({ length: Math.max(1, lines()) }, (_, i) => i + 1).join('\n'); };
+  numberLines();
+  code.addEventListener('input', () => { numberLines(); chip.classList.add('dirty'); saved.textContent = 'Unsaved'; });
+  const save = () => { chip.classList.remove('dirty'); saved.textContent = 'Saved now'; toast({ title: 'Saved refunds.py', tone: 'ok' }); };
+  const markDirty = () => { numberLines(); chip.classList.add('dirty'); saved.textContent = 'Unsaved'; };
+  $('#save').addEventListener('click', save);
+  document.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') { e.preventDefault(); save(); } });
+
+  wf.innerHTML =
+    `<div class="wf-row wf-ruler"><span></span><div class="wf-track">${[0, 50, 100].map((t) => `<span class="wf-tick${t ? '' : ' first'}" style="left:${pc(t)}"><span>${t}${t === 100 ? ' ms' : ''}</span></span>`).join('')}</div><span></span></div>` +
+    `<div class="wf-row"><span class="wf-name"><i data-lucide="box"></i>Sandbox</span><div class="wf-track"><span class="wf-bed"></span><i class="wf-bar sb" style="--i:0;--l:0%"></i></div><span class="wf-dur strong"></span></div>` +
+    next.kids.map((k, i) => `<div class="wf-row"><span class="wf-name"><span class="dot ok flat"></span>${k[0]}</span><div class="wf-track"><span class="wf-drop" style="--k:${i + 1};--i:${i + 1}"></span><i class="wf-bar br" style="--i:${i + 1}"></i></div><span class="wf-dur"></span></div>`).join('');
+
+  function apply(d) {
+    const bars = wf.querySelectorAll('.wf-bar'), drops = wf.querySelectorAll('.wf-drop'), durs = wf.querySelectorAll('.wf-dur');
+    bars[0].style.setProperty('--w', pc(d.sb)); durs[0].textContent = d.sb + ' ms';
+    d.kids.forEach((k, i) => { bars[i + 1].style.setProperty('--l', pc(k[1])); bars[i + 1].style.setProperty('--w', pc(k[2])); drops[i].style.setProperty('--l', pc(k[1])); durs[i + 1].textContent = k[2] + ' ms'; });
+    $('#trace-sum').textContent = `· ${d.kids.length} node calls · sandbox ${d.sb} ms`;
+    M.setRoll($('#resp-ms'), d.ms); $('#resp-id').textContent = '· ' + d.id;
+    cur = d; pathLabels(d);
+  }
+
+  /* first paint: no rolling on load */
+  const root = document.documentElement; root.classList.add('m-no-tr');
+  apply(prev); badge.classList.add('done'); M.setRoll($('#warn-n'), 1);
+  requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove('m-no-tr')));
+
+  /* Send: spinner in a locked-width button and packets along the request path; then the response re-enters and the waterfall grows */
+  let busy = false, sent = 0;
+  const exact = () => new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: 'UTC' }) + ' UTC';
+  const row = (n) => `<div class="row m-new" style="font-size:12px"><span class="badge success mono">200</span><span>${route.m} ${route.p}</span><div class="spacer"></div><span class="muted" data-tip="${exact()}">${n} ms · now</span></div>`;
+  function send() {
+    if (busy) return; busy = true;
+    const b = $('#send'); b.style.width = b.offsetWidth + 'px'; b.classList.add('sending');
+    resp.classList.add('pending'); trace.classList.add('pending'); badge.classList.remove('done');
+    const D = flightMs(next); flight(next, D);
+    setTimeout(() => {
+      b.classList.remove('sending'); b.style.width = '';
+      resp.classList.remove('pending', 'm-reenter'); trace.classList.remove('pending');
+      void resp.offsetWidth; resp.classList.add('m-reenter');
+      wf.classList.add('reset'); apply(next); void wf.offsetWidth; wf.classList.remove('reset');
+      requestAnimationFrame(() => badge.classList.add('done'));
+      const list = $('#tests');
+      if (!sent++) { list.insertAdjacentHTML('afterbegin', row(next.ms)); while (list.children.length > 3) list.lastElementChild.remove(); }
+      else { const f = list.firstElementChild; f.classList.remove('m-new'); void f.offsetWidth; f.classList.add('m-new'); }
+      busy = false;
+      toast({ title: `200 · ${next.ms} ms`, desc: `${route.m} ${route.p} · ${next.id}`, tone: 'ok' });
+    }, D);
+  }
+  $('#send').addEventListener('click', send);
+  document.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !e.target.closest('.ai-bar, .m-pal')) { e.preventDefault(); send(); }
+  });
+  setTimeout(send, 1500); /* demo: play once so the motion shows */
+
+  /* Add to prod: check, warning turns to success, collapses; counts downstream follow */
+  $('#add-prod').addEventListener('click', (e) => {
+    const btn = e.currentTarget; if (btn.classList.contains('ok')) return;
+    btn.style.setProperty('--w0', btn.offsetWidth + 'px'); btn.classList.add('ok'); btn.removeAttribute('data-tip');
+    btn.innerHTML = '<i data-lucide="check"></i>'; Shell.icons();
+    $('#warn').classList.add('fixed');
+    $('#warn-msg').innerHTML = '<b style="font-weight:600">PAYMENTS_TOKEN</b> is set in <b style="font-weight:600">dev</b> and <b style="font-weight:600">prod</b>';
+    toast({ title: 'PAYMENTS_TOKEN added to prod', tone: 'ok' });
+    setTimeout(() => {
+      const w = $('#warn-wrap'); w.style.height = w.offsetHeight + 'px'; void w.offsetHeight;
+      w.style.height = '0px'; w.style.paddingTop = '0px'; w.style.opacity = '0';
+      M.setRoll($('#warn-n'), 0); $('#warn-word').textContent = 'warnings'; $('#warn-count').classList.add('clear');
+      const tail = [...document.querySelectorAll('.item')].find((i) => /Secrets/.test(i.textContent))?.querySelector('.tail');
+      if (tail) { tail.classList.remove('warn-text'); tail.style.color = 'var(--success-text)'; tail.innerHTML = '<span class="dot ok flat"></span>all set'; tail.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: 'ease-out' }); }
+    }, 1200);
+  });
+
+  /* ── AI generation flow ──
+     prompt → task log (pending → running → done) → streamed explanation → diff → Apply / Discard.
+     Simulated with timers; the change it proposes is real and lands in the editor on Apply. */
+  const esc = (t) => t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  const hj = (o) => esc(JSON.stringify(o, null, 2)).replace(/("(?:[^"\\]|\\.)*")|(-?\b\d+(?:\.\d+)?\b)/g, (m, s, n) => (s ? `<span class="s">${s}</span>` : `<span class="n">${n}</span>`));
+  const mono = (t) => `<span class="mono">${t}</span>`;
+  const STEPS = [
+    { icon: 'file-search', ms: 450, status: 'Reading refunds.py…', run: 'Reading ' + mono('refunds.py'), done: 'Read ' + mono('refunds.py'),
+      io: [{ path: 'refunds.py' }, { lines: 27, routes: ['createRefund', 'listRefunds', 'refundStats'] }] },
+    { icon: 'list-checks', ms: 650, status: 'Planning a change to createRefund…', run: 'Planning change', done: 'Planned change: ' + mono('createRefund'),
+      io: [{ route: 'createRefund', goal: 'reject amount <= 0' }, { edits: 1, at: 'refunds.py:13' }] },
+    { icon: 'file-pen-line', ms: 750, status: 'Writing refunds.py…', run: 'Writing change', done: 'Wrote 1 change · <span class="ai-plus">+3</span> <span class="ai-minus">−1</span>',
+      io: [{ file: 'refunds.py', hunk: '@@ -10,4 +10,6 @@' }, { added: 3, removed: 1 }] },
+    { icon: 'flask-conical', ms: 650, status: 'Running self-test…', run: 'Running self-test', done: 'Ran self-test · 3/3 passed',
+      io: [{ route: 'POST /refunds', cases: [{ amount: 20 }, { amount: 0 }, { amount: -5 }] }, { passed: 3, failed: 0, status: [201, 422, 422] }] },
+  ];
+  const SAY = 'Added a guard so `createRefund` returns 422 when `amount` is zero, negative or not a number, before anything is written.';
+  const OLD_RET = '    <span class="k">return</span> refunds.<span class="f">insert</span>({<span class="s">"reason"</span>: body.<span class="f">get</span>(<span class="s">"reason"</span>, <span class="s">""</span>), <span class="s">"amount"</span>: body[<span class="s">"amount"</span>]})';
+  const NEW = [
+    '    <span class="k">if not</span> <span class="f">isinstance</span>(amount := body[<span class="s">"amount"</span>], (<span class="f">int</span>, <span class="f">float</span>)) <span class="k">or</span> amount &lt;= <span class="n">0</span>:',
+    '        <span class="k">raise</span> <span class="f">HTTPError</span>(<span class="n">422</span>, {<span class="s">"error"</span>: <span class="s">"amount must be positive"</span>})',
+    '    <span class="k">return</span> refunds.<span class="f">insert</span>({<span class="s">"reason"</span>: body.<span class="f">get</span>(<span class="s">"reason"</span>, <span class="s">""</span>), <span class="s">"amount"</span>: amount})',
+  ];
+  const DIFF = [
+    [' ', 10, '    body = req.<span class="f">body</span> <span class="k">or</span> {}'],
+    [' ', 11, '    <span class="k">if</span> <span class="s">"amount"</span> <span class="k">not in</span> body:'],
+    [' ', 12, '        <span class="k">raise</span> <span class="f">HTTPError</span>(<span class="n">422</span>, {<span class="s">"error"</span>: <span class="s">"amount is required"</span>})'],
+    ['-', 13, OLD_RET], ['+', 13, NEW[0]], ['+', 14, NEW[1]], ['+', 15, NEW[2]],
+  ];
+  const plain = (h) => { const t = document.createElement('div'); t.innerHTML = h; return t.textContent; };
+
+  const flow = $('#ai-flow'), status = $('#ai-status'), timeEl = $('#ai-time'), log = $('#ai-log'), say = $('#ai-say'), diff = $('#ai-diff'), confirmBar = $('#ai-confirm'), scroller = $('#ai-scroll');
+  const q = $('#ai-q'), go = $('#ai-go');
+  $('#ai-lines').innerHTML = DIFF.map(([t, n, h]) => `<div class="ai-ln${t === '+' ? ' add' : t === '-' ? ' del' : ''}"><span class="ai-no">${n}</span><span class="ai-mk">${t === ' ' ? '' : t === '-' ? '−' : '+'}</span><span class="ai-cd">${h}</span></div>`).join('');
+
+  let gen = 0, timers = [], agoTimer = 0, t0 = 0, clock = 0, undoHTML = null, wasDirty = false;
+  const later = (fn, ms) => { const g = gen; timers.push(setTimeout(() => g === gen && fn(), ms)); };
+  const setPhase = (p) => { flow.dataset.phase = p; };
+  /* settle: once a state change's motion should be over by the wall clock, finish anything still running.
+     A no-op when frames flow; when they don't (background tab, headless capture) nothing sits on its first frame. */
+  const settle = (el, ms = 360) => setTimeout(() => el.getAnimations({ subtree: true }).forEach((a) => {
+    const t = a.effect?.getTiming?.(); if (t && t.iterations !== Infinity && a.playState !== 'finished') a.finish();
+  }), ms);
+  const setStatus = (html, live) => {
+    status.innerHTML = html; status.classList.toggle('ai-gen', !!live);
+    status.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 140, easing: 'ease-out' }); settle(flow);
+  };
+  const show = (el) => { el.hidden = false; el.classList.remove('ai-show'); void el.offsetWidth; el.classList.add('ai-show'); settle(flow); };
+  const busyBtn = (on) => { if (on) { go.style.width = go.offsetWidth + 'px'; go.classList.add('sending'); } else { go.classList.remove('sending'); go.style.width = ''; } };
+
+  function stream(text, done) {
+    const words = text.split(' '), chunks = [];
+    for (let i = 0; i < words.length;) { const n = 1 + ((i * 7) % 3 === 0 ? 1 : 0); chunks.push(words.slice(i, i + n).join(' ')); i += n; }
+    say.innerHTML = '';
+    chunks.forEach((c, i) => later(() => {
+      say.insertAdjacentHTML('beforeend', `<span class="ai-chunk">${(i ? ' ' : '') + esc(c).replace(/`([^`]+)`/g, '<code>$1</code>')}</span>`);
+      settle(say); if (i === chunks.length - 1 && done) done();
+    }, i * 55));
+  }
+
+  function run() {
+    const prompt = q.value.trim(); if (!prompt) { q.focus(); return; }
+    gen++; timers.forEach(clearTimeout); timers = []; clearInterval(agoTimer); clearInterval(clock);
+    log.innerHTML = STEPS.map((s, i) => `<div class="ai-step" data-state="pending" role="listitem">
+      <button class="ai-row" aria-expanded="false" disabled><span class="ai-st"><span class="ai-st-p"></span><span class="dot m-live"></span><i data-lucide="check"></i></span><i data-lucide="${s.icon}" class="ai-tool"></i><span class="ai-lbl"><span class="ai-l-run">${s.run}</span><span class="ai-l-done">${s.done}</span></span><span class="ai-meta" id="ai-m${i}"></span><i data-lucide="chevron-right" class="ai-chev"></i></button>
+      <div class="ai-detail"><div><div class="ai-io"><div><div class="ai-io-h">Input</div><pre class="ai-json">${hj(s.io[0])}</pre></div><div><div class="ai-io-h">Output</div><pre class="ai-json">${hj(s.io[1])}</pre></div></div></div></div></div>`).join('');
+    Shell.icons();
+    say.innerHTML = ''; diff.hidden = true; confirmBar.hidden = true; scroller.scrollTop = 0;
+    flow.classList.remove('folded'); flow.classList.add('open'); setPhase('run'); busyBtn(true);
+    t0 = performance.now(); timeEl.textContent = '0.0s'; settle(flow);
+    clock = setInterval(() => { timeEl.textContent = ((performance.now() - t0) / 1000).toFixed(1) + 's'; }, 100);
+    const rows = [...log.children];
+    let at = 0;
+    STEPS.forEach((s, i) => {
+      later(() => { rows[i].dataset.state = 'running'; setStatus(esc(s.status), true); }, at);
+      at += s.ms;
+      later(() => {
+        rows[i].dataset.state = 'done'; rows[i].querySelector('.ai-row').disabled = false;
+        $('#ai-m' + i).textContent = (s.ms / 1000).toFixed(1) + 's'; settle(flow);
+      }, at);
+    });
+    const tWrite = STEPS[0].ms + STEPS[1].ms;
+    later(() => stream(SAY), tWrite);                                   /* the explanation streams in while it writes */
+    later(() => show(diff), tWrite + STEPS[2].ms);                      /* the diff lands when the write step is done */
+    later(() => {                                                       /* self-test done: ready to confirm */
+      clearInterval(clock); timeEl.textContent = (at / 1000).toFixed(1) + 's';
+      setPhase('ready'); busyBtn(false); show(confirmBar);
+      setStatus('<b>1 change ready</b> · review before applying', false);
+    }, at);
+  }
+
+  function fold(html, phase) {
+    gen++; timers.forEach(clearTimeout); timers = []; clearInterval(clock); busyBtn(false);
+    setPhase(phase); flow.classList.add('folded'); timeEl.textContent = ''; setStatus(html, false); q.value = '';
+  }
+  const ago = (t) => { const s = Math.round((Date.now() - t) / 1000); return s < 2 ? 'now' : s < 60 ? s + 's ago' : Math.round(s / 60) + 'm ago'; };
+
+  function applyChange() {
+    if (flow.dataset.phase !== 'ready') return;
+    const html = code.innerHTML, mark = 'body[<span class="s">"amount"</span>]})', at = html.indexOf(mark);
+    if (at < 0) { toast({ title: 'Couldn’t apply the change', desc: 'createRefund changed since the AI read it. Refine again.', tone: 'err' }); return; }
+    const a = html.lastIndexOf('\n', at) + 1, b = html.indexOf('\n', at), end = b < 0 ? html.length : b;
+    undoHTML = html; wasDirty = chip.classList.contains('dirty');
+    code.innerHTML = html.slice(0, a) + NEW.map((l) => `<span class="ai-ins">${l}</span>`).join('\n') + html.slice(end);
+    markDirty(); settle(code, 1800);
+    const when = Date.now(), iso = new Date(when).toISOString();
+    fold(`<b>Applied</b> · validate amount &gt; 0 · <span id="ai-ago" data-ts="${iso}" data-tip="${exact()}">${ago(when)}</span>`, 'applied');
+    agoTimer = setInterval(() => { const el = $('#ai-ago'); if (el) el.textContent = ago(when); else clearInterval(agoTimer); }, 1000);
+    toast({ title: 'Change applied to refunds.py', desc: 'createRefund · +3 −1 · unsaved', tone: 'ok', action: { label: 'Undo', onClick: undo } });
+  }
+  function undo() {
+    if (undoHTML == null) return;
+    code.innerHTML = undoHTML; undoHTML = null; numberLines();
+    if (!wasDirty) { chip.classList.remove('dirty'); saved.textContent = 'Saved now'; }
+    clearInterval(agoTimer); setPhase('discarded'); setStatus('<b>Reverted</b> · validate amount &gt; 0', false);
+  }
+  function discard() { if (flow.dataset.phase === 'ready' || flow.dataset.phase === 'run') fold('<b>Discarded</b> · validate amount &gt; 0', 'discarded'); }
+
+  go.addEventListener('click', run);
+  q.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); run(); } });
+  $('#ai-apply').addEventListener('click', applyChange);
+  $('#ai-discard').addEventListener('click', discard);
+  $('#ai-x').addEventListener('click', () => { if (flow.dataset.phase === 'run' || flow.dataset.phase === 'ready') discard(); flow.classList.remove('open'); clearInterval(agoTimer); });
+  log.addEventListener('click', (e) => {
+    const r = e.target.closest('.ai-row'); if (!r || r.disabled) return;
+    const st = r.parentElement, o = st.classList.toggle('open'); r.setAttribute('aria-expanded', o); settle(st);
+  });
+  $('#ai-copy').addEventListener('click', (e) => {
+    const t = DIFF.filter((d) => d[0] !== '-').map((d) => plain(d[2])).join('\n');
+    try { navigator.clipboard.writeText(t).catch(() => {}); } catch (err) {}
+    const sw = e.currentTarget.querySelector('.m-swap'); sw.classList.add('done'); setTimeout(() => sw.classList.remove('done'), 1200);
+  });
+  /* ⇧⌘↵ applies while a change is waiting; runs before the page's ⌘↵ = Send */
+  addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'Enter' && flow.dataset.phase === 'ready') { e.preventDefault(); e.stopImmediatePropagation(); applyChange(); }
+  }, true);
+  setTimeout(() => { if (flow.dataset.phase === 'idle' && !q.value) { q.value = 'Validate amount is positive in createRefund'; run(); } }, 2000); /* demo: play once */
+
+  /* ── route picker: a searchable Kit.menu grouped under the module ── */
+  const pick = $('#rp-pick');
+  function setRoute(r) {
+    route = r;
+    const mEl = $('#rp-pick-m'); mEl.className = 'method ' + r.m.toLowerCase(); mEl.textContent = r.m; $('#rp-pick-p').textContent = r.p;
+    const tm = document.getElementById('rp-r-m'), tp = document.getElementById('rp-r-p'), tn = document.getElementById('rp-r-n');
+    if (tm) { tm.textContent = r.m; tm.style.fill = `var(--method-${r.m.toLowerCase()})`; }
+    if (tp) { tp.textContent = r.p; tp.setAttribute('x', r.m.length > 3 ? 40 : 35); }
+    if (tn) tn.textContent = r.n;
+    $('#rp')?.setAttribute('aria-label', `${r.m} ${r.p} runs in the sandbox.`);
+  }
+  function openPicker() {
+    return window.Kit?.menu?.(pick, {           /* Kit owns aria-expanded, Esc, arrows and outside-click */
+      search: true, placeholder: 'Search routes…', width: pick.offsetWidth,
+      items: ROUTES.map((r) => ({ group: 'refunds.py', label: r.p, method: r.m, sub: r === route ? 'current' : r.n, checked: r === route, onSelect: () => setRoute(r) })),
+    });
+  }
+  pick.addEventListener('click', openPicker);
+  pick.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') { e.preventDefault(); openPicker(); } });
+  window.BackendDemo = { run, applyChange, discard, openPicker, setRoute };
+})();
+</script></body></html>

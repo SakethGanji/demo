@@ -1,0 +1,386 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Runs · Command Studio</title><link rel="stylesheet" href="assets/tokens.css"><link rel="stylesheet" href="assets/components.css"><link rel="stylesheet" href="assets/theme.css"><link rel="stylesheet" href="assets/character.css"><link rel="stylesheet" href="assets/system.css"><link rel="stylesheet" href="assets/inset.css"><link rel="stylesheet" href="assets/edges.css"><link rel="stylesheet" href="assets/light.css"><link rel="stylesheet" href="assets/paper.css"><link rel="stylesheet" href="assets/kit.css"><link rel="stylesheet" href="assets/motion.css"><script src="assets/motion.js"></script><script src="assets/art.js"></script><script src="assets/edges.js"></script><script src="assets/kit.js"></script><script src="assets/lucide.min.js"></script><script src="assets/shell.js"></script><style>
+ /* panel: header (no rule), then two wells: the day at a glance, then the runs */
+ .runs-panel{flex:1;display:flex;flex-direction:column;min-height:0}
+ .runs-panel .panel-head h3{display:flex;align-items:center;gap:var(--s2)}
+ .runs-panel .badge.secondary{font-weight:500;color:var(--muted-foreground)}
+
+ /* header well: hero number | timeline, split by a stat-strip hairline */
+ .band{display:grid;grid-template-columns:232px minmax(0,1fr);flex-shrink:0}
+ .hero-n{padding:var(--s4);display:flex;flex-direction:column;justify-content:center;gap:var(--s1);border-right:1px solid var(--hairline)}
+ .hero-n .lbl{font-size:12px;font-weight:500;color:var(--muted-foreground)}
+ .hero-n .big{display:flex;align-items:baseline;gap:var(--s2)}
+ .hero-n .val{font-size:28px;font-weight:600;letter-spacing:-.03em;line-height:1.15}
+ .hero-n .meta{display:flex;align-items:center;gap:var(--s3);font-size:12px;color:var(--muted-foreground)}
+ .hero-n .meta .err-text{display:inline-flex;align-items:center;gap:6px}
+
+ /* hero vector: 24 hourly columns on a fading grid; one glowing focal bar */
+ .tl{padding:var(--s4) var(--s4) var(--s3);min-width:0}
+ .tl .vx-grid{background-size:calc(100% / 24) 22px;background-position:var(--s4) 0;-webkit-mask:radial-gradient(70% 90% at 85% 30%,#000 5%,transparent 80%);mask:radial-gradient(70% 90% at 85% 30%,#000 5%,transparent 80%);opacity:.8}
+ .plot{position:relative;height:60px;display:grid;grid-template-columns:repeat(24,minmax(0,1fr));align-items:end}
+ .plot.art{width:auto}
+ .col{height:100%;display:flex;align-items:flex-end;justify-content:center;cursor:default}
+ .bar{width:64%;min-height:2px;border-radius:2px 2px 1px 1px;background:color-mix(in srgb,var(--foreground) 9%,transparent);transition:height var(--d-slow) var(--ease-out),background-color var(--d-fast)}
+ .col.idle .bar{background:color-mix(in srgb,var(--foreground) 5%,transparent)}
+ .col:hover .bar{background:color-mix(in srgb,var(--foreground) 18%,transparent);transition-duration:var(--d-slow),var(--d-instant)}
+ .col.now .bar,.col.now:hover .bar{background:linear-gradient(180deg,var(--brand-2),var(--brand-1))}
+ .ovl{position:absolute;left:0;top:0;width:100%;height:68px;overflow:visible;pointer-events:none}
+ .ovl .tick{fill:var(--art-line)}
+ .ovl .trend{fill:none;stroke-width:1.25;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke;transition:d var(--d-slow) var(--ease-out)}
+ .ovl .drop{stroke:var(--destructive);stroke-width:1;opacity:.7}
+ .ovl .node{fill:var(--destructive);stroke:var(--well-bg,var(--card));stroke-width:2;paint-order:stroke}
+ .ovl .halo{fill:color-mix(in srgb,var(--destructive) 22%,transparent)}
+ .ovl g.errmk{transition:transform var(--d-slow) var(--ease-out)}
+ .ovl .hit{pointer-events:auto;fill:transparent;cursor:default}
+ .axis{position:relative;height:12px;margin-top:10px;font:10px/12px var(--font-mono);color:var(--muted-foreground)}
+ .axis span{position:absolute;top:0;transform:translateX(-50%);white-space:nowrap}
+ .axis span:first-child{transform:none}.axis span:last-child{transform:translateX(-100%)}
+
+ /* filters: sit on the panel, aligned to the panel padding */
+ .flt{display:flex;align-items:center;gap:var(--s2);padding:var(--s2) var(--s5) var(--s3)}
+ .flt .input{max-width:240px;height:28px}
+
+ /* runs well */
+ .runs-well{flex:0 1 auto;min-height:0;overflow:auto;display:flex;flex-direction:column}
+ .runs-well .table th{height:34px}
+ .runs-well .table th:first-child,.runs-well .table td:first-child{padding-left:var(--s4)}
+ .runs-well .table th:last-child,.runs-well .table td:last-child{padding-right:var(--s4)}
+ .table tbody tr.run{cursor:pointer;outline:none}
+ .table tbody tr.run:active td{background:color-mix(in srgb,var(--foreground) 6%,transparent)}
+ .table tbody tr.run.sel td{background:color-mix(in srgb,var(--primary) 7%,transparent)}
+ .table tbody tr.run.sel td:first-child{box-shadow:inset 2px 0 0 var(--primary)}
+ .table tbody tr.run.err td{background:color-mix(in srgb,var(--destructive) 4%,transparent)}
+ .table tbody tr.run.err.sel td{background:color-mix(in srgb,var(--destructive) 6%,transparent)}
+ .table tbody tr.run.err.sel td:first-child{box-shadow:inset 2px 0 0 var(--destructive)}
+ .table tbody tr.run.ex > td{border-bottom-color:transparent !important}
+ .rt{display:inline-flex;align-items:center;gap:var(--s2);min-width:0}
+ .rt .mono{font-size:12.5px}
+ .rt .code{font:12px var(--font-mono);color:var(--destructive)}
+ .envt{font:12px var(--font-mono);color:var(--muted-foreground)}
+ .envt.prod{color:var(--foreground)}
+
+ /* status: a dot and a word; failure keeps its colour */
+ .st{display:inline-flex;align-items:center;gap:var(--s2);font-size:12.5px;color:var(--muted-foreground)}
+ .st .dot.ok{box-shadow:none}
+ .st.err{color:var(--destructive);font-weight:550}
+ .st.err .dot{box-shadow:0 0 0 3px color-mix(in srgb,var(--destructive) 20%,transparent)}
+ .st.run{color:var(--foreground)}
+
+ /* duration: a 48px bar scaled to the slowest run */
+ .table td.num .dur{display:inline-flex;align-items:center;justify-content:flex-end;gap:var(--s2)}
+ .dbar{width:48px;height:4px;border-radius:2px;background:color-mix(in srgb,var(--foreground) 6%,transparent);overflow:hidden;display:inline-block}
+ .dbar i{display:block;height:100%;border-radius:2px;background:color-mix(in srgb,var(--foreground) 24%,transparent);transition:width var(--d-slow) var(--ease-out)}
+ tr.sel .dbar i{background:linear-gradient(90deg,var(--brand-1),var(--brand-2))}
+ tr.err .dbar i{background:var(--destructive)}
+ .dur .ms{min-width:44px;text-align:right}
+
+ /* selected run: inline detail opens with height + opacity */
+ tr.xr > td{height:0 !important;padding:0 !important}
+ tr.xr.sh > td{border-bottom:1px solid var(--hairline) !important}
+ tr.xr.err > td{background:color-mix(in srgb,var(--destructive) 6%,transparent)}
+ tr.xr:not(.err) > td{background:color-mix(in srgb,var(--primary) 7%,transparent)}
+ tr.xr > td{box-shadow:inset 2px 0 0 var(--primary)} tr.xr.err > td{box-shadow:inset 2px 0 0 var(--destructive)}
+ .xw{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows var(--d-base) var(--ease-io),opacity var(--d-base) var(--ease-io)}
+ tr.xr.open .xw{grid-template-rows:1fr;opacity:1}
+ .xin{overflow:hidden;min-height:0}
+ .xbody{display:grid;grid-template-columns:220px minmax(0,560px) 1fr;gap:var(--s6);padding:var(--s1) var(--s4) var(--s4) var(--s4);cursor:default}
+ .xm{display:grid;grid-template-columns:64px minmax(0,1fr);row-gap:6px;font-size:12px;align-content:start;margin:0}
+ .xm dt{color:var(--muted-foreground)}.xm dd{margin:0;min-width:0}
+ .xm .mono{font-size:11.5px}
+ .xacts{display:flex;gap:2px;align-items:flex-start;justify-content:flex-end}
+ .xacts .btn{color:var(--muted-foreground)}.xacts .btn:hover{color:var(--foreground)}
+ /* mini trace, after the backend waterfall */
+ .xt{min-width:0;font-size:12px}
+ .xt-h{display:flex;align-items:center;gap:6px;color:var(--muted-foreground);margin-bottom:var(--s1)}
+ .xt-h b{color:var(--foreground);font-weight:600}
+ .wf{display:grid;grid-template-columns:132px minmax(0,1fr) 52px;column-gap:var(--s2)}
+ .wf-row{display:contents}
+ .wf-name{display:flex;align-items:center;gap:6px;height:22px;white-space:nowrap}.wf-name svg{width:13px;height:13px;color:var(--muted-foreground)}
+ .wf-dur{height:22px;line-height:22px;text-align:right;color:var(--muted-foreground)}
+ .wf-dur.strong{color:var(--foreground)}
+ .wf-track{position:relative;height:22px}
+ .wf-ruler .wf-track{height:16px;margin-bottom:2px;background:radial-gradient(circle,var(--art-line) .8px,transparent 1.2px) 0 100%/8px 3px repeat-x}
+ .wf-tick{position:absolute;bottom:0;height:4px;border-left:1px solid var(--art-line)}
+ .wf-tick span{position:absolute;bottom:6px;left:0;transform:translateX(-50%);font:10px/1 var(--font-mono);color:var(--muted-foreground);white-space:nowrap}
+ .wf-tick.first span{transform:none;left:-1px}.wf-tick.last span{transform:translateX(-100%)}
+ .wf-bed{position:absolute;inset:8px 0 auto;height:6px;border-radius:3px;background:color-mix(in srgb,var(--foreground) 6%,transparent)}
+ .wf-bar{position:absolute;top:8px;height:6px;left:var(--l);width:var(--w);border-radius:3px;transform-origin:left;transform:scaleX(0);transition:transform var(--d-slow) var(--ease-out) calc(var(--i) * 40ms + 60ms)}
+ .wf-bar.sb{background:color-mix(in srgb,var(--foreground) 26%,transparent)}
+ .wf-bar.br{background:linear-gradient(90deg,var(--brand-1),var(--brand-2))}
+ .wf-bar.bad{background:var(--destructive)}
+ .wf-drop{position:absolute;left:var(--l);width:1px;top:calc(14px - 22px * var(--k));height:calc(22px * var(--k) - 6px);background:var(--art-line);opacity:0;transition:opacity var(--d-base) var(--ease-out) calc(var(--i) * 40ms + 140ms)}
+ tr.xr.open .wf-bar{transform:none}tr.xr.open .wf-drop{opacity:1}
+ .xt-err{margin-top:var(--s2);font:11.5px/1.5 var(--font-mono);color:var(--destructive)}
+ /* failed run: meta | trace | stack | actions, side by side so the detail stays short */
+ .xbody.rs-on{grid-template-columns:212px minmax(0,.8fr) minmax(0,1.2fr) auto;gap:var(--s5)}
+ .rs-on .wf{grid-template-columns:96px minmax(0,1fr) 44px}
+ .rs{min-width:0;font-size:12px}
+ .rs .xt-h{height:22px;margin-bottom:var(--s1)}
+ .rs .xt-h .rs-sp{flex:1}
+ .rs .xt-h .btn.xs{height:22px;padding:0 7px;color:var(--foreground)}
+ .rs-l{font:12px/18px var(--font-mono);font-variant-numeric:tabular-nums}
+ .rs-l > *{border-top:1px solid var(--hairline)}
+ .rs-ex{display:flex;align-items:baseline;gap:var(--s2);padding:5px 0;min-width:0}
+ .rs-ty{color:var(--destructive);font-weight:600}
+ .rs-ms{color:var(--foreground)}
+ .rs-fr{display:block;padding:5px 6px;margin:0 -6px;color:inherit;text-decoration:none;min-width:0;cursor:pointer;transition:background-color var(--d-instant)}
+ a.rs-fr:hover{background:color-mix(in srgb,var(--foreground) 4%,transparent)}
+ a.rs-fr:active{background:color-mix(in srgb,var(--foreground) 7%,transparent)}
+ a.rs-fr:focus-visible{outline:2px solid var(--ring);outline-offset:-2px}
+ .rs-loc{display:flex;align-items:baseline;gap:var(--s2);min-width:0;white-space:nowrap}
+ .rs-loc b{font-weight:500;color:var(--foreground)}
+ .rs-loc .rs-fn{color:var(--muted-foreground);overflow:hidden;text-overflow:ellipsis}
+ .rs-loc svg{width:12px;height:12px;margin-left:auto;align-self:center;flex-shrink:0;color:var(--muted-foreground);opacity:0;transition:opacity var(--d-fast)}
+ a.rs-fr:hover .rs-loc svg,a.rs-fr:focus-visible .rs-loc svg{opacity:1}
+ .rs-code{display:flex;gap:var(--s3);margin-top:2px;color:var(--foreground);white-space:nowrap;min-width:0}
+ .rs-code .rs-ln{color:var(--muted-foreground);min-width:2ch;text-align:right;flex-shrink:0}
+ .rs-code code{font:inherit;overflow:hidden;text-overflow:ellipsis}
+ .rs-tg{display:flex;align-items:center;gap:6px;width:100%;padding:5px 0;background:none;border:0;border-top:1px solid var(--hairline);font:inherit;color:var(--muted-foreground);cursor:pointer;text-align:left}
+ .rs-tg:hover{color:var(--foreground)}
+ .rs-tg:focus-visible{outline:2px solid var(--ring);outline-offset:-2px}
+ .rs-tg svg{width:12px;height:12px;transition:transform var(--d-fast) var(--ease-out)}
+ .rs-tg[aria-expanded="true"] svg{transform:rotate(90deg)}
+ .rs-lw{display:grid;grid-template-rows:0fr;border-top:0 !important;transition:grid-template-rows var(--d-base) var(--ease-io)}
+ .rs-tg[aria-expanded="true"] + .rs-lw{grid-template-rows:1fr}
+ .rs-li{overflow:hidden;min-height:0}
+ .rs-lib{display:flex;gap:var(--s2);padding:5px 0;border-top:1px solid var(--hairline);color:var(--muted-foreground);opacity:.7;white-space:nowrap;min-width:0}
+ .rs-lib .rs-p{overflow:hidden;text-overflow:ellipsis;min-width:0}
+ .rs-lib .rs-fn{flex-shrink:0}
+
+ /* live rows open their height (0fr → 1fr) so the rows below glide down */
+ .table tbody tr.rn-in > td{height:0 !important;border-bottom-color:transparent !important;transition:height var(--d-slow) var(--ease-io),border-bottom-color var(--d-slow) var(--ease-io),background-color 60ms}
+ .table tbody tr.rn-in.rn-go > td{height:38px !important;border-bottom-color:var(--hairline) !important}
+ .rn-g{display:grid;grid-template-rows:0fr;transition:grid-template-rows var(--d-slow) var(--ease-io)}
+ tr.rn-go .rn-g{grid-template-rows:1fr}
+ .rn-c{overflow:hidden;min-height:0}
+
+ /* date range: a recessed value trigger at the end of the filter bar */
+ .rd{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 8px 0 10px;border:0;font:inherit;font-size:12.5px;color:var(--foreground);cursor:pointer;transition:background-color var(--d-instant),transform var(--d-instant)}
+ .rd:hover{background:color-mix(in srgb,var(--recess-fill) 170%,transparent)}
+ .rd:active{transform:scale(.98)}
+ .rd:focus-visible{outline:none;box-shadow:inset 0 0 0 1px var(--ring),var(--focus-ring)}
+ .rd svg{width:14px;height:14px;color:var(--muted-foreground)}
+ .rd .rd-ch{width:12px;height:12px}
+
+ /* footer: count, keyboard hints, older */
+ .runs-foot{display:flex;align-items:center;gap:var(--s4);height:40px;padding:0 var(--s2) 0 var(--s4);border-top:1px solid var(--hairline);font-size:12px;color:var(--muted-foreground);flex-shrink:0;margin-top:auto}
+ .runs-foot .hints{display:flex;align-items:center;gap:var(--s3)}
+ .runs-foot .hints span{display:inline-flex;align-items:center;gap:var(--s1)}
+ .runs-foot .kbd{font-size:10.5px}
+ .m-spin{animation:m-spin var(--d-slow) var(--ease-io)}
+ @keyframes m-spin{to{transform:rotate(360deg)}}
+</style></head><body><div id="shell"></div>
+<template id="page"><div class="panel runs-panel" data-edge="field" data-edge-from=":scope > .runs-well" data-edge-quiet>
+ <div class="panel-head"><h3>Runs <span class="badge secondary" id="runs-badge">128 · 24h</span></h3><div class="spacer"></div><button class="btn outline sm" id="refresh" data-tip="Fetch the latest runs" data-kbd="R"><i data-lucide="refresh-cw"></i> Refresh</button></div>
+ <div class="well band">
+  <div class="hero-n"><span class="lbl">Runs · last 24h</span>
+   <div class="big"><span class="val"><span class="m-roll" id="runs-n"></span></span></div>
+   <div class="meta"><span class="err-text" data-tip="POST /refunds · 422 · 2 min ago"><span class="dot err"></span>1 failed</span><span>p50 112 ms</span></div></div>
+  <div class="tl vx-host"><div class="vx-grid"></div>
+   <div class="plot art" id="tl"></div>
+   <div class="axis"><span style="left:0">24h ago</span><span style="left:25%">18h</span><span style="left:50%">12h</span><span style="left:75%">6h</span><span style="left:100%">now</span></div></div>
+ </div>
+ <div class="flt"><div class="seg" id="fseg"><button class="on" data-f="all">All</button><button data-f="ok">Succeeded</button><button data-f="err">Failed <span class="count">1</span></button></div><input class="input" id="fq" placeholder="Filter by path…"><span class="spacer"></span><button class="rd recess" id="rd" aria-label="Time range" data-tip="Time range"><i data-lucide="calendar"></i><span id="rd-l">Last 24h</span><i data-lucide="chevron-down" class="rd-ch"></i></button></div>
+ <div class="well runs-well"><table class="table"><thead><tr><th>Status</th><th>Route</th><th>Env</th><th>Trigger</th><th class="num">Duration</th><th class="num">When</th></tr></thead><tbody id="rows"></tbody></table>
+  <div class="runs-foot"><span id="runs-shown">Latest 5 of 128</span><span class="spacer"></span><span class="hints"><span><span class="kbd">j</span><span class="kbd">k</span> move</span><span><span class="kbd">↵</span> expand</span></span><button class="btn ghost sm">Load older</button></div></div>
+</div></template>
+<script>Shell.mount({active:'runs'})</script>
+<script>
+(function () {
+  const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const MAX = 149; // duration bars scale to the slowest run
+  const UTC = (iso, ms) => new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: 'UTC' }) + (ms ? '.' + ms : '') + ' UTC';
+
+  /* the latest runs, newest first. trace: [sandbox ms, [[node, start, ms, bad?], …]] */
+  const RUNS = [
+    { s: 'ok', m: 'GET', p: '/refunds/stats', env: 'dev', by: 'Test panel', ms: 112, ts: '2026-10-15T09:25:14Z', rel: 'now', id: 'exec_01a1…53a8', code: '200 OK', tr: [100, [['DataTable.list', 54, 9], ['HttpRequest', 65, 12]]] },
+    { s: 'ok', m: 'GET', p: '/refunds/stats', env: 'dev', by: 'Test panel', ms: 113, ts: '2026-10-15T09:25:02Z', rel: 'now', id: 'exec_7c2e…19b0', code: '200 OK', tr: [101, [['DataTable.list', 55, 9], ['HttpRequest', 66, 12]]] },
+    { s: 'err', m: 'POST', p: '/refunds', env: 'dev', by: 'Refunds dashboard', ms: 38, ts: '2026-10-15T09:23:10Z', rel: '2 min ago', id: 'exec_4f90…a2c1', code: '422 Unprocessable', tr: [31, []], body: 'HTTPError(422) at refunds.py:12 · {"error": "amount is required"}',
+      stack: { type: 'HTTPError', msg: '422 · amount is required',
+        own: [['refunds.py', 12, 'create_refund', 'raise HTTPError(422, {"error": "amount is required"})'], ['studio/api.py', 88, 'dispatch']],
+        lib: [['studio/runtime/sandbox.py', 214, 'invoke'], ['site-packages/starlette/routing.py', 74, 'app'], ['site-packages/anyio/to_thread.py', 56, 'run_sync']] } },
+    { s: 'ok', m: 'GET', p: '/refunds/stats', env: 'dev', by: 'Refunds dashboard', ms: 149, ts: '2026-10-15T09:20:41Z', rel: '5 min ago', id: 'exec_b83d…7e04', code: '200 OK', tr: [136, [['DataTable.list', 58, 11], ['HttpRequest', 72, 49]]] },
+    { s: 'ok', m: 'GET', p: '/refunds', env: 'prod', by: 'Public API', ms: 61, ts: '2026-10-15T09:11:02Z', rel: '14 min ago', id: 'exec_2d6a…c4f7', code: '200 OK', tr: [52, [['DataTable.list', 30, 14]]] },
+  ];
+  const LIVE = { s: 'ok', m: 'POST', p: '/refunds', env: 'dev', by: 'Refunds dashboard', ms: 41, ts: '2026-10-15T09:25:31Z', rel: 'now', id: 'exec_9e17…0b3d', code: '201 Created', tr: [33, [['DataTable.insert', 18, 7], ['HttpRequest', 26, 6]]] };
+
+  const status = (s) => s === 'err' ? '<span class="st err"><span class="dot err"></span>Failed</span>' : s === 'run' ? '<span class="st run"><span class="dot m-live"></span>Running</span>' : '<span class="st"><span class="dot ok flat"></span>Success</span>';
+  const dur = (ms, w = ms) => `<span class="dur"><span class="dbar"><i style="width:${(w / MAX) * 100}%"></i></span><span class="ms">${ms} ms</span></span>`;
+  const rowHTML = (r, extra = '') => `<tr class="run${r.s === 'err' ? ' err' : ''}${extra}" data-s="${r.s}" tabindex="-1">
+    <td>${status(r.s)}</td>
+    <td><span class="rt"><span class="method ${r.m.toLowerCase()}">${r.m}</span><span class="mono">${r.p}</span>${r.s === 'err' ? '<span class="code">422</span>' : ''}</span></td>
+    <td><span class="envt${r.env === 'prod' ? ' prod' : ''}">${r.env}</span></td><td class="muted">${r.by}</td>
+    <td class="num">${dur(r.ms)}</td><td class="num muted"><span data-ts="${r.ts}" data-tip="${UTC(r.ts)}">${r.rel}</span></td></tr>`;
+  const body = $('#rows');
+  body.innerHTML = RUNS.map((r) => rowHTML(r)).join('');
+  const data = new Map(); $$('tr.run', body).forEach((tr, i) => data.set(tr, RUNS[i]));
+
+  /* hero number */
+  const hero = $('#runs-n'); Motion.setRoll(hero, 128);
+
+  /* ── hero vector: 24 hourly buckets, oldest first; the current hour holds the 5 runs listed (1 failed) ── */
+  const buckets = [2, 1, 1, 0, 0, 1, 2, 4, 6, 8, 9, 10, 9, 8, 9, 10, 9, 8, 7, 6, 5, 4, 4, 5];
+  const H = 60, TOP = 12, PEAK = 10, NOWH = 9; // plot height, headroom for the trend line + node, scale peak, current UTC hour
+  const hY = (n) => H - (n / PEAK) * (H - TOP); // bar-top y in px
+  const hh = (h) => String((h + 24) % 24).padStart(2, '0') + ':00';
+  const tip = (i) => { const n = buckets[i]; return i === 23 ? `${hh(NOWH)}–now · ${n} runs, 1 failed` : `${hh(NOWH - 23 + i)}–${hh(NOWH - 22 + i)} UTC · ${n} run${n === 1 ? '' : 's'}`; };
+  const plot = $('#tl');
+  plot.innerHTML = buckets.map((n, i) => `<div class="col${i === 23 ? ' now' : ''}${n ? '' : ' idle'}" data-tip="${tip(i)}"><div class="bar${i === 23 ? ' a-glow' : ''}" style="height:${H - hY(n)}px"></div></div>`).join('') +
+    `<svg class="ovl" aria-hidden="true"><defs><linearGradient id="tl-line" gradientUnits="userSpaceOnUse" x1="0" x2="240" y1="0" y2="0"><stop offset="0" style="stop-color:var(--brand-1);stop-opacity:0"/><stop offset=".35" style="stop-color:var(--brand-1);stop-opacity:.55"/><stop offset="1" style="stop-color:var(--brand-2)"/></linearGradient></defs>
+      ${Array.from({ length: 25 }, (_, i) => `<circle class="tick" cx="${(i / 24) * 100}%" cy="${H + 4}" r="${i % 6 ? .9 : 1.3}"/>`).join('')}
+      <svg viewBox="0 0 240 ${H}" preserveAspectRatio="none" width="100%" height="${H}" overflow="visible"><path class="trend" id="trend" stroke="url(#tl-line)"/></svg>
+      <svg x="${(23.5 / 24) * 100}%" overflow="visible"><g class="errmk" id="errmk"><line class="drop" x1="0" x2="0" y1="3" id="drop"/><circle class="halo" r="6"/><circle class="node" r="3"/><circle class="hit" r="8" data-tip="Failed · POST /refunds 422 · 38 ms · 09:23:10 UTC"/></g></svg></svg>`;
+  /* trend: a lightly smoothed hourly line, drawn as a Catmull-Rom curve through the column centres, just above the bars */
+  const drawTrend = () => {
+    const sm = buckets.map((n, i) => (buckets[Math.max(0, i - 1)] + 2 * n + buckets[Math.min(23, i + 1)]) / 4);
+    const P = sm.map((n, i) => [i * 10 + 5, hY(n) - 4]);
+    let d = `M${P[0][0]} ${P[0][1].toFixed(1)}`;
+    for (let i = 0; i < P.length - 1; i++) {
+      const p0 = P[Math.max(0, i - 1)], p1 = P[i], p2 = P[i + 1], p3 = P[Math.min(P.length - 1, i + 2)];
+      d += ` C${(p1[0] + (p2[0] - p0[0]) / 6).toFixed(1)} ${(p1[1] + (p2[1] - p0[1]) / 6).toFixed(1)}, ${(p2[0] - (p3[0] - p1[0]) / 6).toFixed(1)} ${(p2[1] - (p3[1] - p1[1]) / 6).toFixed(1)}, ${p2[0]} ${p2[1].toFixed(1)}`;
+    }
+    $('#trend').setAttribute('d', d);
+  };
+  /* the failure: a red node above the current hour, a hairline down to the axis */
+  const placeErr = () => { const y = hY(buckets[23]) - 10; $('#errmk').style.transform = `translateY(${y}px)`; $('#drop').setAttribute('y2', H + 4 - y); };
+  drawTrend(); placeErr();
+  const grow = () => {
+    buckets[23]++; const col = $$('.col', plot)[23];
+    col.querySelector('.bar').style.height = H - hY(buckets[23]) + 'px'; col.dataset.tip = tip(23);
+    drawTrend(); placeErr();
+  };
+
+  /* ── selection + inline detail ── */
+  const pc = (v, S) => (v / S * 100).toFixed(2) + '%';
+  const I = (n) => `<i data-lucide="${n}"></i>`;
+  const detail = (r) => {
+    const S = r.ms, [sb, kids] = r.tr;
+    const half = Math.round(S / 2 / 10) * 10;
+    const wf =
+      `<div class="wf-row wf-ruler"><span></span><div class="wf-track">${[[0, 'first'], [half, ''], [S, 'last']].map(([t, c]) => `<span class="wf-tick ${c}" style="left:${pc(t, S)}"><span>${t}${c === 'last' ? ' ms' : ''}</span></span>`).join('')}</div><span></span></div>` +
+      `<div class="wf-row"><span class="wf-name">${I('box')}Sandbox</span><div class="wf-track"><span class="wf-bed"></span><i class="wf-bar sb" style="--i:0;--l:0%;--w:${pc(sb, S)}"></i></div><span class="wf-dur strong">${sb} ms</span></div>` +
+      kids.map((k, i) => `<div class="wf-row"><span class="wf-name"><span class="dot ${k[3] ? 'err' : 'ok flat'}"></span>${k[0]}</span><div class="wf-track"><span class="wf-drop" style="--k:${i + 1};--i:${i + 1};--l:${pc(k[1], S)}"></span><i class="wf-bar ${k[3] ? 'bad' : 'br'}" style="--i:${i + 1};--l:${pc(k[1], S)};--w:${pc(k[2], S)}"></i></div><span class="wf-dur">${k[2]} ms</span></div>`).join('');
+    return `<tr class="xr${r.s === 'err' ? ' err' : ''}"><td colspan="6"><div class="xw"><div class="xin"><div class="xbody${r.stack ? ' rs-on' : ''}">
+      <dl class="xm"><dt>Run</dt><dd class="mono truncate">${r.id}</dd><dt>Status</dt><dd class="${r.s === 'err' ? 'err-text' : ''}">${r.code}</dd><dt>Started</dt><dd>${UTC(r.ts)}</dd><dt>Trigger</dt><dd class="truncate">${r.by} · <span class="mono">${r.env}</span></dd></dl>
+      <div class="xt"><div class="xt-h"><b>Trace</b><span class="truncate">· ${kids.length ? `${kids.length} node call${kids.length > 1 ? 's' : ''}` : 'stopped before any node call'}${r.stack ? '' : ` · sandbox ${sb} ms`}</span></div><div class="wf">${wf}</div>${r.body && !r.stack ? `<div class="xt-err truncate" data-tip='${r.body}'>${r.body}</div>` : ''}</div>${r.stack ? stackHTML(r.stack) : ''}
+      <div class="xacts"><button class="btn ghost icon-xs" data-tip="Replay this run">${I('rotate-ccw')}</button><button class="btn ghost icon-xs" data-tip="Copy run ID">${I('copy')}</button><button class="btn ghost icon-xs" data-tip="Open ${r.m} ${r.p} in backend">${I('arrow-up-right')}</button></div>
+    </div></div></div></td></tr>`;
+  };
+  /* stack trace (failed runs): exception, your frames (open in backend), library frames folded */
+  const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+  const stackHTML = (st) => `<div class="rs"><div class="xt-h"><b>Stack</b><span>· ${st.own.length + st.lib.length} frames</span><span class="rs-sp"></span><button class="btn outline xs rs-copy" data-tip="Copy the stack trace">${I('copy')}Copy</button></div>
+      <div class="rs-l"><div class="rs-ex"><span class="rs-ty">${st.type}</span><span class="rs-ms truncate">${esc(st.msg)}</span></div>
+      ${st.own.map(([p, ln, fn, code]) => `<a class="rs-fr" href="backend.html" data-tip="Open ${esc(p)} at line ${ln}"><span class="rs-loc"><b>${p}:${ln}</b><span class="rs-fn">in ${fn}</span>${I('arrow-up-right')}</span>${code ? `<span class="rs-code"><span class="rs-ln">${ln}</span><code>${esc(code)}</code></span>` : ''}</a>`).join('')}
+      <button class="rs-tg" aria-expanded="false">${I('chevron-right')}${st.lib.length} library frames</button><div class="rs-lw"><div class="rs-li">
+      ${st.lib.map(([p, ln, fn]) => `<div class="rs-lib"><span class="rs-p" data-tip="${esc(p)}:${ln}">${p}:${ln}</span><span class="rs-fn">in ${fn}</span></div>`).join('')}
+      </div></div></div></div>`;
+  const stackText = (st) => `Traceback (most recent call first):\n` +
+    st.own.map(([p, ln, fn, code]) => `  File "${p}", line ${ln}, in ${fn}${code ? `\n    ${code}` : ''}`).concat(st.lib.map(([p, ln, fn]) => `  File "${p}", line ${ln}, in ${fn}`)).join('\n') + `\n${st.type}: ${st.msg}`;
+  body.addEventListener('click', (e) => {
+    const tg = e.target.closest('.rs-tg');
+    if (tg) { tg.setAttribute('aria-expanded', tg.getAttribute('aria-expanded') === 'true' ? 'false' : 'true'); window.Edges && setTimeout(Edges.refresh, 220); return; }
+    if (e.target.closest('.rs-copy')) {
+      const st = RUNS.find((r) => r.stack).stack, txt = stackText(st);
+      const done = () => Kit.toast({ title: 'Trace copied', desc: `<span class="mono">${st.type}</span> · ${st.own.length + st.lib.length} frames`, tone: 'ok' });
+      try { navigator.clipboard.writeText(txt).then(done, done); } catch (_) { done(); }
+    }
+  });
+
+  let sel = null;
+  const visible = () => $$('tr.run', body).filter((r) => r.style.display !== 'none');
+  const select = (tr, still) => { if (sel === tr) return; sel?.classList.remove('sel'); sel = tr; if (tr) { tr.classList.add('sel'); if (!still) tr.scrollIntoView({ block: 'nearest' }); } };
+  const collapse = (tr, instant) => {
+    const x = tr.nextElementSibling; tr.classList.remove('ex'); if (!x || !x.classList.contains('xr')) return;
+    if (instant) return x.remove();
+    x.classList.remove('open'); x.classList.remove('sh');
+    const w = x.querySelector('.xw'); w.addEventListener('transitionend', () => x.remove(), { once: true }); setTimeout(() => x.isConnected && x.remove(), 400);
+  };
+  const expand = (tr, instant) => {
+    const r = data.get(tr); if (!r || r.s === 'run') return;
+    $$('tr.run.ex', body).forEach((o) => o !== tr && collapse(o));
+    if (tr.classList.contains('ex')) return collapse(tr);
+    tr.classList.add('ex'); tr.insertAdjacentHTML('afterend', detail(r)); const x = tr.nextElementSibling; x.classList.add('sh');
+    if (window.lucide) lucide.createIcons();
+    if (instant) { x.classList.add('open'); return; }
+    void x.offsetHeight; requestAnimationFrame(() => x.classList.add('open'));
+  };
+  body.addEventListener('click', (e) => {
+    const tr = e.target.closest('tr.run'); if (!tr) return;
+    select(tr); expand(tr);
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey || e.target.closest?.('input, textarea, [contenteditable]') || $('.m-pal.open')) return;
+    const v = visible(), i = v.indexOf(sel);
+    if (e.key === 'j' || e.key === 'k') { e.preventDefault(); const n = e.key === 'j' ? Math.min(v.length - 1, i + 1) : Math.max(0, i < 0 ? 0 : i - 1); select(v[n]); }
+    else if (e.key === 'Enter' && sel && !e.target.closest?.('button, a')) { e.preventDefault(); expand(sel); }
+    else if (e.key === 'Escape' && sel?.classList.contains('ex')) collapse(sel);
+    else if (e.key === 'r' || e.key === 'R') $('#refresh').click();
+  });
+
+  /* filters: detail rows follow their run */
+  const applyFilter = () => {
+    const f = $('#fseg .on')?.dataset.f || 'all', q = $('#fq').value.trim().toLowerCase();
+    $$('tr.run', body).forEach((r) => {
+      const s = r.dataset.s, okS = f === 'all' || s === f || (f === 'ok' && s === 'run');
+      r.style.display = okS && r.children[1].textContent.toLowerCase().includes(q) ? '' : 'none';
+      const x = r.nextElementSibling; if (x?.classList.contains('xr')) x.style.display = r.style.display;
+    });
+    if (sel && sel.style.display === 'none') select(null);
+  };
+  $('#fseg').addEventListener('click', () => requestAnimationFrame(applyFilter)); $('#fq').addEventListener('input', applyFilter);
+
+  /* Refresh: the icon turns once */
+  $('#refresh').addEventListener('click', () => { const ic = $('#refresh svg'); if (!ic) return; ic.classList.remove('m-spin'); void ic.offsetWidth; ic.classList.add('m-spin'); ic.addEventListener('animationend', () => ic.classList.remove('m-spin'), { once: true }); });
+
+  /* open on the failed run, so the page leads with what needs attention */
+  const errRow = $('tr.run.err', body); select(errRow, true); expand(errRow, true);
+
+  /* a live run streams in, ticks, completes; everything that counts it updates once */
+  /* arrivals: the new row opens its height so the rows below glide down; a burst queues ≥ 280 ms apart */
+  const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const GAP = 280, queue = []; let nextAt = 0, qT = 0;
+  const open = (row) => {
+    if (reduced()) return;
+    $$(':scope > td', row).forEach((td) => { const g = document.createElement('div'), c = document.createElement('div'); g.className = 'rn-g'; c.className = 'rn-c'; c.append(...td.childNodes); g.append(c); td.append(g); });
+    row.classList.add('rn-in'); void row.offsetHeight; row.classList.add('rn-go');
+    const unwrap = () => { if (!row.classList.contains('rn-in')) return; $$(':scope > td > .rn-g', row).forEach((g) => { g.parentNode.append(...g.firstChild.childNodes); g.remove(); }); row.classList.remove('rn-in', 'rn-go'); window.Edges && Edges.refresh(); };
+    row.firstElementChild.addEventListener('transitionend', (e) => e.propertyName === 'height' && unwrap()); setTimeout(unwrap, GAP + 120);
+  };
+  const pump = () => {
+    clearTimeout(qT); if (!queue.length) return;
+    const wait = nextAt - performance.now(); if (wait > 0) { qT = setTimeout(pump, wait); return; }
+    const [html, done] = queue.shift();
+    body.insertAdjacentHTML('afterbegin', html); const row = body.firstElementChild;
+    done && done(row); open(row); applyFilter();
+    nextAt = performance.now() + GAP; pump();
+  };
+  const arrive = (html, done) => { queue.push([html, done]); pump(); };
+
+  setTimeout(() => arrive(rowHTML({ ...LIVE, s: 'run' }, ' m-new').replace('<td class="num">' + dur(LIVE.ms), '<td class="num" id="live-d"><span class="dur"><span class="ms">0.0 s</span></span>'), (row) => {
+    row.id = 'live'; data.set(row, { ...LIVE, s: 'run' });
+    const n = $('#live-d .ms'), t0 = performance.now(); let raf, last = '';
+    const tick = (t) => { const s = ((t - t0) / 1000).toFixed(1) + ' s'; if (s !== last) n.textContent = last = s; raf = requestAnimationFrame(tick); };
+    raf = requestAnimationFrame(tick);
+    setTimeout(() => {
+      cancelAnimationFrame(raf);
+      row.dataset.s = 'ok'; data.set(row, LIVE);
+      row.children[0].innerHTML = status('ok');
+      const td = $('#live-d'); td.innerHTML = dur(LIVE.ms, 0);
+      setTimeout(() => { td.querySelector('.dbar i').style.width = (LIVE.ms / MAX) * 100 + '%'; }, 30);
+      row.classList.remove('m-new'); void row.offsetWidth; row.classList.add('m-flash');
+      Motion.setRoll(hero, 129);
+      $('#runs-badge').textContent = '129 · 24h'; $('#runs-shown').textContent = 'Latest 6 of 129';
+      grow();
+      const tail = $$('.item').find((i) => /Runs/.test(i.textContent))?.querySelector('.tail'); if (tail) tail.textContent = '129 · 24h';
+      applyFilter();
+    }, 1400);
+  }), 1500);
+
+  /* date range: presets only relabel (demo data stays as is) */
+  const RANGES = [['1h', 'Last hour'], ['24h', 'Last 24h'], ['7d', 'Last 7 days'], ['30d', 'Last 30 days']];
+  let range = '24h';
+  $('#rd').addEventListener('click', (e) => Kit.menu(e.currentTarget, { align: 'end', width: 180, items: RANGES.map(([k, l]) => ({ label: l, checked: k === range, onSelect: () => {
+    if (k === range) return; range = k; $('#rd-l').textContent = l;
+    Kit.toast({ title: `Time range: ${l.toLowerCase()}` });
+  } })) }));
+})();
+</script></body></html>

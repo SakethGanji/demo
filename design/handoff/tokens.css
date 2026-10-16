@@ -1,0 +1,341 @@
+/* ══════════════════════════════════════════════════════════════════════════════════════════════
+   Command Studio · design tokens (final)
+
+   Flattened from the FINAL mockup cascade: tokens → components → theme → character → system → inset → edges
+   → light → paper → kit → motion → glass → layout → lean (§1–§13, later sections win) → accent.
+   Defaults: html[data-layout="linear"], html[data-accent="stars"], lean on.
+   Every value was read back with getComputedStyle in headless Chromium (overview.html + projects.html,
+   light and ?theme=dark). Where a rule in a page hard-codes a colour over the token (dark success badge,
+   dark GET chip, in-tile wells), the token carries the RENDERED value.
+
+   Structure
+     the first root block   light. Mode-invariant tokens (radii, spacing, type, motion) live here only.
+     the first dark block   dark (html.dark). Every themed token is redefined there, as a literal.
+     the recipe block       var() compositions, declared on both selectors so they re-resolve under .dark.
+   Colours the studio's contrast.test.ts parses (card, method-*, warning*, success*, ai*, syn-*, code-bg,
+   code-gutter) are literal hex in both blocks.
+
+   Dark has no outlines on boxes: tiles, cards, the sheet, chrome and overlays are defined by frost, a 1px
+   top light and a drop shadow only.
+
+   NOT in this file (keep them in the studio's index.css until the canvas is restyled):
+     --node-*    workflow node colours
+     --sticky-*  sticky-note colours
+     --chart-*   json-viewer still reads --chart-2
+   ══════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/* ── fonts: Inter v4 (variable, opsz axis) as 'Inter Var'; JetBrains Mono. Files ship in ./fonts/ ── */
+@font-face { font-family: 'Inter Var'; src: url("./fonts/inter-v4.woff2") format('woff2'); font-weight: 100 900; font-display: block; }
+@font-face { font-family: 'JetBrains Mono'; src: url("./fonts/jbmono.woff2") format('woff2'); font-weight: 100 800; font-display: swap; }
+
+
+/* ════════════════════════════════════════ LIGHT ════════════════════════════════════════ */
+:root {
+  /* ── surfaces: canvas → sheet → tile → well; recess for controls; popover for solid overlays ── */
+  --canvas: #f8f9fb;                         /* app background (top bar + sidebar sit on it) */
+  --background: #ffffff;
+  --sheet: #ffffff;                          /* the Linear content sheet */
+  --tile: #f4f6fa;                           /* bento tiles, cards (solid) */
+  --well: #ffffff;                           /* a well inside a tile: tables, lists, code */
+  --recess: rgb(30 45 80 / .045);            /* inputs, seg tracks, outline buttons, chips */
+  --raise: #ffffff;                          /* seg thumb, kbd on a recess */
+  --card: #ffffff;
+  --popover: #ffffff;
+  --muted: #f1f3f7;
+  --secondary: #f1f3f7;
+  --accent: #eef1f6;                         /* shadcn hover surface (not the brand) */
+  --surface: #f1f3f7;                        /* legacy studio alias of --muted */
+
+  /* ── text ── */
+  --foreground: #141821;
+  --card-foreground: #141821;
+  --popover-foreground: #141821;
+  --secondary-foreground: #141821;
+  --accent-foreground: #141821;
+  --muted-foreground: #5d6475;
+  --faint: #a29e96;                          /* decorative only */
+
+  /* ── lines: hairline for rows and splits; panel-border for the sheet edge ── */
+  --hairline: rgb(30 45 80 / .07);
+  --panel-border: rgb(30 45 80 / .09);
+  --border: rgb(38 34 28 / .10);
+  --input: rgb(38 34 28 / .16);
+  --slot-line: rgb(38 34 28 / .18);          /* dashed empty slot */
+
+  /* ── brand: steel blue ── */
+  --primary: #2a5fc4;
+  --primary-foreground: #ffffff;
+  --ring: #4a7fd6;
+  --brand-1: #3a6fd0;                        /* gradient: logo, project avatar, focal art stroke only */
+  --brand-2: #4aa9bf;
+  --brand-soft: color-mix(in srgb, #3a6fd0 7%, transparent);
+  --glow: color-mix(in srgb, #3a6fd0 12%, transparent);
+  --glint: rgb(31 111 255 / .55);            /* sparkle at focal points */
+
+  /* ── status ── */
+  --success: #16a34a;
+  --success-text: #137538;
+  --success-soft: color-mix(in srgb, #16a34a 10%, transparent);
+  --warning: #d97706;
+  --warning-text: #925305;
+  --warning-soft: color-mix(in srgb, #d97706 11%, transparent);
+  --destructive: #c82828;
+  --destructive-foreground: #ffffff;
+  --ai: #7c5fe6;
+  --ai-text: #6447d1;
+  --ai-soft: color-mix(in srgb, #7c5fe6 9%, transparent);
+
+  /* ── HTTP methods (chip = text colour on a 13% tint of itself) & syntax ── */
+  --method-get: #137538;
+  --method-post: #2a5fc4;
+  --method-put: #925305;
+  --method-patch: #0f766e;
+  --method-delete: #b91c1c;
+  --code-bg: #fbfaf8;
+  --code-gutter: #878e9e;                   /* mockup draws gutters in --faint (2.6:1); raised to pass the 3:1 test */
+  --line-added: color-mix(in srgb, #16a34a 9%, transparent);
+  --syn-keyword: #b4205f;
+  --syn-string: #137538;
+  --syn-number: #925305;
+  --syn-fn: #2a5fc4;
+  --syn-comment: #77736b;
+  --syn-deco: #925305;
+
+  /* ── entity hues: one per kind of thing, on its icon everywhere it appears ── */
+  --hue-backend: #3a67b8;
+  --hue-data: #2f7d62;
+  --hue-runs: #2f7f93;
+  --hue-apps: #a8643a;
+  --hue-secrets: #8f7426;
+  --hue-ai: #7a62b0;
+  --hue-flow: #a2557d;                       /* workflows */
+  --hue-release: #5a7a2a;
+  --hue-home: #6a6e78;
+
+  /* ── shadcn sidebar (the sidebar sits on the canvas, no panel) ── */
+  --sidebar: transparent;
+  --sidebar-foreground: #3d3a35;
+  --sidebar-primary: #2a5fc4;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: rgb(38 34 28 / .055);    /* active item: a fill, no ring */
+  --sidebar-accent-foreground: #141821;
+  --sidebar-border: rgb(30 45 80 / .07);
+  --sidebar-ring: #4a7fd6;
+
+  /* ── glass. Light: tiles stay solid; only the top bar frosts and overlays are white glass ── */
+  --glass-fill: #f4f6fa;                     /* tile/card fill */
+  --glass-fill-editor: transparent;          /* editor panels merge into the sheet */
+  --glass-blur: none;
+  --glass-top: inset 0 0 0 0 transparent;    /* top light (dark only) */
+  --glass-shadow: 0 0 0 0 transparent;       /* drop (dark only) */
+  --chrome-fill: transparent;                /* top bar + sidebar */
+  --chrome-blur: blur(16px) saturate(160%);
+  --overlay-fill: rgb(255 255 255 / .72);    /* menus, ⌘K palette, popovers */
+  --overlay-blur: blur(22px) saturate(170%);
+  --overlay-shadow: 0 0 0 1px rgb(24 24 48 / .08), 0 8px 32px rgb(24 24 60 / .12), inset 0 1px 0 rgb(255 255 255 / .8), inset 0 -1px 0 rgb(255 255 255 / .2);
+  --scrim: rgb(38 34 28 / .16);
+
+  /* ── sheet edge ── */
+  --sheet-ring: 0 0 0 1px rgb(30 45 80 / .09);
+
+  /* ── space: light has no nebula; the sky is drawn in ink at low alpha ── */
+  --nebula: none;
+  --sky-opacity: .8;
+
+  /* ── elevation ── */
+  --raise-sm: 0 1px 2px rgb(38 34 28 / .08), 0 0 0 .5px rgb(38 34 28 / .06);
+  --raise-md: 0 1px 2px rgb(38 34 28 / .07), 0 4px 12px -4px rgb(38 34 28 / .12);
+  --btn-primary-top: inset 0 1px 0 rgb(255 255 255 / .12);
+  --shadow-2xs: 0 1px 2px 0 rgb(0 0 0 / 0.03);
+  --shadow-xs: 0 1px 2px rgb(38 34 28 / .05), 0 2px 6px -2px rgb(38 34 28 / .05);
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.03), 0 2px 6px 0 rgb(0 0 0 / 0.04), 0 0 1px 0 rgb(0 0 0 / 0.04);
+  --shadow: 0 1px 2px 0 rgb(0 0 0 / 0.03), 0 2px 6px 0 rgb(0 0 0 / 0.04), 0 0 1px 0 rgb(0 0 0 / 0.04);
+  --shadow-md: 0 1px 2px rgb(38 34 28 / .06), 0 4px 10px -4px rgb(38 34 28 / .08), 0 14px 30px -14px rgb(40 44 110 / .2);
+  --shadow-lg: 0 1px 2px rgb(38 34 28 / .06), 0 6px 14px -6px rgb(38 34 28 / .09), 0 22px 44px -22px rgb(40 44 110 / .24);
+  --shadow-xl: 0 4px 8px 0 rgb(0 0 0 / 0.02), 0 16px 40px -8px rgb(0 0 0 / 0.1), 0 0 1px 0 rgb(0 0 0 / 0.04);
+  --shadow-2xl: 0 2px 6px rgb(15 15 25 / .05), 0 24px 56px -16px rgb(15 15 25 / .22);
+
+  /* ── radii (mode-invariant): Linear-tight ── */
+  --r-sheet: 10px;
+  --r-panel: 8px;                            /* tiles, cards, menus, palette, dialogs, slots */
+  --r-well: 6px;
+  --r-ctl: 6px;                              /* buttons, inputs, seg tracks, sidebar items */
+  --r-chip: 4px;                             /* badges, seg thumbs */
+  --r-kbd: 3px;                              /* kbd, method chips */
+  --radius: 6px;                             /* shadcn base (= --r-ctl) */
+
+  /* ── spacing: 4pt ── */
+  --spacing: 0.25rem;
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s8: 32px; --s10: 40px;
+  --sheet-gutter: 8px;                       /* sheet's right + bottom margin from the window */
+  --topbar-h: 48px;
+  --sidebar-w: 240px;
+  --page-pad-y: 28px;
+  --page-pad-x: 32px;
+  --bento-gap: 16px;
+
+  /* ── type ── */
+  --font-sans: 'Inter Var', 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-features: 'cv01', 'ss03';           /* pair with font-optical-sizing: auto */
+  --font-features-mono: 'zero' 1;
+  --font-numeric: tabular-nums;
+  --tracking-normal: 0em;
+  --text-kbd: 10.5px;
+  --text-meta: 12px;                         /* badges: 12px / 550 */
+  --text-body: 13px;                         /* line-height 1.5 */
+  --text-panel-title: 13.5px;                /* 600, -.01em */
+  --text-section: 15px;                      /* 600 */
+  --text-title: 26px;                        /* 650, -.03em, line-height 1.1 */
+  --text-hero: 28px;                         /* 600, -.03em */
+
+  /* ── motion: state changes only, no bounce ── */
+  --d-instant: 80ms;
+  --d-fast: 140ms;
+  --d-base: 200ms;
+  --d-slow: 280ms;
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --ease-io: cubic-bezier(.65, 0, .35, 1);
+  --ease-in: cubic-bezier(.4, 0, 1, 1);
+}
+
+
+/* ════════════════════════════════════════ DARK · space ════════════════════════════════════════ */
+.dark {
+  /* ── surfaces: near-black space; the boxes are white frost over it ── */
+  --canvas: #050507;
+  --background: #0e1016;
+  --sheet: transparent;                      /* the sheet is only a frame: no fill, no edge */
+  --tile: #131722;                           /* solid tile: no-backdrop-filter fallback */
+  --well: rgb(0 0 0 / .35);                  /* a darker recess inside the frost so text stays crisp */
+  --recess: rgb(150 175 255 / .055);
+  --raise: rgb(255 255 255 / .07);
+  --card: #0e1016;
+  --popover: #151925;
+  --muted: #171b26;
+  --secondary: #171b26;
+  --accent: #1a1f2b;
+  --surface: #171b26;
+
+  /* ── text ── */
+  --foreground: #ececef;
+  --card-foreground: #ececef;
+  --popover-foreground: #ececef;
+  --secondary-foreground: #ececef;
+  --accent-foreground: #ececef;
+  --muted-foreground: #8b93a7;
+  --faint: #55555e;
+
+  /* ── lines (rows and splits only; never around a box) ── */
+  --hairline: rgb(170 190 255 / .07);
+  --panel-border: rgb(170 190 255 / .08);
+  --border: rgb(255 255 255 / .07);
+  --input: rgb(255 255 255 / .1);
+  --slot-line: rgb(255 255 255 / .12);
+
+  /* ── brand ── */
+  --primary: #3567c8;
+  --primary-foreground: #ffffff;
+  --ring: #7ea3e0;
+  --brand-1: #5b8ee0;
+  --brand-2: #6cc3d6;
+  --brand-soft: color-mix(in srgb, #5b8ee0 11%, transparent);
+  --glow: color-mix(in srgb, #5b8ee0 14%, transparent);
+  --glint: rgb(190 225 255 / .9);
+
+  /* ── status ── */
+  --success: #22c55e;
+  --success-text: #7fd6a0;
+  --success-soft: color-mix(in srgb, #4ade80 12%, transparent);
+  --warning: #f59e0b;
+  --warning-text: #fbbf24;
+  --warning-soft: color-mix(in srgb, #f59e0b 16%, transparent);
+  --destructive: #f87171;
+  --destructive-foreground: #ffffff;
+  --ai: #a08bff;
+  --ai-text: #c0b2ff;
+  --ai-soft: color-mix(in srgb, #a08bff 12%, transparent);
+
+  /* ── methods & syntax ── */
+  --method-get: #7fcf9d;
+  --method-post: #93b2e6;
+  --method-put: #fbbf24;
+  --method-patch: #2dd4bf;
+  --method-delete: #f87171;
+  --code-bg: #0e0e11;
+  --code-gutter: #676d7c;                   /* mockup: --faint #55555e (2.6:1); raised to pass the 3:1 test */
+  --line-added: color-mix(in srgb, #22c55e 12%, transparent);
+  --syn-keyword: #ff7ab6;
+  --syn-string: #86efac;
+  --syn-number: #fcd34d;
+  --syn-fn: #9cbbe8;
+  --syn-comment: #6b6b75;
+  --syn-deco: #fcd34d;
+
+  /* ── entity hues ── */
+  --hue-backend: #86a8e0;
+  --hue-data: #6cc4a2;
+  --hue-runs: #74c4d4;
+  --hue-apps: #dca27a;
+  --hue-secrets: #d6bf6a;
+  --hue-ai: #ad9ad9;
+  --hue-flow: #d495b6;
+  --hue-release: #a9c870;
+  --hue-home: #9a9aa4;
+
+  /* ── shadcn sidebar ── */
+  --sidebar: rgba(255, 255, 255, 0.025);
+  --sidebar-foreground: #c9c9d1;
+  --sidebar-primary: #3567c8;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: rgb(255 255 255 / .07);
+  --sidebar-accent-foreground: #ececef;
+  --sidebar-border: rgb(170 190 255 / .07);
+  --sidebar-ring: #7ea3e0;
+
+  /* ── glass: white frost, 11.6px blur, a whisper of top light, a soft drop. No outline. ── */
+  --glass-fill: rgba(255, 255, 255, 0.06);
+  --glass-fill-editor: rgba(255, 255, 255, 0.045);
+  --glass-blur: blur(11.6px);
+  --glass-top: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  --glass-shadow: 0 10px 40px rgb(0 0 0 / .5);
+  --chrome-fill: rgba(255, 255, 255, 0.025);
+  --chrome-blur: blur(11.6px);
+  --overlay-fill: rgb(18 22 32 / .72);
+  --overlay-blur: blur(24px) saturate(160%);
+  --overlay-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 24px 60px -20px rgb(0 0 0 / .7);
+  --scrim: rgb(0 0 0 / .5);
+
+  --sheet-ring: 0 0 0 0 transparent;
+
+  /* ── space: a barely-there bloom behind the content (body::after, fixed) and a quiet sky ── */
+  --nebula:
+    radial-gradient(34% 34% at 38% 30%, rgb(70 110 200 / .09), transparent 70%),
+    radial-gradient(28% 30% at 74% 62%, rgb(70 140 200 / .06), transparent 70%);
+  --sky-opacity: .4;
+
+  /* ── elevation ── */
+  --raise-sm: inset 0 1px 0 rgb(255 255 255 / .06), 0 1px 2px rgb(0 0 0 / .4);
+  --raise-md: inset 0 1px 0 rgb(255 255 255 / .06), 0 4px 14px -4px rgb(0 0 0 / .6);
+  --btn-primary-top: inset 0 1px 0 rgb(255 255 255 / .12);
+  --shadow-2xs: 0 1px 2px 0 rgb(0 0 0 / 0.08);
+  --shadow-xs: 0 1px 2px rgb(0 0 0 / .5), 0 8px 24px -14px rgb(0 0 0 / .7);
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.08), 0 2px 8px 0 rgb(0 0 0 / 0.1), 0 0 1px 0 rgb(0 0 0 / 0.12);
+  --shadow: 0 1px 2px 0 rgb(0 0 0 / 0.08), 0 2px 8px 0 rgb(0 0 0 / 0.1), 0 0 1px 0 rgb(0 0 0 / 0.12);
+  --shadow-md: 0 2px 4px rgb(0 0 0 / .5), 0 14px 32px -12px rgb(0 0 0 / .75);
+  --shadow-lg: 0 2px 4px rgb(0 0 0 / .5), 0 18px 44px -18px rgb(0 0 0 / .8);
+  --shadow-xl: 0 4px 8px 0 rgb(0 0 0 / 0.06), 0 16px 44px -8px rgb(0 0 0 / 0.22), 0 0 1px 0 rgb(0 0 0 / 0.1);
+  --shadow-2xl: 0 4px 10px rgb(0 0 0 / .45), 0 28px 64px -16px rgb(0 0 0 / .8);
+}
+
+
+/* ═══════════════ RECIPES · composed from the tokens above (both modes) ═══════════════ */
+:root, .dark {
+  --focus-ring: color-mix(in srgb, var(--ring) 45%, transparent);           /* a colour, as in the studio */
+  --shadow-focus: 0 0 0 2px var(--focus-ring);
+  --brand-gradient: linear-gradient(135deg, var(--brand-1), var(--brand-2));
+  --glass-elevation: var(--glass-shadow), var(--glass-top);
+  --method-tint: color-mix(in srgb, currentColor 13%, transparent);         /* chip background */
+  --hover-fill: color-mix(in srgb, var(--foreground) 9%, transparent);      /* outline button hover */
+  --primary-hover: color-mix(in srgb, var(--primary) 88%, #fff);
+}
