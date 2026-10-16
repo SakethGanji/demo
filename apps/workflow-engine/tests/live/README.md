@@ -71,3 +71,30 @@ or application response is fabricated during replay.
 
 Replay setup explicitly binds the retained app to the current project’s generated route IDs.
 The preview bridge rejects apps without route bindings; replay does not bypass that policy.
+
+## Three generated app ideas
+
+With the same environment-variable and Postgres prerequisites, run:
+
+```bash
+PG_BINDIR=/path/to/postgresql/bin apps/workflow-engine/venv/bin/python \
+  apps/workflow-engine/tests/live/run_app_ideas.py
+```
+
+This creates a fresh engine database and an independent synthetic-data Postgres cluster.
+Real Gemini generates a backend and UI for each project through the browser:
+
+- Storefront: product reads, atomic order creation and stock decrement, invalid quantity and
+  unavailable-stock rejection, and competing requests for the last units. Preview and published
+  checkout are checked against independent SQL queries. This does not take payments.
+- Support desk: ticket reads/filtering, persisted resolution, invalid-status rejection and a
+  missing-ticket response. The published app must retain the preview's update.
+- Expense reporting: real grouped totals, department filtering, and Refresh after a direct
+  database insert. The published app must display the updated dataset.
+
+The database role has only the table-specific read/write privileges needed by these cases.
+Credentials are saved through Secrets in each project. Actual successful responses provide
+response schemas to the client generator; write-request schemas are explicitly configured.
+The tests do not fabricate AI responses, application data, or successful writes. Each idea
+reports independently, so a failure does not prevent exercising the remaining ideas.
+Local reports and preview/published screenshots are under `screenshots/app-ideas/`.

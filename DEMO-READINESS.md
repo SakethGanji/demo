@@ -73,3 +73,22 @@ retained source passed. Report: `screenshots/demo-verification/2026-10-16/bankin
 Use synthetic data. Keep the existing banking example as a prepared fallback; distinguish
 replayed source from fresh generation. Neither a successful demo nor the current automated
 suite establishes enterprise authorization, multi-worker correctness, S3 support, or load capacity.
+
+## Additional app ideas (2026-10-16)
+
+Three new projects passed fresh real-Gemini backend and UI generation, browser preview,
+publication, saved-secret checks, and independent real-Postgres assertions:
+
+- Storefront: actual orders and stock changes in preview and published UI; invalid quantities
+  and unavailable stock rejected; two simultaneous requests for the last stock produce one
+  success and one conflict, without overselling. No payment processing is involved.
+- Support desk: filtering, persisted ticket resolution, invalid status rejection, and missing
+  ticket handling. Published UI retains the preview's changes.
+- Expense dashboard: grouped totals, department filters, Refresh after a direct database insert,
+  and published views of the updated data.
+
+No product-code changes were needed for these cases. The opt-in runner is
+`apps/workflow-engine/tests/live/run_app_ideas.py`; instructions are in the adjacent README.
+Evidence: `screenshots/app-ideas/report.json` plus three preview and three published screenshots.
+This verifies these specific journeys; it does not establish arbitrary app correctness or
+production commerce readiness.
