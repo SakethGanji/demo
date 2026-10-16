@@ -3,7 +3,12 @@
 This adapts the visual-backend concepts to Command's actual Python backend model.
 A large module container holds function containers. Expanding a function reveals its
 resolved local calls, known SDK connector calls, and unresolved/custom calls. Local calls
-navigate to the shared helper's definition instead of creating another copy of it.
+connect with solid arrows to the shared helper's single definition. Dotted edges inside
+each function connect its origin to nested call nodes. These are dependencies, not execution paths.
+
+The initial focused view shows the selected function alongside its callers and callees.
+Use **Show all functions** for the whole module, expand/collapse function boundaries,
+drag the canvas to pan, scroll or use the zoom buttons, and choose **Fit graph** to recenter.
 
 ## Run
 
@@ -56,4 +61,4 @@ python -m unittest discover -s design-mockups/visual-backend/code-map
 Checks cover source discovery, shadowed calls, nested scopes, syntax errors, non-execution,
 source revisions, route binding and unresolved effects. Browser checks exercise the actual
 banking module, nested calls, source navigation, code edits, stale/invalid state, out-of-order
-responses, and a 390px layout. Local evidence is in `screenshots/code-map/`.
+responses, and a 390px layout. Local graph evidence is in `screenshots/code-graph/` (earlier card prototype: `screenshots/code-map/`).
