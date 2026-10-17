@@ -228,7 +228,7 @@ class RouteDispatcher:
         from .execution_service import ExecutionService
         from .vars_substitution import redact_deep
 
-        svc = ExecutionService(ExecutionRepository(self._s, max_records=100), WorkflowRepository(self._s))
+        svc = ExecutionService(ExecutionRepository(self._s), WorkflowRepository(self._s))
         exec_ids: list[str] = []
 
         async def remember(exec_id, _env, _stored):

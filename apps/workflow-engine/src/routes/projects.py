@@ -150,12 +150,14 @@ def _run_item(e) -> dict[str, Any]:
     trigger = (e.metadata or {}).get("trigger") or {}
     route = (f"{trigger.get('method')} {trigger.get('route')}" if trigger.get("method") else trigger.get("route")) \
         if trigger.get("route") else None  # draft runs store "GET /path" in trigger.route
+    status_code = (((e.metadata or {}).get("response") or {}).get("status"))  # recorded by the route dispatcher
     duration = round((e.end_time - e.start_time).total_seconds() * 1000, 2) if e.end_time else None
     return {
         "id": e.id, "workflow_id": e.workflow_id, "workflow_name": e.workflow_name, "status": e.status,
         "mode": e.mode, "start_time": e.start_time.isoformat(), "end_time": e.end_time.isoformat() if e.end_time else None,
         "error_count": len(e.errors), "environment": e.environment, "trigger": trigger or None,
         "route_id": trigger.get("route_id"), "route": route, "app_id": trigger.get("app_id"), "duration_ms": duration,
+        "status_code": status_code if isinstance(status_code, int) else None,
     }
 
 
@@ -172,6 +174,14 @@ async def project_runs(project: str, response: Response, limit: int = Query(50, 
         rows = rows[:limit]
         response.headers["X-Next-Cursor"] = rows[-1].id
     return [_run_item(e) for e in rows]
+
+
+@router.get("/{project}/runs/daily")
+async def project_runs_daily(project: str, days: int = Query(30, ge=1, le=365), environment: str | None = None,
+                             svc: ProjectService = Depends(get_project_service),
+                             exec_repo=Depends(get_execution_repository)):
+    p = await require_project(project, svc)
+    return await exec_repo.daily_counts(p.id, days=days, environment=environment)
 
 
 @router.get("/{project}/runs/{execution_id}")

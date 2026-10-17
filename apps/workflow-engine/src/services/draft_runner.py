@@ -128,7 +128,7 @@ async def run_draft(session: AsyncSession, project: ProjectModel, *, source: str
                "path": concrete}
 
     exec_id = gen_exec_id()
-    await ExecutionRepository(session, max_records=100).start(
+    await ExecutionRepository(session).start(
         exec_id, module_id or f"draft:{module_name}", f"{route_label} (draft)", "sandbox", project_id=project.id,
         environment=env, metadata={"trigger": trigger, "labels": {"env": env}, "handler": "python_draft"})
     secrets = await project_secret_values(session, project, env)

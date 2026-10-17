@@ -258,6 +258,8 @@ class ExecutionService:
         variables = await load_run_variables(environment=env, project_id=stored.project_id)
         secrets = await load_run_secrets(environment=env, project_id=stored.project_id)
 
+        new_exec_id = runner._generate_id()  # the id the run really uses (returned to the caller, cancellable)
+
         async def _run() -> None:
             try:
                 context = await runner.run(
@@ -265,6 +267,7 @@ class ExecutionService:
                     start_node.name,
                     initial_data,
                     execution.mode,
+                    execution_id=new_exec_id,
                     pre_populated_states=pre_populated,
                     variables=variables,
                     secret_values=secrets,
@@ -279,9 +282,6 @@ class ExecutionService:
                 logger.exception("Retry execution failed for %s", execution_id)
 
         task = asyncio.create_task(_run())
-        # We don't know the execution_id yet since runner generates it,
-        # but we can register using a placeholder
-        new_exec_id = runner._generate_id()
         execution_registry.register(new_exec_id, task)
 
         return new_exec_id

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+
 import logging
-from datetime import datetime
+import os
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import Date, case, cast, func
 from sqlmodel import select
 
 from ..db.models import ExecutionModel, NodeOutputModel
@@ -28,12 +31,20 @@ def default_trigger_type(mode: str | None) -> str:
     return _MODE_TRIGGER.get(mode or "", mode or "manual")
 
 
+def run_retention() -> int:
+    """Newest executions kept globally. ``WORKFLOW_RUN_RETENTION`` overrides the default of 100."""
+    try:
+        return max(1, int(os.environ.get("WORKFLOW_RUN_RETENTION", "100")))
+    except ValueError:
+        return 100
+
+
 class ExecutionRepository:
     """Repository for execution history persistence."""
 
-    def __init__(self, session: AsyncSession, max_records: int = 100) -> None:
+    def __init__(self, session: AsyncSession, max_records: int | None = None) -> None:
         self._session = session
-        self._max_records = max_records
+        self._max_records = max_records if max_records is not None else run_retention()
 
     async def start(
         self,
@@ -208,6 +219,30 @@ class ExecutionRepository:
         node_outputs = await self._get_node_outputs(execution_id)
         _, node_metrics = self._outputs_to_dicts(node_outputs)
         return self._to_execution_record(db_execution, node_outputs, node_metrics)
+
+    async def daily_counts(self, project_id: str, days: int = 30, environment: str | None = None) -> list[dict[str, Any]]:
+        """Per-day {date,total,failed} for the last ``days`` days (today included), zero-filled, grouped in SQL.
+
+        Days are the calendar dates of ``start_time`` (stored as naive timestamps; servers run in UTC).
+        """
+        today = datetime.now().date()
+        first = today - timedelta(days=days - 1)
+        day = cast(ExecutionModel.start_time, Date)
+        stmt = (
+            select(day.label("d"), func.count().label("total"),
+                   func.coalesce(func.sum(case((ExecutionModel.status == "failed", 1), else_=0)), 0).label("failed"))
+            .where(ExecutionModel.project_id == project_id, ExecutionModel.start_time >= datetime.combine(first, datetime.min.time()))
+            .group_by(day)
+        )
+        if environment:
+            stmt = stmt.where(ExecutionModel.environment == environment)
+        found = {r.d: (int(r.total), int(r.failed)) for r in (await self._session.execute(stmt)).all()}
+        out = []
+        for i in range(days):
+            d = first + timedelta(days=i)
+            t, f = found.get(d, (0, 0))
+            out.append({"date": d.isoformat(), "total": t, "failed": f})
+        return out
 
     async def list(
         self, workflow_id: str | None = None, project_id: str | None = None,

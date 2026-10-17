@@ -222,6 +222,22 @@ class WorkflowService:
                 field="definition",
             )
 
+        # Webhook paths are globally unique (unique index on active_triggers.webhook_path): refuse a path another
+        # workflow already owns with a clear error instead of failing later with a 500 from the database.
+        paths = {(n.parameters or {}).get("path") for n in stored.workflow.nodes if n.type == "Webhook"}
+        paths.discard(None)
+        paths.discard("")
+        if paths:
+            from sqlalchemy import select as _select
+            from ..db.models import ActiveTriggerModel
+            clash = (await self._workflow_repo._session.execute(_select(ActiveTriggerModel).where(
+                ActiveTriggerModel.webhook_path.in_(paths), ActiveTriggerModel.workflow_id != workflow_id))).scalars().first()
+            if clash is not None:
+                raise ValidationError(
+                    f"Cannot publish: webhook path '{clash.webhook_path}' is already used by workflow {clash.workflow_id}",
+                    field="path",
+                )
+
         # Create immutable version from current draft
         await self._create_version(workflow_id, message=message)
 

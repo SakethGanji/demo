@@ -35,7 +35,7 @@ def get_execution_repository(session: AsyncSession = Depends(get_db_session)):
     """Get execution repository instance."""
     from ..repositories import ExecutionRepository
 
-    return ExecutionRepository(session, max_records=100)
+    return ExecutionRepository(session)
 
 
 @lru_cache
