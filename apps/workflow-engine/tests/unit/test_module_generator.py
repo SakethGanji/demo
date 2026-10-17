@@ -117,3 +117,11 @@ def test_undefined_sdk_names():
         == [("api", 1), ("studio", 3)]
     assert mg.undefined_sdk_names("def api(): pass\n@api\ndef g(): pass\n") == []
     assert mg.undefined_sdk_names("def (:") == []
+
+
+def test_rules_state_the_single_req_handler_contract():
+    """Regression: Gemini wrote `def close(req, id=None)` and the route always 404'd."""
+    from src.services.module_generator import RULES
+
+    assert 'exactly one argument, `req`' in RULES
+    assert 'req.params["id"]' in RULES

@@ -131,6 +131,8 @@ RULES = """You write one Python backend module for a studio project. Reply by ca
 - Tables: studio.db.table("<literal name>"). Declare in `tables` every table your code uses that is not in the
   project's table list.
 - Call integrations only through studio.nodes.<function>(...) (listed below). No file or network access otherwise.
+- Every route handler takes exactly one argument, `req`: `def get_order(req):`. Path parameters are read from
+  `req.params["id"]` (never as extra function arguments), the JSON body from `req.json()`, and query values from `req.query`.
 - Return JSON-serialisable values (dict or list), or Response(...); raise HTTPError(status, body) for errors.
 - Each request has a 30 s limit. pandas is available.
 - Do not invent secrets: use the secret names listed in the project facts, or choose new UPPER_SNAKE names."""
