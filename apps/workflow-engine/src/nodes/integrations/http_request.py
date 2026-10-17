@@ -161,6 +161,20 @@ class HttpRequestNode(BaseNode):
         total_response_time_ms = 0.0
         total_response_size = 0
 
+        allowlist = list((getattr(context, "extras", None) or {}).get("egress_allowlist") or [])
+
+        def check_egress(url: str) -> None:
+            from urllib.parse import urlparse
+
+            from ...broker.policy import host_matches
+
+            host = urlparse(str(url)).hostname or ""
+            if allowlist and not host_matches(host, allowlist):
+                raise ValueError(f"Host '{host}' is not on this project's egress allowlist")
+
+        async def check_hop(request: httpx.Request) -> None:
+            check_egress(str(request.url))  # every redirect hop is a new request
+
         async def make_requests(client: httpx.AsyncClient) -> None:
             nonlocal last_url, last_status, total_response_time_ms, total_response_size
             for idx, item in enumerate(items):
@@ -206,6 +220,7 @@ class HttpRequestNode(BaseNode):
                         except json.JSONDecodeError:
                             body = resolved_body  # Keep as string
 
+                check_egress(url)
                 req_start = perf_counter()
                 response = await client.request(
                     method=method,
@@ -245,7 +260,7 @@ class HttpRequestNode(BaseNode):
         if hasattr(context, "http_client") and context.http_client:
              await make_requests(context.http_client)
         else:
-             async with httpx.AsyncClient(follow_redirects=True) as client:
+             async with httpx.AsyncClient(follow_redirects=True, event_hooks={"request": [check_hop]}) as client:
                  await make_requests(client)
 
         # Redact $vars secret values out of the URL before exposing it via

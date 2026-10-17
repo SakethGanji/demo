@@ -20,6 +20,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _egress_allowlist(project: Any) -> list[str]:
+    """The project's host allowlist for workflow nodes (empty = unrestricted, as for broker calls)."""
+    return list(((getattr(project, "settings", None) or {}).get("egress_allowlist")) or [])
+
+
 class ExecutionService:
     """Service for execution operations."""
 
@@ -99,6 +104,7 @@ class ExecutionService:
             initial_data = [NodeData(json={"triggeredAt": datetime.now().isoformat(), "mode": "manual"})]
             run_mode = mode or "manual"
 
+        extras = {**(extras or {}), "egress_allowlist": _egress_allowlist(project)}
         exec_id = gen_exec_id()
         meta = {"labels": {"env": env}, **(metadata or {})}
         await self._execution_repo.start(
@@ -273,6 +279,7 @@ class ExecutionService:
                     secret_values=secrets,
                     project_id=stored.project_id,
                     environment=env,
+                    extras={"egress_allowlist": _egress_allowlist(project)},
                 )
                 async with async_session_factory() as session:
                     from ..repositories.execution_repository import ExecutionRepository
