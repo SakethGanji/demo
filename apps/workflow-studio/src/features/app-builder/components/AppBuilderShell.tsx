@@ -1,7 +1,7 @@
 /**
- * App builder (UI-DESIGN §5.2, `builder.png`): `[Backend 288] [Preview] [Chat 360]` under a
- * floating top bar `luna / Project / App ⇕ · vN · saved · Preview|Code · history · settings ·
- * Publish`. Below 1280px the Backend panel is a 44px rail, chat is 320 and the URL pill hides.
+ * App builder (UI-DESIGN §5.2): `[Backend 288] [Preview] [Chat 360]` as editor-glass tiles (8px gutters)
+ * under the shared 48px top bar `Command Studio / Project / App ⇕ · vN · saved · Preview|Code · history ·
+ * settings · Publish`. Below 1280px the Backend panel is a 44px rail, chat is 320 and the URL pill hides.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
@@ -22,7 +22,10 @@ import {
 import { toast } from 'sonner'
 import { useProjectCtx } from '@/features/project/ProjectContext'
 import { useProjectApps, useProjectSummary, useRoutes } from '@/features/project/hooks/useProjectData'
-import { Brand, ThemeToggle, healthTone } from '@/features/project/components/ProjectTopBar'
+import { ProjectAvatar, healthTone } from '@/features/project/components/ProjectTopBar'
+import { Brand, CrumbSep, ThemeToggle, TopBarFrame } from '@/features/project/components/TopBar'
+import { Tile } from '@/shared/components/ui/surface'
+import { StatusDot } from '@/shared/components/ui/status-dot'
 import { appsApi, type ApiAppDetail } from '@/shared/lib/api'
 import { backends } from '@/shared/lib/config'
 import { errorMessage } from '@/shared/api/http'
@@ -55,7 +58,8 @@ import { PublishDialog } from './PublishDialog'
 import { AppSettingsSheet } from './AppSettingsSheet'
 import { DeleteAppDialog, UnpublishDialog } from './AppDialogs'
 
-const panel = 'rounded-xl border border-panel-border bg-card shadow-xs overflow-hidden'
+/** A builder pane: an editor-glass tile (DESIGN §1, editor pages split the sheet into panes). */
+const panel = 'overflow-hidden'
 
 /** Prompts already auto-sent (module scope: survives StrictMode remounts and URL rewrites). */
 const autoSent = new Set<string>()
@@ -76,7 +80,7 @@ function AppSwitcher({ app, onDelete }: { app: ApiAppDetail; onDelete: () => voi
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         data-testid="app-switcher"
-        className="inline-flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2 font-medium hover:bg-accent"
+        className="inline-flex h-7 min-w-0 items-center gap-1.5 rounded-ctl px-2 font-medium hover:bg-(--hover-fill)"
       >
         <AppWindow className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="max-w-48 truncate" data-testid="app-name">
@@ -85,7 +89,7 @@ function AppSwitcher({ app, onDelete }: { app: ApiAppDetail; onDelete: () => voi
         <ChevronsUpDown className="size-3 shrink-0 text-muted-foreground" />
       </PopoverTrigger>
       <PopoverContent className="w-64 p-1" align="start">
-        <div className="px-2 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Apps</div>
+        <div className="px-2 pb-1 pt-1.5 text-[12px] font-medium text-muted-foreground">Apps</div>
         <div className="max-h-72 overflow-y-auto">
           {(apps.data ?? []).map((a) => (
             <button
@@ -95,7 +99,7 @@ function AppSwitcher({ app, onDelete }: { app: ApiAppDetail; onDelete: () => voi
                 setOpen(false)
                 if (a.id !== app.id) navigate({ to: '/p/$project/apps/$appId', params: { project: slug, appId: a.id } })
               }}
-              className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left hover:bg-accent"
+              className="flex h-8 w-full items-center gap-2 rounded-ctl px-2 text-left hover:bg-(--hover-fill)"
               data-testid={`app-switcher-item-${a.id}`}
             >
               <AppWindow className="size-3.5 text-muted-foreground" />
@@ -105,14 +109,14 @@ function AppSwitcher({ app, onDelete }: { app: ApiAppDetail; onDelete: () => voi
             </button>
           ))}
         </div>
-        <div className="my-1 h-px bg-border" />
+        <div className="my-1 h-px bg-hairline" />
         <button
           type="button"
           onClick={() => {
             setOpen(false)
             navigate({ to: '/p/$project', params: { project: slug }, search: { dialog: 'create-ui' } })
           }}
-          className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-muted-foreground hover:bg-accent hover:text-foreground"
+          className="flex h-8 w-full items-center gap-2 rounded-ctl px-2 text-left text-muted-foreground hover:bg-(--hover-fill) hover:text-foreground"
           data-testid="app-switcher-new"
         >
           <Plus className="size-3.5" /> New app from the backend
@@ -123,7 +127,7 @@ function AppSwitcher({ app, onDelete }: { app: ApiAppDetail; onDelete: () => voi
             setOpen(false)
             onDelete()
           }}
-          className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-destructive hover:bg-destructive/10"
+          className="flex h-8 w-full items-center gap-2 rounded-ctl px-2 text-left text-destructive hover:bg-destructive-soft"
           data-testid="app-delete"
         >
           <Trash2 className="size-3.5" /> Delete {app.name}…
@@ -157,9 +161,9 @@ function VersionBadge({ saving, error, onSave }: { saving: boolean; error: strin
             onClick={onSave}
             disabled={saving || !files?.length}
             className={cn(
-              'ml-1 inline-flex h-5 items-center gap-1 rounded-full bg-secondary px-2 text-xs font-medium whitespace-nowrap text-secondary-foreground hover:bg-secondary/70 disabled:cursor-default disabled:hover:bg-secondary',
-              (error || dirty) && 'bg-warning/13 text-warning-text',
-              error && 'bg-destructive/10 text-destructive',
+              'ml-1 inline-flex h-5 items-center gap-1 rounded-full bg-recess px-2 text-xs font-medium whitespace-nowrap text-muted-foreground hover:bg-(--hover-fill) disabled:cursor-default',
+              (error || dirty) && 'bg-warning-soft text-warning-text',
+              error && 'bg-destructive-soft text-destructive',
             )}
             data-testid="builder-save"
             data-state={label}
@@ -355,7 +359,7 @@ export function AppBuilderShell({ appId }: { appId: string }) {
 
   if (appQ.isError) {
     return (
-      <div className="flex h-full items-center justify-center bg-canvas" data-testid="builder-load-error">
+      <div className="flex h-full items-center justify-center" data-testid="builder-load-error">
         <EmptyState
           title="Couldn't load this app"
           actions={
@@ -402,24 +406,22 @@ export function AppBuilderShell({ appId }: { appId: string }) {
   )
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-canvas" data-testid="app-builder">
+    <div className="relative h-full w-full overflow-hidden" data-testid="app-builder">
       {/* top bar */}
-      <header
-        data-testid="builder-topbar"
-        className="absolute inset-x-3 top-3 z-20 flex h-11 items-center gap-1 rounded-xl border border-panel-border bg-card/82 pl-2.5 pr-2 shadow-lg backdrop-blur-xl"
-      >
+      <TopBarFrame data-testid="builder-topbar">
         <Brand />
-        <span className="mx-0.5 text-base text-border">/</span>
+        <CrumbSep />
         <Link
           to="/p/$project"
           params={{ project: slug }}
-          className="inline-flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2 text-muted-foreground hover:bg-accent hover:text-foreground"
+          className="inline-flex h-7 min-w-0 items-center gap-1.5 rounded-ctl px-2 text-muted-foreground hover:bg-(--hover-fill) hover:text-foreground"
           data-testid="builder-project-link"
         >
-          <span className={cn('size-1.5 shrink-0 rounded-full', tone === 'ok' ? 'bg-success' : tone === 'warn' ? 'bg-warning' : tone === 'err' ? 'bg-destructive' : tone === 'running' ? 'bg-primary' : 'bg-border')} />
+          <ProjectAvatar name={project.name} />
           <span className="max-w-40 truncate">{project.name}</span>
+          <StatusDot tone={tone} />
         </Link>
-        <span className="mx-0.5 text-base text-border">/</span>
+        <CrumbSep />
         {app ? <AppSwitcher app={app} onDelete={() => setDeleteOpen(true)} /> : <span className="px-2 text-muted-foreground">Loading…</span>}
         {app && <VersionBadge saving={saving} error={saveError} onSave={() => void handleSave()} />}
         {app && (
@@ -445,14 +447,14 @@ export function AppBuilderShell({ appId }: { appId: string }) {
             { key: 'code', label: 'Code', icon: <CodeXml className="size-3" />, testId: 'builder-mode-code' },
           ]}
         />
-        <span className="mx-1.5 h-4 w-px bg-border" />
+        <span className="mx-1.5 h-4 w-px bg-hairline" />
         <Tooltip>
           <TooltipTrigger
             render={
               <Button
                 variant="ghost"
                 size="icon-sm"
-                className={cn(historyOpen && 'bg-muted text-foreground')}
+                className={cn(historyOpen && 'bg-raise text-foreground shadow-raise-sm')}
                 onClick={() => setHistoryOpen((o) => !o)}
                 aria-label="Version history"
                 aria-pressed={historyOpen}
@@ -484,19 +486,19 @@ export function AppBuilderShell({ appId }: { appId: string }) {
         >
           <Send /> {app?.active ? 'Republish' : 'Publish'}
         </Button>
-      </header>
+      </TopBarFrame>
 
-      {/* work area */}
-      <div className="absolute inset-x-3 bottom-3 top-[68px] flex gap-3">
-        <section className={cn(panel, 'relative shrink-0', narrow ? 'w-11' : 'w-[288px]')} data-testid="builder-backend">
+      {/* work area: editor-glass panes, 8px gutters (the workspace sheet geometry) */}
+      <div className="absolute inset-x-2 bottom-2 top-12 flex gap-2">
+        <Tile editor as="section" className={cn(panel, 'shrink-0', narrow ? 'w-11' : 'w-[288px]')} data-testid="builder-backend">
           {narrow ? (
             <BackendRail used={used} total={total} open={railOpen} onToggle={() => setRailOpen((o) => !o)} onOpenClient={openClient} />
           ) : (
             backendPanel
           )}
-        </section>
+        </Tile>
         {narrow && railOpen && (
-          <section className={cn(panel, 'absolute bottom-0 left-14 top-0 z-30 w-[288px] shadow-2xl')} data-testid="builder-backend-overlay">
+          <Tile editor as="section" className={cn(panel, 'absolute bottom-0 left-[52px] top-0 z-30 w-[288px]')} data-testid="builder-backend-overlay">
             <Button
               variant="ghost"
               size="icon-xs"
@@ -507,10 +509,11 @@ export function AppBuilderShell({ appId }: { appId: string }) {
               <X />
             </Button>
             {backendPanel}
-          </section>
+          </Tile>
         )}
 
-        <section className={cn(panel, 'relative min-w-0 flex-1')} data-testid="builder-preview-panel">
+        <Tile editor as="section" className={cn(panel, 'min-w-0 flex-1')} data-testid="builder-preview-panel">
+          <div className={cn('h-full', (historyOpen || testerOpen) && 'invisible')} data-testid="builder-preview-content">
           {!loaded ? (
             <div className="flex h-full items-center justify-center" data-testid="builder-loading">
               <Spinner className="text-muted-foreground" />
@@ -533,8 +536,9 @@ export function AppBuilderShell({ appId }: { appId: string }) {
               codeFocus={codeFocus}
             />
           )}
+          </div>
           {historyOpen && (
-            <div className="absolute bottom-2 right-2 top-2 z-30 w-[248px] overflow-hidden rounded-lg border border-border shadow-lg">
+            <div className="glass-overlay absolute bottom-2 right-2 top-2 z-30 w-[248px] overflow-hidden">
               <VersionHistory
                 appId={appId}
                 currentVersionId={currentVersion?.id ?? null}
@@ -544,9 +548,9 @@ export function AppBuilderShell({ appId }: { appId: string }) {
               />
             </div>
           )}
-        </section>
+        </Tile>
 
-        <section className={cn(panel, 'shrink-0', narrow ? 'w-[320px]' : 'w-[360px]')} data-testid="builder-chat-panel">
+        <Tile editor as="section" className={cn(panel, 'shrink-0', narrow ? 'w-[320px]' : 'w-[360px]')} data-testid="builder-chat-panel">
           <AppBuilderChatPanel
             ref={composerRef}
             projectName={project.name}
@@ -562,11 +566,12 @@ export function AppBuilderShell({ appId }: { appId: string }) {
             onRetry={() => void chat.retry()}
             onStop={chat.cancelStream}
           />
-        </section>
+        </Tile>
 
+        {/* the tester covers the (white) sandbox iframe: frost over it reads as a grey slab, so it uses the solid overlay surface */}
         {testerOpen && (
-          <div className={cn(panel, 'absolute inset-0 z-40 flex shadow-2xl')} data-testid="builder-api-tester">
-            <div className="w-[260px] shrink-0 overflow-hidden border-r border-border">
+          <div className="glass-overlay absolute inset-0 z-40 flex overflow-hidden" data-testid="builder-api-tester">
+            <div className="w-[260px] shrink-0 overflow-hidden shadow-[inset_-1px_0_0_var(--hairline)]">
               <SavedQueriesPanel onClose={() => setTesterOpen(false)} />
             </div>
             <div className="relative min-w-0 flex-1 overflow-hidden">

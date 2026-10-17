@@ -5,7 +5,7 @@
  */
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Settings2 } from 'lucide-react'
+import { SlidersHorizontal } from 'lucide-react'
 import { toast } from 'sonner'
 import { useProjectCtx } from '@/features/project/ProjectContext'
 import { useRoutes } from '@/features/project/hooks/useProjectData'
@@ -30,7 +30,7 @@ export function RouteSettingsButton({ routeId }: { routeId: string }) {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Route settings" data-testid="route-settings" />}>
-        <Settings2 />
+        <SlidersHorizontal className="size-3.5" />
       </PopoverTrigger>
       <PopoverContent align="end" className="w-[340px]" data-testid="route-settings-popover">
         {open && <RouteSettingsForm route={route} onDone={() => setOpen(false)} />}

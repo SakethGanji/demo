@@ -30,9 +30,16 @@ import {
 import { toast } from 'sonner'
 import { create } from 'zustand'
 
+import { MethodChip } from '@/shared/components/api/MethodBadge'
+import { Badge } from '@/shared/components/ui/badge'
+import { Button } from '@/shared/components/ui/button'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/shared/components/ui/dialog'
 import { Input } from '@/shared/components/ui/input'
 import JsonViewer from '@/shared/components/ui/json-viewer'
+import { Segmented } from '@/shared/components/ui/segmented'
 import { Skeleton } from '@/shared/components/ui/skeleton'
+import { IconTile, Well } from '@/shared/components/ui/surface'
+import { Textarea } from '@/shared/components/ui/textarea'
 import { ToolbarSeparator } from '@/shared/components/ui/toolbar'
 import {
   apiTesterApi,
@@ -129,28 +136,27 @@ const EMPTY_AUTH: AuthState = {
 }
 
 const ICON_BTN =
-  'h-7 w-7 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors'
+  'h-7 w-7 inline-flex items-center justify-center rounded-ctl text-muted-foreground hover:text-foreground hover:bg-(--hover-fill) transition-colors focus-visible:shadow-focus outline-none'
 
-/** Backgrounded pill variant for use as a chip — bg-{color}/10 + text-{color}. */
-function methodPillClass(m: string) {
+/** Method colour as text (the tint comes from `--method-tint`, which follows currentColor). */
+function methodTextClass(m: string) {
   switch (m.toUpperCase()) {
-    case 'GET': return 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-    case 'POST': return 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-    case 'PUT': return 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
-    case 'PATCH': return 'bg-violet-500/10 text-violet-600 dark:text-violet-400'
-    case 'DELETE': return 'bg-red-500/10 text-red-600 dark:text-red-400'
-    case 'HEAD': return 'bg-slate-500/10 text-slate-600 dark:text-slate-400'
-    case 'OPTIONS': return 'bg-slate-500/10 text-slate-600 dark:text-slate-400'
-    default: return 'bg-muted text-muted-foreground'
+    case 'GET': return 'text-method-get bg-(--method-tint)'
+    case 'POST': return 'text-method-post bg-(--method-tint)'
+    case 'PUT': return 'text-method-put bg-(--method-tint)'
+    case 'PATCH': return 'text-method-patch bg-(--method-tint)'
+    case 'DELETE': return 'text-method-delete bg-(--method-tint)'
+    default: return 'text-muted-foreground bg-recess'
   }
 }
 
-function statusPillClass(s: number | null | undefined) {
-  if (s == null) return 'bg-muted text-muted-foreground'
-  if (s < 300) return 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-  if (s < 400) return 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
-  if (s < 500) return 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-  return 'bg-red-500/10 text-red-600 dark:text-red-400'
+/** Status colours mean status only: 2xx success, 3xx brand, 4xx warning, 5xx / no response error. */
+function statusVariant(s: number | null | undefined): 'neutral' | 'success' | 'primary' | 'warning' | 'error' {
+  if (s == null) return 'error'
+  if (s < 300) return 'success'
+  if (s < 400) return 'primary'
+  if (s < 500) return 'warning'
+  return 'error'
 }
 
 function formatBytes(n: number) {
@@ -692,17 +698,15 @@ export function ApiTesterPanel({ onClose }: { onClose?: () => void }) {
   }, [pendingLoadId])
 
   return (
-    <div className="h-full w-full flex flex-col text-foreground">
+    <div className="glass-overlay h-full w-full flex flex-col rounded-none! text-foreground">
       {/* Header bar — mirrors the parent navbar's chrome density. */}
-      <div className="h-11 px-3 border-b border-border/40 flex items-center gap-2">
-        <span className="inline-flex items-center justify-center h-6 w-6 rounded-md bg-primary text-primary-foreground">
-          <Send className="h-3.5 w-3.5" />
-        </span>
-        <span className="text-[13px] font-medium text-foreground">API Tester</span>
-        <span className="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
-          beta
-        </span>
-        <span className="hidden md:inline text-[11px] text-muted-foreground/80 truncate">
+      <div className="hairline-b h-11 px-3 flex items-center gap-2">
+        <IconTile hue="backend">
+          <Send />
+        </IconTile>
+        <span className="text-panel-title text-foreground">API Tester</span>
+        <Badge variant="neutral">beta</Badge>
+        <span className="hidden md:inline text-xs text-muted-foreground truncate">
           Postman-lite — attach captured calls to chat as endpoint context
         </span>
 
@@ -711,7 +715,7 @@ export function ApiTesterPanel({ onClose }: { onClose?: () => void }) {
         {onClose && (
           <>
             <ToolbarSeparator />
-            <button onClick={onClose} className={ICON_BTN} title="Close">
+            <button onClick={onClose} className={ICON_BTN} title="Close" aria-label="Close" data-testid="api-tester-close">
               <X className="h-3.5 w-3.5" />
             </button>
           </>
@@ -723,10 +727,10 @@ export function ApiTesterPanel({ onClose }: { onClose?: () => void }) {
             floating panel managed by the app-builder shell. */}
         <div className="h-full grid grid-rows-[auto_minmax(0,1fr)_minmax(0,1fr)] min-h-0">
           {/* URL row — composer card */}
-          <div className="p-3 border-b border-border/40">
-            <div className="flex items-center gap-2 bg-muted border border-border rounded-lg p-1.5 focus-within:border-ring transition-colors">
+          <div className="hairline-b p-3">
+            <div className="recess flex items-center gap-2 p-1.5 transition-shadow duration-(--d-fast) focus-within:shadow-focus">
               {/* Method select — styled to look like a method pill, native select for a11y. */}
-              <div className={`relative h-7 inline-flex items-center gap-1 rounded-md pl-2 pr-1.5 font-mono text-[11px] font-bold ${methodPillClass(method)}`}>
+              <div className={`relative h-7 inline-flex items-center gap-1 rounded-chip pl-2 pr-1.5 font-mono text-[11px] font-semibold ${methodTextClass(method)}`}>
                 <select
                   aria-label="HTTP method"
                   value={method}
@@ -743,7 +747,7 @@ export function ApiTesterPanel({ onClose }: { onClose?: () => void }) {
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 placeholder="https://api.example.com/resource"
-                className="h-7 text-xs flex-1 font-mono bg-transparent border-none shadow-none focus-visible:ring-0 px-1"
+                className="h-7 text-xs flex-1 font-mono bg-transparent! shadow-none! px-1"
               />
 
               {/* Name & save popover trigger */}
@@ -754,10 +758,10 @@ export function ApiTesterPanel({ onClose }: { onClose?: () => void }) {
                     setNameOpen((v) => !v)
                     setTimeout(() => nameInputRef.current?.focus(), 0)
                   }}
-                  className={`h-7 px-2 inline-flex items-center gap-1 rounded-md text-[11px] transition-colors ${
+                  className={`h-7 px-2 inline-flex items-center gap-1 rounded-ctl text-[11px] transition-colors outline-none focus-visible:shadow-focus ${
                     name
-                      ? 'bg-secondary text-primary hover:bg-accent'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                      ? 'raise text-primary'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-(--hover-fill)'
                   }`}
                   title="Name & save"
                 >
@@ -768,9 +772,9 @@ export function ApiTesterPanel({ onClose }: { onClose?: () => void }) {
                 </button>
                 {nameOpen && (
                   <div
-                    className="absolute right-0 top-[calc(100%+6px)] z-30 w-64 p-2 rounded-md border border-border bg-popover shadow-lg"
+                    className="glass-overlay absolute right-0 top-[calc(100%+6px)] z-30 w-64 p-2.5"
                   >
-                    <label className="block text-[10px] uppercase tracking-wider font-semibold text-muted-foreground mb-1.5">
+                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">
                       Name & save
                     </label>
                     <Input
@@ -809,38 +813,44 @@ export function ApiTesterPanel({ onClose }: { onClose?: () => void }) {
               {/* Send / Cancel — primary CTA. While in-flight, swaps to a
                   destructive Cancel button that aborts the request. */}
               {executeMut.isPending ? (
-                <button
+                <Button
+                  variant="destructive"
+                  size="sm"
                   onClick={handleCancel}
-                  className="h-7 pl-2.5 pr-2.5 rounded-md bg-destructive text-destructive-foreground text-[11px] font-medium hover:opacity-90 transition-opacity inline-flex items-center gap-1.5"
                   title="Cancel in-flight request"
+                  data-testid="api-tester-cancel"
                 >
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <Loader2 className="animate-spin" />
                   Cancel
-                </button>
+                </Button>
               ) : (
-                <button
+                <Button
+                  size="sm"
                   onClick={handleSend}
-                  className="h-7 pl-2.5 pr-2 rounded-md bg-primary text-primary-foreground text-[11px] font-medium hover:bg-primary/90 transition-colors inline-flex items-center gap-1.5"
                   title="Send (Cmd/Ctrl+Enter)"
+                  data-testid="api-tester-send"
                 >
-                  <Send className="h-3.5 w-3.5" />
+                  <Send />
                   Send
                   <span
-                    className="ml-1 hidden lg:inline-flex items-center gap-0.5 px-1 py-px rounded bg-primary-foreground/20 text-[9px] font-mono text-primary-foreground"
+                    className="ml-1 hidden lg:inline-flex items-center gap-0.5 px-1 py-px rounded-kbd bg-primary-foreground/20 text-[9px] font-mono text-primary-foreground"
                     aria-hidden="true"
                   >
                     <span className="text-[10px] leading-none">{'⌘'}</span>
                     <span>Enter</span>
                   </span>
-                </button>
+                </Button>
               )}
             </div>
           </div>
 
           {/* Composer tabs */}
-          <div className="flex flex-col min-h-0 border-b border-border/40">
+          <div className="hairline-b flex flex-col min-h-0">
             <div className="flex items-center gap-2 px-3 pt-2.5 pb-1.5 shrink-0">
-              <PillTabs<RequestTab>
+              <Segmented<RequestTab>
+                size="xs"
+                aria-label="Request section"
+                data-testid="api-tester-request-tabs"
                 value={reqTab}
                 onChange={setReqTab}
                 options={[
@@ -913,53 +923,6 @@ export function ApiTesterPanel({ onClose }: { onClose?: () => void }) {
   )
 }
 
-// ── Pill-tab group (matches projects.tsx type-filter pattern) ─────────────
-
-interface PillTabOption<K extends string> {
-  key: K
-  label: string
-  count?: number
-}
-
-function PillTabs<K extends string>({
-  value,
-  onChange,
-  options,
-}: {
-  value: K
-  onChange: (k: K) => void
-  options: PillTabOption<K>[]
-}) {
-  return (
-    <div className="flex items-center gap-0.5 bg-muted rounded-md p-0.5">
-      {options.map((opt) => {
-        const active = value === opt.key
-        return (
-          <button
-            key={opt.key}
-            type="button"
-            onClick={() => onChange(opt.key)}
-            className={`px-2.5 h-6 inline-flex items-center gap-1 text-[11px] font-medium rounded-md transition-all duration-150 ${
-              active ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <span>{opt.label}</span>
-            {opt.count != null && opt.count > 0 && (
-              <span
-                className={`min-w-[16px] h-[15px] inline-flex items-center justify-center px-1 rounded-full text-[9px] font-mono ${
-                  active ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
-                }`}
-              >
-                {opt.count}
-              </span>
-            )}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
 // ── Saved row (with inline rename) ────────────────────────────────────────
 
 function SavedRow({
@@ -986,24 +949,16 @@ function SavedRow({
   return (
     <li
       onClick={() => !editing && onSelect()}
-      className={`group relative px-2 py-1.5 cursor-pointer rounded-md border transition-colors ${
-        active
-          ? 'bg-accent border-primary'
-          : 'border-transparent hover:bg-accent hover:border-border'
+      data-active={active || undefined}
+      className={`group relative px-2 py-1.5 cursor-pointer rounded-ctl transition-colors duration-(--d-fast) ${
+        active ? 'raise' : 'hover:bg-(--hover-fill)'
       }`}
     >
-      {/* Active accent stripe */}
-      {active && (
-        <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-primary" aria-hidden="true" />
-      )}
-
-      <div className="flex items-center gap-1.5 min-w-0 pl-1.5">
-        <span className={`shrink-0 inline-flex items-center justify-center h-[16px] px-1.5 rounded-sm text-[9px] font-mono font-bold ${methodPillClass(row.method)}`}>
-          {row.method}
-        </span>
-        <span className={`shrink-0 inline-flex items-center justify-center h-[16px] min-w-[24px] px-1.5 rounded-sm text-[9px] font-mono font-semibold ${statusPillClass(row.response_status)}`}>
+      <div className="flex items-center gap-1.5 min-w-0">
+        <MethodChip method={row.method} size="sm" />
+        <Badge variant={statusVariant(row.response_status)} className="h-4 min-w-6 px-1.5 font-mono text-[10px]">
           {row.response_status ?? 'ERR'}
-        </span>
+        </Badge>
         {editing ? (
           <input
             ref={inputRef}
@@ -1015,7 +970,7 @@ function SavedRow({
               if (e.key === 'Enter') { (e.target as HTMLInputElement).blur() }
               else if (e.key === 'Escape') { setDraft(row.name ?? ''); setEditing(false) }
             }}
-            className="text-[11px] flex-1 bg-background border border-border rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-ring min-w-0"
+            className="field text-[11px] flex-1 px-1.5 py-0.5 min-w-0"
           />
         ) : (
           <span className="text-[11px] truncate flex-1 font-medium" title={row.url}>
@@ -1024,21 +979,21 @@ function SavedRow({
         )}
         <button
           onClick={(e) => { e.stopPropagation(); setDraft(row.name ?? ''); setEditing(true) }}
-          className="opacity-0 group-hover:opacity-100 h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-all"
+          className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 h-5 w-5 flex items-center justify-center rounded-chip text-muted-foreground hover:text-foreground hover:bg-(--hover-fill) transition-all outline-none focus-visible:shadow-focus"
           title="Rename"
         >
           <Pencil className="h-3 w-3" />
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); onDelete() }}
-          className="opacity-0 group-hover:opacity-100 h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-destructive-foreground hover:bg-destructive transition-all"
+          className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 h-5 w-5 flex items-center justify-center rounded-chip text-muted-foreground hover:text-destructive hover:bg-destructive-soft transition-all outline-none focus-visible:shadow-focus"
           title="Delete"
         >
           <Trash2 className="h-3 w-3" />
         </button>
       </div>
       {row.name && (
-        <div className="text-[10px] text-muted-foreground/80 truncate mt-0.5 ml-[78px] font-mono">
+        <div className="text-[10px] text-muted-foreground/80 truncate mt-0.5 ml-[78px] font-mono" title={row.url}>
           {row.url}
         </div>
       )}
@@ -1066,18 +1021,15 @@ function KvEditor({
   return (
     <div className="space-y-1.5">
       {rows.length === 0 ? (
-        <div className="flex flex-col items-center justify-center text-center py-8 px-3 rounded-md border border-dashed border-border/40">
-          <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-2">
-            <Plus className="h-3.5 w-3.5 text-muted-foreground/70" />
+        <div className="rounded-well flex flex-col items-center justify-center text-center py-8 px-3">
+          <div className="size-8 rounded-panel bg-raise shadow-raise-sm flex items-center justify-center mb-2">
+            <Plus className="h-3.5 w-3.5 text-muted-foreground" />
           </div>
           <p className="text-[11px] font-medium text-foreground">{emptyLabel}</p>
-          <button
-            onClick={add}
-            className="mt-2 h-7 px-2.5 inline-flex items-center gap-1 rounded-md text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-          >
-            <Plus className="h-3 w-3" />
+          <Button variant="outline" size="sm" className="mt-2" onClick={add} data-testid="api-tester-add-row">
+            <Plus />
             {addLabel}
-          </button>
+          </Button>
         </div>
       ) : (
         <>
@@ -1088,10 +1040,10 @@ function KvEditor({
                 <button
                   type="button"
                   onClick={() => update(i, { on: !enabled })}
-                  className={`shrink-0 h-5 w-5 rounded-md border transition-colors inline-flex items-center justify-center ${
+                  className={`shrink-0 h-5 w-5 rounded-chip transition-colors inline-flex items-center justify-center outline-none focus-visible:shadow-focus ${
                     enabled
-                      ? 'bg-primary border-primary text-primary-foreground'
-                      : 'bg-background border-border text-transparent hover:bg-accent'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-recess text-transparent hover:bg-(--hover-fill)'
                   }`}
                   title={enabled ? 'Disable row' : 'Enable row'}
                   aria-pressed={enabled}
@@ -1120,13 +1072,10 @@ function KvEditor({
               </div>
             )
           })}
-          <button
-            onClick={add}
-            className="w-full h-7 px-2 inline-flex items-center justify-center gap-1 rounded-md border border-dashed border-border/50 text-[11px] text-muted-foreground hover:text-foreground hover:border-border hover:bg-accent transition-colors"
-          >
-            <Plus className="h-3 w-3" />
+          <Button variant="outline" size="sm" className="w-full" onClick={add} data-testid="api-tester-add-row">
+            <Plus />
             {addLabel}
-          </button>
+          </Button>
         </>
       )}
     </div>
@@ -1160,7 +1109,7 @@ function BodyEditor({
 
   if (noBody) {
     return (
-      <div className="flex flex-col items-center justify-center text-center py-10 px-3 rounded-md border border-dashed border-border/40">
+      <div className="rounded-well flex flex-col items-center justify-center text-center py-10 px-3">
         <p className="text-[11px] font-medium text-foreground">No body for {method} requests</p>
         <p className="text-[10px] text-muted-foreground mt-1">Switch to POST, PUT, PATCH, or DELETE to attach a body.</p>
       </div>
@@ -1178,7 +1127,9 @@ function BodyEditor({
   return (
     <div className="h-full flex flex-col gap-2 min-h-0">
       <div className="flex items-center gap-2">
-        <PillTabs<BodyMode>
+        <Segmented<BodyMode>
+          size="xs"
+          aria-label="Body type"
           value={mode}
           onChange={onModeChange}
           options={modeOptions}
@@ -1187,7 +1138,7 @@ function BodyEditor({
         {mode === 'json' && (
           <button
             onClick={() => onTextChange(prettyJson(text))}
-            className="h-6 px-2 text-[10px] font-medium rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            className="h-6 px-2 text-[11px] font-medium rounded-chip text-muted-foreground hover:text-foreground hover:bg-(--hover-fill) transition-colors outline-none focus-visible:shadow-focus"
             title="Pretty-print JSON"
           >
             Format
@@ -1195,7 +1146,7 @@ function BodyEditor({
         )}
       </div>
       {mode === 'none' ? (
-        <div className="flex flex-col items-center justify-center text-center py-10 px-3 rounded-md border border-dashed border-border/40">
+        <div className="rounded-well flex flex-col items-center justify-center text-center py-10 px-3">
           <p className="text-[11px] font-medium text-foreground">No body will be sent</p>
           <p className="text-[10px] text-muted-foreground mt-1">Pick JSON, Raw, Form, or Multipart to add request data.</p>
         </div>
@@ -1204,12 +1155,12 @@ function BodyEditor({
       ) : mode === 'multipart' ? (
         <MultipartEditor rows={multipartRows} onChange={onMultipartChange} />
       ) : (
-        <textarea
+        <Textarea
           value={text}
           onChange={(e) => onTextChange(e.target.value)}
           spellCheck={false}
           placeholder={mode === 'json' ? '{ "key": "value" }' : 'raw text body'}
-          className="flex-1 min-h-0 bg-background border border-border rounded-md p-2 text-xs font-mono resize-none focus:outline-none focus:ring-1 focus:ring-ring transition-colors"
+          className="flex-1 min-h-0 p-2 text-xs font-mono resize-none"
         />
       )}
     </div>
@@ -1254,26 +1205,20 @@ function MultipartEditor({
 
   if (rows.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center text-center py-8 px-3 rounded-md border border-dashed border-border/40">
-        <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-2">
-          <Paperclip className="h-3.5 w-3.5 text-muted-foreground/70" />
+      <div className="rounded-well flex flex-col items-center justify-center text-center py-8 px-3">
+        <div className="size-8 rounded-panel bg-raise shadow-raise-sm flex items-center justify-center mb-2">
+          <Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
         </div>
         <p className="text-[11px] font-medium text-foreground">No fields yet</p>
         <div className="mt-2 flex items-center gap-1.5">
-          <button
-            onClick={addFile}
-            className="h-7 px-2.5 inline-flex items-center gap-1 rounded-md text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-          >
-            <FileUp className="h-3 w-3" />
+          <Button variant="outline" size="sm" onClick={addFile} data-testid="api-tester-add-file">
+            <FileUp />
             Add file
-          </button>
-          <button
-            onClick={addText}
-            className="h-7 px-2.5 inline-flex items-center gap-1 rounded-md text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-          >
-            <Plus className="h-3 w-3" />
+          </Button>
+          <Button variant="outline" size="sm" onClick={addText} data-testid="api-tester-add-text">
+            <Plus />
             Add text field
-          </button>
+          </Button>
         </div>
       </div>
     )
@@ -1288,10 +1233,10 @@ function MultipartEditor({
             <button
               type="button"
               onClick={() => update(i, { on: !enabled })}
-              className={`shrink-0 h-5 w-5 rounded-md border transition-colors inline-flex items-center justify-center ${
+              className={`shrink-0 h-5 w-5 rounded-chip transition-colors inline-flex items-center justify-center outline-none focus-visible:shadow-focus ${
                 enabled
-                  ? 'bg-primary border-primary text-primary-foreground'
-                  : 'bg-background border-border text-transparent hover:bg-accent'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-recess text-transparent hover:bg-(--hover-fill)'
               }`}
               title={enabled ? 'Disable row' : 'Enable row'}
               aria-pressed={enabled}
@@ -1310,10 +1255,10 @@ function MultipartEditor({
                   value: '',
                 })
               }
-              className={`shrink-0 h-7 px-1.5 inline-flex items-center gap-1 rounded-md text-[10px] font-mono uppercase tracking-wider transition-colors ${
+              className={`shrink-0 h-7 px-1.5 inline-flex items-center gap-1 rounded-ctl text-[11px] font-mono transition-colors outline-none focus-visible:shadow-focus ${
                 row.kind === 'file'
-                  ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20'
-                  : 'bg-muted text-muted-foreground hover:bg-accent'
+                  ? 'bg-brand-soft text-primary'
+                  : 'bg-recess text-muted-foreground hover:bg-(--hover-fill)'
               }`}
               title={`Switch to ${row.kind === 'file' ? 'text' : 'file'} field`}
             >
@@ -1356,20 +1301,14 @@ function MultipartEditor({
         )
       })}
       <div className="flex items-center gap-1.5">
-        <button
-          onClick={addFile}
-          className="flex-1 h-7 px-2 inline-flex items-center justify-center gap-1 rounded-md border border-dashed border-border/50 text-[11px] text-muted-foreground hover:text-foreground hover:border-border hover:bg-accent transition-colors"
-        >
-          <FileUp className="h-3 w-3" />
+        <Button variant="outline" size="sm" className="flex-1" onClick={addFile} data-testid="api-tester-add-file">
+          <FileUp />
           Add file
-        </button>
-        <button
-          onClick={addText}
-          className="flex-1 h-7 px-2 inline-flex items-center justify-center gap-1 rounded-md border border-dashed border-border/50 text-[11px] text-muted-foreground hover:text-foreground hover:border-border hover:bg-accent transition-colors"
-        >
-          <Plus className="h-3 w-3" />
+        </Button>
+        <Button variant="outline" size="sm" className="flex-1" onClick={addText} data-testid="api-tester-add-text">
+          <Plus />
           Add text field
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -1396,8 +1335,8 @@ function FileSlot({
 
   if (row.file) {
     return (
-      <div className={`flex-1 h-7 px-2 inline-flex items-center gap-1.5 rounded-md border border-border bg-background text-[11px] min-w-0 ${opacity}`}>
-        <Paperclip className="h-3 w-3 shrink-0 text-blue-500" />
+      <div className={`flex-1 h-7 px-2 inline-flex items-center gap-1.5 rounded-ctl bg-recess text-[11px] min-w-0 ${opacity}`}>
+        <Paperclip className="h-3 w-3 shrink-0 text-primary" />
         <span className="truncate font-mono" title={row.file.name}>{row.file.name}</span>
         <span className="shrink-0 text-[10px] text-muted-foreground font-mono">
           {formatBytes(row.file.size)}
@@ -1405,14 +1344,14 @@ function FileSlot({
         <div className="flex-1" />
         <button
           onClick={open}
-          className="shrink-0 h-5 px-1.5 text-[10px] rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+          className="shrink-0 h-5 px-1.5 text-[11px] rounded-chip text-muted-foreground hover:text-foreground hover:bg-(--hover-fill) transition-colors"
           title="Replace"
         >
           Replace
         </button>
         <button
           onClick={onClear}
-          className="shrink-0 h-5 w-5 inline-flex items-center justify-center rounded text-muted-foreground hover:text-destructive transition-colors"
+          className="shrink-0 h-5 w-5 inline-flex items-center justify-center rounded-chip text-muted-foreground hover:text-destructive transition-colors"
           title="Remove file"
         >
           <X className="h-3 w-3" />
@@ -1430,8 +1369,8 @@ function FileSlot({
   if (row.meta) {
     // Replay placeholder — bytes weren't persisted, user must re-attach.
     return (
-      <div className={`flex-1 h-7 px-2 inline-flex items-center gap-1.5 rounded-md border border-dashed border-amber-500/50 bg-amber-500/5 text-[11px] min-w-0 ${opacity}`}>
-        <Paperclip className="h-3 w-3 shrink-0 text-amber-500" />
+      <div className={`flex-1 h-7 px-2 inline-flex items-center gap-1.5 rounded-ctl bg-warning-soft text-warning-text text-[11px] min-w-0 ${opacity}`}>
+        <Paperclip className="h-3 w-3 shrink-0" />
         <span className="truncate font-mono text-muted-foreground line-through" title={row.meta.filename}>
           {row.meta.filename}
         </span>
@@ -1441,7 +1380,7 @@ function FileSlot({
         <div className="flex-1" />
         <button
           onClick={open}
-          className="shrink-0 h-5 px-1.5 text-[10px] rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition-colors"
+          className="shrink-0 h-5 px-1.5 text-[11px] rounded-chip bg-warning/13 text-warning-text hover:bg-warning/20 transition-colors"
           title="Re-attach to resend"
         >
           Re-attach
@@ -1460,7 +1399,7 @@ function FileSlot({
     <button
       onClick={open}
       disabled={disabled}
-      className={`flex-1 h-7 px-2 inline-flex items-center gap-1.5 rounded-md border border-dashed border-border/50 text-[11px] text-muted-foreground hover:text-foreground hover:border-border hover:bg-accent transition-colors ${opacity}`}
+      className={`flex-1 h-7 px-2 inline-flex items-center gap-1.5 rounded-ctl bg-recess text-[11px] text-muted-foreground hover:text-foreground hover:bg-(--hover-fill) transition-colors outline-none focus-visible:shadow-focus ${opacity}`}
     >
       <FileUp className="h-3 w-3" />
       Choose file
@@ -1499,10 +1438,12 @@ function AuthEditor({
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
-        <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">
+        <span className="text-xs font-medium text-muted-foreground">
           Type
         </span>
-        <PillTabs<AuthType>
+        <Segmented<AuthType>
+          size="xs"
+          aria-label="Auth type"
           value={value.type}
           onChange={(t) => set({ type: t })}
           options={types}
@@ -1511,7 +1452,7 @@ function AuthEditor({
 
       {value.type === 'bearer' && (
         <div className="space-y-1.5">
-          <label className="block text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">
+          <label className="block text-xs font-medium text-muted-foreground">
             Token
           </label>
           <Input
@@ -1528,7 +1469,7 @@ function AuthEditor({
 
       {value.type === 'basic' && (
         <div className="space-y-1.5">
-          <label className="block text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">
+          <label className="block text-xs font-medium text-muted-foreground">
             Credentials
           </label>
           <div className="flex gap-1.5">
@@ -1570,7 +1511,9 @@ function AuthEditor({
           </div>
           <div className="flex items-center gap-1.5">
             <span className="text-[10px] text-muted-foreground">Add to:</span>
-            <PillTabs<'header' | 'query'>
+            <Segmented<'header' | 'query'>
+              size="xs"
+              aria-label="Add API key to"
               value={value.apiKeyIn}
               onChange={(v) => set({ apiKeyIn: v })}
               options={[
@@ -1619,30 +1562,22 @@ function CurlImportDialog({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-      onClick={onCancel}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="w-[min(640px,92vw)] bg-card border border-border rounded-lg shadow-xl"
-      >
-        <div className="flex items-center gap-2 px-4 h-11 border-b border-border">
-          <FileDown className="h-4 w-4 text-muted-foreground" />
-          <span className="text-[13px] font-medium">Import from cURL</span>
-          <div className="flex-1" />
-          <button onClick={onCancel} className={ICON_BTN} title="Close">
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-        <div className="p-4 space-y-3">
-          <p className="text-[11px] text-muted-foreground">
-            Paste a <span className="font-mono">curl</span> command — supports{' '}
+    <Dialog open onOpenChange={(o) => { if (!o) onCancel() }}>
+      <DialogContent className="sm:max-w-[640px]" data-testid="api-tester-curl-dialog">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <FileDown className="size-3.5 text-muted-foreground" />
+            Import from cURL
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            Paste a <span className="font-mono">curl</span> command, supports{' '}
             <span className="font-mono">-X</span>, <span className="font-mono">-H</span>,{' '}
             <span className="font-mono">-d</span>/<span className="font-mono">--data*</span>, and{' '}
             <span className="font-mono">-u</span>. Multiline with backslash continuations is fine.
           </p>
-          <textarea
+          <Textarea
             ref={inputRef}
             value={text}
             onChange={(e) => { setText(e.target.value); if (error) setError(null) }}
@@ -1654,31 +1589,25 @@ function CurlImportDialog({
             }}
             spellCheck={false}
             placeholder={`curl 'https://api.example.com/v1/items' \\\n  -H 'Authorization: Bearer xyz' \\\n  -d '{"name":"widget"}'`}
-            className="w-full h-40 bg-background border border-border rounded-md p-2 text-xs font-mono resize-none focus:outline-none focus:ring-1 focus:ring-ring"
+            className="h-40 p-2 text-xs font-mono resize-none"
+            data-testid="api-tester-curl-input"
           />
           {error && (
-            <div className="rounded-md border border-destructive px-2.5 py-1.5 text-[11px] text-destructive">
+            <div className="rounded-ctl bg-destructive-soft px-2.5 py-1.5 text-xs text-destructive">
               {error}
             </div>
           )}
         </div>
-        <div className="flex items-center justify-end gap-2 px-4 h-12 border-t border-border">
-          <button
-            onClick={onCancel}
-            className="h-7 px-3 rounded-md text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-          >
+        <DialogFooter>
+          <Button variant="ghost" size="sm" onClick={onCancel} data-testid="api-tester-curl-cancel">
             Cancel
-          </button>
-          <button
-            onClick={handleImport}
-            disabled={!text.trim()}
-            className="h-7 px-3 inline-flex items-center gap-1.5 rounded-md bg-primary text-primary-foreground text-[11px] font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
-          >
+          </Button>
+          <Button size="sm" onClick={handleImport} disabled={!text.trim()} data-testid="api-tester-curl-import">
             Import
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -1727,8 +1656,8 @@ function ResponsePanel({
   if (!response) {
     return (
       <div className="flex flex-col items-center justify-center min-h-0 text-center px-6">
-        <div className="w-9 h-9 rounded-xl bg-muted flex items-center justify-center mb-3">
-          <Send className="h-4 w-4 text-muted-foreground/60" />
+        <div className="size-9 rounded-panel bg-raise shadow-raise-sm flex items-center justify-center mb-3">
+          <Send className="h-4 w-4 text-muted-foreground" />
         </div>
         <p className="text-[11px] font-medium text-foreground">No response yet</p>
         <p className="text-[10px] text-muted-foreground mt-1">
@@ -1768,16 +1697,18 @@ function ResponsePanel({
   return (
     <div className="flex flex-col min-h-0">
       {/* Status pill bar */}
-      <div className="px-3 h-10 border-b border-border/40 flex items-center gap-1.5 shrink-0">
-        <span
-          className={`inline-flex items-center h-6 px-2 rounded-md text-[11px] font-mono font-semibold ${statusPillClass(status)}`}
+      <div className="hairline-b px-3 h-10 flex items-center gap-1.5 shrink-0">
+        <Badge
+          variant={statusVariant(status)}
+          className="h-6 px-2 font-mono text-[11.5px]"
           title={status != null ? `HTTP ${status}` : 'No status'}
+          data-testid="api-tester-status"
         >
           {statusLabel}
-        </span>
+        </Badge>
         {response.latency_ms !== null && (
           <span
-            className="inline-flex items-center gap-1 h-6 px-2 rounded-md bg-muted text-muted-foreground text-[11px] font-mono"
+            className="inline-flex items-center gap-1 h-6 px-2 rounded-chip bg-recess text-muted-foreground text-[11px] font-mono"
             title="Latency"
           >
             <Clock className="h-3 w-3" />
@@ -1785,7 +1716,7 @@ function ResponsePanel({
           </span>
         )}
         <span
-          className="inline-flex items-center gap-1 h-6 px-2 rounded-md bg-muted text-muted-foreground text-[11px] font-mono"
+          className="inline-flex items-center gap-1 h-6 px-2 rounded-chip bg-recess text-muted-foreground text-[11px] font-mono"
           title={`Response size: ${response.response_size} bytes`}
         >
           <HardDrive className="h-3 w-3" />
@@ -1793,7 +1724,7 @@ function ResponsePanel({
         </span>
         {ctype && (
           <span
-            className="inline-flex items-center gap-1 h-6 px-2 rounded-md bg-muted text-muted-foreground text-[11px] font-mono truncate max-w-[260px]"
+            className="inline-flex items-center gap-1 h-6 px-2 rounded-chip bg-recess text-muted-foreground text-[11px] font-mono truncate max-w-[260px]"
             title={ctype}
           >
             <FileText className="h-3 w-3 shrink-0" />
@@ -1804,7 +1735,7 @@ function ResponsePanel({
         {isBinary && (
           <button
             onClick={handleDownload}
-            className="h-6 px-2 inline-flex items-center gap-1 rounded-md bg-primary text-primary-foreground text-[11px] font-medium hover:bg-primary/90 transition-colors"
+            className="h-6 px-2 inline-flex items-center gap-1 rounded-chip bg-primary text-primary-foreground text-[11px] font-medium hover:bg-(--primary-hover) transition-colors outline-none focus-visible:shadow-focus"
           >
             <Download className="h-3 w-3" />
             Download
@@ -1813,8 +1744,10 @@ function ResponsePanel({
       </div>
 
       {/* Response tabs */}
-      <div className="flex items-center gap-2 px-3 pt-2 pb-1.5 shrink-0 border-b border-border/30">
-        <PillTabs<ResponseTab>
+      <div className="flex items-center gap-2 px-3 pt-2 pb-1.5 shrink-0">
+        <Segmented<ResponseTab>
+          size="xs"
+          aria-label="Response view"
           value={tab}
           onChange={onTab}
           options={[
@@ -1827,15 +1760,15 @@ function ResponsePanel({
 
       {/* Body — wrapped in a subtle card */}
       <div className="flex-1 min-h-0 p-3">
-        <div className="group relative h-full rounded-md border border-border bg-background overflow-hidden">
+        <Well className="group relative h-full overflow-hidden" data-testid="api-tester-response-body">
           {/* Hover-revealed copy button — top-right of body. */}
           {!response.error && (tab === 'headers' || showText) && (
             <button
               onClick={handleCopy}
-              className="absolute top-1.5 right-1.5 z-10 h-6 px-1.5 inline-flex items-center gap-1 rounded-md bg-background border border-border text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+              className="raise absolute top-1.5 right-1.5 z-10 h-6 px-1.5 inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors outline-none focus-visible:shadow-focus"
               title="Copy"
             >
-              {copied ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
+              {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
               {copied ? 'Copied' : 'Copy'}
             </button>
           )}
@@ -1854,8 +1787,8 @@ function ResponsePanel({
               <pre className="whitespace-pre-wrap p-3">{decoded.text}</pre>
             ) : isBinary ? (
               <div className="h-full flex flex-col items-center justify-center text-center px-4">
-                <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center mb-3">
-                  <FileDown className="h-4 w-4 text-muted-foreground/70" />
+                <div className="size-10 rounded-panel bg-raise shadow-raise-sm flex items-center justify-center mb-3">
+                  <FileDown className="h-4 w-4 text-muted-foreground" />
                 </div>
                 <p className="text-[11px] font-medium text-foreground">Binary response</p>
                 {filename && (
@@ -1868,7 +1801,7 @@ function ResponsePanel({
                 </p>
                 <button
                   onClick={handleDownload}
-                  className="mt-3 h-7 px-3 inline-flex items-center gap-1.5 rounded-md bg-primary text-primary-foreground text-[11px] font-medium hover:bg-primary/90 transition-colors"
+                  className="mt-3 h-7 px-3 inline-flex items-center gap-1.5 rounded-ctl bg-primary text-primary-foreground text-[12.5px] font-medium hover:bg-(--primary-hover) transition-colors outline-none focus-visible:shadow-focus"
                 >
                   <Download className="h-3.5 w-3.5" />
                   Download
@@ -1880,7 +1813,7 @@ function ResponsePanel({
               </div>
             )}
           </div>
-        </div>
+        </Well>
       </div>
     </div>
   )
@@ -1906,7 +1839,7 @@ function PrettyJson({ text }: { text: string }) {
   return (
     <JsonViewer
       value={parsed.value}
-      className="!border-0 !rounded-none h-full"
+      className="rounded-none! h-full"
       maxHeight="100%"
     />
   )
@@ -1930,23 +1863,23 @@ export function SavedQueriesPanel({ onClose }: { onClose?: () => void }) {
   const count = list?.length ?? 0
 
   return (
-    <div className="h-full w-full flex flex-col text-foreground">
+    <div className="glass-overlay h-full w-full flex flex-col rounded-none! text-foreground">
       {/* Header — mirrors the app-builder navbar's chrome density. */}
-      <div className="h-11 px-3 border-b border-border/40 flex items-center gap-2 shrink-0">
-        <span className="inline-flex items-center justify-center h-6 w-6 rounded-md bg-primary text-primary-foreground">
-          <Inbox className="h-3.5 w-3.5" />
-        </span>
-        <span className="text-[13px] font-medium text-foreground">Saved</span>
+      <div className="hairline-b h-11 px-3 flex items-center gap-2 shrink-0">
+        <IconTile hue="backend">
+          <Inbox />
+        </IconTile>
+        <span className="text-panel-title text-foreground">Saved</span>
         {count > 0 && (
-          <span className="text-[10px] text-muted-foreground/70 bg-muted px-1.5 py-0.5 rounded-full font-mono">
+          <Badge variant="neutral" className="font-mono tabular-nums">
             {count}
-          </span>
+          </Badge>
         )}
         <div className="flex-1" />
         {onClose && (
           <>
             <ToolbarSeparator />
-            <button onClick={onClose} className={ICON_BTN} title="Close">
+            <button onClick={onClose} className={ICON_BTN} title="Close" aria-label="Close" data-testid="saved-queries-close">
               <X className="h-3.5 w-3.5" />
             </button>
           </>
@@ -1957,13 +1890,13 @@ export function SavedQueriesPanel({ onClose }: { onClose?: () => void }) {
         {isLoading ? (
           <div className="space-y-1.5">
             {Array.from({ length: 6 }).map((_, i) => (
-              <Skeleton key={i} className="h-12 w-full rounded-md" />
+              <Skeleton key={i} className="h-12 w-full rounded-ctl" />
             ))}
           </div>
         ) : !list || list.length === 0 ? (
           <div className="flex flex-col items-center justify-center text-center py-12 px-3">
-            <div className="w-9 h-9 rounded-xl bg-muted flex items-center justify-center mb-3">
-              <Inbox className="h-4 w-4 text-muted-foreground/60" />
+            <div className="size-9 rounded-panel bg-raise shadow-raise-sm flex items-center justify-center mb-3">
+              <Inbox className="h-4 w-4 text-muted-foreground" />
             </div>
             <p className="text-[11px] font-medium text-foreground">No saved requests</p>
             <p className="text-[10px] text-muted-foreground mt-1 leading-relaxed">

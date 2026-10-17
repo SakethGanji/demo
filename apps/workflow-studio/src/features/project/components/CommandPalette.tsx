@@ -26,6 +26,7 @@ import {
 } from '../hooks/useProjectData'
 import { moduleNameOf } from '../lib/routes'
 import { useToggleTheme } from './ProjectTopBar'
+import { Kbd } from '@/shared/components/ui/kbd'
 
 export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const { pid, slug } = useProjectCtx()
@@ -172,7 +173,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
               value="action generate backend with AI"
               onSelect={() => go(() => navigate({ to: '/p/$project/backend/$module', params: { ...P, module: '~new' }, search: { generate: 1 } }))}
             >
-              <Sparkles className="text-ai" /> Generate backend with AI
+              <Sparkles className="text-hue-ai!" /> Generate backend with AI
             </CommandItem>
             <CommandItem
               value="action create ui from backend"
@@ -206,6 +207,12 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
             </CommandItem>
           </CommandGroup>
         </CommandList>
+        <div className="flex items-center gap-3 px-3 py-2 text-[11px] text-muted-foreground shadow-[inset_0_1px_0_var(--hairline)]" aria-hidden>
+          <span className="inline-flex items-center gap-1"><Kbd>↑</Kbd><Kbd>↓</Kbd> move</span>
+          <span className="inline-flex items-center gap-1"><Kbd>↵</Kbd> open</span>
+          <span className="inline-flex items-center gap-1"><Kbd>esc</Kbd> close</span>
+          <span className="ml-auto inline-flex items-center gap-1"><Kbd>G</Kbd><Kbd>B</Kbd> backend · <Kbd>G</Kbd><Kbd>D</Kbd> data · <Kbd>G</Kbd><Kbd>R</Kbd> runs</span>
+        </div>
       </Command>
     </CommandDialog>
   )

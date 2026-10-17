@@ -27,11 +27,11 @@ function splitRoute(route: string): [string, string] {
 
 export function ChangeRows({ changes }: { changes: Change[] }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-border">
+    <div className="well overflow-hidden">
       {changes.map((c, i) => {
         const [m, p] = splitRoute(c.route)
         return (
-          <div key={i} className="border-b border-border last:border-0" data-testid="breaking-change" data-kind={c.kind}>
+          <div key={i} className="border-b border-hairline last:border-0" data-testid="breaking-change" data-kind={c.kind}>
             <div className="flex items-center gap-2 px-3 py-2">
               <Badge variant={c.breaking ? 'destructive' : 'neutral'} className="font-mono text-[10.5px]">
                 {c.kind}
@@ -42,7 +42,7 @@ export function ChangeRows({ changes }: { changes: Change[] }) {
               {!c.breaking && <span className="text-xs text-muted-foreground">non-breaking</span>}
             </div>
             {c.affected.map((a, j) => (
-              <div key={j} className="flex items-center gap-2 border-t border-border/60 bg-destructive/[0.03] px-3 py-1.5 pl-6 text-xs" data-testid="breaking-affected">
+              <div key={j} className="flex items-center gap-2 bg-destructive-soft px-3 py-1.5 pl-6 text-xs" data-testid="breaking-affected">
                 <AppWindow className="size-3.5 text-muted-foreground" />
                 <span>{a.app_name}</span>
                 <span className="font-mono text-muted-foreground">
@@ -205,12 +205,12 @@ export function DeleteModuleDialog({
         ) : dry.isError ? (
           <div className="text-xs text-destructive">{errorMessage(dry.error)}</div>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-border" data-testid="delete-module-routes">
+          <div className="well overflow-hidden" data-testid="delete-module-routes">
             {removed.length === 0 && <div className="px-3 py-2 text-xs text-muted-foreground">This module declares no routes.</div>}
             {removed.map((r) => {
               const apps = usedBy(r)
               return (
-                <div key={`${r.method} ${r.path}`} className="flex items-center gap-2 border-b border-border px-3 py-2 last:border-0">
+                <div key={`${r.method} ${r.path}`} className="flex items-center gap-2 border-b border-hairline px-3 py-2 last:border-0">
                   <MethodBadge method={r.method} />
                   <span className="font-mono text-[12.5px]">{r.path}</span>
                   {apps.length > 0 && (

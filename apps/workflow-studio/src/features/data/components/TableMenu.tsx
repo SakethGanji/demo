@@ -1,7 +1,7 @@
 /** Table ⋯ menu (UI-DESIGN §3.4): rename (`409 name_taken` inline) and delete with type-to-confirm. */
 import { useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { Ellipsis } from 'lucide-react'
+import { Code, Columns3, Download, Ellipsis, FileUp, Pencil, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useProjectCtx } from '@/features/project/ProjectContext'
 import { errorMessage, isApiError } from '@/shared/api/http'
@@ -14,7 +14,7 @@ import { Input } from '@/shared/components/ui/input'
 import { pluralize } from '@/features/project/lib/format'
 import { useDeleteTable, useUpdateTable } from '../useTableMutations'
 
-export function TableMenu({ table, onColumns }: { table: DataTable; onColumns: () => void }) {
+export function TableMenu({ table, onColumns, onImport, onExport }: { table: DataTable; onColumns: () => void; onImport: () => void; onExport: () => void }) {
   const [dialog, setDialogState] = useState<'rename' | 'delete' | null>(null)
   // a fresh key per opening resets the dialog's form state
   const [opened, setOpened] = useState(0)
@@ -27,19 +27,39 @@ export function TableMenu({ table, onColumns }: { table: DataTable; onColumns: (
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
-            <Button variant="ghost" size="icon-sm" aria-label={`${table.name} actions`} data-testid="table-menu">
+            <Button variant="ghost" size="icon-sm" className="text-muted-foreground hover:text-foreground" aria-label={`${table.name} actions`} data-testid="table-menu">
               <Ellipsis />
             </Button>
           }
         />
-        <DropdownMenuContent align="end" className="min-w-44">
-          <DropdownMenuItem onClick={() => setDialog('rename')} data-testid="table-rename">
-            Rename table
+        <DropdownMenuContent align="end" className="min-w-56">
+          <DropdownMenuItem onClick={onImport} data-testid="table-import">
+            <FileUp /> Import CSV
+            <span className="ml-auto text-[11.5px] text-muted-foreground">or drop a file</span>
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={onColumns}>Edit columns</DropdownMenuItem>
+          <DropdownMenuItem onClick={onExport} data-testid="table-export">
+            <Download /> Export CSV
+            <span className="ml-auto text-[11.5px] text-muted-foreground">loaded rows</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => {
+              navigator.clipboard?.writeText(`studio.db.table("${table.name}")`).catch(() => undefined)
+              toast.success('Copied table reference', { description: `studio.db.table("${table.name}")`, duration: 2400 })
+            }}
+            data-testid="table-copy-ref"
+          >
+            <Code /> Copy table reference
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => setDialog('rename')} data-testid="table-rename">
+            <Pencil /> Rename table
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={onColumns} data-testid="table-edit-columns">
+            <Columns3 /> Edit columns
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" onClick={() => setDialog('delete')} data-testid="table-delete">
-            Delete table
+            <Trash2 /> Delete table
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

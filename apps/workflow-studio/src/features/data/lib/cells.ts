@@ -63,8 +63,9 @@ export function parseEdit(text: string, t: ColumnType): { value: unknown } | { e
 }
 
 /** `Oct 15, 09:12` */
-export function formatStamp(ts: string | null | undefined): string {
+export function formatStamp(ts: string | null | undefined, seconds = false): string {
   const d = parseTs(ts)
   if (!d) return ''
+  if (seconds) return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
   return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
 }

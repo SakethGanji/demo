@@ -11,6 +11,7 @@ import {
 } from '@/shared/components/ui/dropdown-menu';
 import { useEnvProfilesStore } from '../../stores/envProfilesStore';
 import { useVariableEnvironments } from '../../hooks/useVariablesApi';
+import { buttonVariants } from '@/shared/components/ui/button';
 import { EnvVariablesModal } from './EnvVariablesModal';
 import { useEditorProjectStore } from '../../stores/editorProjectStore';
 
@@ -44,7 +45,7 @@ export function EnvProfileSelector() {
         <DropdownMenuTrigger
           title={`Workflow runs use variables from environment: ${activeEnvironment}`}
           data-testid="editor-env-select"
-          className="h-7 px-2.5 flex items-center gap-1.5 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+          className={buttonVariants({ variant: 'ghost', size: 'sm', className: 'text-muted-foreground hover:text-foreground' })}
         >
           <Layers size={12} />
           <span>{activeEnvironment}</span>

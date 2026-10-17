@@ -6,6 +6,7 @@ import {
   SheetTitle,
   SheetDescription,
 } from '@/shared/components/ui/sheet';
+import { Kbd } from '@/shared/components/ui/kbd';
 
 interface Shortcut {
   key: string;
@@ -39,14 +40,14 @@ export function KeyboardShortcutsHelp({
           {shortcuts.map((shortcut) => (
             <div
               key={shortcut.key}
-              className="flex items-center justify-between py-2 px-2 rounded-md hover:bg-muted/50"
+              className="flex items-center justify-between py-2 px-2 rounded-ctl row-hover"
             >
               <span className="text-sm text-muted-foreground">
                 {shortcut.description}
               </span>
-              <kbd className="px-2 py-1 text-xs font-mono bg-muted border border-border rounded">
+              <Kbd className="h-auto px-2 py-1 font-mono">
                 {shortcut.key}
-              </kbd>
+              </Kbd>
             </div>
           ))}
         </div>

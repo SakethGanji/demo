@@ -1,6 +1,8 @@
 /**
- * The workspace shell (UI-DESIGN D2): floating top bar, persistent outline (rail below 1280px)
- * and the main area that swaps views. It never unmounts while moving between views.
+ * The workspace shell (DESIGN §1, Linear-style): the 48px top bar and the 240px outline (a 52px rail below
+ * 1280px) sit on the canvas; every view renders inside one transparent sheet, 10px radius, 8px from the
+ * window's right and bottom edges, so the glass tiles inside it frost the sky. It never unmounts while
+ * moving between views.
  */
 import { useEffect, useState } from 'react'
 import { Outlet, useNavigate } from '@tanstack/react-router'
@@ -13,7 +15,8 @@ import { useViewportWidth } from '@/shared/hooks/useViewport'
 import { useModules, useTables } from '../hooks/useProjectData'
 import { cn } from '@/shared/lib/utils'
 
-export const panelCls = 'rounded-xl border border-panel-border bg-card shadow-xs'
+/** The page frame inside the sheet: transparent, no edge (pages build their boxes from `Tile` / `Well`). */
+export const panelCls = 'rounded-sheet'
 
 function isTyping(e: KeyboardEvent) {
   const t = e.target as HTMLElement | null
@@ -64,29 +67,33 @@ export function WorkspaceLayout() {
   const [outlineHidden, setOutlineHidden] = useState(false)
   useWorkspaceShortcuts(() => setOutlineHidden((v) => !v))
   const rail = width < 1280
+  const narrow = width < 1024
+  const left = outlineHidden ? 8 : rail ? 52 : 240
   return (
-    <div className="relative h-full w-full bg-canvas" data-testid="workspace">
+    <div className="relative h-full w-full" data-testid="workspace">
       <ProjectTopBar />
-      {width < 1024 && (
+      {narrow && (
         <div
-          className="absolute inset-x-3 top-[60px] z-10 flex items-center gap-2 rounded-lg bg-warning/13 px-3 py-1.5 text-xs text-warning-text"
+          className="absolute inset-x-3 top-[52px] z-10 flex items-center gap-2 rounded-ctl bg-warning-soft px-3 py-1.5 text-xs text-warning-text"
           data-testid="narrow-banner"
         >
-          <MonitorSmartphone className="size-3.5" /> luna works best on a wider screen
+          <MonitorSmartphone className="size-3.5" /> Command Studio works best on a wider screen
         </div>
       )}
-      <div className={cn('absolute inset-x-3 bottom-3 flex gap-3', width < 1024 ? 'top-[100px]' : 'top-[68px]')}>
-        {!outlineHidden && (
-          <aside
-            className={cn('flex shrink-0 flex-col', 'rounded-xl border border-panel-border bg-card shadow-xs', rail ? 'w-[52px]' : 'w-[248px]')}
-            data-testid="outline-panel"
-          >
-            {rail ? <ProjectRail /> : <ProjectOutline />}
-          </aside>
-        )}
-        <div className="relative min-w-0 flex-1" data-testid="main">
-          <Outlet />
-        </div>
+      {!outlineHidden && (
+        <aside
+          className={cn('absolute bottom-0 left-0 flex flex-col bg-sidebar', rail ? 'w-[52px]' : 'w-[240px]', narrow ? 'top-[88px]' : 'top-12')}
+          data-testid="outline-panel"
+        >
+          {rail ? <ProjectRail /> : <ProjectOutline />}
+        </aside>
+      )}
+      <div
+        className={cn('absolute right-2 bottom-2 min-w-0 overflow-hidden rounded-sheet', narrow ? 'top-[88px]' : 'top-12')}
+        style={{ left }}
+        data-testid="main"
+      >
+        <Outlet />
       </div>
       <WorkspaceOverlays />
     </div>

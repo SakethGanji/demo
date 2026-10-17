@@ -5,7 +5,7 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowRight, Rocket, RotateCcw, TriangleAlert } from 'lucide-react'
+import { Rocket, RotateCcw, TriangleAlert } from 'lucide-react'
 import { toast } from 'sonner'
 import { useProjectCtx } from '@/features/project/ProjectContext'
 import { useProjectApps, useProjectWorkflows } from '@/features/project/hooks/useProjectData'
@@ -28,13 +28,15 @@ import { Badge } from '@/shared/components/ui/badge'
 import { Button } from '@/shared/components/ui/button'
 import { Input } from '@/shared/components/ui/input'
 import { Segmented } from '@/shared/components/ui/segmented'
+import { Beam, Stepper, type Step as FlowStep, type StepState } from '@/shared/components/ui/stepper'
+import { Callout, Well } from '@/shared/components/ui/surface'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/shared/components/ui/sheet'
 import { Skeleton } from '@/shared/components/ui/skeleton'
 import { Spinner } from '@/shared/components/ui/spinner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/components/ui/tooltip'
 import { floatingSheetCls } from '@/features/settings/SettingsSheet'
 import { cn } from '@/shared/lib/utils'
-import { ChecksList } from './ChecksList'
+import { ChecksList, groupChecks, groupStatus, type CheckGroup } from './ChecksList'
 
 interface DryRun {
   checks: ReleaseCheck[]
@@ -58,7 +60,7 @@ const CHECK_REASON: Record<string, string> = {
 export function ReleaseSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent side="right" showCloseButton className={`${floatingSheetCls} data-[side=right]:w-[600px]`} data-testid="release-sheet">
+      <SheetContent side="right" showCloseButton className={`${floatingSheetCls} data-[side=right]:w-[520px]`} data-testid="release-sheet">
         {open && <ReleaseBody />}
       </SheetContent>
     </Sheet>
@@ -92,7 +94,11 @@ function ReleaseBody() {
   const [writing, setWriting] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [result, setResult] = useState<WriteResult | null>(null)
-  useEffect(() => setResult(null), [step])
+  const [promoted, setPromoted] = useState<number | null>(null)
+  useEffect(() => {
+    setResult(null)
+    setPromoted(null)
+  }, [step])
 
   const canDry = releases.isSuccess && (!promoteTo || !!latestSnap)
   const dry = useQuery({
@@ -120,6 +126,9 @@ function ReleaseBody() {
   const write = async () => {
     setWriting(true)
     setResult(null)
+    const toastId = promoteTo
+      ? toast.loading(`Promoting to ${promoteTo}…`, { description: `snapshot #${latestSnap?.number} · ${source} → ${promoteTo}` })
+      : undefined
     try {
       const rel = (promoteTo
         ? await releasesApi.promote(pid, latestSnap!.id, { to_environment: promoteTo, ...(notes.trim() ? { notes: notes.trim() } : {}) })
@@ -127,14 +136,18 @@ function ReleaseBody() {
       setNotes('')
       await invalidate.releasesChanged(qc, pid)
       if (promoteTo) {
+        setPromoted(rel.number)
         toast.success(`${promoteTo} now serves release #${rel.number}`, {
-          description: rel.environment === project.live_environment ? 'Published apps were re-published from it.' : undefined,
+          id: toastId,
+          description:
+            rel.environment === project.live_environment ? `v${rel.number} is live. Published apps were re-published from it.` : `v${rel.number} is live.`,
         })
       } else if (targets[0]) {
         // In-sheet effect (the card and history update): no toast, move on to promoting it.
         setStepPick(`promote:${targets[0].name}`)
       }
     } catch (e) {
+      if (toastId !== undefined && (isApiError(e, 'checks_failed') || isApiError(e, 'release_blocked'))) toast.dismiss(toastId)
       if (isApiError(e, 'checks_failed')) {
         const d = (e as ApiError).details as { checks?: ReleaseCheck[]; number?: number }
         setResult({ kind: 'blocked', checks: d.checks ?? [], number: d.number, env: targetEnv })
@@ -142,7 +155,7 @@ function ReleaseBody() {
       } else if (isApiError(e, 'release_blocked')) {
         setResult({ kind: 'blocked-source', message: 'This snapshot was blocked; create a new one.' })
       } else {
-        toast.error(errorMessage(e))
+        toast.error(errorMessage(e), { id: toastId })
       }
     } finally {
       setWriting(false)
@@ -160,32 +173,111 @@ function ReleaseBody() {
     : `Snapshot ${source}${latestSnap ? ` (#${latestSnap.number + 1})` : ''}`
   const primaryLabel = promoteTo ? `Promote to ${promoteTo}` : 'Create snapshot'
 
+  const groups: Record<CheckGroup, ReleaseCheck[]> = {
+    code: groupChecks(shownChecks, 'code'),
+    secrets: groupChecks(shownChecks, 'secrets'),
+    routes: groupChecks(shownChecks, 'routes'),
+  }
+  const order: CheckGroup[] = ['code', 'secrets', 'routes']
+  const firstFail = order.findIndex((g) => groupStatus(groups[g]) === 'fail')
+  const gateState = (i: number): StepState => (firstFail < 0 || i < firstFail ? 'done' : i === firstFail ? 'current' : 'pending')
+  const blockedBadge = (
+    <Badge variant="warning" data-testid="release-flow-blocked">
+      blocked
+    </Badge>
+  )
+  const diff = canDry && dry.data?.diff && !result ? dry.data.diff : null
+  const flow: FlowStep[] = [
+    {
+      key: 'code',
+      testId: 'release-flow-code',
+      title: <>Check code {gateState(0) === 'current' && blockedBadge}</>,
+      state: gateState(0),
+      open: true,
+      content: <ChecksList checks={groups.code} targetEnv={targetEnv} onRerun={rerun} testId="release-checks-code" />,
+    },
+    {
+      key: 'secrets',
+      testId: 'release-flow-secrets',
+      title: <>Secrets {gateState(1) === 'current' && blockedBadge}</>,
+      state: gateState(1),
+      open: true,
+      content: <ChecksList checks={groups.secrets} targetEnv={targetEnv} onRerun={rerun} testId="release-checks-secrets" />,
+    },
+    {
+      key: 'routes',
+      testId: 'release-flow-routes',
+      title: <>Review routes {gateState(2) === 'current' && blockedBadge}</>,
+      state: gateState(2),
+      open: true,
+      content: (
+        <div className="flex flex-col gap-2.5">
+          <ChecksList checks={groups.routes} targetEnv={targetEnv} onRerun={rerun} testId="release-checks-routes" />
+          {diff && <DiffChips diff={diff} env={targetEnv} />}
+        </div>
+      ),
+    },
+    {
+      key: 'promote',
+      testId: 'release-flow-promote',
+      title: promoteTo ? `Promote to ${promoteTo}` : `Snapshot ${source}`,
+      state: promoted != null ? 'done' : firstFail >= 0 ? 'pending' : 'current',
+      meta:
+        promoted != null ? (
+          <>Release #{promoted} is live in {promoteTo} · just now</>
+        ) : writing ? (
+          <>Promoting to {promoteTo}…</>
+        ) : promoteTo ? (
+          <>
+            snapshot #{latestSnap?.number} · {source} → {promoteTo}
+          </>
+        ) : (
+          <>freezes what {source} serves now</>
+        ),
+      content: !promoteTo && canDry ? (
+        <div className="rounded-ctl bg-raise p-1.5 shadow-raise-sm">
+          <Input
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Notes (optional), e.g. refunds endpoint"
+            className="h-7 text-[12.5px]"
+            data-testid="release-notes"
+          />
+        </div>
+      ) : undefined,
+    },
+  ]
+
   return (
     <>
-      <div className="border-b border-border px-[18px] pb-3 pt-4">
-        <div className="flex items-center gap-2 pr-8">
-          <Rocket className="size-3.5" />
-          <SheetTitle className="text-[15px] font-semibold tracking-[-0.01em]">Release</SheetTitle>
-        </div>
-        <SheetDescription className="mt-1 text-[13px] text-muted-foreground">
-          A release freezes routes, modules and app versions.{' '}
-          {targets.some((t) => t.kind === 'release')
-            ? `${targets.filter((t) => t.kind === 'release').map((t) => t.name).join(', ')} serves the active release; `
-            : ''}
-          {source} always serves your latest saved code.
-        </SheetDescription>
+      <div className="flex h-[52px] shrink-0 items-center gap-2 pl-5 pr-14">
+        <SheetTitle className="min-w-0 truncate text-[15px] font-semibold tracking-[-0.012em]">Release {project.name}</SheetTitle>
       </div>
+      <SheetDescription className="px-5 pb-3 text-[13px] leading-[1.5] text-muted-foreground">
+        A release freezes routes, modules and app versions.{' '}
+        {targets.some((t) => t.kind === 'release')
+          ? `${targets.filter((t) => t.kind === 'release').map((t) => t.name).join(', ')} serves the active release; `
+          : ''}
+        {source} always serves your latest saved code.
+      </SheetDescription>
 
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden" data-testid="release-panel">
-        <div className="flex flex-col gap-4 px-[18px] pb-6 pt-4">
-          <EnvCards project={project} source={source} releases={all} loading={releases.isLoading} />
+        <div className="flex flex-col gap-4 px-5 pb-5 pt-1">
+          <EnvCards
+            project={project}
+            source={source}
+            releases={all}
+            loading={releases.isLoading}
+            targetEnv={targetEnv}
+            gate={failed ? 'blocked' : ready ? 'ready' : 'idle'}
+          />
           {releases.isError && (
-            <div className="text-[12.5px] text-destructive" role="alert" data-testid="release-error">
+            <Callout tone="error" role="alert" data-testid="release-error">
               Couldn't load releases · {errorMessage(releases.error)}{' '}
               <button type="button" className="underline" onClick={() => releases.refetch()}>
                 Retry
               </button>
-            </div>
+            </Callout>
           )}
 
           {targets.length > 0 && (
@@ -200,7 +292,7 @@ function ReleaseBody() {
           )}
 
           <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate font-semibold" data-testid="release-plan-title">
+            <span className="truncate text-[13.5px] font-semibold" data-testid="release-plan-title">
               {title}
             </span>
             {canDry && dry.isSuccess && !dry.isFetching && (
@@ -220,74 +312,61 @@ function ReleaseBody() {
           </div>
 
           {promoteTo && releases.isSuccess && !latestSnap ? (
-            <div
-              className="rounded-[10px] border border-dashed border-border px-4 py-6 text-center text-[12.5px] text-muted-foreground"
-              data-testid="release-empty"
-            >
+            <Well className="px-4 py-6 text-center text-[12.5px] text-muted-foreground" data-testid="release-empty">
               No snapshots yet. Create one from {source}.
               <div className="mt-2.5">
-                <Button size="sm" variant="outline" onClick={() => setStepPick('snapshot')} data-testid="release-empty-snapshot">
+                <Button size="sm" variant="secondary" onClick={() => setStepPick('snapshot')} data-testid="release-empty-snapshot">
                   Snapshot {source}
                 </Button>
               </div>
-            </div>
+            </Well>
           ) : result?.kind === 'blocked-source' ? (
-            <div
-              className="flex items-center gap-2 rounded-[10px] border border-[color-mix(in_srgb,var(--warning)_35%,var(--border))] bg-[color-mix(in_srgb,var(--warning)_5%,var(--card))] px-3 py-2.5 text-[12.5px]"
+            <Callout
+              tone="warn"
+              icon={<TriangleAlert />}
               role="alert"
               data-testid="release-409-blocked-source"
+              className="py-2.5"
             >
-              <TriangleAlert className="size-3.5 shrink-0 text-warning" />
-              <span className="flex-1">{result.message}</span>
-              <Button size="xs" variant="outline" onClick={() => setStepPick('snapshot')}>
-                Snapshot {source}
-              </Button>
-            </div>
+              <div className="flex items-center gap-2">
+                <span className="flex-1">{result.message}</span>
+                <Button size="xs" variant="secondary" onClick={() => setStepPick('snapshot')}>
+                  Snapshot {source}
+                </Button>
+              </div>
+            </Callout>
           ) : !canDry || dry.isLoading || (dry.isFetching && !dry.data) ? (
-            <div className="flex items-center justify-center gap-2 rounded-xl border border-border py-8 text-xs text-muted-foreground" data-testid="release-loading">
+            <Well className="flex items-center justify-center gap-2 py-8 text-xs text-muted-foreground" data-testid="release-loading">
               <Spinner className="size-3.5" /> Running checks…
-            </div>
+            </Well>
           ) : dry.isError ? (
-            <div className="rounded-[10px] border border-destructive/35 px-3 py-2.5 text-[12.5px] text-destructive" role="alert" data-testid="release-dry-error">
+            <Callout tone="error" role="alert" data-testid="release-dry-error" className="py-2.5">
               {isApiError(dry.error, 'release_blocked') ? 'This snapshot was blocked; create a new one.' : errorMessage(dry.error)}{' '}
               <button type="button" className="underline" onClick={rerun}>
                 Retry
               </button>
-            </div>
+            </Callout>
           ) : (
             <div
-              className={cn('flex flex-col gap-2', dry.isFetching && 'opacity-60')}
+              className={cn('flex flex-col gap-2 transition-opacity duration-(--d-base)', dry.isFetching && 'opacity-60')}
               data-testid={failed ? 'release-blocked' : 'release-ready'}
               data-stored={result?.kind === 'blocked' ? 'true' : undefined}
             >
               {result?.kind === 'blocked' && (
-                <div className="flex items-center gap-2 rounded-lg bg-warning/13 px-3 py-2 text-[12.5px] text-warning-text" role="alert" data-testid="release-stored-blocked">
-                  <TriangleAlert className="size-3.5 shrink-0" />
+                <Callout tone="warn" icon={<TriangleAlert />} role="alert" data-testid="release-stored-blocked">
                   {result.number ? `Release #${result.number} of ${result.env} was stored as blocked and is not served.` : 'The checks failed.'} Fix
                   the failed check, then re-run.
-                </div>
+                </Callout>
               )}
-              <ChecksList checks={shownChecks} targetEnv={targetEnv} onRerun={rerun} />
+              <Stepper steps={flow} testId="release-stepper" />
             </div>
-          )}
-
-          {canDry && dry.data?.diff && !result && <DiffChips diff={dry.data.diff} env={targetEnv} />}
-
-          {!promoteTo && canDry && (
-            <Input
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Notes (optional), e.g. refunds endpoint"
-              className="h-8 text-[12.5px]"
-              data-testid="release-notes"
-            />
           )}
 
           <History releases={all} project={project} loading={releases.isLoading} source={source} />
         </div>
       </div>
 
-      <div className="flex items-center gap-2 border-t border-border bg-[color-mix(in_srgb,var(--muted)_40%,var(--card))] px-[18px] py-3">
+      <div className="flex shrink-0 items-center gap-2 px-5 pb-4 pt-3">
         <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground" data-testid="release-footer-hint">
           {failed
             ? 'Fix the failed check, then re-run.'
@@ -308,10 +387,12 @@ function ReleaseBody() {
           onClick={() => (promoteTo ? setConfirmOpen(true) : void write())}
           data-testid={promoteTo ? 'release-promote' : 'release-create'}
         >
-          {writing && <Spinner className="size-3.5" />}
+          {writing ? <Spinner className="size-3.5" /> : <Rocket />}
           {primaryLabel}
         </Button>
       </div>
+
+      <Beam on={writing && !!promoteTo} />
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent data-testid="release-promote-confirm-dialog">
@@ -345,7 +426,21 @@ function ReleaseBody() {
 
 // ── environment cards ───────────────────────────────────────────────────────
 
-function EnvCards({ project, source, releases, loading }: { project: Project; source: string; releases: Release[]; loading: boolean }) {
+function EnvCards({
+  project,
+  source,
+  releases,
+  loading,
+  targetEnv,
+  gate,
+}: {
+  project: Project
+  source: string
+  releases: Release[]
+  loading: boolean
+  targetEnv: string
+  gate: 'blocked' | 'ready' | 'idle'
+}) {
   const { pid } = useProjectCtx()
   const qc = useQueryClient()
   const [rolling, setRolling] = useState<string | null>(null)
@@ -370,7 +465,7 @@ function EnvCards({ project, source, releases, loading }: { project: Project; so
   }
 
   return (
-    <div className="flex items-stretch gap-2.5" data-testid="release-envs">
+    <div className="flex items-stretch" data-testid="release-envs">
       {ordered.map((e, i) => {
         const mine = releases.filter((r) => r.environment === e.name)
         const active = mine.find((r) => r.is_active)
@@ -383,15 +478,15 @@ function EnvCards({ project, source, releases, loading }: { project: Project; so
             : undefined
         const blockedRollback = e.kind === 'release' && (!prev || noPrevious.includes(e.name))
         return (
-          <div key={e.name} className="flex min-w-0 flex-1 items-stretch gap-2.5">
-            {i > 0 && <ArrowRight className="size-3.5 shrink-0 self-center text-muted-foreground" />}
-            <div
-              className="flex min-w-0 flex-1 flex-col rounded-xl border border-border bg-card p-3"
+          <div key={e.name} className="flex min-w-0 flex-1 items-stretch">
+            {i > 0 && <Gate tone={e.name === targetEnv ? gate : 'idle'} />}
+            <Well
+              className="flex min-w-0 flex-1 flex-col p-3"
               data-testid={`release-env-${e.name}`}
               data-active-release={active?.number}
             >
               <div className="flex items-center gap-2">
-                <Badge variant="secondary" className="font-mono">
+                <Badge variant="neutral" className="font-mono">
                   {e.name}
                 </Badge>
                 <span className="text-xs text-muted-foreground">
@@ -439,11 +534,28 @@ function EnvCards({ project, source, releases, loading }: { project: Project; so
                   )}
                 </>
               )}
-            </div>
+            </Well>
           </div>
         )
       })}
     </div>
+  )
+}
+
+/** The path between two environments: a line with one node that shows the gate (blocked, ready, or idle). */
+function Gate({ tone }: { tone: 'blocked' | 'ready' | 'idle' }) {
+  return (
+    <span className="relative flex w-9 shrink-0 items-center justify-center" aria-hidden data-testid="release-gate" data-gate={tone}>
+      <span className="absolute inset-x-0 h-px bg-hairline" />
+      <span
+        className={cn(
+          'relative size-2 rounded-full transition-colors duration-(--d-base)',
+          tone === 'blocked' && 'bg-warning shadow-[0_0_0_3px_var(--warning-soft)]',
+          tone === 'ready' && 'bg-primary shadow-[0_0_8px_var(--glow)]',
+          tone === 'idle' && 'bg-faint',
+        )}
+      />
+    </span>
   )
 }
 
@@ -481,7 +593,7 @@ function DiffChips({ diff, env }: { diff: ReleaseDiff; env: string }) {
 
   return (
     <div className="flex flex-col gap-1.5" data-testid="release-diff">
-      <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">What changes in {env}</span>
+      <span className="text-[12px] text-muted-foreground">What changes in {env}</span>
       <div className="flex flex-wrap items-center gap-1.5 text-[12.5px]">
         {chips.length === 0 ? (
           <span className="text-muted-foreground" data-testid="release-diff-empty">
@@ -507,8 +619,9 @@ function DiffChips({ diff, env }: { diff: ReleaseDiff; env: string }) {
 function History({ releases, project, loading, source }: { releases: Release[]; project: Project; loading: boolean; source: string }) {
   const rows = [...releases].sort((a, b) => b.created_at.localeCompare(a.created_at) || b.number - a.number)
   return (
-    <div className="flex flex-col gap-1" data-testid="release-history">
-      <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">History</span>
+    <div className="flex flex-col gap-2" data-testid="release-history">
+      <span className="text-[13.5px] font-semibold tracking-[-0.01em]">History</span>
+      <Well className="px-4 py-1">
       {loading ? (
         <Skeleton className="h-8 w-full" />
       ) : rows.length === 0 ? (
@@ -519,11 +632,11 @@ function History({ releases, project, loading, source }: { releases: Release[]; 
         rows.map((r) => (
           <div
             key={r.id}
-            className="flex min-h-9 items-center gap-2 border-b border-border/65 py-1.5 text-[12.5px] last:border-0"
+            className="flex min-h-9 items-center gap-2 border-b border-hairline py-1.5 text-[12.5px] last:border-0"
             data-testid={`release-row-${r.environment}-${r.number}`}
             data-status={r.status}
           >
-            <Badge variant="secondary" className="font-mono">
+            <Badge variant="neutral" className="font-mono">
               {r.environment}
             </Badge>
             <span className="font-mono">#{r.number}</span>
@@ -536,6 +649,7 @@ function History({ releases, project, loading, source }: { releases: Release[]; 
           </div>
         ))
       )}
+      </Well>
     </div>
   )
 }

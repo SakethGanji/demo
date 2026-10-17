@@ -71,17 +71,17 @@ export function VersionHistory({ appId, currentVersionId, publishedVersionId, on
   const versionById = new Map(versions.map((v) => [v.id, v]))
 
   return (
-    <div className="h-full flex flex-col bg-card text-foreground" data-testid="version-history">
+    <div className="h-full flex flex-col text-foreground" data-testid="version-history">
       {/* Header */}
-      <div className="flex items-center justify-between h-10 px-3 border-b border-border shrink-0">
-        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-          Version History
+      <div className="flex items-center justify-between h-10 px-3 hairline-b shrink-0">
+        <span className="text-[13px] font-semibold tracking-[-0.01em]">
+          Version history
         </span>
         <button
           type="button"
           aria-label="Close version history"
           onClick={onClose}
-          className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+          className="h-6 w-6 flex items-center justify-center rounded-chip text-muted-foreground hover:text-foreground hover:bg-(--hover-fill) transition-colors"
         >
           <X size={12} />
         </button>
@@ -94,7 +94,7 @@ export function VersionHistory({ appId, currentVersionId, publishedVersionId, on
         ) : versions.length === 0 ? (
           <div className="p-4 text-xs text-muted-foreground text-center">No versions yet</div>
         ) : (
-          <div className="py-1">
+          <div className="flex flex-col gap-0.5 p-1.5">
             {[...versions].reverse().map((v) => {
               const isCurrent = v.id === currentVersionId
               const isLive = v.id === publishedVersionId
@@ -121,10 +121,10 @@ export function VersionHistory({ appId, currentVersionId, publishedVersionId, on
                         onRevert(v.id)
                       }
                     }}
-                    className={`w-full cursor-pointer text-left px-3 py-2 transition-colors outline-none focus-visible:bg-accent/40 ${
+                    className={`w-full cursor-pointer rounded-ctl text-left px-2.5 py-2 transition-colors outline-none focus-visible:shadow-focus ${
                       isCurrent
-                        ? 'cursor-default bg-accent/50'
-                        : 'hover:bg-accent/30'
+                        ? 'cursor-default bg-raise shadow-raise-sm'
+                        : 'hover:bg-(--hover-fill)'
                     }`}
                   >
                     <div className="flex items-center gap-2">
@@ -141,7 +141,7 @@ export function VersionHistory({ appId, currentVersionId, publishedVersionId, on
                       )}
                       {isLive && (
                         <span
-                          className="inline-flex items-center gap-0.5 text-[10px] font-medium text-success-text bg-success/10 px-1 py-0.5 rounded"
+                          className="inline-flex items-center gap-0.5 text-[10px] font-medium text-success-text bg-success-soft px-1 py-0.5 rounded-chip"
                           title="This version is live at the public URL"
                         >
                           <Globe size={9} />
@@ -161,7 +161,7 @@ export function VersionHistory({ appId, currentVersionId, publishedVersionId, on
                       >
                         <input
                           autoFocus
-                          className="text-[11px] bg-background border border-border rounded px-1 py-0.5 w-full outline-none focus:border-primary"
+                          className="text-[11px] bg-recess rounded-chip px-1.5 py-0.5 w-full outline-none focus-visible:shadow-focus"
                           value={editLabel}
                           onChange={(e) => setEditLabel(e.target.value)}
                           onKeyDown={(e) => {

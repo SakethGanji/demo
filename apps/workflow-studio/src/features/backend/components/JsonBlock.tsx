@@ -38,7 +38,7 @@ export function JsonBlock({ value, className, testId }: { value: unknown; classN
     <pre
       data-testid={testId}
       className={cn(
-        'max-h-72 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-code-bg px-3 py-2.5 font-mono text-[12px] leading-[18px]',
+        'well max-h-72 overflow-y-auto p-3 font-mono text-[12px] leading-[18px] break-words whitespace-pre-wrap',
         className,
       )}
     >

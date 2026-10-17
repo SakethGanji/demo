@@ -17,6 +17,7 @@ import { Badge } from '@/shared/components/ui/badge'
 import { Button } from '@/shared/components/ui/button'
 import { Input } from '@/shared/components/ui/input'
 import { Skeleton } from '@/shared/components/ui/skeleton'
+import { IconTile } from '@/shared/components/ui/surface'
 import { StatusDot, type DotTone } from '@/shared/components/ui/status-dot'
 import { Popover, PopoverContent, PopoverTrigger } from '@/shared/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/components/ui/tooltip'
@@ -236,7 +237,7 @@ function OpRowView({
     ) : (
       <span className="flex items-center gap-1">
         {isStub && <Badge variant="stub">stub</Badge>}
-        <Button variant="ghost" size="xs" className="h-5 px-1.5 text-[11px]" onClick={() => onUse(row)} data-testid={`builder-op-use-${row.name}`}>
+        <Button variant="secondary" size="xs" className="h-5 px-1.5 text-[11px]" onClick={() => onUse(row)} data-testid={`builder-op-use-${row.name}`}>
           Use
         </Button>
       </span>
@@ -245,7 +246,7 @@ function OpRowView({
   }
   return (
     <div
-      className="flex flex-col gap-[3px] border-b border-border/65 px-3 py-[9px] last:border-b-0"
+      className="hairline-b flex flex-col gap-[3px] px-3 py-[9px] last:border-b-0"
       data-testid={`builder-op-${row.name}`}
       data-state={state}
     >
@@ -323,9 +324,11 @@ export function BackendPanel(p: BackendPanelProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="builder-backend-panel">
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border pl-3.5 pr-2.5">
-        <PlugZap className="size-3.5 text-muted-foreground" />
-        <span className="font-semibold">Backend</span>
+      <div className="hairline-b flex h-11 shrink-0 items-center gap-2 pl-3.5 pr-2.5">
+        <IconTile hue="backend">
+          <PlugZap />
+        </IconTile>
+        <span className="text-panel-title font-semibold tracking-[-0.01em]">Backend</span>
         <div className="flex-1" />
         <Tooltip>
           <TooltipTrigger render={<Button variant="ghost" size="icon-xs" onClick={p.onRefresh} aria-label="Refresh backend" data-testid="builder-backend-refresh" />}>
@@ -336,7 +339,7 @@ export function BackendPanel(p: BackendPanelProps) {
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div
-          className="m-3 rounded-[10px] border border-success/25 bg-success/5 p-3"
+          className="m-3 rounded-well bg-recess p-3"
           data-testid="builder-connection-card"
         >
           <div className="flex items-center gap-2">
@@ -352,7 +355,7 @@ export function BackendPanel(p: BackendPanelProps) {
         </div>
 
         <div className="flex items-center px-3 pb-1.5 pt-0.5">
-          <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Operations</span>
+          <span className="text-[12px] font-medium text-muted-foreground">Operations</span>
           <div className="flex-1" />
           {!loading && total > 0 && (
             <span className="text-[11.5px] text-muted-foreground" data-testid="builder-ops-count">
@@ -360,7 +363,7 @@ export function BackendPanel(p: BackendPanelProps) {
             </span>
           )}
         </div>
-        <div className="border-t border-border">
+        <div className="mx-2">
           {loading ? (
             <div className="flex flex-col gap-3 p-3" data-testid="builder-ops-loading">
               {[0, 1, 2].map((i) => (
@@ -406,7 +409,7 @@ export function BackendPanel(p: BackendPanelProps) {
         {total > 0 && (
           <>
             <div className="flex items-center px-3 pb-1.5 pt-3.5">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">api/client.ts</span>
+              <span className="text-[12px] font-medium text-muted-foreground">api/client.ts</span>
               <div className="flex-1" />
               <Button
                 variant="ghost"
@@ -425,7 +428,7 @@ export function BackendPanel(p: BackendPanelProps) {
             <button
               type="button"
               onClick={p.onOpenClient}
-              className="mx-3 mb-3 block w-[calc(100%-24px)] overflow-hidden whitespace-pre rounded-lg border border-border bg-code-bg px-2.5 py-2 text-left font-mono text-[11px] leading-[17px] text-foreground hover:border-ring"
+              className="mx-3 mb-3 block w-[calc(100%-24px)] overflow-hidden whitespace-pre rounded-well bg-recess px-2.5 py-2 text-left font-mono text-[11px] leading-[17px] text-foreground transition-colors hover:bg-(--hover-fill) focus-visible:shadow-focus"
               title="Open api/client.ts"
               data-testid="builder-client-preview"
             >
@@ -460,7 +463,7 @@ export function BackendRail({
             <Button
               variant="ghost"
               size="icon"
-              className={cn(open && 'bg-muted text-foreground')}
+              className={cn(open && 'bg-raise text-foreground shadow-raise-sm')}
               onClick={onToggle}
               aria-label="Backend"
               aria-pressed={open}

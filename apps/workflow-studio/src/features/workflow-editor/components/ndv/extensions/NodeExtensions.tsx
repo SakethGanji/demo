@@ -54,7 +54,7 @@ function WebhookUrlExtension({ node }: NodeExtensionProps) {
   }, [webhookPathUrl]);
 
   return (
-    <div className="rounded-md border border-border bg-muted/30">
+    <div className="tile">
       <div className="px-3 py-2">
         <div className="flex items-center gap-2 mb-2">
           <Link size={14} className="text-muted-foreground" />
@@ -63,16 +63,16 @@ function WebhookUrlExtension({ node }: NodeExtensionProps) {
         {webhookUrl ? (
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <code className="flex-1 text-xs bg-muted px-2 py-1.5 rounded border border-border truncate">
+              <code className="well flex-1 font-mono text-xs px-2 py-1.5 truncate">
                 {webhookUrl}
               </code>
               <button
                 onClick={copyWebhookUrl}
-                className="flex items-center justify-center size-8 rounded-md border border-border bg-muted hover:bg-accent transition-colors shrink-0"
+                className="flex items-center justify-center size-8 rounded-ctl bg-recess hover:bg-(--hover-fill) transition-colors shrink-0"
                 title="Copy URL"
               >
                 {copiedUrl ? (
-                  <Check size={14} className="text-[var(--success)]" />
+                  <Check size={14} className="text-success-text" />
                 ) : (
                   <Copy size={14} className="text-muted-foreground" />
                 )}
@@ -80,16 +80,16 @@ function WebhookUrlExtension({ node }: NodeExtensionProps) {
             </div>
             {webhookPathUrl && (
               <div className="flex items-center gap-2">
-                <code className="flex-1 text-xs bg-muted px-2 py-1.5 rounded border border-border truncate">
+                <code className="well flex-1 font-mono text-xs px-2 py-1.5 truncate">
                   {webhookPathUrl}
                 </code>
                 <button
                   onClick={copyWebhookPathUrl}
-                  className="flex items-center justify-center size-8 rounded-md border border-border bg-muted hover:bg-accent transition-colors shrink-0"
+                  className="flex items-center justify-center size-8 rounded-ctl bg-recess hover:bg-(--hover-fill) transition-colors shrink-0"
                   title="Copy custom path URL"
                 >
                   {copiedPathUrl ? (
-                    <Check size={14} className="text-[var(--success)]" />
+                    <Check size={14} className="text-success-text" />
                   ) : (
                     <Copy size={14} className="text-muted-foreground" />
                   )}
@@ -103,7 +103,7 @@ function WebhookUrlExtension({ node }: NodeExtensionProps) {
           </p>
         )}
         <p className="text-xs text-muted-foreground mt-2">
-          Workflow must be <span className="font-medium text-[var(--success)]">active</span> to receive webhooks
+          Workflow must be <span className="font-medium text-success-text">active</span> to receive webhooks
         </p>
       </div>
     </div>
@@ -132,7 +132,7 @@ function CurlImportExtension({ node }: NodeExtensionProps) {
 
   return (
     <>
-      <div className="rounded-md border border-border bg-muted/30">
+      <div className="tile">
         <div className="flex items-center justify-between px-3 py-2">
           <div className="flex items-center gap-2">
             <Terminal size={14} className="text-muted-foreground" />
@@ -140,7 +140,8 @@ function CurlImportExtension({ node }: NodeExtensionProps) {
           </div>
           <button
             onClick={() => setCurlDialogOpen(true)}
-            className="inline-flex h-7 items-center rounded-md border border-border bg-background px-2.5 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-accent"
+            className="inline-flex h-7 items-center rounded-ctl bg-recess px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-(--hover-fill)"
+            data-testid="curl-open"
           >
             Import cURL
           </button>

@@ -31,6 +31,8 @@ import {
 } from 'lucide-react';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { cn } from '@/shared/lib/utils';
+import { Segmented } from '@/shared/components/ui/segmented';
+import { Callout } from '@/shared/components/ui/surface';
 import type { NodeMetrics } from '../../types/workflow';
 import ExecutionTrace from './ExecutionTrace';
 import { buildAgentTraceTree } from './buildTraceTree';
@@ -53,13 +55,15 @@ function JsonView({ data, maxHeight = '12rem' }: { data: unknown; maxHeight?: st
     <div className="relative group">
       <button
         onClick={handleCopy}
-        className="absolute top-1.5 right-1.5 p-1 rounded bg-muted-foreground/10 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
+        className="absolute top-1.5 right-1.5 p-1 rounded-chip bg-raise shadow-raise-sm opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
         title="Copy JSON"
+        aria-label="Copy JSON"
+        data-testid="log-json-copy"
       >
         {copied ? <Check size={11} /> : <Copy size={11} />}
       </button>
       <pre
-        className="p-2.5 rounded-lg bg-[#0e0e0e] text-[11px] leading-[1.6] overflow-auto font-mono"
+        className="well p-2.5 text-[11px] leading-[1.6] overflow-auto font-mono"
         style={{ maxHeight }}
       >
         {lines.map((line, i) => (
@@ -84,8 +88,8 @@ function JsonLine({ line }: { line: string }) {
     return (
       <div>
         {indent}
-        <span style={{ color: '#9cdcfe' }}>"{key}"</span>
-        <span style={{ color: '#d4d4d4' }}>{colon}</span>
+        <span className="text-syn-fn">"{key}"</span>
+        <span className="text-muted-foreground">{colon}</span>
         <JsonValue text={val} />
       </div>
     );
@@ -102,8 +106,8 @@ function JsonValue({ text }: { text: string }) {
   if (strMatch) {
     return (
       <>
-        <span style={{ color: '#ce9178' }}>"{strMatch[1]}"</span>
-        <span style={{ color: '#d4d4d4' }}>{strMatch[2]}</span>
+        <span className="text-syn-string">"{strMatch[1]}"</span>
+        <span className="text-muted-foreground">{strMatch[2]}</span>
       </>
     );
   }
@@ -113,8 +117,8 @@ function JsonValue({ text }: { text: string }) {
   if (numMatch) {
     return (
       <>
-        <span style={{ color: '#b5cea8' }}>{numMatch[1]}</span>
-        <span style={{ color: '#d4d4d4' }}>{numMatch[2]}</span>
+        <span className="text-syn-number">{numMatch[1]}</span>
+        <span className="text-muted-foreground">{numMatch[2]}</span>
       </>
     );
   }
@@ -124,8 +128,8 @@ function JsonValue({ text }: { text: string }) {
   if (boolMatch) {
     return (
       <>
-        <span style={{ color: '#569cd6' }}>{boolMatch[1]}</span>
-        <span style={{ color: '#d4d4d4' }}>{boolMatch[2]}</span>
+        <span className="text-syn-keyword">{boolMatch[1]}</span>
+        <span className="text-muted-foreground">{boolMatch[2]}</span>
       </>
     );
   }
@@ -135,14 +139,14 @@ function JsonValue({ text }: { text: string }) {
   if (nullMatch) {
     return (
       <>
-        <span style={{ color: '#569cd6' }}>{nullMatch[1]}</span>
-        <span style={{ color: '#d4d4d4' }}>{nullMatch[2]}</span>
+        <span className="text-syn-keyword">{nullMatch[1]}</span>
+        <span className="text-muted-foreground">{nullMatch[2]}</span>
       </>
     );
   }
 
   // Brackets, braces, other
-  return <span style={{ color: '#d4d4d4' }}>{text}</span>;
+  return <span className="text-muted-foreground">{text}</span>;
 }
 
 interface ExecutionLog {
@@ -224,18 +228,18 @@ function getMetricEntries(metrics: NodeMetrics): MetricEntry[] {
 
   // LLM
   if (metrics.model) {
-    entries.push({ label: 'Model', value: metrics.model, icon: Cpu, color: 'text-purple-500' });
+    entries.push({ label: 'Model', value: metrics.model, icon: Cpu, color: 'text-hue-ai' });
   }
   if (metrics.totalTokens != null) {
     entries.push({
       label: 'Tokens',
       value: `${(metrics.inputTokens ?? 0).toLocaleString()} in / ${(metrics.outputTokens ?? 0).toLocaleString()} out`,
       icon: Zap,
-      color: 'text-purple-500',
+      color: 'text-hue-ai',
     });
   }
   if (metrics.llmResponseTimeMs != null) {
-    entries.push({ label: 'LLM Latency', value: formatDuration(metrics.llmResponseTimeMs), icon: Timer, color: 'text-purple-500' });
+    entries.push({ label: 'LLM Latency', value: formatDuration(metrics.llmResponseTimeMs), icon: Timer, color: 'text-hue-ai' });
   }
   if (metrics.agentIterations != null) {
     entries.push({ label: 'Agent Loops', value: String(metrics.agentIterations), icon: Bot });
@@ -247,7 +251,7 @@ function getMetricEntries(metrics: NodeMetrics): MetricEntry[] {
   // HTTP
   if (metrics.responseStatusCode != null) {
     const ok = metrics.responseStatusCode < 400;
-    entries.push({ label: 'HTTP Status', value: String(metrics.responseStatusCode), icon: Globe, color: ok ? 'text-[var(--success)]' : 'text-destructive' });
+    entries.push({ label: 'HTTP Status', value: String(metrics.responseStatusCode), icon: Globe, color: ok ? 'text-success-text' : 'text-destructive' });
   }
   if (metrics.requestMethod && metrics.requestUrl) {
     const url = metrics.requestUrl.length > 50 ? metrics.requestUrl.slice(0, 50) + '...' : metrics.requestUrl;
@@ -262,7 +266,7 @@ function getMetricEntries(metrics: NodeMetrics): MetricEntry[] {
 
   // Flow
   if (metrics.branchDecision != null) {
-    entries.push({ label: 'Branch Taken', value: metrics.branchDecision, icon: GitBranch, color: 'text-blue-500' });
+    entries.push({ label: 'Branch Taken', value: metrics.branchDecision, icon: GitBranch, color: 'text-hue-backend' });
   }
   if (metrics.trueCount != null || metrics.falseCount != null) {
     entries.push({ label: 'True / False', value: `${metrics.trueCount ?? 0} / ${metrics.falseCount ?? 0}`, icon: Route });
@@ -351,14 +355,14 @@ export default function ExecutionLogsPanel() {
   return (
     <div className="h-full flex flex-col">
       {/* Header bar */}
-      <div className="flex items-center justify-between h-8 px-3 border-b border-border shrink-0">
+      <div className="flex items-center justify-between h-8 px-3 shrink-0 shadow-[inset_0_-1px_0_var(--hairline)]">
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium text-foreground">Logs</span>
           {hasLogs && (
             <>
-              <div className="w-px h-3 bg-border" />
+              <div className="w-px h-3 bg-hairline" />
               {isRunning ? (
-                <span className="flex items-center gap-1 text-[10px] text-[var(--warning)]" data-testid="execution-status" data-status="running">
+                <span className="flex items-center gap-1 text-[10px] text-warning-text" data-testid="execution-status" data-status="running">
                   <Loader2 size={10} className="animate-spin" />
                   running
                 </span>
@@ -368,7 +372,7 @@ export default function ExecutionLogsPanel() {
                   error
                 </span>
               ) : (
-                <span className="flex items-center gap-1 text-[10px] text-[var(--success)]" data-testid="execution-status" data-status="success">
+                <span className="flex items-center gap-1 text-[10px] text-success-text" data-testid="execution-status" data-status="success">
                   <CheckCircle2 size={10} />
                   success · {formatDuration(totalDuration)}
                 </span>
@@ -380,8 +384,8 @@ export default function ExecutionLogsPanel() {
               )}
               {totalTokens > 0 && (
                 <>
-                  <div className="w-px h-3 bg-border" />
-                  <span className="flex items-center gap-0.5 text-[10px] text-purple-500">
+                  <div className="w-px h-3 bg-hairline" />
+                  <span className="flex items-center gap-0.5 text-[10px] text-hue-ai">
                     <Zap size={9} />
                     {totalTokens.toLocaleString()} tok
                   </span>
@@ -393,8 +397,10 @@ export default function ExecutionLogsPanel() {
         <button
           onClick={handleClear}
           disabled={!hasLogs}
-          className="p-1 text-muted-foreground hover:text-foreground hover:bg-accent rounded disabled:opacity-50 disabled:cursor-not-allowed"
+          className="p-1 text-muted-foreground hover:text-foreground hover:bg-(--hover-fill) rounded-ctl disabled:opacity-50 disabled:cursor-not-allowed"
           title="Clear logs"
+          aria-label="Clear logs"
+          data-testid="log-clear"
         >
           <Trash2 size={12} />
         </button>
@@ -403,7 +409,7 @@ export default function ExecutionLogsPanel() {
       {/* Content */}
       <div className="flex-1 flex overflow-hidden min-h-0">
         {/* Node list */}
-        <div className="w-48 border-r border-border overflow-y-auto bg-muted/30 shrink-0">
+        <div className="well m-2 mr-0 w-48 overflow-y-auto shrink-0">
           {!hasLogs ? (
             <div className="flex flex-col items-center justify-center h-full text-center p-3">
               <ScrollText size={18} className="text-muted-foreground/50 mb-2" />
@@ -416,17 +422,17 @@ export default function ExecutionLogsPanel() {
                   key={log.id}
                   onClick={() => setSelectedLogId(log.id)}
                   className={cn(
-                    'w-full flex items-center gap-2 px-2 py-1.5 rounded text-left transition-colors',
+                    'w-full flex items-center gap-2 px-2 py-1.5 rounded-ctl text-left transition-colors',
                     selectedLogId === log.id
-                      ? 'bg-primary/10 text-primary'
-                      : 'hover:bg-accent text-foreground'
+                      ? 'bg-raise shadow-raise-sm text-foreground'
+                      : 'row-hover text-foreground'
                   )}
                 >
                   {log.status === 'running' && (
-                    <Loader2 size={12} className="animate-spin text-[var(--warning)] flex-shrink-0" />
+                    <Loader2 size={12} className="animate-spin text-warning flex-shrink-0" />
                   )}
                   {log.status === 'success' && (
-                    <CheckCircle2 size={12} className="text-[var(--success)] flex-shrink-0" />
+                    <CheckCircle2 size={12} className="text-success flex-shrink-0" />
                   )}
                   {log.status === 'error' && (
                     <XCircle size={12} className="text-destructive flex-shrink-0" />
@@ -460,12 +466,12 @@ export default function ExecutionLogsPanel() {
                     {selectedLog.nodeType}
                   </span>
                   {selectedLog.status === 'success' && (
-                    <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-[var(--success)]/10 text-[var(--success)]">
+                    <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-success/11 text-success-text">
                       Success
                     </span>
                   )}
                   {selectedLog.status === 'error' && (
-                    <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-destructive/10 text-destructive">
+                    <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-destructive-soft text-destructive">
                       Error
                     </span>
                   )}
@@ -481,7 +487,7 @@ export default function ExecutionLogsPanel() {
                     <span>{selectedLog.itemCount} item{selectedLog.itemCount !== 1 && 's'}</span>
                   )}
                   {selectedLog.metrics?.totalTokens != null && (
-                    <span className="flex items-center gap-0.5 text-purple-500">
+                    <span className="flex items-center gap-0.5 text-hue-ai">
                       <Zap size={9} />
                       {(selectedLog.metrics.totalTokens as number).toLocaleString()}
                     </span>
@@ -489,7 +495,7 @@ export default function ExecutionLogsPanel() {
                   {selectedLog.metrics?.responseStatusCode != null && (
                     <span className={`flex items-center gap-0.5 ${
                       (selectedLog.metrics.responseStatusCode as number) < 400
-                        ? 'text-[var(--success)]'
+                        ? 'text-success-text'
                         : 'text-destructive'
                     }`}>
                       <Globe size={9} />
@@ -497,7 +503,7 @@ export default function ExecutionLogsPanel() {
                     </span>
                   )}
                   {selectedLog.metrics?.branchDecision != null && (
-                    <span className="flex items-center gap-0.5 text-blue-500">
+                    <span className="flex items-center gap-0.5 text-hue-backend">
                       <GitBranch size={9} />
                       {selectedLog.metrics.branchDecision}
                     </span>
@@ -507,18 +513,18 @@ export default function ExecutionLogsPanel() {
 
               {/* Error */}
               {selectedLog.error && (
-                <div className="p-2 rounded-lg bg-destructive/10 border border-destructive/20">
-                  <p className="text-xs text-destructive">{selectedLog.error}</p>
-                </div>
+                <Callout tone="error" data-testid="log-error">
+                  <p className="text-xs">{selectedLog.error}</p>
+                </Callout>
               )}
 
               {/* Agent execution trace */}
               {selectedNodeData.agentTrace && selectedNodeData.agentTrace.length > 0 && (
                 <div className="space-y-1">
-                  <h4 className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                  <h4 className="text-[11.5px] font-medium text-muted-foreground">
                     Execution Trace
                   </h4>
-                  <div className="rounded-md border border-border bg-muted/20 overflow-auto" style={{ maxHeight: '24rem' }}>
+                  <div className="well overflow-auto" style={{ maxHeight: '24rem' }}>
                     <div className="p-2">
                       <ExecutionTrace
                         tree={buildAgentTraceTree(selectedNodeData.agentTrace, selectedLog.nodeName)}
@@ -534,10 +540,10 @@ export default function ExecutionLogsPanel() {
                 if (entries.length === 0) return null;
                 return (
                   <div className="space-y-1">
-                    <h4 className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                    <h4 className="text-[11.5px] font-medium text-muted-foreground">
                       Metrics
                     </h4>
-                    <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 p-2.5 rounded-lg bg-muted/50 border border-border">
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 p-2.5 well">
                       {entries.map((entry) => {
                         const Icon = entry.icon;
                         return (
@@ -557,30 +563,17 @@ export default function ExecutionLogsPanel() {
 
               {/* Input / Output toggle + data */}
               <div className="space-y-1">
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => setDataTab('output')}
-                    className={cn(
-                      'text-[10px] font-medium uppercase tracking-wide px-2 py-0.5 rounded transition-colors',
-                      dataTab === 'output'
-                        ? 'bg-primary/10 text-primary'
-                        : 'text-muted-foreground hover:text-foreground'
-                    )}
-                  >
-                    Output {selectedNodeData.output?.items ? `(${selectedNodeData.output.items.length})` : ''}
-                  </button>
-                  <button
-                    onClick={() => setDataTab('input')}
-                    className={cn(
-                      'text-[10px] font-medium uppercase tracking-wide px-2 py-0.5 rounded transition-colors',
-                      dataTab === 'input'
-                        ? 'bg-primary/10 text-primary'
-                        : 'text-muted-foreground hover:text-foreground'
-                    )}
-                  >
-                    Input {selectedNodeData.input?.items ? `(${selectedNodeData.input.items.length})` : ''}
-                  </button>
-                </div>
+                <Segmented
+                  size="xs"
+                  value={dataTab}
+                  onChange={setDataTab}
+                  aria-label="Data"
+                  data-testid="log-data-tabs"
+                  options={[
+                    { key: 'output', label: `Output ${selectedNodeData.output?.items ? `(${selectedNodeData.output.items.length})` : ''}`.trim(), testId: 'log-tab-output' },
+                    { key: 'input', label: `Input ${selectedNodeData.input?.items ? `(${selectedNodeData.input.items.length})` : ''}`.trim(), testId: 'log-tab-input' },
+                  ]}
+                />
 
                 {dataTab === 'output' && selectedNodeData.output?.items && selectedNodeData.output.items.length > 0 && (
                   <JsonView data={selectedNodeData.output.items} />

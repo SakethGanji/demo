@@ -62,10 +62,10 @@ const FIT_VIEW_OPTIONS = { padding: 0.2, maxZoom: 1 };
 const SNAP_GRID: [number, number] = [20, 20];
 const DELETE_KEY_CODE = ['Backspace', 'Delete'];
 const PRO_OPTIONS = { hideAttribution: true };
-const MINIMAP_STYLE = { marginBottom: 8, marginRight: 8 };
+const MINIMAP_STYLE = { marginBottom: 12, marginRight: 12, width: 168, height: 108 };
 
 function getMinimapNodeColor(node: Node) {
-  if (node.type === 'addNodes') return 'var(--muted)';
+  if (node.type === 'addNodes') return 'var(--faint)';
   const data = node.data as WorkflowNodeData;
   if (node.type === 'stickyNote') {
     const color = data?.color || 'yellow';
@@ -583,14 +583,14 @@ export default function WorkflowCanvas() {
         nodesConnectable
         elementsSelectable
         proOptions={PRO_OPTIONS}
-        className="bg-background"
+        className="bg-transparent"
       >
         <Background
           id="grid-1"
           variant={BackgroundVariant.Dots}
           gap={20}
           size={1}
-          className="text-muted-foreground/20 [&>pattern>circle]:fill-current"
+          className="[&>pattern>circle]:fill-(--grid-dot)"
         />
 
         <Controls showInteractive={false} />
@@ -600,8 +600,7 @@ export default function WorkflowCanvas() {
           position="bottom-right"
           style={MINIMAP_STYLE}
           nodeColor={getMinimapNodeColor}
-          maskColor="color-mix(in srgb, var(--card) 80%, transparent)"
-          className="!bg-[var(--card)] !shadow-md !rounded-lg !border !border-[var(--border)]"
+          maskColor="color-mix(in srgb, var(--canvas) 55%, transparent)"
         />
 
       </ReactFlow>

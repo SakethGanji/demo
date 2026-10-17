@@ -6,6 +6,8 @@
 
 The design is finished and approved: **frosted glass over a starfield, one design in light and dark, a Linear-style sheet, and a steel-blue brand**. Rebuild it in the real app one phase at a time, with tests green at every step.
 
+**Start with `IMPLEMENTATION-PLAN.md`.** It is the session plan for the rollout: the core first (lead session), then pages by Sonnet agents, then validation. It supersedes the ordering in §2 below; the phase contents still apply.
+
 **Translate the mockups; don't paste them.** Their CSS is a stack of experimental layers, the final decisions sit in `assets/lean.css` and then `assets/refine.css` (later sections win, and refine wins over lean), and their class names collide with Tailwind.
 
 ## 0. Read first, in this order

@@ -9,9 +9,6 @@ import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Copy, Ellipsis, FolderInput, Lock, Plus, SquareArrowOutUpRight, Trash2, Upload, Workflow } from 'lucide-react'
 import { toast } from 'sonner'
 import { useProjectCtx } from '@/features/project/ProjectContext'
-import { ProjectTopBar } from '@/features/project/components/ProjectTopBar'
-import { WorkspaceOverlays } from '@/features/project/components/WorkspaceOverlays'
-import { panelCls } from '@/features/project/components/WorkspaceLayout'
 import { useProjectWorkflows, useRoutes } from '@/features/project/hooks/useProjectData'
 import { parseTs, timeAgo } from '@/features/project/lib/format'
 import { projectsApi, runsApi } from '@/shared/api/endpoints'
@@ -45,9 +42,8 @@ import { EmptyState } from '@/shared/components/ui/empty-state'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/components/ui/select'
 import { Skeleton } from '@/shared/components/ui/skeleton'
 import { StatusDot, runTone } from '@/shared/components/ui/status-dot'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/shared/components/ui/table'
-import { useViewportWidth } from '@/shared/hooks/useViewport'
-import { cn } from '@/shared/lib/utils'
+import { Callout, Dot, IconTile, PageHeader, Tile } from '@/shared/components/ui/surface'
+import { Tip } from '@/shared/components/ui/tooltip'
 
 type HandledRoute = { route_id: string; method: string; path: string }
 type Summary = ApiWorkflowSummary & { handler_for?: HandledRoute[]; description?: string | null }
@@ -104,14 +100,10 @@ function toBackendWorkflow(d: ApiWorkflowDetail, name: string): BackendWorkflow 
 }
 
 export function WorkflowsListPage() {
-  const width = useViewportWidth()
+  // Rendered inside the workspace sheet (outline + top bar come from WorkspaceLayout).
   return (
-    <div className="relative h-full w-full bg-canvas" data-testid="workflows-page">
-      <ProjectTopBar />
-      <div className={cn('absolute inset-x-3 bottom-3', width < 1024 ? 'top-[100px]' : 'top-[68px]')}>
-        <WorkflowsPanel />
-      </div>
-      <WorkspaceOverlays />
+    <div className="h-full" data-testid="workflows-page">
+      <WorkflowsPanel />
     </div>
   )
 }
@@ -204,8 +196,10 @@ function WorkflowsPanel() {
     </>
   )
 
+  const activeCount = rows.filter((w) => w.active).length
+
   return (
-    <section className={cn(panelCls, 'flex h-full flex-col overflow-hidden')} data-testid="workflows-panel">
+    <section className="flex h-full flex-col overflow-hidden" data-testid="workflows-panel">
       <input
         ref={fileRef}
         type="file"
@@ -217,109 +211,135 @@ function WorkflowsPanel() {
         }}
         data-testid="workflows-import-file"
       />
-      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-7 pb-8 pt-6">
-        <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-[17px] font-semibold tracking-[-0.01em]">Workflows</h1>
-          <span className="min-w-0 truncate text-[13px] text-muted-foreground">· canvas automations in {project.name}</span>
-          <div className="flex-1" />
-          {rows.length > 0 && headerActions}
-        </div>
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-8 py-7">
+        <PageHeader
+          title="Workflows"
+          icon={<Workflow />}
+          hue="flow"
+          meta={
+            <>
+              <span>Canvas automations in {project.name}</span>
+              {rows.length > 0 && (
+                <>
+                  <Dot />
+                  <span>
+                    {rows.length} {rows.length === 1 ? 'workflow' : 'workflows'}
+                  </span>
+                  <Dot />
+                  <span>{activeCount} published</span>
+                </>
+              )}
+            </>
+          }
+          actions={rows.length > 0 ? headerActions : undefined}
+        />
         {importError && (
-          <div className="mt-2 text-[12px] text-destructive" role="alert" data-testid="workflows-import-error">
+          <Callout tone="error" className="mt-3" role="alert" data-testid="workflows-import-error">
             {importError}
-          </div>
+          </Callout>
         )}
 
         {list.isLoading ? (
-          <div className="mt-4 flex flex-col gap-2" data-testid="workflows-loading">
+          <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" data-testid="workflows-loading">
             {[0, 1, 2].map((i) => (
-              <Skeleton key={i} className="h-10 w-full" />
+              <Skeleton key={i} className="h-[196px] w-full rounded-panel" />
             ))}
           </div>
         ) : list.isError ? (
-          <div className="mt-4 rounded-xl border border-border px-4 py-6 text-center text-[12.5px] text-destructive" data-testid="workflows-error">
-            Couldn't load workflows · {errorMessage(list.error)}{' '}
-            <button type="button" className="underline" onClick={() => list.refetch()}>
-              Retry
-            </button>
-          </div>
+          <Tile className="mt-6" data-testid="workflows-error">
+            <EmptyState
+              title="Couldn't load workflows"
+              actions={
+                <Button variant="outline" size="sm" onClick={() => list.refetch()} data-testid="workflows-retry">
+                  Retry
+                </Button>
+              }
+            >
+              {errorMessage(list.error)}
+            </EmptyState>
+          </Tile>
         ) : rows.length === 0 ? (
-          <div className="mt-4 rounded-xl border border-border">
-            <EmptyState icon={<Workflow />} title="No workflows" actions={headerActions} data-testid="workflows-empty">
+          <Tile className="mt-6 p-3">
+            <EmptyState dust icon={<Workflow />} title="No workflows" actions={headerActions} data-testid="workflows-empty">
               Python routes are the main backend; use a workflow for scheduled or visual automations.
             </EmptyState>
-          </div>
+          </Tile>
         ) : (
-          <div className="mt-4 overflow-hidden rounded-xl border border-border">
-            <Table className="text-[13px]" data-testid="workflows-table">
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead>Name</TableHead>
-                  <TableHead>Trigger</TableHead>
-                  <TableHead>Handles route</TableHead>
-                  <TableHead>Last run</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Updated</TableHead>
-                  <TableHead className="w-11" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((w, i) => {
-                  const handled = handledBy(w)
-                  const detail = details[i]?.data
-                  const run = lastRuns[i]?.data as RunListItem | null | undefined
-                  const open = () => navigate({ to: '/p/$project/workflows/$workflowId', params: { project: slug, workflowId: w.id } })
-                  return (
-                    <TableRow
-                      key={w.id}
-                      className="cursor-pointer"
-                      onClick={(e) => {
-                        if ((e.target as HTMLElement).closest('a,button,[role="menu"]')) return
-                        void open()
-                      }}
-                      data-testid={`workflow-row-${w.id}`}
-                    >
-                      <TableCell>
-                        <Link
-                          to="/p/$project/workflows/$workflowId"
-                          params={{ project: slug, workflowId: w.id }}
-                          className="inline-flex max-w-[280px] items-center gap-2 font-medium hover:underline"
-                          data-testid={`workflow-open-${w.id}`}
-                        >
-                          <Workflow className="size-3.5 shrink-0 text-muted-foreground" />
-                          <span className="truncate">{w.name}</span>
-                        </Link>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground" data-testid={`workflow-trigger-${w.id}`}>
+          <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" data-testid="workflows-table">
+            {rows.map((w, i) => {
+              const handled = handledBy(w)
+              const detail = details[i]?.data
+              const run = lastRuns[i]?.data as RunListItem | null | undefined
+              const open = () => navigate({ to: '/p/$project/workflows/$workflowId', params: { project: slug, workflowId: w.id } })
+              return (
+                <Tile
+                  key={w.id}
+                  interactive
+                  className="group flex min-h-[196px] flex-col"
+                  onClick={(e) => {
+                    if ((e.target as HTMLElement).closest('a,button,[role="menu"]')) return
+                    void open()
+                  }}
+                  data-testid={`workflow-row-${w.id}`}
+                >
+                  <div className="flex items-center gap-2.5 px-4 pt-4">
+                    <IconTile hue="flow" className="size-8">
+                      <Workflow />
+                    </IconTile>
+                    <div className="min-w-0 flex-1">
+                      <Link
+                        to="/p/$project/workflows/$workflowId"
+                        params={{ project: slug, workflowId: w.id }}
+                        className="block truncate text-[14px] font-semibold tracking-[-0.01em] hover:underline"
+                        data-testid={`workflow-open-${w.id}`}
+                      >
+                        {w.name}
+                      </Link>
+                      <div className="mt-px truncate text-[12px] text-muted-foreground">{w.description || (detail ? `${detail.definition.nodes.length} ${detail.definition.nodes.length === 1 ? 'node' : 'nodes'}` : '\u00a0')}</div>
+                    </div>
+                    {w.active ? <Badge variant="success">Published</Badge> : <Badge variant="neutral">Draft</Badge>}
+                    <RowMenu
+                      workflow={w}
+                      handled={handled}
+                      onOpen={() => void open()}
+                      onDuplicate={() => void duplicate(w)}
+                      onMove={() => setMoving(w)}
+                      onDelete={() => setDeleting(w)}
+                    />
+                  </div>
+                  <div className="px-4 pt-3.5 pb-4">
+                    <div className="grid grid-cols-[64px_minmax(0,1fr)] items-center gap-x-3 gap-y-2 rounded-well bg-recess px-3 py-2.5 text-[12.5px]">
+                      <span className="text-muted-foreground">Trigger</span>
+                      <span className="truncate" data-testid={`workflow-trigger-${w.id}`}>
                         {detail ? triggerLabel(detail.definition, handled.length > 0) : details[i]?.isError ? '—' : <Skeleton className="h-4 w-16" />}
-                      </TableCell>
-                      <TableCell>
-                        {handled.length ? (
-                          <div className="flex flex-col gap-0.5">
-                            {handled.map((r) => (
-                              <Link
-                                key={r.route_id}
-                                to="/p/$project/runs"
-                                params={{ project: slug }}
-                                search={{ route: r.route_id }}
-                                className="inline-flex items-center gap-1.5 hover:underline"
-                                data-testid={`workflow-route-${w.id}`}
-                              >
-                                <MethodBadge method={r.method} size="sm" />
-                                <span className="font-mono text-[12px]">{r.path}</span>
-                              </Link>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell data-testid={`workflow-last-run-${w.id}`}>
+                      </span>
+                      <span className="text-muted-foreground">Route</span>
+                      {handled.length ? (
+                        <span className="flex min-w-0 flex-col gap-1">
+                          {handled.map((r) => (
+                            <Link
+                              key={r.route_id}
+                              to="/p/$project/runs"
+                              params={{ project: slug }}
+                              search={{ route: r.route_id }}
+                              className="inline-flex min-w-0 items-center gap-1.5 hover:underline"
+                              data-testid={`workflow-route-${w.id}`}
+                            >
+                              <MethodBadge method={r.method} size="sm" />
+                              <span className="truncate font-mono text-[12px]">{r.path}</span>
+                            </Link>
+                          ))}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                      <span className="text-muted-foreground">Last run</span>
+                      <span className="min-w-0 truncate" data-testid={`workflow-last-run-${w.id}`}>
                         {run ? (
                           <Link
                             to="/p/$project/runs/$executionId"
                             params={{ project: slug, executionId: run.id }}
-                            className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground"
+                            className="inline-flex items-center gap-1.5 hover:underline"
                           >
                             <StatusDot tone={runTone(run.status)} className="shadow-none" />
                             {run.status} · {timeAgo(run.start_time)}
@@ -329,28 +349,35 @@ function WorkflowsPanel() {
                         ) : (
                           <span className="text-muted-foreground">never</span>
                         )}
-                      </TableCell>
-                      <TableCell>
-                        {w.active ? <Badge variant="success">Published</Badge> : <Badge variant="neutral">Draft</Badge>}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground" title={w.updated_at}>
-                        {shortDate(w.updated_at)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <RowMenu
-                          workflow={w}
-                          handled={handled}
-                          onOpen={() => void open()}
-                          onDuplicate={() => void duplicate(w)}
-                          onMove={() => setMoving(w)}
-                          onDelete={() => setDeleting(w)}
-                        />
-                      </TableCell>
-                    </TableRow>
-                  )
-                })}
-              </TableBody>
-            </Table>
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-auto flex items-center gap-3 px-4 pb-3.5 text-[12px] text-muted-foreground">
+                    <Tip label={w.updated_at}>
+                      <span>Updated {shortDate(w.updated_at)}</span>
+                    </Tip>
+                  </div>
+                </Tile>
+              )
+            })}
+            <Tile
+              interactive
+              role="link"
+              tabIndex={0}
+              onClick={() => void navigate({ to: '/p/$project/workflows/$workflowId', params: { project: slug, workflowId: 'new' } })}
+              onKeyDown={(e) =>
+                (e.key === 'Enter' || e.key === ' ') &&
+                (e.preventDefault(), void navigate({ to: '/p/$project/workflows/$workflowId', params: { project: slug, workflowId: 'new' } }))
+              }
+              className="flex min-h-[196px] flex-col items-center justify-center gap-1 p-5 text-center focus-visible:shadow-focus focus-visible:outline-none"
+              data-testid="workflows-new-card"
+            >
+              <IconTile hue="flow" className="mb-2 size-9">
+                <Plus />
+              </IconTile>
+              <span className="font-medium">New workflow</span>
+              <span className="text-[12px] text-muted-foreground">Scheduled or visual automations</span>
+            </Tile>
           </div>
         )}
       </div>
@@ -379,7 +406,15 @@ function RowMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        render={<Button variant="ghost" size="icon-xs" aria-label={`Actions for ${w.name}`} data-testid={`workflow-menu-${w.id}`} />}
+        render={
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label={`Actions for ${w.name}`}
+            className="-mr-1 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 data-popup-open:opacity-100"
+            data-testid={`workflow-menu-${w.id}`}
+          />
+        }
       >
         <Ellipsis />
       </DropdownMenuTrigger>

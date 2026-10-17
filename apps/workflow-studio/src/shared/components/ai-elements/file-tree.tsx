@@ -82,7 +82,7 @@ export const FileTree = ({
     <FileTreeContext.Provider value={contextValue}>
       <div
         className={cn(
-          "rounded-lg border bg-background font-mono text-sm",
+          "well font-mono text-[12.5px]",
           className
         )}
         role="tree"
@@ -171,8 +171,8 @@ export const FileTreeFolder = ({
         >
           <div
             className={cn(
-              "flex w-full items-center gap-1 rounded px-2 py-1 text-left transition-colors hover:bg-muted/50",
-              isSelected && "bg-muted"
+              "flex w-full items-center gap-1 rounded-chip px-2 py-1 text-left transition-colors hover:bg-foreground/5",
+              isSelected && "bg-raise shadow-raise-sm"
             )}
           >
             <CollapsibleTrigger render={<button className="flex shrink-0 cursor-pointer items-center border-none bg-transparent p-0" type="button" />}><ChevronRightIcon
@@ -188,16 +188,16 @@ export const FileTreeFolder = ({
             >
               <FileTreeIcon>
                 {isExpanded ? (
-                  <FolderOpenIcon className="size-4 text-blue-500" />
+                  <FolderOpenIcon className="size-4 text-hue-backend" />
                 ) : (
-                  <FolderIcon className="size-4 text-blue-500" />
+                  <FolderIcon className="size-4 text-hue-backend" />
                 )}
               </FileTreeIcon>
               <FileTreeName>{name}</FileTreeName>
             </button>
           </div>
           <CollapsibleContent>
-            <div className="ml-4 border-l pl-2">{children}</div>
+            <div className="ml-4 pl-2 shadow-[inset_1px_0_0_var(--hairline)]">{children}</div>
           </CollapsibleContent>
         </div>
       </Collapsible>
@@ -251,8 +251,8 @@ export const FileTreeFile = ({
     <FileTreeFileContext.Provider value={fileContextValue}>
       <div
         className={cn(
-          "flex cursor-pointer items-center gap-1 rounded px-2 py-1 transition-colors hover:bg-muted/50",
-          isSelected && "bg-muted",
+          "flex cursor-pointer items-center gap-1 rounded-chip px-2 py-1 transition-colors hover:bg-foreground/5",
+          isSelected && "bg-raise shadow-raise-sm",
           className
         )}
         onClick={handleClick}

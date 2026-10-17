@@ -136,7 +136,7 @@ export const appsIndexRoute = createRoute({
 })
 
 export const workflowsRoute = createRoute({
-  getParentRoute: () => projectRoute,
+  getParentRoute: () => workspaceRoute,
   path: 'workflows',
   component: WorkflowsListPage,
 })
@@ -168,9 +168,9 @@ export const projectRouteTree = projectRoute.addChildren([
     secretsRoute,
     runsRoute,
     runRoute,
+    workflowsRoute,
   ]),
   appsIndexRoute,
-  workflowsRoute,
   workflowRoute,
   appRoute,
 ])

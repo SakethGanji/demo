@@ -23,29 +23,39 @@ const baseTheme = EditorView.baseTheme({
     alignItems: 'center',
     gap: '8px',
     margin: '3px 0 4px 0',
-    padding: '0 6px 0 10px',
-    minHeight: '28px',
-    borderRadius: '7px',
-    border: '1px solid color-mix(in srgb, var(--warning) 35%, transparent)',
-    backgroundColor: 'color-mix(in srgb, var(--warning) 7%, var(--card))',
+    padding: '0 4px 0 10px',
+    minHeight: '30px',
+    borderRadius: 'var(--r-ctl)',
+    border: 'none',
+    backgroundColor: 'color-mix(in srgb, var(--warning) 11%, transparent)',
     fontFamily: 'var(--font-sans)',
     fontSize: '12px',
     lineHeight: '1',
     color: 'var(--foreground)',
     whiteSpace: 'normal',
   },
+  '.cm-secret-widget svg': { width: '12px', height: '12px', flexShrink: '0', color: 'var(--warning-text)' },
   '.cm-secret-widget code': { fontFamily: 'var(--font-mono)', fontSize: '11.5px' },
   '.cm-secret-widget button': {
     height: '22px',
     padding: '0 8px',
-    borderRadius: '6px',
-    border: '1px solid var(--border)',
-    background: 'var(--background)',
+    borderRadius: 'var(--r-chip)',
+    border: 'none',
+    background: 'var(--recess)',
     color: 'var(--foreground)',
     font: '500 12px/1 var(--font-sans)',
     cursor: 'pointer',
   },
-  '.cm-secret-widget button.cm-secret-dismiss': { border: 'none', background: 'transparent', color: 'var(--muted-foreground)', padding: '0 4px' },
+  '.cm-secret-widget button:hover': { background: 'var(--hover-fill)' },
+  '.cm-secret-widget button.cm-secret-dismiss': {
+    display: 'inline-grid',
+    placeItems: 'center',
+    width: '22px',
+    padding: '0',
+    background: 'transparent',
+    color: 'var(--muted-foreground)',
+  },
+  '.cm-secret-widget button.cm-secret-dismiss svg': { color: 'inherit' },
 })
 
 function lineSet(doc: Text, lines: number[], deco: Decoration): DecorationSet {
@@ -156,7 +166,7 @@ class SecretWidget extends WidgetType {
     x.type = 'button'
     x.className = 'cm-secret-dismiss'
     x.setAttribute('aria-label', 'Hide')
-    x.textContent = '×'
+    x.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>'
     x.onmousedown = (e) => e.preventDefault()
     x.onclick = () => this.handlers.onDismiss(this.issue.key)
     box.append(keyIcon(), text, fix, x)
@@ -170,8 +180,9 @@ class SecretWidget extends WidgetType {
 
 function keyIcon() {
   const s = document.createElement('span')
-  s.style.color = 'var(--warning)'
-  s.textContent = '⚿'
+  s.style.display = 'inline-flex'
+  s.innerHTML =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m21 2-9.6 9.6"/><circle cx="7.5" cy="15.5" r="5.5"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg>'
   return s
 }
 

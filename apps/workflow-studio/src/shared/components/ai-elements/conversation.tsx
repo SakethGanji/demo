@@ -57,7 +57,7 @@ export const ConversationEmptyState = ({
   >
     {children ?? (
       <>
-        {icon && <div className="text-muted-foreground">{icon}</div>}
+        {icon && <div className="text-hue-ai">{icon}</div>}
         <div className="space-y-1">
           <h3 className="font-medium text-sm">{title}</h3>
           {description && (
@@ -85,7 +85,7 @@ export const ConversationScrollButton = ({
     !isAtBottom && (
       <Button
         className={cn(
-          "absolute bottom-4 left-[50%] translate-x-[-50%] rounded-full dark:bg-background dark:hover:bg-muted",
+          "absolute bottom-4 left-[50%] translate-x-[-50%] rounded-full glass-overlay",
           className
         )}
         onClick={handleScrollToBottom}
@@ -153,7 +153,7 @@ export const ConversationDownload = ({
   return (
     <Button
       className={cn(
-        "absolute top-4 right-4 rounded-full dark:bg-background dark:hover:bg-muted",
+        "absolute top-4 right-4 rounded-full glass-overlay",
         className
       )}
       onClick={handleDownload}

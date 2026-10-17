@@ -33,6 +33,8 @@ import { Badge } from '@/shared/components/ui/badge'
 import { Button } from '@/shared/components/ui/button'
 import { ChipsInput } from '@/shared/components/ui/chips-input'
 import { EmptyState } from '@/shared/components/ui/empty-state'
+import { Dot, PageHeader, Tile, Well } from '@/shared/components/ui/surface'
+import { Tip } from '@/shared/components/ui/tooltip'
 import { Input } from '@/shared/components/ui/input'
 import { Skeleton } from '@/shared/components/ui/skeleton'
 import { StatusDot } from '@/shared/components/ui/status-dot'
@@ -129,40 +131,58 @@ export function SecretsView() {
       return n
     })
 
+  const missingCount = (missing.data ?? []).reduce((n, m) => n + m.missing_in.length, 0)
   const createEnv = search.env && envs.some((e) => e.name === search.env) ? [search.env] : undefined
 
   return (
-    <div className="flex h-full flex-col rounded-xl border border-panel-border bg-card shadow-xs" data-testid="secrets-view">
-      <div className="min-h-0 flex-1 overflow-y-auto px-7 py-6" data-testid="secrets-panel">
-        <div className="flex items-start gap-3">
-          <div className="min-w-0">
-            <h1 className="text-[17px] font-semibold tracking-[-0.01em]">Secrets</h1>
-            <p className="mt-0.5 text-[13px] text-muted-foreground">
-              Write-only values per environment. Python reads <span className="font-mono">studio.secret("NAME")</span>; values
-              never reach your code, the AI, or this page.
-            </p>
-          </div>
-          <div className="grow" />
-          <CreateSecretPopover
-            open={createOpen}
-            onOpenChange={closeCreate}
-            secretKey={search.create ?? ''}
-            environments={createEnv}
-            hosts={search.create ? hostsFor(search.create) : []}
-            onCreated={(c) => toast.success(`${c[0]?.key ?? 'Secret'} added to ${c.map((x) => x.environment).join(', ')}`)}
-            trigger={
-              <Button size="sm" data-testid="secret-add">
-                <Plus /> Add secret
-              </Button>
-            }
-          />
-        </div>
+    <div className="h-full" data-testid="secrets-view">
+      <div className="h-full overflow-y-auto overflow-x-hidden px-8 py-7" data-testid="secrets-panel">
+        <PageHeader
+          title="Secrets"
+          icon={<KeyRound />}
+          hue="secrets"
+          meta={
+            <>
+              <span>
+                {rows.length} {rows.length === 1 ? 'secret' : 'secrets'}
+              </span>
+              {missingCount > 0 ? (
+                <>
+                  <Dot />
+                  <span className="inline-flex items-center gap-1.5 text-warning-text" data-testid="secrets-missing-count">
+                    <StatusDot tone="warn" /> {missingCount} missing
+                  </span>
+                </>
+              ) : null}
+              <Dot />
+              <span>
+                Write-only per environment. Python reads <span className="font-mono text-[11.5px]">studio.secret("NAME")</span>; values never
+                reach your code, the AI, or this page.
+              </span>
+            </>
+          }
+          actions={
+            <CreateSecretPopover
+              open={createOpen}
+              onOpenChange={closeCreate}
+              secretKey={search.create ?? ''}
+              environments={createEnv}
+              hosts={search.create ? hostsFor(search.create) : []}
+              onCreated={(c) => toast.success(`${c[0]?.key ?? 'Secret'} added to ${c.map((x) => x.environment).join(', ')}`)}
+              trigger={
+                <Button size="sm" data-testid="secret-add">
+                  <Plus /> New secret
+                </Button>
+              }
+            />
+          }
+        />
 
         {secrets.isPending || missing.isPending ? (
           <MatrixSkeleton />
         ) : secrets.isError || missing.isError ? (
+          <Tile className="mt-6">
           <EmptyState
-            className="mt-6 rounded-xl border border-border"
             title="Couldn't load secrets"
             data-testid="secrets-error"
             actions={
@@ -180,23 +200,27 @@ export function SecretsView() {
           >
             {errorMessage(secrets.error ?? missing.error)}
           </EmptyState>
+          </Tile>
         ) : rows.length === 0 ? (
+          <Tile className="mt-6 p-3">
           <EmptyState
-            className="mt-6 rounded-xl border border-dashed border-border"
+            dust
             icon={<KeyRound />}
             title="No secrets. Add API keys your backend calls with."
             data-testid="secrets-empty"
             actions={
               <Button size="sm" variant="outline" onClick={() => setCreateOpen(true)} data-testid="secrets-empty-add">
-                <Plus /> Add
+                <Plus /> New secret
               </Button>
             }
           />
+          </Tile>
         ) : (
           <>
             <MissingBanners missing={missing.data ?? []} refs={refs} hostsFor={hostsFor} />
 
-            <div className="mt-3.5 overflow-hidden rounded-xl border border-border" data-testid="secrets-matrix">
+            <Tile className="mt-5 p-3" data-testid="secrets-matrix">
+              <Well className="overflow-hidden">
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
@@ -206,15 +230,16 @@ export function SecretsView() {
                         key={e.name}
                         data-testid={`secrets-col-${e.name}`}
                         data-viewing={e.name === viewEnv}
-                        className={cn(e.name === viewEnv && 'bg-primary/5 text-foreground')}
+                        className={cn(e.name === viewEnv && 'text-foreground')}
                       >
                         {e.name}
-                        <Badge variant="secondary" className="ml-1.5 h-4 px-1.5 text-[10px]">
+                        <Badge variant="neutral" className="ml-1.5 h-4 px-1.5 text-[10px]">
                           {e.kind === 'draft' ? 'draft' : e.name === project.live_environment ? 'live' : 'release'}
                         </Badge>
                       </TableHead>
                     ))}
                     <TableHead>Allowed hosts</TableHead>
+                    <TableHead>Used in</TableHead>
                     <TableHead className="w-10" />
                   </TableRow>
                 </TableHeader>
@@ -236,15 +261,16 @@ export function SecretsView() {
                   ))}
                 </TableBody>
               </Table>
-            </div>
+              </Well>
+            </Tile>
 
-            <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11.5px] text-muted-foreground" data-testid="secrets-legend">
+            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 px-1 text-[11.5px] text-muted-foreground" data-testid="secrets-legend">
               <span className="inline-flex items-center gap-1.5">
                 <StatusDot tone="warn" />
                 <b className="font-medium text-warning-text">missing</b>: your code uses it and it isn't set
               </span>
               <span>
-                <b className="font-medium text-foreground">not set</b>: unused in that environment
+                <b className="font-medium">not set</b>: unused in that environment
               </span>
               <span className="inline-flex items-center gap-1.5">
                 <Users className="size-3" /> team values are edited in Workflows → Variables
@@ -285,13 +311,14 @@ function MissingBanners({
         return (
           <div
             key={`${m.key}-${env}`}
-            className="flex items-center gap-2.5 rounded-xl border border-warning/35 bg-warning/8 px-3.5 py-2.5 text-[13px]"
+            className="flex min-w-0 items-center gap-2 px-1 text-[13px] [&_svg]:size-3.5 [&_svg]:shrink-0"
             data-testid="secrets-missing"
             data-key={m.key}
             data-env={env}
           >
-            <AlertTriangle className="size-3.5 shrink-0 text-warning-text" />
-            <span className="min-w-0">
+            <AlertTriangle className="text-warning-text" />
+            <div className="flex min-w-0 items-center gap-3">
+            <span className="min-w-0 flex-1 text-foreground">
               <b className="font-semibold">{m.key}</b> is used by{' '}
               <span className="font-mono">{first ? refLabel(first) : 'your code'}</span>
               {list.length > 1 ? ` and ${list.length - 1} more` : ''} but isn't set in <b className="font-semibold">{env}</b>.
@@ -302,7 +329,6 @@ function MissingBanners({
                 </>
               )}
             </span>
-            <div className="grow" />
             <CreateSecretPopover
               secretKey={m.key}
               keyReadOnly
@@ -315,6 +341,7 @@ function MissingBanners({
                 </Button>
               }
             />
+            </div>
           </div>
         )
       })}
@@ -359,7 +386,7 @@ function SecretRow({
         data-key={row.key}
         data-scope={isProject ? 'project' : 'team'}
         data-state={open ? 'selected' : undefined}
-        className={cn(open && 'bg-muted/40')}
+        className={cn(open && 'bg-foreground/4')}
       >
         <TableCell className="max-w-0">
           <button
@@ -371,9 +398,9 @@ function SecretRow({
           >
             <ChevronRight className={cn('size-3.5 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')} />
             {type === 'secret' ? (
-              <KeyRound className="size-3.5 shrink-0 text-muted-foreground" />
+              <KeyRound className="size-3.5 shrink-0 text-hue-secrets" />
             ) : (
-              <Type className="size-3.5 shrink-0 text-muted-foreground" />
+              <Type className="size-3.5 shrink-0 text-hue-secrets" />
             )}
             <span className="truncate font-mono">{row.key}</span>
             {isProject ? (
@@ -388,7 +415,7 @@ function SecretRow({
           </button>
         </TableCell>
         {envs.map((env) => (
-          <TableCell key={env} className={cn(env === viewEnv && 'bg-primary/5')}>
+          <TableCell key={env} className={undefined}>
             <MatrixCell row={row} env={env} hosts={hosts} />
           </TableCell>
         ))}
@@ -400,7 +427,7 @@ function SecretRow({
           ) : hostRow.allowed_hosts && hostRow.allowed_hosts.length ? (
             <span className="flex flex-wrap gap-1" data-testid="secret-hosts-cell">
               {hostRow.allowed_hosts.map((h) => (
-                <span key={h} className="inline-flex h-[22px] items-center rounded-md border border-border px-2 font-mono text-[11px]">
+                <span key={h} className="inline-flex h-[22px] items-center rounded-chip bg-raise px-2 font-mono text-[11px] shadow-raise-sm">
                   {h}
                 </span>
               ))}
@@ -414,6 +441,18 @@ function SecretRow({
                 Bind host
               </Button>
             </span>
+          )}
+        </TableCell>
+        <TableCell className="max-w-[200px]" data-testid="secret-used-in">
+          {refs.length === 0 ? (
+            <span className="text-muted-foreground">—</span>
+          ) : (
+            <Tip label={refs.map(refLabel).join(', ')}>
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span className="truncate font-mono text-[11.5px] text-muted-foreground">{refLabel(refs[0])}</span>
+                {refs.length > 1 && <span className="shrink-0 text-[11.5px] text-muted-foreground">+{refs.length - 1}</span>}
+              </span>
+            </Tip>
           )}
         </TableCell>
         <TableCell className="px-2">
@@ -483,8 +522,8 @@ function SecretRow({
         </TableCell>
       </TableRow>
       {open && (
-        <TableRow className="bg-muted/40 hover:bg-muted/40" data-testid="secret-expanded" data-key={row.key}>
-          <TableCell colSpan={envs.length + 3} className="h-auto whitespace-normal px-4 py-4 pl-[54px]">
+        <TableRow className="bg-foreground/4 hover:bg-foreground/4" data-testid="secret-expanded" data-key={row.key}>
+          <TableCell colSpan={envs.length + 4} className="h-auto whitespace-normal px-4 py-4 pl-[54px]">
             <ExpandedRow row={row} refs={refs} focusHosts={focusHosts} />
           </TableCell>
         </TableRow>
@@ -544,7 +583,7 @@ function ExpandedRow({ row, refs, focusHosts }: { row: KeyRow; refs: CodeRef[]; 
   const envs = project.environments.map((e) => e.name)
   const projectRows = envs.map((e) => row.project[e]).filter(Boolean) as EffectiveVar[]
   const teamOnly = projectRows.length === 0
-  const eyebrow = 'text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted-foreground'
+  const eyebrow = 'text-[12px] font-medium text-muted-foreground'
 
   return (
     <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1.2fr)] gap-6">
@@ -631,7 +670,7 @@ function HostsEditor({ row, label, autoFocus }: { row: EffectiveVar; label: bool
       <div className="flex min-w-0 items-center gap-2">
         {label && <span className="w-9 shrink-0 text-xs text-muted-foreground">{row.environment}</span>}
         <ChipsInput
-          className="min-w-0 flex-1 bg-card"
+          className="min-w-0 flex-1 bg-raise shadow-raise-sm"
           value={row.allowed_hosts ?? []}
           testId={`secret-hosts-${row.key}-${row.environment}`}
           onChange={(next) => {
@@ -687,7 +726,7 @@ function ValueEditor({ row }: { row: EffectiveVar }) {
             value={value}
             onChange={(e) => setValue(e.target.value)}
             placeholder={`new value for ${row.environment}`}
-            className="h-7 min-w-0 flex-1 bg-card text-xs"
+            className="h-7 min-w-0 flex-1 bg-raise text-xs shadow-raise-sm"
             data-testid={`${tid}-input`}
           />
           <Button type="submit" size="xs" disabled={!value || update.isPending} data-testid={`${tid}-save`}>
@@ -718,16 +757,18 @@ function ValueEditor({ row }: { row: EffectiveVar }) {
 
 function MatrixSkeleton() {
   return (
-    <div className="mt-6 overflow-hidden rounded-xl border border-border" data-testid="secrets-loading">
+    <Tile className="mt-6 p-3" data-testid="secrets-loading">
+      <Well className="overflow-hidden">
       {Array.from({ length: 4 }).map((_, i) => (
-        <div key={i} className="flex h-[42px] items-center gap-6 border-b border-border/65 px-4 last:border-0">
+        <div key={i} className="flex h-[42px] items-center gap-6 border-b border-hairline px-4 last:border-0">
           <Skeleton className="h-3 w-40" />
           <Skeleton className="h-3 w-20" />
           <Skeleton className="h-3 w-20" />
           <Skeleton className="h-3 w-32" />
         </div>
       ))}
-    </div>
+      </Well>
+    </Tile>
   )
 }
 

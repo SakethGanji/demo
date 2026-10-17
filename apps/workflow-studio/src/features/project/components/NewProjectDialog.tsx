@@ -5,7 +5,7 @@ import { projectsApi } from '@/shared/api/endpoints'
 import { ApiError, errorMessage } from '@/shared/api/http'
 import { invalidate } from '@/shared/api/queryKeys'
 import { Button } from '@/shared/components/ui/button'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/shared/components/ui/dialog'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/shared/components/ui/dialog'
 import { Field } from '@/shared/components/ui/field'
 import { Input } from '@/shared/components/ui/input'
 import { Textarea } from '@/shared/components/ui/textarea'
@@ -32,7 +32,6 @@ export function NewProjectDialog({ open, onOpenChange }: { open: boolean; onOpen
       <DialogContent className="sm:max-w-md" data-testid="new-project-dialog">
         <DialogHeader>
           <DialogTitle>New project</DialogTitle>
-          <DialogDescription>A Python backend, its data and the apps built on it, together.</DialogDescription>
         </DialogHeader>
         <form
           className="flex flex-col gap-3"

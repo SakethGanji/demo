@@ -18,7 +18,10 @@ test('T40 workflows page: open and run a canvas workflow', async ({ page, api, s
   await page.getByTestId('editor-run').click()
   await expect(page.getByTestId('execution-status')).toContainText(/success/i, { timeout: 30_000 })
   await expect(page.getByText('42').first()).toBeVisible()
-  const runs = await api.get<Array<{ workflow_id: string; status: string; trigger: { type: string } }>>(`/projects/${p.id}/runs?workflow_id=${wf.id}`)
+  // the stream reports success before the run row is finalised: poll the stored run
+  const list = () => api.get<Array<{ workflow_id: string; status: string; trigger: { type: string } }>>(`/projects/${p.id}/runs?workflow_id=${wf.id}`)
+  await expect.poll(async () => (await list()).map((r) => r.status)).toEqual(['success'])
+  const runs = await list()
   expect(runs.length).toBe(1)
   expect(runs[0].status).toBe('success')
   expect(runs[0].trigger.type).toBe('manual')

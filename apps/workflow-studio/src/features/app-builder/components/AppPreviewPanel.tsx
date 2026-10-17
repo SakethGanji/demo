@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { ExternalLink, Lock, Monitor, RotateCw, Smartphone, Sparkles, Tablet, Terminal } from 'lucide-react'
 import { IframeSandbox, type BridgeCall } from '../sandbox/IframeSandbox'
 import type { AppFile } from '../sandbox/esbuild-bundler'
-import { FileTree, FileTreeFolder, FileTreeFile } from '@/components/ai-elements/file-tree'
+import { FileTree, FileTreeFolder, FileTreeFile } from '@/shared/components/ai-elements/file-tree'
 import {
   CodeBlock,
   CodeBlockHeader,
@@ -10,7 +10,7 @@ import {
   CodeBlockFilename,
   CodeBlockActions,
   CodeBlockCopyButton,
-} from '@/components/ai-elements/code-block'
+} from '@/shared/components/ai-elements/code-block'
 import type { BundledLanguage } from 'shiki'
 import { Segmented } from '@/shared/components/ui/segmented'
 import { Button } from '@/shared/components/ui/button'
@@ -151,7 +151,7 @@ function CodeView({ files, focus }: { files: AppFile[] | null; focus?: string | 
   }
   return (
     <div className="flex h-full overflow-hidden" data-testid="builder-code-view">
-      <div className="w-[190px] shrink-0 overflow-y-auto border-r border-border">
+      <div className="w-[190px] shrink-0 overflow-y-auto shadow-[inset_-1px_0_0_var(--hairline)]">
         <FileTree
           className="rounded-none border-0 bg-transparent"
           selectedPath={selected ?? undefined}
@@ -195,7 +195,7 @@ function PreviewConsoleStrip({ open, onToggle }: { open: boolean; onToggle: () =
   const ok = last && last.status >= 200 && last.status < 300
   return (
     <div
-      className="flex h-[30px] shrink-0 items-center gap-3 border-t border-border bg-card px-3 font-mono text-[11px] text-muted-foreground"
+      className="flex shadow-[inset_0_1px_0_var(--hairline)] h-[30px] shrink-0 items-center gap-3 px-3 font-mono text-[11px] text-muted-foreground"
       data-testid="preview-console-strip"
     >
       <span className="flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap" data-testid="preview-last-call">
@@ -217,7 +217,7 @@ function PreviewConsoleStrip({ open, onToggle }: { open: boolean; onToggle: () =
       <Button
         variant="ghost"
         size="xs"
-        className={cn('font-sans', open && 'bg-muted text-foreground')}
+        className={cn('font-sans', open && 'bg-raise text-foreground shadow-raise-sm')}
         onClick={onToggle}
         data-testid="preview-console-toggle"
       >
@@ -255,7 +255,7 @@ export function AppPreviewPanel({
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-2.5">
+      <div className="hairline-b flex h-11 shrink-0 items-center gap-2 px-2.5">
         <Segmented<Device>
           value={device}
           onChange={setDevice}
@@ -268,7 +268,7 @@ export function AppPreviewPanel({
         />
         {showUrl ? (
           <div
-            className="mx-auto flex h-7 min-w-0 max-w-[460px] flex-1 items-center gap-2 rounded-md bg-muted px-2.5 font-mono text-[11.5px] text-muted-foreground"
+            className="mx-auto flex h-7 min-w-0 max-w-[460px] flex-1 items-center gap-2 rounded-ctl bg-recess px-2.5 font-mono text-[11.5px] text-muted-foreground"
             data-testid="preview-url"
           >
             <Lock className="size-3 shrink-0" />
@@ -322,7 +322,7 @@ export function AppPreviewPanel({
         )}
       </div>
 
-      <div className="relative min-h-0 flex-1 overflow-hidden bg-muted/40">
+      <div className="relative min-h-0 flex-1 overflow-hidden bg-recess">
         {appFiles.length === 0 ? (
           <EmptyState icon={<Sparkles />} title="No app yet" className="h-full" data-testid="preview-empty">
             Describe the UI in the chat and it appears here, calling your backend.
@@ -333,7 +333,7 @@ export function AppPreviewPanel({
           </div>
         )}
         {consoleOpen && (
-          <div className="absolute inset-x-0 bottom-0 z-20 h-[min(220px,45%)] border-t border-border bg-card">
+          <div className="absolute inset-x-0 bottom-0 z-20 h-[min(220px,45%)] glass-overlay rounded-none">
             <BottomPanel />
           </div>
         )}

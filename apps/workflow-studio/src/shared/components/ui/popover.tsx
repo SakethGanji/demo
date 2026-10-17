@@ -1,13 +1,15 @@
+import * as React from "react"
 import { Popover as PopoverPrimitive } from '@base-ui/react/popover'
 import { cn } from '@/shared/lib/utils'
+import { useLiquidGlass } from '@/shared/lib/liquid-glass'
 
 function Popover({ ...props }: PopoverPrimitive.Root.Props) {
   return <PopoverPrimitive.Root data-slot="popover" {...props} />
 }
 
-function PopoverTrigger({ ...props }: PopoverPrimitive.Trigger.Props) {
-  return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} />
-}
+const PopoverTrigger = React.forwardRef<HTMLButtonElement, PopoverPrimitive.Trigger.Props>(function PopoverTrigger(props, ref) {
+  return <PopoverPrimitive.Trigger ref={ref} data-slot="popover-trigger" {...props} />
+})
 
 function PopoverClose({ ...props }: PopoverPrimitive.Close.Props) {
   return <PopoverPrimitive.Close data-slot="popover-close" {...props} />
@@ -23,6 +25,9 @@ function PopoverContent({
   ...props
 }: PopoverPrimitive.Popup.Props &
   Pick<PopoverPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset' | 'anchor'>) {
+  // liquid glass on the popover edge (Chromium; fixed size while open)
+  const popupRef = React.useRef<HTMLDivElement>(null)
+  useLiquidGlass(popupRef, { radius: 8, bezel: 9, strength: 14, extra: 'blur(28px) saturate(180%)' })
   return (
     <PopoverPrimitive.Portal>
       <PopoverPrimitive.Positioner
@@ -34,9 +39,10 @@ function PopoverContent({
         className="isolate z-50"
       >
         <PopoverPrimitive.Popup
+          ref={popupRef}
           data-slot="popover-content"
           className={cn(
-            'z-50 w-72 origin-(--transform-origin) rounded-xl border border-panel-border bg-popover p-3 text-[13px] text-popover-foreground shadow-lg outline-hidden duration-100 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
+            'z-50 w-72 origin-(--transform-origin) glass-overlay p-3 text-[13px] text-popover-foreground outline-hidden duration-(--d-fast) ease-(--ease-out) data-open:animate-in data-open:fade-in-0 data-open:zoom-in-[.97] data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-[.97]',
             className,
           )}
           {...props}

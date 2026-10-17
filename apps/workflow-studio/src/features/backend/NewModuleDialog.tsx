@@ -89,8 +89,8 @@ export function NewModuleDialog({ open, onClose }: { open: boolean; onClose: () 
                   data-testid={`template-${k}`}
                   aria-pressed={tpl === k}
                   className={cn(
-                    'h-7 rounded-full border px-3 text-xs',
-                    tpl === k ? 'border-primary text-foreground ring-1 ring-primary' : 'border-border text-muted-foreground hover:text-foreground',
+                    'h-7 rounded-full px-3 text-xs transition-colors duration-(--d-fast)',
+                    tpl === k ? 'bg-raise text-foreground shadow-raise-sm' : 'bg-recess text-muted-foreground hover:text-foreground',
                   )}
                 >
                   {TEMPLATE_LABELS[k]}

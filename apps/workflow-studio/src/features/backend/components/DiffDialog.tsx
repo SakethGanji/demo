@@ -2,19 +2,30 @@
 import { useEffect, useRef } from 'react'
 import { MergeView } from '@codemirror/merge'
 import { EditorView } from '@codemirror/view'
-import { EditorState } from '@codemirror/state'
+import { Compartment, EditorState } from '@codemirror/state'
 import { python } from '@codemirror/lang-python'
+import { buildCodeTheme, watchCodeTheme } from '@/shared/components/ui/code-theme'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/shared/components/ui/dialog'
 
 function MergePane({ a, b }: { a: string; b: string }) {
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!ref.current) return
-    const ext = [python(), EditorView.editable.of(false), EditorState.readOnly.of(true), EditorView.theme({ '&': { fontSize: '12px' }, '.cm-scroller': { fontFamily: 'var(--font-mono)' } })]
-    const mv = new MergeView({ a: { doc: a, extensions: ext }, b: { doc: b, extensions: ext }, parent: ref.current, collapseUnchanged: { margin: 3 } })
-    return () => mv.destroy()
+    // the shared editor theme (tokens + syntax colours); a Compartment per side so a theme flip rebuilds it in place
+    const theme = () => buildCodeTheme({ fontSize: '12px', background: false, activeLine: false })
+    const left = new Compartment()
+    const right = new Compartment()
+    const ext = (c: Compartment) => [python(), EditorView.editable.of(false), EditorState.readOnly.of(true), c.of(theme())]
+    const mv = new MergeView({ a: { doc: a, extensions: ext(left) }, b: { doc: b, extensions: ext(right) }, parent: ref.current, collapseUnchanged: { margin: 3 } })
+    const stopA = watchCodeTheme(mv.a, left, theme)
+    const stopB = watchCodeTheme(mv.b, right, theme)
+    return () => {
+      stopA()
+      stopB()
+      mv.destroy()
+    }
   }, [a, b])
-  return <div ref={ref} className="max-h-[60vh] overflow-auto rounded-lg border border-border bg-code-bg" data-scroll-x="allowed" data-testid="diff-view" />
+  return <div ref={ref} className="well max-h-[60vh] overflow-auto" data-scroll-x="allowed" data-testid="diff-view" />
 }
 
 export function DiffDialog({

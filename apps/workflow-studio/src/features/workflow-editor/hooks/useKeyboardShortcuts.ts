@@ -298,7 +298,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       }
 
       // Enter: Open selected node details
-      if (event.key === 'Enter') {
+      if (event.key === 'Enter' && !modifierKey) {
         const { selectedNodeId } = useWorkflowStore.getState();
         if (selectedNodeId) {
           event.preventDefault();

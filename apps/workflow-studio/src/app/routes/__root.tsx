@@ -1,10 +1,11 @@
 import { useEffect } from 'react'
 import { createRootRouteWithContext, Outlet, useMatchRoute } from '@tanstack/react-router'
 import type { QueryClient } from '@tanstack/react-query'
-import { Toaster } from 'sonner'
 
 import { ThemeProvider } from '@/shared/components/theme-provider'
 import { ErrorBoundary } from '@/shared/components/ErrorBoundary'
+import { Toaster } from '@/shared/components/ui/toaster'
+import { TooltipProvider } from '@/shared/components/ui/tooltip'
 import { flushPendingToasts } from '@/shared/lib/pendingToast'
 import { useEditorLayoutStore } from '@/features/workflow-editor/stores/editorLayoutStore'
 
@@ -37,14 +38,17 @@ function RootLayout() {
   }, [closePanel])
 
   // Every studio page (projects, /p/…, redirects) is a full-screen takeover; the landing scrolls.
+  // Working pages sit on the plain canvas; only Projects home and the landing paint a sky (HomeSky).
   return (
     <ThemeProvider defaultTheme="system" storageKey="workflow-studio-theme">
-      <ErrorBoundary>
-        <main className={isLandingRoute ? 'min-h-screen w-screen' : 'h-screen w-screen overflow-hidden'}>
-          <Outlet />
-        </main>
-      </ErrorBoundary>
-      <Toaster position="bottom-right" richColors closeButton />
+      <TooltipProvider delay={500} timeout={300}>
+        <ErrorBoundary>
+          <main className={isLandingRoute ? 'relative z-[1] min-h-screen w-screen' : 'relative z-[1] h-screen w-screen overflow-hidden'}>
+            <Outlet />
+          </main>
+        </ErrorBoundary>
+        <Toaster />
+      </TooltipProvider>
     </ThemeProvider>
   )
 }

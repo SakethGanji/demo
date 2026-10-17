@@ -4,8 +4,6 @@
  * (`builder-stream-error`) with Retry.
  */
 import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import {
   AlertTriangle,
   ArrowUp,
@@ -30,10 +28,12 @@ import { Button } from '@/shared/components/ui/button'
 import { Badge } from '@/shared/components/ui/badge'
 import { Checkbox } from '@/shared/components/ui/checkbox'
 import { Input } from '@/shared/components/ui/input'
+import { Callout } from '@/shared/components/ui/surface'
+import { Message, MessageContent, MessageResponse } from '@/shared/components/ai-elements/message'
+import { Shimmer } from '@/shared/components/ai-elements/shimmer'
 import { Popover, PopoverContent, PopoverTrigger } from '@/shared/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/components/ui/tooltip'
 import { MethodBadge } from '@/shared/components/api/MethodBadge'
-import { cn } from '@/shared/lib/utils'
 import type { Route } from '@/shared/api/types'
 import { RoutePicker } from './RoutePicker'
 
@@ -74,7 +74,7 @@ function activityLabel(msg: AppChatMessage): string {
 function ToolRow({ icon, children, meta, testId }: { icon: React.ReactNode; children: React.ReactNode; meta?: React.ReactNode; testId?: string }) {
   return (
     <div
-      className="flex h-[30px] items-center gap-2 rounded-lg border border-border bg-background px-2.5 text-xs [&>svg]:size-3.5 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
+      className="flex h-[30px] items-center gap-2 rounded-ctl bg-recess px-2.5 text-xs [&>svg]:size-3.5 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
       data-testid={testId}
     >
       {icon}
@@ -97,18 +97,15 @@ function AssistantMessage({
 }) {
   const otherTools = (msg.toolCalls ?? []).filter((t) => !['write_files', 'edit_files', 'declare_endpoint'].includes(t.tool))
   return (
-    <div className="flex gap-2.5" data-testid="chat-assistant-message">
-      <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-ai-soft text-ai-text">
-        <Sparkles className="size-3.5" />
-      </span>
-      <div className="flex min-w-0 flex-1 flex-col gap-2">
+    <Message from="assistant" className="max-w-full" data-testid="chat-assistant-message">
+      <MessageContent className="w-full">
         {!!msg.thinking?.length && (
           <Collapsible>
             <CollapsibleTrigger className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
               <Brain className="size-3" /> Reasoning
             </CollapsibleTrigger>
             <CollapsibleContent>
-              <div className="mt-1.5 space-y-1 border-l-2 border-border pl-3 text-xs leading-relaxed text-muted-foreground">
+              <div className="mt-1.5 space-y-1 pl-3 text-xs shadow-[inset_2px_0_0_var(--hairline)] leading-relaxed text-muted-foreground">
                 {msg.thinking.map((t, i) => (
                   <p key={i}>{t}</p>
                 ))}
@@ -168,37 +165,40 @@ function AssistantMessage({
           </Collapsible>
         )}
         {msg.content.trim() && (
-          <div className="prose prose-sm prose-neutral max-w-none text-[13px] leading-[19px] dark:prose-invert [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:text-xs [&_p]:my-1.5 [&_pre]:rounded [&_pre]:bg-muted [&_pre]:p-2 [&_pre]:text-xs">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-          </div>
+          <MessageResponse className="text-[13px] leading-[19px]" isAnimating={streaming}>
+            {msg.content}
+          </MessageResponse>
         )}
         {streaming && (
           <div className="flex items-center gap-2 text-muted-foreground" data-testid="chat-activity">
-            <span className="inline-block size-3 animate-spin rounded-full border-[1.5px] border-border border-t-ai" />
-            <span className="truncate">{activityLabel(msg)}</span>
+            <Sparkles className="size-3 shrink-0 text-ai" />
+            <Shimmer className="truncate">{activityLabel(msg)}</Shimmer>
           </div>
         )}
         {msg.error && (
-          <div
-            className="flex items-start gap-2 rounded-lg border border-destructive/25 bg-destructive/5 px-2.5 py-2 text-xs"
+          <Callout
+            tone="error"
+            className="items-start text-xs"
             role="alert"
             data-testid="builder-stream-error"
             data-error-kind={msg.error.kind}
+            icon={<AlertTriangle className="mt-0.5" />}
           >
-            <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-destructive" />
-            <div className="min-w-0 flex-1">
-              <div className="font-medium text-foreground">
-                {msg.error.kind === 'save' ? "This version wasn't saved" : 'The assistant stopped unexpectedly'}
+            <div className="flex items-start gap-2">
+              <div className="min-w-0 flex-1">
+                <div className="font-medium text-foreground">
+                  {msg.error.kind === 'save' ? "This version wasn't saved" : 'The assistant stopped unexpectedly'}
+                </div>
+                <div className="mt-0.5 break-words text-muted-foreground">{msg.error.message}</div>
               </div>
-              <div className="mt-0.5 break-words text-muted-foreground">{msg.error.message}</div>
+              <Button variant="outline" size="xs" onClick={onRetry} data-testid="builder-stream-retry">
+                <RotateCw /> Retry
+              </Button>
             </div>
-            <Button variant="outline" size="xs" onClick={onRetry} data-testid="builder-stream-retry">
-              <RotateCw /> Retry
-            </Button>
-          </div>
+          </Callout>
         )}
-      </div>
-    </div>
+      </MessageContent>
+    </Message>
   )
 }
 
@@ -243,7 +243,7 @@ function AttachApiPopover({ selected, onChange }: { selected: string[]; onChange
         )}
       </PopoverTrigger>
       <PopoverContent side="top" align="end" className="w-80 p-0">
-        <div className="flex items-center justify-between border-b border-border px-3 py-2">
+        <div className="hairline-b flex items-center justify-between px-3 py-2">
           <span className="text-[11.5px] font-medium text-muted-foreground">Saved external APIs</span>
           <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
             <Send className="size-3" /> from the API tester
@@ -261,7 +261,7 @@ function AttachApiPopover({ selected, onChange }: { selected: string[]; onChange
             </div>
           ) : (
             filtered.map((ex) => (
-              <label key={ex.id} className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-muted">
+              <label key={ex.id} className="flex cursor-pointer items-start gap-2 rounded-ctl px-2 py-1.5 text-xs hover:bg-(--hover-fill)">
                 <Checkbox
                   className="mt-0.5"
                   checked={selected.includes(ex.id)}
@@ -325,7 +325,7 @@ const Composer = forwardRef<
     setText('')
   }
   return (
-    <div className="mx-3 mb-3 rounded-xl border border-border bg-background focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/25">
+    <div className="mx-3 mb-3 rounded-panel bg-recess has-[textarea:focus-visible]:shadow-focus" data-recess>
       <textarea
         ref={taRef}
         value={text}
@@ -391,9 +391,9 @@ export const AppBuilderChatPanel = forwardRef<
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border pl-3.5 pr-2.5">
+      <div className="hairline-b flex h-11 shrink-0 items-center gap-2 pl-3.5 pr-2.5">
         <Sparkles className="size-3.5 text-ai" />
-        <span className="font-semibold">Build with AI</span>
+        <span className="text-panel-title font-semibold tracking-[-0.01em]">Build with AI</span>
         <div className="flex-1" />
         <Tooltip>
           <TooltipTrigger
@@ -428,13 +428,9 @@ export const AppBuilderChatPanel = forwardRef<
         )}
         {messages.map((m, i) =>
           m.role === 'user' ? (
-            <div
-              key={m.id}
-              className={cn('max-w-[88%] self-end whitespace-pre-wrap rounded-xl rounded-br bg-secondary px-3 py-2 leading-[19px]')}
-              data-testid="chat-user-message"
-            >
-              {m.content}
-            </div>
+            <Message key={m.id} from="user" className="max-w-[88%]" data-testid="chat-user-message">
+              <MessageContent className="whitespace-pre-wrap text-[13px] leading-[19px]">{m.content}</MessageContent>
+            </Message>
           ) : (
             <AssistantMessage key={m.id} msg={m} streaming={isStreaming && i === messages.length - 1} onRetry={onRetry} />
           ),

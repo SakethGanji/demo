@@ -66,29 +66,29 @@ export function ReferencePanel({ onInsert }: { onInsert: (text: string) => void 
 
   if (ref.isLoading || fns.isLoading)
     return (
-      <div className="flex flex-col gap-2 p-4">
+      <div className="flex flex-col gap-2 px-4 pt-1">
         <Skeleton className="h-8" />
         <Skeleton className="h-16" />
         <Skeleton className="h-16" />
       </div>
     )
   return (
-    <div className="flex h-full min-h-0 flex-col" data-testid="reference-panel">
-      <div className="border-b border-border p-3">
-        <div className="flex h-8 items-center gap-2 rounded-lg border border-input px-2.5">
+    <div className="flex h-full min-h-0 flex-col pb-2" data-testid="reference-panel">
+      <div className="px-4 pt-1 pb-3">
+        <div className="flex h-8 items-center gap-2 rounded-ctl bg-recess px-2.5 focus-within:shadow-focus" data-recess>
           <Search className="size-3.5 text-muted-foreground" />
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search the SDK…"
-            className="flex-1 bg-transparent text-[13px] outline-none"
+            className="flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
             data-testid="reference-search"
           />
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4">
+      <div className="well mx-2 min-h-0 flex-1 overflow-y-auto px-2 pb-3">
         {!q && ruleList.length > 0 && (
-          <div className="mt-3 rounded-lg border border-border bg-muted/40 p-3 text-[11.5px] leading-[17px] text-muted-foreground" data-testid="reference-rules">
+          <div className="mt-3 rounded-ctl bg-brand-soft p-3 text-[11.5px] leading-[17px] text-muted-foreground" data-testid="reference-rules">
             {ruleList.map((r, i) => (
               <p key={i} className="mb-1 last:mb-0">
                 {String(r)}
@@ -101,9 +101,9 @@ export function ReferencePanel({ onInsert }: { onInsert: (text: string) => void 
           if (!xs.length) return null
           return (
             <section key={g} className="mt-3">
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">{g}</div>
+              <div className="mb-1 px-2 text-[11.5px] font-medium text-muted-foreground">{g}</div>
               {xs.map((i) => (
-                <div key={i.name} className="group rounded-lg px-2 py-1.5 hover:bg-muted/50" data-testid={`ref-${i.name}`}>
+                <div key={i.name} className="group rounded-ctl px-2 py-1.5 transition-colors duration-(--d-instant) hover:bg-foreground/5" data-testid={`ref-${i.name}`}>
                   <div className="flex items-center gap-2">
                     <code className="min-w-0 flex-1 truncate text-[12px]" title={i.signature}>
                       {i.signature}

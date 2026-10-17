@@ -79,7 +79,7 @@ export default function RunDataDisplay({ data, mode, basePath = '$json' }: RunDa
     return (
       <div className="space-y-1.5">
         <div className="flex items-center gap-2">
-          <span className="inline-flex items-center rounded bg-[var(--success)]/10 px-1.5 py-0.5 text-[10px] font-medium text-[var(--success)]">
+          <span className="inline-flex items-center rounded-chip bg-hue-data/10 px-1.5 py-0.5 text-[10.5px] font-medium text-hue-data">
             JSON
           </span>
           <span className="text-xs text-muted-foreground">
@@ -97,7 +97,7 @@ export default function RunDataDisplay({ data, mode, basePath = '$json' }: RunDa
       <p className="text-xs text-muted-foreground">
         {data.length} item{data.length !== 1 ? 's' : ''} · Drag to map
       </p>
-      <div className="rounded-md border border-border bg-card">
+      <div>
         {Object.entries(schema).map(([key, node]) => (
           <SchemaFieldRow
             key={`${basePath}-${key}`}
@@ -114,12 +114,12 @@ export default function RunDataDisplay({ data, mode, basePath = '$json' }: RunDa
 
 // Type badge colors — using theme CSS variables for consistency
 const typeBadgeColors: Record<string, string> = {
-  string: 'bg-[var(--success)]/10 text-[var(--success)]',
-  number: 'bg-primary/10 text-primary',
-  boolean: 'bg-[var(--node-flow)]/10 text-[var(--node-flow)]',
-  object: 'bg-[var(--warning)]/10 text-[var(--warning)]',
-  array: 'bg-[var(--node-trigger)]/10 text-[var(--node-trigger)]',
-  null: 'bg-muted text-muted-foreground',
+  string: 'bg-hue-data/10 text-hue-data',
+  number: 'bg-hue-backend/10 text-hue-backend',
+  boolean: 'bg-hue-flow/10 text-hue-flow',
+  object: 'bg-hue-secrets/10 text-hue-secrets',
+  array: 'bg-hue-runs/10 text-hue-runs',
+  null: 'bg-raise text-muted-foreground',
 };
 
 // Schema field row component with expand/collapse for nested fields
@@ -149,7 +149,7 @@ const SchemaFieldRow = memo(function SchemaFieldRow({ name, node, depth, onDragS
       <div
         draggable
         onDragStart={(e) => onDragStart(e, node.path)}
-        className="flex items-center justify-between border-b border-border last:border-b-0 hover:bg-primary/5 cursor-grab transition-colors group"
+        className="flex items-center justify-between border-b border-hairline last:border-b-0 row-hover cursor-grab transition-colors group"
         style={{ paddingLeft }}
       >
         <div className="flex items-center gap-0.5 py-1.5 pr-1 flex-1 min-w-0">
@@ -163,7 +163,7 @@ const SchemaFieldRow = memo(function SchemaFieldRow({ name, node, depth, onDragS
                 e.stopPropagation();
                 setIsExpanded(!isExpanded);
               }}
-              className="p-0.5 hover:bg-accent rounded flex-shrink-0"
+              className="p-0.5 hover:bg-(--hover-fill) rounded-chip flex-shrink-0"
             >
               {isExpanded ? (
                 <ChevronDown size={12} className="text-muted-foreground" />
@@ -183,11 +183,11 @@ const SchemaFieldRow = memo(function SchemaFieldRow({ name, node, depth, onDragS
           {/* Copy button */}
           <button
             onClick={handleCopyPath}
-            className="p-0.5 rounded hover:bg-accent opacity-0 group-hover:opacity-100 transition-opacity"
+            className="p-0.5 rounded-chip hover:bg-(--hover-fill) opacity-0 group-hover:opacity-100 transition-opacity"
             title={`Copy {{ ${node.path} }}`}
           >
             {copied ? (
-              <Check size={12} className="text-[var(--success)]" />
+              <Check size={12} className="text-success" />
             ) : (
               <Copy size={12} className="text-muted-foreground" />
             )}
@@ -195,7 +195,7 @@ const SchemaFieldRow = memo(function SchemaFieldRow({ name, node, depth, onDragS
 
           {/* Type badge - compact */}
           <span
-            className={`rounded px-1.5 py-0.5 font-mono text-[10px] flex-shrink-0 ${typeBadgeColors[node.type] || 'bg-muted text-muted-foreground'}`}
+            className={`rounded-chip px-1.5 py-0.5 font-mono text-[10.5px] flex-shrink-0 ${typeBadgeColors[node.type] || 'bg-raise text-muted-foreground'}`}
           >
             {node.type}
           </span>

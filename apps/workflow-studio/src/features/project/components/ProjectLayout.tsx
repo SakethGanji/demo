@@ -63,7 +63,7 @@ export function ProjectLayout() {
   if (q.isError) {
     if (isApiError(q.error, undefined, 404)) return <ProjectNotFound refName={ref} />
     return (
-      <div className="flex h-full items-center justify-center bg-canvas" data-testid="project-load-error">
+      <div className="flex h-full items-center justify-center" data-testid="project-load-error">
         <EmptyState
           title="Couldn't load this project"
           actions={
@@ -79,7 +79,7 @@ export function ProjectLayout() {
   }
   if (!ctx || ref !== ctx.slug) {
     return (
-      <div className="flex h-full items-center justify-center bg-canvas" data-testid="project-loading">
+      <div className="flex h-full items-center justify-center" data-testid="project-loading">
         <Spinner />
       </div>
     )
@@ -93,8 +93,8 @@ export function ProjectLayout() {
 
 function ProjectNotFound({ refName }: { refName: string }) {
   return (
-    <div className="flex h-full items-center justify-center bg-canvas" data-testid="project-not-found">
-      <div className="rounded-xl border border-panel-border bg-card px-10 py-8 shadow-xs">
+    <div className="flex h-full items-center justify-center" data-testid="project-not-found">
+      <div className="tile px-10 py-8">
         <EmptyState
           icon={<FolderX />}
           title="Project not found"

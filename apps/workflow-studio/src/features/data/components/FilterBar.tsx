@@ -15,6 +15,7 @@ import {
   OP_LABEL,
   clauseLabel,
   columnType,
+  formatValue,
   opsFor,
   parseClauseValue,
   parseSort,
@@ -39,39 +40,32 @@ export function FilterBar({
 }) {
   const { key, desc } = parseSort(sort)
   const SortIcon = desc ? ArrowDownWideNarrow : ArrowUpNarrowWide
+  const add = (c: Clause) => onChange({ join: model.join, raw: null, clauses: [...(model.raw ? [] : model.clauses), c] })
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-1.5" data-testid="data-filter-bar">
-      {model.raw ? (
-        <span
-          className="inline-flex h-6 max-w-[360px] items-center gap-1 rounded-md border border-border bg-muted/50 pr-1 pl-2 text-xs"
-          title={JSON.stringify(model.raw)}
-          data-testid="filter-chip-custom"
-        >
-          <span className="truncate font-mono">{JSON.stringify(model.raw)}</span>
-          <Button variant="ghost" size="icon-xs" className="size-4" aria-label="Clear filter" onClick={() => onChange({ join: '$and', clauses: [], raw: null })}>
-            <X />
-          </Button>
+    <div className="flex min-w-0 flex-wrap items-center gap-1" data-testid="data-filter-bar">
+      <AddFilter columns={columns} onAdd={add} />
+      {(model.raw || model.clauses.length > 0) && (
+        <span className="mx-0.5 inline-flex flex-wrap items-center gap-1.5" aria-label="Active filters" data-testid="filter-chips">
+          {model.raw ? (
+            <Chip title={JSON.stringify(model.raw)} testId="filter-chip-custom" removeLabel="Clear filter" onRemove={() => onChange({ join: '$and', clauses: [], raw: null })}>
+              <span className="max-w-[300px] truncate">{JSON.stringify(model.raw)}</span>
+            </Chip>
+          ) : (
+            model.clauses.map((c, i) => (
+              <Chip
+                key={`${clauseLabel(c)}-${i}`}
+                title={clauseLabel(c)}
+                testId="filter-chip"
+                removeLabel={`Remove ${clauseLabel(c)}`}
+                onRemove={() => onChange({ ...model, clauses: model.clauses.filter((_, j) => j !== i) })}
+              >
+                <span>{c.column}</span>
+                <span className="text-muted-foreground">{c.op === '$exists' ? (c.value ? 'exists' : 'is absent') : OP_LABEL[c.op]}</span>
+                {c.op !== '$exists' && <span className="max-w-[200px] truncate">{formatValue(c.value)}</span>}
+              </Chip>
+            ))
+          )}
         </span>
-      ) : (
-        model.clauses.map((c, i) => (
-          <span
-            key={i}
-            className="inline-flex h-6 max-w-[280px] items-center gap-1 rounded-md border border-primary/30 bg-primary/6 pr-1 pl-2 text-xs"
-            data-testid="filter-chip"
-          >
-            <span className="truncate font-mono">{clauseLabel(c)}</span>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className="size-4"
-              aria-label={`Remove ${clauseLabel(c)}`}
-              onClick={() => onChange({ ...model, clauses: model.clauses.filter((_, j) => j !== i) })}
-              data-testid="filter-chip-remove"
-            >
-              <X />
-            </Button>
-          </span>
-        ))
       )}
       {model.clauses.length > 1 && !model.raw && (
         <Segmented<'$and' | '$or'>
@@ -85,14 +79,10 @@ export function FilterBar({
           ]}
         />
       )}
-      <AddFilter
-        columns={columns}
-        onAdd={(c) => onChange({ join: model.join, raw: null, clauses: [...(model.raw ? [] : model.clauses), c] })}
-      />
       <Button
         variant="ghost"
         size="xs"
-        className="text-muted-foreground"
+        className="text-muted-foreground hover:text-foreground"
         onClick={() => onSort(`${desc ? '' : '-'}${key}`)}
         data-testid="data-sort"
         data-sort={sort ?? '-created_at'}
@@ -100,6 +90,41 @@ export function FilterBar({
         <SortIcon /> {sortLabel(sort)}
       </Button>
     </div>
+  )
+}
+
+/** A filter chip: the value is recessed, its remove button raised. */
+function Chip({
+  children,
+  title,
+  testId,
+  removeLabel,
+  onRemove,
+}: {
+  children: React.ReactNode
+  title: string
+  testId: string
+  removeLabel: string
+  onRemove: () => void
+}) {
+  return (
+    <span
+      className="inline-flex h-6 items-center gap-1.5 rounded-ctl bg-recess pr-[3px] pl-2 font-mono text-[11.5px] leading-none whitespace-nowrap text-foreground animate-in fade-in-0 zoom-in-95 duration-(--d-fast)"
+      title={title}
+      data-recess
+      data-testid={testId}
+    >
+      {children}
+      <button
+        type="button"
+        className="grid size-[18px] place-items-center rounded-chip bg-raise text-muted-foreground shadow-raise-sm outline-none transition-[color,transform] duration-(--d-fast) hover:text-foreground focus-visible:shadow-focus active:scale-[.94]"
+        aria-label={removeLabel}
+        onClick={onRemove}
+        data-testid={testId === 'filter-chip' ? 'filter-chip-remove' : `${testId}-remove`}
+      >
+        <X className="size-[11px] stroke-2" />
+      </button>
+    </span>
   )
 }
 
@@ -111,6 +136,7 @@ function AddFilter({ columns, onAdd }: { columns: Column[]; onAdd: (c: Clause) =
   const ops = opsFor(t)
   const [op, setOp] = useState<FilterOp>(ops[0])
   const [text, setText] = useState('')
+  const [showQuery, setShowQuery] = useState(false)
   const curOp = ops.includes(op) ? op : ops[0]
   const boolValue = curOp === '$exists' || (t === 'boolean' && curOp !== '$in')
 
@@ -131,7 +157,7 @@ function AddFilter({ columns, onAdd }: { columns: Column[]; onAdd: (c: Clause) =
     >
       <PopoverTrigger
         render={
-          <Button variant="ghost" size="xs" className="text-muted-foreground" data-testid="data-add-filter">
+          <Button variant="ghost" size="xs" className="font-mono text-muted-foreground hover:text-foreground" data-testid="data-add-filter">
             <ListFilter /> Filter
           </Button>
         }
@@ -213,10 +239,21 @@ function AddFilter({ columns, onAdd }: { columns: Column[]; onAdd: (c: Clause) =
               data-testid="filter-value"
             />
           )}
-          <div className="flex items-center justify-between gap-2">
-            <span className="truncate font-mono text-[11px] text-muted-foreground">
+          {showQuery && (
+            <code className="block overflow-x-auto rounded-ctl bg-recess px-2 py-1.5 font-mono text-[11px] text-muted-foreground" data-testid="filter-query">
               {JSON.stringify({ [column]: { [curOp]: parseClauseValue(t, curOp, boolValue ? text || 'true' : text) } })}
-            </span>
+            </code>
+          )}
+          <div className="flex items-center justify-between gap-2">
+            <button
+              type="button"
+              className="rounded-xs text-[11.5px] text-muted-foreground outline-none hover:text-foreground focus-visible:shadow-focus"
+              onClick={() => setShowQuery((v) => !v)}
+              aria-expanded={showQuery}
+              data-testid="filter-show-query"
+            >
+              {showQuery ? 'Hide query' : 'Show query'}
+            </button>
             <Button type="submit" size="xs" data-testid="filter-apply">
               Add filter
             </Button>

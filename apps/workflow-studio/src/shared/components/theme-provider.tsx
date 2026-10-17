@@ -33,6 +33,10 @@ export function ThemeProvider({
   useEffect(() => {
     const root = window.document.documentElement
 
+    // the palette flips instantly: no colour transitions for the frame it changes
+    root.classList.add("no-tr")
+    const raf = requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove("no-tr")))
+
     root.classList.remove("light", "dark")
 
     if (theme === "system") {
@@ -42,10 +46,11 @@ export function ThemeProvider({
         : "light"
 
       root.classList.add(systemTheme)
-      return
+      return () => cancelAnimationFrame(raf)
     }
 
     root.classList.add(theme)
+    return () => cancelAnimationFrame(raf)
   }, [theme])
 
   const value = {

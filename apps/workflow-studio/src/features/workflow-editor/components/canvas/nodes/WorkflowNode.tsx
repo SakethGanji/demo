@@ -28,8 +28,8 @@ const StatusBadge = ({ status }: { status: 'success' | 'error' }) => {
       className={`
         absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full
         flex items-center justify-center text-primary-foreground
-        shadow-sm animate-badge-pop z-10
-        ${isSuccess ? 'bg-[var(--success)]' : 'bg-destructive'}
+        shadow-raise-sm animate-badge-pop z-10
+        ${isSuccess ? 'bg-success' : 'bg-destructive'}
       `}
     >
       {isSuccess ? <Check size={10} strokeWidth={3} /> : <X size={10} strokeWidth={3} />}
@@ -219,7 +219,7 @@ function WorkflowNode({ id, data, selected }: NodeProps<Node<WorkflowNodeData>>)
                 pointer-events-none flex items-center justify-center
                 rounded-full transition-all duration-200 ease-out
                 ${canExpand
-                  ? 'h-5 w-5 border border-border bg-card shadow-sm hover:bg-accent hover:shadow-md'
+                  ? 'h-5 w-5 bg-raise shadow-raise-md'
                   : 'h-1.5 w-1.5 border-2'
                 }
               `}
@@ -229,7 +229,7 @@ function WorkflowNode({ id, data, selected }: NodeProps<Node<WorkflowNodeData>>)
               }}
             >
               {canExpand && (
-                <Plus size={12} className="text-muted-foreground" />
+                <Plus size={12} className="text-foreground/80" />
               )}
             </div>
           </div>
@@ -250,33 +250,27 @@ function WorkflowNode({ id, data, selected }: NodeProps<Node<WorkflowNodeData>>)
       {/* Drop zone indicator - shows on the left when node can accept a connection */}
       {canBeDropTarget && (
         <div
-          className="absolute -left-8 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border-2 border-dashed border-[var(--success)] bg-[var(--success)]/20 animate-pulse flex items-center justify-center"
+          className="absolute -left-8 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border-2 border-dashed border-success bg-success/20 animate-pulse flex items-center justify-center"
           style={{ pointerEvents: 'none' }}
         >
-          <Plus size={12} className="text-[var(--success)]" />
+          <Plus size={12} className="text-success" />
         </div>
       )}
 
       <div
-        className={`
-          relative cursor-grab border transition-all duration-300 flex items-center justify-center
-          ${selected ? 'ring-2 ring-offset-1' : ''}
-          ${canBeDropTarget ? 'ring-2 ring-[var(--success)]/50 ring-offset-1' : ''}
-        `}
+        className="relative cursor-grab transition-[box-shadow,transform] duration-(--d-base) ease-(--ease-out) flex items-center justify-center backdrop-blur-[12px]"
         style={{
           height: dimensions.height,
           width: dimensions.width,
           backgroundColor: styles.bgColor,
-          borderColor: canBeDropTarget ? 'var(--success)' : (isRunning ? styles.accentColor : (selected ? styles.accentColor : styles.borderColor)),
-          borderWidth: (selected || isRunning) ? 2 : 1,
           borderRadius: shapeConfig.borderRadius,
+          // glass edge + elevation from the node tokens; selection / drop target add the ring on top
           boxShadow: canBeDropTarget
-            ? '0 0 15px var(--success)'
-            : isHovered
-              ? '0 6px 16px rgba(0,0,0,0.14), 0 2px 6px rgba(0,0,0,0.08)'
-              : (selected ? `0 4px 14px ${styles.accentColor}30, 0 2px 4px rgba(0,0,0,0.1)` : '0 2px 6px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.06)'),
-          // @ts-expect-error CSS custom property
-          '--tw-ring-color': canBeDropTarget ? 'var(--success)' : styles.accentColor,
+            ? '0 0 0 1px var(--success), 0 0 0 4px color-mix(in srgb, var(--success) 18%, transparent), 0 0 15px var(--success)'
+            : selected
+              ? `0 0 0 1px var(--ring), 0 0 0 4px color-mix(in srgb, var(--ring) 16%, transparent), var(--node-shadow)`
+              : `var(--node-edge), var(--node-shadow)`,
+          transform: isHovered && !selected ? 'translateY(-1px)' : undefined,
         }}
       >
         {/* Execution ring overlays — clean box-shadow animations, no blur */}
@@ -286,7 +280,7 @@ function WorkflowNode({ id, data, selected }: NodeProps<Node<WorkflowNodeData>>)
             style={{
               borderRadius: shapeConfig.borderRadius,
               // @ts-expect-error CSS custom property
-              '--ring-color': styles.accentColor,
+              '--ring-color': 'var(--ring)',
               animation: 'node-running-ring 2s ease-in-out infinite',
             }}
           />
@@ -296,7 +290,7 @@ function WorkflowNode({ id, data, selected }: NodeProps<Node<WorkflowNodeData>>)
             className="absolute inset-0 pointer-events-none"
             style={{
               borderRadius: shapeConfig.borderRadius,
-              animation: 'node-success-ring 0.6s ease-out forwards',
+              animation: 'node-success-ring 0.6s ease-out',
             }}
           />
         )}
@@ -305,7 +299,7 @@ function WorkflowNode({ id, data, selected }: NodeProps<Node<WorkflowNodeData>>)
             className="absolute inset-0 pointer-events-none"
             style={{
               borderRadius: shapeConfig.borderRadius,
-              animation: 'node-error-ring 0.5s ease-out forwards',
+              animation: 'node-error-ring 0.5s ease-out',
             }}
           />
         )}
@@ -315,8 +309,8 @@ function WorkflowNode({ id, data, selected }: NodeProps<Node<WorkflowNodeData>>)
 
         {/* Node Content - Icon only, centered */}
         <div
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors duration-300"
-          style={{
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full shadow-raise-sm transition-colors duration-(--d-slow) ${nodeGroup === 'ai' ? 'brand-fill' : ''}`}
+          style={nodeGroup === 'ai' ? undefined : {
             backgroundColor: styles.iconBgColor,
             color: styles.iconFgColor,
           }}
@@ -340,7 +334,7 @@ function WorkflowNode({ id, data, selected }: NodeProps<Node<WorkflowNodeData>>)
           defaultValue={data.label}
           onBlur={handleLabelSave}
           onKeyDown={handleLabelKeyDown}
-          className="nodrag text-center text-xs font-medium bg-background border border-border rounded px-1 py-0.5 outline-none focus:ring-1 focus:ring-ring mt-2"
+          className="nodrag text-center text-xs font-medium field rounded-chip px-1 py-0.5 mt-2"
           style={{ width: Math.max(80, dimensions.width + 20) }}
         />
       ) : (

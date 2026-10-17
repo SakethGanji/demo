@@ -1,5 +1,6 @@
 import { useCallback, useMemo, memo, type DragEvent } from 'react';
 import { Search, X, Loader2 } from 'lucide-react';
+import { Input } from '@/shared/components/ui/input';
 import { useEditorLayoutStore } from '../../stores/editorLayoutStore';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { generateNodeName, getExistingNodeNames } from '../../lib/workflowTransform';
@@ -249,14 +250,16 @@ export default function NodeCreatorPanel() {
     <div className="h-full flex flex-col">
       {/* Context banner */}
       {hasContext && (
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 border-b border-primary/20 shrink-0">
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-brand-soft shrink-0">
           <span className="text-[11px] font-medium text-primary flex-1 truncate">
             {contextLabel}
           </span>
           <button
             onClick={closePanel}
-            className="p-0.5 text-primary/70 hover:text-primary rounded"
+            className="p-0.5 text-primary/70 hover:text-primary rounded-chip"
             title="Dismiss"
+            aria-label="Dismiss"
+            data-testid="node-creator-dismiss"
           >
             <X size={12} />
           </button>
@@ -264,18 +267,19 @@ export default function NodeCreatorPanel() {
       )}
 
       {/* Header */}
-      <div className="border-b border-border px-3 py-2 shrink-0">
+      <div className="px-3 py-2 shrink-0">
         <div className="relative">
           <Search
             size={13}
             className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground"
           />
-          <input
+          <Input
             type="text"
             placeholder="Search nodes..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-md border border-input bg-background h-7 pl-7 pr-2 text-xs outline-none focus:border-ring focus:ring-1 focus:ring-ring/20 transition-colors"
+            className="h-7 pl-7 pr-2 text-xs"
+            data-testid="node-creator-search"
           />
         </div>
       </div>
@@ -311,7 +315,7 @@ export default function NodeCreatorPanel() {
           <div className="space-y-3">
             {Object.entries(groupedNodes).map(([category, categoryNodes]) => (
               <div key={category} className="space-y-0.5">
-                <h3 className="flex items-center text-[10px] font-medium text-muted-foreground mb-1 px-1 uppercase tracking-wider">
+                <h3 className="flex items-center text-[11.5px] font-medium text-muted-foreground mb-1 px-1">
                   {category}
                 </h3>
                 {categoryNodes.map((node) => (
@@ -378,11 +382,11 @@ const NodeItem = memo(function NodeItem({
       draggable
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
-      className="group flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-accent cursor-grab active:cursor-grabbing"
+      className="group flex w-full items-center gap-2.5 rounded-ctl px-2.5 py-2 text-left transition-colors hover:bg-raise hover:shadow-raise-sm cursor-grab active:cursor-grabbing"
     >
       <div
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
-        style={{
+        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full shadow-raise-sm ${nodeGroup === 'ai' ? 'brand-fill' : ''}`}
+        style={nodeGroup === 'ai' ? undefined : {
           backgroundColor: styles.iconBgColor,
           color: styles.iconFgColor,
         }}

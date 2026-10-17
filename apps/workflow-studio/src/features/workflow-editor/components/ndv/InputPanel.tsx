@@ -5,6 +5,9 @@ import type { NodeExecutionData } from '../../types/workflow';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useNDVStore } from '../../stores/ndvStore';
 import { useNodeTypes } from '../../hooks/useNodeTypes';
+import { Segmented } from '@/shared/components/ui/segmented';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/components/ui/select';
+import { Spinner } from '@/shared/components/ui/spinner';
 import RunDataDisplay from './RunDataDisplay';
 import SchemaDisplay, { type OutputSchema } from './SchemaDisplay';
 
@@ -157,22 +160,27 @@ const InputPanel = memo(function InputPanel({ nodeId, executionData }: InputPane
   return (
     <div className="flex h-full flex-col">
       {/* Header with node selector and view toggle */}
-      <div className="flex items-center justify-between border-b border-border/50 bg-muted/30 px-3 py-1.5 gap-2">
+      <div className="flex items-center justify-between px-3 py-2 gap-2 shadow-[inset_0_-1px_0_var(--hairline)]">
         {/* Node selector dropdown */}
         <div className="flex-1 min-w-0">
           {upstreamNodes.length > 0 ? (
-            <select
+            <Select
               value={effectiveSelectedNode?.id || ''}
-              onChange={(e) => setSelectedNodeId(e.target.value || null)}
-              className="w-full text-[12px] font-medium bg-[var(--surface)] border border-border/60 rounded px-2 h-6 focus:outline-none focus:ring-1 focus:ring-ring/30 focus:border-ring truncate"
+              onValueChange={(v) => setSelectedNodeId((v as string) || null)}
+              items={Object.fromEntries(upstreamNodes.map((n) => [n.id, `${n.label}${n.isImmediate ? ' (input)' : ''}`]))}
             >
-              {upstreamNodes.map((node) => (
-                <option key={node.id} value={node.id}>
-                  {node.label}
-                  {node.isImmediate ? ' (input)' : ''}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger size="sm" className="w-full text-[12px] font-medium" data-testid="ndv-input-node-select">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {upstreamNodes.map((node) => (
+                  <SelectItem key={node.id} value={node.id}>
+                    {node.label}
+                    {node.isImmediate ? ' (input)' : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           ) : (
             <span className="text-[13px] font-medium text-foreground truncate block">
               No upstream nodes
@@ -182,41 +190,28 @@ const InputPanel = memo(function InputPanel({ nodeId, executionData }: InputPane
 
         {/* Item count badge */}
         {hasData && (
-          <span className="bg-muted/60 text-muted-foreground rounded-sm px-1.5 py-px text-[10px] font-medium flex-shrink-0">
+          <span className="bg-recess text-muted-foreground rounded-chip px-1.5 py-px text-[10.5px] font-medium flex-shrink-0">
             {itemCount} items
           </span>
         )}
 
         {/* Display mode toggle */}
-        <div className="bg-muted/60 rounded p-px flex items-center flex-shrink-0">
-          <button
-            onClick={() => { setDisplayMode('schema'); useNDVStore.getState().setInputDisplayMode('schema'); }}
-            className={`rounded-sm p-1.5 transition-colors ${
-              displayMode === 'schema'
-                ? 'bg-[var(--surface)] shadow-xs text-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-            title="Schema view"
-          >
-            <Database size={13} />
-          </button>
-          <button
-            onClick={() => { setDisplayMode('json'); useNDVStore.getState().setInputDisplayMode('json'); }}
-            className={`rounded-sm p-1.5 transition-colors ${
-              displayMode === 'json'
-                ? 'bg-[var(--surface)] shadow-xs text-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-            title="JSON view"
-          >
-            <Code size={13} />
-          </button>
-        </div>
+        <Segmented
+          size="xs"
+          value={displayMode}
+          onChange={(m) => { setDisplayMode(m); useNDVStore.getState().setInputDisplayMode(m); }}
+          aria-label="Display mode"
+          data-testid="ndv-input-display-mode"
+          options={[
+            { key: 'schema', label: <Database size={13} aria-label="Schema view" />, testId: 'ndv-input-mode-schema' },
+            { key: 'json', label: <Code size={13} aria-label="JSON view" />, testId: 'ndv-input-mode-json' },
+          ]}
+        />
       </div>
 
       {/* Expression path indicator */}
       {effectiveSelectedNode && (
-        <div className="px-3 py-1 bg-primary/5 border-b border-border/30 flex items-center justify-between">
+        <div className="px-3 py-1 bg-brand-soft flex items-center justify-between">
           <code className="text-[11px] text-primary font-mono font-medium">{basePath}</code>
           {!effectiveSelectedNode.isImmediate && (
             <span className="text-[11px] text-muted-foreground">from {effectiveSelectedNode.label}</span>
@@ -225,10 +220,10 @@ const InputPanel = memo(function InputPanel({ nodeId, executionData }: InputPane
       )}
 
       {/* Data display */}
-      <div className="flex-1 overflow-auto p-3">
+      <div className="well m-2 flex-1 overflow-auto p-3">
         {executionData?.status === 'running' ? (
           <div className="flex h-full items-center justify-center">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-muted border-t-primary" />
+            <Spinner className="size-6" />
           </div>
         ) : hasData ? (
           <RunDataDisplay
@@ -244,8 +239,8 @@ const InputPanel = memo(function InputPanel({ nodeId, executionData }: InputPane
           />
         ) : (
           <div className="flex h-full flex-col items-center justify-center text-center px-6">
-            <div className="w-10 h-10 rounded-lg bg-muted/50 flex items-center justify-center mb-3">
-              <Database size={18} className="text-muted-foreground/50" />
+            <div className="w-10 h-10 rounded-panel bg-recess flex items-center justify-center mb-3">
+              <Database size={18} className="text-faint" />
             </div>
             <p className="text-[13px] font-medium text-foreground mb-0.5">
               {effectiveSelectedNode
@@ -269,10 +264,10 @@ const InputPanel = memo(function InputPanel({ nodeId, executionData }: InputPane
       </div>
 
       {/* System Variables Section */}
-      <div className="border-t border-border">
+      <div className="shadow-[inset_0_1px_0_var(--hairline)]">
         <button
           onClick={() => setShowSystemVars(!showSystemVars)}
-          className="flex w-full items-center justify-between px-3 py-1.5 text-left hover:bg-accent/40 transition-colors"
+          className="flex w-full items-center justify-between px-3 py-1.5 text-left row-hover transition-colors"
         >
           <div className="flex items-center gap-1.5">
             <Settings size={12} className="text-muted-foreground" />
@@ -287,7 +282,7 @@ const InputPanel = memo(function InputPanel({ nodeId, executionData }: InputPane
 
         {showSystemVars && (
           <div className="px-3 pb-3">
-            <div className="rounded border border-border/40 bg-[var(--surface)]/50 overflow-hidden">
+            <div className="well overflow-hidden">
               {SYSTEM_VARIABLES.map((variable) => (
                 <SystemVariableRow key={variable.path} {...variable} />
               ))}
@@ -330,7 +325,7 @@ function SystemVariableRow({ path, description }: SystemVariableRowProps) {
     <div
       draggable
       onDragStart={handleDragStart}
-      className="flex items-center justify-between border-b border-border last:border-b-0 hover:bg-accent/30 cursor-grab transition-colors group px-2.5 py-2"
+      className="flex items-center justify-between border-b border-hairline last:border-b-0 row-hover cursor-grab transition-colors group px-2.5 py-2"
     >
       <div className="flex flex-col gap-0.5 min-w-0">
         <code className="text-[11px] font-mono font-medium text-foreground">{path}</code>
@@ -338,11 +333,11 @@ function SystemVariableRow({ path, description }: SystemVariableRowProps) {
       </div>
       <button
         onClick={handleCopy}
-        className="p-1.5 rounded-md hover:bg-accent opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
+        className="p-1.5 rounded-ctl hover:bg-(--hover-fill) opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
         title={`Copy {{ ${path} }}`}
       >
         {copied ? (
-          <Check size={12} className="text-[var(--success)]" />
+          <Check size={12} className="text-success" />
         ) : (
           <Copy size={12} className="text-muted-foreground" />
         )}

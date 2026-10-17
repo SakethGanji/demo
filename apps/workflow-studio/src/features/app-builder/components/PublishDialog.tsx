@@ -30,6 +30,8 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/shared/
 import { Input } from '@/shared/components/ui/input'
 import { Segmented } from '@/shared/components/ui/segmented'
 import { Spinner } from '@/shared/components/ui/spinner'
+import { Beam } from '@/shared/components/ui/stepper'
+import { Well, Callout } from '@/shared/components/ui/surface'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/shared/components/ui/collapsible'
 import { CreateSecretPopover } from '@/features/secrets/CreateSecretPopover'
 import { cn } from '@/shared/lib/utils'
@@ -57,7 +59,7 @@ function publicUrl(slug: string): string {
   return `${base.replace(/\/+$/, '')}/a/${slug}`
 }
 
-const pfRow = 'flex items-start gap-2.5 border-b border-border/70 px-3 py-2.5 text-[13px] leading-5 last:border-b-0 [&>svg]:mt-[3px] [&>svg]:size-3.5 [&>svg]:shrink-0'
+const pfRow = 'hairline-b flex items-start gap-2.5 px-3 py-2.5 text-[13px] leading-5 last:border-b-0 [&>svg]:mt-[3px] [&>svg]:size-3.5 [&>svg]:shrink-0'
 
 function joinOps(ops: string[]) {
   return ops.map((o, i) => (
@@ -167,8 +169,9 @@ export function PublishDialog({ open, onClose, app, project, summary, routes, us
     <>
       <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
         <DialogContent className="gap-0 p-0 sm:max-w-[600px]" data-testid="publish-dialog">
+          <Beam on={busy} />
           <div className="px-[22px] pb-0 pr-12 pt-5">
-            <DialogTitle className="text-base font-semibold leading-[22px]">
+            <DialogTitle className="text-[16px] font-semibold leading-[22px] tracking-[-0.01em]">
               {done ? `Published · ${done.version != null ? `v${done.version}` : app.name}` : `Publish ${app.name}`}
             </DialogTitle>
             <DialogDescription className="mt-0.5 text-[13px] text-muted-foreground">
@@ -238,9 +241,10 @@ export function PublishDialog({ open, onClose, app, project, summary, routes, us
                     </label>
                     <div
                       className={cn(
-                        'flex h-8 items-center rounded-lg border border-input bg-background pl-2.5 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50',
-                        (slugTaken || sErr) && 'border-destructive',
+                        'flex h-8 items-center rounded-ctl bg-recess pl-2.5 focus-within:shadow-focus',
+                        (slugTaken || sErr) && 'shadow-[0_0_0_2px_var(--destructive-soft)]',
                       )}
+                      data-recess
                     >
                       <span className="font-mono text-xs text-muted-foreground">/a/</span>
                       <input
@@ -300,17 +304,14 @@ export function PublishDialog({ open, onClose, app, project, summary, routes, us
                   </div>
                 )}
                 {access === 'private' && (
-                  <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground" data-testid="publish-private-note">
-                    <Lock className="size-3.5 shrink-0" />
-                    <span>
-                      Only reachable from the studio preview; <span className="font-mono">/a/{slug || '<slug>'}</span> returns 404.
-                    </span>
-                  </div>
+                  <Callout tone="info" icon={<Lock />} className="text-xs text-muted-foreground" data-testid="publish-private-note">
+                    Only reachable from the studio preview; <span className="font-mono">/a/{slug || '<slug>'}</span> returns 404.
+                  </Callout>
                 )}
 
                 <div className="flex flex-col gap-1.5">
                   <span className="text-xs font-medium">Pre-flight</span>
-                  <div className="overflow-hidden rounded-[10px] border border-border" data-testid="publish-preflight">
+                  <Well className="overflow-hidden" data-testid="publish-preflight">
                     {usageLoading && !usage ? (
                       <div className={pfRow}>
                         <Spinner className="mt-[3px] size-3.5" />
@@ -318,7 +319,7 @@ export function PublishDialog({ open, onClose, app, project, summary, routes, us
                       </div>
                     ) : missingOps.length > 0 ? (
                       missingOps.map((u, i) => (
-                        <div key={`${u.operation}-${i}`} className={cn(pfRow, 'bg-destructive/5')} data-testid="publish-pf-missing">
+                        <div key={`${u.operation}-${i}`} className={pfRow} data-testid="publish-pf-missing">
                           <CircleX className="text-destructive" />
                           <span className="min-w-0 flex-1">
                             <span className="font-mono text-[12px]">{u.operation}</span> ({u.file}:{u.line}) has no route; it will fail.
@@ -340,7 +341,7 @@ export function PublishDialog({ open, onClose, app, project, summary, routes, us
                       </div>
                     )}
                     {stubOps.length > 0 && (
-                      <div className={cn(pfRow, 'bg-warning/8')} data-testid="publish-pf-stub">
+                      <div className={pfRow} data-testid="publish-pf-stub">
                         <TriangleAlert className="text-warning-text" />
                         <span className="min-w-0 flex-1">{joinOps(stubOps as string[])} {stubOps.length === 1 ? 'is a stub and answers' : 'are stubs and answer'} 501 until implemented.</span>
                       </div>
@@ -352,7 +353,7 @@ export function PublishDialog({ open, onClose, app, project, summary, routes, us
                       </div>
                     )}
                     {secretRows.map(({ m, ops: needOps }) => (
-                      <div key={m.key} className={cn(pfRow, 'items-center bg-warning/8 [&>svg]:mt-0')} data-testid={`publish-pf-secret-${m.key}`}>
+                      <div key={m.key} className={cn(pfRow, 'items-center [&>svg]:mt-0')} data-testid={`publish-pf-secret-${m.key}`}>
                         <TriangleAlert className="text-warning-text" />
                         <span className="min-w-0 flex-1">
                           <b className="font-medium">{m.key}</b> isn't set in {live}; {joinOps(needOps)} {needOps.length === 1 ? 'needs' : 'need'} it and will fail.
@@ -401,18 +402,18 @@ export function PublishDialog({ open, onClose, app, project, summary, routes, us
                       <Database className="text-muted-foreground" />
                       <span className="min-w-0 flex-1">The published app reads and writes the same tables as {project.default_environment}.</span>
                     </div>
-                  </div>
+                  </Well>
                 </div>
 
                 {buildError && (
-                  <Collapsible className="rounded-[10px] border border-destructive/30 bg-destructive/5" data-testid="publish-build-failed">
+                  <Collapsible className="rounded-well bg-destructive-soft" data-testid="publish-build-failed">
                     <CollapsibleTrigger className="group flex w-full items-center gap-2 px-3 py-2 text-left text-[13px]">
                       <CircleX className="size-3.5 shrink-0 text-destructive" />
                       <span className="flex-1 font-medium">The build failed: {buildError.split('\n')[0].slice(0, 120)}</span>
                       <ChevronRight className="size-3.5 text-muted-foreground transition-transform group-data-[panel-open]:rotate-90" />
                     </CollapsibleTrigger>
                     <CollapsibleContent>
-                      <pre className="max-h-48 overflow-auto whitespace-pre-wrap border-t border-destructive/20 px-3 py-2 font-mono text-[11px] leading-4 text-foreground" data-scroll-x="allowed">
+                      <pre className="max-h-48 overflow-auto whitespace-pre-wrap px-3 py-2 shadow-[inset_0_1px_0_var(--hairline)] font-mono text-[11px] leading-4 text-foreground" data-scroll-x="allowed">
                         {buildError}
                       </pre>
                     </CollapsibleContent>
@@ -424,7 +425,7 @@ export function PublishDialog({ open, onClose, app, project, summary, routes, us
                   </div>
                 )}
               </div>
-              <div className="flex items-center gap-2 rounded-b-xl border-t border-border bg-muted/40 px-[22px] py-3.5">
+              <div className="flex items-center gap-2 px-[22px] py-3.5 shadow-[inset_0_1px_0_var(--hairline)]">
                 <span className="text-xs text-muted-foreground" data-testid="publish-warning-count">
                   {warnings > 0 ? `${warnings} ${warnings === 1 ? 'warning' : 'warnings'} · you can publish anyway` : 'Ready to publish'}
                 </span>

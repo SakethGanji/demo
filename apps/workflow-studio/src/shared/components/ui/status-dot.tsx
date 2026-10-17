@@ -2,17 +2,19 @@ import { cn } from '@/shared/lib/utils'
 
 export type DotTone = 'ok' | 'warn' | 'err' | 'idle' | 'running'
 
-export function StatusDot({ tone, className, ...props }: { tone: DotTone } & React.HTMLAttributes<HTMLSpanElement>) {
+/** Status colour means status only (DESIGN §3). `running` rings while something is in flight. */
+export function StatusDot({ tone, className, flat, ...props }: { tone: DotTone; flat?: boolean } & React.HTMLAttributes<HTMLSpanElement>) {
   return (
     <span
       data-tone={tone}
       className={cn(
         'inline-block size-1.5 shrink-0 rounded-full',
-        tone === 'ok' && 'bg-success shadow-[0_0_0_3px_color-mix(in_srgb,var(--success)_18%,transparent)]',
-        tone === 'warn' && 'bg-warning',
-        tone === 'err' && 'bg-destructive',
-        tone === 'idle' && 'bg-border',
-        tone === 'running' && 'animate-pulse bg-primary',
+        tone === 'ok' && 'bg-success text-success',
+        tone === 'ok' && !flat && 'shadow-[0_0_0_3px_var(--success-soft)]',
+        tone === 'warn' && 'bg-warning text-warning',
+        tone === 'err' && 'bg-destructive text-destructive',
+        tone === 'idle' && 'bg-faint',
+        tone === 'running' && 'animate-live-ring bg-primary text-primary',
         className,
       )}
       {...props}

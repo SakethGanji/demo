@@ -25,8 +25,8 @@ export function ClientTsPanel() {
   const usage = [...(client.data ?? '').matchAll(/^\s+(\w+)\s*[:(]/gm)].map((m) => m[1]).find((n) => !['headers', 'method', 'body'].includes(n))
 
   return (
-    <div className="flex h-full min-h-0 flex-col" data-testid="client-ts-panel">
-      <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+    <div className="flex h-full min-h-0 flex-col pb-2" data-testid="client-ts-panel">
+      <div className="flex items-center gap-2 px-4 pt-1 pb-3">
         <Segmented
           value={mode}
           onChange={setMode}
@@ -55,14 +55,14 @@ export function ClientTsPanel() {
         </Button>
       </div>
       {q.isLoading ? (
-        <div className="p-3">
+        <div className="px-2">
           <Skeleton className="h-40" />
         </div>
       ) : q.isError ? (
-        <div className="p-4 text-xs text-destructive">{errorMessage(q.error)}</div>
+        <div className="px-5 text-xs text-destructive">{errorMessage(q.error)}</div>
       ) : (
         <pre
-          className="min-h-0 flex-1 overflow-auto bg-code-bg px-3 py-2.5 font-mono text-[11.5px] leading-[18px]"
+          className="well mx-2 min-h-0 flex-1 overflow-auto p-3 font-mono text-[11.5px] leading-[18px]"
           data-scroll-x="allowed"
           data-testid="client-ts-source"
         >

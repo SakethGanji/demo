@@ -8,15 +8,15 @@ import { useConsoleStore, type ConsoleEntry } from './stores'
 // ════════════════════════════════════════════════════════════════════════════════
 
 const levelColors: Record<string, string> = {
-  info: 'text-blue-500 dark:text-blue-400',
-  warn: 'text-amber-500 dark:text-amber-400',
-  error: 'text-red-500 dark:text-red-400',
-  success: 'text-emerald-500 dark:text-emerald-400',
+  info: 'text-primary',
+  warn: 'text-warning-text',
+  error: 'text-destructive',
+  success: 'text-success-text',
 }
 
 const levelBg: Record<string, string> = {
-  error: 'bg-red-500/5',
-  warn: 'bg-amber-500/5',
+  error: 'bg-destructive-soft',
+  warn: 'bg-warning-soft',
 }
 
 function ConsoleEntryRow({ entry }: { entry: ConsoleEntry }) {
@@ -24,9 +24,9 @@ function ConsoleEntryRow({ entry }: { entry: ConsoleEntry }) {
   const timeStr = time.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
 
   return (
-    <div className={cn('flex items-start gap-2 px-3 py-1 border-b border-border/30 font-mono text-[10px]', levelBg[entry.level])}>
+    <div className={cn('flex items-start gap-2 px-3 py-1 hairline-b font-mono text-[10.5px]', levelBg[entry.level])}>
       <span className="text-muted-foreground/60 shrink-0">{timeStr}</span>
-      <span className={cn('shrink-0 uppercase font-semibold w-10', levelColors[entry.level])}>
+      <span className={cn('shrink-0 font-semibold w-10', levelColors[entry.level])}>
         {entry.level === 'success' ? 'ok' : entry.level}
       </span>
       <span className="text-muted-foreground shrink-0">[{entry.source}]</span>
@@ -53,8 +53,8 @@ function ConsoleTab() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="flex items-center px-3 py-1 border-b border-border bg-muted shrink-0">
-        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+      <div className="flex items-center px-3 py-1.5 hairline-b shrink-0">
+        <span className="text-[12px] font-medium text-muted-foreground">
           Console ({entries.length})
         </span>
         <div className="flex-1" />
@@ -83,7 +83,7 @@ function ConsoleTab() {
 
 export function BottomPanel() {
   return (
-    <div className="h-full flex flex-col bg-card">
+    <div className="h-full flex flex-col">
       <ConsoleTab />
     </div>
   )

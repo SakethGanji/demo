@@ -104,7 +104,7 @@ function VariableRow({
   const isSecret = variable.type === 'secret';
 
   return (
-    <div className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent group">
+    <div className="flex items-center gap-2 px-2 py-1.5 rounded-ctl row-hover group">
       <span className="text-muted-foreground flex-shrink-0">
         {isSecret ? <Lock size={12} /> : <KeyRound size={12} />}
       </span>
@@ -211,7 +211,7 @@ function AddOrReplaceModal({
               />
               {key.length > 0 && !keyValid && (
                 <p className="text-[10px] text-destructive mt-1">
-                  Must match {String(KEY_RE)} (uppercase, digits, underscores)
+                  Must match {String(KEY_RE)} (capital letters, digits, underscores)
                 </p>
               )}
             </div>
@@ -235,10 +235,10 @@ function AddOrReplaceModal({
                   <button
                     key={t}
                     onClick={() => setType(t)}
-                    className={`px-2 py-1 text-xs rounded-md border ${
+                    className={`px-2 py-1 text-xs rounded-ctl ${
                       type === t
-                        ? 'bg-primary text-primary-foreground border-primary'
-                        : 'border-border hover:bg-accent'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-recess hover:bg-(--hover-fill)'
                     }`}
                   >
                     {t}

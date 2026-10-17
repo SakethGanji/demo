@@ -1,6 +1,9 @@
 /**
- * ProjectOutline (UI-DESIGN §3.1) and its 1024–1279px icon rail (review H5).
+ * ProjectOutline (DESIGN §1, §3, UI-DESIGN §3.1) and its 1024–1279px icon rail (review H5).
+ * It sits on the canvas: items are 30px, icons take their entity hue (60% when inactive), group heads are
+ * sentence case with a `+` that appears on hover, and one soft fill slides to the active item.
  */
+import { useLayoutEffect, useRef, useState } from 'react'
 import { Link, useMatchRoute, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import {
   ArrowUpRight,
@@ -22,6 +25,7 @@ import { StatusDot } from '@/shared/components/ui/status-dot'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/components/ui/tooltip'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/shared/components/ui/hover-card'
 import { cn } from '@/shared/lib/utils'
+import { liquidGlassSupported, useLiquidGlass } from '@/shared/lib/liquid-glass'
 import { useProjectCtx } from '../ProjectContext'
 import { useModules, useProjectApps, useProjectSummary, useRoutes, useTables } from '../hooks/useProjectData'
 import { useSetup } from '../hooks/useSetup'
@@ -31,8 +35,67 @@ import { useOutlineDraftStore } from '@/features/backend/outlineDraftStore'
 import type { Route } from '@/shared/api/types'
 
 const itemCls =
-  'flex h-[30px] items-center gap-2 rounded-[7px] px-2 text-[13px] text-sidebar-foreground hover:bg-sidebar-accent/70 [&>svg]:size-[15px] [&>svg]:text-muted-foreground'
-const onCls = 'bg-sidebar-accent font-medium text-foreground [&>svg]:text-foreground'
+  'relative z-[1] flex h-[30px] items-center gap-2 rounded-ctl px-2 text-[13px] text-sidebar-foreground hover:bg-foreground/6 [&>svg]:size-[15px] [&>svg]:shrink-0 [&>svg]:stroke-[1.75] [&>svg]:opacity-60'
+/** active: the sliding fill draws the background; the item only lifts its text and icon */
+const onCls = 'font-medium text-foreground hover:bg-transparent [&>svg]:opacity-100'
+const hue = {
+  home: '[&>svg]:text-hue-home',
+  backend: '[&>svg]:text-hue-backend',
+  ai: '[&>svg]:text-hue-ai',
+  data: '[&>svg]:text-hue-data',
+  apps: '[&>svg]:text-hue-apps',
+  secrets: '[&>svg]:text-hue-secrets',
+  runs: '[&>svg]:text-hue-runs',
+}
+
+/** One fill that slides to the item marked `data-active` inside `host` (DESIGN §7: navigation motion). */
+function ActiveFill({ host, dep }: { host: React.RefObject<HTMLElement | null>; dep: unknown }) {
+  type Box = { top: number; height: number; left: number; width: number }
+  const [box, setBox] = useState<(Box & { animate: boolean }) | null>(null)
+  const last = useRef<Box | null>(null)
+  const key = JSON.stringify(dep)
+  useLayoutEffect(() => {
+    const el = host.current
+    if (!el) return
+    const measure = () => {
+      const on = el.querySelector<HTMLElement>('[data-active]')
+      const next = on ? { top: on.offsetTop, height: on.offsetHeight, left: on.offsetLeft, width: on.offsetWidth } : null
+      const prev = last.current
+      if (prev === next || (prev && next && prev.top === next.top && prev.height === next.height && prev.left === next.left && prev.width === next.width)) return
+      last.current = next
+      setBox(next ? { ...next, animate: !!prev } : null)
+    }
+    measure()
+    let raf = 0
+    const mo = new MutationObserver(() => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(measure)
+    })
+    mo.observe(el, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-active'] })
+    return () => {
+      mo.disconnect()
+      cancelAnimationFrame(raf)
+    }
+  }, [host, key])
+  // where supported (Chromium, motion allowed) the fill is a liquid-glass lens over the active item
+  const lensRef = useRef<HTMLSpanElement>(null)
+  const liquid = liquidGlassSupported()
+  useLiquidGlass(lensRef, { radius: 6, bezel: 6, strength: 8, extra: 'saturate(160%) brightness(1.05)' }, liquid && !!box)
+  if (!box) return null
+  return (
+    <span
+      ref={lensRef}
+      aria-hidden
+      data-slot="active-fill"
+      className={cn(
+        'pointer-events-none absolute rounded-ctl',
+        liquid ? 'z-[2] bg-(--thumb-glass) shadow-(--thumb-glass-shadow)' : 'z-0 bg-sidebar-accent',
+        box.animate && 'transition-[top,height] duration-(--d-base) ease-(--ease-io)',
+      )}
+      style={{ top: box.top, height: box.height, left: box.left, width: box.width }}
+    />
+  )
+}
 
 function useSearchSetter() {
   const navigate = useNavigate()
@@ -42,15 +105,15 @@ function useSearchSetter() {
 
 function GroupHeader({ label, onAdd, addTestId, addLabel }: { label: string; onAdd?: () => void; addTestId?: string; addLabel?: string }) {
   return (
-    <div className="flex items-center justify-between px-1.5 pb-1 pt-2.5">
-      <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">{label}</span>
+    <div className="group/gh flex h-[30px] items-center justify-between px-2 pt-2.5 pb-0.5">
+      <span className="text-[12.5px] font-medium text-muted-foreground">{label}</span>
       {onAdd && (
         <button
           type="button"
           onClick={onAdd}
           data-testid={addTestId}
           aria-label={addLabel}
-          className="inline-flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+          className="inline-flex size-5 items-center justify-center rounded-chip text-muted-foreground opacity-0 group-hover/gh:opacity-100 hover:bg-(--hover-fill) hover:text-foreground focus-visible:opacity-100"
         >
           <Plus className="size-3.5" />
         </button>
@@ -104,11 +167,14 @@ export function ProjectOutline() {
   const draftTables = new Set(drafts.filter((d) => d.dirty).flatMap((d) => d.tablesOnSave))
   const existingTables = new Set((tables.data ?? []).map((t) => t.name))
   const runs24 = summary.data?.health.runs_24h ?? 0
+  const listRef = useRef<HTMLDivElement>(null)
+  const act = (on: boolean) => (on ? { 'data-active': '' } : {})
 
   return (
     <nav className="flex min-h-0 flex-1 flex-col" aria-label="Project outline" data-testid="outline">
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pt-2.5">
-        <Link to="/p/$project" params={P} className={cn(itemCls, onOverview && onCls)} data-testid="outline-overview">
+      <div ref={listRef} className="relative min-h-0 flex-1 overflow-y-auto px-2.5 pt-3">
+        <ActiveFill host={listRef} dep={[onOverview, onSecrets, onRuns, activeModule, activeTable, routeParam]} />
+        <Link to="/p/$project" params={P} className={cn(itemCls, hue.home, onOverview && onCls)} {...act(onOverview)} data-testid="outline-overview">
           {setup.show ? <ListChecks /> : <LayoutGrid />}
           {setup.show ? (
             <>
@@ -130,7 +196,8 @@ export function ProjectOutline() {
               <Link
                 to="/p/$project/backend/$module"
                 params={{ ...P, module: m.name }}
-                className={cn(itemCls, on && !routeParam && onCls)}
+                className={cn(itemCls, hue.backend, on && !routeParam && onCls)}
+                {...act(on && !routeParam)}
                 data-testid={`outline-module-${m.name}`}
               >
                 <FileCode2 />
@@ -149,7 +216,7 @@ export function ProjectOutline() {
                   {draft?.newRoutes.map((r) => (
                     <div
                       key={`new-${r.method}-${r.path}`}
-                      className="flex h-[26px] items-center gap-2 rounded-md pl-[30px] pr-2 font-mono text-[11.5px] text-muted-foreground"
+                      className="relative z-[1] flex h-[30px] items-center gap-2 rounded-ctl pl-[30px] pr-2 font-mono text-[11.5px] text-muted-foreground"
                       data-testid="outline-new-route"
                     >
                       <MethodBadge method={r.method} size="sm" />
@@ -167,7 +234,8 @@ export function ProjectOutline() {
             <Link
               to="/p/$project/backend/$module"
               params={{ ...P, module: d.module }}
-              className={cn(itemCls, activeModule === d.module && onCls)}
+              className={cn(itemCls, hue.backend, activeModule === d.module && onCls)}
+              {...act(activeModule === d.module)}
               data-testid={`outline-module-${d.module}`}
             >
               <FileCode2 />
@@ -177,7 +245,7 @@ export function ProjectOutline() {
             {d.newRoutes.map((r) => (
               <div
                 key={`new-${r.method}-${r.path}`}
-                className="flex h-[26px] items-center gap-2 rounded-md pl-[30px] pr-2 font-mono text-[11.5px] text-muted-foreground"
+                className="relative z-[1] flex h-[30px] items-center gap-2 rounded-ctl pl-[30px] pr-2 font-mono text-[11.5px] text-muted-foreground"
                 data-testid="outline-new-route"
               >
                 <MethodBadge method={r.method} size="sm" />
@@ -194,7 +262,7 @@ export function ProjectOutline() {
           to="/p/$project/backend/$module"
           params={{ ...P, module: '~new' }}
           search={{ generate: 1 }}
-          className={cn(itemCls, 'text-ai-text [&>svg]:text-ai')}
+          className={cn(itemCls, hue.ai, 'text-ai-text [&>svg]:opacity-100')}
           data-testid="outline-generate"
         >
           <Sparkles /> Generate with AI
@@ -206,7 +274,8 @@ export function ProjectOutline() {
             key={t.id}
             to="/p/$project/data/$table"
             params={{ ...P, table: t.name }}
-            className={cn(itemCls, activeTable === t.name && onCls)}
+            className={cn(itemCls, hue.data, activeTable === t.name && onCls)}
+            {...act(activeTable === t.name)}
             data-testid={`outline-table-${t.name}`}
           >
             <Table2 />
@@ -215,7 +284,7 @@ export function ProjectOutline() {
           </Link>
         ))}
         {[...draftTables].filter((t) => !existingTables.has(t)).map((t) => (
-          <div key={`dt-${t}`} className={cn(itemCls, 'text-ai-text')} data-testid={`outline-draft-table-${t}`}>
+          <div key={`dt-${t}`} className={cn(itemCls, hue.data, 'text-ai-text')} data-testid={`outline-draft-table-${t}`}>
             <Table2 />
             <span className="truncate">{t}</span>
             <span className="ml-auto text-[11.5px]">created on save</span>
@@ -231,7 +300,7 @@ export function ProjectOutline() {
             key={a.id}
             to="/p/$project/apps/$appId"
             params={{ ...P, appId: a.id }}
-            className={cn(itemCls, 'group')}
+            className={cn(itemCls, hue.apps, 'group')}
             data-testid={`outline-app-${a.id}`}
           >
             <AppWindow />
@@ -242,7 +311,7 @@ export function ProjectOutline() {
         {(apps.data?.length ?? 0) === 0 && <div className="pb-1.5 pl-[31px] pr-2 pt-0.5 text-xs text-muted-foreground">No apps yet</div>}
 
         <GroupHeader label="Project" />
-        <Link to="/p/$project/secrets" params={P} className={cn(itemCls, onSecrets && onCls)} data-testid="outline-secrets">
+        <Link to="/p/$project/secrets" params={P} className={cn(itemCls, hue.secrets, onSecrets && onCls)} {...act(onSecrets)} data-testid="outline-secrets">
           <KeyRound /> Secrets
           {missingCount > 0 ? (
             <span className="ml-auto inline-flex items-center gap-1.5 text-[11.5px] text-warning-text" data-testid="outline-secrets-missing">
@@ -250,15 +319,15 @@ export function ProjectOutline() {
             </span>
           ) : null}
         </Link>
-        <Link to="/p/$project/runs" params={P} className={cn(itemCls, onRuns && onCls)} data-testid="outline-runs">
-          <History /> Runs <span className="ml-auto text-[11.5px] text-muted-foreground">{runs24} · 24h</span>
+        <Link to="/p/$project/runs" params={P} className={cn(itemCls, hue.runs, onRuns && onCls)} {...act(onRuns)} data-testid="outline-runs">
+          <History /> Runs <span className="ml-auto text-[11.5px] tabular-nums text-muted-foreground">{runs24} · 24h</span>
         </Link>
       </div>
-      <div className="mx-2 mt-auto flex flex-col gap-0.5 border-t border-border py-2">
-        <button type="button" className={itemCls} onClick={() => setSearch({ sheet: 'settings', section: 'general' })} data-testid="outline-settings">
+      <div className="mt-auto flex flex-col gap-0.5 px-2.5 py-2.5">
+        <button type="button" className={cn(itemCls, hue.home)} onClick={() => setSearch({ sheet: 'settings', section: 'general' })} data-testid="outline-settings">
           <Settings2 /> Settings
         </button>
-        <button type="button" className={itemCls} onClick={() => setSearch({ sheet: 'settings', section: 'keys' })} data-testid="outline-api-keys">
+        <button type="button" className={cn(itemCls, hue.home)} onClick={() => setSearch({ sheet: 'settings', section: 'keys' })} data-testid="outline-api-keys">
           <KeySquare /> API keys
         </button>
       </div>
@@ -274,9 +343,10 @@ function OutlineRoute({ route, module, on }: { route: Route; module: string; on:
       params={{ project: slug, module }}
       search={{ route: route.name }}
       className={cn(
-        'flex h-[26px] items-center gap-2 rounded-md pl-[30px] pr-2 font-mono text-[11.5px] text-muted-foreground hover:bg-sidebar-accent/70',
-        on && 'bg-sidebar-accent text-foreground',
+        'relative z-[1] flex h-[30px] items-center gap-2 rounded-ctl pl-[30px] pr-2 font-mono text-[11.5px] text-muted-foreground hover:bg-foreground/6',
+        on && 'text-foreground hover:bg-transparent',
       )}
+      {...(on ? { 'data-active': '' } : {})}
       data-testid={`outline-route-${route.name}`}
     >
       <MethodBadge method={route.method} size="sm" />
@@ -295,7 +365,7 @@ export function ProjectRail() {
   const apps = useProjectApps(pid)
   const missingCount = useMissingCount(pid)
   const P = { project: slug }
-  const railBtn = 'relative inline-flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-sidebar-accent hover:text-foreground [&>svg]:size-[18px]'
+  const railBtn = 'relative inline-flex size-9 items-center justify-center rounded-ctl text-muted-foreground hover:bg-foreground/6 hover:text-foreground [&>svg]:size-[17px] [&>svg]:stroke-[1.75]'
   const on = 'bg-sidebar-accent text-foreground'
   const tip = (label: string, el: React.ReactElement) => (
     <Tooltip>
@@ -321,7 +391,7 @@ export function ProjectRail() {
           <FileCode2 />
         </HoverCardTrigger>
         <HoverCardContent side="right" align="start" className="w-56 p-1">
-          <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Backend</div>
+          <div className="px-2 py-1 text-[12px] font-medium text-muted-foreground">Backend</div>
           {(modules.data ?? []).map((m) => (
             <Link key={m.id} to="/p/$project/backend/$module" params={{ ...P, module: m.name }} className={itemCls}>
               <FileCode2 /> <span className="font-mono text-[12.5px]">{m.name}.py</span>
@@ -347,7 +417,7 @@ export function ProjectRail() {
           <Database />
         </HoverCardTrigger>
         <HoverCardContent side="right" align="start" className="w-56 p-1">
-          <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Data</div>
+          <div className="px-2 py-1 text-[12px] font-medium text-muted-foreground">Data</div>
           {(tables.data ?? []).map((t) => (
             <Link key={t.id} to="/p/$project/data/$table" params={{ ...P, table: t.name }} className={itemCls}>
               <Table2 /> {t.name}

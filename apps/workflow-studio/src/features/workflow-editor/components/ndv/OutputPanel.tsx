@@ -3,6 +3,9 @@ import { Database, Code, Pin, Clock, Zap, Globe, GitBranch, Download } from 'luc
 import type { NodeExecutionData } from '../../types/workflow';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useNDVStore } from '../../stores/ndvStore';
+import { Segmented } from '@/shared/components/ui/segmented';
+import { Spinner } from '@/shared/components/ui/spinner';
+import { Callout } from '@/shared/components/ui/surface';
 import RunDataDisplay from './RunDataDisplay';
 
 interface OutputPanelProps {
@@ -81,16 +84,16 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-border/50 bg-muted/30 px-3 py-1.5">
+      <div className="flex items-center justify-between px-3 py-2 shadow-[inset_0_-1px_0_var(--hairline)]">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Output</span>
+          <span className="text-[12.5px] font-medium text-foreground">Output</span>
           {hasData && (
-            <span className="rounded-sm px-1 py-px text-[10px] font-medium bg-[var(--success)]/10 text-[var(--success)]">
+            <span className="rounded-chip px-1 py-px text-[10.5px] font-medium bg-success/11 text-success-text">
               {itemCount} items
             </span>
           )}
           {hasError && (
-            <span className="rounded-sm px-1 py-px text-[10px] font-medium bg-destructive/10 text-destructive">
+            <span className="rounded-chip px-1 py-px text-[10.5px] font-medium bg-destructive-soft text-destructive">
               Error
             </span>
           )}
@@ -102,7 +105,7 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
           )}
           {/* LLM token badge */}
           {metrics?.totalTokens != null && (
-            <span className="flex items-center gap-1 rounded-sm px-1 py-px text-[10px] font-medium bg-purple-500/10 text-purple-500" title={`In: ${metrics.inputTokens ?? 0} / Out: ${metrics.outputTokens ?? 0}`}>
+            <span className="flex items-center gap-1 rounded-chip px-1 py-px text-[10.5px] font-medium bg-ai-soft text-ai-text" title={`In: ${metrics.inputTokens ?? 0} / Out: ${metrics.outputTokens ?? 0}`}>
               <Zap size={10} />
               {metrics.totalTokens.toLocaleString()} tok
             </span>
@@ -111,8 +114,8 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
           {metrics?.responseStatusCode != null && (
             <span className={`flex items-center gap-1 rounded-sm px-1 py-px text-[10px] font-medium ${
               metrics.responseStatusCode < 400
-                ? 'bg-[var(--success)]/10 text-[var(--success)]'
-                : 'bg-destructive/10 text-destructive'
+                ? 'bg-success/11 text-success-text'
+                : 'bg-destructive-soft text-destructive'
             }`}>
               <Globe size={10} />
               {metrics.responseStatusCode}
@@ -120,13 +123,13 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
           )}
           {/* Branch decision badge */}
           {metrics?.branchDecision != null && (
-            <span className="flex items-center gap-1 rounded-sm px-1 py-px text-[10px] font-medium bg-blue-500/10 text-blue-500">
+            <span className="flex items-center gap-1 rounded-chip px-1 py-px text-[10.5px] font-medium bg-brand-soft text-primary">
               <GitBranch size={10} />
               {metrics.branchDecision}
             </span>
           )}
           {isPinned && (
-            <span className="rounded-sm px-1 py-px text-[10px] font-medium bg-[var(--warning)]/10 text-[var(--warning)]">
+            <span className="rounded-chip px-1 py-px text-[10.5px] font-medium bg-warning/13 text-warning-text">
               Pinned
             </span>
           )}
@@ -137,12 +140,14 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
           <button
             onClick={handlePinToggle}
             disabled={!hasData && !isPinned}
-            className={`rounded-md p-1.5 transition-colors ${
+            className={`rounded-ctl p-1.5 transition-colors ${
               isPinned
-                ? 'bg-[var(--warning)]/10 text-[var(--warning)]'
-                : 'text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed'
+                ? 'bg-warning/13 text-warning-text'
+                : 'text-muted-foreground hover:bg-(--hover-fill) hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed'
             }`}
             title={isPinned ? 'Unpin data' : 'Pin data'}
+            aria-label={isPinned ? 'Unpin data' : 'Pin data'}
+            data-testid="ndv-output-pin"
           >
             <Pin size={13} />
           </button>
@@ -151,47 +156,36 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
           {pdfBase64 && (
             <button
               onClick={handleDownloadPdf}
-              className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              className="rounded-ctl p-1.5 text-muted-foreground hover:bg-(--hover-fill) hover:text-foreground transition-colors"
               title="Download PDF"
+              aria-label="Download PDF"
+              data-testid="ndv-output-pdf"
             >
               <Download size={13} />
             </button>
           )}
 
           {/* Display mode toggle */}
-          <div className="bg-muted/60 rounded p-px flex items-center">
-            <button
-              onClick={() => { setDisplayMode('schema'); useNDVStore.getState().setOutputDisplayMode('schema'); }}
-              className={`rounded-sm p-1.5 transition-colors ${
-                displayMode === 'schema'
-                  ? 'bg-[var(--surface)] shadow-xs text-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-              title="Schema view"
-            >
-              <Database size={13} />
-            </button>
-            <button
-              onClick={() => { setDisplayMode('json'); useNDVStore.getState().setOutputDisplayMode('json'); }}
-              className={`rounded-sm p-1.5 transition-colors ${
-                displayMode === 'json'
-                  ? 'bg-[var(--surface)] shadow-xs text-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-              title="JSON view"
-            >
-              <Code size={13} />
-            </button>
-          </div>
+          <Segmented
+          size="xs"
+          value={displayMode}
+          onChange={(m) => { setDisplayMode(m); useNDVStore.getState().setOutputDisplayMode(m); }}
+          aria-label="Display mode"
+          data-testid="ndv-output-display-mode"
+          options={[
+            { key: 'schema', label: <Database size={13} aria-label="Schema view" />, testId: 'ndv-output-mode-schema' },
+            { key: 'json', label: <Code size={13} aria-label="JSON view" />, testId: 'ndv-output-mode-json' },
+          ]}
+        />
         </div>
       </div>
 
       {/* Data display */}
-      <div className="flex-1 overflow-auto p-3">
+      <div className="well m-2 flex-1 overflow-auto p-3">
         {!executionData ? (
           <div className="flex h-full flex-col items-center justify-center text-center px-6">
-            <div className="w-10 h-10 rounded-lg bg-muted/50 flex items-center justify-center mb-3">
-              <Database size={18} className="text-muted-foreground/50" />
+            <div className="w-10 h-10 rounded-panel bg-recess flex items-center justify-center mb-3">
+              <Database size={18} className="text-faint" />
             </div>
             <p className="text-[13px] font-medium text-foreground mb-0.5">
               No output data yet
@@ -202,16 +196,16 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
           </div>
         ) : executionData.status === 'running' ? (
           <div className="flex h-full flex-col items-center justify-center">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted border-t-primary" />
+            <Spinner className="size-6" />
             <p className="mt-2 text-[13px] font-medium text-foreground">Executing...</p>
           </div>
         ) : hasError ? (
-          <div className="rounded-md border border-destructive/20 bg-destructive/5 p-3">
-            <p className="text-[13px] font-semibold text-destructive">Error</p>
-            <p className="mt-1 text-[12px] text-destructive/80">
+          <Callout tone="error" className="items-start">
+            <p className="text-[13px] font-semibold">Error</p>
+            <p className="mt-1 text-[12px]">
               {executionData.output?.error}
             </p>
-          </div>
+          </Callout>
         ) : displayData && displayData.length > 0 ? (
           <RunDataDisplay
             data={displayData}
@@ -219,8 +213,8 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
           />
         ) : (
           <div className="flex h-full flex-col items-center justify-center text-center px-6">
-            <div className="w-10 h-10 rounded-lg bg-muted/50 flex items-center justify-center mb-3">
-              <Database size={18} className="text-muted-foreground/50" />
+            <div className="w-10 h-10 rounded-panel bg-recess flex items-center justify-center mb-3">
+              <Database size={18} className="text-faint" />
             </div>
             <p className="text-[13px] font-medium text-foreground mb-0.5">
               No output items

@@ -14,10 +14,10 @@ import type { WorkflowNodeData } from '../../../types/workflow';
 type Point = { x: number; y: number };
 
 const EDGE_COLORS = {
-  default: { start: 'var(--border)', end: 'var(--border)' },
+  default: { start: 'var(--edge-line)', end: 'var(--edge-line)' },
   hover: { start: 'var(--muted-foreground)', end: 'var(--muted-foreground)' },
-  running: { start: 'var(--warning)', end: 'var(--warning)' },
-  success: { start: 'var(--success)', end: 'var(--success)' },
+  running: { start: 'var(--edge-hot)', end: 'var(--edge-hot)' },
+  success: { start: 'var(--edge-hot)', end: 'var(--edge-hot)' },
   error: { start: 'var(--destructive)', end: 'var(--destructive)' },
 };
 
@@ -326,12 +326,9 @@ function WorkflowEdge({
   return (
     <>
       <defs>
-        <linearGradient id={gradientId} gradientUnits="userSpaceOnUse" {...gradientCoords}>
-          <stop offset="0%" stopColor={edgeColors.start} />
-          <stop offset="100%" stopColor={edgeColors.end} />
-        </linearGradient>
+        <linearGradient id={gradientId} gradientUnits="userSpaceOnUse" {...gradientCoords}><stop offset="0" stopColor={edgeColors.end} /><stop offset="1" stopColor={edgeColors.end} /></linearGradient>
         <marker id={`arrow-${id}`} markerWidth="16" markerHeight="16" refX="13" refY="8" orient="auto" markerUnits="userSpaceOnUse">
-          <path d="M2,3 L13,8 L2,13 L5,8 Z" fill={edgeStatus !== 'default' ? edgeColors.end : 'var(--muted-foreground)'} opacity={isEdgeIdle ? 0.3 : 1} />
+          <path d="M2,3 L13,8 L2,13 L5,8 Z" fill={edgeStatus !== 'default' ? edgeColors.end : 'var(--edge-line)'} opacity={isEdgeIdle ? 0.3 : 1} />
         </marker>
       </defs>
 
@@ -346,7 +343,7 @@ function WorkflowEdge({
         className="react-flow__edge-path"
         d={edgePath}
         fill="none"
-        stroke={isAnimated ? 'var(--warning)' : `url(#${gradientId})`}
+        stroke={isAnimated ? 'var(--edge-hot)' : `url(#${gradientId})`}
         strokeWidth={edgeStatus !== 'default' ? 2.5 : (isHovered ? 2 : 1.5)}
         strokeOpacity={isEdgeIdle ? 0.25 : 1}
         markerEnd={`url(#arrow-${id})`}
@@ -380,7 +377,7 @@ function WorkflowEdge({
               transform: `translate(0, -50%) translate(${sourceX + 14}px, ${sourceY}px)`,
               pointerEvents: 'none',
             }}
-            className="text-[10px] font-medium text-muted-foreground bg-background/90 px-1.5 py-0.5 rounded"
+            className="text-[10px] font-medium text-muted-foreground bg-recess px-1.5 py-0.5 rounded-chip"
           >
             {outputLabel}
           </div>
@@ -401,10 +398,9 @@ function WorkflowEdge({
                 width: WAYPOINT_SIZE,
                 height: WAYPOINT_SIZE,
                 borderRadius: '50%',
-                backgroundColor: 'var(--background)',
-                border: `2px solid ${edgeColors.end}`,
+                backgroundColor: 'var(--raise)',
                 cursor: 'grab',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                boxShadow: `0 0 0 2px ${edgeColors.end}, var(--raise-sm)`,
               }}
               className="nodrag nopan"
               onMouseEnter={hoverEnter}
@@ -430,13 +426,13 @@ function WorkflowEdge({
             onMouseLeave={hoverLeave}
           >
             {isDragging ? (
-              <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-dashed border-[var(--success)] bg-[var(--success)]/20 animate-pulse">
-                <Plus size={16} className="text-[var(--success)]" />
+              <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-dashed border-success bg-success/20 animate-pulse">
+                <Plus size={16} className="text-success" />
               </div>
             ) : (
               <button
                 onClick={handleAddNode}
-                className="flex h-6 w-6 items-center justify-center rounded-full border border-border bg-card shadow-sm transition-all hover:bg-accent hover:scale-110"
+                className="flex h-6 w-6 items-center justify-center rounded-full bg-raise shadow-raise-md transition-all hover:bg-raise hover:scale-110"
               >
                 <Plus size={14} className="text-muted-foreground" />
               </button>

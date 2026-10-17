@@ -117,6 +117,10 @@ The generation-spec rerun also verifies the save/analysis race fix: saving cance
 in-flight analysis and pauses it until the saved module id is installed, preventing a stale
 new-module preview from reporting `409 name_taken` after a successful save.
 
+## After the Command Studio design rollout (2026-10-16)
+
+10 specs, 51 tests (01:4, 02:10, 03:12, 04:5, 05:5, 06:5, 07:3, 08:3, 09:1, 10:3) all pass on the isolated stack, and `capture.spec.ts` passes. T44 now checks the neutral dark canvas `rgb(8, 9, 10)`, a transparent `overview-panel` and the glass token; T40 polls the stored run until it is finalised. The layout fixture allows controls that straddle the fold of a vertically scrolling `*-panel`. Known flake: `10-code-map.spec.ts:94`. Next: `INTEGRATION-TEST-PLAN.md`.
+
 ## Live Gemini validation (2026-10-15)
 
 Real Gemini browser testing used a separate `workflows_test_e2e_*` database, real sandbox and

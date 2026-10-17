@@ -3,6 +3,8 @@
  * pre-flight, the Secrets view and setup step 1. One `POST …/secrets` per checked environment.
  */
 import { useState } from 'react'
+import { KeyRound } from 'lucide-react'
+import { IconTile } from '@/shared/components/ui/surface'
 import { useProjectCtx } from '@/features/project/ProjectContext'
 import { useCreateSecrets } from './useSecretMutations'
 import { isApiError, errorMessage } from '@/shared/api/http'
@@ -96,7 +98,7 @@ export function CreateSecretForm({
         />
       </Field>
       <div className="flex items-center gap-4">
-        <span className="text-xs font-medium">Environments</span>
+        <span className="text-[12px] font-medium text-muted-foreground">Environments</span>
         {allEnvs.map((env) => (
           <label key={env} className="inline-flex items-center gap-1.5 text-[13px]">
             <Checkbox
@@ -109,7 +111,7 @@ export function CreateSecretForm({
         ))}
       </div>
       <div className="flex items-center gap-2">
-        <span className="text-xs font-medium">Type</span>
+        <span className="text-[12px] font-medium text-muted-foreground">Type</span>
         <Segmented<VarType>
           value={type}
           onChange={setType}
@@ -155,7 +157,15 @@ export function CreateSecretPopover({
   return (
     <Popover open={isOpen} onOpenChange={setOpen}>
       <PopoverTrigger render={trigger} />
-      <PopoverContent className="w-[340px]" align="start">
+      <PopoverContent className="w-[360px]" align="start">
+        {isOpen && (
+          <div className="mb-3 flex items-center gap-2.5" data-testid="create-secret-header">
+            <IconTile hue="secrets">
+              <KeyRound />
+            </IconTile>
+            <span className="text-panel-title font-semibold tracking-[-0.01em]">{form.keyReadOnly ? `Add ${form.secretKey}` : 'New secret'}</span>
+          </div>
+        )}
         {isOpen && (
           <CreateSecretForm
             {...form}

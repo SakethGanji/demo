@@ -8,7 +8,7 @@ import { cn } from '@/shared/lib/utils'
 function EditorTabList({ className, children, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn('h-9 border-b border-border/50 shrink-0 overflow-x-auto', className)}
+      className={cn('h-9 shrink-0 overflow-x-auto shadow-[inset_0_-1px_0_var(--hairline)]', className)}
       style={{ scrollbarWidth: 'none' }}
       {...props}
     >
@@ -33,8 +33,8 @@ function EditorTab({ active, icon: Icon, children, className, ...props }: Editor
       className={cn(
         'relative inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-none transition-colors shrink-0 whitespace-nowrap',
         active
-          ? 'text-foreground after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-primary'
-          : 'text-muted-foreground hover:text-foreground hover:bg-accent/50',
+          ? 'text-foreground after:absolute after:bottom-0 after:left-1 after:right-1 after:h-0.5 after:rounded-full after:bg-primary'
+          : 'text-muted-foreground hover:text-foreground',
         className
       )}
       {...props}

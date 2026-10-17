@@ -1,43 +1,38 @@
 /**
- * Rows grid (UI-DESIGN §3.4, `data.png`): sticky header (click = sort), mono id, right-aligned
- * tabular numbers, collapsed JSON. Double-click a cell → `PATCH …/rows/{id}` (optimistic, rolled
- * back on error, `422 row_invalid` shown at the cell). `Add row` opens an inline new row whose
- * field errors come from `detail.errors[{row,column,error}]`. Infinite scroll, pages of 50 with
- * `count=true`. The footer shows the count, the edit hint and the `studio.db.table("…")` snippet.
+ * Rows grid (DESIGN §8 "Table tools"): the toolbar (filters and sort, cross-fading into the selection bar),
+ * the table in a well (sort heads, a column-profile row, hairline rows, inline edit with `PATCH …/rows/{id}`
+ * optimistic and rolled back on error, `422 row_invalid` shown at the cell), the end-of-table line with star
+ * dust below, and the footer. Add row opens an inline new row whose field errors come from
+ * `detail.errors[{row,column,error}]`. Infinite scroll, pages of 50 with `count=true`.
+ * Deleting is immediate with an Undo toast (re-inserts the rows; ids differ). Dropping a CSV on the well
+ * hands the file to `onImportFile`.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useInfiniteQuery } from '@tanstack/react-query'
-import { ArrowDown, ArrowUp, Ellipsis, ListFilter, Rows3 } from 'lucide-react'
+import type { UseInfiniteQueryResult, InfiniteData } from '@tanstack/react-query'
+import { ArrowDown, ArrowUp, Copy, Ellipsis, FileUp, Hash, ListFilter, Pencil, Plus, Rows3, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useProjectCtx } from '@/features/project/ProjectContext'
-import { pluralize } from '@/features/project/lib/format'
-import { tablesApi } from '@/shared/api/endpoints'
+import { pluralize, timeAgo } from '@/features/project/lib/format'
 import { errorMessage, isApiError } from '@/shared/api/http'
-import { qk } from '@/shared/api/queryKeys'
-import type { Column, DataTable, Row, RowFilter } from '@/shared/api/types'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/shared/components/ui/alert-dialog'
+import type { Column, DataTable, Row, RowPage } from '@/shared/api/types'
 import { Button } from '@/shared/components/ui/button'
 import { Checkbox } from '@/shared/components/ui/checkbox'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/shared/components/ui/dropdown-menu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/shared/components/ui/dropdown-menu'
 import { EmptyState } from '@/shared/components/ui/empty-state'
 import { Input } from '@/shared/components/ui/input'
 import { Kbd } from '@/shared/components/ui/kbd'
+import { Roll } from '@/shared/components/ui/roll'
 import { Skeleton } from '@/shared/components/ui/skeleton'
 import { Spinner } from '@/shared/components/ui/spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/shared/components/ui/table'
+import { Tip } from '@/shared/components/ui/tooltip'
+import { Tile } from '@/shared/components/ui/surface'
 import { cn } from '@/shared/lib/utils'
 import { displayValue, editText, formatStamp, isNumeric, parseEdit, rowErrors } from '../lib/cells'
 import { parseSort } from '../lib/filters'
+import { profileColumn, profileCreated, profileIds } from '../lib/profile'
 import { useDeleteRows, useInsertRow, usePatchRow } from '../useTableMutations'
+import { ColumnProfile } from './ColumnProfile'
 
 interface EditState {
   rowId: number
@@ -46,50 +41,87 @@ interface EditState {
   error?: string
 }
 
+type RowsQuery = UseInfiniteQueryResult<InfiniteData<RowPage, unknown>, Error>
+
+// the end-of-table dotted rule fades toward the page edge
+const DOT_RULE = 'h-px flex-1 bg-[radial-gradient(circle,var(--art-line)_.75px,transparent_1px)] bg-size-[6px_1px] bg-center bg-repeat-x' // design-ok: dotted rule texture
+const DOT_RULE_L = `${DOT_RULE} [mask-image:linear-gradient(90deg,transparent,#000_40%)]` // design-ok: fade mask
+const DOT_RULE_R = `${DOT_RULE} [mask-image:linear-gradient(270deg,transparent,#000_40%)]` // design-ok: fade mask
+
+const hasFiles = (e: DragEvent) => [...(e.dataTransfer?.types ?? [])].includes('Files')
+
 export function RowsGrid({
   table,
-  filter,
+  rows,
+  list,
+  count,
   filtered,
   onClearFilter,
   sort,
   onSort,
   adding,
   setAdding,
+  hidden,
+  toolbarLeft,
+  toolbarRight,
+  onWrote,
+  onImportFile,
+  onImport,
 }: {
   table: DataTable
-  filter: RowFilter | null
+  rows: RowsQuery
+  list: Row[]
+  count: number
   filtered: boolean
   onClearFilter: () => void
   sort: string | undefined
   onSort: (key: string) => void
   adding: boolean
   setAdding: (v: boolean) => void
+  /** column names hidden by the Columns menu (`id` and `created_at` included) */
+  hidden: string[]
+  toolbarLeft: React.ReactNode
+  toolbarRight: React.ReactNode
+  /** a row was written (inserted, edited or deleted): the lineage fires a packet */
+  onWrote: () => void
+  onImportFile: (f: File) => void
+  onImport: () => void
 }) {
   const { pid } = useProjectCtx()
   const columns = table.columns
-  const filterKey = filter ? JSON.stringify(filter) : null
-  const sortKey = sort || '-created_at'
-  const rows = useInfiniteQuery({
-    queryKey: qk.rows(pid, table.id, { filter: filterKey, sort: sortKey }),
-    queryFn: ({ pageParam }) =>
-      tablesApi.rows(pid, table.id, { limit: 50, cursor: pageParam, filter, sort: sortKey, count: true }),
-    initialPageParam: null as string | null,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-  })
-  const list = useMemo(() => {
-    const seen = new Set<number>()
-    return (rows.data?.pages ?? []).flatMap((p) => p.rows).filter((r) => (seen.has(r.id) ? false : (seen.add(r.id), true)))
-  }, [rows.data])
-  const count = rows.data?.pages[0]?.count ?? list.length
+  const shown = columns.filter((c) => !hidden.includes(c.name))
+  const showId = !hidden.includes('id')
+  const showCreated = !hidden.includes('created_at')
 
   const patch = usePatchRow(pid, table.id)
+  const insert = useInsertRow(pid, table.id)
+  const del = useDeleteRows(pid, table.id)
   const [edit, setEdit] = useState<EditState | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
-  const [confirmDelete, setConfirmDelete] = useState<number[] | null>(null)
-  const del = useDeleteRows(pid, table.id)
+
+  // only rows that are still listed stay selected
+  const selectedIds = useMemo(() => list.filter((r) => selected.has(r.id)).map((r) => r.id), [list, selected])
+
+  // new rows open with a flash (not the first page)
+  const seen = useRef<Set<number> | null>(null)
+  const [fresh, setFresh] = useState<Set<number>>(new Set())
+  useEffect(() => {
+    if (!rows.isSuccess) return
+    const ids = new Set(list.map((r) => r.id))
+    if (seen.current) {
+      const added = list.filter((r) => !seen.current!.has(r.id)).map((r) => r.id)
+      if (added.length && added.length <= 20) {
+        setFresh((f) => new Set([...f, ...added]))
+        setTimeout(() => setFresh((f) => new Set([...f].filter((x) => !added.includes(x)))), 600)
+      }
+    }
+    seen.current = ids
+  }, [list, rows.isSuccess])
 
   // infinite scroll
   const scrollRef = useRef<HTMLDivElement>(null)
+  // the header frosts once rows scroll under it
+  const [stuck, setStuck] = useState(false)
   const sentinel = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const el = sentinel.current
@@ -104,6 +136,51 @@ export function RowsGrid({
     return () => io.disconnect()
   }, [rows, list.length])
 
+  // a file dragged over the page turns the well into one drop target
+  const well = useRef<HTMLDivElement>(null)
+  const [drag, setDrag] = useState<'off' | 'on' | 'over'>('off')
+  useEffect(() => {
+    let depth = 0
+    const end = () => {
+      depth = 0
+      setDrag('off')
+    }
+    const enter = (e: DragEvent) => {
+      if (!hasFiles(e)) return
+      depth++
+      setDrag((d) => (d === 'off' ? 'on' : d))
+    }
+    const leave = (e: DragEvent) => {
+      if (!hasFiles(e)) return
+      if (--depth <= 0) end()
+    }
+    const over = (e: DragEvent) => {
+      if (!hasFiles(e)) return
+      e.preventDefault()
+      const on = !!well.current?.contains(e.target as Node)
+      setDrag(on ? 'over' : 'on')
+      if (e.dataTransfer) e.dataTransfer.dropEffect = on ? 'copy' : 'none'
+    }
+    const drop = (e: DragEvent) => {
+      if (!hasFiles(e)) return
+      e.preventDefault()
+      const on = !!well.current?.contains(e.target as Node)
+      end()
+      const f = e.dataTransfer?.files[0]
+      if (on && f) onImportFile(f)
+    }
+    document.addEventListener('dragenter', enter)
+    document.addEventListener('dragleave', leave)
+    document.addEventListener('dragover', over)
+    document.addEventListener('drop', drop)
+    return () => {
+      document.removeEventListener('dragenter', enter)
+      document.removeEventListener('dragleave', leave)
+      document.removeEventListener('dragover', over)
+      document.removeEventListener('drop', drop)
+    }
+  }, [onImportFile])
+
   const commit = (e: EditState) => {
     const row = list.find((r) => r.id === e.rowId)
     const col = columns.find((c) => c.name === e.column)
@@ -115,6 +192,7 @@ export function RowsGrid({
     patch.mutate(
       { id: row.id, data: { [col.name]: parsed.value } },
       {
+        onSuccess: onWrote,
         onError: (err) => {
           const errs = rowErrors(err)
           const msg = errs ? errs.find((x) => x.column === col.name)?.error ?? errs[0]?.error : errorMessage(err)
@@ -124,15 +202,68 @@ export function RowsGrid({
     )
   }
 
+  /** delete now; the toast's Undo inserts the same data again (new ids) */
+  const remove = (ids: number[]) => {
+    const snap = list.filter((r) => ids.includes(r.id))
+    if (!snap.length) return
+    del.mutate(ids, {
+      onSuccess: () => {
+        setSelected((s) => new Set([...s].filter((x) => !ids.includes(x))))
+        onWrote()
+        toast.success(snap.length === 1 ? `Deleted row ${snap[0].id}` : `Deleted ${snap.length} rows`, {
+          description: `From ${table.name}`,
+          action: {
+            label: 'Undo',
+            onClick: async () => {
+              let n = 0
+              for (const r of snap) {
+                try {
+                  await insert.mutateAsync(r.data)
+                  n++
+                  onWrote()
+                } catch (e) {
+                  toast.error(errorMessage(e))
+                  break
+                }
+              }
+              if (n) toast.success(n === 1 ? 'Restored 1 row' : `Restored ${n} rows`, { duration: 2400 })
+            },
+          },
+        })
+      },
+      onError: (e) => toast.error(errorMessage(e)),
+    })
+  }
+
+  const duplicate = (r: Row) =>
+    insert.mutate(r.data, {
+      onSuccess: (n) => {
+        onWrote()
+        toast.success(`Duplicated row ${r.id}`, { description: `Added as row ${n.id} at the top.` })
+      },
+      onError: (e) => toast.error(errorMessage(e)),
+    })
+
   const { key: sortCol, desc } = parseSort(sort)
-  const allSelected = list.length > 0 && list.every((r) => selected.has(r.id))
+  const allSelected = list.length > 0 && selectedIds.length === list.length
   const showGrid = list.length > 0 || adding
+  const sel = selectedIds.length
+
+  const profiles = useMemo(
+    () => ({
+      id: profileIds(list),
+      created: profileCreated(list),
+      cols: Object.fromEntries(columns.map((c) => [c.name, profileColumn(c, list)])),
+    }),
+    [list, columns],
+  )
 
   const header = (
-    <TableHeader className="sticky top-0 z-[1] bg-card">
-      <TableRow className="hover:bg-transparent">
-        <TableHead className="w-9 pr-0">
+    <TableHeader className={cn('sticky top-0 z-[1] transition-[backdrop-filter,background-color] duration-(--d-fast)', stuck && 'bg-(--glass-fill-hover) backdrop-blur-xl')}>
+      <TableRow className="border-b-0 hover:bg-transparent">
+        <TableHead className="h-9 w-10 pr-0 pl-6">
           <Checkbox
+            className="size-3.5"
             checked={allSelected}
             onCheckedChange={(c) => setSelected(c ? new Set(list.map((r) => r.id)) : new Set())}
             aria-label="Select all rows"
@@ -140,8 +271,8 @@ export function RowsGrid({
             data-testid="rows-select-all"
           />
         </TableHead>
-        <SortHead label="id" col="id" active={sortCol} desc={desc} onSort={onSort} className="w-[110px]" />
-        {columns.map((c) => (
+        {showId && <SortHead label="id" col="id" active={sortCol} desc={desc} onSort={onSort} className="w-[141px]" />}
+        {shown.map((c) => (
           <SortHead
             key={c.name}
             label={c.name}
@@ -149,178 +280,261 @@ export function RowsGrid({
             active={sortCol}
             desc={desc}
             onSort={onSort}
-            className={cn(isNumeric(c.type) && 'text-right')}
+            className={cn(isNumeric(c.type) ? 'w-[292px] text-right' : shown.indexOf(c) === 0 && 'w-[307px]')}
             right={isNumeric(c.type)}
           />
         ))}
-        <SortHead
-          label={
-            <>
-              created <span className="font-normal text-muted-foreground/80">· row metadata</span>
-            </>
-          }
-          col="created_at"
-          active={sortCol}
-          desc={desc}
-          onSort={onSort}
-          className="w-[210px]"
-        />
-        <TableHead className="w-11" />
+        {showCreated && (
+          <SortHead
+            label={
+              <>
+                created <span className="font-normal text-muted-foreground">· row metadata</span>
+              </>
+            }
+            col="created_at"
+            active={sortCol}
+            desc={desc}
+            onSort={onSort}
+          />
+        )}
+        <TableHead className="h-9 w-[52px] pr-4" />
+      </TableRow>
+      <TableRow className="hover:bg-transparent" data-testid="profile-row">
+        <TableHead className="h-9 w-10 pr-0 pl-6" />
+        {showId && (
+          <TableHead className="h-9 px-3 py-0 text-[11px] font-normal">
+            <ColumnProfile profile={profiles.id} testId="profile-id" />
+          </TableHead>
+        )}
+        {shown.map((c) => (
+          <TableHead key={c.name} className="h-9 px-3 py-0 text-[11px] font-normal">
+            <ColumnProfile profile={profiles.cols[c.name]} right={isNumeric(c.type)} testId={`profile-${c.name}`} />
+          </TableHead>
+        ))}
+        {showCreated && (
+          <TableHead className="h-9 px-3 py-0 text-[11px] font-normal">
+            <ColumnProfile profile={profiles.created} testId="profile-created_at" />
+          </TableHead>
+        )}
+        <TableHead className="h-9 w-[52px] pr-4" />
       </TableRow>
     </TableHeader>
   )
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div
-        ref={scrollRef}
-        className="min-h-0 flex-1 overflow-auto border-t border-border"
-        data-testid="data-panel"
-        data-scroll-x="allowed"
-      >
-        {rows.isPending ? (
-          <RowsSkeleton />
-        ) : rows.isError ? (
-          <EmptyState
-            title="Couldn't load rows"
-            data-testid="rows-error"
-            actions={
-              <>
-                {filtered && isApiError(rows.error, undefined, 422) && (
-                  <Button size="sm" variant="ghost" onClick={onClearFilter}>
-                    Clear filter
-                  </Button>
-                )}
-                <Button size="sm" variant="outline" onClick={() => rows.refetch()} data-testid="rows-retry">
-                  Retry
-                </Button>
-              </>
-            }
+      <div className="flex items-center gap-2 px-6 pb-2 text-xs text-muted-foreground min-h-10" data-testid="data-toolbar" data-selecting={sel > 0 || undefined}>
+        <div className="relative flex min-h-7 min-w-0 flex-1 items-center">
+          <div
+            className={cn(
+              'flex min-w-0 flex-1 items-center transition-[opacity,transform] duration-(--d-fast) ease-(--ease-out)',
+              sel > 0 && 'pointer-events-none opacity-0',
+            )}
+            {...(sel > 0 ? { inert: '' } : {})}
           >
-            {errorMessage(rows.error)}
-          </EmptyState>
-        ) : !showGrid ? (
-          filtered ? (
+            {toolbarLeft}
+          </div>
+          <div
+            className={cn(
+              'absolute inset-0 flex items-center gap-2 text-foreground transition-[opacity,transform] duration-(--d-fast) ease-(--ease-out)',
+              sel > 0 ? 'translate-y-0 opacity-100' : 'pointer-events-none translate-y-0.5 opacity-0',
+            )}
+            aria-live="polite"
+            data-testid="rows-selection-bar"
+            {...(sel > 0 ? {} : { inert: '' })}
+          >
+            <span className="pl-2 font-medium" data-testid="rows-selected-count">
+              {sel} selected
+            </span>
+            <span className="text-faint">·</span>
+            <Button variant="ghost" size="xs" className="text-destructive hover:bg-destructive-soft hover:text-destructive" onClick={() => remove(selectedIds)} data-testid="rows-delete-selected">
+              <Trash2 /> Delete
+            </Button>
+            <div className="flex-1" />
+            <Button variant="ghost" size="xs" className="text-muted-foreground" onClick={() => setSelected(new Set())} data-testid="rows-clear-selection">
+              Clear selection
+            </Button>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">{toolbarRight}</div>
+      </div>
+
+      <Tile ref={well} className="mx-2 flex min-h-[260px] flex-1 flex-col overflow-hidden rounded-well" data-testid="data-well" data-drag={drag}>
+        <div ref={scrollRef} className="flex min-h-0 flex-1 flex-col overflow-auto" onScroll={(e) => setStuck(e.currentTarget.scrollTop > 2)} data-testid="data-panel" data-scroll-x="allowed">
+          {rows.isPending ? (
+            <RowsSkeleton />
+          ) : rows.isError ? (
             <EmptyState
-              icon={<ListFilter />}
-              title="No rows match this filter."
-              data-testid="data-empty-filtered"
+              title="Couldn't load rows"
+              data-testid="rows-error"
               actions={
-                <Button size="sm" variant="outline" onClick={onClearFilter}>
-                  Clear filter
-                </Button>
-              }
-            />
-          ) : (
-            <EmptyState
-              icon={<Rows3 />}
-              title={
                 <>
-                  No rows yet. Your routes write here:{' '}
-                  <span className="font-mono font-normal">studio.db.table("{table.name}").insert(...)</span>
+                  {filtered && isApiError(rows.error, undefined, 422) && (
+                    <Button size="sm" variant="ghost" onClick={onClearFilter}>
+                      Clear filter
+                    </Button>
+                  )}
+                  <Button size="sm" variant="outline" onClick={() => rows.refetch()} data-testid="rows-retry">
+                    Retry
+                  </Button>
                 </>
               }
-              data-testid="data-empty"
-              actions={
-                <Button size="sm" variant="outline" onClick={() => setAdding(true)} data-testid="data-empty-add-row">
-                  Add row
-                </Button>
-              }
-            />
-          )
-        ) : (
-          <Table>
-            {header}
-            <TableBody>
-              {adding && <NewRow table={table} onDone={() => setAdding(false)} />}
-              {list.map((r) => (
-                <DataRow
-                  key={r.id}
-                  row={r}
-                  columns={columns}
-                  edit={edit?.rowId === r.id ? edit : null}
-                  setEdit={setEdit}
-                  commit={commit}
-                  selected={selected.has(r.id)}
-                  onSelect={(c) =>
-                    setSelected((s) => {
-                      const n = new Set(s)
-                      if (c) n.add(r.id)
-                      else n.delete(r.id)
-                      return n
-                    })
-                  }
-                  onDelete={() => setConfirmDelete([r.id])}
-                />
-              ))}
-            </TableBody>
-          </Table>
-        )}
-        <div ref={sentinel} className="h-px" />
-        {rows.isFetchingNextPage && (
-          <div className="flex justify-center py-3" data-testid="rows-loading-more">
-            <Spinner className="size-4" />
-          </div>
-        )}
-      </div>
-
-      <div className="flex min-h-[38px] items-center gap-2 border-t border-border px-4 py-2 text-xs text-muted-foreground" data-testid="data-footer">
-        <span data-testid="rows-count">
-          {rows.isSuccess
-            ? filtered
-              ? `${pluralize(count, 'row')} match · ${pluralize(table.row_count ?? count, 'row')} total`
-              : pluralize(count, 'row')
-            : '…'}
-        </span>
-        {selected.size > 0 ? (
-          <>
-            <span>· {selected.size} selected</span>
-            <Button variant="ghost" size="xs" className="text-destructive" onClick={() => setConfirmDelete([...selected])} data-testid="rows-delete-selected">
-              Delete
-            </Button>
-          </>
-        ) : edit ? (
-          <span>
-            · editing row <span className="font-mono">{edit.rowId}</span> · {edit.column} · <Kbd>⏎</Kbd> save · <Kbd>Esc</Kbd> cancel
-          </span>
-        ) : list.length > 0 ? (
-          <span>· double-click a cell to edit</span>
-        ) : null}
-        <div className="grow" />
-        <span className="font-mono text-[11.5px]" data-testid="data-snippet">
-          studio.db.table("{table.name}")
-        </span>
-      </div>
-
-      <AlertDialog open={!!confirmDelete} onOpenChange={(o) => !o && setConfirmDelete(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              Delete {confirmDelete?.length === 1 ? `row ${confirmDelete[0]}` : pluralize(confirmDelete?.length ?? 0, 'row')}?
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              Rows are shared by every environment and the published app. This can't be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              data-testid="rows-delete-confirm"
-              onClick={() => {
-                const ids = confirmDelete ?? []
-                del.mutate(ids, {
-                  onSuccess: () => setSelected((s) => new Set([...s].filter((x) => !ids.includes(x)))),
-                  onError: (e) => toast.error(errorMessage(e)),
-                  onSettled: () => setConfirmDelete(null),
-                })
-              }}
             >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+              {errorMessage(rows.error)}
+            </EmptyState>
+          ) : !showGrid ? (
+            filtered ? (
+              <EmptyState
+                dust
+                className="flex-1"
+                icon={<ListFilter />}
+                title="No rows match this filter."
+                data-testid="data-empty-filtered"
+                actions={
+                  <Button size="sm" variant="outline" onClick={onClearFilter}>
+                    Clear filter
+                  </Button>
+                }
+              />
+            ) : (
+              <EmptyState
+                dust
+                className="flex-1"
+                icon={<Rows3 />}
+                title={
+                  <>
+                    No rows yet. Your routes write here:{' '}
+                    <span className="font-mono font-normal">studio.db.table("{table.name}").insert(...)</span>
+                  </>
+                }
+                data-testid="data-empty"
+                actions={
+                  <>
+                    <Button size="sm" variant="outline" onClick={() => setAdding(true)} data-testid="data-empty-add-row">
+                      <Plus /> Add row
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={onImport} data-testid="data-empty-import">
+                      <FileUp /> Import CSV
+                    </Button>
+                  </>
+                }
+              />
+            )
+          ) : (
+            <>
+              <Table className="shrink-0">
+                {header}
+                <TableBody>
+                  {adding && <NewRow table={table} columns={shown} showId={showId} showCreated={showCreated} onDone={() => setAdding(false)} onWrote={onWrote} />}
+                  {list.map((r) => (
+                    <DataRow
+                      key={r.id}
+                      row={r}
+                      columns={shown}
+                      showId={showId}
+                      showCreated={showCreated}
+                      edit={edit?.rowId === r.id ? edit : null}
+                      setEdit={setEdit}
+                      commit={commit}
+                      fresh={fresh.has(r.id)}
+                      selected={selected.has(r.id)}
+                      onSelect={(c) =>
+                        setSelected((s) => {
+                          const n = new Set(s)
+                          if (c) n.add(r.id)
+                          else n.delete(r.id)
+                          return n
+                        })
+                      }
+                      onDelete={() => remove([r.id])}
+                      onDuplicate={() => duplicate(r)}
+                    />
+                  ))}
+                </TableBody>
+              </Table>
+              <div className="flex items-center gap-3 px-6 pt-5 pb-4 text-[12px] text-muted-foreground" data-testid="data-end">
+                <span className={DOT_RULE_L} />
+                <span className="inline-flex items-center gap-2 whitespace-nowrap" data-testid="rows-count">
+                  <span className="size-[5px] rounded-full shadow-[inset_0_0_0_1px_var(--art-line)]" />
+                  {rows.isSuccess ? (
+                    <span className="inline-flex">
+                      <Roll value={filtered ? count : count} />
+                      &nbsp;
+                      {filtered
+                        ? `${count === 1 ? 'row matches' : 'rows match'} · ${pluralize(table.row_count ?? count, 'row')} total`
+                        : rows.hasNextPage
+                          ? `${count === 1 ? 'row' : 'rows'} · ${list.length} loaded`
+                          : `${count === 1 ? 'row' : 'rows'} · that's everything`}
+                    </span>
+                  ) : (
+                    '…'
+                  )}
+                </span>
+                <Tip label="Add a row at the top" kbd="⌘↵">
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    className="text-muted-foreground hover:text-foreground"
+                    onClick={() => {
+                      scrollRef.current?.scrollTo({ top: 0 })
+                      setAdding(true)
+                    }}
+                    disabled={adding}
+                    data-testid="data-add-row-end"
+                  >
+                    <Plus /> Add row
+                  </Button>
+                </Tip>
+                <span className={DOT_RULE_R} />
+              </div>
+              <div className="min-h-24 flex-1" aria-hidden data-testid="data-dust" />
+            </>
+          )}
+          <div ref={sentinel} className="h-px shrink-0" />
+          {rows.isFetchingNextPage && (
+            <div className="flex justify-center py-3" data-testid="rows-loading-more">
+              <Spinner className="size-4" />
+            </div>
+          )}
+        </div>
+
+        <div
+          className={cn(
+            'pointer-events-none absolute inset-0 z-10 rounded-well bg-(--well) p-2 opacity-0 backdrop-blur-md transition-opacity duration-(--d-fast) ease-(--ease-out)',
+            drag !== 'off' && 'opacity-100',
+          )}
+          aria-hidden
+          data-testid="data-dropover"
+        >
+          <div className={cn('flex h-full flex-col items-center justify-center gap-1.5 rounded-well bg-recess text-center transition-colors duration-(--d-fast)', drag === 'over' && 'bg-brand-soft shadow-[inset_0_0_0_1.5px_var(--ring)]')}>
+            <span className={cn('mb-1 grid size-8 place-items-center rounded-ctl bg-raise text-muted-foreground shadow-raise-sm [&_svg]:size-[15px]', drag === 'over' && 'text-primary')}>
+              <FileUp />
+            </span>
+            <span className="text-[13px] font-medium text-foreground">
+              Drop a CSV to import into <span className="font-mono text-[12px]">{table.name}</span>
+            </span>
+            <span className="text-[12px] text-muted-foreground">
+              Columns are matched by name: {columns.slice(0, 3).map((c) => c.name).join(', ')}
+            </span>
+          </div>
+        </div>
+      </Tile>
+
+      <div className="mx-8 mt-1 mb-2 flex h-6 items-center gap-1.5 text-[12px] text-muted-foreground" data-testid="data-footer">
+        {edit ? (
+          <span>
+            Editing row <span className="font-mono">{edit.rowId}</span> · {edit.column} · <Kbd>⏎</Kbd> save · <Kbd>Esc</Kbd> cancel
+          </span>
+        ) : (
+          <span>{list.length > 0 ? 'Double-click a cell to edit' : ''}</span>
+        )}
+        <div className="grow" />
+        <Tip label="Read and write these rows from any route">
+          <span className="font-mono text-[11.5px]" data-testid="data-snippet">
+            studio.db.table("{table.name}")
+          </span>
+        </Tip>
+      </div>
     </div>
   )
 }
@@ -345,10 +559,10 @@ function SortHead({
   const on = active === col
   const Icon = desc ? ArrowDown : ArrowUp
   return (
-    <TableHead className={className} aria-sort={on ? (desc ? 'descending' : 'ascending') : undefined}>
+    <TableHead className={cn('h-9 px-3', className)} aria-sort={on ? (desc ? 'descending' : 'ascending') : undefined}>
       <button
         type="button"
-        className={cn('inline-flex items-center gap-1 hover:text-foreground', right && 'flex-row-reverse', on && 'text-foreground')}
+        className={cn('inline-flex items-center gap-1 outline-none hover:text-foreground focus-visible:text-foreground', right && 'flex-row-reverse', on && 'text-foreground')}
         onClick={() => onSort(col)}
         data-testid={`sort-${col}`}
       >
@@ -362,37 +576,48 @@ function SortHead({
 function DataRow({
   row,
   columns,
+  showId,
+  showCreated,
   edit,
   setEdit,
   commit,
   selected,
+  fresh,
   onSelect,
   onDelete,
+  onDuplicate,
 }: {
   row: Row
   columns: Column[]
+  showId: boolean
+  showCreated: boolean
   edit: EditState | null
   setEdit: (e: EditState | null) => void
   commit: (e: EditState) => void
   selected: boolean
+  fresh: boolean
   onSelect: (c: boolean) => void
   onDelete: () => void
+  onDuplicate: () => void
 }) {
+  const first = columns[0]
   return (
-    <TableRow data-testid="data-row" data-row-id={row.id} data-state={selected ? 'selected' : undefined}>
-      <TableCell className="pr-0">
-        <Checkbox checked={selected} onCheckedChange={(c) => onSelect(!!c)} aria-label={`Select row ${row.id}`} />
+    <TableRow data-testid="data-row" data-row-id={row.id} data-state={selected ? 'selected' : undefined} className={cn('group/row', fresh && 'animate-row-in')}>
+      <TableCell className="h-[38px] w-10 pr-0 pl-6">
+        <Checkbox className="size-3.5" checked={selected} onCheckedChange={(c) => onSelect(!!c)} aria-label={`Select row ${row.id}`} />
       </TableCell>
-      <TableCell className="font-mono text-muted-foreground" data-testid="cell-id">
-        {row.id}
-      </TableCell>
+      {showId && (
+        <TableCell className="h-[38px] px-3 font-mono text-muted-foreground" data-testid="cell-id">
+          {row.id}
+        </TableCell>
+      )}
       {columns.map((c) => {
         const editing = edit?.column === c.name
         const v = row.data[c.name]
         return (
           <TableCell
             key={c.name}
-            className={cn('max-w-[360px] cursor-default', isNumeric(c.type) && 'text-right tabular-nums', editing && 'py-1')}
+            className={cn('h-[38px] max-w-[360px] cursor-default px-3', isNumeric(c.type) && 'text-right tabular-nums', editing && 'py-1')}
             data-testid={`cell-${c.name}`}
             data-row-id={row.id}
             onDoubleClick={() => !editing && setEdit({ rowId: row.id, column: c.name, text: editText(v, c.type) })}
@@ -401,7 +626,7 @@ function DataRow({
             {editing ? (
               <CellEditor edit={edit!} column={c} setEdit={setEdit} commit={commit} />
             ) : v === null || v === undefined ? (
-              <span className="text-muted-foreground/60">—</span>
+              <span className="text-faint">—</span>
             ) : (
               <span className={cn('block truncate', (c.type === 'json' || c.type === 'boolean') && 'font-mono text-[12px]', c.type === 'json' && 'text-muted-foreground')}>
                 {displayValue(v, c.type)}
@@ -410,21 +635,53 @@ function DataRow({
           </TableCell>
         )
       })}
-      <TableCell className="text-muted-foreground" title={row.created_at}>
-        {formatStamp(row.created_at)}
-      </TableCell>
-      <TableCell className="px-2">
+      {showCreated && (
+        <TableCell className="h-[38px] px-3 text-muted-foreground" data-ts={row.created_at}>
+          <Tip label={formatStamp(row.created_at, true)}>
+            <span data-testid="cell-created">{timeAgo(row.created_at)}</span>
+          </Tip>
+        </TableCell>
+      )}
+      <TableCell className="h-[38px] w-[52px] pr-4 pl-0 text-right">
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
-              <Button variant="ghost" size="icon-xs" aria-label={`Row ${row.id} actions`} data-testid="row-menu">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="h-8 text-faint opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100 data-[popup-open]:opacity-100"
+                aria-label={`Row ${row.id} actions`}
+                data-testid="row-menu"
+              >
                 <Ellipsis />
               </Button>
             }
           />
-          <DropdownMenuContent align="end" className="min-w-36">
+          <DropdownMenuContent align="end" className="min-w-52">
+            {first && (
+              <DropdownMenuItem
+                onClick={() => setEdit({ rowId: row.id, column: first.name, text: editText(row.data[first.name], first.type) })}
+                data-testid="row-edit"
+              >
+                <Pencil /> Edit
+                <span className="ml-auto font-mono text-[11px] text-muted-foreground">{first.name}</span>
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem onClick={onDuplicate} data-testid="row-duplicate">
+              <Copy /> Duplicate
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => {
+                navigator.clipboard?.writeText(String(row.id)).catch(() => undefined)
+                toast.success(`Copied id ${row.id}`, { duration: 2400 })
+              }}
+              data-testid="row-copy-id"
+            >
+              <Hash /> Copy id
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem variant="destructive" onClick={onDelete} data-testid="row-delete">
-              Delete row
+              <Trash2 /> Delete
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -471,7 +728,7 @@ function CellEditor({
           if (!settled.current) commit(edit)
         }}
         placeholder={column.type === 'boolean' ? 'true / false' : column.type}
-        className={cn('h-7 min-w-[120px] text-[13px]', isNumeric(column.type) && 'w-[130px] text-right', column.type === 'json' && 'font-mono text-xs')}
+        className={cn('h-7 min-w-[120px] bg-raise text-[13px] shadow-[inset_0_0_0_1.5px_var(--ring)]', isNumeric(column.type) && 'w-[130px] text-right', column.type === 'json' && 'font-mono text-xs')}
         aria-invalid={!!edit.error}
         data-testid="cell-editor"
       />
@@ -484,7 +741,21 @@ function CellEditor({
   )
 }
 
-function NewRow({ table, onDone }: { table: DataTable; onDone: () => void }) {
+function NewRow({
+  table,
+  columns,
+  showId,
+  showCreated,
+  onDone,
+  onWrote,
+}: {
+  table: DataTable
+  columns: Column[]
+  showId: boolean
+  showCreated: boolean
+  onDone: () => void
+  onWrote: () => void
+}) {
   const { pid } = useProjectCtx()
   const insert = useInsertRow(pid, table.id)
   const [values, setValues] = useState<Record<string, string>>({})
@@ -507,6 +778,7 @@ function NewRow({ table, onDone }: { table: DataTable; onDone: () => void }) {
     insert.mutate(data, {
       onSuccess: () => {
         setValues({})
+        onWrote()
         onDone()
       },
       onError: (e) => {
@@ -524,14 +796,17 @@ function NewRow({ table, onDone }: { table: DataTable; onDone: () => void }) {
     })
   }
 
-  const messages = [
-    ...Object.entries(errors).map(([k, v]) => `${k}: ${v}`),
-    ...(general ? [general] : []),
-  ]
+  const messages = [...Object.entries(errors).map(([k, v]) => `${k}: ${v}`), ...(general ? [general] : [])]
+  const msg =
+    messages.length > 0 ? (
+      <span className="text-[12px] text-destructive" role="alert" data-testid="row-invalid">
+        {messages.join(' · ')}
+      </span>
+    ) : null
 
   return (
     <TableRow
-      className="bg-primary/4 hover:bg-primary/4"
+      className="bg-brand-soft hover:bg-brand-soft"
       data-testid="new-row"
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
@@ -544,10 +819,10 @@ function NewRow({ table, onDone }: { table: DataTable; onDone: () => void }) {
         }
       }}
     >
-      <TableCell />
-      <TableCell className="font-mono text-muted-foreground">new</TableCell>
-      {table.columns.map((c, i) => (
-        <TableCell key={c.name} className={cn('py-1', isNumeric(c.type) && 'text-right')}>
+      <TableCell className="h-[38px] w-10 pr-0 pl-6" />
+      {showId && <TableCell className="h-[38px] px-3 font-mono text-muted-foreground">new</TableCell>}
+      {columns.map((c, i) => (
+        <TableCell key={c.name} className={cn('h-[38px] px-3 py-1', isNumeric(c.type) && 'text-right')}>
           <Input
             autoFocus={i === 0}
             value={values[c.name] ?? ''}
@@ -560,20 +835,17 @@ function NewRow({ table, onDone }: { table: DataTable; onDone: () => void }) {
               })
             }}
             placeholder={c.name}
-            className={cn('h-7 min-w-[110px] text-[13px]', isNumeric(c.type) ? 'ml-auto w-[130px] text-right' : 'max-w-[240px]', c.type === 'json' && 'font-mono text-xs')}
+            className={cn('h-7 min-w-[110px] bg-raise text-[13px]', isNumeric(c.type) ? 'ml-auto w-[130px] text-right' : 'max-w-[240px]', c.type === 'json' && 'font-mono text-xs')}
             aria-invalid={!!errors[c.name]}
             data-testid={`new-row-${c.name}`}
           />
         </TableCell>
       ))}
-      <TableCell className="whitespace-normal py-1">
-        {messages.length > 0 && (
-          <span className="text-[12px] text-destructive" role="alert" data-testid="row-invalid">
-            {messages.join(' · ')}
-          </span>
-        )}
-      </TableCell>
-      <TableCell className="px-2 py-1">
+      {showCreated && (
+        <TableCell className="h-[38px] px-3 py-1 whitespace-normal">{msg}</TableCell>
+      )}
+      <TableCell className="h-[38px] w-[52px] pr-4 pl-0 py-1 text-right">
+        {!showCreated && msg}
         <Button size="xs" onClick={save} disabled={insert.isPending} data-testid="new-row-save">
           Save
         </Button>
@@ -586,8 +858,8 @@ function RowsSkeleton() {
   return (
     <div className="flex flex-col" data-testid="data-loading">
       {Array.from({ length: 8 }).map((_, i) => (
-        <div key={i} className="flex h-[42px] items-center gap-6 border-b border-border/65 px-4">
-          <Skeleton className="size-3.5 rounded" />
+        <div key={i} className="hairline-b flex h-[38px] items-center gap-6 px-6">
+          <Skeleton className="size-3.5 rounded-chip" />
           <Skeleton className="h-3 w-12" />
           <Skeleton className="h-3 w-48" />
           <div className="grow" />

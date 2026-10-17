@@ -8,6 +8,8 @@ import { useRef, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronRight, Code2, Workflow } from 'lucide-react'
+import { Well } from '@/shared/components/ui/surface'
+import { GhostCopy } from './GhostCopy'
 import { useProjectCtx } from '@/features/project/ProjectContext'
 import { useModules, useRoutes } from '@/features/project/hooks/useProjectData'
 import { formatMs, timeAgo } from '@/features/project/lib/format'
@@ -23,6 +25,7 @@ import { MethodBadge } from '@/shared/components/api/MethodBadge'
 import { RunErrorBox } from './RunErrorBox'
 import { TraceWaterfall } from './TraceWaterfall'
 import { BrokerFix } from './BrokerFix'
+import { exactTime } from '../lib/runStats'
 import { isRunning, runError, runTarget, shortId, triggerType } from '../lib/runLabels'
 import type { RunDetail } from '@/shared/api/types'
 import { cn } from '@/shared/lib/utils'
@@ -35,8 +38,8 @@ export function RunSheet({ executionId, onClose }: { executionId: string | undef
         side="right"
         showCloseButton
         initialFocus={focusRef}
-        overlayClassName="bg-black/[0.04] supports-backdrop-filter:backdrop-blur-none"
-        className="gap-0 overflow-hidden rounded-xl border border-panel-border bg-card p-0 data-[side=right]:inset-y-3 data-[side=right]:right-3 data-[side=right]:h-auto data-[side=right]:w-[580px] data-[side=right]:max-w-[calc(100vw-24px)] data-[side=right]:sm:max-w-[580px]"
+        overlayClassName="bg-transparent supports-backdrop-filter:backdrop-blur-none"
+        className="gap-0 overflow-hidden rounded-xl p-0 data-[side=right]:inset-y-3 data-[side=right]:right-3 data-[side=right]:h-auto data-[side=right]:w-[580px] data-[side=right]:max-w-[calc(100vw-24px)] data-[side=right]:sm:max-w-[580px]"
         data-testid="run-sheet"
       >
         <div ref={focusRef} tabIndex={-1} className="flex min-h-0 flex-1 flex-col outline-none">
@@ -137,7 +140,7 @@ function RunDetailView({ run }: { run: RunDetail }) {
 
   return (
     <>
-      <div className="border-b border-border px-5 pt-4 pb-3 pr-12">
+      <div className="hairline-b px-5 pt-4 pb-3 pr-12">
         <div className="flex min-w-0 items-center gap-2.5">
           <span
             data-testid="run-status"
@@ -170,35 +173,51 @@ function RunDetailView({ run }: { run: RunDetail }) {
             )}
           </SheetTitle>
         </div>
-        <SheetDescription
-          render={<div />}
-          className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11.5px] text-muted-foreground"
-        >
-          <span title={run.id} data-testid="run-id">
-            {shortId(run.id)}
+        <SheetDescription render={<div />} className="sr-only">
+          Run {run.id}
+        </SheetDescription>
+        <Well className="mt-3 grid grid-cols-[64px_minmax(0,1fr)_64px_minmax(0,1fr)] items-center gap-x-3 gap-y-1.5 px-3 py-2.5 text-[12px]" data-testid="run-meta">
+          <span className="text-muted-foreground">Run</span>
+          <span className="flex min-w-0 items-center gap-1 font-mono text-[11.5px]">
+            <span className="truncate" title={run.id} data-testid="run-id">
+              {shortId(run.id)}
+            </span>
+            <GhostCopy text={run.id} what="run ID" testId="run-copy-id" className="size-5" />
           </span>
-          <span data-testid="run-trigger">{triggerType(run)}</span>
-          {run.environment && <span data-testid="run-env">{run.environment}</span>}
+          <span className="text-muted-foreground">Trigger</span>
+          <span className="truncate font-mono text-[11.5px]" data-testid="run-trigger">
+            {triggerType(run)}
+          </span>
+          <span className="text-muted-foreground">Env</span>
+          <span className="truncate font-mono text-[11.5px]" data-testid="run-env">
+            {run.environment ?? '—'}
+          </span>
+          <span className="text-muted-foreground">Duration</span>
           <span className="tabular-nums" data-testid="run-duration">
             {isRunning(run.status) ? 'running…' : formatMs(run.duration_ms)}
           </span>
-          <span>{timeAgo(run.start_time)}</span>
-          {releaseId && (
-            <span data-testid="run-release">{releaseNo != null ? `release #${releaseNo}` : 'release'}</span>
-          )}
-          <span className="grow" />
-          {editor && (
-            <Link
-              to="/p/$project/backend/$module"
-              params={{ project: slug, module: editor.module }}
-              search={editor.line != null ? { line: editor.line } : {}}
-              className="inline-flex items-center gap-1 font-sans text-xs font-medium text-muted-foreground hover:text-foreground"
-              data-testid="run-open-editor"
-            >
-              <Code2 className="size-3.5" /> Open in editor
-            </Link>
-          )}
-        </SheetDescription>
+          <span className="text-muted-foreground">Started</span>
+          <span className="truncate" title={exactTime(run.start_time)}>
+            {exactTime(run.start_time)} · {timeAgo(run.start_time)}
+          </span>
+          {releaseId ? (
+            <>
+              <span className="text-muted-foreground">Release</span>
+              <span data-testid="run-release">{releaseNo != null ? `release #${releaseNo}` : 'release'}</span>
+            </>
+          ) : null}
+        </Well>
+        {editor && (
+          <Link
+            to="/p/$project/backend/$module"
+            params={{ project: slug, module: editor.module }}
+            search={editor.line != null ? { line: editor.line } : {}}
+            className="mt-2.5 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+            data-testid="run-open-editor"
+          >
+            <Code2 className="size-3.5" /> Open in editor
+          </Link>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4" data-testid="run-sheet-panel">
@@ -207,6 +226,7 @@ function RunDetailView({ run }: { run: RunDetail }) {
             <RunErrorBox
               error={err}
               onGoToLine={err.module || routeModule ? goToLine : undefined}
+              onOpenFrame={(m, line) => goToLine(line, m)}
               goToLabel={err.line != null ? `${err.module ?? routeModule}.py line ${err.line}` : undefined}
             />
           )}
@@ -220,7 +240,9 @@ function RunDetailView({ run }: { run: RunDetail }) {
               defaultOpen
               testId="run-trace"
             >
-              <TraceWaterfall trace={trace} renderFix={(c) => <BrokerFix call={c} environment={run.environment} />} />
+              <Well className="p-3">
+              <TraceWaterfall trace={trace} startedAt={run.start_time} renderFix={(c) => <BrokerFix call={c} environment={run.environment} />} />
+              </Well>
             </Section>
           )}
 
@@ -316,10 +338,10 @@ function oneLine(v: unknown): string {
   return s.length > 90 ? `${s.slice(0, 90)}…` : s
 }
 
-function Pre({ children, testId }: { children: React.ReactNode; testId?: string }) {
+function Pre({ children, testId, bare }: { children: React.ReactNode; testId?: string; bare?: boolean }) {
   return (
     <pre
-      className="max-h-64 overflow-auto rounded-md bg-code-bg px-2.5 py-2 font-mono text-[11.5px] leading-[18px] whitespace-pre-wrap break-words"
+      className={cn(bare ? 'mt-0.5' : 'well p-2.5', ' max-h-64 overflow-auto font-mono text-[11.5px] leading-[18px] whitespace-pre-wrap break-words')}
       data-scroll-x="allowed"
       data-testid={testId}
     >
@@ -334,7 +356,7 @@ function KeyValues({ value }: { value: unknown }) {
   if (typeof value !== 'object' || Array.isArray(value)) return <Pre>{pretty(value)}</Pre>
   const entries = Object.entries(value as Record<string, unknown>).filter(([k]) => k !== 'truncated')
   return (
-    <div className="grid grid-cols-[90px_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-[12px]">
+    <Well className="grid grid-cols-[90px_minmax(0,1fr)] gap-x-3 gap-y-1.5 p-3 text-[12px]">
       {entries.map(([k, v]) => {
         const simple = v == null || typeof v !== 'object'
         const flat =
@@ -353,12 +375,12 @@ function KeyValues({ value }: { value: unknown }) {
                       .join(' · ')}
               </div>
             ) : (
-              <Pre>{pretty(v)}</Pre>
+              <Pre bare>{pretty(v)}</Pre>
             )}
           </div>
         )
       })}
-    </div>
+    </Well>
   )
 }
 

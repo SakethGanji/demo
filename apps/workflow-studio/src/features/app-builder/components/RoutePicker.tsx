@@ -37,7 +37,7 @@ export function RouteChecklist({
           <label
             key={r.id}
             className={cn(
-              'flex h-[30px] items-center gap-2 rounded-md px-1.5 hover:bg-muted',
+              'flex h-[30px] cursor-pointer items-center gap-2 rounded-ctl px-1.5 hover:bg-(--hover-fill)',
               serverOnly && 'cursor-not-allowed opacity-60 hover:bg-transparent',
             )}
             data-testid={`${testIdPrefix}-${r.name}`}
@@ -89,8 +89,8 @@ export function RoutePicker({
         disabled={disabled}
         data-testid="builder-routes-chip"
         className={cn(
-          'inline-flex h-6 items-center gap-1 rounded-full border border-border bg-background px-2 text-[11.5px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50',
-          open && 'border-ring text-foreground ring-3 ring-ring/30',
+          'inline-flex h-6 items-center gap-1 rounded-full bg-recess px-2 text-[11.5px] font-medium text-muted-foreground transition-colors hover:bg-(--hover-fill) hover:text-foreground focus-visible:shadow-focus disabled:opacity-50',
+          open && 'text-foreground shadow-focus',
         )}
       >
         <Plug className="size-3" />
@@ -115,7 +115,7 @@ export function RoutePicker({
             {error}
           </div>
         )}
-        <div className="flex items-center gap-2 border-t border-border px-3 py-2">
+        <div className="flex items-center gap-2 px-3 py-2 shadow-[inset_0_1px_0_var(--hairline)]">
           <span className="flex-1 text-[11.5px] leading-4 text-muted-foreground">
             The AI always sees every route; checked ones are its focus.
           </span>

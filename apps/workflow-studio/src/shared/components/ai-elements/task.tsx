@@ -18,7 +18,7 @@ export const TaskItemFile = ({
 }: TaskItemFileProps) => (
   <div
     className={cn(
-      "inline-flex items-center gap-1 rounded-md border bg-secondary px-1.5 py-0.5 text-foreground text-xs",
+      "inline-flex items-center gap-1 rounded-chip bg-recess px-1.5 py-0.5 text-foreground text-xs",
       className
     )}
     {...props}
@@ -80,7 +80,7 @@ export const TaskContent = ({
     )}
     {...props}
   >
-    <div className="mt-4 space-y-2 border-muted border-l-2 pl-4">
+    <div className="mt-4 space-y-2 pl-4 shadow-[inset_2px_0_0_var(--hairline)]">
       {children}
     </div>
   </CollapsibleContent>

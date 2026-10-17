@@ -14,7 +14,7 @@ export function ProjectWorkflowEditor() {
   const setProject = useEditorProjectStore((s) => s.setProject)
   const ready = useEditorProjectStore((s) => s.projectId === project.id)
   useEffect(() => {
-    setProject(project.id, project.slug, project.environments.map((e) => e.name))
+    setProject(project.id, project.slug, project.environments.map((e) => e.name), project.name)
   }, [project, setProject])
   useEffect(() => {
     if (workflowId === 'new') useWorkflowStore.getState().resetWorkflow()

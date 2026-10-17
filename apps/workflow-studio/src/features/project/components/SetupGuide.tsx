@@ -12,6 +12,7 @@ import { useRoutes, useModules } from '../hooks/useProjectData'
 import { moduleNameOf } from '../lib/routes'
 import { useCreateSecrets } from '@/features/secrets/useSecretMutations'
 import { Badge } from '@/shared/components/ui/badge'
+import { Tile, Well } from '@/shared/components/ui/surface'
 import { Button } from '@/shared/components/ui/button'
 import { Checkbox } from '@/shared/components/ui/checkbox'
 import { ChipsInput } from '@/shared/components/ui/chips-input'
@@ -45,38 +46,41 @@ export const STARTERS = [
 export function SetupGuide({ setup }: { setup: SetupState }) {
   const { project, slug } = useProjectCtx()
   return (
-    <div className="h-full overflow-y-auto rounded-xl border border-panel-border bg-card shadow-xs" data-testid="setup-guide">
-      <div className="mx-auto max-w-[760px] px-8 pb-12 pt-9">
-        <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-          <span>
-            New project · {slug}
-          </span>
-          <span className="flex items-center gap-2 normal-case tracking-normal" data-testid="setup-progress">
+    <div className="h-full overflow-y-auto px-8 py-7" data-testid="setup-guide">
+      <div className="mx-auto max-w-[760px]">
+        <div className="flex items-center justify-between text-[12.5px] text-muted-foreground">
+          <span>New project · {slug}</span>
+          <span className="flex items-center gap-2" data-testid="setup-progress">
             {setup.done} of 4
             <span className="flex gap-1">
               {[0, 1, 2, 3].map((i) => (
-                <span key={i} className={cn('h-1 w-6 rounded-full', i < setup.done ? 'bg-primary' : 'bg-border')} />
+                <span key={i} className={cn('h-1 w-6 rounded-full transition-colors duration-(--d-base)', i < setup.done ? 'bg-primary' : 'bg-foreground/12')} />
               ))}
             </span>
           </span>
         </div>
-        <h1 className="mt-3 text-[22px] font-semibold tracking-[-0.015em]">Set up {project.name}</h1>
-        <p className="mt-1 text-[13px] text-muted-foreground">
+        <h1 className="mt-3 text-title leading-[1.1] font-[650] tracking-[-0.03em]">Set up {project.name}</h1>
+        <p className="mt-1.5 text-[13px] text-muted-foreground">
           Four steps from nothing to a live app. Steps 1–2 can be done in any order; 3–4 unlock once a route exists.
         </p>
 
-        <div className="mt-6 divide-y divide-border overflow-hidden rounded-xl border border-border">
-          <SecretStep setup={setup} />
-          <GenerateStep done={setup.steps.module} />
-          <TestStep setup={setup} />
-          <UiStep setup={setup} />
-        </div>
+        <Tile className="mt-6 p-2">
+          <Well className="flex flex-col p-1.5">
+            <SecretStep setup={setup} />
+            <GenerateStep done={setup.steps.module} />
+            <TestStep setup={setup} />
+            <UiStep setup={setup} />
+          </Well>
+        </Tile>
         <p className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
-          <Workflow className="size-3.5" /> Prefer a visual canvas? Routes can also be handled by a{' '}
-          <Link to="/p/$project/workflows" params={{ project: slug }} className="text-primary hover:underline">
-            workflow
-          </Link>
-          .
+          <Workflow className="size-3.5 shrink-0 text-hue-flow" />
+          <span>
+            Prefer a visual canvas? Routes can also be handled by a{' '}
+            <Link to="/p/$project/workflows" params={{ project: slug }} className="text-primary hover:underline">
+              workflow
+            </Link>
+            .
+          </span>
         </p>
       </div>
     </div>
@@ -86,6 +90,7 @@ export function SetupGuide({ setup }: { setup: SetupState }) {
 function StepHead({
   n,
   done,
+  current,
   title,
   extra,
   right,
@@ -93,6 +98,8 @@ function StepHead({
 }: {
   n: number
   done: boolean
+  /** the step to do next */
+  current?: boolean
   title: string
   extra?: React.ReactNode
   right?: React.ReactNode
@@ -102,17 +109,21 @@ function StepHead({
     <div className="flex gap-3">
       <span
         className={cn(
-          'mt-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold',
-          done ? 'border-success bg-success text-white' : 'border-border text-muted-foreground',
+          'mt-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold [&_svg]:size-3 [&_svg]:stroke-[2.5]',
+          done
+            ? 'bg-success text-primary-foreground'
+            : current
+              ? 'bg-primary text-primary-foreground shadow-[0_0_0_4px_var(--brand-soft)]'
+              : 'bg-recess text-muted-foreground shadow-[inset_0_0_0_1px_var(--input)]',
         )}
         data-testid={`setup-step-${n}-state`}
         data-done={done ? 'true' : 'false'}
       >
-        {done ? <Check className="size-3.5" /> : n}
+        {done ? <Check /> : n}
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="text-[14px] font-semibold">{title}</span>
+          <span className="text-[13.5px] font-semibold tracking-[-0.01em]">{title}</span>
           {extra}
           <div className="flex-1" />
           {right}
@@ -135,10 +146,11 @@ function SecretStep({ setup }: { setup: SetupState }) {
   const create = useCreateSecrets(pid)
   const done = setup.steps.secret
   return (
-    <section className={cn('px-5 py-4', !done && 'bg-primary/[0.03]')} data-testid="setup-step-1">
+    <section className="rounded-ctl px-3 py-3.5" data-testid="setup-step-1">
       <StepHead
         n={1}
         done={done}
+        current={!done}
         title="Add a secret"
         extra={<Badge variant="secondary">optional</Badge>}
         right={
@@ -242,10 +254,11 @@ function GenerateStep({ done }: { done: boolean }) {
       search: { prompt: prompt.trim(), generate: 1 },
     })
   return (
-    <section className="px-5 py-4" data-testid="setup-step-2">
+    <section className="rounded-ctl px-3 py-3.5" data-testid="setup-step-2">
       <StepHead
         n={2}
         done={done}
+        current={!done}
         title="Generate your backend"
         extra={
           <Badge variant="ai">
@@ -257,7 +270,7 @@ function GenerateStep({ done }: { done: boolean }) {
           Describe the API. You get a Python module using node functions — routes appear when you save.
         </p>
         {!done && (
-          <div className="mt-3 rounded-xl border border-border bg-background p-3 focus-within:border-ai/60">
+          <div className="mt-3 rounded-ctl bg-raise p-3 shadow-raise-sm transition-shadow duration-(--d-fast) focus-within:shadow-focus">
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
@@ -274,7 +287,7 @@ function GenerateStep({ done }: { done: boolean }) {
             />
             <div className="mt-2 flex flex-wrap items-center gap-2">
               {STARTERS.map((s) => (
-                <Button key={s.key} variant="outline" size="sm" className="rounded-full" onClick={() => setPrompt(s.prompt)} data-testid={`starter-${s.key}`}>
+                <Button key={s.key} variant="outline" size="sm" onClick={() => setPrompt(s.prompt)} data-testid={`starter-${s.key}`}>
                   <s.icon /> {s.label}
                 </Button>
               ))}
@@ -314,10 +327,11 @@ function TestStep({ setup }: { setup: SetupState }) {
   const first = routes.data?.[0]
   const m = first ? moduleNameOf(first, modules.data) : null
   return (
-    <section className={cn('px-5 py-4', !setup.hasRoute && 'opacity-80')} data-testid="setup-step-3">
+    <section className={cn('rounded-ctl px-3 py-3.5', !setup.hasRoute && 'opacity-70')} data-testid="setup-step-3">
       <StepHead
         n={3}
         done={setup.steps.test}
+        current={setup.hasRoute && !setup.steps.test}
         title="Test a route"
         right={
           !setup.hasRoute ? (
@@ -351,10 +365,11 @@ function UiStep({ setup }: { setup: SetupState }) {
   const { slug } = useProjectCtx()
   const navigate = useNavigate()
   return (
-    <section className={cn('px-5 py-4', !setup.hasRoute && 'opacity-80')} data-testid="setup-step-4">
+    <section className={cn('rounded-ctl px-3 py-3.5', !setup.hasRoute && 'opacity-70')} data-testid="setup-step-4">
       <StepHead
         n={4}
         done={setup.steps.app}
+        current={setup.hasRoute && !setup.steps.app}
         title="Create a UI from the backend"
         right={
           !setup.hasRoute ? (

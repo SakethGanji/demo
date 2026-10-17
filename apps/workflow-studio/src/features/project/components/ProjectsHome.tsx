@@ -1,28 +1,43 @@
 /**
- * Projects home (UI-DESIGN §2.1, `home.png`): project cards with health, base URL, the first
- * four routes (the Default project lists its workflows), counts and a ⋯ menu.
+ * Projects home (DESIGN §1, `design/projects.html`): the home sky behind a glass top bar, the greeting with a
+ * three-figure stats strip, glass project cards (system diagram + 24h activity), a "New project" tile and
+ * the "Start something new" templates. No warning banner: a missing secret shows in the line under the
+ * greeting and in Needs attention.
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AppWindow, ArrowUpDown, KeyRound, ListChecks, MoreHorizontal, Plus, Rocket, Route as RouteIcon, Search, Sparkles, Workflow } from 'lucide-react'
+import { AppWindow, ArrowRight, ArrowUpDown, KeyRound, ListChecks, MoreHorizontal, Plus, Route as RouteIcon, Search, Sparkles, Workflow } from 'lucide-react'
 import { toast } from 'sonner'
-import { projectsApi, routesApi } from '@/shared/api/endpoints'
+import { projectsApi, routesApi, tablesApi } from '@/shared/api/endpoints'
 import { isApiError, errorMessage } from '@/shared/api/http'
 import { invalidate, qk } from '@/shared/api/queryKeys'
 import type { ProjectListItem } from '@/shared/api/types'
-import { useProjects, useProjectSummary } from '../hooks/useProjectData'
+import { useProjects } from '../hooks/useProjectData'
 import { timeAgo, pluralize } from '../lib/format'
 import { sortRoutes } from '../lib/routes'
-import { Brand, ThemeToggle } from './ProjectTopBar'
+import { Brand, BrandMark, ThemeToggle, TopBarFrame } from './TopBar'
+import { ProjectAvatar } from './ProjectTopBar'
 import { NewProjectDialog } from './NewProjectDialog'
-import { MethodBadge } from '@/shared/components/api/MethodBadge'
+import { CardDiagram } from '../home/CardDiagram'
+import { BlueprintArt, EmptyOrbitArt, TemplateArt } from '../home/art'
+import { HOME_TEMPLATES, type HomeTemplate } from '../home/templates'
+import { greeting, isDefaultProject, useActivityBuckets, useAppCounts, useMissingByProject, type MissingInfo } from '../home/useHomeData'
+import { useStartProject } from '../home/useStartProject'
+import { HomeSky } from '@/shared/components/space/HomeSky'
 import { Badge } from '@/shared/components/ui/badge'
 import { Button } from '@/shared/components/ui/button'
+import { Kbd } from '@/shared/components/ui/kbd'
+import { Roll } from '@/shared/components/ui/roll'
 import { Segmented } from '@/shared/components/ui/segmented'
 import { Skeleton } from '@/shared/components/ui/skeleton'
 import { StatusDot } from '@/shared/components/ui/status-dot'
 import { EmptyState } from '@/shared/components/ui/empty-state'
+import { Sparkline } from '@/shared/components/ui/charts'
+import { Textarea } from '@/shared/components/ui/textarea'
+import { Tip } from '@/shared/components/ui/tooltip'
+import { Tile, Well } from '@/shared/components/ui/surface'
+import { cn } from '@/shared/lib/utils'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -43,9 +58,11 @@ import { Input } from '@/shared/components/ui/input'
 
 type Filter = 'all' | 'healthy' | 'attention'
 
-function needsAttention(p: ProjectListItem) {
-  return p.health.status === 'degraded' || p.health.status === 'failing'
+function needsAttention(p: ProjectListItem, missing = 0) {
+  return p.health.status === 'degraded' || p.health.status === 'failing' || missing > 0
 }
+
+const today = () => new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
 
 export function ProjectsHome() {
   const projects = useProjects()
@@ -53,11 +70,33 @@ export function ProjectsHome() {
   const [query, setQuery] = useState('')
   const [recentFirst, setRecentFirst] = useState(true)
   const [newOpen, setNewOpen] = useState(false)
+  const searchRef = useRef<HTMLInputElement>(null)
+  const start = useStartProject()
+
+  const all = useMemo(() => projects.data ?? [], [projects.data])
+  const missing = useMissingByProject(all)
+  const activity = useActivityBuckets(all)
+  const appCounts = useAppCounts(all)
+
+  // "/" focuses the search, Esc leaves it
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null
+      const typing = !!t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName))
+      if (e.key === '/' && !typing && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault()
+        searchRef.current?.focus()
+        searchRef.current?.select()
+      } else if (e.key === 'Escape' && t === searchRef.current) searchRef.current?.blur()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [])
 
   const list = useMemo(() => {
-    let xs = [...(projects.data ?? [])]
-    if (filter === 'healthy') xs = xs.filter((p) => p.health.status === 'ok' || p.health.status === 'healthy')
-    if (filter === 'attention') xs = xs.filter(needsAttention)
+    let xs = [...all]
+    if (filter === 'healthy') xs = xs.filter((p) => (p.health.status === 'ok' || p.health.status === 'healthy') && !missing[p.id])
+    if (filter === 'attention') xs = xs.filter((p) => needsAttention(p, missing[p.id]?.count))
     if (query.trim()) {
       const q = query.toLowerCase()
       xs = xs.filter((p) => p.name.toLowerCase().includes(q) || p.slug.includes(q))
@@ -65,56 +104,122 @@ export function ProjectsHome() {
     const t = (p: ProjectListItem) => new Date(p.last_run?.start_time ?? p.updated_at).getTime()
     xs.sort((a, b) => (recentFirst ? t(b) - t(a) : a.name.localeCompare(b.name)))
     // the Default project always sorts after real projects
-    xs.sort((a, b) => Number(a.id === 'proj_default') - Number(b.id === 'proj_default'))
+    xs.sort((a, b) => Number(isDefaultProject(a)) - Number(isDefaultProject(b)))
     return xs
-  }, [projects.data, filter, query, recentFirst])
+  }, [all, filter, query, recentFirst, missing])
 
-  const all = projects.data ?? []
+  const runs24 = all.reduce((n, p) => n + p.health.runs_24h, 0)
+  const failed24 = all.reduce((n, p) => n + p.health.failed_24h, 0)
+  const missingList = Object.values(missing)
+  const missingTotal = missingList.reduce((n, m) => n + m.count, 0)
+  const firstMissing: MissingInfo | undefined = missingList[0]
+  const attnProjects = all.filter((p) => !missing[p.id] && needsAttention(p)).length
+  const attnCount = missingTotal + attnProjects
+  const attnSub = attnCount === 0 ? 'all clear' : attnProjects === 0 ? (missingTotal === 1 ? 'secret' : 'secrets') : missingTotal === 0 ? (attnProjects === 1 ? 'project' : 'projects') : 'items'
+  const realCount = all.filter((p) => !isDefaultProject(p)).length || all.length
+
   return (
-    <div className="relative h-full w-full overflow-y-auto bg-canvas" data-testid="projects-home">
-      <header className="sticky top-3 z-20 mx-3 mt-3 flex h-11 items-center gap-2 rounded-xl border border-panel-border bg-card/82 pl-2.5 pr-2 shadow-lg backdrop-blur-xl">
+    <div className="relative h-full w-full overflow-y-auto" data-testid="projects-home">
+      <HomeSky />
+      <TopBarFrame position="sticky" className="gap-2">
         <Brand />
-        <span className="mx-1 h-4 w-px bg-border" />
-        <Search className="size-3.5 text-muted-foreground" />
+        <span className="mx-1 h-4 w-px bg-hairline" aria-hidden />
+        <Search className="size-3.5 shrink-0 text-muted-foreground" />
         <input
+          ref={searchRef}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search projects…"
-          className="h-8 flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground/80"
+          aria-label="Search projects"
+          className="h-8 min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground/80"
           data-testid="projects-search"
         />
+        <Tip label="Focus search" kbd="/">
+          <span className="inline-flex">
+            <Kbd>/</Kbd>
+          </span>
+        </Tip>
         <Button variant="ghost" size="sm" onClick={() => setRecentFirst((v) => !v)} data-testid="projects-sort">
           <ArrowUpDown /> {recentFirst ? 'Recent' : 'Name'}
         </Button>
         <ThemeToggle />
-        <span className="mx-1 h-4 w-px bg-border" />
+        <span className="mx-1 h-4 w-px bg-hairline" aria-hidden />
         <Button size="sm" onClick={() => setNewOpen(true)} data-testid="new-project">
           <Plus /> New project
         </Button>
-      </header>
+      </TopBarFrame>
 
-      <main className="mx-auto max-w-[1176px] px-6 pb-16 pt-10">
-        <div className="flex items-end justify-between gap-4">
-          <div>
-            <h1 className="text-[22px] font-semibold tracking-[-0.015em]">Projects</h1>
-            <p className="mt-1 text-[13px] text-muted-foreground">Each project has a Python backend, its data, and the apps built on it.</p>
+      <main className="relative z-10 mx-auto max-w-[1176px] px-6 pt-10 pb-16">
+        <section className="flex flex-wrap items-end justify-between gap-x-6 gap-y-5" data-testid="home-hero">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
+              <BrandMark className="size-[18px]" />
+              Command Studio
+              <span className="opacity-45">·</span>
+              <span>{today()}</span>
+            </div>
+            <h1 className="mt-2.5 text-[30px] leading-[1.15] font-[650] tracking-[-0.032em] whitespace-nowrap">{greeting()}</h1>
+            <p className="mt-1.5 flex flex-wrap items-center text-[13px] text-muted-foreground" data-testid="home-subline">
+              <span>{pluralize(realCount, 'project')}</span>
+              <span className="px-1.5 opacity-50">·</span>
+              <span>{runs24.toLocaleString('en-US')} runs in 24h</span>
+              {firstMissing && (
+                <>
+                  <span className="px-1.5 opacity-50">·</span>
+                  <Link
+                    to="/p/$project/secrets"
+                    params={{ project: firstMissing.project.slug }}
+                    className="inline-flex items-center gap-1.5 text-warning-text underline-offset-3 hover:underline active:scale-[.98]"
+                    data-testid="home-missing-link"
+                  >
+                    <StatusDot tone="warn" flat />
+                    {missingTotal} {missingTotal === 1 ? 'secret' : 'secrets'} missing in {firstMissing.env}
+                  </Link>
+                </>
+              )}
+            </p>
           </div>
+
+          <Tile className="grid grid-cols-[auto_auto_auto] p-0" data-testid="home-stats">
+            <StatCell label="Runs · 24h" testId="stat-runs" className="min-w-[181px]">
+              <Roll value={runs24} />
+              <Tip label={`${runs24} runs in 24h · ${failed24} failed`}>
+                <span className="self-center">
+                  <Sparkline values={activity.total} height={22} className="w-[72px]" barClassName="min-h-[3px]" />
+                </span>
+              </Tip>
+            </StatCell>
+            <StatCell label="Apps" divider testId="stat-apps">
+              <Roll value={all.reduce((n, p) => n + p.counts.apps, 0)} />
+              <small className="text-[12px] font-normal tracking-normal text-muted-foreground">
+                {appCounts.loaded === 0 ? '' : appCounts.published > 0 ? `${appCounts.published} published${appCounts.draft ? ` · ${appCounts.draft} draft` : ''}` : 'draft'}
+              </small>
+            </StatCell>
+            <StatCell label="Needs attention" divider testId="stat-attention">
+              <Roll value={attnCount} className={attnCount > 0 ? 'text-warning-text' : undefined} />
+              <small className="text-[12px] font-normal tracking-normal text-muted-foreground">{attnSub}</small>
+            </StatCell>
+          </Tile>
+        </section>
+
+        <SectionRow title="Projects" meta={String(all.length)}>
           <Segmented<Filter>
             value={filter}
             onChange={setFilter}
             aria-label="Filter projects"
+            data-testid="projects-filter"
             options={[
               { key: 'all', label: 'All', count: all.length },
               { key: 'healthy', label: 'Healthy' },
-              { key: 'attention', label: 'Needs attention', count: all.filter(needsAttention).length },
+              { key: 'attention', label: 'Needs attention', count: all.filter((p) => needsAttention(p, missing[p.id]?.count)).length },
             ]}
           />
-        </div>
+        </SectionRow>
 
         {projects.isLoading ? (
-          <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {[0, 1, 2].map((i) => (
-              <Skeleton key={i} className="h-[244px] rounded-xl" />
+              <Skeleton key={i} className="h-[252px] rounded-xl" />
             ))}
           </div>
         ) : projects.isError ? (
@@ -122,57 +227,104 @@ export function ProjectsHome() {
             {errorMessage(projects.error)}
           </EmptyState>
         ) : (
-          <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" data-testid="project-grid">
+          <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" data-testid="project-grid">
             {list.map((p) => (
-              <ProjectCard key={p.id} project={p} />
+              <ProjectCard key={p.id} project={p} missing={missing[p.id]} buckets={activity.byId[p.id]} />
             ))}
-            <button
-              type="button"
+            <Tile
+              interactive
+              role="button"
+              tabIndex={0}
               onClick={() => setNewOpen(true)}
-              className="flex min-h-[244px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border text-center hover:bg-card/60"
+              onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), setNewOpen(true))}
+              className="flex min-h-[252px] flex-col items-center justify-center gap-1 p-5 text-center focus-visible:shadow-focus focus-visible:outline-none"
               data-testid="new-project-card"
             >
-              <span className="inline-flex size-10 items-center justify-center rounded-lg bg-card text-primary shadow-xs">
-                <Plus className="size-4" />
-              </span>
+              <div className="mb-3 w-[208px] opacity-80">
+                <BlueprintArt />
+              </div>
               <span className="font-medium">New project</span>
-              <span className="text-xs text-muted-foreground">A backend, data and apps — together</span>
-            </button>
+              <span className="text-[12px] text-muted-foreground">A backend, data and apps — together</span>
+            </Tile>
           </div>
         )}
+
+        <SectionRow title="Start something new" meta="Templates create the routes and tables for you" />
+        <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4" data-testid="home-templates">
+          {HOME_TEMPLATES.map((t) => (
+            <TemplateCard key={t.key} template={t} busy={start.busy === t.key} disabled={!!start.busy} onUse={() => start.fromTemplate(t)} />
+          ))}
+          <DescribeCard busy={start.busy === 'ai'} disabled={!!start.busy} onGenerate={start.fromPrompt} />
+        </div>
       </main>
       <NewProjectDialog open={newOpen} onOpenChange={setNewOpen} />
     </div>
   )
 }
 
-function ProjectCard({ project: p }: { project: ProjectListItem }) {
-  const isDefault = p.id === 'proj_default'
-  const summary = useProjectSummary(p.id)
-  const missing = summary.data?.missing_secrets ?? 0
+function StatCell({ label, divider, testId, className, children }: { label: string; divider?: boolean; testId: string; className?: string; children: React.ReactNode }) {
+  return (
+    <div className={cn('min-w-[150px] py-4 pr-6 pl-5', className, divider && 'shadow-[inset_1px_0_0_var(--hairline)]')} data-testid={testId}>
+      <div className="text-[12px] font-medium text-muted-foreground">{label}</div>
+      <div className="mt-1 flex items-baseline gap-2 text-[28px] leading-[1.15] font-semibold tracking-[-0.03em] tabular-nums">{children}</div>
+    </div>
+  )
+}
+
+function SectionRow({ title, meta, children }: { title: string; meta?: string; children?: React.ReactNode }) {
+  return (
+    <div className="mt-8 flex items-center gap-3">
+      <h2 className="text-section font-semibold tracking-[-0.015em]">{title}</h2>
+      {meta && <span className="text-[12px] text-muted-foreground">{meta}</span>}
+      <span className="h-px min-w-6 flex-1" style={{ borderBottom: '1px dotted var(--faint)' }} aria-hidden />
+      {children}
+    </div>
+  )
+}
+
+function ProjectCard({ project: p, missing: miss, buckets }: { project: ProjectListItem; missing?: MissingInfo & { count: number }; buckets?: number[] }) {
+  const isDefault = isDefaultProject(p)
+  const missing = miss?.count ?? 0
   const navigate = useNavigate()
   const [confirmDelete, setConfirmDelete] = useState(false)
   const P = { project: p.slug }
-  const empty = p.counts.routes === 0 && p.counts.apps === 0 && (summary.data?.counts.modules ?? 0) === 0 && !isDefault
+  const empty = p.counts.routes === 0 && p.counts.apps === 0 && p.counts.tables === 0 && p.counts.workflows === 0 && !isDefault
+  const lastRun = p.last_run?.start_time
 
   return (
-    <div
-      className="group flex min-h-[244px] cursor-pointer flex-col rounded-xl border border-panel-border bg-card shadow-xs transition-shadow hover:shadow-md"
+    <Tile
+      interactive
+      className="group flex min-h-[252px] flex-col"
       onClick={() => navigate({ to: '/p/$project', params: P })}
       data-testid={`project-card-${p.slug}`}
       role="link"
     >
-      <div className="flex items-start gap-2 px-4 pt-3.5">
+      <div className="flex items-center gap-2.5 px-4 pt-4">
+        {isDefault ? (
+          <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-ctl bg-recess text-[12.5px] font-semibold text-muted-foreground" aria-hidden>
+            D
+          </span>
+        ) : (
+          <ProjectAvatar name={p.name} size={28} className="rounded-ctl" />
+        )}
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[14px] font-semibold">{p.name}</div>
-          <div className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
-            {isDefault ? <span className="font-sans">Workflows created before projects existed</span> : `/api/p/${p.slug}`}
+          <div className="truncate text-[14px] font-semibold tracking-[-0.01em]">{p.name}</div>
+          <div className={cn('mt-px truncate text-[12px] text-muted-foreground', !isDefault && 'font-mono')}>
+            {isDefault ? 'Workflows created before projects existed' : `/api/p/${p.slug}`}
           </div>
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger
             onClick={(e) => e.stopPropagation()}
-            render={<Button variant="ghost" size="icon-xs" aria-label="Project actions" data-testid={`project-menu-${p.slug}`} />}
+            render={
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label="Project actions"
+                className="opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 data-popup-open:opacity-100"
+                data-testid={`project-menu-${p.slug}`}
+              />
+            }
           >
             <MoreHorizontal />
           </DropdownMenuTrigger>
@@ -194,41 +346,62 @@ function ProjectCard({ project: p }: { project: ProjectListItem }) {
         <CardHealth project={p} missing={missing} isDefault={isDefault} empty={empty} />
       </div>
 
-      <div className="mx-3 mt-3 flex-1 rounded-lg border border-border bg-muted/30 px-2.5 py-2">
-        {isDefault ? <DefaultWorkflows pid={p.id} /> : empty ? <EmptyBackend slug={p.slug} /> : <CardRoutes pid={p.id} />}
-      </div>
-
-      <div className="mt-3 flex items-center gap-3 border-t border-border px-4 py-2.5 text-xs text-muted-foreground">
+      <Well className="mx-2 mt-3 flex flex-1 flex-col justify-center p-3">
         {isDefault ? (
-          <span className="inline-flex items-center gap-1.5">
-            <Workflow className="size-3.5" /> {pluralize(p.counts.workflows, 'workflow')}
+          <DefaultWorkflows pid={p.id} count={p.counts.workflows} />
+        ) : empty ? (
+          <EmptyBackend slug={p.slug} />
+        ) : (
+          <>
+            <CardArt project={p} secretKey={miss?.key} />
+            <div className="mt-3 flex items-center gap-3">
+              <Tip label={`${p.health.runs_24h} runs in 24h · ${p.health.failed_24h} failed`}>
+                <span className="flex-1">
+                  <Sparkline values={buckets ?? Array(12).fill(0)} height={22} />
+                </span>
+              </Tip>
+              <span className="text-[12px] whitespace-nowrap text-muted-foreground" data-testid={`card-runs-${p.slug}`}>
+                <b className="font-semibold text-foreground">{p.health.runs_24h.toLocaleString('en-US')}</b> runs · 24h
+              </span>
+            </div>
+          </>
+        )}
+      </Well>
+
+      <div className="flex items-center gap-3 px-4 py-3 text-[12px] text-muted-foreground [&_svg]:size-3.5 [&>span]:inline-flex [&>span]:items-center [&>span]:gap-1.5">
+        {isDefault ? (
+          <span className="[&_svg]:text-hue-flow">
+            <Workflow /> {pluralize(p.counts.workflows, 'workflow')}
           </span>
         ) : empty ? (
-          <span className="inline-flex items-center gap-1.5">
-            <ListChecks className="size-3.5" /> Setup
+          <span>
+            <ListChecks /> Setup
           </span>
         ) : (
-          <span className="inline-flex items-center gap-1.5">
-            <RouteIcon className="size-3.5" /> {pluralize(p.counts.routes, 'route')}
+          <span className="[&_svg]:text-hue-backend">
+            <RouteIcon /> {pluralize(p.counts.routes, 'route')}
           </span>
         )}
-        <span className="inline-flex items-center gap-1.5">
-          <AppWindow className="size-3.5" /> {pluralize(p.counts.apps, 'app')}
+        <span className="[&_svg]:text-hue-apps">
+          <AppWindow /> {pluralize(p.counts.apps, 'app')}
         </span>
         {missing > 0 && (
-          <span className="inline-flex items-center gap-1.5 text-warning-text" data-testid={`card-missing-${p.slug}`}>
-            <KeyRound className="size-3.5" /> {pluralize(missing, 'missing secret')}
+          <span className="text-warning-text [&_svg]:text-hue-secrets" data-testid={`card-missing-${p.slug}`}>
+            <KeyRound /> {pluralize(missing, 'missing secret')}
           </span>
         )}
-        {!missing && summary.data?.active_releases?.[p.live_environment] && (
-          <span className="inline-flex items-center gap-1.5">
-            <Rocket className="size-3.5" /> {p.live_environment} #{summary.data.active_releases[p.live_environment]!.number}
-          </span>
-        )}
-        <span className="ml-auto">{timeAgo(p.last_run?.start_time ?? p.updated_at)}</span>
+        <span className="ml-auto">
+          {lastRun ? (
+            timeAgo(lastRun)
+          ) : (
+            <Tip label="No runs yet">
+              <span>—</span>
+            </Tip>
+          )}
+        </span>
       </div>
       <DeleteProjectDialog project={p} open={confirmDelete} onOpenChange={setConfirmDelete} />
-    </div>
+    </Tile>
   )
 }
 
@@ -251,40 +424,40 @@ function CardHealth({ project: p, missing, isDefault, empty }: { project: Projec
   if (s === 'ok' || s === 'healthy')
     return (
       <Badge variant="success" data-testid={`card-health-${p.slug}`}>
-        <StatusDot tone="ok" className="shadow-none" /> Healthy
+        <StatusDot tone="ok" flat /> Healthy
       </Badge>
     )
   return <Badge variant="neutral">No runs</Badge>
 }
 
-function CardRoutes({ pid }: { pid: string }) {
-  const routes = useQuery({ queryKey: qk.routes(pid), queryFn: () => routesApi.list(pid) })
-  const rs = sortRoutes(routes.data ?? []).slice(0, 4)
-  if (routes.isLoading) return <Skeleton className="h-[96px] w-full" />
+/** the project's system diagram from its real routes, first table, first app and first missing secret */
+function CardArt({ project: p, secretKey }: { project: ProjectListItem; secretKey?: string }) {
+  const routes = useQuery({ queryKey: qk.routes(p.id), queryFn: () => routesApi.list(p.id) })
+  const tables = useQuery({ queryKey: qk.tables(p.id), queryFn: () => tablesApi.list(p.id), enabled: p.counts.tables > 0 })
+  const apps = useQuery({ queryKey: qk.apps(p.id), queryFn: () => projectsApi.listApps(p.id), enabled: p.counts.apps > 0 })
+  if (routes.isLoading) return <Skeleton className="h-[98px] w-full" />
+  const rs = sortRoutes(routes.data ?? [])
+  const table = tables.data?.[0]
+  const app = apps.data?.[0]
   return (
-    <div className="flex flex-col gap-1.5">
-      {rs.map((r) => (
-        <div key={r.id} className="flex items-center gap-2 text-xs">
-          <MethodBadge method={r.method} size="sm" />
-          <span className="truncate font-mono">{r.path}</span>
-          <span className="ml-auto truncate font-mono text-[11px] text-muted-foreground">
-            {r.handler.type === 'stub' ? <span className="text-warning-text">stub · 501</span> : r.name}
-          </span>
-        </div>
-      ))}
-    </div>
+    <CardDiagram
+      routes={rs.map((r) => ({ key: r.id, method: r.method, path: r.path, hot: r.used_by_count > 0 }))}
+      table={table ? { name: table.name } : null}
+      app={app ? { name: app.name } : null}
+      secret={secretKey ? { key: secretKey } : null}
+    />
   )
 }
 
-function DefaultWorkflows({ pid }: { pid: string }) {
-  const wfs = useQuery({ queryKey: qk.workflows(pid), queryFn: () => projectsApi.listWorkflows(pid) })
+function DefaultWorkflows({ pid, count }: { pid: string; count: number }) {
+  const wfs = useQuery({ queryKey: qk.workflows(pid), queryFn: () => projectsApi.listWorkflows(pid), enabled: count > 0 })
+  if (count === 0) return <EmptyOrbitArt />
   const xs = (wfs.data ?? []).slice(0, 4)
-  if (!xs.length) return <div className="py-6 text-center text-xs text-muted-foreground">No workflows</div>
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-1.5 py-1">
       {xs.map((w) => (
         <div key={w.id} className="flex items-center gap-2 text-xs">
-          <Workflow className="size-3.5 text-muted-foreground" />
+          <Workflow className="size-3.5 text-hue-flow" />
           <span className="truncate font-mono">{w.name}</span>
           <span className="ml-auto font-mono text-[11px] text-muted-foreground">{w.node_count} nodes</span>
         </div>
@@ -295,8 +468,8 @@ function DefaultWorkflows({ pid }: { pid: string }) {
 
 function EmptyBackend({ slug }: { slug: string }) {
   return (
-    <div className="flex h-full min-h-[96px] items-center justify-center gap-1.5 rounded-md border border-dashed border-border text-xs text-muted-foreground">
-      <Sparkles className="size-3.5 text-ai" /> No backend yet —
+    <div className="flex min-h-[110px] items-center justify-center gap-1.5 text-xs text-muted-foreground">
+      <Sparkles className="size-3.5 text-hue-ai" /> No backend yet —
       <Link
         to="/p/$project"
         params={{ project: slug }}
@@ -306,6 +479,89 @@ function EmptyBackend({ slug }: { slug: string }) {
         Set up
       </Link>
     </div>
+  )
+}
+
+function TemplateCard({ template: t, busy, disabled, onUse }: { template: HomeTemplate; busy: boolean; disabled: boolean; onUse: () => void }) {
+  const go = () => !disabled && onUse()
+  return (
+    <Tile
+      interactive
+      role="button"
+      tabIndex={0}
+      aria-busy={busy}
+      onClick={go}
+      onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), go())}
+      className={cn('group flex flex-col focus-visible:shadow-focus focus-visible:outline-none', disabled && !busy && 'opacity-60')}
+      data-testid={`template-${t.key}`}
+    >
+      <Well className="relative mx-2 mt-2 grid h-28 place-items-center overflow-hidden p-3">
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-0"
+          style={{
+            backgroundImage: 'radial-gradient(var(--art-faint) .9px, transparent 1px)',
+            backgroundSize: '12px 12px',
+            WebkitMaskImage: 'radial-gradient(70% 70% at 50% 50%, black, transparent)',
+            maskImage: 'radial-gradient(70% 70% at 50% 50%, black, transparent)',
+          }} // design-ok: dotted texture mask from the mockup
+        />
+        <TemplateArt kind={t.key} />
+      </Well>
+      <div className="flex flex-1 flex-col gap-[3px] px-4 pt-3 pb-4">
+        <b className="font-semibold tracking-[-0.01em]">{t.title}</b>
+        <span className="text-[12px] leading-[1.45] text-muted-foreground">{t.blurb}</span>
+        <div className="mt-auto flex items-center gap-2 pt-2.5 text-[12px] text-muted-foreground">
+          {t.facts}
+          <span className="ml-auto inline-flex -translate-x-1 items-center gap-1 text-[12px] font-medium text-primary opacity-0 transition-[opacity,transform] duration-(--d-fast) ease-(--ease-out) group-hover:translate-x-0 group-hover:opacity-100 group-focus-visible:translate-x-0 group-focus-visible:opacity-100">
+            {busy ? 'Creating…' : 'Use template'}
+            <ArrowRight className="size-[13px]" />
+          </span>
+        </div>
+      </div>
+    </Tile>
+  )
+}
+
+function DescribeCard({ busy, disabled, onGenerate }: { busy: boolean; disabled: boolean; onGenerate: (prompt: string) => void }) {
+  const [text, setText] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+  const submit = () => {
+    if (disabled) return
+    if (!text.trim()) return ref.current?.querySelector('textarea')?.focus()
+    onGenerate(text.trim())
+  }
+  return (
+    <Tile ref={ref} className="flex flex-col p-4" data-testid="describe-card">
+      <span className="mb-2 inline-flex size-8 items-center justify-center rounded-ctl bg-hue-ai text-primary-foreground [&_svg]:size-4" aria-hidden>
+        <Sparkles />
+      </span>
+      <b className="font-semibold tracking-[-0.01em]">Describe it instead</b>
+      <span className="mt-[3px] text-[12px] leading-[1.45] text-muted-foreground">Command Studio writes the Python, creates the tables, and runs a test.</span>
+      <Textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            e.preventDefault()
+            submit()
+          }
+        }}
+        placeholder="A refunds API that takes Stripe webhooks and flags refunds over $500…"
+        aria-label="Describe a project"
+        className="mt-2.5 h-[76px] resize-none text-[12.5px] leading-normal text-foreground"
+        data-testid="home-describe-input"
+      />
+      <div className="mt-2.5 flex items-center gap-2">
+        <span className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground">
+          <Kbd>⌘↵</Kbd> to generate
+        </span>
+        <span className="flex-1" />
+        <Button variant="ai" size="sm" disabled={disabled} onClick={submit} data-testid="home-describe-generate">
+          <Sparkles /> {busy ? 'Creating…' : 'Generate'}
+        </Button>
+      </div>
+    </Tile>
   )
 }
 

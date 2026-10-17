@@ -22,7 +22,7 @@ import { routeIdsOf } from '../lib/appModel'
 import { useSaveApp } from '../hooks/useAppData'
 import { RouteChecklist } from './RoutePicker'
 
-const sectionTitle = 'text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground'
+const sectionTitle = 'text-[12px] font-medium text-muted-foreground'
 
 export function AppSettingsSheet({
   open,
@@ -116,7 +116,7 @@ function Body({
         if (!busy && name.trim() && !needsPassword) void submit()
       }}
     >
-      <div className="border-b border-border px-5 pb-3 pt-4 pr-12">
+      <div className="hairline-b px-5 pb-3 pt-4 pr-12">
         <SheetTitle className="text-base font-semibold">App settings</SheetTitle>
         <SheetDescription className="text-[13px] text-muted-foreground">{app.name}</SheetDescription>
       </div>
@@ -143,7 +143,7 @@ function Body({
             <div className="flex-1" />
             <span className="text-[11.5px] text-muted-foreground">{routeIds.length} of {routes.length}</span>
           </div>
-          <div className="rounded-[10px] border border-border p-1">
+          <div className="rounded-well bg-recess p-1">
             {routes.length === 0 ? (
               <div className="px-2 py-2 text-xs text-muted-foreground">This project has no routes yet.</div>
             ) : (
@@ -155,14 +155,14 @@ function Body({
 
         <section className="flex flex-col gap-1.5">
           <span className={sectionTitle}>Workflows the app may run</span>
-          <div className="rounded-[10px] border border-border p-1" data-testid="app-settings-workflows">
+          <div className="rounded-well bg-recess p-1" data-testid="app-settings-workflows">
             {workflows.isLoading ? (
               <div className="px-2 py-2 text-xs text-muted-foreground">Loading…</div>
             ) : (workflows.data ?? []).length === 0 ? (
               <div className="px-2 py-2 text-xs text-muted-foreground">No workflows in this project.</div>
             ) : (
               (workflows.data ?? []).map((w) => (
-                <label key={w.id} className="flex h-[30px] items-center gap-2 rounded-md px-1.5 hover:bg-muted">
+                <label key={w.id} className="flex h-[30px] items-center gap-2 rounded-ctl px-1.5 hover:bg-(--hover-fill)">
                   <Checkbox
                     checked={workflowIds.includes(w.id)}
                     onCheckedChange={(c) => setWorkflowIds((l) => toggle(l, w.id, !!c))}
@@ -218,14 +218,14 @@ function Body({
               <Send /> Open API tester
             </Button>
           </div>
-          <div className="rounded-[10px] border border-border p-1" data-testid="app-settings-external-apis">
+          <div className="rounded-well bg-recess p-1" data-testid="app-settings-external-apis">
             {executions.isLoading ? (
               <div className="px-2 py-2 text-xs text-muted-foreground">Loading…</div>
             ) : (executions.data ?? []).length === 0 ? (
               <div className="px-2 py-2 text-xs text-muted-foreground">No saved requests. Capture one in the API tester to attach it.</div>
             ) : (
               (executions.data ?? []).map((ex) => (
-                <label key={ex.id} className="flex min-h-[30px] items-center gap-2 rounded-md px-1.5 hover:bg-muted">
+                <label key={ex.id} className="flex min-h-[30px] items-center gap-2 rounded-ctl px-1.5 hover:bg-(--hover-fill)">
                   <Checkbox checked={execIds.includes(ex.id)} onCheckedChange={(c) => setExecIds((l) => toggle(l, ex.id, !!c))} />
                   <span className="w-10 shrink-0 font-mono text-[10px] font-bold">{ex.method}</span>
                   <span className="min-w-0 flex-1 truncate">{ex.name || ex.url}</span>
@@ -236,7 +236,7 @@ function Body({
           <span className="text-[11.5px] leading-4 text-muted-foreground">Attached requests are shown to the AI and may be replayed by the app.</span>
         </section>
 
-        <section className="flex flex-col gap-2 rounded-[10px] border border-destructive/25 p-3" data-testid="app-settings-danger">
+        <section className="flex flex-col gap-2 rounded-well bg-destructive-soft p-3" data-testid="app-settings-danger">
           {app.active && (
             <div className="flex items-center gap-3">
               <div className="min-w-0 flex-1">
@@ -261,7 +261,7 @@ function Body({
           </div>
         </section>
       </div>
-      <div className="flex items-center gap-2 border-t border-border bg-muted/40 px-5 py-3">
+      <div className="flex items-center gap-2 px-5 py-3 shadow-[inset_0_1px_0_var(--hairline)]">
         {error && (
           <span className="min-w-0 flex-1 truncate text-[11.5px] text-destructive" role="alert" data-testid="app-settings-error">
             {error}

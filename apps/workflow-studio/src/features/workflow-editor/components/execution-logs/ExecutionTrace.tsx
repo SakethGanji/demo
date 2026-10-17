@@ -2,7 +2,7 @@
  * Execution Trace
  *
  * Minimal recursive tree renderer for agent execution traces.
- * Clean rows with indentation, show more/less, and bordered code blocks.
+ * Clean rows with indentation, show more/less, and raised code blocks.
  */
 
 import { useState, useCallback } from 'react';
@@ -95,7 +95,7 @@ function TraceRow({ node, depth, isRoot = false }: TraceRowProps) {
     <div className={cn(isIteration && 'mt-1 first:mt-0')}>
       {/* Iteration separator line */}
       {isIteration && depth === 0 && (
-        <div className="border-t border-border/50 mx-1 mb-0.5" />
+        <div className="h-px bg-hairline mx-1 mb-0.5" />
       )}
 
       {/* Row */}
@@ -103,7 +103,7 @@ function TraceRow({ node, depth, isRoot = false }: TraceRowProps) {
         onClick={toggle}
         className={cn(
           'flex items-start gap-1 py-[3px] px-1 rounded-sm',
-          (collapsible || expandable) && 'cursor-pointer hover:bg-accent/40',
+          (collapsible || expandable) && 'cursor-pointer row-hover',
         )}
         style={{ paddingLeft: `${depth * 14 + 4}px` }}
       >
@@ -209,7 +209,7 @@ function getLabel(node: TraceNode): React.ReactNode {
       return (
         <span>
           <span className="font-medium">{node.skill ? 'delegate_to_skill' : 'spawn_agent'}</span>
-          {node.skill && <span className="text-blue-400 ml-1 font-medium">{node.skill}</span>}
+          {node.skill && <span className="text-hue-backend ml-1 font-medium">{node.skill}</span>}
           <span className="text-muted-foreground ml-1">{node.task}</span>
         </span>
       );
@@ -218,7 +218,7 @@ function getLabel(node: TraceNode): React.ReactNode {
       return (
         <span>
           <span className="font-medium">Validation</span>
-          <span className={cn('ml-1', node.status === 'success' ? 'text-[var(--success)]' : 'text-destructive')}>
+          <span className={cn('ml-1', node.status === 'success' ? 'text-success-text' : 'text-destructive')}>
             {node.status}
           </span>
         </span>
@@ -291,7 +291,7 @@ function DetailContent({ node }: { node: TraceNode }) {
     case 'validation':
       if (node.errors?.length) {
         return (
-          <div className="mt-1 mb-1 p-2 rounded border border-destructive/20 bg-destructive/5 space-y-0.5">
+          <div className="mt-1 mb-1 p-2 rounded-ctl bg-destructive-soft space-y-0.5">
             {node.errors.map((err, i) => (
               <p key={i} className="text-[10px] text-destructive">{err}</p>
             ))}
@@ -345,7 +345,7 @@ function CodeBlock({ content }: { content: string }) {
       >
         {copied ? <Check size={9} /> : <Copy size={9} />}
       </button>
-      <pre className="p-2 rounded border border-border/60 bg-muted/40 text-[10px] leading-[1.5] overflow-auto font-mono whitespace-pre-wrap break-words max-h-48 text-muted-foreground">
+      <pre className="p-2 rounded-ctl bg-raise shadow-raise-sm text-[10px] leading-[1.5] overflow-auto font-mono whitespace-pre-wrap break-words max-h-48 text-muted-foreground">
         {content || <span className="text-muted-foreground/30 italic">empty</span>}
       </pre>
     </div>

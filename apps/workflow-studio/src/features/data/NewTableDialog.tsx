@@ -12,6 +12,7 @@ import { Button } from '@/shared/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/shared/components/ui/dialog'
 import { Field } from '@/shared/components/ui/field'
 import { Input } from '@/shared/components/ui/input'
+import { IconTile } from '@/shared/components/ui/surface'
 import { ColumnsEditor } from './components/ColumnsEditor'
 import { columnNameError, newColumnDraft, toColumns, type ColumnDraft } from './lib/columns'
 import { useCreateTable } from './useTableMutations'
@@ -67,7 +68,7 @@ export function NewTableDialog({ open, onClose }: { open: boolean; onClose: () =
       <DialogContent className="sm:max-w-[560px]" data-testid="new-table-dialog">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Table2 className="size-4 text-primary" /> New table
+            <IconTile hue="data" className="size-6"><Table2 /></IconTile> New table
           </DialogTitle>
           <DialogDescription>
             One table for the whole project: dev and prod, tests and the published app all read and write these rows.

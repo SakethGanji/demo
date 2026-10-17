@@ -1,14 +1,15 @@
 /**
- * HTTP method badge: method colour text on a 10% tint of itself (UI-DESIGN §7.2/§7.3).
+ * HTTP method chip (DESIGN §3): the method colour as text on a 13% tint of itself, no ring, `--r-kbd`.
+ * Keeps `data-method` (asserted by the e2e specs) and the fixed widths so route lists align.
  */
 import { cn } from '@/shared/lib/utils'
 
 const STYLES: Record<string, string> = {
-  GET: 'text-method-get bg-method-get/10',
-  POST: 'text-method-post bg-method-post/10',
-  PUT: 'text-method-put bg-method-put/10',
-  PATCH: 'text-method-patch bg-method-patch/10',
-  DELETE: 'text-method-delete bg-method-delete/10',
+  GET: 'text-method-get',
+  POST: 'text-method-post',
+  PUT: 'text-method-put',
+  PATCH: 'text-method-patch',
+  DELETE: 'text-method-delete',
 }
 
 export function MethodBadge({
@@ -25,9 +26,9 @@ export function MethodBadge({
     <span
       data-method={m}
       className={cn(
-        'inline-flex shrink-0 items-center justify-center rounded-[5px] font-mono font-semibold tracking-[0.02em]',
-        size === 'sm' ? 'h-4 w-[34px] text-[9px]' : 'h-[18px] w-11 text-[10px]',
-        STYLES[m] ?? 'bg-muted text-muted-foreground',
+        'inline-flex shrink-0 items-center justify-center rounded-kbd bg-(--method-tint) font-mono font-semibold tracking-[0.02em]',
+        size === 'sm' ? 'h-4 w-[34px] text-[9px]' : 'h-[18px] w-[38px] text-[9.5px]',
+        STYLES[m] ?? 'text-muted-foreground',
         className,
       )}
     >
@@ -35,3 +36,6 @@ export function MethodBadge({
     </span>
   )
 }
+
+/** The shared name used by new code. */
+export const MethodChip = MethodBadge

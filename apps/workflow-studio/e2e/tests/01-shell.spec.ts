@@ -111,13 +111,19 @@ test('T44 theme toggle', async ({ page, open, api }) => {
   await expect(page.getByTestId('overview-panel')).toBeVisible()
   await page.getByTestId('theme-toggle').click()
   await expect(page.locator('html')).toHaveClass(/dark/)
+  // the canvas is near-black space; the page is transparent so the sky shows through the glass
   const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor)
-  expect(bg).toBe('rgb(17, 17, 17)') // dark --background #111111
+  expect(bg).toBe('rgb(8, 9, 10)') // dark --canvas #08090a (neutral)
   const panelBg = await page.getByTestId('overview-panel').evaluate((el) => getComputedStyle(el).backgroundColor)
-  expect(panelBg).toBe('rgb(28, 28, 28)') // dark --card #1c1c1c
+  expect(panelBg).toBe('rgba(0, 0, 0, 0)')
+  // tiles are glass: the dark frost is white at 6%
+  const glass = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--glass-fill').trim())
+  expect(glass).toBe('rgb(255 255 255 / .03)')
   // the toggle persists across reload
   await page.reload()
   await expect(page.locator('html')).toHaveClass(/dark/)
   await page.getByTestId('theme-toggle').click()
   await expect(page.locator('html')).not.toHaveClass(/dark/)
+  // light is pure white, never grey
+  expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe('rgb(255, 255, 255)')
 })

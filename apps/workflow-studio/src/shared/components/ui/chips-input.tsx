@@ -31,13 +31,13 @@ export function ChipsInput({
   return (
     <div
       className={cn(
-        'flex min-h-8 flex-wrap items-center gap-1 rounded-lg border border-input bg-transparent px-1.5 py-1 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 dark:bg-input/30',
+        'flex min-h-8 flex-wrap items-center gap-1 rounded-ctl bg-recess px-1.5 py-1 focus-within:shadow-focus',
         className,
       )}
       data-testid={testId}
     >
       {value.map((h) => (
-        <span key={h} className="inline-flex h-[22px] items-center gap-1 rounded-md border border-border bg-muted px-1.5 font-mono text-[11.5px]">
+        <span key={h} className="inline-flex h-[22px] items-center gap-1 rounded-chip bg-raise px-1.5 font-mono text-[11.5px] shadow-raise-sm">
           {h}
           <button
             type="button"

@@ -21,17 +21,17 @@ export function Field({
   return (
     <div className={cn('flex flex-col gap-1.5', className)}>
       {label && (
-        <label htmlFor={htmlFor} className="text-xs font-medium text-foreground">
+        <label htmlFor={htmlFor} className="text-[12.5px] font-medium text-foreground">
           {label}
         </label>
       )}
       {children}
       {error ? (
-        <div className="text-[11.5px] leading-4 text-destructive" role="alert" data-testid={errorTestId}>
+        <div className="text-[12px] leading-4 text-destructive" role="alert" data-testid={errorTestId}>
           {error}
         </div>
       ) : help ? (
-        <div className="text-[11.5px] leading-4 text-muted-foreground">{help}</div>
+        <div className="text-[12px] leading-4 text-muted-foreground">{help}</div>
       ) : null}
     </div>
   )

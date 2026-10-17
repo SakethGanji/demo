@@ -125,7 +125,7 @@ function NodeContextMenu({ nodeId, x, y, onClose }: NodeContextMenuProps) {
 
       {/* Context menu */}
       <div
-        className="fixed z-50 min-w-[180px] rounded-lg border border-border bg-popover p-1 shadow-lg"
+        className="glass-overlay fixed z-50 min-w-[180px] p-1"
         style={{
           left: x,
           top: y,
@@ -133,7 +133,7 @@ function NodeContextMenu({ nodeId, x, y, onClose }: NodeContextMenuProps) {
       >
         {menuItems.map((item, index) => {
           if (item.type === 'separator') {
-            return <div key={index} className="my-1 h-px bg-border" />;
+            return <div key={index} className="my-1 h-px bg-hairline" />;
           }
 
           const Icon = item.icon;
@@ -143,13 +143,13 @@ function NodeContextMenu({ nodeId, x, y, onClose }: NodeContextMenuProps) {
               onClick={item.onClick}
               disabled={item.disabled}
               className={`
-                flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm
+                flex w-full items-center gap-2 rounded-chip px-2 py-1 text-[13px]
                 transition-colors
                 ${item.disabled
                   ? 'cursor-not-allowed opacity-50'
                   : item.danger
-                    ? 'text-destructive hover:bg-destructive/10'
-                    : 'hover:bg-accent'
+                    ? 'text-destructive hover:bg-destructive-soft'
+                    : 'hover:bg-raise hover:shadow-raise-sm'
                 }
               `}
             >

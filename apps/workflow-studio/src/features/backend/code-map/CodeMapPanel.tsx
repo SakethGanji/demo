@@ -15,6 +15,7 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { Button } from '@/shared/components/ui/button'
+import { MethodChip } from '@/shared/components/api/MethodBadge'
 import { arrange, filterFunctions, neighborhood } from './layout'
 import { useCodeMap } from './useCodeMap'
 import type { Direction, Kind, MapFunction } from './types'
@@ -81,12 +82,13 @@ const FunctionBox = memo(function FunctionBox({ data }: NodeProps<FunctionNode>)
       <div className="map-routes">
         {fn.routes.length ? (
           fn.routes.map((route) => (
-            <span key={route.method + route.path}>
-              <b>{route.method}</b> {route.path}
+            <span key={route.method + route.path} className="map-route">
+              <MethodChip method={route.method} size="sm" />
+              {route.path}
             </span>
           ))
         ) : (
-          <span>SHARED FUNCTION · SINGLE DEFINITION</span>
+          <span>Shared function · single definition</span>
         )}
       </div>
       <div className="map-function-meta">
@@ -98,7 +100,7 @@ const FunctionBox = memo(function FunctionBox({ data }: NodeProps<FunctionNode>)
           .map((call) => <Handle key={call.id} id={call.id} type="source" position={Position.Right} style={{ top: 28 }} />)}
       {data.expanded && (
         <div className="map-function-body">
-          <div className="map-body-label">NESTED CALL REFERENCES</div>
+          <div className="map-body-label">Nested call references</div>
           {fn.calls.map((call) => (
             <div key={call.id} className={`map-call ${call.kind}`}>
               <span>{call.kind === 'connector' ? '▤' : call.kind === 'custom' ? '?' : 'ƒ'}</span>
@@ -134,7 +136,7 @@ const ModuleBox = memo(function ModuleBox({ data }: NodeProps) {
   return (
     <div className="code-map-module">
       <strong>{String(data.name)}.py</strong>
-      <span>MODULE BOUNDARY · SOURCE-DERIVED REFERENCES</span>
+      <span>Module boundary · source-derived references</span>
     </div>
   )
 })
@@ -267,11 +269,15 @@ function MapContent({ pid, moduleId, moduleName, source, enabled, onJump }: Code
           sourceHandle: edge.call_id,
           targetHandle: 'definition',
           type: 'call',
-          markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--map-edge)' },
+          markerEnd: { type: MarkerType.ArrowClosed, color: lit ? 'var(--primary)' : 'var(--art-line)' },
           label: lit ? `L${edge.line}` : undefined,
-          style: { stroke: 'var(--map-edge)', strokeWidth: lit ? 2.5 : 1.4, opacity: related && !lit ? 0.07 : 0.8 },
-          labelStyle: { fill: 'var(--foreground)', fontSize: 10 },
-          labelBgStyle: { fill: 'var(--card)' },
+          style: {
+            stroke: lit ? 'var(--primary)' : 'var(--art-line)',
+            strokeWidth: lit ? 2 : 1.4,
+            opacity: related && !lit ? 0.2 : 1,
+            filter: lit ? 'drop-shadow(0 0 4px var(--glow))' : undefined,
+          },
+          labelStyle: { fontSize: 10 },
           zIndex: 2,
           data: {
             line: edge.line,
@@ -415,7 +421,7 @@ function MapContent({ pid, moduleId, moduleName, source, enabled, onJump }: Code
             }}
             proOptions={{ hideAttribution: true }}
           >
-            <Background gap={20} size={1} />
+            <Background gap={22} size={1} color="var(--art-line)" />
             <Controls showInteractive={false} showFitView={false} />
           </ReactFlow>
           <button className="map-fit-button" onClick={fitGraph}>
@@ -440,7 +446,7 @@ function MapContent({ pid, moduleId, moduleName, source, enabled, onJump }: Code
         </div>
         {current && (
           <aside className="map-inspector" data-testid="map-inspector">
-            <small>SOURCE-LINKED INSPECTION</small>
+            <small>Source-linked inspection</small>
             <h3>{current.label}</h3>
             <code>
               {current.name}({current.parameters.join(', ')})

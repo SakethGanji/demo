@@ -1,41 +1,47 @@
 /**
- * Structured runtime error (UI-DESIGN §4.4, D16): `type: message`, the redacted traceback and
- * a "Go to line N" button when the error points at a user module.
+ * Structured runtime error (D16): `type: message`, the parsed traceback as a `StackTrace` (your frames first,
+ * library frames folded; a frame opens that module at that line) and a "Go to line N" button when the error
+ * points at a user module.
  */
 import { Bug } from 'lucide-react'
 import type { RunError } from '@/shared/api/types'
 import { Button } from '@/shared/components/ui/button'
+import { StackTrace, type StackFrame } from '@/shared/components/ui/stack-trace'
+
+/** the user's modules live under `…/modules/<name>.py` in the sandbox; anything in the runtime or site-packages is a library frame */
+const LIB = /(site-packages|dist-packages|\/lib\/python|<frozen |\/usr\/|\/opt\/studio\/|\/runtime\/|\/sandbox\/|\/engine\/)/
+export const isUserFrame = (file: string) => /(^|\/)modules\/[^/]+\.py$/.test(file) || !LIB.test(file)
+
+export function moduleOfFrame(file: string): string {
+  return file.split('/').pop()!.replace(/\.py$/, '')
+}
 
 export function RunErrorBox({
   error,
   onGoToLine,
   goToLabel,
+  onOpenFrame,
+  className,
 }: {
   error: RunError
   onGoToLine?: (line: number, module: string | null | undefined) => void
   goToLabel?: string
+  /** a clicked stack frame in one of the user's modules */
+  onOpenFrame?: (module: string, line: number) => void
+  className?: string
 }) {
+  const open = onOpenFrame ? (f: StackFrame) => onOpenFrame(moduleOfFrame(f.file), f.line) : undefined
   return (
-    <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3" data-testid="run-error" data-code={error.code ?? ''}>
-      <div className="flex items-start gap-2.5">
-        <Bug className="mt-0.5 size-4 shrink-0 text-destructive" />
-        <div className="min-w-0 flex-1">
-          <div className="break-words text-[13px] font-medium" data-testid="run-error-message">
-            {error.type}: {error.message}
-          </div>
-          {error.traceback && (
-            <pre
-              className="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-4 text-muted-foreground"
-              data-scroll-x="allowed"
-            >
-              {error.traceback}
-            </pre>
-          )}
+    <div className={className} data-testid="run-error" data-code={error.code ?? ''}>
+      <div className="flex items-start gap-2.5 rounded-ctl bg-destructive-soft px-3 py-2.5">
+        <Bug className="mt-0.5 size-3.5 shrink-0 text-destructive" />
+        <div className="min-w-0 flex-1 break-words text-[13px] font-medium text-destructive" data-testid="run-error-message">
+          {error.type}: {error.message}
         </div>
         {error.line != null && onGoToLine && (
           <Button
-            variant="link"
-            size="sm"
+            variant="ghost"
+            size="xs"
             className="shrink-0"
             data-testid="go-to-line"
             onClick={() => onGoToLine(error.line!, error.module)}
@@ -44,6 +50,9 @@ export function RunErrorBox({
           </Button>
         )}
       </div>
+      {error.traceback && (
+        <StackTrace className="mt-3" traceback={error.traceback} isOwn={isUserFrame} onOpenFrame={open} testId="run-stack" />
+      )}
     </div>
   )
 }

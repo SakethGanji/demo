@@ -444,9 +444,9 @@ export default memo(function ExpressionEditor({
             }
           }}
           className={`
-            flex items-start rounded border bg-[var(--surface)] transition-all
-            ${isExpanded ? 'border-primary/70 ring-1 ring-primary/40' : 'border-border/60'}
-            ${isDragOver ? 'border-primary ring-2 ring-primary/50 bg-primary/10' : ''}
+            field relative flex items-start transition-shadow
+            ${isExpanded ? 'shadow-focus' : ''}
+            ${isDragOver ? 'bg-brand-soft shadow-focus' : ''}
           `}
         >
           {/* Input area */}
@@ -491,9 +491,9 @@ export default memo(function ExpressionEditor({
               <button
                 type="button"
                 onClick={() => setShowPreview(!showPreview)}
-                className={`p-0.5 rounded transition-colors ${
+                className={`p-0.5 rounded-chip transition-colors ${
                   showPreview
-                    ? 'text-[var(--warning)] bg-[var(--warning)]/10'
+                    ? 'text-warning-text bg-warning/13'
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
                 title={showPreview ? 'Show expression' : 'Preview resolved value'}
@@ -504,7 +504,7 @@ export default memo(function ExpressionEditor({
             <button
               type="button"
               onClick={() => setShowFullscreen(true)}
-              className="p-0.5 text-muted-foreground hover:text-foreground rounded"
+              className="p-0.5 text-muted-foreground hover:text-foreground rounded-chip"
               title="Edit fullscreen"
             >
               <Maximize2 size={12} />
@@ -513,7 +513,7 @@ export default memo(function ExpressionEditor({
               <button
                 type="button"
                 onClick={() => handleChange('')}
-                className="p-0.5 text-muted-foreground hover:text-foreground rounded"
+                className="p-0.5 text-muted-foreground hover:text-foreground rounded-chip"
                 title="Clear"
               >
                 <X size={12} />
@@ -522,7 +522,7 @@ export default memo(function ExpressionEditor({
             <button
               type="button"
               onClick={() => setIsExpanded(!isExpanded)}
-              className="p-0.5 text-muted-foreground hover:text-foreground rounded"
+              className="p-0.5 text-muted-foreground hover:text-foreground rounded-chip"
               title={isExpanded ? 'Collapse' : 'Expand'}
             >
               <ChevronDown
@@ -534,7 +534,7 @@ export default memo(function ExpressionEditor({
 
           {/* Drop indicator overlay */}
           {isDragOver && (
-            <div className="absolute inset-0 flex items-center justify-center rounded-md bg-primary/10 border-2 border-dashed border-primary pointer-events-none">
+            <div className="absolute inset-0 flex items-center justify-center rounded-ctl bg-brand-soft pointer-events-none">
               <span className="text-xs font-medium text-primary">Drop to insert</span>
             </div>
           )}
@@ -542,10 +542,10 @@ export default memo(function ExpressionEditor({
 
         {/* Preview display */}
         {showPreview && previewValue && (
-          <div className="mt-1 rounded-md bg-[var(--warning)]/10 border border-[var(--warning)]/20 px-2 py-1">
+          <div className="mt-1 rounded-ctl bg-warning-soft px-2 py-1">
             <div className="flex items-center gap-1 mb-0.5">
-              <Eye size={10} className="text-[var(--warning)]" />
-              <span className="text-[10px] font-medium text-[var(--warning)]">Preview</span>
+              <Eye size={10} className="text-warning-text" />
+              <span className="text-[10.5px] font-medium text-warning-text">Preview</span>
             </div>
             <p className="text-xs font-mono text-foreground break-all">{previewValue}</p>
           </div>
@@ -568,14 +568,14 @@ export default memo(function ExpressionEditor({
             {showSuggestions && (
               <div
                 ref={suggestionsRef}
-                className="absolute z-50 mt-1 w-full max-h-48 overflow-auto rounded border border-border/50 bg-popover shadow-lg"
+                className="glass-overlay absolute z-50 mt-1 w-full max-h-48 overflow-auto p-1"
                 onClick={(e) => e.stopPropagation()}
               >
                 {flatSuggestions.map((suggestion, idx) => (
                   <div key={suggestion.label}>
                     {/* Category header */}
                     {categoryHeaders.has(idx) && (
-                      <div className="px-2 py-1 text-[10px] font-medium text-muted-foreground bg-muted/50 border-b border-border">
+                      <div className="px-2 py-1 text-[11px] font-medium text-muted-foreground">
                         {categoryHeaders.get(idx)}
                       </div>
                     )}
@@ -584,7 +584,7 @@ export default memo(function ExpressionEditor({
                       data-active={idx === activeIndex}
                       onClick={() => insertExpression(suggestion.label)}
                       className={`w-full px-2 py-1.5 text-left flex items-center justify-between gap-1 ${
-                        idx === activeIndex ? 'bg-accent' : 'hover:bg-accent'
+                        idx === activeIndex ? 'bg-raise shadow-raise-sm rounded-chip' : 'rounded-chip hover:bg-(--hover-fill)'
                       }`}
                     >
                       <code className="text-xs font-mono text-primary truncate">

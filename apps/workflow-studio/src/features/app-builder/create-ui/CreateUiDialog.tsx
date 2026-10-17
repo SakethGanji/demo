@@ -23,6 +23,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/shared/
 import { Input } from '@/shared/components/ui/input'
 import { Kbd } from '@/shared/components/ui/kbd'
 import { Skeleton } from '@/shared/components/ui/skeleton'
+import { IconTile, Well } from '@/shared/components/ui/surface'
 import { Textarea } from '@/shared/components/ui/textarea'
 import { cn } from '@/shared/lib/utils'
 import { BLANK_DEFINITION, slugError, slugify } from '../lib/appModel'
@@ -54,16 +55,9 @@ function defaultPrompt(t: Template, subject: string, routes: Route[]): string {
 }
 
 function TemplatePreview({ t }: { t: Template }) {
-  const bar = 'absolute rounded-[2px] bg-foreground/12'
+  const bar = 'absolute rounded-kbd bg-foreground/12'
   return (
-    <div
-      className={cn('relative h-10 overflow-hidden rounded-md bg-muted')}
-      style={
-        t === 'blank'
-          ? { background: 'repeating-linear-gradient(135deg,transparent 0 5px,color-mix(in srgb,var(--border) 60%,transparent) 5px 6px)' }
-          : undefined
-      }
-    >
+    <div className={cn('relative h-10 overflow-hidden rounded-ctl bg-foreground/5', false)}>
       {t === 'dashboard' && (
         <>
           <i className={bar} style={{ left: 6, top: 6, width: 26, height: 12 }} />
@@ -197,11 +191,11 @@ function Body({ onClose, preselectModule }: { onClose: () => void; preselectModu
       }}
     >
       <div className="flex items-start gap-2.5 px-[22px] pr-12 pt-5">
-        <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-ai-soft text-ai-text">
-          <WandSparkles className="size-3.5" />
-        </span>
+        <IconTile hue="ai" className="mt-0.5">
+          <WandSparkles />
+        </IconTile>
         <div className="min-w-0">
-          <DialogTitle className="text-base font-semibold leading-[22px]">Create a UI from this backend</DialogTitle>
+          <DialogTitle className="text-[16px] font-semibold leading-[22px] tracking-[-0.01em]">Create a UI from this backend</DialogTitle>
           <DialogDescription className="text-[13px] text-muted-foreground">
             The app builder receives these routes and a typed <span className="font-mono text-[11.5px]">api</span> client. No URLs to copy.
           </DialogDescription>
@@ -230,7 +224,7 @@ function Body({ onClose, preselectModule }: { onClose: () => void; preselectModu
             <label htmlFor="cu-slug" className="text-xs font-medium">
               Address when published
             </label>
-            <div className={cn('flex h-8 items-center rounded-lg border border-input bg-background pl-2.5 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50', sErr && 'border-destructive')}>
+            <div className={cn('flex h-8 items-center rounded-ctl bg-recess pl-2.5 focus-within:shadow-focus', sErr && 'shadow-[0_0_0_2px_var(--destructive-soft)]')} data-recess>
               <span className="font-mono text-xs text-muted-foreground">/a/</span>
               <input
                 id="cu-slug"
@@ -265,19 +259,19 @@ function Body({ onClose, preselectModule }: { onClose: () => void; preselectModu
             )}
           </div>
           {routesQ.isLoading || (ready && selected === null) ? (
-            <div className="flex flex-col gap-2 rounded-[10px] border border-border p-3">
+            <Well className="flex flex-col gap-2 p-3">
               <Skeleton className="h-4 w-3/4" />
               <Skeleton className="h-4 w-2/3" />
-            </div>
+            </Well>
           ) : routesQ.isError ? (
-            <div className="flex items-center gap-2 rounded-[10px] border border-border px-3 py-2.5 text-xs">
+            <Well className="flex items-center gap-2 px-3 py-2.5 text-xs">
               <span className="flex-1 text-destructive">Couldn't load routes: {errorMessage(routesQ.error)}</span>
               <Button variant="outline" size="xs" type="button" onClick={() => routesQ.refetch()}>
                 Retry
               </Button>
-            </div>
+            </Well>
           ) : routes.length === 0 ? (
-            <div className="rounded-[10px] border border-dashed border-border px-3 py-3 text-xs leading-5 text-muted-foreground" data-testid="create-ui-no-routes">
+            <Well className="px-3 py-3 text-xs leading-5 text-muted-foreground" data-testid="create-ui-no-routes">
               {project.name} has no routes yet, so this starts as a blank app. Attach routes later from the composer chip, or{' '}
               <Link
                 to="/p/$project/backend/$module"
@@ -288,10 +282,10 @@ function Body({ onClose, preselectModule }: { onClose: () => void; preselectModu
                 generate a backend first
               </Link>
               .
-            </div>
+            </Well>
           ) : (
             <>
-              <div className="overflow-hidden rounded-[10px] border border-border" data-testid="create-ui-routes">
+              <Well className="overflow-hidden" data-testid="create-ui-routes">
                 {routes.map((r) => {
                   const serverOnly = r.auth === 'api_key'
                   const on = (selected ?? []).includes(r.id)
@@ -301,7 +295,7 @@ function Body({ onClose, preselectModule }: { onClose: () => void; preselectModu
                     <div
                       key={r.id}
                       className={cn(
-                        'flex h-10 min-w-0 items-center gap-2.5 border-b border-border/65 px-3 last:border-b-0',
+                        'hairline-b flex h-10 min-w-0 items-center gap-2.5 px-3 last:border-b-0',
                         serverOnly && 'opacity-60',
                       )}
                       data-testid={`create-ui-route-${r.name}`}
@@ -357,7 +351,7 @@ function Body({ onClose, preselectModule }: { onClose: () => void; preselectModu
                     </div>
                   )
                 })}
-              </div>
+              </Well>
               <span className="text-[11.5px] leading-4 text-muted-foreground">
                 Routes without a schema still work: the AI sees the method and path. A test run fills the schema in one click.
               </span>
@@ -376,8 +370,8 @@ function Body({ onClose, preselectModule }: { onClose: () => void; preselectModu
                 aria-checked={template === t.key}
                 onClick={() => setTemplate(t.key)}
                 className={cn(
-                  'flex flex-col gap-2 rounded-[10px] border border-border bg-background p-2.5 text-left text-xs font-medium hover:border-ring/60',
-                  template === t.key && 'border-primary ring-3 ring-primary/14',
+                  'flex flex-col gap-2 rounded-well bg-recess p-2.5 text-left text-xs font-medium transition-colors hover:bg-(--hover-fill) focus-visible:shadow-focus',
+                  template === t.key && 'bg-raise shadow-raise-sm',
                 )}
                 data-testid={`create-ui-template-${t.key}`}
               >
@@ -412,7 +406,7 @@ function Body({ onClose, preselectModule }: { onClose: () => void; preselectModu
         )}
       </div>
 
-      <div className="flex items-center gap-2 rounded-b-xl border-t border-border bg-muted/40 px-[22px] py-3.5">
+      <div className="flex items-center gap-2 px-[22px] py-3.5 shadow-[inset_0_1px_0_var(--hairline)]">
         <Info className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="text-xs leading-4 text-muted-foreground" data-testid="create-ui-footnote">
           Preview uses <b className="font-medium text-foreground">{project.default_environment}</b> secrets, published uses{' '}
@@ -424,7 +418,7 @@ function Body({ onClose, preselectModule }: { onClose: () => void; preselectModu
         </Button>
         <Button size="sm" type="submit" disabled={!canSubmit} data-testid="create-ui-submit">
           Create UI
-          <Kbd className="ml-0.5 border-primary-foreground/30 bg-primary-foreground/15 text-primary-foreground">⌘⏎</Kbd>
+          <Kbd className="ml-0.5 bg-primary-foreground/15 text-primary-foreground shadow-none">⌘⏎</Kbd>
         </Button>
       </div>
     </form>

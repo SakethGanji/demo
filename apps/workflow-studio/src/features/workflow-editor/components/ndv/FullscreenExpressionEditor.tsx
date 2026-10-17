@@ -7,6 +7,8 @@ import {
   AlertDialogFooter,
   AlertDialogCancel,
 } from '@/shared/components/ui/alert-dialog';
+import { Button } from '@/shared/components/ui/button';
+import { Textarea } from '@/shared/components/ui/textarea';
 
 interface FullscreenExpressionEditorProps {
   open: boolean;
@@ -48,12 +50,13 @@ export default function FullscreenExpressionEditor({
           <AlertDialogTitle>{label || 'Edit value'}</AlertDialogTitle>
         </AlertDialogHeader>
 
-        <textarea
+        <Textarea
           ref={textareaRef}
           value={localValue}
           onChange={(e) => setLocalValue(e.target.value)}
           placeholder={placeholder}
-          className="flex-1 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+          className="flex-1 font-mono resize-none"
+          data-testid="expr-fullscreen-input"
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
               handleDone();
@@ -63,12 +66,9 @@ export default function FullscreenExpressionEditor({
 
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <button
-            onClick={handleDone}
-            className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          >
+          <Button onClick={handleDone} data-testid="expr-fullscreen-done">
             Done
-          </button>
+          </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

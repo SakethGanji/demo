@@ -1,42 +1,54 @@
+/* Code map (DESIGN §4, §6): a transparent canvas so the sky shows, one recessed module boundary,
+   raised function tiles, neutral art-line edges and one focal path in the brand stroke. */
 .product-code-map {
-  --map-edge: var(--success, #5b9878);
+  --map-edge: var(--art-line);
+  --map-focus: var(--primary);
   display: flex;
   flex-direction: column;
   min-height: 0;
   height: 100%;
   font-size: 11px;
   color: var(--foreground);
-  background: var(--background);
+  background: transparent;
 }
 .map-toolbar {
-  padding: 8px 10px;
+  padding: 8px 12px;
   display: flex;
   align-items: center;
   gap: 7px;
   flex-wrap: wrap;
-  border-bottom: 1px solid var(--border);
-  background: var(--card);
+  box-shadow: inset 0 -1px 0 var(--hairline);
 }
 .map-toolbar label {
   display: flex;
-  gap: 5px;
+  gap: 6px;
   align-items: center;
   color: var(--muted-foreground);
-  font-size: 10px;
+  font-size: 11.5px;
 }
 .map-toolbar select,
 .map-toolbar input {
-  padding: 5px 7px;
+  height: 28px;
+  padding: 0 8px;
   min-width: 0;
   max-width: 190px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: var(--card);
+  border: 0;
+  border-radius: var(--r-ctl);
+  background: var(--recess);
   color: var(--foreground);
   font: inherit;
+  font-size: 12px;
+}
+.map-toolbar select:focus-visible,
+.map-toolbar input:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
 }
 .map-toolbar input {
-  width: 135px;
+  width: 150px;
+}
+.map-toolbar input::placeholder {
+  color: var(--muted-foreground);
 }
 .map-sync {
   padding: 6px 12px;
@@ -44,20 +56,20 @@
   gap: 10px;
   flex-wrap: wrap;
   align-items: center;
-  border-bottom: 1px solid var(--border);
+  box-shadow: inset 0 -1px 0 var(--hairline);
   color: var(--muted-foreground);
-  font-size: 10px;
+  font-size: 11.5px;
 }
 .map-sync span {
   margin-left: auto;
 }
 .map-sync b {
-  font-size: 9px;
-  font-weight: 500;
+  font-size: 11px;
+  font-weight: 600;
 }
 .map-sync-stale {
-  color: var(--warning-foreground, var(--muted-foreground));
-  background: var(--muted);
+  color: var(--warning-text);
+  background: var(--warning-soft);
 }
 .map-sync button {
   text-decoration: underline;
@@ -73,6 +85,9 @@
   min-width: 0;
   min-height: 300px;
 }
+.map-canvas .react-flow {
+  background: transparent;
+}
 .map-canvas.is-stale .react-flow__viewport {
   opacity: 0.4;
   filter: grayscale(0.6);
@@ -82,44 +97,45 @@
   top: 10px;
   left: 10px;
   max-width: calc(100% - 20px);
-  padding: 6px 9px;
-  border: 1px solid var(--border);
-  background: var(--card);
+  padding: 5px 9px;
+  background: var(--recess);
   color: var(--muted-foreground);
-  border-radius: 5px;
-  font-size: 10px;
+  border-radius: var(--r-ctl);
+  font-size: 11.5px;
   pointer-events: none;
 }
+/* the module boundary is the recess; the function tiles sit raised inside it */
 .code-map-module {
   height: 100%;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--card) 65%, transparent);
+  border-radius: var(--r-panel);
+  background: var(--well);
   pointer-events: none;
   padding: 20px 24px;
 }
 .code-map-module strong {
   display: block;
-  font-size: 16px;
+  font-size: 15px;
+  font-weight: 600;
 }
 .code-map-module > span {
-  font-size: 9px;
-  letter-spacing: 1px;
+  font-size: 11.5px;
   color: var(--muted-foreground);
 }
 .code-map-function {
   width: 320px;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  background: var(--card);
+  border-radius: var(--r-panel);
+  background: var(--raise);
   color: var(--foreground);
-  box-shadow: 0 5px 15px #00000008;
-  transition: opacity 0.12s;
+  box-shadow: var(--raise-md);
+  transition:
+    opacity var(--d-fast) var(--ease-out),
+    box-shadow var(--d-fast) var(--ease-out);
   overflow: visible;
 }
 .code-map-function.is-active {
-  border-color: var(--map-edge);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--map-edge) 15%, transparent);
+  box-shadow:
+    0 0 0 1.5px var(--map-focus),
+    0 0 14px 2px var(--glow);
 }
 .code-map-function.is-muted {
   opacity: 0.16;
@@ -143,12 +159,12 @@
   flex: 1;
 }
 .map-name strong {
-  font-size: 12px;
-  font-weight: 550;
+  font-size: 13px;
+  font-weight: 600;
   display: block;
 }
 .map-name code {
-  font-size: 9px;
+  font-size: 10.5px;
   display: block;
   color: var(--muted-foreground);
   margin-top: 3px;
@@ -156,49 +172,55 @@
   text-overflow: ellipsis;
 }
 .map-f-icon {
-  border-radius: 5px;
-  background: var(--muted);
-  color: var(--map-edge);
+  border-radius: var(--r-chip);
+  background: color-mix(in srgb, var(--hue-backend) 11%, transparent);
+  color: var(--hue-backend);
   padding: 6px 9px;
-  font-family: monospace;
+  font-family: var(--font-mono, monospace);
 }
 .map-pin {
-  border-radius: 4px;
+  border-radius: var(--r-chip);
   padding: 2px 6px;
   color: var(--muted-foreground);
   font-size: 18px;
+  transition: background-color var(--d-fast) var(--ease-out);
+}
+.map-pin:hover {
+  background: var(--hover-fill);
 }
 .map-pin[aria-pressed='true'] {
-  background: var(--map-edge);
-  color: var(--card);
+  background: var(--primary);
+  color: var(--primary-foreground);
 }
 .map-routes {
   padding: 0 12px 8px;
-  font-size: 9px;
+  font-size: 11px;
   color: var(--muted-foreground);
   display: flex;
-  gap: 4px;
+  gap: 4px 8px;
   flex-wrap: wrap;
 }
-.map-routes b {
-  color: var(--map-edge);
-  font-weight: 500;
+.map-route {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono, monospace);
 }
 .map-function-meta {
-  border-top: 1px solid var(--border);
+  box-shadow: inset 0 1px 0 var(--hairline);
   padding: 7px 12px;
-  font-size: 9px;
+  font-size: 11px;
   color: var(--muted-foreground);
 }
+/* expanded call list: a recess inside the raised tile */
 .map-function-body {
   padding: 12px 17px 12px 28px;
-  border-top: 1px solid var(--border);
-  background: color-mix(in srgb, var(--muted) 40%, var(--card));
-  border-radius: 0 0 9px 9px;
+  background: var(--recess);
+  border-radius: 0 0 var(--r-panel) var(--r-panel);
 }
 .map-body-label {
-  font-size: 8px;
-  letter-spacing: 1px;
+  font-size: 11px;
+  font-weight: 600;
   margin-bottom: 12px;
   color: var(--muted-foreground);
 }
@@ -210,9 +232,9 @@
   height: 48px;
   margin-bottom: 10px;
   padding: 6px 9px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: var(--card);
+  border-radius: var(--r-well);
+  background: var(--raise);
+  box-shadow: var(--raise-sm);
 }
 .map-call:before {
   content: '';
@@ -225,7 +247,7 @@
   border-bottom: 1px dashed var(--map-edge);
 }
 .map-call > span {
-  color: var(--map-edge);
+  color: var(--hue-backend);
 }
 .map-call button {
   flex: 1;
@@ -234,26 +256,26 @@
 }
 .map-call strong {
   display: block;
-  font-size: 10px;
-  font-weight: 500;
+  font-size: 11.5px;
+  font-weight: 550;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .map-call small {
   display: block;
-  font-size: 8px;
+  font-size: 10px;
   color: var(--muted-foreground);
 }
 .map-call > code {
-  font-size: 8px;
+  font-size: 10px;
   color: var(--muted-foreground);
 }
-.map-call.custom {
-  border-style: dashed;
+.map-call.custom > span {
+  color: var(--warning-text);
 }
 .map-function-body p {
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.6;
   margin: 8px 0;
   color: var(--muted-foreground);
@@ -265,58 +287,53 @@
   margin: 8px 0;
 }
 .map-secret-refs span {
-  font: 8px monospace;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 4px;
+  font: 10px var(--font-mono, monospace);
+  color: var(--hue-secrets);
+  background: color-mix(in srgb, var(--hue-secrets) 10%, transparent);
+  border-radius: var(--r-kbd);
+  padding: 4px 5px;
   overflow-wrap: anywhere;
 }
 .product-code-map .react-flow__handle {
   width: 6px;
   height: 6px;
-  background: var(--card);
-  border: 1px solid var(--map-edge);
-}
-.product-code-map .react-flow__controls button {
-  background: var(--card);
-  border-color: var(--border);
-  color: var(--foreground);
-  fill: var(--foreground);
+  background: var(--raise);
+  box-shadow: 0 0 0 1px var(--art-line);
+  border: 0;
 }
 .map-inspector {
-  width: 230px;
+  width: 240px;
   flex-shrink: 0;
   padding: 18px;
-  border-left: 1px solid var(--border);
-  background: var(--card);
+  box-shadow: inset 1px 0 0 var(--hairline);
   overflow: auto;
 }
 .map-inspector > small {
-  font-size: 8px;
-  letter-spacing: 1px;
+  font-size: 11.5px;
   color: var(--muted-foreground);
 }
 .map-inspector h3 {
-  font-size: 17px;
-  margin: 14px 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+  margin: 10px 0 4px;
 }
 .map-inspector > code {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--muted-foreground);
   overflow-wrap: anywhere;
 }
 .map-inspector p {
-  font-size: 10px;
-  line-height: 1.8;
+  font-size: 11.5px;
+  line-height: 1.7;
   color: var(--muted-foreground);
   margin: 10px 0;
   overflow-wrap: anywhere;
 }
 .map-inspector h4 {
-  font-size: 10px;
+  font-size: 12px;
+  font-weight: 600;
   margin: 18px 0 6px;
-  text-transform: uppercase;
-  color: var(--muted-foreground);
+  color: var(--foreground);
 }
 .map-inspector > button:not([data-slot]) {
   display: flex;
@@ -324,21 +341,21 @@
   justify-content: space-between;
   gap: 8px;
   width: 100%;
-  font-size: 10px;
-  color: var(--map-edge);
+  font-size: 11.5px;
+  color: var(--primary);
   padding: 6px 0;
   text-align: left;
   overflow-wrap: anywhere;
 }
 .map-inspector button code {
-  font-size: 9px;
+  font-size: 10px;
   white-space: nowrap;
   color: var(--muted-foreground);
 }
 .map-caveat {
   padding: 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--r-well);
+  background: var(--recess);
 }
 .map-empty {
   position: absolute;
@@ -348,7 +365,7 @@
   text-align: center;
   padding: 20px;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: 12.5px;
   pointer-events: none;
 }
 .map-empty button {
@@ -364,7 +381,7 @@
 }
 @media (max-width: 1400px) {
   .map-inspector {
-    width: 190px;
+    width: 200px;
     padding: 12px;
   }
 }
@@ -381,11 +398,14 @@
 }
 .map-edge-label {
   position: absolute;
-  font-size: 9px;
-  border-radius: 3px;
-  padding: 1px 3px;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: var(--r-kbd);
+  padding: 1px 4px;
   pointer-events: none;
-  color: var(--foreground);
+  color: var(--primary);
+  background: var(--tile);
+  box-shadow: var(--raise-sm);
 }
 /* Panning uses transforms, never native scrolling (including automatic focus scroll). */
 .product-code-map .react-flow,
@@ -402,10 +422,12 @@
   position: absolute;
   bottom: 15px;
   left: 45px;
-  background: var(--card);
+  background: var(--overlay-fill);
+  -webkit-backdrop-filter: var(--overlay-blur);
+  backdrop-filter: var(--overlay-blur);
+  box-shadow: var(--overlay-shadow);
   color: var(--foreground);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  padding: 6px 10px;
-  font-size: 10px;
+  border-radius: var(--r-ctl);
+  padding: 5px 10px;
+  font-size: 11.5px;
 }

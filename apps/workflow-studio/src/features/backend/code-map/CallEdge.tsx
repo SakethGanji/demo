@@ -1,7 +1,7 @@
 import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, Position, type EdgeProps } from '@xyflow/react'
 
 /** Route references that skip layers through the module's top gutter, around boxes. */
-export function CallEdge({ sourceX, sourceY, targetX, targetY, markerEnd, style, label, labelStyle, labelBgStyle, data }: EdgeProps) {
+export function CallEdge({ sourceX, sourceY, targetX, targetY, markerEnd, style, label, labelStyle, data }: EdgeProps) {
   const routing = data as { lane: number; sourceRight: number; targetLeft: number }
   let path: string, labelX: number, labelY: number
   if (targetX - sourceX > 350 || targetX <= sourceX) {
@@ -29,7 +29,6 @@ export function CallEdge({ sourceX, sourceY, targetX, targetY, markerEnd, style,
             className="nodrag nopan map-edge-label"
             style={{
               ...labelStyle,
-              background: labelBgStyle?.fill as string,
               opacity: style?.opacity,
               transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
             }}

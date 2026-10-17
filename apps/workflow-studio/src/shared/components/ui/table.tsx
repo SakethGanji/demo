@@ -15,7 +15,7 @@ function Table({ className, dense = false, ...props }: React.ComponentProps<'tab
 }
 
 function TableHeader({ className, ...props }: React.ComponentProps<'thead'>) {
-  return <thead data-slot="table-header" className={cn('[&_tr]:border-b [&_tr]:border-border', className)} {...props} />
+  return <thead data-slot="table-header" className={cn('[&_tr]:border-b [&_tr]:border-hairline [&_tr]:hover:bg-transparent', className)} {...props} />
 }
 
 function TableBody({ className, ...props }: React.ComponentProps<'tbody'>) {
@@ -26,7 +26,7 @@ function TableRow({ className, ...props }: React.ComponentProps<'tr'>) {
   return (
     <tr
       data-slot="table-row"
-      className={cn('border-b border-border/65 transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted', className)}
+      className={cn('border-b border-hairline transition-colors hover:bg-foreground/4 data-[state=selected]:bg-brand-soft', className)}
       {...props}
     />
   )
@@ -38,7 +38,7 @@ function TableHead({ className, ...props }: React.ComponentProps<'th'>) {
     <th
       data-slot="table-head"
       className={cn(
-        'whitespace-nowrap px-4 text-left align-middle text-[11.5px] font-medium text-muted-foreground',
+        'whitespace-nowrap px-4 text-left align-middle text-[12px] font-medium text-muted-foreground',
         dense ? 'h-8 px-3' : 'h-[34px]',
         className,
       )}

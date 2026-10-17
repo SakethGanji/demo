@@ -27,6 +27,11 @@ import {
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 
 import { Dialog, DialogContent, DialogTitle } from '@/shared/components/ui/dialog';
+import { Button } from '@/shared/components/ui/button';
+import { Badge } from '@/shared/components/ui/badge';
+import { Input } from '@/shared/components/ui/input';
+import { getNodeStyles } from '../../lib/nodeStyles';
+import { normalizeNodeGroup } from '../../lib/nodeConfig';
 import { useNDVStore } from '../../stores/ndvStore';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useNodeById, useNodeExecution } from '../../hooks/useWorkflowSelectors';
@@ -147,126 +152,105 @@ export default function NodeDetailsModal() {
   );
 
   if (!activeNode) return null;
+  const nodeStyles = getNodeStyles(normalizeNodeGroup(activeNode.data.group ? [activeNode.data.group] : undefined));
 
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
-        <DialogContent showCloseButton={false} className="!max-w-[90vw] !w-[90vw] !h-[85vh] !p-0 !gap-0 flex flex-col !bg-background">
+        <DialogContent showCloseButton={false} className="!max-w-[90vw] !w-[90vw] !h-[85vh] !p-0 !gap-0 flex flex-col" data-testid="ndv-modal">
           {/* Accessible title (visually hidden — header is custom) */}
           <VisuallyHidden>
             <DialogTitle>{activeNode.data.label} - Node Details</DialogTitle>
           </VisuallyHidden>
 
-          {/* Consolidated Header - Node identity + controls */}
-          <div className="flex items-center justify-between px-3 h-10 bg-background/50 border-b border-border/30 shrink-0">
+          {/* Header: node identity + controls */}
+          <div className="flex items-center justify-between px-3 h-12 shrink-0 shadow-[inset_0_-1px_0_var(--hairline)]">
             {/* Left: Back button */}
-            <button
-              onClick={closeNDV}
-              className="flex items-center gap-1 rounded px-1.5 py-1 text-[13px] text-muted-foreground hover:bg-accent/70 hover:text-foreground transition-colors"
-            >
-              <ArrowLeft size={14} />
+            <Button variant="ghost" size="sm" onClick={closeNDV} className="text-muted-foreground hover:text-foreground" data-testid="ndv-back">
+              <ArrowLeft />
               <span className="hidden sm:inline">Back</span>
-            </button>
+            </Button>
 
             {/* Center: Node icon + name + status */}
             <div className="flex items-center gap-2 min-w-0 flex-1 justify-center">
               {/* Node icon */}
-              <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded bg-primary/10 text-primary">
+              <span className="icon-tile" style={{ color: nodeStyles.accentColor }} aria-hidden>
                 <IconComponent size={14} />
-              </div>
+              </span>
 
               {/* Editable node name */}
               {isEditingName ? (
                 <div className="flex items-center gap-1">
-                  <input
+                  <Input
                     ref={handleNameInputRef}
                     type="text"
                     value={editedName}
                     onChange={(e) => setEditedName(e.target.value)}
                     onKeyDown={handleNameKeyDown}
                     onBlur={handleSaveName}
-                    className="text-[13px] font-semibold text-foreground bg-background rounded-md px-2 py-0.5 border border-ring focus:outline-none focus:ring-1 focus:ring-ring/40 min-w-[120px] max-w-[200px]"
+                    className="h-7 min-w-[120px] max-w-[200px] text-[13px] font-semibold"
+                    data-testid="ndv-name-input"
                   />
-                  <button
-                    onClick={handleSaveName}
-                    className="p-1 rounded-md hover:bg-accent text-primary"
-                    title="Save"
-                  >
-                    <Check size={12} />
-                  </button>
-                  <button
-                    onClick={handleCancelEdit}
-                    className="p-1 rounded-md hover:bg-accent text-muted-foreground"
-                    title="Cancel"
-                  >
-                    <X size={12} />
-                  </button>
+                  <Button variant="ghost" size="icon-xs" onClick={handleSaveName} title="Save" aria-label="Save name" className="text-primary" data-testid="ndv-name-save">
+                    <Check />
+                  </Button>
+                  <Button variant="ghost" size="icon-xs" onClick={handleCancelEdit} title="Cancel" aria-label="Cancel rename" className="text-muted-foreground" data-testid="ndv-name-cancel">
+                    <X />
+                  </Button>
                 </div>
               ) : (
                 <div className="flex items-center gap-1 group min-w-0">
-                  <span className="text-[13px] font-medium text-foreground truncate max-w-[200px]">
+                  <span className="text-[13.5px] font-semibold tracking-[-0.01em] text-foreground truncate max-w-[200px]">
                     {activeNode.data.label}
                   </span>
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
                     onClick={() => setIsEditingName(true)}
-                    className="p-0.5 rounded hover:bg-accent text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                    className="text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
                     title="Rename node"
+                    aria-label="Rename node"
+                    data-testid="ndv-rename"
                   >
-                    <Pencil size={11} />
-                  </button>
+                    <Pencil />
+                  </Button>
                 </div>
               )}
 
               {/* Status badge */}
-              {nodeExecution?.status === 'running' && (
-                <span className="flex-shrink-0 rounded-sm bg-[var(--warning)]/10 px-1.5 py-px text-[10px] font-medium text-[var(--warning)]">
-                  Running
-                </span>
-              )}
-              {nodeExecution?.status === 'success' && (
-                <span className="flex-shrink-0 rounded-sm bg-[var(--success)]/10 px-1.5 py-px text-[10px] font-medium text-[var(--success)]">
-                  Success
-                </span>
-              )}
-              {nodeExecution?.status === 'error' && (
-                <span className="flex-shrink-0 rounded-sm bg-destructive/10 px-1.5 py-px text-[10px] font-medium text-destructive">
-                  Error
-                </span>
-              )}
+              {nodeExecution?.status === 'running' && <Badge variant="warning" data-testid="ndv-status">Running</Badge>}
+              {nodeExecution?.status === 'success' && <Badge variant="success" data-testid="ndv-status">Success</Badge>}
+              {nodeExecution?.status === 'error' && <Badge variant="error" data-testid="ndv-status">Error</Badge>}
             </div>
 
             {/* Right: Action buttons */}
             <div className="flex items-center gap-1">
-              <button
-                onClick={handleExecute}
-                disabled={isExecuting}
-                className="flex items-center gap-1.5 rounded-md bg-primary/90 px-2 py-1 text-[12px] font-medium text-primary-foreground hover:bg-primary disabled:opacity-50 transition-colors"
-              >
+              <Button size="sm" onClick={handleExecute} disabled={isExecuting} data-testid="ndv-test">
                 {isExecuting ? (
                   <>
-                    <Loader2 size={13} className="animate-spin" />
+                    <Loader2 className="animate-spin" />
                     <span className="hidden sm:inline">Running...</span>
                   </>
                 ) : (
                   <>
-                    <Play size={13} />
+                    <Play />
                     <span className="hidden sm:inline">Test</span>
                   </>
                 )}
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
                 onClick={handleDelete}
-                className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                className="text-muted-foreground hover:bg-destructive-soft hover:text-destructive"
                 title="Delete node"
+                aria-label="Delete node"
+                data-testid="ndv-delete"
               >
-                <Trash2 size={14} />
-              </button>
-              <button
-                onClick={closeNDV}
-                className="rounded p-1 text-muted-foreground hover:bg-accent transition-colors"
-                title="Close"
-              >
-                <X size={14} />
-              </button>
+                <Trash2 />
+              </Button>
+              <Button variant="ghost" size="icon-sm" onClick={closeNDV} className="text-muted-foreground" title="Close" aria-label="Close" data-testid="ndv-close">
+                <X />
+              </Button>
             </div>
           </div>
 
@@ -286,7 +270,7 @@ export default function NodeDetailsModal() {
                 />
               </Panel>
 
-              <PanelResizeHandle className="w-px bg-border/50 hover:bg-primary/50 active:bg-primary transition-colors" />
+              <PanelResizeHandle className="w-px bg-hairline hover:bg-primary/50 active:bg-primary transition-colors" />
 
               {/* Settings Panel */}
               <Panel defaultSize={100 - inputPanelSize - outputPanelSize} minSize={30}>
@@ -295,7 +279,7 @@ export default function NodeDetailsModal() {
                 />
               </Panel>
 
-              <PanelResizeHandle className="w-px bg-border/50 hover:bg-primary/50 active:bg-primary transition-colors" />
+              <PanelResizeHandle className="w-px bg-hairline hover:bg-primary/50 active:bg-primary transition-colors" />
 
               {/* Output Panel */}
               <Panel

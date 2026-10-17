@@ -18,7 +18,7 @@ const BottomPanel = lazy(() => import('@/features/workflow-editor/components/bot
 const AIChatPanel = lazy(() => import('@/features/workflow-editor/components/ai-chat/AIChatPanel'))
 
 // --- Floating panel shared styles ---
-const floatingPanel = 'bg-[var(--surface)]/80 backdrop-blur-xl rounded-xl shadow-lg border border-border/30 overflow-hidden'
+const floatingPanel = 'glass-overlay overflow-hidden'
 const panelTransition = 'transition-all duration-300 ease-out'
 
 // --- Inlined from RightPanel.tsx ---
@@ -48,8 +48,10 @@ function RightPanel() {
         <div className="flex-1" />
         <button
           onClick={closeRightPanel}
-          className="p-1 text-muted-foreground hover:text-foreground hover:bg-accent rounded"
+          className="mr-1 flex size-6 items-center justify-center rounded-ctl text-muted-foreground transition-colors hover:bg-(--hover-fill) hover:text-foreground"
           title="Close panel"
+          aria-label="Close panel"
+          data-testid="editor-right-close"
         >
           <X size={12} />
         </button>
@@ -66,7 +68,7 @@ function RightPanel() {
 
 function EditorLoadingFallback() {
   return (
-    <div className="h-full w-full flex items-center justify-center bg-background">
+    <div className="h-full w-full flex items-center justify-center">
       <div className="flex flex-col items-center gap-3">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         <p className="text-sm text-muted-foreground">Loading editor...</p>
@@ -142,9 +144,11 @@ export function WorkflowEditorPage({ workflowId }: { workflowId?: string }) {
   return (
     <ReactFlowProvider>
       <Suspense fallback={<EditorLoadingFallback />}>
-        <div className="h-full w-full relative bg-background">
-          {/* Layer 0: Full-viewport canvas */}
-          <WorkflowCanvas />
+        <div className="h-full w-full relative">
+          {/* Layer 0: the canvas, a recessed well under the navbar */}
+          <div className="well absolute right-3 bottom-3 left-3 top-[68px] overflow-hidden rounded-panel">
+            <WorkflowCanvas />
+          </div>
 
           {/* Layer 2: Floating navbar */}
           <div className="absolute top-3 left-3 right-3 z-20">

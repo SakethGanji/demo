@@ -71,7 +71,7 @@ function OperationsSummary({ payload }: { payload: NonNullable<AIChatMessage['op
   return (
     <button
       onClick={() => setExpanded(!expanded)}
-      className="w-full text-left rounded-md border border-border bg-card px-2.5 py-1.5 text-xs hover:bg-accent transition-colors"
+      className="w-full text-left rounded-ctl bg-recess px-2.5 py-1.5 text-xs hover:bg-(--hover-fill) transition-colors"
     >
       <div className="flex items-center gap-1 text-muted-foreground">
         {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}

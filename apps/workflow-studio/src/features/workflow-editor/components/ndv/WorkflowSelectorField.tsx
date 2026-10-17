@@ -1,3 +1,4 @@
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/components/ui/select';
 /**
  * WorkflowSelectorField - Dropdown for selecting a workflow by ID
  *
@@ -41,36 +42,36 @@ export function WorkflowSelectorField({
 
   return (
     <div>
-      <label htmlFor={fieldId} className="mb-1 block text-xs font-medium text-foreground/80">
+      <label htmlFor={fieldId} className="mb-1 block text-[12.5px] font-medium text-foreground">
         {property.displayName}
         {property.required && <span className="text-destructive ml-0.5">*</span>}
       </label>
-      <select
-        id={fieldId}
+      <Select
         value={value || ''}
-        onChange={(e) => onChange(e.target.value)}
+        onValueChange={(v) => onChange((v as string) || '')}
         disabled={isLoading}
-        className="w-full rounded border border-border/60 bg-background px-2.5 py-1.5 text-[13px] focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring/50 disabled:opacity-50"
+        items={{
+          '': isLoading ? 'Loading workflows...' : error ? 'Error loading workflows' : 'Select a workflow...',
+          ...Object.fromEntries((availableWorkflows ?? []).map((w) => [w.id, `${w.name}${!w.active ? ' (Inactive)' : ''}`])),
+        }}
       >
-        <option value="">
-          {isLoading
-            ? 'Loading workflows...'
-            : error
-              ? 'Error loading workflows'
-              : 'Select a workflow...'}
-        </option>
-        {availableWorkflows?.map((workflow) => (
-          <option key={workflow.id} value={workflow.id}>
-            {workflow.name}
-            {!workflow.active && ' (Inactive)'}
-          </option>
-        ))}
-      </select>
+        <SelectTrigger id={fieldId} className="w-full" data-testid="workflow-selector">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {availableWorkflows?.map((workflow) => (
+            <SelectItem key={workflow.id} value={workflow.id}>
+              {workflow.name}
+              {!workflow.active && ' (Inactive)'}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
       {property.description && (
-        <p className="mt-1 text-[11px] text-muted-foreground/70">{property.description}</p>
+        <p className="mt-1 text-[12px] leading-4 text-muted-foreground">{property.description}</p>
       )}
       {error && (
-        <p className="mt-1 text-xs text-destructive">
+        <p className="mt-1 text-[12px] text-destructive">
           Failed to load workflows. Please try again.
         </p>
       )}

@@ -7,13 +7,15 @@ import { create } from 'zustand'
 interface EditorProjectState {
   projectId: string
   slug: string
+  name: string
   environments: string[]
-  setProject: (projectId: string, slug: string, environments: string[]) => void
+  setProject: (projectId: string, slug: string, environments: string[], name?: string) => void
 }
 
 export const useEditorProjectStore = create<EditorProjectState>((set) => ({
   projectId: 'proj_default',
   slug: 'default',
+  name: '',
   environments: [],
-  setProject: (projectId, slug, environments) => set({ projectId, slug, environments }),
+  setProject: (projectId, slug, environments, name = '') => set({ projectId, slug, environments, name }),
 }))

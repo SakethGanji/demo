@@ -8,6 +8,7 @@ import { Columns3 } from 'lucide-react'
 import { useProjectCtx } from '@/features/project/ProjectContext'
 import { errorMessage, isApiError } from '@/shared/api/http'
 import type { DataTable } from '@/shared/api/types'
+import { IconTile } from '@/shared/components/ui/surface'
 import { Button } from '@/shared/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/shared/components/ui/dialog'
 import { pluralize } from '@/features/project/lib/format'
@@ -56,7 +57,7 @@ export function ColumnsDialog({ table, open, onClose }: { table: DataTable; open
       <DialogContent className="sm:max-w-[600px]" data-testid="columns-dialog">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Columns3 className="size-4 text-muted-foreground" /> Columns · <span className="font-mono">{table.name}</span>
+            <IconTile hue="data" className="size-6"><Columns3 /></IconTile> Columns · <span className="font-mono">{table.name}</span>
           </DialogTitle>
           <DialogDescription>
             Existing rows must fit the new columns. Renaming a column doesn't move its values; a required column needs a

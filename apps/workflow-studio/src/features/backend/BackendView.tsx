@@ -9,7 +9,7 @@ import { EditorView, keymap } from '@codemirror/view'
 import { Text, Prec, type Extension } from '@codemirror/state'
 import { toggleComment } from '@codemirror/commands'
 import { lintGutter } from '@codemirror/lint'
-import { BookOpen, CircleCheck, CircleX, Code2, Ellipsis, FileCode2, FileType2, Play, ShieldCheck, ShieldAlert, TriangleAlert, Wand2 } from 'lucide-react'
+import { BookOpen, CircleCheck, CircleX, Code2, Ellipsis, FileCode2, FileType2, KeyRound, Play, ShieldCheck, ShieldAlert, TriangleAlert, Wand2 } from 'lucide-react'
 import { toast } from 'sonner'
 import CodeEditor, { type CodeEditorHandle } from '@/shared/components/ui/code-editor'
 import { Button } from '@/shared/components/ui/button'
@@ -17,6 +17,10 @@ import { Kbd } from '@/shared/components/ui/kbd'
 import { Skeleton } from '@/shared/components/ui/skeleton'
 import { EmptyState } from '@/shared/components/ui/empty-state'
 import { Tabs, TabsList, TabsPanel, TabsTab } from '@/shared/components/ui/tabs'
+import { Segmented } from '@/shared/components/ui/segmented'
+import { Roll } from '@/shared/components/ui/roll'
+import { Callout, Tile } from '@/shared/components/ui/surface'
+import { Tip } from '@/shared/components/ui/tooltip'
 import { Popover, PopoverContent } from '@/shared/components/ui/popover'
 import { ChipsInput } from '@/shared/components/ui/chips-input'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/shared/components/ui/dropdown-menu'
@@ -49,8 +53,6 @@ import { DiffDialog } from './components/DiffDialog'
 import { templateSource, TEMPLATE_LABELS, type TemplateKey } from './templates'
 import { STARTERS } from '@/features/project/components/SetupGuide'
 import type { BackendSearch } from '@/app/routes/project'
-
-const panel = 'rounded-xl border border-panel-border bg-card shadow-xs'
 
 export function BackendView() {
   const { pid } = useProjectCtx()
@@ -139,7 +141,7 @@ export function BackendView() {
   if (modules.isLoading || (saved && detail.isLoading && !doc)) return <BackendSkeleton />
   if (saved && detail.isError && !doc)
     return (
-      <div className={cn(panel, 'flex h-full items-center justify-center')} data-testid="backend-load-error">
+      <Tile editor className="flex h-full items-center justify-center" data-testid="backend-load-error">
         <EmptyState
           title={`Couldn't load ${module}.py`}
           actions={
@@ -150,14 +152,14 @@ export function BackendView() {
         >
           {errorMessage(detail.error)}
         </EmptyState>
-      </div>
+      </Tile>
     )
   if (!doc) {
     if (modules.data && !saved && module !== '~new')
       return (
-        <div className={cn(panel, 'flex h-full items-center justify-center')} data-testid="module-not-found">
+        <Tile editor className="flex h-full items-center justify-center" data-testid="module-not-found">
           <EmptyState title={`There is no module called ${module}.py`}>It may have been renamed or deleted.</EmptyState>
-        </div>
+        </Tile>
       )
     return <BackendSkeleton />
   }
@@ -166,16 +168,16 @@ export function BackendView() {
 
 function BackendSkeleton() {
   return (
-    <div className="flex h-full gap-3" data-testid="backend-loading">
-      <div className={cn(panel, 'flex-1 p-4')}>
+    <Tile editor className="flex h-full overflow-hidden" data-testid="backend-loading">
+      <div className="flex-[1.15] p-4">
         {[70, 40, 0, 85, 60, 0, 75, 50, 65].map((w, i) => (
           <Skeleton key={i} className="mb-2.5 h-4" style={{ width: `${w}%`, opacity: w ? 1 : 0 }} />
         ))}
       </div>
-      <div className={cn(panel, 'w-[404px] p-4')}>
+      <div className="flex-1 p-4 shadow-[inset_1px_0_0_var(--hairline)]">
         <Skeleton className="h-8" />
       </div>
-    </div>
+    </Tile>
   )
 }
 
@@ -218,13 +220,10 @@ function BackendWorkspace({ doc, savedUpdatedAt }: { doc: ModuleDoc; savedUpdate
   const width = useViewportWidth()
   const narrow = width < 1360
   const veryNarrow = width < 1280
-  const inspectorW = width >= 1360 ? 404 : width >= 1280 ? 360 : 340
 
   const patch = useDocStore((s) => s.patch)
   const renameDoc = useDocStore((s) => s.rename)
   const removeDoc = useDocStore((s) => s.remove)
-  const openTabs = useDocStore((s) => s.open[pid] ?? [])
-  const allDocs = useDocStore((s) => s.docs)
   const setOutline = useOutlineDraftStore((s) => s.set)
   const clearOutline = useOutlineDraftStore((s) => s.clear)
 
@@ -518,7 +517,8 @@ function BackendWorkspace({ doc, savedUpdatedAt }: { doc: ModuleDoc; savedUpdate
           setCursor({ line: line.number, col: pos - line.from + 1 })
         }
       }),
-      EditorView.theme({ '.cm-tooltip-autocomplete ul li': { display: 'flex', alignItems: 'center' } }),
+      // layout only; the code sits in the pane's well, so the editor paints no background of its own
+      EditorView.theme({ '.cm-tooltip-autocomplete ul li': { display: 'flex', alignItems: 'center' }, '&, .cm-gutters': { backgroundColor: 'transparent' } }),
       studioAutocomplete(completionData),
       lineTints({ added, errors: errorLines }),
       secretWidgets(visibleIssues, {
@@ -607,7 +607,6 @@ function BackendWorkspace({ doc, savedUpdatedAt }: { doc: ModuleDoc; savedUpdate
   }
 
   // ── header bits ──
-  const tabs = [...new Set([...openTabs, doc.module])].filter((m) => m !== '~new' || doc.module === '~new')
   const errCount = problems.length
   const stateText =
     errCount > 0
@@ -619,49 +618,54 @@ function BackendWorkspace({ doc, savedUpdatedAt }: { doc: ModuleDoc; savedUpdate
           : ''
   const sandboxAvailable = sandbox.data ? sandbox.data.available : true
   const isEmptyNew = doc.module === '~new' && !doc.source && (modules.data?.length ?? 0) === 0 && !streaming && !doc.draft
+  const warnCount = (doc.draft?.analysis?.warnings.length ?? 0) + secretIssues.length
+  const calloutIssue = visibleIssues[0] ?? null
 
   return (
-    <div className="flex h-full gap-3" data-testid="backend-view">
-      <section className={cn(panel, 'flex min-w-0 flex-1 flex-col overflow-hidden')} data-testid="editor-panel">
-        {/* file bar */}
-        <div className="flex h-11 shrink-0 items-center gap-1 border-b border-border pl-1.5 pr-2" data-testid="file-bar">
-          <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
-            {tabs
-              .filter((m) => !veryNarrow || m === doc.module)
-              .map((m) => {
-                const d = allDocs[docKey(pid, m)]
-                const on = m === doc.module
-                return (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => !on && navigate({ to: '/p/$project/backend/$module', params: { project: slug, module: m } })}
-                    className={cn(
-                      'inline-flex h-[30px] shrink-0 items-center gap-1.5 rounded-[7px] px-2.5 font-mono text-[12.5px] text-muted-foreground',
-                      on && 'bg-muted text-foreground',
-                    )}
-                    data-testid={`file-tab-${m}`}
-                  >
-                    <FileCode2 className="size-3.5" />
-                    {m === '~new' ? '~new' : `${m}.py`}
-                    {(isDirty(d) || d?.draft) && <span className="size-1.5 rounded-full bg-foreground/55" data-testid="dirty-dot" />}
-                  </button>
-                )
-              })}
-          </div>
-          {!narrow && (
-            <span className={cn('mr-1.5 whitespace-nowrap text-xs', errCount ? 'text-destructive' : 'text-muted-foreground')} data-testid="editor-state">
+    <Tile editor className="flex h-full overflow-hidden" data-testid="backend-view">
+      <section className="flex min-w-0 flex-[1.15] flex-col overflow-hidden" data-testid="editor-panel">
+        {/* editor head */}
+        <div className="flex h-12 shrink-0 items-center gap-2 px-3" data-testid="file-bar">
+          <span
+            className="inline-flex h-7 shrink-0 items-center gap-2 rounded-ctl bg-foreground/5 pr-3 pl-2 font-mono text-[12.5px]"
+            data-testid={`file-tab-${doc.module}`}
+          >
+            <FileCode2 className="size-3.5 text-muted-foreground" />
+            {doc.module === '~new' ? '~new' : `${doc.module}.py`}
+            {dirty && <span className="-ml-0.5 size-1.5 rounded-full bg-foreground/75" data-testid="dirty-dot" />}
+          </span>
+          <Tip label="Visual map · Visual + code · Code. Code is authoritative">
+            <span className="inline-flex">
+              <Segmented
+                size="xs"
+                value={editorMode}
+                onChange={setEditorMode}
+                aria-label="Backend editor view"
+                options={[
+                  { key: 'visual', label: width < 1600 ? 'Map' : 'Visual map', testId: 'backend-view-visual' },
+                  { key: 'split', label: width < 1600 ? 'Split' : 'Visual + code', testId: 'backend-view-split' },
+                  { key: 'code', label: 'Code', testId: 'backend-view-code' },
+                ]}
+              />
+            </span>
+          </Tip>
+          <div className="min-w-0 flex-1" />
+          {!narrow ? (
+            <span className={cn('truncate text-xs transition-colors duration-(--d-fast)', errCount ? 'text-destructive' : 'text-muted-foreground')} data-testid="editor-state">
               {stateText}
             </span>
+          ) : (
+            errCount > 0 && (
+              <span className="sr-only" data-testid="editor-state">
+                {stateText}
+              </span>
+            )
           )}
-          {narrow && errCount > 0 && (
-            <span className="sr-only" data-testid="editor-state">
-              {stateText}
-            </span>
-          )}
-          <Button variant="ghost" size="sm" onClick={() => setInspectorTab('reference')} data-testid="open-sdk">
-            <BookOpen /> SDK
-          </Button>
+          <Tip label="Open the studio SDK reference">
+            <Button variant="ghost" size="sm" onClick={() => { setInspectorOpen(true); setEditorMode('code'); setInspectorTab('reference') }} data-testid="open-sdk">
+              <BookOpen /> {!veryNarrow && 'SDK'}
+            </Button>
+          </Tip>
           {doc.moduleId && (
             <DropdownMenu>
               <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Module actions" data-testid="module-menu" />}>
@@ -684,36 +688,37 @@ function BackendWorkspace({ doc, savedUpdatedAt }: { doc: ModuleDoc; savedUpdate
               </DropdownMenuContent>
             </DropdownMenu>
           )}
-          <Button size="sm" onClick={() => void doSave()} disabled={saver.saving || streaming || (!dirty && !doc.isNew)} data-testid="save-module">
-            {saver.saving ? 'Saving…' : 'Save'} <Kbd>⌘S</Kbd>
-          </Button>
+          <Tip label={`Save ${doc.module}.py`} kbd="⌘S">
+            <Button size="sm" onClick={() => void doSave()} disabled={saver.saving || streaming || (!dirty && !doc.isNew)} data-testid="save-module">
+              {saver.saving ? 'Saving…' : 'Save'} <Kbd>⌘S</Kbd>
+            </Button>
+          </Tip>
         </div>
 
         {doc.staleRestore && (
-          <div className="flex items-center gap-2 border-b border-warning/30 bg-warning/7 px-3 py-2 text-xs" data-testid="draft-restored-stale">
-            <TriangleAlert className="size-3.5 text-warning" />
-            <span className="flex-1">{doc.module}.py changed since this draft was made</span>
-            <Button variant="ghost" size="xs" onClick={showTheirs}>
-              Diff
-            </Button>
-            <Button variant="ghost" size="xs" onClick={reloadTheirs} data-testid="stale-discard">
-              Discard draft
-            </Button>
-            <Button variant="ghost" size="xs" onClick={() => patch(pid, doc.module, { staleRestore: false })} data-testid="stale-keep">
-              Keep draft
-            </Button>
+          <div className="px-3 pb-2" data-testid="draft-restored-stale">
+            <Callout tone="warn" icon={<TriangleAlert />}>
+              <div className="flex items-center gap-2">
+                <span className="flex-1">{doc.module}.py changed since this draft was made</span>
+                <Button variant="ghost" size="xs" onClick={showTheirs}>
+                  Diff
+                </Button>
+                <Button variant="ghost" size="xs" onClick={reloadTheirs} data-testid="stale-discard">
+                  Discard draft
+                </Button>
+                <Button variant="ghost" size="xs" onClick={() => patch(pid, doc.module, { staleRestore: false })} data-testid="stale-keep">
+                  Keep draft
+                </Button>
+              </div>
+            </Callout>
           </div>
         )}
-
-        <div className="flex shrink-0 items-center gap-1 border-b border-border px-3 py-1.5" role="group" aria-label="Backend editor view">
-          {(['visual', 'split', 'code'] as const).map(view => <Button key={view} size="xs" variant={editorMode === view ? 'secondary' : 'ghost'} aria-pressed={editorMode === view} onClick={() => setEditorMode(view)} data-testid={`backend-view-${view}`}>{view === 'visual' ? 'Visual map' : view === 'split' ? 'Visual + code' : 'Code'}</Button>)}
-          <span className="ml-auto text-[10px] text-muted-foreground">Code is authoritative</span>
-        </div>
 
         <PromptComposer
           ref={composerRef}
           state={gen.state}
           draft={doc.draft}
+          source={doc.source}
           hasSource={!!doc.source.trim()}
           promptCount={doc.prompts.filter((p) => p.role === 'user').length}
           lastPrompt={[...doc.prompts].reverse().find((p) => p.role === 'user')?.content ?? null}
@@ -746,6 +751,7 @@ function BackendWorkspace({ doc, savedUpdatedAt }: { doc: ModuleDoc; savedUpdate
             <EmptyState
               icon={<Code2 />}
               title="Write your backend by hand"
+              dust
               actions={
                 <>
                   <span className="text-xs text-muted-foreground">Templates:</span>
@@ -767,65 +773,117 @@ function BackendWorkspace({ doc, savedUpdatedAt }: { doc: ModuleDoc; savedUpdate
             </EmptyState>
           </div>
         ) : (
-          <div className={cn('relative mt-2.5 flex min-h-0 flex-1 border-t border-border', editorMode === 'split' && 'flex-col xl:flex-row')}>
-            {editorMode !== 'code' && <div className="min-h-0 min-w-0 flex-1" data-testid="backend-map-pane">
-              <CodeMapPanel pid={pid} moduleId={doc.moduleId} moduleName={doc.module} source={doc.source} enabled={!streaming} onJump={line => {setEditorMode('split'); requestAnimationFrame(() => {goToLine(line)})}} />
-            </div>}
-            <div className={cn('relative min-h-0 min-w-0 flex-1', editorMode === 'visual' && 'hidden', editorMode === 'split' && 'border-t border-border xl:border-l xl:border-t-0')}>
-
-            {streaming && (
-              <span className="absolute right-3 top-2 z-10 rounded-md border border-border bg-card px-2 py-0.5 text-[11.5px] text-muted-foreground" data-testid="readonly-tag">
-                Read-only while generating
-              </span>
+          <div className={cn('relative flex min-h-0 flex-1', editorMode === 'split' && 'flex-col xl:flex-row')}>
+            {editorMode !== 'code' && (
+              <div className="min-h-0 min-w-0 flex-1" data-testid="backend-map-pane">
+                <CodeMapPanel
+                  pid={pid}
+                  moduleId={doc.moduleId}
+                  moduleName={doc.module}
+                  source={doc.source}
+                  enabled={!streaming}
+                  onJump={(line) => {
+                    setEditorMode('split')
+                    requestAnimationFrame(() => {
+                      goToLine(line)
+                    })
+                  }}
+                />
+              </div>
             )}
-            <CodeEditor
-              key={doc.editorKey}
-              ref={editorRef}
-              bare
-              testId="code-editor"
-              language="python"
-              height="100%"
-              value={doc.source}
-              onChange={(v) => patch(pid, doc.module, { source: v })}
-              readOnly={streaming}
-              extensions={extensions}
-              diagnostics={diagnostics}
-              placeholder={doc.module === '~new' ? 'Describe your API above, or start writing Python…' : undefined}
-            />
+            <div className={cn('relative min-h-0 min-w-0 flex-1 bg-(--well)', editorMode === 'visual' && 'hidden', editorMode === 'split' && 'shadow-[inset_0_1px_0_var(--hairline)] xl:shadow-[inset_1px_0_0_var(--hairline)]')}>
+              {streaming && (
+                <span className="absolute top-2 right-3 z-10 rounded-chip bg-recess px-2 py-0.5 text-[11.5px] text-muted-foreground" data-testid="readonly-tag">
+                  Read-only while generating
+                </span>
+              )}
+              <CodeEditor
+                key={doc.editorKey}
+                ref={editorRef}
+                bare
+                testId="code-editor"
+                language="python"
+                height="100%"
+                value={doc.source}
+                onChange={(v) => patch(pid, doc.module, { source: v })}
+                readOnly={streaming}
+                extensions={extensions}
+                diagnostics={diagnostics}
+                placeholder={doc.module === '~new' ? 'Describe your API above, or start writing Python…' : undefined}
+              />
             </div>
           </div>
         )}
 
+        {/* missing secret: one flat line with the fix */}
+        {calloutIssue && (
+          <div className="shrink-0 px-3 pt-2" data-testid="secret-callout" data-kind={calloutIssue.kind}>
+            <Callout tone="warn" icon={<KeyRound />} className="min-h-[30px] w-fit max-w-full bg-[color-mix(in_srgb,var(--warning)_11%,transparent)] py-0 pr-1 pl-2.5 text-[12px]">
+              <div className="flex items-center gap-2">
+                <span className="min-w-0 truncate text-foreground">
+                  {calloutIssue.kind === 'not_bound' ? (
+                    <>
+                      <b className="font-semibold">{calloutIssue.key}</b> isn't bound to a host
+                    </>
+                  ) : calloutIssue.presentIn.length ? (
+                    <>
+                      <b className="font-semibold">{calloutIssue.key}</b> is set in <b className="font-semibold">{calloutIssue.presentIn.join(', ')}</b>, missing in{' '}
+                      <b className="font-semibold">{calloutIssue.missingIn.join(', ')}</b>
+                    </>
+                  ) : (
+                    <>
+                      <b className="font-semibold">{calloutIssue.key}</b> is missing in <b className="font-semibold">{calloutIssue.missingIn.join(', ')}</b>
+                    </>
+                  )}
+                  {visibleIssues.length > 1 && <span className="text-muted-foreground"> · +{visibleIssues.length - 1} more</span>}
+                </span>
+                <Button
+                  variant="outline"
+                  size="xs"
+                  onClick={(e) => setFix({ issue: calloutIssue, anchor: e.currentTarget })}
+                  data-testid="secret-callout-fix"
+                >
+                  {calloutIssue.kind === 'not_bound' ? 'Bind host' : `Add to ${calloutIssue.missingIn.join(', ')}`}
+                </Button>
+              </div>
+            </Callout>
+          </div>
+        )}
+
         {/* status bar */}
-        <div className="flex h-[30px] shrink-0 items-center gap-3.5 border-t border-border px-3 text-[11.5px] text-muted-foreground" data-testid="status-bar">
+        <div className="flex h-8 shrink-0 items-center gap-3.5 px-3 text-[11.5px] text-muted-foreground" data-testid="status-bar">
           {errCount > 0 ? (
-            <span className="inline-flex items-center gap-1 text-destructive" data-testid="status-errors">
+            <span className="inline-flex items-center gap-1.5 text-destructive" data-testid="status-errors">
               <CircleX className="size-3" /> {errCount} error{errCount === 1 ? '' : 's'}
             </span>
           ) : (
-            <span className="inline-flex items-center gap-1" data-testid="status-ok">
-              <CircleCheck className="size-3 text-success" /> No syntax errors
+            <span className="inline-flex items-center gap-1.5 text-success-text" data-testid="status-ok">
+              <CircleCheck className="size-3" /> No syntax errors
             </span>
           )}
-          {(doc.draft?.analysis?.warnings.length ?? 0) + secretIssues.length > 0 && (
-            <span className="inline-flex items-center gap-1">
-              <TriangleAlert className="size-3 text-warning" /> {(doc.draft?.analysis?.warnings.length ?? 0) + secretIssues.length} warning
-              {(doc.draft?.analysis?.warnings.length ?? 0) + secretIssues.length === 1 ? '' : 's'}
+          <span
+            className={cn('inline-flex items-center gap-1.5 transition-colors duration-(--d-base)', warnCount > 0 && 'text-warning-text')}
+            data-testid="status-warnings"
+          >
+            <TriangleAlert className="size-3" />
+            <span className="inline-flex gap-[.3em]">
+              <Roll value={warnCount} />
+              <span>warning{warnCount === 1 ? '' : 's'}</span>
             </span>
-          )}
+          </span>
           {analysis.error && <span className="truncate text-destructive">analysis failed: {analysis.error}</span>}
           <div className="flex-1" />
-          <span data-testid="cursor-pos">
+          <span className="tabular-nums" data-testid="cursor-pos">
             Ln {cursor.line}, Col {cursor.col}
           </span>
           {!veryNarrow && <span>Python 3</span>}
           {sandbox.data &&
             (sandbox.data.available ? (
-              <span className="inline-flex items-center gap-1" data-testid="sandbox-badge" data-available="true">
+              <span className="inline-flex items-center gap-1.5" data-testid="sandbox-badge" data-available="true">
                 <ShieldCheck className="size-3" /> Sandbox · {sandbox.data.backend}
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1 rounded bg-destructive/10 px-1.5 text-destructive" data-testid="sandbox-badge" data-available="false">
+              <span className="inline-flex items-center gap-1.5 rounded-chip bg-destructive-soft px-1.5 text-destructive" data-testid="sandbox-badge" data-available="false">
                 <ShieldAlert className="size-3" /> Sandbox unavailable
               </span>
             ))}
@@ -833,9 +891,9 @@ function BackendWorkspace({ doc, savedUpdatedAt }: { doc: ModuleDoc; savedUpdate
       </section>
 
       {inspectorOpen && editorMode === 'code' && (
-        <section className={cn(panel, 'flex shrink-0 flex-col overflow-hidden')} style={{ width: inspectorW }} data-testid="inspector-panel">
+        <section className="flex min-w-[340px] flex-1 flex-col overflow-hidden shadow-[inset_1px_0_0_var(--hairline)]" data-testid="inspector-panel">
           <Tabs value={inspectorTab} onValueChange={(v) => setInspectorTab(v as typeof inspectorTab)} className="h-full">
-            <TabsList>
+            <TabsList className="h-12 px-3 shadow-none">
               <TabsTab value="test" data-testid="inspector-tab-test">
                 <Play /> Test
               </TabsTab>
@@ -958,7 +1016,7 @@ function BackendWorkspace({ doc, savedUpdatedAt }: { doc: ModuleDoc; savedUpdate
         left={diffOpen === 'theirs' ? (theirs ?? '') : (doc.draft?.previousSource ?? '')}
         right={doc.source}
       />
-    </div>
+    </Tile>
   )
 }
 

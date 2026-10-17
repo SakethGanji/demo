@@ -6,7 +6,30 @@ import { useQuery } from '@tanstack/react-query'
 import { runsApi } from '@/shared/api/endpoints'
 import { qk } from '@/shared/api/queryKeys'
 import type { RunListItem } from '@/shared/api/types'
+import type { ActivityDay } from '@/shared/components/ui/charts'
+import { runTone } from '@/shared/components/ui/status-dot'
 import { parseTs } from '../lib/format'
+
+const pad = (n: number) => String(n).padStart(2, '0')
+const dayKey = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+
+/** The last 30 calendar days (oldest first, ending today) counted from the runs the engine still holds. */
+function activityDays(runs: RunListItem[], now: number): ActivityDay[] {
+  const days = new Map<string, ActivityDay>()
+  const today = new Date(now)
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i)
+    days.set(dayKey(d), { date: dayKey(d), count: 0, failed: 0 })
+  }
+  for (const r of runs) {
+    const t = parseTs(r.start_time)
+    const day = t && days.get(dayKey(t))
+    if (!day) continue
+    day.count++
+    if (runTone(r.status) === 'err') day.failed++
+  }
+  return [...days.values()]
+}
 
 export interface RouteStat {
   last: RunListItem
@@ -25,6 +48,8 @@ export function useRunStats(pid: string) {
   return useQuery({
     queryKey: qk.runs(pid, { stats: 100 }),
     queryFn: () => runsApi.list(pid, { limit: 100 }),
+    // new runs light up the system diagram: poll gently while the Overview is open
+    refetchInterval: 8_000,
     select: ({ runs }) => {
       const now = Date.now()
       const dayAgo = now - 24 * 3600 * 1000
@@ -52,7 +77,19 @@ export function useRunStats(pid: string) {
         routes,
         sparkline: buckets,
         p50: median(recent.map((r) => r.duration_ms).filter((d): d is number => d != null)),
-        recent: runs.slice(0, 4),
+        recent: runs.slice(0, 5),
+        /** the newest failed run, e.g. "POST /refunds" (for a tooltip) */
+        recentFailed: ((): string | undefined => {
+          const f = runs.find((r) => runTone(r.status) === 'err')
+          return f ? (f.route ?? f.workflow_name) : undefined
+        })(),
+        /** newest runs (id + route), for one packet per new run */
+        newest: runs.slice(0, 20).map((r) => ({ id: r.id, route_id: r.route_id, failed: runTone(r.status) === 'err' })),
+        /** per-day counts for the 30-day grid; only as deep as the runs the engine keeps (about 100) */
+        days: activityDays(runs, now),
+        failed30: runs.filter((r) => runTone(r.status) === 'err' && (parseTs(r.start_time)?.getTime() ?? 0) >= now - 30 * 864e5).length,
+        /** how many runs the 30-day grid is counted from */
+        sampled: runs.length,
       }
     },
   })

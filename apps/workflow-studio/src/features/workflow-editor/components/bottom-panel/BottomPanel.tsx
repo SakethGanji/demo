@@ -4,7 +4,8 @@ import { useEditorLayoutStore, type BottomPanelTab } from '../../stores/editorLa
 import { useExecutionStream } from '../../hooks/useExecutionStream';
 import CodeEditor from '@/shared/components/ui/code-editor';
 import { toast } from 'sonner';
-import { cn } from '@/shared/lib/utils';
+import { EditorTab } from '@/shared/components/ui/editor-tabs';
+import { Button } from '@/shared/components/ui/button';
 
 const ExecutionLogsPanel = lazy(() => import('../execution-logs/ExecutionLogsPanel'));
 
@@ -23,35 +24,35 @@ export default function BottomPanel() {
   return (
     <div className="h-full flex flex-col">
       {/* Tab bar */}
-      <div className="flex items-center h-9 px-2 border-b border-border/50 shrink-0">
+      <div className="flex items-center h-9 px-2 shrink-0 shadow-[inset_0_-1px_0_var(--hairline)]">
         <div className="flex gap-0.5">
           {tabs.map((tab) => (
-            <button
+            <EditorTab
               key={tab.id}
+              active={activeTab === tab.id}
+              icon={tab.icon}
               onClick={() => setTab(tab.id)}
-              className={cn(
-                'relative inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-none transition-colors',
-                activeTab === tab.id
-                  ? 'text-foreground after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-primary'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
-              )}
+              className="h-9"
             >
-              <tab.icon size={11} />
               {tab.label}
-            </button>
+            </EditorTab>
           ))}
         </div>
         <div className="flex-1" />
         <button
           onClick={toggleMaximized}
-          className="p-1 text-muted-foreground hover:text-foreground hover:bg-accent rounded"
+          className="flex size-6 items-center justify-center rounded-ctl text-muted-foreground transition-colors hover:bg-(--hover-fill) hover:text-foreground"
+          aria-label={isMaximized ? 'Restore panel size' : 'Maximize panel'}
+          data-testid="editor-bottom-maximize"
           title={isMaximized ? 'Restore panel size' : 'Maximize panel'}
         >
           {isMaximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
         </button>
         <button
           onClick={closeBottomPanel}
-          className="p-1 text-muted-foreground hover:text-foreground hover:bg-accent rounded"
+          className="ml-0.5 flex size-6 items-center justify-center rounded-ctl text-muted-foreground transition-colors hover:bg-(--hover-fill) hover:text-foreground"
+          aria-label="Close panel"
+          data-testid="editor-bottom-close"
           title="Close panel"
         >
           <X size={12} />
@@ -154,20 +155,14 @@ function InputPanel() {
         height="100%"
       />
       <div className="absolute bottom-3 right-3 flex items-center gap-2">
-        <button
-          onClick={handleRunWithoutPayload}
-          className="h-7 px-3 rounded-md border border-border bg-card text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent flex items-center gap-1.5"
-        >
-          <Play size={11} />
+        <Button variant="outline" size="sm" onClick={handleRunWithoutPayload} data-testid="editor-run-without-payload">
+          <Play />
           Run without Payload
-        </button>
-        <button
-          onClick={handleRunWithPayload}
-          className="h-7 px-3 rounded-md bg-[var(--success)] text-primary-foreground text-[12px] font-medium hover:brightness-110 flex items-center gap-1.5"
-        >
-          <Play size={11} fill="currentColor" />
+        </Button>
+        <Button size="sm" onClick={handleRunWithPayload} data-testid="editor-run-with-payload">
+          <Play fill="currentColor" />
           Run with Payload
-        </button>
+        </Button>
       </div>
     </div>
   );
