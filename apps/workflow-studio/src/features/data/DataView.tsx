@@ -64,7 +64,7 @@ export function DataView() {
 
   // `/data` → the first table
   useEffect(() => {
-    if (!params.table && first) navigate({ to: '/p/$project/data/$table', params: { project: slug, table: first }, replace: true })
+    if (!params.table && first) navigate({ to: '/p/$project/data/$table', params: { project: slug, table: first }, search: (prev: Record<string, unknown>) => prev as never, replace: true })
   }, [params.table, first, slug, navigate])
 
   if (tables.isPending || (!params.table && first))

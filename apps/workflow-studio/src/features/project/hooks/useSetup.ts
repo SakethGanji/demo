@@ -83,7 +83,8 @@ export function useSetup(pid: string, forced: boolean): SetupState {
     if (!loading && complete && active) {
       writeFlag(activeKey(pid), false)
       setActive(false)
-      toast.success('You’re set up', { description: 'Secret, backend, a tested route and a UI. The Overview takes it from here.' })
+      // one id: the outline and the Overview each run this hook, so without it the toast appears twice (and covers the builder's Send button)
+      toast.success('You’re set up', { id: 'setup-complete', description: 'Secret, backend, a tested route and a UI. The Overview takes it from here.' })
     }
   }, [loading, complete, active, pid])
 
