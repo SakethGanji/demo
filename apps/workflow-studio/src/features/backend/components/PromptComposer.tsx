@@ -18,7 +18,8 @@ import { cn } from '@/shared/lib/utils'
 import type { GenPhase, GenState } from '../useGenerate'
 import type { DraftState } from '../docStore'
 import { TEMPLATE_LABELS, type TemplateKey } from '../templates'
-import { FlowLog, FlowSay, useElapsed, type FlowStep } from '../ui/AiFlow'
+import { FlowLog, FlowSay, type FlowStep } from '../ui/AiFlow'
+import { useElapsed } from '../ui/flowHooks'
 
 export interface ComposerHandle {
   focus: () => void

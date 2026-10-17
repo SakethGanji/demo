@@ -23,8 +23,8 @@ import {
   Kv,
   KvList,
   raisedField,
-  useApplyProject,
 } from "./common";
+import { useApplyProject } from "./projectHooks";
 import { useProjectApps } from "@/features/project/hooks/useProjectData";
 import { cn } from "@/shared/lib/utils";
 

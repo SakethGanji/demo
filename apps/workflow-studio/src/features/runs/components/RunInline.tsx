@@ -17,7 +17,7 @@ import { Tip } from '@/shared/components/ui/tooltip'
 import { cn } from '@/shared/lib/utils'
 import { GhostCopy } from './GhostCopy'
 import { TraceWaterfall } from './TraceWaterfall'
-import { isUserFrame, moduleOfFrame } from './RunErrorBox'
+import { isUserFrame, moduleOfFrame } from '../lib/frames'
 import { exactTime, isFailed } from '../lib/runStats'
 import { isRunning, runError, shortId, triggerType } from '../lib/runLabels'
 

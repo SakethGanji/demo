@@ -36,7 +36,8 @@ import { Spinner } from '@/shared/components/ui/spinner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/components/ui/tooltip'
 import { floatingSheetCls } from '@/features/settings/SettingsSheet'
 import { cn } from '@/shared/lib/utils'
-import { ChecksList, groupChecks, groupStatus, type CheckGroup } from './ChecksList'
+import { ChecksList } from './ChecksList'
+import { groupChecks, groupStatus, type CheckGroup } from './checks'
 
 interface DryRun {
   checks: ReleaseCheck[]

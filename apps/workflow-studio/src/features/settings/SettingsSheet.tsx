@@ -13,7 +13,7 @@ import {
   SheetTitle,
 } from "@/shared/components/ui/sheet";
 import { cn } from "@/shared/lib/utils";
-import { isSection, SECTIONS, type SectionKey } from "./common";
+import { isSection, SECTIONS, type SectionKey } from "./sections";
 import { GeneralSection, useGeneralForm } from "./GeneralSection";
 import { EnvironmentsSection } from "./EnvironmentsSection";
 import { EgressSection } from "./EgressSection";

@@ -9,8 +9,8 @@ import {
   Kv,
   KvList,
   SectionHeader,
-  useProjectUpdate,
 } from "./common";
+import { useProjectUpdate } from "./projectHooks";
 
 const HOST_RE = /^(\*\.)?[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*(:\d+)?$/;
 

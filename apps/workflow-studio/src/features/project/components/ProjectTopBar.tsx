@@ -7,7 +7,8 @@ import { Link, useMatchRoute, useNavigate } from '@tanstack/react-router'
 import { ChevronsUpDown, LayoutGrid, Plus, Rocket, Workflow } from 'lucide-react'
 import { useProjectCtx } from '../ProjectContext'
 import { useMissingSecrets, useProjectSummary, useProjects } from '../hooks/useProjectData'
-import { StatusDot, type DotTone } from '@/shared/components/ui/status-dot'
+import { healthTone } from '../lib/healthTone'
+import { StatusDot } from '@/shared/components/ui/status-dot'
 import { Button } from '@/shared/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/shared/components/ui/popover'
 import { SearchMenuList } from '@/shared/components/ui/search-menu'
@@ -16,19 +17,8 @@ import { Tip } from '@/shared/components/ui/tooltip'
 import { cn } from '@/shared/lib/utils'
 import { CommandPalette } from './CommandPalette'
 import { NewProjectDialog } from './NewProjectDialog'
-import { Brand, CrumbSep, SearchTrigger, ThemeToggle, TopBarFrame, useToggleTheme } from './TopBar'
-import type { HealthStatus } from '@/shared/api/types'
+import { Brand, CrumbSep, SearchTrigger, ThemeToggle, TopBarFrame } from './TopBar'
 
-export { Brand, ThemeToggle, useToggleTheme }
-
-export function healthTone(s: HealthStatus | undefined): DotTone {
-  if (s === 'ok' || s === 'healthy') return 'ok'
-  if (s === 'degraded') return 'warn'
-  if (s === 'failing') return 'err'
-  return 'idle'
-}
-
-/** A project's avatar: its initial on the brand gradient (avatars are the one other place it appears). */
 export function ProjectAvatar({ name, size = 18, className }: { name: string; size?: number; className?: string }) {
   return (
     <span

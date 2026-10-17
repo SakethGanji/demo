@@ -2,12 +2,13 @@
  * Pieces of the inline AI change flow (DESIGN §8): the step log (mapped from the generator's real phases),
  * the typed explanation, and the elapsed clock. The composer owns the state; these only draw it.
  */
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment } from 'react'
 import { Check, FileSearch, FilePenLine, FlaskConical, ShieldCheck, Wrench } from 'lucide-react'
 import { StatusDot } from '@/shared/components/ui/status-dot'
 import { Well } from '@/shared/components/ui/surface'
 import { cn } from '@/shared/lib/utils'
 import type { GenPhase } from '../useGenerate'
+import { useTypewriter } from './flowHooks'
 
 export type StepState = 'pending' | 'running' | 'done'
 
@@ -55,34 +56,6 @@ export function FlowLog({ steps }: { steps: FlowStep[] }) {
   )
 }
 
-const reduced = () => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-
-/** Types `text` out word by word on the client (the summary arrives whole). Plain text when `animate` is off. */
-export function useTypewriter(text: string, animate: boolean): string {
-  const words = text.split(/(\s+)/)
-  const [n, setN] = useState(animate && !reduced() ? 0 : words.length)
-  useEffect(() => {
-    if (!animate || reduced()) {
-      setN(words.length)
-      return
-    }
-    setN(0)
-    const t = setInterval(() => {
-      setN((c) => {
-        if (c >= words.length) {
-          clearInterval(t)
-          return c
-        }
-        return c + 2 // a word and its gap
-      })
-    }, 45)
-    return () => clearInterval(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [text, animate])
-  return words.slice(0, n).join('')
-}
-
-/** The explanation line: `code` spans in backticks render as code. */
 export function FlowSay({ text, animate }: { text: string; animate: boolean }) {
   const typed = useTypewriter(text, animate)
   if (!typed) return null
@@ -100,15 +73,4 @@ export function FlowSay({ text, animate }: { text: string; animate: boolean }) {
       )}
     </p>
   )
-}
-
-/** Seconds since `startedAt`, ticking while `running`. */
-export function useElapsed(startedAt: number | null, running: boolean): number {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    if (!running) return
-    const t = setInterval(() => setNow(Date.now()), 100)
-    return () => clearInterval(t)
-  }, [running])
-  return startedAt ? Math.max(0, (now - startedAt) / 1000) : 0
 }

@@ -25,7 +25,7 @@ import {
   useTables,
 } from '../hooks/useProjectData'
 import { moduleNameOf } from '../lib/routes'
-import { useToggleTheme } from './ProjectTopBar'
+import { useToggleTheme } from './TopBar'
 import { Kbd } from '@/shared/components/ui/kbd'
 
 export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {

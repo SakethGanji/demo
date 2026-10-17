@@ -1,29 +1,10 @@
 /**
  * Small pieces shared by the Settings sheet sections (UI-DESIGN §3.7).
  */
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useProjectCtx } from "@/features/project/ProjectContext";
-import { projectsApi } from "@/shared/api/endpoints";
-import { invalidate, qk } from "@/shared/api/queryKeys";
-import type { Project, ProjectUpdate } from "@/shared/api/types";
 import { Input } from "@/shared/components/ui/input";
 import { CopyButton } from "@/shared/components/ui/snippet";
 import { Well } from "@/shared/components/ui/surface";
 import { cn } from "@/shared/lib/utils";
-
-export const SECTIONS = [
-  { key: "general", label: "General" },
-  { key: "environments", label: "Environments" },
-  { key: "egress", label: "Egress" },
-  { key: "keys", label: "API keys" },
-  { key: "developer", label: "Developer" },
-  { key: "danger", label: "Danger zone" },
-] as const;
-export type SectionKey = (typeof SECTIONS)[number]["key"];
-
-export function isSection(s: string | undefined): s is SectionKey {
-  return !!s && SECTIONS.some((x) => x.key === s);
-}
 
 export { SectionHeader } from "@/shared/components/ui/surface";
 
@@ -126,29 +107,6 @@ export function OnceBox({
   );
 }
 
-/** Writes the updated project into every cache that holds it (UI-DESIGN D10: keys use the id). */
-export function useApplyProject() {
-  const qc = useQueryClient();
-  return async (p: Project) => {
-    qc.setQueryData(qk.projectRef(p.slug), p);
-    qc.setQueryData(qk.projectRef(p.id), p);
-    await invalidate.projectUpdated(qc, p.id);
-  };
-}
-
-/** `PUT /api/projects/{P}`; the caller renders errors inline. Does not handle slug renames. */
-export function useProjectUpdate() {
-  const { pid, slug } = useProjectCtx();
-  const qc = useQueryClient();
-  const apply = useApplyProject();
-  return useMutation({
-    mutationFn: (b: ProjectUpdate) => projectsApi.update(pid, b),
-    onSuccess: async (p) => {
-      if (p.slug === slug) qc.setQueryData(qk.projectRef(slug), p);
-      await apply(p);
-    },
-  });
-}
 
 export function InlineError({
   children,

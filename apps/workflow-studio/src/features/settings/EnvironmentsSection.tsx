@@ -34,8 +34,8 @@ import {
   KvList,
   raisedField,
   SectionHeader,
-  useProjectUpdate,
 } from "./common";
+import { useProjectUpdate } from "./projectHooks";
 
 const sameEnvs = (a: ProjectEnvironment[], b: ProjectEnvironment[]) =>
   a.length === b.length &&
