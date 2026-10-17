@@ -1,9 +1,9 @@
 # Handoff: integrate and test everything (next session)
 
-**Written 2026-10-16.** Start here, then follow `INTEGRATION-TEST-PLAN.md` (the session plan, with a kickoff prompt in §5).
+**Written 2026-10-16.** Start here, then follow `INTEGRATION-TEST-PLAN.md` (the session plan, with a kickoff prompt in §5). This supersedes the older `HANDOFF-*.md` files in this folder. All paths below are relative to `demo/` (start the session there).
 
 ## Where things stand
-- **The Command Studio design is built into `apps/workflow-studio`** and committed on `revert-to-5684ba5` (one commit, not pushed). History of how it was built: `design/IMPLEMENTATION-PLAN.md`; the rules for feature code: `apps/workflow-studio/DESIGN-STANDARD.md`; what lives where: §7 of `design/handoff/MAPPING.md`.
+- **The Command Studio design is built into `apps/workflow-studio`** and committed on `revert-to-5684ba5` (one commit `0bd1707`, not pushed; integration fixes go on top as separate commits, one per area; push only when the owner says so). History of how it was built: `design/IMPLEMENTATION-PLAN.md`; the rules for feature code: `apps/workflow-studio/DESIGN-STANDARD.md`; what lives where: §7 of `design/handoff/MAPPING.md`.
 - **Checks at handoff:** 51/51 Playwright scenarios (isolated stack, fake LLM), capture spec passing, `npx tsc -b` clean, 42 unit tests, `npm run design:check` clean. Lint: 117 problems vs 96 before the rollout (mostly fast-refresh advisories).
 - **Look and feel the owner approved (keep it):**
   - Linear-style neutrals in both themes: dark canvas `#08090a`, panels `#0f1011`/`#18191b`; light is pure white; no navy or blue tint anywhere in surfaces.
@@ -28,7 +28,7 @@
 4. From the rollout: the workflow node-details modal stays (no inspector pane); run details keep the `/runs/$executionId` sheet plus inline row preview; the refund-triage double write is untouched.
 
 ## Known issues to handle
-- `e2e/tests/10-code-map.spec.ts:94` ("native map: drafts…") is flaky: failed twice, passed on rerun. Make it deterministic.
+- `apps/workflow-studio/e2e/tests/10-code-map.spec.ts:94` ("native map: drafts…") is flaky: failed twice, passed on rerun. Make it deterministic.
 - Data gaps still approximated client-side until §0.3 lands: the 30-day grid and 24h numbers come from the newest ~100 runs, CSV import loops single inserts, run rows show no status code.
 - Table lineage is derived by scanning module source for `db.table("…")`; workflow-backed routes aren't detected.
 - Liquid glass is verified only in Chromium. Firefox and WebKit need a smoke run.

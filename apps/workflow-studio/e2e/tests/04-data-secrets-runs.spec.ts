@@ -3,7 +3,7 @@
  */
 import { test, expect, rand } from '../fixtures/test'
 import { openModule } from '../fixtures/editor'
-import { seedModule, seedModuleSource, seedProject, seedRefunds, seedRows, seedSecret, seedTable } from '../fixtures/seed'
+import { seedModule, seedModuleSource, seedProject, seedRows, seedSecret, seedTable } from '../fixtures/seed'
 
 test('T2 setup step 1 creates a write-only secret', async ({ page, api, s, net }) => {
   net.captureBodies = true
