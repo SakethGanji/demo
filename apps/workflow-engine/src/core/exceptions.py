@@ -104,3 +104,22 @@ class ConflictError(WorkflowEngineError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message, {"code": code})
         self.code = code
+
+
+class NodeNotFoundInWorkflowError(WorkflowEngineError):
+    """Raised when a named node does not exist in a workflow."""
+
+    def __init__(self, node_name: str) -> None:
+        super().__init__(
+            message=f"Node not found in workflow: {node_name}",
+            details={"node_name": node_name},
+        )
+        self.node_name = node_name
+
+
+class MissingNodeDataError(WorkflowEngineError):
+    """Raised when a partial run needs saved/pinned data that does not exist."""
+
+    def __init__(self, message: str, missing_nodes: list[str]) -> None:
+        super().__init__(message=message, details={"missing_nodes": missing_nodes})
+        self.missing_nodes = missing_nodes

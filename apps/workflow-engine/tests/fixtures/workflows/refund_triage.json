@@ -1,0 +1,86 @@
+{
+  "name": "Refund triage",
+  "description": "Webhook refund requests: amounts over 500 are escalated to the risk API, the rest are auto-approved. Both branches log to the refunds data table.",
+  "nodes": [
+    {
+      "name": "Webhook",
+      "type": "Webhook",
+      "label": "Refund request",
+      "parameters": { "method": "POST", "path": "refund-triage", "responseMode": "onReceived" },
+      "position": { "x": 0, "y": 160 }
+    },
+    {
+      "name": "Normalize",
+      "type": "Set",
+      "label": "Normalize request",
+      "parameters": {
+        "mode": "manual",
+        "keepOnlySet": true,
+        "fields": [
+          { "name": "order_id", "value": "{{ $json.body.order_id }}" },
+          { "name": "amount", "value": "{{ $json.body.amount }}" },
+          { "name": "reason", "value": "{{ $json.body.reason }}" }
+        ]
+      },
+      "position": { "x": 280, "y": 160 }
+    },
+    {
+      "name": "Amount over 500",
+      "type": "If",
+      "label": "Amount > 500?",
+      "parameters": { "condition": "{{ $json.amount > 500 }}" },
+      "position": { "x": 560, "y": 160 }
+    },
+    {
+      "name": "Risk API",
+      "type": "HttpRequest",
+      "label": "Ask risk API",
+      "parameters": {
+        "method": "POST",
+        "url": "__REFUND_API_URL__",
+        "body": "{\"order_id\": \"{{ $json.order_id }}\", \"amount\": {{ $json.amount }}}",
+        "responseType": "json"
+      },
+      "position": { "x": 840, "y": 60 }
+    },
+    {
+      "name": "Log escalated",
+      "type": "DataTable",
+      "label": "Log escalated refund",
+      "parameters": {
+        "table": "refunds",
+        "operation": "insert",
+        "data": {
+          "order_id": "{{ $node[\"Normalize\"].json.order_id }}",
+          "amount": "{{ $node[\"Normalize\"].json.amount }}",
+          "reason": "{{ $node[\"Normalize\"].json.reason }}",
+          "status": "needs_review"
+        }
+      },
+      "position": { "x": 1120, "y": 60 }
+    },
+    {
+      "name": "Log approved",
+      "type": "DataTable",
+      "label": "Log auto-approved refund",
+      "parameters": {
+        "table": "refunds",
+        "operation": "insert",
+        "data": {
+          "order_id": "{{ $json.order_id }}",
+          "amount": "{{ $json.amount }}",
+          "reason": "{{ $json.reason }}",
+          "status": "auto_approved"
+        }
+      },
+      "position": { "x": 840, "y": 280 }
+    }
+  ],
+  "connections": [
+    { "source_node": "Webhook", "target_node": "Normalize", "source_output": "main", "target_input": "main" },
+    { "source_node": "Normalize", "target_node": "Amount over 500", "source_output": "main", "target_input": "main" },
+    { "source_node": "Amount over 500", "target_node": "Risk API", "source_output": "true", "target_input": "main" },
+    { "source_node": "Risk API", "target_node": "Log escalated", "source_output": "main", "target_input": "main" },
+    { "source_node": "Amount over 500", "target_node": "Log approved", "source_output": "false", "target_input": "main" }
+  ]
+}

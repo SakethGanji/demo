@@ -6,10 +6,16 @@ import {
   Settings,
   ClipboardPaste,
   Files,
+  FlaskConical,
+  Route,
+  StepForward,
+  Power,
+  PowerOff,
 } from 'lucide-react';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useNDVStore } from '../../stores/ndvStore';
 import { isTriggerType } from '../../lib/nodeConfig';
+import { useNodeActions } from '../../hooks/useNodeActions';
 
 interface NodeContextMenuProps {
   nodeId: string;
@@ -29,6 +35,8 @@ function NodeContextMenu({ nodeId, x, y, onClose }: NodeContextMenuProps) {
   const openNDV = useNDVStore((s) => s.openNDV);
 
   const node = nodes.find((n) => n.id === nodeId);
+  const nodeActions = useNodeActions();
+  const isDisabled = !!(node?.data as { disabled?: boolean } | undefined)?.disabled;
 
   // Get selected nodes - if current node is part of selection, use all selected
   const selectedNodes = nodes.filter((n) => n.selected);
@@ -43,6 +51,43 @@ function NodeContextMenu({ nodeId, x, y, onClose }: NodeContextMenuProps) {
       shortcut: 'Enter',
       onClick: () => {
         openNDV(nodeId);
+        onClose();
+      },
+    },
+    {
+      label: 'Test step',
+      icon: FlaskConical,
+      testId: 'ctx-test-step',
+      onClick: () => {
+        void nodeActions.testStep(nodeId, 'last_run');
+        onClose();
+      },
+    },
+    {
+      label: 'Run to here',
+      icon: Route,
+      testId: 'ctx-run-to',
+      onClick: () => {
+        void nodeActions.runTo(nodeId);
+        onClose();
+      },
+    },
+    {
+      label: 'Run from here',
+      icon: StepForward,
+      testId: 'ctx-run-from',
+      onClick: () => {
+        void nodeActions.runFrom(nodeId);
+        onClose();
+      },
+    },
+    {
+      label: isDisabled ? 'Enable' : 'Disable',
+      icon: isDisabled ? Power : PowerOff,
+      shortcut: 'D',
+      testId: 'ctx-toggle-disable',
+      onClick: () => {
+        nodeActions.toggleDisable(nodeId);
         onClose();
       },
     },
@@ -142,6 +187,7 @@ function NodeContextMenu({ nodeId, x, y, onClose }: NodeContextMenuProps) {
               key={item.label}
               onClick={item.onClick}
               disabled={item.disabled}
+              data-testid={item.testId}
               className={`
                 flex w-full items-center gap-2 rounded-chip px-2 py-1 text-[13px]
                 transition-colors

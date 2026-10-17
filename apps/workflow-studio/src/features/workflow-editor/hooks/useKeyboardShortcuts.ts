@@ -3,6 +3,7 @@ import { useReactFlow } from '@xyflow/react';
 import { useWorkflowStore } from '../stores/workflowStore';
 import { useEditorLayoutStore } from '../stores/editorLayoutStore';
 import { useNDVStore } from '../stores/ndvStore';
+import { useEditorPaletteStore } from '../stores/editorActionsStore';
 
 interface KeyboardShortcutsOptions {
   onSave?: () => void;
@@ -23,6 +24,7 @@ const SHORTCUTS = [
   { key: 'Delete/Backspace', description: 'Delete selected nodes' },
   // Node operations
   { key: 'Enter', description: 'Open selected node settings' },
+  { key: 'D', description: 'Disable / enable selected nodes' },
   { key: 'Arrow keys', description: 'Move selected nodes' },
   { key: 'Shift + Arrow', description: 'Move nodes faster' },
   // Add nodes
@@ -39,6 +41,7 @@ const SHORTCUTS = [
   { key: 'Ctrl/Cmd + +', description: 'Zoom in' },
   { key: 'Ctrl/Cmd + -', description: 'Zoom out' },
   { key: 'F', description: 'Fit to view' },
+  { key: 'Ctrl/Cmd + K', description: 'Open command palette' },
   { key: 'Escape', description: 'Close panel/modal' },
   { key: '?', description: 'Show shortcuts help' },
 ] as const;
@@ -67,6 +70,16 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
         }
         // Reset node creator context (connection mode)
         useEditorLayoutStore.getState().closeCreatorPanel();
+      }
+
+      // Ctrl/Cmd + K: editor command palette (works from inputs too, like n8n; not over the node panel)
+      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'k') {
+        if (!isNDVOpen) {
+          event.preventDefault();
+          const palette = useEditorPaletteStore.getState();
+          palette.setOpen(!palette.open);
+        }
+        return;
       }
 
       // Don't handle other shortcuts when typing or when NDV modal is open
@@ -194,6 +207,18 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
           duplicateNodes(selectedIds);
         } else if (selectedNodeId) {
           duplicateNodes([selectedNodeId]);
+        }
+        return;
+      }
+
+      // D (plain): disable / enable the selected nodes
+      if (!event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'd') {
+        const selectedIds = getNodes().filter((n) => n.selected).map((n) => n.id);
+        const { selectedNodeId, toggleNodeDisabled } = useWorkflowStore.getState();
+        const ids = selectedIds.length > 0 ? selectedIds : selectedNodeId ? [selectedNodeId] : [];
+        if (ids.length > 0) {
+          event.preventDefault();
+          ids.forEach((id) => toggleNodeDisabled(id));
         }
         return;
       }

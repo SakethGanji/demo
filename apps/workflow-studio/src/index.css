@@ -974,6 +974,11 @@ button, a, input, select, textarea, [role="button"] {
 
 .node-exec-idle { opacity: 0.5; transition: opacity var(--d-slow) var(--ease-out); }
 
+/* disabled node: the whole node (tile + label) is visibly washed out */
+.node-disabled { opacity: 0.4; filter: grayscale(0.85); }
+/* version-diff ghost of a node that only exists in the compared version */
+.node-ghost { opacity: 0.6; }
+
 /* running dot: an expanding ring while something is in flight */
 @keyframes live-ring {
   0% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 45%, transparent); }

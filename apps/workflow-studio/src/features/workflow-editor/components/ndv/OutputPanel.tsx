@@ -1,11 +1,13 @@
 import { memo, useState, useMemo, useCallback } from 'react';
-import { Database, Code, Pin, Clock, Zap, Globe, GitBranch, Download } from 'lucide-react';
+import { Database, Code, Pin, Clock, Zap, Globe, GitBranch, Download, History } from 'lucide-react';
 import type { NodeExecutionData } from '../../types/workflow';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useNDVStore } from '../../stores/ndvStore';
 import { Segmented } from '@/shared/components/ui/segmented';
+import { Tip } from '@/shared/components/ui/tooltip';
 import { Spinner } from '@/shared/components/ui/spinner';
 import { Callout } from '@/shared/components/ui/surface';
+import { pinFromLastRun } from '../../lib/nodeActions';
 import RunDataDisplay from './RunDataDisplay';
 
 interface OutputPanelProps {
@@ -84,8 +86,8 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 shadow-[inset_0_-1px_0_var(--hairline)]">
-        <div className="flex items-center gap-2 min-w-0">
+      <div className="flex items-center justify-between gap-2 px-3 py-2 shadow-[inset_0_-1px_0_var(--hairline)]">
+        <div className="flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap [&>*]:shrink-0">
           <span className="text-[12.5px] font-medium text-foreground">Output</span>
           {hasData && (
             <span className="rounded-chip px-1 py-px text-[10.5px] font-medium bg-success/11 text-success-text">
@@ -135,7 +137,7 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
           )}
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1">
           {/* Pin button */}
           <button
             onClick={handlePinToggle}
@@ -151,6 +153,19 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
           >
             <Pin size={13} />
           </button>
+
+          {/* Pin this node's output from the run data on the canvas (replaces an older pin) */}
+          <Tip label="Pin this node's output from the last run">
+            <button
+              onClick={() => pinFromLastRun(nodeId)}
+              disabled={!hasData}
+              className="rounded-ctl p-1.5 text-muted-foreground transition-colors hover:bg-(--hover-fill) hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              aria-label="Pin from last run"
+              data-testid="ndv-pin-from-last-run"
+            >
+              <History size={13} />
+            </button>
+          </Tip>
 
           {/* PDF download button */}
           {pdfBase64 && (

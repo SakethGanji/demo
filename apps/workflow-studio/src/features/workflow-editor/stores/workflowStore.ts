@@ -1,12 +1,14 @@
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import type { Node, Edge, Connection, NodeChange, EdgeChange } from '@xyflow/react';
 import { addEdge, applyNodeChanges, applyEdgeChanges } from '@xyflow/react';
-import type { WorkflowNodeData, NodeExecutionData, AgentTraceEvent, StickyNoteData, OutputStrategy } from '../types/workflow';
+import type { WorkflowNodeData, OnErrorMode, NodeExecutionData, AgentTraceEvent, StickyNoteData, OutputStrategy } from '../types/workflow';
 import type { BackendNodeData } from '@/shared/lib/backendTypes';
 import type { NodeIO } from '../lib/nodeStyles';
 import type { NodeTypeMetadata } from '../lib/createNodeData';
 import { isTriggerType } from '../lib/nodeConfig';
 import { generateNodeName, getExistingNodeNames } from '../lib/workflowTransform';
+import { buildRunData } from '../lib/executionRunData';
+import type { ApiExecutionDetail } from '@/shared/lib/api';
 
 // Helper to compute dynamic outputs for nodes with outputStrategy
 function computeDynamicOutputs(data: WorkflowNodeData): WorkflowNodeData {
@@ -87,6 +89,8 @@ interface WorkflowState {
 
   // Execution data per node
   executionData: Record<string, NodeExecutionData>;
+  /** Set while the editor shows a saved run (`?execution=<id>`); live runs never set it. */
+  viewingExecution: { id: string; startTime: string; status: string } | null;
 
   // Pinned data per node - backend format: { json: {...} }[]
   pinnedData: Record<string, BackendNodeData[]>;
@@ -112,6 +116,9 @@ interface WorkflowState {
   nodeCount: number;
   edgeCount: number;
   isAnyNodeRunning: boolean;
+  /** A whole-workflow run is in flight (set by useExecutionStream), including gaps between nodes. */
+  runActive: boolean;
+  setRunActive: (active: boolean) => void;
   _canUndo: boolean;
   _canRedo: boolean;
   _isDirty: boolean;
@@ -139,6 +146,12 @@ interface WorkflowState {
   addStickyNote: (position: { x: number; y: number }) => void;
   updateNodeData: (nodeId: string, data: Partial<WorkflowNodeData>) => void;
   updateStickyNote: (nodeId: string, data: Partial<StickyNoteData>) => void;
+  /** Flip `data.disabled` on a workflow node (one undo step, marks the workflow dirty). */
+  toggleNodeDisabled: (nodeId: string) => void;
+  /** Set `data.onError`; leaving `error_output` drops edges from the `error` handle. */
+  setNodeOnError: (nodeId: string, onError: OnErrorMode) => void;
+  /** Merge run results into the run-data store without touching other nodes. */
+  mergeExecutionData: (data: Record<string, NodeExecutionData>) => void;
   deleteNode: (nodeId: string) => void;
 
   setSelectedNode: (nodeId: string | null) => void;
@@ -147,6 +160,10 @@ interface WorkflowState {
   setNodeExecutionData: (nodeId: string, data: NodeExecutionData) => void;
   appendAgentTraceEvent: (nodeId: string, event: AgentTraceEvent) => void;
   clearExecutionData: () => void;
+  /** Fill the run-data store from a saved execution and remember which run is shown. */
+  loadExecutionData: (detail: ApiExecutionDetail) => void;
+  /** Leave "viewing run" mode and clear its data. */
+  exitViewingExecution: () => void;
 
   // Pinned data - uses backend format { json: {...} }[]
   pinNodeData: (nodeId: string, data: BackendNodeData[]) => void;
@@ -276,6 +293,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   edges: [],
   selectedNodeId: null,
   executionData: {},
+  viewingExecution: null,
   pinnedData: {},
   draggedNodeType: null,
   dropTargetNodeId: null,
@@ -289,6 +307,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   nodeCount: countWorkflowNodes(initialNodes),
   edgeCount: 0,
   isAnyNodeRunning: false,
+  runActive: false,
+  setRunActive: (active) => set({ runActive: active }),
   _canUndo: false,
   _canRedo: false,
   _isDirty: false,
@@ -457,6 +477,39 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     });
   },
 
+  toggleNodeDisabled: (nodeId) => {
+    const node = get().nodes.find((n) => n.id === nodeId && n.type === 'workflowNode');
+    if (!node) return;
+    get().saveToHistory();
+    set({
+      nodes: get().nodes.map((n) =>
+        n.id === nodeId ? { ...n, data: { ...n.data, disabled: !(n.data as WorkflowNodeData).disabled } } : n,
+      ),
+      _isDirty: true,
+    });
+  },
+
+  setNodeOnError: (nodeId, onError) => {
+    get().saveToHistory();
+    const edges = onError === 'error_output'
+      ? get().edges
+      : get().edges.filter((e) => !(e.source === nodeId && e.sourceHandle === 'error'));
+    set({
+      nodes: get().nodes.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, onError } } : n)),
+      edges,
+      edgeCount: edges.length,
+      _isDirty: true,
+    });
+  },
+
+  mergeExecutionData: (data) => {
+    const executionData = { ...get().executionData, ...data };
+    set({
+      executionData,
+      isAnyNodeRunning: Object.values(executionData).some((d) => d.status === 'running'),
+    });
+  },
+
   updateStickyNote: (nodeId, data) => {
     set({
       nodes: get().nodes.map((node) =>
@@ -501,6 +554,17 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   clearExecutionData: () => set({ executionData: {}, isAnyNodeRunning: false }),
+
+  loadExecutionData: (detail) => {
+    const { nodes, edges } = get();
+    set({
+      executionData: buildRunData(detail, nodes, edges),
+      isAnyNodeRunning: false,
+      viewingExecution: { id: detail.id, startTime: detail.start_time, status: detail.status },
+    });
+  },
+
+  exitViewingExecution: () => set({ executionData: {}, isAnyNodeRunning: false, viewingExecution: null }),
 
   // Pinned data methods - uses backend format { json: {...} }[]
   pinNodeData: (nodeId, data) => {
@@ -567,6 +631,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       isActive: data.isActive,
       selectedNodeId: null,
       executionData: {},
+      viewingExecution: null,
       pinnedData: {},
       lastSavedSnapshot: snapshot,
       nodeCount: countWorkflowNodes(processedNodes),
@@ -590,6 +655,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       isActive: false,
       selectedNodeId: null,
       executionData: {},
+      viewingExecution: null,
       pinnedData: {},
       workflowTags: [],
       clipboard: null,

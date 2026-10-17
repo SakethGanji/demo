@@ -18,10 +18,14 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
+  History,
 } from 'lucide-react';
 import { Link } from '@tanstack/react-router';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useEditorLayoutStore } from '../../stores/editorLayoutStore';
+import { useHistoryStore } from '../../stores/historyStore';
+import { registerEditorAction } from '../../stores/editorActionsStore';
+import { useBackToLive } from '../../hooks/useViewingRun';
 import { useExecutionStream } from '../../hooks/useExecutionStream';
 import { useExecSummary } from '../../hooks/useWorkflowSelectors';
 import {
@@ -70,6 +74,9 @@ export default function WorkflowNavbar() {
   const bottomPanelTab = useEditorLayoutStore((s) => s.bottomPanelTab);
   const openBottomPanel = useEditorLayoutStore((s) => s.openBottomPanel);
 
+  const historyOpen = useHistoryStore((s) => s.open);
+  const setHistoryOpen = useHistoryStore((s) => s.setOpen);
+
   const nodeCount = useWorkflowStore((s) => s.nodeCount);
   const edgeCount = useWorkflowStore((s) => s.edgeCount);
   const isRunning = useWorkflowStore((s) => s.isAnyNodeRunning);
@@ -117,7 +124,10 @@ export default function WorkflowNavbar() {
   const iconBtn = (active = false) =>
     cn('text-muted-foreground hover:text-foreground', active && 'bg-raise text-foreground shadow-raise-sm hover:bg-raise');
 
+  const backToLive = useBackToLive();
   const runWorkflow = () => {
+    // A live run replaces a saved run that was on the canvas.
+    if (useWorkflowStore.getState().viewingExecution) backToLive();
     // Show the run's logs (status + output) instead of running into a closed panel.
     openBottomPanel('logs');
     const raw = useEditorLayoutStore.getState().payloadInput;
@@ -138,6 +148,15 @@ export default function WorkflowNavbar() {
   runRef.current = runWorkflow;
   const isExecutingRef = useRef(isExecuting);
   isExecutingRef.current = isExecuting;
+
+  // The ⌘K palette's "Run workflow" uses the same path as the Test run button.
+  useEffect(
+    () =>
+      registerEditorAction('run', () => {
+        if (!isExecutingRef.current) runRef.current();
+      }),
+    [],
+  );
 
   // ⌘↵ / Ctrl+↵: test run
   useEffect(() => {
@@ -264,6 +283,11 @@ export default function WorkflowNavbar() {
         <ToolbarSeparator />
 
         {/* Panels */}
+        <Tip label="Version history">
+          <Button variant="ghost" size="icon-sm" className={iconBtn(historyOpen)} onClick={() => setHistoryOpen(!historyOpen)} aria-label="Version history" aria-pressed={historyOpen} data-testid="navbar-history">
+            <History />
+          </Button>
+        </Tip>
         <Tip label="Execution logs">
           <Button variant="ghost" size="icon-sm" className={iconBtn(isBottomTabActive('logs'))} onClick={() => openBottomPanel('logs')} aria-label="Toggle logs" aria-pressed={isBottomTabActive('logs')} data-testid="editor-toggle-logs">
             <ScrollText />

@@ -136,6 +136,8 @@ class ExecutionRepository:
 
         # Persist per-node outputs into node_outputs table
         for node_name, items in context.node_states.items():
+            if node_name in context.reused_nodes:
+                continue  # partial run: outputs borrowed from an earlier execution are not this run's
             output_data = [
                 {"json": item.json, "binary": None}
                 for item in items

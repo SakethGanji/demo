@@ -2,7 +2,7 @@ import { useState, useRef, useCallback } from 'react';
 import {
   X,
   ArrowLeft,
-  Play,
+  FlaskConical,
   Trash2,
   Loader2,
   Pencil,
@@ -30,12 +30,16 @@ import { Dialog, DialogContent, DialogTitle } from '@/shared/components/ui/dialo
 import { Button } from '@/shared/components/ui/button';
 import { Badge } from '@/shared/components/ui/badge';
 import { Input } from '@/shared/components/ui/input';
+import { Segmented } from '@/shared/components/ui/segmented';
+import { Callout } from '@/shared/components/ui/surface';
+import CodeEditor from '@/shared/components/ui/code-editor';
 import { getNodeStyles } from '../../lib/nodeStyles';
 import { normalizeNodeGroup } from '../../lib/nodeConfig';
 import { useNDVStore } from '../../stores/ndvStore';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useNodeById, useNodeExecution } from '../../hooks/useWorkflowSelectors';
-import { useExecuteWorkflow } from '../../hooks/useWorkflowApi';
+import { useNodeActions } from '../../hooks/useNodeActions';
+import { describeActionError, testStep, type TestSource } from '../../lib/nodeActions';
 import InputPanel from './InputPanel';
 import OutputPanel from './OutputPanel';
 import NodeSettings from './NodeSettings';
@@ -73,7 +77,11 @@ export default function NodeDetailsModal() {
   const activeNode = useNodeById(activeNodeId) as import('@xyflow/react').Node<import('../../types/workflow').WorkflowNodeData> | null;
   const nodeExecution = useNodeExecution(activeNodeId);
 
-  const { executeWorkflow, isExecuting } = useExecuteWorkflow();
+  const nodeActions = useNodeActions();
+  const [testSource, setTestSource] = useState<TestSource>('last_run');
+  const [testInput, setTestInput] = useState('{\n  \n}');
+  const [testMessage, setTestMessage] = useState<string | null>(null);
+  const [isTesting, setIsTesting] = useState(false);
 
   // Inline name editing state
   const [isEditingName, setIsEditingName] = useState(false);
@@ -100,10 +108,33 @@ export default function NodeDetailsModal() {
     setIsEditingName(false);
   }
 
-  // Execute the entire workflow to test this node
-  const handleExecute = useCallback(() => {
-    executeWorkflow();
-  }, [executeWorkflow]);
+  // Test step: run only this node (saves the draft first; the engine reads the saved draft)
+  const handleTestStep = useCallback(async () => {
+    if (!activeNodeId || isTesting) return;
+    setTestMessage(null);
+    let items: Array<Record<string, unknown>> | undefined;
+    if (testSource === 'input') {
+      try {
+        const parsed: unknown = JSON.parse(testInput);
+        const list = Array.isArray(parsed) ? parsed : [parsed];
+        if (!list.every((i) => i && typeof i === 'object' && !Array.isArray(i))) throw new Error('Each item must be a JSON object');
+        items = list as Array<Record<string, unknown>>;
+      } catch (e) {
+        setTestMessage(`Typed input is not valid JSON: ${(e as Error).message}`);
+        return;
+      }
+    }
+    setIsTesting(true);
+    try {
+      const res = await testStep(activeNodeId, testSource, items, nodeActions.saveNew);
+      if (!res.ok) setTestMessage(res.message);
+      else if (res.failed) setTestMessage(res.firstError ?? 'The node failed');
+    } catch (e) {
+      setTestMessage(describeActionError(e).message);
+    } finally {
+      setIsTesting(false);
+    }
+  }, [activeNodeId, isTesting, testSource, testInput, nodeActions]);
 
   const handleDelete = useCallback(() => {
     if (!activeNodeId) return;
@@ -224,16 +255,16 @@ export default function NodeDetailsModal() {
 
             {/* Right: Action buttons */}
             <div className="flex items-center gap-1">
-              <Button size="sm" onClick={handleExecute} disabled={isExecuting} data-testid="ndv-test">
-                {isExecuting ? (
+              <Button size="sm" onClick={handleTestStep} disabled={isTesting} data-testid="ndv-test-step">
+                {isTesting ? (
                   <>
                     <Loader2 className="animate-spin" />
                     <span className="hidden sm:inline">Running...</span>
                   </>
                 ) : (
                   <>
-                    <Play />
-                    <span className="hidden sm:inline">Test</span>
+                    <FlaskConical />
+                    <span className="hidden sm:inline">Test step</span>
                   </>
                 )}
               </Button>
@@ -252,6 +283,43 @@ export default function NodeDetailsModal() {
                 <X />
               </Button>
             </div>
+          </div>
+
+          {/* Test step source: where this node's input comes from */}
+          <div className="shrink-0 px-3 py-1.5 shadow-[inset_0_-1px_0_var(--hairline)]" data-testid="ndv-test-source">
+            <div className="flex items-center gap-2">
+              <span className="text-[12px] text-muted-foreground">Test with</span>
+              <Segmented
+                size="xs"
+                value={testSource}
+                onChange={(v) => { setTestSource(v); setTestMessage(null); }}
+                aria-label="Test step input source"
+                data-testid="ndv-test-source-switch"
+                options={[
+                  { key: 'input', label: 'Typed input', testId: 'ndv-test-source-input' },
+                  { key: 'last_run', label: 'Last run', testId: 'ndv-test-source-last-run' },
+                  { key: 'pinned', label: 'Pinned', testId: 'ndv-test-source-pinned' },
+                ]}
+              />
+            </div>
+            {testSource === 'input' && (
+              <div className="mt-1.5 rounded-ctl overflow-hidden">
+                <CodeEditor
+                  value={testInput}
+                  onChange={setTestInput}
+                  language="json"
+                  minHeight="56px"
+                  maxHeight="140px"
+                  testId="ndv-test-input-editor"
+                  placeholder='{ "field": "value" }'
+                />
+              </div>
+            )}
+            {testMessage && (
+              <Callout tone="error" className="mt-1.5" role="alert" data-testid="ndv-test-error">
+                {testMessage}
+              </Callout>
+            )}
           </div>
 
           {/* Three Panel Layout */}

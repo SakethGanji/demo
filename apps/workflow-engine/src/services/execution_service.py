@@ -51,6 +51,11 @@ class ExecutionService:
         extras: dict[str, Any] | None = None,
         on_context_ready: Any | None = None,
         strict_environment: bool = False,
+        start_node_name: str | None = None,
+        stop_at: str | None = None,
+        pre_populated_states: dict[str, list[Any]] | None = None,
+        initial_data_override: list[Any] | None = None,
+        pending_inputs: dict[str, dict[str, list[Any]]] | None = None,
     ):
         """The single path for running a saved workflow (BACKEND-DESIGN §4.3).
 
@@ -65,6 +70,7 @@ class ExecutionService:
         """
         from ..core.exceptions import WorkflowNotFoundError, WorkflowExecutionError
         from ..db.session import async_session_factory
+        from ..engine.graph import disabled_trigger_message
         from ..engine.types import NodeData
         from ..engine.workflow_runner import WorkflowRunner
         from ..utils.ids import execution_id as gen_exec_id
@@ -79,10 +85,16 @@ class ExecutionService:
         if not stored:
             raise WorkflowNotFoundError(workflow_id)
 
+        if msg := disabled_trigger_message(stored.workflow.nodes):
+            raise WorkflowExecutionError(msg, workflow_id=workflow_id)
+
         project = await resolve_project(self._workflow_repo._session, stored.project_id)
         env = effective_environment(project, environment, strict=strict_environment)
         runner = WorkflowRunner(db_session_factory=async_session_factory)
-        start_node = runner.find_start_node(stored.workflow)
+        if start_node_name is not None:
+            start_node = next((n for n in stored.workflow.nodes if n.name == start_node_name), None)
+        else:
+            start_node = runner.find_start_node(stored.workflow)
         variables = await load_run_variables(environment=env, project_id=stored.project_id)
         secrets = await load_run_secrets(environment=env, project_id=stored.project_id)
         if substitute_inputs and input_data is not None:
@@ -91,7 +103,10 @@ class ExecutionService:
         if not start_node:
             raise WorkflowExecutionError("No start node found in workflow", workflow_id=workflow_id)
 
-        if initial_item is not None:
+        if initial_data_override is not None:
+            initial_data = initial_data_override
+            run_mode = mode or "manual"
+        elif initial_item is not None:
             initial_data = [NodeData(json={**initial_item, "triggeredAt": datetime.now().isoformat()})]
             run_mode = mode or "api"
         elif input_data:
@@ -127,6 +142,9 @@ class ExecutionService:
             project_id=stored.project_id,
             environment=env,
             extras=extras,
+            stop_at=stop_at,
+            pre_populated_states=pre_populated_states,
+            pending_inputs=pending_inputs,
         )
         if timeout_s:
             try:
@@ -136,6 +154,7 @@ class ExecutionService:
                 raise
         else:
             context = await coro
+        context.reused_nodes = set(pre_populated_states or ())
         await self._execution_repo.complete(context, stored.id, stored.name)
         context.extras["secret_values"] = secrets
         return stored, context

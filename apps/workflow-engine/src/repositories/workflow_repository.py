@@ -49,7 +49,8 @@ class WorkflowRepository:
                     **({"pinned_data": [{"json": d.json} for d in n.pinned_data]} if n.pinned_data else {}),
                     "retry_on_fail": n.retry_on_fail,
                     "retry_delay": n.retry_delay,
-                    "continue_on_fail": n.continue_on_fail,
+                    "disabled": n.disabled,
+                    "on_error": n.on_error,
                 }
                 for n in workflow.nodes
             ],
@@ -131,7 +132,8 @@ class WorkflowRepository:
                     **({"pinned_data": [{"json": d.json} for d in n.pinned_data]} if n.pinned_data else {}),
                     "retry_on_fail": n.retry_on_fail,
                     "retry_delay": n.retry_delay,
-                    "continue_on_fail": n.continue_on_fail,
+                    "disabled": n.disabled,
+                    "on_error": n.on_error,
                 }
                 for n in workflow.nodes
             ],
@@ -270,6 +272,11 @@ class WorkflowRepository:
         )
 
 
+def _stored_on_error(n: dict) -> str:
+    """on_error of a stored node dict; the legacy continue_on_fail=true maps to "continue"."""
+    return n.get("on_error") or ("continue" if n.get("continue_on_fail") else "stop")
+
+
 def definition_to_workflow(
     definition: dict, name: str, workflow_id: str | None = None, description: str | None = None,
 ) -> "Workflow":
@@ -287,7 +294,9 @@ def definition_to_workflow(
             pinned_data=[NodeData(json=d["json"]) for d in n["pinned_data"]] if n.get("pinned_data") else None,
             retry_on_fail=n.get("retry_on_fail", 0),
             retry_delay=n.get("retry_delay", 1000),
-            continue_on_fail=n.get("continue_on_fail", False),
+            continue_on_fail=_stored_on_error(n) == "continue",
+            disabled=bool(n.get("disabled", False)),
+            on_error=_stored_on_error(n),
         )
         for n in definition.get("nodes", [])
     ]

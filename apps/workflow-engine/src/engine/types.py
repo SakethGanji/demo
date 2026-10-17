@@ -108,6 +108,12 @@ class ExecutionContext:
     # Execution order counter
     execution_order: int = 0
 
+    # Partial runs: when a node with this name finishes, no downstream jobs are queued
+    stop_at: str | None = None
+
+    # Partial runs: nodes whose state was borrowed from an earlier execution (not persisted for this one)
+    reused_nodes: set[str] = field(default_factory=set)
+
     # Subworkflow input data (set by ExecuteWorkflow node)
     subworkflow_input: list[NodeData] | None = None
 
@@ -252,6 +258,13 @@ class NodeDefinition:
     retry_on_fail: int = 0
     retry_delay: int = 1000
     continue_on_fail: bool = False
+    disabled: bool = False
+    on_error: str = "stop"  # "stop" | "continue" | "error_output"
+
+    def __post_init__(self) -> None:
+        # Legacy field: continue_on_fail=True means on_error="continue".
+        if self.on_error == "stop" and self.continue_on_fail:
+            self.on_error = "continue"
 
 
 @dataclass

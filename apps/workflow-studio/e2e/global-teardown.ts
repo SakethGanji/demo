@@ -36,6 +36,7 @@ export default async function globalTeardown() {
   } else {
     killGroup(s.enginePid)
     killGroup(s.vitePid)
+    if (s.fake_api_pid) killGroup(s.fake_api_pid)
     await new Promise((r) => setTimeout(r, 1500))
     const upstream = (globalThis as Record<string, unknown>).__e2eUpstream as http.Server | undefined
     upstream?.close()

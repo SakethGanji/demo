@@ -144,6 +144,8 @@ export const workflowsRoute = createRoute({
 export const workflowRoute = createRoute({
   getParentRoute: () => projectRoute,
   path: 'workflows/$workflowId',
+  /** `execution`: open the editor showing that saved run's data */
+  validateSearch: (s: Record<string, unknown>): { execution?: string } => ({ execution: str(s.execution) }),
   component: ProjectWorkflowEditor,
 })
 

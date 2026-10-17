@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import {
   ReactFlow,
   Background,
@@ -22,6 +22,7 @@ import { Controls } from './Controls';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useEditorLayoutStore } from '../../stores/editorLayoutStore';
 import { useNDVStore } from '../../stores/ndvStore';
+import { useHistoryStore } from '../../stores/historyStore';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { useSaveWorkflow } from '../../hooks/useWorkflowApi';
 import AddNodesButton from './nodes/AddNodesButton';
@@ -132,6 +133,10 @@ export default function WorkflowCanvas() {
   const [contextMenu, setContextMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null);
 
   const { saveWorkflow } = useSaveWorkflow();
+
+  // Version diff: removed nodes are drawn as faded ghosts next to the real ones.
+  const ghostNodes = useHistoryStore((s) => s.ghostNodes);
+  const renderNodes = useMemo(() => (ghostNodes.length ? [...nodes, ...ghostNodes] : nodes), [nodes, ghostNodes]);
 
   // Initialize keyboard shortcuts
   const { shortcuts, isShortcutsHelpOpen, setIsShortcutsHelpOpen } = useKeyboardShortcuts({
@@ -544,7 +549,7 @@ export default function WorkflowCanvas() {
   return (
     <div className="h-full w-full" onDragOver={handleDragOver} onDrop={handleDrop}>
       <ReactFlow
-        nodes={nodes}
+        nodes={renderNodes}
         edges={edges}
         onNodesChange={handleNodesChange}
         onEdgesChange={onEdgesChange}

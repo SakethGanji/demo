@@ -33,6 +33,13 @@ export interface StackState {
   enginePid: number
   vitePid: number
   scriptPath: string
+  refund_workflow_id: string
+  refund_failed_execution_id: string
+  refund_table_id: string
+  fake_api_url: string
+  fake_api_ok_url: string
+  fake_api_fail_url: string
+  fake_api_pid: number
 }
 
 async function freePort(min = 0): Promise<number> {
@@ -189,6 +196,17 @@ export default async function globalSetup() {
   const projects = (await (await fetch(`${engineUrl}/api/projects`)).json()) as Array<{ id: string }>
   if (projects.length !== 1 || projects[0].id !== 'proj_default') throw new Error(`fresh DB expected, got ${projects.map((p) => p.id)}`)
 
+  // 5b. seed "Refund triage" + one failed run + the fake API (Stage 1 editor specs)
+  const seeded = JSON.parse(
+    execFileSync(VENV_PY, ['tests/e2e_stack.py', 'seed', '--engine-url', engineUrl], {
+      cwd: ENGINE_DIR,
+      env: { PATH: `${path.join(ENGINE_DIR, 'venv/bin')}:/usr/bin:/bin`, HOME: tmp, LANG: 'C.UTF-8' },
+      encoding: 'utf8',
+      // the fake API server is detached and inherits the seed's stdio; ignoring stdin/stderr keeps execFileSync from waiting on it
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim().split('\n').pop()!,
+  ) as Pick<StackState, 'refund_workflow_id' | 'refund_failed_execution_id' | 'refund_table_id' | 'fake_api_url' | 'fake_api_ok_url' | 'fake_api_fail_url' | 'fake_api_pid'>
+
   // 4. studio
   const vitePort = await freePort(5180)
   if (vitePort === 5173) throw new Error('refusing vite on :5173')
@@ -215,6 +233,7 @@ export default async function globalSetup() {
     enginePid: engine.pid!,
     vitePid: vite.pid!,
     scriptPath,
+    ...seeded,
   }
   fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
   process.env.E2E_STATE = STATE_FILE

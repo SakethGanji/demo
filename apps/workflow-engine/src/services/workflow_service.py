@@ -15,6 +15,7 @@ from ..engine.types import (
     Workflow,
     NodeData,
 )
+from ..engine.graph import disabled_trigger_message
 from ..engine.workflow_runner import WorkflowRunner
 from ..schemas.workflow import (
     WorkflowCreateRequest,
@@ -214,6 +215,9 @@ class WorkflowService:
         if not stored:
             raise WorkflowNotFoundError(workflow_id)
 
+        if msg := disabled_trigger_message(stored.workflow.nodes):
+            raise ValidationError(msg, field="definition")
+
         # Validate before publishing
         errors = self._validate_definition_structure(stored.workflow)
         if errors:
@@ -354,6 +358,46 @@ class WorkflowService:
                                                   metadata={"trigger": {"type": "manual"}})
         return self._build_execution_response(context)
 
+    async def test_node(self, workflow_id: str, name: str, body: Any) -> ExecutionResponse:
+        """Run only one node (see services/partial_run.py)."""
+        from .partial_run import PartialRunService
+        context = await PartialRunService(self._execution_repo, self._workflow_repo).test_node(
+            workflow_id, name, body.source, body.input_items, environment=body.environment)
+        return self._build_execution_response(context)
+
+    async def run_to(self, workflow_id: str, name: str, input_data: dict[str, Any] | None = None,
+                     environment: str = "default") -> ExecutionResponse:
+        """Run from the trigger and stop after `name`."""
+        from .partial_run import PartialRunService
+        context = await PartialRunService(self._execution_repo, self._workflow_repo).run_to(
+            workflow_id, name, input_data, environment=environment)
+        return self._build_execution_response(context)
+
+    async def run_from(self, workflow_id: str, name: str, execution_id: str | None = None,
+                       environment: str = "default") -> ExecutionResponse:
+        """Re-run `name` and everything after it, reusing a past execution's outputs for the ancestors."""
+        from .partial_run import PartialRunService
+        context = await PartialRunService(self._execution_repo, self._workflow_repo).run_from(
+            workflow_id, name, execution_id, environment=environment)
+        return self._build_execution_response(context)
+
+    async def restore_version(self, workflow_id: str, version_id: int) -> WorkflowDetailResponse:
+        """Copy a version's definition into the draft and return the workflow."""
+        import copy
+        from ..repositories.version_repository import VersionRepository
+        from ..db.models import WorkflowModel
+
+        db_workflow = await self._workflow_repo._session.get(WorkflowModel, workflow_id)
+        if not db_workflow:
+            raise WorkflowNotFoundError(workflow_id)
+        version = await VersionRepository(self._workflow_repo._session).get(version_id)
+        if not version or version.workflow_id != workflow_id:
+            raise WorkflowNotFoundError(f"version {version_id}")
+        db_workflow.draft_definition = copy.deepcopy(version.definition)
+        db_workflow.updated_at = datetime.now()
+        await self._workflow_repo._session.commit()
+        return await self.get_workflow(workflow_id)
+
     async def run_adhoc_workflow(self, request: WorkflowCreateRequest) -> ExecutionResponse:
         """Run an ad-hoc workflow without saving."""
         self._validate_workflow(request)
@@ -465,6 +509,9 @@ class WorkflowService:
         if len(node_names) != len(set(node_names)):
             raise ValidationError("Node names must be unique", field="nodes")
 
+        if msg := disabled_trigger_message(request.nodes):
+            raise ValidationError(msg, field="nodes")
+
         # Validate node types exist in registry
         if self._node_registry is not None:
             for node in request.nodes:
@@ -501,6 +548,9 @@ class WorkflowService:
                         f'Unknown node type: "{node.type}"',
                         field="nodes",
                     )
+
+        if msg := disabled_trigger_message(nodes):
+            raise ValidationError(msg, field="nodes")
 
         # If nodes are being updated, validate names are unique
         if nodes:
@@ -544,7 +594,8 @@ class WorkflowService:
                 "position": n.position,
                 "retry_on_fail": n.retry_on_fail,
                 "retry_delay": n.retry_delay,
-                "continue_on_fail": n.continue_on_fail,
+                "disabled": n.disabled,
+                "on_error": n.on_error,
                 **({"pinnedData": [{"json": d.json} for d in n.pinned_data]} if n.pinned_data else {}),
                 # Enriched I/O data for frontend
                 "inputs": io_data["inputs"],

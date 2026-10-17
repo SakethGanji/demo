@@ -207,6 +207,17 @@ function RunDetailView({ run }: { run: RunDetail }) {
             </>
           ) : null}
         </Well>
+        {!target.method && run.workflow_id && (
+          <Link
+            to="/p/$project/workflows/$workflowId"
+            params={{ project: slug, workflowId: run.workflow_id }}
+            search={{ execution: run.id }}
+            className="mt-2.5 mr-3 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+            data-testid="run-open-in-editor"
+          >
+            <Workflow className="size-3.5" /> Open in editor
+          </Link>
+        )}
         {editor && (
           <Link
             to="/p/$project/backend/$module"

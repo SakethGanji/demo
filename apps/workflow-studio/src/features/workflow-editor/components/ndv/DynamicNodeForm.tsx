@@ -14,6 +14,7 @@ import ExpressionEditor from './ExpressionEditor';
 import CodeEditor from '@/shared/components/ui/code-editor';
 import { WorkflowSelectorField } from './WorkflowSelectorField';
 import { FilePathField } from './FilePathField';
+import { registerPendingFlush } from '../../lib/pendingEdits';
 
 // --- Inlined from formValidation.ts ---
 interface FieldError {
@@ -46,26 +47,52 @@ function validateField(
 function useKeyedDebouncedChange(
   callback: (key: string, value: unknown) => void,
   delay: number
-): (key: string, value: unknown) => void {
+): { change: (key: string, value: unknown) => void; flush: () => void } {
   const timersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const pendingRef = useRef(new Map<string, unknown>());
   const callbackRef = useRef(callback);
-  callbackRef.current = callback;
+  useEffect(() => {
+    callbackRef.current = callback;
+  });
 
-  return useCallback(
+  const flush = useCallback(() => {
+    const timers = timersRef.current;
+    const pending = pendingRef.current;
+    for (const t of timers.values()) clearTimeout(t);
+    timers.clear();
+    const entries = Array.from(pending.entries());
+    pending.clear();
+    for (const [key, value] of entries) callbackRef.current(key, value);
+  }, []);
+
+  const change = useCallback(
     (key: string, value: unknown) => {
       const timers = timersRef.current;
       const t = timers.get(key);
       if (t) clearTimeout(t);
+      pendingRef.current.set(key, value);
       timers.set(
         key,
         setTimeout(() => {
           timers.delete(key);
+          pendingRef.current.delete(key);
           callbackRef.current(key, value);
         }, delay)
       );
     },
     [delay]
   );
+
+  // Flush on unmount, and let save / run / test paths flush through the registry.
+  useEffect(() => {
+    const unregister = registerPendingFlush(flush);
+    return () => {
+      unregister();
+      flush();
+    };
+  }, [flush]);
+
+  return useMemo(() => ({ change, flush }), [change, flush]);
 }
 
 // Type definitions matching the API schema
@@ -173,7 +200,7 @@ export default memo(function DynamicNodeForm({
   touchedFieldsRef.current = touchedFields;
 
   // Debounced onChange for text-input types
-  const debouncedOnChange = useKeyedDebouncedChange(onChange, 300);
+  const { change: debouncedOnChange, flush: flushPending } = useKeyedDebouncedChange(onChange, 300);
 
   // Determine which onChange to use based on field type
   const getOnChange = useCallback((property: NodeProperty) => {
@@ -198,9 +225,10 @@ export default memo(function DynamicNodeForm({
   }, []);
 
   const handleBlur = useCallback((name: string, property: NodeProperty, value: unknown) => {
+    flushPending();
     setTouchedFields((prev) => new Set(prev).add(name));
     handleValidate(name, property, value);
-  }, [handleValidate]);
+  }, [handleValidate, flushPending]);
 
   // Use ref for touchedFields to keep this callback stable
   const handleFieldChange = useCallback((property: NodeProperty, value: unknown) => {

@@ -15,15 +15,22 @@ import { Tabs, TabsList, TabsTab } from '@/shared/components/ui/tabs';
 import { Input } from '@/shared/components/ui/input';
 import { Textarea } from '@/shared/components/ui/textarea';
 import { Switch } from '@/shared/components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/components/ui/select';
 import { Field } from '@/shared/components/ui/field';
 import { Spinner } from '@/shared/components/ui/spinner';
 import { Tile, Callout } from '@/shared/components/ui/surface';
 import type { Node } from '@xyflow/react';
-import type { WorkflowNodeData } from '../../types/workflow';
+import type { WorkflowNodeData, OnErrorMode } from '../../types/workflow';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import DynamicNodeForm, { type NodeProperty, type OutputSchema } from './DynamicNodeForm';
 import { useNodeTypes } from '../../hooks/useNodeTypes';
 import { getNodeExtensions } from './extensions/NodeExtensions';
+
+const ON_ERROR_LABELS: Record<OnErrorMode, string> = {
+  stop: 'Stop the workflow',
+  continue: 'Continue the workflow',
+  error_output: 'Send to the error output',
+};
 
 interface NodeSettingsProps {
   node: Node<WorkflowNodeData>;
@@ -38,6 +45,7 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
 
   // Individual selectors — actions are stable refs, data only triggers re-render when it changes
   const updateNodeData = useWorkflowStore((s) => s.updateNodeData);
+  const setNodeOnError = useWorkflowStore((s) => s.setNodeOnError);
 
   const upstreamNodeId = useUpstreamNodeId(node.id);
   const upstreamNode = useNodeById(upstreamNodeId);
@@ -158,24 +166,26 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
               {expandedSections.options && (
                 <div className="px-3 pt-1 pb-3">
                   <div className="space-y-3">
-                    <label className="flex items-start gap-2.5 cursor-pointer">
-                      <Switch
-                        checked={node.data.continueOnFail || false}
-                        onCheckedChange={(checked) => {
-                          updateNodeData(node.id, {
-                            continueOnFail: checked,
-                          });
-                        }}
-                        className="mt-0.5"
-                        data-testid="ndv-continue-on-fail"
-                      />
-                      <div>
-                        <span className="text-[13px] text-foreground">Continue on fail</span>
-                        <p className="text-[12px] text-muted-foreground">
-                          Continue even if this node fails
-                        </p>
-                      </div>
-                    </label>
+                    <div className="space-y-1.5">
+                      <span className="text-[13px] text-foreground">On error</span>
+                      <Select
+                        value={node.data.onError ?? 'stop'}
+                        onValueChange={(v) => setNodeOnError(node.id, v as OnErrorMode)}
+                        items={ON_ERROR_LABELS}
+                      >
+                        <SelectTrigger size="sm" className="w-full text-[12px]" data-testid="node-setting-on-error">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="stop" data-testid="on-error-stop">Stop the workflow</SelectItem>
+                          <SelectItem value="continue" data-testid="on-error-continue">Continue the workflow</SelectItem>
+                          <SelectItem value="error_output" data-testid="on-error-error-output">Send to the error output</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-[12px] text-muted-foreground">
+                        What happens when this node fails after its retries.
+                      </p>
+                    </div>
 
                     <div className="space-y-2">
                       <label className="flex items-start gap-2.5 cursor-pointer">

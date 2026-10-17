@@ -5,6 +5,7 @@
  * Uses fetch-based REST API.
  */
 
+import { flushPendingEdits } from '../lib/pendingEdits';
 import { useCallback, useRef } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
@@ -53,6 +54,7 @@ export function useSaveWorkflow() {
     // Guard against concurrent saves (e.g. rapid double-click)
     if (isSavingRef.current) return;
     isSavingRef.current = true;
+    flushPendingEdits();
 
     const { nodes, edges, workflowName, workflowId } = useWorkflowStore.getState();
     const backendWorkflow = toBackendWorkflow(

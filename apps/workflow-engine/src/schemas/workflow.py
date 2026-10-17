@@ -28,7 +28,11 @@ class NodeDefinitionSchema(BaseModel):
     pinned_data: list[PinnedDataItem] | None = Field(None, description="Pinned test data")
     retry_on_fail: int = Field(0, ge=0, description="Number of retries on failure")
     retry_delay: int = Field(1000, ge=0, description="Delay between retries in ms")
-    continue_on_fail: bool = Field(False, description="Continue execution on failure")
+    continue_on_fail: bool = Field(False, description="Legacy; use on_error='continue'")
+    disabled: bool = Field(False, description="Disabled nodes pass their input straight to 'main'")
+    on_error: Literal["stop", "continue", "error_output"] | None = Field(
+        None, description="What to do when the node fails (default 'stop'; legacy continue_on_fail=true maps to 'continue')"
+    )
 
     class Config:
         json_schema_extra = {
@@ -43,6 +47,7 @@ class NodeDefinitionSchema(BaseModel):
     def to_dataclass(self) -> NodeDefinition:
         """Convert to engine NodeDefinition dataclass."""
         from ..engine.types import NodeDefinition as ND, NodeData as NDData
+        on_error = self.on_error or ("continue" if self.continue_on_fail else "stop")
         return ND(
             name=self.name,
             type=self.type,
@@ -52,7 +57,9 @@ class NodeDefinitionSchema(BaseModel):
             pinned_data=[NDData(json=p.json) for p in self.pinned_data] if self.pinned_data else None,
             retry_on_fail=self.retry_on_fail,
             retry_delay=self.retry_delay,
-            continue_on_fail=self.continue_on_fail,
+            continue_on_fail=on_error == "continue",
+            disabled=self.disabled,
+            on_error=on_error,
         )
 
 

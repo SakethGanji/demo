@@ -1,8 +1,27 @@
 """Execution-related Pydantic schemas."""
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+
+
+class NodeTestRequest(BaseModel):
+    """Request schema for testing a single node."""
+
+    source: Literal["input", "last_run", "pinned"] = Field(
+        default="input", description="Where the node's input comes from"
+    )
+    input_items: list[dict[str, Any]] | None = Field(
+        default=None, description="Input item json objects (required when source is 'input')"
+    )
+    environment: str = Field(default="default", description="Which variable environment to resolve $vars against")
+
+
+class RunFromRequest(BaseModel):
+    """Request schema for running from a node using a past execution's outputs."""
+
+    execution_id: str | None = Field(default=None, description="Execution to reuse (default: the latest)")
+    environment: str = Field(default="default", description="Which variable environment to resolve $vars against")
 
 
 class RunWorkflowRequest(BaseModel):

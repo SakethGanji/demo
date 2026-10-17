@@ -18,6 +18,9 @@ export interface BackendNodeDefinition {
   label?: string;
   parameters: Record<string, unknown>;
   position?: { x: number; y: number };
+  disabled?: boolean;
+  on_error?: 'stop' | 'continue' | 'error_output';
+  /** legacy, read-only */
   continue_on_fail?: boolean;
   retry_on_fail?: number;
   retry_delay?: number;
@@ -105,6 +108,8 @@ export interface ApiWorkflowDetail {
       parameters: Record<string, unknown>;
       position?: { x: number; y: number };
       // Node settings
+      disabled?: boolean;
+      on_error?: 'stop' | 'continue' | 'error_output';
       continue_on_fail?: boolean;
       retry_on_fail?: number;
       retry_delay?: number;

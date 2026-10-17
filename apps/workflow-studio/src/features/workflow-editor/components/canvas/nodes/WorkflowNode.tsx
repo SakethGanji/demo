@@ -1,8 +1,9 @@
 import { memo, useState, useMemo, useRef, useEffect } from 'react';
-import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
+import { Handle, Position, useUpdateNodeInternals, type NodeProps, type Node } from '@xyflow/react';
 import { Plus, Check, X } from 'lucide-react';
 import { useEditorLayoutStore } from '../../../stores/editorLayoutStore';
 import { useWorkflowStore } from '../../../stores/workflowStore';
+import { useHistoryStore } from '../../../stores/historyStore';
 import type { WorkflowNodeData } from '../../../types/workflow';
 import {
   getNodeStyles,
@@ -48,6 +49,8 @@ function WorkflowNode({ id, data, selected }: NodeProps<Node<WorkflowNodeData>>)
   const isDragging = useWorkflowStore((s) => s.draggedNodeType !== null);
   const isExecActive = useWorkflowStore((s) => s.isAnyNodeRunning);
   const updateNodeData = useWorkflowStore((s) => s.updateNodeData);
+  // Version-history diff marker: added (green), changed (amber), removed (faded ghost)
+  const diffMark = useHistoryStore((s) => s.marks[id]);
 
   const hasInputConnection = useHasInputConnection(id);
   const connectedOutputHandles = useConnectedOutputHandles(id);
@@ -102,7 +105,16 @@ function WorkflowNode({ id, data, selected }: NodeProps<Node<WorkflowNodeData>>)
 
   // Calculate input/output counts (ensure at least 1 input for non-triggers, at least 1 output)
   const inputCount = isTrigger ? 0 : Math.max(1, data.inputCount ?? data.inputs?.length ?? 1);
-  const outputCount = Math.max(1, data.outputCount ?? data.outputs?.length ?? 1);
+  const mainOutputCount = Math.max(1, data.outputCount ?? data.outputs?.length ?? 1);
+  // `error_output` adds one more source handle (id "error") below the regular outputs
+  const hasErrorOutput = data.onError === 'error_output';
+  const outputCount = mainOutputCount + (hasErrorOutput ? 1 : 0);
+  const isDisabled = !!data.disabled;
+  const updateNodeInternals = useUpdateNodeInternals();
+  // The handle set changed: React Flow must re-measure so edges attach to the new handle
+  useEffect(() => {
+    updateNodeInternals(id);
+  }, [id, outputCount, updateNodeInternals]);
 
   // Calculate dimensions and handle positions (proportional sizing)
   const dimensions = useMemo(
@@ -167,8 +179,9 @@ function WorkflowNode({ id, data, selected }: NodeProps<Node<WorkflowNodeData>>)
   // Render output handles - transforms into plus button on hover when not connected
   const renderOutputHandles = () => {
     return outputPositions.map((position, index) => {
-      const outputDef = data.outputs?.[index];
-      const handleId = outputDef?.name || `output-${index}`;
+      const isErrorHandle = hasErrorOutput && index === mainOutputCount;
+      const outputDef = isErrorHandle ? undefined : data.outputs?.[index];
+      const handleId = isErrorHandle ? 'error' : outputDef?.name || `output-${index}`;
       const hasConnection = connectedOutputHandles.has(handleId);
       const canExpand = !hasConnection && showActions;
 
@@ -204,6 +217,7 @@ function WorkflowNode({ id, data, selected }: NodeProps<Node<WorkflowNodeData>>)
               type="source"
               position={Position.Right}
               id={handleId}
+              data-testid={isErrorHandle ? 'node-error-handle' : undefined}
               className="!absolute !inset-0 !h-full !w-full !transform-none !border-0 !bg-transparent"
               style={{
                 position: 'absolute',
@@ -224,14 +238,19 @@ function WorkflowNode({ id, data, selected }: NodeProps<Node<WorkflowNodeData>>)
                 }
               `}
               style={{
-                backgroundColor: canExpand ? undefined : styles.handleColor,
-                borderColor: canExpand ? undefined : styles.handleColor,
+                backgroundColor: canExpand ? undefined : isErrorHandle ? 'var(--destructive)' : styles.handleColor,
+                borderColor: canExpand ? undefined : isErrorHandle ? 'var(--destructive)' : styles.handleColor,
               }}
             >
               {canExpand && (
-                <Plus size={12} className="text-foreground/80" />
+                <Plus size={12} className={isErrorHandle ? 'text-destructive' : 'text-foreground/80'} />
               )}
             </div>
+            {isErrorHandle && (
+              <span className="pointer-events-none absolute left-full top-1/2 ml-1.5 -translate-y-1/2 text-[10px] font-medium leading-none text-destructive">
+                error
+              </span>
+            )}
           </div>
         </div>
       );
@@ -240,7 +259,8 @@ function WorkflowNode({ id, data, selected }: NodeProps<Node<WorkflowNodeData>>)
 
   return (
     <div
-      className={`relative flex flex-col items-center ${isIdle ? 'node-exec-idle' : ''}`}
+      className={`relative flex flex-col items-center ${isIdle ? 'node-exec-idle' : ''} ${diffMark === 'removed' ? 'node-ghost pointer-events-none select-none' : ''} ${isDisabled ? 'node-disabled' : ''}`}
+      data-diff={diffMark}
       style={{
         transition: 'opacity 0.4s ease',
       }}
@@ -262,10 +282,18 @@ function WorkflowNode({ id, data, selected }: NodeProps<Node<WorkflowNodeData>>)
         style={{
           height: dimensions.height,
           width: dimensions.width,
-          backgroundColor: styles.bgColor,
+          backgroundColor: diffMark === 'removed' ? 'transparent' : styles.bgColor,
+          outline: diffMark === 'removed' ? '2px dashed var(--muted-foreground)' : undefined,
+          outlineOffset: diffMark === 'removed' ? 2 : undefined,
           borderRadius: shapeConfig.borderRadius,
           // glass edge + elevation from the node tokens; selection / drop target add the ring on top
-          boxShadow: canBeDropTarget
+          boxShadow: diffMark === 'added'
+            ? '0 0 0 2px var(--success), var(--node-shadow)'
+            : diffMark === 'changed'
+              ? '0 0 0 2px var(--warning), var(--node-shadow)'
+              : diffMark === 'removed'
+                ? 'none'
+                : canBeDropTarget
             ? '0 0 0 1px var(--success), 0 0 0 4px color-mix(in srgb, var(--success) 18%, transparent), 0 0 15px var(--success)'
             : selected
               ? `0 0 0 1px var(--ring), 0 0 0 4px color-mix(in srgb, var(--ring) 16%, transparent), var(--node-shadow)`
@@ -339,7 +367,7 @@ function WorkflowNode({ id, data, selected }: NodeProps<Node<WorkflowNodeData>>)
         />
       ) : (
         <span
-          className="text-center text-xs font-medium text-muted-foreground leading-tight truncate cursor-text hover:text-foreground mt-2"
+          className={`text-center text-xs font-medium text-muted-foreground leading-tight truncate cursor-text hover:text-foreground mt-2 ${isDisabled ? 'line-through' : ''} ${diffMark === 'removed' ? 'italic' : ''}`}
           style={{ maxWidth: Math.max(120, dimensions.width + 40) }}
           title={`${data.label} (double-click to rename)`}
           onDoubleClick={handleLabelDoubleClick}

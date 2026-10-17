@@ -209,7 +209,10 @@ async def stream_adhoc_execution(
                 pinned_data=[NodeData(json=d["json"]) for d in n["pinnedData"]] if n.get("pinnedData") else None,
                 retry_on_fail=n.get("retry_on_fail") or n.get("retryOnFail", 0),
                 retry_delay=n.get("retry_delay") or n.get("retryDelay", 1000),
-                continue_on_fail=n.get("continue_on_fail") or n.get("continueOnFail", False),
+                continue_on_fail=(n.get("on_error") or n.get("onError")) == "continue"
+                or bool(n.get("continue_on_fail") or n.get("continueOnFail", False)),
+                disabled=bool(n.get("disabled", False)),
+                on_error=n.get("on_error") or n.get("onError") or "stop",
             )
             for n in workflow.nodes
         ],

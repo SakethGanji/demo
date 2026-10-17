@@ -6,7 +6,13 @@ import { EditorTabList, EditorTab } from '@/shared/components/ui/editor-tabs'
 import { useWorkflowStore } from '@/features/workflow-editor/stores/workflowStore'
 import { useEditorLayoutStore, type RightPanelTab } from '@/features/workflow-editor/stores/editorLayoutStore'
 import { fromBackendWorkflow } from '@/features/workflow-editor/lib/workflowTransform'
-import { workflowsApi } from '@/shared/lib/api'
+import { workflowsApi, executionsApi } from '@/shared/lib/api'
+import { useExecutionParam } from '@/features/workflow-editor/hooks/useViewingRun'
+import EditorCommandPalette from '@/features/workflow-editor/components/command-palette/EditorCommandPalette'
+import ViewingRunBanner from '@/features/workflow-editor/components/workflow-navbar/ViewingRunBanner'
+import WorkflowHistorySheet from '@/features/workflow-editor/components/history/WorkflowHistorySheet'
+import { useNodeActions } from '@/features/workflow-editor/hooks/useNodeActions'
+import { registerEditorAction } from '@/features/workflow-editor/stores/editorActionsStore'
 import { useNodeTypes } from '@/features/workflow-editor/hooks/useNodeTypes'
 import type { NodeTypeMetadata } from '@/features/workflow-editor/lib/createNodeData'
 // Lazy load heavy components
@@ -108,6 +114,18 @@ export function WorkflowEditorPage({ workflowId }: { workflowId?: string }) {
 
   const closeBottomPanel = useEditorLayoutStore((s) => s.closeBottomPanel)
 
+  // ⌘K palette handlers for the node actions (the context menu and the node panel call the same ones).
+  const nodeActions = useNodeActions()
+  useEffect(() => {
+    const offs = [
+      registerEditorAction('test-step', (id) => { if (id) void nodeActions.testStep(id, 'last_run') }),
+      registerEditorAction('run-to', (id) => { if (id) void nodeActions.runTo(id) }),
+      registerEditorAction('run-from', (id) => { if (id) void nodeActions.runFrom(id) }),
+      registerEditorAction('toggle-disable', (id) => { if (id) nodeActions.toggleDisable(id) }),
+    ]
+    return () => offs.forEach((off) => off())
+  }, [nodeActions])
+
   useEffect(() => {
     if (!workflowId) {
       if (currentWorkflowId) {
@@ -137,6 +155,35 @@ export function WorkflowEditorPage({ workflowId }: { workflowId?: string }) {
     fetchWorkflow()
   }, [workflowId, currentWorkflowId, loadWorkflow, resetWorkflow, closeBottomPanel])
 
+  // `?execution=<id>`: show that saved run's data on the canvas, as a live run would.
+  const executionId = useExecutionParam()
+  const workflowLoaded = !!workflowId && workflowId === currentWorkflowId
+  useEffect(() => {
+    const store = useWorkflowStore.getState()
+    if (!executionId) {
+      if (store.viewingExecution) store.exitViewingExecution()
+      return
+    }
+    if (!workflowLoaded || store.viewingExecution?.id === executionId) return
+    let cancelled = false
+    executionsApi
+      .get(executionId)
+      .then((detail) => {
+        if (cancelled) return
+        if (detail.workflow_id !== workflowId) {
+          toast.error('That run belongs to a different workflow')
+          return
+        }
+        useWorkflowStore.getState().loadExecutionData(detail)
+      })
+      .catch((error) => {
+        if (!cancelled) toast.error('Could not load the run', { description: error instanceof Error ? error.message : String(error) })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [executionId, workflowLoaded, workflowId])
+
   const rightPanelOpen = useEditorLayoutStore((s) => s.rightPanelOpen)
   const bottomPanelOpen = useEditorLayoutStore((s) => s.bottomPanelOpen)
   const bottomPanelMaximized = useEditorLayoutStore((s) => s.bottomPanelMaximized)
@@ -153,6 +200,11 @@ export function WorkflowEditorPage({ workflowId }: { workflowId?: string }) {
           {/* Layer 2: Floating navbar */}
           <div className="absolute top-3 left-3 right-3 z-20">
             <WorkflowNavbar />
+          </div>
+
+          {/* Viewing a saved run */}
+          <div className="absolute top-[76px] left-1/2 z-20 flex -translate-x-1/2 justify-center">
+            <ViewingRunBanner />
           </div>
 
           {/* Layer 1: Floating right panel */}
@@ -184,6 +236,8 @@ export function WorkflowEditorPage({ workflowId }: { workflowId?: string }) {
 
           {/* Overlays */}
           <NodeDetailsModal />
+          <WorkflowHistorySheet />
+          <EditorCommandPalette />
         </div>
       </Suspense>
     </ReactFlowProvider>

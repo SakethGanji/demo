@@ -12,6 +12,8 @@ import { toBackendWorkflow, findUpstreamNodeName, buildNameToIdMap } from '../li
 import { consumeSSEStream } from '@/shared/lib/sseParser';
 import { backends } from '@/shared/lib/config';
 import { toast } from 'sonner';
+import { flushPendingEdits } from '../lib/pendingEdits';
+import { saveDraftForRun, describeActionError } from '../lib/nodeActions';
 import type { WorkflowNodeData } from '../types/workflow';
 import type { Node } from '@xyflow/react';
 
@@ -64,7 +66,11 @@ interface UseExecutionStreamResult {
 
 
 export function useExecutionStream(): UseExecutionStreamResult {
-  const [isExecuting, setIsExecuting] = useState(false);
+  const [isExecuting, setIsExecutingState] = useState(false);
+  const setIsExecuting = useCallback((active: boolean) => {
+    setIsExecutingState(active);
+    useWorkflowStore.getState().setRunActive(active);
+  }, []);
   const [progress, setProgress] = useState<{ completed: number; total: number } | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -75,9 +81,23 @@ export function useExecutionStream(): UseExecutionStreamResult {
     }
     setIsExecuting(false);
     setProgress(null);
-  }, []);
+  }, [setIsExecuting]);
 
   const executeWorkflow = useCallback(async (inputData?: Record<string, unknown>) => {
+    // Run what is on screen: apply pending field edits, and for a saved workflow save the draft
+    // first (the engine runs the stored draft).
+    flushPendingEdits();
+    if (useWorkflowStore.getState().workflowId) {
+      // Show the run as started while saving, so a stale status from the last run can't read as this one
+      setIsExecuting(true);
+      try {
+        await saveDraftForRun();
+      } catch (e) {
+        setIsExecuting(false);
+        toast.error('Run failed', { description: `Could not save the draft: ${describeActionError(e).message}` });
+        return;
+      }
+    }
     const {
       nodes,
       edges,
@@ -313,7 +333,7 @@ export function useExecutionStream(): UseExecutionStreamResult {
         }
       }
     }
-  }, []);
+  }, [setIsExecuting]);
 
   return {
     executeWorkflow,

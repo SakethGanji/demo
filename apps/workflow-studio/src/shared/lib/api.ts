@@ -72,6 +72,18 @@ async function apiFetch<T>(
 // Workflows API
 // ============================================================================
 
+export interface ApiWorkflowVersion {
+  id: number;
+  version_number: number;
+  message: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface ApiWorkflowVersionDetail extends ApiWorkflowVersion {
+  definition: ApiWorkflowDetail['definition'];
+}
+
 export const workflowsApi = {
   list: (): Promise<ApiWorkflowSummary[]> => {
     return apiFetch('/workflows');
@@ -117,6 +129,47 @@ export const workflowsApi = {
   run: (id: string): Promise<ApiExecutionResult> => {
     return apiFetch(`/workflows/${id}/run`, {
       method: 'POST',
+    });
+  },
+
+  listVersions: (id: string): Promise<ApiWorkflowVersion[]> => {
+    return apiFetch(`/workflows/${id}/versions`);
+  },
+
+  getVersion: (id: string, versionId: number): Promise<ApiWorkflowVersionDetail> => {
+    return apiFetch(`/workflows/${id}/versions/${versionId}`);
+  },
+
+  /** Copies a version's definition into the draft; returns the workflow like `get`. */
+  restoreVersion: (id: string, versionId: number): Promise<ApiWorkflowDetail> => {
+    return apiFetch(`/workflows/${id}/versions/${versionId}/restore`, { method: 'POST' });
+  },
+
+  /** Run only `name`, feeding it input from `source` (the saved draft is what runs). */
+  testNode: (
+    id: string,
+    name: string,
+    body: { source: 'input' | 'last_run' | 'pinned'; input_items?: Array<Record<string, unknown>>; environment?: string },
+  ): Promise<ApiExecutionResult> => {
+    return apiFetch(`/workflows/${id}/nodes/${encodeURIComponent(name)}/test`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+
+  /** Run from the trigger and stop after `name`. */
+  runTo: (id: string, name: string, body: { input_data?: Record<string, unknown>; environment?: string } = {}): Promise<ApiExecutionResult> => {
+    return apiFetch(`/workflows/${id}/run-to/${encodeURIComponent(name)}`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+
+  /** Re-run `name` and everything after it, reusing a past execution's upstream outputs. */
+  runFrom: (id: string, name: string, body: { execution_id?: string; environment?: string } = {}): Promise<ApiExecutionResult> => {
+    return apiFetch(`/workflows/${id}/run-from/${encodeURIComponent(name)}`, {
+      method: 'POST',
+      body: JSON.stringify(body),
     });
   },
 
@@ -305,10 +358,28 @@ export const appsApi = {
 // Executions API
 // ============================================================================
 
+/** `GET /api/executions/{id}`: `node_data` maps node name to its output items. */
+export interface ApiExecutionDetail {
+  id: string;
+  workflow_id: string;
+  workflow_name: string;
+  status: string;
+  mode: string;
+  start_time: string;
+  end_time: string | null;
+  errors: Array<{ node_name: string; error: string; timestamp?: string }>;
+  node_data: Record<string, Array<{ json: Record<string, unknown> }>>;
+  node_metrics?: Record<string, unknown>;
+}
+
 export const executionsApi = {
   list: (workflowId?: string): Promise<ApiExecutionListItem[]> => {
     const params = workflowId ? `?workflow_id=${workflowId}` : '';
     return apiFetch(`/executions${params}`);
+  },
+
+  get: (id: string): Promise<ApiExecutionDetail> => {
+    return apiFetch(`/executions/${id}`);
   },
 };
 

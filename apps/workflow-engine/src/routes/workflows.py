@@ -8,6 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ..core.exceptions import (
     ConflictError,
+    ExecutionNotFoundError,
+    MissingNodeDataError,
+    NodeNotFoundInWorkflowError,
     WorkflowNotFoundError,
     WorkflowExecutionError,
     ValidationError,
@@ -26,7 +29,7 @@ from ..schemas.workflow import (
     VersionListItem,
     VersionDetailResponse,
 )
-from ..schemas.execution import ExecutionResponse, RunWorkflowRequest
+from ..schemas.execution import ExecutionResponse, NodeTestRequest, RunFromRequest, RunWorkflowRequest
 from ..schemas.common import SuccessResponse
 
 router = APIRouter(prefix="/workflows")
@@ -172,6 +175,82 @@ async def run_workflow(
         raise HTTPException(status_code=404, detail=e.message)
     except WorkflowExecutionError as e:
         raise HTTPException(status_code=400, detail=e.message)
+
+
+def _partial_run_http_error(e: Exception) -> HTTPException:
+    """Map the errors of the partial-run endpoints onto HTTP."""
+    if isinstance(e, ProjectError):
+        return HTTPException(status_code=e.status, detail=e.detail())
+    if isinstance(e, MissingNodeDataError):
+        return HTTPException(status_code=409, detail={"message": e.message, "missing_nodes": e.missing_nodes})
+    if isinstance(e, (WorkflowNotFoundError, NodeNotFoundInWorkflowError, ExecutionNotFoundError)):
+        return HTTPException(status_code=404, detail=e.message)
+    return HTTPException(status_code=400, detail=getattr(e, "message", str(e)))
+
+
+_PARTIAL_RUN_ERRORS = (
+    ProjectError, MissingNodeDataError, WorkflowNotFoundError, NodeNotFoundInWorkflowError,
+    ExecutionNotFoundError, WorkflowExecutionError, ValidationError,
+)
+
+
+@router.post("/{workflow_id}/nodes/{node_name}/test", response_model=ExecutionResponse)
+async def test_node(
+    workflow_id: str,
+    node_name: str,
+    body: NodeTestRequest,
+    service: WorkflowServiceDep,
+) -> ExecutionResponse:
+    """Run only one node with typed, last-run or pinned input."""
+    try:
+        return await service.test_node(workflow_id, node_name, body)
+    except _PARTIAL_RUN_ERRORS as e:
+        raise _partial_run_http_error(e)
+
+
+@router.post("/{workflow_id}/run-to/{node_name}", response_model=ExecutionResponse)
+async def run_to_node(
+    workflow_id: str,
+    node_name: str,
+    service: WorkflowServiceDep,
+    body: RunWorkflowRequest | None = None,
+) -> ExecutionResponse:
+    """Run from the trigger and stop after the given node."""
+    try:
+        return await service.run_to(
+            workflow_id, node_name, body.input_data if body else None,
+            environment=body.environment if body else "default")
+    except _PARTIAL_RUN_ERRORS as e:
+        raise _partial_run_http_error(e)
+
+
+@router.post("/{workflow_id}/run-from/{node_name}", response_model=ExecutionResponse)
+async def run_from_node(
+    workflow_id: str,
+    node_name: str,
+    service: WorkflowServiceDep,
+    body: RunFromRequest | None = None,
+) -> ExecutionResponse:
+    """Re-run the given node and everything after it, reusing a past execution's upstream outputs."""
+    try:
+        return await service.run_from(
+            workflow_id, node_name, body.execution_id if body else None,
+            environment=body.environment if body else "default")
+    except _PARTIAL_RUN_ERRORS as e:
+        raise _partial_run_http_error(e)
+
+
+@router.post("/{workflow_id}/versions/{version_id}/restore", response_model=WorkflowDetailResponse)
+async def restore_version(
+    workflow_id: str,
+    version_id: int,
+    service: WorkflowServiceDep,
+) -> WorkflowDetailResponse:
+    """Copy a version's definition into the draft and return the workflow."""
+    try:
+        return await service.restore_version(workflow_id, version_id)
+    except WorkflowNotFoundError as e:
+        raise HTTPException(status_code=404, detail=e.message)
 
 
 @router.post("/run-adhoc", response_model=ExecutionResponse)

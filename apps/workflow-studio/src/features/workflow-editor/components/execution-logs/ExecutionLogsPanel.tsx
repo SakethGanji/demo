@@ -317,7 +317,9 @@ export default function ExecutionLogsPanel() {
   );
 
   const hasLogs = logs.length > 0;
-  const isRunning = logs.some((l) => l.status === 'running');
+  // runActive also covers the gaps before the first node starts and between nodes.
+  const runActive = useWorkflowStore((s) => s.runActive);
+  const isRunning = runActive || logs.some((l) => l.status === 'running');
   const hasErrors = logs.some((l) => l.status === 'error');
   const successCount = logs.filter((l) => l.status === 'success').length;
   const totalDuration = logs.reduce((sum, l) => sum + (l.duration || 0), 0);

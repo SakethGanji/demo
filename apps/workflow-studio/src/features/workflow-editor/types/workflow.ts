@@ -81,7 +81,9 @@ export interface WorkflowNodeData {
   notes?: string;
 
   // Error handling options
+  /** @deprecated legacy; read from old workflows only, never written. Use onError. */
   continueOnFail?: boolean;
+  onError?: OnErrorMode;
   retryOnFail?: number;   // 0-10
   retryDelay?: number;    // ms
 
@@ -194,6 +196,9 @@ interface ExecutionData {
   items: Record<string, unknown>[];
   error?: string;
 }
+
+/** What a node does when it fails (engine `on_error`). */
+export type OnErrorMode = 'stop' | 'continue' | 'error_output';
 
 export interface NodeExecutionData {
   input: ExecutionData | null;

@@ -66,6 +66,8 @@ class WorkflowRunner:
         team_id: str = "default",
         extras: dict[str, Any] | None = None,
         http_client_options: dict[str, Any] | None = None,
+        stop_at: str | None = None,
+        pending_inputs: dict[str, dict[str, list[NodeData]]] | None = None,
     ) -> ExecutionContext:
         """
         Run a workflow from a starting node.
@@ -77,6 +79,9 @@ class WorkflowRunner:
             mode: Execution mode (manual, webhook, cron)
             on_event: Optional callback for real-time execution events
             workflow_repository: Optional repository for subworkflow loading
+            stop_at: Name of a node after which no downstream jobs are queued
+            pending_inputs: Pre-seeded Merge inputs ({"<node>:<run_index>": {"<src>:<output>": items}}),
+                used when a partial run starts at a multi-input node
 
         Returns:
             ExecutionContext with all node states and errors
@@ -94,6 +99,9 @@ class WorkflowRunner:
         context.project_id = project_id
         context.environment = environment
         context.team_id = team_id or "default"
+        context.stop_at = stop_at
+        if pending_inputs:
+            context.pending_inputs.update(pending_inputs)
         if extras:
             context.extras.update(extras)
         context.extras.setdefault("secret_values", secret_values or set())
@@ -338,12 +346,14 @@ class WorkflowRunner:
         initial_data: list[NodeData],
         context: ExecutionContext,
         on_event: ExecutionEventCallback | None = None,
+        stop_at: str | None = None,
     ) -> ExecutionContext:
         """
         Run a workflow with a pre-configured execution context.
 
         Used by run_subworkflow to execute with inherited context.
         """
+        context.stop_at = stop_at
         total_nodes = len(workflow.nodes)
         completed_nodes = 0
 
@@ -603,6 +613,10 @@ class WorkflowRunner:
             if not handled:
                 return False  # Waiting for more inputs
 
+        # Disabled nodes pass their input straight to "main" (like n8n)
+        if node_def.disabled:
+            return await self._process_disabled_job(context, node_def, job, queue, node_map)
+
         # Check for pinned data
         if node_def.pinned_data:
             context.node_states[job.node_name] = node_def.pinned_data
@@ -636,6 +650,8 @@ class WorkflowRunner:
                         retry_on_fail=resolved_node_def.retry_on_fail,
                         retry_delay=resolved_node_def.retry_delay,
                         continue_on_fail=resolved_node_def.continue_on_fail,
+                        disabled=resolved_node_def.disabled,
+                        on_error=resolved_node_def.on_error,
                     )
             except Exception:
                 logger.warning(f"Failed to resolve credential {credential_id}", exc_info=True)
@@ -687,8 +703,19 @@ class WorkflowRunner:
         completed_at = datetime.now()
         execution_time_ms = round((perf_counter() - node_start) * 1000, 2)
 
+        error_routed = False
+
         # Handle final error after all retries exhausted
-        if last_error or not result:
+        if (last_error or not result) and node_def.on_error == "error_output":
+            # Route the failed items to the "error" output; the run continues and the node counts as a success
+            error_msg = str(last_error) if last_error else "Unknown execution error"
+            error_items = [
+                NodeData(json={**item.json, "error": {"message": error_msg, "node": job.node_name}})
+                for item in (job.input_data or [NodeData(json={})])
+            ]
+            result = NodeExecutionResult(outputs={"main": None, "error": error_items})
+            error_routed = True
+        elif last_error or not result:
             error_msg = str(last_error) if last_error else "Unknown execution error"
             retry_info = f" (after {max_retries + 1} attempts)" if max_retries > 0 else ""
             error_code = getattr(last_error, "code", None) if isinstance(getattr(last_error, "code", None), str) else None
@@ -744,7 +771,7 @@ class WorkflowRunner:
             )
 
             # Check continueOnFail
-            if node_def.continue_on_fail:
+            if node_def.on_error == "continue":
                 result = NodeExecutionResult(
                     outputs={"main": [NodeData(json={"error": error_msg, "_errorNode": job.node_name})]}
                 )
@@ -755,12 +782,20 @@ class WorkflowRunner:
                 self._propagate_no_output(context, node_def, queue, node_map, job.run_index)
                 return True
 
+        if node_def.on_error == "error_output" and not error_routed and "error" not in result.outputs:
+            # No failure: tell any Merge on the error branch that it will get nothing
+            result = NodeExecutionResult(outputs={**result.outputs, "error": None}, metadata=result.metadata)
+
         # Update run count for loop support
         current_count = context.node_run_counts.get(job.node_name, 0)
         context.node_run_counts[job.node_name] = current_count + 1
 
         # Store node output (main output for state)
-        main_output = result.outputs.get("main") or next(iter(result.outputs.values()), None)
+        if error_routed:
+            main_output = result.outputs["error"]
+        else:
+            # First non-empty output, so an If whose items all went "false" still saves its state
+            main_output = result.outputs.get("main") or next((v for v in result.outputs.values() if v), None)
         if main_output:
             context.node_states[job.node_name] = main_output
             context.last_completed_node = job.node_name
@@ -800,6 +835,9 @@ class WorkflowRunner:
             "outputDataSizeBytes": output_size,
             "status": "success",
         }
+        if error_routed:
+            node_metrics["errorRouted"] = True
+            node_metrics["error"] = error_msg
         # Merge node-provided metadata (tokens, HTTP status, branch info, etc.)
         if result.metadata:
             node_metrics.update(result.metadata)
@@ -817,6 +855,58 @@ class WorkflowRunner:
 
         # Queue next nodes based on outputs
         self._queue_next_nodes(context, node_def, result, queue, node_map, job.run_index)
+        return False
+
+    async def _process_disabled_job(
+        self,
+        context: ExecutionContext,
+        node_def: NodeDefinition,
+        job: ExecutionJob,
+        queue: list[ExecutionJob],
+        node_map: dict[str, NodeDefinition],
+    ) -> bool:
+        """A disabled node emits its input items unchanged on "main" (it still reports normal node events)."""
+        items = job.input_data
+        # A disabled Merge passes through everything it has received
+        pending = context.pending_inputs.get(f"{node_def.name}:{job.run_index}")
+        if pending is not None:
+            items = [
+                item for data in pending.values() if data is not NO_OUTPUT_SIGNAL and isinstance(data, list)
+                for item in data
+            ]
+            del context.pending_inputs[f"{node_def.name}:{job.run_index}"]
+
+        context.execution_order += 1
+        now = datetime.now()
+        metrics: dict[str, Any] = {
+            "startedAt": now.isoformat(),
+            "completedAt": now.isoformat(),
+            "executionTimeMs": 0,
+            "executionOrder": context.execution_order,
+            "retries": 0,
+            "maxRetries": 0,
+            "inputItemCount": len(job.input_data),
+            "outputItemCount": len(items),
+            "activeOutputs": ["main"] if items else [],
+            "status": "success",
+            "disabled": True,
+        }
+        context.node_metrics[job.node_name] = metrics
+        context.node_run_counts[job.node_name] = context.node_run_counts.get(job.node_name, 0) + 1
+        if items:
+            context.node_states[job.node_name] = items
+            context.last_completed_node = job.node_name
+        await self._persist_node_output(
+            execution_id=context.execution_id,
+            node_name=job.node_name,
+            output=items,
+            metrics=metrics,
+            status="success",
+            run_index=job.run_index,
+        )
+        self._queue_next_nodes(
+            context, node_def, NodeExecutionResult(outputs={"main": items}), queue, node_map, job.run_index
+        )
         return False
 
     def _handle_multi_input_node(
@@ -866,6 +956,8 @@ class WorkflowRunner:
         run_index: int,
     ) -> None:
         """Queue next nodes based on node outputs."""
+        if context.stop_at is not None and node_def.name == context.stop_at:
+            return  # partial run: nothing runs after the stop node
         for output_name, output_data in result.outputs.items():
             connections = [
                 c
@@ -962,6 +1054,9 @@ class WorkflowRunner:
             retry_on_fail=node_def.retry_on_fail,
             retry_delay=node_def.retry_delay,
             continue_on_fail=node_def.continue_on_fail,
+            disabled=node_def.disabled,
+            on_error=node_def.on_error,
+            label=node_def.label,
         )
 
     def _create_context(
