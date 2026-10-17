@@ -4,7 +4,7 @@ import * as React from "react"
 import { Menu as MenuPrimitive } from "@base-ui/react/menu"
 
 import { cn } from "@/shared/lib/utils"
-import { useLiquidGlass } from "@/shared/lib/liquid-glass"
+import { useLiquidGlassRef } from "@/shared/lib/liquid-glass"
 import { ChevronRightIcon, CheckIcon } from "lucide-react"
 
 function DropdownMenu({ ...props }: MenuPrimitive.Root.Props) {
@@ -32,8 +32,7 @@ function DropdownMenuContent({
     "align" | "alignOffset" | "side" | "sideOffset"
   >) {
   // liquid glass on the menu edge (Chromium; fixed size while open)
-  const popupRef = React.useRef<HTMLDivElement>(null)
-  useLiquidGlass(popupRef, { radius: 8, bezel: 9, strength: 14, extra: 'blur(28px) saturate(180%)' })
+  const popupRef = useLiquidGlassRef({ radius: 8, bezel: 9, strength: 14, extra: 'blur(28px) saturate(180%)' })
   return (
     <MenuPrimitive.Portal>
       <MenuPrimitive.Positioner

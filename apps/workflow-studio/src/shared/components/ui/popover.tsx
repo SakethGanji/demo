@@ -1,7 +1,7 @@
 import * as React from "react"
 import { Popover as PopoverPrimitive } from '@base-ui/react/popover'
 import { cn } from '@/shared/lib/utils'
-import { useLiquidGlass } from '@/shared/lib/liquid-glass'
+import { useLiquidGlassRef } from '@/shared/lib/liquid-glass'
 
 function Popover({ ...props }: PopoverPrimitive.Root.Props) {
   return <PopoverPrimitive.Root data-slot="popover" {...props} />
@@ -26,8 +26,7 @@ function PopoverContent({
 }: PopoverPrimitive.Popup.Props &
   Pick<PopoverPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset' | 'anchor'>) {
   // liquid glass on the popover edge (Chromium; fixed size while open)
-  const popupRef = React.useRef<HTMLDivElement>(null)
-  useLiquidGlass(popupRef, { radius: 8, bezel: 9, strength: 14, extra: 'blur(28px) saturate(180%)' })
+  const popupRef = useLiquidGlassRef({ radius: 8, bezel: 9, strength: 14, extra: 'blur(28px) saturate(180%)' })
   return (
     <PopoverPrimitive.Portal>
       <PopoverPrimitive.Positioner

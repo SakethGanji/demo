@@ -75,6 +75,45 @@ export function rowToData(row: string[], map: (string | null)[], columns: Column
   return { data }
 }
 
+/** Rows per bulk insert request (the engine accepts up to 1000 and rejects a whole request on one bad row). */
+export const IMPORT_CHUNK = 500
+
+export function chunk<T>(items: T[], size = IMPORT_CHUNK): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size))
+  return out
+}
+
+export interface ImportPlan {
+  /** rows that converted; `line` is the CSV line number (header = 1) */
+  valid: { line: number; data: Record<string, unknown> }[]
+  failed: { line: number; error: string }[]
+}
+
+/** Convert every CSV row up front: what can be sent in bulk, and what failed locally. */
+export function planImport(rows: string[][], map: (string | null)[], columns: Column[]): ImportPlan {
+  const plan: ImportPlan = { valid: [], failed: [] }
+  rows.forEach((r, i) => {
+    const conv = rowToData(r, map, columns)
+    if ('error' in conv) plan.failed.push({ line: i + 2, error: conv.error })
+    else plan.valid.push({ line: i + 2, data: conv.data })
+  })
+  return plan
+}
+
+/** `422 row_invalid` → `[{row, column, error}]` row indexes within the request, deduplicated. */
+export function badRowIndexes(errors: unknown, size: number): { index: number; error: string }[] {
+  if (!Array.isArray(errors)) return []
+  const seen = new Map<number, string>()
+  for (const e of errors) {
+    const row = (e as { row?: unknown })?.row
+    if (typeof row !== 'number' || row < 0 || row >= size || seen.has(row)) continue
+    const { column, error } = e as { column?: string; error?: string }
+    seen.set(row, [column, error].filter(Boolean).join(' ') || 'invalid row')
+  }
+  return [...seen].map(([index, error]) => ({ index, error }))
+}
+
 export function toCsv(columns: string[], rows: Record<string, unknown>[]): string {
   const q = (v: unknown) => {
     const s = v === null || v === undefined ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v)

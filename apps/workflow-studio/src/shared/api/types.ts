@@ -115,6 +115,14 @@ export interface RunListItem {
   route: string | null
   app_id: string | null
   duration_ms: number | null
+  /** HTTP status the route answered with; null for runs that were not a route call */
+  status_code: number | null
+}
+/** `GET …/runs/daily`: one entry per UTC day, oldest first, zero-filled */
+export interface DailyRuns {
+  date: string
+  total: number
+  failed: number
 }
 export interface BrokerCall {
   id: string

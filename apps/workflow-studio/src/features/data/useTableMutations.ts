@@ -57,6 +57,15 @@ export function useInsertRow(pid: string, tableId: string) {
   })
 }
 
+/** `POST …/rows {rows}`: one atomic, validated bulk insert (CSV import sends it in chunks). */
+export function useInsertRows(pid: string, tableId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (rows: Record<string, unknown>[]) => tablesApi.insertMany(pid, tableId, rows),
+    onSuccess: () => invalidate.rowsChanged(qc, pid, tableId),
+  })
+}
+
 type Pages = InfiniteData<RowPage, string | null>
 
 /** `PATCH …/rows/{id}`: optimistic on every cached page of this table, rolled back on error. */

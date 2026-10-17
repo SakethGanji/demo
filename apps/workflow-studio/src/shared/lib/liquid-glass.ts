@@ -8,7 +8,7 @@
  * Maps are cached per size because rebuilding is the expensive part; use it only on small controls.
  */
 
-import { useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 const N_GLASS = 1.5
 
@@ -197,4 +197,16 @@ export function useLiquidGlass(
       detach()
     }
   }, [ref, enabled, radius, bezel, strength, extra])
+}
+
+/**
+ * For popups that mount after their component does (menus, popovers render into a portal only while open):
+ * returns a callback ref for the popup element. The glass attaches when the element appears and detaches
+ * when it goes, which a plain `useRef` + `useLiquidGlass` cannot do (its effect ran once, before the popup existed).
+ */
+export function useLiquidGlassRef(opts: { radius?: number; bezel?: number; strength?: number; extra?: string } = {}) {
+  const [el, setEl] = useState<HTMLElement | null>(null)
+  const ref = useMemo(() => ({ current: el }), [el])
+  useLiquidGlass(ref, opts)
+  return setEl
 }

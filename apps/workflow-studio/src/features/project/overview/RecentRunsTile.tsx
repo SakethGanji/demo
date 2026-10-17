@@ -53,7 +53,11 @@ export function RecentRunsTile() {
                   <span className="min-w-0 truncate">{r.workflow_name}</span>
                 )}
                 <span className="ml-auto flex shrink-0 items-center gap-2.5 whitespace-nowrap text-muted-foreground">
-                  {failed && <span className="text-destructive">failed</span>}
+                  {failed && (
+                    <span className="text-destructive" data-testid="recent-run-failed">
+                      failed{r.status_code != null && <span className="ml-1 font-mono text-[11.5px]" data-testid="recent-run-status-code">{r.status_code}</span>}
+                    </span>
+                  )}
                   {formatMs(r.duration_ms)}
                   <Tip label={parseTs(r.start_time)?.toLocaleString() ?? ''}>
                     <span className="min-w-9 text-right">{timeAgo(r.start_time)}</span>

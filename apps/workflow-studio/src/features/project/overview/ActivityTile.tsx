@@ -1,7 +1,7 @@
 import { Link } from '@tanstack/react-router'
 import { Activity } from 'lucide-react'
 import { useProjectCtx } from '../ProjectContext'
-import { useRunStats } from '../hooks/useRunStats'
+import { useRunDaily, useRunStats } from '../hooks/useRunStats'
 import { span, TileHead } from './tiles'
 import { Button } from '@/shared/components/ui/button'
 import { Roll } from '@/shared/components/ui/roll'
@@ -15,6 +15,7 @@ export function ActivityTile({ runs24h }: { runs24h: number }) {
   const { pid, slug } = useProjectCtx()
   const stats = useRunStats(pid)
   const d = stats.data
+  const daily = useRunDaily(pid).data
   return (
     <Tile
       as="section"
@@ -44,14 +45,14 @@ export function ActivityTile({ runs24h }: { runs24h: number }) {
       </div>
       <Well className="mt-4 mr-2 mb-2 ml-0 flex flex-col gap-2 px-4 pt-3 pb-[11px] @min-[981px]/bt:mt-4 @min-[981px]/bt:mr-2 @min-[981px]/bt:ml-2 @min-[981px]/bt:flex-1" data-testid="activity-30d">
         <div className="flex items-center justify-between gap-2 text-[12px] text-muted-foreground">
-          <Tip label={d ? `Counted from the last ${d.sampled} runs (the engine keeps about 100 per project)` : 'Counted from recent runs'}>
+          <Tip label={daily ? `${daily.total} runs in the last 30 days (UTC days)` : 'Counted per day by the engine'}>
             <span>
-              <b className="font-medium text-foreground">30 days</b> · {d?.failed30 ?? 0} failed
+              <b className="font-medium text-foreground">30 days</b> · {daily?.failed ?? 0} failed
             </span>
           </Tip>
           <ActivityLegend />
         </div>
-        <div className="flex flex-1 items-center justify-center">{d && <ActivityGrid days={d.days} />}</div>
+        <div className="flex flex-1 items-center justify-center">{daily && <ActivityGrid days={daily.days} />}</div>
       </Well>
     </Tile>
   )

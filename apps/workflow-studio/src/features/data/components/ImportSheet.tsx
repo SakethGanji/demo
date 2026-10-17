@@ -1,6 +1,6 @@
 /**
  * CSV import (DESIGN §8 "Table tools"): a dropzone, a preview of the first rows and a header → column
- * mapping, then one single-row insert per CSV row (the engine has no bulk endpoint), with progress and a
+ * mapping, then chunked bulk inserts (500 rows per request), with progress and a
  * toast at the end. Columns are matched by name; anything unmatched is skipped unless mapped by hand.
  */
 import { useEffect, useRef, useState } from 'react'
@@ -8,7 +8,7 @@ import { FileText, FileUp } from 'lucide-react'
 import { toast } from 'sonner'
 import { useProjectCtx } from '@/features/project/ProjectContext'
 import { pluralize } from '@/features/project/lib/format'
-import { errorMessage } from '@/shared/api/http'
+import { ApiError, errorMessage } from '@/shared/api/http'
 import type { DataTable } from '@/shared/api/types'
 import { Button } from '@/shared/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/components/ui/select'
@@ -17,8 +17,8 @@ import { Progress, SectionHeader, Well } from '@/shared/components/ui/surface'
 import { floatingSheetCls } from '@/features/settings/SettingsSheet'
 import { cn } from '@/shared/lib/utils'
 import { isNumeric } from '../lib/cells'
-import { autoMap, parseCsv, rowToData, type ParsedCsv } from '../lib/csv'
-import { useInsertRow } from '../useTableMutations'
+import { autoMap, badRowIndexes, chunk, parseCsv, planImport, type ParsedCsv } from '../lib/csv'
+import { useInsertRows } from '../useTableMutations'
 
 const SKIP = '__skip'
 const MAX_BYTES = 5_000_000
@@ -50,7 +50,7 @@ export function ImportSheet({
 
 function ImportBody({ table, file, onClose, onWrote }: { table: DataTable; file: File | null; onClose: () => void; onWrote: () => void }) {
   const { pid } = useProjectCtx()
-  const insert = useInsertRow(pid, table.id)
+  const insert = useInsertRows(pid, table.id)
   const input = useRef<HTMLInputElement>(null)
   const [over, setOver] = useState(false)
   const [name, setName] = useState<string | null>(null)
@@ -100,27 +100,38 @@ function ImportBody({ table, file, onClose, onWrote }: { table: DataTable; file:
   const run = async () => {
     if (!csv || !mapped) return
     cancelled.current = false
-    setProgress({ done: 0, total, failed: 0 })
+    const plan = planImport(csv.rows, map, table.columns)
     let ok = 0
-    let failed = 0
-    let firstError = ''
-    for (let i = 0; i < csv.rows.length; i++) {
+    let failed = plan.failed.length
+    let firstError = plan.failed[0] ? `row ${plan.failed[0].line}: ${plan.failed[0].error}` : ''
+    let done = failed
+    setProgress({ done, total, failed })
+    for (const part of chunk(plan.valid)) {
       if (cancelled.current) break
-      const conv = rowToData(csv.rows[i], map, table.columns)
-      if ('error' in conv) {
-        failed++
-        firstError ||= `row ${i + 2}: ${conv.error}`
-      } else {
+      let send = part
+      try {
+        // one atomic request per chunk; if the engine names bad rows, drop them and send the rest once
         try {
-          await insert.mutateAsync(conv.data)
-          ok++
-          onWrote()
+          await insert.mutateAsync(send.map((r) => r.data))
         } catch (e) {
-          failed++
-          firstError ||= `row ${i + 2}: ${errorMessage(e)}`
+          const bad = e instanceof ApiError && e.code === 'row_invalid' ? badRowIndexes(e.details.errors, send.length) : []
+          if (!bad.length) throw e
+          for (const b of bad) {
+            failed++
+            firstError ||= `row ${send[b.index].line}: ${b.error}`
+          }
+          const drop = new Set(bad.map((b) => b.index))
+          send = send.filter((_, i) => !drop.has(i))
+          if (send.length) await insert.mutateAsync(send.map((r) => r.data))
         }
+        ok += send.length
+        if (send.length) onWrote()
+      } catch (e) {
+        failed += send.length
+        firstError ||= `rows ${send[0].line}–${send[send.length - 1].line}: ${errorMessage(e)}`
       }
-      setProgress({ done: i + 1, total, failed })
+      done += part.length
+      setProgress({ done, total, failed })
     }
     setProgress(null)
     const stopped = cancelled.current
@@ -138,7 +149,7 @@ function ImportBody({ table, file, onClose, onWrote }: { table: DataTable; file:
           </SheetTitle>
         </div>
         <SheetDescription className="mt-1 text-[13px] leading-[1.5] text-muted-foreground">
-          Add rows to <span className="font-mono">{table.name}</span> from a CSV with a header row. Columns are matched by name. Rows are added one at a time.
+          Add rows to <span className="font-mono">{table.name}</span> from a CSV with a header row. Columns are matched by name. Rows are added in batches.
         </SheetDescription>
       </div>
 

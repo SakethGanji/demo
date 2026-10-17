@@ -35,6 +35,7 @@ import type {
   RunDetail,
   RunDraftRequest,
   RunDraftResult,
+  DailyRuns,
   RunListItem,
   SandboxStatus,
   SdkFunction,
@@ -87,6 +88,9 @@ export const runsApi = {
     return { runs: data as RunListItem[], nextCursor: res.headers.get('X-Next-Cursor') }
   },
   get: (p: string, x: string) => request<RunDetail>(`${P(p)}/runs/${enc(x)}`),
+  /** Per-day totals and failures for the last `days` days, computed in SQL (not limited to the newest 100 runs). */
+  daily: (p: string, q: { days?: number; environment?: string } = {}) =>
+    request<DailyRuns[]>(`${P(p)}/runs/daily`, { query: { days: 30, ...q } as never }),
 }
 
 export const secretsApi = {
@@ -174,6 +178,8 @@ export const tablesApi = {
     }),
   insert: (p: string, t: string, data: Record<string, unknown>) =>
     request<Row>(`${P(p)}/tables/${enc(t)}/rows`, { method: 'POST', body: { data } }),
+  insertMany: (p: string, t: string, rows: Record<string, unknown>[]) =>
+    request<{ inserted: number; rows: Row[] }>(`${P(p)}/tables/${enc(t)}/rows`, { method: 'POST', body: { rows } }),
   patchRow: (p: string, t: string, id: number, data: Record<string, unknown>) =>
     request<Row>(`${P(p)}/tables/${enc(t)}/rows/${id}`, { method: 'PATCH', body: { data } }),
   deleteRow: (p: string, t: string, id: number) =>

@@ -71,6 +71,7 @@ export function StatTiles({ failed24h }: { failed24h: number }) {
   const published = (apps.data ?? []).filter((a) => a.active).length
   const m0 = modules.data?.[0]
   const t0 = tables.data?.[0]
+  const a0 = apps.data?.[0]
   const lastFailed = stats.data?.recentFailed
   return (
     <div className="col-span-full grid grid-cols-subgrid gap-4" data-testid="stat-strip">
@@ -116,10 +117,17 @@ export function StatTiles({ failed24h }: { failed24h: number }) {
         icon={<AppWindow />}
         hue="apps"
         title="Apps"
-        tip={apps.data?.[0]?.name ?? 'Open apps'}
+        tip={a0?.name ?? 'Create an app'}
         value={apps.data?.length ?? 0}
         meta={`· ${published} published`}
-        link={(p) => <Link to="/p/$project/apps" params={P} {...p} />}
+        link={(p) =>
+          a0 ? (
+            <Link to="/p/$project/apps/$appId" params={{ ...P, appId: a0.id }} {...p} />
+          ) : (
+            // `/apps` only redirects back to the Overview, so with no app yet the tile opens the Create UI dialog
+            <Link to="/p/$project" params={P} search={{ dialog: 'create-ui' }} {...p} />
+          )
+        }
       />
     </div>
   )

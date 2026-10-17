@@ -1,34 +1,23 @@
 /**
  * Client-side run statistics for the Overview (last call and p50 per route, a 24h sparkline).
- * Computed from the newest 100 runs (the engine keeps 100 per project, §3.6).
+ * Computed from the newest 100 runs (the engine keeps 100 per project, §3.6); the 30-day grid uses `useRunDaily`.
  */
 import { useQuery } from '@tanstack/react-query'
 import { runsApi } from '@/shared/api/endpoints'
 import { qk } from '@/shared/api/queryKeys'
 import type { RunListItem } from '@/shared/api/types'
-import type { ActivityDay } from '@/shared/components/ui/charts'
 import { runTone } from '@/shared/components/ui/status-dot'
+import { toActivity } from '../lib/activity'
 import { parseTs } from '../lib/format'
 
-const pad = (n: number) => String(n).padStart(2, '0')
-const dayKey = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-
-/** The last 30 calendar days (oldest first, ending today) counted from the runs the engine still holds. */
-function activityDays(runs: RunListItem[], now: number): ActivityDay[] {
-  const days = new Map<string, ActivityDay>()
-  const today = new Date(now)
-  for (let i = 29; i >= 0; i--) {
-    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i)
-    days.set(dayKey(d), { date: dayKey(d), count: 0, failed: 0 })
-  }
-  for (const r of runs) {
-    const t = parseTs(r.start_time)
-    const day = t && days.get(dayKey(t))
-    if (!day) continue
-    day.count++
-    if (runTone(r.status) === 'err') day.failed++
-  }
-  return [...days.values()]
+/** The 30-day Activity grid: per-day counts from the engine's SQL aggregate (not limited to the newest 100 runs). */
+export function useRunDaily(pid: string) {
+  return useQuery({
+    queryKey: qk.runs(pid, { daily: 30 }),
+    queryFn: () => runsApi.daily(pid, { days: 30 }),
+    refetchInterval: 15_000,
+    select: toActivity,
+  })
 }
 
 export interface RouteStat {
@@ -85,11 +74,6 @@ export function useRunStats(pid: string) {
         })(),
         /** newest runs (id + route), for one packet per new run */
         newest: runs.slice(0, 20).map((r) => ({ id: r.id, route_id: r.route_id, failed: runTone(r.status) === 'err' })),
-        /** per-day counts for the 30-day grid; only as deep as the runs the engine keeps (about 100) */
-        days: activityDays(runs, now),
-        failed30: runs.filter((r) => runTone(r.status) === 'err' && (parseTs(r.start_time)?.getTime() ?? 0) >= now - 30 * 864e5).length,
-        /** how many runs the 30-day grid is counted from */
-        sampled: runs.length,
       }
     },
   })
