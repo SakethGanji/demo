@@ -41,3 +41,10 @@
 - Take screenshots with motion **on** when checking liquid glass (reduced motion turns it off by design).
 - `Roll` (rolling digits) is plain text at rest; don't assert on text mid-roll.
 - Home templates must create their tables with the project (the analyser can't infer columns from a pass-through body).
+
+## Update 2026-10-16 (end of integration session)
+- **Done:** code-map flake fixed (handle bounds re-registered; 90/90 repeats); backend gaps built (status code on runs, `GET /runs/daily`, chunked CSV import; `WORKFLOW_RUN_RETENTION` env, default 100); egress allowlist now enforced on workflow HttpRequest nodes; module generator prompt states the single-`req` handler contract; lint back to 96.
+- **Tests:** e2e 114 (11a–11d, 12, 13 are new), studio unit 105, engine unit 262, full engine suite 509 passed + 2 strict xfails (number-secret validation, global run retention). Fast loops: `venv/bin/python -m pytest tests/unit -q` (~2 s), `npm run test:unit`.
+- **Live Gemini run:** `apps/workflow-engine/tests/live/run_marketplace.py`: 17/18 steps in the full run, s11b passed in a supplement (97 calls total across iterations). One clean full run is ~20 calls. Artifacts in `screenshots/marketplace/` (uncommitted).
+- **Still open:** Firefox/WebKit smoke, visual review gallery, axe/perf pass, `/api/files/*` unauthenticated, Runs subtitle counts only the loaded page, builder API tester returned 501 against a GET-only upstream (uninvestigated).
+- Business overview doc: the "Command Studio: Platform Overview" Claude doc.
