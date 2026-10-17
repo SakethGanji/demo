@@ -288,6 +288,14 @@ function MapContent({ pid, moduleId, moduleName, source, enabled, onJump }: Code
         }
       })
   }, [model, visible, related, layout])
+  // Nodes carry no `measured` size, so React Flow drops their handle bounds whenever the nodes array is
+  // rebuilt (hover, sync state, fit...). Re-register handles after every rebuild or edges silently vanish.
+  const updatePanelInternals = useUpdateNodeInternals()
+  useEffect(() => {
+    if (!enabled) return
+    const frame = requestAnimationFrame(() => updatePanelInternals(visible.map((fn) => fn.id)))
+    return () => cancelAnimationFrame(frame)
+  }, [enabled, nodes, visible, updatePanelInternals])
   // Geometry is explicit for this read-only projection. Set the camera directly:
   // React Flow's queued fitView expects externally managed node-change updates.
   const fitGraph = useCallback(() => {
