@@ -33,6 +33,8 @@ async def _fetch_rows(cur: psycopg.AsyncCursor) -> list[dict[str, Any]]:
     ]
 
 
+from ...engine import shapes as sh
+
 class PostgresNode(BaseNode):
     """Postgres node - executes parameterized queries against a PostgreSQL database."""
 
@@ -123,6 +125,8 @@ class PostgresNode(BaseNode):
     @property
     def description(self) -> str:
         return "Execute queries against a PostgreSQL database"
+
+    # Postgres: observed -> default contract (UNKNOWN unless the instance has an approved contract).
 
     async def execute(
         self,

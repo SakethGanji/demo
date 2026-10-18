@@ -1,0 +1,68 @@
+[
+ [
+  "WF002",
+  "Get Dataset Splits",
+  "url",
+  "dataset"
+ ],
+ [
+  "WF005",
+  "Get Test Queries",
+  "url",
+  "config"
+ ],
+ [
+  "WF005",
+  "Get Test Queries",
+  "url",
+  "dataset"
+ ],
+ [
+  "WF005",
+  "Get Test Queries",
+  "url",
+  "split"
+ ],
+ [
+  "WF005",
+  "Keep Questions & IDs",
+  "fields[0].value",
+  "row.id"
+ ],
+ [
+  "WF005",
+  "Keep Questions & IDs",
+  "fields[1].value",
+  "row.question"
+ ],
+ [
+  "WF005",
+  "Keep Questions with Answers in the Dataset",
+  "condition",
+  "row.answers"
+ ],
+ [
+  "WF005",
+  "Keep Test Split",
+  "condition",
+  "split"
+ ],
+ [
+  "WF005",
+  "isHit = If we Found the Correct Answer",
+  "fields[0].value",
+  "id_qa"
+ ],
+ [
+  "WF005",
+  "isHit = If we Found the Correct Answer",
+  "fields[0].value",
+  "result.points[0].payload.ids_qa"
+ ],
+ [
+  "WF009",
+  "Percentage of isHits in Evals",
+  "fields[0].value",
+  null
+ ]
+]

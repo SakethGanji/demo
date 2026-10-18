@@ -17,6 +17,16 @@ class PinnedDataItem(BaseModel):
     binary: dict[str, Any] | None = Field(None, description="Binary data")
 
 
+class NodeContractOverride(BaseModel):
+    """An approved, learned output contract for one node instance (replaces the node type's computed outputs)."""
+
+    outputs: dict[str, dict[str, Any]] = Field(..., description="Output port -> Shape")
+    source: Literal["observed", "import_placeholder"] = Field("observed", description="Where the shapes came from")
+    approved_by: str = Field(..., min_length=1, description="Who approved it (typed name; no auth yet)")
+    approved_at: str | None = Field(None, description="ISO timestamp, set by the server on approve")
+    from_execution: str | None = Field(None, description="Execution the shapes were learned from")
+
+
 class NodeDefinitionSchema(BaseModel):
     """Schema for node definition in a workflow."""
 
@@ -33,6 +43,7 @@ class NodeDefinitionSchema(BaseModel):
     on_error: Literal["stop", "continue", "error_output"] | None = Field(
         None, description="What to do when the node fails (default 'stop'; legacy continue_on_fail=true maps to 'continue')"
     )
+    contract: NodeContractOverride | None = Field(None, description="Approved output contract (replaces computed outputs)")
 
     class Config:
         json_schema_extra = {
@@ -60,6 +71,7 @@ class NodeDefinitionSchema(BaseModel):
             continue_on_fail=on_error == "continue",
             disabled=self.disabled,
             on_error=on_error,
+            contract=self.contract.model_dump(exclude_none=True) if self.contract else None,
         )
 
 
@@ -134,10 +146,37 @@ class WorkflowUpdateRequest(BaseModel):
     project_id: str | None = Field(None, description="Move the workflow to this project (id or slug)")
 
 
+class ContractLearnRequest(BaseModel):
+    """Body of the learn endpoint."""
+
+    execution_id: str | None = Field(None, description="Execution to learn from; default: latest with a saved output for the node")
+
+
+class ContractLearnResponse(BaseModel):
+    outputs: dict[str, dict[str, Any]] = Field(..., description="Output port -> inferred Shape")
+    from_execution: str
+    sample_count: int
+
+
+class ContractApproveRequest(BaseModel):
+    """Body of the approve endpoint (``approved_by`` is a typed name; there is no auth yet)."""
+
+    outputs: dict[str, dict[str, Any]] = Field(..., description="Output port -> Shape")
+    from_execution: str | None = Field(None, description="Execution the shapes were learned from")
+    approved_by: str = Field(..., min_length=1, max_length=255)
+
+
 class PublishRequest(BaseModel):
     """Optional request body for publishing a workflow version."""
 
     message: str | None = Field(None, max_length=500, description="Version message / changelog")
+
+
+class CheckRequest(BaseModel):
+    """Optional body of POST /workflows/{id}/check: check this definition instead of the stored draft."""
+
+    definition: dict[str, Any] | None = None
+    environment: str | None = None
 
 
 class WorkflowResponse(BaseModel):

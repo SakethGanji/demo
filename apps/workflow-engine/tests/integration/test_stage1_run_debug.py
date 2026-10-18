@@ -333,7 +333,10 @@ def test_disabled_flag_survives_save_reload_and_publish(api):
     # toggle off then on through PUT
     assert api.put(f"/workflows/{wid}", chain_wf()).status_code == 200
     assert flags(api.get(f"/workflows/{wid}").json()["definition"])["B"] is False
-    assert api.put(f"/workflows/{wid}", chain_wf(extra_b={"disabled": True})).status_code == 200
+    disabled = chain_wf(extra_b={"disabled": True})
+    # C must not read B's field: with B disabled `m` never exists, which the publish-time checker rightly rejects (WF002)
+    disabled["nodes"][3] = sets("C", "k", "{{ $json.n + 1 }}")
+    assert api.put(f"/workflows/{wid}", disabled).status_code == 200
     assert flags(api.get(f"/workflows/{wid}").json()["definition"])["B"] is True
     pub = api.post(f"/workflows/{wid}/publish", {"message": "d"}).json()
     v = api.get(f"/workflows/{wid}/versions/{pub['version_id']}").json()

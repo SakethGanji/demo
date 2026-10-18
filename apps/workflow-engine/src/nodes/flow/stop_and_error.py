@@ -20,6 +20,8 @@ from ...engine.types import WorkflowStopSignal
 from ...engine.expression_engine import expression_engine, ExpressionEngine
 
 
+from ...engine import shapes as sh
+
 class StopAndErrorNode(BaseNode):
     """Stop workflow execution with a custom error message."""
 
@@ -75,6 +77,14 @@ class StopAndErrorNode(BaseNode):
     @property
     def description(self) -> str:
         return "Stop workflow execution with a custom error message"
+
+    def contract(self, params, inputs, lookups=None):
+        """Derived: ``errorType="warning"`` passes items through plus ``_warning: string``; ``error`` (default)
+        never emits, so the input shape is reported as is."""
+        item = sh.input_shape(inputs)
+        if (params or {}).get("errorType", "error") == "warning":
+            item = {**item, "properties": {**item["properties"], "_warning": sh.scalar("string")}} if sh.is_closed_object(item) else sh.unknown()
+        return sh.make_contract(inputs, {"main": item})
 
     async def execute(
         self,

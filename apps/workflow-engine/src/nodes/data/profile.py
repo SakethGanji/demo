@@ -20,6 +20,8 @@ if TYPE_CHECKING:
     from ...engine.types import ExecutionContext, NodeData, NodeDefinition, NodeExecutionResult
 
 
+from ...engine import shapes as sh
+
 class ProfileNode(BaseNode):
     """Profile node - profiles data columns using the analytics service API."""
 
@@ -195,6 +197,8 @@ class ProfileNode(BaseNode):
     @property
     def description(self) -> str:
         return "Profile data columns — statistics, distributions, and data quality via analytics service"
+
+    # Profile: the item is the analytics service's raw JSON response (open-ended) -> default contract (UNKNOWN).
 
     async def execute(
         self,

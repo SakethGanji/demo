@@ -20,6 +20,8 @@ if TYPE_CHECKING:
     from ...engine.types import ExecutionContext, NodeData, NodeDefinition, NodeExecutionResult
 
 
+from ...engine import shapes as sh
+
 class AggregateNode(BaseNode):
     """Aggregate node - group-by aggregation via the analytics service API."""
 
@@ -247,6 +249,21 @@ class AggregateNode(BaseNode):
     @property
     def description(self) -> str:
         return "Group-by aggregation with sum, mean, count, and more via analytics service"
+
+    def contract(self, params, inputs, lookups=None):
+        """Declared: the fixed metadata item execute() builds from the analytics service response (no row data)."""
+        s = sh.scalar
+        shape = sh.object_of(
+            {
+            "success": s("boolean", "declared", nullable=True),
+            "original_count": s("number", "declared", nullable=True),
+            "group_count": s("number", "declared", nullable=True),
+            "columns": s("array", "declared"),
+            "totals": s("object", "declared", nullable=True),
+            "result_file": s("string", "declared", nullable=True),
+            },
+            [], "declared")
+        return sh.make_contract(inputs, {"main": shape})
 
     async def execute(
         self,

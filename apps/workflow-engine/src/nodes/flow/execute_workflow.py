@@ -21,6 +21,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+from ...engine import shapes as sh
+
 class ExecuteWorkflowNode(BaseNode):
     """Execute Workflow node - executes another workflow as a subworkflow."""
 
@@ -85,6 +87,9 @@ class ExecuteWorkflowNode(BaseNode):
     @property
     def description(self) -> str:
         return "Execute another workflow as a subworkflow"
+
+    # ExecuteWorkflow: output depends on the sub-workflow's terminal nodes -> "observed" (default contract:
+    # UNKNOWN unless the instance has an approved contract).
 
     async def execute(
         self,

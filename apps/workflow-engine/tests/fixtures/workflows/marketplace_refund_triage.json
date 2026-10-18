@@ -1,0 +1,138 @@
+{
+ "name": "Refund triage",
+ "nodes": [
+  {
+   "name": "Webhook",
+   "type": "Webhook",
+   "parameters": {
+    "method": "POST",
+    "path": "refund-triage",
+    "responseMode": "onReceived"
+   },
+   "position": {
+    "x": 0,
+    "y": 120
+   }
+  },
+  {
+   "name": "Classify",
+   "type": "LLMChat",
+   "parameters": {
+    "model": "gemini-2.5-flash",
+    "temperature": 0,
+    "maxTokens": 1024,
+    "systemPrompt": "You triage customer messages for a marketplace. Reply with ONLY a compact JSON object {\"label\": \"refund\" | \"dispute\" | \"other\", \"confidence\": <number between 0 and 1>}. No prose, no code fences.",
+    "userMessage": "{{ $json.body.message }}"
+   },
+   "position": {
+    "x": 260,
+    "y": 120
+   }
+  },
+  {
+   "name": "Parse",
+   "type": "Code",
+   "parameters": {
+    "code": "import json, re\ntxt = json_data.get(\"response\", \"\")\nm = re.search(r\"\\{.*\\}\", txt, re.S)\nd = json.loads(m.group(0)) if m else {}\nhook = node_data[\"Webhook\"][\"json\"][\"body\"]\nreturn [new_item({\n    \"label\": str(d.get(\"label\", \"other\")).lower(),\n    \"confidence\": float(d.get(\"confidence\", 0)),\n    \"message\": hook[\"message\"],\n    \"customer_id\": hook[\"customer_id\"],\n    \"amount\": hook[\"amount\"],\n})]"
+   },
+   "position": {
+    "x": 520,
+    "y": 120
+   }
+  },
+  {
+   "name": "Is refund",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $json.label == \"refund\" and $json.confidence >= 0.6 }}"
+   },
+   "position": {
+    "x": 780,
+    "y": 120
+   }
+  },
+  {
+   "name": "Create refund",
+   "type": "HttpRequest",
+   "parameters": {
+    "method": "POST",
+    "url": "http://127.0.0.1:8000/api/p/marketplace-trust-payments/refunds",
+    "headers": [
+     {
+      "name": "Content-Type",
+      "value": "application/json"
+     }
+    ],
+    "body": "{\"customer_id\": \"{{ $json.customer_id }}\", \"reason\": \"triage: {{ $json.message }}\", \"amount\": {{ $json.amount }}}"
+   },
+   "position": {
+    "x": 1040,
+    "y": 40
+   }
+  },
+  {
+   "name": "Log refund",
+   "type": "DataTable",
+   "parameters": {
+    "table": "events",
+    "operation": "insert",
+    "data": "{\"kind\": \"refund_created\", \"ref\": \"{{ $json.body.id }}\", \"label\": \"refund\", \"confidence\": {{ $node[\"Parse\"].json.confidence }}, \"detail\": \"created via triage\"}"
+   },
+   "position": {
+    "x": 1300,
+    "y": 40
+   }
+  },
+  {
+   "name": "Needs review",
+   "type": "DataTable",
+   "parameters": {
+    "table": "events",
+    "operation": "insert",
+    "data": "{\"kind\": \"needs_review\", \"ref\": \"{{ $json.customer_id }}\", \"label\": \"{{ $json.label }}\", \"confidence\": {{ $json.confidence }}, \"detail\": \"left for a human\"}"
+   },
+   "position": {
+    "x": 1040,
+    "y": 220
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Webhook",
+   "source_output": "main",
+   "target_node": "Classify",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Classify",
+   "source_output": "main",
+   "target_node": "Parse",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Parse",
+   "source_output": "main",
+   "target_node": "Is refund",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Is refund",
+   "source_output": "true",
+   "target_node": "Create refund",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Create refund",
+   "source_output": "main",
+   "target_node": "Log refund",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Is refund",
+   "source_output": "false",
+   "target_node": "Needs review",
+   "target_input": "main"
+  }
+ ]
+}

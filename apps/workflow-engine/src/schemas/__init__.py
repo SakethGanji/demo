@@ -1,6 +1,7 @@
 """Pydantic schemas for API request/response validation."""
 
 from .workflow import (
+    NodeContractOverride,
     NodeDefinitionSchema,
     ConnectionSchema,
     WorkflowCreateRequest,
@@ -30,6 +31,7 @@ from .common import (
 
 __all__ = [
     # Workflow schemas
+    "NodeContractOverride",
     "NodeDefinitionSchema",
     "ConnectionSchema",
     "WorkflowCreateRequest",

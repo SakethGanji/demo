@@ -1,5 +1,7 @@
 import { lazy, Suspense } from 'react';
-import { X, ScrollText, Maximize2, Minimize2, Play } from 'lucide-react';
+import { X, ScrollText, Maximize2, Minimize2, Play, AlertCircle } from 'lucide-react';
+import { useCheckStore } from '../../stores/checkStore';
+import ProblemsPanel from './ProblemsPanel';
 import { useEditorLayoutStore, type BottomPanelTab } from '../../stores/editorLayoutStore';
 import { useExecutionStream } from '../../hooks/useExecutionStream';
 import CodeEditor from '@/shared/components/ui/code-editor';
@@ -12,6 +14,7 @@ const ExecutionLogsPanel = lazy(() => import('../execution-logs/ExecutionLogsPan
 const tabs: { id: BottomPanelTab; label: string; icon: typeof ScrollText }[] = [
   { id: 'logs', label: 'Logs', icon: ScrollText },
   { id: 'input', label: 'Input', icon: Play },
+  { id: 'problems', label: 'Problems', icon: AlertCircle },
 ];
 
 export default function BottomPanel() {
@@ -20,6 +23,8 @@ export default function BottomPanel() {
   const closeBottomPanel = useEditorLayoutStore((s) => s.closeBottomPanel);
   const isMaximized = useEditorLayoutStore((s) => s.bottomPanelMaximized);
   const toggleMaximized = useEditorLayoutStore((s) => s.toggleBottomPanelMaximized);
+  const problemCount = useCheckStore((s) => s.counts.error + s.counts.warning);
+  const hasErrors = useCheckStore((s) => s.counts.error > 0);
 
   return (
     <div className="h-full flex flex-col">
@@ -33,8 +38,17 @@ export default function BottomPanel() {
               icon={tab.icon}
               onClick={() => setTab(tab.id)}
               className="h-9"
+              data-testid={`bottom-tab-${tab.id}`}
             >
               {tab.label}
+              {tab.id === 'problems' && problemCount > 0 && (
+                <span
+                  data-testid="problems-count"
+                  className={`ml-0.5 rounded-full px-1.5 text-[10px] font-semibold leading-4 ${hasErrors ? 'bg-destructive-soft text-destructive' : 'bg-warning-soft text-warning-text'}`}
+                >
+                  {problemCount}
+                </span>
+              )}
             </EditorTab>
           ))}
         </div>
@@ -64,6 +78,7 @@ export default function BottomPanel() {
         <Suspense fallback={<div className="flex-1" />}>
           {activeTab === 'logs' && <ExecutionLogsPanel />}
           {activeTab === 'input' && <InputPanel />}
+          {activeTab === 'problems' && <ProblemsPanel />}
         </Suspense>
       </div>
     </div>

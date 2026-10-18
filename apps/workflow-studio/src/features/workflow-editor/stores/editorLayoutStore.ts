@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { NodeCreatorView } from '../types/workflow';
 
-export type BottomPanelTab = 'logs' | 'input';
+export type BottomPanelTab = 'logs' | 'input' | 'problems';
 export type RightPanelTab = 'nodes' | 'ai';
 type CanvasMode = 'pointer' | 'hand';
 

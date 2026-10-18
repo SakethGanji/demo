@@ -1,0 +1,20 @@
+[
+ [
+  "WF005",
+  "Check if Market is open",
+  "condition",
+  "is_open"
+ ],
+ [
+  "WF009",
+  "Fetch Stock Data",
+  "url",
+  null
+ ],
+ [
+  "WF009",
+  "Fetch Stock Data",
+  "url",
+  null
+ ]
+]

@@ -16,6 +16,8 @@ if TYPE_CHECKING:
     from ...engine.types import ExecutionContext, NodeData, NodeDefinition, NodeExecutionResult
 
 
+from ...engine import shapes as sh
+
 class ChatInputNode(BaseNode):
     """Chat input trigger - captures user messages from the UI chat interface."""
 
@@ -65,6 +67,14 @@ class ChatInputNode(BaseNode):
     @property
     def description(self) -> str:
         return "Accept user input from chat interface"
+
+    def contract(self, params, inputs, lookups=None):
+        """Declared: ``params.input_schema`` (a Shape) is the item shape; otherwise the default below."""
+        declared = sh.param_shape(params, "input_schema", "inputSchema")
+        shape = declared if declared is not None else sh.object_of(
+            {"message": sh.scalar("string", "declared"), "timestamp": sh.scalar("string", "declared")},
+            ["message", "timestamp"], "declared")
+        return sh.make_contract(inputs, {"main": shape})
 
     async def execute(
         self,

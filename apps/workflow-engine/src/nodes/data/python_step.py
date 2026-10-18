@@ -10,6 +10,8 @@ if TYPE_CHECKING:
     from ...engine.types import ExecutionContext, NodeData, NodeDefinition, NodeExecutionResult
 
 
+from ...engine import shapes as sh
+
 class PythonStepNode(BaseNode):
     function_exposed = False
     node_description = NodeTypeDescription(
@@ -39,6 +41,11 @@ class PythonStepNode(BaseNode):
     @property
     def description(self) -> str:
         return "Run Python in the sandbox"
+
+    def contract(self, params, inputs, lookups=None):
+        """Declared: ``params.output_schema`` (a Shape) when set, else UNKNOWN (arbitrary user code)."""
+        declared = sh.param_shape(params, "output_schema", "outputSchema")
+        return sh.make_contract(inputs, {"main": declared if declared is not None else sh.unknown()})
 
     async def execute(self, context: ExecutionContext, node_definition: NodeDefinition,
                       input_data: list[NodeData]) -> NodeExecutionResult:

@@ -17,6 +17,8 @@ if TYPE_CHECKING:
 OPS = ["insert", "get", "list", "update", "delete", "upsert"]
 
 
+from ...engine import shapes as sh
+
 class DataTableNode(BaseNode):
     node_description = NodeTypeDescription(
         name="DataTable",
@@ -49,6 +51,31 @@ class DataTableNode(BaseNode):
     @property
     def description(self) -> str:
         return "Read/write project data tables"
+
+    def contract(self, params, inputs, lookups=None):
+        """Declared from the table's columns when the checker supplies them, else UNKNOWN.
+
+        ``lookups["table_columns"]`` maps table name -> list of column dicts ``{name, type, required?}``
+        (the ``DataTableModel.columns`` format). A row item is ``{id: integer, <column>: ...}``; ``delete`` yields
+        ``{id, deleted: boolean}``. The ``table`` param must be a literal name (an expression -> UNKNOWN).
+        """
+        table = (params or {}).get("table")
+        columns = ((lookups or {}).get("table_columns") or {}).get(table) if isinstance(table, str) and "{{" not in table else None
+        if columns is None:
+            return sh.make_contract(inputs, {"main": sh.unknown()})
+        if (params or {}).get("operation") == "delete":
+            shape = sh.object_of({"id": sh.scalar("integer", "declared"), "deleted": sh.scalar("boolean", "declared")},
+                                 ["id", "deleted"], "declared")
+            return sh.make_contract(inputs, {"main": shape})
+        props = {"id": sh.scalar("integer", "declared")}
+        required = ["id"]
+        for col in columns:
+            if not isinstance(col, dict) or not col.get("name"):
+                continue
+            props[str(col["name"])] = _column_shape(col)
+            if col.get("required"):
+                required.append(str(col["name"]))
+        return sh.make_contract(inputs, {"main": sh.object_of(props, required, "declared")})
 
     async def execute(self, context: ExecutionContext, node_definition: NodeDefinition,
                       input_data: list[NodeData]) -> NodeExecutionResult:
@@ -111,3 +138,16 @@ class DataTableNode(BaseNode):
             err.code, err.details = e.code, {k: v for k, v in e.extra.items()}  # type: ignore[attr-defined]
             raise err
         return self.output([NodeData(json=o) for o in out])
+
+
+_COLUMN_TYPES = {"string": "string", "number": "number", "integer": "integer", "boolean": "boolean"}
+
+
+def _column_shape(col: dict) -> dict:
+    """Shape of one data-table column (``datetime`` -> string/date-time, ``json`` -> unknown)."""
+    t = col.get("type")
+    if t == "datetime":
+        return sh.scalar("string", "declared", format="date-time", nullable=not col.get("required"))
+    if t in _COLUMN_TYPES:
+        return sh.scalar(_COLUMN_TYPES[t], "declared", nullable=not col.get("required"))
+    return sh.unknown()

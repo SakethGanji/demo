@@ -10,6 +10,7 @@ from ..core.exceptions import (
     WorkflowExecutionError,
     WorkflowInactiveError,
     ValidationError,
+    WorkflowHasErrorsError,
 )
 from ..engine.types import (
     Workflow,
@@ -226,6 +227,11 @@ class WorkflowService:
                 field="definition",
             )
 
+        # The mistake checker: any error finding blocks publishing (warnings/info never do).
+        errors = [f for f in (await self.check(workflow_id))["findings"] if f["severity"] == "error"]
+        if errors:
+            raise WorkflowHasErrorsError(errors)
+
         # Webhook paths are globally unique (unique index on active_triggers.webhook_path): refuse a path another
         # workflow already owns with a clear error instead of failing later with a 500 from the database.
         paths = {(n.parameters or {}).get("path") for n in stored.workflow.nodes if n.type == "Webhook"}
@@ -268,6 +274,20 @@ class WorkflowService:
             active=True,
             version_id=db_workflow.published_version_id,
         )
+
+    async def check(self, workflow_id: str, definition: dict[str, Any] | None = None, environment: str | None = None) -> dict[str, Any]:
+        """Run the mistake checker on ``definition`` (default: the stored draft). Never saves."""
+        from .check_lookups import build_lookups
+        from .workflow_checker import check_workflow
+
+        stored = await self._workflow_repo.get(workflow_id)
+        if not stored:
+            raise WorkflowNotFoundError(workflow_id)
+        if definition is None:
+            definition = self._workflow_to_dict(stored.workflow)
+        lookups = await build_lookups(self._workflow_repo._session, stored.project_id, environment,
+                                      team_id=getattr(stored, "team_id", None) or "default")
+        return check_workflow(definition, lookups=lookups)
 
     async def unpublish(self, workflow_id: str) -> WorkflowPublishResponse:
         """Unpublish a workflow. Disables triggers, sets active=false.
@@ -380,6 +400,24 @@ class WorkflowService:
         context = await PartialRunService(self._execution_repo, self._workflow_repo).run_from(
             workflow_id, name, execution_id, environment=environment)
         return self._build_execution_response(context)
+
+    async def learn_contract(self, workflow_id: str, name: str, execution_id: str | None = None) -> dict[str, Any]:
+        """Infer a node's output shape from a saved execution (nothing is saved)."""
+        from .contract_service import ContractService
+        return await ContractService(self._execution_repo, self._workflow_repo).learn(workflow_id, name, execution_id)
+
+    async def approve_contract(self, workflow_id: str, name: str, body: Any) -> WorkflowDetailResponse:
+        """Write an approved contract onto the node in the draft."""
+        from .contract_service import ContractService
+        await ContractService(self._execution_repo, self._workflow_repo).approve(
+            workflow_id, name, body.outputs, body.from_execution, body.approved_by)
+        return await self.get_workflow(workflow_id)
+
+    async def delete_contract(self, workflow_id: str, name: str) -> WorkflowDetailResponse:
+        """Remove a node's approved contract from the draft."""
+        from .contract_service import ContractService
+        await ContractService(self._execution_repo, self._workflow_repo).delete(workflow_id, name)
+        return await self.get_workflow(workflow_id)
 
     async def restore_version(self, workflow_id: str, version_id: int) -> WorkflowDetailResponse:
         """Copy a version's definition into the draft and return the workflow."""
@@ -596,6 +634,7 @@ class WorkflowService:
                 "retry_delay": n.retry_delay,
                 "disabled": n.disabled,
                 "on_error": n.on_error,
+                **({"contract": n.contract} if n.contract else {}),
                 **({"pinnedData": [{"json": d.json} for d in n.pinned_data]} if n.pinned_data else {}),
                 # Enriched I/O data for frontend
                 "inputs": io_data["inputs"],

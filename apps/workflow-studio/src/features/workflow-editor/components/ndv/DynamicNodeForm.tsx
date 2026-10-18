@@ -15,6 +15,10 @@ import CodeEditor from '@/shared/components/ui/code-editor';
 import { WorkflowSelectorField } from './WorkflowSelectorField';
 import { FilePathField } from './FilePathField';
 import { registerPendingFlush } from '../../lib/pendingEdits';
+import { useCheckStore } from '../../stores/checkStore';
+import { useNDVStore } from '../../stores/ndvStore';
+import { useWorkflowStore } from '../../stores/workflowStore';
+import type { Finding } from '../../lib/shapes';
 
 // --- Inlined from formValidation.ts ---
 interface FieldError {
@@ -170,6 +174,30 @@ function FieldErrorMessage({ error }: { error?: FieldError | null }) {
   );
 }
 
+/**
+ * Live-check message under a field. `Finding.param` is matched on its first segment, so a finding
+ * for `headers.auth` or `values[0].name` shows under the top-level `headers` / `values` field.
+ * Errors are red (destructive), warnings amber (warning); info findings show nothing.
+ */
+function ParamCheckMessage({ param, findings }: { param: string; findings: Finding[] }) {
+  const mine = findings.filter((f) => f.severity !== 'info' && f.param && f.param.split(/[.[]/, 1)[0] === param);
+  if (mine.length === 0) return null;
+  return (
+    <div data-testid={`param-check-${param}`} className="mt-1 space-y-0.5">
+      {mine.map((f, i) => (
+        <p
+          key={i}
+          data-check={f.severity}
+          data-code={f.code}
+          className={`text-[12px] leading-4 ${f.severity === 'error' ? 'text-destructive' : 'text-warning-text'}`}
+        >
+          {f.message}
+        </p>
+      ))}
+    </div>
+  );
+}
+
 interface DynamicNodeFormProps {
   properties: NodeProperty[];
   values: Record<string, unknown>;
@@ -193,6 +221,13 @@ export default memo(function DynamicNodeForm({
   sampleData,
   allNodeData,
 }: DynamicNodeFormProps) {
+  // Findings for the node open in the node panel (reported by node name)
+  const activeNodeId = useNDVStore((st) => st.activeNodeId);
+  const activeNodeName = useWorkflowStore((st) => {
+    const id = activeNodeId;
+    return id ? (st.nodes.find((n) => n.id === id)?.data as { name?: string } | undefined)?.name : undefined;
+  });
+  const nodeFindings = useCheckStore((st) => (activeNodeName ? st.findingsByNodeMap[activeNodeName] : undefined));
   const [fieldErrors, setFieldErrors] = useState<Record<string, FieldError | null>>({});
   const [touchedFields, setTouchedFields] = useState<Set<string>>(new Set());
   // Ref for touchedFields — keeps handleFieldChange stable across touches
@@ -264,6 +299,7 @@ export default memo(function DynamicNodeForm({
             sampleData={sampleData}
             allNodeData={allNodeData}
           />
+          {nodeFindings && <ParamCheckMessage param={property.name} findings={nodeFindings} />}
         </div>
       ))}
     </div>

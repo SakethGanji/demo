@@ -6,6 +6,7 @@
  */
 
 import { flushPendingEdits } from '../lib/pendingEdits';
+import { saveDraftForRun, describeActionError } from '../lib/nodeActions';
 import { useCallback, useRef } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
@@ -13,6 +14,10 @@ import { workflowsApi } from '@/shared/lib/api';
 import { projectsApi } from '@/shared/api/endpoints';
 import { useEditorProjectStore } from '../stores/editorProjectStore';
 import { useWorkflowStore } from '../stores/workflowStore';
+import { useCheckStore } from '../stores/checkStore';
+import { useEditorLayoutStore } from '../stores/editorLayoutStore';
+import { ApiError } from '@/shared/api/http';
+import type { Finding } from '../lib/shapes';
 import type { BackendWorkflow } from '@/shared/lib/backendTypes';
 import {
   toBackendWorkflow,
@@ -323,6 +328,15 @@ export function usePublishWorkflow() {
       return;
     }
 
+    // Publish what is on screen: apply pending field edits and save the draft first (the engine publishes the stored draft)
+    flushPendingEdits();
+    try {
+      await saveDraftForRun();
+    } catch (error) {
+      toast.error("Couldn't publish", { description: `Could not save the draft: ${describeActionError(error).message}` });
+      return;
+    }
+
     try {
       const result = await publishMutation.mutateAsync({ id: workflowId, message });
       useWorkflowStore.getState().setIsActive(result.active);
@@ -331,6 +345,24 @@ export function usePublishWorkflow() {
       });
       return result;
     } catch (error) {
+      // 422 {detail: {message, findings}}: the checker found errors. Show them in the Problems tab.
+      if (error instanceof ApiError && error.status === 422) {
+        const detail = (error.body as { detail?: { findings?: Finding[] } } | null)?.detail;
+        if (detail && Array.isArray(detail.findings)) {
+          const findings = detail.findings;
+          const n = findings.filter((f) => f.severity === 'error').length || findings.length;
+          const prev = useCheckStore.getState().result;
+          useCheckStore.getState().setResult({
+            findings,
+            shapes_by_node: prev?.shapes_by_node ?? {},
+            coverage: prev?.coverage ?? { refs_total: 0, refs_checked: 0, refs_unknown: 0, nodes_total: 0, nodes_known_output: 0 },
+          });
+          useEditorLayoutStore.getState().setBottomPanelTab('problems');
+          if (!useEditorLayoutStore.getState().bottomPanelOpen) useEditorLayoutStore.getState().openBottomPanel('problems');
+          toast.error(`Can't publish: ${n} ${n === 1 ? 'error' : 'errors'}`);
+          return undefined; // handled; the Problems tab shows why
+        }
+      }
       const message = error instanceof Error ? error.message : 'Unknown error';
       toast.error('Failed to publish', { description: message });
       throw error;

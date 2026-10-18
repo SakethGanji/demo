@@ -19,6 +19,8 @@ if TYPE_CHECKING:
     from ...engine.types import ExecutionContext, NodeData, NodeDefinition, NodeExecutionResult
 
 
+from ...engine import shapes as sh
+
 class SwitchNode(BaseNode):
     """Switch node - route items to different outputs based on conditions."""
 
@@ -156,6 +158,14 @@ class SwitchNode(BaseNode):
     @property
     def description(self) -> str:
         return "Route items to different outputs based on conditions"
+
+    def output_ports(self, params=None):
+        n = _switch_output_count(params or {})
+        return [*(f"output{i}" for i in range(n)), "fallback"]
+
+    def contract(self, params, inputs, lookups=None):
+        """Derived: ``output0..output{numberOfOutputs-1}`` and ``fallback`` all carry the input shape."""
+        return sh.passthrough_contract(inputs, self.output_ports(params))
 
     async def execute(
         self,
@@ -301,3 +311,12 @@ class SwitchNode(BaseNode):
             else:
                 return None
         return current
+
+
+def _switch_output_count(params: dict) -> int:
+    """numberOfOutputs (default 2, clamped to the 1..15 the node supports)."""
+    try:
+        n = int(params.get("numberOfOutputs", 2) or 2)
+    except (TypeError, ValueError):
+        n = 2
+    return max(1, min(n, 15))

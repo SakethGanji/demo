@@ -37,6 +37,8 @@ def _serialize_value(val: Any) -> Any:
     return _base_serialize(val)
 
 
+from ...engine import shapes as sh
+
 class MongoDBNode(BaseNode):
     """MongoDB node - executes operations against a MongoDB database."""
 
@@ -295,6 +297,8 @@ class MongoDBNode(BaseNode):
     @property
     def description(self) -> str:
         return "Execute operations against a MongoDB database"
+
+    # MongoDB: observed -> default contract (UNKNOWN unless the instance has an approved contract).
 
     async def execute(
         self,

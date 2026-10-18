@@ -123,3 +123,11 @@ class MissingNodeDataError(WorkflowEngineError):
     def __init__(self, message: str, missing_nodes: list[str]) -> None:
         super().__init__(message=message, details={"missing_nodes": missing_nodes})
         self.missing_nodes = missing_nodes
+
+
+class WorkflowHasErrorsError(WorkflowEngineError):
+    """Publish blocked: the mistake checker found error-level findings (HTTP 422)."""
+
+    def __init__(self, findings: list[dict[str, Any]]) -> None:
+        super().__init__("Workflow has errors", {"findings": findings})
+        self.findings = findings

@@ -165,6 +165,8 @@ async def send_email(
     }
 
 
+from ...engine import shapes as sh
+
 class SendEmailNode(BaseNode):
     """Send Email node - sends emails via configured email service."""
 
@@ -241,6 +243,21 @@ class SendEmailNode(BaseNode):
     @property
     def description(self) -> str:
         return "Sends an email (plain text, HTML, or Markdown)"
+
+    def contract(self, params, inputs, lookups=None):
+        """Declared: ``{success, to, subject}`` always; ``body``/``message_id`` on success, ``error`` on failure."""
+        s = sh.scalar
+        shape = sh.object_of(
+            {
+                "success": s("boolean", "declared"),
+                "to": s("string", "declared"),
+                "subject": s("string", "declared"),
+                "body": s("string", "declared"),
+                "message_id": s("string", "declared", nullable=True),
+                "error": s("string", "declared"),
+            },
+            ["success", "to", "subject"], "declared")
+        return sh.make_contract(inputs, {"main": shape})
 
     async def execute(
         self,

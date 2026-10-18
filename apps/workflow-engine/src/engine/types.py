@@ -260,6 +260,8 @@ class NodeDefinition:
     continue_on_fail: bool = False
     disabled: bool = False
     on_error: str = "stop"  # "stop" | "continue" | "error_output"
+    # Approved output contract (Stage 2): {"outputs": {port: Shape}, "source": "observed", "approved_by", "approved_at", "from_execution"}
+    contract: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         # Legacy field: continue_on_fail=True means on_error="continue".

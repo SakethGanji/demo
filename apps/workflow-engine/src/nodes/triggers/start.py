@@ -15,6 +15,8 @@ if TYPE_CHECKING:
     from ...engine.types import ExecutionContext, NodeData, NodeDefinition, NodeExecutionResult
 
 
+from ...engine import shapes as sh
+
 class StartNode(BaseNode):
     """Manual trigger node - entry point for workflow execution."""
 
@@ -48,6 +50,14 @@ class StartNode(BaseNode):
     @property
     def description(self) -> str:
         return "Manual trigger to start workflow execution"
+
+    def contract(self, params, inputs, lookups=None):
+        """Declared: ``params.input_schema`` (a Shape) is the item shape; otherwise the default below."""
+        declared = sh.param_shape(params, "input_schema", "inputSchema")
+        shape = declared if declared is not None else sh.object_of(
+            {"triggeredAt": sh.scalar("string", "declared"), "mode": sh.scalar("string", "declared")},
+            ["triggeredAt", "mode"], "declared")
+        return sh.make_contract(inputs, {"main": shape})
 
     async def execute(
         self,

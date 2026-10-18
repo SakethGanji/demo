@@ -1,5 +1,6 @@
 import { memo, useState, useMemo, useCallback } from 'react';
-import { Database, Code, Pin, Clock, Zap, Globe, GitBranch, Download, History } from 'lucide-react';
+import { Database, Code, Pin, Zap, Globe, GitBranch, Download, History, FileCheck2 } from 'lucide-react';
+import { toast } from 'sonner';
 import type { NodeExecutionData } from '../../types/workflow';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useNDVStore } from '../../stores/ndvStore';
@@ -8,7 +9,13 @@ import { Tip } from '@/shared/components/ui/tooltip';
 import { Spinner } from '@/shared/components/ui/spinner';
 import { Callout } from '@/shared/components/ui/surface';
 import { pinFromLastRun } from '../../lib/nodeActions';
+import { Button } from '@/shared/components/ui/button';
+import { useNodeActions } from '../../hooks/useNodeActions';
+import type { NodeContractOverride } from '../../lib/shapes';
+import { isObservedType } from '../../lib/contractSuggestions';
+import { learnContract, removeContract, type ContractProposal } from '../../lib/contractActions';
 import RunDataDisplay from './RunDataDisplay';
+import ContractDialog from './ContractDialog';
 
 interface OutputPanelProps {
   nodeId: string;
@@ -27,6 +34,13 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
   const unpinNodeData = useWorkflowStore((s) => s.unpinNodeData);
 
   const isPinned = hasPinned;
+
+  // Learned contracts (observed-type nodes only)
+  const nodeType = useWorkflowStore((s) => s.nodes.find((n) => n.id === nodeId)?.data?.type) as string | undefined;
+  const contract = useWorkflowStore((s) => s.nodes.find((n) => n.id === nodeId)?.data?.contract) as NodeContractOverride | undefined;
+  const { saveNew } = useNodeActions();
+  const [proposal, setProposal] = useState<ContractProposal | null>(null);
+  const [contractBusy, setContractBusy] = useState(false);
 
   // Use pinned data if available, otherwise use execution data
   // getPinnedDataForDisplay unwraps { json: {...} } to just {...}
@@ -47,6 +61,23 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
   };
 
   const hasData = executionData?.output?.items && executionData.output.items.length > 0;
+
+  const handleLearn = async () => {
+    setContractBusy(true);
+    const res = await learnContract(nodeId, saveNew);
+    setContractBusy(false);
+    if (res.ok) setProposal(res.proposal);
+    else toast.error('Could not learn a contract', { description: res.message });
+  };
+
+  const handleRemove = async () => {
+    setContractBusy(true);
+    const res = await removeContract(nodeId, saveNew);
+    setContractBusy(false);
+    if (res.ok) toast.success('Contract removed');
+    else toast.error('Could not remove the contract', { description: res.message });
+  };
+  const showLearn = isObservedType(nodeType) && !!hasData && !contract;
   const hasError = executionData?.output?.error;
   const itemCount = executionData?.output?.items?.length ?? 0;
   const metrics = executionData?.metrics;
@@ -87,11 +118,11 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
     <div className="flex h-full flex-col">
       {/* Header */}
       <div className="flex items-center justify-between gap-2 px-3 py-2 shadow-[inset_0_-1px_0_var(--hairline)]">
-        <div className="flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap [&>*]:shrink-0">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden whitespace-nowrap [&>*]:shrink-0">
           <span className="text-[12.5px] font-medium text-foreground">Output</span>
           {hasData && (
             <span className="rounded-chip px-1 py-px text-[10.5px] font-medium bg-success/11 text-success-text">
-              {itemCount} items
+              {itemCount} {itemCount === 1 ? 'item' : 'items'}
             </span>
           )}
           {hasError && (
@@ -100,8 +131,7 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
             </span>
           )}
           {executionTime && (
-            <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-              <Clock size={11} />
+            <span className="flex items-center gap-1 text-[10px] text-muted-foreground" title={`Execution time ${executionTime}`}>
               {executionTime}
             </span>
           )}
@@ -114,7 +144,7 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
           )}
           {/* HTTP status badge */}
           {metrics?.responseStatusCode != null && (
-            <span className={`flex items-center gap-1 rounded-sm px-1 py-px text-[10px] font-medium ${
+            <span title={`HTTP status ${metrics.responseStatusCode}`} className={`flex items-center gap-1 rounded-sm px-1 py-px text-[10px] font-medium ${
               metrics.responseStatusCode < 400
                 ? 'bg-success/11 text-success-text'
                 : 'bg-destructive-soft text-destructive'
@@ -137,7 +167,7 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
           )}
         </div>
 
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex shrink-0 items-center gap-0.5">
           {/* Pin button */}
           <button
             onClick={handlePinToggle}
@@ -194,6 +224,31 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
         />
         </div>
       </div>
+
+      {/* Learned contract */}
+      {(showLearn || contract) && (
+        <div className="flex items-center justify-between gap-2 px-3 py-1.5 shadow-[inset_0_-1px_0_var(--hairline)]">
+          <span
+            className="min-w-0 truncate text-[11px] text-muted-foreground"
+            title={contract ? undefined : 'Output shape is unknown until you approve a contract'}
+          >
+            {contract
+              ? `Contract approved by ${contract.approved_by}`
+              : 'Shape not approved yet'}
+          </span>
+          {contract ? (
+            <Button size="xs" variant="ghost" onClick={handleRemove} disabled={contractBusy} data-testid="ndv-contract-remove">
+              Remove contract
+            </Button>
+          ) : (
+            <Button size="xs" variant="outline" onClick={handleLearn} disabled={contractBusy} data-testid="ndv-contract-learn">
+              <FileCheck2 />
+              Use as contract
+            </Button>
+          )}
+        </div>
+      )}
+      <ContractDialog proposal={proposal} onOpenChange={(o) => { if (!o) setProposal(null); }} />
 
       {/* Data display */}
       <div className="well m-2 flex-1 overflow-auto p-3">

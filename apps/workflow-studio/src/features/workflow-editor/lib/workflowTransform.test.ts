@@ -60,3 +60,25 @@ describe('workflowTransform: disabled and onError', () => {
     expect(back.edges.find((e) => e.target === 'C')?.sourceHandle).toBe('error');
   });
 });
+
+describe('workflowTransform: contract', () => {
+  const contract = {
+    outputs: { main: { type: 'object', properties: { id: { type: 'integer' } } } },
+    source: 'observed',
+    approved_by: 'Saketh',
+    approved_at: '2026-10-17T10:00:00Z',
+    from_execution: 'e1',
+  };
+
+  it('reads contract into node.data.contract and writes it back', () => {
+    const back = fromBackendWorkflow(api([{ name: 'A', type: 'HttpRequest', parameters: {}, contract }]));
+    expect(back.nodes[0].data.contract).toEqual(contract);
+    const wf = toBackendWorkflow(back.nodes, [], 'W');
+    expect(wf.nodes[0].contract).toEqual(contract);
+  });
+
+  it('omits contract when there is none', () => {
+    const wf = toBackendWorkflow([node('A')], [], 'W');
+    expect('contract' in wf.nodes[0]).toBe(false);
+  });
+});

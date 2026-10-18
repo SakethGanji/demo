@@ -19,6 +19,8 @@ if TYPE_CHECKING:
     from ...engine.types import ExecutionContext, NodeData, NodeDefinition, NodeExecutionResult
 
 
+from ...engine import shapes as sh
+
 class HttpRequestNode(BaseNode):
     """HTTP Request node - makes HTTP requests to external APIs."""
 
@@ -134,6 +136,8 @@ class HttpRequestNode(BaseNode):
     @property
     def description(self) -> str:
         return "Makes HTTP requests to external APIs"
+
+    # HttpRequest: observed -> default contract (UNKNOWN unless the instance has an approved contract).
 
     async def execute(
         self,

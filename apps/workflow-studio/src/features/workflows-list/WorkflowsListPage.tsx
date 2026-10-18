@@ -44,6 +44,7 @@ import { Skeleton } from '@/shared/components/ui/skeleton'
 import { StatusDot, runTone } from '@/shared/components/ui/status-dot'
 import { Callout, Dot, IconTile, PageHeader, Tile } from '@/shared/components/ui/surface'
 import { Tip } from '@/shared/components/ui/tooltip'
+import { ImportN8nDialog } from './ImportN8nDialog'
 
 type HandledRoute = { route_id: string; method: string; path: string }
 type Summary = ApiWorkflowSummary & { handler_for?: HandledRoute[]; description?: string | null }
@@ -137,6 +138,7 @@ function WorkflowsPanel() {
   const fileRef = useRef<HTMLInputElement>(null)
   const [importError, setImportError] = useState<string | null>(null)
   const [importing, setImporting] = useState(false)
+  const [n8nOpen, setN8nOpen] = useState(false)
   const [deleting, setDeleting] = useState<Summary | null>(null)
   const [moving, setMoving] = useState<Summary | null>(null)
 
@@ -191,6 +193,9 @@ function WorkflowsPanel() {
       <Button variant="outline" size="sm" disabled={importing} onClick={() => fileRef.current?.click()} data-testid="workflows-import">
         <Upload /> Import
       </Button>
+      <Button variant="outline" size="sm" onClick={() => setN8nOpen(true)} data-testid="import-n8n">
+        <Upload /> Import from n8n
+      </Button>
       <Button size="sm" render={<Link to="/p/$project/workflows/$workflowId" params={{ project: slug, workflowId: 'new' }} />} data-testid="workflows-new">
         <Plus /> New workflow
       </Button>
@@ -201,6 +206,7 @@ function WorkflowsPanel() {
 
   return (
     <section className="flex h-full flex-col overflow-hidden" data-testid="workflows-panel">
+      <ImportN8nDialog open={n8nOpen} onOpenChange={setN8nOpen} />
       <input
         ref={fileRef}
         type="file"

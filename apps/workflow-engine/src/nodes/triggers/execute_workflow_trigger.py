@@ -19,6 +19,8 @@ if TYPE_CHECKING:
 from ...engine.types import NodeData
 
 
+from ...engine import shapes as sh
+
 class ExecuteWorkflowTriggerNode(BaseNode):
     """Entry point trigger for workflows intended to be called as subworkflows."""
 
@@ -66,6 +68,23 @@ class ExecuteWorkflowTriggerNode(BaseNode):
     @property
     def description(self) -> str:
         return "Entry point for workflows called by the Execute Workflow node"
+
+    def contract(self, params, inputs, lookups=None):
+        """Declared: ``params.input_schema``/``inputSchema`` plus the ``_``-prefixed fields execute() adds.
+
+        Without a schema the parent decides the payload, so the output is UNKNOWN.
+        """
+        declared = sh.param_shape(params, "input_schema", "inputSchema")
+        if declared is None or not sh.is_closed_object(declared):
+            return sh.make_contract(inputs, {"main": declared if declared is not None else sh.unknown()})
+        s = sh.scalar
+        extra = {
+            "_triggeredAt": s("string", "declared"),
+            "_triggerType": s("string", "declared"),
+            "_executionDepth": s("integer", "declared"),
+        }
+        shape = {**declared, "properties": {**declared["properties"], **extra}}
+        return sh.make_contract(inputs, {"main": shape})
 
     async def execute(
         self,

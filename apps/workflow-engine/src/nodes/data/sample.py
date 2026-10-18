@@ -20,6 +20,8 @@ if TYPE_CHECKING:
     from ...engine.types import ExecutionContext, NodeData, NodeDefinition, NodeExecutionResult
 
 
+from ...engine import shapes as sh
+
 class SampleNode(BaseNode):
     """Sample node - samples data using the analytics service API."""
 
@@ -316,6 +318,24 @@ class SampleNode(BaseNode):
     @property
     def description(self) -> str:
         return "Samples data using various sampling methods via analytics service"
+
+    def contract(self, params, inputs, lookups=None):
+        """Declared: the fixed metadata item execute() builds from the analytics service response."""
+        s = sh.scalar
+        shape = sh.object_of(
+            {
+            "success": s("boolean", "declared", nullable=True),
+            "original_count": s("number", "declared", nullable=True),
+            "sampled_count": s("number", "declared", nullable=True),
+            "sample_file": s("string", "declared", nullable=True),
+            "columns": s("array", "declared"),
+            "preview": s("array", "declared"),
+            "steps_summary": s("array", "declared"),
+            "goal_validation": s("object", "declared", nullable=True),
+            "reproducibility": s("object", "declared", nullable=True),
+            },
+            [], "declared")
+        return sh.make_contract(inputs, {"main": shape})
 
     async def execute(
         self,

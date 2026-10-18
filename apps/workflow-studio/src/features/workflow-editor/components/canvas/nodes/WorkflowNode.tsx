@@ -1,6 +1,8 @@
 import { memo, useState, useMemo, useRef, useEffect } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type NodeProps, type Node } from '@xyflow/react';
-import { Plus, Check, X } from 'lucide-react';
+import { Plus, Check, X, AlertTriangle, FileCheck2 } from 'lucide-react';
+import { Tip } from '@/shared/components/ui/tooltip';
+import { useCheckStore } from '../../../stores/checkStore';
 import { useEditorLayoutStore } from '../../../stores/editorLayoutStore';
 import { useWorkflowStore } from '../../../stores/workflowStore';
 import { useHistoryStore } from '../../../stores/historyStore';
@@ -51,6 +53,11 @@ function WorkflowNode({ id, data, selected }: NodeProps<Node<WorkflowNodeData>>)
   const updateNodeData = useWorkflowStore((s) => s.updateNodeData);
   // Version-history diff marker: added (green), changed (amber), removed (faded ghost)
   const diffMark = useHistoryStore((s) => s.marks[id]);
+
+  // Live-check findings for this node (reported by node name). Info findings draw no mark.
+  const checkFindings = useCheckStore((s) => s.findingsByNodeMap[data.name]);
+  const checkMarks = useMemo(() => (checkFindings ?? []).filter((f) => f.severity !== 'info'), [checkFindings]);
+  const checkSeverity = checkMarks.some((f) => f.severity === 'error') ? 'error' : checkMarks.length ? 'warning' : null;
 
   const hasInputConnection = useHasInputConnection(id);
   const connectedOutputHandles = useConnectedOutputHandles(id);
@@ -349,6 +356,39 @@ function WorkflowNode({ id, data, selected }: NodeProps<Node<WorkflowNodeData>>)
         {/* Status badges for success/error */}
         {isSuccess && <StatusBadge status="success" />}
         {isError && <StatusBadge status="error" />}
+
+        {/* Live-check mark: red = error, amber = warning (top-left; the run status badge is top-right) */}
+        {checkSeverity && (
+          <Tip
+            label={
+              <span className="flex flex-col gap-0.5">
+                {checkMarks.map((f, i) => (
+                  <span key={i}>{f.message}</span>
+                ))}
+              </span>
+            }
+          >
+            <div
+              data-testid="node-check-mark"
+              data-check={checkSeverity}
+              className={`absolute -top-1.5 -left-1.5 z-10 flex h-4 w-4 items-center justify-center rounded-full text-primary-foreground shadow-raise-sm ${checkSeverity === 'error' ? 'bg-destructive' : 'bg-warning'}`}
+            >
+              <AlertTriangle size={9} strokeWidth={3} />
+            </div>
+          </Tip>
+        )}
+
+        {/* Approved learned contract */}
+        {data.contract && (
+          <Tip label={`Contract approved by ${data.contract.approved_by} on ${new Date(data.contract.approved_at).toLocaleDateString()}`}>
+            <div
+              data-testid="node-contract-badge"
+              className="absolute -bottom-1.5 -left-1.5 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-brand-soft text-primary shadow-raise-sm"
+            >
+              <FileCheck2 size={9} strokeWidth={2.5} />
+            </div>
+          </Tip>
+        )}
 
         {/* Output Handles */}
         {renderOutputHandles()}

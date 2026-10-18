@@ -1,0 +1,38 @@
+{
+ "name": "Scheduled audit",
+ "nodes": [
+  {
+   "name": "Every 10s",
+   "type": "Cron",
+   "parameters": {
+    "mode": "interval",
+    "interval": 10
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Audit",
+   "type": "DataTable",
+   "parameters": {
+    "table": "events",
+    "operation": "insert",
+    "data": "{\"kind\": \"scheduled_audit\", \"ref\": \"cron\", \"label\": \"tick\", \"confidence\": 1, \"detail\": \"{{ $json.schedule }}\"}"
+   },
+   "position": {
+    "x": 260,
+    "y": 0
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Every 10s",
+   "source_output": "main",
+   "target_node": "Audit",
+   "target_input": "main"
+  }
+ ]
+}

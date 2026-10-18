@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from ..engine.shapes import NodeContract, Shape
     from ..engine.types import (
         ExecutionContext,
         NodeData,
@@ -115,6 +116,31 @@ class BaseNode(ABC):
     ) -> NodeExecutionResult:
         """Execute the node logic."""
         ...
+
+    def contract(
+        self,
+        params: dict[str, Any],
+        inputs: dict[str, Shape],
+        lookups: dict[str, Any] | None = None,
+    ) -> NodeContract:
+        """What this node takes and gives, for the mistake checker / autocomplete (Stage 2).
+
+        ``params`` are the node's raw parameters (unresolved expressions); ``inputs`` maps input
+        port -> the item shape arriving there. ``lookups`` is optional checker-supplied context
+        (currently ``{"table_columns": {table_name: [column dicts]}}`` for DataTable). The default is
+        "every output port is UNKNOWN"; override in nodes whose output is derived or declared.
+        Pure: no I/O, never raises for odd params (return UNKNOWN instead).
+        """
+        from ..engine.shapes import make_contract, unknown
+
+        return make_contract(inputs, {port: unknown() for port in self.output_ports(params)})
+
+    def output_ports(self, params: dict[str, Any] | None = None) -> list[str]:
+        """Names of the output ports this node exposes (``main`` unless the description says otherwise)."""
+        desc = self.node_description
+        if desc is not None and isinstance(desc.outputs, list) and desc.outputs:
+            return [o.name for o in desc.outputs]
+        return ["main"]
 
     def get_parameter(
         self,

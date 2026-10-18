@@ -21,6 +21,8 @@ if TYPE_CHECKING:
     from ...engine.types import ExecutionContext, NodeData, NodeDefinition, NodeExecutionResult
 
 
+from ...engine import shapes as sh
+
 class PollNode(BaseNode):
     """Poll node - re-run a downstream branch on interval until condition is met or timeout."""
 
@@ -82,6 +84,10 @@ class PollNode(BaseNode):
     @property
     def description(self) -> str:
         return "Repeat a branch on interval until condition is met"
+
+    def contract(self, params, inputs, lookups=None):
+        """Derived: ``loop``, ``done`` and ``timeout`` all carry the input items unchanged."""
+        return sh.passthrough_contract(inputs, ("loop", "done", "timeout"))
 
     async def execute(
         self,

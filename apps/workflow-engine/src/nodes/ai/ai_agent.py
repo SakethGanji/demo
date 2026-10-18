@@ -103,6 +103,8 @@ EVENT_TYPE_MAP: dict[str, str] = {
 }
 
 
+from ...engine import shapes as sh
+
 # ---------------------------------------------------------------------------
 # Agent context for recursive sub-agent spawning
 # ---------------------------------------------------------------------------
@@ -481,6 +483,11 @@ class AIAgentNode(BaseNode):
     @property
     def description(self) -> str:
         return "Autonomous agent with tool calling capabilities"
+
+    def contract(self, params, inputs, lookups=None):
+        """Declared: ``params.output_schema`` (a Shape) when set; otherwise observed -> UNKNOWN unless approved."""
+        declared = sh.param_shape(params, "output_schema")
+        return sh.make_contract(inputs, {"main": declared if declared is not None else sh.unknown()})
 
     async def execute(
         self,

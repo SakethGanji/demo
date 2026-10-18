@@ -652,6 +652,7 @@ class WorkflowRunner:
                         continue_on_fail=resolved_node_def.continue_on_fail,
                         disabled=resolved_node_def.disabled,
                         on_error=resolved_node_def.on_error,
+                        contract=resolved_node_def.contract,
                     )
             except Exception:
                 logger.warning(f"Failed to resolve credential {credential_id}", exc_info=True)
@@ -1056,6 +1057,7 @@ class WorkflowRunner:
             continue_on_fail=node_def.continue_on_fail,
             disabled=node_def.disabled,
             on_error=node_def.on_error,
+            contract=node_def.contract,
             label=node_def.label,
         )
 

@@ -1,0 +1,68 @@
+[
+ [
+  "WF005",
+  "Classify",
+  "userMessage",
+  "body.message"
+ ],
+ [
+  "WF005",
+  "Create refund",
+  "body",
+  "amount"
+ ],
+ [
+  "WF005",
+  "Create refund",
+  "body",
+  "customer_id"
+ ],
+ [
+  "WF005",
+  "Create refund",
+  "body",
+  "message"
+ ],
+ [
+  "WF005",
+  "Is refund",
+  "condition",
+  "confidence"
+ ],
+ [
+  "WF005",
+  "Is refund",
+  "condition",
+  "label"
+ ],
+ [
+  "WF005",
+  "Log refund",
+  "data",
+  "body.id"
+ ],
+ [
+  "WF005",
+  "Log refund",
+  "data",
+  "confidence"
+ ],
+ [
+  "WF005",
+  "Needs review",
+  "data",
+  "confidence"
+ ],
+ [
+  "WF005",
+  "Needs review",
+  "data",
+  "customer_id"
+ ],
+ [
+  "WF005",
+  "Needs review",
+  "data",
+  "label"
+ ]
+]

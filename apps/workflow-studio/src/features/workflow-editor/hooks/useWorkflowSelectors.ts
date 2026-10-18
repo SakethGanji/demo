@@ -7,6 +7,8 @@
 
 import { useCallback } from 'react';
 import { useWorkflowStore } from '../stores/workflowStore';
+import { useNDVStore } from '../stores/ndvStore';
+import { useCheckStore } from '../stores/checkStore';
 
 // ---------------------------------------------------------------------------
 // Equality functions (inlined from equality.ts)
@@ -161,5 +163,29 @@ export function useConnectedOutputHandles(nodeId: string) {
       [nodeId]
     ),
     setEqual
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Contracts (autocomplete without running)
+// ---------------------------------------------------------------------------
+
+/** Shapes from the live check, keyed by node name. Empty until `/check` has answered. */
+export function useShapesByNode() {
+  return useCheckStore((s) => s.shapesByNode);
+}
+
+/** Name of the node open in the node panel (null when none). */
+export function useActiveNodeName(): string | null {
+  const id = useNDVStore((s) => s.activeNodeId);
+  return useWorkflowStore(
+    useCallback(
+      (s) => {
+        const n = id ? s.nodes.find((x) => x.id === id) : null;
+        const name = n?.data?.name;
+        return typeof name === 'string' ? name : null;
+      },
+      [id]
+    )
   );
 }

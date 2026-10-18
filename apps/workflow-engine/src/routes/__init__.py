@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter
 
+from .n8n_import import router as n8n_import_router
 from .workflows import router as workflows_router
 from .executions import router as executions_router
 from .nodes import router as nodes_router
@@ -26,6 +27,8 @@ from .releases import router as releases_router
 
 # Main API router
 api_router = APIRouter(prefix="/api")
+# Must precede workflows_router: "/workflows/import/n8n" would otherwise match /workflows/{workflow_id}/...
+api_router.include_router(n8n_import_router, tags=["Workflows"])
 api_router.include_router(workflows_router, tags=["Workflows"])
 api_router.include_router(apps_router, tags=["Apps"])
 api_router.include_router(executions_router, tags=["Executions"])

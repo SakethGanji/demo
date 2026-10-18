@@ -9,6 +9,9 @@ import { Segmented } from '@/shared/components/ui/segmented';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/components/ui/select';
 import { Spinner } from '@/shared/components/ui/spinner';
 import RunDataDisplay from './RunDataDisplay';
+import ContractFieldList from './ContractFieldList';
+import { useShapesByNode } from '../../hooks/useWorkflowSelectors';
+import { inputShapeFor, outputShapeFor } from '../../lib/contractSuggestions';
 import SchemaDisplay, { type OutputSchema } from './SchemaDisplay';
 
 // --- Inlined from graphUtils.ts ---
@@ -153,6 +156,17 @@ const InputPanel = memo(function InputPanel({ nodeId, executionData }: InputPane
     return getExpressionBasePath(effectiveSelectedNode.name, effectiveSelectedNode.isImmediate);
   }, [effectiveSelectedNode]);
 
+  // Contract fields (from the live check) for when there is no run data
+  const shapesByNode = useShapesByNode();
+  const contractShape = useMemo(() => {
+    if (!effectiveSelectedNode) return null;
+    const current = nodes.find((n) => n.id === nodeId)?.data?.name;
+    const shape = effectiveSelectedNode.isImmediate && typeof current === 'string'
+      ? inputShapeFor(shapesByNode, current) ?? outputShapeFor(shapesByNode, effectiveSelectedNode.name)
+      : outputShapeFor(shapesByNode, effectiveSelectedNode.name);
+    return shape && shape.type === 'object' && shape.properties && Object.keys(shape.properties).length > 0 ? shape : null;
+  }, [effectiveSelectedNode, nodes, nodeId, shapesByNode]);
+
   const hasData = selectedNodeData?.items && selectedNodeData.items.length > 0;
   const hasSchema = selectedNodeOutputSchema && selectedNodeOutputSchema.properties;
   const itemCount = selectedNodeData?.items?.length ?? 0;
@@ -231,6 +245,16 @@ const InputPanel = memo(function InputPanel({ nodeId, executionData }: InputPane
             mode={displayMode}
             basePath={basePath}
           />
+        ) : contractShape ? (
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center rounded-chip bg-brand-soft px-1.5 py-0.5 text-[10.5px] font-medium text-primary">
+                Schema
+              </span>
+              <span className="text-xs text-muted-foreground">from contract (drag to use)</span>
+            </div>
+            <ContractFieldList shape={contractShape} basePath={basePath} />
+          </div>
         ) : hasSchema ? (
           // Show output schema when no execution data yet
           <SchemaDisplay

@@ -17,6 +17,8 @@ if TYPE_CHECKING:
     from ...engine.types import ExecutionContext, NodeData, NodeDefinition, NodeExecutionResult
 
 
+from ...engine import shapes as sh
+
 class WebhookNode(BaseNode):
     """Webhook trigger node - receives HTTP POST requests."""
 
@@ -92,6 +94,19 @@ class WebhookNode(BaseNode):
     @property
     def description(self) -> str:
         return "Trigger workflow via HTTP webhook"
+
+    def contract(self, params, inputs, lookups=None):
+        """Declared: ``params.input_schema`` (a Shape) is the item shape; otherwise the default below."""
+        declared = sh.param_shape(params, "input_schema", "inputSchema")
+        shape = declared if declared is not None else sh.object_of(
+            {
+                "body": sh.unknown(),
+                "headers": sh.scalar("object", "declared"),
+                "query": sh.scalar("object", "declared"),
+                "method": sh.scalar("string", "declared"),
+            },
+            ["body", "headers", "query", "method"], "declared")
+        return sh.make_contract(inputs, {"main": shape})
 
     async def execute(
         self,

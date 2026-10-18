@@ -1,3 +1,4 @@
+import type { NodeContractOverride } from '../lib/shapes';
 import type { NodeGroup, NodeIO } from '../lib/nodeStyles';
 
 // ---------------------------------------------------------------------------
@@ -89,6 +90,9 @@ export interface WorkflowNodeData {
 
   // Pinned data for testing (format: { json: {...} }[])
   pinnedData?: Array<{ json: Record<string, unknown> }>;
+
+  /** Approved learned contract (CONTRACTS-STAGE2 §2); replaces the node's computed outputs. */
+  contract?: NodeContractOverride;
 
   // For sticky notes (UI-only)
   content?: string;

@@ -14,6 +14,7 @@ import type {
   ApiExecutionListItem,
   ApiPublishResponse,
 } from './backendTypes';
+import type { CheckResult, ImportReport, Shape } from '@/features/workflow-editor/lib/shapes';
 
 // Property definition from API node type
 export interface ApiProperty {
@@ -171,6 +172,29 @@ export const workflowsApi = {
       method: 'POST',
       body: JSON.stringify(body),
     });
+  },
+
+  /** Stage 2 checker. Without `definition` it checks the stored draft. Never saves. */
+  check: (id: string, body: { definition?: Pick<BackendWorkflow, 'nodes' | 'connections'>; environment?: string } = {}): Promise<CheckResult> => {
+    return apiFetch(`/workflows/${id}/check`, { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  /** Propose a contract from a saved execution. Does not save. 409 `detail.missing_nodes` when there is no output. */
+  contractLearn: (id: string, name: string, body: { execution_id?: string } = {}): Promise<{ outputs: Record<string, Shape>; from_execution: string; sample_count: number }> => {
+    return apiFetch(`/workflows/${id}/nodes/${encodeURIComponent(name)}/contract/learn`, { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  contractApprove: (id: string, name: string, body: { outputs: Record<string, Shape>; from_execution: string; approved_by: string }): Promise<ApiWorkflowDetail> => {
+    return apiFetch(`/workflows/${id}/nodes/${encodeURIComponent(name)}/contract/approve`, { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  contractRemove: (id: string, name: string): Promise<ApiWorkflowDetail> => {
+    return apiFetch(`/workflows/${id}/nodes/${encodeURIComponent(name)}/contract`, { method: 'DELETE' });
+  },
+
+  /** Convert an n8n workflow. Does not save; create it through `create` afterwards. */
+  importN8n: (body: { n8n: unknown; name?: string; project_id?: string }): Promise<{ workflow: BackendWorkflow; report: ImportReport }> => {
+    return apiFetch('/workflows/import/n8n', { method: 'POST', body: JSON.stringify(body) });
   },
 
   runAdhoc: (workflow: BackendWorkflow): Promise<ApiExecutionResult> => {

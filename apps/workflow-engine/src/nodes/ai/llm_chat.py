@@ -17,6 +17,8 @@ if TYPE_CHECKING:
     from ...engine.types import ExecutionContext, NodeData, NodeDefinition, NodeExecutionResult
 
 
+from ...engine import shapes as sh
+
 class LLMChatNode(BaseNode):
     """LLM Chat node - single-turn LLM conversation."""
 
@@ -98,6 +100,11 @@ class LLMChatNode(BaseNode):
     @property
     def description(self) -> str:
         return "Send a message to an LLM and get a response"
+
+    def contract(self, params, inputs, lookups=None):
+        """Declared: ``params.output_schema`` (a Shape) when set; otherwise observed -> UNKNOWN unless approved."""
+        declared = sh.param_shape(params, "output_schema")
+        return sh.make_contract(inputs, {"main": declared if declared is not None else sh.unknown()})
 
     async def execute(
         self,

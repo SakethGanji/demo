@@ -5,6 +5,8 @@
  * Used by both the API client and the workflow transformation layer.
  */
 
+import type { NodeContractOverride } from '@/features/workflow-editor/lib/shapes';
+
 // Individual node data item (backend format)
 export interface BackendNodeData {
   json: Record<string, unknown>;
@@ -25,6 +27,7 @@ export interface BackendNodeDefinition {
   retry_on_fail?: number;
   retry_delay?: number;
   pinned_data?: BackendNodeData[];
+  contract?: NodeContractOverride;
 }
 
 // Connection between two nodes in the backend format
@@ -114,6 +117,7 @@ export interface ApiWorkflowDetail {
       retry_on_fail?: number;
       retry_delay?: number;
       pinnedData?: Array<{ json: Record<string, unknown> }>;
+      contract?: NodeContractOverride;
       // Enriched I/O data from backend
       inputs?: Array<{ name: string; displayName: string }>;
       inputCount?: number;

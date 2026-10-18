@@ -10,6 +10,8 @@ if TYPE_CHECKING:
     from ...engine.types import ExecutionContext, NodeData, NodeDefinition, NodeExecutionResult
 
 
+from ...engine import shapes as sh
+
 class RespondNode(BaseNode):
     """Sets ``context.webhook_response`` (status, headers, body) and passes items through."""
 
@@ -49,6 +51,10 @@ class RespondNode(BaseNode):
     @property
     def description(self) -> str:
         return "Return an HTTP response"
+
+    def contract(self, params, inputs, lookups=None):
+        """Derived: passthrough (the response is a side effect)."""
+        return sh.passthrough_contract(inputs)
 
     async def execute(self, context: ExecutionContext, node_definition: NodeDefinition,
                       input_data: list[NodeData]) -> NodeExecutionResult:

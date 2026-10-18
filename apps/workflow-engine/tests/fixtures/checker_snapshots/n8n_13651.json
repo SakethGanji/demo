@@ -1,0 +1,68 @@
+[
+ [
+  "WF005",
+  "Call AI model for signal prediction",
+  "body",
+  "currentPrice"
+ ],
+ [
+  "WF005",
+  "Call AI model for signal prediction",
+  "body",
+  "symbol"
+ ],
+ [
+  "WF005",
+  "Call AI model for signal prediction",
+  "body",
+  "technicalIndicators"
+ ],
+ [
+  "WF005",
+  "Call AI model for signal prediction",
+  "body",
+  "trend"
+ ],
+ [
+  "WF005",
+  "Call AI model for signal prediction",
+  "body",
+  "volume24h"
+ ],
+ [
+  "WF005",
+  "Route by signal action",
+  "rules[0].field",
+  "action"
+ ],
+ [
+  "WF005",
+  "Route by signal action",
+  "rules[1].field",
+  "action"
+ ],
+ [
+  "WF005",
+  "Send SMS alert (Twilio)",
+  "body",
+  "alertMessages.sms"
+ ],
+ [
+  "WF005",
+  "Send Slack notification",
+  "body",
+  "action"
+ ],
+ [
+  "WF005",
+  "Send Slack notification",
+  "body",
+  "alertMessages.slack"
+ ],
+ [
+  "WF005",
+  "Validate signal strength and filter",
+  "condition",
+  "shouldAlert"
+ ]
+]

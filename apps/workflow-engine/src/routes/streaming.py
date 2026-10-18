@@ -213,6 +213,7 @@ async def stream_adhoc_execution(
                 or bool(n.get("continue_on_fail") or n.get("continueOnFail", False)),
                 disabled=bool(n.get("disabled", False)),
                 on_error=n.get("on_error") or n.get("onError") or "stop",
+                contract=n.get("contract") or None,
             )
             for n in workflow.nodes
         ],

@@ -17,6 +17,8 @@ if TYPE_CHECKING:
     from ...engine.types import ExecutionContext, NodeData, NodeDefinition, NodeExecutionResult
 
 
+from ...engine import shapes as sh
+
 class CronNode(BaseNode):
     """Cron trigger node - executes on a schedule."""
 
@@ -87,6 +89,17 @@ class CronNode(BaseNode):
     @property
     def description(self) -> str:
         return "Trigger workflow on a schedule"
+
+    def contract(self, params, inputs, lookups=None):
+        """Declared: what ``execute`` really emits (``timestamp`` in the design doc is ``triggeredAt`` here)."""
+        shape = sh.object_of(
+            {
+                "triggeredAt": sh.scalar("string", "declared"),
+                "mode": sh.scalar("string", "declared"),
+                "schedule": sh.scalar("string", "declared"),
+            },
+            ["triggeredAt", "mode", "schedule"], "declared")
+        return sh.make_contract(inputs, {"main": shape})
 
     async def execute(
         self,

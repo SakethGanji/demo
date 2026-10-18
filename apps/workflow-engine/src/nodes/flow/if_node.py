@@ -20,6 +20,8 @@ if TYPE_CHECKING:
 from ...engine.expression_engine import expression_engine, ExpressionEngine
 
 
+from ...engine import shapes as sh
+
 class IfNode(BaseNode):
     """If node - route items based on a condition with true/false outputs."""
 
@@ -98,6 +100,10 @@ class IfNode(BaseNode):
     @property
     def description(self) -> str:
         return "Route items based on a condition (true/false outputs)"
+
+    def contract(self, params, inputs, lookups=None):
+        """Derived: items are routed unchanged, so ``true`` and ``false`` both carry the input shape."""
+        return sh.passthrough_contract(inputs, ("true", "false"))
 
     async def execute(
         self,

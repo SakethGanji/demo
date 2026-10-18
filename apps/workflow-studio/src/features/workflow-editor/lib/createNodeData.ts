@@ -42,6 +42,8 @@ export interface NodeTypeMetadata {
   properties?: Array<{ name: string; default?: unknown; [k: string]: unknown }>;
 }
 
+import type { NodeContractOverride } from './shapes';
+
 /**
  * Per-instance overrides that differ between individual node instances
  * (e.g. name, position, parameters).
@@ -55,6 +57,7 @@ interface NodeDataOverrides {
   retryOnFail?: number;
   retryDelay?: number;
   pinnedData?: Array<{ json: Record<string, unknown> }>;
+  contract?: NodeContractOverride;
 }
 
 // ---------------------------------------------------------------------------
@@ -184,6 +187,7 @@ export function createWorkflowNodeData(
     outputs,
     outputStrategy: meta.outputStrategy,
     ...(overrides?.pinnedData ? { pinnedData: overrides.pinnedData } : {}),
+    ...(overrides?.contract ? { contract: overrides.contract } : {}),
   };
 
   return data;

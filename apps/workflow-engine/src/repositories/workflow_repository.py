@@ -51,6 +51,7 @@ class WorkflowRepository:
                     "retry_delay": n.retry_delay,
                     "disabled": n.disabled,
                     "on_error": n.on_error,
+                    **({"contract": n.contract} if n.contract else {}),
                 }
                 for n in workflow.nodes
             ],
@@ -134,6 +135,7 @@ class WorkflowRepository:
                     "retry_delay": n.retry_delay,
                     "disabled": n.disabled,
                     "on_error": n.on_error,
+                    **({"contract": n.contract} if n.contract else {}),
                 }
                 for n in workflow.nodes
             ],
@@ -297,6 +299,7 @@ def definition_to_workflow(
             continue_on_fail=_stored_on_error(n) == "continue",
             disabled=bool(n.get("disabled", False)),
             on_error=_stored_on_error(n),
+            contract=n.get("contract") or None,
         )
         for n in definition.get("nodes", [])
     ]

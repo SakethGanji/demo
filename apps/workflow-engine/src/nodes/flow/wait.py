@@ -18,6 +18,8 @@ if TYPE_CHECKING:
     from ...engine.types import ExecutionContext, NodeData, NodeDefinition, NodeExecutionResult
 
 
+from ...engine import shapes as sh
+
 class WaitNode(BaseNode):
     """Wait node - delay execution for a specified time."""
 
@@ -64,6 +66,10 @@ class WaitNode(BaseNode):
     @property
     def description(self) -> str:
         return "Pause execution for a specified duration"
+
+    def contract(self, params, inputs, lookups=None):
+        """Derived: passthrough."""
+        return sh.passthrough_contract(inputs)
 
     async def execute(
         self,

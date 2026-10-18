@@ -14,6 +14,7 @@ from ..core.exceptions import (
     WorkflowNotFoundError,
     WorkflowExecutionError,
     ValidationError,
+    WorkflowHasErrorsError,
 )
 from ..core.dependencies import get_workflow_service
 from ..services.project_service import ProjectError
@@ -25,9 +26,13 @@ from ..schemas.workflow import (
     WorkflowListItem,
     WorkflowDetailResponse,
     PublishRequest,
+    CheckRequest,
     WorkflowPublishResponse,
     VersionListItem,
     VersionDetailResponse,
+    ContractLearnRequest,
+    ContractLearnResponse,
+    ContractApproveRequest,
 )
 from ..schemas.execution import ExecutionResponse, NodeTestRequest, RunFromRequest, RunWorkflowRequest
 from ..schemas.common import SuccessResponse
@@ -117,8 +122,23 @@ async def publish_workflow(
         return await service.publish(workflow_id, message=message)
     except WorkflowNotFoundError as e:
         raise HTTPException(status_code=404, detail=e.message)
+    except WorkflowHasErrorsError as e:
+        raise HTTPException(status_code=422, detail={"message": e.message, "findings": e.findings})
     except ValidationError as e:
         raise HTTPException(status_code=400, detail=e.message)
+
+
+@router.post("/{workflow_id}/check")
+async def check_workflow_route(
+    workflow_id: str,
+    service: WorkflowServiceDep,
+    body: CheckRequest | None = None,
+) -> dict:
+    """Run the mistake checker on the given definition or the stored draft. Never saves."""
+    try:
+        return await service.check(workflow_id, body.definition if body else None, body.environment if body else None)
+    except WorkflowNotFoundError as e:
+        raise HTTPException(status_code=404, detail=e.message)
 
 
 @router.post("/{workflow_id}/unpublish", response_model=WorkflowPublishResponse)
@@ -236,6 +256,47 @@ async def run_from_node(
         return await service.run_from(
             workflow_id, node_name, body.execution_id if body else None,
             environment=body.environment if body else "default")
+    except _PARTIAL_RUN_ERRORS as e:
+        raise _partial_run_http_error(e)
+
+
+@router.post("/{workflow_id}/nodes/{node_name}/contract/learn", response_model=ContractLearnResponse)
+async def learn_node_contract(
+    workflow_id: str,
+    node_name: str,
+    service: WorkflowServiceDep,
+    body: ContractLearnRequest | None = None,
+) -> ContractLearnResponse:
+    """Infer the node's output shape from a saved execution. Does not save anything."""
+    try:
+        return ContractLearnResponse(**await service.learn_contract(workflow_id, node_name, body.execution_id if body else None))
+    except _PARTIAL_RUN_ERRORS as e:
+        raise _partial_run_http_error(e)
+
+
+@router.post("/{workflow_id}/nodes/{node_name}/contract/approve", response_model=WorkflowDetailResponse)
+async def approve_node_contract(
+    workflow_id: str,
+    node_name: str,
+    body: ContractApproveRequest,
+    service: WorkflowServiceDep,
+) -> WorkflowDetailResponse:
+    """Write an approved output contract onto the node in the draft."""
+    try:
+        return await service.approve_contract(workflow_id, node_name, body)
+    except _PARTIAL_RUN_ERRORS as e:
+        raise _partial_run_http_error(e)
+
+
+@router.delete("/{workflow_id}/nodes/{node_name}/contract", response_model=WorkflowDetailResponse)
+async def delete_node_contract(
+    workflow_id: str,
+    node_name: str,
+    service: WorkflowServiceDep,
+) -> WorkflowDetailResponse:
+    """Remove the node's approved output contract from the draft."""
+    try:
+        return await service.delete_contract(workflow_id, node_name)
     except _PARTIAL_RUN_ERRORS as e:
         raise _partial_run_http_error(e)
 

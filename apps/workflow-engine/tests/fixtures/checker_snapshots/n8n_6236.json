@@ -1,0 +1,74 @@
+[
+ [
+  "WF001",
+  "Answer - Array Access",
+  "fields[0].value",
+  "Source Data"
+ ],
+ [
+  "WF001",
+  "Answer - Array of Objects",
+  "fields[0].value",
+  "Source Data"
+ ],
+ [
+  "WF001",
+  "Answer - Basic Access",
+  "fields[0].value",
+  "Source Data"
+ ],
+ [
+  "WF001",
+  "Answer - Final",
+  "fields[0].value",
+  "Source Data"
+ ],
+ [
+  "WF001",
+  "Answer - JS Function",
+  "fields[0].value",
+  "Source Data"
+ ],
+ [
+  "WF001",
+  "Answer - Nested Object",
+  "fields[0].value",
+  "Source Data"
+ ],
+ [
+  "WF005",
+  "Answer - Basic Access",
+  "fields[1].value",
+  "city"
+ ],
+ [
+  "WF005",
+  "Check - Array Access",
+  "condition",
+  "tools[2]"
+ ],
+ [
+  "WF005",
+  "Check - Array of Objects",
+  "condition",
+  "tasks[1].name"
+ ],
+ [
+  "WF005",
+  "Check - Final",
+  "condition",
+  "tasks[1].name"
+ ],
+ [
+  "WF005",
+  "Check - Final",
+  "condition",
+  "tasks[1].status"
+ ],
+ [
+  "WF005",
+  "Check - Nested Object",
+  "condition",
+  "address.street"
+ ]
+]

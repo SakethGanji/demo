@@ -16,6 +16,8 @@ if TYPE_CHECKING:
     from ...engine.types import ExecutionContext, NodeData, NodeDefinition, NodeExecutionResult
 
 
+from ...engine import shapes as sh
+
 class LoopNode(BaseNode):
     """Loop node - iterate over input items, optionally in batches."""
 
@@ -70,6 +72,26 @@ class LoopNode(BaseNode):
     @property
     def description(self) -> str:
         return "Iterate over input items, optionally in batches"
+
+    def contract(self, params, inputs, lookups=None):
+        """Derived. ``loop``: the batch items (input shape; with ``maxIterations > 0`` the first input item
+        plus ``i: integer``). ``done``: one item ``{_loop_completed, total_items, items: [<loop item>]}``."""
+        item = sh.input_shape(inputs)
+        raw = (params or {}).get("maxIterations")
+        iterating = isinstance(raw, str) and "{{" in raw  # an expression: can't tell, assume it may iterate
+        try:
+            iterating = iterating or int(raw or 0) > 0
+        except (TypeError, ValueError):
+            pass
+        if iterating:
+            if sh.is_closed_object(item):
+                item = {**item, "properties": {**item["properties"], "i": sh.scalar("integer")}}
+            else:
+                item = sh.unknown()
+        done = sh.object_of(
+            {"_loop_completed": sh.scalar("boolean"), "total_items": sh.scalar("integer"), "items": sh.array_of(item)},
+            ["_loop_completed", "total_items", "items"])
+        return sh.make_contract(inputs, {"loop": item, "done": done})
 
     async def execute(
         self,

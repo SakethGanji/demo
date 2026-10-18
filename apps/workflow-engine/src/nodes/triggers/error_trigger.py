@@ -19,6 +19,8 @@ if TYPE_CHECKING:
     )
 
 
+from ...engine import shapes as sh
+
 class ErrorTriggerNode(BaseNode):
     """
     ErrorTrigger node - entry point for error handling workflows.
@@ -79,6 +81,24 @@ class ErrorTriggerNode(BaseNode):
     @property
     def input_count(self) -> int:
         return 0  # Trigger node has no inputs
+
+    def contract(self, params, inputs, lookups=None):
+        """Declared: the documented error payload (``params.input_schema`` overrides it)."""
+        declared = sh.param_shape(params, "input_schema", "inputSchema")
+        if declared is None:
+            s = sh.scalar
+            declared = sh.object_of(
+                {
+                    "failedWorkflow": sh.object_of(
+                        {"id": s("string", "declared"), "name": s("string", "declared"),
+                         "executionId": s("string", "declared")}, source="declared"),
+                    "errors": sh.array_of(sh.object_of(
+                        {"nodeName": s("string", "declared"), "message": s("string", "declared"),
+                         "timestamp": s("string", "declared")}, source="declared"), "declared"),
+                    "timestamp": s("string", "declared"),
+                },
+                source="declared")
+        return sh.make_contract(inputs, {"main": declared})
 
     async def execute(
         self,

@@ -16,6 +16,8 @@ if TYPE_CHECKING:
     from ...engine.types import ExecutionContext, NodeData, NodeDefinition, NodeExecutionResult
 
 
+from ...engine import shapes as sh
+
 class NodeCallError(RuntimeError):
     """A node failure with a stable code (e.g. a broker policy error) — surfaced as error_code."""
 
@@ -79,6 +81,11 @@ External imports and file system access are limited.""",
     @property
     def description(self) -> str:
         return "Execute custom Python code"
+
+    def contract(self, params, inputs, lookups=None):
+        """Declared: ``params.output_schema`` (a Shape) when set, else UNKNOWN (arbitrary user code)."""
+        declared = sh.param_shape(params, "output_schema", "outputSchema")
+        return sh.make_contract(inputs, {"main": declared if declared is not None else sh.unknown()})
 
     async def execute(
         self,

@@ -16,6 +16,8 @@ if TYPE_CHECKING:
     from ...engine.types import ExecutionContext, NodeData, NodeDefinition, NodeExecutionResult
 
 
+from ...engine import shapes as sh
+
 class MergeNode(BaseNode):
     """Merge node - combine data from multiple workflow branches."""
 
@@ -94,6 +96,28 @@ class MergeNode(BaseNode):
     def input_count(self) -> float:
         """Dynamic input count - determined at runtime from connections."""
         return float("inf")
+
+    def contract(self, params, inputs, lookups=None):
+        """Derived, by mode (input order = the order of ``inputs`` values):
+
+        * ``append`` (and any unknown mode): union of every input's shape;
+        * ``keepMatches``: items of the FIRST input only;
+        * ``combinePairs``: ``{input0: <1st input>, input1: <2nd input>, ...}`` (zipped by position);
+        * ``waitForAll``: one item ``{inputs: [[<1st input>...], [<2nd input>...]]}``.
+        """
+        mode = (params or {}).get("mode") or "append"
+        shapes = list((inputs or {}).values())
+        if not shapes:
+            out = sh.unknown()
+        elif mode == "waitForAll":
+            out = sh.object_of({"inputs": sh.array_of(sh.array_of(sh.merge_all(shapes)))}, ["inputs"])
+        elif mode == "keepMatches":
+            out = sh.merge_all(shapes[:1])
+        elif mode == "combinePairs":
+            out = sh.object_of({f"input{i}": s for i, s in enumerate(shapes)})
+        else:
+            out = sh.merge_all(shapes)
+        return sh.make_contract(inputs, {"main": out})
 
     async def execute(
         self,

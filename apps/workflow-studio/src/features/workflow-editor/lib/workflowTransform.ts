@@ -96,6 +96,7 @@ export function toBackendWorkflow(
     retry_on_fail: node.data.retryOnFail || 0,
     retry_delay: node.data.retryDelay || 1000,
     pinned_data: node.data.pinnedData,
+    ...(node.data.contract ? { contract: node.data.contract } : {}),
   }));
 
   // Transform edges to connections (deduplicate by source+target+handles)
@@ -227,6 +228,7 @@ export function fromBackendWorkflow(api: ApiWorkflowDetail): {
         retryOnFail: node.retry_on_fail ?? 0,
         retryDelay: node.retry_delay ?? 1000,
         pinnedData: node.pinnedData,
+        contract: node.contract,
       },
     );
 
