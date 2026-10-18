@@ -4,6 +4,7 @@
  * shortcuts all share one path. Every call saves the draft first: the engine reads the saved draft.
  */
 import type { Node } from '@xyflow/react';
+import { toast } from 'sonner';
 import { workflowsApi } from '@/shared/lib/api';
 import type { ApiExecutionResult } from '@/shared/lib/backendTypes';
 import { ApiError } from '@/shared/api/http';
@@ -23,17 +24,46 @@ export type NodeActionResult =
 /** Saves the current canvas as the draft. A workflow that was never saved goes through `saveNew`. */
 export async function saveDraftForRun(saveNew?: () => Promise<unknown>): Promise<string | null> {
   flushPendingEdits();
-  const { workflowId, nodes, edges, workflowName, markAsSaved } = useWorkflowStore.getState();
+  const { workflowId } = useWorkflowStore.getState();
   if (!workflowId) {
     await saveNew?.();
     return useWorkflowStore.getState().workflowId ?? null;
   }
-  await workflowsApi.update(
-    workflowId,
-    toBackendWorkflow(nodes as Node<WorkflowNodeData>[], edges, workflowName, workflowId),
-  );
-  markAsSaved();
+  await updateWorkflowDraft(workflowId);
   return workflowId;
+}
+
+/** The workflow as the save sends it: graph, tests, test defaults and the renames since the last save. */
+export function buildSavePayload(workflowId?: string) {
+  const { nodes, edges, workflowName, tests, testDefaults, nodeRenames } = useWorkflowStore.getState();
+  return toBackendWorkflow(nodes as Node<WorkflowNodeData>[], edges, workflowName, workflowId, { tests, testDefaults, nodeRenames });
+}
+
+/**
+ * PUTs the draft with its tests. Clears the recorded renames after a successful save. A 409 "Locked tests can't be
+ * changed" gets a toast, then the error is rethrown for the caller.
+ */
+export async function updateWorkflowDraft(workflowId: string) {
+  const sent = { ...useWorkflowStore.getState().nodeRenames };
+  try {
+    const result = await workflowsApi.update(workflowId, buildSavePayload(workflowId));
+    // renames made while the request was in flight are kept for the next save
+    const left = { ...useWorkflowStore.getState().nodeRenames };
+    for (const k of Object.keys(sent)) if (left[k] === sent[k]) delete left[k];
+    useWorkflowStore.setState({ nodeRenames: left });
+    useWorkflowStore.getState().markAsSaved();
+    return result;
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 409) {
+      const d = (e.body as { detail?: { message?: string; test_ids?: string[] } } | null)?.detail;
+      if (d && Array.isArray(d.test_ids)) {
+        toast.error("Locked tests can't be changed", {
+          description: `Unlock ${d.test_ids.length === 1 ? 'it' : 'them'} in the Tests tab first (${d.test_ids.join(', ')}).`,
+        });
+      }
+    }
+    throw e;
+  }
 }
 
 /** Turns a failed API call into a message (409 `missing_nodes` becomes a plain sentence). */

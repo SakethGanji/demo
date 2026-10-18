@@ -239,7 +239,34 @@ class ReleaseService:
         breaking = [c for c in changes if c["breaking"]]
         checks.append({"id": "breaking_vs_active", "status": "warn" if breaking else "pass",
                        "details": {"against": active.id if active else None, "changes": breaking}})
+        # 7. workflow_tests_pass: one per workflow in the snapshot; an approved test that fails blocks the release
+        checks.extend(await self._workflow_test_checks(snapshot))
         return checks
+
+    async def _workflow_test_checks(self, snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+        from ..db.models import WorkflowVersionModel
+        from ..repositories.workflow_repository import WorkflowRepository
+        from .scorecard import failing_approved_tests
+
+        out: list[dict[str, Any]] = []
+        repo = WorkflowRepository(self._s)
+        for pin in snapshot.get("workflows") or []:
+            wid, vid = pin["workflow_id"], pin.get("version_id")
+            stored = await repo.get(wid)
+            if stored is None:
+                continue
+            definition = None  # -1 means a dry run: the draft would be the version
+            if vid not in (None, -1):
+                v = await self._s.get(WorkflowVersionModel, vid)
+                definition = v.definition if v else None
+            failed = await failing_approved_tests(repo, stored, definition)
+            out.append({
+                "id": "workflow_tests_pass", "status": "fail" if failed else "pass",
+                "message": (f"{stored.name}: {len(failed)} approved test(s) fail" if failed
+                            else f"{stored.name}: approved tests pass"),
+                "details": {"workflow_id": wid, "name": stored.name, "version_id": vid, "failed_tests": failed},
+            })
+        return out
 
     # ── writes ───────────────────────────────────────────────────────────
 

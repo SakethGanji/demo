@@ -22,6 +22,7 @@ import { Tile, Callout } from '@/shared/components/ui/surface';
 import type { Node } from '@xyflow/react';
 import type { WorkflowNodeData, OnErrorMode } from '../../types/workflow';
 import { useWorkflowStore } from '../../stores/workflowStore';
+import { isExtensionOwnedParam } from '../../lib/jsonParam';
 import DynamicNodeForm, { type NodeProperty, type OutputSchema } from './DynamicNodeForm';
 import { useNodeTypes } from '../../hooks/useNodeTypes';
 import { getNodeExtensions } from './extensions/NodeExtensions';
@@ -69,6 +70,12 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
 
   // Get the schema for this node type (type is already backend format)
   const nodeSchema = nodeTypes?.find((n) => n.type === node.data.type);
+
+  const nodeType = node.data.type;
+  const formProperties = useMemo(
+    () => ((nodeSchema?.properties ?? []) as NodeProperty[]).filter((p) => !isExtensionOwnedParam(nodeType, p.name, nodeParams)),
+    [nodeSchema, nodeType, nodeParams],
+  );
 
   const upstreamNodeSchema = upstreamNode?.data?.type
     ? nodeTypes?.find((n) => n.type === upstreamNode.data.type)
@@ -128,7 +135,7 @@ export default function NodeSettings({ node }: NodeSettingsProps) {
                     </div>
                   ) : nodeSchema && nodeSchema.properties.length > 0 ? (
                     <DynamicNodeForm
-                      properties={nodeSchema.properties as NodeProperty[]}
+                      properties={formProperties}
                       values={nodeParams}
                       onChange={handleParamChange}
                       allValues={nodeParams}

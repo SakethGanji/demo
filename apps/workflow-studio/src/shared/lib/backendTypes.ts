@@ -6,6 +6,7 @@
  */
 
 import type { NodeContractOverride } from '@/features/workflow-editor/lib/shapes';
+import type { TestCase, TestDefaults } from '@/features/workflow-editor/lib/tests';
 
 // Individual node data item (backend format)
 export interface BackendNodeData {
@@ -47,6 +48,11 @@ export interface BackendWorkflow {
   connections: BackendConnection[];
   project_id?: string;
   settings?: Record<string, unknown>;
+  /** CONTRACTS-STAGE3A §1 */
+  tests?: TestCase[];
+  test_defaults?: TestDefaults;
+  /** {old: new} node renames since the last save, so a rename never trips the test lock */
+  node_renames?: Record<string, string>;
 }
 
 // Summary returned by GET /api/workflows (list endpoint)
@@ -137,5 +143,7 @@ export interface ApiWorkflowDetail {
       target_input: string;
       waypoints?: Array<{ x: number; y: number }>;
     }>;
+    tests?: TestCase[];
+    test_defaults?: TestDefaults;
   };
 }

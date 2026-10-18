@@ -5,7 +5,8 @@ A shape is a plain dict::
     {"type": "object"|"array"|"string"|"integer"|"number"|"boolean"|"null"|"unknown",
      "properties"?: {name: Shape}, "items"?: Shape, "required"?: [str], "enum"?: [...],
      "format"?: str, "nullable"?: bool,
-     "x-source"?: "derived"|"declared"|"observed"|"unknown"}
+     "minimum"?: number, "maximum"?: number, "minLength"?: int, "maxLength"?: int, "pattern"?: str,
+     "x-source"?: "derived"|"declared"|"spec"|"observed"|"unknown"}
 
 Conventions that the checker and the studio rely on:
 
@@ -33,7 +34,7 @@ Shape = dict[str, Any]
 Path = Sequence["str | int"]
 
 TYPES = ("object", "array", "string", "integer", "number", "boolean", "null", "unknown")
-SOURCES = ("derived", "declared", "observed", "unknown")
+SOURCES = ("derived", "declared", "spec", "observed", "unknown")  # "spec" (an API spec) counts like "declared"
 SCALARS = ("string", "integer", "number", "boolean", "null")
 
 UNKNOWN: Shape = {"type": "unknown", "x-source": "unknown"}
@@ -52,6 +53,13 @@ class NodeContract(TypedDict):
 
 #: Cap on how many sample items ``from_sample`` merges (keeps learn cheap on big outputs).
 MAX_SAMPLE_ITEMS = 200
+
+_NUMBER_KEYWORDS = ("minimum", "maximum")
+_LENGTH_KEYWORDS = ("minLength", "maxLength")
+
+
+def _is_number(v: Any) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
 
 
 # ── constructors ─────────────────────────────────────────────────────────────────────────────
@@ -157,6 +165,14 @@ def _normalize(raw: Any, source: str, depth: int) -> Shape:
         out["enum"] = list(raw["enum"])
     if isinstance(raw.get("format"), str):
         out["format"] = raw["format"]
+    for key in _NUMBER_KEYWORDS:
+        if _is_number(raw.get(key)):
+            out[key] = raw[key]
+    for key in _LENGTH_KEYWORDS:
+        if isinstance(raw.get(key), int) and not isinstance(raw.get(key), bool):
+            out[key] = raw[key]
+    if isinstance(raw.get("pattern"), str):
+        out["pattern"] = raw["pattern"]
     if nullable:
         out["nullable"] = True
     out["x-source"] = source
@@ -265,7 +281,7 @@ def merge_all(shapes: Iterable[Shape]) -> Shape:
 
 def _src(a: Shape, b: Shape) -> str:
     """The more tentative provenance of the two (unknown < observed < declared < derived)."""
-    order = {"unknown": 0, "observed": 1, "declared": 2, "derived": 3}
+    order = {"unknown": 0, "observed": 1, "declared": 2, "spec": 2, "derived": 3}
     sa, sb = a.get("x-source", "derived"), b.get("x-source", "derived")
     return sa if order.get(sa, 3) <= order.get(sb, 3) else sb
 
@@ -417,3 +433,113 @@ def expression_value_shape(value: Any, item: Shape) -> Shape:
     if isinstance(value, list):
         return array_of(merge_all(expression_value_shape(v, item) for v in value) if value else None)
     return from_value(value)
+
+
+# ── validation of concrete values ────────────────────────────────────────────────────────────
+
+
+class Violation(TypedDict):
+    """One place where a value breaks a shape (``path`` is dotted with ``[i]``, ``""`` = the root)."""
+
+    path: str
+    expected: Any
+    actual: Any
+    message: str
+
+
+def _type_name(value: Any) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, int):
+        return "integer"
+    if isinstance(value, float):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, (list, tuple)):
+        return "array"
+    if isinstance(value, dict):
+        return "object"
+    return type(value).__name__
+
+
+def _type_ok(expected: str, value: Any) -> bool:
+    if expected == "integer":
+        return (isinstance(value, int) and not isinstance(value, bool)) or (isinstance(value, float) and value.is_integer())
+    if expected == "number":
+        return _is_number(value)
+    if expected == "string":
+        return isinstance(value, str)
+    if expected == "boolean":
+        return isinstance(value, bool)
+    if expected == "object":
+        return isinstance(value, dict)
+    if expected == "array":
+        return isinstance(value, (list, tuple))
+    if expected == "null":
+        return value is None
+    return True
+
+
+def _join(path: str, key: str | int) -> str:
+    if isinstance(key, int):
+        return f"{path}[{key}]"
+    return f"{path}.{key}" if path else str(key)
+
+
+def validate(shape: Shape | None, value: Any, path: str = "") -> list[Violation]:
+    """Check one concrete value against a shape; returns every violation (empty = valid).
+
+    ``unknown`` shapes (and a missing shape) accept anything. Extra object properties are allowed; a
+    ``required`` property that is missing, a wrong type, an ``enum`` miss and a keyword miss
+    (minimum/maximum/minLength/maxLength/pattern) are violations. ``nullable`` allows null.
+    """
+    out: list[Violation] = []
+    _validate(shape, value, path, out, 0)
+    return out
+
+
+def _validate(shape: Shape | None, value: Any, path: str, out: list[Violation], depth: int) -> None:
+    if is_unknown(shape) or depth > 30:
+        return
+    assert shape is not None
+    t = shape.get("type", "unknown")
+    if value is None:
+        if t != "null" and not shape.get("nullable"):
+            out.append({"path": path, "expected": t, "actual": "null", "message": f"expected {t}, got null"})
+        return
+    if not _type_ok(t, value):
+        out.append({"path": path, "expected": t, "actual": _type_name(value), "message": f"expected {t}, got {_type_name(value)}"})
+        return
+    if isinstance(shape.get("enum"), list) and value not in shape["enum"]:
+        out.append({"path": path, "expected": shape["enum"], "actual": value, "message": f"value is not one of {shape['enum']}"})
+    if t in ("integer", "number"):
+        if _is_number(shape.get("minimum")) and value < shape["minimum"]:
+            out.append({"path": path, "expected": f">= {shape['minimum']}", "actual": value, "message": f"{value} is below the minimum {shape['minimum']}"})
+        if _is_number(shape.get("maximum")) and value > shape["maximum"]:
+            out.append({"path": path, "expected": f"<= {shape['maximum']}", "actual": value, "message": f"{value} is above the maximum {shape['maximum']}"})
+    elif t == "string":
+        if isinstance(shape.get("minLength"), int) and len(value) < shape["minLength"]:
+            out.append({"path": path, "expected": f"length >= {shape['minLength']}", "actual": len(value), "message": f"text is shorter than {shape['minLength']}"})
+        if isinstance(shape.get("maxLength"), int) and len(value) > shape["maxLength"]:
+            out.append({"path": path, "expected": f"length <= {shape['maxLength']}", "actual": len(value), "message": f"text is longer than {shape['maxLength']}"})
+        if isinstance(shape.get("pattern"), str):
+            try:
+                ok = re.search(shape["pattern"], value) is not None
+            except re.error:
+                ok = True  # an unusable pattern never fails a run
+            if not ok:
+                out.append({"path": path, "expected": f"matches {shape['pattern']}", "actual": value, "message": f"text does not match {shape['pattern']}"})
+    elif t == "object":
+        props = shape.get("properties") if isinstance(shape.get("properties"), dict) else {}
+        for name in shape.get("required") or []:
+            if name not in value:
+                out.append({"path": _join(path, name), "expected": "required", "actual": "missing", "message": f"required property '{name}' is missing"})
+        for name, child in props.items():
+            if name in value:
+                _validate(child, value[name], _join(path, name), out, depth + 1)
+    elif t == "array" and isinstance(shape.get("items"), dict):
+        for i, el in enumerate(value):
+            _validate(shape["items"], el, _join(path, i), out, depth + 1)

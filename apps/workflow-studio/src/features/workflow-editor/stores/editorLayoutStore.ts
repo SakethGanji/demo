@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { NodeCreatorView } from '../types/workflow';
 
-export type BottomPanelTab = 'logs' | 'input' | 'problems';
+export type BottomPanelTab = 'logs' | 'input' | 'problems' | 'tests';
 export type RightPanelTab = 'nodes' | 'ai';
 type CanvasMode = 'pointer' | 'hand';
 
@@ -80,6 +80,7 @@ interface EditorLayoutState {
   toggleBottomPanel: () => void;
   setBottomPanelTab: (tab: BottomPanelTab) => void;
   openBottomPanel: (tab?: BottomPanelTab) => void;
+  showBottomTab: (tab: BottomPanelTab) => void;
   closeBottomPanel: () => void;
   toggleBottomPanelMaximized: () => void;
 
@@ -171,6 +172,13 @@ export const useEditorLayoutStore = create<EditorLayoutState>((set, get) => ({
       if (tab) persist('bottom-tab', tab);
       return { bottomPanelOpen: true, ...(tab ? { bottomPanelTab: tab } : {}) };
     }),
+
+  /** Open the bottom panel on `tab` (never toggles it closed, unlike `openBottomPanel`). */
+  showBottomTab: (tab) => {
+    persist('bottom-open', true);
+    persist('bottom-tab', tab);
+    set({ bottomPanelOpen: true, bottomPanelTab: tab });
+  },
 
   closeBottomPanel: () => {
     persist('bottom-open', false);

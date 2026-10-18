@@ -58,10 +58,12 @@ class CurrentTimeToolNode(ConfigProvider):
     @staticmethod
     def _execute(tz: str) -> dict[str, Any]:
         """Execute the current time tool."""
+        from ....engine.test_mode import current_time  # frozen inside a test run
+
         if tz == "UTC":
-            now = datetime.now(timezone.utc)
+            now = current_time(timezone.utc)
         else:
-            now = datetime.now()
+            now = current_time()
 
         return {
             "datetime": now.isoformat(),

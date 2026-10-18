@@ -23,9 +23,10 @@ ExecutionServiceDep = Annotated[ExecutionService, Depends(get_execution_service)
 async def list_executions(
     service: ExecutionServiceDep,
     workflow_id: str | None = Query(None, description="Filter by workflow ID"),
+    include_test: bool = Query(False, description="Also list test runs (mode=test)"),
 ) -> list[ExecutionListItem]:
     """List execution history."""
-    return await service.list_executions(workflow_id)
+    return await service.list_executions(workflow_id, include_test=include_test)
 
 
 @router.get("/{execution_id}", response_model=ExecutionDetailResponse)

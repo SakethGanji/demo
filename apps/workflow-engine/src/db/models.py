@@ -644,3 +644,19 @@ class ReleaseModel(SQLModel, table=True):
     notes: str | None = Field(default=None)
     created_by: str | None = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.now)
+
+
+class ApiSpecModel(SQLModel, table=True):
+    """A registered API (Stage 3A catalog): the normalised OpenAPI document, ``spec = {"operations": [...]}``."""
+
+    __tablename__ = "api_specs"
+
+    id: str = Field(primary_key=True)
+    project_id: str = Field(default=DEFAULT_PROJECT_ID, foreign_key="projects.id", index=True)
+    name: str
+    base_url: str = Field(default="")
+    spec: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB, nullable=False))
+    source: str = Field(default="paste")  # paste | upload | url | example
+    source_url: str | None = Field(default=None)
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)

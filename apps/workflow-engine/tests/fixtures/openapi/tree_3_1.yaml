@@ -1,0 +1,51 @@
+openapi: 3.1.0
+info:
+  title: Tree & Nullable (3.1)
+  version: 0.1.0
+servers:
+  - url: https://{region}.example.com/v1
+    variables:
+      region:
+        default: eu
+paths:
+  /nodes/{id}:
+    get:
+      operationId: getNode
+      parameters:
+        - $ref: "#/components/parameters/NodeId"
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Node"
+              examples:
+                one:
+                  value: {id: n1, label: root, children: []}
+components:
+  parameters:
+    NodeId:
+      name: id
+      in: path
+      required: true
+      schema: {type: string}
+  schemas:
+    Node:
+      type: object
+      required: [id]
+      properties:
+        id: {type: string, minLength: 2, maxLength: 8, pattern: "^n"}
+        label: {type: [string, "null"]}
+        count: {type: integer, minimum: 0}
+        children:
+          type: array
+          items:
+            $ref: "#/components/schemas/Node"
+        meta:
+          allOf:
+            - type: object
+              properties: {a: {type: string}}
+              required: [a]
+            - type: object
+              properties: {b: {type: integer}}

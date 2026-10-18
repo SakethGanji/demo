@@ -237,12 +237,12 @@ class ProjectService:
 
     async def last_run_and_health(self, project_id: str) -> tuple[dict | None, dict]:
         last = (await self._s.execute(
-            select(ExecutionModel).where(ExecutionModel.project_id == project_id).order_by(ExecutionModel.start_time.desc()).limit(1)
+            select(ExecutionModel).where(ExecutionModel.project_id == project_id, ExecutionModel.mode != "test").order_by(ExecutionModel.start_time.desc()).limit(1)
         )).scalars().first()
         since = datetime.now() - timedelta(hours=24)
         rows = (await self._s.execute(
             select(ExecutionModel.status, func.count()).where(
-                ExecutionModel.project_id == project_id, ExecutionModel.start_time >= since
+                ExecutionModel.project_id == project_id, ExecutionModel.mode != "test", ExecutionModel.start_time >= since
             ).group_by(ExecutionModel.status)
         )).all()
         total = sum(n for _, n in rows)

@@ -13,6 +13,7 @@ import type { Node, Edge } from '@xyflow/react';
 import type { WorkflowNodeData } from '../types/workflow';
 import type { WorkflowDefinition } from '@/features/projects/hooks/useWorkflows';
 import { getNodeIcon, isTriggerType, normalizeNodeGroup } from './nodeConfig';
+import type { TestCase, TestDefaults } from './tests';
 import { createWorkflowNodeData, getDefaultIO } from './createNodeData';
 import type {
   BackendNodeDefinition,
@@ -68,7 +69,8 @@ export function toBackendWorkflow(
   nodes: Node<WorkflowNodeData>[],
   edges: Edge[],
   workflowName: string,
-  workflowId?: string
+  workflowId?: string,
+  testData?: { tests: TestCase[]; testDefaults: TestDefaults; nodeRenames?: Record<string, string> },
 ): BackendWorkflow {
   // Filter to workflow nodes (exclude addNodes placeholder and sticky notes)
   const workflowNodes = nodes.filter(
@@ -131,6 +133,13 @@ export function toBackendWorkflow(
     name: workflowName,
     nodes: backendNodes,
     connections,
+    ...(testData
+      ? {
+          tests: testData.tests,
+          test_defaults: testData.testDefaults,
+          ...(testData.nodeRenames && Object.keys(testData.nodeRenames).length > 0 ? { node_renames: testData.nodeRenames } : {}),
+        }
+      : {}),
   };
 }
 
@@ -197,6 +206,8 @@ export function fromBackendWorkflow(api: ApiWorkflowDetail): {
   workflowName: string;
   workflowId: string;
   isActive: boolean;
+  tests: TestCase[];
+  testDefaults: TestDefaults;
 } {
   // Build name to ID map (we use the name as the ID for simplicity)
   // Node types use backend PascalCase format directly
@@ -264,6 +275,8 @@ export function fromBackendWorkflow(api: ApiWorkflowDetail): {
     workflowName: api.name,
     workflowId: api.id,
     isActive: api.active,
+    tests: api.definition.tests ?? [],
+    testDefaults: api.definition.test_defaults ?? { mocks: {} },
   };
 }
 

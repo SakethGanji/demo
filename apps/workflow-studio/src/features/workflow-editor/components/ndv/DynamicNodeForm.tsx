@@ -11,6 +11,7 @@ import { Input } from '@/shared/components/ui/input';
 import { Switch } from '@/shared/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/components/ui/select';
 import ExpressionEditor from './ExpressionEditor';
+import { jsonFieldText } from '../../lib/jsonParam';
 import CodeEditor from '@/shared/components/ui/code-editor';
 import { WorkflowSelectorField } from './WorkflowSelectorField';
 import { FilePathField } from './FilePathField';
@@ -859,13 +860,8 @@ function JsonField({
   const rows = property.typeOptions?.rows ?? 6;
   const language = property.typeOptions?.language ?? 'json';
 
-  // Convert value to string for editing
-  const stringValue =
-    typeof value === 'string'
-      ? value
-      : value !== undefined
-        ? JSON.stringify(value, null, 2)
-        : (property.default as string) ?? '';
+  // Convert value to string for editing (objects, null and numbers must never reach the editor raw)
+  const stringValue = jsonFieldText(value, property.default);
 
   const handleChange = (newValue: string) => {
     // For JavaScript code, keep as string

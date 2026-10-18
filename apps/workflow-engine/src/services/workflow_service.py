@@ -126,6 +126,8 @@ class WorkflowService:
         # Validate updated nodes/connections if provided
         self._validate_update(request, existing)
 
+        tests, test_defaults = self._merge_tests(existing.workflow, request)
+
         # Build updated workflow from existing + request
         internal_workflow = Workflow(
             name=request.name or existing.workflow.name,
@@ -134,6 +136,8 @@ class WorkflowService:
             id=workflow_id,
             description=request.description or existing.workflow.description,
             settings=request.settings or existing.workflow.settings,
+            tests=tests,
+            test_defaults=test_defaults,
         )
 
         project_id = await self._resolve_project_id(getattr(request, "project_id", None))
@@ -155,6 +159,63 @@ class WorkflowService:
             created_at=updated.created_at.isoformat(),
             updated_at=updated.updated_at.isoformat(),
         )
+
+    @staticmethod
+    def _merge_tests(existing: Workflow, request: WorkflowUpdateRequest) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """Tests and test_defaults after a save: renames first, then the lock rules (409 via LockedTestsError)."""
+        from ..engine.test_mode import locked_test_ids, rename_node_in_test_defaults, rename_node_in_tests
+        from ..schemas.workflow import normalize_tests
+
+        stored = normalize_tests(existing.tests)
+        defaults = dict(existing.test_defaults or {})
+        for old, new in (request.node_renames or {}).items():
+            stored = rename_node_in_tests(stored, old, new)
+            defaults = rename_node_in_test_defaults(defaults, old, new)
+        if request.tests is None:
+            tests = stored
+        else:
+            tests = [t.to_stored() for t in request.tests]
+            if bad := locked_test_ids(stored, tests):
+                from ..engine.test_mode import LockedTestsError
+
+                raise LockedTestsError(bad)
+        if request.test_defaults is not None:
+            defaults = request.test_defaults.to_stored()
+        return tests, defaults
+
+    async def _set_test_state(self, workflow_id: str, test_id: str, change: dict[str, Any], drop: tuple[str, ...] = ()) -> WorkflowDetailResponse:
+        """Apply ``change`` (and remove the ``drop`` keys) on one stored test and save the draft."""
+        from ..engine.test_mode import TestNotFoundError
+        from ..schemas.workflow import normalize_tests
+
+        existing = await self._workflow_repo.get(workflow_id)
+        if not existing:
+            raise WorkflowNotFoundError(workflow_id)
+        tests = normalize_tests(existing.workflow.tests)
+        target = next((t for t in tests if t["id"] == test_id), None)
+        if target is None:
+            raise TestNotFoundError(test_id)
+        for key in drop:
+            target.pop(key, None)
+        target.update(change)
+        wf = existing.workflow
+        wf.tests = normalize_tests(tests)
+        updated = await self._workflow_repo.update(workflow_id, wf)
+        if not updated:
+            raise WorkflowNotFoundError(workflow_id)
+        return await self.get_workflow(workflow_id)
+
+    async def approve_test(self, workflow_id: str, test_id: str, approved_by: str) -> WorkflowDetailResponse:
+        """Approve (and so lock) one test."""
+        return await self._set_test_state(workflow_id, test_id, {
+            "status": "approved", "locked": True, "approved_by": approved_by,
+            "approved_at": datetime.now().isoformat(),
+        })
+
+    async def unlock_test(self, workflow_id: str, test_id: str, by: str) -> WorkflowDetailResponse:
+        """Unlock one test: back to a draft, approval cleared."""
+        return await self._set_test_state(workflow_id, test_id, {"status": "draft", "locked": False},
+                                          drop=("approved_by", "approved_at"))
 
     async def delete_workflow(self, workflow_id: str) -> bool:
         """Delete a workflow (refused while it is an API route handler)."""
@@ -232,6 +293,13 @@ class WorkflowService:
         if errors:
             raise WorkflowHasErrorsError(errors)
 
+        # Approved tests are the safety net: any that fails blocks publishing (drafts never do).
+        from .scorecard import failing_approved_tests
+        failed = await failing_approved_tests(self._workflow_repo, stored)
+        if failed:
+            from ..core.exceptions import ApprovedTestsFailError
+            raise ApprovedTestsFailError(failed)
+
         # Webhook paths are globally unique (unique index on active_triggers.webhook_path): refuse a path another
         # workflow already owns with a clear error instead of failing later with a 500 from the database.
         paths = {(n.parameters or {}).get("path") for n in stored.workflow.nodes if n.type == "Webhook"}
@@ -274,6 +342,31 @@ class WorkflowService:
             active=True,
             version_id=db_workflow.published_version_id,
         )
+
+    async def score(self, workflow_id: str, definition: dict[str, Any] | None = None, mutations: bool = True, repeat: int = 0) -> dict[str, Any]:
+        """The scorecard (services/scorecard.py). Never saves."""
+        from .scorecard import score
+
+        stored = await self._workflow_repo.get(workflow_id)
+        if not stored:
+            raise WorkflowNotFoundError(workflow_id)
+        return await score(self._workflow_repo, stored, definition, mutations=mutations, repeat=repeat)
+
+    async def apply_ops(self, workflow_id: str, ops: list[dict[str, Any]], dry_run: bool = False) -> dict[str, Any]:
+        """Apply toolkit ops to the draft; returns ``{definition, check}``. Saves only when ``dry_run`` is false."""
+        from ..repositories.workflow_repository import definition_to_workflow, workflow_to_definition
+        from .workflow_toolkit import apply_ops
+
+        stored = await self._workflow_repo.get(workflow_id)
+        if not stored:
+            raise WorkflowNotFoundError(workflow_id)
+        definition = apply_ops(workflow_to_definition(stored.workflow), ops)
+        if not dry_run:
+            updated = await self._workflow_repo.update(
+                workflow_id, definition_to_workflow(definition, stored.name, stored.id, stored.workflow.description))
+            if not updated:
+                raise WorkflowNotFoundError(workflow_id)
+        return {"definition": definition, "check": await self.check(workflow_id, definition)}
 
     async def check(self, workflow_id: str, definition: dict[str, Any] | None = None, environment: str | None = None) -> dict[str, Any]:
         """Run the mistake checker on ``definition`` (default: the stored draft). Never saves."""
@@ -401,6 +494,15 @@ class WorkflowService:
             workflow_id, name, execution_id, environment=environment)
         return self._build_execution_response(context)
 
+    async def run_tests(self, workflow_id: str, ids: list[str] | None = None, definition: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Run the workflow's tests (see services/test_runner.py). Never saves the workflow."""
+        from .test_runner import run_tests
+
+        stored = await self._workflow_repo.get(workflow_id)
+        if not stored:
+            raise WorkflowNotFoundError(workflow_id)
+        return await run_tests(self._workflow_repo, stored, definition, ids=ids, persist=True)
+
     async def learn_contract(self, workflow_id: str, name: str, execution_id: str | None = None) -> dict[str, Any]:
         """Infer a node's output shape from a saved execution (nothing is saved)."""
         from .contract_service import ContractService
@@ -492,6 +594,7 @@ class WorkflowService:
             project_id=project_id or "proj_default", environment=env,
         )
 
+        from .api_catalog import load_api_specs
         context = await runner.run(
             internal_workflow,
             start_node.name,
@@ -503,6 +606,7 @@ class WorkflowService:
             secret_values=secrets,
             project_id=project_id,
             environment=env,
+            extras={"api_specs": await load_api_specs(self._workflow_repo._session, internal_workflow.nodes)},
         )
         await self._execution_repo.complete(context, wf_id, internal_workflow.name)
 
@@ -667,6 +771,8 @@ class WorkflowService:
                 for c in workflow.connections
             ],
             "settings": workflow.settings,
+            "tests": list(workflow.tests or []),
+            "test_defaults": dict(workflow.test_defaults or {}),
         }
 
     def _build_execution_response(self, context: Any) -> ExecutionResponse:

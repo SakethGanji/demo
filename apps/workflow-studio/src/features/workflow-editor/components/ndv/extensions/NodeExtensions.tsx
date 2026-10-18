@@ -6,6 +6,7 @@ import { useWorkflowStore } from '../../../stores/workflowStore';
 import { backends } from '@/shared/lib/config';
 import type { ParsedCurlResult } from '../../../lib/parseCurl';
 import ImportCurlDialog from '../ImportCurlDialog';
+import ApiEndpointExtension from './ApiEndpointExtension';
 
 // --- Shared interface ---
 
@@ -19,7 +20,7 @@ type NodeExtensionComponent = React.ComponentType<NodeExtensionProps>;
 
 const nodeExtensions: Record<string, NodeExtensionComponent[]> = {
   Webhook: [WebhookUrlExtension],
-  HttpRequest: [CurlImportExtension],
+  HttpRequest: [ApiEndpointExtension, CurlImportExtension],
 };
 
 export function getNodeExtensions(nodeType: string): NodeExtensionComponent[] {

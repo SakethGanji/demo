@@ -28,8 +28,12 @@ import {
   Bot,
   Copy,
   Check,
+  FlaskConical,
 } from 'lucide-react';
 import { useWorkflowStore } from '../../stores/workflowStore';
+import { useTestStore } from '../../stores/testStore';
+import { saveExecutionAsTest } from '../../lib/testActions';
+import { Button } from '@/shared/components/ui/button';
 import { cn } from '@/shared/lib/utils';
 import { Segmented } from '@/shared/components/ui/segmented';
 import { Callout } from '@/shared/components/ui/surface';
@@ -285,6 +289,10 @@ export default function ExecutionLogsPanel() {
   const executionData = useWorkflowStore((s) => s.executionData);
   const nodes = useWorkflowStore((s) => s.nodes);
   const clearExecutionData = useWorkflowStore((s) => s.clearExecutionData);
+  const viewingId = useWorkflowStore((s) => s.viewingExecution?.id ?? null);
+  const lastExecutionId = useTestStore((s) => s.lastExecutionId);
+  const savingFromRun = useTestStore((s) => s.savingFromRun);
+  const runExecutionId = viewingId ?? lastExecutionId;
 
   // Convert execution data to logs format
   const logs: ExecutionLog[] = useMemo(() =>
@@ -396,6 +404,18 @@ export default function ExecutionLogsPanel() {
             </>
           )}
         </div>
+        <div className="flex items-center gap-1">
+        {hasLogs && !isRunning && runExecutionId && (
+          <Button
+            variant="ghost"
+            size="xs"
+            disabled={savingFromRun}
+            onClick={() => void saveExecutionAsTest(runExecutionId)}
+            data-testid="save-as-test"
+          >
+            {savingFromRun ? <Loader2 className="animate-spin" /> : <FlaskConical />} Save as test
+          </Button>
+        )}
         <button
           onClick={handleClear}
           disabled={!hasLogs}
@@ -406,6 +426,7 @@ export default function ExecutionLogsPanel() {
         >
           <Trash2 size={12} />
         </button>
+        </div>
       </div>
 
       {/* Content */}

@@ -125,6 +125,14 @@ class MissingNodeDataError(WorkflowEngineError):
         self.missing_nodes = missing_nodes
 
 
+class ApprovedTestsFailError(WorkflowEngineError):
+    """Publish blocked: an approved test fails (HTTP 422)."""
+
+    def __init__(self, failed_tests: list[dict[str, Any]]) -> None:
+        super().__init__("Approved tests fail", {"failed_tests": failed_tests})
+        self.failed_tests = failed_tests
+
+
 class WorkflowHasErrorsError(WorkflowEngineError):
     """Publish blocked: the mistake checker found error-level findings (HTTP 422)."""
 

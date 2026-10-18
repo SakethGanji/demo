@@ -15,10 +15,12 @@ from ..core.exceptions import (
     WorkflowExecutionError,
     ValidationError,
     WorkflowHasErrorsError,
+    ApprovedTestsFailError,
 )
 from ..core.dependencies import get_workflow_service
 from ..services.project_service import ProjectError
 from ..services.workflow_service import WorkflowService
+from ..services.workflow_toolkit import OpError
 from ..schemas.workflow import (
     WorkflowCreateRequest,
     WorkflowUpdateRequest,
@@ -33,7 +35,13 @@ from ..schemas.workflow import (
     ContractLearnRequest,
     ContractLearnResponse,
     ContractApproveRequest,
+    TestApproveRequest,
+    TestUnlockRequest,
+    TestRunRequest,
+    ScoreRequest,
+    ApplyOpsRequest,
 )
+from ..engine.test_mode import LockedTestsError, TestNotFoundError
 from ..schemas.execution import ExecutionResponse, NodeTestRequest, RunFromRequest, RunWorkflowRequest
 from ..schemas.common import SuccessResponse
 
@@ -91,6 +99,8 @@ async def update_workflow(
         raise HTTPException(status_code=404, detail=e.message)
     except ConflictError as e:
         raise HTTPException(status_code=409, detail={"code": e.code, "message": e.message})
+    except LockedTestsError as e:
+        raise HTTPException(status_code=409, detail={"message": e.message, "test_ids": e.test_ids})
     except ValidationError as e:
         raise HTTPException(status_code=400, detail=e.message)
 
@@ -124,6 +134,8 @@ async def publish_workflow(
         raise HTTPException(status_code=404, detail=e.message)
     except WorkflowHasErrorsError as e:
         raise HTTPException(status_code=422, detail={"message": e.message, "findings": e.findings})
+    except ApprovedTestsFailError as e:
+        raise HTTPException(status_code=422, detail={"message": e.message, "failed_tests": e.failed_tests})
     except ValidationError as e:
         raise HTTPException(status_code=400, detail=e.message)
 
@@ -312,6 +324,86 @@ async def restore_version(
         return await service.restore_version(workflow_id, version_id)
     except WorkflowNotFoundError as e:
         raise HTTPException(status_code=404, detail=e.message)
+
+
+@router.post("/{workflow_id}/tests/{test_id}/approve", response_model=WorkflowDetailResponse)
+async def approve_test(
+    workflow_id: str,
+    test_id: str,
+    body: TestApproveRequest,
+    service: WorkflowServiceDep,
+) -> WorkflowDetailResponse:
+    """Approve a test: it becomes locked until someone unlocks it."""
+    try:
+        return await service.approve_test(workflow_id, test_id, body.approved_by)
+    except (WorkflowNotFoundError, TestNotFoundError) as e:
+        raise HTTPException(status_code=404, detail=e.message)
+
+
+@router.post("/{workflow_id}/tests/{test_id}/unlock", response_model=WorkflowDetailResponse)
+async def unlock_test(
+    workflow_id: str,
+    test_id: str,
+    body: TestUnlockRequest,
+    service: WorkflowServiceDep,
+) -> WorkflowDetailResponse:
+    """Unlock an approved test: back to a draft."""
+    try:
+        return await service.unlock_test(workflow_id, test_id, body.by)
+    except (WorkflowNotFoundError, TestNotFoundError) as e:
+        raise HTTPException(status_code=404, detail=e.message)
+
+
+@router.post("/{workflow_id}/tests/run")
+async def run_tests_route(
+    workflow_id: str,
+    service: WorkflowServiceDep,
+    body: TestRunRequest | None = None,
+) -> dict:
+    """Run the workflow's tests (some, or all) against the stored draft or the unsaved ``definition``. Never saves the workflow."""
+    try:
+        return await service.run_tests(workflow_id, body.ids if body else None, body.definition if body else None)
+    except (WorkflowNotFoundError, TestNotFoundError) as e:
+        raise HTTPException(status_code=404, detail=e.message)
+    except ProjectError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail())
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=e.message)
+
+
+@router.post("/{workflow_id}/score")
+async def score_route(
+    workflow_id: str,
+    service: WorkflowServiceDep,
+    body: ScoreRequest | None = None,
+) -> dict:
+    """The scorecard: checker, tests, branch coverage, planted bugs, repeatability, gaps. Never saves."""
+    body = body or ScoreRequest()
+    try:
+        return await service.score(workflow_id, body.definition, body.mutations, body.repeat)
+    except WorkflowNotFoundError as e:
+        raise HTTPException(status_code=404, detail=e.message)
+    except ProjectError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail())
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=e.message)
+
+
+@router.post("/{workflow_id}/apply-ops")
+async def apply_ops_route(
+    workflow_id: str,
+    body: ApplyOpsRequest,
+    service: WorkflowServiceDep,
+) -> dict:
+    """Apply toolkit ops to the draft. ``dry_run`` returns the result without saving."""
+    try:
+        return await service.apply_ops(workflow_id, body.ops, body.dry_run)
+    except OpError as e:
+        raise HTTPException(status_code=400, detail=e.detail())
+    except WorkflowNotFoundError as e:
+        raise HTTPException(status_code=404, detail=e.message)
+    except ProjectError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail())
 
 
 @router.post("/run-adhoc", response_model=ExecutionResponse)

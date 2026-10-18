@@ -6,7 +6,7 @@
  */
 
 import { flushPendingEdits } from '../lib/pendingEdits';
-import { saveDraftForRun, describeActionError } from '../lib/nodeActions';
+import { saveDraftForRun, describeActionError, buildSavePayload, updateWorkflowDraft } from '../lib/nodeActions';
 import { useCallback, useRef } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
@@ -25,6 +25,7 @@ import {
   findUpstreamNodeName,
   buildNameToIdMap,
 } from '../lib/workflowTransform';
+import { showPublishBlocked } from '../lib/testActions';
 import { toast } from 'sonner';
 import type { WorkflowNodeData } from '../types/workflow';
 import type { Node } from '@xyflow/react';
@@ -47,8 +48,7 @@ export function useSaveWorkflow() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, workflow }: { id: string; workflow: BackendWorkflow }) =>
-      workflowsApi.update(id, workflow),
+    mutationFn: ({ id }: { id: string }) => updateWorkflowDraft(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workflows'] });
       queryClient.invalidateQueries({ queryKey: ['project'] });
@@ -61,22 +61,15 @@ export function useSaveWorkflow() {
     isSavingRef.current = true;
     flushPendingEdits();
 
-    const { nodes, edges, workflowName, workflowId } = useWorkflowStore.getState();
-    const backendWorkflow = toBackendWorkflow(
-      nodes as Node<WorkflowNodeData>[],
-      edges,
-      workflowName,
-      workflowId
-    );
+    const { workflowId } = useWorkflowStore.getState();
+    const backendWorkflow = buildSavePayload(workflowId);
 
     try {
       if (workflowId) {
         // Update existing workflow
         const result = await updateMutation.mutateAsync({
           id: workflowId,
-          workflow: backendWorkflow,
         });
-        useWorkflowStore.getState().markAsSaved();
         toast.success('Workflow saved', {
           description: `"${result.name}" has been updated.`,
         });
@@ -347,7 +340,12 @@ export function usePublishWorkflow() {
     } catch (error) {
       // 422 {detail: {message, findings}}: the checker found errors. Show them in the Problems tab.
       if (error instanceof ApiError && error.status === 422) {
-        const detail = (error.body as { detail?: { findings?: Finding[] } } | null)?.detail;
+        const detail = (error.body as { detail?: { findings?: Finding[]; failed_tests?: Array<{ test_id: string; name: string }> } } | null)?.detail;
+        // 422 {detail: {message, failed_tests}}: approved tests fail. Toast them and open the Tests tab.
+        if (detail && Array.isArray(detail.failed_tests)) {
+          showPublishBlocked(detail.failed_tests);
+          return undefined;
+        }
         if (detail && Array.isArray(detail.findings)) {
           const findings = detail.findings;
           const n = findings.filter((f) => f.severity === 'error').length || findings.length;

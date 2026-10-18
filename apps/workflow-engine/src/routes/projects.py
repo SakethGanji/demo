@@ -165,11 +165,13 @@ def _run_item(e) -> dict[str, Any]:
 async def project_runs(project: str, response: Response, limit: int = Query(50, ge=1, le=500), mode: str | None = None,
                        status: str | None = None, before: str | None = None, workflow_id: str | None = None,
                        route_id: str | None = None, environment: str | None = None, trigger: str | None = None,
+                       include_test: bool = False,
                        svc: ProjectService = Depends(get_project_service),
                        exec_repo=Depends(get_execution_repository)):
     p = await require_project(project, svc)
     rows = await exec_repo.list(project_id=p.id, workflow_id=workflow_id, mode=mode, status=status, limit=limit + 1,
-                                before=before, route_id=route_id, environment=environment, trigger=trigger)
+                                before=before, route_id=route_id, environment=environment, trigger=trigger,
+                                include_test=include_test)
     if len(rows) > limit:
         rows = rows[:limit]
         response.headers["X-Next-Cursor"] = rows[-1].id

@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.models import CredentialModel, DataTableModel, WorkflowModel
 from ..repositories.variable_repository import VariableRepository
 from .project_service import effective_environment, resolve_project
+from .api_catalog import project_operations
 from .workflow_checker import StaticLookups
 
 
@@ -39,5 +40,6 @@ async def build_lookups(
         tables=tables,
         workflows=workflows,
         credentials=credentials,
+        api_specs=await project_operations(session, project.id if project else None),
         egress_allowlist=list(((getattr(project, "settings", None) or {}).get("egress_allowlist")) or []),
     )

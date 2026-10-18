@@ -39,7 +39,7 @@ export class EngineApi {
     this.token = s.token
   }
   async raw<T = unknown>(method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<ApiResult<T>> {
-    const url = path.startsWith('http') ? path : `${this.base}${path.startsWith('/api') || path.startsWith('/a/') ? '' : '/api'}${path}`
+    const url = path.startsWith('http') ? path : `${this.base}${path.startsWith('/api/') || path.startsWith('/a/') ? '' : '/api'}${path}`
     const res = await fetch(url, {
       method,
       headers: { 'Content-Type': 'application/json', ...headers },

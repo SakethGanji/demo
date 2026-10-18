@@ -3,7 +3,7 @@
  */
 
 export type ShapeType = 'object' | 'array' | 'string' | 'integer' | 'number' | 'boolean' | 'null' | 'unknown';
-export type ShapeSource = 'derived' | 'declared' | 'observed' | 'unknown';
+export type ShapeSource = 'derived' | 'declared' | 'observed' | 'spec' | 'unknown';
 
 export interface Shape {
   type: ShapeType;
@@ -13,6 +13,11 @@ export interface Shape {
   enum?: unknown[];
   format?: string;
   nullable?: boolean;
+  minimum?: number;
+  maximum?: number;
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
   'x-source'?: ShapeSource;
 }
 
@@ -24,7 +29,9 @@ export interface NodeContract {
 
 export interface NodeContractOverride {
   outputs: Record<string, Shape>;
-  source: 'observed';
+  /** A user-tightened input shape per port; items arriving at the node are checked against it (CONTRACTS-STAGE3A §4). */
+  inputs?: Record<string, Shape>;
+  source: 'observed' | 'declared';
   approved_by: string;
   approved_at: string;
   from_execution: string;

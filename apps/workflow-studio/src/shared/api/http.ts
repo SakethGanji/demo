@@ -102,7 +102,8 @@ export interface RequestOptions extends Omit<RequestInit, 'body'> {
 }
 
 export function apiUrl(path: string, query?: Query): string {
-  const prefix = path.startsWith('/api') || path.startsWith('/a/') || path.startsWith('/execution-stream') ? '' : '/api'
+  // "/api/..." is already prefixed; "/api-specs" is not
+  const prefix = path === '/api' || path.startsWith('/api/') || path.startsWith('/api?') || path.startsWith('/a/') || path.startsWith('/execution-stream') ? '' : '/api'
   let url = `${backends.workflow}${prefix}${path}`
   if (query) {
     const qs = new URLSearchParams()

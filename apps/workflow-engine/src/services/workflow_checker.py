@@ -70,6 +70,7 @@ class CheckLookups(Protocol):
     def table_column_defs(self, id_or_name: str) -> list[dict[str, Any]] | None: ...
     def workflow_exists(self, workflow_id: str) -> bool: ...
     def credential_exists(self, credential_id: str) -> bool: ...
+    def api_operation(self, spec_id: str, operation_id: str) -> dict[str, Any] | None: ...
 
 
 def table_shape(columns: Sequence[Mapping[str, Any]]) -> Shape:
@@ -101,6 +102,7 @@ class StaticLookups:
     workflows: set[str] = field(default_factory=set)
     credentials: set[str] | None = None
     egress_allowlist: list[str] = field(default_factory=list)
+    api_specs: dict[str, dict[str, dict[str, Any]]] = field(default_factory=dict)  # spec id -> operation id -> Operation
 
     def vars_exist(self, name: str) -> bool:
         return name in self.variables or name in self.secrets
@@ -123,6 +125,9 @@ class StaticLookups:
 
     def credential_exists(self, credential_id: str) -> bool:
         return self.credentials is None or credential_id in self.credentials
+
+    def api_operation(self, spec_id: str, operation_id: str) -> dict[str, Any] | None:
+        return (self.api_specs.get(spec_id) or {}).get(operation_id)
 
 
 # ── small helpers ────────────────────────────────────────────────────────────────────────────
@@ -404,8 +409,9 @@ class _Walker:
 
 
 class _Checker:
-    def __init__(self, definition: dict, lookups: CheckLookups) -> None:
+    def __init__(self, definition: dict, lookups: CheckLookups, output_overrides: dict[str, Shape] | None = None) -> None:
         self.lookups = lookups
+        self.output_overrides = output_overrides or {}
         self.findings: list[Finding] = []
         self._seen: set[tuple] = set()
         self.nodes: dict[str, NodeDefinition] = {}
@@ -525,6 +531,13 @@ class _Checker:
                         out[t] = cols
         return out
 
+    def _api_operation(self, node: NodeDefinition) -> dict[str, Any] | None:
+        ref = _api_ref(node)
+        if ref is None:
+            return None
+        op = _call(self.lookups, "api_operation", *ref)
+        return op if isinstance(op, dict) else None
+
     def run(self) -> CheckResult:
         order = self.order()
         table_cols = self._table_columns()
@@ -535,9 +548,11 @@ class _Checker:
             inputs, sources = self._incoming(name)
             inputs_of[name], sources_of[name] = inputs, sources
             try:
-                c = node_contract(node, inputs, table_columns=table_cols or None)
+                c = node_contract(node, inputs, table_columns=table_cols or None, api_operation=self._api_operation(node))
             except Exception:  # a contract must never break the checker
                 c = {"inputs": inputs, "outputs": {"main": sh.unknown()}, "error": sh.unknown()}
+            if name in self.output_overrides:  # a test run replaced this node's output (workflow-target tests: the trigger)
+                c = {**c, "outputs": {**c["outputs"], "main": copy.deepcopy(self.output_overrides[name])}}
             self.shapes[name] = {"inputs": c["inputs"], "outputs": c["outputs"]}
             if any(not sh.is_unknown(s) for p, s in c["outputs"].items() if p != "error"):
                 self.cov["nodes_known_output"] += 1
@@ -585,9 +600,12 @@ class _Checker:
                     return False
             return True
 
+        api_node = node.type == "HttpRequest" and _api_ref(node) is not None
         for p in desc.properties:
             if not visible(p):
                 continue
+            if api_node and p.name in ("url", "method"):
+                continue  # an API-catalog endpoint supplies the method and the URL
             v = params.get(p.name)
             if p.required and _is_empty(v) and _is_empty(p.default) and p.type != "boolean":
                 self.add("WF008", "error", f"'{p.display_name}' is required.", node=node.name, param=p.name)
@@ -728,7 +746,13 @@ class _Checker:
         if isinstance(cred, str) and cred.strip() and "{{" not in cred and not lk.credential_exists(cred):
             self.add("WF006", "error", f"Credential '{cred}' doesn't exist.", node=node.name, param="credentialId", path=cred)
         if node.type == "HttpRequest":
-            self._check_egress(node, params.get("url"))
+            ref = _api_ref(node)
+            if ref is not None:
+                if self._api_operation(node) is None:
+                    self.add("WF006", "error", f"API endpoint '{ref[1]}' isn't in the API catalog.",
+                             node=node.name, param="api_ref", path=ref[1])
+            else:
+                self._check_egress(node, params.get("url"))
 
     def _check_egress(self, node: NodeDefinition, url: Any) -> None:
         allow = list(self.lookups.egress_allowlist or [])
@@ -788,6 +812,16 @@ class _Ctx:
         return " or ".join(self.sources) if self.sources else self.node
 
 
+def _api_ref(node: NodeDefinition) -> tuple[str, str] | None:
+    """(spec_id, operation_id) of an HttpRequest on a catalog endpoint, else None."""
+    if node.type != "HttpRequest":
+        return None
+    ref = (node.parameters or {}).get("api_ref")
+    if isinstance(ref, dict) and isinstance(ref.get("spec_id"), str) and ref["spec_id"]:
+        return ref["spec_id"], str(ref.get("operation_id") or "")
+    return None
+
+
 def _call(lookups: Any, method: str, *args: Any) -> Any:
     fn = getattr(lookups, method, None)
     return fn(*args) if fn else None
@@ -815,10 +849,13 @@ def _node_def(raw: dict) -> NodeDefinition:
     )
 
 
-def check_workflow(definition: dict, *, lookups: CheckLookups) -> CheckResult:
-    """Static check of a workflow definition ``{nodes, connections}``. See the module docstring."""
+def check_workflow(definition: dict, *, lookups: CheckLookups, output_overrides: dict[str, Shape] | None = None) -> CheckResult:
+    """Static check of a workflow definition ``{nodes, connections}``. See the module docstring.
+
+    ``output_overrides`` ``{node: shape}`` replaces a node's ``main`` output shape before it propagates downstream
+    (used by workflow-target tests, whose trigger output is the test's input)."""
     if not node_registry.list():
         from ..engine.node_registry import register_all_nodes
 
         register_all_nodes()
-    return _Checker(definition or {}, lookups).run()
+    return _Checker(definition or {}, lookups, output_overrides).run()

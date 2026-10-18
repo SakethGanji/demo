@@ -71,6 +71,22 @@ class HttpRequestNode(BaseNode):
                 description="The URL to make the request to. Supports expressions.",
             ),
             NodeProperty(
+                display_name="API endpoint",
+                name="api_ref",
+                type="json",
+                default=None,
+                description="Pick an endpoint from the API catalog instead of typing a URL: {spec_id, operation_id}. "
+                            "The method comes from the endpoint and the URL is its base URL plus path.",
+            ),
+            NodeProperty(
+                display_name="Path parameters",
+                name="path_params",
+                type="json",
+                default={},
+                description="Values for {name} placeholders in the endpoint's path. Supports expressions.",
+                display_options={"hide": {"api_ref": [None]}},
+            ),
+            NodeProperty(
                 display_name="Headers",
                 name="headers",
                 type="collection",
@@ -137,7 +153,24 @@ class HttpRequestNode(BaseNode):
     def description(self) -> str:
         return "Makes HTTP requests to external APIs"
 
-    # HttpRequest: observed -> default contract (UNKNOWN unless the instance has an approved contract).
+    # HttpRequest: observed -> default contract (UNKNOWN unless the instance has an approved contract),
+    # except a node on a catalog endpoint (api_ref): its reply is declared by the spec.
+
+    def contract(self, params, inputs, lookups=None):
+        from ...engine.shapes import make_contract
+        from ...services.mock_gen import first_success
+
+        op = (lookups or {}).get("api_operation")
+        ref = (params or {}).get("api_ref")
+        if not (isinstance(ref, dict) and ref.get("spec_id") and isinstance(op, dict)):
+            return super().contract(params, inputs, lookups)
+        ok = first_success(op)
+        body = _api_body_shape(op, ok[1].get("shape") if ok else None)
+        main = sh.object_of(
+            {"statusCode": sh.scalar("integer", "spec"), "headers": sh.scalar("object", "spec"), "body": body},
+            ["statusCode", "headers", "body"], "spec",
+        )
+        return make_contract(inputs, {"main": main})
 
     async def execute(
         self,
@@ -149,8 +182,14 @@ class HttpRequestNode(BaseNode):
         from ...engine.types import NodeData
         from ...engine.expression_engine import ExpressionEngine, expression_engine
 
-        url_template = self.get_parameter(node_definition, "url")
-        method = self.get_parameter(node_definition, "method", "GET")
+        api_ref = node_definition.parameters.get("api_ref")
+        if isinstance(api_ref, dict) and api_ref.get("spec_id"):
+            method, path_template, path_param_templates = self._resolve_api_operation(context, node_definition, api_ref)
+            url_template = ""
+        else:
+            api_ref, path_template, path_param_templates = None, None, {}
+            url_template = self.get_parameter(node_definition, "url")
+            method = self.get_parameter(node_definition, "method", "GET")
         response_type = self.get_parameter(node_definition, "responseType", "json")
         headers_param = self.get_parameter(node_definition, "headers", [])
         body_template = node_definition.parameters.get("body", "")
@@ -190,8 +229,11 @@ class HttpRequestNode(BaseNode):
                     idx,
                 )
 
-                # Resolve URL expressions
-                url = expression_engine.resolve(url_template, expr_context)
+                # Resolve URL expressions (an API endpoint: base URL + path with {name} filled from path_params)
+                if path_template is not None:
+                    url = self._fill_path(path_template, path_param_templates, expr_context, node_definition)
+                else:
+                    url = expression_engine.resolve(url_template, expr_context)
                 last_url = url
 
                 # Process and resolve headers
@@ -284,3 +326,72 @@ class HttpRequestNode(BaseNode):
         }
 
         return self.output(results, metadata=metadata)
+
+    # ── API catalog endpoint (api_ref) ───────────────────────────────────────────────────────
+
+    @staticmethod
+    def _resolve_api_operation(context, node_definition, api_ref: dict) -> tuple[str, str, dict]:
+        """(method, base_url + path, path_params templates) of the endpoint ``api_ref`` points at."""
+        specs = (getattr(context, "extras", None) or {}).get("api_specs")
+        if specs is None:
+            raise ValueError(
+                f'Node "{node_definition.name}" uses an API endpoint but the API catalog was not loaded for this run '
+                "(context.extras['api_specs'] is missing)"
+            )
+        spec = specs.get(api_ref["spec_id"])
+        if not spec:
+            raise ValueError(f'API "{api_ref["spec_id"]}" not found in the API catalog (was it deleted?)')
+        op = next((o for o in spec.get("operations") or [] if o.get("operation_id") == api_ref.get("operation_id")), None)
+        if op is None:
+            raise ValueError(f'Endpoint "{api_ref.get("operation_id")}" not found in API "{spec.get("name") or api_ref["spec_id"]}"')
+        base = str(spec.get("base_url") or "").rstrip("/")
+        if not base:
+            raise ValueError(f'API "{spec.get("name") or api_ref["spec_id"]}" has no base URL')
+        raw = node_definition.parameters.get("path_params")
+        return str(op["method"]).upper(), base + str(op["path"]), raw if isinstance(raw, dict) else {}
+
+    @staticmethod
+    def _fill_path(template: str, param_templates: dict, expr_context, node_definition) -> str:
+        import re
+        from urllib.parse import quote
+
+        from ...engine.expression_engine import expression_engine
+
+        def fill(m: re.Match) -> str:
+            name = m.group(1)
+            raw = param_templates.get(name)
+            if raw is None or raw == "":
+                raise ValueError(f'Path parameter "{name}" is missing on node "{node_definition.name}"')
+            value = expression_engine.resolve(raw, expr_context) if isinstance(raw, str) else raw
+            if value is None or value == "":
+                raise ValueError(f'Path parameter "{name}" resolved to an empty value on node "{node_definition.name}"')
+            return quote(str(value), safe="")
+
+        return re.sub(r"\{([^{}/]+)\}", fill, template)
+
+
+def _api_body_shape(op: dict, ok_shape: dict | None) -> dict:
+    """``body`` of the node output: the first 2xx reply's shape, widened so documented error replies fit.
+
+    Error replies (4xx/5xx) carry their own fields, so when any documents an object shape the body becomes the
+    union: every property stays, error-only ones are added as optional, and ``required`` is dropped
+    (a non-2xx reply doesn't carry the 2xx fields). Without error shapes it is exactly the 2xx shape.
+    """
+    import copy
+
+    if not isinstance(ok_shape, dict):
+        return sh.unknown()
+    errors = [
+        r["shape"] for k, r in (op.get("responses") or {}).items()
+        if isinstance(k, str) and k.isdigit() and int(k) >= 400 and isinstance(r, dict)
+        and isinstance(r.get("shape"), dict) and r["shape"].get("type") == "object" and isinstance(r["shape"].get("properties"), dict)
+    ]
+    if not errors or ok_shape.get("type") != "object" or not isinstance(ok_shape.get("properties"), dict):
+        return copy.deepcopy(ok_shape)
+    body = copy.deepcopy(ok_shape)
+    body.pop("required", None)
+    for err in errors:
+        for name, shape in err["properties"].items():
+            if name not in body["properties"]:
+                body["properties"][name] = copy.deepcopy(shape)
+    return body

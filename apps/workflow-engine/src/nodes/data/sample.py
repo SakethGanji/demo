@@ -417,6 +417,8 @@ class SampleNode(BaseNode):
         }
         if seed is not None:
             payload["seed"] = int(seed)
+        elif getattr(context, "test_options", None) is not None:
+            payload["seed"] = context.rng.randint(0, 2**31 - 1)  # repeatable inside a test run
         if shuffle:
             payload["shuffle"] = True
         if sort_by:

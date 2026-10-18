@@ -14,6 +14,7 @@ import {
   KeyRound,
   LayoutGrid,
   ListChecks,
+  Plug,
   Plus,
   Settings2,
   Sparkles,
@@ -153,6 +154,7 @@ export function ProjectOutline() {
 
   const onOverview = !!matchRoute({ to: '/p/$project', params: P })
   const onSecrets = !!matchRoute({ to: '/p/$project/secrets', params: P })
+  const onApis = !!matchRoute({ to: '/p/$project/apis', params: P })
   const onRuns = !!matchRoute({ to: '/p/$project/runs', params: P, fuzzy: true })
   const activeModule = matchRoute({ to: '/p/$project/backend/$module', params: P, fuzzy: true }) ? params.module : undefined
   const activeTable = params.table
@@ -173,7 +175,7 @@ export function ProjectOutline() {
   return (
     <nav className="flex min-h-0 flex-1 flex-col" aria-label="Project outline" data-testid="outline">
       <div ref={listRef} className="relative min-h-0 flex-1 overflow-y-auto px-2.5 pt-3">
-        <ActiveFill host={listRef} dep={[onOverview, onSecrets, onRuns, activeModule, activeTable, routeParam]} />
+        <ActiveFill host={listRef} dep={[onOverview, onSecrets, onApis, onRuns, activeModule, activeTable, routeParam]} />
         <Link to="/p/$project" params={P} className={cn(itemCls, hue.home, onOverview && onCls)} {...act(onOverview)} data-testid="outline-overview">
           {setup.show ? <ListChecks /> : <LayoutGrid />}
           {setup.show ? (
@@ -319,6 +321,9 @@ export function ProjectOutline() {
             </span>
           ) : null}
         </Link>
+        <Link to="/p/$project/apis" params={P} className={cn(itemCls, hue.backend, onApis && onCls)} {...act(onApis)} data-testid="outline-apis">
+          <Plug /> APIs
+        </Link>
         <Link to="/p/$project/runs" params={P} className={cn(itemCls, hue.runs, onRuns && onCls)} {...act(onRuns)} data-testid="outline-runs">
           <History /> Runs <span className="ml-auto text-[11.5px] tabular-nums text-muted-foreground">{runs24} · 24h</span>
         </Link>
@@ -445,6 +450,7 @@ export function ProjectRail() {
           {missingCount > 0 && <StatusDot tone="warn" className="absolute right-1.5 top-1.5" />}
         </Link>,
       )}
+      {tip('APIs', <Link to="/p/$project/apis" params={P} className={cn(railBtn, matchRoute({ to: '/p/$project/apis', params: P }) && on)} data-testid="rail-apis"><Plug /></Link>)}
       {tip('Runs', <Link to="/p/$project/runs" params={P} className={cn(railBtn, matchRoute({ to: '/p/$project/runs', params: P, fuzzy: true }) && on)} data-testid="rail-runs"><History /></Link>)}
       <div className="flex-1" />
       {tip('Settings', <button type="button" className={railBtn} onClick={() => setSearch({ sheet: 'settings', section: 'general' })} data-testid="rail-settings"><Settings2 /></button>)}

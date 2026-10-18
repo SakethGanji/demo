@@ -65,6 +65,7 @@ class PartialRunService:
                 ExecutionModel.workflow_id == workflow_id,
                 NodeOutputModel.node_name == node_name,
                 NodeOutputModel.status == "success",
+                ExecutionModel.mode != "test",
             )
             .order_by(ExecutionModel.start_time.desc(), NodeOutputModel.run_index.desc())
             .limit(1)
@@ -193,3 +194,43 @@ class PartialRunService:
             pre_populated_states=pre_populated, pending_inputs=pending,
         )
         return context
+
+
+def is_multi_input(node_type: str) -> bool:
+    from ..engine.node_registry import node_registry
+
+    return node_registry.has(node_type) and getattr(node_registry.get(node_type), "input_count", 1) > 1
+
+
+def target_run_options(workflow: Any, target: dict[str, Any], items: list[NodeData]) -> dict[str, Any]:
+    """Runner options for a test target (Stage 3A), built from the Stage 1 partial-run options.
+
+    * ``workflow``: start at the trigger, its output replaced by ``items``.
+    * ``node``: ``start_node_name=node``, ``stop_at=node``, ``items`` fed in (a Merge gets them as the
+      seeded input of its first connection, like the node test does).
+    * ``range``: start at ``from``, stop at ``to``, ``items`` fed into ``from``.
+
+    Returns ``{start_node_name, stop_at, initial_data, pending_inputs}``; raises ValidationError for an unknown node.
+    """
+    from ..engine.workflow_runner import WorkflowRunner
+
+    kind = target.get("kind")
+    names = {n.name: n for n in workflow.nodes}
+    if kind == "workflow":
+        start = WorkflowRunner().find_start_node(workflow)
+        if start is None:
+            raise ValidationError("The workflow has no trigger node to start a test from", field="target")
+        return {"start_node_name": start.name, "stop_at": None, "initial_data": items, "pending_inputs": None}
+    first = target.get("node") if kind == "node" else target.get("from")
+    last = target.get("node") if kind == "node" else target.get("to")
+    for name in (first, last):
+        if name not in names:
+            raise ValidationError(f"Node '{name}' is not in the workflow", field="target")
+    conns = upstream_connections(workflow.connections, first)
+    upstream = conns[0].source_node if conns else None
+    pending = None
+    initial = items
+    if is_multi_input(names[first].type):
+        pending = PartialRunService._merge_seed(first, conns, {upstream: items} if upstream else {})
+        initial = []
+    return {"start_node_name": first, "stop_at": last, "initial_data": initial, "pending_inputs": pending}

@@ -1,8 +1,9 @@
 import { memo, useState, useMemo, useRef, useEffect } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type NodeProps, type Node } from '@xyflow/react';
-import { Plus, Check, X, AlertTriangle, FileCheck2 } from 'lucide-react';
+import { Plus, Check, X, AlertTriangle, FileCheck2, FlaskConical } from 'lucide-react';
 import { Tip } from '@/shared/components/ui/tooltip';
 import { useCheckStore } from '../../../stores/checkStore';
+import { useTestStore } from '../../../stores/testStore';
 import { useEditorLayoutStore } from '../../../stores/editorLayoutStore';
 import { useWorkflowStore } from '../../../stores/workflowStore';
 import { useHistoryStore } from '../../../stores/historyStore';
@@ -58,6 +59,9 @@ function WorkflowNode({ id, data, selected }: NodeProps<Node<WorkflowNodeData>>)
   const checkFindings = useCheckStore((s) => s.findingsByNodeMap[data.name]);
   const checkMarks = useMemo(() => (checkFindings ?? []).filter((f) => f.severity !== 'info'), [checkFindings]);
   const checkSeverity = checkMarks.some((f) => f.severity === 'error') ? 'error' : checkMarks.length ? 'warning' : null;
+
+  // Test badge: green when the tests that cover this node pass, red when any failure points at it
+  const testBadge = useTestStore((s) => s.report?.badges?.[data.name]);
 
   const hasInputConnection = useHasInputConnection(id);
   const connectedOutputHandles = useConnectedOutputHandles(id);
@@ -386,6 +390,19 @@ function WorkflowNode({ id, data, selected }: NodeProps<Node<WorkflowNodeData>>)
               className="absolute -bottom-1.5 -left-1.5 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-brand-soft text-primary shadow-raise-sm"
             >
               <FileCheck2 size={9} strokeWidth={2.5} />
+            </div>
+          </Tip>
+        )}
+
+        {/* Tests covering this node */}
+        {testBadge && (
+          <Tip label={testBadge === 'fail' ? 'A test fails at this node' : 'Tests covering this node pass'}>
+            <div
+              data-testid="node-test-badge"
+              data-status={testBadge}
+              className={`absolute -bottom-1.5 -right-1.5 z-10 flex h-4 w-4 items-center justify-center rounded-full text-primary-foreground shadow-raise-sm ${testBadge === 'fail' ? 'bg-destructive' : 'bg-success'}`}
+            >
+              <FlaskConical size={9} strokeWidth={2.5} />
             </div>
           </Tip>
         )}

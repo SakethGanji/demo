@@ -8,6 +8,7 @@ import type { NodeTypeMetadata } from '../lib/createNodeData';
 import { isTriggerType } from '../lib/nodeConfig';
 import { generateNodeName, getExistingNodeNames } from '../lib/workflowTransform';
 import { buildRunData } from '../lib/executionRunData';
+import { renameNodeInTests, recordRename, type TestCase, type TestDefaults, type Mock } from '../lib/tests';
 import type { ApiExecutionDetail } from '@/shared/lib/api';
 
 // Helper to compute dynamic outputs for nodes with outputStrategy
@@ -112,6 +113,17 @@ interface WorkflowState {
   // Dirty state tracking
   lastSavedSnapshot: string | null;
 
+  // Tests (CONTRACTS-STAGE3A §1): part of the workflow definition, saved with it
+  tests: TestCase[];
+  testDefaults: TestDefaults;
+  /** Node renames since the last successful save ({old: new}); sent as `node_renames` on save. */
+  nodeRenames: Record<string, string>;
+  setTests: (tests: TestCase[]) => void;
+  upsertTest: (test: TestCase) => void;
+  removeTest: (id: string) => void;
+  setTestDefaultMock: (node: string, mock: Mock | null) => void;
+  clearNodeRenames: () => void;
+
   // Derived state for efficient selectors
   nodeCount: number;
   edgeCount: number;
@@ -181,6 +193,8 @@ interface WorkflowState {
     workflowName: string;
     workflowId: string;
     isActive: boolean;
+    tests?: TestCase[];
+    testDefaults?: TestDefaults;
   }) => void;
 
   // Reset to empty state
@@ -304,6 +318,23 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   historyIndex: -1,
   isUndoRedoAction: false,
   lastSavedSnapshot: null,
+  tests: [],
+  testDefaults: { mocks: {} },
+  nodeRenames: {},
+  setTests: (tests) => set({ tests, _isDirty: true }),
+  upsertTest: (test) => {
+    const list = get().tests;
+    const i = list.findIndex((t) => t.id === test.id);
+    set({ tests: i >= 0 ? list.map((t, j) => (j === i ? test : t)) : [...list, test], _isDirty: true });
+  },
+  removeTest: (id) => set({ tests: get().tests.filter((t) => t.id !== id), _isDirty: true }),
+  setTestDefaultMock: (node, mock) => {
+    const mocks = { ...get().testDefaults.mocks };
+    if (mock) mocks[node] = mock;
+    else delete mocks[node];
+    set({ testDefaults: { ...get().testDefaults, mocks }, _isDirty: true });
+  },
+  clearNodeRenames: () => set({ nodeRenames: {} }),
   nodeCount: countWorkflowNodes(initialNodes),
   edgeCount: 0,
   isAnyNodeRunning: false,
@@ -460,6 +491,17 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   updateNodeData: (nodeId, data) => {
+    // A changed `name` is a node rename: rewrite the tests that mention it and remember it for the save.
+    const before = get().nodes.find((n) => n.id === nodeId)?.data as WorkflowNodeData | undefined;
+    if (before && typeof data.name === 'string' && data.name !== before.name) {
+      const r = renameNodeInTests(get().tests, get().testDefaults, before.name, data.name);
+      set({
+        tests: r.tests,
+        testDefaults: r.defaults,
+        nodeRenames: recordRename(get().nodeRenames, before.name, data.name),
+        _isDirty: true,
+      });
+    }
     set({
       nodes: get().nodes.map((node) => {
         if (node.id !== nodeId) return node;
@@ -633,6 +675,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       executionData: {},
       viewingExecution: null,
       pinnedData: {},
+      tests: data.tests ?? [],
+      testDefaults: data.testDefaults ?? { mocks: {} },
+      nodeRenames: {},
       lastSavedSnapshot: snapshot,
       nodeCount: countWorkflowNodes(processedNodes),
       edgeCount: data.edges.length,
@@ -658,6 +703,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       viewingExecution: null,
       pinnedData: {},
       workflowTags: [],
+      tests: [],
+      testDefaults: { mocks: {} },
+      nodeRenames: {},
       clipboard: null,
       lastSavedSnapshot: null,
       draggedNodeType: null,

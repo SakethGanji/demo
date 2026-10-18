@@ -125,7 +125,8 @@ function applyFullWorkflow(
   autoLayoutNodes(apiFormat.definition.nodes, apiFormat.definition.connections);
 
   const transformed = fromBackendWorkflow(apiFormat as any);
-  store.loadWorkflow(transformed);
+  // The AI replaces the graph, not the tests: keep them
+  store.loadWorkflow({ ...transformed, tests: store.tests, testDefaults: store.testDefaults });
 }
 
 /**

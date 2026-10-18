@@ -7,6 +7,8 @@ Uses a queue-based BFS approach for node execution.
 from __future__ import annotations
 
 import asyncio
+import copy
+import random
 import json
 import logging
 from datetime import datetime
@@ -17,8 +19,23 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+#: trigger-like nodes that emit the test's input items instead of running when a test starts at them
+_TEST_TRIGGER_TYPES = {"Start", "Webhook", "Cron", "ChatInput", "ErrorTrigger", "ExecuteWorkflowTrigger"}
+
+from .effects import effect_of
 from .expression_engine import ExpressionEngine, expression_engine
 from .logging import execution_id_var, execution_variables_var, execution_secrets_var
+from .test_mode import (
+    BadMockError,
+    MockPlan,
+    TestRunOptions,
+    UnmockedEffectError,
+    frozen_now_var,
+    http_mock_client,
+    plan_mock,
+    refusing_client,
+    test_rng_var,
+)
 from .types import (
     ExecutionContext,
     ExecutionError,
@@ -47,6 +64,7 @@ class WorkflowRunner:
         self._registry: NodeRegistryClass = node_registry
         self._db_session = db_session_factory  # None = skip persistence
         self._event_bus = event_bus  # PgEventBus | None
+        self._unsaved_runs: set[str] = set()  # test runs with persist=False: no node_outputs rows
 
     async def run(
         self,
@@ -68,6 +86,7 @@ class WorkflowRunner:
         http_client_options: dict[str, Any] | None = None,
         stop_at: str | None = None,
         pending_inputs: dict[str, dict[str, list[NodeData]]] | None = None,
+        test_options: TestRunOptions | None = None,
     ) -> ExecutionContext:
         """
         Run a workflow from a starting node.
@@ -82,6 +101,7 @@ class WorkflowRunner:
             stop_at: Name of a node after which no downstream jobs are queued
             pending_inputs: Pre-seeded Merge inputs ({"<node>:<run_index>": {"<src>:<output>": items}}),
                 used when a partial run starts at a multi-input node
+            test_options: run in test mode (mocks, frozen clock, no credentials, no real network); see engine/test_mode.py
 
         Returns:
             ExecutionContext with all node states and errors
@@ -96,6 +116,15 @@ class WorkflowRunner:
         context.on_event = on_event
         if variables:
             context.variables = variables
+        if test_options is not None:
+            context.test_options = test_options
+            context.frozen_now = test_options.now
+            context.rng = random.Random(test_options.seed)
+            # secret $vars never reach a test: they resolve to a placeholder
+            secrets = {v for v in (secret_values or set()) if v}
+            context.variables = {k: (f"<secret:{k}>" if v in secrets else v) for k, v in context.variables.items()}
+            if not test_options.persist:
+                self._unsaved_runs.add(context.execution_id)
         context.project_id = project_id
         context.environment = environment
         context.team_id = team_id or "default"
@@ -175,7 +204,13 @@ class WorkflowRunner:
         client_opts: dict[str, Any] = {"timeout": 900.0, "follow_redirects": True}
         if http_client_options:
             client_opts.update(http_client_options)
-        async with httpx.AsyncClient(**client_opts) as http_client:
+        clock_token = rng_token = None
+        if test_options is not None:
+            # the expression helpers and the AI tools read the frozen clock / seeded RNG from these
+            clock_token = frozen_now_var.set(test_options.now)
+            rng_token = test_rng_var.set(context.rng)
+        # a test run never touches the network: HttpRequest gets its own mock client per job
+        async with (refusing_client() if test_options is not None else httpx.AsyncClient(**client_opts)) as http_client:
             context.http_client = http_client
 
             while queue and iteration < max_iterations:
@@ -256,6 +291,11 @@ class WorkflowRunner:
                     ),
                 )
 
+        if clock_token is not None and rng_token is not None:
+            frozen_now_var.reset(clock_token)
+            test_rng_var.reset(rng_token)
+        self._unsaved_runs.discard(context.execution_id)
+
         # Revoke any broker tokens minted for this run (Code node, agent tools, ...).
         if context.parent_execution_id is None:
             from ..broker.tokens import registry as _broker_tokens
@@ -324,6 +364,10 @@ class WorkflowRunner:
         child_context.environment = parent_context.environment
         child_context.team_id = parent_context.team_id
         child_context.extras = parent_context.extras
+        child_context.test_options = parent_context.test_options
+        child_context.frozen_now = parent_context.frozen_now
+        child_context.rng = parent_context.rng
+        child_context.test_requests = parent_context.test_requests
 
         # Propagate event callback for nested subworkflows
         child_context.on_event = on_event
@@ -540,7 +584,7 @@ class WorkflowRunner:
         error: str | None = None,
     ) -> None:
         """Write node output to DB. Non-critical — execution continues on failure."""
-        if not self._db_session:
+        if not self._db_session or execution_id in self._unsaved_runs:
             return
         try:
             from ..repositories.node_output_repository import NodeOutputRepository
@@ -617,8 +661,29 @@ class WorkflowRunner:
         if node_def.disabled:
             return await self._process_disabled_job(context, node_def, job, queue, node_map)
 
+        # Test mode: mocks beat pinned data; an outside step with neither fails the run (never calls out)
+        plan = None
+        opts = context.test_options
+        if opts is not None:
+            context.test_inputs.setdefault(job.node_name, []).extend(job.input_data)
+            for mocks in (opts.mocks, opts.default_mocks):
+                if job.node_name in mocks:
+                    plan = plan_mock(mocks[job.node_name], job.node_name, node_def.type, job.input_data, context)
+                    if plan is not None:
+                        break
+            if plan is not None and isinstance(plan.error, BadMockError):
+                return await self._fail_test_setup(context, node_def, job, queue, node_map, plan.error, on_event)
+            if node_def.type in _TEST_TRIGGER_TYPES and job.source_node is None:
+                # a workflow-target test starts at the trigger, whose output is replaced by the test's input items
+                plan = MockPlan("items", {"main": list(job.input_data)})
+            effect = effect_of(node_def.type)
+            if plan is None and not node_def.pinned_data and effect != "none":
+                return await self._fail_test_setup(
+                    context, node_def, job, queue, node_map, UnmockedEffectError(job.node_name, effect), on_event
+                )
+
         # Check for pinned data
-        if node_def.pinned_data:
+        if node_def.pinned_data and plan is None:
             context.node_states[job.node_name] = node_def.pinned_data
             context.last_completed_node = job.node_name
             self._queue_next_nodes(
@@ -636,7 +701,7 @@ class WorkflowRunner:
 
         # Resolve credentials if node references one
         credential_id = resolved_node_def.parameters.get("credentialId")
-        if credential_id and self._db_session:
+        if credential_id and self._db_session and opts is None:  # test runs never resolve credentials
             try:
                 cred_data = await self._resolve_credential(credential_id, context.team_id)
                 if cred_data:
@@ -657,6 +722,15 @@ class WorkflowRunner:
             except Exception:
                 logger.warning(f"Failed to resolve credential {credential_id}", exc_info=True)
 
+        if opts is not None and effect_of(node_def.type) != "none" and node_def.type != "HttpRequest":
+            # what an outside step would have been asked (HttpRequest records real requests through its mock client)
+            ectx = ExpressionEngine.create_context(
+                job.input_data, context.node_states, context.execution_id, 0, variables=context.variables
+            )
+            params = expression_engine.resolve(copy.deepcopy(node_def.parameters), ectx)
+            params = {k: v for k, v in params.items() if k != "_credentials"}
+            context.test_requests.setdefault(job.node_name, []).append({"params": params})
+
         # Execute node with retry and error handling
         result: NodeExecutionResult | None = None
         max_retries = node_def.retry_on_fail
@@ -673,7 +747,10 @@ class WorkflowRunner:
 
         for attempt in range(max_retries + 1):
             try:
-                result = await node.execute(context, resolved_node_def, job.input_data)
+                if plan is None:
+                    result = await node.execute(context, resolved_node_def, job.input_data)
+                else:
+                    result = await self._execute_planned(plan, node, context, resolved_node_def, job)
                 last_error = None
                 retries_used = attempt
                 break  # Success, exit retry loop
@@ -698,7 +775,8 @@ class WorkflowRunner:
                 last_error = e
                 retries_used = attempt
                 if attempt < max_retries:
-                    await asyncio.sleep(retry_delay / 1000)
+                    if opts is None:  # a test run never waits between retries
+                        await asyncio.sleep(retry_delay / 1000)
                     continue
 
         completed_at = datetime.now()
@@ -858,6 +936,75 @@ class WorkflowRunner:
         self._queue_next_nodes(context, node_def, result, queue, node_map, job.run_index)
         return False
 
+    async def _execute_planned(
+        self,
+        plan: Any,
+        node: Any,
+        context: ExecutionContext,
+        node_def: NodeDefinition,
+        job: ExecutionJob,
+    ) -> NodeExecutionResult:
+        """One attempt of a mocked node (test mode); called inside the retry loop like ``node.execute``."""
+        if plan.kind == "raise":
+            raise plan.error
+        if plan.kind == "items":
+            return NodeExecutionResult(outputs={port: list(items) for port, items in plan.outputs.items()})
+        # http: the real HttpRequest code runs against a client that records requests and answers from the mock
+        client = http_mock_client(plan, node_def.name, job.input_data, context)
+        node_context = copy.copy(context)
+        node_context.http_client = client
+        try:
+            return await node.execute(node_context, node_def, job.input_data)
+        finally:
+            await client.aclose()
+
+    async def _fail_test_setup(
+        self,
+        context: ExecutionContext,
+        node_def: NodeDefinition,
+        job: ExecutionJob,
+        queue: list[ExecutionJob],
+        node_map: dict[str, NodeDefinition],
+        error: Exception,
+        on_event: ExecutionEventCallback | None,
+    ) -> bool:
+        """A test-setup failure (unmocked outside step, unusable mock): bypasses retries and on_error and stops the run."""
+        code = getattr(error, "code", None)
+        details = getattr(error, "details", None)
+        context.errors.append(
+            ExecutionError(
+                node_name=job.node_name, error=str(error), timestamp=datetime.now(), error_code=code, details=details,
+            )
+        )
+        context.execution_order += 1
+        metrics: dict[str, Any] = {
+            "executionOrder": context.execution_order,
+            "inputItemCount": len(job.input_data),
+            "status": "error",
+            "errorCode": code,
+            "errorDetails": details or {},
+        }
+        context.node_metrics[job.node_name] = metrics
+        self._emit_event(
+            on_event,
+            ExecutionEvent(
+                type=ExecutionEventType.NODE_ERROR,
+                execution_id=context.execution_id,
+                timestamp=datetime.now(),
+                node_name=job.node_name,
+                node_type=node_def.type,
+                error=str(error),
+                metrics=metrics,
+            ),
+        )
+        await self._persist_node_output(
+            execution_id=context.execution_id, node_name=job.node_name, output=None, metrics=metrics,
+            status="error", run_index=job.run_index, error=str(error),
+        )
+        queue.clear()
+        self._propagate_no_output(context, node_def, queue, node_map, job.run_index)
+        return True
+
     async def _process_disabled_job(
         self,
         context: ExecutionContext,
@@ -957,6 +1104,12 @@ class WorkflowRunner:
         run_index: int,
     ) -> None:
         """Queue next nodes based on node outputs."""
+        if context.test_options is not None:
+            # what each port emitted, for the test assertions (a node listed here ran without failing)
+            emitted = context.test_outputs.setdefault(node_def.name, {})
+            for port, items in result.outputs.items():
+                if items:
+                    emitted.setdefault(port, []).extend(items)
         if context.stop_at is not None and node_def.name == context.stop_at:
             return  # partial run: nothing runs after the stop node
         for output_name, output_data in result.outputs.items():

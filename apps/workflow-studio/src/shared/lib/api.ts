@@ -15,6 +15,16 @@ import type {
   ApiPublishResponse,
 } from './backendTypes';
 import type { CheckResult, ImportReport, Shape } from '@/features/workflow-editor/lib/shapes';
+import type {
+  ApiSpecDetail,
+  ApiSpecSummary,
+  MockOption,
+  Mock,
+  Scorecard,
+  TestCase,
+  TestDefaults,
+  TestRunReport,
+} from '@/features/workflow-editor/lib/tests';
 
 // Property definition from API node type
 export interface ApiProperty {
@@ -509,4 +519,66 @@ export const apiTesterApi = {
       method: 'DELETE',
     });
   },
+};
+
+// ============================================================================
+// Tests API (CONTRACTS-STAGE3A §1, §5, §6, §7)
+// ============================================================================
+
+type DraftDefinition = Pick<BackendWorkflow, 'nodes' | 'connections'> & { tests?: TestCase[]; test_defaults?: TestDefaults };
+
+const post = <T>(endpoint: string, body: unknown): Promise<T> =>
+  apiFetch(endpoint, { method: 'POST', body: JSON.stringify(body ?? {}) });
+
+export const testsApi = {
+  /** `definition` runs the unsaved draft; it never saves the workflow. */
+  run: (id: string, body: { ids?: string[]; definition?: DraftDefinition } = {}): Promise<TestRunReport> =>
+    post(`/workflows/${id}/tests/run`, body),
+
+  approve: (id: string, testId: string, approvedBy: string): Promise<ApiWorkflowDetail> =>
+    post(`/workflows/${id}/tests/${encodeURIComponent(testId)}/approve`, { approved_by: approvedBy }),
+
+  unlock: (id: string, testId: string, by: string): Promise<ApiWorkflowDetail> =>
+    post(`/workflows/${id}/tests/${encodeURIComponent(testId)}/unlock`, { by }),
+
+  /** Drafts only; nothing is saved. */
+  suggest: (id: string, body: { node?: string } = {}): Promise<TestCase[]> =>
+    post(`/workflows/${id}/tests/suggest`, body),
+
+  fromExecution: (id: string, body: { execution_id: string; name?: string }): Promise<TestCase> =>
+    post(`/workflows/${id}/tests/from-execution`, body),
+
+  score: (id: string, body: { definition?: DraftDefinition; mutations?: boolean; repeat?: number } = {}): Promise<Scorecard> =>
+    post(`/workflows/${id}/score`, body),
+
+  generateMock: (
+    id: string,
+    node: string,
+    body: { kind: 'from_spec' | 'from_contract' | 'last_real'; status?: number },
+  ): Promise<{ mock: Mock; source: string }> =>
+    post(`/workflows/${id}/nodes/${encodeURIComponent(node)}/mock/generate`, body),
+};
+
+export const apiSpecsApi = {
+  list: (projectId: string): Promise<ApiSpecSummary[]> => apiFetch(`/api-specs?project_id=${encodeURIComponent(projectId)}`),
+
+  get: (id: string): Promise<ApiSpecDetail> => apiFetch(`/api-specs/${id}`),
+
+  create: (body: { project_id: string; name?: string; spec_text?: string; url?: string }): Promise<ApiSpecDetail> =>
+    post('/api-specs', body),
+
+  fromExample: (body: {
+    project_id: string;
+    name: string;
+    method: string;
+    base_url: string;
+    path: string;
+    status?: number;
+    example: unknown;
+  }): Promise<ApiSpecDetail> => post('/api-specs/from-example', body),
+
+  remove: (id: string): Promise<{ success: boolean }> => apiFetch(`/api-specs/${id}`, { method: 'DELETE' }),
+
+  mocks: (id: string, operationId: string): Promise<MockOption[]> =>
+    apiFetch(`/api-specs/${id}/operations/${encodeURIComponent(operationId)}/mocks`),
 };

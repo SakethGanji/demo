@@ -37,36 +37,7 @@ class WorkflowRepository:
         workflow_id = workflow.id or self._generate_id()
         now = datetime.now()
 
-        # Build definition dict from workflow
-        definition = {
-            "nodes": [
-                {
-                    "name": n.name,
-                    "type": n.type,
-                    "parameters": n.parameters,
-                    "position": n.position,
-                    **({"label": n.label} if n.label else {}),
-                    **({"pinned_data": [{"json": d.json} for d in n.pinned_data]} if n.pinned_data else {}),
-                    "retry_on_fail": n.retry_on_fail,
-                    "retry_delay": n.retry_delay,
-                    "disabled": n.disabled,
-                    "on_error": n.on_error,
-                    **({"contract": n.contract} if n.contract else {}),
-                }
-                for n in workflow.nodes
-            ],
-            "connections": [
-                {
-                    "source_node": c.source_node,
-                    "target_node": c.target_node,
-                    "source_output": c.source_output,
-                    "target_input": c.target_input,
-                    **({"waypoints": c.waypoints} if c.waypoints else {}),
-                }
-                for c in workflow.connections
-            ],
-            "settings": workflow.settings,
-        }
+        definition = workflow_to_definition(workflow)
 
         db_workflow = WorkflowModel(
             id=workflow_id,
@@ -121,36 +92,9 @@ class WorkflowRepository:
         if workflow.description is not None:
             db_workflow.description = workflow.description
 
-        # Build new definition
-        definition = {
-            "nodes": [
-                {
-                    "name": n.name,
-                    "type": n.type,
-                    "parameters": n.parameters,
-                    "position": n.position,
-                    **({"label": n.label} if n.label else {}),
-                    **({"pinned_data": [{"json": d.json} for d in n.pinned_data]} if n.pinned_data else {}),
-                    "retry_on_fail": n.retry_on_fail,
-                    "retry_delay": n.retry_delay,
-                    "disabled": n.disabled,
-                    "on_error": n.on_error,
-                    **({"contract": n.contract} if n.contract else {}),
-                }
-                for n in workflow.nodes
-            ],
-            "connections": [
-                {
-                    "source_node": c.source_node,
-                    "target_node": c.target_node,
-                    "source_output": c.source_output,
-                    "target_input": c.target_input,
-                    **({"waypoints": c.waypoints} if c.waypoints else {}),
-                }
-                for c in workflow.connections
-            ],
-            "settings": workflow.settings or db_workflow.draft_definition.get("settings", {}),
-        }
+        definition = workflow_to_definition(workflow)
+        if not workflow.settings:
+            definition["settings"] = db_workflow.draft_definition.get("settings", {})
         db_workflow.draft_definition = definition
         if folder_id is not None:
             db_workflow.folder_id = folder_id
@@ -274,6 +218,41 @@ class WorkflowRepository:
         )
 
 
+def workflow_to_definition(workflow: "Workflow") -> dict:
+    """The stored definition dict of an engine Workflow (every field of a node/connection must be written here)."""
+    return {
+        "nodes": [
+            {
+                "name": n.name,
+                "type": n.type,
+                "parameters": n.parameters,
+                "position": n.position,
+                **({"label": n.label} if n.label else {}),
+                **({"pinned_data": [{"json": d.json} for d in n.pinned_data]} if n.pinned_data else {}),
+                "retry_on_fail": n.retry_on_fail,
+                "retry_delay": n.retry_delay,
+                "disabled": n.disabled,
+                "on_error": n.on_error,
+                **({"contract": n.contract} if n.contract else {}),
+            }
+            for n in workflow.nodes
+        ],
+        "connections": [
+            {
+                "source_node": c.source_node,
+                "target_node": c.target_node,
+                "source_output": c.source_output,
+                "target_input": c.target_input,
+                **({"waypoints": c.waypoints} if c.waypoints else {}),
+            }
+            for c in workflow.connections
+        ],
+        "settings": workflow.settings,
+        "tests": list(workflow.tests or []),
+        "test_defaults": dict(workflow.test_defaults or {}),
+    }
+
+
 def _stored_on_error(n: dict) -> str:
     """on_error of a stored node dict; the legacy continue_on_fail=true maps to "continue"."""
     return n.get("on_error") or ("continue" if n.get("continue_on_fail") else "stop")
@@ -293,7 +272,7 @@ def definition_to_workflow(
             parameters=n.get("parameters", {}),
             position=n.get("position"),
             label=n.get("label"),
-            pinned_data=[NodeData(json=d["json"]) for d in n["pinned_data"]] if n.get("pinned_data") else None,
+            pinned_data=[NodeData(json=d["json"]) for d in pin] if (pin := n.get("pinned_data") or n.get("pinnedData")) else None,
             retry_on_fail=n.get("retry_on_fail", 0),
             retry_delay=n.get("retry_delay", 1000),
             continue_on_fail=_stored_on_error(n) == "continue",
@@ -320,4 +299,6 @@ def definition_to_workflow(
         id=workflow_id,
         description=description,
         settings=definition.get("settings", {}),
+        tests=list(definition.get("tests") or []),
+        test_defaults=dict(definition.get("test_defaults") or {}),
     )

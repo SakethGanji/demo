@@ -233,7 +233,8 @@ class ExecutionRepository:
         stmt = (
             select(day.label("d"), func.count().label("total"),
                    func.coalesce(func.sum(case((ExecutionModel.status == "failed", 1), else_=0)), 0).label("failed"))
-            .where(ExecutionModel.project_id == project_id, ExecutionModel.start_time >= datetime.combine(first, datetime.min.time()))
+            .where(ExecutionModel.project_id == project_id, ExecutionModel.mode != "test",
+                   ExecutionModel.start_time >= datetime.combine(first, datetime.min.time()))
             .group_by(day)
         )
         if environment:
@@ -250,10 +251,14 @@ class ExecutionRepository:
         self, workflow_id: str | None = None, project_id: str | None = None,
         mode: str | None = None, status: str | None = None, limit: int | None = None,
         before: str | None = None, route_id: str | None = None, environment: str | None = None,
-        trigger: str | None = None,
+        trigger: str | None = None, include_test: bool = False,
     ) -> list[ExecutionRecord]:
-        """List execution records, optionally filtered by workflow / project / mode / status."""
+        """List execution records, optionally filtered by workflow / project / mode / status.
+
+        Test runs (``mode="test"``) are left out unless ``include_test`` or ``mode="test"`` asks for them."""
         statement = select(ExecutionModel).order_by(ExecutionModel.start_time.desc())
+        if not include_test and mode != "test":
+            statement = statement.where(ExecutionModel.mode != "test")
 
         if workflow_id:
             statement = statement.where(ExecutionModel.workflow_id == workflow_id)
@@ -319,6 +324,7 @@ class ExecutionRepository:
             .where(
                 ExecutionModel.workflow_id == workflow_id,
                 ExecutionModel.status == "success",
+                ExecutionModel.mode != "test",
             )
             .order_by(ExecutionModel.start_time.desc())
             .limit(1)
@@ -341,6 +347,7 @@ class ExecutionRepository:
             .where(
                 ExecutionModel.workflow_id == workflow_id,
                 ExecutionModel.status == "success",
+                ExecutionModel.mode != "test",
             )
             .order_by(ExecutionModel.start_time.desc())
             .limit(1)
@@ -385,6 +392,21 @@ class ExecutionRepository:
         await self._session.commit()
         return True
 
+    async def purge_test_runs(self, older_than_days: int = 7) -> int:
+        """Delete test executions (``mode="test"``) older than ``older_than_days``; returns how many went."""
+        from sqlalchemy import delete as sa_delete
+
+        cutoff = datetime.now() - timedelta(days=older_than_days)
+        ids = (await self._session.execute(
+            select(ExecutionModel.id).where(ExecutionModel.mode == "test", ExecutionModel.start_time < cutoff)
+        )).scalars().all()
+        if not ids:
+            return 0
+        await self._session.execute(sa_delete(NodeOutputModel).where(NodeOutputModel.execution_id.in_(ids)))
+        await self._session.execute(sa_delete(ExecutionModel).where(ExecutionModel.id.in_(ids)))
+        await self._session.commit()
+        return len(ids)
+
     async def clear(self) -> None:
         """Clear all execution records and their node outputs."""
         # Delete all node outputs first
@@ -411,7 +433,8 @@ class ExecutionRepository:
         from ..db.models import BrokerCallModel
 
         ids = (await self._session.execute(
-            select(ExecutionModel.id).order_by(ExecutionModel.start_time.desc(), ExecutionModel.id.desc())
+            select(ExecutionModel.id).where(ExecutionModel.mode != "test")  # test runs expire by age instead
+            .order_by(ExecutionModel.start_time.desc(), ExecutionModel.id.desc())
             .offset(self._max_records))).scalars().all()
         if not ids:
             return

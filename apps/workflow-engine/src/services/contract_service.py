@@ -113,6 +113,9 @@ class ContractService:
         }
         if from_execution:
             contract["from_execution"] = from_execution
+        existing = getattr(node, "contract", None)
+        if isinstance(existing, dict) and isinstance(existing.get("inputs"), dict) and existing["inputs"]:
+            contract["inputs"] = copy.deepcopy(existing["inputs"])  # declared input shapes survive an outputs approval
         await self._write(workflow_id, node.name, contract)
 
     async def delete(self, workflow_id: str, name: str) -> None:

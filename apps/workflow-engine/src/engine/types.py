@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -130,6 +131,14 @@ class ExecutionContext:
     team_id: str = "default"
     # Opaque per-run extras (broker token, trace collector, ...).
     extras: dict[str, Any] = field(default_factory=dict)
+
+    # Test mode (Stage 3A): set by WorkflowRunner.run(test_options=...). Real runs leave these at their defaults.
+    test_options: Any | None = None  # engine.test_mode.TestRunOptions
+    frozen_now: datetime | None = None  # frozen clock read by now()/date_now()/timestamp, Sample and the AI tools
+    rng: random.Random = field(default_factory=random.Random)  # seeded per test run
+    test_requests: dict[str, list[dict[str, Any]]] = field(default_factory=dict)  # node -> captured requests
+    test_outputs: dict[str, dict[str, list[NodeData]]] = field(default_factory=dict)  # node -> port -> emitted items
+    test_inputs: dict[str, list[NodeData]] = field(default_factory=dict)  # node -> items that arrived
 
 
 @dataclass
@@ -290,3 +299,6 @@ class Workflow:
     id: str | None = None
     description: str | None = None
     settings: dict[str, Any] = field(default_factory=dict)
+    # Stage 3A: test cases and shared test defaults ({mocks, now, seed}); plain dicts, validated by the schema
+    tests: list[dict[str, Any]] = field(default_factory=list)
+    test_defaults: dict[str, Any] = field(default_factory=dict)

@@ -119,7 +119,10 @@ class ExecutionService:
             initial_data = [NodeData(json={"triggeredAt": datetime.now().isoformat(), "mode": "manual"})]
             run_mode = mode or "manual"
 
-        extras = {**(extras or {}), "egress_allowlist": _egress_allowlist(project)}
+        from .api_catalog import load_api_specs
+
+        extras = {**(extras or {}), "egress_allowlist": _egress_allowlist(project),
+                  "api_specs": await load_api_specs(self._workflow_repo._session, stored.workflow.nodes)}
         exec_id = gen_exec_id()
         meta = {"labels": {"env": env}, **(metadata or {})}
         await self._execution_repo.start(
@@ -159,9 +162,9 @@ class ExecutionService:
         context.extras["secret_values"] = secrets
         return stored, context
 
-    async def list_executions(self, workflow_id: str | None = None) -> list[ExecutionListItem]:
-        """List execution history."""
-        executions = await self._execution_repo.list(workflow_id)
+    async def list_executions(self, workflow_id: str | None = None, include_test: bool = False) -> list[ExecutionListItem]:
+        """List execution history (test runs only with ``include_test``)."""
+        executions = await self._execution_repo.list(workflow_id, include_test=include_test)
 
         return [
             ExecutionListItem(
@@ -283,6 +286,9 @@ class ExecutionService:
         variables = await load_run_variables(environment=env, project_id=stored.project_id)
         secrets = await load_run_secrets(environment=env, project_id=stored.project_id)
 
+        from .api_catalog import load_api_specs
+        api_specs = await load_api_specs(self._workflow_repo._session, stored.workflow.nodes)
+
         new_exec_id = runner._generate_id()  # the id the run really uses (returned to the caller, cancellable)
 
         async def _run() -> None:
@@ -298,7 +304,7 @@ class ExecutionService:
                     secret_values=secrets,
                     project_id=stored.project_id,
                     environment=env,
-                    extras={"egress_allowlist": _egress_allowlist(project)},
+                    extras={"egress_allowlist": _egress_allowlist(project), "api_specs": api_specs},
                 )
                 async with async_session_factory() as session:
                     from ..repositories.execution_repository import ExecutionRepository

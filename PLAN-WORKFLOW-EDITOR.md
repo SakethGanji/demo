@@ -75,7 +75,8 @@ Tests:
 
 **Done when:** every existing workflow checks clean, broken copies are caught, and 10 n8n workflows import.
 
-### Stage 3. Tests inside the editor (about 3 weeks)
+### Stage 3. Tests inside the editor (about 5 weeks, split 3A and 3B)
+**Superseded by `HANDOFF-STAGE3.md`** (agreed 2026-10-17: spec-first mocks from OpenAPI and database schemas, data categories and a coverage grid, planted-bugs score, AI-ready foundations). The original outline below is kept for history.
 1. **Test cases saved with the workflow:** input, fake responses for outside systems, expected results.
 2. **"Save as test" from any run:** one click turns a real run into a test case (the input plus the recorded outside responses).
 3. **Tests tab** with pass/fail; **a check badge on every node**, as in the mockup; a test bar ("7/7 passing · 6 of 7 nodes covered · 0 wiring issues").

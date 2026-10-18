@@ -11,6 +11,7 @@ import { OverviewView } from '@/features/project/components/OverviewView'
 import { BackendView } from '@/features/backend/BackendView'
 import { DataView } from '@/features/data/DataView'
 import { SecretsView } from '@/features/secrets/SecretsView'
+import { ApiCatalogView } from '@/features/api-catalog/ApiCatalogView'
 import { RunsView } from '@/features/runs/RunsView'
 import { WorkflowsListPage } from '@/features/workflows-list/WorkflowsListPage'
 import { ProjectWorkflowEditor } from '@/features/workflows-list/ProjectWorkflowEditor'
@@ -100,6 +101,12 @@ export const secretsRoute = createRoute({
   component: SecretsView,
 })
 
+export const apisRoute = createRoute({
+  getParentRoute: () => workspaceRoute,
+  path: 'apis',
+  component: ApiCatalogView,
+})
+
 export interface RunsSearch {
   trigger?: string
   status?: string
@@ -168,6 +175,7 @@ export const projectRouteTree = projectRoute.addChildren([
     dataIndexRoute,
     dataRoute,
     secretsRoute,
+    apisRoute,
     runsRoute,
     runRoute,
     workflowsRoute,

@@ -91,6 +91,7 @@ class WaitNode(BaseNode):
         # Cap at 5 minutes for safety
         seconds = min(seconds, 300)
 
-        await asyncio.sleep(seconds)
+        if getattr(context, "test_options", None) is None:  # a test run never sleeps
+            await asyncio.sleep(seconds)
 
         return self.output(input_data)

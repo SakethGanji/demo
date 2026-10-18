@@ -13,7 +13,8 @@ export type EditorActionId =
   | 'toggle-disable'
   | 'history'
   | 'tidy-up'
-  | 'zoom-fit';
+  | 'zoom-fit'
+  | 'focus-node';
 
 export type EditorActionHandler = (nodeId: string | null) => void;
 

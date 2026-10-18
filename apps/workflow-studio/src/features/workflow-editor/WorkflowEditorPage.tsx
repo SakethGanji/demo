@@ -15,6 +15,7 @@ import { useNodeActions } from '@/features/workflow-editor/hooks/useNodeActions'
 import { registerEditorAction } from '@/features/workflow-editor/stores/editorActionsStore'
 import { useNodeTypes } from '@/features/workflow-editor/hooks/useNodeTypes'
 import { useLiveCheck } from '@/features/workflow-editor/hooks/useLiveCheck'
+import { useLiveTests } from '@/features/workflow-editor/hooks/useLiveTests'
 import type { NodeTypeMetadata } from '@/features/workflow-editor/lib/createNodeData'
 // Lazy load heavy components
 const NodeCreatorPanel = lazy(() => import('@/features/workflow-editor/components/node-creator/NodeCreatorPanel'))
@@ -117,6 +118,7 @@ export function WorkflowEditorPage({ workflowId }: { workflowId?: string }) {
 
   // Live mistake check of the draft (debounced; stores into checkStore)
   useLiveCheck()
+  useLiveTests()
 
   // ⌘K palette handlers for the node actions (the context menu and the node panel call the same ones).
   const nodeActions = useNodeActions()

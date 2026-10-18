@@ -1,3 +1,4 @@
+import { registerEditorAction } from '../../stores/editorActionsStore';
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import {
   ReactFlow,
@@ -144,6 +145,11 @@ export default function WorkflowCanvas() {
       saveWorkflow();
     },
   });
+
+  useEffect(
+    () => registerEditorAction('focus-node', (id) => { if (id) void fitView({ nodes: [{ id }], padding: 0.6, maxZoom: 1, duration: 200 }); }),
+    [fitView]
+  );
 
   // Fit view on initial load when nodes change from placeholder to real nodes
   useEffect(() => {

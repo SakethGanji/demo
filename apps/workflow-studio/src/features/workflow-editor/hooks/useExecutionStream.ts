@@ -7,6 +7,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { useWorkflowStore } from '../stores/workflowStore';
+import { useTestStore } from '../stores/testStore';
 import { useEnvProfilesStore } from '../stores/envProfilesStore';
 import { toBackendWorkflow, findUpstreamNodeName, buildNameToIdMap } from '../lib/workflowTransform';
 import { consumeSSEStream } from '@/shared/lib/sseParser';
@@ -210,6 +211,7 @@ export function useExecutionStream(): UseExecutionStreamResult {
       nodeOutputs: Record<string, Array<{ json: Record<string, unknown> }>>,
     ) {
       const store = useWorkflowStore.getState();
+      if (event.executionId && !event.subworkflowParentNode) useTestStore.getState().setLastExecutionId(event.executionId);
 
       switch (event.type) {
         case 'execution:start':

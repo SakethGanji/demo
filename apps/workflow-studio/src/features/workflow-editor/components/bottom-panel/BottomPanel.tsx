@@ -1,7 +1,10 @@
 import { lazy, Suspense } from 'react';
-import { X, ScrollText, Maximize2, Minimize2, Play, AlertCircle } from 'lucide-react';
+import { X, ScrollText, Maximize2, Minimize2, Play, AlertCircle, FlaskConical } from 'lucide-react';
 import { useCheckStore } from '../../stores/checkStore';
 import ProblemsPanel from './ProblemsPanel';
+import TestsPanel from '../tests/TestsPanel';
+import { useWorkflowStore } from '../../stores/workflowStore';
+import { useTestStore } from '../../stores/testStore';
 import { useEditorLayoutStore, type BottomPanelTab } from '../../stores/editorLayoutStore';
 import { useExecutionStream } from '../../hooks/useExecutionStream';
 import CodeEditor from '@/shared/components/ui/code-editor';
@@ -15,6 +18,7 @@ const tabs: { id: BottomPanelTab; label: string; icon: typeof ScrollText }[] = [
   { id: 'logs', label: 'Logs', icon: ScrollText },
   { id: 'input', label: 'Input', icon: Play },
   { id: 'problems', label: 'Problems', icon: AlertCircle },
+  { id: 'tests', label: 'Tests', icon: FlaskConical },
 ];
 
 export default function BottomPanel() {
@@ -25,6 +29,8 @@ export default function BottomPanel() {
   const toggleMaximized = useEditorLayoutStore((s) => s.toggleBottomPanelMaximized);
   const problemCount = useCheckStore((s) => s.counts.error + s.counts.warning);
   const hasErrors = useCheckStore((s) => s.counts.error > 0);
+  const testCount = useWorkflowStore((s) => s.tests.length);
+  const testsFailing = useTestStore((s) => (s.report ? s.report.summary.failed + s.report.summary.errored > 0 : false));
 
   return (
     <div className="h-full flex flex-col">
@@ -47,6 +53,14 @@ export default function BottomPanel() {
                   className={`ml-0.5 rounded-full px-1.5 text-[10px] font-semibold leading-4 ${hasErrors ? 'bg-destructive-soft text-destructive' : 'bg-warning-soft text-warning-text'}`}
                 >
                   {problemCount}
+                </span>
+              )}
+              {tab.id === 'tests' && testCount > 0 && (
+                <span
+                  data-testid="tests-count"
+                  className={`ml-0.5 rounded-full px-1.5 text-[10px] font-semibold leading-4 ${testsFailing ? 'bg-destructive-soft text-destructive' : 'bg-recess text-muted-foreground'}`}
+                >
+                  {testCount}
                 </span>
               )}
             </EditorTab>
@@ -79,6 +93,7 @@ export default function BottomPanel() {
           {activeTab === 'logs' && <ExecutionLogsPanel />}
           {activeTab === 'input' && <InputPanel />}
           {activeTab === 'problems' && <ProblemsPanel />}
+          {activeTab === 'tests' && <TestsPanel />}
         </Suspense>
       </div>
     </div>

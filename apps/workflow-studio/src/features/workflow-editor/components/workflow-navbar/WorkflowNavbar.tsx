@@ -47,6 +47,7 @@ import { cn } from '@/shared/lib/utils';
 import { useEditorProjectStore } from '../../stores/editorProjectStore';
 import { ToolbarSeparator } from '@/shared/components/ui/toolbar';
 import { EnvProfileSelector } from '../env-profiles/EnvProfileSelector';
+import TestBar from '../tests/TestBar';
 import type { WorkflowNodeData } from '../../types/workflow';
 import type { Node } from '@xyflow/react';
 export default function WorkflowNavbar() {
@@ -239,6 +240,8 @@ export default function WorkflowNavbar() {
         </Badge>
 
         <div className="flex-1" />
+
+        <TestBar />
 
         {/* Run summary */}
         <span className="hidden text-[11.5px] whitespace-nowrap text-muted-foreground select-none xl:inline">

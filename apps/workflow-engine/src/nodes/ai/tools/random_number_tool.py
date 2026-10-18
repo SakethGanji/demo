@@ -76,7 +76,9 @@ class RandomNumberToolNode(ConfigProvider):
         if min_val > max_val:
             min_val, max_val = max_val, min_val
 
-        result = random.randint(int(min_val), int(max_val))
+        from ....engine.test_mode import current_rng  # seeded inside a test run
+
+        result = current_rng().randint(int(min_val), int(max_val))
         return {
             "result": result,
             "min": min_val,

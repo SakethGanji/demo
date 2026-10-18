@@ -19,6 +19,7 @@ from typing import Any
 from simpleeval import EvalWithCompoundTypes, DEFAULT_FUNCTIONS, DEFAULT_OPERATORS
 
 from .logging import execution_variables_var
+from .test_mode import current_time
 from .types import NodeData
 
 logger = logging.getLogger(__name__)
@@ -93,9 +94,10 @@ class ExpressionEngine:
             "floor": math.floor,
             "ceil": math.ceil,
             # Date functions
-            "now": lambda: int(datetime.now().timestamp() * 1000),
-            "date_now": lambda: datetime.now().isoformat(),
-            "timestamp": lambda: int(datetime.now().timestamp()),
+            # (a test run freezes the clock: see engine/test_mode.py)
+            "now": lambda: int(current_time().timestamp() * 1000),
+            "date_now": lambda: current_time().isoformat(),
+            "timestamp": lambda: int(current_time().timestamp()),
             # JSON functions
             "json_stringify": lambda v: json.dumps(v),
             "json_parse": lambda s: json.loads(s) if s else None,
