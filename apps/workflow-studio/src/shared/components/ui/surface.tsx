@@ -1,12 +1,25 @@
 /**
  * Surfaces (DESIGN §2, §4). Feature code builds every box from these instead of its own classes:
- *   Tile         glass card / bento tile / pane (the `tile` recipe). `interactive` adds the hover frost and press.
+ *   Tile         glass card / bento tile / pane (the `tile` recipe). `interactive` adds the `glass-hover` lift and press.
  *   Well         a recess inside the glass for text: tables, lists, code (the `well` recipe). Never a well in a well.
+ *   WellList/Row a list in one Well with hairline rows (never a box per row).
+ *   Page         the scrolling page body (the one page padding).
  *   PageHeader   the 26px page title with a meta row and actions.
  *   SectionHeader a tile header: entity-hued icon tile, 13.5px title, sub, actions.
  */
 import * as React from 'react'
 import { cn } from '@/shared/lib/utils'
+
+/**
+ * The scrolling body of a page inside the workspace sheet: transparent, 32/28px padding (the one page inset).
+ * Full-height pages that scroll inside a pane (Runs, Data) keep their own frame but use the same px-8 / pt-7.
+ */
+export const Page = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(function Page(
+  { className, ...props },
+  ref,
+) {
+  return <div ref={ref} data-slot="page" className={cn('h-full min-h-0 overflow-x-hidden overflow-y-auto px-8 py-7', className)} {...props} />
+})
 
 export type EntityHue = 'backend' | 'data' | 'runs' | 'apps' | 'secrets' | 'ai' | 'flow' | 'release' | 'home'
 
@@ -34,7 +47,7 @@ export const Tile = React.forwardRef<
       className={cn(
         editor ? 'glass-editor rounded-panel' : 'tile',
         'relative min-w-0',
-        interactive && 'cursor-pointer transition-[background-color,transform] duration-(--d-fast) hover:bg-(--glass-fill-hover) active:scale-[.98]',
+        interactive && 'glass-hover',
         className,
       )}
       {...props}
@@ -48,6 +61,15 @@ export const Well = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDi
 ) {
   return <div ref={ref} data-slot="well" className={cn('well min-w-0', className)} {...props} />
 })
+
+/** A list inside one Well: hairline rows, never a glass box per row. */
+export function WellList({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return <Well className={cn('flex flex-col divide-y divide-hairline p-0', className)} {...props} /> // design-ok: the WellList recipe itself
+}
+
+export function WellRow({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return <div className={cn('flex items-center gap-2 px-3 py-2 text-[12.5px]', className)} {...props} />
+}
 
 /** Icon in a 10% tint of its entity hue. */
 export function IconTile({ hue, children, className }: { hue: EntityHue; children: React.ReactNode; className?: string }) {

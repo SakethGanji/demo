@@ -6,11 +6,15 @@
  *
  * Chromium only (SVG filters as backdrop-filter are non-standard); everything else keeps the plain blur.
  * Maps are cached per size because rebuilding is the expensive part; use it only on small controls.
+ * Budget: at most MAX_LIVE refracting surfaces at once (extra ones keep their plain recipe), and none on
+ * machines with 4 or fewer cores: every refracting surface re-filters its backdrop each frame it moves.
  */
 
 import { useEffect, useMemo, useState } from 'react'
 
 const N_GLASS = 1.5
+const MAX_LIVE = 4
+let live = 0
 
 let supported: boolean | null = null
 export function liquidGlassSupported() {
@@ -19,7 +23,8 @@ export function liquidGlassSupported() {
   const uaData = (navigator as Navigator & { userAgentData?: { brands?: Array<{ brand: string }> } }).userAgentData
   const chromium = !!uaData?.brands?.some((b) => /Chromium/i.test(b.brand))
   const calm = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || window.matchMedia?.('(prefers-reduced-transparency: reduce)').matches
-  return (supported = chromium && !calm)
+  const strong = (navigator.hardwareConcurrency ?? 8) > 4
+  return (supported = chromium && !calm && strong)
 }
 
 /** convex squircle bezel profile and its slope */
@@ -118,7 +123,7 @@ let seq = 0
  * backdrop-filter (e.g. a light blur). Does nothing where unsupported.
  */
 export function attachLiquidGlass(el: HTMLElement, w: number, h: number, { radius = 6, bezel = 6, strength = 10, extra = 'saturate(150%)' } = {}) {
-  if (!liquidGlassSupported() || w < 4 || h < 4) return () => {}
+  if (!liquidGlassSupported() || w < 4 || h < 4 || live >= MAX_LIVE) return () => {}
   const NS = 'http://www.w3.org/2000/svg'
   const id = `lg-${++seq}`
   const { url, scale } = glassMap(w, h, radius, bezel, strength)
@@ -151,7 +156,12 @@ export function attachLiquidGlass(el: HTMLElement, w: number, h: number, { radiu
   el.style.backdropFilter = filterValue
   el.style.setProperty('-webkit-backdrop-filter', filterValue)
   el.dataset.liquid = ''
+  live++
+  let done = false
   return () => {
+    if (done) return
+    done = true
+    live--
     filter.remove()
     el.style.backdropFilter = ''
     el.style.removeProperty('-webkit-backdrop-filter')

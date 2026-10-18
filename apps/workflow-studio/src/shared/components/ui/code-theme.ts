@@ -84,7 +84,7 @@ export function buildCodeTheme({ fontSize = '12.5px', lineHeight = '20px', backg
       borderRadius: '8px',
       overflow: 'hidden',
       backgroundColor: t.overlay,
-      backdropFilter: t.overlayBlur,
+      backdropFilter: t.overlayBlur, // design-ok: CodeMirror tooltip is an overlay
       WebkitBackdropFilter: t.overlayBlur,
       boxShadow: t.overlayShadow,
       color: t.fg,

@@ -540,9 +540,9 @@ function WorkflowEdge({
             ) : (
               <button
                 onClick={handleAddNode}
-                className="flex h-6 w-6 items-center justify-center rounded-full bg-raise shadow-raise-md transition-all hover:bg-raise hover:scale-110"
+                className="canvas-chip flex h-6 w-6 items-center justify-center rounded-full hover:scale-110"
               >
-                <Plus size={14} className="text-muted-foreground" />
+                <Plus size={14} strokeWidth={2.5} />
               </button>
             )}
           </div>

@@ -1,7 +1,7 @@
 import { CheckCheck, HelpCircle, Loader2, Lock, Plus, TriangleAlert } from 'lucide-react';
 import { newTestCase } from '@/features/workflow-editor/lib/tests';
 import { Button } from '@/shared/components/ui/button';
-import { Callout, SectionHeader, Well } from '@/shared/components/ui/surface';
+import { Callout, SectionHeader, Well, WellList, WellRow } from '@/shared/components/ui/surface';
 import { Input } from '@/shared/components/ui/input';
 import { Switch } from '@/shared/components/ui/switch';
 import { Textarea } from '@/shared/components/ui/textarea';
@@ -116,7 +116,7 @@ export function SpecEditor({ spec, issues, warnings, projectId, edit, readOnly, 
 
       <section className="flex flex-col gap-1">
         <SectionHeader title="Rules" sub="What must always hold" />
-        <div className="flex flex-col divide-y divide-hairline">
+        <WellList className="empty:hidden">
           {spec.rules.map((r, i) => (
             <SpecRule
               key={r.id}
@@ -137,7 +137,7 @@ export function SpecEditor({ spec, issues, warnings, projectId, edit, readOnly, 
               })}
             />
           ))}
-        </div>
+        </WellList>
         {!readOnly && (
           <div>
             <Button
@@ -150,7 +150,7 @@ export function SpecEditor({ spec, issues, warnings, projectId, edit, readOnly, 
 
       <section className="flex flex-col gap-1">
         <SectionHeader title="Steps" sub="In the order they happen" />
-        <div className="flex flex-col divide-y divide-hairline">
+        <WellList className="empty:hidden">
           {spec.steps.map((st, i) => (
             <SpecStep
               key={i}
@@ -164,7 +164,7 @@ export function SpecEditor({ spec, issues, warnings, projectId, edit, readOnly, 
               onRemove={() => edit((s) => ({ ...s, steps: s.steps.filter((_, j) => j !== i) }))}
             />
           ))}
-        </div>
+        </WellList>
         {!readOnly && (
           <div>
             <Button
@@ -186,7 +186,7 @@ export function SpecEditor({ spec, issues, warnings, projectId, edit, readOnly, 
             These tests decide whether the AI got it right. Once you approve, they are locked: the AI can ask for a change, but only you can make it.
           </p>
         )}
-        <div className="flex flex-col divide-y divide-hairline" data-testid="ai-spec-tests">
+        <WellList data-testid="ai-spec-tests">
           {spec.tests.map((t, i) => (
             <SpecTest
               key={t.id}
@@ -202,8 +202,8 @@ export function SpecEditor({ spec, issues, warnings, projectId, edit, readOnly, 
               })}
             />
           ))}
-          {spec.tests.length === 0 && <div className="py-2 text-[12.5px] text-warning-text">There are no tests yet. Add one so the result can be checked.</div>}
-        </div>
+          {spec.tests.length === 0 && <WellRow className="text-warning-text">There are no tests yet. Add one so the result can be checked.</WellRow>}
+        </WellList>
         {!readOnly && !approved && (
           <div>
             <Button
@@ -233,7 +233,7 @@ export function SpecEditor({ spec, issues, warnings, projectId, edit, readOnly, 
       {general.length > 0 && <IssueList issues={general} />}
 
       {!readOnly && !approved && (
-        <div className="sticky bottom-0 flex flex-col gap-2 bg-(--glass-fill) pb-1 pt-2 backdrop-blur-md">
+        <div className="glass-strip sticky bottom-0 flex flex-col gap-2 pb-1 pt-2">
           {errors.length > 0 && (
             <Callout tone="error" icon={<TriangleAlert />}>
               <div>{errors.length === 1 ? 'One thing in the plan needs fixing' : `${errors.length} things in the plan need fixing`} before you can approve it.</div>

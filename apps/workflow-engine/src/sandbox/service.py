@@ -19,8 +19,12 @@ class SandboxService:
                   team_id: str = "default", read_only: bool = False,
                   allowed_functions: set[str] | None = None,
                   virtual_tables: set[str] | None = None,
-                  max_calls: int | None = None) -> tuple[SandboxResult, list[str]]:
-        """Returns (result, broker call ids made during the run). Raises SandboxUnavailable."""
+                  max_calls: int | None = None,
+                  frame: dict[str, Any] | None = None) -> tuple[SandboxResult, list[str]]:
+        """Returns (result, broker call ids made during the run). Raises SandboxUnavailable.
+
+        ``frame``: where the code runs (broker.service.frame_of: call_stack, call_names, depth, release_id), so a
+        ``run_workflow`` call from it is guarded and pinned like a sub-workflow call of that run."""
         backend = get_backend()
         ok, reason = availability(backend)
         if not ok:
@@ -33,6 +37,9 @@ class SandboxService:
                               origin=origin, team_id=team_id, read_only=read_only,
                               virtual_tables=set(virtual_tables) if virtual_tables else None,
                               allowed_functions=set(allowed_functions) if allowed_functions else set(function_index().values()))
+        for k, v in (frame or {}).items():
+            if k in ("call_stack", "call_names", "depth", "release_id"):
+                setattr(claims, k, v)
         if max_calls:
             claims.max_calls = max(1, min(int(max_calls), claims.max_calls))
         token = registry.mint(claims, ttl_s=timeout_s + 5)

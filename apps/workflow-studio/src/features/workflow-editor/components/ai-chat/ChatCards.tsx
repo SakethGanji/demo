@@ -2,6 +2,7 @@ import { AlertTriangle, ArrowUpRight, CheckCircle2, ClipboardList, GitCompare, L
 import { Button } from '@/shared/components/ui/button';
 import { Callout } from '@/shared/components/ui/surface';
 import { cn } from '@/shared/lib/utils';
+import { ChatCardShell } from './ChatCardShell';
 import type { AIChatCard } from '../../types/workflow';
 
 type SpecCard = Extract<AIChatCard, { kind: 'spec' }>;
@@ -13,7 +14,7 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 export function SpecChatCard({ card, onApprove, onOpen }: { card: SpecCard; onApprove: () => void; onOpen: () => void }) {
   const working = card.phase === 'approving' || card.phase === 'building';
   return (
-    <div className="rounded-ctl bg-recess p-2.5 text-[12.5px]" data-testid="ai-chat-spec-card" data-phase={card.phase}>
+    <ChatCardShell data-testid="ai-chat-spec-card" data-phase={card.phase}>
       <div className="flex items-center gap-1.5 font-medium text-foreground"><ClipboardList className="size-3.5 text-muted-foreground" /> {card.title}</div>
       {card.summary && <p className="mt-1 text-muted-foreground">{card.summary}</p>}
       <p className="mt-1 text-muted-foreground">
@@ -32,7 +33,7 @@ export function SpecChatCard({ card, onApprove, onOpen }: { card: SpecCard; onAp
         </Button>
         <Button size="sm" variant="outline" onClick={onOpen} disabled={working} data-testid="ai-chat-spec-open">Open the plan</Button>
       </div>
-    </div>
+    </ChatCardShell>
   );
 }
 
@@ -41,7 +42,7 @@ export function ProposalChatCard({ card, onOpen }: { card: ProposalCard; onOpen:
   const ready = card.status === 'ready';
   const { added, changed, removed } = card.counts;
   return (
-    <div className="rounded-ctl bg-recess p-2.5 text-[12.5px]" data-testid="ai-chat-proposal-card" data-status={card.status} data-passed={card.passed ? 'true' : 'false'}>
+    <ChatCardShell data-testid="ai-chat-proposal-card" data-status={card.status} data-passed={card.passed ? 'true' : 'false'}>
       <div className={cn('flex items-center gap-1.5 font-medium', ready && !card.passed ? 'text-warning-text' : 'text-foreground')}>
         <GitCompare className="size-3.5 text-muted-foreground" />
         {ready ? (card.passed ? 'A change is ready to review' : 'A change is ready, but some tests fail') : 'The change could not be built'}
@@ -56,6 +57,6 @@ export function ProposalChatCard({ card, onOpen }: { card: ProposalCard; onOpen:
           Review the change <ArrowUpRight />
         </Button>
       </div>
-    </div>
+    </ChatCardShell>
   );
 }

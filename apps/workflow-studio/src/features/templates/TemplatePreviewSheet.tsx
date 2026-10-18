@@ -5,7 +5,6 @@
 import { useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { ArrowUpRight, CircleAlert, CircleCheck, KeyRound, Loader2, Plug, Table2, TriangleAlert, Workflow } from 'lucide-react'
-import { useProjectCtx } from '@/features/project/ProjectContext'
 import { useTables } from '@/features/project/hooks/useProjectData'
 import { floatingSheetCls } from '@/features/settings/SettingsSheet'
 import WorkflowSVG from '@/features/workflow-editor/components/WorkflowSVG'
@@ -13,29 +12,45 @@ import { Badge } from '@/shared/components/ui/badge'
 import { Button } from '@/shared/components/ui/button'
 import { Checkbox } from '@/shared/components/ui/checkbox'
 import { Segmented } from '@/shared/components/ui/segmented'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/components/ui/select'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/shared/components/ui/sheet'
 import { Skeleton } from '@/shared/components/ui/skeleton'
-import { Callout, Well } from '@/shared/components/ui/surface'
+import { Callout, SectionHeader, Well } from '@/shared/components/ui/surface'
 import { cn } from '@/shared/lib/utils'
 import { errorMessage } from '@/shared/api/http'
+import { WellList, WellRow } from '@/shared/components/ui/surface'
 import { useInstallPreview, useInstallTemplate, useTemplate } from './hooks'
 import { installProblem, previewToFlow, sortNeeds, testsTotals, type InstallProblem } from './lib'
 import type { ClashMode, InstallOptions, InstallResult, Need, TemplateDetail } from './types'
 
-export function TemplatePreviewSheet({ slug, onClose }: { slug: string | null; onClose: () => void }) {
+/** The project a template installs into. */
+export interface InstallTarget {
+  id: string
+  slug: string
+  name: string
+}
+
+interface TargetProps {
+  /** the chosen project; none until the user picks one */
+  target: InstallTarget | undefined
+  projects: InstallTarget[]
+  onTargetChange: (slug: string | undefined) => void
+}
+
+export function TemplatePreviewSheet({ slug, onClose, ...targetProps }: { slug: string | null; onClose: () => void } & TargetProps) {
   return (
     <Sheet open={!!slug} onOpenChange={(o) => !o && onClose()}>
       <SheetContent side="right" showCloseButton className={`${floatingSheetCls} data-[side=right]:w-[680px]`} data-testid="template-preview">
-        {slug && <PreviewBody key={slug} slug={slug} />}
+        {slug && <PreviewBody key={`${slug}:${targetProps.target?.id ?? ''}`} slug={slug} {...targetProps} />}
       </SheetContent>
     </Sheet>
   )
 }
 
-function PreviewBody({ slug }: { slug: string }) {
-  const { pid } = useProjectCtx()
+function PreviewBody({ slug, target, projects, onTargetChange }: { slug: string } & TargetProps) {
+  const pid = target?.id
   const detail = useTemplate(slug)
-  const tables = useTables(pid)
+  const tables = useTables(pid ?? '')
   const [clash, setClash] = useState<ClashMode>('rename')
   const [reuse, setReuse] = useState<string[]>([])
   const [asCopy, setAsCopy] = useState(false)
@@ -83,8 +98,8 @@ function PreviewBody({ slug }: { slug: string }) {
               Couldn't load the template · {errorMessage(detail.error)}
             </Callout>
           </div>
-        ) : result ? (
-          <InstallResultPanel result={result} />
+        ) : result && target ? (
+          <InstallResultPanel result={result} projectSlug={target.slug} />
         ) : (
           <div className="flex flex-col gap-4 px-5 pb-5">
             <p className="text-[13px] leading-5 text-foreground">{t.summary}</p>
@@ -102,9 +117,9 @@ function PreviewBody({ slug }: { slug: string }) {
 
             {t.tables.length > 0 && (
               <Section icon={<Table2 />} title="Tables">
-                <Well className="flex flex-col divide-y divide-border/60 p-0" data-testid="template-preview-tables">
+                <WellList data-testid="template-preview-tables">
                   {t.tables.map((tb) => (
-                    <div key={tb.key} className="flex items-center gap-2 px-3 py-2 text-[12.5px]">
+                    <WellRow key={tb.key}>
                       <span className="font-mono">{tb.name}</span>
                       <span className="truncate text-muted-foreground">{tb.columns.map((c) => c.name).join(', ')}</span>
                       <div className="flex-1" />
@@ -120,30 +135,30 @@ function PreviewBody({ slug }: { slug: string }) {
                           Reuse existing
                         </label>
                       )}
-                    </div>
+                    </WellRow>
                   ))}
-                </Well>
+                </WellList>
               </Section>
             )}
 
             {t.api_summaries.length > 0 && (
-              <Section icon={<Plug />} title="APIs">
-                <Well className="flex flex-col divide-y divide-border/60 p-0" data-testid="template-preview-apis">
+              <Section icon={<Plug />} title="External APIs">
+                <WellList data-testid="template-preview-apis">
                   {t.api_summaries.map((a) => (
-                    <div key={a.key} className="px-3 py-2 text-[12.5px]">
+                    <WellRow key={a.key} className="flex-col items-stretch gap-0">
                       <div className="flex items-center gap-2">
                         <span className="font-medium">{a.name}</span>
                         {a.base_url && <span className="truncate font-mono text-[11.5px] text-muted-foreground">{a.base_url}</span>}
                       </div>
                       <div className="mt-0.5 text-muted-foreground">{a.operations.length} operations</div>
-                    </div>
+                    </WellRow>
                   ))}
-                </Well>
+                </WellList>
               </Section>
             )}
 
             <Section icon={<KeyRound />} title="Needs">
-              <NeedsList t={t} needs={preview.data?.needs} loading={preview.isLoading} />
+              <NeedsList t={t} needs={preview.data?.needs} loading={preview.isLoading} projectSlug={target?.slug} />
               {(preview.data?.egress_hosts ?? []).length > 0 && (
                 <div className="text-[12px] text-muted-foreground" data-testid="template-preview-egress">
                   Calls out to {preview.data!.egress_hosts.join(', ')}. These hosts are added to the project allowlist if it is not empty.
@@ -153,6 +168,25 @@ function PreviewBody({ slug }: { slug: string }) {
 
             <Section title="Install options">
               <div className="flex flex-col gap-2.5">
+                <div className="flex items-center gap-3 text-[12.5px]">
+                  <span className="text-muted-foreground">Install into</span>
+                  <Select
+                    value={target?.slug ?? null}
+                    onValueChange={(v) => onTargetChange((v as string | null) ?? undefined)}
+                    items={Object.fromEntries(projects.map((p) => [p.slug, p.name]))}
+                  >
+                    <SelectTrigger className="min-w-48" data-testid="template-install-project">
+                      <SelectValue placeholder="Choose a project" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {projects.map((p) => (
+                        <SelectItem key={p.id} value={p.slug} data-testid={`template-install-project-${p.slug}`}>
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="flex items-center gap-3 text-[12.5px]">
                   <span className="text-muted-foreground">If a name is taken</span>
                   <Segmented<ClashMode>
@@ -221,12 +255,16 @@ function PreviewBody({ slug }: { slug: string }) {
 
       <div className="flex shrink-0 items-center gap-2 px-5 pb-4 pt-3">
         <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-          {result ? 'Installed. Entry workflows stay drafts; turn triggers on when you are ready.' : 'Sub-workflows are published; entry workflows stay drafts.'}
+          {result
+            ? 'Installed. Entry workflows stay drafts; turn triggers on when you are ready.'
+            : target
+              ? 'Sub-workflows are published; entry workflows stay drafts.'
+              : 'Choose a project to install into.'}
         </span>
         {!result && (
           <Button
             size="sm"
-            disabled={!t || install.isPending || alreadyInstalled || blockedByVersion || (clash === 'fail' && clashes.length > 0)}
+            disabled={!t || !target || install.isPending || alreadyInstalled || blockedByVersion || (clash === 'fail' && clashes.length > 0)}
             onClick={() => void doInstall()}
             data-testid="template-install"
           >
@@ -242,10 +280,7 @@ function PreviewBody({ slug }: { slug: string }) {
 function Section({ icon, title, children }: { icon?: React.ReactNode; title: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-1.5 text-[12.5px] font-semibold text-muted-foreground [&_svg]:size-3.5">
-        {icon}
-        {title}
-      </div>
+      <SectionHeader icon={icon} title={title} titleClassName="text-[12.5px] text-muted-foreground" />
       {children}
     </div>
   )
@@ -274,8 +309,7 @@ function WorkflowPreviewCard({ t, wkey }: { t: TemplateDetail; wkey: string }) {
 }
 
 /** Required secrets and variables. `needs` (from install-preview) says which are missing; before it arrives all show as unchecked. */
-function NeedsList({ t, needs, loading }: { t: TemplateDetail; needs: Need[] | undefined; loading: boolean }) {
-  const { slug } = useProjectCtx()
+function NeedsList({ t, needs, loading, projectSlug }: { t: TemplateDetail; needs: Need[] | undefined; loading: boolean; projectSlug: string | undefined }) {
   const missing = new Map((needs ?? []).map((n) => [`${n.kind}:${n.name}`, n]))
   const rows = [
     ...t.requires.secrets.map((s) => ({ kind: 'secret' as const, name: s.name, usedBy: s.used_by })),
@@ -283,35 +317,36 @@ function NeedsList({ t, needs, loading }: { t: TemplateDetail; needs: Need[] | u
   ]
   if (rows.length === 0) return <div className="text-[12.5px] text-muted-foreground">Nothing: no secrets or variables are required.</div>
   return (
-    <Well className="flex flex-col divide-y divide-border/60 p-0" data-testid="template-preview-needs">
+    <WellList data-testid="template-preview-needs">
       {rows.map((r) => {
         const m = missing.get(`${r.kind}:${r.name}`)
         return (
-          <div key={`${r.kind}:${r.name}`} className="flex items-center gap-2 px-3 py-2 text-[12.5px]" data-testid={`template-preview-secret-${r.name}`} data-missing={m ? 'true' : undefined}>
+          <WellRow key={`${r.kind}:${r.name}`} data-testid={`template-preview-secret-${r.name}`} data-missing={m ? 'true' : undefined}>
             <span className="font-mono">{r.name}</span>
             <span className="text-muted-foreground">{r.kind}</span>
             <div className="flex-1" />
-            {loading || needs === undefined ? (
+            {!projectSlug ? (
+              <span className="text-muted-foreground">choose a project</span>
+            ) : loading || needs === undefined ? (
               <span className="text-muted-foreground">checking…</span>
             ) : m ? (
               <>
                 <Badge variant="warning">missing in {m.environments_missing.join(', ')}</Badge>
-                <Link to="/p/$project/secrets" params={{ project: slug }} search={{ create: r.name }} className="inline-flex items-center gap-0.5 text-primary hover:underline">
+                <Link to="/p/$project/secrets" params={{ project: projectSlug }} search={{ create: r.name }} className="inline-flex items-center gap-0.5 text-primary hover:underline">
                   Add <ArrowUpRight className="size-3" />
                 </Link>
               </>
             ) : (
               <Badge variant="success">set</Badge>
             )}
-          </div>
+          </WellRow>
         )
       })}
-    </Well>
+    </WellList>
   )
 }
 
-function InstallResultPanel({ result }: { result: InstallResult }) {
-  const { slug } = useProjectCtx()
+function InstallResultPanel({ result, projectSlug: slug }: { result: InstallResult; projectSlug: string }) {
   const entry = result.workflows.find((w) => w.role === 'entry') ?? result.workflows[0]
   const totals = testsTotals(result.tests)
   const failing = Object.entries(result.tests ?? {}).filter(([, s]) => s.failed > 0)
@@ -322,17 +357,17 @@ function InstallResultPanel({ result }: { result: InstallResult }) {
       </Callout>
 
       <Section icon={<Workflow />} title="Workflows">
-        <Well className="flex flex-col divide-y divide-border/60 p-0">
+        <WellList>
           {result.workflows.map((w) => (
-            <div key={w.key} className="flex items-center gap-2 px-3 py-2 text-[12.5px]">
+            <WellRow key={w.key}>
               <Link to="/p/$project/workflows/$workflowId" params={{ project: slug, workflowId: w.id }} className="truncate font-medium hover:underline">
                 {w.name ?? w.key}
               </Link>
               <div className="flex-1" />
               <Badge variant={w.published_version != null ? 'success' : 'neutral'}>{w.published_version != null ? `v${w.published_version} published` : 'Draft'}</Badge>
-            </div>
+            </WellRow>
           ))}
-        </Well>
+        </WellList>
       </Section>
 
       {result.renamed.length > 0 && (
@@ -349,18 +384,18 @@ function InstallResultPanel({ result }: { result: InstallResult }) {
 
       {result.needs.length > 0 && (
         <Section icon={<KeyRound />} title="Still needed">
-          <Well className="flex flex-col divide-y divide-border/60 p-0">
+          <WellList>
             {sortNeeds(result.needs).map((n) => (
-              <div key={`${n.kind}-${n.name}`} className="flex items-center gap-2 px-3 py-2 text-[12.5px]" data-testid={`template-need-${n.kind}-${n.name}`}>
+              <WellRow key={`${n.kind}-${n.name}`} data-testid={`template-need-${n.kind}-${n.name}`}>
                 <span className="font-mono">{n.name}</span>
                 <span className="text-muted-foreground">{n.kind} missing in {n.environments_missing.join(', ')}</span>
                 <div className="flex-1" />
                 <Link to="/p/$project/secrets" params={{ project: slug }} search={{ create: n.name }} className="inline-flex items-center gap-0.5 text-primary hover:underline">
                   {n.kind === 'secret' ? 'Add secret' : 'Add variable'} <ArrowUpRight className="size-3" />
                 </Link>
-              </div>
+              </WellRow>
             ))}
-          </Well>
+          </WellList>
         </Section>
       )}
 

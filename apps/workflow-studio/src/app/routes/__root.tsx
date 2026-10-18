@@ -38,7 +38,7 @@ function RootLayout() {
   }, [closePanel])
 
   // Every studio page (projects, /p/…, redirects) is a full-screen takeover; the landing scrolls.
-  // Working pages sit on the plain canvas; only Projects home and the landing paint a sky (HomeSky).
+  // Every page sits on the shared backdrop (body::before/::after in index.css); Projects home and the landing add stars.
   return (
     <ThemeProvider defaultTheme="system" storageKey="workflow-studio-theme">
       <TooltipProvider delay={500} timeout={300}>

@@ -2,22 +2,33 @@
  * The live preview (DESIGN-STAGE5-UIS §0, §11.1): the chosen screen rendered by the same ScreenRenderer the public
  * pages use, on real run data (`preview/data`). Form fields come from the FormTrigger on the canvas, so editing
  * the trigger updates the preview without a round trip.
+ *
+ * One implementation for both places it shows: the right panel's Interface tab (`surface="panel"`) and the canvas
+ * "Try it" dock (`surface="dock"`). A chat is used in the dock (the draft chat endpoints); the panel offers a button
+ * that opens it. Every run started here saves the draft first and is reported through `onRun`.
  */
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { MessageSquare } from 'lucide-react'
 import { toast } from 'sonner'
+import { Button } from '@/shared/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/components/ui/select'
 import { Callout } from '@/shared/components/ui/surface'
 import { interfacesApi, runsApi, tasksApi } from '@/shared/api/endpoints'
 import { errorMessage } from '@/shared/api/http'
 import { qk } from '@/shared/api/queryKeys'
+import { InterfaceChat } from '@/features/interfaces/chat/InterfaceChat'
 import { InterfaceForm } from '@/features/interfaces/form/InterfaceForm'
+import { previewChatTransport } from '@/features/interfaces/lib/chatTransport'
 import { ScreenRenderer } from '@/features/interfaces/renderer/ScreenRenderer'
 import { deriveFormFields } from '@/features/interfaces/lib/formFields'
 import { previewScreenData, previewScreenIds, runPickerLabel } from '@/features/interfaces/lib/interfaceDraft'
 import { newIdempotencyKey } from '@/features/interfaces/lib/keys'
 import type { Interface } from '@/features/interfaces/lib/types'
+import { cn } from '@/shared/lib/utils'
 import type { Shape } from '../../lib/shapes'
+import { saveDraftIfDirty } from '../../lib/nodeActions'
+import { useEditorLayoutStore } from '../../stores/editorLayoutStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import type { WorkflowNodeData } from '../../types/workflow'
 
@@ -36,7 +47,7 @@ function useTriggerFields(triggerNode: string) {
 }
 
 export function InterfacePreview({
-  workflowId, projectId, iface, screenId, onScreen,
+  workflowId, projectId, iface, screenId, onScreen, surface = 'panel', onRun, className,
 }: {
   workflowId: string
   projectId: string
@@ -44,8 +55,15 @@ export function InterfacePreview({
   /** the selected screen id (controlled, so the Ask bar edits what the author is looking at) */
   screenId: string
   onScreen: (id: string) => void
+  /** `panel`: the Interface tab (a chat opens the dock); `dock`: the canvas dock, where a chat is used */
+  surface?: 'panel' | 'dock'
+  /** a submit or chat turn started this execution */
+  onRun?: (executionId: string) => void
+  className?: string
 }) {
   const qc = useQueryClient()
+  const openDock = useEditorLayoutStore((s) => s.openInterfaceDock)
+  const chatTransport = useMemo(() => previewChatTransport(workflowId, saveDraftIfDirty), [workflowId])
   const ids = previewScreenIds(iface)
   const [execId, setExecId] = useState<string | null>(null)
   const fields = useTriggerFields(iface.trigger_node)
@@ -77,9 +95,16 @@ export function InterfacePreview({
   })
 
   const previewSubmit = async (body: Record<string, unknown>) => {
+    // the engine runs the stored draft: store the canvas first
+    await saveDraftIfDirty()
     const res = await interfacesApi.previewSubmit(workflowId, body, newIdempotencyKey())
     toast.success('Preview run started')
     setExecId(res.execution_id)
+    onRun?.(res.execution_id)
+    void qc.invalidateQueries({ queryKey: qk.interfaces.runs(projectId, workflowId) })
+  }
+  const chatTurn = (executionId: string) => {
+    onRun?.(executionId)
     void qc.invalidateQueries({ queryKey: qk.interfaces.runs(projectId, workflowId) })
   }
   const form = <InterfaceForm fields={fields} onSubmit={previewSubmit} />
@@ -89,7 +114,12 @@ export function InterfacePreview({
   if (execId && !runItems[execId]) runItems[execId] = runPickerLabel(execId)
 
   return (
-    <div className="flex flex-col gap-2" data-testid="interface-preview" data-kind={iface.kind} data-screen={screenId}>
+    <div
+      className={cn('flex min-h-0 flex-col gap-2', className)}
+      data-testid={surface === 'dock' ? 'interface-dock-preview' : 'interface-preview'}
+      data-kind={iface.kind}
+      data-screen={screenId}
+    >
       {iface.kind === 'custom' && (
         <div className="flex items-center gap-2">
           <Select value={screenId} onValueChange={(v) => v && onScreen(v)} items={screenItems}>
@@ -113,9 +143,16 @@ export function InterfacePreview({
 
       {iface.kind === 'form' && <div className="tile p-3">{form}</div>}
 
-      {iface.kind === 'chat' && (
-        <Callout tone="info">Chat is tried on the live page once the workflow is published.</Callout>
-      )}
+      {iface.kind === 'chat' && (surface === 'dock' ? (
+        <InterfaceChat transport={chatTransport} onTurn={chatTurn} variant="bare" />
+      ) : (
+        <div className="flex items-center gap-2">
+          <span className="min-w-0 flex-1 text-[12px] text-muted-foreground">Talk to the draft on the canvas and watch each turn run.</span>
+          <Button variant="outline" size="sm" onClick={openDock} data-testid="interface-open-dock">
+            <MessageSquare /> Try the chat
+          </Button>
+        </div>
+      ))}
 
       {iface.kind === 'custom' && (
         <>
@@ -125,7 +162,7 @@ export function InterfacePreview({
               spec={iface.screens[screenId]}
               data={previewScreenData(data.data, screenId, taskDetail.data)}
               slots={{ input_form: () => form }}
-              className="max-h-[360px] overflow-y-auto"
+              className={surface === 'panel' ? 'max-h-[360px] overflow-y-auto' : undefined}
             />
           ) : (
             <Callout tone="warn">There is no “{screenId}” screen yet.</Callout>

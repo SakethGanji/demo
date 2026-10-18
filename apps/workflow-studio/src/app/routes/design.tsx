@@ -115,6 +115,63 @@ function DesignReference() {
           </div>
         </section>
 
+        <section className="flex flex-col gap-3" data-testid="design-recipes">
+          <h2 className="text-[12.5px] font-medium text-muted-foreground">Glass recipes</h2>
+          <div className="grid grid-cols-3 gap-4">
+            <Tile className="flex flex-col gap-3 p-5">
+              <SectionHeader title="Tile" sub="tile" />
+              <p className="text-[12.5px] text-muted-foreground">Fill, rim and top highlight. No blur, no shadow. Hover to see the pointer highlight.</p>
+              <Tile className="p-3 text-[12.5px]">A tile inside a tile becomes a well</Tile>
+            </Tile>
+            <Tile className="flex flex-col gap-3 p-5">
+              <SectionHeader title="Well" sub="well" />
+              <Well className="p-3 font-mono text-[12px] text-muted-foreground">GET /refunds/stats → 200</Well>
+              <div className="flex items-center gap-2">
+                <Segmented value={env} onChange={setEnv} options={[{ key: 'dev', label: 'dev' }, { key: 'prod', label: 'prod' }]} />
+                <span className="text-[12px] text-muted-foreground">raise: the chosen one</span>
+              </div>
+            </Tile>
+            <Tile className="relative flex h-[190px] flex-col overflow-hidden p-0">
+              <div className="flex-1 overflow-y-auto px-5 pt-14 pb-4 text-[12.5px] leading-6 text-muted-foreground">
+                {Array.from({ length: 10 }, (_, i) => (
+                  <p key={i}>Content scrolls under the chrome bar, line {i + 1}.</p>
+                ))}
+              </div>
+              <div className="glass-chrome absolute inset-x-0 top-0 flex h-11 items-center gap-2 px-4 text-[13px] font-semibold">Chrome</div>
+            </Tile>
+          </div>
+          <div className="grid grid-cols-3 gap-4">
+            <div className="glass-overlay flex flex-col gap-1 p-4">
+              <span className="text-[13px] font-semibold">Overlay</span>
+              <span className="text-[12.5px] text-muted-foreground">Menus, dialogs, sheets, toasts. Blur and rim.</span>
+            </div>
+            <Tile className="flex flex-col gap-3 p-5">
+              <SectionHeader title="Field and pills" />
+              <Input placeholder="A field holds a value" aria-label="Field demo" />
+              <div className="flex flex-wrap gap-1.5">
+                <Badge variant="success">Live</Badge>
+                <Badge variant="warning">Draft</Badge>
+                <Badge variant="error">Failed</Badge>
+                <Badge variant="primary">Info</Badge>
+                <Badge variant="neutral">Quiet</Badge>
+                <Badge variant="outline">Outline</Badge>
+              </div>
+            </Tile>
+            <Tile className="flex flex-col gap-3 p-5">
+              <SectionHeader title="Buttons" />
+              <div className="flex flex-wrap items-center gap-2">
+                <Button>Primary</Button>
+                <Button variant="outline">Glassy</Button>
+                <Button variant="ghost">Ghost</Button>
+                <Button variant="destructive">Danger</Button>
+              </div>
+              <div className="flex items-center gap-2 text-[12.5px] text-muted-foreground">
+                <Switch defaultChecked aria-label="Switch demo" /> Switch
+              </div>
+            </Tile>
+          </div>
+        </section>
+
         <Section title="Buttons">
           <Button>Default</Button>
           <Button variant="outline">Outline</Button>

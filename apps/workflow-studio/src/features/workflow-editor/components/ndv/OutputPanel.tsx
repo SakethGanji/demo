@@ -1,4 +1,5 @@
 import { memo, useState, useMemo, useCallback } from 'react';
+import { DataEmpty } from './DataEmpty';
 import { Database, Code, Pin, Zap, Globe, GitBranch, Download, History, FileCheck2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { NodeExecutionData } from '../../types/workflow';
@@ -253,17 +254,7 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
       {/* Data display */}
       <div className="well m-2 flex-1 overflow-auto p-3">
         {!executionData ? (
-          <div className="flex h-full flex-col items-center justify-center text-center px-6">
-            <div className="w-10 h-10 rounded-panel bg-recess flex items-center justify-center mb-3">
-              <Database size={18} className="text-faint" />
-            </div>
-            <p className="text-[13px] font-medium text-foreground mb-0.5">
-              No output data yet
-            </p>
-            <p className="text-[12px] text-muted-foreground">
-              Run the workflow to see results
-            </p>
-          </div>
+          <DataEmpty title="No output data yet" hint="Run the workflow to see results" />
         ) : executionData.status === 'running' ? (
           <div className="flex h-full flex-col items-center justify-center">
             <Spinner className="size-6" />
@@ -282,17 +273,7 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
             mode={displayMode}
           />
         ) : (
-          <div className="flex h-full flex-col items-center justify-center text-center px-6">
-            <div className="w-10 h-10 rounded-panel bg-recess flex items-center justify-center mb-3">
-              <Database size={18} className="text-faint" />
-            </div>
-            <p className="text-[13px] font-medium text-foreground mb-0.5">
-              No output items
-            </p>
-            <p className="text-[12px] text-muted-foreground">
-              The node executed but returned no data
-            </p>
-          </div>
+          <DataEmpty title="No output items" hint="The node executed but returned no data" />
         )}
       </div>
 

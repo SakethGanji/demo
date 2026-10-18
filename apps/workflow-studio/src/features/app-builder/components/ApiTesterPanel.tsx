@@ -38,6 +38,7 @@ import { Input } from '@/shared/components/ui/input'
 import JsonViewer from '@/shared/components/ui/json-viewer'
 import { Segmented } from '@/shared/components/ui/segmented'
 import { Skeleton } from '@/shared/components/ui/skeleton'
+import { EmptyState } from '@/shared/components/ui/empty-state'
 import { IconTile, Well } from '@/shared/components/ui/surface'
 import { Textarea } from '@/shared/components/ui/textarea'
 import { ToolbarSeparator } from '@/shared/components/ui/toolbar'
@@ -1021,16 +1022,17 @@ function KvEditor({
   return (
     <div className="space-y-1.5">
       {rows.length === 0 ? (
-        <div className="rounded-well flex flex-col items-center justify-center text-center py-8 px-3">
-          <div className="size-8 rounded-panel bg-raise shadow-raise-sm flex items-center justify-center mb-2">
-            <Plus className="h-3.5 w-3.5 text-muted-foreground" />
-          </div>
-          <p className="text-[11px] font-medium text-foreground">{emptyLabel}</p>
-          <Button variant="outline" size="sm" className="mt-2" onClick={add} data-testid="api-tester-add-row">
-            <Plus />
-            {addLabel}
-          </Button>
-        </div>
+        <EmptyState
+          compact
+          icon={<Plus />}
+          title={emptyLabel}
+          actions={
+            <Button variant="outline" size="sm" onClick={add} data-testid="api-tester-add-row">
+              <Plus />
+              {addLabel}
+            </Button>
+          }
+        />
       ) : (
         <>
           {rows.map((row, i) => {
@@ -1109,10 +1111,9 @@ function BodyEditor({
 
   if (noBody) {
     return (
-      <div className="rounded-well flex flex-col items-center justify-center text-center py-10 px-3">
-        <p className="text-[11px] font-medium text-foreground">No body for {method} requests</p>
-        <p className="text-[10px] text-muted-foreground mt-1">Switch to POST, PUT, PATCH, or DELETE to attach a body.</p>
-      </div>
+      <EmptyState compact title={`No body for ${method} requests`}>
+        Switch to POST, PUT, PATCH, or DELETE to attach a body.
+      </EmptyState>
     )
   }
 
@@ -1146,10 +1147,9 @@ function BodyEditor({
         )}
       </div>
       {mode === 'none' ? (
-        <div className="rounded-well flex flex-col items-center justify-center text-center py-10 px-3">
-          <p className="text-[11px] font-medium text-foreground">No body will be sent</p>
-          <p className="text-[10px] text-muted-foreground mt-1">Pick JSON, Raw, Form, or Multipart to add request data.</p>
-        </div>
+        <EmptyState compact title="No body will be sent">
+          Pick JSON, Raw, Form, or Multipart to add request data.
+        </EmptyState>
       ) : mode === 'form' ? (
         <KvEditor rows={rows} onChange={onRowsChange} addLabel="Add field" emptyLabel="No form fields yet" />
       ) : mode === 'multipart' ? (
@@ -1205,22 +1205,23 @@ function MultipartEditor({
 
   if (rows.length === 0) {
     return (
-      <div className="rounded-well flex flex-col items-center justify-center text-center py-8 px-3">
-        <div className="size-8 rounded-panel bg-raise shadow-raise-sm flex items-center justify-center mb-2">
-          <Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
-        </div>
-        <p className="text-[11px] font-medium text-foreground">No fields yet</p>
-        <div className="mt-2 flex items-center gap-1.5">
-          <Button variant="outline" size="sm" onClick={addFile} data-testid="api-tester-add-file">
-            <FileUp />
-            Add file
-          </Button>
-          <Button variant="outline" size="sm" onClick={addText} data-testid="api-tester-add-text">
-            <Plus />
-            Add text field
-          </Button>
-        </div>
-      </div>
+      <EmptyState
+        compact
+        icon={<Paperclip />}
+        title="No fields yet"
+        actions={
+          <>
+            <Button variant="outline" size="sm" onClick={addFile} data-testid="api-tester-add-file">
+              <FileUp />
+              Add file
+            </Button>
+            <Button variant="outline" size="sm" onClick={addText} data-testid="api-tester-add-text">
+              <Plus />
+              Add text field
+            </Button>
+          </>
+        }
+      />
     )
   }
 
@@ -1655,15 +1656,9 @@ function ResponsePanel({
   }
   if (!response) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-0 text-center px-6">
-        <div className="size-9 rounded-panel bg-raise shadow-raise-sm flex items-center justify-center mb-3">
-          <Send className="h-4 w-4 text-muted-foreground" />
-        </div>
-        <p className="text-[11px] font-medium text-foreground">No response yet</p>
-        <p className="text-[10px] text-muted-foreground mt-1">
-          Send a request to see status, headers, and body here.
-        </p>
-      </div>
+      <EmptyState compact className="min-h-0 px-6" icon={<Send />} title="No response yet">
+        Send a request to see status, headers, and body here.
+      </EmptyState>
     )
   }
 
@@ -1733,13 +1728,10 @@ function ResponsePanel({
         )}
         <div className="flex-1" />
         {isBinary && (
-          <button
-            onClick={handleDownload}
-            className="h-6 px-2 inline-flex items-center gap-1 rounded-chip bg-primary text-primary-foreground text-[11px] font-medium hover:bg-(--primary-hover) transition-colors outline-none focus-visible:shadow-focus"
-          >
-            <Download className="h-3 w-3" />
+          <Button size="xs" onClick={handleDownload}>
+            <Download />
             Download
-          </button>
+          </Button>
         )}
       </div>
 
@@ -1786,29 +1778,23 @@ function ResponsePanel({
             ) : showText ? (
               <pre className="whitespace-pre-wrap p-3">{decoded.text}</pre>
             ) : isBinary ? (
-              <div className="h-full flex flex-col items-center justify-center text-center px-4">
-                <div className="size-10 rounded-panel bg-raise shadow-raise-sm flex items-center justify-center mb-3">
-                  <FileDown className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <p className="text-[11px] font-medium text-foreground">Binary response</p>
-                {filename && (
-                  <p className="text-[10px] text-muted-foreground mt-1 font-mono truncate max-w-full">
-                    {filename}
-                  </p>
-                )}
-                <p className="text-[10px] text-muted-foreground mt-0.5">
-                  {formatBytes(response.response_size)}
-                </p>
-                <button
-                  onClick={handleDownload}
-                  className="mt-3 h-7 px-3 inline-flex items-center gap-1.5 rounded-ctl bg-primary text-primary-foreground text-[12.5px] font-medium hover:bg-(--primary-hover) transition-colors outline-none focus-visible:shadow-focus"
-                >
-                  <Download className="h-3.5 w-3.5" />
-                  Download
-                </button>
-              </div>
+              <EmptyState
+                compact
+                className="h-full px-4"
+                icon={<FileDown />}
+                title="Binary response"
+                actions={
+                  <Button size="sm" onClick={handleDownload}>
+                    <Download />
+                    Download
+                  </Button>
+                }
+              >
+                {filename && <div className="max-w-full truncate font-mono">{filename}</div>}
+                <div>{formatBytes(response.response_size)}</div>
+              </EmptyState>
             ) : (
-              <div className="h-full flex items-center justify-center text-[11px] text-muted-foreground italic">
+              <div className="flex h-full items-center justify-center text-[12px] text-muted-foreground">
                 No body.
               </div>
             )}
@@ -1894,15 +1880,9 @@ export function SavedQueriesPanel({ onClose }: { onClose?: () => void }) {
             ))}
           </div>
         ) : !list || list.length === 0 ? (
-          <div className="flex flex-col items-center justify-center text-center py-12 px-3">
-            <div className="size-9 rounded-panel bg-raise shadow-raise-sm flex items-center justify-center mb-3">
-              <Inbox className="h-4 w-4 text-muted-foreground" />
-            </div>
-            <p className="text-[11px] font-medium text-foreground">No saved requests</p>
-            <p className="text-[10px] text-muted-foreground mt-1 leading-relaxed">
-              Send a request and it will appear here.
-            </p>
-          </div>
+          <EmptyState compact className="py-12" icon={<Inbox />} title="No saved requests">
+            Send a request and it will appear here.
+          </EmptyState>
         ) : (
           <ul className="space-y-1">
             {list.map((row) => (

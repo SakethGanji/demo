@@ -1,3 +1,4 @@
+import { WellRow } from '@/shared/components/ui/surface';
 import { Trash2 } from 'lucide-react';
 import { Textarea } from '@/shared/components/ui/textarea';
 import { Badge } from '@/shared/components/ui/badge';
@@ -16,7 +17,7 @@ export function SpecRule({ rule, testCount, issues, readOnly, onChange, onRemove
   onRemove: () => void;
 }) {
   return (
-    <div className="flex flex-col gap-1 py-1.5" data-testid={`ai-spec-rule-${rule.id}`}>
+    <WellRow className="flex-col items-stretch gap-1 py-1.5" data-testid={`ai-spec-rule-${rule.id}`}>
       <div className="flex items-start gap-2">
         <Textarea
           value={rule.text}
@@ -37,6 +38,6 @@ export function SpecRule({ rule, testCount, issues, readOnly, onChange, onRemove
         </div>
       </div>
       <IssueList issues={issues} />
-    </div>
+    </WellRow>
   );
 }

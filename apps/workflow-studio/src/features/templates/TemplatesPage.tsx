@@ -1,10 +1,13 @@
 /**
- * `/p/$project/templates` (DESIGN-STAGE8-REUSE §12.7): the read-only catalog of ready-made automations.
- * A grid of cards with a category filter and search; a card opens the preview drawer, where the install happens.
+ * `/templates` (DESIGN-STAGE8-REUSE §12.7): the read-only catalog of ready-made automations, outside any project.
+ * A grid of cards with a category filter and search; a card opens the preview drawer, where the install happens and
+ * asks which project to install into (`?project=` preselects one; `/p/$project/templates` redirects here with it).
  */
 import { useMemo, useState } from 'react'
+import { useNavigate, useSearch } from '@tanstack/react-router'
 import { LayoutTemplate, Search, Table2, Plug, Workflow, KeyRound } from 'lucide-react'
-import { useProjectCtx } from '@/features/project/ProjectContext'
+import { useProjects } from '@/features/project/hooks/useProjectData'
+import { Brand, HomeNav, ThemeToggle, TopBarFrame } from '@/features/project/components/TopBar'
 import { errorMessage } from '@/shared/api/http'
 import { Badge } from '@/shared/components/ui/badge'
 import { Button } from '@/shared/components/ui/button'
@@ -12,14 +15,44 @@ import { EmptyState } from '@/shared/components/ui/empty-state'
 import { Input } from '@/shared/components/ui/input'
 import { Segmented } from '@/shared/components/ui/segmented'
 import { Skeleton } from '@/shared/components/ui/skeleton'
-import { Dot, IconTile, PageHeader, Tile } from '@/shared/components/ui/surface'
+import { Dot, IconTile, PageHeader, Tile, Page } from '@/shared/components/ui/surface'
 import { useTemplates } from './hooks'
 import { categoriesOf, filterTemplates, isInstalled } from './lib'
-import { TemplatePreviewSheet } from './TemplatePreviewSheet'
+import { TemplatePreviewSheet, type InstallTarget } from './TemplatePreviewSheet'
 import type { TemplateSummary } from './types'
 
-export function TemplatesPage() {
-  const { pid, project } = useProjectCtx()
+/** The page shell: the studio top bar (Projects | Templates) over the catalog. */
+export function TemplatesHome() {
+  const search = useSearch({ strict: false }) as { project?: string }
+  const navigate = useNavigate()
+  const projects = useProjects()
+  const all = projects.data ?? []
+  const target = search.project ? all.find((p) => p.slug === search.project || p.id === search.project) : undefined
+  const setTarget = (slug: string | undefined) => navigate({ to: '/templates', search: { project: slug }, replace: true })
+  return (
+    <div className="relative h-full w-full overflow-y-auto" data-testid="templates-home">
+      <TopBarFrame position="sticky" className="gap-2">
+        <Brand />
+        <span className="mx-1 h-4 w-px bg-hairline" aria-hidden />
+        <HomeNav />
+        <div className="flex-1" />
+        <ThemeToggle />
+      </TopBarFrame>
+      <TemplatesPage target={target} projects={all} onTargetChange={setTarget} />
+    </div>
+  )
+}
+
+export function TemplatesPage({
+  target,
+  projects,
+  onTargetChange,
+}: {
+  target: InstallTarget | undefined
+  projects: InstallTarget[]
+  onTargetChange: (slug: string | undefined) => void
+}) {
+  const pid = target?.id
   const list = useTemplates(pid)
   const [category, setCategory] = useState('all')
   const [q, setQ] = useState('')
@@ -30,15 +63,15 @@ export function TemplatesPage() {
   const shown = useMemo(() => filterTemplates(all, category, q), [all, category, q])
 
   return (
-    <section className="flex h-full flex-col overflow-hidden" data-testid="templates-page">
-      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-8 py-7">
+    <section data-testid="templates-page">
+      <Page className="h-auto overflow-y-visible">
         <PageHeader
           title="Templates"
           icon={<LayoutTemplate />}
           hue="flow"
           meta={
             <>
-              <span>Ready-made automations you can install into {project.name}</span>
+              <span>{target ? `Ready-made automations to install into ${target.name}` : 'Ready-made automations you can install into any project'}</span>
               {all.length > 0 && (
                 <>
                   <Dot />
@@ -100,12 +133,12 @@ export function TemplatesPage() {
         ) : (
           <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" data-testid="templates-grid">
             {shown.map((t) => (
-              <TemplateCard key={t.slug} t={t} installed={isInstalled(t, pid)} onOpen={() => setOpen(t.slug)} />
+              <TemplateCard key={t.slug} t={t} installed={!!pid && isInstalled(t, pid)} onOpen={() => setOpen(t.slug)} />
             ))}
           </div>
         )}
-      </div>
-      <TemplatePreviewSheet slug={open} onClose={() => setOpen(null)} />
+      </Page>
+      <TemplatePreviewSheet slug={open} onClose={() => setOpen(null)} target={target} projects={projects} onTargetChange={onTargetChange} />
     </section>
   )
 }

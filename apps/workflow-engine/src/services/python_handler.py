@@ -85,7 +85,9 @@ async def run_python_route(session: AsyncSession, project, spec: dict[str, Any],
         result, calls = await SandboxService().run(
             kind="route", project_id=project.id, environment=env, execution_id=exec_id, origin="python_route",
             payload={"req": item["req"]}, entry=f"{mod_name}:{handler.get('function')}", modules=modules,
-            timeout_s=float(spec.get("timeout_s") or 30), team_id=project.team_id)
+            timeout_s=float(spec.get("timeout_s") or 30), team_id=project.team_id,
+            # run_workflow from this handler runs the versions this release pinned
+            frame={"release_id": release.id} if release is not None else None)
     except SandboxUnavailable as e:
         await finish("failed", {"sandbox": None, "broker_calls": []}, f"sandbox unavailable: {e}")
         return DispatchResult(503, {"error": "sandbox_unavailable", "execution_id": exec_id}, execution_id=exec_id)

@@ -18,15 +18,17 @@ from ..services.vars_substitution import expand_secret_variants, redact_deep
 from ..utils.ids import generate_id
 from .policy import EgressGuard, PolicyError, check_parameters, check_read_only, egress_kind, is_exposed, snake
 from .tokens import BrokerClaims, registry
+from .workflows import NODE_TYPE as RUN_WORKFLOW
 
 logger = logging.getLogger(__name__)
 
 
 def function_index() -> dict[str, str]:
-    """{function_name: node_type} for every exposed node."""
+    """{function_name: node_type} for every exposed node, plus ``run_workflow`` (``RunWorkflow``, see broker/workflows.py)."""
     from ..engine.node_registry import node_registry
+    from .workflows import FUNCTION, NODE_TYPE
 
-    return {snake(t): t for t in node_registry.list() if is_exposed(t)}
+    return {**{snake(t): t for t in node_registry.list() if is_exposed(t)}, FUNCTION: NODE_TYPE}
 
 
 def resolve_function(function: str | None, node: str | None) -> str:
@@ -55,8 +57,12 @@ def mint_for_context(context: Any, origin: str, ttl_s: float = 600.0, max_calls:
 
     slot = _slot(origin, allowed_functions)
     existing = context.extras.get(slot)
-    if existing and registry.verify(existing):
+    found = registry.verify(existing) if existing else None
+    # A sub-workflow inherits its parent's extras (and so its tokens); its code needs a token that names *its* run,
+    # or run_workflow's cycle/depth guard would see the parent's call stack.
+    if found is not None and found.execution_id == context.execution_id:
         return existing
+    frame = frame_of(context)
     claims = BrokerClaims(
         project_id=context.project_id or "proj_default",
         environment=context.environment or "default",
@@ -66,10 +72,26 @@ def mint_for_context(context: Any, origin: str, ttl_s: float = 600.0, max_calls:
         max_calls=max_calls or getattr(settings, "broker_max_calls", 500),
         allowed_functions=set(allowed_functions) if allowed_functions else set(function_index().values()),
         read_only=read_only,
+        **frame,
     )
     token = registry.mint(claims, ttl_s)
     context.extras[slot] = token
     return token
+
+
+def frame_of(context: Any) -> dict[str, Any]:
+    """Where code minted a token from ``context`` runs, as BrokerClaims fields: the workflows on its call stack, their
+    names, the nesting depth and the release it runs in. ``run_workflow`` hands these to the sub-workflow guards."""
+    from ..engine.subworkflow import call_stack_of
+
+    extras = getattr(context, "extras", None) or {}
+    try:
+        stack = tuple(call_stack_of(context)) if getattr(context, "workflow", None) is not None else \
+            tuple(getattr(context, "call_stack", None) or ())
+    except Exception:
+        stack = tuple(getattr(context, "call_stack", None) or ())
+    return {"call_stack": stack, "call_names": dict(getattr(context, "call_names", None) or {}),
+            "depth": int(getattr(context, "execution_depth", 0) or 0), "release_id": extras.get("release_id")}
 
 
 def revoke_for_context(context: Any, origin: str, allowed_functions: set[str] | None = None) -> None:
@@ -146,11 +168,15 @@ class BrokerService:
             if kind == "opaque" and allowlist:
                 raise PolicyError("host_not_allowed", 403,
                                   f"'{snake(node_type)}' egress cannot be checked against the project allowlist")
-            guard = EgressGuard(allowlist, secret_hosts, read_only=claims.read_only)
 
             # Own task => the runner's contextvars (execution id, $vars, secrets) never leak into the caller.
-            status, body = await asyncio.create_task(
-                self._run_node(claims, node_type, parameters, items, variables, secrets, guard))
+            if node_type == RUN_WORKFLOW:
+                status, body = await asyncio.create_task(
+                    self._run_workflow(claims, parameters, variables, secrets, project, allowlist))
+            else:
+                guard = EgressGuard(allowlist, secret_hosts, read_only=claims.read_only)
+                status, body = await asyncio.create_task(
+                    self._run_node(claims, node_type, parameters, items, variables, secrets, guard))
         except _VirtualResult:
             status, body = 200, {"ok": True, "call_id": call_id, "items": [], "metadata": {"virtual_table": True}}
         except PolicyError as e:
@@ -179,27 +205,60 @@ class BrokerService:
             project = await session.get(ProjectModel, claims.project_id)
         return variables, secrets, rows, project
 
+    async def _run_workflow(self, claims: BrokerClaims, parameters: dict, variables: dict, secrets: set,
+                            project: Any, allowlist: list[str]) -> tuple[int, dict[str, Any]]:
+        """``run_workflow`` (broker/workflows.py): an ``ExecuteWorkflow`` node on the same one-node path as every other
+        function, with the calling code's call stack and depth (the sub-workflow guards) and no broker egress guard: the
+        workflow runs like any other run of the project, its own nodes applying the project's egress allowlist."""
+        from . import workflows as rw
+
+        async with self._sf() as session:
+            model, version, extras = await rw.target(session, claims, project, parameters.get("workflow"))
+        params = {"workflowId": model.id, "version": version, "inputMode": "passThrough", "mode": "once",
+                  "outputMode": "items"}
+        if parameters.get("timeoutSeconds") is not None:
+            params["timeoutSeconds"] = parameters["timeoutSeconds"]
+        status, body = await self._run_node(
+            claims, "ExecuteWorkflow", params, rw.input_items(parameters.get("input")), variables, secrets, None,
+            node_name=rw.CALL_NODE, extras={**extras, "egress_allowlist": allowlist})
+        if not body.get("ok") and status == 502:
+            status = rw.STATUS_OF.get((body.get("error") or {}).get("code"), 502)
+        return status, body
+
     async def _run_node(self, claims: BrokerClaims, node_type: str, parameters: dict, items: list,
-                        variables: dict, secrets: set, guard: EgressGuard) -> tuple[int, dict[str, Any]]:
+                        variables: dict, secrets: set, guard: EgressGuard | None, *, node_name: str = "fn",
+                        extras: dict[str, Any] | None = None) -> tuple[int, dict[str, Any]]:
+        """Run one node on a one-node workflow. ``guard`` = the per-call egress guard (None: run_workflow, whose child
+        is an ordinary run); ``extras`` are added to the run's extras."""
         from ..engine.workflow_runner import WorkflowRunner
 
-        wf = Workflow(name=f"broker:{node_type}", nodes=[NodeDefinition(name="fn", type=node_type, parameters=parameters)],
+        wf = Workflow(name=f"broker:{node_type}", nodes=[NodeDefinition(name=node_name, type=node_type, parameters=parameters)],
                       connections=[])
         initial = [NodeData(json=i if isinstance(i, dict) else {"value": i}) for i in items] or [NodeData(json={})]
         from ..services.subworkflow_wiring import subworkflow_invoker
 
+        run_extras: dict[str, Any] = {"broker_origin": claims.origin, "parent_execution_id": claims.execution_id,
+                                      **(extras or {})}
+        http_options: dict[str, Any] | None = None
+        if guard is not None:
+            run_extras["broker_egress_guard"] = guard
+            http_options = {"follow_redirects": False, "event_hooks": {"request": [guard.httpx_hook]}}
         runner = WorkflowRunner(db_session_factory=None)
         context = await runner.run(
-            wf, "fn", initial, "manual",
+            wf, node_name, initial, "manual",
             # Stage 8: an ExecuteWorkflow call from the SDK resolves versions and writes the child row like any other run
             subworkflow_invoker=subworkflow_invoker(self._sf),
             variables=variables, secret_values=secrets,
             project_id=claims.project_id, environment=claims.environment, team_id=claims.team_id,
-            extras={"broker_origin": claims.origin, "parent_execution_id": claims.execution_id,
-                    "broker_egress_guard": guard},
-            http_client_options={"follow_redirects": False, "event_hooks": {"request": [guard.httpx_hook]}},
+            extras=run_extras,
+            http_client_options=http_options,
+            # the calling code's place in the call tree: a child it starts is checked against these (cycle, depth)
+            execution_id=getattr(claims, "execution_id", None),
+            call_stack=tuple(getattr(claims, "call_stack", ()) or ()),
+            call_names=dict(getattr(claims, "call_names", None) or {}),
+            execution_depth=int(getattr(claims, "depth", 0) or 0),
         )
-        if guard.violation is not None:
+        if guard is not None and guard.violation is not None:
             v = guard.violation
             return v.status, {"ok": False, "error": {"code": v.code, "message": v.message, **v.extra}}
         if context.errors:
@@ -207,8 +266,8 @@ class BrokerService:
             # A node failure with a stable code (e.g. table_not_found, row_invalid) keeps it; others are node_failed.
             return 502, {"ok": False, "error": {"code": e.error_code or "node_failed", "message": e.error,
                                                 **{k: v for k, v in (e.details or {}).items() if k not in ("code", "message")}}}
-        out = context.node_states.get("fn") or []
-        metrics = dict(context.node_metrics.get("fn") or {})
+        out = context.node_states.get(node_name) or []
+        metrics = dict(context.node_metrics.get(node_name) or {})
         for k in ("startedAt", "completedAt", "executionOrder", "retries", "maxRetries",
                   "inputDataSizeBytes", "outputDataSizeBytes", "activeOutputs"):
             metrics.pop(k, None)

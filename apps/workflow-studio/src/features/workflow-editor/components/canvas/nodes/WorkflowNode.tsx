@@ -295,7 +295,7 @@ function WorkflowNode({ id, data, selected, positionAbsoluteX }: NodeProps<Node<
                 pointer-events-none flex items-center justify-center
                 rounded-full transition-all duration-200 ease-out
                 ${canExpand
-                  ? 'h-5 w-5 bg-raise shadow-raise-md'
+                  ? 'h-5 w-5 canvas-chip'
                   : 'h-1.5 w-1.5 border-2'
                 }
               `}
@@ -305,7 +305,7 @@ function WorkflowNode({ id, data, selected, positionAbsoluteX }: NodeProps<Node<
               }}
             >
               {canExpand && (
-                <Plus size={12} className={isErrorHandle ? 'text-destructive' : 'text-foreground/80'} />
+                <Plus size={12} strokeWidth={2.5} className={isErrorHandle ? 'text-destructive' : undefined} />
               )}
             </div>
             {isErrorHandle && (
@@ -342,7 +342,7 @@ function WorkflowNode({ id, data, selected, positionAbsoluteX }: NodeProps<Node<
       )}
 
       <div
-        className={`relative cursor-grab transition-[box-shadow,transform] duration-(--d-base) ease-(--ease-out) flex items-center justify-center ${building ? '' : 'backdrop-blur-[12px]'}`}
+        className={`relative cursor-grab transition-[box-shadow,transform] duration-(--d-base) ease-(--ease-out) flex items-center justify-center`}
         style={{
           height: dimensions.height,
           width: dimensions.width,

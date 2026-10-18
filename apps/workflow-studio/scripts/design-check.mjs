@@ -23,6 +23,7 @@ const ALLOW = [
   'src/shared/lib/starfield.ts', // canvas painting: literal star colours
   'src/features/app-builder/sandbox/', // the generated app's own runtime and colours
   'src/app/routes/design.tsx', // the reference page shows raw tokens on purpose
+  'src/shared/lib/liquid-glass.ts', // sets the refraction filter as an inline backdrop-filter
 ]
 
 const PALETTE = 'slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose'
@@ -36,6 +37,9 @@ const RULES = [
   { id: 'radius', re: /\brounded-(?:2xl|3xl|4xl)\b|\brounded(?:-[trblse]{1,2})?-\[\d+(?:\.\d+)?px\]/, why: 'off-scale radius; use rounded-sheet / -panel / -well / -ctl / -chip / -kbd (or rounded-full)' },
   { id: 'gradient', re: /\bbg-(?:gradient|linear|radial|conic)-|linear-gradient\(/, why: 'gradient inside a box; only the brand mark and avatars (brand-fill) carry a gradient' },
   { id: 'eyebrow', re: /\buppercase\b/, why: 'uppercase eyebrow; labels are sentence case' },
+  { id: 'raw-backdrop', re: /\bbackdrop-(?:blur|saturate|brightness)(?!-none)\b|\bbackdropFilter\b/, why: 'hand-rolled backdrop blur; cards never blur, floating chrome uses glass-chrome, overlays glass-overlay' },
+  { id: 'hand-rolled-glass', re: /\bbg-\(--(?:glass|overlay|chrome)-fill\)/, why: 'glass fill by hand; use Tile / the tile, glass, glass-chrome, glass-strip or glass-overlay recipe' },
+  { id: 'hand-rolled-list', re: /\bdivide-y\s+divide-hairline\b/, why: 'list built by hand; use WellList + WellRow (one Well, hairline rows)' },
   { id: 'legacy-surface', re: /\bbg-(?:card|background|popover|canvas)\b(?!\/)/, why: 'solid legacy surface; pages are transparent (the sky shows), boxes are Tile / Well, overlays glass-overlay' },
 ]
 

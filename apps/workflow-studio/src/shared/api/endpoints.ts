@@ -5,7 +5,7 @@
 
 import type { DriftAlert } from '@/features/workflow-editor/lib/testsAi'
 import type {
-  AiEditResult, DecideResult, Interface, InterfaceState, PreviewData, TaskCounts, TaskDetail, TaskPage,
+  AiEditResult, ChatPage, DecideResult, Interface, InterfaceState, PreviewData, TaskCounts, TaskDetail, TaskPage,
 } from '@/features/interfaces/lib/types'
 import { request, requestRaw, requestText, requestBlob } from './http'
 import type {
@@ -263,6 +263,23 @@ export const interfacesApi = {
     }),
   previewData: (wf: string, executionId?: string | null) =>
     request<PreviewData>(`${W(wf)}/interface/preview/data`, { query: { execution_id: executionId ?? undefined } }),
+  /** Draft chat: the same session/messages contract as the public `/i/.../chat`, run on the stored draft. */
+  previewChatSession: (wf: string, userLabel?: string) =>
+    request<{ session_id: string; session_token: string }>(`${W(wf)}/interface/preview/chat/sessions`, {
+      method: 'POST',
+      body: userLabel ? { user_label: userLabel } : {},
+    }),
+  previewChatMessages: (wf: string, sessionId: string, token: string, after = 0, limit = 50) =>
+    request<ChatPage>(`${W(wf)}/interface/preview/chat/sessions/${enc(sessionId)}/messages`, {
+      query: { after, limit },
+      headers: { Authorization: `Bearer ${token}` },
+    }),
+  previewChatSend: (wf: string, sessionId: string, token: string, content: string, clientMessageId: string) =>
+    request<{ seq: number; execution_id: string }>(`${W(wf)}/interface/preview/chat/sessions/${enc(sessionId)}/messages`, {
+      method: 'POST',
+      body: { content, client_message_id: clientMessageId },
+      headers: { Authorization: `Bearer ${token}` },
+    }),
   aiEdit: (wf: string, screenId: string, b: { instruction: string; spec: unknown }) =>
     request<AiEditResult>(`${W(wf)}/interface/screens/${enc(screenId)}/ai-edit`, { method: 'POST', body: b }),
   clientTs: (wf: string) => requestText(`${W(wf)}/interface/client.ts`),

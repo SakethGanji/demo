@@ -31,7 +31,7 @@ import { Input } from '@/shared/components/ui/input'
 import { Segmented } from '@/shared/components/ui/segmented'
 import { Spinner } from '@/shared/components/ui/spinner'
 import { Beam } from '@/shared/components/ui/stepper'
-import { Well, Callout } from '@/shared/components/ui/surface'
+import { WellList, WellRow, Callout } from '@/shared/components/ui/surface'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/shared/components/ui/collapsible'
 import { CreateSecretPopover } from '@/features/secrets/CreateSecretPopover'
 import { cn } from '@/shared/lib/utils'
@@ -59,7 +59,7 @@ function publicUrl(slug: string): string {
   return `${base.replace(/\/+$/, '')}/a/${slug}`
 }
 
-const pfRow = 'hairline-b flex items-start gap-2.5 px-3 py-2.5 text-[13px] leading-5 last:border-b-0 [&>svg]:mt-[3px] [&>svg]:size-3.5 [&>svg]:shrink-0'
+const pfRow = 'items-start gap-2.5 py-2.5 text-[13px] leading-5 [&>svg]:mt-[3px] [&>svg]:size-3.5 [&>svg]:shrink-0'
 
 function joinOps(ops: string[]) {
   return ops.map((o, i) => (
@@ -311,49 +311,49 @@ export function PublishDialog({ open, onClose, app, project, summary, routes, us
 
                 <div className="flex flex-col gap-1.5">
                   <span className="text-xs font-medium">Pre-flight</span>
-                  <Well className="overflow-hidden" data-testid="publish-preflight">
+                  <WellList className="overflow-hidden" data-testid="publish-preflight">
                     {usageLoading && !usage ? (
-                      <div className={pfRow}>
+                      <WellRow className={pfRow}>
                         <Spinner className="mt-[3px] size-3.5" />
                         <span className="text-muted-foreground">Checking the operations it calls…</span>
-                      </div>
+                      </WellRow>
                     ) : missingOps.length > 0 ? (
                       missingOps.map((u, i) => (
-                        <div key={`${u.operation}-${i}`} className={pfRow} data-testid="publish-pf-missing">
+                        <WellRow key={`${u.operation}-${i}`} className={pfRow} data-testid="publish-pf-missing">
                           <CircleX className="text-destructive" />
                           <span className="min-w-0 flex-1">
                             <span className="font-mono text-[12px]">{u.operation}</span> ({u.file}:{u.line}) has no route; it will fail.
                           </span>
                           <CreateStubPopover pid={pid} appId={app.id} row={{ name: u.operation, method: u.method ?? 'GET', path: u.path }} testIdPrefix="publish-pf" />
-                        </div>
+                        </WellRow>
                       ))
                     ) : ops.length > 0 ? (
-                      <div className={pfRow} data-testid="publish-pf-ops">
+                      <WellRow className={pfRow} data-testid="publish-pf-ops">
                         <CircleCheck className="text-success" />
                         <span className="min-w-0 flex-1">
                           All {ops.length} {ops.length === 1 ? 'operation' : 'operations'} it calls exist: {joinOps(ops)}
                         </span>
-                      </div>
+                      </WellRow>
                     ) : (
-                      <div className={pfRow} data-testid="publish-pf-ops">
+                      <WellRow className={pfRow} data-testid="publish-pf-ops">
                         <Info className="text-muted-foreground" />
                         <span className="min-w-0 flex-1 text-muted-foreground">The app doesn't call your backend yet.</span>
-                      </div>
+                      </WellRow>
                     )}
                     {stubOps.length > 0 && (
-                      <div className={pfRow} data-testid="publish-pf-stub">
+                      <WellRow className={pfRow} data-testid="publish-pf-stub">
                         <TriangleAlert className="text-warning-text" />
                         <span className="min-w-0 flex-1">{joinOps(stubOps as string[])} {stubOps.length === 1 ? 'is a stub and answers' : 'are stubs and answer'} 501 until implemented.</span>
-                      </div>
+                      </WellRow>
                     )}
                     {missing.isLoading && (
-                      <div className={pfRow}>
+                      <WellRow className={pfRow}>
                         <Spinner className="mt-[3px] size-3.5" />
                         <span className="text-muted-foreground">Checking {live} secrets…</span>
-                      </div>
+                      </WellRow>
                     )}
                     {secretRows.map(({ m, ops: needOps }) => (
-                      <div key={m.key} className={cn(pfRow, 'items-center [&>svg]:mt-0')} data-testid={`publish-pf-secret-${m.key}`}>
+                      <WellRow key={m.key} className={cn(pfRow, 'items-center [&>svg]:mt-0')} data-testid={`publish-pf-secret-${m.key}`}>
                         <TriangleAlert className="text-warning-text" />
                         <span className="min-w-0 flex-1">
                           <b className="font-medium">{m.key}</b> isn't set in {live}; {joinOps(needOps)} {needOps.length === 1 ? 'needs' : 'need'} it and will fail.
@@ -371,10 +371,10 @@ export function PublishDialog({ open, onClose, app, project, summary, routes, us
                             </Button>
                           }
                         />
-                      </div>
+                      </WellRow>
                     ))}
                     {liveKind === 'release' && (
-                      <div className={pfRow} data-testid="publish-pf-release">
+                      <WellRow className={pfRow} data-testid="publish-pf-release">
                         <Info className="text-muted-foreground" />
                         <span className="min-w-0 flex-1">
                           {activeRelease ? (
@@ -396,13 +396,13 @@ export function PublishDialog({ open, onClose, app, project, summary, routes, us
                             </>
                           )}
                         </span>
-                      </div>
+                      </WellRow>
                     )}
-                    <div className={pfRow} data-testid="publish-pf-tables">
+                    <WellRow className={pfRow} data-testid="publish-pf-tables">
                       <Database className="text-muted-foreground" />
                       <span className="min-w-0 flex-1">The published app reads and writes the same tables as {project.default_environment}.</span>
-                    </div>
-                  </Well>
+                    </WellRow>
+                  </WellList>
                 </div>
 
                 {buildError && (

@@ -67,6 +67,10 @@ def egress_kind(node_type: str) -> str:
         return "http"
     if node_type == "Postgres":
         return "postgres"
+    if node_type == "RunWorkflow":
+        # run_workflow: the workflow runs like any other run of the project (its HttpRequest nodes apply the project
+        # egress allowlist themselves), so the call itself has no egress to check here.
+        return "workflow"
     return "opaque"
 
 
@@ -271,5 +275,7 @@ def check_read_only(node_type: str, parameters: dict[str, Any]) -> None:
         deny("external SQL cannot be safely checked for writes")
     if node_type == "SendEmail":
         deny("send_email sends data out")
+    if node_type == "RunWorkflow":
+        deny("run_workflow runs a workflow, which can write data and send it out")
     if egress_kind(node_type) == "opaque":
         deny(f"'{snake(node_type)}' has egress that cannot be checked")

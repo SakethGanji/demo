@@ -28,6 +28,7 @@ const WorkflowNavbar = lazy(() => import('@/features/workflow-editor/components/
 const BottomPanel = lazy(() => import('@/features/workflow-editor/components/bottom-panel/BottomPanel'))
 const AIChatPanel = lazy(() => import('@/features/workflow-editor/components/ai-chat/AIChatPanel'))
 const InterfacePanel = lazy(() => import('@/features/workflow-editor/components/interface/InterfacePanel'))
+const InterfaceDock = lazy(() => import('@/features/workflow-editor/components/interface/InterfaceDock'))
 const NodeAIDialog = lazy(() => import('@/features/ai-builder/components/NodeAIDialog'))
 const EditorBuilderTab = lazy(() => import('@/features/ai-builder/components/EditorBuilderTab'))
 
@@ -252,6 +253,11 @@ export function WorkflowEditorPage({ workflowId }: { workflowId?: string }) {
           >
             <BottomPanel />
           </div>
+
+          {/* Layer 2: the "Try it" dock (the workflow's interface used live, bottom-right like n8n's chat) */}
+          <Suspense fallback={null}>
+            <InterfaceDock />
+          </Suspense>
 
           {/* Overlays */}
           <NodeDetailsModal />

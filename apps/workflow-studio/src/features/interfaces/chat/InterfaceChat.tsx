@@ -1,6 +1,7 @@
 /**
- * Chat surface (DESIGN-STAGE5-UIS §6.2, §11.2). Session id and bearer live in sessionStorage so the history
- * survives a reload. One turn in flight per session: the input is disabled while the server says `busy`,
+ * Chat surface (DESIGN-STAGE5-UIS §6.2, §11.2). The calls come from a `ChatTransport`, so the same component is the
+ * public page's chat and the editor's draft chat. Session id and bearer live in sessionStorage (under the
+ * transport's key) so the history survives a reload. One turn in flight per session: the input is disabled while the server says `busy`,
  * and a 409 CHAT_BUSY is shown inline. Polling: 1 s while busy, else every 10 s while the tab is visible.
  */
 import { useRef, useState } from 'react'
@@ -10,10 +11,9 @@ import { Button } from '@/shared/components/ui/button'
 import { Textarea } from '@/shared/components/ui/textarea'
 import { ChatPanel, ChatPanelFooter } from '@/shared/components/chat'
 import { ApiError, errorMessage, isApiError } from '@/shared/api/http'
-import { qk } from '@/shared/api/queryKeys'
 import { cn } from '@/shared/lib/utils'
-import { publicInterfaceApi } from '../api/interfaceApi'
 import { CHAT_MAX_CHARS, clearSession, lastSeq, loadSession, mergeMessages, saveSession, type StoredSession } from '../lib/chat'
+import { chatMessagesKey, chatSessionKey, type ChatTransport } from '../lib/chatTransport'
 import { newIdempotencyKey } from '../lib/keys'
 import { chatRefetchInterval } from '../lib/polling'
 import type { ChatMessage } from '../lib/types'
@@ -23,40 +23,49 @@ interface ChatState {
   busy: boolean
 }
 
-export function InterfaceChat({ project, slug }: { project: string; slug: string }) {
+export function InterfaceChat({
+  transport, onTurn, variant = 'tile',
+}: {
+  transport: ChatTransport
+  /** a sent turn started this execution (the editor follows it on the canvas) */
+  onTurn?: (executionId: string) => void
+  /** `tile`: its own 520px card (the public page); `bare`: fills its parent, which is the surface (the editor dock) */
+  variant?: 'tile' | 'bare'
+}) {
   const qc = useQueryClient()
   const [draft, setDraft] = useState('')
   const [notice, setNotice] = useState<string | null>(null)
   const sendLock = useRef(false)
 
-  const sessionKey = ['interfaces', 'public', project, slug, 'chat-session'] as const
+  const sessionKey = chatSessionKey(transport)
   const session = useQuery({
     queryKey: sessionKey,
     queryFn: async (): Promise<StoredSession> => {
-      const stored = loadSession(project, slug)
+      const stored = loadSession(transport.storageKey)
       if (stored) return stored
-      const created = await publicInterfaceApi.createChatSession(project, slug)
-      saveSession(project, slug, created)
+      const created = await transport.createSession()
+      saveSession(transport.storageKey, created)
       return created
     },
     staleTime: Infinity,
     gcTime: Infinity,
     retry: 1,
   })
-  const sid = session.data?.session_id
-  const token = session.data?.session_token
+  const stored = session.data
+  const sid = stored?.session_id
+  const token = stored?.session_token
 
-  const key = qk.interfaces.publicChat(project, slug, sid ?? '')
+  const key = chatMessagesKey(transport, sid ?? '')
   const chat = useQuery({
     queryKey: key,
-    enabled: !!sid && !!token,
+    enabled: !!stored,
     queryFn: async (): Promise<ChatState> => {
       const prev = qc.getQueryData<ChatState>(key)
       let messages = prev?.messages ?? []
       let busy = prev?.busy ?? false
       try {
         for (let i = 0; i < 20; i++) {
-          const page = await publicInterfaceApi.chatMessages(project, slug, sid as string, token as string, lastSeq(messages))
+          const page = await transport.messages(stored as StoredSession, lastSeq(messages))
           messages = mergeMessages(messages, page.messages)
           busy = page.busy
           if (page.next_after == null || page.messages.length === 0) break
@@ -64,7 +73,7 @@ export function InterfaceChat({ project, slug }: { project: string; slug: string
       } catch (e) {
         if (isApiError(e, undefined, 404)) {
           // the stored session is gone (404 hides expired sessions): start a fresh one
-          clearSession(project, slug)
+          clearSession(transport.storageKey)
           await qc.invalidateQueries({ queryKey: sessionKey })
         }
         throw e
@@ -76,8 +85,9 @@ export function InterfaceChat({ project, slug }: { project: string; slug: string
   })
 
   const send = useMutation({
-    mutationFn: (content: string) => publicInterfaceApi.sendChat(project, slug, sid as string, token as string, content, newIdempotencyKey()),
-    onSuccess: async () => {
+    mutationFn: (content: string) => transport.send(stored as StoredSession, content, newIdempotencyKey()),
+    onSuccess: async (res) => {
+      if (res.execution_id) onTurn?.(res.execution_id)
       setDraft('')
       setNotice(null)
       qc.setQueryData<ChatState>(key, (s) => (s ? { ...s, busy: true } : s))
@@ -100,7 +110,7 @@ export function InterfaceChat({ project, slug }: { project: string; slug: string
   }
 
   return (
-    <div className="tile flex h-[520px] flex-col" data-testid="iface-chat">
+    <div className={cn('flex flex-col', variant === 'tile' ? 'tile h-[520px]' : 'h-full min-h-0 flex-1')} data-testid="iface-chat">
       <ChatPanel>
         <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-4" role="log" aria-live="polite">
           {session.isError && <div className="text-[12.5px] text-destructive" role="alert">Could not start the chat.</div>}

@@ -33,6 +33,12 @@ export async function saveDraftForRun(saveNew?: () => Promise<unknown>): Promise
   return workflowId;
 }
 
+/** Saves the draft only when the canvas has unsaved changes (the interface preview runs read the stored draft). */
+export async function saveDraftIfDirty(): Promise<void> {
+  flushPendingEdits();
+  if (useWorkflowStore.getState()._isDirty) await saveDraftForRun();
+}
+
 /** The workflow as the save sends it: graph, tests, test defaults and the renames since the last save. */
 export function buildSavePayload(workflowId?: string) {
   const { nodes, edges, workflowName, tests, testDefaults, nodeRenames } = useWorkflowStore.getState();

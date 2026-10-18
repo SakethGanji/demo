@@ -3,7 +3,7 @@
  * the node *label* for progress, never node errors: `error.message` is already sanitised by the engine.
  */
 import { CheckCircle2, Clock, Loader2, XCircle } from 'lucide-react'
-import { Progress } from '@/shared/components/ui/surface'
+import { Progress, Callout } from '@/shared/components/ui/surface'
 import { ScreenRenderer } from '../renderer/ScreenRenderer'
 import { display } from '../lib/binding'
 import { formatWhen } from '../lib/format'
@@ -66,9 +66,9 @@ export function RunStatusView({ view, resultScreen }: { view: RunView | undefine
       ))}
 
       {view && (status === 'failed' || status === 'cancelled') && (
-        <div className="rounded-ctl bg-destructive-soft px-3 py-2 text-[12.5px] text-destructive" role="alert" data-testid="iface-run-error">
+        <Callout tone="error" role="alert" data-testid="iface-run-error">
           {view.error?.message ?? (status === 'cancelled' ? 'This run was cancelled.' : 'Something went wrong.')}
-        </div>
+        </Callout>
       )}
     </div>
   )

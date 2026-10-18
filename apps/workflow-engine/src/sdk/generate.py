@@ -145,6 +145,11 @@ def reference() -> dict[str, Any]:
         "decorators": (f"Decorator arguments must be string literals: the path positionally, then "
                        f"{', '.join(k + '=' for k in sorted(DECORATOR_KEYWORDS))} as keywords; auth is one of "
                        f"{', '.join(sorted(ROUTE_AUTHS))} (default none = public). Variables, f-strings and **kwargs are rejected."),
+        "workflows": ("studio.nodes.run_workflow(workflow='name or id', input={...}) runs a workflow of this project "
+                      "(it needs an Execute Workflow Trigger) and returns its output items. A draft environment runs the "
+                      "draft; a release runs the version the release pinned, else the latest published version. A "
+                      "failed workflow raises BrokerError (code SUBWORKFLOW_FAILED, details child_execution_id/child_node); "
+                      "calling a workflow that is already running this code is refused (SUBWORKFLOW_CYCLE)."),
         "responses": "Return a dict/list (200 JSON), or Response(status=…, body=…, headers=…); raise HTTPError(status, body) for errors.",
     }
     return {"version": generate_python_sdk()["version"], "entries": entries, "rules": rules}
@@ -175,7 +180,30 @@ def catalogue() -> list[dict[str, Any]]:
             "returns": {"type": "array", "items": {"type": "object"}},
             "egress": egress_kind(t) != "none",
         })
-    return out
+    out.append(_run_workflow_entry())
+    return sorted(out, key=lambda f: f["node_type"])
+
+
+def _run_workflow_entry() -> dict[str, Any]:
+    """``run_workflow`` has no node of its own (the broker runs it as an ExecuteWorkflow, broker/workflows.py), so its
+    entry is declared here, in the same shape as a node's."""
+    from ..broker import workflows as rw
+
+    props = rw.properties()
+    return {
+        "function": rw.FUNCTION,
+        "node_type": rw.NODE_TYPE,
+        "description": rw.DESCRIPTION,
+        "parameters": {
+            "type": "object",
+            "properties": {p.name: _json_schema(p) for p in props},
+            "required": [p.name for p in props if p.required],
+        },
+        "python_names": {p.name: _py_name(p.name) for p in props},
+        "python": _python_doc(rw.FUNCTION, props),
+        "returns": {"type": "array", "items": {"type": "object"}},
+        "egress": True,
+    }
 
 
 def _render_nodes(cat: list[dict[str, Any]]) -> str:

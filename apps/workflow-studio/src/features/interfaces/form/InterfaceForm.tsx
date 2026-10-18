@@ -3,6 +3,7 @@
  * same mapping run on the FormTrigger shape in the editor preview). Client validation is a convenience: the
  * server decides, and its field errors render inline under the field. Double submit is blocked by a ref lock.
  */
+import { Callout } from '@/shared/components/ui/surface'
 import { useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@/shared/components/ui/button'
@@ -176,9 +177,9 @@ export function InterfaceForm({ fields, submitLabel = 'Submit', onSubmit, disabl
         </Field>
       ))}
       {formError && (
-        <div className="rounded-ctl bg-destructive-soft px-3 py-2 text-[12.5px] text-destructive" role="alert" data-testid="iface-form-error">
+        <Callout tone="error" role="alert" data-testid="iface-form-error">
           {formError}
-        </div>
+        </Callout>
       )}
       <div>
         <Button type="submit" disabled={disabled || submitting} data-testid="iface-submit">

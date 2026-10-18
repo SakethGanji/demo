@@ -33,7 +33,7 @@ import { Badge } from '@/shared/components/ui/badge'
 import { Button } from '@/shared/components/ui/button'
 import { ChipsInput } from '@/shared/components/ui/chips-input'
 import { EmptyState } from '@/shared/components/ui/empty-state'
-import { Dot, PageHeader, Tile, Well } from '@/shared/components/ui/surface'
+import { Dot, PageHeader, Tile, Well, Page } from '@/shared/components/ui/surface'
 import { Tip } from '@/shared/components/ui/tooltip'
 import { Input } from '@/shared/components/ui/input'
 import { Skeleton } from '@/shared/components/ui/skeleton'
@@ -136,7 +136,7 @@ export function SecretsView() {
 
   return (
     <div className="h-full" data-testid="secrets-view">
-      <div className="h-full overflow-y-auto overflow-x-hidden px-8 py-7" data-testid="secrets-panel">
+      <Page data-testid="secrets-panel">
         <PageHeader
           title="Secrets"
           icon={<KeyRound />}
@@ -278,7 +278,7 @@ export function SecretsView() {
             </div>
           </>
         )}
-      </div>
+      </Page>
     </div>
   )
 }

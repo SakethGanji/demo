@@ -159,7 +159,6 @@ test.describe('AI builder: whole applications and two teams (capability graph, w
     await expect(page.getByTestId('ai-app-kept-links').getByRole('link').first()).toBeVisible()
     await expect(page.getByTestId('ai-app-kept-publish-note')).toContainText('publish to go live') // entries stay drafts after Keep
     await expect(page.getByTestId('ai-app-kept-approvals')).toBeVisible()
-    await expect(page.getByTestId('ai-app-kept-knowledge')).toBeVisible()
     await expect(page.getByTestId('ai-app-part-log_exception')).toHaveAttribute('data-status', 'kept')
   })
 
@@ -196,16 +195,5 @@ test.describe('AI builder: whole applications and two teams (capability graph, w
     expect(askedB).toBeLessThan(2)
     expect(askedB).toBeLessThanOrEqual(askedA)
     if (askedB === 0) await expect(page.getByTestId('ai-questions-count')).toHaveCount(0)
-  })
-
-  test('T24.4 Knowledge shows the kept app with its settings', async ({ page, s }) => {
-    await openBuild(page, s.studioUrl, a.slug)
-    await planApp(page, TEAM_A)
-    await buildApp(page)
-    await page.getByTestId('ai-app-keep').click()
-    await expect(page.getByTestId('ai-app-kept-links')).toBeVisible({ timeout: 60_000 })
-    await page.getByTestId('ai-app-kept-knowledge').click()
-    await expect(page.getByTestId('knowledge-page')).toBeVisible()
-    await expect(page.getByTestId('kg-memory-item').first()).toBeVisible()
   })
 })

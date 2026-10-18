@@ -23,7 +23,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/shared/
 import { Input } from '@/shared/components/ui/input'
 import { Kbd } from '@/shared/components/ui/kbd'
 import { Skeleton } from '@/shared/components/ui/skeleton'
-import { IconTile, Well } from '@/shared/components/ui/surface'
+import { IconTile, Well, WellList, WellRow } from '@/shared/components/ui/surface'
 import { Textarea } from '@/shared/components/ui/textarea'
 import { cn } from '@/shared/lib/utils'
 import { BLANK_DEFINITION, slugError, slugify } from '../lib/appModel'
@@ -195,7 +195,7 @@ function Body({ onClose, preselectModule }: { onClose: () => void; preselectModu
           <WandSparkles />
         </IconTile>
         <div className="min-w-0">
-          <DialogTitle className="text-[16px] font-semibold leading-[22px] tracking-[-0.01em]">Create a UI from this backend</DialogTitle>
+          <DialogTitle className="text-[16px] font-semibold leading-[22px] tracking-[-0.01em]">New interface from this backend</DialogTitle>
           <DialogDescription className="text-[13px] text-muted-foreground">
             The app builder receives these routes and a typed <span className="font-mono text-[11.5px]">api</span> client. No URLs to copy.
           </DialogDescription>
@@ -206,7 +206,7 @@ function Body({ onClose, preselectModule }: { onClose: () => void; preselectModu
         <div className="flex flex-wrap gap-3">
           <div className="flex min-w-[220px] flex-1 flex-col gap-1.5">
             <label htmlFor="cu-name" className="text-xs font-medium">
-              App name
+              Interface name
             </label>
             <Input
               id="cu-name"
@@ -285,17 +285,17 @@ function Body({ onClose, preselectModule }: { onClose: () => void; preselectModu
             </Well>
           ) : (
             <>
-              <Well className="overflow-hidden" data-testid="create-ui-routes">
+              <WellList className="overflow-hidden" data-testid="create-ui-routes">
                 {routes.map((r) => {
                   const serverOnly = r.auth === 'api_key'
                   const on = (selected ?? []).includes(r.id)
                   const known = hasSchema(r.response_schema)
                   const moduleName = r.handler.type === 'python' ? (r.handler.module_name ?? moduleById.get(r.handler.module_id)) : undefined
                   return (
-                    <div
+                    <WellRow
                       key={r.id}
                       className={cn(
-                        'hairline-b flex h-10 min-w-0 items-center gap-2.5 px-3 last:border-b-0',
+                        'h-10 min-w-0 gap-2.5 py-0',
                         serverOnly && 'opacity-60',
                       )}
                       data-testid={`create-ui-route-${r.name}`}
@@ -348,10 +348,10 @@ function Body({ onClose, preselectModule }: { onClose: () => void; preselectModu
                           )}
                         </>
                       )}
-                    </div>
+                    </WellRow>
                   )
                 })}
-              </Well>
+              </WellList>
               <span className="text-[11.5px] leading-4 text-muted-foreground">
                 Routes without a schema still work: the AI sees the method and path. A test run fills the schema in one click.
               </span>
@@ -417,7 +417,7 @@ function Body({ onClose, preselectModule }: { onClose: () => void; preselectModu
           Cancel
         </Button>
         <Button size="sm" type="submit" disabled={!canSubmit} data-testid="create-ui-submit">
-          Create UI
+          Create interface
           <Kbd className="ml-0.5 bg-primary-foreground/15 text-primary-foreground shadow-none">⌘⏎</Kbd>
         </Button>
       </div>

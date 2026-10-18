@@ -3,10 +3,11 @@
  * canvas, no outline) with the Command Studio brand on the left. Projects home, the workspace, the
  * workflows pages and the app builder all use it, so the bar never jumps between pages.
  */
-import { useEffect, useId, useRef, useState } from 'react'
-import { Link } from '@tanstack/react-router'
-import { Moon, Sun } from 'lucide-react'
+import { forwardRef, useEffect, useId, useRef, useState } from 'react'
+import { Link, useMatchRoute } from '@tanstack/react-router'
+import { FolderKanban, LayoutTemplate, Moon, Sun } from 'lucide-react'
 import { Button } from '@/shared/components/ui/button'
+import { SlidingThumb, useSlidingThumb } from '@/shared/components/ui/segmented'
 import { Tip } from '@/shared/components/ui/tooltip'
 import { useTheme } from '@/shared/components/theme-provider'
 import { cn } from '@/shared/lib/utils'
@@ -112,7 +113,7 @@ export function TopBarFrame({
       className={cn(
         'z-20 flex h-12 items-center gap-1.5 pr-3 pl-3.5',
         position === 'absolute' ? 'absolute inset-x-0 top-0 glass-chrome' : 'sticky top-0 transition-[background-color,box-shadow,backdrop-filter] duration-(--d-base) ease-(--ease-out)',
-        position === 'sticky' && scrolled && 'bg-(--overlay-fill) shadow-[inset_0_-1px_0_var(--hairline)] backdrop-blur-[20px] backdrop-saturate-[1.1]',
+        position === 'sticky' && scrolled && 'glass-strip shadow-[inset_0_-1px_0_var(--hairline)]',
         className,
       )}
       {...props}
@@ -131,17 +132,58 @@ export function SearchTrigger({ onClick, label = 'Search or jump to…', testId 
         onClick={onClick}
         data-testid={testId}
         data-recess
-        className="hidden h-[30px] w-60 items-center gap-2 rounded-ctl bg-recess pr-1.5 pl-2.5 text-[12.5px] text-muted-foreground hover:bg-(--hover-fill) md:inline-flex"
+        className="hidden h-8 w-64 items-center gap-2 rounded-full bg-recess pr-1.5 pl-3 text-[12.5px] text-muted-foreground hover:bg-(--hover-fill) md:inline-flex"
       >
         <svg viewBox="0 0 24 24" className="size-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" aria-hidden>
           <circle cx="11" cy="11" r="7" />
           <path d="m20 20-3.5-3.5" />
         </svg>
         <span className="hidden flex-1 truncate text-left lg:inline">{label}</span>
-        <kbd className="ml-auto inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-kbd bg-raise px-1 text-[10.5px] font-medium leading-none text-muted-foreground shadow-raise-sm">
+        <kbd className="ml-auto inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-raise px-1.5 text-[10.5px] font-medium leading-none text-muted-foreground shadow-raise-sm">
           ⌘K
         </kbd>
       </button>
     </Tip>
+  )
+}
+
+export const segItem =
+  'relative z-[1] inline-flex h-[26px] items-center gap-1.5 rounded-full px-3 text-[12.5px] font-medium text-muted-foreground hover:text-foreground data-[on]:text-foreground [&_svg]:size-3.5'
+
+/** The recessed track + sliding raised thumb, for link or button segments marked `data-on`. */
+export const SegTrack = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement> & { dep: unknown }>(function SegTrack(
+  { children, dep, className, ...props },
+  outer,
+) {
+  const ref = useRef<HTMLDivElement>(null)
+  const thumb = useSlidingThumb(ref, '[data-on]', dep)
+  const setRef = (el: HTMLDivElement | null) => {
+    ;(ref as React.MutableRefObject<HTMLDivElement | null>).current = el
+    if (typeof outer === 'function') outer(el)
+    else if (outer) outer.current = el
+  }
+  return (
+    <div ref={setRef} className={cn('relative isolate flex items-center gap-0.5 rounded-full bg-recess p-0.5', className)} {...props}>
+      <SlidingThumb box={thumb} />
+      {children}
+    </div>
+  )
+})
+
+/** `[Projects | Templates]`: the pages that live outside a project (Projects home, the template catalog). */
+export function HomeNav() {
+  const matchRoute = useMatchRoute()
+  const onTemplates = !!matchRoute({ to: '/templates' })
+  return (
+    <nav aria-label="Studio pages">
+      <SegTrack dep={onTemplates}>
+        <Link to="/projects" data-testid="home-nav-projects" data-on={!onTemplates ? '' : undefined} className={segItem}>
+          <FolderKanban /> Projects
+        </Link>
+        <Link to="/templates" data-testid="home-nav-templates" data-on={onTemplates ? '' : undefined} className={segItem}>
+          <LayoutTemplate /> Templates
+        </Link>
+      </SegTrack>
+    </nav>
   )
 }

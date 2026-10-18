@@ -1,6 +1,7 @@
 import { Component, type ReactNode } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { Button } from './ui/button';
+import { EmptyState } from './ui/empty-state';
 
 interface Props {
   children: ReactNode;
@@ -33,34 +34,25 @@ export class ErrorBoundary extends Component<Props, State> {
       }
 
       return (
-        <div className="flex h-full w-full items-center justify-center">
-          <div className="flex flex-col items-center gap-4 max-w-md text-center p-8">
-            <div className="flex items-center justify-center size-16 rounded-full bg-destructive-soft">
-              <AlertTriangle className="size-8 text-destructive" />
-            </div>
-            <h2 className="text-xl font-semibold text-foreground">
-              Something went wrong
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              An unexpected error occurred. Try refreshing the page or click the
-              button below to recover.
-            </p>
-            {this.state.error && (
-              <pre className="w-full p-3 text-xs text-left bg-muted rounded-md overflow-auto max-h-32">
-                {this.state.error.message}
-              </pre>
-            )}
-            <div className="flex gap-2">
+        <EmptyState
+          className="h-full w-full"
+          icon={<AlertTriangle className="text-destructive" />}
+          title="Something went wrong"
+          actions={
+            <>
               <Button variant="outline" onClick={this.handleReset}>
-                <RefreshCw className="size-4 mr-2" />
-                Try Again
+                <RefreshCw />
+                Try again
               </Button>
-              <Button onClick={() => window.location.reload()}>
-                Refresh Page
-              </Button>
-            </div>
-          </div>
-        </div>
+              <Button onClick={() => window.location.reload()}>Refresh page</Button>
+            </>
+          }
+        >
+          An unexpected error occurred. Try refreshing the page or click the button below to recover.
+          {this.state.error && (
+            <pre className="well mt-3 max-h-32 w-full overflow-auto p-3 text-left font-mono text-[11.5px] text-foreground">{this.state.error.message}</pre>
+          )}
+        </EmptyState>
       );
     }
 

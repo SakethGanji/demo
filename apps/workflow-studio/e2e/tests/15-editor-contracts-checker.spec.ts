@@ -1,16 +1,14 @@
 /**
- * Stage 2: contracts, the mistake checker, autocomplete without running, n8n import.
+ * Stage 2: contracts, the mistake checker, autocomplete without running.
  * Real UI against the real stack (engine + studio + Postgres). No mocks, no route interception.
  */
 import type { Locator, Page } from '@playwright/test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { test, expect, type EngineApi } from '../fixtures/test'
 import { seedProject, seedWorkflow, type P } from '../fixtures/seed'
 import type { StackState } from '../global-setup'
 
-const HERE = path.dirname(fileURLToPath(import.meta.url))
 const SHOTS = '/tmp/claude-1000/-home-saketh-Projects-playground-work/07d49b96-ad12-42c5-9569-58e6b1f9be16/scratchpad/shots2'
 
 const link = (a: string, b: string, out = 'main') => ({ source_node: a, source_output: out, target_node: b, target_input: 'main' })
@@ -215,34 +213,6 @@ test.describe('editor contracts + checker', () => {
     await closeNdv(page)
     await expect(nodeEl(page, 'Http').getByTestId('node-contract-badge')).toHaveCount(0)
     await expect(page.getByTestId('node-check-mark')).toHaveCount(0, { timeout: 10_000 })
-  })
-
-  test('T15.4 import an n8n workflow from the workflows list', async ({ page, s }) => {
-    const fixture = fs.readFileSync(path.resolve(HERE, '../../../workflow-engine/tests/fixtures/n8n/4867_ai_powered_stock_market_summary_bot.json'), 'utf8')
-    await page.goto(`${s.studioUrl}/p/${p.slug}/workflows`)
-    await page.getByTestId('import-n8n').click()
-    await expect(page.getByTestId('import-n8n-dialog')).toBeVisible()
-    await expect(page.getByTestId('import-n8n-confirm')).toBeDisabled()
-    await page.getByTestId('import-n8n-input').fill(fixture)
-    await page.getByTestId('import-n8n-preview').click()
-    const report = page.getByTestId('import-n8n-report')
-    await expect(report).toBeVisible({ timeout: 20_000 })
-    const mapped = Number(await page.getByTestId('import-n8n-mapped').getAttribute('data-count'))
-    const unmapped = Number(await page.getByTestId('import-n8n-unmapped').getAttribute('data-count'))
-    const disabledCode = Number(await page.getByTestId('import-n8n-disabled-code').getAttribute('data-count'))
-    expect(mapped).toBeGreaterThan(3)
-    expect(unmapped).toBeGreaterThan(0) // openAi + slack have no equivalent
-    expect(disabledCode).toBe(1)
-    await expect(page.getByTestId('import-n8n-unmapped')).toContainText(/openAi|slack/i)
-    await shot(page, 't15-4-report')
-    await page.getByTestId('import-n8n-confirm').click()
-    await expect(page).toHaveURL(/\/workflows\/[^/]+$/, { timeout: 20_000 })
-    await expect(page.getByTestId('workflow-navbar')).toBeVisible()
-    // 4867 has 21 nodes, 11 of them sticky notes (dropped)
-    await expect(page.locator('.react-flow__node').first()).toBeVisible()
-    await expect(page.locator('.react-flow__node')).toHaveCount(10)
-    expect(await page.locator('.node-disabled').count()).toBeGreaterThanOrEqual(disabledCode)
-    await shot(page, 't15-4-imported')
   })
 
   test('T15.5 publish is blocked by errors, the Problems tab opens, fixing allows it', async ({ page, api, s, net }) => {

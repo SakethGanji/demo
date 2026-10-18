@@ -12,7 +12,7 @@ import { EmptyState } from '@/shared/components/ui/empty-state'
 import { Segmented } from '@/shared/components/ui/segmented'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/components/ui/select'
 import { Skeleton } from '@/shared/components/ui/skeleton'
-import { PageHeader, Tile } from '@/shared/components/ui/surface'
+import { PageHeader, Tile, Page, Callout } from '@/shared/components/ui/surface'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/shared/components/ui/table'
 import { errorMessage } from '@/shared/api/http'
 import { formatWhen, taskStatusLabel, taskTone } from '@/features/interfaces/lib/format'
@@ -44,8 +44,8 @@ export function ApprovalsPage() {
   const wfItems = { [ALL]: 'All workflows', ...Object.fromEntries((workflows.data ?? []).map((w) => [w.id, w.name])) }
 
   return (
-    <div className="h-full overflow-y-auto" data-testid="approvals-page">
-      <div className="mx-auto flex max-w-[1040px] flex-col gap-5 px-6 py-6">
+    <Page data-testid="approvals-page">
+      <div className="flex flex-col gap-5">
         <PageHeader
           title="Approvals"
           icon={<CheckCheck />}
@@ -78,9 +78,9 @@ export function ApprovalsPage() {
 
         {inbox.isPending && <Skeleton className="h-40 w-full" />}
         {inbox.isError && (
-          <div className="rounded-ctl bg-destructive-soft px-3 py-2 text-[12.5px] text-destructive" role="alert" data-testid="approvals-error">
+          <Callout tone="error" role="alert" data-testid="approvals-error">
             {errorMessage(inbox.error)}
-          </div>
+          </Callout>
         )}
 
         {inbox.data && inbox.tasks.length === 0 && (
@@ -141,6 +141,6 @@ export function ApprovalsPage() {
           </div>
         )}
       </div>
-    </div>
+    </Page>
   )
 }

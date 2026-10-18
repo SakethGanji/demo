@@ -19,11 +19,11 @@
 /* ════════════════════════════════════════ LIGHT ════════════════════════════════════════ */
 :root {
   /* ── surfaces: canvas → sheet → tile → well; recess for controls; popover for solid overlays ── */
-  --canvas: #ffffff;                         /* app background: pure white, never grey */
-  --background: #ffffff;
+  --canvas: #e6ecf7;                         /* app background: pale sky under the light beams */
+  --background: #eef2fa;
   --sheet: transparent;                      /* the Linear content sheet: a frame only, so the glass inside it frosts the sky */
-  --tile: #f7f7f8;                           /* solid tile: no-backdrop-filter fallback only */
-  --well: rgb(255 255 255 / .6);             /* a recess inside the glass: tables, lists, code */
+  --tile: #f3f6fc;                           /* solid tile: reduced-transparency fallback only */
+  --well: rgb(255 255 255 / .42);            /* a recess inside the glass: tables, lists, code */
   --recess: rgb(0 0 0 / .04);            /* inputs, seg tracks, outline buttons, chips */
   --raise: #ffffff;                          /* seg thumb, kbd on a recess */
   --card: #ffffff;
@@ -34,13 +34,13 @@
   --surface: #f4f4f5;                        /* legacy studio alias of --muted */
 
   /* ── text ── */
-  --foreground: #1a1b1e;
-  --card-foreground: #1a1b1e;
-  --popover-foreground: #1a1b1e;
-  --secondary-foreground: #1a1b1e;
-  --accent-foreground: #1a1b1e;
-  --muted-foreground: #62666d;
-  --faint: #a0a3a9;                          /* decorative only (cooled from the warm #a29e96) */
+  --foreground: #0d1430;
+  --card-foreground: #0d1430;
+  --popover-foreground: #0d1430;
+  --secondary-foreground: #0d1430;
+  --accent-foreground: #0d1430;
+  --muted-foreground: #55608a;
+  --faint: #8a90a8;                          /* decorative only */
 
   /* ── lines: hairline for rows and splits; panel-border for the sheet edge ── */
   --hairline: rgb(0 0 0 / .06);
@@ -49,13 +49,13 @@
   --input: rgb(0 0 0 / .12);
   --slot-line: rgb(0 0 0 / .16);          /* dashed empty slot */
 
-  /* ── brand: steel blue ── */
-  --primary: #2a5fc4;
+  /* ── brand: indigo → cyan ── */
+  --primary: #5250e9;
   --primary-foreground: #ffffff;
-  --ring: #4a7fd6;
-  --brand-1: #3a6fd0;                        /* gradient: logo, project avatar, focal art stroke only */
-  --brand-2: #4aa9bf;
-  --brand-soft: color-mix(in srgb, #3a6fd0 7%, transparent);
+  --ring: #6d6bf0;
+  --brand-1: #5250e9;                        /* gradient: logo, project avatar, primary button, focal art stroke */
+  --brand-2: #0aa2dc;
+  --brand-soft: color-mix(in srgb, #5250e9 9%, transparent);
   --glow: transparent;
   --glint: rgb(31 111 255 / .55);            /* sparkle at focal points */
 
@@ -101,58 +101,50 @@
 
   /* ── shadcn sidebar (the sidebar sits on the canvas, no panel) ── */
   --sidebar: transparent;
-  --sidebar-foreground: #3c3f45;
-  --sidebar-primary: #2a5fc4;
+  --sidebar-foreground: #2c3458;
+  --sidebar-primary: #5250e9;
   --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: rgb(0 0 0 / .05);    /* active item: a fill, no ring */
-  --sidebar-accent-foreground: #1a1b1e;
+  --sidebar-accent-foreground: #0d1430;
   --sidebar-border: rgb(0 0 0 / .06);
-  --sidebar-ring: #4a7fd6;
+  --sidebar-ring: #6d6bf0;
 
-  /* ── glass: the same recipe as dark, in white. Tiles, cards, panes, stats and table wells ── */
-  --glass-fill: rgb(255 255 255 / .82);       /* tile/card fill */
-  --glass-fill-hover: rgb(255 255 255 / .94);
-  --glass-fill-editor: rgb(255 255 255 / .88);
-  --glass-blur: blur(20px) saturate(160%);
-  --glass-edge: inset 0 0 0 1px rgb(255 255 255 / .6);
-  --glass-line: 0 0 0 1px rgb(0 0 0 / .07); /* outer hairline so the edge reads on white */
-  --glass-top: inset 0 1px 0 #ffffff;
-  --glass-shadow: 0 1px 2px rgb(0 0 0 / .04), 0 4px 16px rgb(0 0 0 / .04);
-  --chrome-fill: rgb(255 255 255 / .72);      /* top bar: the glass fill at 60% */
-  --chrome-blur: blur(20px) saturate(160%);
-  --overlay-fill: rgb(255 255 255 / .66);    /* menus, ⌘K palette, popovers */
-  --overlay-blur: blur(28px) saturate(180%);
-  --overlay-shadow: 0 0 0 1px rgb(0 0 0 / .07), 0 12px 40px -8px rgb(0 0 0 / .18), inset 0 1px 0 rgb(255 255 255 / .95), inset 0 0 0 1px rgb(255 255 255 / .55);
-  --scrim: rgb(0 0 0 / .14);
+  /* ── glass (Subtle): a translucent fill, a light rim, a top highlight. Cards don't blur (the backdrop is
+     already soft, so blurring it again costs frames and changes nothing); only chrome and overlays blur ── */
+  --glass-fill: rgb(255 255 255 / .58);       /* tile/card fill */
+  --glass-fill-hover: rgb(255 255 255 / .70);
+  --glass-fill-editor: rgb(255 255 255 / .62);
+  --glass-strong: rgb(255 255 255 / .78);     /* floating glass: menus, sheets, seg thumb */
+  --rim-a: rgb(255 255 255 / .75);              /* rim light: bright top-left → clear → a faint counter-rim */
+  --rim-b: rgb(255 255 255 / .22);
+  --rim-c: rgb(120 140 210 / .22);
+  --hi: rgb(255 255 255 / .95);               /* inner top highlight */
+  --shade: rgb(40 60 130 / .12);              /* inner bottom shade, recess shadow */
+  --chrome-fill: rgb(255 255 255 / .55);      /* top bar / sidebar */
+  --chrome-blur: blur(24px) saturate(170%);
+  --overlay-fill: rgb(255 255 255 / .78);    /* menus, ⌘K palette, popovers */
+  --overlay-blur: blur(26px) saturate(175%);
+  --overlay-shadow: inset 0 1px 0 var(--hi), inset 0 -14px 28px -22px var(--shade);
+  --scrim: rgb(13 20 48 / .14);
 
   /* ── sheet edge ── */
   --sheet-ring: 0 0 0 0 transparent;
 
-  /* ── space: the same sky as dark in navy ink, and the logo's two colours as a faint bloom ── */
-  --nebula: none;
-  --sky-opacity: .22;                         /* inside a project; Projects home paints its own sky */
+  /* ── backdrop: three soft light beams and a vignette, painted once (body::before / ::after) ── */
+  --beam-1: rgb(96 130 255 / .28);
+  --beam-2: rgb(56 189 248 / .34);
+  --beam-3: rgb(167 139 250 / .30);
+  --vignette: rgb(170 185 220 / .35);
 
-  /* ── elevation ── */
-  --raise-sm: 0 1px 2px rgb(0 0 0 / .08), 0 0 0 .5px rgb(0 0 0 / .08);
-  --raise-md: 0 1px 2px rgb(0 0 0 / .07), 0 4px 12px -4px rgb(0 0 0 / .12);
-  --btn-primary-top: inset 0 1px 0 rgb(255 255 255 / .12);
-  --shadow-2xs: 0 1px 2px 0 rgb(0 0 0 / 0.03);
-  --shadow-xs: 0 1px 2px rgb(0 0 0 / .05), 0 2px 6px -2px rgb(0 0 0 / .05);
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.03), 0 2px 6px 0 rgb(0 0 0 / 0.04), 0 0 1px 0 rgb(0 0 0 / 0.04);
-  --shadow: 0 1px 2px 0 rgb(0 0 0 / 0.03), 0 2px 6px 0 rgb(0 0 0 / 0.04), 0 0 1px 0 rgb(0 0 0 / 0.04);
-  --shadow-md: 0 1px 2px rgb(0 0 0 / .06), 0 4px 10px -4px rgb(0 0 0 / .08), 0 14px 30px -14px rgb(0 0 0 / .14);
-  --shadow-lg: 0 1px 2px rgb(0 0 0 / .06), 0 6px 14px -6px rgb(0 0 0 / .09), 0 22px 44px -22px rgb(0 0 0 / .18);
-  --shadow-xl: 0 4px 8px 0 rgb(0 0 0 / 0.02), 0 16px 40px -8px rgb(0 0 0 / 0.1), 0 0 1px 0 rgb(0 0 0 / 0.04);
-  --shadow-2xl: 0 2px 6px rgb(15 15 25 / .05), 0 24px 56px -16px rgb(15 15 25 / .22);
 
   /* ── radii (mode-invariant): Linear-tight ── */
-  --r-sheet: 10px;
-  --r-panel: 8px;                            /* tiles, cards, menus, palette, dialogs, slots */
-  --r-well: 6px;
-  --r-ctl: 6px;                              /* buttons, inputs, seg tracks, sidebar items */
-  --r-chip: 4px;                             /* badges, seg thumbs */
-  --r-kbd: 3px;                              /* kbd, method chips */
-  --radius: 6px;                             /* shadcn base (= --r-ctl) */
+  --r-sheet: 16px;
+  --r-panel: 16px;                           /* tiles, cards, menus, palette, dialogs, slots */
+  --r-well: 10px;
+  --r-ctl: 8px;                              /* buttons, inputs, seg tracks, sidebar items */
+  --r-chip: 6px;                             /* badges, seg thumbs */
+  --r-kbd: 4px;                              /* kbd, method chips */
+  --radius: 8px;                             /* shadcn base (= --r-ctl) */
 
   /* ── spacing: 4pt ── */
   --spacing: 0.25rem;
@@ -193,28 +185,28 @@
 /* ════════════════════════════════════════ DARK · space ════════════════════════════════════════ */
 .dark {
   /* ── surfaces: near-black space; the boxes are white frost over it ── */
-  --canvas: #08090a;
-  --background: #0f1011;
+  --canvas: #07070a;                         /* Graphite: neutral near-black, no navy */
+  --background: #0c0c10;
   --sheet: transparent;                      /* the sheet is only a frame: no fill, no edge (both themes) */
-  --tile: #141516;                           /* solid tile: no-backdrop-filter fallback */
-  --well: rgb(0 0 0 / .22);                  /* a darker recess inside the frost so text stays crisp */
-  --recess: rgb(255 255 255 / .04);
-  --raise: rgb(255 255 255 / .06);
-  --card: #0f1011;
-  --popover: #18191b;
-  --muted: #18191b;
-  --secondary: #18191b;
-  --accent: #1f2023;
-  --surface: #18191b;
+  --tile: #17171d;                           /* solid tile: reduced-transparency fallback */
+  --well: rgb(0 0 0 / .35);                  /* a darker recess inside the glass so text stays crisp */
+  --recess: rgb(255 255 255 / .05);
+  --raise: rgb(255 255 255 / .08);
+  --card: #121217;
+  --popover: #1a1a22;
+  --muted: #18181f;
+  --secondary: #18181f;
+  --accent: #202029;
+  --surface: #18181f;
 
   /* ── text ── */
-  --foreground: #f7f8f8;
-  --card-foreground: #f7f8f8;
-  --popover-foreground: #f7f8f8;
-  --secondary-foreground: #f7f8f8;
-  --accent-foreground: #f7f8f8;
-  --muted-foreground: #8a8f98;
-  --faint: #5c6067;
+  --foreground: #f4f4f7;
+  --card-foreground: #f4f4f7;
+  --popover-foreground: #f4f4f7;
+  --secondary-foreground: #f4f4f7;
+  --accent-foreground: #f4f4f7;
+  --muted-foreground: #a3a3af;
+  --faint: #6e6e7a;
 
   /* ── lines (rows and splits only; never around a box) ── */
   --hairline: rgb(255 255 255 / .06);
@@ -224,12 +216,12 @@
   --slot-line: rgb(255 255 255 / .12);
 
   /* ── brand ── */
-  --primary: #3567c8;
+  --primary: #5b57e0;
   --primary-foreground: #ffffff;
-  --ring: #7ea3e0;
-  --brand-1: #5b8ee0;
-  --brand-2: #6cc3d6;
-  --brand-soft: color-mix(in srgb, #5b8ee0 11%, transparent);
+  --ring: #9c8fff;
+  --brand-1: #7b72ff;
+  --brand-2: #40d6e8;
+  --brand-soft: color-mix(in srgb, #9c8fff 13%, transparent);
   --glow: transparent;
   --glint: rgb(190 225 255 / .9);
 
@@ -275,48 +267,39 @@
 
   /* ── shadcn sidebar ── */
   --sidebar: transparent;
-  --sidebar-foreground: #d4d6da;
-  --sidebar-primary: #3567c8;
+  --sidebar-foreground: #d6d6de;
+  --sidebar-primary: #5b57e0;
   --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: rgb(255 255 255 / .05);
-  --sidebar-accent-foreground: #f7f8f8;
+  --sidebar-accent-foreground: #f4f4f7;
   --sidebar-border: rgb(255 255 255 / .07);
-  --sidebar-ring: #7ea3e0;
+  --sidebar-ring: #9c8fff;
 
-  /* ── glass: white frost, 20px blur, a 1px glass edge, top light, a soft drop ── */
-  --glass-fill: rgb(255 255 255 / .03);
-  --glass-fill-hover: rgb(255 255 255 / .05);
-  --glass-fill-editor: rgb(255 255 255 / .025);
-  --glass-blur: blur(20px) saturate(160%);
-  --glass-edge: inset 0 0 0 1px rgb(255 255 255 / .07);
-  --glass-line: 0 0 0 0 transparent;
-  --glass-top: inset 0 1px 0 rgb(255 255 255 / .05);
-  --glass-shadow: 0 1px 0 rgb(0 0 0 / .3), 0 8px 24px rgb(0 0 0 / .35);
-  --chrome-fill: rgb(8 9 10 / .6);
-  --chrome-blur: blur(20px) saturate(160%);
-  --overlay-fill: rgb(30 31 34 / .62);
-  --overlay-blur: blur(28px) saturate(180%);
-  --overlay-shadow: inset 0 0 0 1px rgb(255 255 255 / .09), inset 0 1px 0 rgb(255 255 255 / .14), 0 18px 50px -12px rgb(0 0 0 / .75);
+  /* ── glass (Subtle, Graphite): neutral smoked glass, a white rim, a top highlight ── */
+  --glass-fill: rgb(44 44 58 / .40);
+  --glass-fill-hover: rgb(54 54 70 / .48);
+  --glass-fill-editor: rgb(40 40 52 / .36);
+  --glass-strong: rgb(34 34 46 / .80);
+  --rim-a: rgb(255 255 255 / .30);
+  --rim-b: rgb(255 255 255 / .08);
+  --rim-c: rgb(255 255 255 / .10);
+  --hi: rgb(255 255 255 / .16);
+  --shade: rgb(0 0 0 / .40);
+  --chrome-fill: rgb(14 14 20 / .55);
+  --chrome-blur: blur(24px) saturate(170%);
+  --overlay-fill: rgb(34 34 46 / .80);
+  --overlay-blur: blur(26px) saturate(175%);
+  --overlay-shadow: inset 0 1px 0 var(--hi), inset 0 -14px 28px -22px var(--shade);
   --scrim: rgb(0 0 0 / .5);
 
   --sheet-ring: 0 0 0 0 transparent;
 
-  /* ── space: a barely-there bloom behind the content (body::after, fixed) and a quiet sky ── */
-  --nebula: none;                            /* dark is a plain neutral theme: no coloured bloom */
-  --sky-opacity: .08;                        /* inside a project: a faint hint; Projects home paints its own sky */
+  /* ── backdrop: violet, pink and teal beams at low alpha over graphite, and a deep vignette ── */
+  --beam-1: rgb(120 110 255 / .16);
+  --beam-2: rgb(255 95 170 / .15);
+  --beam-3: rgb(40 210 200 / .15);
+  --vignette: rgb(0 0 0 / .7);
 
-  /* ── elevation ── */
-  --raise-sm: inset 0 1px 0 rgb(255 255 255 / .06), 0 1px 2px rgb(0 0 0 / .4);
-  --raise-md: inset 0 1px 0 rgb(255 255 255 / .06), 0 4px 14px -4px rgb(0 0 0 / .6);
-  --btn-primary-top: inset 0 1px 0 rgb(255 255 255 / .12);
-  --shadow-2xs: 0 1px 2px 0 rgb(0 0 0 / 0.08);
-  --shadow-xs: 0 1px 2px rgb(0 0 0 / .5), 0 8px 24px -14px rgb(0 0 0 / .7);
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.08), 0 2px 8px 0 rgb(0 0 0 / 0.1), 0 0 1px 0 rgb(0 0 0 / 0.12);
-  --shadow: 0 1px 2px 0 rgb(0 0 0 / 0.08), 0 2px 8px 0 rgb(0 0 0 / 0.1), 0 0 1px 0 rgb(0 0 0 / 0.12);
-  --shadow-md: 0 2px 4px rgb(0 0 0 / .5), 0 14px 32px -12px rgb(0 0 0 / .75);
-  --shadow-lg: 0 2px 4px rgb(0 0 0 / .5), 0 18px 44px -18px rgb(0 0 0 / .8);
-  --shadow-xl: 0 4px 8px 0 rgb(0 0 0 / 0.06), 0 16px 44px -8px rgb(0 0 0 / 0.22), 0 0 1px 0 rgb(0 0 0 / 0.1);
-  --shadow-2xl: 0 4px 10px rgb(0 0 0 / .45), 0 28px 64px -16px rgb(0 0 0 / .8);
 }
 
 
@@ -325,7 +308,23 @@
   --focus-ring: color-mix(in srgb, var(--ring) 45%, transparent);           /* a colour, as in the studio */
   --shadow-focus: 0 0 0 2px var(--focus-ring);
   --brand-gradient: linear-gradient(135deg, var(--brand-1), var(--brand-2));
-  --glass-elevation: var(--glass-shadow), var(--glass-line), var(--glass-edge), var(--glass-top);
+  --glass-elevation: inset 0 1px 0 var(--hi), inset 0 -14px 28px -22px var(--shade);   /* no outer shadow */
+  --glass-hover-ring: inset 0 0 0 1px color-mix(in srgb, var(--ring) 40%, transparent);   /* clickable glass, hovered */
+  --glass-rim: linear-gradient(170deg, var(--rim-a), var(--rim-b) 18%, transparent 42%, transparent 80%, var(--rim-c));
+  /* elevation: no drop shadows anywhere (owner, 2026-10-18). Every step is the same top highlight, so
+     shadcn's shadow-sm … shadow-2xl and the raise steps all read as glass light, not depth. */
+  --lift: inset 0 1px 0 var(--hi);
+  --raise-sm: var(--lift);
+  --raise-md: var(--lift);
+  --btn-primary-top: inset 0 1px 0 rgb(255 255 255 / .18);
+  --shadow-2xs: var(--lift);
+  --shadow-xs: var(--lift);
+  --shadow-sm: var(--lift);
+  --shadow: var(--lift);
+  --shadow-md: var(--lift);
+  --shadow-lg: var(--lift);
+  --shadow-xl: var(--lift);
+  --shadow-2xl: var(--lift);
   --method-tint: color-mix(in srgb, currentColor 13%, transparent);         /* chip background */
   --hover-fill: color-mix(in srgb, var(--foreground) 9%, transparent);      /* outline button hover */
   --primary-hover: color-mix(in srgb, var(--primary) 88%, #fff);
@@ -344,22 +343,23 @@
   --star-amber: #d9921a;
   /* liquid-glass thumb (segmented / tabs, Chromium): a clear lens with a rim light */
   --thumb-glass: rgb(255 255 255 / .14);
-  --thumb-glass-shadow: 0 1px 2px rgb(0 0 0 / .14), 0 0 0 .5px rgb(0 0 0 / .1), inset 0 1px 0 rgb(255 255 255 / .95), inset 0 -1px 0 rgb(0 0 0 / .04);
+  --thumb-glass-shadow: inset 0 1px 0 rgb(255 255 255 / .95), inset 0 0 0 .5px rgb(255 255 255 / .6), inset 0 -1px 0 rgb(0 0 0 / .04);
   --art-line: rgb(0 0 0 / .26);               /* neutral line art */
   --art-faint: rgb(0 0 0 / .1);
   --grid-dot: rgb(0 0 0 / .14);               /* workflow canvas dot lattice */
 
   /* charts (json viewer bool, sparklines): calm, no rainbow */
-  --chart-1: #2a5fc4;
-  --chart-2: #7a62b0;
+  --chart-1: #5250e9;
+  --chart-2: #0aa2dc;
   --chart-3: #16a34a;
   --chart-4: #c82828;
   --chart-5: #d97706;
 
-  /* workflow nodes: raised glass with an entity-hued icon. The six groups use the calm --hue-* values. */
-  --node-bg: rgb(255 255 255 / .72);
-  --node-edge: inset 0 0 0 1px rgb(255 255 255 / .9), 0 0 0 1px rgb(0 0 0 / .1);
-  --node-shadow: 0 1px 2px rgb(0 0 0 / .06), 0 6px 16px -4px rgb(0 0 0 / .1);
+  /* workflow nodes: the same see-through glass as the cards (fill + rim + top highlight), no blur (the canvas
+     pans), no drop shadow. --node-shadow stays a no-op shadow because node styles append it to ring lists. */
+  --node-bg: rgb(255 255 255 / .92);         /* near-solid (the mockup's --node): nodes are content; the glass is in the edge */
+  --node-edge: inset 0 0 0 1px rgb(80 100 170 / .22), inset 0 1px 0 var(--hi);
+  --node-shadow: 0 0 0 0 transparent;
   --node-trigger: #2f7f93;
   --node-trigger-border: rgb(0 0 0 / .1);
   --node-trigger-icon-bg: #ffffff;
@@ -386,7 +386,7 @@
   --node-output-icon-fg: #a8643a;
   --node-handle: #9aa1b0;
   --edge-line: rgb(0 0 0 / .3);
-  --edge-hot: #4a7fd6;
+  --edge-hot: #6d6bf0;
 
   /* sticky notes: a flat tint of the entity hue on glass, text in ink */
   --sticky-yellow-bg: color-mix(in srgb, #8f7426 12%, #ffffff);
@@ -420,20 +420,17 @@
   --star-pink: #ff9ad5;
   --star-amber: #ffd38a;
   --thumb-glass: rgb(255 255 255 / .07);
-  --thumb-glass-shadow: inset 0 1px 0 rgb(255 255 255 / .2), inset 0 0 0 .5px rgb(255 255 255 / .12), 0 1px 3px rgb(0 0 0 / .45);
+  --thumb-glass-shadow: inset 0 1px 0 rgb(255 255 255 / .2), inset 0 0 0 .5px rgb(255 255 255 / .12);
   --art-line: rgb(255 255 255 / .22);
   --art-faint: rgb(255 255 255 / .09);
   --grid-dot: rgb(255 255 255 / .10);
 
-  --chart-1: #7ea3e0;
-  --chart-2: #ad9ad9;
+  --chart-1: #9c8fff;
+  --chart-2: #40d6e8;
   --chart-3: #22c55e;
   --chart-4: #f87171;
   --chart-5: #f59e0b;
 
-  --node-bg: rgb(255 255 255 / .07);
-  --node-edge: inset 0 0 0 1px rgb(255 255 255 / .11), inset 0 1px 0 rgb(255 255 255 / .12);
-  --node-shadow: 0 8px 24px rgb(0 0 0 / .45);
   --node-trigger: #74c4d4;
   --node-trigger-border: rgb(255 255 255 / .11);
   --node-trigger-icon-bg: rgb(255 255 255 / .08);
@@ -460,7 +457,9 @@
   --node-output-icon-fg: #dca27a;
   --node-handle: #676d7c;
   --edge-line: rgb(255 255 255 / .26);
-  --edge-hot: #7ea3e0;
+  --edge-hot: #9c8fff;
+  --node-bg: rgb(40 40 50 / .92);
+  --node-edge: inset 0 0 0 1px rgb(255 255 255 / .16), inset 0 1px 0 var(--hi);
 
   --sticky-yellow-bg: color-mix(in srgb, #d6bf6a 12%, #111113);
   --sticky-yellow-border: color-mix(in srgb, #d6bf6a 26%, transparent);
@@ -631,49 +630,69 @@
 
 /* ════════════════════════════════════════ recipes ════════════════════════════════════════ */
 
-/* Glass (refine §9): every tile, card, pane, stats strip and table well, in BOTH themes. Dark = white 6% frost;
-   light = white 50% frost. Both: blur(20px) saturate(160%), a 1px glass edge, a top light and a soft drop.
-   Text inside goes in a `well`, never straight on the frost. */
+/* Glass (Subtle). Three families, one look:
+     glass / tile / glass-editor  cards and panes: translucent fill + rim + top highlight. NO backdrop-filter:
+                                  the backdrop is already soft, so a second blur is invisible but costs frames.
+     glass-chrome / glass-overlay things that float over scrolling content: the same plus a real blur.
+   The rim and the hover specular live in one shared rule further down (`glass rim`), not per recipe.
+   Never put glass in glass: an inner box is a `well` (Tile does this for you). */
 @utility glass {
   border: 0;
   border-radius: var(--r-panel);
-  background: var(--glass-fill);
-  -webkit-backdrop-filter: var(--glass-blur);
-  backdrop-filter: var(--glass-blur);
+  background-color: var(--glass-fill);
   box-shadow: var(--glass-elevation);
 }
 
-/* Tile: alias of glass for bento tiles and cards. Hover (clickable cards) lifts the frost a step. */
+/* Tile: the card recipe. Clickable tiles lift the fill a step on hover. */
 @utility tile {
   border: 0;
   border-radius: var(--r-panel);
-  background: var(--glass-fill);
-  -webkit-backdrop-filter: var(--glass-blur);
-  backdrop-filter: var(--glass-blur);
+  background-color: var(--glass-fill);
   box-shadow: var(--glass-elevation);
-  &:is(a, button, [role="button"]):hover { background: var(--glass-fill-hover); }
+  &:is(a, button, [role="button"]):hover { background-color: var(--glass-fill-hover); }
 }
 
-/* Editor panels (backend / workflows split views): a thinner frost than tiles in dark, a denser one in light. */
+/* Editor panels (backend / workflows split views): a slightly thinner fill. */
 @utility glass-editor {
   border: 0;
-  background: var(--glass-fill-editor);
-  -webkit-backdrop-filter: var(--glass-blur);
-  backdrop-filter: var(--glass-blur);
+  background-color: var(--glass-fill-editor);
   box-shadow: var(--glass-elevation);
 }
 
-/* No backdrop-filter: fall back to the solid slate tile so text never sits on bare space. */
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .glass, .tile, .glass-editor { background: var(--tile); }
-  .glass-chrome { background: var(--canvas); }
-  .glass-overlay { background: var(--popover); }
+/* Clickable glass (Tile `interactive`, stat tiles, cards): on hover it lifts 2px, brightens and picks up a
+   faint ring-coloured edge; it presses on click. Only clickable glass reacts, so hover always means "you can
+   click this". Compositor-cheap: transform + one inset ring, no pointer tracking. */
+@utility glass-hover {
+  cursor: pointer;
+  transition: background-color var(--d-fast) var(--ease-out), box-shadow var(--d-fast) var(--ease-out), transform var(--d-fast) var(--ease-out);
+  &:hover { background-color: var(--glass-fill-hover); box-shadow: var(--glass-elevation), var(--glass-hover-ring); transform: translateY(-2px); }
+  &:active { transform: scale(.985); }
+  @media (prefers-reduced-motion: reduce) { &:hover, &:active { transform: none; } }
 }
 
-/* Chrome (refine §9): the top bar. The glass fill at 60% with the same blur, no edge, no shadow, both themes.
-   The sidebar sits on the canvas: use `glass-chrome bg-transparent!` there (the `!` is needed: recipes sort
-   after plain colour utilities). */
+/* A small round control on the canvas (the + on a node's output, the + on an edge): node fill + node edge so
+   it reads on the dot grid without a drop shadow; hover turns it primary. */
+@utility canvas-chip {
+  background-color: var(--node-bg);
+  box-shadow: var(--node-edge);
+  color: var(--foreground);
+  transition: background-color var(--d-fast) var(--ease-out), color var(--d-fast) var(--ease-out), transform var(--d-fast) var(--ease-out);
+  &:hover { background-color: var(--primary); color: var(--primary-foreground); }
+}
+
+/* Chrome: the top bar, the sidebar, the editor navbar. The same glass as a card (fill, rim, top highlight)
+   plus a real blur, because content passes under it. */
 @utility glass-chrome {
+  border: 0;
+  background-color: var(--glass-fill);
+  -webkit-backdrop-filter: var(--chrome-blur);
+  backdrop-filter: var(--chrome-blur);
+  box-shadow: var(--glass-elevation);
+}
+
+/* Strip: a sticky header/footer inside a page or card (table headers, form footers, a scrolled page bar).
+   Frosted only: no rim, no highlight, so it doesn't draw a box inside the box it sticks to. */
+@utility glass-strip {
   border: 0;
   background: var(--chrome-fill);
   -webkit-backdrop-filter: var(--chrome-blur);
@@ -681,8 +700,7 @@
   box-shadow: none;
 }
 
-/* Overlay (lean §9): menus, ⌘K palette, popovers, toasts, sheets. A stronger frost.
-   Dark: top light + deep drop, no outline. Light: white glass with a faint ring. */
+/* Overlay: menus, ⌘K palette, popovers, toasts, sheets, dialogs. Denser glass + blur + rim, no drop shadow. */
 @utility glass-overlay {
   border: 0;
   border-radius: var(--r-panel);
@@ -690,6 +708,47 @@
   -webkit-backdrop-filter: var(--overlay-blur);
   backdrop-filter: var(--overlay-blur);
   box-shadow: var(--overlay-shadow);
+}
+
+/* No backdrop-filter support, or the user asked for less transparency: solid fills, the rim stays. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass-chrome, .glass-strip { background: var(--canvas); }
+  .glass-overlay { background: var(--popover); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .glass, .tile, .glass-editor { background: var(--tile); }
+  .glass-chrome { background: var(--tile); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .glass-strip { background: var(--canvas); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .glass-overlay { background: var(--popover); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+
+/* Glass rim, shared by every glass recipe. In `components` so a plain `absolute`/`fixed` utility (or
+   floating-ui's inline position) still wins over the `relative` here. The rim is a 1px masked gradient
+   (a soft top edge, clear sides, a faint bottom counter-rim): the edge without a border. */
+@layer components {
+  :where(.glass, .tile, .glass-editor, .glass-chrome, .glass-overlay) { position: relative; }
+  :where(.glass, .tile, .glass-editor, .glass-chrome, .glass-overlay)::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    pointer-events: none;
+    background: var(--glass-rim);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  }
+  /* Glass in glass becomes a well, automatically: the recipes read these tokens, so re-pointing them on the
+     nested box is enough (no per-component logic, and an explicit bg-* on the inner box still wins). */
+  :where(.glass, .tile, .glass-editor, .glass-chrome, .glass-overlay) :where(.glass, .tile, .glass-editor) {
+    --glass-fill: var(--well);
+    --glass-fill-hover: color-mix(in srgb, var(--foreground) 6%, var(--well));
+    --glass-fill-editor: var(--well);
+    --glass-elevation: inset 0 1px 3px var(--shade), inset 0 -1px 0 var(--hi);
+    --glass-rim: none;
+    --r-panel: var(--r-well);
+  }
 }
 
 /* Sheet (layout.css linear + refine §9): the one large content surface, inset from the window by
@@ -703,13 +762,13 @@
   box-shadow: var(--sheet-ring);
 }
 
-/* Well (lean §4, refine §9): a flat recessed area inside a glass tile (tables, lists, code). Fill only, no ring.
-   Dark: black 35%; light: white 60%. Never a well in a well. */
+/* Well: a recessed area inside a glass tile (tables, lists, code), or the glass a nested Tile becomes.
+   A darker fill, a soft inner shadow and a bottom highlight. Never a well in a well. */
 @utility well {
   border: 0;
   border-radius: var(--r-well);
   background: var(--well);
-  box-shadow: none;
+  box-shadow: inset 0 1px 3px var(--shade), inset 0 -1px 0 var(--hi);
 }
 
 /* Recess (lean §4): controls that hold a value: seg tracks, chips, search, outline buttons. Fill only. */
@@ -723,8 +782,8 @@
 /* Raise: the one lifted thing inside a recess (seg thumb, kbd on a search field). */
 @utility raise {
   border-radius: var(--r-chip);
-  background: var(--raise);
-  box-shadow: var(--raise-sm);
+  background: var(--glass-strong);
+  box-shadow: inset 0 1px 0 var(--hi);
 }
 
 /* Slot: a dashed empty slot. Not used by the final design: "New project" is a `tile` (refine §10). Kept for
@@ -752,18 +811,6 @@
   background-size: 480px 480px;
   background-position: 0 0;
 }
-
-/* Nebula (lean §12, refine §9): the canvas colour plus a faint bloom fixed behind the content, in both themes
-   (light uses the logo's steel blue and aqua). Put it on <body>; the app root needs `relative z-[1]` to sit
-   above the bloom. Projects home replaces it with paintHomeSky() from starfield.js. */
-@utility nebula {
-  background: var(--canvas);
-  &::after {
-    content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 0;
-    background: var(--nebula);
-  }
-}
-
 
 /* Hairline row divider inside a well or list (the only drawn line the design allows). */
 @utility hairline-b {
@@ -823,16 +870,26 @@
   }
   .font-mono, code, pre, kbd.font-mono { font-feature-settings: var(--font-features-mono); }
 
-  /* the two-colour bloom behind the content, both themes (Projects home paints its own sky instead) */
-  body::after {
+  /* The backdrop: three soft light beams (::before, rotated a little so they run diagonally) and a vignette
+     (::after). Plain gradients, no filter, no animation: the browser rasterises them once and composites. */
+  body::before, body::after {
     content: '';
     position: fixed;
-    inset: 0;
     pointer-events: none;
     z-index: 0;
-    background: var(--nebula);
   }
-  body[data-sky='home']::after { display: none; }
+  body::before {
+    inset: -20%;
+    transform: rotate(-14deg);
+    background:
+      radial-gradient(60% 16% at 46% 28%, var(--beam-1), transparent 70%),
+      radial-gradient(45% 13% at 78% 62%, var(--beam-2), transparent 70%),
+      radial-gradient(34% 30% at 52% 92%, var(--beam-3), transparent 70%);
+  }
+  body::after {
+    inset: 0;
+    background: radial-gradient(120% 95% at 50% 38%, transparent 48%, var(--vignette));
+  }
   #root { position: relative; z-index: 1; }
 
   input, textarea, select {
@@ -901,7 +958,7 @@ button, a, input, select, textarea, [role="button"] {
 [data-slot="dialog-content"] [data-panel-resize-handle-id] { position: relative; }
 [data-slot="dialog-content"] [data-panel-resize-handle-id]::before { content: ''; position: absolute; inset: 0 -3px; cursor: col-resize; }
 
-/* ── React Flow: transparent canvas over the sky, glass controls and minimap ── */
+/* ── React Flow: transparent canvas over the backdrop ── */
 .react-flow { --xy-background-color: transparent; }
 .react-flow__pane { background: transparent; }
 .react-flow__node { cursor: pointer; }
@@ -916,14 +973,13 @@ button, a, input, select, textarea, [role="button"] {
   border-radius: var(--r-ctl);
 }
 
-.react-flow__controls {
+/* controls and minimap float over a pannable canvas: dense glass, no blur (a blur would re-run on every pan) */
+.react-flow__controls, .react-flow__minimap {
   box-shadow: var(--overlay-shadow) !important;
   border-radius: var(--r-panel) !important;
   border: 0 !important;
   overflow: hidden;
-  background: var(--overlay-fill);
-  -webkit-backdrop-filter: var(--overlay-blur);
-  backdrop-filter: var(--overlay-blur);
+  background: var(--glass-strong) !important;
 }
 .react-flow__controls-button {
   background-color: transparent !important;
@@ -933,15 +989,6 @@ button, a, input, select, textarea, [role="button"] {
 .react-flow__controls-button:hover { background-color: var(--hover-fill) !important; }
 .react-flow__controls-button svg { fill: currentColor !important; }
 
-.react-flow__minimap {
-  box-shadow: var(--glass-elevation) !important;
-  border-radius: var(--r-panel) !important;
-  border: 0 !important;
-  overflow: hidden;
-  background: var(--glass-fill) !important;
-  -webkit-backdrop-filter: var(--glass-blur);
-  backdrop-filter: var(--glass-blur);
-}
 
 /* ── Animations ── */
 @keyframes badge-pop {

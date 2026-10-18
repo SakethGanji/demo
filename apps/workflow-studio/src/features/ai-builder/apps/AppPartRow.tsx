@@ -1,10 +1,8 @@
 import { useState } from 'react';
-import { Link } from '@tanstack/react-router';
 import { motion } from 'motion/react';
-import { AlertTriangle, ArrowUpRight, Check, CheckCheck, CircleDashed, Clock, FileText, GitBranch, LayoutPanelTop, Link2, Loader2, type LucideIcon } from 'lucide-react';
+import { AlertTriangle, Check, CheckCheck, CircleDashed, Clock, FileText, GitBranch, LayoutPanelTop, Link2, Loader2, type LucideIcon } from 'lucide-react';
 import { ConceptChip } from '@/features/knowledge/kit/ConceptChip';
 import { Construct, type ConstructMode } from '@/features/knowledge/kit/Construct';
-import { knowledgeLink } from '@/features/knowledge/kit/links';
 import { Roll } from '@/shared/components/ui/roll';
 import { IconTile, type EntityHue } from '@/shared/components/ui/surface';
 import { cn } from '@/shared/lib/utils';
@@ -54,10 +52,11 @@ function StatusText({ part }: { part: PartView }) {
  * One part of the app. It constructs in when the plan arrives, shows the accent bar while it is the part on the canvas being built
  * (`layoutId="ai-app-head"`, the build log's head style), and locks in success when it turns built. A click puts it on the canvas.
  */
-export function AppPartRow({ part, plan, projectSlug, conceptLabels, selected, building, enter, delay, lockDelay, onSelect }: {
+export function AppPartRow({ part, plan, conceptLabels, selected, building, enter, delay, lockDelay, onSelect }: {
   part: PartView;
   plan: AppPlan | null;
-  projectSlug: string;
+  /** kept for callers; reused parts no longer link to a project page */
+  projectSlug?: string;
   conceptLabels: Record<string, string>;
   selected: boolean;
   building: boolean;
@@ -110,13 +109,13 @@ export function AppPartRow({ part, plan, projectSlug, conceptLabels, selected, b
             <StatusText part={part} />
           </button>
           {reuseKey && (
-            <Link
-              {...knowledgeLink(projectSlug, { focus: reuseKey })}
-              className="mr-2 flex shrink-0 items-center gap-0.5 rounded-chip px-1 text-[12px] text-ai-text outline-none hover:bg-(--hover-fill) focus-visible:shadow-focus"
-              data-testid={`ai-app-part-reused-${part.key}`} aria-label={`Open ${part.reuse?.label ?? 'the reused workflow'} in Knowledge`}
+            <span
+              className="mr-2 flex shrink-0 items-center rounded-chip px-1 text-[12px] text-ai-text"
+              data-testid={`ai-app-part-reused-${part.key}`}
+              title={part.reuse?.label ? `Reuses ${part.reuse.label}` : undefined}
             >
-              reused <ArrowUpRight className="size-3" aria-hidden />
-            </Link>
+              reused
+            </span>
           )}
         </div>
       </Construct>

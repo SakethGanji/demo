@@ -1,3 +1,4 @@
+import { WellRow } from '@/shared/components/ui/surface';
 import { useState } from 'react';
 import { Lock, Pencil, Trash2 } from 'lucide-react';
 import type { TestCase } from '@/features/workflow-editor/lib/tests';
@@ -40,7 +41,7 @@ export function SpecTest({ test, ruleIds, issues, readOnly, locked, onChange, on
   };
 
   return (
-    <div className="flex flex-col gap-2 py-2.5" data-testid={`ai-spec-test-${test.id}`} data-locked={locked ? 'true' : 'false'}>
+    <WellRow className="flex-col items-stretch gap-2 py-2.5" data-testid={`ai-spec-test-${test.id}`} data-locked={locked ? 'true' : 'false'}>
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           {editing && canEdit ? (
@@ -120,6 +121,6 @@ export function SpecTest({ test, ruleIds, issues, readOnly, locked, onChange, on
         </dd>
       </dl>
       <IssueList issues={issues} />
-    </div>
+    </WellRow>
   );
 }

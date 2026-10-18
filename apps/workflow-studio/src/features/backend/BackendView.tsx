@@ -168,16 +168,16 @@ export function BackendView() {
 
 function BackendSkeleton() {
   return (
-    <Tile editor className="flex h-full overflow-hidden" data-testid="backend-loading">
-      <div className="flex-[1.15] p-4">
+    <div className="flex h-full gap-2" data-testid="backend-loading">
+      <Tile editor className="flex-[1.15] p-4">
         {[70, 40, 0, 85, 60, 0, 75, 50, 65].map((w, i) => (
           <Skeleton key={i} className="mb-2.5 h-4" style={{ width: `${w}%`, opacity: w ? 1 : 0 }} />
         ))}
-      </div>
-      <div className="flex-1 p-4 shadow-[inset_1px_0_0_var(--hairline)]">
+      </Tile>
+      <Tile editor className="flex-1 p-4">
         <Skeleton className="h-8" />
-      </div>
-    </Tile>
+      </Tile>
+    </div>
   )
 }
 
@@ -622,8 +622,8 @@ function BackendWorkspace({ doc, savedUpdatedAt }: { doc: ModuleDoc; savedUpdate
   const calloutIssue = visibleIssues[0] ?? null
 
   return (
-    <Tile editor className="flex h-full overflow-hidden" data-testid="backend-view">
-      <section className="flex min-w-0 flex-[1.15] flex-col overflow-hidden" data-testid="editor-panel">
+    <div className="flex h-full gap-2" data-testid="backend-view">
+      <Tile editor as="section" className="flex min-w-0 flex-[1.15] flex-col overflow-hidden" data-testid="editor-panel">
         {/* editor head */}
         <div className="flex h-12 shrink-0 items-center gap-2 px-3" data-testid="file-bar">
           <span
@@ -888,10 +888,10 @@ function BackendWorkspace({ doc, savedUpdatedAt }: { doc: ModuleDoc; savedUpdate
               </span>
             ))}
         </div>
-      </section>
+      </Tile>
 
       {inspectorOpen && editorMode === 'code' && (
-        <section className="flex min-w-[340px] flex-1 flex-col overflow-hidden shadow-[inset_1px_0_0_var(--hairline)]" data-testid="inspector-panel">
+        <Tile editor as="section" className="flex min-w-[340px] flex-1 flex-col overflow-hidden" data-testid="inspector-panel">
           <Tabs value={inspectorTab} onValueChange={(v) => setInspectorTab(v as typeof inspectorTab)} className="h-full">
             <TabsList className="h-12 px-3 shadow-none">
               <TabsTab value="test" data-testid="inspector-tab-test">
@@ -941,7 +941,7 @@ function BackendWorkspace({ doc, savedUpdatedAt }: { doc: ModuleDoc; savedUpdate
               <ClientTsPanel />
             </TabsPanel>
           </Tabs>
-        </section>
+        </Tile>
       )}
 
       {/* secret widget fix popover, anchored to the widget */}
@@ -1016,7 +1016,7 @@ function BackendWorkspace({ doc, savedUpdatedAt }: { doc: ModuleDoc; savedUpdate
         left={diffOpen === 'theirs' ? (theirs ?? '') : (doc.draft?.previousSource ?? '')}
         right={doc.source}
       />
-    </Tile>
+    </div>
   )
 }
 

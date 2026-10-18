@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from '@tanstack/react-router';
 import { AnimatePresence, motion } from 'motion/react';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowUpRight, ChevronDown, CircleCheck, GitBranch, HelpCircle, LayoutTemplate, Sparkles } from 'lucide-react';
+import { ChevronDown, CircleCheck, GitBranch, HelpCircle, LayoutTemplate, Sparkles } from 'lucide-react';
 import { ConceptChip } from '@/features/knowledge/kit/ConceptChip';
 import { Construct, type ConstructMode } from '@/features/knowledge/kit/Construct';
-import { knowledgeLink } from '@/features/knowledge/kit/links';
 import { Callout, Tile } from '@/shared/components/ui/surface';
 import { Roll } from '@/shared/components/ui/roll';
 import { cn } from '@/shared/lib/utils';
@@ -39,15 +37,14 @@ function useDefinitions(projectId: string): (key: string) => string | undefined 
   };
 }
 
-function ReusingRow({ item, projectSlug, lockDelay }: { item: ReusingItem; projectSlug: string; lockDelay: number | null }) {
+function ReusingRow({ item, lockDelay }: { item: ReusingItem; lockDelay: number | null }) {
   const Icon = KIND_ICON[item.kind];
   const [mode, setMode] = useState<ConstructMode>(lockDelay === null ? 'idle' : 'lock');
   return (
     <li>
       <Construct mode={mode} delay={lockDelay ?? 0} onDone={() => setMode('idle')} radius={6}>
-        <Link
-          {...knowledgeLink(projectSlug, { focus: item.key })}
-          className="group flex min-w-0 items-start gap-2 rounded-ctl bg-recess px-2.5 py-2 outline-none hover:bg-(--hover-fill) focus-visible:shadow-focus"
+        <div
+          className="flex min-w-0 items-start gap-2 rounded-ctl bg-recess px-2.5 py-2"
           data-testid={`ai-reusing-item-${dashKey(item.key)}`}
           data-kind={item.kind}
           data-adapting={item.adapting ? 'true' : undefined}
@@ -60,8 +57,7 @@ function ReusingRow({ item, projectSlug, lockDelay }: { item: ReusingItem; proje
               {item.adapting && <span className="text-ai-text"> · adapting this</span>}
             </span>
           </span>
-          <ArrowUpRight className="mt-0.5 size-3 shrink-0 text-faint group-hover:text-foreground" aria-hidden />
-        </Link>
+        </div>
       </Construct>
     </li>
   );
@@ -72,10 +68,11 @@ function ReusingRow({ item, projectSlug, lockDelay }: { item: ReusingItem; proje
  * questions it has. It stays above the sidebar block from clarify to review, and shrinks to one line once the plan is past.
  * Nothing here shows a score or a confidence.
  */
-export function UnderstandingCard({ proposalId, projectId, projectSlug, understanding: u, compact = false, sealed = false, onJumpToQuestions }: {
+export function UnderstandingCard({ proposalId, projectId, understanding: u, compact = false, sealed = false, onJumpToQuestions }: {
   proposalId: string;
   projectId: string;
-  projectSlug: string;
+  /** kept for callers; reused items no longer link to a project page */
+  projectSlug?: string;
   understanding: Understanding;
   /** past the plan: one line, click to expand */
   compact?: boolean;
@@ -169,9 +166,6 @@ export function UnderstandingCard({ proposalId, projectId, projectSlug, understa
                     <ChevronDown className="size-3.5 rotate-180" aria-hidden />
                   </button>
                 )}
-                <Link {...knowledgeLink(projectSlug)} className="inline-flex items-center gap-0.5 rounded-chip px-1.5 py-0.5 text-[12px] text-muted-foreground outline-none hover:text-foreground focus-visible:shadow-focus" data-testid="ai-understanding-knowledge">
-                  Knowledge <ArrowUpRight className="size-3" aria-hidden />
-                </Link>
               </div>
 
               <div className="flex flex-wrap gap-1" data-testid="ai-understood">
@@ -183,7 +177,6 @@ export function UnderstandingCard({ proposalId, projectId, projectSlug, understa
                       label={c.label}
                       tone={toneOf(c.key)}
                       hint={hintOf(c.key)}
-                      href={{ projectSlug }}
                       data-testid={`ai-understood-chip-${slugOf(c.key)}`}
                     />
                   ))}
@@ -224,7 +217,7 @@ export function UnderstandingCard({ proposalId, projectId, projectSlug, understa
                       className="flex flex-col gap-1 overflow-hidden"
                     >
                       {items.map((it) => (
-                        <ReusingRow key={it.key} item={it} projectSlug={projectSlug} lockDelay={first && it.adapting ? REUSING_AT_S + 0.12 : null} />
+                        <ReusingRow key={it.key} item={it} lockDelay={first && it.adapting ? REUSING_AT_S + 0.12 : null} />
                       ))}
                     </motion.ul>
                   )}

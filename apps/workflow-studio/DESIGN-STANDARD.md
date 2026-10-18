@@ -3,20 +3,20 @@
 The coding version of `demo/design/DESIGN.md`. Read that for the why; this page says **which component or utility to use**. The values live in `src/index.css` (tokens from `demo/design/handoff/tokens.css`); `npm run design:check` enforces the rules below.
 
 ## The idea in one line
-Frosted glass over a starfield, one design in light and dark. The page itself is transparent (the sky shows), every box is glass, text sits in recesses inside the glass, nothing has a drawn border, and colour means something.
+Subtle glass over a calm, still backdrop of soft light beams (Graphite in dark, pale sky in light). The page is transparent (the backdrop shows), every box is glass with a light rim instead of a border, nothing casts a shadow, and colour means something. Reference: the approved mockup (`glass-studio.html`, Subtle + Graphite).
 
 ## Surfaces: what to use
 
 | You need | Use | Notes |
 |---|---|---|
-| A page | nothing: render into the workspace sheet | The sheet (10px radius, 8px from the window) is drawn by `WorkspaceLayout`. Never give a page a background. Page padding: `px-8 py-7` (32/28px). |
-| Page title row | `<PageHeader title meta actions icon hue>` (`ui/surface`) | 26px / 650 title, 12.5px meta row. |
-| A card, bento tile, pane, stat strip, table container | `<Tile>` (or the `tile` class) | Glass: fill + blur + 1px glass edge + top light + shadow. `interactive` for clickable cards (hover frost, press .98). `editor` for split-view editor panes (`glass-editor`). Radius 8. |
-| Text area inside a tile (table, list, code, log) | `<Well>` (or `well`) | A recess: dark 35% / white 60%. **Never a well in a well**; a control inside a well is raised. Radius 6. |
+| A page | `<Page>` (`ui/surface`) as the scrolling body | The sheet (16px radius, 8px from the window) is drawn by `WorkspaceLayout`. Never give a page a background, a centred `max-w-*` column or its own padding: `Page` is the one inset (`px-8 py-7`, 32/28px). Full-height pages that scroll inside a pane (Runs, Data) keep their frame but use the same `px-8` gutter and `pt-7`, and their tiles keep the default radius. |
+| Page title row | `<PageHeader title meta actions icon hue>` (`ui/surface`) | 26px / 650 title, 12.5px meta row. Every page header gets its entity icon tile (`icon` + `hue`, the same icon as the outline). |
+| A card, bento tile, pane, stat strip, table container | `<Tile>` (or the `tile` class) | Glass: translucent fill + rim light + top highlight, **no blur, no shadow**. Hover shows a pointer highlight. `interactive` for clickable cards (hover lift, press .98). `editor` for split-view editor panes (`glass-editor`). Radius 16. A Tile (or any glass) inside glass turns into a well automatically. |
+| Text area inside a tile (table, list, code, log) | `<Well>` (or `well`); a list: `<WellList>` + `<WellRow>` | A recess: dark 35% / white 42%, soft inner shadow. **Never a well in a well**; a control inside a well is raised. Radius 10. A list is always `WellList` (the hairlines come from it): don't hand-roll `divide-y divide-hairline` or `hairline-b … last:border-b-0` rows; restyle a row with `WellRow className`. Rows are flat (no `rounded-*` pill rows). |
 | Tile header | `<SectionHeader title sub icon hue actions>` | Icon in a 10% tint of its entity hue (`IconTile`). 13.5px / 600. |
 | A control that **holds a value** (input, search, select, seg track, chip, kbd, progress track) | `Input`, `Textarea`, `Select`, `InputGroup`, `Segmented`, or `field` / `bg-recess` | Recessed fill, no border, 2px focus ring (`focus-visible:shadow-focus`). |
-| The **chosen** thing in a group (seg thumb, active item, highlighted menu item) | `bg-raise shadow-raise-sm` (`raise`) | Raised. Segmented controls and tabs already slide their thumb/underline. |
-| A button | `<Button variant>` | `default` (primary flat), `outline` (recess), `secondary` (grey fill), `ghost`, `destructive` (soft red), `ai` (primary + sparkle icon), `link`. Sizes `xs sm default lg icon-xs icon-sm icon icon-lg`. |
+| The **chosen** thing in a group (seg thumb, active item, highlighted menu item) | `raise` (strong glass + top highlight) | Raised. Segmented controls and tabs already slide their thumb/underline. |
+| A button | `<Button variant>` | `default` (primary: the indigo→cyan `brand-fill` with a top highlight, as in the mockup's `.btn.primary`), `outline` (recess), `secondary` (grey fill), `ghost`, `destructive` (soft red), `ai` (primary + sparkle icon), `link`. Sizes `xs sm default lg icon-xs icon-sm icon icon-lg`. |
 | Menu, popover, combobox, ⌘K, dialog, sheet, toast | `DropdownMenu`, `Popover`, `SearchMenuList` / `RoutePicker`, `Dialog`, `Sheet`, `toast()` | All `glass-overlay` already. Don't restyle their containers. |
 | Status | `<StatusDot tone>`, `<Badge variant="success|warning|destructive|error|ai|neutral|outline|primary|stub">` | Status colours mean status only. |
 | HTTP method | `<MethodChip method>` (= `MethodBadge`) | Keeps `data-method`. |
@@ -28,18 +28,26 @@ Frosted glass over a starfield, one design in light and dark. The page itself is
 | Release-style steps | `<Stepper steps>`; while in flight: `<Beam on>` inside a `relative` rounded parent | |
 | AI code change | `<DiffView prev next onApply onDiscard>`, then `<DiffApplied … onUndo>` | Diff via `diffLines` (same LCS as `cm/lineDiff.ts`). |
 | Python traceback | `<StackTrace traceback onOpenFrame>` | Your frames first, library frames folded. `parseTraceback` is exported. |
-| A flat note line | `<Callout tone="warn|ai|info|error|ok" icon>` | No ring. |
-| Empty state | `<EmptyState icon title actions>` | (`dust` is ignored: working pages have no star texture.) |
+| A flat note line, an inline error | `<Callout tone="warn|ai|info|error|ok" icon>` | No ring. A load or save error is `<Callout tone="error" role="alert">`, not a hand-made `bg-destructive-soft` box. |
+| Empty state | `<EmptyState icon title actions>`; inside a pane or panel `<EmptyState compact>` | One look everywhere: raised icon tile, title, reason (never below 12px), actions. Don't hand-build a centred icon + text block. (`dust` is ignored: working pages have no star texture.) |
 | Code | `CodeEditor` / `JsonViewer` | One CodeMirror theme (`ui/code-theme.ts`: `buildCodeTheme`, `watchCodeTheme`). Don't write `EditorView.theme` colour blocks; pass `buildCodeTheme()` to custom views (e.g. MergeView). |
 | Chat | `shared/components/chat/*`, `shared/components/ai-elements/*` | One look: user bubble raised, assistant text on the panel, composer a recessed field with the primary send. |
 | Top bar | `TopBarFrame`, `Brand`, `CrumbSep`, `SearchTrigger`, `ThemeToggle` (`features/project/components/TopBar.tsx`) | Every page's 48px bar uses these. |
 
 ## Colour
-- **Neutrals are neutral (Linear-like, owner 2026-10-16):** greys with no blue or navy cast in either theme; the background has no coloured bloom. Blue is only for meaning: primary actions, focus, selection, the active indicator, the focal value of a chart.
+- **Neutrals are neutral (owner 2026-10-18):** dark is Graphite (`#07070a`, smoked neutral glass), never navy. The only colour in the background is three soft beams (violet, pink, teal in dark; blue, cyan, violet in light) and a vignette, painted once by `body::before/::after` in `index.css`. Nothing in the background moves and there are no shapes, grids or orbs. Indigo is for meaning: primary actions, focus, selection, the active indicator, the focal value of a chart.
 - **Charts and line art are flat:** no gradients, glows or fades. Where a fill needs texture, use the crossed-line hatch pattern (see `shared/components/art/SystemDiagram.tsx`). Scales are neutral greys (`bg-foreground/…`); the latest bar / today / the focal node takes the primary.
-- **Sky:** working pages have no stars or star texture. Only Projects home and the landing use `HomeSky` (coloured SVG sparkles, `--star-*` tokens, kept out of the reading column).
-- **Glass:** cards and tiles are quiet neutral panels (a 3% fill, a 1px edge, a top light); real frost is for floating layers (menus, ⌘K, sheets, dialogs, toasts, top bar). Liquid glass (refraction, `shared/lib/liquid-glass.ts`, `useLiquidGlass`) is for small or fixed-size glass only: the sliding thumbs, the active sidebar lens, and the edges of dropdown menus and popovers. Chromium only, off under reduced motion. The sidebar and working panels stay flat (no glass with nothing behind it). The sticky top bar (Projects home, landing) frosts only once content scrolls under it.
-- **Brand / primary:** `primary` (steel blue). Focus/selection: `ring`, `brand-soft`.
+- **Sky:** working pages have no stars. Only Projects home and the landing add `HomeSky` on top of the backdrop.
+- **Glass (performance rules, owner 2026-10-18):**
+  - Cards (`tile`, `glass`, `glass-editor`) **never blur**: the backdrop is already soft, so a second blur looks the same and costs frames. They are fill + rim + highlight.
+  - Real blur only where sharp content passes behind: `glass-chrome` (top bar, sidebar, editor navbar: card glass + blur + rim) and `glass-strip` (sticky headers/footers inside a page or card: frosted, no rim) and `glass-overlay` (menus, ⌘K, popovers, dialogs, sheets, toasts). Never hand-roll `backdrop-blur-*` (design:check `raw-backdrop`) or a glass fill (`hand-rolled-glass`).
+  - The rim and glass-in-glass → well come from one shared rule in `index.css`.
+  - Hover: only clickable glass reacts, via `glass-hover` (Tile `interactive`): a 2px lift, a brighter fill and a faint ring-coloured edge. No pointer spotlight; non-clickable panels never react to hover.
+  - No drop shadows: every `shadow-*` step is the same top highlight.
+  - Liquid glass (refraction, `shared/lib/liquid-glass.ts`) is for small fixed-size glass only: sliding thumbs, the active sidebar lens, menu and popover edges. At most 4 live at once, Chromium only, off under reduced motion or reduced transparency and on machines with 4 cores or fewer.
+  - The workflow canvas (xyflow) stays unblurred: nodes, controls and minimap use solid or strong glass fills, never a backdrop filter.
+  - Long lists live in one glass container with hairline rows, never a glass box per row.
+- **Brand / primary:** `primary` (indigo). Focus/selection: `ring`, `brand-soft`.
 - **Entity hues** (icons and small tints only, never large fills): `text-hue-backend`, `-data`, `-runs`, `-apps`, `-secrets`, `-ai`, `-flow` (workflows), `-release`, `-home`. Tint: `bg-hue-data/10` or `IconTile`.
 - **Status:** `success`, `warning`, `destructive` (+ `-text`, `-soft`). **Methods:** `text-method-get|post|put|patch|delete` on `bg-(--method-tint)`.
 - **Text:** `foreground`, `muted-foreground`, `faint` (decorative only).
@@ -51,14 +59,16 @@ Frosted glass over a starfield, one design in light and dark. The page itself is
 - Hex / `rgb()` / `hsl()` / `oklch()` literals in class names or styles.
 - `bg-white`, `bg-black`, `text-white`, `text-black` (use `bg-raise`, `text-primary-foreground` …).
 - `border` / `border-border` / `border-panel-border` / `border-input` / `ring-1` / `ring-foreground/…` as a box edge. **Allowed:** `border-b border-hairline` for row dividers.
-- `rounded-2xl|3xl|4xl` and pixel radii (`rounded-[6px]`). Use `rounded-sheet` (10), `rounded-panel` / `rounded-xl` (8), `rounded-well` / `rounded-ctl` / `rounded-lg` / `rounded-md` (6), `rounded-chip` / `rounded-sm` (4), `rounded-kbd` / `rounded-xs` (3), `rounded-full`.
+- `rounded-2xl|3xl|4xl` and pixel radii (`rounded-[6px]`). Use `rounded-sheet` (16), `rounded-panel` / `rounded-xl` (16), `rounded-well` / `rounded-lg` (10), `rounded-ctl` / `rounded-md` (8), `rounded-chip` / `rounded-sm` (6), `rounded-kbd` / `rounded-xs` (4), `rounded-full`.
 - Gradients inside boxes (`bg-gradient-*`, `bg-linear-*`, `linear-gradient(`). Only `brand-fill` (logo, avatars, the AI node chip).
 - Solid legacy surfaces `bg-card`, `bg-background`, `bg-popover`, `bg-canvas` (pages are transparent; boxes are `Tile`/`Well`).
 - Uppercase eyebrows (`uppercase tracking-…`): labels are sentence case.
+- `divide-y divide-hairline` lists built by hand (`hand-rolled-list`): use `WellList` + `WellRow`.
+- `backdrop-blur-*` / `backdrop-saturate-*` / `backdropFilter` (use `glass-chrome` or `glass-overlay`), and `bg-(--glass-fill)`-style hand-made glass (use `Tile` or a recipe).
 
 A line that must break a rule (generated-app colours, canvas painting, a third-party theme object) ends with `// design-ok: <reason>`.
 
-**Allow-list:** `src/index.css`, `src/shared/lib/starfield.ts`, `src/features/app-builder/sandbox/**` (the generated app's own runtime), `src/app/routes/design.tsx`.
+**Allow-list:** `src/index.css`, `src/shared/lib/starfield.ts`, `src/shared/lib/liquid-glass.ts`, `src/features/app-builder/sandbox/**` (the generated app's own runtime), `src/app/routes/design.tsx`.
 
 ## Type, space, motion
 - Inter v4 (`cv01`, `ss03`, tabular numbers) is the body font already; mono (`font-mono`) only for code, paths, IDs and env names.

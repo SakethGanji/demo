@@ -68,7 +68,7 @@ export function WorkspaceLayout() {
   useWorkspaceShortcuts(() => setOutlineHidden((v) => !v))
   const rail = width < 1280
   const narrow = width < 1024
-  const left = outlineHidden ? 8 : rail ? 52 : 240
+  const left = outlineHidden ? 8 : (rail ? 52 : 240) + 16
   return (
     <div className="relative h-full w-full" data-testid="workspace">
       <ProjectTopBar />
@@ -82,14 +82,14 @@ export function WorkspaceLayout() {
       )}
       {!outlineHidden && (
         <aside
-          className={cn('absolute bottom-0 left-0 flex flex-col bg-sidebar', rail ? 'w-[52px]' : 'w-[240px]', narrow ? 'top-[88px]' : 'top-12')}
+          className={cn('absolute bottom-2 left-2 flex flex-col overflow-hidden rounded-sheet glass-chrome', rail ? 'w-[52px]' : 'w-[240px]', narrow ? 'top-[96px]' : 'top-14')}
           data-testid="outline-panel"
         >
           {rail ? <ProjectRail /> : <ProjectOutline />}
         </aside>
       )}
       <div
-        className={cn('absolute right-2 bottom-2 min-w-0 overflow-hidden rounded-sheet', narrow ? 'top-[88px]' : 'top-12')}
+        className={cn('absolute right-2 bottom-2 min-w-0 overflow-hidden rounded-sheet', narrow ? 'top-[96px]' : 'top-14')}
         style={{ left }}
         data-testid="main"
       >

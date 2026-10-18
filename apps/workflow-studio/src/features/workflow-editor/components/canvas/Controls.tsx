@@ -7,11 +7,13 @@ import { Kbd } from "@/shared/components/ui/kbd";
 import { Tip } from "@/shared/components/ui/tooltip";
 import { cn } from "@/shared/lib/utils";
 import { useEditorLayoutStore } from "../../stores/editorLayoutStore";
+import { DOCK_LABEL, useEditorInterface } from "../interface/useEditorInterface";
 
 const Sep = () => <span className="mx-1 h-4 w-px self-center bg-hairline" aria-hidden />;
 
 /**
- * The canvas toolbar (bottom centre): select / hand, add node, zoom out / level / zoom in, fit.
+ * The canvas toolbar (bottom centre): select / hand, add node, zoom out / level / zoom in, fit, and (when the
+ * workflow has an interface) the button that opens the "Try it" dock: Chat / Open form / Open screen.
  * A glass overlay on the recessed canvas; the chosen tool is raised.
  */
 export const Controls = ({ className }: { className?: string; showInteractive?: boolean }) => {
@@ -20,6 +22,10 @@ export const Controls = ({ className }: { className?: string; showInteractive?: 
   const canvasMode = useEditorLayoutStore((s) => s.canvasMode);
   const setCanvasMode = useEditorLayoutStore((s) => s.setCanvasMode);
   const ensureRightPanelOpen = useEditorLayoutStore((s) => s.ensureRightPanelOpen);
+  const dockOpen = useEditorLayoutStore((s) => s.interfaceDockOpen);
+  const toggleDock = useEditorLayoutStore((s) => s.toggleInterfaceDock);
+  const { iface } = useEditorInterface();
+  const dock = iface ? DOCK_LABEL[iface.kind] : null;
 
   const tool = (active: boolean) => cn("text-muted-foreground hover:text-foreground", active && "bg-raise text-foreground shadow-raise-sm hover:bg-raise");
 
@@ -72,6 +78,24 @@ export const Controls = ({ className }: { className?: string; showInteractive?: 
           <Maximize />
         </Button>
       </Tip>
+      {iface && dock && (
+        <>
+          <Sep />
+          <Tip label={dockOpen ? "Close the interface" : "Use the interface here and watch it run"} side="top">
+            <Button
+              variant="ghost"
+              size="sm"
+              className={tool(dockOpen)}
+              aria-pressed={dockOpen}
+              onClick={toggleDock}
+              data-testid="canvas-try-interface"
+              data-kind={iface.kind}
+            >
+              <dock.icon /> {dock.label}
+            </Button>
+          </Tip>
+        </>
+      )}
     </div>
   );
 };

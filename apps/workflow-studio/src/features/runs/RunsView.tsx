@@ -8,7 +8,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { useInfiniteQuery } from '@tanstack/react-query'
-import { Activity, Calendar, ListFilter, RefreshCw, Search, Workflow } from 'lucide-react'
+import { Activity, Calendar, History, ListFilter, RefreshCw, Search, Workflow } from 'lucide-react'
 import type { RunsSearch } from '@/app/routes/project'
 import { useProjectCtx } from '@/features/project/ProjectContext'
 import { useProjectApps, useRoutes } from '@/features/project/hooks/useProjectData'
@@ -227,11 +227,13 @@ export function RunsView() {
   const hasRows = visible.length > 0
 
   return (
-    <div className="flex h-full min-h-0 flex-col pb-2" data-testid="runs-view">
+    <div className="flex h-full min-h-0 flex-col px-8 pt-7 pb-6" data-testid="runs-view">
       <PageHeader
-        className="px-5 pt-3 pb-2.5"
+        className="pb-5"
+        icon={<History />}
+        hue="runs"
         title={
-          <span className="flex h-[30px] items-center gap-3">
+          <span className="flex items-center gap-3">
             Runs
             <span className="rounded-chip bg-recess px-2 py-0.5 text-[12px] leading-4 font-medium tracking-normal text-muted-foreground" data-testid="runs-subtitle">
               {stats.count} · 24h
@@ -251,7 +253,7 @@ export function RunsView() {
         }
       />
 
-      <Tile className="mx-2 grid shrink-0 grid-cols-[232px_minmax(0,1fr)] rounded-well" data-testid="runs-glance">
+      <Tile className="grid shrink-0 grid-cols-[232px_minmax(0,1fr)]" data-testid="runs-glance">
         <div className="flex flex-col justify-center gap-1 p-4 shadow-[inset_-1px_0_0_var(--hairline)]">
           <span className="text-[12px] font-medium text-muted-foreground">
             {stats.capped ? 'Runs · latest 100 in 24h' : 'Runs · last 24h'}
@@ -270,7 +272,7 @@ export function RunsView() {
         <RunTimeline stats={stats} now={now} />
       </Tile>
 
-      <div className="flex items-center gap-2 px-5 pt-4 pb-3">
+      <div className="flex items-center gap-2 pt-4 pb-3">
         <Segmented<StatusSeg>
           aria-label="Status"
           data-testid="runs-seg"
@@ -346,7 +348,7 @@ export function RunsView() {
         </Select>
       </div>
 
-      <Tile className="mx-2 flex min-h-0 flex-col rounded-well" data-testid="runs-table">
+      <Tile className="flex min-h-0 flex-col" data-testid="runs-table">
         <div ref={bodyRef} className="min-h-0 flex-1 overflow-auto" data-testid="runs-panel">
           {runs.isPending ? (
             <RunsSkeleton />

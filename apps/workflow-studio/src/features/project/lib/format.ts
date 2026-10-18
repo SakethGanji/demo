@@ -37,3 +37,8 @@ export function shortAge(ts: string | null | undefined): string {
 export function pluralize(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`
 }
+
+/** Most recently updated first (ISO timestamps sort as strings). */
+export function byRecent<T extends { updated_at: string }>(xs: T[]): T[] {
+  return [...xs].sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+}

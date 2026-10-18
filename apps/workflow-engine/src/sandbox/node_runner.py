@@ -34,6 +34,7 @@ async def run_in_sandbox(context: Any, *, kind: str, payload: dict[str, Any], en
     """Returns (result, trace). Raises SandboxNodeError on any failure (code/details set)."""
     from ..db.session import async_session_factory
     from ..services.code_module_service import CodeModuleService
+    from ..broker.service import frame_of
     from .service import SandboxService
 
     project_id = getattr(context, "project_id", None) or "proj_default"
@@ -47,7 +48,7 @@ async def run_in_sandbox(context: Any, *, kind: str, payload: dict[str, Any], en
         result, calls = await SandboxService().run(
             kind=kind, project_id=project_id, environment=getattr(context, "environment", None) or "default",
             execution_id=context.execution_id, origin=origin, payload=payload, entry=entry, modules=modules,
-            timeout_s=timeout_s, team_id=getattr(context, "team_id", "default"))
+            timeout_s=timeout_s, team_id=getattr(context, "team_id", "default"), frame=frame_of(context))
     except SandboxUnavailable as e:
         raise SandboxNodeError(f"sandbox unavailable: {e}", "sandbox_unavailable")
     trace = {**result.trace(), "broker_calls": calls}

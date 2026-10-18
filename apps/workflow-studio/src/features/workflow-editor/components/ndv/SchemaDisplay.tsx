@@ -3,6 +3,7 @@
  * Used when there's no execution data yet, so users can still see available fields.
  */
 
+import { fieldRow } from './fieldRow';
 import { useState, useCallback, memo } from 'react';
 import { GripVertical, ChevronRight, ChevronDown, Copy, Check } from 'lucide-react';
 
@@ -113,7 +114,7 @@ const SchemaFieldRow = memo(function SchemaFieldRow({
       <div
         draggable
         onDragStart={(e) => onDragStart(e, path)}
-        className="flex items-center justify-between border-b border-hairline last:border-b-0 row-hover cursor-grab transition-colors group"
+        className={fieldRow}
         style={{ paddingLeft }}
       >
         <div className="flex items-center gap-0.5 py-1.5 pr-1 flex-1 min-w-0">

@@ -111,7 +111,7 @@ export function HeroTile({ summary }: { summary: ProjectSummary }) {
             <Sparkles className="text-ai" /> Generate
           </Button>
           <Button size="sm" onClick={openCreateUi} data-testid="hero-create-ui">
-            <WandSparkles /> Create UI from backend
+            <WandSparkles /> New interface
           </Button>
         </div>
       </div>

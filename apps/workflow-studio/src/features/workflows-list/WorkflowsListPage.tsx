@@ -6,19 +6,17 @@
 import { useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Copy, Ellipsis, FolderInput, LayoutTemplate, Lock, Plus, SquareArrowOutUpRight, Trash2, Upload, Workflow } from 'lucide-react'
+import { LayoutTemplate, Plus, Upload, Workflow } from 'lucide-react'
 import { toast } from 'sonner'
 import { useProjectCtx } from '@/features/project/ProjectContext'
 import { useProjectWorkflows, useRoutes } from '@/features/project/hooks/useProjectData'
-import { parseTs, timeAgo } from '@/features/project/lib/format'
 import { projectsApi, runsApi } from '@/shared/api/endpoints'
 import { errorMessage, isApiError } from '@/shared/api/http'
 import { invalidate, qk } from '@/shared/api/queryKeys'
 import type { RunListItem } from '@/shared/api/types'
 import { workflowsApi } from '@/shared/lib/api'
 import { driftWorkflowIds } from '@/features/workflow-editor/lib/testsAi'
-import type { ApiWorkflowDetail, ApiWorkflowSummary, BackendWorkflow } from '@/shared/lib/backendTypes'
-import { MethodBadge } from '@/shared/components/api/MethodBadge'
+import type { ApiWorkflowDetail, BackendWorkflow } from '@/shared/lib/backendTypes'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,26 +27,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/shared/components/ui/alert-dialog'
-import { Badge } from '@/shared/components/ui/badge'
 import { Button } from '@/shared/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/shared/components/ui/dialog'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/shared/components/ui/dropdown-menu'
 import { EmptyState } from '@/shared/components/ui/empty-state'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/components/ui/select'
 import { Skeleton } from '@/shared/components/ui/skeleton'
-import { StatusDot, runTone } from '@/shared/components/ui/status-dot'
-import { Callout, Dot, IconTile, PageHeader, Tile } from '@/shared/components/ui/surface'
-import { Tip } from '@/shared/components/ui/tooltip'
-import { ImportN8nDialog } from './ImportN8nDialog'
+import { Callout, Dot, IconTile, PageHeader, Tile, Page } from '@/shared/components/ui/surface'
+import { WorkflowCard, type HandledRoute, type WorkflowSummary as Summary } from './WorkflowCard'
 
-type HandledRoute = { route_id: string; method: string; path: string }
-type Summary = ApiWorkflowSummary & { handler_for?: HandledRoute[]; description?: string | null }
+/** Workflow cards: as many ~240px columns as fit (the mockup's grid), so cards stay small on wide screens */
+const CARD_GRID = 'mt-6 grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4'
 
 const TRIGGER_TYPES = new Set(['Start', 'Webhook', 'Cron', 'ErrorTrigger', 'ExecuteWorkflowTrigger'])
 
@@ -71,11 +59,6 @@ export function triggerLabel(def: ApiWorkflowDetail['definition'] | undefined, h
 function cronLabel(expr: string): string {
   const m = /^(\d{1,2})\s+(\d{1,2})\s+\*\s+\*\s+\*$/.exec(expr.trim())
   return m ? `${m[2].padStart(2, '0')}:${m[1].padStart(2, '0')}` : expr
-}
-
-function shortDate(ts: string): string {
-  const d = parseTs(ts)
-  return d ? d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '—'
 }
 
 /** The workflow definition without engine-enriched fields, ready to POST again. */
@@ -142,7 +125,6 @@ function WorkflowsPanel() {
   const fileRef = useRef<HTMLInputElement>(null)
   const [importError, setImportError] = useState<string | null>(null)
   const [importing, setImporting] = useState(false)
-  const [n8nOpen, setN8nOpen] = useState(false)
   const [deleting, setDeleting] = useState<Summary | null>(null)
   const [moving, setMoving] = useState<Summary | null>(null)
 
@@ -197,10 +179,7 @@ function WorkflowsPanel() {
       <Button variant="outline" size="sm" disabled={importing} onClick={() => fileRef.current?.click()} data-testid="workflows-import">
         <Upload /> Import
       </Button>
-      <Button variant="outline" size="sm" onClick={() => setN8nOpen(true)} data-testid="import-n8n">
-        <Upload /> Import from n8n
-      </Button>
-      <Button variant="outline" size="sm" render={<Link to="/p/$project/templates" params={{ project: slug }} />} data-testid="new-from-template">
+      <Button variant="outline" size="sm" render={<Link to="/templates" search={{ project: slug }} />} data-testid="new-from-template">
         <LayoutTemplate /> From template
       </Button>
       <Button size="sm" render={<Link to="/p/$project/workflows/$workflowId" params={{ project: slug, workflowId: 'new' }} />} data-testid="workflows-new">
@@ -213,7 +192,6 @@ function WorkflowsPanel() {
 
   return (
     <section className="flex h-full flex-col overflow-hidden" data-testid="workflows-panel">
-      <ImportN8nDialog open={n8nOpen} onOpenChange={setN8nOpen} />
       <input
         ref={fileRef}
         type="file"
@@ -225,7 +203,7 @@ function WorkflowsPanel() {
         }}
         data-testid="workflows-import-file"
       />
-      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-8 py-7">
+      <Page className="h-auto flex-1">
         <PageHeader
           title="Workflows"
           icon={<Workflow />}
@@ -254,7 +232,7 @@ function WorkflowsPanel() {
         )}
 
         {list.isLoading ? (
-          <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" data-testid="workflows-loading">
+          <div className={CARD_GRID} data-testid="workflows-loading">
             {[0, 1, 2].map((i) => (
               <Skeleton key={i} className="h-[196px] w-full rounded-panel" />
             ))}
@@ -279,106 +257,30 @@ function WorkflowsPanel() {
             </EmptyState>
           </Tile>
         ) : (
-          <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" data-testid="workflows-table">
+          <div className={CARD_GRID} data-testid="workflows-table">
             {rows.map((w, i) => {
               const handled = handledBy(w)
               const detail = details[i]?.data
               const run = lastRuns[i]?.data as RunListItem | null | undefined
               const open = () => navigate({ to: '/p/$project/workflows/$workflowId', params: { project: slug, workflowId: w.id } })
               return (
-                <Tile
+                <WorkflowCard
                   key={w.id}
-                  interactive
-                  className="group flex min-h-[196px] flex-col"
-                  onClick={(e) => {
-                    if ((e.target as HTMLElement).closest('a,button,[role="menu"]')) return
-                    void open()
-                  }}
-                  data-testid={`workflow-row-${w.id}`}
-                >
-                  <div className="flex items-center gap-2.5 px-4 pt-4">
-                    <IconTile hue="flow" className="size-8">
-                      <Workflow />
-                    </IconTile>
-                    <div className="min-w-0 flex-1">
-                      <Link
-                        to="/p/$project/workflows/$workflowId"
-                        params={{ project: slug, workflowId: w.id }}
-                        className="block truncate text-[14px] font-semibold tracking-[-0.01em] hover:underline"
-                        data-testid={`workflow-open-${w.id}`}
-                      >
-                        {w.name}
-                      </Link>
-                      <div className="mt-px truncate text-[12px] text-muted-foreground">{w.description || (detail ? `${detail.definition.nodes.length} ${detail.definition.nodes.length === 1 ? 'node' : 'nodes'}` : '\u00a0')}</div>
-                    </div>
-                    {driftIds.has(w.id) && (
-                      <Tip label="A real reply changed. Open the workflow to review.">
-                        <span className="inline-flex" data-testid="wf-drift-dot" data-workflow-id={w.id} role="img" aria-label="Open drift alert">
-                          <StatusDot tone="warn" />
-                        </span>
-                      </Tip>
-                    )}
-                    {w.active ? <Badge variant="success">Published</Badge> : <Badge variant="neutral">Draft</Badge>}
-                    <RowMenu
-                      workflow={w}
-                      handled={handled}
-                      onOpen={() => void open()}
-                      onDuplicate={() => void duplicate(w)}
-                      onMove={() => setMoving(w)}
-                      onDelete={() => setDeleting(w)}
-                    />
-                  </div>
-                  <div className="px-4 pt-3.5 pb-4">
-                    <div className="grid grid-cols-[64px_minmax(0,1fr)] items-center gap-x-3 gap-y-2 rounded-well bg-recess px-3 py-2.5 text-[12.5px]">
-                      <span className="text-muted-foreground">Trigger</span>
-                      <span className="truncate" data-testid={`workflow-trigger-${w.id}`}>
-                        {detail ? triggerLabel(detail.definition, handled.length > 0) : details[i]?.isError ? '—' : <Skeleton className="h-4 w-16" />}
-                      </span>
-                      <span className="text-muted-foreground">Route</span>
-                      {handled.length ? (
-                        <span className="flex min-w-0 flex-col gap-1">
-                          {handled.map((r) => (
-                            <Link
-                              key={r.route_id}
-                              to="/p/$project/runs"
-                              params={{ project: slug }}
-                              search={{ route: r.route_id }}
-                              className="inline-flex min-w-0 items-center gap-1.5 hover:underline"
-                              data-testid={`workflow-route-${w.id}`}
-                            >
-                              <MethodBadge method={r.method} size="sm" />
-                              <span className="truncate font-mono text-[12px]">{r.path}</span>
-                            </Link>
-                          ))}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                      <span className="text-muted-foreground">Last run</span>
-                      <span className="min-w-0 truncate" data-testid={`workflow-last-run-${w.id}`}>
-                        {run ? (
-                          <Link
-                            to="/p/$project/runs/$executionId"
-                            params={{ project: slug, executionId: run.id }}
-                            className="inline-flex items-center gap-1.5 hover:underline"
-                          >
-                            <StatusDot tone={runTone(run.status)} className="shadow-none" />
-                            {run.status} · {timeAgo(run.start_time)}
-                          </Link>
-                        ) : lastRuns[i]?.isLoading ? (
-                          <Skeleton className="h-4 w-20" />
-                        ) : (
-                          <span className="text-muted-foreground">never</span>
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="mt-auto flex items-center gap-3 px-4 pb-3.5 text-[12px] text-muted-foreground">
-                    <Tip label={w.updated_at}>
-                      <span>Updated {shortDate(w.updated_at)}</span>
-                    </Tip>
-                  </div>
-                </Tile>
+                  workflow={w}
+                  detail={detail}
+                  detailLoading={!!details[i]?.isLoading}
+                  detailError={!!details[i]?.isError}
+                  trigger={detail ? triggerLabel(detail.definition, handled.length > 0) : null}
+                  handled={handled}
+                  run={run}
+                  runLoading={!!lastRuns[i]?.isLoading}
+                  slug={slug}
+                  drifting={driftIds.has(w.id)}
+                  onOpen={() => void open()}
+                  onDuplicate={() => void duplicate(w)}
+                  onMove={() => setMoving(w)}
+                  onDelete={() => setDeleting(w)}
+                />
               )
             })}
             <Tile
@@ -401,74 +303,10 @@ function WorkflowsPanel() {
             </Tile>
           </div>
         )}
-      </div>
+      </Page>
       <DeleteWorkflowDialog workflow={deleting} onClose={() => setDeleting(null)} />
       <MoveWorkflowDialog workflow={moving} onClose={() => setMoving(null)} />
     </section>
-  )
-}
-
-function RowMenu({
-  workflow: w,
-  handled,
-  onOpen,
-  onDuplicate,
-  onMove,
-  onDelete,
-}: {
-  workflow: Summary
-  handled: HandledRoute[]
-  onOpen: () => void
-  onDuplicate: () => void
-  onMove: () => void
-  onDelete: () => void
-}) {
-  const used = handled[0]
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            aria-label={`Actions for ${w.name}`}
-            className="-mr-1 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 data-popup-open:opacity-100"
-            data-testid={`workflow-menu-${w.id}`}
-          />
-        }
-      >
-        <Ellipsis />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-[240px] [&_[data-slot=dropdown-menu-item]]:text-[13px]" data-testid="workflow-menu">
-        <DropdownMenuItem onClick={onOpen} data-testid="workflow-action-open">
-          <SquareArrowOutUpRight /> Open
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={onDuplicate} data-testid="workflow-action-duplicate">
-          <Copy /> Duplicate
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={onMove}
-          disabled={!!used}
-          title={used ? `Handles ${used.method} ${used.path}; a route handler cannot leave its project` : undefined}
-          data-testid="workflow-action-move"
-        >
-          <FolderInput /> Move to project…
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        {used ? (
-          <DropdownMenuItem disabled data-testid="workflow-action-delete" data-blocked="true">
-            <Lock /> Delete
-            <span className="ml-auto whitespace-nowrap pl-4 text-[11.5px] text-muted-foreground">
-              used by {used.method} {used.path}
-            </span>
-          </DropdownMenuItem>
-        ) : (
-          <DropdownMenuItem variant="destructive" onClick={onDelete} data-testid="workflow-action-delete">
-            <Trash2 /> Delete
-          </DropdownMenuItem>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
   )
 }
 

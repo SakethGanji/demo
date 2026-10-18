@@ -15,16 +15,21 @@ export function lastSeq(messages: ChatMessage[]): number {
 
 export const CHAT_MAX_CHARS = 16_000
 
-const KEY = (project: string, slug: string) => `workflow-studio:iface-chat:${project}/${slug}`
+/**
+ * sessionStorage keys for a remembered chat session. The public page and the editor's draft chat use different
+ * prefixes, so a draft session never resumes on the live page (or the reverse).
+ */
+export const publicChatStorageKey = (project: string, slug: string) => `workflow-studio:iface-chat:${project}/${slug}`
+export const previewChatStorageKey = (workflowId: string) => `workflow-studio:iface-chat-preview:${workflowId}`
 
 export interface StoredSession {
   session_id: string
   session_token: string
 }
 
-export function loadSession(project: string, slug: string): StoredSession | null {
+export function loadSession(key: string): StoredSession | null {
   try {
-    const raw = sessionStorage.getItem(KEY(project, slug))
+    const raw = sessionStorage.getItem(key)
     if (!raw) return null
     const v = JSON.parse(raw) as Partial<StoredSession>
     return typeof v.session_id === 'string' && typeof v.session_token === 'string' ? (v as StoredSession) : null
@@ -33,17 +38,17 @@ export function loadSession(project: string, slug: string): StoredSession | null
   }
 }
 
-export function saveSession(project: string, slug: string, s: StoredSession): void {
+export function saveSession(key: string, s: StoredSession): void {
   try {
-    sessionStorage.setItem(KEY(project, slug), JSON.stringify(s))
+    sessionStorage.setItem(key, JSON.stringify(s))
   } catch {
     /* best effort */
   }
 }
 
-export function clearSession(project: string, slug: string): void {
+export function clearSession(key: string): void {
   try {
-    sessionStorage.removeItem(KEY(project, slug))
+    sessionStorage.removeItem(key)
   } catch {
     /* best effort */
   }

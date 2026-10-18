@@ -259,7 +259,7 @@ export function RowsGrid({
   )
 
   const header = (
-    <TableHeader className={cn('sticky top-0 z-[1] transition-[backdrop-filter,background-color] duration-(--d-fast)', stuck && 'bg-(--glass-fill-hover) backdrop-blur-xl')}>
+    <TableHeader className={cn('sticky top-0 z-[1] transition-[background-color] duration-(--d-fast)', stuck && 'glass-strip')}>
       <TableRow className="border-b-0 hover:bg-transparent">
         <TableHead className="h-9 w-10 pr-0 pl-6">
           <Checkbox
@@ -323,7 +323,7 @@ export function RowsGrid({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center gap-2 px-6 pb-2 text-xs text-muted-foreground min-h-10" data-testid="data-toolbar" data-selecting={sel > 0 || undefined}>
+      <div className="flex min-h-10 items-center gap-2 px-8 pb-2 text-xs text-muted-foreground" data-testid="data-toolbar" data-selecting={sel > 0 || undefined}>
         <div className="relative flex min-h-7 min-w-0 flex-1 items-center">
           <div
             className={cn(
@@ -359,7 +359,7 @@ export function RowsGrid({
         <div className="flex shrink-0 items-center gap-1">{toolbarRight}</div>
       </div>
 
-      <Tile ref={well} className="mx-2 flex min-h-[260px] flex-1 flex-col overflow-hidden rounded-well" data-testid="data-well" data-drag={drag}>
+      <Tile ref={well} className="mx-8 flex min-h-[260px] flex-1 flex-col overflow-hidden" data-testid="data-well" data-drag={drag}>
         <div ref={scrollRef} className="flex min-h-0 flex-1 flex-col overflow-auto" onScroll={(e) => setStuck(e.currentTarget.scrollTop > 2)} data-testid="data-panel" data-scroll-x="allowed">
           {rows.isPending ? (
             <RowsSkeleton />
@@ -500,7 +500,7 @@ export function RowsGrid({
 
         <div
           className={cn(
-            'pointer-events-none absolute inset-0 z-10 rounded-well bg-(--well) p-2 opacity-0 backdrop-blur-md transition-opacity duration-(--d-fast) ease-(--ease-out)',
+            'pointer-events-none absolute inset-0 z-10 rounded-well bg-(--glass-strong) p-2 opacity-0 transition-opacity duration-(--d-fast) ease-(--ease-out)',
             drag !== 'off' && 'opacity-100',
           )}
           aria-hidden
@@ -520,7 +520,7 @@ export function RowsGrid({
         </div>
       </Tile>
 
-      <div className="mx-8 mt-1 mb-2 flex h-6 items-center gap-1.5 text-[12px] text-muted-foreground" data-testid="data-footer">
+      <div className="mx-8 mt-1 mb-4 flex h-6 items-center gap-1.5 text-[12px] text-muted-foreground" data-testid="data-footer">
         {edit ? (
           <span>
             Editing row <span className="font-mono">{edit.rowId}</span> · {edit.column} · <Kbd>⏎</Kbd> save · <Kbd>Esc</Kbd> cancel

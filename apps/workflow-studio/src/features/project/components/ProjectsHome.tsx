@@ -16,7 +16,7 @@ import type { ProjectListItem } from '@/shared/api/types'
 import { useProjects } from '../hooks/useProjectData'
 import { timeAgo, pluralize } from '../lib/format'
 import { sortRoutes } from '../lib/routes'
-import { Brand, BrandMark, ThemeToggle, TopBarFrame } from './TopBar'
+import { Brand, BrandMark, HomeNav, ThemeToggle, TopBarFrame } from './TopBar'
 import { ProjectAvatar } from './ProjectTopBar'
 import { NewProjectDialog } from './NewProjectDialog'
 import { CardDiagram } from '../home/CardDiagram'
@@ -124,6 +124,8 @@ export function ProjectsHome() {
       <TopBarFrame position="sticky" className="gap-2">
         <Brand />
         <span className="mx-1 h-4 w-px bg-hairline" aria-hidden />
+        <HomeNav />
+        <span className="mx-1 h-4 w-px bg-hairline" aria-hidden />
         <Search className="size-3.5 shrink-0 text-muted-foreground" />
         <input
           ref={searchRef}
@@ -189,7 +191,7 @@ export function ProjectsHome() {
                 </span>
               </Tip>
             </StatCell>
-            <StatCell label="Apps" divider testId="stat-apps">
+            <StatCell label="Interface" divider testId="stat-apps">
               <Roll value={all.reduce((n, p) => n + p.counts.apps, 0)} />
               <small className="text-[12px] font-normal tracking-normal text-muted-foreground">
                 {appCounts.loaded === 0 ? '' : appCounts.published > 0 ? `${appCounts.published} published${appCounts.draft ? ` · ${appCounts.draft} draft` : ''}` : 'draft'}

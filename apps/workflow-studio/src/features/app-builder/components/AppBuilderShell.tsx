@@ -90,7 +90,7 @@ function AppSwitcher({ app, onDelete }: { app: ApiAppDetail; onDelete: () => voi
         <ChevronsUpDown className="size-3 shrink-0 text-muted-foreground" />
       </PopoverTrigger>
       <PopoverContent className="w-64 p-1" align="start">
-        <div className="px-2 pb-1 pt-1.5 text-[12px] font-medium text-muted-foreground">Apps</div>
+        <div className="px-2 pb-1 pt-1.5 text-[12px] font-medium text-muted-foreground">Interface</div>
         <div className="max-h-72 overflow-y-auto">
           {(apps.data ?? []).map((a) => (
             <button
@@ -120,7 +120,7 @@ function AppSwitcher({ app, onDelete }: { app: ApiAppDetail; onDelete: () => voi
           className="flex h-8 w-full items-center gap-2 rounded-ctl px-2 text-left text-muted-foreground hover:bg-(--hover-fill) hover:text-foreground"
           data-testid="app-switcher-new"
         >
-          <Plus className="size-3.5" /> New app from the backend
+          <Plus className="size-3.5" /> New interface from the backend
         </button>
         <button
           type="button"
@@ -490,7 +490,7 @@ export function AppBuilderShell({ appId }: { appId: string }) {
       </TopBarFrame>
 
       {/* work area: editor-glass panes, 8px gutters (the workspace sheet geometry) */}
-      <div className="absolute inset-x-2 bottom-2 top-12 flex gap-2">
+      <div className="absolute inset-x-2 bottom-2 top-14 flex gap-2">
         <Tile editor as="section" className={cn(panel, 'shrink-0', narrow ? 'w-11' : 'w-[288px]')} data-testid="builder-backend">
           {narrow ? (
             <BackendRail used={used} total={total} open={railOpen} onToggle={() => setRailOpen((o) => !o)} onOpenClient={openClient} />

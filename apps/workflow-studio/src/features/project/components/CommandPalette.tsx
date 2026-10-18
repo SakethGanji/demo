@@ -118,7 +118,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
             </CommandGroup>
           )}
           {(apps.data?.length ?? 0) > 0 && (
-            <CommandGroup heading="Apps">
+            <CommandGroup heading="Interface">
               {apps.data!.map((a) => (
                 <CommandItem
                   key={a.id}
@@ -179,7 +179,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
               value="action create ui from backend"
               onSelect={() => go(() => navigate({ to: '/p/$project', params: P, search: { dialog: 'create-ui' } }))}
             >
-              <AppWindow /> Create UI from backend
+              <AppWindow /> New interface
             </CommandItem>
             <CommandItem
               value="action new module"

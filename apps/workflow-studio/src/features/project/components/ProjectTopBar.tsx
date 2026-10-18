@@ -1,10 +1,11 @@
 /**
  * ProjectTopBar (DESIGN §1, UI-DESIGN §2.4), on the canvas as glass chrome:
- * `[>_ Command Studio] / [P Project ⇕] [Project | Workflows n] … [Search ⌘K] [● dev | ● prod] [Release] [☀]`
+ * `[>_ Command Studio] / [P Project ⇕] … [Search ⌘K] [● dev | ● prod] [Release] [☀]`
+ * Workflows are a sidebar group (like Backend), not a top-bar tab.
  */
-import { forwardRef, useEffect, useRef, useState } from 'react'
-import { Link, useMatchRoute, useNavigate } from '@tanstack/react-router'
-import { ChevronsUpDown, LayoutGrid, Plus, Rocket, Workflow } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { useNavigate } from '@tanstack/react-router'
+import { ChevronsUpDown, Plus, Rocket } from 'lucide-react'
 import { useProjectCtx } from '../ProjectContext'
 import { useMissingSecrets, useProjectSummary, useProjects } from '../hooks/useProjectData'
 import { healthTone } from '../lib/healthTone'
@@ -12,12 +13,11 @@ import { StatusDot } from '@/shared/components/ui/status-dot'
 import { Button } from '@/shared/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/shared/components/ui/popover'
 import { SearchMenuList } from '@/shared/components/ui/search-menu'
-import { SlidingThumb, useSlidingThumb } from '@/shared/components/ui/segmented'
 import { Tip } from '@/shared/components/ui/tooltip'
 import { cn } from '@/shared/lib/utils'
 import { CommandPalette } from './CommandPalette'
 import { NewProjectDialog } from './NewProjectDialog'
-import { Brand, CrumbSep, SearchTrigger, ThemeToggle, TopBarFrame } from './TopBar'
+import { Brand, CrumbSep, SearchTrigger, SegTrack, ThemeToggle, TopBarFrame, segItem } from './TopBar'
 
 export function ProjectAvatar({ name, size = 18, className }: { name: string; size?: number; className?: string }) {
   return (
@@ -113,29 +113,6 @@ export function ProjectSwitcher() {
   )
 }
 
-const segItem =
-  'relative z-[1] inline-flex h-[26px] items-center gap-1.5 rounded-chip px-2.5 text-[12.5px] font-medium text-muted-foreground hover:text-foreground data-[on]:text-foreground [&_svg]:size-3.5'
-
-/** The recessed track + sliding raised thumb, for link or button segments marked `data-on`. */
-const SegTrack = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement> & { dep: unknown }>(function SegTrack(
-  { children, dep, className, ...props },
-  outer,
-) {
-  const ref = useRef<HTMLDivElement>(null)
-  const thumb = useSlidingThumb(ref, '[data-on]', dep)
-  const setRef = (el: HTMLDivElement | null) => {
-    ;(ref as React.MutableRefObject<HTMLDivElement | null>).current = el
-    if (typeof outer === 'function') outer(el)
-    else if (outer) outer.current = el
-  }
-  return (
-    <div ref={setRef} className={cn('relative isolate flex items-center gap-0.5 rounded-ctl bg-recess p-0.5', className)} {...props}>
-      <SlidingThumb box={thumb} />
-      {children}
-    </div>
-  )
-})
-
 export function EnvSwitch() {
   const { project, pid, viewEnv, setViewEnv } = useProjectCtx()
   const missing = useMissingSecrets(pid)
@@ -166,10 +143,8 @@ export function EnvSwitch() {
 }
 
 export function ProjectTopBar() {
-  const { project, slug } = useProjectCtx()
+  const { project } = useProjectCtx()
   const summary = useProjectSummary(project.id)
-  const matchRoute = useMatchRoute()
-  const onWorkflows = !!matchRoute({ to: '/p/$project/workflows', fuzzy: true })
   const [paletteOpen, setPaletteOpen] = useState(false)
   const navigate = useNavigate()
   const live = project.live_environment
@@ -195,23 +170,6 @@ export function ProjectTopBar() {
       <Brand />
       <CrumbSep />
       <ProjectSwitcher />
-      <nav aria-label="Project pages" className="ml-2.5">
-        <SegTrack dep={onWorkflows}>
-          <Link to="/p/$project" params={{ project: slug }} data-testid="tab-project" data-on={!onWorkflows ? '' : undefined} className={segItem}>
-            <LayoutGrid /> Project
-          </Link>
-          <Link
-            to="/p/$project/workflows"
-            params={{ project: slug }}
-            data-testid="tab-workflows"
-            data-on={onWorkflows ? '' : undefined}
-            className={segItem}
-          >
-            <Workflow /> Workflows
-            {summary.data && <span className="text-[11px] tabular-nums opacity-60">{summary.data.counts.workflows}</span>}
-          </Link>
-        </SegTrack>
-      </nav>
       <div className="flex-1" />
       <SearchTrigger onClick={() => setPaletteOpen(true)} />
       <span className="mx-1" />

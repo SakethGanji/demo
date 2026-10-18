@@ -131,7 +131,7 @@ export function CardDiagram({
         <g transform="translate(220 14)">
           <rect width="76" height="64" rx="7" className="a-slot" />
           <text x="38" y="35" textAnchor="middle" className="a-label" style={{ fontSize: 9 }}>
-            no app yet
+            no interface yet
           </text>
         </g>
       )}

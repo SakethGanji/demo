@@ -17,7 +17,7 @@ import { Field } from '@/shared/components/ui/field'
 import { Input } from '@/shared/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/components/ui/select'
 import { Skeleton } from '@/shared/components/ui/skeleton'
-import { Dot, PageHeader, Tile } from '@/shared/components/ui/surface'
+import { Dot, PageHeader, Tile, Page, Callout } from '@/shared/components/ui/surface'
 import { Textarea } from '@/shared/components/ui/textarea'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
@@ -39,11 +39,11 @@ export function ApiCatalogView() {
 
   return (
     <div className="h-full" data-testid="api-catalog">
-      <div className="h-full overflow-y-auto overflow-x-hidden px-8 py-7">
+      <Page>
         <PageHeader
-          title="APIs"
+          title="External APIs"
           icon={<Plug />}
-          hue="backend"
+          hue="data"
           meta={
             <>
               <span>
@@ -79,7 +79,7 @@ export function ApiCatalogView() {
             list.map((s) => <SpecRow key={s.id} spec={s} pid={pid} onDelete={() => setToDelete(s)} />)
           )}
         </div>
-      </div>
+      </Page>
 
       <AddApiDialog open={addOpen} onOpenChange={setAddOpen} pid={pid} />
 
@@ -338,9 +338,9 @@ function AddApiForm({ pid, onDone }: { pid: string; onDone: () => void }) {
         </button>
 
         {error && (
-          <div className="rounded-ctl bg-destructive-soft px-3 py-2 text-[12.5px] text-destructive" role="alert" data-testid="api-save-error">
+          <Callout tone="error" role="alert" data-testid="api-save-error">
             {error}
-          </div>
+          </Callout>
         )}
       </div>
 

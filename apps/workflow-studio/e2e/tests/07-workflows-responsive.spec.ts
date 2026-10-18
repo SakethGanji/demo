@@ -10,7 +10,7 @@ test('T40 workflows page: open and run a canvas workflow', async ({ page, api, s
   const p = await seedProject(api, 'T40')
   const wf = await seedWorkflow(api, p, answerWorkflow('The answer'))
   await page.goto(`${s.studioUrl}/p/${p.slug}`)
-  await page.getByTestId('tab-workflows').click()
+  await page.getByTestId('outline-workflows').click()
   const row = page.getByTestId(`workflow-row-${wf.id}`)
   await expect(row).toContainText('The answer')
   await row.click()

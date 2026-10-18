@@ -37,7 +37,7 @@ export function useRoutes(p: string) {
 }
 
 export function useTables(p: string) {
-  return useQuery({ queryKey: qk.tables(p), queryFn: () => tablesApi.list(p) })
+  return useQuery({ queryKey: qk.tables(p), queryFn: () => tablesApi.list(p), enabled: !!p })
 }
 
 export function useProjectApps(p: string) {

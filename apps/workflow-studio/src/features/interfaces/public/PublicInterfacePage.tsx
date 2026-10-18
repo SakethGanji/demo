@@ -2,7 +2,8 @@
  * `/i/$project/$slug` (DESIGN-STAGE5-UIS §7.3): the form, the chat, or the custom start screen. Anonymous: it only
  * talks to `/api/i/...`. One Idempotency-Key is generated per page open, so a retried click replays the same run.
  */
-import { useState } from 'react'
+import { Callout } from '@/shared/components/ui/surface'
+import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from '@tanstack/react-router'
 import { Loader2 } from 'lucide-react'
 import { isApiError } from '@/shared/api/http'
@@ -12,6 +13,7 @@ import { InterfaceForm } from '../form/InterfaceForm'
 import { InterfaceChat } from '../chat/InterfaceChat'
 import { ScreenRenderer } from '../renderer/ScreenRenderer'
 import { newIdempotencyKey } from '../lib/keys'
+import { publicChatTransport } from '../lib/chatTransport'
 import { PublicNotFound, PublicShell } from './PublicShell'
 
 export function PublicInterfacePage() {
@@ -19,6 +21,7 @@ export function PublicInterfacePage() {
   const navigate = useNavigate()
   const schema = usePublicSchema(project, slug)
   const [idemKey] = useState(newIdempotencyKey)
+  const chatTransport = useMemo(() => publicChatTransport(project, slug), [project, slug])
 
   if (schema.isPending) {
     return (
@@ -31,7 +34,7 @@ export function PublicInterfacePage() {
     if (isApiError(schema.error, undefined, 404)) return <PublicNotFound />
     return (
       <PublicShell>
-        <div className="rounded-ctl bg-destructive-soft px-3 py-2 text-[12.5px] text-destructive" role="alert" data-testid="iface-load-error">Could not load this page. Try again in a moment.</div>
+        <Callout tone="error" role="alert" data-testid="iface-load-error">Could not load this page. Try again in a moment.</Callout>
       </PublicShell>
     )
   }
@@ -50,7 +53,7 @@ export function PublicInterfacePage() {
   return (
     <PublicShell title={s.title} description={s.description}>
       {s.kind === 'chat' ? (
-        <InterfaceChat project={project} slug={slug} />
+        <InterfaceChat transport={chatTransport} />
       ) : s.kind === 'custom' && s.screens?.start ? (
         <ScreenRenderer spec={s.screens.start} data={{}} slots={{ input_form: () => form }} />
       ) : (

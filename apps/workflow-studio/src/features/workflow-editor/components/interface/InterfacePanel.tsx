@@ -1,6 +1,7 @@
 /**
  * Right-panel "Interface" tab (DESIGN-STAGE5-UIS §0, §11.1): how people use this workflow. Pick Form / Chat / Custom UI,
- * see the URL, preview a screen on real run data, ask for a change, promote to an app. Everything here edits the
+ * see the URL, preview a screen on real run data, ask for a change, promote to an app. Using it live (chat
+ * included) happens in the canvas "Try it" dock (`InterfaceDock`); runs started from either are followed on the canvas. Everything here edits the
  * draft's `interface` key through the interface endpoints; Publish makes it live.
  */
 import { useEffect, useRef, useState } from 'react'
@@ -24,6 +25,7 @@ import type { Interface, InterfaceKind, InterfaceState, ScreenSpec } from '@/fea
 import { useEditorProjectStore } from '../../stores/editorProjectStore'
 import { useWorkflowStore } from '../../stores/workflowStore'
 import { saveDraftForRun, describeActionError } from '../../lib/nodeActions'
+import { useFollowRun } from '../../hooks/useViewingRun'
 import { AskBar } from './AskBar'
 import { InterfacePreview } from './InterfacePreview'
 import { WiredChips } from './WiredChips'
@@ -92,6 +94,7 @@ function PanelBody({ workflowId, state }: { workflowId: string; state: Interface
   const projectId = useEditorProjectStore((s) => s.projectId)
   const projectSlug = useEditorProjectStore((s) => s.slug)
   const save = useSaveInterface(workflowId)
+  const followRun = useFollowRun()
   const iface = state.interface
   const [busy, setBusy] = useState(false)
   const [promoting, setPromoting] = useState(false)
@@ -206,7 +209,7 @@ function PanelBody({ workflowId, state }: { workflowId: string; state: Interface
           <UrlRow projectSlug={projectSlug} state={state} />
           <SlugField key={iface.slug} iface={iface} onCommit={setSlug} />
 
-          <InterfacePreview workflowId={workflowId} projectId={projectId} iface={iface} screenId={screenId} onScreen={setPicked} />
+          <InterfacePreview workflowId={workflowId} projectId={projectId} iface={iface} screenId={screenId} onScreen={setPicked} onRun={followRun} />
 
           <WiredChips wired={state.wired} />
 

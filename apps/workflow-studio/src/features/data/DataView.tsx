@@ -48,7 +48,7 @@ function PageState({ children, testId }: { children: React.ReactNode; testId?: s
       <div className="px-8 pt-7 pb-5">
         <PageHeader title="Data" />
       </div>
-      <Tile className="mx-2 mb-2 flex min-h-[260px] flex-1 flex-col rounded-well" data-testid={testId}>
+      <Tile className="mx-8 mb-6 flex min-h-[260px] flex-1 flex-col" data-testid={testId}>
         {children}
       </Tile>
     </div>
@@ -75,7 +75,7 @@ export function DataView() {
           <Skeleton className="h-7 w-56" />
           <Skeleton className="h-6 w-28" />
         </div>
-        <Tile className="mx-2 mb-2 flex min-h-[260px] flex-1 flex-col rounded-well">
+        <Tile className="mx-8 mb-6 flex min-h-[260px] flex-1 flex-col">
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="hairline-b flex h-[38px] items-center gap-6 px-6">
               <Skeleton className="h-3 w-12" />

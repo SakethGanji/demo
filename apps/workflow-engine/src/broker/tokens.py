@@ -27,6 +27,13 @@ class BrokerClaims:
     # UI-DESIGN §9 D5: tables a draft declares but that don't exist yet (generate self-test):
     # list → [], get → 404 row_not_found, writes → 404 table_not_found. Never touches real tables.
     virtual_tables: set[str] | None = None
+    # run_workflow: where the calling code runs. The workflows already on the call stack and the nesting depth feed the
+    # sub-workflow guards (cycle, depth limit), so code can't re-enter a workflow that is running it; release_id names
+    # the release the code runs in (None = resolve from the environment).
+    call_stack: tuple[str, ...] = ()
+    call_names: dict[str, str] = field(default_factory=dict)
+    depth: int = 0
+    release_id: str | None = None
     max_calls: int = 500
     calls_used: int = 0
     expires_at: float = 0.0

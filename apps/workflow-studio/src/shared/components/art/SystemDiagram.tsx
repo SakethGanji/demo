@@ -201,7 +201,7 @@ export const SystemDiagram = forwardRef<
         <g transform={`translate(${APP_X} 30)`}>
           <rect width="136" height="104" rx="10" className="a-slot" />
           <text x="68" y="57" textAnchor="middle" className="a-label">
-            no app yet
+            no interface yet
           </text>
         </g>
       )}

@@ -1,3 +1,4 @@
+import { EmptyState } from '@/shared/components/ui/empty-state';
 import { useMemo } from 'react';
 import {
   CheckCircle2, CircleDashed, FlaskConical, Lock, Loader2, Plus, Play, Sparkles, Target, X, XCircle, AlertTriangle, LayoutGrid, List, Check, Shuffle, Wand2,
@@ -254,10 +255,9 @@ export default function TestsPanel() {
         ) : view === 'suggest' && suggestions.length > 0 ? (
           <Suggestions />
         ) : tests.length === 0 ? (
-          <div className="flex flex-col items-center gap-1 px-3 py-6 text-center text-[12.5px] text-muted-foreground" data-testid="tests-empty">
-            <FlaskConical size={16} />
-            <span>No tests yet. Suggest some, or write one from a node.</span>
-          </div>
+          <EmptyState compact className="py-6" icon={<FlaskConical />} data-testid="tests-empty">
+            No tests yet. Suggest some, or write one from a node.
+          </EmptyState>
         ) : (
           tests.map((t) => <TestRow key={t.id} test={t} />)
         )}

@@ -12,7 +12,7 @@ import { useRoutes, useModules } from '../hooks/useProjectData'
 import { moduleNameOf } from '../lib/routes'
 import { useCreateSecrets } from '@/features/secrets/useSecretMutations'
 import { Badge } from '@/shared/components/ui/badge'
-import { Tile, Well } from '@/shared/components/ui/surface'
+import { Tile, Well, Page } from '@/shared/components/ui/surface'
 import { Button } from '@/shared/components/ui/button'
 import { Checkbox } from '@/shared/components/ui/checkbox'
 import { ChipsInput } from '@/shared/components/ui/chips-input'
@@ -46,7 +46,7 @@ export const STARTERS = [
 export function SetupGuide({ setup }: { setup: SetupState }) {
   const { project, slug } = useProjectCtx()
   return (
-    <div className="h-full overflow-y-auto px-8 py-7" data-testid="setup-guide">
+    <Page data-testid="setup-guide">
       <div className="mx-auto max-w-[760px]">
         <div className="flex items-center justify-between text-[12.5px] text-muted-foreground">
           <span>New project · {slug}</span>
@@ -83,7 +83,7 @@ export function SetupGuide({ setup }: { setup: SetupState }) {
           </span>
         </p>
       </div>
-    </div>
+    </Page>
   )
 }
 
@@ -370,7 +370,7 @@ function UiStep({ setup }: { setup: SetupState }) {
         n={4}
         done={setup.steps.app}
         current={setup.hasRoute && !setup.steps.app}
-        title="Create a UI from the backend"
+        title="Add an interface on the backend"
         right={
           !setup.hasRoute ? (
             <Gate />
@@ -381,14 +381,14 @@ function UiStep({ setup }: { setup: SetupState }) {
                 data-testid="setup-create-ui"
                 onClick={() => navigate({ to: '/p/$project', params: { project: slug }, search: { dialog: 'create-ui' } })}
               >
-                Create UI
+                New interface
               </Button>
             )
           )
         }
       >
         <p className="mt-1 text-[13px] text-muted-foreground">
-          The app builder gets your routes and a typed client; publish to a link that calls your Python.
+          The interface builder gets your routes and a typed client; publish to a link that calls your Python.
         </p>
       </StepHead>
     </section>

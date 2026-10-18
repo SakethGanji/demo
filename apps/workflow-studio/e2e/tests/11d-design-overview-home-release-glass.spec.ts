@@ -77,7 +77,7 @@ for (const theme of THEMES) {
       await expect(page).toHaveURL(new RegExp(`/p/${p.slug}/runs`))
     })
 
-    test('the Apps tile opens the Create UI dialog while there is no app', async ({ page, api, s }) => {
+    test('the Interface block opens the New interface dialog while there is none', async ({ page, api, s }) => {
       const p = await seedProject(api, 'O2b')
       await seedRefunds(api, p)
       await page.goto(`${s.studioUrl}/p/${p.slug}`)

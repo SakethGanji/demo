@@ -58,7 +58,7 @@ export function SlidingThumb({ box }: { box: { left: number; width: number; anim
   useEffect(() => {
     const el = ref.current
     if (!liquid || !el || !box) return
-    return attachLiquidGlass(el, box.width, el.offsetHeight, { radius: 4, bezel: 5, strength: 9, extra: 'saturate(160%) brightness(1.06)' })
+    return attachLiquidGlass(el, box.width, el.offsetHeight, { radius: 11, bezel: 5, strength: 9, extra: 'saturate(160%) brightness(1.06)' })
   }, [liquid, box?.width, box])
   if (!box) return null
   return (
@@ -67,7 +67,7 @@ export function SlidingThumb({ box }: { box: { left: number; width: number; anim
       aria-hidden
       data-slot="thumb"
       className={cn(
-        'pointer-events-none absolute inset-y-0.5 rounded-chip',
+        'pointer-events-none absolute inset-y-0.5 rounded-full',
         liquid ? 'z-[2] bg-(--thumb-glass) shadow-(--thumb-glass-shadow)' : '-z-10 bg-raise shadow-raise-sm',
         box.animate && 'transition-[left,width] duration-(--d-base) ease-(--ease-io)',
       )}
@@ -104,7 +104,7 @@ export function Segmented<K extends string>({
         if (next) onChange(next)
       }}
       aria-label={ariaLabel}
-      className={cn('relative isolate inline-flex items-center gap-0.5 rounded-ctl bg-recess p-0.5', className)}
+      className={cn('relative isolate inline-flex items-center gap-0.5 rounded-full bg-recess p-0.5', className)}
       {...rest}
     >
       <SlidingThumb box={thumb} />
@@ -115,7 +115,7 @@ export function Segmented<K extends string>({
           disabled={opt.disabled}
           data-testid={opt.testId}
           className={cn(
-            'inline-flex items-center gap-1 rounded-chip font-medium text-muted-foreground hover:text-foreground disabled:opacity-50 data-[pressed]:text-foreground [&_svg]:size-3.5',
+            'inline-flex items-center gap-1 rounded-full font-medium text-muted-foreground hover:text-foreground disabled:opacity-50 data-[pressed]:text-foreground [&_svg]:size-3.5',
             size === 'xs' ? 'h-6 px-2 text-[11px]' : 'h-6 px-2.5 text-xs',
           )}
         >

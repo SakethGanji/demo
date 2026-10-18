@@ -8,6 +8,7 @@ import { aiBuilderApi, describeAiError } from '@/features/ai-builder/api';
 import { useInstallTemplate } from '@/features/templates/hooks';
 import type { InstallResult } from '@/features/templates/types';
 import { suggestionOf } from './templateSuggestion';
+import { ChatCardShell } from './ChatCardShell';
 
 /**
  * Offered under a plan the chat drafted when a ready-made template fits the request. Installing is a separate, explicit click
@@ -41,7 +42,7 @@ export function TemplateSuggestionCard({ proposalId, projectId, projectSlug }: {
   };
 
   return (
-    <div className="rounded-ctl bg-recess p-2.5 text-[12.5px]" data-testid="ai-template-suggestion" data-slug={suggestion.slug}>
+    <ChatCardShell data-testid="ai-template-suggestion" data-slug={suggestion.slug}>
       <div className="flex items-center gap-1.5 font-medium text-foreground">
         <LayoutTemplate className="size-3.5 text-muted-foreground" /> Start from the “{suggestion.name}” template?
       </div>
@@ -68,6 +69,6 @@ export function TemplateSuggestionCard({ proposalId, projectId, projectSlug }: {
           </Button>
         </div>
       )}
-    </div>
+    </ChatCardShell>
   );
 }

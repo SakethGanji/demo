@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
-import { Check, ExternalLink, GitBranch, Inbox, Loader2, PackageCheck, Sparkles, Table2, Trash2 } from 'lucide-react';
+import { Check, ExternalLink, GitBranch, Inbox, Loader2, PackageCheck, Table2, Trash2 } from 'lucide-react';
 import { Construct, type ConstructMode } from '@/features/knowledge/kit/Construct';
-import { knowledgeLink } from '@/features/knowledge/kit/links';
 import { Button } from '@/shared/components/ui/button';
 import { Callout } from '@/shared/components/ui/surface';
 import { cn } from '@/shared/lib/utils';
@@ -55,7 +54,6 @@ function KeptLinks({ app, projectSlug }: { app: AppBuildView; projectSlug: strin
         )}
         <div className="flex flex-wrap gap-1">
           <Link to="/p/$project/approvals" params={{ project: projectSlug }} className={LINK} data-testid="ai-app-kept-approvals"><Inbox aria-hidden /> Approvals inbox</Link>
-          <Link {...knowledgeLink(projectSlug, { tab: 'memory' })} className={LINK} data-testid="ai-app-kept-knowledge"><Sparkles aria-hidden /> Open in Knowledge</Link>
         </div>
       </div>
     </Construct>

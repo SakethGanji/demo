@@ -9,7 +9,7 @@ const FEATURES: { hue: EntityHue; icon: React.ReactNode; title: string; body: st
   { hue: 'backend', icon: <Braces />, title: 'Backend', body: 'Write Python modules, expose them as routes, and test each one against the live engine.' },
   { hue: 'data', icon: <Database />, title: 'Data', body: 'Tables with typed columns and row editing, wired to your routes without a separate database setup.' },
   { hue: 'flow', icon: <GitFork />, title: 'Workflows', body: 'Chain steps on a visual canvas, run them on demand and watch each node report back.' },
-  { hue: 'apps', icon: <LayoutDashboard />, title: 'Apps', body: 'Build a front end on top of your routes and tables, and preview it as you go.' },
+  { hue: 'apps', icon: <LayoutDashboard />, title: 'Interface', body: 'Build a front end on top of your routes and tables, and preview it as you go.' },
   { hue: 'secrets', icon: <KeyRound />, title: 'Secrets', body: 'Keep credentials out of code. Missing ones are flagged before anything ships.' },
   { hue: 'release', icon: <Rocket />, title: 'Releases', body: 'Check the code, fix secrets, review routes and promote to a live version in four steps.' },
 ]

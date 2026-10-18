@@ -5,6 +5,7 @@
  * Used inside the BottomPanel's Logs tab.
  */
 
+import { EmptyState } from '@/shared/components/ui/empty-state';
 import { useState, useEffect, useMemo } from 'react';
 import { Link } from '@tanstack/react-router';
 import {
@@ -468,10 +469,7 @@ export default function ExecutionLogsPanel() {
         {/* Node list */}
         <div className="well m-2 mr-0 w-48 overflow-y-auto shrink-0">
           {!hasLogs ? (
-            <div className="flex flex-col items-center justify-center h-full text-center p-3">
-              <ScrollText size={18} className="text-muted-foreground/50 mb-2" />
-              <p className="text-xs text-muted-foreground">No logs yet</p>
-            </div>
+            <EmptyState compact className="h-full" icon={<ScrollText />} title="No logs yet" />
           ) : (
             <div className="p-1.5 space-y-0.5">
               {logs.map((log) => (
@@ -662,13 +660,9 @@ export default function ExecutionLogsPanel() {
               </div>
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center h-full text-center">
-              <p className="text-xs text-muted-foreground">
-                {hasLogs
-                  ? 'Select a node to view details'
-                  : 'Run workflow to see logs'}
-              </p>
-            </div>
+            <EmptyState compact className="h-full">
+              {hasLogs ? 'Select a node to view details' : 'Run the workflow to see logs'}
+            </EmptyState>
           )}
         </div>
       </div>

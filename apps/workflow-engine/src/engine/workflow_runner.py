@@ -89,6 +89,9 @@ class WorkflowRunner:
         pending_inputs: dict[str, dict[str, list[NodeData]]] | None = None,
         test_options: TestRunOptions | None = None,
         subworkflow_invoker: Any | None = None,
+        call_stack: tuple[str, ...] | None = None,
+        call_names: dict[str, str] | None = None,
+        execution_depth: int = 0,
     ) -> ExecutionContext:
         """
         Run a workflow from a starting node.
@@ -106,6 +109,9 @@ class WorkflowRunner:
             test_options: run in test mode (mocks, frozen clock, no credentials, no real network); see engine/test_mode.py
             subworkflow_invoker: who runs ExecuteWorkflow / WorkflowTool calls (engine.subworkflow.SubworkflowInvoker);
                 None = the in-memory invoker (draft only, nothing written)
+            call_stack / call_names / execution_depth: the workflows already running above this run and its nesting
+                depth (the broker's run_workflow, called by code inside a workflow); the sub-workflow cycle and depth
+                guards count them. Default: this run is a root.
 
         Returns:
             ExecutionContext with all node states and errors
@@ -145,6 +151,11 @@ class WorkflowRunner:
         context.call_stack = (workflow.id,) if workflow.id else ()
         context.call_names = {workflow.id: workflow.name} if workflow.id and workflow.name else {}
         context.root_execution_id = context.execution_id
+        if call_stack:
+            context.call_stack = tuple(call_stack) + context.call_stack
+            context.call_names = {**(call_names or {}), **context.call_names}
+        if execution_depth:
+            context.execution_depth = int(execution_depth)
         max_seconds = (workflow.settings or {}).get("max_execution_time")
         if isinstance(max_seconds, (int, float)) and not isinstance(max_seconds, bool) and max_seconds > 0:
             context.deadline = monotonic() + float(max_seconds)
@@ -449,9 +460,12 @@ class WorkflowRunner:
             )
         finally:
             # Broker tokens minted inside the child are handed up so the root run revokes them when it ends
+            # (a child mints its own token even where the parent already has one in that slot: the token names the
+            # child's run, see broker.service.mint_for_context; that one is handed up under its own key)
             for k, v in child_extras.items():
-                if k.startswith("broker_token:") and k not in parent_context.extras:
-                    parent_context.extras[k] = v
+                if k.startswith("broker_token:") and parent_context.extras.get(k) != v:
+                    key = k if k not in parent_context.extras else f"{k}#{child_context.execution_id}"
+                    parent_context.extras[key] = v
 
     async def _run_with_context(
         self,

@@ -175,6 +175,12 @@ def build_system_prompt(reference: dict[str, Any], catalogue: list[dict[str, Any
     if not facts["secrets"]:
         out.append("  (none)")
     out.append("project egress allowlist: " + (", ".join(facts["egress"]) or "(empty)"))
+    if "workflows" in facts:
+        out.append("workflows (call with studio.nodes.run_workflow(workflow='<name>', input={...}); only callable ones "
+                   "have an Execute Workflow Trigger):")
+        out += [f"  - {w['name']}{'' if w['callable'] else ' (NOT callable: no Execute Workflow Trigger)'}"
+                f"{'' if w['published'] else ' (never published: a release cannot run it)'}"
+                for w in facts["workflows"]] or ["  (none)"]
     return "\n".join(out)
 
 
@@ -204,9 +210,17 @@ async def gather_facts(session: Any, project: ProjectModel) -> dict[str, Any]:
         s["present"] = [e for e in envs if e in s["present"]]
         s["hosts"] = s["by_env"].get(project.default_environment) or next(
             (h for h in s["by_env"].values() if h), None)
+    from ..db.models import WorkflowModel
+    from ..engine.subworkflow import TRIGGER_TYPE
+
+    wfs = (await session.execute(select(WorkflowModel).where(WorkflowModel.project_id == project.id)
+                                 .order_by(WorkflowModel.name))).scalars().all()
+    workflows = [{"name": w.name, "published": w.published_version_id is not None,
+                  "callable": any(isinstance(n, dict) and n.get("type") == TRIGGER_TYPE
+                                  for n in (w.draft_definition or {}).get("nodes") or [])} for w in wfs]
     return {"slug": project.slug, "environments": envs, "default_environment": project.default_environment,
             "tables": tables, "routes": routes, "modules": [m.name for m in mods], "secrets": secrets,
-            "egress": list((project.settings or {}).get("egress_allowlist") or [])}
+            "egress": list((project.settings or {}).get("egress_allowlist") or []), "workflows": workflows}
 
 
 async def secret_values(session: Any, project: ProjectModel) -> set[str]:

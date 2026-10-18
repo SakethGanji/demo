@@ -1,4 +1,6 @@
+import { fieldRow } from './fieldRow';
 import { memo, useState, useMemo, useCallback } from 'react';
+import { DataEmpty } from './DataEmpty';
 import { Database, Code, ChevronDown, ChevronUp, Copy, Check, Settings } from 'lucide-react';
 import type { Node, Edge } from '@xyflow/react';
 import type { NodeExecutionData } from '../../types/workflow';
@@ -262,28 +264,22 @@ const InputPanel = memo(function InputPanel({ nodeId, executionData }: InputPane
             basePath={basePath}
           />
         ) : (
-          <div className="flex h-full flex-col items-center justify-center text-center px-6">
-            <div className="w-10 h-10 rounded-panel bg-recess flex items-center justify-center mb-3">
-              <Database size={18} className="text-faint" />
-            </div>
-            <p className="text-[13px] font-medium text-foreground mb-0.5">
-              {effectiveSelectedNode
+          <DataEmpty
+            title={
+              effectiveSelectedNode
                 ? `No data from ${effectiveSelectedNode.label}`
                 : upstreamNodes.length === 0
                   ? 'No connected input'
-                  : 'Select a node to view data'}
-            </p>
-            {effectiveSelectedNode && (
-              <p className="text-[12px] text-muted-foreground">
-                Run workflow to see output data
-              </p>
-            )}
-            {upstreamNodes.length === 0 && (
-              <p className="text-[12px] text-muted-foreground">
-                Connect a node to see its output here
-              </p>
-            )}
-          </div>
+                  : 'Select a node to view data'
+            }
+            hint={
+              effectiveSelectedNode
+                ? 'Run workflow to see output data'
+                : upstreamNodes.length === 0
+                  ? 'Connect a node to see its output here'
+                  : undefined
+            }
+          />
         )}
       </div>
 
@@ -349,7 +345,7 @@ function SystemVariableRow({ path, description }: SystemVariableRowProps) {
     <div
       draggable
       onDragStart={handleDragStart}
-      className="flex items-center justify-between border-b border-hairline last:border-b-0 row-hover cursor-grab transition-colors group px-2.5 py-2"
+      className={`${fieldRow} px-2.5 py-2`}
     >
       <div className="flex flex-col gap-0.5 min-w-0">
         <code className="text-[11px] font-mono font-medium text-foreground">{path}</code>

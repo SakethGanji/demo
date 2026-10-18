@@ -59,6 +59,12 @@ interface EditorLayoutState {
   payloadInput: string;
   setPayloadInput: (value: string) => void;
 
+  // "Try it" dock: the workflow's interface (chat / form / screen) used live over the canvas
+  interfaceDockOpen: boolean;
+  openInterfaceDock: () => void;
+  closeInterfaceDock: () => void;
+  toggleInterfaceDock: () => void;
+
   // Canvas mode
   canvasMode: CanvasMode;
   setCanvasMode: (mode: CanvasMode) => void;
@@ -103,6 +109,11 @@ export const useEditorLayoutStore = create<EditorLayoutState>((set, get) => ({
   // Payload input
   payloadInput: '{\n  "message": "Hello world",\n  "count": 42\n}',
   setPayloadInput: (value) => set({ payloadInput: value }),
+
+  interfaceDockOpen: false,
+  openInterfaceDock: () => set({ interfaceDockOpen: true }),
+  closeInterfaceDock: () => set({ interfaceDockOpen: false }),
+  toggleInterfaceDock: () => set((s) => ({ interfaceDockOpen: !s.interfaceDockOpen })),
 
   // Canvas mode
   canvasMode: 'hand' as CanvasMode,

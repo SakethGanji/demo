@@ -2,6 +2,7 @@ import { CheckCircle2, CircleDashed, XCircle } from 'lucide-react';
 import type { AssertionResult, Failure, TestResult } from '@/features/workflow-editor/lib/tests';
 import { shortValue } from '../lib/plainTest';
 import type { Proposal } from '../types';
+import { WellList, WellRow } from '@/shared/components/ui/surface';
 
 function failedAssertion(a: AssertionResult): string {
   const hasValues = a.expected !== undefined || a.actual !== undefined;
@@ -34,11 +35,11 @@ export function ReviewTests({ proposal }: { proposal: Proposal }) {
   for (const r of byId.values()) rows.push({ id: r.test_id, name: r.name, status: r.status, result: r });
   if (!rows.length) return null;
   return (
-    <ul className="flex flex-col divide-y divide-hairline" data-testid="ai-review-tests">
+    <WellList role="list" data-testid="ai-review-tests">
       {rows.map((row) => {
         const bad = row.status === 'failed' || row.status === 'error';
         return (
-          <li key={row.id} className="flex items-start gap-2 py-2" data-testid={`ai-review-test-${row.id}`} data-status={row.status}>
+          <WellRow key={row.id} role="listitem" className="items-start" data-testid={`ai-review-test-${row.id}`} data-status={row.status}>
             <span className="mt-0.5 shrink-0">
               {row.status === 'passed' ? <CheckCircle2 className="size-3.5 text-success" />
                 : bad ? <XCircle className="size-3.5 text-destructive" /> : <CircleDashed className="size-3.5 text-muted-foreground" />}
@@ -53,9 +54,9 @@ export function ReviewTests({ proposal }: { proposal: Proposal }) {
                 </ul>
               )}
             </div>
-          </li>
+          </WellRow>
         );
       })}
-    </ul>
+    </WellList>
   );
 }

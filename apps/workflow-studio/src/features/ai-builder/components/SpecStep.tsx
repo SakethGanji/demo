@@ -1,3 +1,4 @@
+import { WellRow } from '@/shared/components/ui/surface';
 import { Trash2 } from 'lucide-react';
 import { Input } from '@/shared/components/ui/input';
 import { Button } from '@/shared/components/ui/button';
@@ -29,7 +30,7 @@ export function SpecStep({ index, step, stepTypes, apiRefs, issues, readOnly, on
   const callsOutside = step.node_type === 'HttpRequest';
 
   return (
-    <div className="flex flex-col gap-1.5 py-2.5" data-testid={`ai-spec-step-${index}`}>
+    <WellRow className="flex-col items-stretch gap-1.5 py-2.5" data-testid={`ai-spec-step-${index}`}>
       <div className="flex items-center gap-2">
         <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-recess text-[11px] font-medium tabular-nums text-muted-foreground">
           {index + 1}
@@ -87,6 +88,6 @@ export function SpecStep({ index, step, stepTypes, apiRefs, issues, readOnly, on
         />
       </div>
       <div className="pl-7"><IssueList issues={issues} /></div>
-    </div>
+    </WellRow>
   );
 }

@@ -5,11 +5,11 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/shared/lib/utils"
 
 const buttonVariants = cva(
-  "group/button inline-flex shrink-0 items-center justify-center rounded-ctl border-0 text-[13px] font-medium whitespace-nowrap outline-none select-none focus-visible:shadow-focus disabled:pointer-events-none disabled:opacity-50 aria-invalid:shadow-[0_0_0_2px_var(--destructive-soft)] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5 [&_svg]:stroke-[1.75]",
+  "group/button inline-flex shrink-0 items-center justify-center rounded-full border-0 text-[13px] font-semibold whitespace-nowrap outline-none select-none focus-visible:shadow-focus disabled:pointer-events-none disabled:opacity-50 aria-invalid:shadow-[0_0_0_2px_var(--destructive-soft)] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5 [&_svg]:stroke-[1.75]",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground shadow-[var(--btn-primary-top)] hover:bg-(--primary-hover)",
+        default: "brand-fill shadow-[var(--btn-primary-top)] hover:brightness-110",
         outline:
           "bg-recess text-foreground hover:bg-(--hover-fill) aria-expanded:bg-(--hover-fill)",
         secondary:
@@ -19,19 +19,19 @@ const buttonVariants = cva(
         destructive:
           "bg-destructive-soft text-destructive hover:bg-destructive/18",
         link: "text-primary underline-offset-4 hover:underline",
-        ai: "bg-primary text-primary-foreground shadow-[var(--btn-primary-top)] hover:bg-(--primary-hover) [&_svg]:text-primary-foreground",
+        ai: "brand-fill shadow-[var(--btn-primary-top)] hover:brightness-110",
       },
       size: {
         default:
-          "h-8 gap-1.5 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2.5",
-        xs: "h-6 gap-1 rounded-chip px-2 text-xs in-data-[slot=button-group]:rounded-ctl has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
-        sm: "h-7 gap-1.5 rounded-ctl px-2.5 text-[12.5px] in-data-[slot=button-group]:rounded-ctl has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+          "h-8 gap-1.5 px-3.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2.5",
+        xs: "h-6 gap-1 px-2.5 text-xs in-data-[slot=button-group]:rounded-ctl has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
+        sm: "h-7 gap-1.5 px-3 text-[12.5px] in-data-[slot=button-group]:rounded-ctl has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
         lg: "h-9 gap-1.5 px-3.5 has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3",
         icon: "size-8",
         "icon-xs":
-          "size-6 rounded-chip in-data-[slot=button-group]:rounded-ctl [&_svg:not([class*='size-'])]:size-3",
+          "size-6 in-data-[slot=button-group]:rounded-ctl [&_svg:not([class*='size-'])]:size-3",
         "icon-sm":
-          "size-7 rounded-ctl in-data-[slot=button-group]:rounded-ctl [&_svg:not([class*='size-'])]:size-3.5",
+          "size-7 in-data-[slot=button-group]:rounded-ctl [&_svg:not([class*='size-'])]:size-3.5",
         "icon-lg": "size-9",
       },
     },

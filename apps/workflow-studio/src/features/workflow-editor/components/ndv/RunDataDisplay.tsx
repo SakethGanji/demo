@@ -1,3 +1,4 @@
+import { fieldRow } from './fieldRow';
 import { useMemo, useState, memo, useCallback } from 'react';
 import { GripVertical, ChevronRight, ChevronDown, Copy, Check } from 'lucide-react';
 import JsonViewer from '@/shared/components/ui/json-viewer';
@@ -149,7 +150,7 @@ const SchemaFieldRow = memo(function SchemaFieldRow({ name, node, depth, onDragS
       <div
         draggable
         onDragStart={(e) => onDragStart(e, node.path)}
-        className="flex items-center justify-between border-b border-hairline last:border-b-0 row-hover cursor-grab transition-colors group"
+        className={fieldRow}
         style={{ paddingLeft }}
       >
         <div className="flex items-center gap-0.5 py-1.5 pr-1 flex-1 min-w-0">

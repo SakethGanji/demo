@@ -18,9 +18,6 @@ import { ProjectWorkflowEditor } from '@/features/workflows-list/ProjectWorkflow
 import { ProjectAppBuilder } from '@/features/app-builder/ProjectAppBuilder'
 import { ApprovalsPage } from '@/features/approvals/ApprovalsPage'
 import { TaskDetailPage } from '@/features/approvals/TaskDetailPage'
-import { TemplatesPage } from '@/features/templates/TemplatesPage'
-import { KnowledgePage } from '@/features/knowledge/KnowledgePage'
-import type { KnowledgeSearch } from '@/features/knowledge/kit/links'
 import { aiBuildRoute } from './ai-build'
 
 const str = (v: unknown) => (typeof v === 'string' && v.length > 0 ? v : undefined)
@@ -170,21 +167,13 @@ export const workflowsRoute = createRoute({
   component: WorkflowsListPage,
 })
 
-export const templatesRoute = createRoute({
-  getParentRoute: () => workspaceRoute,
+/** Templates live at the top level now: the old project URL opens the catalog with this project preselected. */
+export const projectTemplatesRoute = createRoute({
+  getParentRoute: () => projectRoute,
   path: 'templates',
-  component: TemplatesPage,
-})
-
-export const knowledgeRoute = createRoute({
-  getParentRoute: () => workspaceRoute,
-  path: 'knowledge',
-  validateSearch: (s: Record<string, unknown>): KnowledgeSearch => ({
-    tab: s.tab === 'matrix' || s.tab === 'memory' ? s.tab : undefined,
-    focus: str(s.focus),
-    depth: s.depth === 2 || s.depth === '2' ? 2 : undefined,
-  }),
-  component: KnowledgePage,
+  beforeLoad: ({ params }) => {
+    throw redirect({ to: '/templates', search: { project: params.project }, replace: true })
+  },
 })
 
 export interface WorkflowSearch {
@@ -232,11 +221,10 @@ export const projectRouteTree = projectRoute.addChildren([
     runRoute,
     approvalsRoute,
     approvalTaskRoute,
-    knowledgeRoute,
     workflowsRoute,
-    templatesRoute,
   ]),
   appsIndexRoute,
+  projectTemplatesRoute,
   workflowRoute,
   aiBuildRoute,
   appRoute,

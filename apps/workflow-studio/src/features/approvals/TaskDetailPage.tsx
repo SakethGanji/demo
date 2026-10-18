@@ -9,7 +9,7 @@ import { Badge } from '@/shared/components/ui/badge'
 import { Button } from '@/shared/components/ui/button'
 import { EmptyState } from '@/shared/components/ui/empty-state'
 import { Skeleton } from '@/shared/components/ui/skeleton'
-import { Dot, Tile } from '@/shared/components/ui/surface'
+import { Dot, Tile, Page } from '@/shared/components/ui/surface'
 import { isApiError } from '@/shared/api/http'
 import { ScreenRenderer } from '@/features/interfaces/renderer/ScreenRenderer'
 import { screenHas, type ScreenData } from '@/features/interfaces/lib/binding'
@@ -100,8 +100,8 @@ export function TaskDetailPage() {
   const { slug } = useProjectCtx()
   const q = useTask(taskId)
   return (
-    <div className="h-full overflow-y-auto" data-testid="task-page">
-      <div className="mx-auto flex max-w-[720px] flex-col gap-4 px-6 py-6">
+    <Page data-testid="task-page">
+      <div className="flex max-w-[720px] flex-col gap-4">
         <div>
           <Button variant="ghost" size="sm" render={<Link to="/p/$project/approvals" params={{ project: slug }} />} data-testid="task-back">
             <ArrowLeft /> Approvals
@@ -115,6 +115,6 @@ export function TaskDetailPage() {
         )}
         {q.data && <TaskBody key={q.data.id} task={q.data} />}
       </div>
-    </div>
+    </Page>
   )
 }
