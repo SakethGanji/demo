@@ -24,9 +24,10 @@ async def list_executions(
     service: ExecutionServiceDep,
     workflow_id: str | None = Query(None, description="Filter by workflow ID"),
     include_test: bool = Query(False, description="Also list test runs (mode=test)"),
+    include_children: bool = Query(False, description="Also list sub-workflow runs (default: top-level runs only)"),
 ) -> list[ExecutionListItem]:
     """List execution history."""
-    return await service.list_executions(workflow_id, include_test=include_test)
+    return await service.list_executions(workflow_id, include_test=include_test, include_children=include_children)
 
 
 @router.get("/{execution_id}", response_model=ExecutionDetailResponse)

@@ -1,19 +1,26 @@
 /**
- * Toasts (DESIGN §8): sonner, restyled as glass overlays. Bottom-right, at most 3, the tone shown as a dot
+ * Toasts (DESIGN §8): sonner, restyled as glass overlays. Bottom-right (top-right in the editor), at most 3, the tone shown as a dot
  * (no coloured fills), a busy toast spins until it is updated by id. Mounted once in `__root.tsx`.
  */
+import { useRouterState } from '@tanstack/react-router'
 import { Toaster as Sonner } from 'sonner'
+import { useEditorLayoutStore } from '@/features/workflow-editor/stores/editorLayoutStore'
 
 const dot = (cls: string) => <span className={`mt-[5px] inline-block size-2 shrink-0 rounded-full ${cls}`} />
 
 export function Toaster() {
+  const inEditor = useRouterState({ select: (s) => /\/workflows\/[^/]+$/.test(s.location.pathname) })
+  const panelOpen = useEditorLayoutStore((s) => s.rightPanelOpen)
+  const clearPanel = inEditor && panelOpen
   return (
     <Sonner
-      position="bottom-right"
+      position={inEditor ? 'top-right' : 'bottom-right'}
       visibleToasts={3}
       closeButton
       gap={8}
-      offset={16}
+      // in the editor, sit top-right of the canvas: left of the floating right panel (384px wide, 12px from the edge), below the navbar, clear of the bottom toolbar
+      offset={{ top: 72, bottom: 16, right: clearPanel ? 'calc(min(384px, 50vw - 24px) + 28px)' : 16 }}
+      mobileOffset={16}
       icons={{
         success: dot('bg-success'),
         error: dot('bg-destructive'),

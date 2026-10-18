@@ -11,11 +11,13 @@ import {
   StepForward,
   Power,
   PowerOff,
+  Workflow,
 } from 'lucide-react';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useNDVStore } from '../../stores/ndvStore';
 import { isTriggerType } from '../../lib/nodeConfig';
 import { useNodeActions } from '../../hooks/useNodeActions';
+import { useConvertSubworkflowStore } from '../../stores/convertSubworkflowStore';
 
 interface NodeContextMenuProps {
   nodeId: string;
@@ -129,6 +131,21 @@ function NodeContextMenu({ nodeId, x, y, onClose }: NodeContextMenuProps) {
       shortcut: 'Ctrl+D',
       onClick: () => {
         duplicateNodes(targetNodeIds);
+        onClose();
+      },
+    },
+    {
+      label: 'Convert to sub-workflow',
+      icon: Workflow,
+      shortcut: 'Alt+X',
+      testId: 'ctx-convert-subworkflow',
+      onClick: () => {
+        const names = targetNodeIds
+          .map((nid) => nodes.find((nd) => nd.id === nid))
+          .filter((nd) => nd?.type === 'workflowNode')
+          .map((nd) => (nd?.data as { name?: string } | undefined)?.name)
+          .filter((n): n is string => typeof n === 'string');
+        if (names.length > 0) useConvertSubworkflowStore.getState().openDialog(names);
         onClose();
       },
     },

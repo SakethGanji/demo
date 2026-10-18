@@ -16,6 +16,9 @@ export function jsonFieldText(value: unknown, fallback?: unknown): string {
 /** Parameters a node's extension panel renders itself; the generic parameter list skips them. */
 const EXTENSION_OWNED: Record<string, string[]> = {
   HttpRequest: ['api_ref', 'path_params'],
+  // Stage 8: the sub-workflow panels render these (components/ndv/subworkflow)
+  ExecuteWorkflow: ['workflowId', 'version', 'inputMode', 'inputs', 'includeItem', 'mode', 'timeoutSeconds'],
+  ExecuteWorkflowTrigger: ['inputSource', 'fields'],
 };
 
 /** Params the endpoint defines once `api_ref` is set (the method and URL come from the catalog). */

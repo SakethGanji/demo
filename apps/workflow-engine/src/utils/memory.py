@@ -191,7 +191,7 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
 
 async def call_llm_for_summary(
     messages: list[dict[str, str]],
-    model: str = "gemini-2.0-flash",
+    model: str = "gemini-3.7-flash",
     max_tokens: int = 500,
     previous_summary: Optional[str] = None,
 ) -> str:
@@ -241,7 +241,7 @@ Provide a concise summary under {max_tokens} tokens."""
 
 async def extract_entities(
     text: str,
-    model: str = "gemini-2.0-flash",
+    model: str = "gemini-3.7-flash",
     entity_types: Optional[list[str]] = None,
 ) -> list[dict[str, Any]]:
     """
@@ -300,7 +300,7 @@ Return only the JSON object, no additional text."""
 
 async def extract_relationships(
     text: str,
-    model: str = "gemini-2.0-flash",
+    model: str = "gemini-3.7-flash",
 ) -> list[tuple[str, str, str]]:
     """
     Extract entity relationships from text using LLM.

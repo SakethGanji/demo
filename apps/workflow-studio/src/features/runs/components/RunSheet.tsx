@@ -87,6 +87,7 @@ function RunSheetBody({ executionId }: { executionId: string }) {
 function statusTone(code: number | null, status: string) {
   if (code != null) return code >= 500 ? 'err' : code >= 400 ? 'warn' : 'ok'
   if (status === 'success') return 'ok'
+  if (status === 'waiting') return 'warn'
   if (isRunning(status)) return 'running'
   return 'err'
 }
@@ -194,7 +195,7 @@ function RunDetailView({ run }: { run: RunDetail }) {
           </span>
           <span className="text-muted-foreground">Duration</span>
           <span className="tabular-nums" data-testid="run-duration">
-            {isRunning(run.status) ? 'running…' : formatMs(run.duration_ms)}
+            {run.status === 'waiting' ? 'waiting for approval' : isRunning(run.status) ? 'running…' : formatMs(run.duration_ms)}
           </span>
           <span className="text-muted-foreground">Started</span>
           <span className="truncate" title={exactTime(run.start_time)}>

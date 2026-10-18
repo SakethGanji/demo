@@ -1,0 +1,394 @@
+{
+  "id": "account_closure",
+  "holdout": false,
+  "request": "Customers ask to close an account on a form with the account number, their email and a reason. Look up the account balance first. If the balance is not exactly zero, refuse: do not close anything and tell them on screen to withdraw or transfer the money first. If it is zero, close the account and email the customer a confirmation.",
+  "apis": [
+    "accounts.yaml"
+  ],
+  "spec_edits": null,
+  "expect": {
+    "trigger": "FormTrigger",
+    "must_have_types": [
+      "If|Switch",
+      "SendEmail",
+      "Respond"
+    ],
+    "must_call": [
+      "accounts.getBalance",
+      "accounts.close"
+    ],
+    "must_not_call_hosts": [],
+    "approval_ports_wired": [],
+    "interface_kind": "form",
+    "max_nodes": 10,
+    "forbid_types": [
+      "Approval"
+    ],
+    "min_spec_tests": 3
+  },
+  "hidden_tests": [
+    {
+      "name": "Zero balance closes the account and emails",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "account_id": "AC-100234",
+            "customer_email": "sam@example.com",
+            "reason": "moving abroad"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:accounts.getBalance": {
+          "http": {
+            "status": 200,
+            "body": {
+              "account_id": "AC-100234",
+              "balance": 0,
+              "currency": "USD"
+            }
+          }
+        },
+        "$api:accounts.close": {
+          "http": {
+            "status": 200,
+            "body": {
+              "account_id": "AC-100234",
+              "status": "closed"
+            }
+          }
+        },
+        "$all:SendEmail?": {
+          "items": [
+            {
+              "success": true
+            }
+          ]
+        }
+      },
+      "expect": [
+        {
+          "node": "$api:accounts.close",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:accounts.close",
+          "subject": "request",
+          "item": "any",
+          "path": "url",
+          "op": "contains",
+          "value": "AC-100234"
+        },
+        {
+          "node": "$type:SendEmail",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$type:SendEmail",
+          "subject": "request",
+          "item": "any",
+          "path": "params.toEmail",
+          "op": "eq",
+          "value": "sam@example.com"
+        },
+        {
+          "node": "$last",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "Money left means no closure",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "account_id": "AC-100234",
+            "customer_email": "sam@example.com",
+            "reason": "moving abroad"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:accounts.getBalance": {
+          "http": {
+            "status": 200,
+            "body": {
+              "account_id": "AC-100234",
+              "balance": 125.4,
+              "currency": "USD"
+            }
+          }
+        },
+        "$api:accounts.close": {
+          "http": {
+            "status": 200,
+            "body": {
+              "account_id": "AC-100234",
+              "status": "closed"
+            }
+          }
+        },
+        "$all:SendEmail?": {
+          "items": [
+            {
+              "success": true
+            }
+          ]
+        }
+      },
+      "expect": [
+        {
+          "node": "$api:accounts.getBalance",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:accounts.close",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$last",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "One cent is still money",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "account_id": "AC-100234",
+            "customer_email": "sam@example.com",
+            "reason": "moving abroad"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:accounts.getBalance": {
+          "http": {
+            "status": 200,
+            "body": {
+              "account_id": "AC-100234",
+              "balance": 0.01,
+              "currency": "USD"
+            }
+          }
+        },
+        "$api:accounts.close": {
+          "http": {
+            "status": 200,
+            "body": {
+              "account_id": "AC-100234",
+              "status": "closed"
+            }
+          }
+        },
+        "$all:SendEmail?": {
+          "items": [
+            {
+              "success": true
+            }
+          ]
+        }
+      },
+      "expect": [
+        {
+          "node": "$api:accounts.getBalance",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:accounts.close",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$last",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        }
+      ],
+      "category": "boundary"
+    },
+    {
+      "name": "Zero balance confirmation goes to this customer",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "account_id": "AC-100234",
+            "customer_email": "lee@example.org",
+            "reason": "moving abroad"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:accounts.getBalance": {
+          "http": {
+            "status": 200,
+            "body": {
+              "account_id": "AC-100234",
+              "balance": 0,
+              "currency": "USD"
+            }
+          }
+        },
+        "$api:accounts.close": {
+          "http": {
+            "status": 200,
+            "body": {
+              "account_id": "AC-100234",
+              "status": "closed"
+            }
+          }
+        },
+        "$all:SendEmail?": {
+          "items": [
+            {
+              "success": true
+            }
+          ]
+        }
+      },
+      "expect": [
+        {
+          "node": "$api:accounts.close",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:accounts.close",
+          "subject": "request",
+          "item": "any",
+          "path": "url",
+          "op": "contains",
+          "value": "AC-100234"
+        },
+        {
+          "node": "$type:SendEmail",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$type:SendEmail",
+          "subject": "request",
+          "item": "any",
+          "path": "params.toEmail",
+          "op": "eq",
+          "value": "lee@example.org"
+        },
+        {
+          "node": "$last",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "A large balance is refused",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "account_id": "AC-100234",
+            "customer_email": "sam@example.com",
+            "reason": "moving abroad"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:accounts.getBalance": {
+          "http": {
+            "status": 200,
+            "body": {
+              "account_id": "AC-100234",
+              "balance": 5000,
+              "currency": "USD"
+            }
+          }
+        },
+        "$api:accounts.close": {
+          "http": {
+            "status": 200,
+            "body": {
+              "account_id": "AC-100234",
+              "status": "closed"
+            }
+          }
+        },
+        "$all:SendEmail?": {
+          "items": [
+            {
+              "success": true
+            }
+          ]
+        }
+      },
+      "expect": [
+        {
+          "node": "$api:accounts.getBalance",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:accounts.close",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$last",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        }
+      ],
+      "category": "normal"
+    }
+  ],
+  "input_aliases": {
+    "account_id": [
+      "account_number",
+      "account_no",
+      "account"
+    ],
+    "customer_email": [
+      "email",
+      "customer_email_address"
+    ]
+  }
+}

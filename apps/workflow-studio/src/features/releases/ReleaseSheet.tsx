@@ -37,6 +37,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/components/ui/
 import { floatingSheetCls } from '@/features/settings/SettingsSheet'
 import { cn } from '@/shared/lib/utils'
 import { ChecksList } from './ChecksList'
+import { SubworkflowEdges } from './SubworkflowEdges'
 import { groupChecks, groupStatus, type CheckGroup } from './checks'
 
 interface DryRun {
@@ -215,6 +216,7 @@ function ReleaseBody() {
         <div className="flex flex-col gap-2.5">
           <ChecksList checks={groups.routes} targetEnv={targetEnv} onRerun={rerun} testId="release-checks-routes" />
           {diff && <DiffChips diff={diff} env={targetEnv} />}
+          {promoteTo && latestSnap && <SubworkflowEdges releaseId={latestSnap.id} />}
         </div>
       ),
     },

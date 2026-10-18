@@ -65,6 +65,12 @@ class RetentionCleaner:
             stmt = select(ExecutionModel).where(ExecutionModel.start_time < cutoff)
             result = await session.execute(stmt)
             old_executions = result.scalars().all()
+            # Stage 5: a run waiting for a person (days, up to a 90 d deadline) is never pruned, nor one with a task still to resume
+            keep = {r[0] for r in (await session.execute(text(
+                """SELECT id FROM executions WHERE status = 'waiting'
+                   UNION SELECT execution_id FROM human_tasks WHERE status = 'open' OR resume_state IN ('pending', 'running')"""
+            ))).all()} if old_executions else set()
+            old_executions = [e for e in old_executions if e.id not in keep]
 
             if not old_executions:
                 return

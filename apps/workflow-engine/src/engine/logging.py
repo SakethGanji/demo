@@ -25,6 +25,13 @@ execution_secrets_var: contextvars.ContextVar[set[str]] = contextvars.ContextVar
     "execution_secrets", default=set()
 )
 
+# Stage 5: the idempotency key of the approval a run was resumed from, "{execution_id}:{node}:{run_index}"
+# (DESIGN-STAGE5-UIS 5.5). Exposed to expressions as {{ $execution.resumeKey }} so downstream HTTP nodes can send it as an
+# Idempotency-Key header. Empty outside a resumed run.
+execution_resume_key_var: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "execution_resume_key", default=""
+)
+
 
 class ExecutionContextFilter(logging.Filter):
     """Injects execution_id into every log record."""

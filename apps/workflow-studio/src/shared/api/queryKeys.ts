@@ -41,9 +41,30 @@ export const qk = {
   releasesPrefix: (p: string) => ['project', p, 'releases'] as const,
   release: (p: string, rel: string) => ['project', p, 'release', rel] as const,
   workflow: (w: string) => ['workflow', w] as const,
+  workflowDrift: (w: string) => ['workflow', w, 'drift'] as const,
+  smokeConfig: (w: string) => ['workflow', w, 'smoke'] as const,
+  smokeRuns: (w: string) => ['workflow', w, 'smoke-runs'] as const,
+  projectDrift: (p: string) => ['project', p, 'drift'] as const,
   app: (a: string) => ['app', a] as const,
   apiUsage: (a: string) => ['app', a, 'api-usage'] as const,
   previewToken: (a: string) => ['app', a, 'preview-token'] as const,
+  /** Stage 5 (DESIGN-STAGE5-UIS §11.2) */
+  interfaces: {
+    state: (w: string) => ['interfaces', w, 'state'] as const,
+    preview: (w: string, exec: string | null) => ['interfaces', w, 'preview', exec ?? 'latest'] as const,
+    previewPrefix: (w: string) => ['interfaces', w, 'preview'] as const,
+    runs: (p: string, w: string) => ['interfaces', w, 'runs', p] as const,
+    publicSchema: (project: string, slug: string) => ['interfaces', 'public', project, slug, 'schema'] as const,
+    publicRun: (project: string, slug: string, exec: string) => ['interfaces', 'public', project, slug, 'run', exec] as const,
+    publicChat: (project: string, slug: string, sid: string) => ['interfaces', 'public', project, slug, 'chat', sid] as const,
+  },
+  tasks: {
+    all: (p: string) => ['tasks', p] as const,
+    list: (p: string, f: Record<string, unknown>) => ['tasks', p, 'list', f] as const,
+    detail: (id: string) => ['tasks', 'detail', id] as const,
+    counts: (p: string) => ['tasks', p, 'counts'] as const,
+    workflowOpen: (p: string, w: string) => ['tasks', p, 'workflow-open', w] as const,
+  },
   sdkFunctions: ['sdk', 'functions'] as const,
   sdkReference: ['sdk', 'reference'] as const,
   sandbox: ['sandbox', 'status'] as const,
@@ -85,6 +106,8 @@ export const invalidate = {
     await qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'project' && q.queryKey[1] === p && q.queryKey[2] === 'module' })
     await invalidate.routesChanged(qc, p)
   },
+  tasksChanged: (qc: QueryClient, p: string) => inv(qc, qk.tasks.all(p)),
+  interfaceChanged: (qc: QueryClient, w: string) => inv(qc, qk.interfaces.state(w), qk.interfaces.previewPrefix(w)),
   releasesChanged: (qc: QueryClient, p: string) =>
     inv(qc, qk.releasesPrefix(p), qk.summary(p), qk.spec(p), qk.apps(p), ['app']),
 }

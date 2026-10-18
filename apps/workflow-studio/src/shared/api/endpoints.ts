@@ -3,6 +3,10 @@
  * `p` is a project id or slug (the engine resolves both); hooks always pass the id.
  */
 
+import type { DriftAlert } from '@/features/workflow-editor/lib/testsAi'
+import type {
+  AiEditResult, DecideResult, Interface, InterfaceState, PreviewData, TaskCounts, TaskDetail, TaskPage,
+} from '@/features/interfaces/lib/types'
 import { request, requestRaw, requestText, requestBlob } from './http'
 import type {
   ApiKey,
@@ -62,6 +66,8 @@ export const projectsApi = {
   remove: (p: string) => request<{ success: true }>(P(p), { method: 'DELETE' }),
   summary: (p: string) => request<ProjectSummary>(`${P(p)}/summary`),
   listWorkflows: (p: string) => request<ApiWorkflowSummary[]>(`${P(p)}/workflows`),
+  /** Open drift alerts for every workflow in the project (one request). */
+  drift: (p: string) => request<{ alerts: DriftAlert[] }>(`${P(p)}/drift`),
   createWorkflow: (p: string, b: BackendWorkflow) =>
     request<ApiCreateResponse>(`${P(p)}/workflows`, { method: 'POST', body: b }),
   listApps: (p: string) => request<ApiAppListItem[]>(`${P(p)}/apps`),
@@ -228,4 +234,58 @@ export const releasesApi = {
     request<Release & Record<string, unknown>>(`${P(p)}/environments/${enc(env)}/rollback`, { method: 'POST', body: b }),
   diff: (p: string, rel: string, against = 'active') =>
     request<ReleaseDiff>(`${P(p)}/releases/${enc(rel)}/diff`, { query: { against } }),
+}
+
+// ── Stage 5: interfaces and approval tasks (DESIGN-STAGE5-UIS §7.1, internal / studio) ──
+
+const W = (id: string) => `/api/workflows/${enc(id)}`
+
+export interface TaskQuery {
+  status?: 'open' | 'closed' | 'all'
+  workflow_id?: string
+  assignee?: string
+  cursor?: string | null
+  limit?: number
+}
+
+export const interfacesApi = {
+  get: (wf: string) => request<InterfaceState>(`${W(wf)}/interface`),
+  /** Full replace; `null` removes the interface. */
+  put: (wf: string, b: Interface | null) => request<Omit<InterfaceState, 'live'>>(`${W(wf)}/interface`, { method: 'PUT', body: b }),
+  /** Not saved: the studio PUTs the result. */
+  generate: (wf: string, b: { kind: Interface['kind']; slug?: string }) =>
+    request<{ interface: Interface }>(`${W(wf)}/interface/generate`, { method: 'POST', body: b }),
+  previewSubmit: (wf: string, fields: Record<string, unknown>, idempotencyKey: string) =>
+    request<{ execution_id: string; submission_id: string }>(`${W(wf)}/interface/preview/submit`, {
+      method: 'POST',
+      body: { fields },
+      headers: { 'Idempotency-Key': idempotencyKey },
+    }),
+  previewData: (wf: string, executionId?: string | null) =>
+    request<PreviewData>(`${W(wf)}/interface/preview/data`, { query: { execution_id: executionId ?? undefined } }),
+  aiEdit: (wf: string, screenId: string, b: { instruction: string; spec: unknown }) =>
+    request<AiEditResult>(`${W(wf)}/interface/screens/${enc(screenId)}/ai-edit`, { method: 'POST', body: b }),
+  clientTs: (wf: string) => requestText(`${W(wf)}/interface/client.ts`),
+  promote: async (wf: string) => {
+    const { data, res } = await requestRaw(`${W(wf)}/interface/promote`, { method: 'POST', body: {} })
+    return { ...(data as { app_id: string; app_url: string }), created: res.status === 201 }
+  },
+}
+
+export const tasksApi = {
+  list: (p: string, q: TaskQuery = {}) =>
+    request<TaskPage>('/api/tasks', { query: { project_id: p, status: 'open', limit: 25, ...q } as never }),
+  get: (id: string) => request<TaskDetail>(`/api/tasks/${enc(id)}`),
+  counts: (p: string) => request<TaskCounts>('/api/tasks/counts', { query: { project_id: p } }),
+  /** `Idempotency-Key` is required; one key per page view makes a double click a replay (§5.4). */
+  decide: (
+    id: string,
+    b: { decision: 'approved' | 'rejected'; comment?: string; form_data?: Record<string, unknown>; decided_by: string },
+    idempotencyKey: string,
+  ) =>
+    request<DecideResult>(`/api/tasks/${enc(id)}/decide`, {
+      method: 'POST',
+      body: b,
+      headers: { 'Idempotency-Key': idempotencyKey },
+    }),
 }

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 
+import json
 import logging
 import os
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import Date, case, cast, func
@@ -18,6 +19,13 @@ if TYPE_CHECKING:
     from ..engine.types import ExecutionContext, ExecutionRecord
 
 logger = logging.getLogger(__name__)
+
+#: Async callbacks ``(context, record)`` run after every real (non-test) ``complete()`` commit: success, failed or waiting.
+#: Builder B registers the chat hook here. A hook that raises is logged and never changes the run.
+on_complete_hooks: list[Callable[[Any, Any], Awaitable[None]]] = []
+
+#: ``metadata.result`` is capped at 256 KB (DESIGN-STAGE5-UIS 3.4); over the cap it becomes ``{"truncated": true}``.
+MAX_RESULT_BYTES = 256 * 1024
 
 
 _MODE_TRIGGER = {"manual": "manual", "webhook": "webhook", "cron": "cron", "retry": "retry", "app": "app",
@@ -42,6 +50,8 @@ def run_retention() -> int:
 class ExecutionRepository:
     """Repository for execution history persistence."""
 
+    on_complete_hooks = on_complete_hooks  # the same list, reachable from the class too
+
     def __init__(self, session: AsyncSession, max_records: int | None = None) -> None:
         self._session = session
         self._max_records = max_records if max_records is not None else run_retention()
@@ -55,8 +65,19 @@ class ExecutionRepository:
         project_id: str | None = None,
         environment: str | None = None,
         metadata: dict[str, Any] | None = None,
+        *,
+        parent_execution_id: str | None = None,
+        parent_node_name: str | None = None,
+        depth: int = 0,
+        root_execution_id: str | None = None,
+        workflow_version_id: int | None = None,
     ) -> ExecutionRecord:
-        """Create a new execution record when workflow starts."""
+        """Create a new execution record when workflow starts.
+
+        The keyword-only lineage arguments are written for sub-workflow runs (DESIGN-STAGE8-REUSE 3.3): the parent link
+        (FK, ON DELETE CASCADE), the top-level run, the depth and the pinned version row id. A top-level run leaves them
+        at their defaults and is its own root (``root_execution_id`` stays NULL, which ``_cleanup`` reads as "a root").
+        """
         from ..engine.types import ExecutionRecord
 
         if project_id is None:
@@ -79,14 +100,20 @@ class ExecutionRepository:
             project_id=project_id,
             environment=environment,
             exec_metadata=meta,
+            parent_execution_id=parent_execution_id,
+            parent_node_name=parent_node_name,
+            depth=depth,
+            root_execution_id=root_execution_id,
+            workflow_version_id=workflow_version_id,
         )
 
         self._session.add(db_execution)
         await self._session.commit()
         await self._session.refresh(db_execution)
 
-        # Cleanup old records
-        await self._cleanup()
+        # Cleanup old records (a child never prunes: only roots count, section 3.3)
+        if parent_execution_id is None:
+            await self._cleanup()
 
         return self._to_execution_record(db_execution, [], {})
 
@@ -127,9 +154,24 @@ class ExecutionRepository:
             await self._session.flush()
             created_here = True
 
-        # Update execution status
-        db_execution.status = "failed" if context.errors else "success"
-        db_execution.end_time = datetime.now()
+        # Update execution status. Stage 5: a run with an Approval paused (or with decided tasks still to resume) is "waiting".
+        from .task_repository import TaskRepository
+
+        tasks = TaskRepository(self._session)
+        resuming = context.extras.get("resume") if isinstance(context.extras.get("resume"), dict) else None
+        resuming_task_id = resuming.get("task_id") if resuming else None
+        suspended = bool(context.suspensions) and not context.errors
+        waiting = False
+        if context.errors:
+            status = "failed"
+        else:
+            waiting = suspended or (
+                context.mode != "test"
+                and await self._savepoint(tasks.blocking_count(context.execution_id, exclude_task_id=resuming_task_id), 0) > 0
+            )
+            status = "waiting" if waiting else "success"
+        db_execution.status = status
+        db_execution.end_time = None if waiting else datetime.now()
         db_execution.error_count = len(context.errors)
         db_execution.completed_nodes = len(context.node_states)
         db_execution.total_nodes = len(context.node_states)
@@ -201,6 +243,24 @@ class ExecutionRepository:
                     )
                     self._session.add(record)
 
+        meta = dict(db_execution.exec_metadata or {})
+        if status == "failed":
+            # nothing will ever decide these: a failed run does not keep tasks open
+            if context.mode != "test":
+                await self._savepoint(tasks.cancel_open_for_execution(context.execution_id), 0)
+            meta.pop("suspension", None)
+        elif waiting:
+            if suspended:
+                await self._create_tasks(tasks, context, db_execution)
+            open_ids = await tasks.open_ids(context.execution_id)
+            since = (meta.get("suspension") or {}).get("since") or datetime.now().isoformat()
+            meta["suspension"] = {"tasks": open_ids, "since": since}
+        else:
+            meta.pop("suspension", None)
+            if "interface" in meta:
+                meta["result"] = self._result_of(context)
+        db_execution.exec_metadata = meta
+
         await self._session.commit()
         await self._session.refresh(db_execution)
 
@@ -208,9 +268,99 @@ class ExecutionRepository:
         node_outputs = await self._get_node_outputs(context.execution_id)
         node_data, node_metrics = self._outputs_to_dicts(node_outputs)
         record = self._to_execution_record(db_execution, node_outputs, node_metrics)
-        if created_here:
+        if created_here and not waiting:
             await self._cleanup()
+        if context.mode != "test":
+            if not waiting:  # a paused run has no complete set of replies to compare yet
+                await self._check_drift(context)
+            await self._run_hooks(context, record)
         return record
+
+    # ── Stage 5: suspended runs ───────────────────────────────────────────────
+
+    async def _savepoint(self, coro: Awaitable[Any], default: Any) -> Any:
+        """Await a task-table query inside a savepoint; a database without the Stage 5 tables (migration not applied
+        yet) answers ``default`` instead of failing every run."""
+        from sqlalchemy.exc import ProgrammingError
+
+        try:
+            async with self._session.begin_nested():
+                return await coro
+        except ProgrammingError as e:
+            if "human_tasks" not in str(e):
+                raise
+            logger.warning("human_tasks table missing: apply migration 20261019120000_interfaces_tasks")
+            return default
+
+    async def _create_tasks(self, tasks: Any, context: ExecutionContext, db_execution: ExecutionModel) -> None:
+        """One ``human_tasks`` row per Approval that paused this run (idempotent on ``(execution, node, run_index)``)."""
+        from ..engine.task_resumer import build_snapshot
+        from .task_repository import new_task_id
+
+        for entry in context.suspensions:
+            payload = entry["suspension"].payload
+            snapshot = build_snapshot(context, entry)
+            due_raw = payload.get("due_at")
+            await tasks.insert({
+                "id": new_task_id(),
+                "project_id": db_execution.project_id or "proj_default",
+                "workflow_id": db_execution.workflow_id,
+                "workflow_version_id": context.version_id,
+                "execution_id": context.execution_id,
+                "node_name": entry["node"],
+                "run_index": entry["run_index"],
+                "kind": "approval",
+                "title": payload.get("title") or entry["node"],
+                "context": payload.get("context") or {},
+                "form": payload.get("form") or [],
+                "assignees": payload.get("assignees") or [],
+                "due_at": datetime.fromisoformat(due_raw) if due_raw else None,
+                "on_timeout": payload.get("on_timeout") or "timed_out",
+                "snapshot": snapshot,
+            })
+
+    @staticmethod
+    def _result_of(context: ExecutionContext) -> dict[str, Any]:
+        """The redacted result a surface shows: the Respond body, else the last node's first item (cap 256 KB)."""
+        from ..services.vars_substitution import redact_deep
+
+        body: Any = None
+        if context.webhook_response is not None:
+            body = context.webhook_response.body
+        elif context.last_completed_node and context.node_states.get(context.last_completed_node):
+            body = context.node_states[context.last_completed_node][0].json
+        if body is None:
+            return {}
+        if isinstance(body, (bytes, bytearray)):
+            body = {"truncated": True}
+        elif not isinstance(body, dict):
+            body = {"value": body}
+        body = redact_deep(body, context.extras.get("secret_values") or set())
+        try:
+            if len(json.dumps(body, default=str)) > MAX_RESULT_BYTES:
+                return {"truncated": True}
+        except (TypeError, ValueError):
+            return {"truncated": True}
+        return json.loads(json.dumps(body, default=str))
+
+    async def _run_hooks(self, context: ExecutionContext, record: Any) -> None:
+        for hook in list(on_complete_hooks):
+            try:
+                await hook(context, record)
+            except Exception:
+                logger.warning("on_complete hook failed for %s", context.execution_id, exc_info=True)
+
+    async def _check_drift(self, context: ExecutionContext) -> None:
+        """Stage 3B: compare what the outside steps returned with what the workflow expects. Never changes the run."""
+        try:
+            from ..engine.effects import effect_of
+            from ..services.drift import guarded_check_execution
+
+            if not any(effect_of(n.type) in ("network", "database") for n in context.workflow.nodes):
+                return
+            await guarded_check_execution(self._session, context.execution_id)
+        except Exception:
+            logger.warning("drift hook failed for %s", context.execution_id, exc_info=True)
 
     async def get(self, execution_id: str) -> ExecutionRecord | None:
         """Get an execution record by ID."""
@@ -234,6 +384,7 @@ class ExecutionRepository:
             select(day.label("d"), func.count().label("total"),
                    func.coalesce(func.sum(case((ExecutionModel.status == "failed", 1), else_=0)), 0).label("failed"))
             .where(ExecutionModel.project_id == project_id, ExecutionModel.mode != "test",
+                   ExecutionModel.parent_execution_id.is_(None),
                    ExecutionModel.start_time >= datetime.combine(first, datetime.min.time()))
             .group_by(day)
         )
@@ -251,12 +402,19 @@ class ExecutionRepository:
         self, workflow_id: str | None = None, project_id: str | None = None,
         mode: str | None = None, status: str | None = None, limit: int | None = None,
         before: str | None = None, route_id: str | None = None, environment: str | None = None,
-        trigger: str | None = None, include_test: bool = False,
+        trigger: str | None = None, include_test: bool = False, include_children: bool = False,
+        parent_execution_id: str | None = None,
     ) -> list[ExecutionRecord]:
         """List execution records, optionally filtered by workflow / project / mode / status.
 
-        Test runs (``mode="test"``) are left out unless ``include_test`` or ``mode="test"`` asks for them."""
+        Test runs (``mode="test"``) are left out unless ``include_test`` or ``mode="test"`` asks for them.
+        Sub-workflow runs (those with a parent) are left out unless ``include_children``; ``parent_execution_id`` lists
+        the children of one run (DESIGN-STAGE8-REUSE section 11)."""
         statement = select(ExecutionModel).order_by(ExecutionModel.start_time.desc())
+        if parent_execution_id:
+            statement = statement.where(ExecutionModel.parent_execution_id == parent_execution_id)
+        elif not include_children:
+            statement = statement.where(ExecutionModel.parent_execution_id.is_(None))
         if not include_test and mode != "test":
             statement = statement.where(ExecutionModel.mode != "test")
 
@@ -315,6 +473,28 @@ class ExecutionRepository:
             records.append(self._to_execution_record(e, node_outputs, node_metrics))
         return records
 
+    async def lineage(self, execution_id: str) -> dict[str, Any] | None:
+        """Where a run sits in a sub-workflow tree: its parent link, root, depth and direct children (oldest first)."""
+        row = await self._session.get(ExecutionModel, execution_id)
+        if row is None:
+            return None
+        parent = await self._session.get(ExecutionModel, row.parent_execution_id) if row.parent_execution_id else None
+        kids = (await self._session.execute(
+            select(ExecutionModel).where(ExecutionModel.parent_execution_id == execution_id)
+            .order_by(ExecutionModel.start_time, ExecutionModel.id))).scalars().all()
+        return {
+            "parent": None if parent is None else {
+                "execution_id": parent.id, "workflow_id": parent.workflow_id, "workflow_name": parent.workflow_name,
+                "node": row.parent_node_name},
+            "root_execution_id": row.root_execution_id or row.id,
+            "depth": row.depth or 0,
+            "children": [{
+                "execution_id": k.id, "node": k.parent_node_name, "workflow_id": k.workflow_id,
+                "workflow_name": k.workflow_name, "workflow_version_id": k.workflow_version_id, "status": k.status,
+                "duration_ms": int((k.end_time - k.start_time).total_seconds() * 1000) if k.end_time else None,
+            } for k in kids],
+        }
+
     async def find_latest_successful(
         self, workflow_id: str
     ) -> ExecutionRecord | None:
@@ -371,14 +551,50 @@ class ExecutionRepository:
         await self._session.commit()
         return True
 
-    async def mark_failed(self, execution_id: str, error: str) -> None:
+    async def open_task_summaries(self, execution_id: str) -> list[dict[str, Any]]:
+        """The open human tasks of a waiting execution (what ``execution_waiting`` tells a stream), oldest first."""
+        from sqlalchemy import text
+
+        rows = (await self._session.execute(
+            text("""SELECT id, node_name, run_index, title, assignees, due_at FROM human_tasks
+                    WHERE execution_id = :e AND status = 'open' ORDER BY created_at, id"""),
+            {"e": execution_id},
+        )).mappings().all()
+        return [
+            {"id": r["id"], "node_name": r["node_name"], "run_index": r["run_index"], "title": r["title"],
+             "assignees": list(r["assignees"] or []), "due_at": r["due_at"].isoformat() if r["due_at"] else None}
+            for r in rows
+        ]
+
+    async def mark_failed(
+        self, execution_id: str, error: str, error_code: str | None = None, *, node_name: str | None = None, run_index: int = 0,
+    ) -> None:
         db_execution = await self._session.get(ExecutionModel, execution_id)
         if not db_execution:
             return
         db_execution.status = "failed"
         db_execution.end_time = datetime.now()
         db_execution.error_count = max(1, db_execution.error_count or 0)
-        db_execution.exec_metadata = {**(db_execution.exec_metadata or {}), "error": error}
+        meta = {**(db_execution.exec_metadata or {}), "error": error}
+        if error_code:
+            meta["error_code"] = error_code
+        meta.pop("suspension", None)
+        db_execution.exec_metadata = meta
+        if error_code in ("RESUME_INTERRUPTED", "RESUME_FAILED"):
+            from sqlalchemy import text as sa_text
+
+            from .task_repository import TaskRepository
+
+            await TaskRepository(self._session).cancel_open_for_execution(execution_id)
+            if node_name:  # show the failure on the Approval node the run was resumed from
+                await self._session.execute(
+                    sa_text("""UPDATE node_outputs
+                                  SET status = 'error', error = :msg,
+                                      metrics = COALESCE(metrics, '{}'::jsonb) || CAST(:m AS jsonb)
+                                WHERE execution_id = :e AND node_name = :n AND run_index = :i"""),
+                    {"msg": error, "e": execution_id, "n": node_name, "i": run_index,
+                     "m": json.dumps({"status": "error", "errorCode": error_code})},
+                )
         await self._session.commit()
 
     async def cancel(self, execution_id: str) -> bool:
@@ -389,6 +605,10 @@ class ExecutionRepository:
         db_execution.status = "cancelled"
         db_execution.cancelled_at = datetime.now()
         db_execution.end_time = datetime.now()
+        # a waiting run's open tasks go with it: a later decide answers "already_closed"
+        from .task_repository import TaskRepository
+
+        await TaskRepository(self._session).cancel_open_for_execution(execution_id)
         await self._session.commit()
         return True
 
@@ -409,39 +629,61 @@ class ExecutionRepository:
 
     async def clear(self) -> None:
         """Clear all execution records and their node outputs."""
-        # Delete all node outputs first
-        stmt = select(NodeOutputModel)
-        result = await self._session.execute(stmt)
-        for output in result.scalars().all():
-            await self._session.delete(output)
+        # Bulk deletes: the parent FK cascades to sub-workflow rows, which a per-row ORM delete would find already gone.
+        from sqlalchemy import delete as sa_delete
 
-        statement = select(ExecutionModel)
-        result = await self._session.execute(statement)
-        executions = result.scalars().all()
-
-        for execution in executions:
-            await self._session.delete(execution)
-
+        await self._session.execute(sa_delete(NodeOutputModel))
+        await self._session.execute(sa_delete(ExecutionModel))
         await self._session.commit()
 
     async def _cleanup(self) -> None:
-        """Keep the newest ``max_records`` executions (review D6: called on every insert path).
+        """Keep the newest ``max_records`` root executions (review D6: called on every insert path).
 
-        Pruned executions take their node outputs and broker-call rows with them."""
+        Only roots count (``parent_execution_id IS NULL``): a busy sub-workflow can't prune its own parents' history
+        (DESIGN-STAGE8-REUSE 3.3). Pruned executions take their node outputs and broker-call rows with them, and their
+        children go through the ``fk_executions_parent`` cascade (their broker-call rows are removed here)."""
         from sqlalchemy import delete as sa_delete
 
         from ..db.models import BrokerCallModel
 
         ids = (await self._session.execute(
-            select(ExecutionModel.id).where(ExecutionModel.mode != "test")  # test runs expire by age instead
+            select(ExecutionModel.id).where(ExecutionModel.mode != "test",  # test runs expire by age instead
+                                            ExecutionModel.parent_execution_id.is_(None))
             .order_by(ExecutionModel.start_time.desc(), ExecutionModel.id.desc())
             .offset(self._max_records))).scalars().all()
         if not ids:
             return
-        await self._session.execute(sa_delete(NodeOutputModel).where(NodeOutputModel.execution_id.in_(ids)))
-        await self._session.execute(sa_delete(BrokerCallModel).where(BrokerCallModel.execution_id.in_(ids)))
+        # Stage 5: a waiting run (or one with a task still open / decided and not yet resumed) is never pruned
+        protected = await self._savepoint(self._protected_ids(list(ids)), set())
+        ids = [i for i in ids if i not in protected]
+        if not ids:
+            return
+        all_ids = await self._with_descendants(ids)
+        await self._session.execute(sa_delete(NodeOutputModel).where(NodeOutputModel.execution_id.in_(all_ids)))
+        await self._session.execute(sa_delete(BrokerCallModel).where(BrokerCallModel.execution_id.in_(all_ids)))
         await self._session.execute(sa_delete(ExecutionModel).where(ExecutionModel.id.in_(ids)))
         await self._session.commit()
+
+    async def _with_descendants(self, ids: list[str]) -> list[str]:
+        """``ids`` plus every sub-workflow execution under them (one query on the root link, one on the parent link)."""
+        from sqlalchemy import or_
+
+        rows = (await self._session.execute(
+            select(ExecutionModel.id).where(or_(ExecutionModel.root_execution_id.in_(ids),
+                                                ExecutionModel.parent_execution_id.in_(ids))))).scalars().all()
+        return list(dict.fromkeys([*ids, *rows]))
+
+    async def _protected_ids(self, ids: list[str]) -> set[str]:
+        from sqlalchemy import text as sa_text
+
+        rows = await self._session.execute(
+            sa_text("""SELECT id FROM executions WHERE id = ANY(:ids) AND status = 'waiting'
+                       UNION
+                       SELECT execution_id FROM human_tasks
+                        WHERE execution_id = ANY(:ids) AND (status = 'open' OR resume_state IN ('pending', 'running'))"""),
+            {"ids": ids},
+        )
+        return {r[0] for r in rows.all()}
 
     async def cleanup(self) -> None:
         await self._cleanup()

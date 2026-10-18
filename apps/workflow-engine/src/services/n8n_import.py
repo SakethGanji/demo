@@ -649,16 +649,138 @@ class _Importer:
             unit = "hours"
         return "Wait", {"unit": unit, "duration": self.val(amount, "amount")}
 
+    _EXEC_SOURCES = {
+        "parameter": "an inline workflow JSON",
+        "url": "a workflow loaded from a URL",
+        "localFile": "a workflow loaded from a local file",
+    }
+    _TRIGGER_FIELD_TYPES = ("string", "number", "boolean", "array", "object")
+
     def h_exec(self, n: dict, p: dict) -> tuple[str, dict]:
-        wid = _rl(p.get("workflowId"))
-        if not wid and isinstance(p.get("workflowId"), dict):
-            wid = ""
-        if p.get("source", "database") not in ("database",):
-            raise _Unmapped(f"Execute Workflow source {p.get('source')!r} is not supported")
-        return "ExecuteWorkflow", {"workflowId": self.val(wid or "", "workflowId"), "inputMode": "passThrough"}
+        """n8n Execute Workflow -> ExecuteWorkflow v2 (DESIGN-STAGE8-REUSE 2.5).
+
+        n8n's child ids (and inline / URL / file children) don't exist here, so the node is always imported *unbound*
+        (``workflowId: ""``) with a note saying what it pointed at; the checker then reports the missing workflow and the
+        owner picks the child. An id is never carried over, so it can't silently bind to the wrong workflow.
+        """
+        source = p.get("source") or "database"
+        target = None
+        if source == "database":
+            raw = p.get("workflowId")
+            ref = _rl(raw)
+            label = raw.get("cachedResultName") if isinstance(raw, dict) else None
+            if isinstance(ref, str) and ref.strip():
+                if ref.strip().startswith("="):
+                    target = f"a computed workflow id ({ref.strip()[:80]})"
+                else:
+                    target = f"n8n workflow {ref.strip()!r}" + (f" ({label})" if label else "")
+            elif label:
+                target = f"n8n workflow {label!r}"
+        elif source in self._EXEC_SOURCES:
+            target = self._EXEC_SOURCES[source]
+        else:
+            target = f"an unsupported source {source!r}"
+        self.note(
+            f"Execute Workflow called {target or 'a workflow that is not named in the export'}, which is not available here; "
+            "the node was imported without a child. Pick the sub-workflow it should call."
+        )
+
+        out: dict[str, Any] = {"workflowId": "", "version": "latest"}
+        wi = p.get("workflowInputs")
+        mapping_mode = wi.get("mappingMode") if isinstance(wi, dict) else None
+        value = wi.get("value") if isinstance(wi, dict) else None
+        if isinstance(wi, dict) and mapping_mode != "autoMapInputData" and (mapping_mode == "defineBelow" or isinstance(value, dict)):
+            inputs: dict[str, Any] = {}
+            for k, v in (value if isinstance(value, dict) else {}).items():
+                if v is None or not str(k).strip():
+                    continue
+                inputs[str(k)] = self.val(v, f"workflowInputs.value.{k}")
+            out["inputMode"] = "map"
+            out["inputs"] = inputs
+            if wi.get("attemptToConvertTypes"):
+                self.note("Execute Workflow 'attempt to convert types' is not supported; mapped values are passed as written")
+            if wi.get("convertFieldsToString"):
+                self.note("Execute Workflow 'convert all fields to string' is not supported; mapped values keep their type")
+        else:
+            out["inputMode"] = "passThrough"
+            if mapping_mode not in (None, "autoMapInputData", "defineBelow"):
+                self.note(f"Execute Workflow input mapping mode {mapping_mode!r} is not supported; all incoming data is passed through")
+
+        mode = p.get("mode")
+        if mode == "each":
+            out["mode"] = "each"
+        elif mode not in (None, "", "once"):
+            self.note(f"Execute Workflow mode {mode!r} is not supported; it runs once with all items")
+
+        opts = p.get("options") if isinstance(p.get("options"), dict) else {}
+        for key, ov in opts.items():
+            if key == "waitForSubWorkflow":
+                if ov is False or (isinstance(ov, str) and ov.strip().lower() == "false"):
+                    self.note("Execute Workflow 'wait for sub-workflow' was off (fire and forget); that is not supported, "
+                              "so the node waits for the child to finish")
+            else:
+                self.note(f"Execute Workflow option {key!r} is not supported and was ignored")
+        return "ExecuteWorkflow", out
 
     def h_exec_trigger(self, n: dict, p: dict) -> tuple[str, dict]:
-        return "ExecuteWorkflowTrigger", {}
+        """n8n Execute Workflow Trigger -> ExecuteWorkflowTrigger (``fields`` or ``passthrough``)."""
+        src = p.get("inputSource")
+        if src is None:
+            # typeVersion 1 had no input source and accepted anything; 1.1+ defaults to declared fields.
+            src = "passthrough" if _ver(n) < 1.1 else "workflowInputs"
+        if src == "passthrough":
+            return "ExecuteWorkflowTrigger", {"inputSource": "passthrough"}
+
+        fields: list[dict[str, Any]] = []
+        out: dict[str, Any] = {}
+        seen: set[str] = set()
+
+        def add(name: Any, typ: Any) -> None:
+            nm = str(name if name is not None else "").strip()
+            if not nm:
+                return
+            if nm in seen:
+                self.note(f"Execute Workflow Trigger input {nm!r} is declared twice; the first declaration was kept")
+                return
+            seen.add(nm)
+            if typ in self._TRIGGER_FIELD_TYPES:
+                fields.append({"name": nm, "type": typ, "required": False})
+            else:
+                what = "a null example value" if typ is None else f"type {typ!r}"
+                self.note(f"Execute Workflow Trigger input {nm!r} has {what}, which can't be declared here; "
+                          "it is still accepted but not type-checked")
+
+        if src == "workflowInputs":
+            wi = p.get("workflowInputs")
+            values = wi.get("values") if isinstance(wi, dict) else None
+            for f in values if isinstance(values, list) else []:
+                if isinstance(f, dict):
+                    add(f.get("name"), f.get("type", "string"))
+        elif src == "jsonExample":
+            raw = p.get("jsonExample")
+            ex: Any = None
+            if isinstance(raw, str):
+                try:
+                    ex = json.loads(raw[1:] if raw.startswith("=") and not raw.startswith("={{") else raw)
+                except ValueError:
+                    ex = None
+            elif isinstance(raw, dict):
+                ex = raw
+            if isinstance(ex, dict):
+                for k, v in ex.items():
+                    typ = ("boolean" if isinstance(v, bool) else "number" if isinstance(v, (int, float)) else
+                           "array" if isinstance(v, list) else "object" if isinstance(v, dict) else
+                           "string" if isinstance(v, str) else None)
+                    add(k, typ)
+                out["defaultInput"] = json.dumps(ex)
+            else:
+                self.note("Execute Workflow Trigger JSON example is not a valid JSON object; inputs are not declared")
+        else:
+            self.note(f"Execute Workflow Trigger input source {src!r} is not supported; it accepts all input")
+
+        if fields:
+            return "ExecuteWorkflowTrigger", {"inputSource": "fields", "fields": fields, **out}
+        return "ExecuteWorkflowTrigger", {"inputSource": "passthrough", **out}
 
     def h_respond(self, n: dict, p: dict) -> tuple[str, dict]:
         opts = p.get("options") or {}

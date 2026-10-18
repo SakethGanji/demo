@@ -1,0 +1,106 @@
+openapi: 3.0.3
+info:
+  title: chargebacks
+  version: '1.0'
+servers:
+- url: http://chargebacks.bank.test
+paths:
+  /chargebacks/due:
+    post:
+      operationId: listDue
+      summary: Chargebacks whose evidence is due within the given number of days
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                days_ahead:
+                  type: integer
+              required:
+              - days_ahead
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  chargebacks:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        chargeback_id:
+                          type: string
+                        transaction_id:
+                          type: string
+                        amount:
+                          type: number
+                        due_date:
+                          type: string
+                      required:
+                      - chargeback_id
+                      - transaction_id
+                required:
+                - chargebacks
+        '400':
+          description: Bad query
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                - error
+  /chargebacks/{chargeback_id}/evidence:
+    post:
+      operationId: submitEvidence
+      summary: Submit evidence for a chargeback
+      parameters:
+      - name: chargeback_id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                transaction_id:
+                  type: string
+                evidence_summary:
+                  type: string
+              required:
+              - transaction_id
+              - evidence_summary
+      responses:
+        '202':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  submission_id:
+                    type: string
+                required:
+                - submission_id
+        '409':
+          description: Already submitted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                - error

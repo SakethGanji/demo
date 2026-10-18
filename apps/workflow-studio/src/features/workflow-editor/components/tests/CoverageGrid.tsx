@@ -35,7 +35,7 @@ export default function CoverageGrid() {
 
   return (
     <div className="h-full overflow-auto px-2 pb-2" data-testid="coverage-grid">
-      <table className="w-full border-separate border-spacing-y-0.5 text-[12px]">
+      <table className="w-full border-separate border-spacing-y-0.5 text-[12px]" title="Empty cells are gaps. Click one to write a test, or use Fill gaps with AI.">
         <thead>
           <tr className="text-left text-muted-foreground">
             <th className="sticky left-0 py-1 pr-3 pl-2 font-medium">Node</th>

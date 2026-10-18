@@ -15,7 +15,7 @@ import { backends } from '@/shared/lib/config';
 import { toast } from 'sonner';
 import { flushPendingEdits } from '../lib/pendingEdits';
 import { saveDraftForRun, describeActionError } from '../lib/nodeActions';
-import type { WorkflowNodeData } from '../types/workflow';
+import type { WaitingTask, WorkflowNodeData } from '../types/workflow';
 import type { Node } from '@xyflow/react';
 
 // Event types from backend
@@ -26,6 +26,7 @@ interface ExecutionEvent {
     | 'node:complete'
     | 'node:error'
     | 'execution:complete'
+    | 'execution_waiting'
     | 'execution:error'
     | 'execution:result'
     | 'agent:thinking'
@@ -53,6 +54,8 @@ interface ExecutionEvent {
   errors?: Array<{ nodeName: string; error: string; timestamp: string }>;
   // Node execution metrics
   metrics?: Record<string, unknown>;
+  // execution_waiting: the open human tasks the run paused on (engine routes/streaming.py)
+  tasks?: WaitingTask[];
   // Subworkflow event fields
   subworkflowParentNode?: string;
   subworkflowId?: string;
@@ -291,6 +294,29 @@ export function useExecutionStream(): UseExecutionStreamResult {
           setProgress(event.progress || null);
           setIsExecuting(false);
           break;
+
+        case 'execution_waiting': {
+          // The run paused on a person (Approval). It is neither finished nor failed: the Approval node waits,
+          // and the logs panel links to the task(s).
+          const tasks = event.tasks ?? [];
+          for (const t of tasks) {
+            const nodeId = nameToId.get(t.node_name);
+            if (!nodeId) continue;
+            store.setNodeExecutionData(nodeId, {
+              input: store.executionData[nodeId]?.input ?? null,
+              output: { items: [] },
+              status: 'waiting',
+              startTime: store.executionData[nodeId]?.startTime ?? Date.now(),
+            });
+          }
+          store.setWaitingRun({ executionId: event.executionId, tasks });
+          setProgress(event.progress || null);
+          setIsExecuting(false);
+          toast.info('Waiting for approval', {
+            description: tasks.length === 1 ? tasks[0].title : `${tasks.length} approvals are open`,
+          });
+          break;
+        }
 
         case 'execution:result':
           // Final result with all data

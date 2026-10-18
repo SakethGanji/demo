@@ -16,6 +16,9 @@ import type {
 } from './backendTypes';
 import type { CheckResult, ImportReport, Shape } from '@/features/workflow-editor/lib/shapes';
 import type {
+  AiDraftResponse, DriftAlert, FuzzResponse, SmokeConfig, SmokeRun, WorkflowDrift,
+} from '@/features/workflow-editor/lib/testsAi';
+import type {
   ApiSpecDetail,
   ApiSpecSummary,
   MockOption,
@@ -557,6 +560,37 @@ export const testsApi = {
     body: { kind: 'from_spec' | 'from_contract' | 'last_real'; status?: number },
   ): Promise<{ mock: Mock; source: string }> =>
     post(`/workflows/${id}/nodes/${encodeURIComponent(node)}/mock/generate`, body),
+
+  /** Drafts for grid gaps; nothing is saved. 503 = AI not set up, 502 = the model failed. */
+  aiDraft: (
+    id: string,
+    body: { definition?: DraftDefinition; cells?: Array<{ node: string; category: string }>; max?: number } = {},
+  ): Promise<AiDraftResponse> => post(`/workflows/${id}/tests/ai-draft`, body),
+
+  /** Odd inputs through the workflow; never saves. */
+  fuzz: (
+    id: string,
+    body: { definition?: DraftDefinition; target?: { kind: 'workflow' } | { kind: 'node'; node: string }; count?: number; seed?: number; ai?: boolean },
+  ): Promise<FuzzResponse> => post(`/workflows/${id}/tests/fuzz`, body),
+};
+
+export const driftApi = {
+  forWorkflow: (id: string, status: 'open' | 'all' = 'open'): Promise<WorkflowDrift> =>
+    apiFetch(`/workflows/${id}/drift?status=${status}`),
+
+  resolve: (id: string, driftId: string, by: string): Promise<DriftAlert> =>
+    post(`/workflows/${id}/drift/${encodeURIComponent(driftId)}/resolve`, { by }),
+};
+
+export const smokeApi = {
+  get: (id: string): Promise<SmokeConfig> => apiFetch(`/workflows/${id}/smoke`),
+
+  put: (id: string, body: SmokeConfig): Promise<SmokeConfig> =>
+    apiFetch(`/workflows/${id}/smoke`, { method: 'PUT', body: JSON.stringify(body) }),
+
+  run: (id: string): Promise<SmokeRun> => post(`/workflows/${id}/smoke/run`, {}),
+
+  runs: (id: string, limit = 20): Promise<SmokeRun[]> => apiFetch(`/workflows/${id}/smoke/runs?limit=${limit}`),
 };
 
 export const apiSpecsApi = {

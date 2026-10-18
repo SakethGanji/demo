@@ -9,6 +9,8 @@ the project's live environment re-publishes the pinned app versions at /a/{slug}
 from __future__ import annotations
 
 import ast
+import copy
+import logging
 from datetime import datetime
 from typing import Any
 
@@ -30,10 +32,29 @@ def release_to_dict(r: ReleaseModel, with_snapshot: bool = False, project: Proje
     out = {"id": r.id, "project_id": r.project_id, "environment": r.environment, "number": r.number,
            "is_active": r.is_active, "status": r.status, "serving": serving, "checks": r.checks,
            "source_release_id": r.source_release_id,
+           # Stage 8 (4.5): False = cut before sub-workflow pinning existed; its sub-workflow calls resolve live and warn
+           "pins_subworkflows": isinstance(r.snapshot, dict) and "subworkflows" in r.snapshot,
            "notes": r.notes, "created_by": r.created_by, "created_at": r.created_at.isoformat()}
     if with_snapshot:
         out["snapshot"] = r.snapshot
     return out
+
+
+logger = logging.getLogger(__name__)
+
+#: checker findings that mean a sub-workflow call is wrong (WF006 missing target, WF020-WF029 the Stage 8 rules)
+_SUBWORKFLOW_CODES = frozenset({"WF006", *(f"WF02{i}" for i in range(10))})
+
+
+def pins_from_snapshot(snapshot: dict[str, Any] | None) -> dict[str, int] | None:
+    """``release_pins`` for a run in a release (DESIGN-STAGE8-REUSE 4.4): ``{"<parent_version_id>:<node>": child_version_id}``.
+
+    None when the snapshot predates sub-workflow pinning (no ``subworkflows`` key): the run then resolves live and warns."""
+    if not isinstance(snapshot, dict) or "subworkflows" not in snapshot:
+        return None
+    return {f"{e['parent_version_id']}:{e.get('pin_node') or e['node']}": int(e["child_version_id"])
+            for e in snapshot.get("subworkflows") or []
+            if e.get("child_version_id") not in (None, -1) and not e.get("cycle")}
 
 
 class ReleaseService:
@@ -109,10 +130,12 @@ class ReleaseService:
     async def build_snapshot(self, project: ProjectModel, dry: bool = False) -> dict[str, Any]:
         routes = [route_spec(r) for r in await ApiRouteService(self._s).rows(project.id)]
         pins: dict[str, int] = {}
+        via: dict[str, str] = {}
         for r in routes:
             h = r["handler"]
             if h.get("type") == "workflow":
                 h["version_id"] = await self._pin_workflow(h["workflow_id"], pins, dry)
+                via.setdefault(h["workflow_id"], "route")
         mods = (await self._s.execute(select(CodeModuleModel).where(CodeModuleModel.project_id == project.id))).scalars().all()
         modules = [{"module_id": m.id, "name": m.name, "source_sha": m.source_sha, "source": m.source} for m in mods]
         apps = (await self._s.execute(select(AppModel).where(AppModel.project_id == project.id))).scalars().all()
@@ -127,9 +150,22 @@ class ReleaseService:
                 unversioned.append(a.id)  # nothing to snapshot → app_calls_resolve fails
             for wid in a.workflow_ids or []:
                 await self._pin_workflow(wid, pins, dry)
+                via.setdefault(wid, "app")
         await self._s.flush()
+        # Stage 8 (4.4): follow sub-workflow calls from every pinned root and pin the children they reach.
+        roots = dict(pins)
+        edges = await self._closure(project, roots, pins, dry)
+        workflows = [{"workflow_id": w, "version_id": v, "via": via.get(w, "route")} for w, v in sorted(roots.items())]
+        seen_children = {(w, v) for w, v in roots.items()}
+        for e in edges:
+            cv = e.get("child_version_id")
+            if cv is None or (e["child_workflow_id"], cv) in seen_children:
+                continue
+            seen_children.add((e["child_workflow_id"], cv))
+            workflows.append({"workflow_id": e["child_workflow_id"], "version_id": cv, "via": "subworkflow"})
         refs: set[str] = set()
-        for wid, vid in pins.items():
+        for entry in workflows:
+            wid, vid = entry["workflow_id"], entry["version_id"]
             from ..db.models import WorkflowVersionModel
             if vid == -1:
                 wfm = await self._s.get(WorkflowModel, wid)
@@ -146,9 +182,88 @@ class ReleaseService:
             refs.update(sec_call.findall(m["source"]))
         spec = build_openapi(project, routes)
         return {"apps": app_pins, "unversioned_apps": unversioned,
-                "workflows": [{"workflow_id": w, "version_id": v} for w, v in sorted(pins.items())],
+                "workflows": workflows, "subworkflows": edges,
                 "modules": modules, "routes": routes, "spec": spec, "spec_hash": spec_hash(spec),
                 "referenced_vars": sorted(refs), "secret_bindings": []}
+
+    # ── sub-workflow closure (DESIGN-STAGE8-REUSE 4.4) ────────────────────
+
+    async def _definition_of(self, wid: str, vid: int | None) -> dict[str, Any] | None:
+        """The definition a snapshot pin stands for; ``-1`` / None = the draft (a dry run's would-be version)."""
+        from ..db.models import WorkflowVersionModel
+
+        if vid in (None, -1):
+            wf = await self._s.get(WorkflowModel, wid)
+            return wf.draft_definition if wf else None
+        v = await self._s.get(WorkflowVersionModel, vid)
+        return v.definition if v else None
+
+    async def _closure(self, project: ProjectModel, roots: dict[str, int], pins: dict[str, int], dry: bool) -> list[dict[str, Any]]:
+        """Every sub-workflow call reachable from the pinned roots, as edges
+        ``{parent_workflow_id, parent_version_id, node, child_workflow_id, child_version_id, child_version_number, spec}``.
+
+        ``spec`` is what the node asked for (``draft`` | ``latest`` | ``<n>``); the edge records what it resolves to *now*,
+        so a run in a release environment never reads the live publish pointer again. A call that cannot be resolved keeps
+        ``child_version_id: None`` and an ``error`` (the release check blocks on it); a call back into the path to it is
+        marked ``cycle: true`` and is not followed. Two parents may pin different versions of one child: edges are keyed
+        per (parent version, node). Disabled nodes are not followed (they never run)."""
+        from ..db.models import WorkflowVersionModel
+        from .subworkflow_service import version_id_for
+        from .workflow_io import call_refs
+
+        edges: list[dict[str, Any]] = []
+        visited: set[tuple[str, int]] = set()
+
+        async def number_of(vid: int | None) -> int | None:
+            if vid in (None, -1):
+                return None
+            v = await self._s.get(WorkflowVersionModel, vid)
+            return v.version_number if v else None
+
+        async def visit(wid: str, vid: int, path: tuple[str, ...]) -> None:
+            if (wid, vid) in visited:
+                return
+            visited.add((wid, vid))
+            definition = await self._definition_of(wid, vid)
+            for ref in call_refs(definition):
+                if ref.disabled:
+                    continue
+                edge: dict[str, Any] = {
+                    "parent_workflow_id": wid, "parent_version_id": vid, "node": ref.node, "child_workflow_id": ref.workflow_id,
+                    "child_version_id": None, "child_version_number": None, "spec": ref.spec,
+                }
+                if ref.node_type == "WorkflowTool":
+                    edge["pin_node"] = ref.pin_node or "WorkflowTool"  # the agent tool calls the invoker under this per-tool name
+                child = await self._s.get(WorkflowModel, ref.workflow_id)
+                if child is None:
+                    edge["error"] = "the sub-workflow no longer exists"
+                elif child.project_id != project.id:
+                    edge["error"] = "the sub-workflow is in another project"
+                else:
+                    cvid: int | None
+                    if ref.spec == "draft":
+                        cvid = await self._pin_workflow(ref.workflow_id, pins, dry)
+                    elif ref.spec == "latest":
+                        cvid = child.published_version_id
+                        if cvid is None:
+                            edge["error"] = f"'{child.name}' has never been published"
+                    else:
+                        cvid = await version_id_for(self._s, ref.workflow_id, int(ref.spec))
+                        if cvid is None:
+                            edge["error"] = f"'{child.name}' has no version {ref.spec}"
+                    edge["child_version_id"] = cvid
+                    edge["child_version_number"] = await number_of(cvid)
+                    if ref.workflow_id == wid or ref.workflow_id in path:
+                        edge["cycle"] = True
+                    elif cvid is not None:
+                        edges.append(edge)
+                        await visit(ref.workflow_id, cvid, (*path, wid))
+                        continue
+                edges.append(edge)
+
+        for wid, vid in sorted(roots.items()):
+            await visit(wid, vid, ())
+        return edges
 
     async def _version_app(self, app: AppModel) -> int:
         from .app_service import AppService
@@ -241,6 +356,10 @@ class ReleaseService:
                        "details": {"against": active.id if active else None, "changes": breaking}})
         # 7. workflow_tests_pass: one per workflow in the snapshot; an approved test that fails blocks the release
         checks.extend(await self._workflow_test_checks(snapshot))
+        # 7b. Stage 8: every sub-workflow call resolves, and each parent still fits the child version it pinned
+        checks.extend(await self._subworkflow_checks(project, snapshot))
+        # 8. smoke_tests_pass: workflows that opted in run their live smoke tests; a failure or an unreachable system blocks
+        checks.extend(await self._smoke_checks(snapshot))
         return checks
 
     async def _workflow_test_checks(self, snapshot: dict[str, Any]) -> list[dict[str, Any]]:
@@ -266,6 +385,136 @@ class ReleaseService:
                             else f"{stored.name}: approved tests pass"),
                 "details": {"workflow_id": wid, "name": stored.name, "version_id": vid, "failed_tests": failed},
             })
+        return out
+
+    async def _subworkflow_checks(self, project: ProjectModel, snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+        """``subworkflows_resolved`` and ``subworkflow_contracts_compatible`` (DESIGN-STAGE8-REUSE 4.4).
+
+        A snapshot without a ``subworkflows`` key predates Stage 8: nothing to check (promoting or rolling back an old
+        release keeps working; its calls resolve live and the run warns, section 4.5). A release is *blocked* when a child
+        cannot be resolved, sits on a cycle, holds an Approval, or no longer fits the parent that pins it."""
+        from .check_lookups import build_lookups
+        from .subworkflow_service import version_number_of
+        from .workflow_checker import check_workflow
+        from .workflow_io import trigger_node
+
+        if "subworkflows" not in snapshot:
+            return []
+        edges = list(snapshot.get("subworkflows") or [])
+        names: dict[str, str] = {}
+
+        async def name_of(wid: str) -> str:
+            if wid not in names:
+                wf = await self._s.get(WorkflowModel, wid)
+                names[wid] = wf.name if wf else wid
+            return names[wid]
+
+        problems: list[dict[str, Any]] = []
+        for e in edges:
+            base = {"parent_workflow_id": e["parent_workflow_id"], "parent_name": await name_of(e["parent_workflow_id"]),
+                    "node": e["node"], "child_workflow_id": e["child_workflow_id"], "spec": e.get("spec")}
+            if e.get("cycle"):
+                problems.append({**base, "reason": "cycle", "message": f"'{await name_of(e['parent_workflow_id'])}' and "
+                                 f"'{await name_of(e['child_workflow_id'])}' call each other"})
+                continue
+            if e.get("child_version_id") is None:
+                problems.append({**base, "reason": "unresolved", "message": e.get("error") or "the sub-workflow cannot be resolved"})
+                continue
+            child_def = await self._definition_of(e["child_workflow_id"], e["child_version_id"])
+            if child_def is None:
+                problems.append({**base, "reason": "unresolved", "message": "the pinned version no longer exists"})
+            elif trigger_node(child_def) is None:
+                problems.append({**base, "reason": "not_callable",
+                                 "message": f"'{await name_of(e['child_workflow_id'])}' has no Execute Workflow Trigger"})
+            elif any(isinstance(n, dict) and n.get("type") == "Approval" for n in child_def.get("nodes") or []):
+                problems.append({**base, "reason": "approval", "message":
+                                 f"'{await name_of(e['child_workflow_id'])}' has an Approval step; approvals must be in the top-level workflow"})
+        out = [{"id": "subworkflows_resolved", "status": "fail" if problems else "pass",
+                "message": (f"{len(problems)} sub-workflow call(s) cannot run: {problems[0]['message']}" if problems
+                            else (f"{len(edges)} sub-workflow call(s) pinned" if edges else "no sub-workflow calls")),
+                "details": {"problems": problems, "edges": len(edges)}}]
+
+        # parents against the child versions they pin: check each parent with its calls rewritten to the pinned numbers
+        by_parent: dict[tuple[str, int], list[dict[str, Any]]] = {}
+        for e in edges:
+            if e.get("child_version_id") is not None and not e.get("cycle"):
+                by_parent.setdefault((e["parent_workflow_id"], e["parent_version_id"]), []).append(e)
+        broken: list[dict[str, Any]] = []
+        warned: list[dict[str, Any]] = []
+        for (pid, pvid), group in sorted(by_parent.items()):
+            definition = await self._definition_of(pid, pvid)
+            parent = await self._s.get(WorkflowModel, pid)
+            if definition is None or parent is None:
+                continue
+            pinned = copy.deepcopy(definition)
+            nodes = {n.get("name"): n for n in pinned.get("nodes") or [] if isinstance(n, dict)}
+            for e in group:
+                node = nodes.get(e["node"])
+                if node is None or node.get("type") != "ExecuteWorkflow":
+                    continue
+                number = e.get("child_version_number")
+                if number is None and e["child_version_id"] not in (None, -1):
+                    number = await version_number_of(self._s, e["child_version_id"])
+                node.setdefault("parameters", {})["version"] = number if number is not None else "draft"
+            try:
+                lookups = await build_lookups(self._s, project.id, None, team_id=parent.team_id or "default",
+                                              workflow_id=pid, definition=pinned)
+                findings = check_workflow(pinned, lookups=lookups, workflow_id=pid)["findings"]
+            except Exception:
+                logger.warning("could not check %s against its pinned sub-workflows", pid, exc_info=True)
+                continue
+            call_nodes = {e["node"] for e in group}
+            for f in findings:
+                if f.get("node") not in call_nodes or not (f.get("code") in _SUBWORKFLOW_CODES):
+                    continue
+                row = {"workflow_id": pid, "workflow_name": parent.name, "node": f.get("node"), "code": f.get("code"),
+                       "severity": f.get("severity"), "message": f.get("message")}
+                if f.get("severity") == "error":
+                    broken.append(row)
+                elif f.get("severity") == "warning":
+                    warned.append(row)
+        status = "fail" if broken else ("warn" if warned else "pass")
+        out.append({"id": "subworkflow_contracts_compatible", "status": status,
+                    "message": (f"{broken[0]['workflow_name']}: {broken[0]['message']}" if broken
+                                else (f"{warned[0]['workflow_name']}: {warned[0]['message']}" if warned
+                                      else "every sub-workflow call fits the version it pins")),
+                    "details": {"broken": broken, "warnings": warned}})
+        return out
+
+    async def _smoke_checks(self, snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+        """``smoke_tests_pass``: one check per workflow that opted in (enabled and before_release)."""
+        from ..db.models import SmokeConfigModel, WorkflowVersionModel
+        from ..repositories.workflow_repository import WorkflowRepository
+        from . import smoke
+
+        out: list[dict[str, Any]] = []
+        repo = WorkflowRepository(self._s)
+        for pin in snapshot.get("workflows") or []:
+            wid, vid = pin["workflow_id"], pin.get("version_id")
+            cfg = await self._s.get(SmokeConfigModel, wid)
+            if cfg is None or not (cfg.enabled and cfg.before_release):
+                continue
+            stored = await repo.get(wid)
+            if stored is None:
+                continue
+            details: dict[str, Any] = {"workflow_id": wid, "name": stored.name, "version_id": vid}
+            try:
+                definition = None  # -1 means a dry run: the draft would be the version
+                if vid not in (None, -1):
+                    v = await self._s.get(WorkflowVersionModel, vid)
+                    definition = v.definition if v else None
+                run = await smoke.run_smoke(repo, stored, "release", definition=definition)
+                details.update(run_id=run["id"], results=run["results"])
+                status = "pass" if run["status"] == "passed" else "fail"
+                msg = (f"{stored.name}: smoke tests pass" if status == "pass"
+                       else f"{stored.name}: smoke run {run['status']}")
+            except smoke.SmokeError as e:
+                status, msg = "fail", f"{stored.name}: smoke is enabled but cannot run: {e.message}"
+            except Exception as e:  # never turn an infrastructure problem into a 500 or a silent pass
+                logger.warning("smoke check of %s failed", wid, exc_info=True)
+                status, msg = "fail", f"{stored.name}: smoke run could not reach the system: {type(e).__name__}"
+                details["error"] = str(e)[:300]
+            out.append({"id": "smoke_tests_pass", "status": status, "message": msg, "details": details})
         return out
 
     # ── writes ───────────────────────────────────────────────────────────
@@ -400,7 +649,8 @@ class ReleaseService:
         def idx(items, key):
             return {i[key]: i for i in items or []}
         oa, na = idx(old.get("apps"), "app_id"), idx(new.get("apps"), "app_id")
-        ow, nw = idx(old.get("workflows"), "workflow_id"), idx(new.get("workflows"), "workflow_id")
+        roots = lambda snap: [w for w in snap.get("workflows") or [] if w.get("via") != "subworkflow"]  # noqa: E731
+        ow, nw = idx(roots(old), "workflow_id"), idx(roots(new), "workflow_id")
         os_, ns = idx(old.get("secret_bindings"), "key"), idx(new.get("secret_bindings"), "key")
         apps = [{"app_id": k, "from_version": (oa.get(k) or {}).get("version_id"), "to_version": (na.get(k) or {}).get("version_id")}
                 for k in sorted(set(oa) | set(na)) if (oa.get(k) or {}).get("version_id") != (na.get(k) or {}).get("version_id")]
@@ -415,7 +665,26 @@ class ReleaseService:
                 secrets.append({"key": k, "change": "removed"})
             elif os_[k].get("fingerprint") != ns[k].get("fingerprint"):
                 secrets.append({"key": k, "change": "value_changed"})
-        return {"routes": diff_specs(old.get("spec"), new.get("spec")), "apps": apps, "workflows": wfs, "secrets": secrets}
+        # Stage 8: a child whose pinned version changed, with the parents that call it
+        def child_versions(snap):
+            out: dict[str, dict[str, Any]] = {}
+            for e in snap.get("subworkflows") or []:
+                row = out.setdefault(e["child_workflow_id"], {"versions": set(), "parents": []})
+                row["versions"].add(e.get("child_version_number") if e.get("child_version_number") is not None else e.get("child_version_id"))
+                p = {"workflow_id": e["parent_workflow_id"], "node": e["node"]}
+                if p not in row["parents"]:
+                    row["parents"].append(p)
+            return out
+        oc, nc = child_versions(old), child_versions(new)
+        subs = []
+        for k in sorted(set(oc) | set(nc)):
+            ov = sorted((oc.get(k) or {}).get("versions", ()), key=lambda x: (x is None, x))
+            nv = sorted((nc.get(k) or {}).get("versions", ()), key=lambda x: (x is None, x))
+            if ov != nv:
+                subs.append({"workflow": k, "from_version": ov, "to_version": nv, "via": "subworkflow",
+                             "parents": (nc.get(k) or oc.get(k))["parents"]})
+        return {"routes": diff_specs(old.get("spec"), new.get("spec")), "apps": apps, "workflows": wfs, "secrets": secrets,
+                "subworkflows": subs}
 
     async def diff(self, project: ProjectModel, rid: str, against: str = "active", environment: str | None = None) -> dict[str, Any]:
         rel = await self.get(project, rid)

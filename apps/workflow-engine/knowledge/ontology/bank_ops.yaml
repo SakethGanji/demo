@@ -1,0 +1,391 @@
+# Seed ontology for bank operations (PLAN-CAPABILITY-GRAPH section 2.1; CONTRACTS-CAPGRAPH.md section 4).
+#
+# A reviewed file, like code: loaded at startup by services/kg_ontology.py (validated, then upserted with source='seed').
+# Adding or changing a concept here is a code-review decision. AI-proposed concepts never land here automatically (decision D5).
+#
+# Conventions
+#   * keys are full natural keys: concept:<slug>, role:<slug>
+#   * aliases are lowercase words or phrases; an alias is unique across concepts unless every concept that uses it lists it
+#     under shared_aliases
+#   * a slot's id in an Understanding is "<concept slug>.<slot name>", e.g. approval.approver_role
+#   * slot types: role | duration | cron | field | choice | text | api_capability   ("multiple: true" = a list of values)
+#   * a slot with alias_of: "<concept slug>.<slot>" is the same fact as that slot and is asked only once
+#   * signatures describe how kg_signatures.detect finds the concept in a definition:
+#       node_type (required), params (parameter names that must be set), ports (output ports that must be wired),
+#       follows (node types that must precede it), writes_table_with (columns the written table must have)
+version: 1
+domain: bank_ops
+
+roles:
+  - key: role:ops_analyst
+    label: Operations analyst
+    aliases: ["ops analyst", "operations analyst", "payments ops analyst", "analyst in operations"]
+  - key: role:ops_manager
+    label: Operations manager
+    aliases: ["ops manager", "ops managers", "operations manager", "operations managers", "manager of operations", "manager", "managers",
+              "line manager", "supervisor", "team lead", "team leader"]
+  - key: role:ops_head
+    label: Head of operations
+    aliases: ["head of operations", "head of ops", "ops head", "operations head", "ops director", "director of operations"]
+  - key: role:compliance_officer
+    label: Compliance officer
+    aliases: ["compliance officer", "compliance officers", "compliance team", "compliance"]
+  - key: role:fraud_analyst
+    label: Fraud analyst
+    aliases: ["fraud analyst", "fraud analysts", "fraud investigator", "fraud team"]
+  - key: role:fraud_lead
+    label: Fraud lead
+    aliases: ["fraud lead", "fraud manager", "fraud managers", "head of fraud", "fraud head"]
+  - key: role:finance_controller
+    label: Finance controller
+    aliases: ["finance controller", "financial controller", "controller", "finance manager"]
+  - key: role:customer_service
+    label: Customer service
+    aliases: ["customer service", "customer support", "support agent", "service desk", "contact centre", "contact center"]
+
+concepts:
+  # ── process ────────────────────────────────────────────────────────────────────────────────────────────────────────
+  - key: concept:intake
+    label: Intake
+    kind: process
+    definition: A person or system submits a new item that starts a process and is recorded.
+    aliases: ["intake", "log a", "log an", "anyone can log", "submit", "raise a", "report a problem", "request form", "sign up form", "capture"]
+    slots:
+      - {name: channel, type: choice, required: true, options: [form, webhook, chat], default: form,
+         question: "How do items arrive: a form, a webhook or a chat?", used_as: "trigger node"}
+    signatures:
+      - {node_type: FormTrigger}
+      - {node_type: Webhook}
+      - {node_type: ChatInput}
+    test_obligations:
+      - one test that runs the entry trigger with a typical submission and checks the record is written
+    prompt_hint: Start with a FormTrigger (or Webhook / ChatInput as the channel says), validate the input, then write the record.
+    produces: [concept:exception_case, concept:customer_request]
+    part_recipe:
+      parts:
+        - {key: intake, role: entry, trigger: form, interface: form, title: Log an item}
+
+  - key: concept:approval
+    label: Approval
+    kind: process
+    definition: A person with authority decides approved or rejected before the process continues.
+    aliases: ["approval", "approvals", "approve", "approved", "approver", "sign off", "sign-off", "authorise", "authorize", "needs a manager"]
+    slots:
+      - {name: approver_role, type: role, required: true, question: "Who approves? Pick the role that decides.",
+         used_as: "Approval.assignees"}
+      - {name: due_in, type: duration, required: false, default: "", alias_of: sla.due_in}
+    signatures:
+      - {node_type: Approval}
+    test_obligations:
+      - "one test per Approval port that the spec wires: approved, rejected (and timed_out when due_in is set)"
+    prompt_hint: "Model it with an Approval node; wire both approved and rejected; put the role in assignees as 'role:<key>'."
+
+  - key: concept:four_eyes_approval
+    label: Four-eyes approval
+    kind: process
+    definition: Two different people must approve before the process continues; the second cannot be the first.
+    aliases: ["four eyes", "four-eyes", "dual approval", "maker checker", "maker-checker", "second approver", "two approvers"]
+    is_a: [concept:approval]
+    slots:
+      - {name: approver_role, type: role, required: true, question: "Who gives the first approval?", used_as: "first Approval.assignees"}
+      - {name: second_approver_role, type: role, required: true, question: "Who gives the second approval?",
+         used_as: "second Approval.assignees"}
+    signatures:
+      - {node_type: Approval, follows: [Approval]}
+    test_obligations:
+      - one test where the first approval is rejected and the second Approval never runs
+      - one test where both approvals pass
+    prompt_hint: Chain two Approval nodes with different role assignees; a rejection at the first must skip the second.
+
+  - key: concept:escalation
+    label: Escalation
+    kind: process
+    definition: An item that is not resolved in time is passed to someone with more authority.
+    aliases: ["escalation", "escalate", "escalated", "escalates", "pass up", "bump up", "unresolved after", "if not handled", "if not resolved"]
+    requires: [concept:sla, concept:assignment]
+    slots:
+      - {name: target_role, type: role, required: true, question: "Who does it escalate to?", used_as: "second Approval.assignees"}
+      - {name: after, type: duration, required: true, alias_of: sla.due_in}
+    signatures:
+      - {node_type: Approval, params: [due_in], ports: [timed_out]}
+      - {node_type: Cron, follows: [DataTable]}
+    test_obligations:
+      - a test whose Approval mock takes the timed_out port and checks the escalation step runs
+    prompt_hint: Put due_in on the Approval and wire its timed_out port to a second Approval (or a notification) for the target role.
+
+  - key: concept:assignment
+    label: Assignment
+    kind: process
+    definition: Each item is given an owner by a rule, such as its category or region.
+    aliases: ["assignment", "assign", "assigned", "assigns", "owner", "ownership", "owned by", "allocate", "route to", "based on its",
+              "route", "right team", "correct team", "matching team", "right queue", "correct queue", "matching queue", "right owner", "correct owner",
+              "matching owner"]
+    requires: [concept:exception_case]
+    slots:
+      - {name: by_field, type: field, required: true, question: "Assignment needs a rule: which field decides the owner?",
+         used_as: "Switch field"}
+      - {name: owners, type: role, required: true, multiple: true, question: "Which role owns each value?",
+         used_as: "Set owner_role"}
+    signatures:
+      - {node_type: Switch}
+      - {node_type: If, ports: ["true"]}
+    test_obligations:
+      - one test per value of the deciding field that checks the owner written
+    prompt_hint: Use a Switch on the deciding field, then a Set that writes owner_role; prefer a callable assignment sub-workflow if one exists.
+    part_recipe:
+      parts:
+        - {key: assign_owner, role: subworkflow, trigger: execute, title: Assign owner}
+
+  - key: concept:review
+    label: Review
+    kind: process
+    definition: A person checks an item and records an outcome without a formal approve or reject gate.
+    aliases: ["review", "reviewed", "reviews", "reviewer", "check over", "peer review", "look over"]
+    slots:
+      - {name: reviewer_role, type: role, required: false, default: "", question: "Who reviews it?"}
+    signatures:
+      - {node_type: Approval, params: [kind]}
+    test_obligations:
+      - one test that checks the review outcome is stored
+    prompt_hint: Use an Approval node as a review step when the person only records an outcome.
+
+  - key: concept:retry
+    label: Retry
+    kind: process
+    definition: A failed step is attempted again a limited number of times before the item is given up on.
+    aliases: ["retry", "retries", "retrying", "try again", "re-attempt", "reattempt", "redrive", "re-submit"]
+    slots:
+      - {name: max_attempts, type: text, required: false, default: "3"}
+    signatures:
+      - {node_type: Loop}
+    test_obligations:
+      - one test where the step fails once then succeeds, and one where it keeps failing
+    prompt_hint: Wrap the fallible call in a bounded Loop with a Wait between attempts, and route the final failure to a visible state.
+
+  - key: concept:reconciliation
+    label: Reconciliation
+    kind: process
+    definition: Two sets of records are compared and the differences are surfaced as exceptions.
+    aliases: ["reconciliation", "reconcile", "reconciles", "reconciled", "recon", "match records", "compare ledgers", "ledger match"]
+    produces: [concept:exception_case]
+    slots:
+      - {name: match_key, type: field, required: false, default: "", question: "Which field matches the two sets?"}
+    signatures:
+      - {node_type: Merge}
+    test_obligations:
+      - one test with a matching pair and one with an unmatched record
+    prompt_hint: Merge the two inputs on the match key and treat unmatched records as exception cases.
+
+  - key: concept:notification
+    label: Notification
+    kind: process
+    definition: Someone is told that something happened, by email or another channel.
+    aliases: ["notification", "notifications", "notify", "notified", "send an email", "send email", "email them", "message them", "sms", "let them know", "tell the"]
+    slots:
+      - {name: channel, type: api_capability, required: true, question: "Notification needs a channel: which email or messaging API sends it?",
+         used_as: "SendEmail or an API operation"}
+    signatures:
+      - {node_type: SendEmail}
+    test_obligations:
+      - one test that checks the message is sent to the expected recipient
+    prompt_hint: Use SendEmail, or the project's API operation that implements Notification; never invent a host.
+    part_recipe:
+      reuse_template: customer-notify
+
+  - key: concept:report
+    label: Report
+    kind: process
+    definition: Data is gathered and summarised for people to read, on demand or on a schedule.
+    aliases: ["report", "reports", "reporting", "summary", "summaries", "weekly report", "daily summary", "dashboard", "totals of"]
+    requires: [concept:schedule]
+    consumes: [concept:exception_case]
+    renders_with: [ui:component:table]
+    slots:
+      - {name: recipients_role, type: role, required: true, question: "Who receives the report?", used_as: "SendEmail recipients"}
+      - {name: schedule, type: cron, required: true, question: "How often should the report run?", used_as: "Cron expression"}
+    signatures:
+      - {node_type: Cron, follows: [DataTable, SendEmail]}
+      - {node_type: Respond, params: [body]}
+    test_obligations:
+      - one test that runs the report over sample rows and checks the totals
+    prompt_hint: Read the rows, aggregate them in a build-report sub-workflow, then send or display the result.
+    part_recipe:
+      parts:
+        - {key: build_report, role: subworkflow, trigger: execute, title: Build report}
+        - {key: weekly_report, role: entry, trigger: cron, title: Scheduled report, depends_on: [build_report]}
+        - {key: report_view, role: entry, trigger: form, interface: custom, screen: report_table, title: Report view, depends_on: [build_report]}
+
+  - key: concept:schedule
+    label: Schedule
+    kind: process
+    definition: Work starts by itself at fixed times.
+    aliases: ["schedule", "scheduled", "every monday", "every day", "every week", "every morning", "weekly", "daily", "monthly", "hourly", "cron", "nightly",
+              "every night", "every evening", "every month", "every hour", "every tuesday", "every wednesday", "every thursday", "every friday",
+              "every saturday", "every sunday", "each night", "each morning", "each day"]
+    slots:
+      - {name: cron, type: cron, required: true, question: "When should it run?", used_as: "Cron expression"}
+    signatures:
+      - {node_type: Cron}
+    test_obligations:
+      - one test that runs the scheduled entry once with sample data
+    prompt_hint: Start with a Cron trigger; keep the expression exactly as the slot says.
+
+  - key: concept:document_review
+    label: Document review
+    kind: process
+    definition: A person checks supporting documents, such as identity or address proof, and records whether they are acceptable.
+    aliases: ["document review", "review documents", "check documents", "verify documents", "proof of address", "id documents", "supporting documents"]
+    is_a: [concept:review]
+    slots:
+      - {name: reviewer_role, type: role, required: false, default: "", question: "Who reviews the documents?"}
+    signatures:
+      - {node_type: Approval, params: [instructions]}
+    test_obligations:
+      - one test where the documents are accepted and one where they are rejected
+    prompt_hint: Use an Approval with instructions that list what to check, and keep the document reference in the record.
+
+  - key: concept:screening
+    label: Screening
+    kind: process
+    definition: A customer or payment is checked against sanctions, watch lists or KYC rules before it proceeds.
+    aliases: ["screening", "screen", "screened", "sanctions", "kyc", "aml", "watchlist", "watch list", "pep check", "know your customer"]
+    requires: [concept:exception_case]
+    slots:
+      - {name: list_source, type: api_capability, required: false, default: "", question: "Which API provides the screening result?"}
+    signatures:
+      - {node_type: HttpRequest, params: [api_ref]}
+    test_obligations:
+      - one test with a clear result and one with a hit that is routed to a person
+    prompt_hint: Call the screening API through its api_ref; route any hit to a review step instead of deciding automatically.
+
+  - key: concept:refund
+    label: Refund
+    kind: process
+    definition: Money is returned to a customer after a check, usually with an approval above a limit.
+    aliases: ["refund", "refunds", "refunded", "refunding", "reimburse", "money back", "give back"]
+    requires: [concept:approval, concept:threshold_check]
+    slots:
+      - {name: limit, type: text, required: false, default: "", question: "Above what amount does a refund need approval?"}
+    signatures:
+      - {node_type: Approval, follows: [If]}
+    test_obligations:
+      - one test below the limit that skips approval and one above it that waits for approval
+    prompt_hint: Branch on the amount with an If; send amounts above the limit to an Approval before the refund call.
+
+  - key: concept:dispute
+    label: Dispute
+    kind: process
+    definition: A customer contests a transaction and the bank investigates before deciding the outcome.
+    aliases: ["dispute", "disputes", "disputed", "chargeback", "chargebacks", "contest a charge", "contested transaction"]
+    requires: [concept:exception_case, concept:sla]
+    slots:
+      - {name: resolution_role, type: role, required: false, default: "", question: "Who resolves disputes?"}
+    signatures:
+      - {node_type: Approval, follows: [DataTable]}
+    test_obligations:
+      - one test per outcome of the dispute decision
+    prompt_hint: Record the dispute as a case, assign an owner, and keep every decision in the case history.
+
+  - key: concept:payment_handling
+    label: Payment handling
+    kind: process
+    definition: A payment instruction is processed, settled or repaired, and failures are handled explicitly.
+    aliases: ["payment processing", "payment failure", "failed payment", "failed payments", "payment instruction", "settlement", "settle a payment", "payment repair",
+              "payment fail", "payment error"]
+    slots:
+      - {name: payment_api, type: api_capability, required: false, default: "", question: "Which API executes the payment?"}
+    signatures:
+      - {node_type: HttpRequest, params: [api_ref]}
+    test_obligations:
+      - one test where the payment succeeds and one where the API reports a failure
+    prompt_hint: Call the payment API through its api_ref, never retry a payment blindly, and record the outcome.
+
+  # ── entity ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+  - key: concept:exception_case
+    label: Exception case
+    kind: entity
+    definition: A tracked item that needs a person's attention, stored with a status, an owner and timestamps.
+    aliases: ["exception", "exceptions", "case", "cases", "incident", "incidents", "alert", "alerts", "issue", "issues", "break", "breaks"]
+    slots:
+      - {name: entity, type: text, required: true, question: "What do you call the items being tracked (for example exception, alert, case)?",
+         default: exception}
+      - {name: fields, type: field, required: true, multiple: true, question: "Which fields does each item carry?"}
+    signatures:
+      - {node_type: DataTable, writes_table_with: [status]}
+    test_obligations:
+      - one test that creates an item and checks it is stored with status open
+    prompt_hint: Keep the items in a DataTable with at least id, status, owner_role and opened_at columns.
+    part_recipe:
+      tables:
+        - {key: cases, name: cases, columns: [id, category, status, owner_role, opened_at]}
+
+  - key: concept:customer_request
+    label: Customer request
+    kind: entity
+    definition: A request from a customer, such as a change of details, a statement or a card replacement, handled to completion.
+    aliases: ["customer request", "customer requests", "service request", "customer query", "customer asks", "client request", "customer ticket",
+              "address change", "name change", "detail change", "details change"]
+    slots:
+      - {name: request_types, type: field, required: false, multiple: true, default: "", question: "Which kinds of request are there?"}
+    signatures:
+      - {node_type: DataTable, writes_table_with: [status, customer_id]}
+    test_obligations:
+      - one test that logs a request and checks its status
+    prompt_hint: Store each request with its customer reference, type and status.
+
+  # ── control ────────────────────────────────────────────────────────────────────────────────────────────────────────
+  - key: concept:sla
+    label: SLA
+    kind: control
+    definition: A time limit within which an item must be handled; going past it has consequences.
+    aliases: ["sla", "deadline", "within", "overdue", "not resolved within", "time limit", "turnaround time", "hasn't resolved it", "hours to", "due within"]
+    slots:
+      - {name: due_in, type: duration, required: true, question: "How long is allowed before it counts as late?", used_as: "Approval.due_in"}
+    signatures:
+      - {node_type: Approval, params: [due_in]}
+      - {node_type: If, follows: [DataTable]}
+    test_obligations:
+      - a test that exercises the late path
+    prompt_hint: Put the duration in due_in exactly as the slot says (for example 48h).
+
+  - key: concept:threshold_check
+    label: Threshold check
+    kind: control
+    definition: A value is compared with a limit and the process takes a different path above or below it.
+    aliases: ["threshold", "thresholds", "limit", "limits", "exceeds", "exceeding", "more than", "greater than", "above a limit", "over the limit"]
+    slots:
+      - {name: limit, type: text, required: true, question: "What is the limit, and which field does it apply to?"}
+    signatures:
+      - {node_type: If, params: [conditions]}
+    test_obligations:
+      - one test just below the limit, one just above it
+    prompt_hint: Use an If on the field; test both sides of the boundary.
+
+  - key: concept:audit_log
+    label: Audit log
+    kind: control
+    definition: Every significant action is recorded with who did it, what changed and when.
+    aliases: ["audit log", "audit trail", "audit", "record who", "history of changes", "change history", "who did what"]
+    slots:
+      - {name: log_table, type: text, required: false, default: audit_log}
+    signatures:
+      - {node_type: DataTable, writes_table_with: [actor, action, at]}
+    test_obligations:
+      - one test that checks an audit row is written for the main action
+    prompt_hint: Append a row with actor, action and timestamp for each state change; never update or delete audit rows.
+
+  # ── artifact ───────────────────────────────────────────────────────────────────────────────────────────────────────
+  - key: concept:report_output
+    label: Report output
+    kind: artifact
+    definition: The produced document or data a report delivers, such as a table on a page, a CSV or a spreadsheet.
+    aliases: ["report output", "csv", "spreadsheet", "excel", "pdf", "export", "download", "report page"]
+    is_a: [concept:report]
+    renders_with: [ui:component:table]
+    slots:
+      - {name: format, type: choice, required: false, options: [table, csv, email], default: table, question: "In what form should the report arrive?"}
+    signatures:
+      - {node_type: Respond}
+    test_obligations:
+      - one test that checks the shape of the output
+    prompt_hint: Return rows and totals from the Respond node so a table component can show them.

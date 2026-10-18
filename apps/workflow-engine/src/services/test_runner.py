@@ -39,6 +39,8 @@ _NO_ROW_TYPES = TRIGGER_NODE_TYPES | {"StickyNote"}
 _MAX_OUTPUT_ITEMS = 20
 _MAX_CONTRACT_FAILURES = 20
 _RUN_TIMEOUT_S = 60.0
+#: Smoke runs hit live data: these assertion ops are evaluated and reported as "info", never failures
+VALUE_OPS = frozenset({"eq", "neq", "gt", "gte", "lt", "lte", "contains", "matches", "one_of", "range"})
 
 
 def applicable_categories(node_type: str) -> list[str]:
@@ -136,7 +138,9 @@ async def _setup(workflow_repo: Any, stored: Any, definition: dict[str, Any], wo
         "egress_allowlist": _egress_allowlist(project),
         "api_specs": await load_api_specs(session, workflow.nodes),
     }
-    lookups = await build_lookups(session, stored.project_id, None, team_id=setup.team_id)
+    # workflow_id + definition load the call closure, so a mocked ExecuteWorkflow gets its child's typed output contract (section 6.2)
+    lookups = await build_lookups(session, stored.project_id, None, team_id=setup.team_id,
+                                  workflow_id=stored.id, definition=definition)
     setup.definition, setup.lookups = definition, lookups
     setup.shapes = check_workflow(definition, lookups=lookups).get("shapes_by_node", {})
     return setup
@@ -154,11 +158,13 @@ def _result(test: dict[str, Any], status: str, duration_ms: float, **extra: Any)
 
 async def _run_one(
     workflow_repo: Any, stored: Any, workflow: Any, definition: dict[str, Any], test: dict[str, Any],
-    defaults: dict[str, Any], setup: _Setup, persist: bool,
+    defaults: dict[str, Any], setup: _Setup, persist: bool, *, live_nodes: frozenset[str] = frozenset(),
+    smoke: bool = False,
 ) -> dict[str, Any]:
     from ..db.session import async_session_factory
     from ..repositories.execution_repository import ExecutionRepository
     from ..utils.ids import execution_id as gen_exec_id
+    from .subworkflow_wiring import subworkflow_invoker
 
     started = perf_counter()
     now = parse_now(test.get("now") or defaults.get("now"))
@@ -171,9 +177,21 @@ async def _run_one(
     except ValidationError as e:
         return _result(test, "error", 0.0, failures=[{"kind": "setup", "node": None, "message": e.message}])
 
+    inline = set((test.get("subworkflows") or {}).keys())
+    exec_nodes = {n.name for n in workflow.nodes if n.type == "ExecuteWorkflow"}
+    not_calls = sorted(inline - exec_nodes)
+    if not_calls:
+        # section 6.3: only an ExecuteWorkflow node can run its child inline; say which names are wrong, don't crash
+        return _result(test, "error", 0.0, failures=[{
+            "kind": "setup", "node": not_calls[0],
+            "message": "subworkflows: " + ", ".join(f"'{n}'" for n in not_calls)
+            + (" is not an Execute Workflow node" if len(not_calls) == 1 else " are not Execute Workflow nodes")
+            + " in this workflow, so it can't run inline.",
+        }])
     options = TestRunOptions(
         mocks=copy.deepcopy(test.get("mocks") or {}), default_mocks=copy.deepcopy(defaults.get("mocks") or {}),
-        now=now, seed=int(seed if seed is not None else 1), persist=persist,
+        now=now, seed=int(seed if seed is not None else 1), persist=persist, live_nodes=frozenset(live_nodes),
+        inline_subworkflows=frozenset(inline),
     )
     exec_id = gen_exec_id()
     exec_repo = ExecutionRepository(workflow_repo._session) if persist else None
@@ -191,6 +209,9 @@ async def _run_one(
                 secret_values=set(setup.secrets), project_id=setup.project_id, environment=setup.environment,
                 team_id=setup.team_id, extras=dict(setup.extras), stop_at=opts["stop_at"],
                 pending_inputs=opts["pending_inputs"], test_options=options,
+                # a sub-workflow call that is not mocked resolves versions like a real run; with persist=False the invoker
+                # writes no child row (it reads test_options.persist), with persist=True the child is a mode='test' row
+                subworkflow_invoker=subworkflow_invoker(async_session_factory),
             ),
             timeout=_RUN_TIMEOUT_S,
         )
@@ -206,6 +227,8 @@ async def _run_one(
 
     nodes_raw = {n["name"]: n for n in definition.get("nodes", []) if isinstance(n, dict) and n.get("name")}
     node_status = {n.name: _node_status(n.name, context) for n in workflow.nodes}
+    # inline children (section 6.3): their nodes are addressable as "<node>/<child node>"
+    node_status.update(context.extras.get("test_inline_status") or {})
     outputs = {
         node: {port: _json_of(its) for port, its in ports.items() if its}
         for node, ports in context.test_outputs.items()
@@ -231,7 +254,13 @@ async def _run_one(
     failures: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
     for a in assertions:
-        if not a["passed"]:
+        if not a["passed"] and smoke and a.get("op") in VALUE_OPS:
+            # live data changes: a value that moved is news, not a failure
+            warnings.append({
+                "kind": "info", "node": a["node"], "port": a["port"], "path": a["path"], "expected": a["expected"],
+                "actual": a["actual"], "message": f"{a['node']}: {a['message']}",
+            })
+        elif not a["passed"]:
             failures.append({
                 "kind": "assertion", "node": a["node"], "port": a["port"], "path": a["path"], "expected": a["expected"],
                 "actual": a["actual"], "message": f"{a['node']}: {a['message']}",
@@ -271,6 +300,15 @@ async def _run_one(
     status = "passed"
     if failures:
         status = "error" if any(f["kind"] in ("unmocked", "setup", "node_error") for f in failures) else "failed"
+    extra: dict[str, Any] = {}
+    if live_nodes:
+        extra["live_calls"] = [
+            {"node": n, "status_code": (context.node_metrics.get(n) or {}).get("responseStatusCode"),
+             "ms": (context.node_metrics.get(n) or {}).get("responseTimeMs", (context.node_metrics.get(n) or {}).get("executionTimeMs"))}
+            for n in sorted(live_nodes) if n in context.node_metrics
+        ]
+        await _drift_of_live_replies(workflow_repo, stored, setup.definition or definition, context, live_nodes,
+                                     exec_id if persist else None)
     return _result(
         test, status, round((perf_counter() - started) * 1000, 2),
         execution_id=exec_id if persist else None, assertions=assertions, failures=failures, warnings=warnings,
@@ -278,7 +316,29 @@ async def _run_one(
         ports_taken={n: [p for p, its in ports.items() if its] for n, ports in context.test_outputs.items()},
         requests=copy.deepcopy(context.test_requests),
         outputs={n: {p: its[:_MAX_OUTPUT_ITEMS] for p, its in ports.items()} for n, ports in outputs.items()},
+        **extra,
     )
+
+
+async def _drift_of_live_replies(
+    workflow_repo: Any, stored: Any, definition: dict[str, Any], context: Any, live_nodes: frozenset[str],
+    execution_id: str | None,
+) -> None:
+    """Live replies go through drift detection like real runs do. Never raises."""
+    from . import drift
+
+    try:
+        outs = {n: [i.json for i in ports.get("main", [])] for n, ports in context.test_outputs.items() if n in live_nodes}
+        await drift.check_outputs(
+            workflow_repo._session, project_id=stored.project_id, workflow_id=stored.id, definition=definition,
+            outputs=outs, execution_id=execution_id, only_nodes=set(live_nodes),
+        )
+    except Exception:
+        logger.warning("drift check of live replies failed for %s", stored.id, exc_info=True)
+        try:
+            await workflow_repo._session.rollback()
+        except Exception:
+            pass
 
 
 def build_grid(workflow: Any, tests: list[dict[str, Any]], results: dict[str, dict[str, Any]]) -> dict[str, Any]:
@@ -305,7 +365,9 @@ def build_grid(workflow: Any, tests: list[dict[str, Any]], results: dict[str, di
     return {"categories": list(CATEGORIES), "rows": rows}
 
 
-def build_report(workflow: Any, tests: list[dict[str, Any]], results: list[dict[str, Any]]) -> dict[str, Any]:
+def build_report(
+    workflow: Any, tests: list[dict[str, Any]], results: list[dict[str, Any]], stale_test_ids: list[str] | None = None,
+) -> dict[str, Any]:
     by_id = {r["test_id"]: r for r in results}
     approved = [t for t in tests if t.get("status") == "approved" and t["id"] in by_id]
     badges: dict[str, str] = {}
@@ -329,14 +391,18 @@ def build_report(workflow: Any, tests: list[dict[str, Any]], results: list[dict[
         },
         "badges": badges,
         "grid": build_grid(workflow, tests, by_id),
+        "stale_test_ids": list(stale_test_ids or []),
     }
 
 
 async def run_tests(
     workflow_repo: Any, stored: Any, definition: dict[str, Any] | None = None, *,
-    ids: list[str] | None = None, persist: bool = True,
+    ids: list[str] | None = None, persist: bool = True, live_nodes: Any = None, smoke: bool = False,
 ) -> dict[str, Any]:
     """Run the tests of ``stored`` (or of the unsaved ``definition`` of it); returns a ``TestRunReport`` dict.
+
+    ``live_nodes`` (smoke runs, Stage 3B) names nodes that skip their mock and call the real system; with
+    ``smoke`` only structural assertions can fail (value ops are reported as ``info``).
 
     ``ids`` picks tests (an unknown id raises TestNotFoundError). With ``persist`` each run is saved as an
     execution with ``mode="test"``; without it nothing is written. Test runs older than 7 days are deleted.
@@ -361,10 +427,24 @@ async def run_tests(
         tests = [t for t in tests if t["id"] in set(ids)]
     if persist:
         await ExecutionRepository(workflow_repo._session).purge_test_runs(7)
+    stale = await _stale_ids(workflow_repo, stored, definition)
     if not tests:
-        return build_report(workflow, [], [])
+        return build_report(workflow, [], [], stale)
     setup = await _setup(workflow_repo, stored, definition, workflow)
+    live = frozenset(live_nodes or ())
     results = []
     for test in tests:
-        results.append(await _run_one(workflow_repo, stored, workflow, definition, test, defaults, setup, persist))
-    return build_report(workflow, tests, results)
+        results.append(await _run_one(workflow_repo, stored, workflow, definition, test, defaults, setup, persist,
+                                      live_nodes=live, smoke=smoke))
+    return build_report(workflow, tests, results, stale)
+
+
+async def _stale_ids(workflow_repo: Any, stored: Any, definition: dict[str, Any]) -> list[str]:
+    """Tests whose mocks cover a node with open API drift (derived, never stored). Empty on any failure."""
+    from . import drift
+
+    try:
+        return await drift.stale_ids_for(workflow_repo._session, stored.id, definition)
+    except Exception:
+        logger.warning("could not compute stale tests for %s", stored.id, exc_info=True)
+        return []

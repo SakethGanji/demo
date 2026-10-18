@@ -89,6 +89,8 @@ export interface ApiPublishResponse {
   id: string;
   active: boolean;
   version_id: number | null;
+  /** per-workflow version number (v1, v2, ...); only returned by publish */
+  version_number?: number | null;
 }
 
 // Execution list item from GET /api/executions

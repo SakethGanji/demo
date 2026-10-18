@@ -1,0 +1,371 @@
+{
+  "id": "payment_exception",
+  "holdout": false,
+  "request": "When a payment fails, the payments system posts us the payment id, the error code and the amount. Timeouts and network errors are transient: retry the payment once, automatically. Any other error code, such as insufficient_funds or invalid_account, goes to an ops person to review, and we only retry it if they approve. Reply to the caller whatever we did. The failure is posted with the fields payment_id, error_code and amount.",
+  "apis": [
+    "payments.yaml"
+  ],
+  "spec_edits": null,
+  "expect": {
+    "trigger": "Webhook",
+    "must_have_types": [
+      "If|Switch",
+      "Approval",
+      "Respond"
+    ],
+    "must_call": [
+      "payments.retry"
+    ],
+    "must_not_call_hosts": [],
+    "approval_ports_wired": [
+      "approved",
+      "rejected"
+    ],
+    "max_nodes": 10,
+    "forbid_types": [],
+    "min_spec_tests": 3
+  },
+  "hidden_tests": [
+    {
+      "name": "A timeout is retried once with no review",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "body": {
+              "payment_id": "pay-3301",
+              "error_code": "timeout",
+              "amount": 640
+            },
+            "headers": {},
+            "query": {},
+            "method": "POST"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:payments.retry": {
+          "http": {
+            "status": 200,
+            "body": {
+              "payment_id": "pay-3301",
+              "status": "pending"
+            }
+          }
+        },
+        "$type:Approval?": {
+          "port": "approved",
+          "approval": {
+            "decision": "approved",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$api:payments.retry",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:payments.retry",
+          "subject": "request",
+          "item": "any",
+          "path": "url",
+          "op": "contains",
+          "value": "pay-3301"
+        },
+        {
+          "node": "$api:payments.retry",
+          "subject": "request",
+          "op": "count",
+          "value": 1
+        },
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$last",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "A network error is retried once with no review",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "body": {
+              "payment_id": "pay-3301",
+              "error_code": "network_error",
+              "amount": 640
+            },
+            "headers": {},
+            "query": {},
+            "method": "POST"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:payments.retry": {
+          "http": {
+            "status": 200,
+            "body": {
+              "payment_id": "pay-3301",
+              "status": "pending"
+            }
+          }
+        },
+        "$type:Approval?": {
+          "port": "approved",
+          "approval": {
+            "decision": "approved",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$api:payments.retry",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:payments.retry",
+          "subject": "request",
+          "item": "any",
+          "path": "url",
+          "op": "contains",
+          "value": "pay-3301"
+        },
+        {
+          "node": "$api:payments.retry",
+          "subject": "request",
+          "op": "count",
+          "value": 1
+        },
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$last",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "Insufficient funds approved by ops is retried",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "body": {
+              "payment_id": "pay-3301",
+              "error_code": "insufficient_funds",
+              "amount": 640
+            },
+            "headers": {},
+            "query": {},
+            "method": "POST"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:payments.retry": {
+          "http": {
+            "status": 200,
+            "body": {
+              "payment_id": "pay-3301",
+              "status": "pending"
+            }
+          }
+        },
+        "$type:Approval": {
+          "port": "approved",
+          "approval": {
+            "decision": "approved",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:payments.retry",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:payments.retry",
+          "subject": "request",
+          "item": "any",
+          "path": "url",
+          "op": "contains",
+          "value": "pay-3301"
+        },
+        {
+          "node": "$last",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "Insufficient funds rejected by ops is not retried",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "body": {
+              "payment_id": "pay-3301",
+              "error_code": "insufficient_funds",
+              "amount": 640
+            },
+            "headers": {},
+            "query": {},
+            "method": "POST"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:payments.retry": {
+          "http": {
+            "status": 200,
+            "body": {
+              "payment_id": "pay-3301",
+              "status": "pending"
+            }
+          }
+        },
+        "$type:Approval": {
+          "port": "rejected",
+          "approval": {
+            "decision": "rejected",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:payments.retry",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$last",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "An invalid account rejected by ops is not retried",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "body": {
+              "payment_id": "pay-3301",
+              "error_code": "invalid_account",
+              "amount": 640
+            },
+            "headers": {},
+            "query": {},
+            "method": "POST"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:payments.retry": {
+          "http": {
+            "status": 200,
+            "body": {
+              "payment_id": "pay-3301",
+              "status": "pending"
+            }
+          }
+        },
+        "$type:Approval": {
+          "port": "rejected",
+          "approval": {
+            "decision": "rejected",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:payments.retry",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$last",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        }
+      ],
+      "category": "unusual"
+    }
+  ]
+}

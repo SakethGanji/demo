@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { NodeCreatorView } from '../types/workflow';
 
 export type BottomPanelTab = 'logs' | 'input' | 'problems' | 'tests';
-export type RightPanelTab = 'nodes' | 'ai';
+export type RightPanelTab = 'nodes' | 'ai' | 'interface' | 'builder';
 type CanvasMode = 'pointer' | 'hand';
 
 const STORAGE_PREFIX = 'workflow-studio:editor-layout';
@@ -29,7 +29,7 @@ function loadBottomTab(fallback: BottomPanelTab): BottomPanelTab {
 function loadRightTab(fallback: RightPanelTab): RightPanelTab {
   try {
     const v = localStorage.getItem(`${STORAGE_PREFIX}:right-tab`);
-    if (v === '"nodes"' || v === '"ai"') return JSON.parse(v);
+    if (v === '"nodes"' || v === '"ai"' || v === '"interface"' || v === '"builder"') return JSON.parse(v);
     return fallback;
   } catch {
     return fallback;

@@ -1,0 +1,13 @@
+{
+  "rules": [
+    {
+      "id": "concept_tag",
+      "when": {
+        "system_matches": "^KG_AI:CONCEPT_TAG\\n"
+      },
+      "respond": {
+        "text": "{\"tags\": [{\"key\": \"api:ledger.frobnicate\", \"concepts\": [\"concept:reconciliation\", \"concept:made_up\"], \"new_concept\": \"Case triage\"}, {\"key\": \"api:somewhere.else\", \"concepts\": [\"concept:approval\"], \"new_concept\": null}]}"
+      }
+    }
+  ]
+}

@@ -57,6 +57,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info("Dev seed applied")
 
     from .db.session import async_session_factory
+
+    # Stage 8: fill the sub-workflow reference index once, when it is empty (idempotent; never blocks startup)
+    try:
+        from .services.workflow_refs import backfill_if_empty
+        await backfill_if_empty(async_session_factory)
+    except Exception:
+        logger.warning("workflow_refs backfill failed", exc_info=True)
+
+    # Capability graph: seed the ontology and the global capabilities (idempotent; WORKFLOW_KG_SEED=0 skips; a failure never blocks startup)
+    if os.environ.get("WORKFLOW_KG_SEED", "1").strip().lower() not in ("0", "false", "no"):
+        try:
+            from .services import kg_extract
+            kg_report = await kg_extract.seed_global()
+            logger.info("Capability graph seeded (+%s new, %s changed)", kg_report.added, kg_report.updated)
+        except Exception:
+            logger.warning("capability graph seed failed (is the capability_graph migration applied?)", exc_info=True)
+
     from .engine.cron_scheduler import CronScheduler
     from .engine.stale_reaper import StaleReaper
     from .engine.retention_cleaner import RetentionCleaner
@@ -66,6 +83,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     cron_scheduler = CronScheduler(async_session_factory)
     stale_reaper = StaleReaper(async_session_factory)
     retention_cleaner = RetentionCleaner(async_session_factory)
+
+    # Stage 5: a resume that was running when the previous process died is never re-run (it could pay twice); it fails loudly.
+    from .engine import task_resumer
+    try:
+        await task_resumer.startup_sweep(async_session_factory)
+    except Exception:
+        logger.warning("startup sweep of interrupted approvals failed (is the interfaces_tasks migration applied?)", exc_info=True)
+
+    # Stage 5 6.2: chat completion hooks live for the whole process, so a run that waited on an approval still replies after a restart.
+    from .services import chat_service
+    if not chat_service.register_hooks():
+        logger.warning("chat completion hooks not registered (ExecutionRepository.on_complete_hooks is missing)")
 
     cron_scheduler.start()
     stale_reaper.start()

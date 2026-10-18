@@ -1,0 +1,24 @@
+{
+ "rules": [
+  {
+   "id": "bad",
+   "when": {
+    "system_matches": "^WF_AI:NODE_CODE\\n",
+    "nth": 1
+   },
+   "respond": {
+    "text": "{\"code\": \"amount = json_data['body']['amount']\\nreturn [new_item({'fee': amount / 0})]\", \"explanation\": \"first try\"}"
+   }
+  },
+  {
+   "id": "good",
+   "when": {
+    "system_matches": "^WF_AI:NODE_CODE\\n",
+    "nth": 2
+   },
+   "respond": {
+    "text": "{\"code\": \"amount = json_data.get('body', {}).get('amount', 0)\\nreturn [new_item({'fee': amount * 0.01})]\", \"explanation\": \"fixed\"}"
+   }
+  }
+ ]
+}

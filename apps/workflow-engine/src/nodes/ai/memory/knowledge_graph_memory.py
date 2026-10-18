@@ -76,7 +76,7 @@ class KnowledgeGraphMemoryNode(MemoryProviderBase):
                 display_name="Extraction Model",
                 name="extractionModel",
                 type="string",
-                default="gemini-2.0-flash",
+                default="gemini-3.7-flash",
                 description="LLM model for relationship extraction",
             ),
             NodeProperty(
@@ -102,7 +102,7 @@ class KnowledgeGraphMemoryNode(MemoryProviderBase):
         connection_string = self.get_parameter(node_definition, "connectionString", "bolt://localhost:7687")
         username = self.get_parameter(node_definition, "username", "neo4j")
         password = self.get_parameter(node_definition, "password", "")
-        extraction_model = self.get_parameter(node_definition, "extractionModel", "gemini-2.0-flash")
+        extraction_model = self.get_parameter(node_definition, "extractionModel", "gemini-3.7-flash")
         max_relationships = self.get_parameter(node_definition, "maxRelationships", 20)
         recent_messages = self.get_parameter(node_definition, "recentMessages", 3)
 

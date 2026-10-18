@@ -346,3 +346,11 @@ def test_project_stats_exclude_test_runs(api):
     assert run.status_code == 200 and run.json()["summary"]["total"] == 4
     summary = api.get(f"/projects/{pid}/summary").json()
     assert summary["health"]["runs_24h"] == 0 and summary["last_run"] is None
+
+
+def test_publish_returns_the_per_workflow_version_number(api):
+    wid = make(api, refund())
+    first = api.post(f"/workflows/{wid}/publish", {}).json()
+    second = api.post(f"/workflows/{wid}/publish", {}).json()
+    assert first["version_number"] == 1 and second["version_number"] == 2, (first, second)
+    assert second["version_id"] > first["version_id"]      # version_id stays the global row id

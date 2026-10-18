@@ -18,6 +18,7 @@ import re
 import signal
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -27,6 +28,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 NAME_RE = re.compile(r"^workflows_test_e2e_[0-9a-f]{8}$")
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "workflows" / "refund_triage.json"
 FAKE_SERVER = Path(__file__).resolve().parent / "fake_refund_api.py"
+UI_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "workflows" / "refund_triage_ui.json"
+CHAT_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "workflows" / "chat_support_ui.json"
 
 
 def _call(base: str, method: str, path: str, body: dict | None = None) -> tuple[int, dict]:
@@ -79,12 +82,68 @@ def seed(engine_url: str, state_file: str | None) -> dict:
     if code != 200:
         raise RuntimeError(f"update workflow failed: {code} {upd}")
 
-    out = {"refund_workflow_id": wf_id, "refund_failed_execution_id": exec_id, "refund_table_id": table.get("id"),
+    ui = _seed_interfaces(base, raw_url=ok_url)
+
+    out = {**ui, "refund_workflow_id": wf_id, "refund_failed_execution_id": exec_id, "refund_table_id": table.get("id"),
            "fake_api_url": fake, "fake_api_ok_url": ok_url, "fake_api_fail_url": fail_url, "fake_api_pid": proc.pid}
     if state_file and Path(state_file).exists():
         st = json.loads(Path(state_file).read_text())
         st.update(out)
         Path(state_file).write_text(json.dumps(st, indent=2))
+    return out
+
+
+def _seed_interfaces(base: str, raw_url: str) -> dict:
+    """Stage 5: the refund form + approval workflow and the chat workflow. Never published here (tests publish them).
+
+    A preview submission is attempted so a run with an open task exists for the editor's live preview; it is
+    best-effort (it needs the durable-approvals engine) and its absence is reported as ``refund_ui_execution_id: null``."""
+    out: dict = {"refund_ui_workflow_id": None, "refund_ui_slug": None, "refund_ui_execution_id": None,
+                 "chat_workflow_id": None, "chat_slug": None, "project_slug": None}
+    code, project = _call(base, "GET", "/projects/proj_default")
+    if code == 200:
+        out["project_slug"] = project.get("slug")
+    if UI_FIXTURE.exists():
+        body = json.loads(UI_FIXTURE.read_text().replace("__REFUND_API_URL__", raw_url))
+        code, wf = _call(base, "POST", "/workflows", body)
+        if code != 201:
+            raise RuntimeError(f"create refund-ui workflow failed: {code} {wf}")
+        out["refund_ui_workflow_id"], out["refund_ui_slug"] = wf["id"], body["interface"]["slug"]
+        code, _ = _call(base, "PUT", f"/workflows/{wf['id']}/interface", body["interface"])
+        if code != 200:
+            raise RuntimeError(f"saving the refund-ui interface failed: {code}")
+        # Classify is pinned only while the seeded run passes it (the AI step needs a scripted/real model otherwise)
+        pinned = json.loads(json.dumps(body["nodes"]))
+        for n in pinned:
+            if n["name"] == "Classify":
+                n["pinned_data"] = [{"json": {"category": "damaged", "summary": "Customer reports a damaged item; the amount is above the auto-approval limit.", "suggest": "approve"}}]
+        _call(base, "PUT", f"/workflows/{wf['id']}", {"nodes": pinned})
+        req = urllib.request.Request(
+            f"{base}/workflows/{wf['id']}/interface/preview/submit", method="POST",
+            data=json.dumps({"fields": {"order_id": "A-10042", "amount": 742, "reason": "damaged", "email": "dana@example.com"}}).encode(),
+            headers={"Content-Type": "application/json", "Idempotency-Key": "e2e-seed-1"})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                out["refund_ui_execution_id"] = json.loads(r.read() or b"{}").get("execution_id")
+        except (urllib.error.URLError, ValueError):
+            pass
+        if out["refund_ui_execution_id"]:
+            deadline = time.time() + 30
+            while time.time() < deadline:      # wait until the run is past Classify (waiting for the manager, or ended)
+                code, data = _call(base, "GET", f"/workflows/{wf['id']}/interface/preview/data?execution_id={out['refund_ui_execution_id']}")
+                if code == 200 and data.get("status") in ("waiting", "success", "failed", "cancelled"):
+                    break
+                time.sleep(0.3)
+        _call(base, "PUT", f"/workflows/{wf['id']}", {"nodes": body["nodes"]})
+    if CHAT_FIXTURE.exists():
+        body = json.loads(CHAT_FIXTURE.read_text())
+        code, wf = _call(base, "POST", "/workflows", body)
+        if code != 201:
+            raise RuntimeError(f"create chat workflow failed: {code} {wf}")
+        out["chat_workflow_id"], out["chat_slug"] = wf["id"], body["interface"]["slug"]
+        code, _ = _call(base, "PUT", f"/workflows/{wf['id']}/interface", body["interface"])
+        if code != 200:
+            raise RuntimeError(f"saving the chat interface failed: {code}")
     return out
 
 

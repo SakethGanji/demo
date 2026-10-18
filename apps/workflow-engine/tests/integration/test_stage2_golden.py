@@ -70,7 +70,7 @@ def _file_defs() -> dict[str, dict]:
     for p in sorted((FIX / "workflows").glob("*.json")):
         if p.name.startswith(("marketplace_", "refund_")):
             d = json.loads(p.read_text())
-            if p.name == "refund_triage.json":  # placeholder url -> a literal host
+            if p.name in ("refund_triage.json", "refund_triage_ui.json"):  # placeholder url -> a literal host
                 d = json.loads(json.dumps(d).replace("__REFUND_API_URL__", "http://127.0.0.1:9/ok"))
             out[p.stem] = d
     return out
@@ -81,6 +81,8 @@ def _n8n_defs() -> dict[str, tuple[dict, dict]]:
     from src.services.workflow_checker import StaticLookups
     out = {}
     for p in sorted((FIX / "n8n").glob("*.json")):
+        if "subworkflow" in p.name:  # Stage 8 B9 fixtures: covered by tests/unit/test_stage8_b9_*.py (their stems collide here)
+            continue
         wf, report = import_n8n(json.loads(p.read_text()))
         out["n8n_" + p.stem.split("_")[0]] = (wf, report)
     return out

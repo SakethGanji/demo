@@ -1,0 +1,469 @@
+{
+ "id": "daily_recon_report",
+ "holdout": true,
+ "request": "Every night at 11pm, pull today's entries from the ledger and today's settlements from the card processor. Compare them by reference. Email finance a list of any reference whose amount differs between the two, or that appears on only one side. If everything matches, do not send any email.",
+ "apis": [
+  "ledger.yaml",
+  "processor.yaml"
+ ],
+ "spec_edits": null,
+ "expect": {
+  "trigger": "Cron",
+  "must_have_types": [
+   "SendEmail",
+   "If|Switch"
+  ],
+  "must_call": [
+   "ledger.list",
+   "processor.list"
+  ],
+  "must_not_call_hosts": [],
+  "approval_ports_wired": [],
+  "max_nodes": 12,
+  "forbid_types": [
+   "Approval"
+  ],
+  "min_spec_tests": 3
+ },
+ "hidden_tests": [
+  {
+   "name": "Matching books send nothing",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "$api:ledger.list": {
+     "http": {
+      "status": 200,
+      "body": {
+       "entries": [
+        {
+         "ref": "A1",
+         "amount": 100
+        },
+        {
+         "ref": "A2",
+         "amount": 50
+        },
+        {
+         "ref": "A3",
+         "amount": 75
+        }
+       ]
+      }
+     }
+    },
+    "$api:processor.list": {
+     "http": {
+      "status": 200,
+      "body": {
+       "settlements": [
+        {
+         "ref": "A1",
+         "amount": 100
+        },
+        {
+         "ref": "A2",
+         "amount": 50
+        },
+        {
+         "ref": "A3",
+         "amount": 75
+        }
+       ]
+      }
+     }
+    },
+    "$all:SendEmail": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$api:ledger.list",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "$api:processor.list",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "$type:SendEmail",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ],
+   "category": "normal"
+  },
+  {
+   "name": "A differing amount is reported",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "$api:ledger.list": {
+     "http": {
+      "status": 200,
+      "body": {
+       "entries": [
+        {
+         "ref": "A1",
+         "amount": 100
+        },
+        {
+         "ref": "A2",
+         "amount": 50
+        },
+        {
+         "ref": "A3",
+         "amount": 75
+        }
+       ]
+      }
+     }
+    },
+    "$api:processor.list": {
+     "http": {
+      "status": 200,
+      "body": {
+       "settlements": [
+        {
+         "ref": "A1",
+         "amount": 100
+        },
+        {
+         "ref": "A2",
+         "amount": 55
+        },
+        {
+         "ref": "A3",
+         "amount": 75
+        }
+       ]
+      }
+     }
+    },
+    "$all:SendEmail": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$api:ledger.list",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "$api:processor.list",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "$type:SendEmail",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "$type:SendEmail",
+     "subject": "request",
+     "item": "any",
+     "path": "params.body",
+     "op": "contains",
+     "value": "A2"
+    }
+   ],
+   "category": "normal"
+  },
+  {
+   "name": "A reference missing at the processor is reported",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "$api:ledger.list": {
+     "http": {
+      "status": 200,
+      "body": {
+       "entries": [
+        {
+         "ref": "A1",
+         "amount": 100
+        },
+        {
+         "ref": "A2",
+         "amount": 50
+        },
+        {
+         "ref": "A3",
+         "amount": 75
+        }
+       ]
+      }
+     }
+    },
+    "$api:processor.list": {
+     "http": {
+      "status": 200,
+      "body": {
+       "settlements": [
+        {
+         "ref": "A1",
+         "amount": 100
+        },
+        {
+         "ref": "A2",
+         "amount": 50
+        }
+       ]
+      }
+     }
+    },
+    "$all:SendEmail": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$api:ledger.list",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "$api:processor.list",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "$type:SendEmail",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "$type:SendEmail",
+     "subject": "request",
+     "item": "any",
+     "path": "params.body",
+     "op": "contains",
+     "value": "A3"
+    }
+   ],
+   "category": "normal"
+  },
+  {
+   "name": "A reference only at the processor is reported",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "$api:ledger.list": {
+     "http": {
+      "status": 200,
+      "body": {
+       "entries": [
+        {
+         "ref": "A1",
+         "amount": 100
+        },
+        {
+         "ref": "A2",
+         "amount": 50
+        },
+        {
+         "ref": "A3",
+         "amount": 75
+        }
+       ]
+      }
+     }
+    },
+    "$api:processor.list": {
+     "http": {
+      "status": 200,
+      "body": {
+       "settlements": [
+        {
+         "ref": "A1",
+         "amount": 100
+        },
+        {
+         "ref": "A2",
+         "amount": 50
+        },
+        {
+         "ref": "A3",
+         "amount": 75
+        },
+        {
+         "ref": "B9",
+         "amount": 12
+        }
+       ]
+      }
+     }
+    },
+    "$all:SendEmail": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$api:ledger.list",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "$api:processor.list",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "$type:SendEmail",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "$type:SendEmail",
+     "subject": "request",
+     "item": "any",
+     "path": "params.body",
+     "op": "contains",
+     "value": "B9"
+    }
+   ],
+   "category": "unusual"
+  },
+  {
+   "name": "The same data in another order still matches",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "$api:ledger.list": {
+     "http": {
+      "status": 200,
+      "body": {
+       "entries": [
+        {
+         "ref": "A1",
+         "amount": 100
+        },
+        {
+         "ref": "A2",
+         "amount": 50
+        },
+        {
+         "ref": "A3",
+         "amount": 75
+        }
+       ]
+      }
+     }
+    },
+    "$api:processor.list": {
+     "http": {
+      "status": 200,
+      "body": {
+       "settlements": [
+        {
+         "ref": "A3",
+         "amount": 75
+        },
+        {
+         "ref": "A2",
+         "amount": 50
+        },
+        {
+         "ref": "A1",
+         "amount": 100
+        }
+       ]
+      }
+     }
+    },
+    "$all:SendEmail": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$api:ledger.list",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "$api:processor.list",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "$type:SendEmail",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ],
+   "category": "boundary"
+  }
+ ]
+}

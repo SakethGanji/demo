@@ -19,6 +19,8 @@ NOT_EXPOSED = {
     "Start", "Webhook", "Cron", "ErrorTrigger", "ExecuteWorkflowTrigger",
     "If", "Switch", "Merge", "Loop", "Wait", "Poll", "StopAndError", "ExecuteWorkflow",
     "ChatInput", "Code", "PythonStep", "Respond",
+    # Stage 5: a form is a trigger; an Approval pauses the whole run for a person, which a function call cannot do
+    "FormTrigger", "Approval",
 }
 # Egress classification per node type: "none" = pure data, "http" = via the run's http client
 # (checked per request), anything else = opaque egress (cannot be host-checked).

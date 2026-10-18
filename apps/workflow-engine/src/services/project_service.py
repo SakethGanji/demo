@@ -71,13 +71,14 @@ def effective_environment(project: ProjectModel | None, requested: str | None, s
     return requested
 
 
-async def resolve_project(session: AsyncSession, ref: str) -> ProjectModel | None:
-    """Accept a project id (proj_...) or a slug."""
+async def resolve_project(session: AsyncSession, ref: str, *, slug_only: bool = False) -> ProjectModel | None:
+    """Accept a project id (proj_...) or a slug. ``slug_only`` (public addresses) refuses the internal id."""
     if not ref:
         return None
-    p = await session.get(ProjectModel, ref)
-    if p:
-        return p
+    if not slug_only:
+        p = await session.get(ProjectModel, ref)
+        if p:
+            return p
     res = await session.execute(
         select(ProjectModel).where(ProjectModel.team_id == "default", func.lower(ProjectModel.slug) == ref.lower())
     )

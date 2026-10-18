@@ -1,0 +1,1180 @@
+{
+  "format": "wf-template/1",
+  "slug": "aml-alert-triage",
+  "version": "1.0.0",
+  "name": "AML alert triage",
+  "summary": "Score open AML alerts on a schedule and route them: analysts get the high scores, the rest are closed with a note.",
+  "category": "compliance",
+  "tags": [
+    "aml",
+    "cron",
+    "sub-workflow",
+    "queues"
+  ],
+  "min_engine_stage": 8,
+  "requires": {
+    "templates": [],
+    "secrets": [
+      {
+        "name": "AML_API_KEY",
+        "used_by": [
+          "main/List open alerts",
+          "main/Close low risk"
+        ]
+      },
+      {
+        "name": "QUEUES_API_KEY",
+        "used_by": [
+          "main/Assign to analyst",
+          "main/Flag scoring failure"
+        ]
+      }
+    ],
+    "variables": [
+      {
+        "name": "AML_HIGH_SCORE",
+        "default": "70",
+        "type": "number",
+        "description": "Alerts scoring at least this much go to an analyst"
+      }
+    ],
+    "egress_hosts": [
+      "aml.bank.example",
+      "risk.bank.example",
+      "queues.bank.example"
+    ]
+  },
+  "apis": [
+    {
+      "key": "aml",
+      "name": "aml",
+      "file": "apis/aml.yaml"
+    },
+    {
+      "key": "risk",
+      "name": "risk",
+      "file": "apis/risk.yaml"
+    },
+    {
+      "key": "queues",
+      "name": "queues",
+      "file": "apis/queues.yaml"
+    }
+  ],
+  "tables": [
+    {
+      "key": "aml_rules",
+      "name": "aml_rules",
+      "description": "Keywords in an alert description and the score each adds",
+      "columns": [
+        {
+          "name": "keyword",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "weight",
+          "type": "number",
+          "required": true
+        }
+      ],
+      "seed_rows": [
+        {
+          "keyword": "cash deposits",
+          "weight": 25
+        },
+        {
+          "keyword": "shell company",
+          "weight": 30
+        },
+        {
+          "keyword": "rapid movement",
+          "weight": 20
+        },
+        {
+          "keyword": "high-risk jurisdiction",
+          "weight": 25
+        }
+      ]
+    }
+  ],
+  "workflows": [
+    {
+      "key": "main",
+      "role": "entry",
+      "name": "AML alert triage",
+      "publish": false,
+      "description": "Every 15 minutes, score the open AML alerts: high scores go to an analyst queue, low scores are closed with a note.",
+      "definition": {
+        "nodes": [
+          {
+            "name": "Every 15 minutes",
+            "type": "Cron",
+            "parameters": {
+              "mode": "cron",
+              "cronExpression": "*/15 * * * *"
+            },
+            "position": {
+              "x": 0,
+              "y": 0
+            }
+          },
+          {
+            "name": "List open alerts",
+            "type": "HttpRequest",
+            "parameters": {
+              "api_ref": {
+                "spec_id": "@tpl:api/aml",
+                "operation_id": "listAlerts"
+              },
+              "method": "GET",
+              "responseType": "json",
+              "headers": [
+                {
+                  "name": "Authorization",
+                  "value": "Bearer {{ $vars.AML_API_KEY }}"
+                }
+              ]
+            },
+            "position": {
+              "x": 240,
+              "y": 0
+            }
+          },
+          {
+            "name": "Split alerts",
+            "type": "ItemLists",
+            "parameters": {
+              "operation": "splitOut",
+              "arrayField": "body.alerts",
+              "includeOther": false
+            },
+            "position": {
+              "x": 480,
+              "y": 0
+            }
+          },
+          {
+            "name": "Score alert",
+            "type": "ExecuteWorkflow",
+            "parameters": {
+              "workflowId": "@tpl:workflow/score",
+              "version": "latest",
+              "inputMode": "map",
+              "mode": "each",
+              "inputs": {
+                "alert_id": "{{ $json.alert_id }}",
+                "customer_id": "{{ $json.customer_id }}",
+                "description": "{{ $json.description }}"
+              }
+            },
+            "position": {
+              "x": 720,
+              "y": 0
+            },
+            "on_error": "error_output"
+          },
+          {
+            "name": "High score?",
+            "type": "If",
+            "parameters": {
+              "condition": "{{ $json.score >= int($vars.AML_HIGH_SCORE or 70) }}"
+            },
+            "position": {
+              "x": 960,
+              "y": -80
+            }
+          },
+          {
+            "name": "Assign to analyst",
+            "type": "HttpRequest",
+            "parameters": {
+              "api_ref": {
+                "spec_id": "@tpl:api/queues",
+                "operation_id": "create"
+              },
+              "method": "POST",
+              "responseType": "json",
+              "headers": [
+                {
+                  "name": "Authorization",
+                  "value": "Bearer {{ $vars.QUEUES_API_KEY }}"
+                }
+              ],
+              "body": {
+                "queue": "compliance",
+                "customer_id": "{{ $json.customer_id }}",
+                "summary": "Alert {{ $json.alert_id }} scored {{ $json.score }}: {{ $json.reason }}",
+                "priority": "urgent"
+              }
+            },
+            "position": {
+              "x": 1200,
+              "y": -160
+            }
+          },
+          {
+            "name": "Close low risk",
+            "type": "HttpRequest",
+            "parameters": {
+              "api_ref": {
+                "spec_id": "@tpl:api/aml",
+                "operation_id": "closeAlert"
+              },
+              "method": "POST",
+              "responseType": "json",
+              "headers": [
+                {
+                  "name": "Authorization",
+                  "value": "Bearer {{ $vars.AML_API_KEY }}"
+                }
+              ],
+              "body": {
+                "resolution": "false_positive",
+                "note": "auto-closed: low risk score {{ $json.score }}"
+              },
+              "path_params": {
+                "alert_id": "{{ $json.alert_id }}"
+              }
+            },
+            "position": {
+              "x": 1200,
+              "y": 0
+            }
+          },
+          {
+            "name": "Flag scoring failure",
+            "type": "HttpRequest",
+            "parameters": {
+              "api_ref": {
+                "spec_id": "@tpl:api/queues",
+                "operation_id": "create"
+              },
+              "method": "POST",
+              "responseType": "json",
+              "headers": [
+                {
+                  "name": "Authorization",
+                  "value": "Bearer {{ $vars.QUEUES_API_KEY }}"
+                }
+              ],
+              "body": {
+                "queue": "compliance",
+                "summary": "An AML alert could not be scored: {{ $json.error }}",
+                "priority": "urgent"
+              }
+            },
+            "position": {
+              "x": 960,
+              "y": 160
+            }
+          }
+        ],
+        "connections": [
+          {
+            "source_node": "Every 15 minutes",
+            "target_node": "List open alerts",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "List open alerts",
+            "target_node": "Split alerts",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Split alerts",
+            "target_node": "Score alert",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Score alert",
+            "target_node": "High score?",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Score alert",
+            "target_node": "Flag scoring failure",
+            "source_output": "error",
+            "target_input": "main"
+          },
+          {
+            "source_node": "High score?",
+            "target_node": "Assign to analyst",
+            "source_output": "true",
+            "target_input": "main"
+          },
+          {
+            "source_node": "High score?",
+            "target_node": "Close low risk",
+            "source_output": "false",
+            "target_input": "main"
+          }
+        ],
+        "settings": {},
+        "tests": [
+          {
+            "id": "t_ff46f8cd",
+            "name": "A high and a low alert are routed differently",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": []
+            },
+            "mocks": {
+              "List open alerts": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "alerts": [
+                      {
+                        "alert_id": "AL-1",
+                        "customer_id": "c-1",
+                        "description": "Several cash deposits"
+                      },
+                      {
+                        "alert_id": "AL-2",
+                        "customer_id": "c-2",
+                        "description": "Several cash deposits"
+                      }
+                    ]
+                  }
+                }
+              },
+              "Score alert": {
+                "items": [
+                  {
+                    "alert_id": "AL-1",
+                    "customer_id": "c-1",
+                    "score": 85,
+                    "reason": "Scored from the customer risk and keyword rules."
+                  },
+                  {
+                    "alert_id": "AL-2",
+                    "customer_id": "c-2",
+                    "score": 20,
+                    "reason": "Scored from the customer risk and keyword rules."
+                  }
+                ]
+              },
+              "Assign to analyst": {
+                "http": {
+                  "status": 201,
+                  "body": {
+                    "ticket_id": "TK-9",
+                    "queue": "compliance"
+                  }
+                }
+              },
+              "Close low risk": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "alert_id": "AL-2",
+                    "status": "closed"
+                  }
+                }
+              }
+            },
+            "expect": [
+              {
+                "node": "Split alerts",
+                "port": "main",
+                "op": "count",
+                "value": 2
+              },
+              {
+                "node": "Split alerts",
+                "port": "main",
+                "path": "alert_id",
+                "op": "eq",
+                "value": "AL-1"
+              },
+              {
+                "node": "Split alerts",
+                "port": "main",
+                "path": "alert_id",
+                "op": "eq",
+                "value": "AL-2",
+                "item": 1
+              },
+              {
+                "node": "Assign to analyst",
+                "subject": "request",
+                "op": "count",
+                "value": 1
+              },
+              {
+                "node": "Assign to analyst",
+                "subject": "request",
+                "item": "any",
+                "path": "body.queue",
+                "op": "eq",
+                "value": "compliance"
+              },
+              {
+                "node": "Close low risk",
+                "subject": "request",
+                "item": "any",
+                "path": "body.note",
+                "op": "contains",
+                "value": "auto-closed"
+              },
+              {
+                "node": "Close low risk",
+                "subject": "request",
+                "item": "any",
+                "path": "url",
+                "op": "contains",
+                "value": "AL-2"
+              },
+              {
+                "node": "Flag scoring failure",
+                "subject": "node",
+                "op": "status",
+                "value": "not_run"
+              }
+            ],
+            "category": "normal",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_d8974295",
+            "name": "Alerts at the threshold go to an analyst",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": []
+            },
+            "mocks": {
+              "List open alerts": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "alerts": [
+                      {
+                        "alert_id": "AL-3",
+                        "customer_id": "c-3",
+                        "description": "Several cash deposits"
+                      }
+                    ]
+                  }
+                }
+              },
+              "Score alert": {
+                "items": [
+                  {
+                    "alert_id": "AL-3",
+                    "customer_id": "c-3",
+                    "score": 70,
+                    "reason": "Scored from the customer risk and keyword rules."
+                  }
+                ]
+              },
+              "Assign to analyst": {
+                "http": {
+                  "status": 201,
+                  "body": {
+                    "ticket_id": "TK-9",
+                    "queue": "compliance"
+                  }
+                }
+              },
+              "Close low risk": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "alert_id": "AL-2",
+                    "status": "closed"
+                  }
+                }
+              }
+            },
+            "expect": [
+              {
+                "node": "Assign to analyst",
+                "subject": "request",
+                "op": "count",
+                "value": 1
+              },
+              {
+                "node": "Close low risk",
+                "subject": "node",
+                "op": "status",
+                "value": "not_run"
+              }
+            ],
+            "category": "boundary",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_05a958ba",
+            "name": "No open alerts means nothing is scored",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": []
+            },
+            "mocks": {
+              "List open alerts": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "alerts": []
+                  }
+                }
+              },
+              "Score alert": {
+                "items": [
+                  {
+                    "alert_id": "AL-1",
+                    "customer_id": "c-1",
+                    "score": 85,
+                    "reason": "Scored from the customer risk and keyword rules."
+                  }
+                ]
+              }
+            },
+            "expect": [
+              {
+                "node": "Split alerts",
+                "subject": "node",
+                "op": "status",
+                "value": "no_output"
+              },
+              {
+                "node": "Score alert",
+                "subject": "node",
+                "op": "status",
+                "value": "not_run"
+              },
+              {
+                "node": "Assign to analyst",
+                "subject": "node",
+                "op": "status",
+                "value": "not_run"
+              }
+            ],
+            "category": "ext_empty",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_eedfe34a",
+            "name": "An alert that cannot be scored is flagged for a person",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": []
+            },
+            "mocks": {
+              "List open alerts": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "alerts": [
+                      {
+                        "alert_id": "AL-1",
+                        "customer_id": "c-1",
+                        "description": "Several cash deposits"
+                      }
+                    ]
+                  }
+                }
+              },
+              "Score alert": {
+                "error": {
+                  "message": "sub-workflow failed",
+                  "code": "SUBWORKFLOW_FAILED"
+                }
+              },
+              "Flag scoring failure": {
+                "http": {
+                  "status": 201,
+                  "body": {
+                    "ticket_id": "TK-9",
+                    "queue": "compliance"
+                  }
+                }
+              }
+            },
+            "expect": [
+              {
+                "node": "Score alert",
+                "port": "error",
+                "op": "count",
+                "value": 1
+              },
+              {
+                "node": "Flag scoring failure",
+                "subject": "request",
+                "op": "count",
+                "value": 1
+              },
+              {
+                "node": "Assign to analyst",
+                "subject": "node",
+                "op": "status",
+                "value": "not_run"
+              },
+              {
+                "node": "Close low risk",
+                "subject": "node",
+                "op": "status",
+                "value": "not_run"
+              }
+            ],
+            "category": "ext_error",
+            "status": "approved",
+            "source": "human"
+          }
+        ],
+        "test_defaults": {}
+      }
+    },
+    {
+      "key": "score",
+      "role": "subworkflow",
+      "name": "Score alert",
+      "publish": true,
+      "description": "Combine the customer's risk score with the keyword rules and add a one-line AI summary for the analyst.",
+      "definition": {
+        "nodes": [
+          {
+            "name": "Inputs",
+            "type": "ExecuteWorkflowTrigger",
+            "parameters": {
+              "inputSource": "fields",
+              "fields": [
+                {
+                  "name": "alert_id",
+                  "type": "string",
+                  "required": true,
+                  "description": "Alert id"
+                },
+                {
+                  "name": "customer_id",
+                  "type": "string",
+                  "required": true,
+                  "description": "Customer id"
+                },
+                {
+                  "name": "description",
+                  "type": "string",
+                  "required": false,
+                  "description": "What the monitoring system saw"
+                }
+              ]
+            },
+            "position": {
+              "x": 0,
+              "y": 0
+            }
+          },
+          {
+            "name": "Customer risk",
+            "type": "HttpRequest",
+            "parameters": {
+              "api_ref": {
+                "spec_id": "@tpl:api/risk",
+                "operation_id": "score"
+              },
+              "method": "POST",
+              "responseType": "json",
+              "body": {
+                "applicant_id": "{{ $json.customer_id }}"
+              }
+            },
+            "position": {
+              "x": 240,
+              "y": 0
+            }
+          },
+          {
+            "name": "Rules",
+            "type": "DataTable",
+            "parameters": {
+              "table": "@tpl:table/aml_rules",
+              "operation": "list",
+              "limit": 100
+            },
+            "position": {
+              "x": 480,
+              "y": 0
+            }
+          },
+          {
+            "name": "Score",
+            "type": "Code",
+            "parameters": {
+              "code": "alert = node_data['Inputs']['json']\nrisk = (node_data.get('Customer risk') or {}).get('json') or {}\ncode = risk.get('statusCode')\nbase = (risk.get('body') or {}).get('score') if code == 200 else 100\nif base is None:\n    base = 100\ntext = str(alert.get('description') or '').lower()\nmatched = []\ntotal = base\nfor row in [x['json'] for x in items]:\n    if str(row.get('keyword', '')).lower() in text:\n        matched.append(row.get('keyword'))\n        total = total + row.get('weight', 0)\nif total > 100:\n    total = 100\nreturn [{'json': {'alert_id': alert['alert_id'], 'customer_id': alert['customer_id'], 'description': alert.get('description'),\n                  'score': total, 'matched_rules': matched, 'risk_unavailable': code != 200}}]\n"
+            },
+            "position": {
+              "x": 720,
+              "y": 0
+            }
+          },
+          {
+            "name": "Summarise",
+            "type": "AIAgent",
+            "parameters": {
+              "model": "claude-sonnet-4-20250514",
+              "systemPrompt": "You write one plain sentence for an AML analyst explaining why an alert got its score. Do not give advice or decide anything.",
+              "task": "Alert {{ $json.alert_id }}, score {{ $json.score }}, matched rules {{ $json.matched_rules }}, description: {{ $json.description }}",
+              "outputSchema": {
+                "type": "object",
+                "required": [
+                  "reason"
+                ],
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "position": {
+              "x": 960,
+              "y": 0
+            },
+            "on_error": "continue"
+          },
+          {
+            "name": "Result",
+            "type": "Set",
+            "parameters": {
+              "mode": "json",
+              "keepOnlySet": true,
+              "jsonData": {
+                "alert_id": "{{ $node[\"Score\"].json.alert_id }}",
+                "customer_id": "{{ $node[\"Score\"].json.customer_id }}",
+                "score": "{{ $node[\"Score\"].json.score }}",
+                "reason": "{{ $json.structured.reason or 'summary unavailable' }}"
+              }
+            },
+            "position": {
+              "x": 1200,
+              "y": 0
+            }
+          }
+        ],
+        "connections": [
+          {
+            "source_node": "Inputs",
+            "target_node": "Customer risk",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Customer risk",
+            "target_node": "Rules",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Rules",
+            "target_node": "Score",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Score",
+            "target_node": "Summarise",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Summarise",
+            "target_node": "Result",
+            "source_output": "main",
+            "target_input": "main"
+          }
+        ],
+        "settings": {},
+        "tests": [
+          {
+            "id": "t_0e61669f",
+            "name": "A matching rule adds its weight to the customer's risk",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "alert_id": "AL-1",
+                  "customer_id": "c-9001",
+                  "description": "Several cash deposits just under the reporting limit"
+                }
+              ]
+            },
+            "mocks": {
+              "Customer risk": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "score": 60,
+                    "band": "B"
+                  }
+                }
+              },
+              "Rules": {
+                "items": [
+                  {
+                    "id": 1,
+                    "keyword": "cash deposits",
+                    "weight": 25
+                  },
+                  {
+                    "id": 2,
+                    "keyword": "shell company",
+                    "weight": 30
+                  }
+                ]
+              },
+              "Summarise": {
+                "items": [
+                  {
+                    "response": "ok",
+                    "structured": {
+                      "reason": "Cash deposits just under the reporting limit raised the score."
+                    },
+                    "toolCalls": [],
+                    "iterations": 1
+                  }
+                ]
+              }
+            },
+            "expect": [
+              {
+                "node": "Score",
+                "port": "main",
+                "path": "score",
+                "op": "eq",
+                "value": 85
+              },
+              {
+                "node": "Score",
+                "port": "main",
+                "path": "matched_rules",
+                "op": "eq",
+                "value": [
+                  "cash deposits"
+                ]
+              },
+              {
+                "node": "Result",
+                "port": "main",
+                "path": "score",
+                "op": "eq",
+                "value": 85
+              },
+              {
+                "node": "Result",
+                "port": "main",
+                "path": "reason",
+                "op": "contains",
+                "value": "Cash deposits"
+              }
+            ],
+            "category": "normal",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_947ee2d6",
+            "name": "With no matching rule the score is the customer's risk",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "alert_id": "AL-1",
+                  "customer_id": "c-9001",
+                  "description": "Routine payroll credit"
+                }
+              ]
+            },
+            "mocks": {
+              "Customer risk": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "score": 20,
+                    "band": "B"
+                  }
+                }
+              },
+              "Rules": {
+                "items": [
+                  {
+                    "id": 1,
+                    "keyword": "cash deposits",
+                    "weight": 25
+                  },
+                  {
+                    "id": 2,
+                    "keyword": "shell company",
+                    "weight": 30
+                  }
+                ]
+              },
+              "Summarise": {
+                "items": [
+                  {
+                    "response": "ok",
+                    "structured": {
+                      "reason": "Cash deposits just under the reporting limit raised the score."
+                    },
+                    "toolCalls": [],
+                    "iterations": 1
+                  }
+                ]
+              }
+            },
+            "expect": [
+              {
+                "node": "Result",
+                "port": "main",
+                "path": "score",
+                "op": "eq",
+                "value": 20
+              },
+              {
+                "node": "Score",
+                "port": "main",
+                "path": "matched_rules",
+                "op": "eq",
+                "value": []
+              }
+            ],
+            "category": "normal",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_163529e5",
+            "name": "The score never goes above 100",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "alert_id": "AL-1",
+                  "customer_id": "c-9001",
+                  "description": "cash deposits from a shell company"
+                }
+              ]
+            },
+            "mocks": {
+              "Customer risk": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "score": 70,
+                    "band": "B"
+                  }
+                }
+              },
+              "Rules": {
+                "items": [
+                  {
+                    "id": 1,
+                    "keyword": "cash deposits",
+                    "weight": 25
+                  },
+                  {
+                    "id": 2,
+                    "keyword": "shell company",
+                    "weight": 30
+                  }
+                ]
+              },
+              "Summarise": {
+                "items": [
+                  {
+                    "response": "ok",
+                    "structured": {
+                      "reason": "Cash deposits just under the reporting limit raised the score."
+                    },
+                    "toolCalls": [],
+                    "iterations": 1
+                  }
+                ]
+              }
+            },
+            "expect": [
+              {
+                "node": "Result",
+                "port": "main",
+                "path": "score",
+                "op": "eq",
+                "value": 100
+              }
+            ],
+            "category": "boundary",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_caa7eb0a",
+            "name": "When the risk service fails the alert scores 100",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "alert_id": "AL-1",
+                  "customer_id": "c-9001",
+                  "description": "Routine payroll credit"
+                }
+              ]
+            },
+            "mocks": {
+              "Customer risk": {
+                "http": {
+                  "status": 404,
+                  "body": {
+                    "error": "unknown applicant"
+                  }
+                }
+              },
+              "Rules": {
+                "items": [
+                  {
+                    "id": 1,
+                    "keyword": "cash deposits",
+                    "weight": 25
+                  },
+                  {
+                    "id": 2,
+                    "keyword": "shell company",
+                    "weight": 30
+                  }
+                ]
+              },
+              "Summarise": {
+                "items": [
+                  {
+                    "response": "ok",
+                    "structured": {
+                      "reason": "Cash deposits just under the reporting limit raised the score."
+                    },
+                    "toolCalls": [],
+                    "iterations": 1
+                  }
+                ]
+              }
+            },
+            "expect": [
+              {
+                "node": "Result",
+                "port": "main",
+                "path": "score",
+                "op": "eq",
+                "value": 100
+              },
+              {
+                "node": "Score",
+                "port": "main",
+                "path": "risk_unavailable",
+                "op": "eq",
+                "value": true
+              }
+            ],
+            "category": "ext_error",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_c26f1dc2",
+            "name": "When the summary fails the alert still gets a result",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "alert_id": "AL-1",
+                  "customer_id": "c-9001",
+                  "description": "Routine payroll credit"
+                }
+              ]
+            },
+            "mocks": {
+              "Customer risk": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "score": 20,
+                    "band": "B"
+                  }
+                }
+              },
+              "Rules": {
+                "items": [
+                  {
+                    "id": 1,
+                    "keyword": "cash deposits",
+                    "weight": 25
+                  },
+                  {
+                    "id": 2,
+                    "keyword": "shell company",
+                    "weight": 30
+                  }
+                ]
+              },
+              "Summarise": {
+                "error": {
+                  "message": "model unavailable",
+                  "code": "LLM_UNAVAILABLE"
+                }
+              }
+            },
+            "expect": [
+              {
+                "node": "Summarise",
+                "subject": "node",
+                "op": "status",
+                "value": "error"
+              },
+              {
+                "node": "Result",
+                "port": "main",
+                "path": "reason",
+                "op": "eq",
+                "value": "summary unavailable"
+              },
+              {
+                "node": "Result",
+                "port": "main",
+                "path": "score",
+                "op": "eq",
+                "value": 20
+              }
+            ],
+            "category": "ext_error",
+            "status": "approved",
+            "source": "human"
+          }
+        ],
+        "test_defaults": {}
+      }
+    }
+  ],
+  "ci": {
+    "min_tests_per_workflow": 3
+  }
+}

@@ -175,6 +175,8 @@ External imports and file system access are limited.""",
                 "all": all,
                 "isinstance": isinstance,
                 "type": type,
+                "chr": chr,
+                "ord": ord,
                 "print": log,
                 "None": None,
                 "True": True,
@@ -242,8 +244,10 @@ External imports and file system access are limited.""",
 
         try:
             # Unescape literal \n and \t that arrive from LLM tool-call JSON
-            if '\\n' in code:
-                code = code.replace('\\n', '\n').replace('\\t', '\t')
+            # (only outside string literals and comments: a "\n" inside a string is the string's own escape)
+            from ...sandbox.code_escapes import unescape_code
+
+            code = unescape_code(code)
 
             # Wrap code in a function - properly indent each line
             code_lines = code.split('\n')

@@ -68,6 +68,10 @@ class TestRunOptions:
     seed: int = DEFAULT_SEED
     persist: bool = True
     default_mocks: dict[str, dict[str, Any]] = field(default_factory=dict)
+    #: Stage 3B smoke runs: these nodes skip their mock and call the real system; every other outside step keeps its mock
+    live_nodes: frozenset[str] = field(default_factory=frozenset)
+    #: Stage 8 section 6.3: ExecuteWorkflow nodes that run their child instead of being mocked
+    inline_subworkflows: frozenset[str] = field(default_factory=frozenset)
 
 
 class MockedNodeError(Exception):
@@ -120,7 +124,7 @@ class LockedTestsError(Exception):
 
 # ── mocks ────────────────────────────────────────────────────────────────────────────────────
 
-MockKind = Literal["items", "http", "error", "timeout", "rules", "unknown"]
+MockKind = Literal["items", "http", "error", "timeout", "rules", "approval", "unknown"]
 
 
 def mock_kind(mock: Any) -> MockKind:
@@ -131,6 +135,8 @@ def mock_kind(mock: Any) -> MockKind:
             return kind  # type: ignore[return-value]
     if "default" in mock:
         return "rules"
+    if isinstance(mock.get("approval"), dict):
+        return "approval"  # decision-only Approval mock: {port?, approval: {decision, comment, ...}}, no items
     return "unknown"
 
 
@@ -189,7 +195,7 @@ def _resolve(value: Any, context: Any, input_items: list[NodeData], idx: int) ->
 class MockPlan:
     """What a mock does for one job: emit ``outputs`` or raise ``error``; an ``http`` plan feeds the HttpRequest node."""
 
-    kind: Literal["items", "http", "raise"]
+    kind: Literal["items", "http", "raise", "live"]
     outputs: dict[str, list[NodeData]] = field(default_factory=dict)
     error: Exception | None = None
     leaves: list[dict[str, Any]] = field(default_factory=list)  # http: one concrete mock per input item
@@ -202,12 +208,38 @@ def _raise_of(leaf: dict[str, Any], node: str, context: Any, items: list[NodeDat
     return MockedNodeError(str(_resolve(err.get("message", "Mocked error"), context, items, idx)), err.get("code"))
 
 
+APPROVAL_PORT_NAMES = ("approved", "rejected", "timed_out")
+
+
+def _approval_outputs(leaf: dict[str, Any], context: Any, items: list[NodeData], idx: int) -> tuple[str, list[NodeData]]:
+    """What a decision-only Approval mock emits for input item ``idx``: the real incoming item plus ``approval``, on the decision's port.
+    That is exactly what a real Approval does on resume, so a test can be written before the workflow (and its data) exists."""
+    approval = _resolve(leaf.get("approval") or {}, context, items, idx)
+    decision = str(approval.get("decision") or "")
+    port = str(leaf.get("port") or (decision if decision in APPROVAL_PORT_NAMES else "approved"))
+    approval.setdefault("decision", port)
+    approval.setdefault("comment", "")
+    approval.setdefault("form_data", {})
+    approval.setdefault("decided_by", "system:timeout" if approval["decision"] == "timed_out" else "tester")
+    src = items[idx]
+    base = src.json if isinstance(src.json, dict) else {}
+    return port, [NodeData(json={**copy.deepcopy(base), "approval": approval}, binary=src.binary, meta=src.meta)]
+
+
 def plan_mock(mock: Any, node: str, node_type: str, input_items: list[NodeData], context: Any) -> MockPlan | None:
     """Turn a mock into a plan for this job; None when it doesn't apply (rules without a match: try the next level)."""
     kind = mock_kind(mock)
     if kind == "unknown":
         return None
     items = input_items or [NodeData(json={})]
+    if kind == "approval":
+        if node_type != "Approval":
+            return MockPlan("raise", error=BadMockError(node, "a decision-only `approval` mock only works on Approval nodes"))
+        out_a: dict[str, list[NodeData]] = {}
+        for idx in range(len(items)):
+            port, produced = _approval_outputs(mock, context, items, idx)
+            out_a.setdefault(port, []).extend(produced)
+        return MockPlan("items", out_a)
     if kind == "items":
         port = mock.get("port") or "main"
         raw = mock.get("items") or []
@@ -235,6 +267,12 @@ def plan_mock(mock: Any, node: str, node_type: str, input_items: list[NodeData],
             return MockPlan("raise", error=_raise_of(leaf, node, context, items, idx))
         if lk == "http":
             return MockPlan("raise", error=BadMockError(node, "http mocks only work on HttpRequest nodes"))
+        if lk == "approval":
+            if node_type != "Approval":
+                return MockPlan("raise", error=BadMockError(node, "a decision-only `approval` mock only works on Approval nodes"))
+            port, produced = _approval_outputs(leaf, context, items, idx)
+            outputs.setdefault(port, []).extend(produced)
+            continue
         port = leaf.get("port") or "main"
         raw = leaf.get("items") or []
         # a plain `items` leaf of a rules mock still answers once per input item (that is what a rule is for)
@@ -279,6 +317,32 @@ def http_mock_client(plan: MockPlan, node: str, input_items: list[NodeData], con
         return httpx.Response(status, json=payload, headers=headers)
 
     return httpx.AsyncClient(transport=httpx.MockTransport(handler), follow_redirects=True)
+
+
+_SECRET_HEADER = ("authorization", "api-key", "api_key", "apikey", "token", "secret", "password", "cookie")
+
+
+def _safe_headers(headers: Any) -> dict[str, str]:
+    """Request headers with credential-like values blanked (a live call carries real credentials)."""
+    return {k: ("***" if any(w in k.lower() for w in _SECRET_HEADER) else v) for k, v in headers.items()}
+
+
+def live_client(node: str, context: Any) -> httpx.AsyncClient:
+    """A real client for a live node (smoke runs). It records each request like the mock client does."""
+
+    async def record(request: httpx.Request) -> None:
+        raw = request.content
+        body: Any = None
+        if raw:
+            try:
+                body = json.loads(raw)
+            except ValueError:
+                body = raw.decode("utf-8", "replace")
+        context.test_requests.setdefault(node, []).append(
+            {"method": request.method, "url": str(request.url), "headers": _safe_headers(request.headers), "body": body}
+        )
+
+    return httpx.AsyncClient(timeout=30.0, follow_redirects=True, event_hooks={"request": [record]})
 
 
 def refusing_client() -> httpx.AsyncClient:

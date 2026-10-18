@@ -65,7 +65,7 @@ class SummaryMemoryNode(MemoryProviderBase):
                 display_name="Summary Model",
                 name="summaryModel",
                 type="string",
-                default="gemini-2.0-flash",
+                default="gemini-3.7-flash",
                 description="LLM model to use for summarization",
             ),
         ],
@@ -76,7 +76,7 @@ class SummaryMemoryNode(MemoryProviderBase):
         session_id = self.get_parameter(node_definition, "sessionId", "default")
         recent_messages = self.get_parameter(node_definition, "recentMessages", 5)
         summary_threshold = self.get_parameter(node_definition, "summaryThreshold", 15)
-        summary_model = self.get_parameter(node_definition, "summaryModel", "gemini-2.0-flash")
+        summary_model = self.get_parameter(node_definition, "summaryModel", "gemini-3.7-flash")
 
         return self.build_memory_config(
             memory_type="summary",

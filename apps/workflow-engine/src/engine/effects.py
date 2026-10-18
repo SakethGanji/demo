@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-Effect = Literal["none", "network", "database", "llm", "subworkflow"]
+Effect = Literal["none", "network", "database", "llm", "subworkflow", "human"]
 
 NODE_EFFECTS: dict[str, Effect] = {
     # triggers
@@ -17,6 +17,7 @@ NODE_EFFECTS: dict[str, Effect] = {
     "Cron": "none",
     "ErrorTrigger": "none",
     "ExecuteWorkflowTrigger": "none",
+    "FormTrigger": "none",
     # flow
     "If": "none",
     "Switch": "none",
@@ -27,6 +28,9 @@ NODE_EFFECTS: dict[str, Effect] = {
     "ExecuteWorkflow": "subworkflow",
     "StopAndError": "none",
     "Respond": "none",
+    "NoOp": "none",
+    # a person decides: a test run must mock it (a mock is {items, port: approved|rejected|timed_out})
+    "Approval": "human",
     # data / transform
     "Set": "none",
     "HttpRequest": "network",
@@ -55,3 +59,12 @@ NODE_EFFECTS: dict[str, Effect] = {
 def effect_of(node_type: str) -> Effect:
     """The effect of a node type; a type that isn't listed is treated as ``none``."""
     return NODE_EFFECTS.get(node_type, "none")
+
+
+#: Node types a smoke run may call for real: read-style network steps only. Database, email, LLM, analytics-sending
+#: and sub-workflow nodes never go live (they could write to a production system on every scheduled tick).
+LIVE_SAFE_TYPES: frozenset[str] = frozenset({"HttpRequest"})
+
+
+def can_go_live(node_type: str) -> bool:
+    return node_type in LIVE_SAFE_TYPES

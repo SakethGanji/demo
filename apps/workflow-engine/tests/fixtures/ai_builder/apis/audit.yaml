@@ -1,0 +1,52 @@
+openapi: 3.0.3
+info:
+  title: audit
+  version: '1.0'
+servers:
+- url: http://audit.bank.test
+paths:
+  /entries:
+    post:
+      operationId: logEvent
+      summary: Write an entry to the audit log
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                actor:
+                  type: string
+                action:
+                  type: string
+                subject:
+                  type: string
+                details:
+                  type: string
+              required:
+              - action
+              - subject
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entry_id:
+                    type: string
+                required:
+                - entry_id
+        '400':
+          description: Bad entry
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                - error

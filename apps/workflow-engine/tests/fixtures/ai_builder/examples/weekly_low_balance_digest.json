@@ -1,0 +1,404 @@
+{
+ "id": "weekly_low_balance_digest",
+ "request": "Each Monday at 7am look for savings accounts holding under 200 and send branch operations a single email that lists them. If there are no such accounts, do not send anything.",
+ "spec": {
+  "spec_version": 1,
+  "title": "Weekly low-balance digest",
+  "summary": "Every Monday at 7am, list savings accounts under 200 and email one digest to branch operations. Send nothing when there are none.",
+  "trigger": {
+   "kind": "cron",
+   "fields": []
+  },
+  "rules": [
+   {
+    "id": "r1",
+    "text": "Every Monday at 7am the savings accounts with a balance under 200 are collected."
+   },
+   {
+    "id": "r2",
+    "text": "When there are such accounts, ONE email lists all of them."
+   },
+   {
+    "id": "r3",
+    "text": "When there are none, no email is sent."
+   }
+  ],
+  "steps": [
+   {
+    "name": "Monday 7am",
+    "node_type": "Cron",
+    "purpose": "Run every Monday at 07:00",
+    "rules": [
+     "r1"
+    ]
+   },
+   {
+    "name": "Find low balances",
+    "node_type": "Postgres",
+    "purpose": "Select accounts with balance < 200",
+    "rules": [
+     "r1"
+    ]
+   },
+   {
+    "name": "Any low balances?",
+    "node_type": "If",
+    "purpose": "rowCount > 0",
+    "rules": [
+     "r2",
+     "r3"
+    ]
+   },
+   {
+    "name": "Build digest",
+    "node_type": "Code",
+    "purpose": "Turn the rows into one text block",
+    "rules": [
+     "r2"
+    ]
+   },
+   {
+    "name": "Send digest",
+    "node_type": "SendEmail",
+    "purpose": "Email branch operations",
+    "rules": [
+     "r2"
+    ]
+   }
+  ],
+  "interface": null,
+  "tests": [
+   {
+    "id": "t_d4e5f601",
+    "name": "Low balances are listed in one email",
+    "description": "Two accounts are under 200, so one digest names both.",
+    "target": {
+     "kind": "workflow"
+    },
+    "input": {
+     "items": [
+      {}
+     ]
+    },
+    "mocks": {
+     "Find low balances": {
+      "items": [
+       {
+        "rows": [
+         {
+          "account_ref": "SV-1042",
+          "branch": "Leeds",
+          "balance": 150.5
+         },
+         {
+          "account_ref": "SV-2231",
+          "branch": "York",
+          "balance": 12
+         }
+        ],
+        "rowCount": 2
+       }
+      ]
+     },
+     "Send digest": {
+      "items": [
+       {
+        "success": true,
+        "to": "branch-ops@example.com",
+        "subject": "Low balance digest: 2 accounts"
+       }
+      ]
+     }
+    },
+    "expect": [
+     {
+      "node": "Any low balances?",
+      "port": "true",
+      "op": "count",
+      "value": 1
+     },
+     {
+      "node": "Build digest",
+      "path": "count",
+      "op": "eq",
+      "value": 2
+     },
+     {
+      "node": "Build digest",
+      "path": "body",
+      "op": "contains",
+      "value": "SV-1042"
+     },
+     {
+      "node": "Build digest",
+      "path": "body",
+      "op": "contains",
+      "value": "SV-2231"
+     },
+     {
+      "node": "Send digest",
+      "op": "status",
+      "value": "success"
+     }
+    ],
+    "category": "normal",
+    "covers": [
+     "Any low balances?",
+     "Build digest",
+     "Send digest"
+    ],
+    "status": "draft",
+    "locked": false,
+    "source": "ai"
+   },
+   {
+    "id": "t_d4e5f602",
+    "name": "No email when every balance is fine",
+    "description": "An empty result sends nothing.",
+    "target": {
+     "kind": "workflow"
+    },
+    "input": {
+     "items": [
+      {}
+     ]
+    },
+    "mocks": {
+     "Find low balances": {
+      "items": [
+       {
+        "rows": [],
+        "rowCount": 0
+       }
+      ]
+     }
+    },
+    "expect": [
+     {
+      "node": "Any low balances?",
+      "port": "false",
+      "op": "count",
+      "value": 1
+     },
+     {
+      "node": "Send digest",
+      "subject": "node",
+      "op": "status",
+      "value": "not_run"
+     }
+    ],
+    "category": "ext_empty",
+    "covers": [
+     "Any low balances?",
+     "Send digest"
+    ],
+    "status": "draft",
+    "locked": false,
+    "source": "ai"
+   },
+   {
+    "id": "t_d4e5f603",
+    "name": "The database is queried with the 200 limit",
+    "description": "The query reads the savings accounts table.",
+    "target": {
+     "kind": "workflow"
+    },
+    "input": {
+     "items": [
+      {}
+     ]
+    },
+    "mocks": {
+     "Find low balances": {
+      "items": [
+       {
+        "rows": [
+         {
+          "account_ref": "SV-9",
+          "branch": "Hull",
+          "balance": 199.99
+         }
+        ],
+        "rowCount": 1
+       }
+      ]
+     },
+     "Send digest": {
+      "items": [
+       {
+        "success": true,
+        "to": "branch-ops@example.com",
+        "subject": "Low balance digest: 1 account"
+       }
+      ]
+     }
+    },
+    "expect": [
+     {
+      "node": "Find low balances",
+      "op": "status",
+      "value": "success"
+     },
+     {
+      "node": "Build digest",
+      "path": "count",
+      "op": "eq",
+      "value": 1
+     }
+    ],
+    "category": "boundary",
+    "covers": [
+     "Find low balances"
+    ],
+    "status": "draft",
+    "locked": false,
+    "source": "ai"
+   }
+  ],
+  "rule_tests": {
+   "r1": [
+    "t_d4e5f603"
+   ],
+   "r2": [
+    "t_d4e5f601"
+   ],
+   "r3": [
+    "t_d4e5f602"
+   ]
+  },
+  "assumptions": [
+   "The table is called savings_accounts with columns account_ref, branch, balance.",
+   "The recipient is the branch operations mailbox."
+  ],
+  "questions": [
+   "Which currency is the 200 limit in?"
+  ]
+ },
+ "plan": [
+  {
+   "step": "Monday 7am",
+   "node": "Monday 7am",
+   "type": "Cron"
+  },
+  {
+   "step": "Find low balances",
+   "node": "Find low balances",
+   "type": "Postgres"
+  },
+  {
+   "step": "Any low balances?",
+   "node": "Any low balances?",
+   "type": "If"
+  },
+  {
+   "step": "Build digest",
+   "node": "Build digest",
+   "type": "Code"
+  },
+  {
+   "step": "Send digest",
+   "node": "Send digest",
+   "type": "SendEmail"
+  }
+ ],
+ "ops": [
+  {
+   "op": "add_node",
+   "args": {
+    "name": "Monday 7am",
+    "type": "Cron",
+    "parameters": {
+     "mode": "cron",
+     "cronExpression": "0 7 * * 1"
+    }
+   },
+   "why": "r1: minute hour day month weekday; 1 = Monday"
+  },
+  {
+   "op": "add_node",
+   "args": {
+    "name": "Find low balances",
+    "type": "Postgres",
+    "parameters": {
+     "connectionString": "{{ $vars.REPORTING_DB_URL }}",
+     "operation": "query",
+     "query": "SELECT account_ref, branch, balance FROM savings_accounts WHERE balance < %s ORDER BY balance ASC",
+     "queryParameters": [
+      200
+     ]
+    }
+   },
+   "why": "Connection string comes from a project variable, never typed in; SELECT gives ONE item {rows, rowCount}"
+  },
+  {
+   "op": "add_node",
+   "args": {
+    "name": "Any low balances?",
+    "type": "If",
+    "parameters": {
+     "condition": "{{ $json.rowCount > 0 }}"
+    }
+   },
+   "why": "r3: the false port stays unconnected, so nothing is sent"
+  },
+  {
+   "op": "add_node",
+   "args": {
+    "name": "Build digest",
+    "type": "Code",
+    "parameters": {
+     "code": "rows = json_data['rows']\nlines = [r['account_ref'] + ' (' + r['branch'] + '): ' + str(r['balance']) for r in rows]\nreturn [new_item({'count': len(rows), 'body': ' | '.join(lines)})]"
+    }
+   },
+   "why": "r2: fold all rows into one item so one email is sent"
+  },
+  {
+   "op": "add_node",
+   "args": {
+    "name": "Send digest",
+    "type": "SendEmail",
+    "parameters": {
+     "toEmail": "{{ $vars.BRANCH_OPS_EMAIL }}",
+     "subject": "Low balance digest: {{ $json.count }} accounts",
+     "bodyFormat": "plain",
+     "body": "{{ $json.body }}"
+    }
+   },
+   "why": "r2: one email"
+  },
+  {
+   "op": "connect",
+   "args": {
+    "source": "Monday 7am",
+    "target": "Find low balances"
+   },
+   "why": ""
+  },
+  {
+   "op": "connect",
+   "args": {
+    "source": "Find low balances",
+    "target": "Any low balances?"
+   },
+   "why": ""
+  },
+  {
+   "op": "connect",
+   "args": {
+    "source": "Any low balances?",
+    "target": "Build digest",
+    "source_output": "true"
+   },
+   "why": ""
+  },
+  {
+   "op": "connect",
+   "args": {
+    "source": "Build digest",
+    "target": "Send digest"
+   },
+   "why": ""
+  }
+ ],
+ "notes": ""
+}

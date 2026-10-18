@@ -1,0 +1,316 @@
+{
+ "id": "chargeback_evidence",
+ "holdout": false,
+ "request": "Every morning at 8, look up the chargebacks whose evidence is due within the next 3 days and submit evidence for each one of them. The evidence summary should mention the chargeback id, and the transaction id comes from the chargeback.",
+ "apis": [
+  "chargebacks.yaml"
+ ],
+ "spec_edits": null,
+ "expect": {
+  "trigger": "Cron",
+  "must_have_types": [],
+  "must_call": [
+   "chargebacks.listDue",
+   "chargebacks.submitEvidence"
+  ],
+  "must_not_call_hosts": [],
+  "approval_ports_wired": [],
+  "max_nodes": 10,
+  "forbid_types": [
+   "Approval"
+  ],
+  "min_spec_tests": 3
+ },
+ "hidden_tests": [
+  {
+   "name": "Two due chargebacks get two submissions",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "$api:chargebacks.listDue": {
+     "http": {
+      "status": 200,
+      "body": {
+       "chargebacks": [
+        {
+         "chargeback_id": "cb-901",
+         "transaction_id": "tx-901",
+         "amount": 40,
+         "due_date": "2026-01-03"
+        },
+        {
+         "chargeback_id": "cb-902",
+         "transaction_id": "tx-902",
+         "amount": 41,
+         "due_date": "2026-01-03"
+        }
+       ]
+      }
+     }
+    },
+    "$api:chargebacks.submitEvidence": {
+     "http": {
+      "status": 202,
+      "body": {
+       "submission_id": "SB-1"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "$api:chargebacks.listDue",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "$api:chargebacks.submitEvidence",
+     "subject": "request",
+     "op": "count",
+     "value": 2
+    }
+   ],
+   "category": "normal"
+  },
+  {
+   "name": "Nothing due means nothing submitted",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "$api:chargebacks.listDue": {
+     "http": {
+      "status": 200,
+      "body": {
+       "chargebacks": []
+      }
+     }
+    },
+    "$api:chargebacks.submitEvidence": {
+     "http": {
+      "status": 202,
+      "body": {
+       "submission_id": "SB-1"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "$api:chargebacks.listDue",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "$api:chargebacks.submitEvidence",
+     "subject": "request",
+     "op": "count",
+     "value": 0
+    }
+   ],
+   "category": "boundary"
+  },
+  {
+   "name": "Three due chargebacks get three submissions",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "$api:chargebacks.listDue": {
+     "http": {
+      "status": 200,
+      "body": {
+       "chargebacks": [
+        {
+         "chargeback_id": "cb-910",
+         "transaction_id": "tx-910",
+         "amount": 40,
+         "due_date": "2026-01-03"
+        },
+        {
+         "chargeback_id": "cb-911",
+         "transaction_id": "tx-911",
+         "amount": 41,
+         "due_date": "2026-01-03"
+        },
+        {
+         "chargeback_id": "cb-912",
+         "transaction_id": "tx-912",
+         "amount": 42,
+         "due_date": "2026-01-03"
+        }
+       ]
+      }
+     }
+    },
+    "$api:chargebacks.submitEvidence": {
+     "http": {
+      "status": 202,
+      "body": {
+       "submission_id": "SB-1"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "$api:chargebacks.listDue",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "$api:chargebacks.submitEvidence",
+     "subject": "request",
+     "op": "count",
+     "value": 3
+    }
+   ],
+   "category": "normal"
+  },
+  {
+   "name": "The chargeback id is in the submission address",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "$api:chargebacks.listDue": {
+     "http": {
+      "status": 200,
+      "body": {
+       "chargebacks": [
+        {
+         "chargeback_id": "cb-905",
+         "transaction_id": "tx-905",
+         "amount": 40,
+         "due_date": "2026-01-03"
+        }
+       ]
+      }
+     }
+    },
+    "$api:chargebacks.submitEvidence": {
+     "http": {
+      "status": 202,
+      "body": {
+       "submission_id": "SB-1"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "$api:chargebacks.listDue",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "$api:chargebacks.submitEvidence",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$api:chargebacks.submitEvidence",
+     "subject": "request",
+     "item": "any",
+     "path": "url",
+     "op": "contains",
+     "value": "cb-905"
+    },
+    {
+     "node": "$api:chargebacks.submitEvidence",
+     "subject": "request",
+     "item": "any",
+     "path": "body.transaction_id",
+     "op": "eq",
+     "value": "tx-905"
+    }
+   ],
+   "category": "normal"
+  },
+  {
+   "name": "The look-up asks for three days",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "$api:chargebacks.listDue": {
+     "http": {
+      "status": 200,
+      "body": {
+       "chargebacks": [
+        {
+         "chargeback_id": "cb-920",
+         "transaction_id": "tx-920",
+         "amount": 40,
+         "due_date": "2026-01-03"
+        }
+       ]
+      }
+     }
+    },
+    "$api:chargebacks.submitEvidence": {
+     "http": {
+      "status": 202,
+      "body": {
+       "submission_id": "SB-1"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "$api:chargebacks.listDue",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "$api:chargebacks.submitEvidence",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$api:chargebacks.listDue",
+     "subject": "request",
+     "item": "any",
+     "path": "body.days_ahead",
+     "op": "eq",
+     "value": 3
+    }
+   ],
+   "category": "normal"
+  }
+ ]
+}

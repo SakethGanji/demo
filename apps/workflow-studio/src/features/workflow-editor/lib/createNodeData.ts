@@ -67,7 +67,7 @@ interface NodeDataOverrides {
 /**
  * Returns default inputs and outputs for a given node type.
  * Centralises the If/Switch/Loop logic that was duplicated in
- * workflowTransform.ts and aiOperationApplier.ts.
+ * workflowTransform.ts and the old AI operation applier.
  */
 export function getDefaultIO(nodeType: string): {
   inputs: NodeIO[];

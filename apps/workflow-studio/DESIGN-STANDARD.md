@@ -66,6 +66,7 @@ A line that must break a rule (generated-app colours, canvas painting, a third-p
 - 4pt spacing; bento gap 16 (`gap-4`). Hit targets ≥ 24px; sidebar items 30px; icon buttons 28px (`icon-sm`).
 - Icons: Lucide at `stroke-[1.75]`, 14px in controls (the Button default), 15px in navigation.
 - Motion only on state change: `duration-(--d-fast|base|slow)` (140/200/280ms), `ease-(--ease-out|io)`. No bounce, no loops. `animate-page-in`, `animate-row-in`, `animate-live-ring` exist. Respect reduced motion (global rule in `index.css`).
+- Exception: during an AI build or review, the tokens in `src/shared/motion/tokens.ts` may use a small spring overshoot, the AI marker may pulse, and the build head may carry a flat halo, a short trail and a dot ripple (flat colour at low opacity, never a gradient); nothing else loops.
 
 ## Test ids and behaviour
 - **Every new interactive element gets a `data-testid`. Never rename or remove an existing one**, nor the `data-*` attributes the specs read (`data-status`, `data-method`, `data-pressed`, `data-checked`, `data-state`, `data-done`, `data-trigger`, …), nor the class `text-warning-text` on the status pill.

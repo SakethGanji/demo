@@ -27,6 +27,17 @@ def example_from_shape(shape: Shape | None, seed: int = 1, field: str = "value")
     return _example(shape, field, 0)
 
 
+def subworkflow_mock(output: Shape | None, name: str = "") -> tuple[dict[str, Any], str | None]:
+    """``(mock, warning)`` for an ExecuteWorkflow node (DESIGN-STAGE8-REUSE section 6.2): one item shaped like the child's declared
+    output (``workflow_io.output``). An unknown output keeps ``{items: [{}]}`` plus a warning."""
+    if isinstance(output, dict) and output.get("type") == "object" and isinstance(output.get("properties"), dict) and output["properties"]:
+        example = example_from_shape(output, 1, "row")
+        if isinstance(example, dict):
+            return {"items": [example]}, None
+    label = f"'{name}' " if name else ""
+    return {"items": [{}]}, f"{label}runs a sub-workflow whose output can't be typed; its default mock is one empty item"
+
+
 def _example(shape: Shape | None, field: str, depth: int) -> Any:
     if not isinstance(shape, dict) or depth > _MAX_DEPTH:
         return None

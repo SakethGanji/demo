@@ -787,7 +787,7 @@ def _generic_options(node: dict[str, Any], shapes: dict[str, Any]) -> list[dict[
     shape = _output_shape(shapes, node["name"])
     row = example_from_shape(shape, 1, "row") if shape else None
     if not isinstance(row, dict) or not row:
-        row = {"id": 1}
+        row = {} if t == "ExecuteWorkflow" else {"id": 1}  # an untyped child output: an empty item, not an invented id
     return [
         {"label": "success", "category": "ext_success", "mock": {"items": [row]}},
         {"label": "error", "category": "ext_error", "mock": {"error": {"message": "mock failure", "code": "MOCK_ERROR"}}},
@@ -823,6 +823,35 @@ def _outside_suggest(node: dict[str, Any], shapes: dict[str, Any], ctx: SuggestC
     return drafts
 
 
+# ── a person decides (Approval) ──────────────────────────────────────────────────────────────
+
+
+def _approval_ports(node: dict[str, Any]) -> list[str]:
+    """The decision ports a test should take: approved and rejected always; timed_out when the node can time out."""
+    params = node.get("parameters") or {}
+    ports = ["approved", "rejected"]
+    if params.get("due_in") or (params.get("on_timeout") or "timed_out") == "timed_out":
+        ports.append("timed_out")
+    return ports
+
+
+def _approval_suggest(node: dict[str, Any], shapes: dict[str, Any], ctx: SuggestContext) -> list[dict[str, Any]]:
+    """One draft per decision: the Approval is mocked with the item it would emit on that port (a test never waits)."""
+    name = node["name"]
+    item = _node_item(node, shapes)
+    drafts = []
+    for port in _approval_ports(node):
+        approval = {"decision": port, "comment": "", "form_data": {}, "decided_by": "tester",
+                    "decided_at": "2026-01-01T09:00:00+00:00", "task_id": "tsk_test"}
+        mock = {"items": [{**item, "approval": approval}], "port": port}
+        drafts.append(_draft(
+            f"{name}: {port.replace('_', ' ')} path", {"kind": "node", "node": name}, [item],
+            [{"node": name, "port": port, "op": "count", "value": 1}], "normal",
+            mocks={name: mock}, covers=[name],
+        ))
+    return drafts
+
+
 # ── the table ────────────────────────────────────────────────────────────────────────────────
 
 _NONE: SuggestFn = lambda node, shapes, ctx: []  # noqa: E731
@@ -847,7 +876,8 @@ _register(["Merge"], _CHECKS_LOGIC, _LOGIC, _NONE)  # needs two inputs: its test
 _register(["Code", "PythonStep"], ["input -> output"], _LOGIC, _plain_suggest())
 _register(["StopAndError"], ["the run stops with the configured error"], ["normal"], _plain_suggest("error"))
 _register(["ChatInput"], ["the message becomes the test input"], ["normal"], _plain_suggest())
-_register(["Start", "Webhook", "Cron", "ErrorTrigger", "ExecuteWorkflowTrigger"],
+_register(["Approval"], ["each decision (approved, rejected, timed out) takes its own port"], ["normal"], _approval_suggest)
+_register(["Start", "Webhook", "Cron", "ErrorTrigger", "ExecuteWorkflowTrigger", "FormTrigger"],
           ["the payload is the test input"], ["normal"], _trigger_suggest)
 _register(["LLMChat", "AIAgent"], [], [], _NONE)  # AI/LLM: out of scope for Stage 3 (Stage 7: AI step evals)
 _register([t for t, e in NODE_EFFECTS.items() if e in ("network", "database", "subworkflow") and t not in _RECIPES],

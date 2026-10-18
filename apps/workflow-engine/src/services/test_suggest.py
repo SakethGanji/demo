@@ -38,7 +38,8 @@ async def _load(repo: Any, workflow_id: str) -> tuple[Any, dict[str, Any], dict[
     if not stored:
         raise WorkflowNotFoundError(workflow_id)
     definition = workflow_to_definition(stored.workflow)
-    lookups = await build_lookups(repo._session, stored.project_id, None, team_id=getattr(stored, "team_id", None) or "default")
+    lookups = await build_lookups(repo._session, stored.project_id, None, team_id=getattr(stored, "team_id", None) or "default",
+                                  workflow_id=stored.id, definition=definition)
     shapes = check_workflow(definition, lookups=lookups).get("shapes_by_node", {})
     return stored, definition, shapes
 
@@ -68,6 +69,11 @@ def _recorded_mock(node_type: str, items: list[Any], error: str | None) -> dict[
         if isinstance(first.get("headers"), dict) and first["headers"]:
             http["headers"] = {str(k): str(v) for k, v in first["headers"].items()}
         return {"http": http}
+    if node_type == "Approval" and items and isinstance(items[0], dict):
+        # a decided approval leaves on the port of its decision: replay the same one (Stage 5)
+        decision = (items[0].get("approval") or {}).get("decision") if isinstance(items[0].get("approval"), dict) else None
+        if decision in ("approved", "rejected", "timed_out"):
+            return {"items": items, "port": decision}
     return {"items": items}
 
 

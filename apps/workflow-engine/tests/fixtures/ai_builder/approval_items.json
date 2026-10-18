@@ -1,0 +1,6 @@
+{
+  "_comment": "Shared by services/ai_default_mocks.approval_items and studio lib/approvalMocks.ts sampleApprovalItems. Keep in sync: tests/unit parity check compares both.",
+  "approved": [{"approval": {"decision": "approved", "comment": "", "form_data": {}, "decided_by": "tester"}}],
+  "rejected": [{"approval": {"decision": "rejected", "comment": "", "form_data": {}, "decided_by": "tester"}}],
+  "timed_out": [{"approval": {"decision": "timed_out", "comment": "", "form_data": {}, "decided_by": "system:timeout"}}]
+}

@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import {
-  CheckCircle2, CircleDashed, FlaskConical, Lock, Loader2, Plus, Play, Sparkles, Target, X, XCircle, AlertTriangle, LayoutGrid, List, Check,
+  CheckCircle2, CircleDashed, FlaskConical, Lock, Loader2, Plus, Play, Sparkles, Target, X, XCircle, AlertTriangle, LayoutGrid, List, Check, Shuffle, Wand2,
 } from 'lucide-react';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useNodeLabels } from '../../hooks/useNodeLabels';
@@ -13,6 +13,11 @@ import {
 } from '../../lib/testActions';
 import ScorecardView from './ScorecardView';
 import CoverageGrid from './CoverageGrid';
+import FuzzPanel from './FuzzPanel';
+import SmokeSettings from './SmokeSettings';
+import { aiFillGaps, openFuzzPanel, rejectAiDraft } from '../../lib/testAiActions';
+import { isAiDraft } from '../../lib/testsAi';
+import { useStaleTests } from '../../hooks/useDrift';
 import TestEditor from './TestEditor';
 import { Button } from '@/shared/components/ui/button';
 import { Badge } from '@/shared/components/ui/badge';
@@ -76,31 +81,56 @@ function TestRow({ test }: { test: TestCase }) {
   const report = useTestStore((s) => s.report);
   const selected = useTestStore((s) => s.selectedTestId === test.id);
   const openEditor = useTestStore((s) => s.openEditor);
+  const aiRun = useTestStore((s) => s.aiRuns[test.id]);
+  const stale = useStaleTests().has(test.id);
   const status = rowStatus(test.id, report);
   const result = resultFor(test.id, report);
   const failures = result?.failures ?? [];
+  const aiDraft = isAiDraft(test);
 
   return (
-    <div data-testid="test-row" data-test-id={test.id} data-status={status} data-selected={selected || undefined}>
-      <button
-        type="button"
-        onClick={() => openEditor(test, false)}
-        className={cn(
-          'flex w-full items-center gap-2 rounded-ctl px-2 py-1.5 text-left text-[12.5px] transition-colors hover:bg-(--hover-fill)',
-          selected && 'bg-(--hover-fill)',
+    <div data-testid="test-row" data-test-id={test.id} data-status={status} data-selected={selected || undefined} data-source={test.source}>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => openEditor(test, false)}
+          className={cn(
+            'flex min-w-0 flex-1 items-center gap-2 rounded-ctl px-2 py-1.5 text-left text-[12.5px] transition-colors hover:bg-(--hover-fill)',
+            selected && 'bg-(--hover-fill)',
+          )}
+        >
+          <StatusIcon status={status} />
+          <span className="min-w-0 flex-1 truncate font-medium text-foreground">{test.name}</span>
+          {test.locked && <Lock size={11} className="shrink-0 text-muted-foreground" aria-label="Approved and locked" />}
+          <span className="hidden max-w-40 shrink-0 truncate text-[11.5px] text-muted-foreground sm:inline">{targetText(test)}</span>
+          <Badge variant="neutral" className="shrink-0">{CATEGORY_LABELS[test.category]}</Badge>
+          {aiDraft && (
+            <Badge variant="ai" className="shrink-0" data-testid="test-ai-badge" title={aiRun ? `Dry run: ${aiRun.status}` : undefined}>
+              <Sparkles /> AI draft{aiRun ? `, ${aiRun.status}` : ''}
+            </Badge>
+          )}
+          {stale && (
+            <Badge variant="warning" className="shrink-0" data-testid="test-stale-badge" title="A reply this test mocks has changed. Review its mocks.">
+              Stale
+            </Badge>
+          )}
+          {test.status === 'approved' ? (
+            <Badge variant="success" className="shrink-0">Approved</Badge>
+          ) : (
+            <Badge variant="outline" className="shrink-0">Draft</Badge>
+          )}
+        </button>
+        {aiDraft && (
+          <span className="flex shrink-0 gap-1 pr-1">
+            <Button variant="outline" size="xs" onClick={() => openEditor(test, false)} data-testid="test-keep">
+              <Check /> Keep
+            </Button>
+            <Button variant="ghost" size="xs" onClick={() => rejectAiDraft(test.id)} data-testid="test-reject">
+              <X /> Reject
+            </Button>
+          </span>
         )}
-      >
-        <StatusIcon status={status} />
-        <span className="min-w-0 flex-1 truncate font-medium text-foreground">{test.name}</span>
-        {test.locked && <Lock size={11} className="shrink-0 text-muted-foreground" aria-label="Approved and locked" />}
-        <span className="hidden max-w-40 shrink-0 truncate text-[11.5px] text-muted-foreground sm:inline">{targetText(test)}</span>
-        <Badge variant="neutral" className="shrink-0">{CATEGORY_LABELS[test.category]}</Badge>
-        {test.status === 'approved' ? (
-          <Badge variant="success" className="shrink-0">Approved</Badge>
-        ) : (
-          <Badge variant="outline" className="shrink-0">Draft</Badge>
-        )}
-      </button>
+      </div>
       {failures.map((f, i) => (
         <FailureRow key={`${f.kind}-${f.node}-${i}`} failure={f} />
       ))}
@@ -160,6 +190,7 @@ export default function TestsPanel() {
   const running = useTestStore((s) => s.running);
   const scoring = useTestStore((s) => s.scoring);
   const suggesting = useTestStore((s) => s.suggesting);
+  const aiBusy = useTestStore((s) => s.aiBusy);
   const view = useTestStore((s) => s.view);
   const setView = useTestStore((s) => s.setView);
   const openEditor = useTestStore((s) => s.openEditor);
@@ -172,6 +203,11 @@ export default function TestsPanel() {
         <span className="min-w-0 truncate text-[12px] text-muted-foreground" data-testid="tests-summary">
           {summary || (tests.length === 0 ? 'No tests yet' : `${tests.length} ${tests.length === 1 ? 'test' : 'tests'}, not run`)}
         </span>
+        {aiBusy && (
+          <span className="flex shrink-0 items-center gap-1 text-[12px] text-ai-text" data-testid="tests-ai-busy" role="status">
+            <Loader2 size={12} className="animate-spin" /> AI is drafting tests
+          </span>
+        )}
         {running && <Loader2 size={12} className="shrink-0 animate-spin text-muted-foreground" aria-label="Running tests" />}
         <span className="flex-1" />
         <Segmented
@@ -197,6 +233,12 @@ export default function TestsPanel() {
         <Button variant="outline" size="sm" onClick={() => void suggestTests()} disabled={!workflowId || suggesting} data-testid="tests-suggest">
           {suggesting ? <Loader2 className="animate-spin" /> : <Sparkles />} Suggest
         </Button>
+        <Button variant="outline" size="sm" onClick={() => void aiFillGaps()} disabled={!workflowId || aiBusy} data-testid={view === 'grid' ? 'tests-ai-fill-grid' : 'tests-ai-fill'}>
+          {aiBusy ? <Loader2 className="animate-spin" /> : <Wand2 />} Fill gaps with AI
+        </Button>
+        <Button variant="outline" size="sm" onClick={openFuzzPanel} disabled={!workflowId} data-testid="tests-fuzz">
+          <Shuffle /> Variations
+        </Button>
         <Button variant="outline" size="sm" onClick={() => void scoreWorkflow()} disabled={!workflowId || scoring || tests.length === 0} data-testid="tests-score">
           {scoring ? <Loader2 className="animate-spin" /> : <Target />} Score
         </Button>
@@ -207,6 +249,8 @@ export default function TestsPanel() {
           <CoverageGrid />
         ) : view === 'score' && scorecard ? (
           <ScorecardView scorecard={scorecard} />
+        ) : view === 'fuzz' ? (
+          <FuzzPanel />
         ) : view === 'suggest' && suggestions.length > 0 ? (
           <Suggestions />
         ) : tests.length === 0 ? (
@@ -217,6 +261,7 @@ export default function TestsPanel() {
         ) : (
           tests.map((t) => <TestRow key={t.id} test={t} />)
         )}
+        {(view === 'list' || view === 'fuzz') && <SmokeSettings />}
       </div>
 
       <TestEditor />

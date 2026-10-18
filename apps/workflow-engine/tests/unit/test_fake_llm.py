@@ -320,3 +320,27 @@ def test_test_routes_404_when_not_installed(env):
         async with _client("127.0.0.1") as c:
             return await c.get("/api/_test/health", headers={"X-Test-Token": "x" * 32})
     assert run(go()).status_code == 404
+
+
+# ── respond.delay_ms (demo pacing) ──────────────────────────────────────────
+
+
+def test_delay_ms_pauses_the_answer_and_zero_does_not():
+    import time
+
+    f = fake_llm.FakeLLM(fake_llm.parse_script({"rules": [
+        {"id": "slow", "when": {"last_user_matches": "slow"}, "respond": {"text": "late", "delay_ms": 120}},
+        {"id": "fast", "when": {"last_user_matches": "fast"}, "respond": {"text": "now", "delay_ms": 0}},
+    ]}))
+    t0 = time.monotonic()
+    assert run(f.call("m", [{"role": "user", "content": "slow"}])).text == "late"
+    assert time.monotonic() - t0 >= 0.11
+    t1 = time.monotonic()
+    assert run(f.call("m", [{"role": "user", "content": "fast"}])).text == "now"
+    assert time.monotonic() - t1 < 0.1
+
+
+@pytest.mark.parametrize("bad", [-1, "10", True, 60001])
+def test_delay_ms_must_be_a_sane_number(bad):
+    with pytest.raises(fake_llm.ScriptError, match="delay_ms"):
+        fake_llm.parse_script({"rules": [{"id": "r", "when": {"last_user_matches": "x"}, "respond": {"text": "t", "delay_ms": bad}}]})

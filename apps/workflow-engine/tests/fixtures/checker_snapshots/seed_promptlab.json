@@ -79,18 +79,6 @@
  ],
  [
   "WF005",
-  "evalCall",
-  "body",
-  "structured.entry_stage"
- ],
- [
-  "WF005",
-  "evalCall",
-  "body",
-  "structured.strategy"
- ],
- [
-  "WF005",
   "fetchAllRuns",
   "filter",
   "body.session_id"
@@ -121,18 +109,6 @@
  ],
  [
   "WF005",
-  "promptWriter",
-  "userMessage",
-  "structured.strategy"
- ],
- [
-  "WF005",
-  "promptWriter",
-  "userMessage",
-  "structured.target_confusion_pair"
- ],
- [
-  "WF005",
   "sessionStateQuery",
   "filter",
   "body.session_id"
@@ -148,12 +124,6 @@
   "stopCheck",
   "condition",
   "body.max_cost_usd"
- ],
- [
-  "WF005",
-  "stopCheck",
-  "condition",
-  "structured.action"
  ],
  [
   "WF005",

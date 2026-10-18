@@ -1,0 +1,758 @@
+{
+  "name": "Refund triage (UI)",
+  "description": "A form feeds an AI classifier; refunds over $500 wait for a manager's approval.",
+  "nodes": [
+    {
+      "name": "Refund request",
+      "type": "FormTrigger",
+      "parameters": {
+        "title": "Refund request",
+        "description": "Ask for a refund on an order.",
+        "submit_label": "Request refund",
+        "success_message": "Your request was received.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "order_id": {
+              "type": "string",
+              "pattern": "^A-\\d{5}$"
+            },
+            "amount": {
+              "type": "number",
+              "minimum": 0.01,
+              "maximum": 100000,
+              "format": "currency"
+            },
+            "reason": {
+              "type": "string",
+              "enum": [
+                "not_received",
+                "damaged",
+                "wrong_item",
+                "other"
+              ]
+            },
+            "email": {
+              "type": "string",
+              "format": "email"
+            }
+          },
+          "required": [
+            "order_id",
+            "amount",
+            "reason",
+            "email"
+          ]
+        },
+        "field_order": [
+          "order_id",
+          "amount",
+          "reason",
+          "email"
+        ],
+        "fields_ui": {
+          "order_id": {
+            "label": "Order number",
+            "placeholder": "A-12345"
+          },
+          "reason": {
+            "label": "Reason"
+          }
+        }
+      },
+      "position": {
+        "x": 0,
+        "y": 160
+      }
+    },
+    {
+      "name": "Classify",
+      "type": "AIAgent",
+      "parameters": {
+        "model": "gemini-3.7-flash",
+        "systemPrompt": "REFUND_CLASSIFY\nClassify refund requests for a bank's card-dispute desk. Reply with the category, a one sentence summary and whether to approve.",
+        "task": "Order {{ $node['Refund request'].json.order_id }}: amount {{ $node['Refund request'].json.amount }}, reason {{ $node['Refund request'].json.reason }}, email {{ $node['Refund request'].json.email }}",
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "category": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "suggest": {
+              "type": "string",
+              "enum": [
+                "approve",
+                "reject"
+              ]
+            }
+          },
+          "required": [
+            "category",
+            "summary",
+            "suggest"
+          ]
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "category": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "suggest": {
+              "type": "string",
+              "enum": [
+                "approve",
+                "reject"
+              ]
+            }
+          },
+          "required": [
+            "category",
+            "summary",
+            "suggest"
+          ]
+        }
+      },
+      "position": {
+        "x": 280,
+        "y": 160
+      }
+    },
+    {
+      "name": "Over limit?",
+      "type": "If",
+      "parameters": {
+        "condition": "{{ $node['Refund request'].json.amount > 500 }}"
+      },
+      "position": {
+        "x": 560,
+        "y": 160
+      }
+    },
+    {
+      "name": "Manager review",
+      "type": "Approval",
+      "parameters": {
+        "title": "Refund {{ $node['Refund request'].json.order_id }} \u00b7 ${{ $node['Refund request'].json.amount }}",
+        "assignees": [],
+        "context": {
+          "Summary": "{{ $node['Classify'].json.structured.summary }}",
+          "Suggest": "{{ $node['Classify'].json.structured.suggest }}"
+        },
+        "form": [
+          {
+            "name": "note",
+            "label": "Note to requester",
+            "type": "textarea"
+          }
+        ],
+        "allow_comment": true,
+        "require_comment_on_reject": false,
+        "due_in": "3h",
+        "on_timeout": "timed_out",
+        "four_eyes": false
+      },
+      "position": {
+        "x": 840,
+        "y": 60
+      }
+    },
+    {
+      "name": "Issue refund",
+      "type": "HttpRequest",
+      "parameters": {
+        "method": "POST",
+        "url": "__REFUND_API_URL__/refunds",
+        "headers": [
+          {
+            "name": "Idempotency-Key",
+            "value": "{{ $execution.resumeKey }}"
+          }
+        ],
+        "body": "{\"order_id\": \"{{ $node['Refund request'].json.order_id }}\", \"amount\": {{ $node['Refund request'].json.amount }}}",
+        "responseType": "json"
+      },
+      "position": {
+        "x": 1120,
+        "y": 0
+      }
+    },
+    {
+      "name": "Auto refund",
+      "type": "HttpRequest",
+      "parameters": {
+        "method": "POST",
+        "url": "__REFUND_API_URL__/refunds",
+        "body": "{\"order_id\": \"{{ $node['Refund request'].json.order_id }}\", \"amount\": {{ $node['Refund request'].json.amount }}}",
+        "responseType": "json"
+      },
+      "position": {
+        "x": 840,
+        "y": 300
+      }
+    },
+    {
+      "name": "Refund issued",
+      "type": "Set",
+      "parameters": {
+        "mode": "manual",
+        "keepOnlySet": true,
+        "fields": [
+          {
+            "name": "status",
+            "value": "approved"
+          },
+          {
+            "name": "refund_id",
+            "value": "{{ $json.body.refund_id }}"
+          },
+          {
+            "name": "message",
+            "value": "Your refund has been issued."
+          }
+        ]
+      },
+      "position": {
+        "x": 1400,
+        "y": 160
+      }
+    },
+    {
+      "name": "Notify requester",
+      "type": "Set",
+      "parameters": {
+        "mode": "manual",
+        "keepOnlySet": true,
+        "fields": [
+          {
+            "name": "status",
+            "value": "rejected"
+          },
+          {
+            "name": "refund_id",
+            "value": ""
+          },
+          {
+            "name": "message",
+            "value": "Your refund was not approved."
+          }
+        ]
+      },
+      "position": {
+        "x": 1120,
+        "y": 200
+      }
+    },
+    {
+      "name": "Review timed out",
+      "type": "Set",
+      "parameters": {
+        "mode": "manual",
+        "keepOnlySet": true,
+        "fields": [
+          {
+            "name": "status",
+            "value": "timed_out"
+          },
+          {
+            "name": "refund_id",
+            "value": ""
+          },
+          {
+            "name": "message",
+            "value": "Review timed out"
+          }
+        ]
+      },
+      "position": {
+        "x": 1120,
+        "y": 400
+      }
+    },
+    {
+      "name": "Show result",
+      "type": "Respond",
+      "parameters": {
+        "statusCode": 200,
+        "body": {
+          "status": "{{ $json.status }}",
+          "refund_id": "{{ $json.refund_id }}",
+          "message": "{{ $json.message }}"
+        }
+      },
+      "position": {
+        "x": 1680,
+        "y": 200
+      }
+    }
+  ],
+  "connections": [
+    {
+      "source_node": "Refund request",
+      "target_node": "Classify",
+      "source_output": "main",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Classify",
+      "target_node": "Over limit?",
+      "source_output": "main",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Over limit?",
+      "target_node": "Manager review",
+      "source_output": "true",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Over limit?",
+      "target_node": "Auto refund",
+      "source_output": "false",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Manager review",
+      "target_node": "Issue refund",
+      "source_output": "approved",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Manager review",
+      "target_node": "Notify requester",
+      "source_output": "rejected",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Manager review",
+      "target_node": "Review timed out",
+      "source_output": "timed_out",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Issue refund",
+      "target_node": "Refund issued",
+      "source_output": "main",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Auto refund",
+      "target_node": "Refund issued",
+      "source_output": "main",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Refund issued",
+      "target_node": "Show result",
+      "source_output": "main",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Notify requester",
+      "target_node": "Show result",
+      "source_output": "main",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Review timed out",
+      "target_node": "Show result",
+      "source_output": "main",
+      "target_input": "main"
+    }
+  ],
+  "interface": {
+    "kind": "custom",
+    "slug": "refunds",
+    "title": "Refund request",
+    "description": "Ask for a refund on an order.",
+    "trigger_node": "Refund request",
+    "result_node": "Show result",
+    "screens": {
+      "start": {
+        "v": 1,
+        "title": "Refund request",
+        "layout": "card",
+        "components": [
+          {
+            "type": "heading",
+            "text": "Refund request"
+          },
+          {
+            "type": "input_form"
+          }
+        ]
+      },
+      "task:Manager review": {
+        "v": 1,
+        "title": "Manager review",
+        "layout": "card",
+        "components": [
+          {
+            "type": "heading",
+            "text": "Manager review"
+          },
+          {
+            "type": "status",
+            "bind": "task.status",
+            "due": "task.due_at"
+          },
+          {
+            "type": "field",
+            "label": "Order id",
+            "bind": "input.order_id"
+          },
+          {
+            "type": "amount",
+            "label": "Amount",
+            "bind": "input.amount",
+            "currency": "USD",
+            "size": "xl"
+          },
+          {
+            "type": "field",
+            "label": "Reason",
+            "bind": "input.reason"
+          },
+          {
+            "type": "field",
+            "label": "Email",
+            "bind": "input.email"
+          },
+          {
+            "type": "field",
+            "label": "Suggest",
+            "bind": "task.context.Suggest"
+          },
+          {
+            "type": "field",
+            "label": "Flagged because",
+            "value": "Over $500 limit"
+          },
+          {
+            "type": "callout",
+            "label": "AI summary",
+            "bind": "node.Classify.structured.summary",
+            "tone": "ai"
+          },
+          {
+            "type": "form",
+            "bind": "task.form"
+          },
+          {
+            "type": "actions",
+            "bind": "task"
+          }
+        ]
+      },
+      "result": {
+        "v": 1,
+        "title": "Result",
+        "layout": "card",
+        "components": [
+          {
+            "type": "heading",
+            "text": "Result"
+          },
+          {
+            "type": "result",
+            "bind": "result"
+          }
+        ]
+      }
+    },
+    "access": {
+      "mode": "public",
+      "public_tasks": false,
+      "hide_progress": false
+    }
+  },
+  "tests": [
+    {
+      "id": "t_5a000001",
+      "name": "Manager approves a large refund",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "order_id": "A-10042",
+            "amount": 742,
+            "reason": "damaged",
+            "email": "dana@example.com",
+            "_submission": {
+              "id": "sub_test",
+              "submitted_at": "2026-01-01T09:00:00Z",
+              "mode": "live"
+            }
+          }
+        ]
+      },
+      "mocks": {
+        "Manager review": {
+          "items": [
+            {
+              "approval": {
+                "decision": "approved",
+                "comment": "",
+                "form_data": {},
+                "decided_by": "test",
+                "decided_at": "2026-01-01T09:00:00Z",
+                "task_id": "tsk_test"
+              },
+              "response": "example response",
+              "structured": {
+                "category": "damaged",
+                "summary": "Customer reports a damaged item; the amount is above the auto-approval limit.",
+                "suggest": "approve"
+              }
+            }
+          ],
+          "port": "approved"
+        },
+        "Issue refund": {
+          "http": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "refund_id": "rf_1001"
+            }
+          }
+        }
+      },
+      "expect": [
+        {
+          "subject": "output",
+          "node": "Show result",
+          "port": "main",
+          "path": "status",
+          "op": "eq",
+          "value": "approved"
+        },
+        {
+          "subject": "output",
+          "node": "Show result",
+          "port": "main",
+          "path": "refund_id",
+          "op": "eq",
+          "value": "rf_1001"
+        }
+      ],
+      "category": "normal",
+      "covers": [
+        "Manager review",
+        "Issue refund",
+        "Show result"
+      ],
+      "status": "draft",
+      "source": "human"
+    },
+    {
+      "id": "t_5a000002",
+      "name": "Manager rejects a large refund",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "order_id": "A-10042",
+            "amount": 742,
+            "reason": "damaged",
+            "email": "dana@example.com",
+            "_submission": {
+              "id": "sub_test",
+              "submitted_at": "2026-01-01T09:00:00Z",
+              "mode": "live"
+            }
+          }
+        ]
+      },
+      "mocks": {
+        "Manager review": {
+          "items": [
+            {
+              "approval": {
+                "decision": "rejected",
+                "comment": "",
+                "form_data": {},
+                "decided_by": "test",
+                "decided_at": "2026-01-01T09:00:00Z",
+                "task_id": "tsk_test"
+              },
+              "response": "example response",
+              "structured": {
+                "category": "damaged",
+                "summary": "Customer reports a damaged item; the amount is above the auto-approval limit.",
+                "suggest": "approve"
+              }
+            }
+          ],
+          "port": "rejected"
+        }
+      },
+      "expect": [
+        {
+          "subject": "output",
+          "node": "Show result",
+          "port": "main",
+          "path": "status",
+          "op": "eq",
+          "value": "rejected"
+        }
+      ],
+      "category": "normal",
+      "covers": [
+        "Manager review",
+        "Notify requester",
+        "Show result"
+      ],
+      "status": "draft",
+      "source": "human"
+    },
+    {
+      "id": "t_5a000003",
+      "name": "Small refunds are paid without review",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "order_id": "A-10042",
+            "amount": 500,
+            "reason": "damaged",
+            "email": "dana@example.com",
+            "_submission": {
+              "id": "sub_test",
+              "submitted_at": "2026-01-01T09:00:00Z",
+              "mode": "live"
+            }
+          }
+        ]
+      },
+      "mocks": {
+        "Auto refund": {
+          "http": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "refund_id": "rf_1001"
+            }
+          }
+        }
+      },
+      "expect": [
+        {
+          "subject": "output",
+          "node": "Show result",
+          "port": "main",
+          "path": "status",
+          "op": "eq",
+          "value": "approved"
+        }
+      ],
+      "category": "boundary",
+      "covers": [
+        "Over limit?",
+        "Auto refund",
+        "Show result"
+      ],
+      "status": "draft",
+      "source": "human"
+    },
+    {
+      "id": "t_5a000004",
+      "name": "Nobody reviews in time",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "order_id": "A-10042",
+            "amount": 742,
+            "reason": "damaged",
+            "email": "dana@example.com",
+            "_submission": {
+              "id": "sub_test",
+              "submitted_at": "2026-01-01T09:00:00Z",
+              "mode": "live"
+            }
+          }
+        ]
+      },
+      "mocks": {
+        "Manager review": {
+          "items": [
+            {
+              "approval": {
+                "decision": "timed_out",
+                "comment": "",
+                "form_data": {},
+                "decided_by": "test",
+                "decided_at": "2026-01-01T09:00:00Z",
+                "task_id": "tsk_test"
+              },
+              "response": "example response",
+              "structured": {
+                "category": "damaged",
+                "summary": "Customer reports a damaged item; the amount is above the auto-approval limit.",
+                "suggest": "approve"
+              }
+            }
+          ],
+          "port": "timed_out"
+        }
+      },
+      "expect": [
+        {
+          "subject": "output",
+          "node": "Show result",
+          "port": "main",
+          "path": "status",
+          "op": "eq",
+          "value": "timed_out"
+        },
+        {
+          "subject": "output",
+          "node": "Show result",
+          "port": "main",
+          "path": "message",
+          "op": "eq",
+          "value": "Review timed out"
+        }
+      ],
+      "category": "ext_timeout",
+      "covers": [
+        "Manager review",
+        "Review timed out",
+        "Show result"
+      ],
+      "status": "draft",
+      "source": "human"
+    }
+  ],
+  "test_defaults": {
+    "mocks": {
+      "Classify": {
+        "items": [
+          {
+            "response": "example response",
+            "structured": {
+              "category": "damaged",
+              "summary": "Customer reports a damaged item; the amount is above the auto-approval limit.",
+              "suggest": "approve"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

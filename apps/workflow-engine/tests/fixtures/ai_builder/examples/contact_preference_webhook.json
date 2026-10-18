@@ -1,0 +1,658 @@
+{
+ "id": "contact_preference_webhook",
+ "request": "Our site posts a customer's contact preference to us: customer id, channel (email, sms or post) and the address or number. Save it and confirm. Reject any other channel with a 422 and save nothing.",
+ "spec": {
+  "spec_version": 1,
+  "title": "Contact preference update",
+  "summary": "A webhook receives a customer's preferred contact channel (email, sms or post), saves it and confirms. Any other channel is refused.",
+  "trigger": {
+   "kind": "webhook",
+   "fields": []
+  },
+  "rules": [
+   {
+    "id": "r1",
+    "text": "A preference for email is saved with channel 'email'."
+   },
+   {
+    "id": "r2",
+    "text": "A preference for sms is saved with channel 'sms'."
+   },
+   {
+    "id": "r3",
+    "text": "A preference for post is saved with channel 'post'."
+   },
+   {
+    "id": "r4",
+    "text": "Any other channel is refused with a 422 reply and nothing is saved."
+   },
+   {
+    "id": "r5",
+    "text": "A saved preference is confirmed to the caller."
+   }
+  ],
+  "steps": [
+   {
+    "name": "Preference webhook",
+    "node_type": "Webhook",
+    "purpose": "Receive the update",
+    "rules": []
+   },
+   {
+    "name": "Which channel?",
+    "node_type": "Switch",
+    "purpose": "Route on body.channel",
+    "rules": [
+     "r1",
+     "r2",
+     "r3",
+     "r4"
+    ]
+   },
+   {
+    "name": "Prepare email record",
+    "node_type": "Set",
+    "purpose": "Shape the record for email",
+    "rules": [
+     "r1"
+    ]
+   },
+   {
+    "name": "Prepare SMS record",
+    "node_type": "Set",
+    "purpose": "Shape the record for sms",
+    "rules": [
+     "r2"
+    ]
+   },
+   {
+    "name": "Prepare postal record",
+    "node_type": "Set",
+    "purpose": "Shape the record for post",
+    "rules": [
+     "r3"
+    ]
+   },
+   {
+    "name": "Reject unknown channel",
+    "node_type": "Respond",
+    "purpose": "Reply 422",
+    "rules": [
+     "r4"
+    ]
+   },
+   {
+    "name": "Save preference",
+    "node_type": "DataTable",
+    "purpose": "Insert into contact_preferences",
+    "rules": [
+     "r1",
+     "r2",
+     "r3",
+     "r5"
+    ]
+   },
+   {
+    "name": "Confirm",
+    "node_type": "Respond",
+    "purpose": "Reply 200",
+    "rules": [
+     "r5"
+    ]
+   }
+  ],
+  "interface": null,
+  "tests": [
+   {
+    "id": "t_c7d8e901",
+    "name": "Email preference is saved",
+    "description": "A customer picks email.",
+    "target": {
+     "kind": "workflow"
+    },
+    "input": {
+     "items": [
+      {
+       "body": {
+        "customer_id": "c-17",
+        "channel": "email",
+        "value": "mia@example.com"
+       },
+       "headers": {},
+       "query": {},
+       "method": "POST"
+      }
+     ]
+    },
+    "mocks": {
+     "Save preference": {
+      "items": [
+       {
+        "id": 1
+       }
+      ]
+     }
+    },
+    "expect": [
+     {
+      "node": "Which channel?",
+      "port": "output0",
+      "op": "count",
+      "value": 1
+     },
+     {
+      "node": "Prepare email record",
+      "path": "channel",
+      "op": "eq",
+      "value": "email"
+     },
+     {
+      "node": "Prepare email record",
+      "path": "contact",
+      "op": "eq",
+      "value": "mia@example.com"
+     },
+     {
+      "node": "Save preference",
+      "op": "status",
+      "value": "success"
+     },
+     {
+      "node": "Confirm",
+      "op": "status",
+      "value": "success"
+     }
+    ],
+    "category": "normal",
+    "covers": [
+     "Which channel?",
+     "Prepare email record",
+     "Save preference"
+    ],
+    "status": "draft",
+    "locked": false,
+    "source": "ai"
+   },
+   {
+    "id": "t_c7d8e902",
+    "name": "SMS preference is saved",
+    "description": "A customer picks text messages.",
+    "target": {
+     "kind": "workflow"
+    },
+    "input": {
+     "items": [
+      {
+       "body": {
+        "customer_id": "c-18",
+        "channel": "sms",
+        "value": "+441632960001"
+       },
+       "headers": {},
+       "query": {},
+       "method": "POST"
+      }
+     ]
+    },
+    "mocks": {
+     "Save preference": {
+      "items": [
+       {
+        "id": 1
+       }
+      ]
+     }
+    },
+    "expect": [
+     {
+      "node": "Which channel?",
+      "port": "output1",
+      "op": "count",
+      "value": 1
+     },
+     {
+      "node": "Prepare SMS record",
+      "path": "channel",
+      "op": "eq",
+      "value": "sms"
+     },
+     {
+      "node": "Save preference",
+      "op": "status",
+      "value": "success"
+     }
+    ],
+    "category": "normal",
+    "covers": [
+     "Which channel?",
+     "Prepare SMS record"
+    ],
+    "status": "draft",
+    "locked": false,
+    "source": "ai"
+   },
+   {
+    "id": "t_c7d8e903",
+    "name": "Postal preference is saved",
+    "description": "A customer picks letters.",
+    "target": {
+     "kind": "workflow"
+    },
+    "input": {
+     "items": [
+      {
+       "body": {
+        "customer_id": "c-19",
+        "channel": "post",
+        "value": "12 High Street, Leeds"
+       },
+       "headers": {},
+       "query": {},
+       "method": "POST"
+      }
+     ]
+    },
+    "mocks": {
+     "Save preference": {
+      "items": [
+       {
+        "id": 1
+       }
+      ]
+     }
+    },
+    "expect": [
+     {
+      "node": "Which channel?",
+      "port": "output2",
+      "op": "count",
+      "value": 1
+     },
+     {
+      "node": "Prepare postal record",
+      "path": "channel",
+      "op": "eq",
+      "value": "post"
+     },
+     {
+      "node": "Save preference",
+      "op": "status",
+      "value": "success"
+     }
+    ],
+    "category": "normal",
+    "covers": [
+     "Which channel?",
+     "Prepare postal record"
+    ],
+    "status": "draft",
+    "locked": false,
+    "source": "ai"
+   },
+   {
+    "id": "t_c7d8e904",
+    "name": "Unknown channel is refused",
+    "description": "'fax' is not an option: nothing is saved.",
+    "target": {
+     "kind": "workflow"
+    },
+    "input": {
+     "items": [
+      {
+       "body": {
+        "customer_id": "c-20",
+        "channel": "fax",
+        "value": "0113 496 0000"
+       },
+       "headers": {},
+       "query": {},
+       "method": "POST"
+      }
+     ]
+    },
+    "mocks": {},
+    "expect": [
+     {
+      "node": "Which channel?",
+      "port": "fallback",
+      "op": "count",
+      "value": 1
+     },
+     {
+      "node": "Save preference",
+      "subject": "node",
+      "op": "status",
+      "value": "not_run"
+     },
+     {
+      "node": "Reject unknown channel",
+      "op": "status",
+      "value": "success"
+     }
+    ],
+    "category": "unusual",
+    "covers": [
+     "Which channel?",
+     "Save preference",
+     "Reject unknown channel"
+    ],
+    "status": "draft",
+    "locked": false,
+    "source": "ai"
+   }
+  ],
+  "rule_tests": {
+   "r1": [
+    "t_c7d8e901"
+   ],
+   "r2": [
+    "t_c7d8e902"
+   ],
+   "r3": [
+    "t_c7d8e903"
+   ],
+   "r4": [
+    "t_c7d8e904"
+   ],
+   "r5": [
+    "t_c7d8e901",
+    "t_c7d8e902",
+    "t_c7d8e903"
+   ]
+  },
+  "assumptions": [
+   "The caller sends JSON {customer_id, channel, value}."
+  ],
+  "questions": []
+ },
+ "plan": [
+  {
+   "step": "Preference webhook",
+   "node": "Preference webhook",
+   "type": "Webhook"
+  },
+  {
+   "step": "Which channel?",
+   "node": "Which channel?",
+   "type": "Switch"
+  },
+  {
+   "step": "Prepare email record",
+   "node": "Prepare email record",
+   "type": "Set"
+  },
+  {
+   "step": "Prepare SMS record",
+   "node": "Prepare SMS record",
+   "type": "Set"
+  },
+  {
+   "step": "Prepare postal record",
+   "node": "Prepare postal record",
+   "type": "Set"
+  },
+  {
+   "step": "Reject unknown channel",
+   "node": "Reject unknown channel",
+   "type": "Respond"
+  },
+  {
+   "step": "Save preference",
+   "node": "Save preference",
+   "type": "DataTable"
+  },
+  {
+   "step": "Confirm",
+   "node": "Confirm",
+   "type": "Respond"
+  }
+ ],
+ "ops": [
+  {
+   "op": "add_node",
+   "args": {
+    "name": "Preference webhook",
+    "type": "Webhook",
+    "parameters": {
+     "method": "POST",
+     "path": "contact-preference",
+     "responseMode": "lastNode"
+    }
+   },
+   "why": "Webhook data is under $json.body"
+  },
+  {
+   "op": "add_node",
+   "args": {
+    "name": "Which channel?",
+    "type": "Switch",
+    "parameters": {
+     "numberOfOutputs": 3,
+     "mode": "rules",
+     "rules": [
+      {
+       "output": 0,
+       "field": "body.channel",
+       "operation": "equals",
+       "value": "email"
+      },
+      {
+       "output": 1,
+       "field": "body.channel",
+       "operation": "equals",
+       "value": "sms"
+      },
+      {
+       "output": 2,
+       "field": "body.channel",
+       "operation": "equals",
+       "value": "post"
+      }
+     ]
+    }
+   },
+   "why": "Three cases = ports output0..output2; anything else goes to the fallback port"
+  },
+  {
+   "op": "add_node",
+   "args": {
+    "name": "Prepare email record",
+    "type": "Set",
+    "parameters": {
+     "mode": "manual",
+     "keepOnlySet": true,
+     "fields": [
+      {
+       "name": "customer_id",
+       "value": "{{ $json.body.customer_id }}"
+      },
+      {
+       "name": "channel",
+       "value": "email"
+      },
+      {
+       "name": "contact",
+       "value": "{{ $json.body.value }}"
+      }
+     ]
+    }
+   },
+   "why": ""
+  },
+  {
+   "op": "add_node",
+   "args": {
+    "name": "Prepare SMS record",
+    "type": "Set",
+    "parameters": {
+     "mode": "manual",
+     "keepOnlySet": true,
+     "fields": [
+      {
+       "name": "customer_id",
+       "value": "{{ $json.body.customer_id }}"
+      },
+      {
+       "name": "channel",
+       "value": "sms"
+      },
+      {
+       "name": "contact",
+       "value": "{{ $json.body.value }}"
+      }
+     ]
+    }
+   },
+   "why": ""
+  },
+  {
+   "op": "add_node",
+   "args": {
+    "name": "Prepare postal record",
+    "type": "Set",
+    "parameters": {
+     "mode": "manual",
+     "keepOnlySet": true,
+     "fields": [
+      {
+       "name": "customer_id",
+       "value": "{{ $json.body.customer_id }}"
+      },
+      {
+       "name": "channel",
+       "value": "post"
+      },
+      {
+       "name": "contact",
+       "value": "{{ $json.body.value }}"
+      }
+     ]
+    }
+   },
+   "why": ""
+  },
+  {
+   "op": "add_node",
+   "args": {
+    "name": "Reject unknown channel",
+    "type": "Respond",
+    "parameters": {
+     "statusCode": 422,
+     "body": {
+      "error": "channel must be email, sms or post"
+     }
+    }
+   },
+   "why": "r4: only the fallback port reaches this"
+  },
+  {
+   "op": "add_node",
+   "args": {
+    "name": "Save preference",
+    "type": "DataTable",
+    "parameters": {
+     "table": "contact_preferences",
+     "operation": "insert",
+     "data": {
+      "customer_id": "{{ $json.customer_id }}",
+      "channel": "{{ $json.channel }}",
+      "contact": "{{ $json.contact }}"
+     }
+    }
+   },
+   "why": "Three branches feed this one node"
+  },
+  {
+   "op": "add_node",
+   "args": {
+    "name": "Confirm",
+    "type": "Respond",
+    "parameters": {
+     "statusCode": 200,
+     "body": {
+      "saved": true,
+      "channel": "{{ $node[\"Save preference\"].json.channel }}"
+     }
+    }
+   },
+   "why": ""
+  },
+  {
+   "op": "connect",
+   "args": {
+    "source": "Preference webhook",
+    "target": "Which channel?"
+   },
+   "why": ""
+  },
+  {
+   "op": "connect",
+   "args": {
+    "source": "Which channel?",
+    "target": "Prepare email record",
+    "source_output": "output0"
+   },
+   "why": ""
+  },
+  {
+   "op": "connect",
+   "args": {
+    "source": "Which channel?",
+    "target": "Prepare SMS record",
+    "source_output": "output1"
+   },
+   "why": ""
+  },
+  {
+   "op": "connect",
+   "args": {
+    "source": "Which channel?",
+    "target": "Prepare postal record",
+    "source_output": "output2"
+   },
+   "why": ""
+  },
+  {
+   "op": "connect",
+   "args": {
+    "source": "Which channel?",
+    "target": "Reject unknown channel",
+    "source_output": "fallback"
+   },
+   "why": ""
+  },
+  {
+   "op": "connect",
+   "args": {
+    "source": "Prepare email record",
+    "target": "Save preference"
+   },
+   "why": ""
+  },
+  {
+   "op": "connect",
+   "args": {
+    "source": "Prepare SMS record",
+    "target": "Save preference"
+   },
+   "why": ""
+  },
+  {
+   "op": "connect",
+   "args": {
+    "source": "Prepare postal record",
+    "target": "Save preference"
+   },
+   "why": ""
+  },
+  {
+   "op": "connect",
+   "args": {
+    "source": "Save preference",
+    "target": "Confirm"
+   },
+   "why": ""
+  }
+ ],
+ "notes": ""
+}

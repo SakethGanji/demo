@@ -1,0 +1,55 @@
+openapi: 3.0.3
+info:
+  title: processor
+  version: '1.0'
+servers:
+- url: http://processor.bank.test
+paths:
+  /settlements/search:
+    post:
+      operationId: list
+      summary: Card processor settlements for a date
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                date:
+                  type: string
+              required:
+              - date
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  settlements:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        ref:
+                          type: string
+                        amount:
+                          type: number
+                      required:
+                      - ref
+                      - amount
+                required:
+                - settlements
+        '400':
+          description: Bad date
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                - error

@@ -459,7 +459,7 @@ export function RunsView() {
                               flat={!failedRun}
                               className={failedRun ? 'shadow-[0_0_0_3px_color-mix(in_srgb,var(--destructive)_20%,transparent)]' : undefined}
                             />
-                            {failedRun ? 'Failed' : running ? 'Running' : r.status === 'success' ? 'Success' : r.status}
+                            {failedRun ? 'Failed' : r.status === 'waiting' ? 'Waiting' : running ? 'Running' : r.status === 'success' ? 'Success' : r.status}
                             {failedRun && r.status_code != null && (
                               <span className="font-mono text-[11.5px] font-normal tabular-nums" data-testid="run-status-code">
                                 {r.status_code}

@@ -25,6 +25,8 @@ export const CATEGORY_LABELS: Record<Category, string> = {
 
 export type Mock =
   | { items: unknown[]; port?: string }
+  /** decision-only Approval mock: the run emits each real incoming item plus `approval`, on the decision's port */
+  | { approval: { decision: string; comment?: string; form_data?: Record<string, unknown>; decided_by?: string }; port?: string; items?: undefined }
   | { http: { status: number; body?: unknown; headers?: Record<string, string> } }
   | { error: { message: string; code?: string } }
   | { timeout: true }
@@ -56,7 +58,7 @@ export type TestTarget =
   | { kind: 'range'; from: string; to: string };
 
 export type TestStatus = 'draft' | 'approved';
-export type TestSource = 'human' | 'suggested' | 'replay' | 'ai';
+export type TestSource = 'human' | 'suggested' | 'replay' | 'ai' | 'fuzz';
 
 export interface TestCase {
   id: string;
@@ -148,6 +150,18 @@ export interface TestRunReport {
   summary: TestSummary;
   badges: Record<string, 'pass' | 'fail'>;
   grid: Grid;
+}
+
+/**
+ * The test badge a node shows. While an AI review is open, its test result is the latest result the person is
+ * looking at, so the canvas follows it; otherwise the live run decides.
+ */
+export function nodeTestBadge(
+  name: string,
+  live: Pick<TestRunReport, 'badges'> | null | undefined,
+  reviewing: Pick<TestRunReport, 'badges'> | null | undefined,
+): 'pass' | 'fail' | undefined {
+  return (reviewing ?? live)?.badges?.[name];
 }
 
 export interface Scorecard {

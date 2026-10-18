@@ -8,6 +8,7 @@ import {
   type Assertion, type AssertionOp, type Category, type Mock, type TestCase, type TestTarget,
 } from '../../lib/tests';
 import { approveTest, unlockTest } from '../../lib/testActions';
+import { APPROVAL_PORTS, APPROVAL_PORT_LABELS, approvalItemsPatch, isApprovalType, type ApprovalPort } from '../../lib/approvalMocks';
 import type { WorkflowNodeData } from '../../types/workflow';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/shared/components/ui/sheet';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/components/ui/select';
@@ -20,6 +21,7 @@ import { Callout } from '@/shared/components/ui/surface';
 /** Node types that reach outside the workflow; each needs a mock in a test (engine `effects.py`). */
 const OUTSIDE_TYPES = new Set([
   'HttpRequest', 'SendEmail', 'Poll', 'Postgres', 'MongoDB', 'Neo4j', 'DataTable', 'LlmChat', 'AiAgent', 'ExecuteWorkflow',
+  'Approval', // effect `human`: the mock is the decision, as a port
 ]);
 
 type MockKind = 'default' | 'items' | 'http' | 'error' | 'timeout' | 'custom';
@@ -39,6 +41,8 @@ interface MockUi {
   text: string;
   /** http status */
   status: string;
+  /** output port of an items mock (Approval: approved / rejected / timed_out) */
+  port: string;
 }
 
 interface ExpectRow {
@@ -72,12 +76,12 @@ function valueToText(v: unknown): string {
 const pretty = (v: unknown) => JSON.stringify(v, null, 2);
 
 function mockToUi(m: Mock | undefined): MockUi {
-  if (!m) return { kind: 'default', text: '', status: '200' };
-  if ('items' in m && !('rules' in m)) return { kind: 'items', text: pretty(m.items), status: '200' };
-  if ('http' in m) return { kind: 'http', text: m.http.body === undefined ? '' : pretty(m.http.body), status: String(m.http.status) };
-  if ('error' in m) return { kind: 'error', text: m.error.message, status: '200' };
-  if ('timeout' in m) return { kind: 'timeout', text: '', status: '200' };
-  return { kind: 'custom', text: pretty(m), status: '200' };
+  if (!m) return { kind: 'default', text: '', status: '200', port: '' };
+  if ('items' in m && !('rules' in m)) return { kind: 'items', text: pretty(m.items), status: '200', port: m.port ?? '' };
+  if ('http' in m) return { kind: 'http', text: m.http.body === undefined ? '' : pretty(m.http.body), status: String(m.http.status), port: '' };
+  if ('error' in m) return { kind: 'error', text: m.error.message, status: '200', port: '' };
+  if ('timeout' in m) return { kind: 'timeout', text: '', status: '200', port: '' };
+  return { kind: 'custom', text: pretty(m), status: '200', port: '' };
 }
 
 /** Returns the mock, `null` for "use the default", or an error string. */
@@ -93,7 +97,7 @@ function uiToMock(ui: MockUi, original: Mock | undefined): Mock | null | string 
       try {
         const v = JSON.parse(ui.text || '[]');
         if (!Array.isArray(v)) return 'Items must be a JSON array';
-        const port = original && 'items' in original ? original.port : undefined;
+        const port = ui.port || (original && 'items' in original ? original.port : undefined);
         return { items: v, ...(port ? { port } : {}) };
       } catch {
         return 'Items are not valid JSON';
@@ -156,6 +160,7 @@ function EditorBody({ test, isNew }: { test: TestCase; isNew: boolean }) {
     [nodes],
   );
   const nodeNames = nodeInfo.map((n) => n.name);
+  const typeOf = (name: string) => nodeInfo.find((n) => n.name === name)?.type;
   const mockNodes = useMemo(() => {
     const set = new Set<string>(nodeInfo.filter((n) => OUTSIDE_TYPES.has(n.type)).map((n) => n.name));
     Object.keys(test.mocks).forEach((k) => set.add(k));
@@ -397,7 +402,11 @@ function EditorBody({ test, isNew }: { test: TestCase; isNew: boolean }) {
                     <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-foreground">{n}</span>
                     <Select
                       value={ui.kind}
-                      onValueChange={(v) => v && set({ kind: v as MockKind })}
+                      onValueChange={(v) => {
+                        if (!v) return;
+                        const kind = v as MockKind;
+                        set(kind === 'items' && isApprovalType(typeOf(n)) ? { kind, ...approvalItemsPatch(ui.text, ui.port) } : { kind });
+                      }}
                       items={MOCK_KIND_LABELS}
                       disabled={locked}
                     >
@@ -441,6 +450,25 @@ function EditorBody({ test, isNew }: { test: TestCase; isNew: boolean }) {
                         />
                       </Field>
                     </div>
+                  )}
+                  {ui.kind === 'items' && isApprovalType(typeOf(n)) && (
+                    <Field label="Decision (output port)">
+                      <Select
+                        value={ui.port || 'approved'}
+                        onValueChange={(v) => v && set({ port: v })}
+                        items={APPROVAL_PORT_LABELS}
+                        disabled={locked}
+                      >
+                        <SelectTrigger size="sm" className="w-full" data-testid={`test-mock-${n}-port`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {APPROVAL_PORTS.map((p: ApprovalPort) => (
+                            <SelectItem key={p} value={p}>{APPROVAL_PORT_LABELS[p]}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Field>
                   )}
                   {(ui.kind === 'items' || ui.kind === 'custom') && (
                     <Textarea

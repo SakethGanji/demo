@@ -1,0 +1,108 @@
+openapi: 3.0.3
+info:
+  title: kyc
+  version: '1.0'
+servers:
+- url: http://kyc.bank.test
+paths:
+  /customers/{customer_id}/document-requests:
+    post:
+      operationId: requestDocuments
+      summary: Ask the customer for missing KYC documents
+      parameters:
+      - name: customer_id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                missing_documents:
+                  type: array
+                  items:
+                    type: string
+                message:
+                  type: string
+              required:
+              - missing_documents
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  request_id:
+                    type: string
+                required:
+                - request_id
+        '404':
+          description: Customer not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                - error
+  /customers/{customer_id}/kyc-status:
+    post:
+      operationId: updateStatus
+      summary: Set the KYC status of a customer
+      parameters:
+      - name: customer_id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum:
+                  - approved
+                  - rejected
+                  - pending
+                reviewer:
+                  type: string
+              required:
+              - status
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  customer_id:
+                    type: string
+                  status:
+                    type: string
+                required:
+                - customer_id
+                - status
+        '404':
+          description: Customer not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                - error

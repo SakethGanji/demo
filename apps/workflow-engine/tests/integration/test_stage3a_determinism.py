@@ -26,9 +26,15 @@ TABLES = {
 HAND_MOCKS = {
     "Classify": {"items": [{"response": "{\"label\": \"refund\", \"confidence\": 0.9}"}]},
     "Create refund": {"http": {"status": 201, "body": {"id": "r-1"}}},
+    # Stage 5 fixtures (refund_triage_ui, chat_support_ui)
+    "Issue refund": {"http": {"status": 200, "body": {"ok": True, "refund_id": "rf_1"}}},
+    "Auto refund": {"http": {"status": 200, "body": {"ok": True, "refund_id": "rf_2"}}},
+    "Assistant": {"items": [{"response": "Hello, how can I help?"}]},
+    "Manager review": {"items": [{"approval": {"decision": "approved", "comment": "", "form_data": {}, "decided_by": "test",
+                                               "decided_at": "2026-01-01T09:00:00Z", "task_id": "tsk_test"}}], "port": "approved"},
 }
 EFFECT_TYPES = {"HttpRequest", "SendEmail", "Poll", "Aggregate", "Sample", "Profile", "Postgres", "MongoDB", "Neo4j",
-                "DataTable", "LLMChat", "AIAgent", "ExecuteWorkflow"}
+                "DataTable", "LLMChat", "AIAgent", "ExecuteWorkflow", "Approval"}
 
 
 def _strip(report: dict, outputs: bool = False) -> list:

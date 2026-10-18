@@ -35,7 +35,7 @@ def format_bar(summary: dict[str, Any], gaps: int, mutation: dict[str, Any] | No
 
 
 def branches_of(definition: dict[str, Any]) -> list[tuple[str, str]]:
-    """Every (node, port) that counts as a branch: If/Switch outputs and ``error`` of ``error_output`` nodes."""
+    """Every (node, port) that counts as a branch: If/Switch outputs, Approval decisions and ``error`` of ``error_output`` nodes."""
     out: list[tuple[str, str]] = []
     for n in definition.get("nodes") or []:
         if not isinstance(n, dict) or n.get("disabled") or not n.get("name"):
@@ -46,6 +46,12 @@ def branches_of(definition: dict[str, Any]) -> list[tuple[str, str]]:
                 ports = list(node_registry.get(n["type"]).output_ports(n.get("parameters") or {}))
             except Exception:
                 ports = ["true", "false"] if n["type"] == "If" else []
+        if n.get("type") == "Approval":
+            # approved and rejected always; timed_out only when the node can time out (a deadline or on_timeout=timed_out)
+            params = n.get("parameters") or {}
+            ports = ["approved", "rejected"]
+            if params.get("due_in") or (params.get("on_timeout") or "timed_out") == "timed_out":
+                ports.append("timed_out")
         if n.get("on_error") == "error_output":
             ports.append("error")
         out.extend((n["name"], p) for p in ports)
@@ -137,7 +143,7 @@ async def score(
     tests = normalize_tests(definition.get("tests"))
     setup = await tr._setup(workflow_repo, stored, definition, workflow) if tests else None
     results = await _run_all(workflow_repo, stored, definition, setup) if tests else []
-    report = tr.build_report(workflow, tests, results)
+    report = tr.build_report(workflow, tests, results, await tr._stale_ids(workflow_repo, stored, definition))
     gaps = _gaps(report)
 
     mutation = None
@@ -166,6 +172,6 @@ async def score(
 
     return {
         "checker": checker, "tests": report["summary"], "coverage": _coverage(definition, report, gaps),
-        "mutation": mutation, "repeatability": repeatability, "gaps": gaps,
+        "mutation": mutation, "repeatability": repeatability, "gaps": gaps, "stale_test_ids": report["stale_test_ids"],
         "bar": format_bar(report["summary"], len(gaps), mutation),
     }

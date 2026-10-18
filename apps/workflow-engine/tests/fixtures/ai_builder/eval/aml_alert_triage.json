@@ -1,0 +1,535 @@
+{
+  "id": "aml_alert_triage",
+  "holdout": false,
+  "request": "Our monitoring system posts an AML alert to us with an alert id, a customer id, a risk level (low or high) and a short description. Low risk alerts are closed automatically with the note 'auto-closed: low risk'. High risk alerts go to a compliance officer: if they approve it we escalate the alert, and if they reject it we close the alert. Every alert, whatever happens to it, must be written to the audit log. The alert is posted with the fields alert_id, customer_id, risk (low or high) and description.",
+  "apis": [
+    "aml.yaml",
+    "audit.yaml"
+  ],
+  "spec_edits": null,
+  "expect": {
+    "trigger": "Webhook",
+    "must_have_types": [
+      "If|Switch",
+      "Approval"
+    ],
+    "must_call": [
+      "aml.closeAlert",
+      "aml.escalateAlert",
+      "audit.logEvent"
+    ],
+    "must_not_call_hosts": [],
+    "approval_ports_wired": [
+      "approved",
+      "rejected"
+    ],
+    "max_nodes": 14,
+    "forbid_types": [],
+    "min_spec_tests": 3
+  },
+  "hidden_tests": [
+    {
+      "name": "Low risk is closed automatically",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "body": {
+              "alert_id": "AL-8812",
+              "customer_id": "c-9001",
+              "risk": "low",
+              "description": "Several cash deposits just under the reporting limit"
+            },
+            "headers": {},
+            "query": {},
+            "method": "POST"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:aml.closeAlert": {
+          "http": {
+            "status": 200,
+            "body": {
+              "alert_id": "AL-8812",
+              "status": "closed"
+            }
+          }
+        },
+        "$api:aml.escalateAlert": {
+          "http": {
+            "status": 200,
+            "body": {
+              "alert_id": "AL-8812",
+              "status": "escalated"
+            }
+          }
+        },
+        "$api:audit.logEvent": {
+          "http": {
+            "status": 201,
+            "body": {
+              "entry_id": "AU-2"
+            }
+          }
+        },
+        "$type:Approval?": {
+          "port": "approved",
+          "approval": {
+            "decision": "approved",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$api:aml.closeAlert",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:aml.closeAlert",
+          "subject": "request",
+          "item": "any",
+          "path": "body.note",
+          "op": "contains",
+          "value": "auto-closed"
+        },
+        {
+          "node": "$api:aml.closeAlert",
+          "subject": "request",
+          "item": "any",
+          "path": "url",
+          "op": "contains",
+          "value": "AL-8812"
+        },
+        {
+          "node": "$api:aml.escalateAlert",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$api:audit.logEvent",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:audit.logEvent",
+          "subject": "request",
+          "op": "count",
+          "value": 1
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "High risk approved by compliance is escalated",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "body": {
+              "alert_id": "AL-8812",
+              "customer_id": "c-9001",
+              "risk": "high",
+              "description": "Several cash deposits just under the reporting limit"
+            },
+            "headers": {},
+            "query": {},
+            "method": "POST"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:aml.closeAlert": {
+          "http": {
+            "status": 200,
+            "body": {
+              "alert_id": "AL-8812",
+              "status": "closed"
+            }
+          }
+        },
+        "$api:aml.escalateAlert": {
+          "http": {
+            "status": 200,
+            "body": {
+              "alert_id": "AL-8812",
+              "status": "escalated"
+            }
+          }
+        },
+        "$api:audit.logEvent": {
+          "http": {
+            "status": 201,
+            "body": {
+              "entry_id": "AU-2"
+            }
+          }
+        },
+        "$type:Approval": {
+          "port": "approved",
+          "approval": {
+            "decision": "approved",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:aml.escalateAlert",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:aml.escalateAlert",
+          "subject": "request",
+          "item": "any",
+          "path": "url",
+          "op": "contains",
+          "value": "AL-8812"
+        },
+        {
+          "node": "$api:aml.closeAlert",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$api:audit.logEvent",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:audit.logEvent",
+          "subject": "request",
+          "op": "count",
+          "value": 1
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "High risk rejected by compliance is closed",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "body": {
+              "alert_id": "AL-8812",
+              "customer_id": "c-9001",
+              "risk": "high",
+              "description": "Several cash deposits just under the reporting limit"
+            },
+            "headers": {},
+            "query": {},
+            "method": "POST"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:aml.closeAlert": {
+          "http": {
+            "status": 200,
+            "body": {
+              "alert_id": "AL-8812",
+              "status": "closed"
+            }
+          }
+        },
+        "$api:aml.escalateAlert": {
+          "http": {
+            "status": 200,
+            "body": {
+              "alert_id": "AL-8812",
+              "status": "escalated"
+            }
+          }
+        },
+        "$api:audit.logEvent": {
+          "http": {
+            "status": 201,
+            "body": {
+              "entry_id": "AU-2"
+            }
+          }
+        },
+        "$type:Approval": {
+          "port": "rejected",
+          "approval": {
+            "decision": "rejected",
+            "comment": "Customer is a cash business",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:aml.closeAlert",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:aml.escalateAlert",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$api:audit.logEvent",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:audit.logEvent",
+          "subject": "request",
+          "op": "count",
+          "value": 1
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "Another low risk alert is logged once",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "body": {
+              "alert_id": "AL-9100",
+              "customer_id": "c-9001",
+              "risk": "low",
+              "description": "Several cash deposits just under the reporting limit"
+            },
+            "headers": {},
+            "query": {},
+            "method": "POST"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:aml.closeAlert": {
+          "http": {
+            "status": 200,
+            "body": {
+              "alert_id": "AL-9100",
+              "status": "closed"
+            }
+          }
+        },
+        "$api:aml.escalateAlert": {
+          "http": {
+            "status": 200,
+            "body": {
+              "alert_id": "AL-9100",
+              "status": "escalated"
+            }
+          }
+        },
+        "$api:audit.logEvent": {
+          "http": {
+            "status": 201,
+            "body": {
+              "entry_id": "AU-2"
+            }
+          }
+        },
+        "$type:Approval?": {
+          "port": "approved",
+          "approval": {
+            "decision": "approved",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$api:aml.closeAlert",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:aml.closeAlert",
+          "subject": "request",
+          "item": "any",
+          "path": "body.note",
+          "op": "contains",
+          "value": "auto-closed"
+        },
+        {
+          "node": "$api:aml.closeAlert",
+          "subject": "request",
+          "item": "any",
+          "path": "url",
+          "op": "contains",
+          "value": "AL-9100"
+        },
+        {
+          "node": "$api:aml.escalateAlert",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$api:audit.logEvent",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:audit.logEvent",
+          "subject": "request",
+          "op": "count",
+          "value": 1
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "Another high risk alert is escalated with its own id",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "body": {
+              "alert_id": "AL-9200",
+              "customer_id": "c-9001",
+              "risk": "high",
+              "description": "Several cash deposits just under the reporting limit"
+            },
+            "headers": {},
+            "query": {},
+            "method": "POST"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:aml.closeAlert": {
+          "http": {
+            "status": 200,
+            "body": {
+              "alert_id": "AL-9200",
+              "status": "closed"
+            }
+          }
+        },
+        "$api:aml.escalateAlert": {
+          "http": {
+            "status": 200,
+            "body": {
+              "alert_id": "AL-9200",
+              "status": "escalated"
+            }
+          }
+        },
+        "$api:audit.logEvent": {
+          "http": {
+            "status": 201,
+            "body": {
+              "entry_id": "AU-2"
+            }
+          }
+        },
+        "$type:Approval": {
+          "port": "approved",
+          "approval": {
+            "decision": "approved",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:aml.escalateAlert",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:aml.escalateAlert",
+          "subject": "request",
+          "item": "any",
+          "path": "url",
+          "op": "contains",
+          "value": "AL-9200"
+        },
+        {
+          "node": "$api:aml.closeAlert",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$api:audit.logEvent",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:audit.logEvent",
+          "subject": "request",
+          "op": "count",
+          "value": 1
+        }
+      ],
+      "category": "normal"
+    }
+  ]
+}

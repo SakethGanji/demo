@@ -1,16 +1,29 @@
-import { useState } from 'react';
-import { Sparkles, HelpCircle, Bug, ChevronDown, ChevronRight } from 'lucide-react';
+import { Sparkles, HelpCircle, Bug } from 'lucide-react';
+import { useNavigate } from '@tanstack/react-router';
 import { ChatMessageList, ChatInput, ChatPanel, ChatPanelFooter, type ChatSuggestion } from '@/shared/components/chat';
+import { ActorPrompt } from '@/features/ai-builder/components/ActorPrompt';
+import { useActorName } from '@/features/ai-builder/useActorName';
 import { useAIChatStore } from '../../stores/aiChatStore';
+import { useEditorProjectStore } from '../../stores/editorProjectStore';
+import { useEditorLayoutStore } from '../../stores/editorLayoutStore';
+import { useWorkflowStore } from '../../stores/workflowStore';
 import { useAIChat } from '../../hooks/useAIChat';
+import { approveChatSpec } from '../../lib/aiChatClient';
 import type { AIChatMessage } from '../../types/workflow';
+import { ProposalChatCard, SpecChatCard } from './ChatCards';
+import { TemplateSuggestionCard } from './TemplateSuggestionCard';
 
 /**
  * AI Chat tab content — rendered inside the shared side panel.
+ * It answers questions, and turns a request into a plan (new workflow) or a reviewed proposal (change); it never edits the canvas.
  */
 export default function AIChatPanel() {
   const messages = useAIChatStore((s) => s.messages);
   const { sendMessage, isStreaming, cancelStream } = useAIChat();
+  const actor = useActorName();
+  const projectId = useEditorProjectStore((s) => s.projectId);
+  const slug = useEditorProjectStore((s) => s.slug);
+  const navigate = useNavigate();
 
   const suggestions: ChatSuggestion[] = [
     { label: 'Generate', icon: <Sparkles size={12} />, prompt: '' },
@@ -18,18 +31,47 @@ export default function AIChatPanel() {
     { label: 'Fix', icon: <Bug size={12} />, prompt: 'Find and fix any issues in this workflow' },
   ];
 
+  // The plan and the review live in the Build tab of this same page: open it on that proposal.
+  const openReview = (proposalId: string) => {
+    useEditorLayoutStore.getState().ensureRightPanelOpen('builder');
+    void navigate({
+      to: '/p/$project/workflows/$workflowId',
+      params: { project: slug, workflowId: useWorkflowStore.getState().workflowId ?? 'new' },
+      search: (prev: Record<string, unknown>) => ({ ...prev, proposal: proposalId }),
+    });
+  };
+
+  // Every change is recorded under a name; ask once before the first message.
+  if (!actor) {
+    return (
+      <ChatPanel>
+        <div className="p-4"><ActorPrompt /></div>
+      </ChatPanel>
+    );
+  }
+
   return (
     <ChatPanel>
       <ChatMessageList<AIChatMessage>
         messages={messages}
         isStreaming={isStreaming}
         emptyTitle="AI Workflow Assistant"
-        emptyDescription="Describe a workflow to generate, or ask to modify the current one."
-        renderExtra={(msg) =>
-          msg.operations && msg.operations.mode !== 'explanation' ? (
-            <OperationsSummary payload={msg.operations} />
-          ) : null
-        }
+        emptyDescription="Ask about this workflow, describe a change, or describe a new workflow. Changes are shown to you first; nothing is saved until you keep them."
+        renderExtra={(msg) => {
+          const card = msg.card;
+          return (
+            <>
+              {msg.status && isStreaming && <div className="px-1 text-[12px] text-muted-foreground" data-testid="ai-chat-status">{msg.status}</div>}
+              {card?.kind === 'spec' && (
+                <SpecChatCard card={card} onApprove={() => void approveChatSpec(msg.id, actor, projectId)} onOpen={() => openReview(card.proposalId)} />
+              )}
+              {card?.kind === 'spec' && card.phase === 'draft' && (
+                <TemplateSuggestionCard proposalId={card.proposalId} projectId={projectId} projectSlug={slug} />
+              )}
+              {card?.kind === 'proposal' && <ProposalChatCard card={card} onOpen={() => openReview(card.proposalId)} />}
+            </>
+          );
+        }}
       />
 
       <ChatPanelFooter>
@@ -37,52 +79,10 @@ export default function AIChatPanel() {
           onSend={(msg) => sendMessage(msg)}
           isStreaming={isStreaming}
           onCancel={cancelStream}
-          placeholder="Describe what you want to build..."
+          placeholder="Ask a question or describe a change..."
           suggestions={suggestions}
         />
       </ChatPanelFooter>
     </ChatPanel>
-  );
-}
-
-// ── Operations Summary (workflow-specific) ───────────────────────────────────
-
-function OperationsSummary({ payload }: { payload: NonNullable<AIChatMessage['operations']> }) {
-  const [expanded, setExpanded] = useState(false);
-
-  const summary = payload.summary || '';
-  let details = '';
-
-  if (payload.mode === 'full_workflow' && payload.workflow) {
-    const nodeCount = payload.workflow.nodes.length;
-    const connCount = payload.workflow.connections.length;
-    details = `Generated workflow with ${nodeCount} node${nodeCount !== 1 ? 's' : ''} and ${connCount} connection${connCount !== 1 ? 's' : ''}`;
-  } else if (payload.mode === 'incremental' && payload.operations) {
-    const counts: Record<string, number> = {};
-    for (const op of payload.operations) {
-      counts[op.op] = (counts[op.op] || 0) + 1;
-    }
-    const parts = Object.entries(counts).map(
-      ([op, count]) => `${count} ${op.replace(/([A-Z])/g, ' $1').trim().toLowerCase()}`
-    );
-    details = parts.join(', ');
-  }
-
-  return (
-    <button
-      onClick={() => setExpanded(!expanded)}
-      className="w-full text-left rounded-ctl bg-recess px-2.5 py-1.5 text-xs hover:bg-(--hover-fill) transition-colors"
-    >
-      <div className="flex items-center gap-1 text-muted-foreground">
-        {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-        <span className="font-medium">Applied changes</span>
-      </div>
-      {expanded && (
-        <div className="mt-1 text-muted-foreground space-y-0.5">
-          {details && <div>{details}</div>}
-          {summary && <div className="italic">{summary}</div>}
-        </div>
-      )}
-    </button>
   );
 }

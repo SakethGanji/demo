@@ -187,9 +187,19 @@ interface Fixtures {
   open: (path: string, page?: Page) => Promise<void>
   /** set to false in a test that ends on a non-studio page */
   layoutCheck: { enabled: boolean }
+  /** 'off' (default) = instant AI-build motion for deterministic tests; 'on' = real playback (use `test.use({ motion: 'on' })`) */
+  motion: 'off' | 'on'
 }
 
-export const test = base.extend<Fixtures>({
+export const test = base.extend<Fixtures & { motionFlag: undefined }>({
+  motion: ['off', { option: true }],
+  motionFlag: [
+    async ({ context, motion }, use) => {
+      if (motion === 'off') await context.addInitScript(() => { (window as unknown as Record<string, unknown>).__STUDIO_TEST_MOTION__ = 'off' })
+      await use(undefined)
+    },
+    { auto: true },
+  ],
   s: async ({}, use) => {
     await use(stack())
   },

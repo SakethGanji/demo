@@ -46,3 +46,21 @@ export function sortChecks(checks: ReleaseCheck[]): ReleaseCheck[] {
     Math.max(0, ORDER.indexOf(c.id));
   return [...checks].sort((a, b) => rank(a) - rank(b));
 }
+
+export interface SubworkflowEdge {
+  parent_workflow_id: string
+  parent_version_id: number
+  node: string
+  child_workflow_id: string
+  child_version_id: number | null
+  child_version_number: number | null
+  spec: string
+  error?: string
+  cycle?: boolean
+  pin_node?: string
+}
+
+export function edgesOf(release: { snapshot?: Record<string, unknown> } | undefined): SubworkflowEdge[] {
+  const e = release?.snapshot?.subworkflows
+  return Array.isArray(e) ? (e as SubworkflowEdge[]) : []
+}

@@ -6,7 +6,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Copy, Ellipsis, FolderInput, Lock, Plus, SquareArrowOutUpRight, Trash2, Upload, Workflow } from 'lucide-react'
+import { Copy, Ellipsis, FolderInput, LayoutTemplate, Lock, Plus, SquareArrowOutUpRight, Trash2, Upload, Workflow } from 'lucide-react'
 import { toast } from 'sonner'
 import { useProjectCtx } from '@/features/project/ProjectContext'
 import { useProjectWorkflows, useRoutes } from '@/features/project/hooks/useProjectData'
@@ -16,6 +16,7 @@ import { errorMessage, isApiError } from '@/shared/api/http'
 import { invalidate, qk } from '@/shared/api/queryKeys'
 import type { RunListItem } from '@/shared/api/types'
 import { workflowsApi } from '@/shared/lib/api'
+import { driftWorkflowIds } from '@/features/workflow-editor/lib/testsAi'
 import type { ApiWorkflowDetail, ApiWorkflowSummary, BackendWorkflow } from '@/shared/lib/backendTypes'
 import { MethodBadge } from '@/shared/components/api/MethodBadge'
 import {
@@ -116,6 +117,9 @@ function WorkflowsPanel() {
   const navigate = useNavigate()
   const list = useProjectWorkflows(pid)
   const routes = useRoutes(pid)
+  // one request for the whole project, not one per workflow
+  const drift = useQuery({ queryKey: qk.projectDrift(pid), queryFn: () => projectsApi.drift(pid), staleTime: 15_000 })
+  const driftIds = useMemo(() => driftWorkflowIds(drift.data?.alerts), [drift.data])
   const rows = useMemo(
     () => [...((list.data ?? []) as Summary[])].sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
     [list.data],
@@ -195,6 +199,9 @@ function WorkflowsPanel() {
       </Button>
       <Button variant="outline" size="sm" onClick={() => setN8nOpen(true)} data-testid="import-n8n">
         <Upload /> Import from n8n
+      </Button>
+      <Button variant="outline" size="sm" render={<Link to="/p/$project/templates" params={{ project: slug }} />} data-testid="new-from-template">
+        <LayoutTemplate /> From template
       </Button>
       <Button size="sm" render={<Link to="/p/$project/workflows/$workflowId" params={{ project: slug, workflowId: 'new' }} />} data-testid="workflows-new">
         <Plus /> New workflow
@@ -304,6 +311,13 @@ function WorkflowsPanel() {
                       </Link>
                       <div className="mt-px truncate text-[12px] text-muted-foreground">{w.description || (detail ? `${detail.definition.nodes.length} ${detail.definition.nodes.length === 1 ? 'node' : 'nodes'}` : '\u00a0')}</div>
                     </div>
+                    {driftIds.has(w.id) && (
+                      <Tip label="A real reply changed. Open the workflow to review.">
+                        <span className="inline-flex" data-testid="wf-drift-dot" data-workflow-id={w.id} role="img" aria-label="Open drift alert">
+                          <StatusDot tone="warn" />
+                        </span>
+                      </Tip>
+                    )}
                     {w.active ? <Badge variant="success">Published</Badge> : <Badge variant="neutral">Draft</Badge>}
                     <RowMenu
                       workflow={w}

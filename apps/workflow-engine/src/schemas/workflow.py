@@ -59,9 +59,16 @@ class TestCaseSchema(BaseModel):
     locked: bool = False
     approved_by: str | None = None
     approved_at: str | None = None
-    source: Literal["human", "suggested", "replay", "ai"] = "human"
+    source: Literal["human", "suggested", "replay", "ai", "fuzz"] = "human"
     now: str | None = None
     seed: int | None = None
+    # Stage 8 section 6.3: ExecuteWorkflow nodes that run their child for real (the child's own mocks apply) instead of being mocked.
+    # Mocks and assertions may then use "<node>/<child node>" keys.
+    subworkflows: dict[str, Literal["inline"]] | None = None
+    # Stage 8 (convert selection to sub-workflow): the behaviour this test asserts on moved into a sub-workflow, so the test must
+    # be reviewed. Set by the extract route; cleared by approve/unlock (the review); an approved stale test blocks publish.
+    stale: bool | None = None
+    stale_reason: str | None = None
 
     @field_validator("id")
     @classmethod
@@ -373,11 +380,26 @@ class WorkflowDetailResponse(BaseModel):
 
 
 class WorkflowPublishResponse(BaseModel):
-    """Response for publish/unpublish."""
+    """Response for publish/unpublish.
+
+    ``impact`` (publish only, Stage 8 4.3): the published parents that follow this workflow's ``latest`` and may now break,
+    ``[{parent_workflow_id, parent_name, node, version_spec, in_release, breaking: [WF024 findings]}]``. Never blocks.
+    """
 
     id: str
     active: bool
     version_id: int | None
+
+
+class WorkflowPublishResult(WorkflowPublishResponse):
+    """Response of publish only (unpublish keeps the base shape).
+
+    ``impact`` (Stage 8 4.3): the published parents that follow this workflow's ``latest`` and may now break,
+    ``[{parent_workflow_id, parent_name, node, version_spec, in_release, breaking: [WF024 findings]}]``. Never blocks.
+    """
+
+    version_number: int | None = None  # the per-workflow number (v1, v2, ...); version_id is the global row id
+    impact: list[dict[str, Any]] = []
 
 
 class VersionListItem(BaseModel):

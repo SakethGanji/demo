@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import type { Scorecard, TestCase, TestRunReport } from '../lib/tests';
+import type { AiRun, FuzzResponse } from '../lib/testsAi';
 
-export type TestsView = 'list' | 'grid' | 'score' | 'suggest';
+export type TestsView = 'list' | 'grid' | 'score' | 'suggest' | 'fuzz';
 
 interface TestState {
   report: TestRunReport | null;
@@ -9,6 +10,19 @@ interface TestState {
   running: boolean;
   scoring: boolean;
   suggesting: boolean;
+  /** "Fill gaps with AI" is waiting on the model. */
+  aiBusy: boolean;
+  /** Dry-run result of each AI draft, by test id. */
+  aiRuns: Record<string, AiRun>;
+  fuzzRunning: boolean;
+  fuzzResult: FuzzResponse | null;
+  /** Finding ids already saved as tests. */
+  savedFindings: string[];
+  setAiBusy: (v: boolean) => void;
+  addAiRuns: (runs: Record<string, AiRun>) => void;
+  setFuzzRunning: (v: boolean) => void;
+  setFuzzResult: (r: FuzzResponse | null) => void;
+  markFindingSaved: (id: string) => void;
   selectedTestId: string | null;
   view: TestsView;
   /** The test open in the editor drawer (a copy; `isNew` until it is saved into the workflow). */
@@ -40,6 +54,16 @@ export const useTestStore = create<TestState>((set, get) => ({
   running: false,
   scoring: false,
   suggesting: false,
+  aiBusy: false,
+  aiRuns: {},
+  fuzzRunning: false,
+  fuzzResult: null,
+  savedFindings: [],
+  setAiBusy: (aiBusy) => set({ aiBusy }),
+  addAiRuns: (runs) => set({ aiRuns: { ...get().aiRuns, ...runs } }),
+  setFuzzRunning: (fuzzRunning) => set({ fuzzRunning }),
+  setFuzzResult: (fuzzResult) => set({ fuzzResult, savedFindings: [] }),
+  markFindingSaved: (id) => set({ savedFindings: [...get().savedFindings, id] }),
   selectedTestId: null,
   view: 'list',
   editing: null,
@@ -64,5 +88,5 @@ export const useTestStore = create<TestState>((set, get) => ({
     set({ suggestions, ...(suggestions.length === 0 && get().view === 'suggest' ? { view: 'list' as const } : {}) });
   },
   clear: () =>
-    set({ report: null, scorecard: null, running: false, scoring: false, suggesting: false, selectedTestId: null, editing: null, suggestions: [], lastExecutionId: null, savingFromRun: false }),
+    set({ report: null, scorecard: null, running: false, scoring: false, suggesting: false, selectedTestId: null, editing: null, suggestions: [], lastExecutionId: null, savingFromRun: false, aiBusy: false, aiRuns: {}, fuzzRunning: false, fuzzResult: null, savedFindings: [] }),
 }));

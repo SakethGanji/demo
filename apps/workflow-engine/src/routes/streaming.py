@@ -75,6 +75,8 @@ def _event_to_dict(event: ExecutionEvent) -> dict[str, Any]:
         result["subworkflowParentNode"] = event.subworkflow_parent_node
     if event.subworkflow_id:
         result["subworkflowId"] = event.subworkflow_id
+    if event.tasks is not None:
+        result["tasks"] = event.tasks
 
     return result
 
@@ -105,11 +107,17 @@ async def _run_workflow_with_events(
     this is called).
     """
     from ..db.session import async_session_factory
+    from ..services.subworkflow_wiring import subworkflow_invoker
     from ..utils.ids import execution_id as gen_exec_id
 
     event_queue: asyncio.Queue[ExecutionEvent | None] = asyncio.Queue()
 
+    held_waiting: list[ExecutionEvent] = []
+
     def on_event(event: ExecutionEvent) -> None:
+        if event.type == ExecutionEventType.EXECUTION_WAITING:
+            held_waiting.append(event)  # sent after complete(): only then do the tasks exist
+            return
         event_queue.put_nowait(event)
 
     # Pre-create execution row so node_outputs FK is satisfied during run
@@ -136,8 +144,17 @@ async def _run_workflow_with_events(
                 secret_values=secret_values,
                 project_id=project_id,
                 environment=environment,
+                subworkflow_invoker=subworkflow_invoker(async_session_factory),  # Stage 8: child rows, version pins
             )
             await execution_repo.complete(context, wf_id, workflow.name)
+            if held_waiting:
+                tasks = await execution_repo.open_task_summaries(exec_id)
+                ev = held_waiting[0]
+                if tasks:
+                    ev.tasks = tasks
+                else:  # nothing is open after all (e.g. cancelled meanwhile): it is a plain completion
+                    ev.type = ExecutionEventType.EXECUTION_COMPLETE
+                event_queue.put_nowait(ev)
         except Exception as e:
             on_event(
                 ExecutionEvent(

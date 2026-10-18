@@ -1,0 +1,214 @@
+{
+ "_comment": "Hand-labelled ground truth for the recognition gate: the ontology concepts a person would say each request involves. Labels were written from the request text, not from what the matcher finds. slots are values the request states.",
+ "cases": [
+  {
+   "id": "account_closure",
+   "source": "eval",
+   "request": "Customers ask to close an account on a form with the account number, their email and a reason. Look up the account balance first. If the balance is not exactly zero, refuse: do not close anything and tell them on screen to withdraw or transfer the money first. If it is zero, close the account and email the customer a confirmation.",
+   "concepts": [
+    "concept:intake",
+    "concept:notification",
+    "concept:customer_request"
+   ],
+   "slots": {}
+  },
+  {
+   "id": "address_change_verify",
+   "source": "eval",
+   "request": "Our mobile app posts an address change to us: the customer id, the new address line, city and postcode, and the one-time code the customer typed in. Check the code with the OTP service first. Only if the code is valid, update the customer's address. If it is not valid, change nothing and reply with a 401. The app posts these fields: customer_id, address_line, city, postcode and otp_code.",
+   "concepts": [
+    "concept:customer_request"
+   ],
+   "slots": {}
+  },
+  {
+   "id": "aml_alert_triage",
+   "source": "eval",
+   "request": "Our monitoring system posts an AML alert to us with an alert id, a customer id, a risk level (low or high) and a short description. Low risk alerts are closed automatically with the note 'auto-closed: low risk'. High risk alerts go to a compliance officer: if they approve it we escalate the alert, and if they reject it we close the alert. Every alert, whatever happens to it, must be written to the audit log. The alert is posted with the fields alert_id, customer_id, risk (low or high) and description.",
+   "concepts": [
+    "concept:exception_case",
+    "concept:screening",
+    "concept:approval",
+    "concept:escalation",
+    "concept:audit_log"
+   ],
+   "slots": {}
+  },
+  {
+   "id": "card_dispute_intake",
+   "source": "eval",
+   "request": "Customers can dispute a card transaction on a form: their customer id, the last four digits of the card, the merchant, the amount and a description of what went wrong. If the disputed amount is under $50, give them a provisional credit straight away and do not open a case. For $50 or more, open a dispute case and send the customer a message that includes the case number. Either way, show the customer a confirmation on screen.",
+   "concepts": [
+    "concept:dispute",
+    "concept:intake",
+    "concept:threshold_check",
+    "concept:exception_case",
+    "concept:notification"
+   ],
+   "slots": {}
+  },
+  {
+   "id": "chargeback_evidence",
+   "source": "eval",
+   "request": "Every morning at 8, look up the chargebacks whose evidence is due within the next 3 days and submit evidence for each one of them. The evidence summary should mention the chargeback id, and the transaction id comes from the chargeback.",
+   "concepts": [
+    "concept:schedule",
+    "concept:dispute",
+    "concept:sla"
+   ],
+   "slots": {}
+  },
+  {
+   "id": "complaint_routing",
+   "source": "eval",
+   "request": "Staff log a complaint on a form with the customer id, which product it is about (cards, loans or deposits), whether it is urgent (an urgent flag, true or false), and a description. Create a ticket in the queue of the matching team: the queue is named cards, loans or deposits. If the complaint is urgent, also page the on-call person with a message. Do not message the customer.",
+   "concepts": [
+    "concept:intake",
+    "concept:assignment"
+   ],
+   "slots": {}
+  },
+  {
+   "id": "daily_recon_report",
+   "source": "eval",
+   "request": "Every night at 11pm, pull today's entries from the ledger and today's settlements from the card processor. Compare them by reference. Email finance a list of any reference whose amount differs between the two, or that appears on only one side. If everything matches, do not send any email.",
+   "concepts": [
+    "concept:schedule",
+    "concept:reconciliation",
+    "concept:notification"
+   ],
+   "slots": {}
+  },
+  {
+   "id": "injection_vendor_onboarding",
+   "source": "eval",
+   "request": "Procurement posts a new vendor to us with the vendor name, country and contact email. Screen the vendor against the sanctions service first. If there is a match, do not create the vendor and reply with an error. Otherwise create the vendor record and reply that it was created. The vendor is posted with the fields name, country and contact_email.",
+   "concepts": [
+    "concept:screening"
+   ],
+   "slots": {}
+  },
+  {
+   "id": "kyc_document_review",
+   "source": "eval",
+   "request": "Our onboarding system sends us a new KYC upload with the customer id and the list of documents they uploaded. Have the AI check the file is complete: we need a photo ID, proof of address and a source of funds statement. The AI should answer whether it is complete and which documents are missing. If something is missing, ask the customer for exactly those documents. If it is complete, a KYC analyst has to approve before we mark the customer as approved; if the analyst rejects, mark the customer as rejected. The upload is posted with the fields customer_id and documents (a list of file names).",
+   "concepts": [
+    "concept:screening",
+    "concept:document_review",
+    "concept:approval"
+   ],
+   "slots": {}
+  },
+  {
+   "id": "loan_precheck",
+   "source": "eval",
+   "request": "A loan officer fills in a form with the applicant id and the amount they want. Get the applicant's credit score from the risk service. A score below 600 is declined. A score from 600 to 700 inclusive goes to an underwriter to decide by hand. Above 700 is pre-approved. Write every final decision to the audit log with the action set to exactly declined or pre_approved (an underwriter's yes means pre_approved, their no means declined), and show the officer the result.",
+   "concepts": [
+    "concept:threshold_check",
+    "concept:approval",
+    "concept:audit_log"
+   ],
+   "slots": {}
+  },
+  {
+   "id": "overdraft_fee_waiver",
+   "source": "eval",
+   "request": "Branch staff ask to waive an overdraft fee on a form with the account id, the fee id and the fee amount. Look up that account's overdraft history. If this is the customer's first ever overdraft (the history shows exactly one), waive the fee automatically. In every other case a branch manager decides: if they approve, waive the fee; if they reject, do nothing.",
+   "concepts": [
+    "concept:approval",
+    "concept:intake"
+   ],
+   "slots": {}
+  },
+  {
+   "id": "payment_exception",
+   "source": "eval",
+   "request": "When a payment fails, the payments system posts us the payment id, the error code and the amount. Timeouts and network errors are transient: retry the payment once, automatically. Any other error code, such as insufficient_funds or invalid_account, goes to an ops person to review, and we only retry it if they approve. Reply to the caller whatever we did. The failure is posted with the fields payment_id, error_code and amount.",
+   "concepts": [
+    "concept:payment_handling",
+    "concept:retry",
+    "concept:approval",
+    "concept:review"
+   ],
+   "slots": {}
+  },
+  {
+   "id": "refund_over_500",
+   "source": "eval",
+   "request": "When a customer asks us for a refund we need their email, the amount and the reason. Anything over $500 has to be approved by a manager before we pay it out; anything up to $500 we just pay straight away. Whatever happens, let the customer know by message, and show the person who filled in the form what happened.",
+   "concepts": [
+    "concept:refund",
+    "concept:approval",
+    "concept:threshold_check",
+    "concept:notification",
+    "concept:customer_request"
+   ],
+   "slots": {}
+  },
+  {
+   "id": "vendor_invoice_approval",
+   "source": "eval",
+   "request": "Invoices arrive from the accounts payable system with an invoice id, a vendor id and an amount. Every invoice needs an approver before we schedule the payment. Invoices over $10,000 need two different approvers (four-eyes), smaller ones need just one. A rejected invoice is never scheduled for payment. Each invoice is posted with the fields invoice_id, vendor_id and amount.",
+   "concepts": [
+    "concept:approval",
+    "concept:four_eyes_approval",
+    "concept:threshold_check"
+   ],
+   "slots": {}
+  },
+  {
+   "id": "wire_over_limit",
+   "source": "eval",
+   "request": "Outgoing wire requests come in through a form with the from account, the to account, the beneficiary name, the amount and the destination country. Never send a wire to a sanctioned country (Iran, North Korea, Syria or Cuba): stop with an error and send nothing. Wires over $25,000 need treasury approval before they go out; smaller ones go straight out.",
+   "concepts": [
+    "concept:screening",
+    "concept:threshold_check",
+    "concept:approval",
+    "concept:intake"
+   ],
+   "slots": {}
+  },
+  {
+   "id": "demo_team_a_exceptions_app",
+   "source": "demo",
+   "request": "We need an application to manage operational exceptions: anyone in payments ops can log an exception, each one gets an owner based on its category, if the owner hasn't resolved it within 48 hours escalate it to the head of operations, and every Monday send the ops managers a report of open and closed exceptions.",
+   "concepts": [
+    "concept:intake",
+    "concept:exception_case",
+    "concept:assignment",
+    "concept:sla",
+    "concept:escalation",
+    "concept:report",
+    "concept:schedule"
+   ],
+   "slots": {
+    "sla.due_in": "48h",
+    "escalation.target_role": "role:ops_head",
+    "report.recipients_role": "role:ops_manager",
+    "report.schedule": "0 8 * * 1",
+    "assignment.by_field": "category"
+   }
+  },
+  {
+   "id": "demo_team_b_fraud_app",
+   "source": "demo",
+   "request": "Build an app for card fraud alerts: log an alert, assign an analyst by region, escalate to the fraud lead if it isn't handled in 4 hours, and send fraud managers a daily summary.",
+   "concepts": [
+    "concept:intake",
+    "concept:exception_case",
+    "concept:assignment",
+    "concept:sla",
+    "concept:escalation",
+    "concept:report",
+    "concept:schedule"
+   ],
+   "slots": {
+    "sla.due_in": "4h",
+    "escalation.target_role": "role:fraud_lead",
+    "report.recipients_role": "role:fraud_lead",
+    "report.schedule": "0 8 * * *",
+    "assignment.by_field": "region"
+   }
+  }
+ ]
+}

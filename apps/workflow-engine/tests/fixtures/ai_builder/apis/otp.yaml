@@ -1,0 +1,48 @@
+openapi: 3.0.3
+info:
+  title: otp
+  version: '1.0'
+servers:
+- url: http://otp.bank.test
+paths:
+  /otp/verify:
+    post:
+      operationId: verify
+      summary: Check a one-time code a customer typed in
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                customer_id:
+                  type: string
+                code:
+                  type: string
+              required:
+              - customer_id
+              - code
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                required:
+                - valid
+        '422':
+          description: Code expired
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                - error

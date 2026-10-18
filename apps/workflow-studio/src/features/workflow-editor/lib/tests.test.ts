@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  nodeTestBadge,
   barState, barText, compactBarText, composeBar, failureDetail, failureMessage, nodeLabelMap, gridCell, gridGapCount, newTestCase, newTestId, recordRename,
   renameNodeInTests, rowStatus, successMock, summaryText, visibleCategories,
   type Grid, type Scorecard, type TestCase, type TestRunReport, type TestSummary,
@@ -136,5 +137,17 @@ describe('compactBarText', () => {
     const sc = { tests: { passed: 3, total: 4 }, mutation: { total: 19, caught: 11, survived: [] }, bar: 'x' } as unknown as Scorecard;
     expect(compactBarText(null, sc)).toBe('3/4 · 11/19 bugs caught');
     expect(compactBarText(null, { ...sc, mutation: null })).toBe('3/4');
+  });
+});
+
+describe('nodeTestBadge', () => {
+  const live = { badges: { 'Compute fee': 'fail' as const } };
+  const review = { badges: { 'Compute fee': 'pass' as const } };
+  it('uses the live run when no review is open', () => {
+    expect(nodeTestBadge('Compute fee', live, null)).toBe('fail');
+  });
+  it('follows the review result while a review is open', () => {
+    expect(nodeTestBadge('Compute fee', live, review)).toBe('pass');
+    expect(nodeTestBadge('Other', live, review)).toBeUndefined();
   });
 });

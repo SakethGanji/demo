@@ -1,0 +1,58 @@
+openapi: 3.0.3
+info:
+  title: cards
+  version: '1.0'
+servers:
+- url: http://cards.bank.test
+paths:
+  /cards/{card_last4}/provisional-credit:
+    post:
+      operationId: provisionalCredit
+      summary: Give the customer a provisional credit for a disputed amount
+      parameters:
+      - name: card_last4
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                customer_id:
+                  type: string
+                amount:
+                  type: number
+                merchant:
+                  type: string
+              required:
+              - amount
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  credit_id:
+                    type: string
+                  amount:
+                    type: number
+                required:
+                - credit_id
+                - amount
+        '404':
+          description: Card not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                - error

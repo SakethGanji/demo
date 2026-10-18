@@ -1,0 +1,58 @@
+openapi: 3.0.3
+info:
+  title: wires
+  version: '1.0'
+servers:
+- url: http://wires.bank.test
+paths:
+  /wires:
+    post:
+      operationId: send
+      summary: Send an outgoing wire
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from_account:
+                  type: string
+                to_account:
+                  type: string
+                beneficiary:
+                  type: string
+                amount:
+                  type: number
+                destination_country:
+                  type: string
+              required:
+              - from_account
+              - to_account
+              - amount
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  wire_id:
+                    type: string
+                  status:
+                    type: string
+                required:
+                - wire_id
+                - status
+        '422':
+          description: Wire refused
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                - error

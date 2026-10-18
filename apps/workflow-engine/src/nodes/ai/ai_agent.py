@@ -116,7 +116,7 @@ class AgentContext:
 
     agent_depth: int = 0
     max_agent_depth: int = 3
-    parent_model: str = "gemini-2.0-flash"
+    parent_model: str = "gemini-3.7-flash"
     parent_temperature: float = 0.7
     parent_system_prompt: str = ""
     inheritable_tools: list[dict[str, Any]] = field(default_factory=list)
@@ -168,9 +168,10 @@ class AIAgentNode(BaseNode):
                 display_name="Model",
                 name="model",
                 type="options",
-                default="gemini-2.0-flash",
+                default="gemini-3.7-flash",
                 options=[
-                    NodePropertyOption(name="Gemini 2.0 Flash", value="gemini-2.0-flash"),
+                    NodePropertyOption(name="Gemini 3.7 Flash", value="gemini-3.7-flash"),
+                    NodePropertyOption(name="Gemini 3.8 Flash", value="gemini-3.8-flash"),
                     NodePropertyOption(name="Gemini 1.5 Flash", value="gemini-1.5-flash"),
                     NodePropertyOption(name="Gemini 1.5 Pro", value="gemini-1.5-pro"),
                     NodePropertyOption(name="GPT-4o", value="gpt-4o"),
@@ -274,10 +275,11 @@ class AIAgentNode(BaseNode):
                 display_name="Summary Model",
                 name="memorySummaryModel",
                 type="options",
-                default="gemini-2.0-flash",
+                default="gemini-3.7-flash",
                 description="Model used for summarization.",
                 options=[
-                    NodePropertyOption(name="Gemini 2.0 Flash", value="gemini-2.0-flash"),
+                    NodePropertyOption(name="Gemini 3.7 Flash", value="gemini-3.7-flash"),
+                    NodePropertyOption(name="Gemini 3.8 Flash", value="gemini-3.8-flash"),
                     NodePropertyOption(name="Gemini 1.5 Flash", value="gemini-1.5-flash"),
                     NodePropertyOption(name="GPT-4o Mini", value="gpt-4o-mini"),
                 ],
@@ -485,9 +487,18 @@ class AIAgentNode(BaseNode):
         return "Autonomous agent with tool calling capabilities"
 
     def contract(self, params, inputs, lookups=None):
-        """Declared: ``params.output_schema`` (a Shape) when set; otherwise observed -> UNKNOWN unless approved."""
-        declared = sh.param_shape(params, "output_schema")
-        return sh.make_contract(inputs, {"main": declared if declared is not None else sh.unknown()})
+        """Declared: ``params.outputSchema`` (what the catalog and the runtime use; ``output_schema`` is accepted too) when set;
+        otherwise observed -> UNKNOWN unless approved. The item is ``{response, structured: <schema>, toolCalls, iterations}``."""
+        declared = sh.param_shape(params, "outputSchema", "output_schema")
+        if declared is None:
+            return sh.make_contract(inputs, {"main": sh.unknown()})
+        item = sh.object_of({
+            "response": sh.scalar("string", "declared"),
+            "structured": declared,
+            "toolCalls": sh.array_of(None, "declared"),
+            "iterations": sh.scalar("number", "declared"),
+        }, ["response", "structured"], source="declared")
+        return sh.make_contract(inputs, {"main": item})
 
     async def execute(
         self,
@@ -500,7 +511,7 @@ class AIAgentNode(BaseNode):
         from .inline_config import resolve_memory, resolve_tools
 
         # Get parameters with defaults
-        model = self.get_parameter(node_definition, "model", "gemini-2.0-flash")
+        model = self.get_parameter(node_definition, "model", "gemini-3.7-flash")
         system_prompt_template = self.get_parameter(node_definition, "systemPrompt", "")
         task_template = self.get_parameter(node_definition, "task", "")
 
@@ -537,7 +548,7 @@ class AIAgentNode(BaseNode):
                 "maxMessages": self.get_parameter(node_definition, "memoryMaxMessages", 20),
                 "maxTokens": self.get_parameter(node_definition, "memoryMaxTokens", 4000),
                 "maxTurns": self.get_parameter(node_definition, "memoryMaxTurns", 10),
-                "summaryModel": self.get_parameter(node_definition, "memorySummaryModel", "gemini-2.0-flash"),
+                "summaryModel": self.get_parameter(node_definition, "memorySummaryModel", "gemini-3.7-flash"),
                 "recentMessages": self.get_parameter(node_definition, "memoryRecentMessages", 5),
                 "summaryThreshold": self.get_parameter(node_definition, "memorySummaryThreshold", 15),
                 "updateFrequency": self.get_parameter(node_definition, "memoryUpdateFrequency", 2),
@@ -554,7 +565,7 @@ class AIAgentNode(BaseNode):
 
         # Build tools from inline built-in tool selections
         builtin_tool_names = self.get_parameter(node_definition, "builtinTools", [])
-        tools, tool_executors = resolve_tools(builtin_tool_names)
+        tools, tool_executors = resolve_tools(builtin_tool_names, owner=node_definition.name)
 
         # Merge runtime tools from input data (dynamic tool binding)
         for item in (input_data or []):

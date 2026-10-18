@@ -5,6 +5,7 @@ import { indexRoute } from './indexRoute'
 import { projectsRoute } from './projects'
 import { projectRouteTree } from './project'
 import { designRoute } from './design'
+import { interfaceRoute, interfaceRunRoute } from './public'
 import { queryClient } from '../queryClient'
 
 const routeTree = rootRoute.addChildren([
@@ -13,6 +14,9 @@ const routeTree = rootRoute.addChildren([
   builderRedirectRoute,
   projectsRoute,
   projectRouteTree,
+  // public form / chat / custom surfaces: no studio shell (DESIGN-STAGE5-UIS §11.3)
+  interfaceRoute,
+  interfaceRunRoute,
   // dev-only component reference (IMPLEMENTATION-PLAN A7)
   ...(import.meta.env.DEV ? [designRoute] : []),
 ])

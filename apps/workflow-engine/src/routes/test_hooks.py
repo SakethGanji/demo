@@ -118,3 +118,50 @@ async def health():
     from ..core.config import settings
 
     return {"fake_llm": True, "db": settings.db_name}
+
+
+class TaskTickBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    task_id: str | None = None
+    make_due: bool = False  # move this open task's deadline into the past first
+    wait: bool = True  # wait for the resumes the tick started
+
+
+class TaskFaultBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    after_claim: bool
+
+
+@router.post("/tasks/tick")
+async def tick_tasks(body: TaskTickBody):
+    """Run one scheduler pass for human tasks now (timeouts, pending resumes, interrupted resumes); optionally make a task due first."""
+    import asyncio
+
+    from sqlalchemy import text
+
+    from ..db.session import async_session_factory
+    from ..engine import task_resumer
+
+    if body.task_id and body.make_due:
+        async with async_session_factory() as session:
+            await session.execute(
+                text("UPDATE human_tasks SET due_at = now() - interval '1 second' WHERE id = :id AND status = 'open'"),
+                {"id": body.task_id},
+            )
+            await session.commit()
+    started = await task_resumer.tick(async_session_factory)
+    if body.wait and started:
+        await asyncio.gather(*started, return_exceptions=True)
+    return {"started": len(started)}
+
+
+@router.put("/tasks/fault")
+async def put_task_fault(body: TaskFaultBody):
+    """``after_claim``: the next resume stops right after claiming (leaves ``resume_state='running'``, like a crash)."""
+    from ..engine import task_resumer
+
+    if body.after_claim:
+        task_resumer.FAULT["after_claim"] = True
+    else:
+        task_resumer.FAULT.pop("after_claim", None)
+    return {"after_claim": bool(task_resumer.FAULT.get("after_claim"))}

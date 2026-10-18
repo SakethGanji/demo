@@ -1,0 +1,60 @@
+openapi: 3.0.3
+info:
+  title: customers
+  version: '1.0'
+servers:
+- url: http://customers.bank.test
+paths:
+  /customers/{customer_id}/address:
+    post:
+      operationId: updateAddress
+      summary: Change the postal address of a customer
+      parameters:
+      - name: customer_id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                address_line:
+                  type: string
+                city:
+                  type: string
+                postcode:
+                  type: string
+              required:
+              - address_line
+              - city
+              - postcode
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  customer_id:
+                    type: string
+                  updated:
+                    type: boolean
+                required:
+                - customer_id
+                - updated
+        '404':
+          description: Customer not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                - error

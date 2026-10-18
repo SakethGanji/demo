@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -54,10 +55,26 @@ class WorkflowRepository:
             db_workflow.project_id = project_id
 
         self._session.add(db_workflow)
+        await self._index_draft(db_workflow, before={})
         await self._session.commit()
         await self._session.refresh(db_workflow)
 
         return self._to_stored_workflow(db_workflow)
+
+    async def _index_draft(self, db_workflow: WorkflowModel, before: dict | None) -> None:
+        """Keep the ``workflow_refs`` draft rows ("used by", cycle check) in step with the draft this session is about to commit.
+
+        The one hook for every draft write that goes through the repository (DESIGN-STAGE8-REUSE 5.1), so a caller can't forget it.
+        ``before`` is the definition being replaced: a write that neither had nor has a sub-workflow call costs no query.
+        Runs in the caller's transaction (a savepoint); the caller commits.
+        """
+        from ..services.workflow_refs import refs_of, sync_refs
+
+        after = db_workflow.draft_definition
+        if before is not None and not refs_of(before) and not refs_of(after):
+            return
+        await self._session.flush()
+        await sync_refs(self._session, db_workflow.id, None, after, project_id=db_workflow.project_id)
 
     async def get(self, workflow_id: str) -> StoredWorkflow | None:
         """Get a workflow by ID."""
@@ -92,9 +109,13 @@ class WorkflowRepository:
         if workflow.description is not None:
             db_workflow.description = workflow.description
 
+        before = copy.deepcopy(db_workflow.draft_definition or {})
         definition = workflow_to_definition(workflow)
         if not workflow.settings:
             definition["settings"] = db_workflow.draft_definition.get("settings", {})
+        if "interface" not in definition and (db_workflow.draft_definition or {}).get("interface"):
+            # Stage 5: a save that doesn't carry the interface never drops it (set_interface is the only way to change/remove it)
+            definition["interface"] = db_workflow.draft_definition["interface"]
         db_workflow.draft_definition = definition
         if folder_id is not None:
             db_workflow.folder_id = folder_id
@@ -102,9 +123,28 @@ class WorkflowRepository:
             db_workflow.project_id = project_id
         db_workflow.updated_at = datetime.now()
 
+        await self._index_draft(db_workflow, before)
         await self._session.commit()
         await self._session.refresh(db_workflow)
 
+        return self._to_stored_workflow(db_workflow)
+
+    async def set_interface(self, workflow_id: str, interface: dict | None) -> StoredWorkflow | None:
+        """Replace (or, with ``None``, remove) the draft's ``interface`` key. Nothing else in the draft changes."""
+        db_workflow = await self._session.get(WorkflowModel, workflow_id)
+        if not db_workflow:
+            return None
+        before = db_workflow.draft_definition or {}
+        definition = dict(before)
+        if interface is None:
+            definition.pop("interface", None)
+        else:
+            definition["interface"] = interface
+        db_workflow.draft_definition = definition      # a new dict, so the JSONB change is detected
+        db_workflow.updated_at = datetime.now()
+        await self._index_draft(db_workflow, before)
+        await self._session.commit()
+        await self._session.refresh(db_workflow)
         return self._to_stored_workflow(db_workflow)
 
     async def set_active(self, workflow_id: str, active: bool) -> StoredWorkflow | None:
@@ -128,6 +168,10 @@ class WorkflowRepository:
         db_workflow = await self._session.get(WorkflowModel, workflow_id)
         if not db_workflow:
             return False
+
+        # Stage 5: the live slug, submissions and chat sessions go with the workflow (a no-op until the tables exist)
+        from .interface_repository import InterfaceRepository
+        await InterfaceRepository(self._session).purge_workflow(workflow_id)
 
         # node_outputs reference executions (indirect), delete first
         exec_ids_result = await self._session.execute(
@@ -250,6 +294,7 @@ def workflow_to_definition(workflow: "Workflow") -> dict:
         "settings": workflow.settings,
         "tests": list(workflow.tests or []),
         "test_defaults": dict(workflow.test_defaults or {}),
+        **({"interface": dict(workflow.interface)} if workflow.interface else {}),
     }
 
 
@@ -301,4 +346,5 @@ def definition_to_workflow(
         settings=definition.get("settings", {}),
         tests=list(definition.get("tests") or []),
         test_defaults=dict(definition.get("test_defaults") or {}),
+        interface=dict(definition["interface"]) if isinstance(definition.get("interface"), dict) and definition["interface"] else None,
     )

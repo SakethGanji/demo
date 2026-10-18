@@ -1,0 +1,72 @@
+{
+  "name": "KYC check (sub-workflow)",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {"name": "applicant_id", "type": "string"},
+            {"name": "full_name", "type": "string"},
+            {"name": "country", "type": "string"},
+            {"name": "risk_tier"},
+            {"name": "monthly_income", "type": "number"},
+            {"name": "documents", "type": "array"},
+            {"name": "raw_payload", "type": "any"}
+          ]
+        }
+      },
+      "id": "7b0e9c1d-5f0a-4c3e-b1aa-3c2d9e8f2001",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict"},
+          "conditions": [
+            {"id": "c1", "leftValue": "={{ $json.country }}", "rightValue": "KP", "operator": {"type": "string", "operation": "equals"}}
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7b0e9c1d-5f0a-4c3e-b1aa-3c2d9e8f2002",
+      "name": "Sanctioned Country?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {"assignments": [{"id": "s1", "name": "kyc_status", "value": "rejected", "type": "string"}]},
+        "options": {}
+      },
+      "id": "7b0e9c1d-5f0a-4c3e-b1aa-3c2d9e8f2003",
+      "name": "Reject",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [700, 200]
+    },
+    {
+      "parameters": {
+        "assignments": {"assignments": [{"id": "s2", "name": "kyc_status", "value": "approved", "type": "string"}]},
+        "options": {}
+      },
+      "id": "7b0e9c1d-5f0a-4c3e-b1aa-3c2d9e8f2004",
+      "name": "Approve",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [700, 400]
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {"main": [[{"node": "Sanctioned Country?", "type": "main", "index": 0}]]},
+    "Sanctioned Country?": {"main": [[{"node": "Reject", "type": "main", "index": 0}], [{"node": "Approve", "type": "main", "index": 0}]]}
+  },
+  "pinData": {},
+  "settings": {"executionOrder": "v1"},
+  "active": false
+}

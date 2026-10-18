@@ -4,10 +4,13 @@ import { Button } from '@/shared/components/ui/button';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useNDVStore } from '../../stores/ndvStore';
 import { useBackToLive } from '../../hooks/useViewingRun';
+import { useExecutionLineage } from '../../hooks/useSubworkflows';
+import { ParentRunLink } from '../execution-logs/ChildRunLinks';
 
 export default function ViewingRunBanner() {
   const viewing = useWorkflowStore((s) => s.viewingExecution);
   const backToLive = useBackToLive();
+  const lineage = useExecutionLineage(viewing?.id).data;
   if (!viewing) return null;
 
   const pinSelected = () => {
@@ -32,7 +35,9 @@ export default function ViewingRunBanner() {
       <History size={14} className="shrink-0 text-muted-foreground" aria-hidden />
       <span className="min-w-0 truncate" title={viewing.id}>
         Viewing run <span className="font-mono">#{viewing.id}</span> from {new Date(viewing.startTime).toLocaleString()}
+        {viewing.status === 'waiting' && ' · waiting for approval'}
       </span>
+      {lineage?.parent && <ParentRunLink parent={lineage.parent} testId="exec-parent-link-banner" />}
       <Button variant="outline" size="xs" onClick={pinSelected} data-testid="viewing-run-pin">
         <Pin /> Pin this data
       </Button>

@@ -18,7 +18,7 @@ export const TRIGGER_TYPES = [
   'retry',
 ] as const
 
-export const RUN_STATUSES = ['success', 'failed', 'running'] as const
+export const RUN_STATUSES = ['success', 'failed', 'running', 'waiting'] as const
 
 export interface RunTarget {
   method: string | null

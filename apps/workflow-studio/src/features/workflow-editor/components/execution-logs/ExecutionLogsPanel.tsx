@@ -6,6 +6,7 @@
  */
 
 import { useState, useEffect, useMemo } from 'react';
+import { Link } from '@tanstack/react-router';
 import {
   Trash2,
   CheckCircle2,
@@ -32,6 +33,7 @@ import {
 } from 'lucide-react';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useTestStore } from '../../stores/testStore';
+import { useEditorProjectStore } from '../../stores/editorProjectStore';
 import { saveExecutionAsTest } from '../../lib/testActions';
 import { Button } from '@/shared/components/ui/button';
 import { cn } from '@/shared/lib/utils';
@@ -40,6 +42,9 @@ import { Callout } from '@/shared/components/ui/surface';
 import type { NodeMetrics } from '../../types/workflow';
 import ExecutionTrace from './ExecutionTrace';
 import { buildAgentTraceTree } from './buildTraceTree';
+import { useExecutionLineage } from '../../hooks/useSubworkflows';
+import { ChildRunList, ChildRunRow, ErrorChildLink, ParentRunLink } from './ChildRunLinks';
+import { isFailedStatus } from '../../lib/subworkflowsApi';
 
 // ── Syntax-highlighted JSON viewer ──────────────────────────────────────
 // Safe React-element based highlighting (no dangerouslySetInnerHTML)
@@ -158,7 +163,7 @@ interface ExecutionLog {
   nodeName: string;
   nodeLabel: string;
   nodeType: string;
-  status: 'idle' | 'running' | 'success' | 'error';
+  status: 'idle' | 'running' | 'success' | 'error' | 'waiting';
   timestamp: number;
   duration?: number;
   itemCount?: number;
@@ -329,6 +334,9 @@ export default function ExecutionLogsPanel() {
   const runActive = useWorkflowStore((s) => s.runActive);
   const isRunning = runActive || logs.some((l) => l.status === 'running');
   const hasErrors = logs.some((l) => l.status === 'error');
+  const waitingRun = useWorkflowStore((s) => s.waitingRun);
+  const projectSlug = useEditorProjectStore((s) => s.slug);
+  const isWaiting = !isRunning && !hasErrors && (!!waitingRun || logs.some((l) => l.status === 'waiting'));
   const successCount = logs.filter((l) => l.status === 'success').length;
   const totalDuration = logs.reduce((sum, l) => sum + (l.duration || 0), 0);
   const totalTokens = logs.reduce((sum, l) => sum + ((l.metrics?.totalTokens as number) || 0), 0);
@@ -337,6 +345,10 @@ export default function ExecutionLogsPanel() {
     ? logs.find((l) => l.id === selectedLogId)
     : null;
   const selectedNodeData = selectedLogId ? executionData[selectedLogId] : null;
+
+  // Stage 8 lineage of the shown run: the run that called it, and the sub-workflow runs it started
+  const lineage = useExecutionLineage(runExecutionId, !isRunning && hasLogs).data;
+  const childRunsOf = (nodeName: string) => (lineage?.children ?? []).filter((c) => c.node === nodeName);
 
   // Auto-select first log when execution starts
   useEffect(() => {
@@ -368,6 +380,12 @@ export default function ExecutionLogsPanel() {
       <div className="flex items-center justify-between h-8 px-3 shrink-0 shadow-[inset_0_-1px_0_var(--hairline)]">
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium text-foreground">Logs</span>
+          {lineage?.parent && (
+            <>
+              <div className="w-px h-3 bg-hairline" />
+              <ParentRunLink parent={lineage.parent} />
+            </>
+          )}
           {hasLogs && (
             <>
               <div className="w-px h-3 bg-hairline" />
@@ -375,6 +393,22 @@ export default function ExecutionLogsPanel() {
                 <span className="flex items-center gap-1 text-[10px] text-warning-text" data-testid="execution-status" data-status="running">
                   <Loader2 size={10} className="animate-spin" />
                   running
+                </span>
+              ) : isWaiting ? (
+                <span className="flex items-center gap-1 text-[10px] text-warning-text" data-testid="execution-status" data-status="waiting">
+                  <Clock size={10} />
+                  waiting for approval
+                  {(waitingRun?.tasks.length ? waitingRun.tasks : [null]).map((t) => (
+                    <Link
+                      key={t?.id ?? 'inbox'}
+                      to={t ? '/p/$project/approvals/$taskId' : '/p/$project/approvals'}
+                      params={t ? { project: projectSlug, taskId: t.id } : { project: projectSlug }}
+                      className="underline underline-offset-2 hover:text-foreground"
+                      data-testid="execution-waiting-link"
+                    >
+                      {t ? t.title || 'Open task' : 'Open inbox'}
+                    </Link>
+                  ))}
                 </span>
               ) : hasErrors ? (
                 <span className="flex items-center gap-1 text-[10px] text-destructive" data-testid="execution-status" data-status="error">
@@ -441,8 +475,8 @@ export default function ExecutionLogsPanel() {
           ) : (
             <div className="p-1.5 space-y-0.5">
               {logs.map((log) => (
+                <div key={log.id}>
                 <button
-                  key={log.id}
                   onClick={() => setSelectedLogId(log.id)}
                   className={cn(
                     'w-full flex items-center gap-2 px-2 py-1.5 rounded-ctl text-left transition-colors',
@@ -460,6 +494,9 @@ export default function ExecutionLogsPanel() {
                   {log.status === 'error' && (
                     <XCircle size={12} className="text-destructive flex-shrink-0" />
                   )}
+                  {log.status === 'waiting' && (
+                    <Clock size={12} className="text-warning flex-shrink-0" />
+                  )}
                   <div className="flex-1 min-w-0">
                     <span className="text-xs truncate block">{log.nodeLabel}</span>
                     <span className="text-[9px] text-muted-foreground truncate block">{log.nodeType}</span>
@@ -470,6 +507,10 @@ export default function ExecutionLogsPanel() {
                     </span>
                   )}
                 </button>
+                {childRunsOf(log.nodeName).map((c) => (
+                  <ChildRunRow key={c.execution_id} run={c} />
+                ))}
+                </div>
               ))}
             </div>
           )}
@@ -538,8 +579,15 @@ export default function ExecutionLogsPanel() {
               {selectedLog.error && (
                 <Callout tone="error" data-testid="log-error">
                   <p className="text-xs">{selectedLog.error}</p>
+                  {(() => {
+                    const failed = childRunsOf(selectedLog.nodeName).find((c) => isFailedStatus(c.status));
+                    return failed ? <ErrorChildLink run={failed} /> : null;
+                  })()}
                 </Callout>
               )}
+
+              {/* Stage 8: the sub-workflow runs this node started */}
+              {selectedLog.nodeType === 'ExecuteWorkflow' && <ChildRunList runs={childRunsOf(selectedLog.nodeName)} />}
 
               {/* Agent execution trace */}
               {selectedNodeData.agentTrace && selectedNodeData.agentTrace.length > 0 && (

@@ -37,6 +37,11 @@ export function buildRunData(
       };
       continue;
     }
+    if ((metrics as { status?: string } | undefined)?.status === 'waiting') {
+      // An Approval that paused the run: its input is its pending output, so show no output yet.
+      out[id] = { input: items ? { items: items.map((d) => d.json) } : input, output: { items: [] }, status: 'waiting', startTime: start, metrics };
+      continue;
+    }
     if (!items) continue; // the node did not run in this execution
     out[id] = {
       input,

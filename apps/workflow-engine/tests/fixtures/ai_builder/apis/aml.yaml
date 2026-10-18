@@ -1,0 +1,105 @@
+openapi: 3.0.3
+info:
+  title: aml
+  version: '1.0'
+servers:
+- url: http://aml.bank.test
+paths:
+  /alerts/{alert_id}/close:
+    post:
+      operationId: closeAlert
+      summary: Close an AML alert with a note
+      parameters:
+      - name: alert_id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                resolution:
+                  type: string
+                  enum:
+                  - false_positive
+                  - no_action
+                  - dismissed
+                note:
+                  type: string
+              required:
+              - note
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  alert_id:
+                    type: string
+                  status:
+                    type: string
+                required:
+                - alert_id
+                - status
+        '404':
+          description: Alert not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                - error
+  /alerts/{alert_id}/escalate:
+    post:
+      operationId: escalateAlert
+      summary: Escalate an AML alert for a suspicious activity report
+      parameters:
+      - name: alert_id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note:
+                  type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  alert_id:
+                    type: string
+                  status:
+                    type: string
+                required:
+                - alert_id
+                - status
+        '404':
+          description: Alert not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                - error

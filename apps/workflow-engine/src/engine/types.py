@@ -58,6 +58,9 @@ class NodeData:
 
     json: dict[str, Any]
     binary: dict[str, bytes] | None = None
+    # Item metadata, never part of ``json`` (Stage 8): ExecuteWorkflow sets ``pairedItem`` (index of the parent input
+    # item) and ``child_execution_id`` / ``child_workflow_id`` / ``child_version_number``. Excluded from equality.
+    meta: dict[str, Any] | None = field(default=None, compare=False)
 
 
 @dataclass
@@ -140,6 +143,27 @@ class ExecutionContext:
     test_outputs: dict[str, dict[str, list[NodeData]]] = field(default_factory=dict)  # node -> port -> emitted items
     test_inputs: dict[str, list[NodeData]] = field(default_factory=dict)  # node -> items that arrived
 
+    # Stage 5: Approval nodes that paused this run. Each entry is {node, run_index, suspension: Suspension, input_items}.
+    # ExecutionRepository.complete() turns them into human_tasks rows and the run into "waiting".
+    suspensions: list[dict[str, Any]] = field(default_factory=list)
+    # The published version this run is pinned to (None = the draft); stored in the resume snapshot.
+    version_id: int | None = None
+
+    # Stage 8 sub-workflows (DESIGN-STAGE8-REUSE 3.2)
+    subworkflow_invoker: Any | None = None  # engine.subworkflow.SubworkflowInvoker; None = InMemoryInvoker
+    call_stack: tuple[str, ...] = ()  # workflow ids from the root run to this run
+    call_names: dict[str, str] = field(default_factory=dict)  # workflow id -> name for the members of call_stack (cycle messages)
+    root_execution_id: str | None = None  # the top-level execution this run belongs to
+    deadline: float | None = None  # time.monotonic() deadline inherited from the parent / the workflow's max_execution_time
+
+
+def run_status(context: ExecutionContext) -> str:
+    """How a finished ``runner.run`` reads to a caller: ``failed`` (any error), ``waiting`` (an Approval paused the run for a
+    person; the execution continues when it is decided), else ``success``. Matches what ``complete()`` stores."""
+    if context.errors:
+        return "failed"
+    return "waiting" if context.suspensions else "success"
+
 
 @dataclass
 class ExecutionError:
@@ -153,16 +177,32 @@ class ExecutionError:
 
 
 @dataclass
+class Suspension:
+    """A node's request to pause the run until a human decides (Stage 5, DESIGN-STAGE5-UIS section 5.1).
+
+    ``payload`` holds the rendered, redacted task: ``title``, ``context``, ``form``, ``assignees``, ``due_at`` (ISO),
+    ``on_timeout``, ``allow_comment``, ``require_comment_on_reject``.
+    """
+
+    kind: Literal["approval"]
+    payload: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class NodeExecutionResult:
     """
     Multi-output result from node execution.
 
     Keys are output names: "main", "true", "false", "loop", "done", etc.
     None value signals that branch should propagate NO_OUTPUT_SIGNAL.
+
+    ``suspend`` is the pause signal (Stage 5): the node returns it instead of raising, so retry and ``on_error``
+    never see a pause as a failure. A result with ``suspend`` has no outputs; nothing downstream is queued.
     """
 
     outputs: dict[str, list[NodeData] | None]
     metadata: dict[str, Any] = field(default_factory=dict)
+    suspend: Suspension | None = None
 
 
 @dataclass
@@ -183,7 +223,7 @@ class ExecutionRecord:
     id: str
     workflow_id: str
     workflow_name: str
-    status: Literal["running", "success", "failed"]
+    status: Literal["running", "success", "failed", "waiting", "cancelled"]
     mode: Literal["manual", "webhook", "cron"]
     start_time: datetime
     end_time: datetime | None = None
@@ -216,6 +256,8 @@ class ExecutionEventType(str, Enum):
     NODE_COMPLETE = "node:complete"
     NODE_ERROR = "node:error"
     EXECUTION_COMPLETE = "execution:complete"
+    # The run paused on a human task (Approval) instead of finishing; replaces EXECUTION_COMPLETE (DESIGN-STAGE5-UIS 5.7).
+    EXECUTION_WAITING = "execution_waiting"
     EXECUTION_ERROR = "execution:error"
     # Agent-specific events
     AGENT_THINKING = "agent:thinking"
@@ -245,6 +287,7 @@ class ExecutionEvent:
     metrics: dict[str, Any] | None = None
     subworkflow_parent_node: str | None = None
     subworkflow_id: str | None = None
+    tasks: list[dict[str, Any]] | None = None  # EXECUTION_WAITING: the open human tasks the run is waiting on
 
 
 # Callback type for receiving execution events
@@ -302,3 +345,5 @@ class Workflow:
     # Stage 3A: test cases and shared test defaults ({mocks, now, seed}); plain dicts, validated by the schema
     tests: list[dict[str, Any]] = field(default_factory=list)
     test_defaults: dict[str, Any] = field(default_factory=dict)
+    # Stage 5: how people use this workflow (form / chat / custom screens); a plain dict, validated by schemas/interface.py
+    interface: dict[str, Any] | None = None

@@ -1,0 +1,13 @@
+openapi: 3.0.3
+info: {title: rollback-svc, version: '1.0'}
+servers: [{url: 'http://rollback.bank.example'}]
+paths:
+  /ping:
+    get:
+      operationId: ping
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {type: object, properties: {ok: {type: boolean}}, required: [ok]}

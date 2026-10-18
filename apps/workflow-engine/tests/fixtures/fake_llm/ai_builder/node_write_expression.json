@@ -1,0 +1,13 @@
+{
+ "rules": [
+  {
+   "id": "expr",
+   "when": {
+    "system_matches": "^WF_AI:NODE_EXPR\\n"
+   },
+   "respond": {
+    "text": "{\"expression\": \"{{ $json.body.amount * 0.01 }}\", \"explanation\": \"One percent of the amount.\"}"
+   }
+  }
+ ]
+}

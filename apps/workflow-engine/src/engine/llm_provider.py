@@ -89,11 +89,27 @@ class LLMResponse:
 
 GEMINI_MODELS: set[str] = {
     "gemini-2.5-pro", "gemini-2.5-flash",
-    "gemini-2.0-flash", "gemini-2.0-flash-001",
+    "gemini-3.7-flash", "gemini-3.8-flash",
     "gemini-1.5-flash", "gemini-1.5-flash-latest",
     "gemini-1.5-pro", "gemini-1.5-pro-latest",
     "gemini-1.0-pro",
 }
+
+# Models Google has retired -> their replacement. Workflows saved with an old name keep working.
+RETIRED_MODEL_ALIASES: dict[str, str] = {
+    "gemini-2.0-flash": "gemini-3.7-flash",
+    "gemini-2.0-flash-001": "gemini-3.7-flash",
+}
+
+
+def resolve_model_alias(model: str) -> str:
+    """Map a retired model name to its replacement (logs once per call when it applies)."""
+    new = RETIRED_MODEL_ALIASES.get(model)
+    if new is None:
+        return model
+    logger.info("Model %s is retired; using %s instead", model, new)
+    return new
+
 
 LLAMA_MODELS: dict[str, str] = {
     "meta/llama-4-maverick-17b-128e-instruct-maas": "us-east5",
@@ -223,6 +239,7 @@ def is_configured(model: str) -> bool:
 
     if fake_llm.ACTIVE is not None:
         return not fake_llm.ACTIVE.unavailable
+    model = RETIRED_MODEL_ALIASES.get(model, model)
     if model in GEMINI_MODELS or model.startswith("gemini-"):
         return bool(_get_env("GEMINI_API_KEY") or os.environ.get("GOOGLE_CLOUD_PROJECT") or _get_env("LLM_PROXY_PROJECT"))
     if model in LLAMA_MODELS:
@@ -860,7 +877,7 @@ async def call_llm(
     """Unified function to call an LLM with optional tool calling.
 
     Args:
-        model: Model identifier (e.g. "gemini-2.0-flash", "gpt-4o").
+        model: Model identifier (e.g. "gemini-3.7-flash", "gpt-4o").
         messages: Conversation as OpenAI-format dicts.
         temperature: Sampling temperature.
         tools: List of tools — each can be a Python callable (schema
@@ -904,6 +921,7 @@ async def _call_llm_once(
 
     if fake_llm.ACTIVE is not None:
         return await fake_llm.ACTIVE.call(model, messages, temperature, tools, **kwargs)
+    model = resolve_model_alias(model)
     if model in GEMINI_MODELS or model.startswith("gemini-"):
         return await _call_gemini_vertex(
             model, messages, temperature, tools=tools, **kwargs,

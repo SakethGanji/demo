@@ -6,6 +6,14 @@ from .n8n_import import router as n8n_import_router
 from .api_specs import router as api_specs_router
 from .test_mocks import router as test_mocks_router
 from .test_authoring import router as test_authoring_router
+from .test_ai import router as test_ai_router
+from .test_fuzz import router as test_fuzz_router
+from .drift_smoke import router as drift_smoke_router
+from .interfaces import router as interfaces_router
+from .public_interfaces import router as public_interfaces_router
+from .tasks import router as tasks_router
+from .ai_builder import router as ai_builder_router
+from .ai_apps import router as ai_apps_router
 from .workflows import router as workflows_router
 from .executions import router as executions_router
 from .nodes import router as nodes_router
@@ -27,6 +35,9 @@ from .api_routes import router as api_routes_router, project_router as project_a
 from .tables import router as tables_router
 from .modules import router as modules_router
 from .releases import router as releases_router
+from .templates import router as templates_router
+from .subworkflows import router as subworkflows_router
+from .knowledge import router as knowledge_router
 
 # Main API router
 api_router = APIRouter(prefix="/api")
@@ -35,6 +46,23 @@ api_router.include_router(n8n_import_router, tags=["Workflows"])
 api_router.include_router(test_mocks_router, tags=["Workflows"])
 # Must precede workflows_router and nodes_router: "/nodes/catalog" would otherwise match /nodes/{node_type}
 api_router.include_router(test_authoring_router, tags=["Workflows"])
+api_router.include_router(test_ai_router, tags=["Workflows"])
+api_router.include_router(test_fuzz_router, tags=["Workflows"])
+api_router.include_router(drift_smoke_router, tags=["Workflows"])
+# Stage 5: /workflows/{id}/interface* (before workflows_router) and the anonymous /api/i/{project}/{slug}/*
+api_router.include_router(interfaces_router, tags=["Interfaces"])
+api_router.include_router(public_interfaces_router, tags=["Public Interfaces"])
+api_router.include_router(tasks_router, tags=["Tasks"])
+# Stage 6: /ai/builder, /ai/proposals and /workflows/{id}/nodes/{name}/ai (before workflows_router and nodes_router)
+api_router.include_router(ai_builder_router, tags=["AI Builder"])
+# Capability graph: /ai/apps (the app composer; its parts are ordinary /ai/proposals)
+api_router.include_router(ai_apps_router, tags=["AI Apps"])
+# Stage 8 templates: /templates, /projects/{p}/templates/*, /workflows/{id}/export-template (before workflows_router)
+api_router.include_router(templates_router, tags=["Templates"])
+# Stage 8 reuse: /projects/{p}/subworkflows and /workflows/{id}/io, /used-by, /extract-subworkflow (before workflows_router)
+api_router.include_router(subworkflows_router, tags=["Sub-workflows"])
+# Capability graph: /knowledge/* (before workflows_router for good measure; no path overlaps)
+api_router.include_router(knowledge_router, tags=["Knowledge"])
 api_router.include_router(workflows_router, tags=["Workflows"])
 api_router.include_router(api_specs_router, tags=["API Catalog"])
 api_router.include_router(apps_router, tags=["Apps"])

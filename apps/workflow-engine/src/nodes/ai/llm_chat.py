@@ -48,10 +48,11 @@ class LLMChatNode(BaseNode):
                 display_name="Model",
                 name="model",
                 type="options",
-                default="gemini-2.0-flash",
+                default="gemini-3.7-flash",
                 options=[
                     NodePropertyOption(name="Mock (Testing)", value="mock"),
-                    NodePropertyOption(name="Gemini 2.0 Flash", value="gemini-2.0-flash"),
+                    NodePropertyOption(name="Gemini 3.7 Flash", value="gemini-3.7-flash"),
+                    NodePropertyOption(name="Gemini 3.8 Flash", value="gemini-3.8-flash"),
                     NodePropertyOption(name="Gemini 1.5 Flash", value="gemini-1.5-flash"),
                     NodePropertyOption(name="Gemini 1.5 Pro", value="gemini-1.5-pro"),
                     NodePropertyOption(name="GPT-4o", value="gpt-4o"),

@@ -75,7 +75,7 @@ def test_webhook_default_and_input_schema():
 
 def test_cron_and_chat_input_and_error_trigger():
     assert props(out("Cron", inputs={})["main"]) == {"triggeredAt", "mode", "schedule"}
-    assert props(out("ChatInput", inputs={})["main"]) == {"message", "timestamp"}
+    assert props(out("ChatInput", inputs={})["main"]) == {"message", "timestamp", "session_id", "history", "user_label"}   # Stage 5
     assert props(out("ErrorTrigger", inputs={})["main"]) == {"failedWorkflow", "errors", "timestamp"}
 
 
@@ -88,9 +88,13 @@ def test_execute_workflow_trigger_schema_plus_underscore_fields():
 
 def test_code_python_step_llm_agent_output_schema():
     schema = {"type": "object", "properties": {"score": {"type": "number"}}}
-    for t in ("Code", "PythonStep", "LLMChat", "AIAgent"):
+    for t in ("Code", "PythonStep", "LLMChat"):
         o = out(t, {"output_schema": schema})["main"]
         assert props(o) == {"score"} and o["x-source"] == "declared", t
+    # AIAgent's runtime item is {response, structured: <schema>, toolCalls, iterations}
+    o = out("AIAgent", {"output_schema": schema})["main"]
+    assert {"response", "structured"} <= props(o) and o["x-source"] == "declared"
+    assert props(o["properties"]["structured"]) == {"score"} and o["properties"]["structured"]["x-source"] == "declared"
 
 
 def test_send_email_declared():

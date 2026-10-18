@@ -4,6 +4,8 @@ import { useWorkflowStore } from '../stores/workflowStore';
 import { useEditorLayoutStore } from '../stores/editorLayoutStore';
 import { useNDVStore } from '../stores/ndvStore';
 import { useEditorPaletteStore } from '../stores/editorActionsStore';
+import { useStageStore } from '@/features/ai-builder/stage/stageStore';
+import { useConvertSubworkflowStore, selectedWorkflowNodeNames } from '../stores/convertSubworkflowStore';
 
 interface KeyboardShortcutsOptions {
   onSave?: () => void;
@@ -25,6 +27,7 @@ const SHORTCUTS = [
   // Node operations
   { key: 'Enter', description: 'Open selected node settings' },
   { key: 'D', description: 'Disable / enable selected nodes' },
+  { key: 'Alt + X', description: 'Convert selected nodes to a sub-workflow' },
   { key: 'Arrow keys', description: 'Move selected nodes' },
   { key: 'Shift + Arrow', description: 'Move nodes faster' },
   // Add nodes
@@ -55,6 +58,13 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {
+      // While an AI build or review owns the canvas it is view-only: shortcuts would edit the hidden draft.
+      // Esc is left to the stage (it skips the current round).
+      if (useStageStore.getState().active) {
+        if (event.key === 'Escape') useStageStore.getState().requestSkip();
+        return;
+      }
+
       const target = event.target as HTMLElement;
       const isInputFocused =
         target.tagName === 'INPUT' ||
@@ -89,6 +99,16 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
 
       const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
       const modifierKey = isMac ? event.metaKey : event.ctrlKey;
+
+      // Alt + X: convert the selected nodes to a sub-workflow (Stage 8). `code`, because Alt changes `key` on a Mac.
+      if (event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey && event.code === 'KeyX') {
+        const names = selectedWorkflowNodeNames(getNodes());
+        if (names.length > 0) {
+          event.preventDefault();
+          useConvertSubworkflowStore.getState().openDialog(names);
+        }
+        return;
+      }
 
       // Ctrl/Cmd + S: Save workflow
       if (modifierKey && event.key === 's') {

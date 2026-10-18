@@ -186,9 +186,13 @@ class BrokerService:
         wf = Workflow(name=f"broker:{node_type}", nodes=[NodeDefinition(name="fn", type=node_type, parameters=parameters)],
                       connections=[])
         initial = [NodeData(json=i if isinstance(i, dict) else {"value": i}) for i in items] or [NodeData(json={})]
+        from ..services.subworkflow_wiring import subworkflow_invoker
+
         runner = WorkflowRunner(db_session_factory=None)
         context = await runner.run(
             wf, "fn", initial, "manual",
+            # Stage 8: an ExecuteWorkflow call from the SDK resolves versions and writes the child row like any other run
+            subworkflow_invoker=subworkflow_invoker(self._sf),
             variables=variables, secret_values=secrets,
             project_id=claims.project_id, environment=claims.environment, team_id=claims.team_id,
             extras={"broker_origin": claims.origin, "parent_execution_id": claims.execution_id,

@@ -12,7 +12,7 @@ import random
 import json
 import logging
 from datetime import datetime
-from time import perf_counter
+from time import monotonic, perf_counter
 from typing import Any, TYPE_CHECKING, Literal
 
 import httpx
@@ -20,11 +20,11 @@ import httpx
 logger = logging.getLogger(__name__)
 
 #: trigger-like nodes that emit the test's input items instead of running when a test starts at them
-_TEST_TRIGGER_TYPES = {"Start", "Webhook", "Cron", "ChatInput", "ErrorTrigger", "ExecuteWorkflowTrigger"}
+_TEST_TRIGGER_TYPES = {"Start", "Webhook", "Cron", "ChatInput", "FormTrigger", "ErrorTrigger", "ExecuteWorkflowTrigger"}
 
-from .effects import effect_of
+from .effects import can_go_live, effect_of
 from .expression_engine import ExpressionEngine, expression_engine
-from .logging import execution_id_var, execution_variables_var, execution_secrets_var
+from .logging import execution_id_var, execution_resume_key_var, execution_variables_var, execution_secrets_var
 from .test_mode import (
     BadMockError,
     MockPlan,
@@ -32,6 +32,7 @@ from .test_mode import (
     UnmockedEffectError,
     frozen_now_var,
     http_mock_client,
+    live_client,
     plan_mock,
     refusing_client,
     test_rng_var,
@@ -87,6 +88,7 @@ class WorkflowRunner:
         stop_at: str | None = None,
         pending_inputs: dict[str, dict[str, list[NodeData]]] | None = None,
         test_options: TestRunOptions | None = None,
+        subworkflow_invoker: Any | None = None,
     ) -> ExecutionContext:
         """
         Run a workflow from a starting node.
@@ -102,6 +104,8 @@ class WorkflowRunner:
             pending_inputs: Pre-seeded Merge inputs ({"<node>:<run_index>": {"<src>:<output>": items}}),
                 used when a partial run starts at a multi-input node
             test_options: run in test mode (mocks, frozen clock, no credentials, no real network); see engine/test_mode.py
+            subworkflow_invoker: who runs ExecuteWorkflow / WorkflowTool calls (engine.subworkflow.SubworkflowInvoker);
+                None = the in-memory invoker (draft only, nothing written)
 
         Returns:
             ExecutionContext with all node states and errors
@@ -134,6 +138,27 @@ class WorkflowRunner:
         if extras:
             context.extras.update(extras)
         context.extras.setdefault("secret_values", secret_values or set())
+        context.version_id = version_id
+        # Sub-workflow bookkeeping (Stage 8): the root of the call stack is this workflow, and a workflow's
+        # max_execution_time (seconds) becomes the monotonic deadline every child inherits.
+        context.subworkflow_invoker = subworkflow_invoker
+        context.call_stack = (workflow.id,) if workflow.id else ()
+        context.call_names = {workflow.id: workflow.name} if workflow.id and workflow.name else {}
+        context.root_execution_id = context.execution_id
+        max_seconds = (workflow.settings or {}).get("max_execution_time")
+        if isinstance(max_seconds, (int, float)) and not isinstance(max_seconds, bool) and max_seconds > 0:
+            context.deadline = monotonic() + float(max_seconds)
+
+        # Resuming after an approval (Stage 5): the start job is the Approval node itself, at the run_index it suspended
+        # at, and the loop counters carry on from the snapshot.
+        start_run_index = 0
+        resume = context.extras.get("resume")
+        if isinstance(resume, dict):
+            start_run_index = int(resume.get("run_index") or 0)
+            context.node_run_counts.update(resume.get("node_run_counts") or {})
+            execution_resume_key_var.set(f"{context.execution_id}:{resume.get('node')}:{start_run_index}")
+        else:
+            execution_resume_key_var.set("")
 
         # Set execution_id for structured logging correlation
         execution_id_var.set(context.execution_id)
@@ -186,7 +211,7 @@ class WorkflowRunner:
                 input_data=initial_data,
                 source_node=None,
                 source_output="main",
-                run_index=0,
+                run_index=start_run_index,
             )
         ]
 
@@ -248,6 +273,10 @@ class WorkflowRunner:
                     if isinstance(result, Exception):
                         logger.error(f"Error processing job {job.node_name}: {result}")
                         had_error = True
+                        # A failure outside the node's own error handling (e.g. an unknown node type) must fail the run, never be dropped silently.
+                        if not any(e.node_name == job.node_name for e in context.errors):
+                            context.errors.append(ExecutionError(node_name=job.node_name, error=str(result) or type(result).__name__,
+                                                                 timestamp=datetime.now(), error_code="NODE_FAILED"))
                     else:
                         had_error = result
 
@@ -302,11 +331,12 @@ class WorkflowRunner:
             for k in [k for k in context.extras if k.startswith("broker_token:")]:
                 _broker_tokens.revoke(context.extras.pop(k))
 
-        # Emit execution complete event
+        # Emit execution complete event (a run that paused on a person's decision is "waiting", not complete)
         self._emit_event(
             on_event,
             ExecutionEvent(
-                type=ExecutionEventType.EXECUTION_COMPLETE,
+                type=(ExecutionEventType.EXECUTION_WAITING
+                      if context.suspensions and not context.errors else ExecutionEventType.EXECUTION_COMPLETE),
                 execution_id=context.execution_id,
                 timestamp=datetime.now(),
                 progress={"completed": completed_nodes, "total": total_nodes},
@@ -322,12 +352,18 @@ class WorkflowRunner:
         input_data: list[NodeData],
         parent_context: ExecutionContext,
         on_event: ExecutionEventCallback | None = None,
+        *,
+        workflow_id: str | None = None,
+        execution_id: str | None = None,
+        extras: dict[str, Any] | None = None,
+        version_id: int | None = None,
+        test_options: TestRunOptions | None = None,
     ) -> ExecutionContext:
         """
         Run a workflow as a subworkflow of another execution.
 
-        Inherits execution context from parent (depth tracking, HTTP client, etc.)
-        while maintaining isolation for node states.
+        Inherits execution context from parent (depth tracking, HTTP client, call stack, deadline, invoker) while
+        keeping node states isolated and giving the child its own ``extras`` (DESIGN-STAGE8-REUSE 3.2).
 
         Args:
             workflow: The subworkflow definition to execute
@@ -335,6 +371,11 @@ class WorkflowRunner:
             input_data: Input data for the subworkflow
             parent_context: Parent execution context for depth tracking
             on_event: Optional callback for real-time execution events
+            workflow_id: The child's workflow id (defaults to ``workflow.id``); appended to the call stack
+            execution_id: Use this id for the child run (the invoker created a row for it)
+            extras: Merged over the child's copy of the parent's extras, e.g. ``{"api_specs": <the child's specs>}``
+            version_id: The published version the child runs (None = draft)
+            test_options: the child's own test options (an inline child in a test, DESIGN-STAGE8 6.3); default the parent's
 
         Returns:
             ExecutionContext with subworkflow results
@@ -350,10 +391,24 @@ class WorkflowRunner:
 
         # Create child context with incremented depth
         child_context = self._create_context(workflow, parent_context.mode)
+        if execution_id:
+            child_context.execution_id = execution_id
         child_context.execution_depth = parent_context.execution_depth + 1
         child_context.max_execution_depth = parent_context.max_execution_depth
         child_context.parent_execution_id = parent_context.execution_id
         child_context.workflow_repository = parent_context.workflow_repository
+        child_context.version_id = version_id
+
+        # Call stack, root and deadline come from the parent; the invoker is inherited so grandchildren use it too
+        child_id = workflow_id or workflow.id
+        parent_stack = parent_context.call_stack or (
+            (parent_context.workflow.id,) if parent_context.workflow.id else ()
+        )
+        child_context.call_stack = parent_stack + ((child_id,) if child_id else ())
+        child_context.call_names = {**parent_context.call_names, **({child_id: workflow.name} if child_id and workflow.name else {})}
+        child_context.root_execution_id = parent_context.root_execution_id or parent_context.execution_id
+        child_context.subworkflow_invoker = parent_context.subworkflow_invoker
+        child_context.deadline = parent_context.deadline
 
         # Share HTTP client for efficiency
         child_context.http_client = parent_context.http_client
@@ -363,11 +418,20 @@ class WorkflowRunner:
         child_context.project_id = parent_context.project_id
         child_context.environment = parent_context.environment
         child_context.team_id = parent_context.team_id
-        child_context.extras = parent_context.extras
-        child_context.test_options = parent_context.test_options
+        # Own extras: a shallow copy, so the child can't write into the parent's. The parent's api_specs describe the
+        # parent's nodes (G6), and a pending approval resume belongs to the parent, so neither is carried over; the
+        # caller supplies the child's own api_specs. Release pins, the egress allowlist, secret_values and broker tokens
+        # stay.
+        child_extras = {k: v for k, v in parent_context.extras.items() if k not in ("api_specs", "resume")}
+        if extras:
+            child_extras.update(extras)
+        child_context.extras = child_extras
+        child_context.test_options = test_options if test_options is not None else parent_context.test_options
         child_context.frozen_now = parent_context.frozen_now
         child_context.rng = parent_context.rng
-        child_context.test_requests = parent_context.test_requests
+        # shared: test assertions see the child's requests. An inline child (own options) keeps its own dict, so its node
+        # names can't collide with the parent's; the invoker copies it over under "<node>/<child node>" keys.
+        child_context.test_requests = parent_context.test_requests if test_options is None else {}
 
         # Propagate event callback for nested subworkflows
         child_context.on_event = on_event
@@ -375,13 +439,19 @@ class WorkflowRunner:
         # Run the subworkflow
         # Note: We don't use self.run() directly because it creates its own HTTP client
         # Instead we run the core execution logic with the pre-configured context
-        return await self._run_with_context(
-            workflow=workflow,
-            start_node_name=start_node_name,
-            initial_data=input_data,
-            context=child_context,
-            on_event=on_event,
-        )
+        try:
+            return await self._run_with_context(
+                workflow=workflow,
+                start_node_name=start_node_name,
+                initial_data=input_data,
+                context=child_context,
+                on_event=on_event,
+            )
+        finally:
+            # Broker tokens minted inside the child are handed up so the root run revokes them when it ends
+            for k, v in child_extras.items():
+                if k.startswith("broker_token:") and k not in parent_context.extras:
+                    parent_context.extras[k] = v
 
     async def _run_with_context(
         self,
@@ -482,6 +552,10 @@ class WorkflowRunner:
                 if isinstance(result, Exception):
                     logger.error(f"Error processing job {job.node_name}: {result}")
                     had_error = True
+                    # A failure outside the node's own error handling (e.g. an unknown node type) must fail the run, never be dropped silently.
+                    if not any(e.node_name == job.node_name for e in context.errors):
+                        context.errors.append(ExecutionError(node_name=job.node_name, error=str(result) or type(result).__name__,
+                                                             timestamp=datetime.now(), error_code="NODE_FAILED"))
                 else:
                     had_error = result
 
@@ -666,7 +740,10 @@ class WorkflowRunner:
         opts = context.test_options
         if opts is not None:
             context.test_inputs.setdefault(job.node_name, []).extend(job.input_data)
-            for mocks in (opts.mocks, opts.default_mocks):
+            live = job.node_name in opts.live_nodes and can_go_live(node_def.type)  # smoke run: this node calls the real system, mocks are skipped
+            # Stage 8 section 6.3: an inline sub-workflow node runs its child; the child's own mocks answer its outside steps
+            inline = node_def.type == "ExecuteWorkflow" and job.node_name in opts.inline_subworkflows
+            for mocks in (() if (live or inline) else (opts.mocks, opts.default_mocks)):
                 if job.node_name in mocks:
                     plan = plan_mock(mocks[job.node_name], job.node_name, node_def.type, job.input_data, context)
                     if plan is not None:
@@ -676,8 +753,10 @@ class WorkflowRunner:
             if node_def.type in _TEST_TRIGGER_TYPES and job.source_node is None:
                 # a workflow-target test starts at the trigger, whose output is replaced by the test's input items
                 plan = MockPlan("items", {"main": list(job.input_data)})
+            if live and plan is None:
+                plan = MockPlan("live")
             effect = effect_of(node_def.type)
-            if plan is None and not node_def.pinned_data and effect != "none":
+            if plan is None and not inline and not node_def.pinned_data and effect != "none":
                 return await self._fail_test_setup(
                     context, node_def, job, queue, node_map, UnmockedEffectError(job.node_name, effect), on_event
                 )
@@ -689,7 +768,8 @@ class WorkflowRunner:
             self._queue_next_nodes(
                 context,
                 node_def,
-                NodeExecutionResult(outputs={"main": node_def.pinned_data}),
+                # pinned data on an Approval is a decision already made: it leaves on "approved" (n8n pinned behaviour)
+                NodeExecutionResult(outputs={("approved" if node_def.type == "Approval" else "main"): node_def.pinned_data}),
                 queue,
                 node_map,
                 job.run_index,
@@ -712,6 +792,7 @@ class WorkflowRunner:
                         parameters=resolved_params,
                         position=resolved_node_def.position,
                         pinned_data=resolved_node_def.pinned_data,
+                        label=resolved_node_def.label,
                         retry_on_fail=resolved_node_def.retry_on_fail,
                         retry_delay=resolved_node_def.retry_delay,
                         continue_on_fail=resolved_node_def.continue_on_fail,
@@ -772,6 +853,9 @@ class WorkflowRunner:
                 ]
                 return stop.error_type == "error"  # Return True if error, False if warning
             except Exception as e:
+                if opts is not None and getattr(e, "code", None) == "TEST_UNMOCKED_EFFECT":
+                    # an inline child's unmocked outside step: a test-setup failure like any other, never retried or routed
+                    return await self._fail_test_setup(context, node_def, job, queue, node_map, e, on_event)
                 last_error = e
                 retries_used = attempt
                 if attempt < max_retries:
@@ -788,8 +872,11 @@ class WorkflowRunner:
         if (last_error or not result) and node_def.on_error == "error_output":
             # Route the failed items to the "error" output; the run continues and the node counts as a success
             error_msg = str(last_error) if last_error else "Unknown execution error"
+            extra_err: dict[str, Any] = {}
+            if node_def.type == "ExecuteWorkflow":  # its typed error port carries the failure code (a mocked error has no node to add it)
+                extra_err["code"] = str(getattr(last_error, "code", None) or "SUBWORKFLOW_FAILED")
             error_items = [
-                NodeData(json={**item.json, "error": {"message": error_msg, "node": job.node_name}})
+                NodeData(json={**item.json, "error": {"message": error_msg, "node": job.node_name}, **extra_err})
                 for item in (job.input_data or [NodeData(json={})])
             ]
             result = NodeExecutionResult(outputs={"main": None, "error": error_items})
@@ -860,6 +947,11 @@ class WorkflowRunner:
                 # Propagate NO_OUTPUT to any multi-input nodes waiting on this branch
                 self._propagate_no_output(context, node_def, queue, node_map, job.run_index)
                 return True
+
+        if result.suspend is not None:
+            return await self._suspend(context, node_def, job, result, queue, node_map, on_event,
+                                       started_at=started_at, completed_at=completed_at,
+                                       execution_time_ms=execution_time_ms, execution_order=execution_order)
 
         if node_def.on_error == "error_output" and not error_routed and "error" not in result.outputs:
             # No failure: tell any Merge on the error branch that it will get nothing
@@ -936,6 +1028,85 @@ class WorkflowRunner:
         self._queue_next_nodes(context, node_def, result, queue, node_map, job.run_index)
         return False
 
+    async def _suspend(
+        self,
+        context: ExecutionContext,
+        node_def: NodeDefinition,
+        job: ExecutionJob,
+        result: NodeExecutionResult,
+        queue: list[ExecutionJob],
+        node_map: dict[str, NodeDefinition],
+        on_event: ExecutionEventCallback | None,
+        *,
+        started_at: datetime,
+        completed_at: datetime,
+        execution_time_ms: float,
+        execution_order: int,
+    ) -> bool:
+        """A node asked to pause the run (Approval, DESIGN-STAGE5-UIS 5.1). Nothing downstream of it is queued.
+
+        The other branches keep running; when the queue drains ``context.suspensions`` is non-empty and the run is
+        ``waiting`` (``ExecutionRepository.complete`` creates the tasks). Returns True only for an error.
+        """
+        if context.test_options is not None:
+            # a test run never pauses: the mock was supposed to answer for this node
+            return await self._fail_test_setup(
+                context, node_def, job, queue, node_map, UnmockedEffectError(job.node_name, "human"), on_event
+            )
+        if context.parent_execution_id is not None:
+            return self._fail_node(
+                context, node_def, job, queue, node_map, on_event,
+                f'"{job.node_name}" pauses for a person and cannot run inside a sub-workflow', "APPROVAL_IN_SUBWORKFLOW",
+            )
+        try:  # the resume snapshot must fit (1 MB); finding out now fails the run now, not when the task is created
+            from .task_resumer import build_snapshot
+
+            build_snapshot(context, {"node": job.node_name, "run_index": job.run_index, "suspension": result.suspend,
+                                     "input_items": list(job.input_data)})
+        except Exception as e:
+            return self._fail_node(context, node_def, job, queue, node_map, on_event, str(e),
+                                   getattr(e, "code", None) or "APPROVAL_SNAPSHOT_FAILED")
+
+        context.suspensions.append({
+            "node": job.node_name,
+            "run_index": job.run_index,
+            "suspension": result.suspend,
+            "input_items": list(job.input_data),
+        })
+        context.node_run_counts[job.node_name] = context.node_run_counts.get(job.node_name, 0) + 1
+        metrics: dict[str, Any] = {
+            "startedAt": started_at.isoformat(), "completedAt": completed_at.isoformat(),
+            "executionTimeMs": execution_time_ms, "executionOrder": execution_order,
+            "inputItemCount": len(job.input_data), "outputItemCount": 0, "activeOutputs": [], "status": "waiting",
+        }
+        context.node_metrics[job.node_name] = metrics
+        # the node's input is its pending output; status "waiting" keeps it out of every "successful outputs" read
+        await self._persist_node_output(
+            execution_id=context.execution_id, node_name=job.node_name, output=job.input_data, metrics=metrics,
+            status="waiting", run_index=job.run_index,
+        )
+        return False
+
+    def _fail_node(
+        self,
+        context: ExecutionContext,
+        node_def: NodeDefinition,
+        job: ExecutionJob,
+        queue: list[ExecutionJob],
+        node_map: dict[str, NodeDefinition],
+        on_event: ExecutionEventCallback | None,
+        message: str,
+        code: str,
+    ) -> bool:
+        """Fail a node outside the retry loop (a pause that cannot be honoured): error recorded, run stopped. Returns True."""
+        context.errors.append(ExecutionError(node_name=job.node_name, error=message, timestamp=datetime.now(), error_code=code))
+        self._emit_event(on_event, ExecutionEvent(
+            type=ExecutionEventType.NODE_ERROR, execution_id=context.execution_id, timestamp=datetime.now(),
+            node_name=job.node_name, node_type=node_def.type, error=message))
+        queue.clear()
+        self._propagate_no_output(context, node_def, queue, node_map, job.run_index)
+        return True
+
     async def _execute_planned(
         self,
         plan: Any,
@@ -949,8 +1120,13 @@ class WorkflowRunner:
             raise plan.error
         if plan.kind == "items":
             return NodeExecutionResult(outputs={port: list(items) for port, items in plan.outputs.items()})
-        # http: the real HttpRequest code runs against a client that records requests and answers from the mock
-        client = http_mock_client(plan, node_def.name, job.input_data, context)
+        if plan.kind == "live":
+            if node_def.type != "HttpRequest":
+                return await node.execute(context, node_def, job.input_data)
+            client = live_client(node_def.name, context)
+        else:
+            # http: the real HttpRequest code runs against a client that records requests and answers from the mock
+            client = http_mock_client(plan, node_def.name, job.input_data, context)
         node_context = copy.copy(context)
         node_context.http_client = client
         try:
@@ -1052,8 +1228,10 @@ class WorkflowRunner:
             status="success",
             run_index=job.run_index,
         )
+        # an Approval has no "main" port: a switched-off one waves the item through as approved
+        port = "approved" if node_def.type == "Approval" else "main"
         self._queue_next_nodes(
-            context, node_def, NodeExecutionResult(outputs={"main": items}), queue, node_map, job.run_index
+            context, node_def, NodeExecutionResult(outputs={port: items}), queue, node_map, job.run_index
         )
         return False
 
@@ -1227,8 +1405,8 @@ class WorkflowRunner:
 
     def find_start_node(self, workflow: Workflow) -> NodeDefinition | None:
         """Find start node in workflow."""
-        # Priority: Webhook > Cron > ExecuteWorkflowTrigger > Start > first node
-        for node_type in ["Webhook", "Cron", "ExecuteWorkflowTrigger", "Start"]:
+        # Priority: Webhook > Cron > ExecuteWorkflowTrigger > FormTrigger > ChatInput > Start > first node
+        for node_type in ["Webhook", "Cron", "ExecuteWorkflowTrigger", "FormTrigger", "ChatInput", "Start"]:
             node = next((n for n in workflow.nodes if n.type == node_type), None)
             if node:
                 return node

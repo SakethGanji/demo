@@ -1,0 +1,404 @@
+{
+  "id": "address_change_verify",
+  "holdout": true,
+  "request": "Our mobile app posts an address change to us: the customer id, the new address line, city and postcode, and the one-time code the customer typed in. Check the code with the OTP service first. Only if the code is valid, update the customer's address. If it is not valid, change nothing and reply with a 401. The app posts these fields: customer_id, address_line, city, postcode and otp_code.",
+  "apis": [
+    "otp.yaml",
+    "customers.yaml"
+  ],
+  "spec_edits": null,
+  "expect": {
+    "trigger": "Webhook",
+    "must_have_types": [
+      "If|Switch",
+      "Respond"
+    ],
+    "must_call": [
+      "otp.verify",
+      "customers.updateAddress"
+    ],
+    "must_not_call_hosts": [],
+    "approval_ports_wired": [],
+    "max_nodes": 8,
+    "forbid_types": [
+      "Approval"
+    ],
+    "min_spec_tests": 3
+  },
+  "hidden_tests": [
+    {
+      "name": "A valid code updates the address",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "body": {
+              "customer_id": "c-3300",
+              "address_line": "12 King Street",
+              "city": "Leeds",
+              "postcode": "LS1 4AP",
+              "otp_code": "482913"
+            },
+            "headers": {},
+            "query": {},
+            "method": "POST"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:otp.verify": {
+          "http": {
+            "status": 200,
+            "body": {
+              "valid": true
+            }
+          }
+        },
+        "$api:customers.updateAddress": {
+          "http": {
+            "status": 200,
+            "body": {
+              "customer_id": "c-3300",
+              "updated": true
+            }
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$api:otp.verify",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:otp.verify",
+          "subject": "request",
+          "item": "any",
+          "path": "body.code",
+          "op": "eq",
+          "value": "482913"
+        },
+        {
+          "node": "$api:customers.updateAddress",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:customers.updateAddress",
+          "subject": "request",
+          "item": "any",
+          "path": "url",
+          "op": "contains",
+          "value": "c-3300"
+        },
+        {
+          "node": "$api:customers.updateAddress",
+          "subject": "request",
+          "item": "any",
+          "path": "body.city",
+          "op": "eq",
+          "value": "Leeds"
+        },
+        {
+          "node": "$api:customers.updateAddress",
+          "subject": "request",
+          "item": "any",
+          "path": "body.postcode",
+          "op": "eq",
+          "value": "LS1 4AP"
+        },
+        {
+          "node": "$last",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "A wrong code changes nothing",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "body": {
+              "customer_id": "c-3300",
+              "address_line": "12 King Street",
+              "city": "Leeds",
+              "postcode": "LS1 4AP",
+              "otp_code": "482913"
+            },
+            "headers": {},
+            "query": {},
+            "method": "POST"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:otp.verify": {
+          "http": {
+            "status": 200,
+            "body": {
+              "valid": false
+            }
+          }
+        },
+        "$api:customers.updateAddress": {
+          "http": {
+            "status": 200,
+            "body": {
+              "customer_id": "c-3300",
+              "updated": true
+            }
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$api:otp.verify",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:customers.updateAddress",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$last",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "A valid code for another customer",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "body": {
+              "customer_id": "c-8812",
+              "address_line": "12 King Street",
+              "city": "York",
+              "postcode": "YO1 7HH",
+              "otp_code": "482913"
+            },
+            "headers": {},
+            "query": {},
+            "method": "POST"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:otp.verify": {
+          "http": {
+            "status": 200,
+            "body": {
+              "valid": true
+            }
+          }
+        },
+        "$api:customers.updateAddress": {
+          "http": {
+            "status": 200,
+            "body": {
+              "customer_id": "c-8812",
+              "updated": true
+            }
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$api:otp.verify",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:otp.verify",
+          "subject": "request",
+          "item": "any",
+          "path": "body.code",
+          "op": "eq",
+          "value": "482913"
+        },
+        {
+          "node": "$api:customers.updateAddress",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:customers.updateAddress",
+          "subject": "request",
+          "item": "any",
+          "path": "url",
+          "op": "contains",
+          "value": "c-8812"
+        },
+        {
+          "node": "$api:customers.updateAddress",
+          "subject": "request",
+          "item": "any",
+          "path": "body.city",
+          "op": "eq",
+          "value": "York"
+        },
+        {
+          "node": "$api:customers.updateAddress",
+          "subject": "request",
+          "item": "any",
+          "path": "body.postcode",
+          "op": "eq",
+          "value": "YO1 7HH"
+        },
+        {
+          "node": "$last",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "An invalid code answer of false changes nothing",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "body": {
+              "customer_id": "c-3301",
+              "address_line": "12 King Street",
+              "city": "Leeds",
+              "postcode": "LS1 4AP",
+              "otp_code": "482913"
+            },
+            "headers": {},
+            "query": {},
+            "method": "POST"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:otp.verify": {
+          "http": {
+            "status": 200,
+            "body": {
+              "valid": false
+            }
+          }
+        },
+        "$api:customers.updateAddress": {
+          "http": {
+            "status": 200,
+            "body": {
+              "customer_id": "c-3301",
+              "updated": true
+            }
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$api:otp.verify",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:customers.updateAddress",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$last",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        }
+      ],
+      "category": "boundary"
+    },
+    {
+      "name": "An expired code reply changes nothing",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "body": {
+              "customer_id": "c-3300",
+              "address_line": "12 King Street",
+              "city": "Leeds",
+              "postcode": "LS1 4AP",
+              "otp_code": "482913"
+            },
+            "headers": {},
+            "query": {},
+            "method": "POST"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:otp.verify": {
+          "http": {
+            "status": 422,
+            "body": {
+              "error": "code expired"
+            }
+          }
+        },
+        "$api:customers.updateAddress": {
+          "http": {
+            "status": 200,
+            "body": {
+              "customer_id": "c-3300",
+              "updated": true
+            }
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$api:otp.verify",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:customers.updateAddress",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$last",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        }
+      ],
+      "category": "unusual"
+    }
+  ]
+}

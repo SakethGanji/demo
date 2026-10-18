@@ -29,6 +29,7 @@ every string, including loaded file contents. An unknown variable is a load-time
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 import os
@@ -109,6 +110,9 @@ def _check_respond(resp: Any, where: str) -> None:
         raise ScriptError(f"{where}: respond needs exactly one of text, tool_calls, raise")
     if "raise" in resp and resp["raise"] not in RESPOND_RAISES:
         raise ScriptError(f"{where}: raise must be one of {sorted(RESPOND_RAISES)}")
+    delay = resp.get("delay_ms")
+    if delay is not None and (isinstance(delay, bool) or not isinstance(delay, (int, float)) or not 0 <= delay <= 60000):
+        raise ScriptError(f"{where}: delay_ms must be a number between 0 and 60000")
     if "tool_calls" in resp:
         tcs = resp["tool_calls"]
         if not isinstance(tcs, list) or not tcs or not all(isinstance(t, dict) and isinstance(t.get("name"), str)
@@ -269,6 +273,8 @@ class FakeLLM:
                 entry["raised"] = respond["raise"]
             self.calls.append(entry)
 
+        if respond.get("delay_ms"):  # demo pacing: the answer arrives after a pause, like a real model's
+            await asyncio.sleep(float(respond["delay_ms"]) / 1000.0)
         kind = respond.get("raise")
         if kind == "retryable":
             raise FakeLLMError(f"fake LLM: retryable error (rule {entry['rule_id']})", int(respond.get("status") or 529))

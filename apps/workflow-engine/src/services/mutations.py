@@ -9,7 +9,7 @@ Operators:
    expression form (``{{ $json.amount > 500 }}``) and the structured form (``operation`` gt/gte/lt/lte/equals/notEquals,
    on the node itself for If and Filter, inside ``rules[]`` for Switch).
 2. ``change_set_value``: a Set field value: number + 1, string + ``"_x"``, boolean negated.
-3. ``swap_branches``: an If node's ``true`` and ``false`` connections trade places.
+3. ``swap_branches``: an If node's ``true`` and ``false`` (or an Approval's ``approved`` and ``rejected``) connections trade places.
 4. ``drop_node``: a non-trigger node is switched off (``disabled``).
 5. ``break_expression``: one ``$json.x`` reference inside a ``{{ }}`` expression becomes ``None``.
 
@@ -132,25 +132,30 @@ def _change_set_value(defn: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
+_SWAP_PORTS = {"If": ("true", "false"), "Approval": ("approved", "rejected")}
+
+
 def _swap_branches(defn: dict[str, Any]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for node in _nodes(defn):
-        if node.get("type") != "If" or node.get("disabled"):
+        pair = _SWAP_PORTS.get(node.get("type"))
+        if pair is None or node.get("disabled"):
             continue
         name = node["name"]
+        a, b = pair
         conns = [c for c in defn.get("connections") or [] if c.get("source_node") == name]
-        if not any(c.get("source_output") in ("true", "false") for c in conns):
+        if not any(c.get("source_output") in pair for c in conns):
             continue
 
-        def apply(d: dict[str, Any], name=name) -> None:
+        def apply(d: dict[str, Any], name=name, a=a, b=b) -> None:
             for c in d.get("connections") or []:
                 if c.get("source_node") == name:
-                    if c.get("source_output") == "true":
-                        c["source_output"] = "false"
-                    elif c.get("source_output") == "false":
-                        c["source_output"] = "true"
+                    if c.get("source_output") == a:
+                        c["source_output"] = b
+                    elif c.get("source_output") == b:
+                        c["source_output"] = a
 
-        out.append(_mutant("swap_branches", name, f"Swap the true and false branches of {name}", defn, name, apply))
+        out.append(_mutant("swap_branches", name, f"Swap the {a} and {b} branches of {name}", defn, name, apply))
     return out
 
 

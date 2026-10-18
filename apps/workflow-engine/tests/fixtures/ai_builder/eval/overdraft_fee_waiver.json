@@ -1,0 +1,383 @@
+{
+  "id": "overdraft_fee_waiver",
+  "holdout": true,
+  "request": "Branch staff ask to waive an overdraft fee on a form with the account id, the fee id and the fee amount. Look up that account's overdraft history. If this is the customer's first ever overdraft (the history shows exactly one), waive the fee automatically. In every other case a branch manager decides: if they approve, waive the fee; if they reject, do nothing.",
+  "apis": [
+    "accounts.yaml",
+    "fees.yaml"
+  ],
+  "spec_edits": null,
+  "expect": {
+    "trigger": "FormTrigger",
+    "must_have_types": [
+      "If|Switch",
+      "Approval"
+    ],
+    "must_call": [
+      "accounts.history",
+      "fees.waive"
+    ],
+    "must_not_call_hosts": [],
+    "approval_ports_wired": [
+      "approved"
+    ],
+    "interface_kind": "form",
+    "max_nodes": 10,
+    "forbid_types": [],
+    "min_spec_tests": 3
+  },
+  "hidden_tests": [
+    {
+      "name": "A first overdraft is waived automatically",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "account_id": "AC-5521",
+            "fee_id": "FEE-88",
+            "fee_amount": 35
+          }
+        ]
+      },
+      "mocks": {
+        "$api:accounts.history": {
+          "http": {
+            "status": 200,
+            "body": {
+              "account_id": "AC-5521",
+              "overdraft_count": 1
+            }
+          }
+        },
+        "$api:fees.waive": {
+          "http": {
+            "status": 200,
+            "body": {
+              "waiver_id": "WV-1",
+              "status": "waived"
+            }
+          }
+        },
+        "$type:Approval?": {
+          "port": "approved",
+          "approval": {
+            "decision": "approved",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$api:fees.waive",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:fees.waive",
+          "subject": "request",
+          "item": "any",
+          "path": "body.fee_id",
+          "op": "eq",
+          "value": "FEE-88"
+        },
+        {
+          "node": "$api:fees.waive",
+          "subject": "request",
+          "item": "any",
+          "path": "body.account_id",
+          "op": "eq",
+          "value": "AC-5521"
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "A repeat overdraft approved by the manager is waived",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "account_id": "AC-5521",
+            "fee_id": "FEE-88",
+            "fee_amount": 35
+          }
+        ]
+      },
+      "mocks": {
+        "$api:accounts.history": {
+          "http": {
+            "status": 200,
+            "body": {
+              "account_id": "AC-5521",
+              "overdraft_count": 3
+            }
+          }
+        },
+        "$api:fees.waive": {
+          "http": {
+            "status": 200,
+            "body": {
+              "waiver_id": "WV-1",
+              "status": "waived"
+            }
+          }
+        },
+        "$type:Approval": {
+          "port": "approved",
+          "approval": {
+            "decision": "approved",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:fees.waive",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:fees.waive",
+          "subject": "request",
+          "item": "any",
+          "path": "body.fee_id",
+          "op": "eq",
+          "value": "FEE-88"
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "A repeat overdraft rejected by the manager is not waived",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "account_id": "AC-5521",
+            "fee_id": "FEE-88",
+            "fee_amount": 35
+          }
+        ]
+      },
+      "mocks": {
+        "$api:accounts.history": {
+          "http": {
+            "status": 200,
+            "body": {
+              "account_id": "AC-5521",
+              "overdraft_count": 3
+            }
+          }
+        },
+        "$api:fees.waive": {
+          "http": {
+            "status": 200,
+            "body": {
+              "waiver_id": "WV-1",
+              "status": "waived"
+            }
+          }
+        },
+        "$type:Approval": {
+          "port": "rejected",
+          "approval": {
+            "decision": "rejected",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:fees.waive",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "A second overdraft goes to the manager",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "account_id": "AC-5521",
+            "fee_id": "FEE-88",
+            "fee_amount": 35
+          }
+        ]
+      },
+      "mocks": {
+        "$api:accounts.history": {
+          "http": {
+            "status": 200,
+            "body": {
+              "account_id": "AC-5521",
+              "overdraft_count": 2
+            }
+          }
+        },
+        "$api:fees.waive": {
+          "http": {
+            "status": 200,
+            "body": {
+              "waiver_id": "WV-1",
+              "status": "waived"
+            }
+          }
+        },
+        "$type:Approval": {
+          "port": "approved",
+          "approval": {
+            "decision": "approved",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:fees.waive",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:fees.waive",
+          "subject": "request",
+          "item": "any",
+          "path": "body.fee_id",
+          "op": "eq",
+          "value": "FEE-88"
+        }
+      ],
+      "category": "boundary"
+    },
+    {
+      "name": "The waiver names this account",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "account_id": "AC-9090",
+            "fee_id": "FEE-88",
+            "fee_amount": 35
+          }
+        ]
+      },
+      "mocks": {
+        "$api:accounts.history": {
+          "http": {
+            "status": 200,
+            "body": {
+              "account_id": "AC-9090",
+              "overdraft_count": 1
+            }
+          }
+        },
+        "$api:fees.waive": {
+          "http": {
+            "status": 200,
+            "body": {
+              "waiver_id": "WV-1",
+              "status": "waived"
+            }
+          }
+        },
+        "$type:Approval?": {
+          "port": "approved",
+          "approval": {
+            "decision": "approved",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$api:fees.waive",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:fees.waive",
+          "subject": "request",
+          "item": "any",
+          "path": "body.fee_id",
+          "op": "eq",
+          "value": "FEE-88"
+        },
+        {
+          "node": "$api:fees.waive",
+          "subject": "request",
+          "item": "any",
+          "path": "body.account_id",
+          "op": "eq",
+          "value": "AC-9090"
+        }
+      ],
+      "category": "normal"
+    }
+  ],
+  "input_aliases": {
+    "fee_amount": [
+      "amount",
+      "fee"
+    ],
+    "account_id": [
+      "account"
+    ]
+  }
+}

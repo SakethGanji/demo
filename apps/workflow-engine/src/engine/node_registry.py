@@ -193,6 +193,7 @@ def register_all_nodes() -> None:
         CronNode,
         ErrorTriggerNode,
         ExecuteWorkflowTriggerNode,
+        FormTriggerNode,
         # Flow control
         IfNode,
         SwitchNode,
@@ -203,6 +204,8 @@ def register_all_nodes() -> None:
         ExecuteWorkflowNode,
         StopAndErrorNode,
         RespondNode,
+        NoOpNode,
+        ApprovalNode,
         # Data / Transform
         SetNode,
         HttpRequestNode,
@@ -233,6 +236,7 @@ def register_all_nodes() -> None:
         CronNode,
         ErrorTriggerNode,
         ExecuteWorkflowTriggerNode,
+        FormTriggerNode,
         # Flow control
         IfNode,
         SwitchNode,
@@ -243,6 +247,8 @@ def register_all_nodes() -> None:
         ExecuteWorkflowNode,
         StopAndErrorNode,
         RespondNode,
+        NoOpNode,
+        ApprovalNode,
         # Data / Transform
         SetNode,
         HttpRequestNode,

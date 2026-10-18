@@ -1,0 +1,428 @@
+{
+  "id": "loan_precheck",
+  "holdout": false,
+  "request": "A loan officer fills in a form with the applicant id and the amount they want. Get the applicant's credit score from the risk service. A score below 600 is declined. A score from 600 to 700 inclusive goes to an underwriter to decide by hand. Above 700 is pre-approved. Write every final decision to the audit log with the action set to exactly declined or pre_approved (an underwriter's yes means pre_approved, their no means declined), and show the officer the result.",
+  "apis": [
+    "risk.yaml",
+    "audit.yaml"
+  ],
+  "spec_edits": null,
+  "expect": {
+    "trigger": "FormTrigger",
+    "must_have_types": [
+      "If|Switch",
+      "Approval",
+      "Respond"
+    ],
+    "must_call": [
+      "risk.score",
+      "audit.logEvent"
+    ],
+    "must_not_call_hosts": [],
+    "approval_ports_wired": [
+      "approved",
+      "rejected"
+    ],
+    "interface_kind": "form",
+    "max_nodes": 14,
+    "forbid_types": [],
+    "min_spec_tests": 4
+  },
+  "hidden_tests": [
+    {
+      "name": "Low score is declined",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "applicant_id": "ap-3321",
+            "requested_amount": 15000
+          }
+        ]
+      },
+      "mocks": {
+        "$api:risk.score": {
+          "http": {
+            "status": 200,
+            "body": {
+              "score": 540,
+              "band": "x"
+            }
+          }
+        },
+        "$api:audit.logEvent": {
+          "http": {
+            "status": 201,
+            "body": {
+              "entry_id": "AU-1"
+            }
+          }
+        },
+        "$type:Approval?": {
+          "port": "approved",
+          "approval": {
+            "decision": "approved",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$api:audit.logEvent",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:audit.logEvent",
+          "subject": "request",
+          "item": "any",
+          "path": "body.action",
+          "op": "eq",
+          "value": "declined"
+        },
+        {
+          "node": "$api:audit.logEvent",
+          "subject": "request",
+          "op": "count",
+          "value": 1
+        },
+        {
+          "node": "$last",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "Middle score approved by the underwriter",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "applicant_id": "ap-3321",
+            "requested_amount": 15000
+          }
+        ]
+      },
+      "mocks": {
+        "$api:risk.score": {
+          "http": {
+            "status": 200,
+            "body": {
+              "score": 650,
+              "band": "x"
+            }
+          }
+        },
+        "$api:audit.logEvent": {
+          "http": {
+            "status": 201,
+            "body": {
+              "entry_id": "AU-1"
+            }
+          }
+        },
+        "$type:Approval": {
+          "port": "approved",
+          "approval": {
+            "decision": "approved",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:audit.logEvent",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:audit.logEvent",
+          "subject": "request",
+          "item": "any",
+          "path": "body.action",
+          "op": "eq",
+          "value": "pre_approved"
+        },
+        {
+          "node": "$api:audit.logEvent",
+          "subject": "request",
+          "op": "count",
+          "value": 1
+        },
+        {
+          "node": "$last",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "Middle score rejected by the underwriter",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "applicant_id": "ap-3321",
+            "requested_amount": 15000
+          }
+        ]
+      },
+      "mocks": {
+        "$api:risk.score": {
+          "http": {
+            "status": 200,
+            "body": {
+              "score": 650,
+              "band": "x"
+            }
+          }
+        },
+        "$api:audit.logEvent": {
+          "http": {
+            "status": 201,
+            "body": {
+              "entry_id": "AU-1"
+            }
+          }
+        },
+        "$type:Approval": {
+          "port": "rejected",
+          "approval": {
+            "decision": "rejected",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:audit.logEvent",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:audit.logEvent",
+          "subject": "request",
+          "item": "any",
+          "path": "body.action",
+          "op": "eq",
+          "value": "declined"
+        },
+        {
+          "node": "$api:audit.logEvent",
+          "subject": "request",
+          "op": "count",
+          "value": 1
+        },
+        {
+          "node": "$last",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "High score is pre-approved",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "applicant_id": "ap-3321",
+            "requested_amount": 15000
+          }
+        ]
+      },
+      "mocks": {
+        "$api:risk.score": {
+          "http": {
+            "status": 200,
+            "body": {
+              "score": 780,
+              "band": "x"
+            }
+          }
+        },
+        "$api:audit.logEvent": {
+          "http": {
+            "status": 201,
+            "body": {
+              "entry_id": "AU-1"
+            }
+          }
+        },
+        "$type:Approval?": {
+          "port": "approved",
+          "approval": {
+            "decision": "approved",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$api:audit.logEvent",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:audit.logEvent",
+          "subject": "request",
+          "item": "any",
+          "path": "body.action",
+          "op": "eq",
+          "value": "pre_approved"
+        },
+        {
+          "node": "$api:audit.logEvent",
+          "subject": "request",
+          "op": "count",
+          "value": 1
+        },
+        {
+          "node": "$last",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "700 still goes to manual review",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "applicant_id": "ap-3321",
+            "requested_amount": 15000
+          }
+        ]
+      },
+      "mocks": {
+        "$api:risk.score": {
+          "http": {
+            "status": 200,
+            "body": {
+              "score": 700,
+              "band": "x"
+            }
+          }
+        },
+        "$api:audit.logEvent": {
+          "http": {
+            "status": 201,
+            "body": {
+              "entry_id": "AU-1"
+            }
+          }
+        },
+        "$type:Approval": {
+          "port": "approved",
+          "approval": {
+            "decision": "approved",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:audit.logEvent",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:audit.logEvent",
+          "subject": "request",
+          "item": "any",
+          "path": "body.action",
+          "op": "eq",
+          "value": "pre_approved"
+        },
+        {
+          "node": "$api:audit.logEvent",
+          "subject": "request",
+          "op": "count",
+          "value": 1
+        },
+        {
+          "node": "$last",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        }
+      ],
+      "category": "boundary"
+    }
+  ],
+  "input_aliases": {
+    "applicant_id": [
+      "applicant"
+    ],
+    "requested_amount": [
+      "amount",
+      "loan_amount",
+      "requested_loan_amount"
+    ]
+  }
+}

@@ -18,8 +18,8 @@ from typing import Any
 
 from simpleeval import EvalWithCompoundTypes, DEFAULT_FUNCTIONS, DEFAULT_OPERATORS
 
-from .logging import execution_variables_var
-from .test_mode import current_time
+from .logging import execution_resume_key_var, execution_variables_var
+from .test_mode import current_time, frozen_now_var
 from .types import NodeData
 
 logger = logging.getLogger(__name__)
@@ -36,6 +36,15 @@ class ExpressionContext:
     execution: dict[str, str]  # $execution
     item_index: int  # $itemIndex
     vars: dict[str, str] = field(default_factory=dict)  # $vars (team-defined, env-scoped)
+
+
+def _resume_key(execution_id: str) -> str:
+    """``$execution.resumeKey``: the run-scoped key set by the runner; a test run (frozen clock) gets a fixed one so what it
+    sends stays identical between runs (Stage 3A determinism)."""
+    key = execution_resume_key_var.get("")
+    if key:
+        return key
+    return "test-resume-key" if frozen_now_var.get() is not None else execution_id
 
 
 class ExpressionEngine:
@@ -432,7 +441,7 @@ class ExpressionEngine:
             input_data=current_data,
             node_data=node_data,
             env=dict(os.environ),
-            execution={"id": execution_id, "mode": "manual"},
+            execution={"id": execution_id, "mode": "manual", "resumeKey": _resume_key(execution_id)},
             item_index=item_index,
             vars=resolved_vars,
         )

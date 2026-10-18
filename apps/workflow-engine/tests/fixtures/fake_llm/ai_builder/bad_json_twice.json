@@ -1,0 +1,22 @@
+{
+ "rules": [
+  {
+   "id": "spec-bad",
+   "when": {
+    "system_matches": "^WF_AI:SPEC\\n"
+   },
+   "respond": {
+    "text": "{oops"
+   }
+  },
+  {
+   "id": "spec-bad2",
+   "when": {
+    "system_matches": "^WF_AI:JSON_FIX\\n"
+   },
+   "respond": {
+    "text": "still {not json"
+   }
+  }
+ ]
+}

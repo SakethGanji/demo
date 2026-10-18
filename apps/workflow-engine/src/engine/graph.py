@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
-TRIGGER_NODE_TYPES = {"Start", "Webhook", "Cron", "ExecuteWorkflowTrigger", "ErrorTrigger"}
+TRIGGER_NODE_TYPES = {"Start", "Webhook", "Cron", "ExecuteWorkflowTrigger", "ErrorTrigger", "FormTrigger", "ChatInput"}
 
 
 def disabled_trigger_message(nodes: Iterable[Any]) -> str | None:

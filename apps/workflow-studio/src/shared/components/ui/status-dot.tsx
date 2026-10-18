@@ -25,7 +25,8 @@ export function StatusDot({ tone, className, flat, ...props }: { tone: DotTone; 
 /** Map an execution status to a dot tone. */
 export function runTone(status: string | null | undefined): DotTone {
   if (status === 'success') return 'ok'
-  if (status === 'running' || status === 'waiting') return 'running'
+  if (status === 'waiting') return 'warn' // paused on a human task: not in flight, not failed
+  if (status === 'running') return 'running'
   if (status === 'error' || status === 'failed' || status === 'crashed' || status === 'canceled') return 'err'
   return 'idle'
 }

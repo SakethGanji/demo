@@ -115,9 +115,26 @@ def sandbox_procs() -> list[int]:
         except OSError:
             continue
         if argv and os.path.basename(argv[0].decode(errors="replace")) == "bwrap" \
-                and any(b"/tmp/sbx-" in a for a in argv[1:]):
+                and any(b"/tmp/sbx-" in a for a in argv[1:]) and _descends_from_us(int(pid)):
             out.append(int(pid))
     return out
+
+
+def _descends_from_us(pid: int) -> bool:
+    """Only this pytest's engines (its child processes) count: a concurrent test run's sandboxes are not our leak.
+    A leaked bwrap stays a child of the live engine that spawned it (start_new_session keeps the parent pid)."""
+    me = os.getpid()
+    for _ in range(64):
+        try:
+            stat = open(f"/proc/{pid}/stat").read()
+        except OSError:
+            return False
+        pid = int(stat.rsplit(")", 1)[1].split()[1])  # field 4, after the parenthesised comm
+        if pid == me:
+            return True
+        if pid <= 1:
+            return False
+    return False
 
 
 def _emit(name: str, source: str, tables: list | None = None, summary: str = "x") -> dict:
@@ -638,6 +655,9 @@ def test_generate_concurrent_generation_is_409_and_disconnect_cancels_and_releas
         # same project + actor → 409; another actor, another project → fine to start
         r2 = fake_api.post(f"/projects/{P}/modules/generate", {"prompt": "x __slow__"})
         assert r2.status_code == 409 and r2.json()["detail"]["code"] == "generation_in_progress"
+        deadline = time.time() + 5  # under load bwrap can start a beat after the "testing" status
+        while not sandbox_procs() and time.time() < deadline:
+            time.sleep(0.1)
         assert sandbox_procs(), "sandbox should be running"
         t0 = time.time()
     # leaving the with-block closed the connection: the sandbox group is killed, the lock released

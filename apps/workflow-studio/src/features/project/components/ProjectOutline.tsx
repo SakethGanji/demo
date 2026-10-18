@@ -8,12 +8,15 @@ import { Link, useMatchRoute, useNavigate, useParams, useSearch } from '@tanstac
 import {
   ArrowUpRight,
   AppWindow,
+  CheckCheck,
   Database,
   FileCode2,
   History,
   KeyRound,
   LayoutGrid,
+  LayoutTemplate,
   ListChecks,
+  Network,
   Plug,
   Plus,
   Settings2,
@@ -30,6 +33,7 @@ import { liquidGlassSupported, useLiquidGlass } from '@/shared/lib/liquid-glass'
 import { useProjectCtx } from '../ProjectContext'
 import { useModules, useProjectApps, useProjectSummary, useRoutes, useTables } from '../hooks/useProjectData'
 import { useSetup } from '../hooks/useSetup'
+import { useTaskCounts } from '@/features/approvals/hooks/useTasks'
 import { sortRoutes } from '../lib/routes'
 import { pluralize } from '../lib/format'
 import { useOutlineDraftStore } from '@/features/backend/outlineDraftStore'
@@ -47,6 +51,7 @@ const hue = {
   apps: '[&>svg]:text-hue-apps',
   secrets: '[&>svg]:text-hue-secrets',
   runs: '[&>svg]:text-hue-runs',
+  flow: '[&>svg]:text-hue-flow',
 }
 
 /** One fill that slides to the item marked `data-active` inside `host` (DESIGN §7: navigation motion). */
@@ -156,6 +161,10 @@ export function ProjectOutline() {
   const onSecrets = !!matchRoute({ to: '/p/$project/secrets', params: P })
   const onApis = !!matchRoute({ to: '/p/$project/apis', params: P })
   const onRuns = !!matchRoute({ to: '/p/$project/runs', params: P, fuzzy: true })
+  const onTemplates = !!matchRoute({ to: '/p/$project/templates', params: P })
+  const onApprovals = !!matchRoute({ to: '/p/$project/approvals', params: P, fuzzy: true })
+  const onKnowledge = !!matchRoute({ to: '/p/$project/knowledge', params: P })
+  const openTasks = useTaskCounts(pid).data?.open ?? 0
   const activeModule = matchRoute({ to: '/p/$project/backend/$module', params: P, fuzzy: true }) ? params.module : undefined
   const activeTable = params.table
   const routeParam = (useSearch({ strict: false }) as { route?: string }).route
@@ -175,7 +184,7 @@ export function ProjectOutline() {
   return (
     <nav className="flex min-h-0 flex-1 flex-col" aria-label="Project outline" data-testid="outline">
       <div ref={listRef} className="relative min-h-0 flex-1 overflow-y-auto px-2.5 pt-3">
-        <ActiveFill host={listRef} dep={[onOverview, onSecrets, onApis, onRuns, activeModule, activeTable, routeParam]} />
+        <ActiveFill host={listRef} dep={[onOverview, onSecrets, onApis, onRuns, onApprovals, onKnowledge, activeModule, activeTable, routeParam]} />
         <Link to="/p/$project" params={P} className={cn(itemCls, hue.home, onOverview && onCls)} {...act(onOverview)} data-testid="outline-overview">
           {setup.show ? <ListChecks /> : <LayoutGrid />}
           {setup.show ? (
@@ -312,6 +321,16 @@ export function ProjectOutline() {
         ))}
         {(apps.data?.length ?? 0) === 0 && <div className="pb-1.5 pl-[31px] pr-2 pt-0.5 text-xs text-muted-foreground">No apps yet</div>}
 
+        <Link
+          to="/p/$project/workflows/$workflowId"
+          params={{ ...P, workflowId: 'new' }}
+          search={{ ai: 1 }}
+          className={cn(itemCls, hue.ai, 'text-ai-text [&>svg]:opacity-100')}
+          data-testid="ai-build-open"
+        >
+          <Sparkles /> Build a workflow with AI
+        </Link>
+
         <GroupHeader label="Project" />
         <Link to="/p/$project/secrets" params={P} className={cn(itemCls, hue.secrets, onSecrets && onCls)} {...act(onSecrets)} data-testid="outline-secrets">
           <KeyRound /> Secrets
@@ -323,6 +342,20 @@ export function ProjectOutline() {
         </Link>
         <Link to="/p/$project/apis" params={P} className={cn(itemCls, hue.backend, onApis && onCls)} {...act(onApis)} data-testid="outline-apis">
           <Plug /> APIs
+        </Link>
+        <Link to="/p/$project/approvals" params={P} className={cn(itemCls, hue.flow, onApprovals && onCls)} {...act(onApprovals)} data-testid="rail-approvals">
+          <CheckCheck /> Approvals
+          {openTasks > 0 && (
+            <span className="ml-auto rounded-full bg-primary px-1.5 text-[11px] font-medium tabular-nums leading-[18px] text-primary-foreground" data-testid="rail-approvals-count" aria-label={`${openTasks} waiting`}>
+              {openTasks}
+            </span>
+          )}
+        </Link>
+        <Link to="/p/$project/knowledge" params={P} className={cn(itemCls, hue.ai, onKnowledge && onCls)} {...act(onKnowledge)} data-testid="nav-knowledge">
+          <Network /> Knowledge
+        </Link>
+        <Link to="/p/$project/templates" params={P} className={cn(itemCls, hue.flow, onTemplates && onCls)} {...act(onTemplates)} data-testid="nav-templates">
+          <LayoutTemplate /> Templates
         </Link>
         <Link to="/p/$project/runs" params={P} className={cn(itemCls, hue.runs, onRuns && onCls)} {...act(onRuns)} data-testid="outline-runs">
           <History /> Runs <span className="ml-auto text-[11.5px] tabular-nums text-muted-foreground">{runs24} · 24h</span>
@@ -369,6 +402,7 @@ export function ProjectRail() {
   const tables = useTables(pid)
   const apps = useProjectApps(pid)
   const missingCount = useMissingCount(pid)
+  const openTasks = useTaskCounts(pid).data?.open ?? 0
   const P = { project: slug }
   const railBtn = 'relative inline-flex size-9 items-center justify-center rounded-ctl text-muted-foreground hover:bg-foreground/6 hover:text-foreground [&>svg]:size-[17px] [&>svg]:stroke-[1.75]'
   const on = 'bg-sidebar-accent text-foreground'
@@ -451,6 +485,19 @@ export function ProjectRail() {
         </Link>,
       )}
       {tip('APIs', <Link to="/p/$project/apis" params={P} className={cn(railBtn, matchRoute({ to: '/p/$project/apis', params: P }) && on)} data-testid="rail-apis"><Plug /></Link>)}
+      {tip(
+        openTasks > 0 ? `Approvals · ${openTasks} waiting` : 'Approvals',
+        <Link to="/p/$project/approvals" params={P} className={cn(railBtn, matchRoute({ to: '/p/$project/approvals', params: P, fuzzy: true }) && on)} data-testid="rail-approvals">
+          <CheckCheck />
+          {openTasks > 0 && (
+            <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-primary px-1 text-center text-[10px] font-medium tabular-nums leading-4 text-primary-foreground" data-testid="rail-approvals-count">
+              {openTasks}
+            </span>
+          )}
+        </Link>,
+      )}
+      {tip('Knowledge', <Link to="/p/$project/knowledge" params={P} className={cn(railBtn, matchRoute({ to: '/p/$project/knowledge', params: P }) && on)} data-testid="nav-knowledge"><Network /></Link>)}
+      {tip('Templates', <Link to="/p/$project/templates" params={P} className={cn(railBtn, matchRoute({ to: '/p/$project/templates', params: P }) && on)} data-testid="nav-templates"><LayoutTemplate /></Link>)}
       {tip('Runs', <Link to="/p/$project/runs" params={P} className={cn(railBtn, matchRoute({ to: '/p/$project/runs', params: P, fuzzy: true }) && on)} data-testid="rail-runs"><History /></Link>)}
       <div className="flex-1" />
       {tip('Settings', <button type="button" className={railBtn} onClick={() => setSearch({ sheet: 'settings', section: 'general' })} data-testid="rail-settings"><Settings2 /></button>)}

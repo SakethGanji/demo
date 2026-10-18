@@ -1,0 +1,62 @@
+openapi: 3.0.3
+info:
+  title: queues
+  version: '1.0'
+servers:
+- url: http://queues.bank.test
+paths:
+  /tickets:
+    post:
+      operationId: create
+      summary: Create a ticket in a team queue
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                queue:
+                  type: string
+                  enum:
+                  - cards
+                  - loans
+                  - deposits
+                customer_id:
+                  type: string
+                summary:
+                  type: string
+                priority:
+                  type: string
+                  enum:
+                  - normal
+                  - urgent
+              required:
+              - queue
+              - summary
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ticket_id:
+                    type: string
+                  queue:
+                    type: string
+                required:
+                - ticket_id
+                - queue
+        '422':
+          description: Unknown queue
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                - error

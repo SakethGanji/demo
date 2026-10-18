@@ -14,7 +14,7 @@ from ..core.exceptions import (
     WorkflowInactiveError,
     WebhookError,
 )
-from ..engine.types import NodeData, WebhookResponse
+from ..engine.types import NodeData, WebhookResponse, run_status
 
 if TYPE_CHECKING:
     from ..engine.types import StoredWorkflow, NodeDefinition
@@ -184,6 +184,7 @@ class WebhookService:
         from ..engine.types import ExecutionContext, ExecutionError
         from ..db.session import async_session_factory  # noqa: F811
         from ..repositories.execution_repository import ExecutionRepository
+        from .subworkflow_wiring import subworkflow_invoker
 
         try:
             # Pre-create execution row so node_outputs FK is satisfied during run
@@ -202,6 +203,7 @@ class WebhookService:
                 variables=variables,
                 secret_values=secrets,
                 project_id=stored.project_id,
+                subworkflow_invoker=subworkflow_invoker(async_session_factory),
             )
 
             # Use a fresh DB session for background persistence
@@ -247,6 +249,7 @@ class WebhookService:
         from ..engine.workflow_runner import WorkflowRunner
         from ..db.session import async_session_factory
         from ..utils.ids import execution_id as gen_exec_id
+        from .subworkflow_wiring import subworkflow_invoker
 
         exec_id = gen_exec_id()
         await self._execution_repo.start(exec_id, stored.id, stored.name, "webhook")
@@ -262,6 +265,7 @@ class WebhookService:
             variables=variables,
             secret_values=secrets,
             project_id=stored.project_id,
+            subworkflow_invoker=subworkflow_invoker(async_session_factory),
         )
 
         await self._execution_repo.complete(context, stored.id, stored.name)
@@ -274,13 +278,13 @@ class WebhookService:
         if context.last_completed_node and context.last_completed_node in context.node_states:
             last_node_data = context.node_states[context.last_completed_node]
             return {
-                "status": "success" if not context.errors else "failed",
+                "status": run_status(context),
                 "executionId": context.execution_id,
                 "data": [d.json for d in last_node_data],
             }
 
         return {
-            "status": "success" if not context.errors else "failed",
+            "status": run_status(context),
             "executionId": context.execution_id,
             "data": [],
         }

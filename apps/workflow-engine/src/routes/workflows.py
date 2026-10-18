@@ -30,6 +30,7 @@ from ..schemas.workflow import (
     PublishRequest,
     CheckRequest,
     WorkflowPublishResponse,
+    WorkflowPublishResult,
     VersionListItem,
     VersionDetailResponse,
     ContractLearnRequest,
@@ -117,15 +118,18 @@ async def delete_workflow(
     except WorkflowNotFoundError as e:
         raise HTTPException(status_code=404, detail=e.message)
     except ConflictError as e:
-        raise HTTPException(status_code=409, detail={"code": e.code, "message": e.message})
+        detail = {"code": e.code, "message": e.message}
+        if "used_by" in e.details:  # WORKFLOW_IN_USE: who still calls it (section 10.3), so the studio can list them
+            detail["used_by"] = e.details["used_by"]
+        raise HTTPException(status_code=409, detail=detail)
 
 
-@router.post("/{workflow_id}/publish", response_model=WorkflowPublishResponse)
+@router.post("/{workflow_id}/publish", response_model=WorkflowPublishResult)
 async def publish_workflow(
     workflow_id: str,
     body: PublishRequest | None = None,
     service: WorkflowServiceDep = None,
-) -> WorkflowPublishResponse:
+) -> WorkflowPublishResult:
     """Publish the current draft as a new immutable version. Enables triggers."""
     try:
         message = body.message if body else None
@@ -136,6 +140,8 @@ async def publish_workflow(
         raise HTTPException(status_code=422, detail={"message": e.message, "findings": e.findings})
     except ApprovedTestsFailError as e:
         raise HTTPException(status_code=422, detail={"message": e.message, "failed_tests": e.failed_tests})
+    except ConflictError as e:   # Stage 5: INTERFACE_SLUG_TAKEN
+        raise HTTPException(status_code=409, detail={"code": e.code, "message": e.message})
     except ValidationError as e:
         raise HTTPException(status_code=400, detail=e.message)
 

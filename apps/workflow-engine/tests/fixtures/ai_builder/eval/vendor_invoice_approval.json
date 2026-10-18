@@ -1,0 +1,321 @@
+{
+  "id": "vendor_invoice_approval",
+  "holdout": false,
+  "request": "Invoices arrive from the accounts payable system with an invoice id, a vendor id and an amount. Every invoice needs an approver before we schedule the payment. Invoices over $10,000 need two different approvers (four-eyes), smaller ones need just one. A rejected invoice is never scheduled for payment. Each invoice is posted with the fields invoice_id, vendor_id and amount.",
+  "apis": [
+    "payments.yaml"
+  ],
+  "spec_edits": null,
+  "expect": {
+    "trigger": "Webhook",
+    "must_have_types": [
+      "Approval"
+    ],
+    "must_call": [
+      "payments.schedule"
+    ],
+    "must_not_call_hosts": [],
+    "approval_ports_wired": [
+      "approved"
+    ],
+    "max_nodes": 12,
+    "forbid_types": [],
+    "min_spec_tests": 3,
+    "four_eyes_or_two_approvals": true
+  },
+  "hidden_tests": [
+    {
+      "name": "Small invoice approved is scheduled",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "body": {
+              "invoice_id": "INV-3001",
+              "vendor_id": "V-77",
+              "amount": 4000
+            },
+            "headers": {},
+            "query": {},
+            "method": "POST"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:payments.schedule": {
+          "http": {
+            "status": 201,
+            "body": {
+              "payment_id": "PAY-1",
+              "status": "scheduled"
+            }
+          }
+        },
+        "$all:Approval": {
+          "port": "approved",
+          "approval": {
+            "decision": "approved",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$api:payments.schedule",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:payments.schedule",
+          "subject": "request",
+          "item": "any",
+          "path": "body.amount",
+          "op": "eq",
+          "value": 4000
+        },
+        {
+          "node": "$api:payments.schedule",
+          "subject": "request",
+          "item": "any",
+          "path": "body.invoice_id",
+          "op": "eq",
+          "value": "INV-3001"
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "Small invoice rejected is not scheduled",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "body": {
+              "invoice_id": "INV-3001",
+              "vendor_id": "V-77",
+              "amount": 4000
+            },
+            "headers": {},
+            "query": {},
+            "method": "POST"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:payments.schedule": {
+          "http": {
+            "status": 201,
+            "body": {
+              "payment_id": "PAY-1",
+              "status": "scheduled"
+            }
+          }
+        },
+        "$all:Approval": {
+          "port": "rejected",
+          "approval": {
+            "decision": "rejected",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$api:payments.schedule",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "Large invoice approved is scheduled",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "body": {
+              "invoice_id": "INV-3001",
+              "vendor_id": "V-77",
+              "amount": 25000
+            },
+            "headers": {},
+            "query": {},
+            "method": "POST"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:payments.schedule": {
+          "http": {
+            "status": 201,
+            "body": {
+              "payment_id": "PAY-1",
+              "status": "scheduled"
+            }
+          }
+        },
+        "$all:Approval": {
+          "port": "approved",
+          "approval": {
+            "decision": "approved",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$api:payments.schedule",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:payments.schedule",
+          "subject": "request",
+          "item": "any",
+          "path": "body.amount",
+          "op": "eq",
+          "value": 25000
+        },
+        {
+          "node": "$api:payments.schedule",
+          "subject": "request",
+          "item": "any",
+          "path": "body.invoice_id",
+          "op": "eq",
+          "value": "INV-3001"
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "Large invoice rejected is not scheduled",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "body": {
+              "invoice_id": "INV-3001",
+              "vendor_id": "V-77",
+              "amount": 25000
+            },
+            "headers": {},
+            "query": {},
+            "method": "POST"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:payments.schedule": {
+          "http": {
+            "status": 201,
+            "body": {
+              "payment_id": "PAY-1",
+              "status": "scheduled"
+            }
+          }
+        },
+        "$all:Approval": {
+          "port": "rejected",
+          "approval": {
+            "decision": "rejected",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$api:payments.schedule",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "Just over the limit approved is scheduled",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "body": {
+              "invoice_id": "INV-3001",
+              "vendor_id": "V-77",
+              "amount": 10001
+            },
+            "headers": {},
+            "query": {},
+            "method": "POST"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:payments.schedule": {
+          "http": {
+            "status": 201,
+            "body": {
+              "payment_id": "PAY-1",
+              "status": "scheduled"
+            }
+          }
+        },
+        "$all:Approval": {
+          "port": "approved",
+          "approval": {
+            "decision": "approved",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$api:payments.schedule",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:payments.schedule",
+          "subject": "request",
+          "item": "any",
+          "path": "body.amount",
+          "op": "eq",
+          "value": 10001
+        },
+        {
+          "node": "$api:payments.schedule",
+          "subject": "request",
+          "item": "any",
+          "path": "body.invoice_id",
+          "op": "eq",
+          "value": "INV-3001"
+        }
+      ],
+      "category": "boundary"
+    }
+  ]
+}

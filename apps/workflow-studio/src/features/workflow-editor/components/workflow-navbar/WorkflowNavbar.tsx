@@ -1,3 +1,5 @@
+import { isBlueprintId } from '@/features/ai-builder/stage/blueprint'
+import { useStageStore } from '@/features/ai-builder/stage/stageStore'
 import { useState, useRef, useEffect } from 'react';
 import {
   Save,
@@ -19,6 +21,8 @@ import {
   XCircle,
   Clock,
   History,
+  LayoutTemplate,
+  Workflow,
 } from 'lucide-react';
 import { Link } from '@tanstack/react-router';
 import { useWorkflowStore } from '../../stores/workflowStore';
@@ -35,6 +39,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/shared/components/ui/dropdown-menu';
+import { useUsedBy, usedByChipLabel } from '../../hooks/useSubworkflows';
+import { UsedByDialog } from '../ndv/subworkflow/UsedByDialog';
+import { PublishImpactDialog } from './PublishImpactDialog';
+import { hasBreakingImpact, parsePublishImpact, type PublishImpactRow } from '../../lib/subworkflowsApi';
 import { useSaveWorkflow, usePublishWorkflow, useImportWorkflow } from '../../hooks/useWorkflowApi';
 import { toast } from 'sonner';
 import { toBackendWorkflow } from '../../lib/workflowTransform';
@@ -48,6 +56,8 @@ import { useEditorProjectStore } from '../../stores/editorProjectStore';
 import { ToolbarSeparator } from '@/shared/components/ui/toolbar';
 import { EnvProfileSelector } from '../env-profiles/EnvProfileSelector';
 import TestBar from '../tests/TestBar';
+import { useInterfaceState } from '@/features/interfaces/hooks/useInterfaceState';
+import { navbarLabel } from '@/features/interfaces/lib/interfaceDraft';
 import type { WorkflowNodeData } from '../../types/workflow';
 import type { Node } from '@xyflow/react';
 export default function WorkflowNavbar() {
@@ -78,13 +88,33 @@ export default function WorkflowNavbar() {
   const historyOpen = useHistoryStore((s) => s.open);
   const setHistoryOpen = useHistoryStore((s) => s.setOpen);
 
-  const nodeCount = useWorkflowStore((s) => s.nodeCount);
-  const edgeCount = useWorkflowStore((s) => s.edgeCount);
+  const interfaceState = useInterfaceState(workflowId);
+  // while an AI build is on the canvas, count what the canvas shows, not the (still empty) draft
+  const draftNodes = useWorkflowStore((s) => s.nodeCount);
+  const draftEdges = useWorkflowStore((s) => s.edgeCount);
+  const stageNodes = useStageStore((s) => (s.active ? s.nodes.filter((n) => !isBlueprintId(n.id) && s.marks[n.id] !== 'removed').length : null));
+  const stageEdges = useStageStore((s) => (s.active ? s.edges.length : null));
+  const nodeCount = stageNodes ?? draftNodes;
+  const edgeCount = stageEdges ?? draftEdges;
   const isRunning = useWorkflowStore((s) => s.isAnyNodeRunning);
   const execSummary = useExecSummary();
   const { hasErrors, hasLogs, totalDuration } = execSummary;
   const allSuccess = hasLogs && !isRunning && !hasErrors;
 
+  const [usedByOpen, setUsedByOpen] = useState(false);
+  const usedBy = useUsedBy(workflowId && workflowId !== 'new' ? workflowId : undefined);
+  const usedByLabel = usedByChipLabel(usedBy.data);
+  const [impact, setImpact] = useState<PublishImpactRow[]>([]);
+  const [impactOpen, setImpactOpen] = useState(false);
+  /** Publish, then ask the author to acknowledge any published parent this version breaks (§12.6). */
+  const publishAndReview = async () => {
+    const res = await publish();
+    const rows = parsePublishImpact(res);
+    if (hasBreakingImpact(rows)) {
+      setImpact(rows);
+      setImpactOpen(true);
+    }
+  };
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState(workflowName);
   const nameInputRef = useRef<HTMLInputElement>(null);
@@ -238,8 +268,28 @@ export default function WorkflowNavbar() {
           <StatusDot tone={isActive ? 'ok' : 'idle'} flat />
           {isActive ? 'Live' : 'Draft'}
         </Badge>
+        {usedByLabel && (
+          <Tip label="Workflows that call this one">
+            <Button variant="ghost" size="xs" className="shrink-0 whitespace-nowrap text-muted-foreground" onClick={() => setUsedByOpen(true)} data-testid="editor-used-by-chip">
+              <Workflow /> {usedByLabel}
+            </Button>
+          </Tip>
+        )}
 
         <div className="flex-1" />
+
+        <Tip label="Form, chat or custom screen for this workflow">
+          <Button
+            variant="ghost"
+            size="sm"
+            className={iconBtn(isRightTabActive('interface'))}
+            onClick={() => openRightPanel('interface')}
+            aria-pressed={isRightTabActive('interface')}
+            data-testid="navbar-tab-interface"
+          >
+            <LayoutTemplate /> {navbarLabel(interfaceState.data?.interface)}
+          </Button>
+        </Tip>
 
         <TestBar />
 
@@ -339,7 +389,7 @@ export default function WorkflowNavbar() {
           </Tip>
         ) : (
           <Tip label="Publish a new version and enable triggers">
-            <Button size="sm" onClick={() => publish()} disabled={isPublishing || !workflowId} data-testid="editor-publish">
+            <Button size="sm" onClick={() => void publishAndReview()} disabled={isPublishing || !workflowId} data-testid="editor-publish">
               {isPublishing ? <Loader2 className="animate-spin" /> : <Upload />} Publish
             </Button>
           </Tip>
@@ -389,6 +439,10 @@ export default function WorkflowNavbar() {
               <Upload size={14} className="mr-2" />
               Import
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setUsedByOpen(true)} data-testid="editor-used-by">
+              <Workflow size={14} className="mr-2" />
+              Used by
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem variant="destructive">
               <Trash2 size={14} className="mr-2" />
@@ -397,6 +451,9 @@ export default function WorkflowNavbar() {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      <PublishImpactDialog impact={impact} open={impactOpen} onOpenChange={setImpactOpen} />
+      <UsedByDialog open={usedByOpen} onOpenChange={setUsedByOpen} workflowId={workflowId ?? null} />
 
       {/* Hidden file input for import */}
       <input

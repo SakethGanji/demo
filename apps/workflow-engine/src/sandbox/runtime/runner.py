@@ -33,6 +33,54 @@ def _load(entry):
     return getattr(importlib.import_module(mod_name), fn_name)
 
 
+# Verbatim copy of src/sandbox/code_escapes.py::unescape_code (this file runs alone inside bwrap and cannot import the package).
+def unescape_code(code: str) -> str:
+    if "\\n" not in code and "\\t" not in code:
+        return code
+    out: list[str] = []
+    i, n = 0, len(code)
+    quote: str | None = None  # the open string's delimiter (', ", ''' or """)
+    comment = False
+    while i < n:
+        c = code[i]
+        if quote is not None:
+            if c == "\\" and i + 1 < n:  # an escape inside a string stays exactly as written
+                out.append(code[i:i + 2])
+                i += 2
+                continue
+            if code.startswith(quote, i):
+                out.append(quote)
+                i += len(quote)
+                quote = None
+                continue
+            out.append(c)
+            i += 1
+            continue
+        if comment:
+            if c == "\n":
+                comment = False
+            elif c == "\\" and code[i + 1:i + 2] in ("n", "t"):
+                comment = False  # a literal separator ends the comment, as a real newline would
+            else:
+                out.append(c)
+                i += 1
+                continue
+        if c == "\\" and i + 1 < n and code[i + 1] in ("n", "t"):
+            out.append("\n" if code[i + 1] == "n" else "\t")
+            i += 2
+            continue
+        if c == "#":
+            comment = True
+        elif c in ("'", '"'):
+            quote = c * 3 if code.startswith(c * 3, i) else c
+            out.append(quote)
+            i += len(quote)
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
 def _run_code(payload):
     import base64
     import io
@@ -67,8 +115,7 @@ def _run_code(payload):
             g["pd"] = g["pandas"] = pd
         except ImportError:
             pass
-    if "\\n" in code:
-        code = code.replace("\\n", "\n").replace("\\t", "\t")
+    code = unescape_code(code)
     body = "\n".join(("    " + line) if line.strip() else "" for line in code.split("\n"))
     src = "def __user_code__():\n" + (body if body.strip() else "    return items") + "\n"
     try:

@@ -1,0 +1,463 @@
+{
+  "format": "wf-template/1",
+  "slug": "customer-notify",
+  "version": "1.0.0",
+  "name": "Customer notification",
+  "summary": "A reusable sub-workflow that sends a templated email or sms to a customer.",
+  "category": "messaging",
+  "tags": [
+    "notify",
+    "sub-workflow",
+    "email"
+  ],
+  "min_engine_stage": 8,
+  "requires": {
+    "templates": [],
+    "secrets": [],
+    "variables": [],
+    "egress_hosts": [
+      "notify.bank.example"
+    ]
+  },
+  "apis": [
+    {
+      "key": "notify",
+      "name": "notify",
+      "file": "apis/notify.yaml"
+    }
+  ],
+  "tables": [
+    {
+      "key": "notify_templates",
+      "name": "notify_templates",
+      "description": "Message templates ({placeholders} are filled from vars)",
+      "columns": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "text",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "seed_rows": [
+        {
+          "name": "refund_issued",
+          "text": "Your refund of {amount} has been issued. Reference {reference}."
+        },
+        {
+          "name": "refund_declined",
+          "text": "We could not approve your refund request. {reason}"
+        },
+        {
+          "name": "refund_failed",
+          "text": "Your refund could not be processed automatically. Our team will contact you."
+        },
+        {
+          "name": "kyc_approved",
+          "text": "Thank you, {name}. Your identity check is complete."
+        },
+        {
+          "name": "kyc_declined",
+          "text": "{name}, we could not complete your identity check. Please contact your branch."
+        },
+        {
+          "name": "dispute_received",
+          "text": "We received your card dispute. Your case number is {case_id}."
+        }
+      ]
+    }
+  ],
+  "workflows": [
+    {
+      "key": "notify",
+      "role": "subworkflow",
+      "name": "Notify customer",
+      "publish": true,
+      "description": "Send a templated message to a customer and report whether it was delivered.",
+      "definition": {
+        "nodes": [
+          {
+            "name": "Inputs",
+            "type": "ExecuteWorkflowTrigger",
+            "parameters": {
+              "inputSource": "fields",
+              "fields": [
+                {
+                  "name": "to",
+                  "type": "string",
+                  "required": true,
+                  "description": "Recipient (email address or phone)"
+                },
+                {
+                  "name": "channel",
+                  "type": "string",
+                  "required": true,
+                  "description": "email or sms"
+                },
+                {
+                  "name": "template",
+                  "type": "string",
+                  "required": true,
+                  "description": "Name of the message template"
+                },
+                {
+                  "name": "vars",
+                  "type": "object",
+                  "required": false,
+                  "description": "Values for the {placeholders} of the template"
+                }
+              ]
+            },
+            "position": {
+              "x": 0,
+              "y": 0
+            }
+          },
+          {
+            "name": "Find message",
+            "type": "DataTable",
+            "parameters": {
+              "table": "@tpl:table/notify_templates",
+              "operation": "list",
+              "filter": {
+                "name": "{{ $json.template }}"
+              },
+              "limit": 1
+            },
+            "position": {
+              "x": 240,
+              "y": 0
+            }
+          },
+          {
+            "name": "Render message",
+            "type": "Code",
+            "parameters": {
+              "code": "msg = items[0]['json'] if items else {}\nreq = node_data['Inputs']['json']\ntext = msg.get('text') or 'Hello'\nfor k, v in (req.get('vars') or {}).items():\n    text = text.replace('{' + str(k) + '}', str(v))\nreturn [{'json': {'to': req.get('to'), 'channel': req.get('channel'), 'text': text}}]\n"
+            },
+            "position": {
+              "x": 480,
+              "y": 0
+            }
+          },
+          {
+            "name": "Send message",
+            "type": "HttpRequest",
+            "parameters": {
+              "api_ref": {
+                "spec_id": "@tpl:api/notify",
+                "operation_id": "sendMessage"
+              },
+              "method": "POST",
+              "responseType": "json",
+              "body": {
+                "to": "{{ $json.to }}",
+                "text": "{{ $json.text }}",
+                "channel": "{{ $json.channel }}"
+              }
+            },
+            "position": {
+              "x": 720,
+              "y": 0
+            }
+          },
+          {
+            "name": "Sent?",
+            "type": "If",
+            "parameters": {
+              "condition": "{{ $json.statusCode == 200 }}"
+            },
+            "position": {
+              "x": 960,
+              "y": 0
+            }
+          },
+          {
+            "name": "Delivered",
+            "type": "Set",
+            "parameters": {
+              "mode": "json",
+              "keepOnlySet": true,
+              "jsonData": {
+                "delivered": true,
+                "channel": "{{ $node[\"Render message\"].json.channel }}"
+              }
+            },
+            "position": {
+              "x": 1200,
+              "y": -80
+            }
+          },
+          {
+            "name": "Not delivered",
+            "type": "Set",
+            "parameters": {
+              "mode": "json",
+              "keepOnlySet": true,
+              "jsonData": {
+                "delivered": false,
+                "error": "{{ $json.body.error }}"
+              }
+            },
+            "position": {
+              "x": 1200,
+              "y": 80
+            }
+          }
+        ],
+        "connections": [
+          {
+            "source_node": "Inputs",
+            "target_node": "Find message",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Find message",
+            "target_node": "Render message",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Render message",
+            "target_node": "Send message",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Send message",
+            "target_node": "Sent?",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Sent?",
+            "target_node": "Delivered",
+            "source_output": "true",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Sent?",
+            "target_node": "Not delivered",
+            "source_output": "false",
+            "target_input": "main"
+          }
+        ],
+        "settings": {},
+        "tests": [
+          {
+            "id": "t_45011c13",
+            "name": "An email is rendered from the template and sent",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "to": "dana@example.com",
+                  "channel": "email",
+                  "template": "refund_issued",
+                  "vars": {
+                    "amount": "200.00",
+                    "reference": "RF-1001"
+                  }
+                }
+              ]
+            },
+            "mocks": {
+              "Find message": {
+                "items": [
+                  {
+                    "id": 1,
+                    "name": "refund_issued",
+                    "text": "Your refund of {amount} has been issued. Reference {reference}."
+                  }
+                ]
+              },
+              "Send message": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "delivered": true
+                  }
+                }
+              }
+            },
+            "expect": [
+              {
+                "node": "Send message",
+                "subject": "request",
+                "item": "any",
+                "path": "body.text",
+                "op": "eq",
+                "value": "Your refund of 200.00 has been issued. Reference RF-1001."
+              },
+              {
+                "node": "Send message",
+                "subject": "request",
+                "item": "any",
+                "path": "body.to",
+                "op": "eq",
+                "value": "dana@example.com"
+              },
+              {
+                "node": "Delivered",
+                "port": "main",
+                "path": "delivered",
+                "op": "eq",
+                "value": true
+              },
+              {
+                "node": "Delivered",
+                "port": "main",
+                "path": "channel",
+                "op": "eq",
+                "value": "email"
+              },
+              {
+                "node": "Not delivered",
+                "subject": "node",
+                "op": "status",
+                "value": "not_run"
+              }
+            ],
+            "category": "normal",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_38838a04",
+            "name": "An sms goes out on the sms channel",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "to": "+44 7700 900123",
+                  "channel": "sms",
+                  "template": "refund_issued",
+                  "vars": {
+                    "amount": "200.00",
+                    "reference": "RF-1001"
+                  }
+                }
+              ]
+            },
+            "mocks": {
+              "Find message": {
+                "items": [
+                  {
+                    "id": 1,
+                    "name": "refund_issued",
+                    "text": "Your refund of {amount} has been issued. Reference {reference}."
+                  }
+                ]
+              },
+              "Send message": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "delivered": true
+                  }
+                }
+              }
+            },
+            "expect": [
+              {
+                "node": "Send message",
+                "subject": "request",
+                "item": "any",
+                "path": "body.channel",
+                "op": "eq",
+                "value": "sms"
+              },
+              {
+                "node": "Delivered",
+                "port": "main",
+                "path": "channel",
+                "op": "eq",
+                "value": "sms"
+              }
+            ],
+            "category": "normal",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_127ffe65",
+            "name": "The messaging service refuses the recipient",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "to": "dana@example.com",
+                  "channel": "email",
+                  "template": "refund_issued",
+                  "vars": {
+                    "amount": "200.00",
+                    "reference": "RF-1001"
+                  }
+                }
+              ]
+            },
+            "mocks": {
+              "Find message": {
+                "items": [
+                  {
+                    "id": 1,
+                    "name": "refund_issued",
+                    "text": "Your refund of {amount} has been issued. Reference {reference}."
+                  }
+                ]
+              },
+              "Send message": {
+                "http": {
+                  "status": 400,
+                  "body": {
+                    "error": "bad recipient"
+                  }
+                }
+              }
+            },
+            "expect": [
+              {
+                "node": "Not delivered",
+                "port": "main",
+                "path": "delivered",
+                "op": "eq",
+                "value": false
+              },
+              {
+                "node": "Not delivered",
+                "port": "main",
+                "path": "error",
+                "op": "eq",
+                "value": "bad recipient"
+              },
+              {
+                "node": "Delivered",
+                "subject": "node",
+                "op": "status",
+                "value": "not_run"
+              }
+            ],
+            "category": "ext_error",
+            "status": "approved",
+            "source": "human"
+          }
+        ],
+        "test_defaults": {}
+      }
+    }
+  ],
+  "ci": {
+    "min_tests_per_workflow": 3
+  }
+}

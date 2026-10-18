@@ -56,6 +56,10 @@ class ExecutionService:
         pre_populated_states: dict[str, list[Any]] | None = None,
         initial_data_override: list[Any] | None = None,
         pending_inputs: dict[str, dict[str, list[Any]]] | None = None,
+        execution_id: str | None = None,
+        skip_start: bool = False,
+        resume_decision: dict[str, Any] | None = None,
+        stored_override: Any | None = None,
     ):
         """The single path for running a saved workflow (BACKEND-DESIGN §4.3).
 
@@ -65,6 +69,11 @@ class ExecutionService:
           ``initial_item`` replaces the wrapper entirely (route requests).
         * ``substitute_inputs=False`` disables inbound {{ $vars.X }} expansion (anonymous surfaces).
         * ``version_id`` runs a pinned immutable version instead of the draft.
+        * Stage 5 (resuming a run after an approval): ``execution_id`` reuses an existing execution id instead of generating
+          one, ``skip_start`` does not create the execution row (it exists and is already ``running``),
+          ``resume_decision`` ``{task_id, node, run_index, decision, node_run_counts}`` is handed to the Approval node
+          through ``extras["resume"]``, and ``stored_override`` supplies the workflow (a draft snapshot) instead of
+          loading it.
         Returns ``(stored_workflow, ExecutionContext)``. Raises WorkflowNotFoundError /
         WorkflowExecutionError / asyncio.TimeoutError.
         """
@@ -78,7 +87,9 @@ class ExecutionService:
         from .variable_loader import load_run_secrets, load_run_variables
         from .vars_substitution import substitute_vars
 
-        if version_id is not None:
+        if stored_override is not None:
+            stored = stored_override
+        elif version_id is not None:
             stored = await self._workflow_repo.get_version_workflow(workflow_id, version_id)
         else:
             stored = await self._workflow_repo.get(workflow_id)
@@ -120,15 +131,19 @@ class ExecutionService:
             run_mode = mode or "manual"
 
         from .api_catalog import load_api_specs
+        from .subworkflow_service import DbSubworkflowInvoker
 
         extras = {**(extras or {}), "egress_allowlist": _egress_allowlist(project),
                   "api_specs": await load_api_specs(self._workflow_repo._session, stored.workflow.nodes)}
-        exec_id = gen_exec_id()
+        if resume_decision is not None:
+            extras["resume"] = resume_decision
+        exec_id = execution_id or gen_exec_id()
         meta = {"labels": {"env": env}, **(metadata or {})}
-        await self._execution_repo.start(
-            exec_id, stored.id, stored.name, run_mode,
-            project_id=stored.project_id, environment=env, metadata=meta,
-        )
+        if not skip_start:
+            await self._execution_repo.start(
+                exec_id, stored.id, stored.name, run_mode,
+                project_id=stored.project_id, environment=env, metadata=meta,
+            )
         if on_context_ready:
             await on_context_ready(exec_id, env, stored)
 
@@ -148,6 +163,7 @@ class ExecutionService:
             stop_at=stop_at,
             pre_populated_states=pre_populated_states,
             pending_inputs=pending_inputs,
+            subworkflow_invoker=DbSubworkflowInvoker(),  # Stage 8: child rows, version pins, guards (root id + deadline come from run())
         )
         if timeout_s:
             try:
@@ -162,9 +178,10 @@ class ExecutionService:
         context.extras["secret_values"] = secrets
         return stored, context
 
-    async def list_executions(self, workflow_id: str | None = None, include_test: bool = False) -> list[ExecutionListItem]:
-        """List execution history (test runs only with ``include_test``)."""
-        executions = await self._execution_repo.list(workflow_id, include_test=include_test)
+    async def list_executions(self, workflow_id: str | None = None, include_test: bool = False,
+                              include_children: bool = False) -> list[ExecutionListItem]:
+        """List execution history (test runs only with ``include_test``, sub-workflow runs only with ``include_children``)."""
+        executions = await self._execution_repo.list(workflow_id, include_test=include_test, include_children=include_children)
 
         return [
             ExecutionListItem(
@@ -186,7 +203,14 @@ class ExecutionService:
         if not execution:
             raise ExecutionNotFoundError(execution_id)
 
+        lineage = await self._execution_repo.lineage(execution_id) or {}
+        children = lineage.get("children") or []
+        version_numbers = await self._version_numbers([c.get("workflow_version_id") for c in children])
         return ExecutionDetailResponse(
+            parent=lineage.get("parent"),
+            root_execution_id=lineage.get("root_execution_id") or execution.id,
+            depth=lineage.get("depth") or 0,
+            children=[{**c, "version_number": version_numbers.get(c.get("workflow_version_id"))} for c in children],
             id=execution.id,
             workflow_id=execution.workflow_id,
             workflow_name=execution.workflow_name,
@@ -211,6 +235,19 @@ class ExecutionService:
             node_metrics=execution.node_metrics,
         )
 
+    async def _version_numbers(self, version_ids: list[int | None]) -> dict[int, int]:
+        """``{version row id: version_number}`` for the versions a run's children ran."""
+        ids = sorted({int(v) for v in version_ids if v is not None})
+        if not ids:
+            return {}
+        from sqlalchemy import select
+
+        from ..db.models import WorkflowVersionModel
+
+        rows = await self._execution_repo._session.execute(
+            select(WorkflowVersionModel.id, WorkflowVersionModel.version_number).where(WorkflowVersionModel.id.in_(ids)))
+        return {vid: num for vid, num in rows.all()}
+
     async def delete_execution(self, execution_id: str) -> bool:
         """Delete an execution record."""
         deleted = await self._execution_repo.delete(execution_id)
@@ -219,14 +256,14 @@ class ExecutionService:
         return True
 
     async def cancel_execution(self, execution_id: str) -> bool:
-        """Cancel a running execution."""
+        """Cancel a running or waiting (paused for a person) execution; its open tasks are cancelled with it."""
         from ..engine import execution_registry
 
         execution = await self._execution_repo.get(execution_id)
         if not execution:
             raise ExecutionNotFoundError(execution_id)
 
-        if execution.status != "running":
+        if execution.status not in ("running", "waiting"):
             return False
 
         # Cancel the in-process task
@@ -243,6 +280,7 @@ class ExecutionService:
         from ..engine.types import NodeData
         from ..engine import execution_registry
         from ..db.session import async_session_factory
+        from .subworkflow_service import DbSubworkflowInvoker
 
         execution = await self._execution_repo.get(execution_id)
         if not execution:
@@ -293,6 +331,12 @@ class ExecutionService:
 
         async def _run() -> None:
             try:
+                # The row exists while the run is in flight (node outputs and any sub-workflow rows point at it).
+                async with async_session_factory() as session:
+                    from ..repositories.execution_repository import ExecutionRepository
+                    await ExecutionRepository(session).start(
+                        new_exec_id, stored.id, stored.name, execution.mode,
+                        project_id=stored.project_id, environment=env)
                 context = await runner.run(
                     stored.workflow,
                     start_node.name,
@@ -305,13 +349,20 @@ class ExecutionService:
                     project_id=stored.project_id,
                     environment=env,
                     extras={"egress_allowlist": _egress_allowlist(project), "api_specs": api_specs},
+                    subworkflow_invoker=DbSubworkflowInvoker(),
                 )
                 async with async_session_factory() as session:
                     from ..repositories.execution_repository import ExecutionRepository
                     exec_repo = ExecutionRepository(session)
                     await exec_repo.complete(context, stored.id, stored.name)
-            except Exception:
+            except Exception as e:
                 logger.exception("Retry execution failed for %s", execution_id)
+                try:
+                    async with async_session_factory() as session:
+                        from ..repositories.execution_repository import ExecutionRepository
+                        await ExecutionRepository(session).mark_failed(new_exec_id, str(e))
+                except Exception:
+                    logger.warning("could not mark retry %s failed", new_exec_id, exc_info=True)
 
         task = asyncio.create_task(_run())
         execution_registry.register(new_exec_id, task)
@@ -324,3 +375,45 @@ class ExecutionService:
         count = len(executions)
         await self._execution_repo.clear()
         return count
+
+
+async def run_detached(workflow_id: str, **kwargs: Any) -> str:
+    """Start ``run_saved_workflow`` in its own task and session and return the execution id as soon as its row exists.
+
+    The run lives in the in-process execution registry (cancellable, waited for on shutdown) and does not depend on
+    the caller: a public form submit keeps running after the browser closes. A start failure is raised to the caller;
+    a failure after that is logged (the execution row already says failed).
+    """
+    from ..db.session import async_session_factory
+    from ..engine import execution_registry
+    from ..repositories.execution_repository import ExecutionRepository
+    from ..repositories.workflow_repository import WorkflowRepository
+
+    ready: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+    user_ready = kwargs.pop("on_context_ready", None)
+
+    async def on_ready(exec_id: str, env: Any, stored: Any) -> None:
+        if not ready.done():
+            ready.set_result(exec_id)
+        if user_ready:
+            await user_ready(exec_id, env, stored)
+
+    async def _run() -> None:
+        try:
+            async with async_session_factory() as session:
+                svc = ExecutionService(ExecutionRepository(session), WorkflowRepository(session))
+                await svc.run_saved_workflow(workflow_id, on_context_ready=on_ready, **kwargs)
+        except asyncio.CancelledError:
+            if not ready.done():
+                ready.cancel()
+            raise
+        except Exception as e:
+            if not ready.done():
+                ready.set_exception(e)
+            else:
+                logger.exception("Detached run of %s failed", workflow_id)
+
+    task = asyncio.create_task(_run())
+    exec_id = await ready
+    execution_registry.register(exec_id, task)
+    return exec_id

@@ -56,7 +56,7 @@ class StartNode(BaseNode):
         declared = sh.param_shape(params, "input_schema", "inputSchema")
         shape = declared if declared is not None else sh.object_of(
             {"triggeredAt": sh.scalar("string", "declared"), "mode": sh.scalar("string", "declared")},
-            ["triggeredAt", "mode"], "declared")
+            [], "declared")  # nothing is required: a run that is given input passes it through and adds neither field
         return sh.make_contract(inputs, {"main": shape})
 
     async def execute(

@@ -78,7 +78,8 @@ def test_report_summary_and_badges():
     report = build_report(WORKFLOW, tests, res)
     assert report["summary"] == {"total": 3, "passed": 1, "failed": 1, "errored": 1, "approved_total": 2, "approved_failed": 2}
     assert report["badges"] == {"Check": "fail", "Fmt": "pass", "Api": "fail"}
-    assert set(report) == {"results", "summary", "badges", "grid"}
+    # CONTRACTS-STAGE3B §4: the report also carries derived stale test ids.
+    assert set(report) == {"results", "summary", "badges", "grid", "stale_test_ids"}
     empty = build_report(WORKFLOW, [], [])
     assert empty["summary"]["total"] == 0 and empty["badges"] == {}
 

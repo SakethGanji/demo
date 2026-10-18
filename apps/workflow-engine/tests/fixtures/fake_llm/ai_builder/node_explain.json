@@ -1,0 +1,13 @@
+{
+ "rules": [
+  {
+   "id": "explain",
+   "when": {
+    "system_matches": "^WF_AI:NODE_EXPLAIN\\n"
+   },
+   "respond": {
+    "text": "{\"answer\": \"It computes a fee of one percent of the amount and passes it on.\"}"
+   }
+  }
+ ]
+}

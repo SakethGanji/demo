@@ -90,6 +90,7 @@ const TRIGGER_TYPES = new Set([
   'ErrorTrigger',
   'ExecuteWorkflowTrigger',
   'ChatInput',
+  'FormTrigger',
 ]);
 
 /**

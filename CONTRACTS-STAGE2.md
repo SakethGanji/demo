@@ -108,6 +108,24 @@ Finding = {"code": "WF001".."WF009", "severity": "error"|"warning"|"info", "mess
 | WF008 | error | A required node property missing or empty (from `node_description.properties` `required`), an invalid option value, or a cycle |
 | WF009 | error | Expression doesn't parse |
 
+Stage 5 added WF013-WF019 (forms, approvals, the interface; `DESIGN-STAGE5-UIS.md` section 4.5). Stage 8 adds WF020-WF029 for sub-workflow calls (`DESIGN-STAGE8-REUSE.md` sections 2.4 and 5.4). Codes are stable: a code never changes meaning.
+
+| Code | Severity | When |
+|---|---|---|
+| WF006 (extended) | error (warning on a legacy node) | An ExecuteWorkflow `workflowId` that is an expression: sub-workflows must be chosen, not computed |
+| WF020 | error | Sub-workflow cycle, including a workflow that calls itself. Found with Tarjan over the project's call graph plus this definition's own (unsaved) calls; reported on each call node on the cycle, with the path |
+| WF021 | error | The called workflow has no `ExecuteWorkflowTrigger` |
+| WF022 | warning in a draft check, error at publish (`for_publish`) | `version: latest` and the child was never published. A pinned `N` that doesn't exist is always an error |
+| WF023 | info, error at publish | `version: draft` (including legacy nodes, which have no `version`): the parent would follow unsaved edits |
+| WF024 | warning; error for a required child input that is not mapped (`inputMode: map`, no `includeItem`) | The input mapping doesn't fit the child's declared input (missing required field, type mismatch, field the child doesn't declare) |
+| WF025 | error | The child's call closure contains an `Approval` |
+| WF026 | warning / info | Warning: the child's output can't be typed (several shapes, or unknown). Info: `Respond` in a workflow that has an `ExecuteWorkflowTrigger` ignores its status code, headers and body when called as a sub-workflow |
+| WF027 | error | The called workflow is in another project |
+| WF028 | warning | The static call chain is deeper than `max_execution_depth` (10) |
+| WF029 | info | The child declares no inputs (passthrough or nothing declared), so the call can't be type-checked |
+
+The checker needs the call closure for WF020-WF029: `build_lookups(session, project_id, ..., workflow_id=..., definition=...)` loads it. Without `workflow_id` / `definition` the lookups hold no children and these checks are skipped (a miss beats a false alarm). `check_workflow(..., workflow_id=, for_publish=)` places the workflow in the call graph and applies the publish severities.
+
 5. Disabled nodes are checked as passthrough. Their own parameters are **not** checked.
 
 ### Endpoint and publish

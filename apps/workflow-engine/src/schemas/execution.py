@@ -50,7 +50,7 @@ class ExecutionErrorSchema(BaseModel):
 class ExecutionResponse(BaseModel):
     """Response schema for workflow execution."""
 
-    status: str = Field(..., description="Execution status: success or failed")
+    status: str = Field(..., description="Execution status: success, failed or waiting (an Approval paused the run)")
     execution_id: str = Field(..., description="Unique execution ID")
     data: dict[str, Any] = Field(..., description="Output data from each node")
     errors: list[ExecutionErrorSchema] = Field(
@@ -71,6 +71,28 @@ class ExecutionListItem(BaseModel):
     error_count: int
 
 
+class ExecutionParentRef(BaseModel):
+    """The run that called this one, and the node that made the call."""
+
+    execution_id: str
+    workflow_id: str
+    workflow_name: str
+    node: str | None = None
+
+
+class ExecutionChildRef(BaseModel):
+    """One sub-workflow run started by this run."""
+
+    execution_id: str
+    node: str | None = None
+    workflow_id: str
+    workflow_name: str
+    version_number: int | None = None  # None = the child's draft
+    workflow_version_id: int | None = None
+    status: str
+    duration_ms: int | None = None
+
+
 class ExecutionDetailResponse(BaseModel):
     """Detailed execution response."""
 
@@ -84,5 +106,10 @@ class ExecutionDetailResponse(BaseModel):
     errors: list[ExecutionErrorSchema]
     node_data: dict[str, Any]
     node_metrics: dict[str, Any] = {}
+    # Stage 8 lineage (DESIGN-STAGE8-REUSE section 11). A top-level run: parent null, its own id as root, depth 0.
+    parent: ExecutionParentRef | None = None
+    root_execution_id: str | None = None
+    depth: int = 0
+    children: list[ExecutionChildRef] = []
 
 

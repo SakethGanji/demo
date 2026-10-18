@@ -16,6 +16,12 @@ import { RunsView } from '@/features/runs/RunsView'
 import { WorkflowsListPage } from '@/features/workflows-list/WorkflowsListPage'
 import { ProjectWorkflowEditor } from '@/features/workflows-list/ProjectWorkflowEditor'
 import { ProjectAppBuilder } from '@/features/app-builder/ProjectAppBuilder'
+import { ApprovalsPage } from '@/features/approvals/ApprovalsPage'
+import { TaskDetailPage } from '@/features/approvals/TaskDetailPage'
+import { TemplatesPage } from '@/features/templates/TemplatesPage'
+import { KnowledgePage } from '@/features/knowledge/KnowledgePage'
+import type { KnowledgeSearch } from '@/features/knowledge/kit/links'
+import { aiBuildRoute } from './ai-build'
 
 const str = (v: unknown) => (typeof v === 'string' && v.length > 0 ? v : undefined)
 
@@ -134,6 +140,22 @@ export const runRoute = createRoute({
   component: RunsView,
 })
 
+export const approvalsRoute = createRoute({
+  getParentRoute: () => workspaceRoute,
+  path: 'approvals',
+  validateSearch: (s: Record<string, unknown>): { status?: 'open' | 'closed' | 'all'; workflow?: string } => ({
+    status: s.status === 'closed' || s.status === 'all' ? s.status : undefined,
+    workflow: str(s.workflow),
+  }),
+  component: ApprovalsPage,
+})
+
+export const approvalTaskRoute = createRoute({
+  getParentRoute: () => workspaceRoute,
+  path: 'approvals/$taskId',
+  component: TaskDetailPage,
+})
+
 export const appsIndexRoute = createRoute({
   getParentRoute: () => projectRoute,
   path: 'apps',
@@ -148,11 +170,41 @@ export const workflowsRoute = createRoute({
   component: WorkflowsListPage,
 })
 
+export const templatesRoute = createRoute({
+  getParentRoute: () => workspaceRoute,
+  path: 'templates',
+  component: TemplatesPage,
+})
+
+export const knowledgeRoute = createRoute({
+  getParentRoute: () => workspaceRoute,
+  path: 'knowledge',
+  validateSearch: (s: Record<string, unknown>): KnowledgeSearch => ({
+    tab: s.tab === 'matrix' || s.tab === 'memory' ? s.tab : undefined,
+    focus: str(s.focus),
+    depth: s.depth === 2 || s.depth === '2' ? 2 : undefined,
+  }),
+  component: KnowledgePage,
+})
+
+export interface WorkflowSearch {
+  execution?: string
+  proposal?: string
+  ai?: 1
+}
+
 export const workflowRoute = createRoute({
   getParentRoute: () => projectRoute,
   path: 'workflows/$workflowId',
-  /** `execution`: open the editor showing that saved run's data */
-  validateSearch: (s: Record<string, unknown>): { execution?: string } => ({ execution: str(s.execution) }),
+  /**
+   * `execution`: open the editor showing that saved run's data.
+   * `proposal`: the AI change on screen (the Build tab follows it). `ai=1`: open the Build tab (a new workflow starts with it).
+   */
+  validateSearch: (s: Record<string, unknown>): WorkflowSearch => ({
+    execution: str(s.execution),
+    proposal: str(s.proposal),
+    ai: s.ai === 1 || s.ai === '1' || s.ai === true ? 1 : undefined,
+  }),
   component: ProjectWorkflowEditor,
 })
 
@@ -178,9 +230,14 @@ export const projectRouteTree = projectRoute.addChildren([
     apisRoute,
     runsRoute,
     runRoute,
+    approvalsRoute,
+    approvalTaskRoute,
+    knowledgeRoute,
     workflowsRoute,
+    templatesRoute,
   ]),
   appsIndexRoute,
   workflowRoute,
+  aiBuildRoute,
   appRoute,
 ])

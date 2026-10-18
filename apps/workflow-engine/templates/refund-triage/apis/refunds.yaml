@@ -1,0 +1,53 @@
+openapi: 3.0.3
+info:
+  title: refunds
+  version: '1.0'
+servers:
+- url: http://refunds.bank.example
+paths:
+  /refunds:
+    post:
+      operationId: issueRefund
+      summary: Issue a refund to a customer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                customer_email:
+                  type: string
+                amount:
+                  type: number
+                reason:
+                  type: string
+              required:
+              - customer_email
+              - amount
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  refund_id:
+                    type: string
+                  status:
+                    type: string
+                required:
+                - refund_id
+                - status
+        '422':
+          description: Refund refused
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                - error

@@ -304,8 +304,15 @@ def capped_body(body: Any) -> dict[str, Any]:
 def release_extras(release) -> dict[str, Any] | None:
     if release is None:
         return None
-    return {"release_id": release.id,
-            "release_modules": {m["name"]: m["source"] for m in (release.snapshot or {}).get("modules") or []}}
+    from .release_service import pins_from_snapshot
+
+    extras: dict[str, Any] = {
+        "release_id": release.id,
+        "release_modules": {m["name"]: m["source"] for m in (release.snapshot or {}).get("modules") or []}}
+    pins = pins_from_snapshot(release.snapshot)
+    if pins is not None:  # Stage 8 4.4: sub-workflow calls resolve through the snapshot, never the live publish pointer
+        extras["release_pins"] = pins
+    return extras
 
 
 def redact_result(res: DispatchResult, secrets: set[str]) -> DispatchResult:

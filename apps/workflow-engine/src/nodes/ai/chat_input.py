@@ -37,6 +37,9 @@ class ChatInputNode(BaseNode):
                     "properties": {
                         "message": {"type": "string", "description": "User message"},
                         "timestamp": {"type": "string", "description": "ISO timestamp"},
+                        "session_id": {"type": "string", "description": "Chat session id (memory nodes key on it)"},
+                        "history": {"type": "array", "description": "Earlier messages [{role, content, at}], oldest first; excludes this one"},
+                        "user_label": {"type": "string", "description": "Typed name of the person chatting"},
                     },
                 },
             )
@@ -72,7 +75,15 @@ class ChatInputNode(BaseNode):
         """Declared: ``params.input_schema`` (a Shape) is the item shape; otherwise the default below."""
         declared = sh.param_shape(params, "input_schema", "inputSchema")
         shape = declared if declared is not None else sh.object_of(
-            {"message": sh.scalar("string", "declared"), "timestamp": sh.scalar("string", "declared")},
+            {
+                "message": sh.scalar("string", "declared"),
+                "timestamp": sh.scalar("string", "declared"),
+                "session_id": sh.scalar("string", "declared"),
+                "history": sh.array_of(sh.object_of({
+                    "role": sh.scalar("string", "declared"), "content": sh.scalar("string", "declared"),
+                    "at": sh.scalar("string", "declared")}, ["role", "content"], "declared"), "declared"),
+                "user_label": sh.scalar("string", "declared"),
+            },
             ["message", "timestamp"], "declared")
         return sh.make_contract(inputs, {"main": shape})
 
@@ -90,6 +101,8 @@ class ChatInputNode(BaseNode):
             data = input_data[0].json.copy()
             if "timestamp" not in data:
                 data["timestamp"] = datetime.now().isoformat()
+            data.setdefault("session_id", "")
+            data.setdefault("history", [])
             return self.output([NodeData(json=data)])
 
         # Fallback for manual execution without input
@@ -97,5 +110,7 @@ class ChatInputNode(BaseNode):
             NodeData(json={
                 "message": "",
                 "timestamp": datetime.now().isoformat(),
+                "session_id": "",
+                "history": [],
             })
         ])

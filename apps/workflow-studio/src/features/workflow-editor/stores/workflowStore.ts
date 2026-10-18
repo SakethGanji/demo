@@ -1,11 +1,12 @@
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import type { Node, Edge, Connection, NodeChange, EdgeChange } from '@xyflow/react';
 import { addEdge, applyNodeChanges, applyEdgeChanges } from '@xyflow/react';
-import type { WorkflowNodeData, OnErrorMode, NodeExecutionData, AgentTraceEvent, StickyNoteData, OutputStrategy } from '../types/workflow';
+import type { WorkflowNodeData, WaitingRun, OnErrorMode, NodeExecutionData, AgentTraceEvent, StickyNoteData, OutputStrategy } from '../types/workflow';
 import type { BackendNodeData } from '@/shared/lib/backendTypes';
 import type { NodeIO } from '../lib/nodeStyles';
 import type { NodeTypeMetadata } from '../lib/createNodeData';
 import { isTriggerType } from '../lib/nodeConfig';
+import { withFieldOrder } from '@/features/interfaces/lib/formFields';
 import { generateNodeName, getExistingNodeNames } from '../lib/workflowTransform';
 import { buildRunData } from '../lib/executionRunData';
 import { renameNodeInTests, recordRename, type TestCase, type TestDefaults, type Mock } from '../lib/tests';
@@ -131,6 +132,9 @@ interface WorkflowState {
   /** A whole-workflow run is in flight (set by useExecutionStream), including gaps between nodes. */
   runActive: boolean;
   setRunActive: (active: boolean) => void;
+  /** The last run paused on human tasks (`execution_waiting`); cleared when the run data is cleared or a new run starts. */
+  waitingRun: WaitingRun | null;
+  setWaitingRun: (w: WaitingRun | null) => void;
   _canUndo: boolean;
   _canRedo: boolean;
   _isDirty: boolean;
@@ -340,6 +344,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   isAnyNodeRunning: false,
   runActive: false,
   setRunActive: (active) => set({ runActive: active }),
+  waitingRun: null,
+  setWaitingRun: (w) => set({ waitingRun: w }),
   _canUndo: false,
   _canRedo: false,
   _isDirty: false,
@@ -509,6 +515,11 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         const currentData = node.data as WorkflowNodeData;
         let updatedData = { ...currentData, ...data };
 
+        // A FormTrigger's field order is stored explicitly: JSONB does not keep the property order of `input_schema`.
+        if (data.parameters && currentData.type === 'FormTrigger') {
+          updatedData = { ...updatedData, parameters: withFieldOrder(currentData.parameters, data.parameters) };
+        }
+
         // If parameters changed and node has outputStrategy, recalculate outputs
         if (data.parameters && updatedData.outputStrategy) {
           updatedData = computeDynamicOutputs(updatedData);
@@ -595,7 +606,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     });
   },
 
-  clearExecutionData: () => set({ executionData: {}, isAnyNodeRunning: false }),
+  clearExecutionData: () => set({ executionData: {}, isAnyNodeRunning: false, waitingRun: null }),
 
   loadExecutionData: (detail) => {
     const { nodes, edges } = get();

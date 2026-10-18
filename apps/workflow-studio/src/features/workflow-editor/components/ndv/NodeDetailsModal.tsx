@@ -44,6 +44,7 @@ import InputPanel from './InputPanel';
 import OutputPanel from './OutputPanel';
 import NodeSettings from './NodeSettings';
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
+import { NodeAIMenu } from '@/features/ai-builder/components/NodeAIMenu';
 
 // Icon mapping
 const iconMap: Record<string, LucideIcon> = {
@@ -73,6 +74,7 @@ export default function NodeDetailsModal() {
 
   // Individual selectors — only re-render when the specific data we need changes
   const deleteNode = useWorkflowStore((s) => s.deleteNode);
+  const workflowId = useWorkflowStore((s) => s.workflowId);
   const updateNodeData = useWorkflowStore((s) => s.updateNodeData);
   const activeNode = useNodeById(activeNodeId) as import('@xyflow/react').Node<import('../../types/workflow').WorkflowNodeData> | null;
   const nodeExecution = useNodeExecution(activeNodeId);
@@ -255,6 +257,13 @@ export default function NodeDetailsModal() {
 
             {/* Right: Action buttons */}
             <div className="flex items-center gap-1">
+              <NodeAIMenu
+                nodeName={activeNode.data.name}
+                nodeLabel={activeNode.data.label}
+                nodeType={activeNode.data.type}
+                disabled={!workflowId}
+                onChoose={closeNDV}
+              />
               <Button size="sm" onClick={handleTestStep} disabled={isTesting} data-testid="ndv-test-step">
                 {isTesting ? (
                   <>

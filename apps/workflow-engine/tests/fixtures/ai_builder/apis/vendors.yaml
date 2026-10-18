@@ -1,0 +1,52 @@
+openapi: 3.0.3
+info:
+  title: vendors
+  version: '1.0'
+servers:
+- url: http://vendors.bank.test
+paths:
+  /vendors:
+    post:
+      operationId: create
+      summary: Create a vendor record
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                country:
+                  type: string
+                contact_email:
+                  type: string
+              required:
+              - name
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vendor_id:
+                    type: string
+                  status:
+                    type: string
+                required:
+                - vendor_id
+                - status
+        '422':
+          description: Vendor refused
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                - error

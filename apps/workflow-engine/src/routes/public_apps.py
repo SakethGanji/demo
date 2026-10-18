@@ -35,6 +35,7 @@ from ..core.dependencies import get_app_service, get_api_test_repository, get_ex
 from ..core.public_tokens import PublicTokenError, app_token_ttl, app_token_valid_for, issue_token, verify_token
 from ..db.models import AppModel
 from ..repositories import ApiTestRepository
+from ..engine.types import run_status
 from ..services.app_service import AppService
 
 router = APIRouter(prefix="/a")
@@ -484,7 +485,8 @@ async def _run_app_workflow(app: AppModel, workflow_id: str, body: dict, exec_se
 
         rel = await ReleaseService(session).active_release(project.id, env)
         if rel is not None:   # no release yet → drafts, exactly like RouteDispatcher.route_set
-            pin = next((w for w in (rel.snapshot or {}).get("workflows") or [] if w["workflow_id"] == workflow_id), None)
+            pin = next((w for w in (rel.snapshot or {}).get("workflows") or []
+                        if w["workflow_id"] == workflow_id and w.get("via") != "subworkflow"), None)
             if pin is None:
                 return JSONResponse({"error": "workflow_not_in_release",
                                      "message": "this workflow is not part of the active release"}, status_code=409)
@@ -520,7 +522,7 @@ async def _run_app_workflow(app: AppModel, workflow_id: str, body: dict, exec_se
     if context.last_completed_node and context.last_completed_node in context.node_states:
         data = [d.json for d in context.node_states[context.last_completed_node]]
     payload = {
-        "status": "failed" if context.errors else "success",
+        "status": run_status(context),
         "execution_id": context.execution_id,
         "data": data,
         # G24 / review D17: error_code + details, as on every other run surface.

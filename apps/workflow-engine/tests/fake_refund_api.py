@@ -7,6 +7,10 @@ Prints one JSON line ``{"port": N}`` on stdout once listening, then serves:
     /error  -> 500 {"error": ...}          (the HttpRequest node records the status but does not fail)
     /drop   -> closes the connection with no reply (the HttpRequest node fails: this is the seeded failure)
     /health -> 200
+    POST /refunds -> 200 {"ok": true, "refund_id": "rf_<n>"}; records {idempotency_key, body} (Stage 5: proves a refund is paid once)
+    GET  /_refunds -> 200 {"calls": [{"n", "idempotency_key", "body"}]};  POST /_refunds/reset clears them
+    POST /_shape {"version": "v1"|"v2"} switches /ok between today's reply (v1, the default) and the changed one
+        (v2: ``{"ok": true, "result": {"decision": "review"}, "score": "high"}``: decision moves, score appears)
 """
 
 from __future__ import annotations
@@ -14,6 +18,10 @@ from __future__ import annotations
 import argparse
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+
+STATE = {"version": "v1"}
+REFUNDS: list[dict] = []
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -31,7 +39,28 @@ class Handler(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length") or 0)
         raw = self.rfile.read(n).decode() if n else ""
         path = self.path.split("?", 1)[0]
-        if path == "/ok":
+        if path == "/_shape" and self.command == "POST":
+            try:
+                version = json.loads(raw or "{}").get("version")
+            except ValueError:
+                version = None
+            if version in ("v1", "v2"):
+                STATE["version"] = version
+                self._reply(200, {"version": version})
+            else:
+                self._reply(400, {"error": "version must be v1 or v2"})
+        elif path == "/refunds" and self.command == "POST":
+            n = len(REFUNDS) + 1
+            REFUNDS.append({"n": n, "idempotency_key": self.headers.get("Idempotency-Key"), "body": raw})
+            self._reply(200, {"ok": True, "refund_id": f"rf_{1000 + n}"})
+        elif path == "/_refunds" and self.command == "GET":
+            self._reply(200, {"calls": REFUNDS})
+        elif path == "/_refunds/reset" and self.command == "POST":
+            REFUNDS.clear()
+            self._reply(200, {"calls": []})
+        elif path == "/ok" and STATE["version"] == "v2":
+            self._reply(200, {"ok": True, "result": {"decision": "review"}, "score": "high"})
+        elif path == "/ok":
             self._reply(200, {"ok": True, "decision": "review", "received": raw})
         elif path == "/error":
             self._reply(500, {"error": "risk service unavailable"})

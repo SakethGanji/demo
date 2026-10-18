@@ -15,7 +15,9 @@ from src.routes.n8n_import import N8nImportRequest, import_n8n_workflow
 from src.schemas.workflow import WorkflowCreateRequest
 from src.services.n8n_import import import_n8n, translate_expression
 
-FIXTURES = sorted(glob.glob(os.path.join(os.path.dirname(__file__), "..", "fixtures", "n8n", "*.json")))
+# the Stage 8 B9 sub-workflow fixtures are exercised by tests/unit/test_stage8_b9_*.py
+FIXTURES = sorted(p for p in glob.glob(os.path.join(os.path.dirname(__file__), "..", "fixtures", "n8n", "*.json"))
+                  if "subworkflow" not in os.path.basename(p))
 
 
 def node(name, type_, params=None, version=1, pos=(0, 0), **extra):
@@ -224,7 +226,8 @@ def test_loop_wait_respond_stop_exec():
     assert by_name(w, "R")["parameters"] == {"statusCode": 201, "contentType": "application/json", "body": "{{ $json }}",
                                               "headers": [{"name": "X", "value": "y"}]}
     assert by_name(w, "St")["parameters"] == {"errorType": "error", "message": "bad {{ $json.x }}"}
-    assert by_name(w, "E")["parameters"] == {"workflowId": "abc", "inputMode": "passThrough"}
+    # Stage 8 B9 (DESIGN-STAGE8-REUSE 2.5): an n8n workflow id can't be resolved here, so the node is imported unbound
+    assert by_name(w, "E")["parameters"] == {"workflowId": "", "version": "latest", "inputMode": "passThrough"}
 
 
 def test_wait_on_webhook_is_unmapped():

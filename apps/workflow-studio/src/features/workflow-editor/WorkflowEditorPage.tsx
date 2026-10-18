@@ -1,14 +1,17 @@
 import { lazy, Suspense, useEffect } from 'react'
 import { ReactFlowProvider } from '@xyflow/react'
-import { Loader2, X, Blocks, Sparkles } from 'lucide-react'
+import { Loader2, X, Blocks, Sparkles, LayoutTemplate, WandSparkles } from 'lucide-react'
 import { toast } from 'sonner'
 import { EditorTabList, EditorTab } from '@/shared/components/ui/editor-tabs'
+import { EmptyCanvasHint } from '@/features/ai-builder/components/EmptyCanvasHint'
+import { useStageStore } from '@/features/ai-builder/stage/stageStore'
 import { useWorkflowStore } from '@/features/workflow-editor/stores/workflowStore'
 import { useEditorLayoutStore, type RightPanelTab } from '@/features/workflow-editor/stores/editorLayoutStore'
 import { fromBackendWorkflow } from '@/features/workflow-editor/lib/workflowTransform'
 import { workflowsApi, executionsApi } from '@/shared/lib/api'
 import { useExecutionParam } from '@/features/workflow-editor/hooks/useViewingRun'
 import EditorCommandPalette from '@/features/workflow-editor/components/command-palette/EditorCommandPalette'
+import DriftBanner from '@/features/workflow-editor/components/tests/DriftBanner'
 import ViewingRunBanner from '@/features/workflow-editor/components/workflow-navbar/ViewingRunBanner'
 import WorkflowHistorySheet from '@/features/workflow-editor/components/history/WorkflowHistorySheet'
 import { useNodeActions } from '@/features/workflow-editor/hooks/useNodeActions'
@@ -24,6 +27,9 @@ const NodeDetailsModal = lazy(() => import('@/features/workflow-editor/component
 const WorkflowNavbar = lazy(() => import('@/features/workflow-editor/components/workflow-navbar/WorkflowNavbar'))
 const BottomPanel = lazy(() => import('@/features/workflow-editor/components/bottom-panel/BottomPanel'))
 const AIChatPanel = lazy(() => import('@/features/workflow-editor/components/ai-chat/AIChatPanel'))
+const InterfacePanel = lazy(() => import('@/features/workflow-editor/components/interface/InterfacePanel'))
+const NodeAIDialog = lazy(() => import('@/features/ai-builder/components/NodeAIDialog'))
+const EditorBuilderTab = lazy(() => import('@/features/ai-builder/components/EditorBuilderTab'))
 
 // --- Floating panel shared styles ---
 const floatingPanel = 'glass-overlay overflow-hidden'
@@ -33,6 +39,8 @@ const panelTransition = 'transition-all duration-300 ease-out'
 const rightPanelTabs: { id: RightPanelTab; label: string; icon: typeof Blocks }[] = [
   { id: 'nodes', label: 'Nodes', icon: Blocks },
   { id: 'ai', label: 'AI', icon: Sparkles },
+  { id: 'interface', label: 'Interface', icon: LayoutTemplate },
+  { id: 'builder', label: 'Build', icon: WandSparkles },
 ]
 
 function RightPanel() {
@@ -68,6 +76,8 @@ function RightPanel() {
         <Suspense fallback={<div className="flex-1" />}>
           {activeTab === 'nodes' && <NodeCreatorPanel />}
           {activeTab === 'ai' && <AIChatPanel />}
+          {activeTab === 'interface' && <InterfacePanel />}
+          {activeTab === 'builder' && <EditorBuilderTab />}
         </Suspense>
       </div>
     </div>
@@ -134,7 +144,8 @@ export function WorkflowEditorPage({ workflowId }: { workflowId?: string }) {
 
   useEffect(() => {
     if (!workflowId) {
-      if (currentWorkflowId) {
+      // a stage that is about to hand over to a freshly kept workflow loads it before the URL catches up
+      if (currentWorkflowId && !useStageStore.getState().active) {
         resetWorkflow()
         closeBottomPanel()
       }
@@ -197,10 +208,11 @@ export function WorkflowEditorPage({ workflowId }: { workflowId?: string }) {
   return (
     <ReactFlowProvider>
       <Suspense fallback={<EditorLoadingFallback />}>
-        <div className="h-full w-full relative">
+        <div className="h-full w-full relative overflow-clip">
           {/* Layer 0: the canvas, a recessed well under the navbar */}
           <div className="well absolute right-3 bottom-3 left-3 top-[68px] overflow-hidden rounded-panel">
             <WorkflowCanvas />
+            <EmptyCanvasHint />
           </div>
 
           {/* Layer 2: Floating navbar */}
@@ -209,8 +221,9 @@ export function WorkflowEditorPage({ workflowId }: { workflowId?: string }) {
           </div>
 
           {/* Viewing a saved run */}
-          <div className="absolute top-[76px] left-1/2 z-20 flex -translate-x-1/2 justify-center">
+          <div className="absolute top-[76px] left-1/2 z-20 flex -translate-x-1/2 flex-col items-center gap-2">
             <ViewingRunBanner />
+            <DriftBanner />
           </div>
 
           {/* Layer 1: Floating right panel */}
@@ -242,6 +255,7 @@ export function WorkflowEditorPage({ workflowId }: { workflowId?: string }) {
 
           {/* Overlays */}
           <NodeDetailsModal />
+          <NodeAIDialog />
           <WorkflowHistorySheet />
           <EditorCommandPalette />
         </div>

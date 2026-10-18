@@ -59,7 +59,7 @@ class ProgressiveSummaryMemoryNode(MemoryProviderBase):
                 display_name="Summary Model",
                 name="summaryModel",
                 type="string",
-                default="gemini-2.0-flash",
+                default="gemini-3.7-flash",
                 description="LLM model to use for summarization",
             ),
             NodeProperty(
@@ -82,7 +82,7 @@ class ProgressiveSummaryMemoryNode(MemoryProviderBase):
     def get_config(self, node_definition: NodeDefinition) -> dict[str, Any]:
         """Return memory configuration with accessor functions."""
         session_id = self.get_parameter(node_definition, "sessionId", "default")
-        summary_model = self.get_parameter(node_definition, "summaryModel", "gemini-2.0-flash")
+        summary_model = self.get_parameter(node_definition, "summaryModel", "gemini-3.7-flash")
         max_summary_tokens = self.get_parameter(node_definition, "maxSummaryTokens", 1000)
         update_frequency = self.get_parameter(node_definition, "updateFrequency", 2)
 

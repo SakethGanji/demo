@@ -14,6 +14,10 @@ disconnect      same args as connect
 rename_node     ``{old, new}``: rewrites refs, connections, tests, default mocks and pins
 add_test        ``{test}``: a TestCase; it always joins as a draft
 update_test     ``{test_id, changes}``: refused for a locked test
+set_parameters  ``{node, parameters}``: replaces the node's whole ``parameters`` object (Stage 6)
+set_node_field  ``{node, field: label|disabled|on_error, value}`` (Stage 6)
+set_test_default_mock ``{node, mock}``: the node's default mock in ``test_defaults.mocks`` (Stage 6)
+set_interface   ``{interface}``: the definition's ``interface`` (validated; null removes it) (Stage 6)
 ========== ===============================================================
 
 ``check``, ``run_tests`` and ``score`` are the read-only members (they call the checker, the test runner, the scorecard).
@@ -276,6 +280,79 @@ def update_test(defn: dict[str, Any], test_id: str, changes: dict[str, Any]) -> 
     return out
 
 
+# ── Stage 6 additive ops ─────────────────────────────────────────────────────────────────
+
+_NODE_FIELDS = ("label", "disabled", "on_error")
+_ON_ERROR = ("stop", "continue", "error_output")
+
+
+def set_parameters(defn: dict[str, Any], node: str, parameters: Any) -> dict[str, Any]:
+    """Replace the whole ``parameters`` object of ``node`` (``set_parameter`` edits one path)."""
+    if not isinstance(parameters, dict):
+        raise ToolkitError("parameters must be an object")
+    out = copy.deepcopy(defn)
+    _node(out, node)["parameters"] = copy.deepcopy(parameters)
+    return out
+
+
+def set_node_field(defn: dict[str, Any], node: str, field: str, value: Any) -> dict[str, Any]:
+    """Set ``label`` (text or null to clear), ``disabled`` (bool) or ``on_error`` (stop | continue | error_output)."""
+    if field not in _NODE_FIELDS:
+        raise ToolkitError(f"Field '{field}' can't be set here; use one of {', '.join(_NODE_FIELDS)}")
+    out = copy.deepcopy(defn)
+    n = _node(out, node)
+    if field == "label":
+        if value is not None and not isinstance(value, str):
+            raise ToolkitError("label must be text or null")
+        if value is None or not value.strip():
+            n.pop("label", None)
+        else:
+            n["label"] = value.strip()[:120]
+    elif field == "disabled":
+        if not isinstance(value, bool):
+            raise ToolkitError("disabled must be true or false")
+        n["disabled"] = value
+    else:
+        if value not in _ON_ERROR:
+            raise ToolkitError(f"on_error must be one of {', '.join(_ON_ERROR)}")
+        n["on_error"] = value
+        n.pop("continue_on_fail", None)  # the legacy flag would contradict it
+    return out
+
+
+def set_test_default_mock(defn: dict[str, Any], node: str, mock: Any) -> dict[str, Any]:
+    """Set the default mock of ``node`` (used by every test that doesn't mock it itself)."""
+    from ..engine.test_mode import mock_kind
+
+    out = copy.deepcopy(defn)
+    _node(out, node)
+    if mock_kind(mock) == "unknown":
+        raise ToolkitError("mock must be an object with one of: items, http, error, timeout, rules")
+    defaults = out.get("test_defaults")
+    if not isinstance(defaults, dict):
+        defaults = out["test_defaults"] = {}
+    if not isinstance(defaults.get("mocks"), dict):
+        defaults["mocks"] = {}
+    defaults["mocks"][node] = copy.deepcopy(mock)
+    return out
+
+
+def set_interface(defn: dict[str, Any], interface: Any) -> dict[str, Any]:
+    """Set the definition's ``interface`` after validating it; ``None`` removes it."""
+    from ..schemas.interface import parse_interface
+
+    out = copy.deepcopy(defn)
+    if interface is None:
+        out.pop("interface", None)
+        return out
+    clean, errors = parse_interface(interface)
+    if errors:
+        first = errors[0]
+        raise ToolkitError(f"Invalid interface: {first['message']}" + (f" ({first['field']})" if first.get("field") else ""))
+    out["interface"] = clean
+    return out
+
+
 # ── read-only members ────────────────────────────────────────────────────────────────────
 
 
@@ -309,6 +386,10 @@ _OPS: dict[str, Any] = {
     "rename_node": lambda d, a: rename_node(d, a["old"], a["new"]),
     "add_test": lambda d, a: add_test(d, a["test"]),
     "update_test": lambda d, a: update_test(d, a["test_id"], a["changes"]),
+    "set_parameters": lambda d, a: set_parameters(d, a["node"], a["parameters"]),
+    "set_node_field": lambda d, a: set_node_field(d, a["node"], a["field"], a["value"]),
+    "set_test_default_mock": lambda d, a: set_test_default_mock(d, a["node"], a["mock"]),
+    "set_interface": lambda d, a: set_interface(d, a["interface"]),
 }
 
 
@@ -330,3 +411,33 @@ def apply_ops(defn: dict[str, Any], ops: list[dict[str, Any]]) -> dict[str, Any]
         except KeyError as e:
             raise OpError(i, name, f"Missing argument {e}")
     return out
+
+
+# ── grounded sub-workflow ids (Stage 8, DESIGN-STAGE8-REUSE section 9.2) ───────────────────
+
+
+def unknown_subworkflow(op: str, args: dict[str, Any], defn: dict[str, Any], allowed: set[str]) -> str | None:
+    """The reason to refuse an op that points an ``ExecuteWorkflow`` node at a workflow id that is not in ``allowed``, else None.
+
+    ``allowed`` is the set of callable workflow ids the AI was shown (plus the ones the workflow already calls). The studio's own edits
+    do not use this: a person can pick any workflow; only the model is held to the list it was given. An empty or missing id is not
+    refused here (the checker reports it); a workflow id held in an expression is refused, because a call must name its child (WF006).
+    """
+    def ntype_of(node: Any) -> str | None:
+        n = next((x for x in defn.get("nodes") or [] if x.get("name") == node), None)
+        return n.get("type") if n else None
+
+    ids: list[Any] = []
+    if op == "add_node" and args.get("type") == "ExecuteWorkflow":
+        ids.append((args.get("parameters") or {}).get("workflowId"))
+    elif op == "set_parameter" and args.get("path") == "workflowId" and ntype_of(args.get("node")) == "ExecuteWorkflow":
+        ids.append(args.get("value"))
+    elif op == "set_parameters" and ntype_of(args.get("node")) == "ExecuteWorkflow":
+        ids.append((args.get("parameters") or {}).get("workflowId"))
+    for wid in ids:
+        if wid in (None, ""):
+            continue
+        if not isinstance(wid, str) or wid not in allowed:
+            return ("unknown sub-workflow: use the id of one of the callable_subworkflows you were given; "
+                    "a workflow id can't be invented or computed.")
+    return None

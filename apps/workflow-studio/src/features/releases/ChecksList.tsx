@@ -63,6 +63,10 @@ function titleOf(c: ReleaseCheck, env: string): string {
       return c.status === "pass"
         ? "No breaking changes"
         : `${n("changes")} breaking change${n("changes") === 1 ? "" : "s"} vs the current ${env}`;
+    case "subworkflows_resolved":
+      return c.status === "pass" ? "Sub-workflow calls resolve" : "Sub-workflow calls that cannot run";
+    case "subworkflow_contracts_compatible":
+      return c.status === "pass" ? "Sub-workflow inputs and outputs fit" : "Sub-workflows that no longer fit their callers";
     default:
       return c.id.replace(/_/g, " ");
   }

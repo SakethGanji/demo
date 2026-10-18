@@ -333,7 +333,7 @@ export function usePublishWorkflow() {
     try {
       const result = await publishMutation.mutateAsync({ id: workflowId, message });
       useWorkflowStore.getState().setIsActive(result.active);
-      toast.success(`Published v${result.version_id}`, {
+      toast.success(result.version_number != null ? `Published v${result.version_number}` : 'Published', {
         description: message || 'Workflow is now active.',
       });
       return result;
