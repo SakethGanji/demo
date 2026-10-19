@@ -1,13 +1,13 @@
 /**
  * Projects home (DESIGN §1, `design/projects.html`): the home sky behind a glass top bar, the greeting with a
  * three-figure stats strip, glass project cards (system diagram + 24h activity), a "New project" tile and
- * the "Start something new" templates. No warning banner: a missing secret shows in the line under the
+ * "Start something new" (the same six-card picker as the setup guide). No warning banner: a missing secret shows in the line under the
  * greeting and in Needs attention.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AppWindow, ArrowRight, ArrowUpDown, KeyRound, ListChecks, MoreHorizontal, Plus, Route as RouteIcon, Search, Sparkles, Workflow } from 'lucide-react'
+import { AppWindow, ArrowUpDown, KeyRound, ListChecks, MoreHorizontal, Plus, Route as RouteIcon, Search, Sparkles, Workflow } from 'lucide-react'
 import { toast } from 'sonner'
 import { projectsApi, routesApi, tablesApi } from '@/shared/api/endpoints'
 import { isApiError, errorMessage } from '@/shared/api/http'
@@ -20,8 +20,10 @@ import { Brand, BrandMark, HomeNav, ThemeToggle, TopBarFrame } from './TopBar'
 import { ProjectAvatar } from './ProjectTopBar'
 import { NewProjectDialog } from './NewProjectDialog'
 import { CardDiagram } from '../home/CardDiagram'
-import { BlueprintArt, EmptyOrbitArt, TemplateArt } from '../home/art'
-import { HOME_TEMPLATES, type HomeTemplate } from '../home/templates'
+import { BlueprintArt, EmptyOrbitArt } from '../home/art'
+import { HomeStartPanel } from '../home/HomeStartPanel'
+import { StartPicker } from './setup/StartPicker'
+import { isProjectEmpty, type StartKind } from '../lib/nextSteps'
 import { greeting, isDefaultProject, useActivityBuckets, useAppCounts, useMissingByProject, type MissingInfo } from '../home/useHomeData'
 import { useStartProject } from '../home/useStartProject'
 import { HomeSky } from '@/shared/components/space/HomeSky'
@@ -34,7 +36,6 @@ import { Skeleton } from '@/shared/components/ui/skeleton'
 import { StatusDot } from '@/shared/components/ui/status-dot'
 import { EmptyState } from '@/shared/components/ui/empty-state'
 import { Sparkline } from '@/shared/components/ui/charts'
-import { Textarea } from '@/shared/components/ui/textarea'
 import { Tip } from '@/shared/components/ui/tooltip'
 import { Tile, Well } from '@/shared/components/ui/surface'
 import { cn } from '@/shared/lib/utils'
@@ -72,6 +73,7 @@ export function ProjectsHome() {
   const [newOpen, setNewOpen] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
   const start = useStartProject()
+  const [startKind, setStartKind] = useState<StartKind | null>(null)
 
   const all = useMemo(() => projects.data ?? [], [projects.data])
   const missing = useMissingByProject(all)
@@ -251,12 +253,15 @@ export function ProjectsHome() {
           </div>
         )}
 
-        <SectionRow title="Start something new" meta="Templates create the routes and tables for you" />
-        <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4" data-testid="home-templates">
-          {HOME_TEMPLATES.map((t) => (
-            <TemplateCard key={t.key} template={t} busy={start.busy === t.key} disabled={!!start.busy} onUse={() => start.fromTemplate(t)} />
-          ))}
-          <DescribeCard busy={start.busy === 'ai'} disabled={!!start.busy} onGenerate={start.fromPrompt} />
+        <SectionRow title="Start something new" meta="A page, an API, a workflow, a file, a template or a sentence" />
+        <div data-testid="home-templates">
+          <StartPicker
+            variant="home"
+            value={startKind}
+            onPick={(k) => setStartKind((cur) => (cur === k ? null : k))}
+            disabled={!!start.busy}
+            panel={startKind && <HomeStartPanel key={startKind} kind={startKind} start={start} />}
+          />
         </div>
       </main>
       <NewProjectDialog open={newOpen} onOpenChange={setNewOpen} />
@@ -290,7 +295,7 @@ function ProjectCard({ project: p, missing: miss, buckets }: { project: ProjectL
   const navigate = useNavigate()
   const [confirmDelete, setConfirmDelete] = useState(false)
   const P = { project: p.slug }
-  const empty = p.counts.routes === 0 && p.counts.apps === 0 && p.counts.tables === 0 && p.counts.workflows === 0 && !isDefault
+  const empty = !isDefault && isProjectEmpty({ ...p.counts, modules: p.counts.modules ?? 0 })
   const lastRun = p.last_run?.start_time
 
   return (
@@ -471,99 +476,16 @@ function DefaultWorkflows({ pid, count }: { pid: string; count: number }) {
 function EmptyBackend({ slug }: { slug: string }) {
   return (
     <div className="flex min-h-[110px] items-center justify-center gap-1.5 text-xs text-muted-foreground">
-      <Sparkles className="size-3.5 text-hue-ai" /> No backend yet —
+      <Sparkles className="size-3.5 text-hue-ai" /> Empty —
       <Link
         to="/p/$project"
         params={{ project: slug }}
         className="text-primary hover:underline"
         onClick={(e) => e.stopPropagation()}
       >
-        Set up
+        Start
       </Link>
     </div>
-  )
-}
-
-function TemplateCard({ template: t, busy, disabled, onUse }: { template: HomeTemplate; busy: boolean; disabled: boolean; onUse: () => void }) {
-  const go = () => !disabled && onUse()
-  return (
-    <Tile
-      interactive
-      role="button"
-      tabIndex={0}
-      aria-busy={busy}
-      onClick={go}
-      onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), go())}
-      className={cn('group flex flex-col focus-visible:shadow-focus focus-visible:outline-none', disabled && !busy && 'opacity-60')}
-      data-testid={`template-${t.key}`}
-    >
-      <Well className="relative mx-2 mt-2 grid h-28 place-items-center overflow-hidden p-3">
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-0"
-          style={{
-            backgroundImage: 'radial-gradient(var(--art-faint) .9px, transparent 1px)',
-            backgroundSize: '12px 12px',
-            WebkitMaskImage: 'radial-gradient(70% 70% at 50% 50%, black, transparent)',
-            maskImage: 'radial-gradient(70% 70% at 50% 50%, black, transparent)',
-          }} // design-ok: dotted texture mask from the mockup
-        />
-        <TemplateArt kind={t.key} />
-      </Well>
-      <div className="flex flex-1 flex-col gap-[3px] px-4 pt-3 pb-4">
-        <b className="font-semibold tracking-[-0.01em]">{t.title}</b>
-        <span className="text-[12px] leading-[1.45] text-muted-foreground">{t.blurb}</span>
-        <div className="mt-auto flex items-center gap-2 pt-2.5 text-[12px] text-muted-foreground">
-          {t.facts}
-          <span className="ml-auto inline-flex -translate-x-1 items-center gap-1 text-[12px] font-medium text-primary opacity-0 transition-[opacity,transform] duration-(--d-fast) ease-(--ease-out) group-hover:translate-x-0 group-hover:opacity-100 group-focus-visible:translate-x-0 group-focus-visible:opacity-100">
-            {busy ? 'Creating…' : 'Use template'}
-            <ArrowRight className="size-[13px]" />
-          </span>
-        </div>
-      </div>
-    </Tile>
-  )
-}
-
-function DescribeCard({ busy, disabled, onGenerate }: { busy: boolean; disabled: boolean; onGenerate: (prompt: string) => void }) {
-  const [text, setText] = useState('')
-  const ref = useRef<HTMLDivElement>(null)
-  const submit = () => {
-    if (disabled) return
-    if (!text.trim()) return ref.current?.querySelector('textarea')?.focus()
-    onGenerate(text.trim())
-  }
-  return (
-    <Tile ref={ref} className="flex flex-col p-4" data-testid="describe-card">
-      <span className="mb-2 inline-flex size-8 items-center justify-center rounded-ctl bg-hue-ai text-primary-foreground [&_svg]:size-4" aria-hidden>
-        <Sparkles />
-      </span>
-      <b className="font-semibold tracking-[-0.01em]">Describe it instead</b>
-      <span className="mt-[3px] text-[12px] leading-[1.45] text-muted-foreground">Command Studio writes the Python, creates the tables, and runs a test.</span>
-      <Textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-            e.preventDefault()
-            submit()
-          }
-        }}
-        placeholder="A refunds API that takes Stripe webhooks and flags refunds over $500…"
-        aria-label="Describe a project"
-        className="mt-2.5 h-[76px] resize-none text-[12.5px] leading-normal text-foreground"
-        data-testid="home-describe-input"
-      />
-      <div className="mt-2.5 flex items-center gap-2">
-        <span className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground">
-          <Kbd>⌘↵</Kbd> to generate
-        </span>
-        <span className="flex-1" />
-        <Button variant="ai" size="sm" disabled={disabled} onClick={submit} data-testid="home-describe-generate">
-          <Sparkles /> {busy ? 'Creating…' : 'Generate'}
-        </Button>
-      </div>
-    </Tile>
   )
 }
 

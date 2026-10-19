@@ -4,6 +4,7 @@ import { editorRedirectRoute, builderRedirectRoute } from './legacy'
 import { indexRoute } from './indexRoute'
 import { projectsRoute } from './projects'
 import { templatesRoute } from './templates'
+import { knowledgeRoute } from './knowledge'
 import { projectRouteTree } from './project'
 import { designRoute } from './design'
 import { interfaceRoute, interfaceRunRoute } from './public'
@@ -15,6 +16,7 @@ const routeTree = rootRoute.addChildren([
   builderRedirectRoute,
   projectsRoute,
   templatesRoute,
+  knowledgeRoute,
   projectRouteTree,
   // public form / chat / custom surfaces: no studio shell (DESIGN-STAGE5-UIS §11.3)
   interfaceRoute,

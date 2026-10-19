@@ -16,6 +16,7 @@ import { RecentRunsTile } from '../overview/RecentRunsTile'
 import { ReleasesTile } from '../overview/ReleasesTile'
 import { SecretsTile } from '../overview/SecretsTile'
 import { StatTiles } from '../overview/StatTiles'
+import { NextSteps } from './NextSteps'
 import { SetupGuide } from './SetupGuide'
 import { Button } from '@/shared/components/ui/button'
 import { Skeleton } from '@/shared/components/ui/skeleton'
@@ -80,6 +81,7 @@ function Overview() {
 
   return (
     <Page className="@container/bt" data-testid="overview-panel">
+      <NextSteps className="mb-4" />
       <div className="grid grid-cols-6 gap-4 @min-[981px]/bt:grid-cols-12">
         <BuildingBlocks />
         <HeroTile summary={s} />

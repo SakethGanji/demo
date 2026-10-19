@@ -38,10 +38,18 @@ class EdgeView(BaseModel):
     source: str
 
 
+class ProjectRef(BaseModel):
+    id: str
+    slug: str
+    name: str
+
+
 class GraphResponse(BaseModel):
     nodes: list[NodeView]
     edges: list[EdgeView]
     truncated: bool = False
+    #: team mode only: the team's projects that own at least one returned node (always ``[]`` in project mode)
+    projects: list[ProjectRef] = Field(default_factory=list)
 
 
 class NodeRef(BaseModel):
@@ -112,14 +120,29 @@ class MemoryResponse(BaseModel):
     next_cursor: str | None = None
 
 
+#: the studio's default team (the same default the other team-scoped routes use)
+DEFAULT_TEAM = "default"
+
+
 class UnderstandRequest(BaseModel):
-    project_id: str
+    #: absent: team mode over ``team_id``; when both are given, ``project_id`` wins
+    project_id: str | None = None
+    team_id: str = DEFAULT_TEAM
     request: str = Field(max_length=4000)
 
 
 class RebuildRequest(BaseModel):
-    project_id: str
+    #: absent: rebuild every project of ``team_id`` (after the global seed); when both are given, ``project_id`` wins
+    project_id: str | None = None
+    team_id: str = DEFAULT_TEAM
     llm_tagging: bool = False
+
+
+class ProjectRebuild(BaseModel):
+    project_id: str
+    added: int
+    updated: int
+    staled: int
 
 
 class RebuildResponse(BaseModel):
@@ -129,6 +152,8 @@ class RebuildResponse(BaseModel):
     tagged: int
     proposed: int
     warnings: list[str] = Field(default_factory=list)
+    #: team mode only: one entry per project of the team (always ``[]`` for a one-project rebuild)
+    projects: list[ProjectRebuild] = Field(default_factory=list)
 
 
 class DecideRequest(BaseModel):

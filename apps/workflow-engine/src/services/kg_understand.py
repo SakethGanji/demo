@@ -103,7 +103,8 @@ class Understanding(TypedDict):
 class UnderstandContext:
     """What ``understand`` needs besides the request."""
 
-    project_id: str
+    #: None in team mode (the Knowledge page's team-wide graph): there is no project to call sub-workflows or APIs of
+    project_id: str | None
     team_id: str | None
     slice: GraphSlice
     #: the closed-vocabulary LLM call: ``async (payload: dict) -> dict`` (see the module docstring); ``None`` means lexical only

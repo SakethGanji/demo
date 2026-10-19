@@ -13,7 +13,7 @@ from src.services.node_catalog import build_node_catalog
 CONCEPT_KEYS = {
     "intake", "approval", "four_eyes_approval", "escalation", "assignment", "review", "retry", "reconciliation", "notification",
     "report", "schedule", "document_review", "screening", "refund", "dispute", "payment_handling",
-    "exception_case", "customer_request", "sla", "threshold_check", "audit_log", "report_output",
+    "exception_case", "customer_request", "sla", "threshold_check", "audit_log", "report_output", "data_profiling", "dataset",
 }
 ROLE_KEYS = {"ops_analyst", "ops_manager", "ops_head", "compliance_officer", "fraud_analyst", "fraud_lead", "finance_controller",
              "customer_service"}
@@ -37,11 +37,11 @@ def concept(d: dict, slug: str) -> dict:
     return next(c for c in d["concepts"] if c["key"] == f"concept:{slug}")
 
 
-def test_the_file_loads_with_22_concepts_and_8_roles():
+def test_the_file_loads_with_24_concepts_and_8_roles():
     ont = ko.load()
     assert {c["key"] for c in ont.concepts} == {f"concept:{k}" for k in CONCEPT_KEYS}
     assert {r["key"] for r in ont.roles} == {f"role:{k}" for k in ROLE_KEYS}
-    assert (len(ont.concepts), len(ont.roles)) == (22, 8)
+    assert (len(ont.concepts), len(ont.roles)) == (24, 8)
     assert ont.domain == "bank_ops" and ont.version == 1
 
 
@@ -49,10 +49,10 @@ def test_the_four_concept_kinds_match_the_plan():
     kinds: dict[str, set[str]] = {}
     for c in ko.load().concepts:
         kinds.setdefault(c["kind"], set()).add(ko.short_name(c["key"]))
-    assert kinds["entity"] == {"exception_case", "customer_request"}
+    assert kinds["entity"] == {"exception_case", "customer_request", "dataset"}
     assert kinds["control"] == {"sla", "threshold_check", "audit_log"}
     assert kinds["artifact"] == {"report_output"}
-    assert len(kinds["process"]) == 16
+    assert len(kinds["process"]) == 17
 
 
 def test_the_shipped_file_has_no_issues_even_against_the_real_node_catalog():
@@ -261,3 +261,10 @@ def test_load_raises_with_every_issue_listed(tmp_path, doc):
     assert {i.code for i in e.value.issues} == {"KGO003", "KGO004"}
     with pytest.raises(ko.OntologyInvalid):
         ko.load(tmp_path / "missing.yaml")
+
+
+def test_a_dataset_profile_request_names_the_data_concepts():
+    """Project datasets: "profile a dataset" must reach data_profiling and dataset, not only report."""
+    ont = ko.load()
+    assert ont.concept("concept:data_profiling")["consumes"] == ["concept:dataset"]
+    assert {"node_type": "Profile", "params": ["datasetId"]} in ont.concept("concept:dataset")["signatures"]

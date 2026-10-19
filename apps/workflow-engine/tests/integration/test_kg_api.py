@@ -82,7 +82,9 @@ def test_the_engine_seeds_the_ontology_at_startup(api):
     assert g["edges"] and all(e["src_id"] in ids and e["dst_id"] in ids for e in g["edges"])
     assert {"id", "src_id", "rel", "dst_id", "props", "source"} == set(g["edges"][0])
     assert api.get("/knowledge/graph?project_id=proj_nope").status_code == 404
-    assert api.get("/knowledge/graph").status_code == 422
+    team = api.get("/knowledge/graph")                                      # no project_id: the default team's graph (team mode)
+    assert team.status_code == 200 and isinstance(team.json()["projects"], list)
+    assert g["projects"] == []                                               # project mode never attributes projects
 
 
 # ── rebuild, focus and detail ─────────────────────────────────────────────────────────────────────────────────────────
@@ -94,7 +96,8 @@ def test_rebuild_extracts_a_published_subworkflow_and_the_apis(api):
     child = make(api, child_body(project_id=pid))
     publish(api, child)
     first = rebuild(api, pid)
-    assert set(first) == {"added", "updated", "staled", "tagged", "proposed", "warnings"} and first["added"] >= 2
+    assert set(first) == {"added", "updated", "staled", "tagged", "proposed", "warnings", "projects"} and first["added"] >= 2
+    assert first["projects"] == []                                           # only a team rebuild lists projects
     k = by_key(graph(api, pid))
     sub = k[f"wf:{child}"]
     assert sub["subkind"] == "subworkflow" and sub["props"]["callable"] is True and sub["props"]["published_version"] == 1

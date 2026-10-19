@@ -217,6 +217,7 @@ def register_all_nodes() -> None:
         AggregateNode,
         DataTableNode,
         PythonStepNode,
+        HtmlNode,
         # Integrations
         SendEmailNode,
         PostgresNode,
@@ -260,6 +261,7 @@ def register_all_nodes() -> None:
         AggregateNode,
         DataTableNode,
         PythonStepNode,
+        HtmlNode,
         # Integrations
         SendEmailNode,
         PostgresNode,

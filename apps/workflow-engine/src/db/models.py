@@ -7,7 +7,7 @@ from typing import Any
 
 from sqlmodel import Column, Field, SQLModel
 from sqlalchemy import Column as SAColumn, DateTime, Index, Integer, BigInteger, String, ForeignKey, text
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 
 
 # ---------------------------------------------------------------------------
@@ -474,6 +474,47 @@ class DataTableRowModel(SQLModel, table=True):
     id: int | None = Field(default=None, sa_column=Column(BigInteger, primary_key=True, autoincrement=True))
     table_id: str = Field(foreign_key="data_tables.id", index=True)
     data: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB, nullable=False))
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+
+
+# ---------------------------------------------------------------------------
+# Project datasets (files stored by the analytics service, linked to a project by name)
+# ---------------------------------------------------------------------------
+
+
+class ProjectDatasetModel(SQLModel, table=True):
+    """A dataset imported into a project. The bytes live in the analytics service; this row is the project's link to
+    them. Workflows store the link ``id`` (a UUIDv7) in a node's ``datasetId``; ``name`` is for people and expressions.
+
+    Cross-database contract: ``project_datasets.dataset_id`` <-> analytics ``datasets.id`` and
+    ``project_datasets.version_id`` <-> analytics ``dataset_versions.id`` (the version imported). The engine and the
+    analytics service keep separate Postgres databases for now, so there is no foreign key: the engine keeps the two
+    in step (an upload whose link insert fails deletes the analytics dataset; a delete removes the analytics dataset
+    first and keeps the link if that fails), and reads report ``missing`` when the analytics side is gone. When the
+    databases merge, both columns become real foreign keys.
+    """
+
+    __tablename__ = "project_datasets"
+    __table_args__ = (
+        Index("ux_project_datasets_project_name", "project_id", "name", unique=True),
+        Index("ux_project_datasets_project_dataset", "project_id", "dataset_id", unique=True),
+    )
+
+    id: str = Field(sa_column=Column(PG_UUID(as_uuid=False), primary_key=True))
+    team_id: str = Field(foreign_key="teams.id", index=True)
+    project_id: str = Field(foreign_key="projects.id", index=True)
+    dataset_id: str = Field(sa_column=Column(PG_UUID(as_uuid=False), nullable=False))  # analytics datasets.id
+    version_id: str | None = Field(default=None, sa_column=Column(PG_UUID(as_uuid=False), nullable=True))  # analytics dataset_versions.id
+    name: str
+    file_name: str
+    format: str  # csv | parquet | xlsx | xls
+    row_count: int | None = Field(default=None)
+    column_count: int | None = Field(default=None)
+    size_bytes: int | None = Field(default=None, sa_column=Column(BigInteger, nullable=True))
+    # [{"name": "amount", "type": "DOUBLE"}, ...] in the file's column order
+    columns: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(JSONB, nullable=False))
+    created_by: str | None = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 

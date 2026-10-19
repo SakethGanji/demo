@@ -189,6 +189,8 @@ class Ctx:
     capability: dict[str, Any] | None = None
     virtual_children: dict[str, Any] = field(default_factory=dict)   # "@part/<key>" -> workflow_checker.ChildWorkflow
     virtual_tables: dict[str, list] = field(default_factory=dict)    # table name -> columns
+    # the project's datasets as prompt entries (``ai_grounding.dataset_entries``); a node's ``datasetId`` holds an entry's ``id``
+    datasets: list[dict[str, Any]] = field(default_factory=list)
 
     def host_ok(self, url: str) -> bool:
         """False for a literal http(s) URL whose host is outside the project egress allowlist (an empty allowlist allows all)."""
@@ -206,7 +208,7 @@ async def load_ctx(project_ref: str) -> Ctx:
     """Everything the prompts and the checks need, loaded once per request. 404 when the project does not exist."""
     from sqlalchemy import select
 
-    from ..db.models import WorkflowModel
+    from ..db.models import ProjectDatasetModel, WorkflowModel
     from ..repositories.api_spec_repository import ApiSpecRepository
     from .check_lookups import build_lookups
     from .project_service import effective_environment, resolve_project
@@ -222,7 +224,11 @@ async def load_ctx(project_ref: str) -> Ctx:
         specs = [{"id": r.id, "name": r.name, "base_url": r.base_url} for r in await ApiSpecRepository(s).list(project.id)]
         rows = (await s.execute(select(WorkflowModel.id, WorkflowModel.name, WorkflowModel.draft_definition)
                                 .where(WorkflowModel.project_id == project.id).order_by(WorkflowModel.updated_at.desc()).limit(60))).all()
+        dataset_rows = (await s.execute(select(ProjectDatasetModel).where(ProjectDatasetModel.project_id == project.id)
+                                        .order_by(ProjectDatasetModel.created_at.desc(), ProjectDatasetModel.id.desc()))).scalars().all()
         project_id = project.id
+    # every real dataset may be named in a datasetId (link id, legacy analytics id or name, as the run resolves it); the prompt gets 25
+    lookups.datasets = {str(v) for d in dataset_rows for v in (d.id, d.dataset_id, d.name) if v}
     secrets = set(await load_run_secrets(environment=env, team_id=team_id, project_id=project_id))
     existing = []
     for wid, name, d in rows:
@@ -232,7 +238,7 @@ async def load_ctx(project_ref: str) -> Ctx:
         project_id=project_id, team_id=team_id, secrets=secrets, lookups=lookups, operations=lookups.api_specs,
         api_ops=ai_grounding.api_operations(lookups.api_specs, specs), catalog=ai_grounding.full_catalog(),
         variable_names=sorted(lookups.variables | lookups.secrets), existing_workflows=existing,
-        egress=list(lookups.egress_allowlist or []),
+        egress=list(lookups.egress_allowlist or []), datasets=ai_grounding.dataset_entries(dataset_rows),
     )
 
 
@@ -839,9 +845,9 @@ async def _spec_phase(pid: str, ctx: Ctx, clean_request: str, base: dict[str, An
         reply = await ask_model("spec", {
             "untrusted_request": clean_request, "mode": "modify" if workflow_id else "new",
             "current_workflow": compact_definition(base), "locked_tests": locked_tests_for_model(base),
-            "catalog": ai_grounding.catalog_subset(None, ctx.catalog, extra_types=_sub_types(ctx)), "api_operations": ctx.api_ops,
+            "catalog": ai_grounding.catalog_subset(None, ctx.catalog, extra_types=_full_types(ctx, clean_request)), "api_operations": ctx.api_ops,
             "existing_workflows": [w for w in ctx.existing_workflows if w["id"] != workflow_id],
-            "variable_names": ctx.variable_names, **_sub_section(ctx), **_cap_section(ctx),
+            "variable_names": ctx.variable_names, **_sub_section(ctx), **_cap_section(ctx), **_ds_section(ctx),
         }, prompts.SPEC_SCHEMA, meter=meter, flusher=flusher, ctx=ctx, model=model)
     except AIError as e:
         await _fail(pid, e, "spec_draft")
@@ -855,8 +861,8 @@ async def _spec_phase(pid: str, ctx: Ctx, clean_request: str, base: dict[str, An
         try:
             reply2 = await ask_model("spec_repair", {
                 "spec": prompts.spec_to_model_output(spec), "issues": issues,
-                "catalog": ai_grounding.catalog_subset(spec, ctx.catalog, extra_types=_sub_types(ctx)),
-                "api_operations": ctx.api_ops, **_sub_section(ctx), **_cap_section(ctx),
+                "catalog": ai_grounding.catalog_subset(spec, ctx.catalog, extra_types=_full_types(ctx, clean_request)),
+                "api_operations": ctx.api_ops, **_sub_section(ctx), **_cap_section(ctx), **_ds_section(ctx),
             }, prompts.SPEC_SCHEMA, meter=meter, flusher=flusher, ctx=ctx, model=model)
         except AIError as e:
             logger.info("spec repair call failed (%s); keeping the first spec with its issues", e.code)
@@ -881,6 +887,16 @@ async def _spec_phase(pid: str, ctx: Ctx, clean_request: str, base: dict[str, An
 def _sub_types(ctx: Ctx) -> tuple[str, ...]:
     """``ExecuteWorkflow`` is sent in full whenever there is a sub-workflow to call (section 9.1)."""
     return ("ExecuteWorkflow",) if ctx.callable_subworkflows else ()
+
+
+def _full_types(ctx: Ctx, request: str | None) -> set[str]:
+    """``_sub_types`` plus the dataset readers (the project has datasets) and the report chain (the request asks for a report)."""
+    return set(_sub_types(ctx)) | ai_grounding.request_types(request, bool(ctx.datasets))
+
+
+def _ds_section(ctx: Ctx) -> dict[str, Any]:
+    """The optional ``datasets`` prompt section; nothing at all when the project has none."""
+    return {"datasets": ctx.datasets} if ctx.datasets else {}
 
 
 def _sub_section(ctx: Ctx) -> dict[str, Any]:
@@ -1604,8 +1620,9 @@ def _build_context(row: dict[str, Any], ctx: Ctx, defn: dict[str, Any], spec: di
     """``graph`` holds the optional ``capability_context`` / ``reference_workflow`` sections (empty without the capability graph)."""
     types = {n.get("type") for n in defn.get("nodes") or []}
     return {
-        "spec": spec_for_model(spec), "catalog": ai_grounding.catalog_subset(spec, ctx.catalog, extra_types=set(types) | set(_sub_types(ctx))),
-        "api_operations": ctx.api_ops, "variable_names": ctx.variable_names, **_sub_section(ctx), **(graph or {}),
+        "spec": spec_for_model(spec),
+        "catalog": ai_grounding.catalog_subset(spec, ctx.catalog, extra_types=set(types) | _full_types(ctx, row.get("request"))),
+        "api_operations": ctx.api_ops, "variable_names": ctx.variable_names, **_sub_section(ctx), **_ds_section(ctx), **(graph or {}),
     }
 
 

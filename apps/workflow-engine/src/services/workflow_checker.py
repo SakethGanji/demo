@@ -23,7 +23,7 @@ WF002    error*    path missing from a known shape (*warning when the shape is `
 WF003    warning   string/boolean used as a number
 WF004    warning   unconnected branch port / node unreachable from a trigger
 WF005    info      reference into an unknown shape
-WF006    error     ``$vars`` / table / sub-workflow / credential doesn't exist; ``workflowId`` is an expression
+WF006    error     ``$vars`` / table / sub-workflow / credential / dataset doesn't exist; ``workflowId`` is an expression
 WF007    error     HttpRequest host not on the egress allowlist
 WF008    error     required property missing, invalid option, or a cycle
 WF009    error     expression doesn't parse
@@ -169,6 +169,8 @@ class StaticLookups:
     credentials: set[str] | None = None
     egress_allowlist: list[str] = field(default_factory=list)
     api_specs: dict[str, dict[str, dict[str, Any]]] = field(default_factory=dict)  # spec id -> operation id -> Operation
+    # the project's datasets (link ids, analytics ids and names) a ``datasetSelector`` may name; None = not known, don't check
+    datasets: set[str] | None = None
     # Stage 8: sub-workflows. ``children`` are the workflows that may be called (see ``ChildWorkflow``); ``call_edges`` is
     # an optional precomputed call graph (``{id: [(child_id, spec)]}``), otherwise it is read off ``children``.
     children: dict[str, ChildWorkflow] = field(default_factory=dict)
@@ -762,6 +764,9 @@ class _Checker:
             v = params.get(p.name)
             if p.required and _is_empty(v) and _is_empty(p.default) and p.type != "boolean":
                 self.add("WF008", "error", f"'{p.display_name}' is required.", node=node.name, param=p.name)
+            elif (p.type == "datasetSelector" and isinstance(v, str) and v.strip() and "{{" not in v
+                  and getattr(self.lookups, "datasets", None) is not None and v.strip() not in self.lookups.datasets):
+                self.add("WF006", "error", f"Dataset '{v.strip()}' doesn't exist in this project.", node=node.name, param=p.name, path=v.strip())
             elif (p.type == "options" and "model" not in p.name.lower() and p.options and isinstance(v, str) and v.strip() and "{{" not in v
                   and not (node.type == "ExecuteWorkflow" and p.name == "version" and _valid_version(v))):  # "3" pins version 3
                 values = [o.value for o in p.options]

@@ -347,6 +347,16 @@
   --art-line: rgb(0 0 0 / .26);               /* neutral line art */
   --art-faint: rgb(0 0 0 / .1);
   --grid-dot: rgb(0 0 0 / .14);               /* workflow canvas dot lattice */
+  /* data-viz categories (knowledge graph kinds, multi-series charts): eight hues that stay apart in both themes */
+  --viz-1: #6a4fd8;                           /* violet: concepts */
+  --viz-2: #0b86b8;                           /* cyan: capabilities */
+  --viz-3: #b8457c;                           /* pink: patterns */
+  --viz-4: #b9730f;                           /* amber: roles */
+  --viz-5: #23875c;                           /* green: apps */
+  --viz-6: #3b68d6;                           /* blue */
+  --viz-7: #c4573a;                           /* coral */
+  --viz-8: #6a6e78;                           /* grey: anything else */
+  --kg-label-halo: rgb(238 242 250 / .92);    /* the stroke behind a graph label so it reads over edges */
 
   /* charts (json viewer bool, sparklines): calm, no rainbow */
   --chart-1: #5250e9;
@@ -424,6 +434,15 @@
   --art-line: rgb(255 255 255 / .22);
   --art-faint: rgb(255 255 255 / .09);
   --grid-dot: rgb(255 255 255 / .10);
+  --viz-1: #b19dff;
+  --viz-2: #4fd3ea;
+  --viz-3: #ff94cc;
+  --viz-4: #ffc66e;
+  --viz-5: #6fd8a8;
+  --viz-6: #82a9ff;
+  --viz-7: #ff9e7d;
+  --viz-8: #a6a8b4;
+  --kg-label-halo: rgb(12 12 16 / .9);
 
   --chart-1: #9c8fff;
   --chart-2: #40d6e8;
@@ -1046,6 +1065,21 @@ button, a, input, select, textarea, [role="button"] {
   to { opacity: 1; background-color: transparent; }
 }
 .animate-row-in { animation: row-in var(--d-slow) var(--ease-out) both; }
+
+/* knowledge graph: lit edges flow from source to target; learned nodes give off a slow ring. Both stop under reduced motion. */
+@keyframes kg-flow { to { stroke-dashoffset: -20; } }
+.kg-flow { stroke-dasharray: 6 4; animation: kg-flow 0.9s linear infinite; }
+@keyframes kg-pulse {
+  0% { transform: scale(1); opacity: .55; }
+  70%, 100% { transform: scale(2.1); opacity: 0; }
+}
+.kg-pulse { transform-box: fill-box; transform-origin: center; animation: kg-pulse 2.6s var(--ease-out) infinite; }
+@keyframes kg-twinkle { 0%, 100% { opacity: .25; } 50% { opacity: .9; } }
+.kg-twinkle { animation: kg-twinkle 1.8s var(--ease-io) infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .kg-flow, .kg-pulse, .kg-twinkle { animation: none; }
+  .kg-pulse { opacity: 0; }
+}
 
 /* shimmer text for AI status */
 @keyframes shimmer-x {

@@ -1,4 +1,4 @@
-"""Stage 8 B5 over HTTP on real Postgres: the template catalog, preview, install of all six starter templates into fresh
+"""Stage 8 B5 over HTTP on real Postgres: the template catalog, preview, install of all the starter templates into fresh
 projects with their own tests run through the existing test runner, then re-install, copy, collision and export
 (DESIGN-STAGE8-REUSE 8, 11)."""
 
@@ -10,7 +10,8 @@ from .conftest import uniq
 
 pytestmark = pytest.mark.integration
 
-SLUGS = ["aml-alert-triage", "card-dispute-intake", "customer-notify", "kyc-review", "loan-precheck", "refund-triage"]
+SLUGS = ["aml-alert-triage", "card-dispute-intake", "customer-notify", "dataset-report-email", "kyc-review", "loan-precheck",
+         "profile-dataset", "refund-triage"]
 
 
 def new_project(api, allowlist=None) -> str:
@@ -36,7 +37,7 @@ def run_tests(api, workflow_id: str) -> dict:
 # ── the catalog ──────────────────────────────────────────────────────────────────────────────
 
 
-def test_the_catalog_lists_the_six_starter_templates(api):
+def test_the_catalog_lists_the_starter_templates(api):
     r = api.get("/templates")
     assert r.status_code == 200, r.text
     rows = {t["slug"]: t for t in r.json()}

@@ -5,7 +5,7 @@
  */
 import { forwardRef, useEffect, useId, useRef, useState } from 'react'
 import { Link, useMatchRoute } from '@tanstack/react-router'
-import { FolderKanban, LayoutTemplate, Moon, Sun } from 'lucide-react'
+import { FolderKanban, LayoutTemplate, Moon, Sun, Waypoints } from 'lucide-react'
 import { Button } from '@/shared/components/ui/button'
 import { SlidingThumb, useSlidingThumb } from '@/shared/components/ui/segmented'
 import { Tip } from '@/shared/components/ui/tooltip'
@@ -170,18 +170,26 @@ export const SegTrack = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivE
   )
 })
 
-/** `[Projects | Templates]`: the pages that live outside a project (Projects home, the template catalog). */
+/** `[Projects | Templates | Knowledge]`: the pages that live outside a project (Projects home, the template catalog, the studio-wide graph). */
 export function HomeNav() {
   const matchRoute = useMatchRoute()
-  const onTemplates = !!matchRoute({ to: '/templates' })
+  const on: 'projects' | 'templates' | 'knowledge' = matchRoute({ to: '/templates' })
+    ? 'templates'
+    : matchRoute({ to: '/knowledge' })
+      ? 'knowledge'
+      : 'projects'
+  const mark = (k: typeof on) => (on === k ? '' : undefined)
   return (
     <nav aria-label="Studio pages">
-      <SegTrack dep={onTemplates}>
-        <Link to="/projects" data-testid="home-nav-projects" data-on={!onTemplates ? '' : undefined} className={segItem}>
+      <SegTrack dep={on}>
+        <Link to="/projects" data-testid="home-nav-projects" data-on={mark('projects')} className={segItem}>
           <FolderKanban /> Projects
         </Link>
-        <Link to="/templates" data-testid="home-nav-templates" data-on={onTemplates ? '' : undefined} className={segItem}>
+        <Link to="/templates" data-testid="home-nav-templates" data-on={mark('templates')} className={segItem}>
           <LayoutTemplate /> Templates
+        </Link>
+        <Link to="/knowledge" data-testid="nav-knowledge" data-on={mark('knowledge')} className={segItem}>
+          <Waypoints /> Knowledge
         </Link>
       </SegTrack>
     </nav>

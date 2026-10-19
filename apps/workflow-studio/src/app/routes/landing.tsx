@@ -4,6 +4,7 @@ import { Button } from '@/shared/components/ui/button'
 import { Tile, IconTile, type EntityHue } from '@/shared/components/ui/surface'
 import { HomeSky } from '@/shared/components/space/HomeSky'
 import { Brand, ThemeToggle, TopBarFrame } from '@/features/project/components/TopBar'
+import { KnowledgeHomeCard } from '@/features/knowledge/components/KnowledgeHomeCard'
 
 const FEATURES: { hue: EntityHue; icon: React.ReactNode; title: string; body: string }[] = [
   { hue: 'backend', icon: <Braces />, title: 'Backend', body: 'Write Python modules, expose them as routes, and test each one against the live engine.' },
@@ -23,6 +24,9 @@ export default function LandingPage() {
         <div className="flex-1" />
         <Button variant="ghost" size="sm" render={<Link to="/projects" />} data-testid="landing-projects-link">
           Projects
+        </Button>
+        <Button variant="ghost" size="sm" render={<Link to="/knowledge" />} data-testid="landing-knowledge-link">
+          Knowledge
         </Button>
         <Button
           variant="ghost"
@@ -59,6 +63,8 @@ export default function LandingPage() {
             </Button>
           </div>
         </section>
+
+        <KnowledgeHomeCard />
 
         <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3" data-testid="landing-features">
           {FEATURES.map((f) => (

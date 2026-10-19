@@ -43,6 +43,8 @@ NODE_EFFECTS: dict[str, Effect] = {
     "Aggregate": "network",
     "DataTable": "database",
     "PythonStep": "none",
+    # renders a report document in-process (no network)
+    "Html": "none",
     # integrations
     "SendEmail": "network",
     "Postgres": "database",

@@ -871,7 +871,7 @@ _register(["Set"], _CHECKS_LOGIC, _LOGIC, _logic_suggest)
 _register(["Filter"], ["which items are kept", "boundaries read from the condition"], _DATA, _gate_suggest)
 _register(["If"], ["which branch each item takes", "boundaries read from the condition"], _DATA, _gate_suggest)
 _register(["Switch"], ["which output each item takes", "boundaries read from the rules"], _DATA, _gate_suggest)
-_register(["ItemLists", "Wait", "Respond", "Loop"], _CHECKS_LOGIC, _LOGIC, _plain_suggest())
+_register(["ItemLists", "Html", "Wait", "Respond", "Loop"], _CHECKS_LOGIC, _LOGIC, _plain_suggest())
 _register(["Merge"], _CHECKS_LOGIC, _LOGIC, _NONE)  # needs two inputs: its tests are written by hand
 _register(["Code", "PythonStep"], ["input -> output"], _LOGIC, _plain_suggest())
 _register(["StopAndError"], ["the run stops with the configured error"], ["normal"], _plain_suggest("error"))

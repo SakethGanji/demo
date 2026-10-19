@@ -24,7 +24,7 @@ NOT_EXPOSED = {
 }
 # Egress classification per node type: "none" = pure data, "http" = via the run's http client
 # (checked per request), anything else = opaque egress (cannot be host-checked).
-EGRESS_NONE = {"Set", "Filter", "ItemLists", "Sample", "Profile", "Aggregate", "DataTable"}
+EGRESS_NONE = {"Set", "Filter", "ItemLists", "Sample", "Profile", "Aggregate", "DataTable", "Html"}
 EGRESS_HTTP = {"HttpRequest"}
 
 

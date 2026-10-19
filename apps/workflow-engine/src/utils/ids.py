@@ -73,3 +73,9 @@ def app_id() -> str:
 
 def data_table_id() -> str:
     return generate_id("dt")
+
+
+def project_dataset_id() -> str:
+    """A bare UUIDv7 (no prefix): ``project_datasets.id`` is a UUID column and becomes a plain FK target when the
+    engine and analytics databases merge. Analytics ids are v4 (``gen_random_uuid``), so the version tells them apart."""
+    return str(_uuid7())

@@ -464,6 +464,14 @@ async def rebuild(session: AsyncSession, project_id: str, *, llm_tagging: bool =
     if seed1.deferred_edges:
         report.added += (await kg_ontology.seed(session)).edges["created"]
     concepts = await concept_rows(session)
+    await _project_pass(session, project_id, team, w, concepts, report, llm_tagging=llm_tagging, ask_model=ask_model)
+    return report
+
+
+async def _project_pass(session: AsyncSession, project_id: str, team: str | None, w: Writer, concepts: list[dict[str, Any]],
+                        report: RebuildReport, *, llm_tagging: bool,
+                        ask_model: Callable[[str, str, dict], Awaitable[dict]] | None) -> None:
+    """One project's extraction (+ optional tagging) and its ``rebuild`` learn event, committed. ``w.report`` is ``report``."""
     await extract_project(session, project_id, w, concepts)
     if llm_tagging:
         await tag_project(session, project_id, w, concepts, report, ask_model=ask_model)
@@ -472,7 +480,25 @@ async def rebuild(session: AsyncSession, project_id: str, *, llm_tagging: bool =
                                      summary=f"Rebuilt knowledge: {report.added} added, {report.updated} updated, {report.staled} stale",
                                      payload=report.dict())
     await session.commit()
-    return report
+
+
+async def rebuild_team(session: AsyncSession, team_id: str, *, llm_tagging: bool = False,
+                       ask_model: Callable[[str, str, dict], Awaitable[dict]] | None = None,
+                       ) -> tuple[RebuildReport, list[dict[str, Any]]]:
+    """The global seed once, then every project of the team, each committed with its own ``rebuild`` learn event (exactly the
+    project part of ``rebuild``). ``(summed report, [{project_id, added, updated, staled}])``."""
+    total = await seed_global(session)
+    w = Writer(session, total)
+    await w.load_globals()
+    concepts = await concept_rows(session)
+    per: list[dict[str, Any]] = []
+    for p in await KgRepository(session).team_projects(team_id):
+        report = RebuildReport()
+        w.report = report
+        await _project_pass(session, p["id"], team_id, w, concepts, report, llm_tagging=llm_tagging, ask_model=ask_model)
+        total.merge(report)
+        per.append({"project_id": p["id"], "added": report.added, "updated": report.updated, "staled": report.staled})
+    return total, per
 
 
 # ── LLM tagging (closed vocabulary) ───────────────────────────────────────────────────────────────────────────────────

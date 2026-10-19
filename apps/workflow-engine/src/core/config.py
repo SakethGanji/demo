@@ -4,6 +4,7 @@ import os
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -61,9 +62,26 @@ class Settings(BaseSettings):
 
     # External services
     redis_url: str | None = None
+    # The analytics service stores project datasets and serves Sample / Profile / Aggregate. Read from
+    # ANALYTICS_SERVICE_URL (no WORKFLOW_ prefix), the name the data nodes have always used.
+    analytics_service_url: str = Field(
+        default="http://localhost:8001",
+        validation_alias=AliasChoices("ANALYTICS_SERVICE_URL", "WORKFLOW_ANALYTICS_SERVICE_URL"),
+    )
 
     # MongoDB (PromptLab session/run state)
     mongo_url: str | None = None
+
+    # Outgoing email (the SendEmail node). Unset smtp_host = emails are rendered but not sent. For local development run the
+    # mailpit service in docker-compose.yml: WORKFLOW_SMTP_HOST=localhost (port 1025), then read the mail at http://localhost:8025.
+    smtp_host: str | None = None
+    smtp_port: int = 1025
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from: str = "studio@localhost"
+    smtp_starttls: bool = False  # upgrade a plain connection with STARTTLS (typically port 587)
+    smtp_ssl: bool = False  # implicit TLS from the first byte (typically port 465)
+    smtp_timeout_s: float = 30.0
 
     # AI/LLM settings
     gemini_api_key: str | None = None

@@ -25,6 +25,7 @@ import { MethodBadge } from '@/shared/components/api/MethodBadge'
 import { RunErrorBox } from './RunErrorBox'
 import { TraceWaterfall } from './TraceWaterfall'
 import { BrokerFix } from './BrokerFix'
+import { ReportOrData } from '@/shared/components/report/HtmlReportPreview'
 import { exactTime } from '../lib/runStats'
 import { isRunning, runError, runTarget, shortId, triggerType } from '../lib/runLabels'
 import type { RunDetail } from '@/shared/api/types'
@@ -289,7 +290,9 @@ function RunDetailView({ run }: { run: RunDetail }) {
                 {output.map(([node, items]) => (
                   <div key={node} className="min-w-0">
                     <div className="mb-1 text-xs font-medium">{node}</div>
-                    <Pre>{pretty(items.length === 1 ? items[0].json : items.map((i) => i.json))}</Pre>
+                    <ReportOrData items={items.map((i) => i.json)} testId="run-output-view">
+                      <Pre>{pretty(items.length === 1 ? items[0].json : items.map((i) => i.json))}</Pre>
+                    </ReportOrData>
                   </div>
                 ))}
               </div>

@@ -1,7 +1,7 @@
 /**
  * ProjectOutline (DESIGN §1, §3, UI-DESIGN §3.1) and its 1024–1279px icon rail (review H5).
  * A project is built from three optional blocks: Interface (screens; "apps" in code), Backend (modules and the routes
- * they serve) and Workflows. Bands: Build (the blocks) · Data & connections (tables, external APIs, secrets) · Operate (runs, approvals), with
+ * they serve) and Workflows. Bands: Build (the blocks) · Data & connections (tables, datasets, external APIs, secrets) · Operate (runs, approvals), with
  * settings pinned at the foot. It sits on the canvas: items are 30px, icons take their entity hue (60% when
  * inactive), group heads are sentence case with a `+` that appears on hover, and one soft fill slides to the active item.
  */
@@ -13,6 +13,7 @@ import {
   CheckCheck,
   Database,
   FileCode2,
+  FileSpreadsheet,
   History,
   KeyRound,
   LayoutGrid,
@@ -24,6 +25,7 @@ import {
   Sparkles,
   Table2,
   KeySquare,
+  Waypoints,
   Workflow,
 } from 'lucide-react'
 import { MethodBadge } from '@/shared/components/api/MethodBadge'
@@ -41,6 +43,7 @@ import { byRecent, pluralize } from '../lib/format'
 import { useOutlineDraftStore } from '@/features/backend/outlineDraftStore'
 import type { Route } from '@/shared/api/types'
 import { useApiSpecs } from '@/features/api-catalog/useApiSpecs'
+import { useDatasets } from '@/features/datasets/useDatasets'
 
 const itemCls =
   'relative z-[1] flex h-[30px] items-center gap-2 rounded-ctl px-2 text-[13px] text-sidebar-foreground hover:bg-foreground/6 [&>svg]:size-[15px] [&>svg]:shrink-0 [&>svg]:stroke-[1.75] [&>svg]:opacity-60'
@@ -201,6 +204,7 @@ export function ProjectOutline() {
   const routes = useRoutes(pid)
   const apiSpecs = useApiSpecs(pid)
   const tables = useTables(pid)
+  const datasets = useDatasets(pid)
   const apps = useProjectApps(pid)
   const workflows = useProjectWorkflows(pid)
   const summary = useProjectSummary(pid)
@@ -214,6 +218,8 @@ export function ProjectOutline() {
   const onOverview = !!matchRoute({ to: '/p/$project', params: P })
   const onSecrets = !!matchRoute({ to: '/p/$project/secrets', params: P })
   const onApis = !!matchRoute({ to: '/p/$project/apis', params: P })
+  const onDatasets = !!matchRoute({ to: '/p/$project/datasets', params: P, fuzzy: true })
+  const onKnowledge = !!matchRoute({ to: '/p/$project/knowledge', params: P })
   const onWorkflows = !!matchRoute({ to: '/p/$project/workflows', params: P })
   const onRuns = !!matchRoute({ to: '/p/$project/runs', params: P, fuzzy: true })
   const onApprovals = !!matchRoute({ to: '/p/$project/approvals', params: P, fuzzy: true })
@@ -241,16 +247,11 @@ export function ProjectOutline() {
   return (
     <nav className="flex min-h-0 flex-1 flex-col" aria-label="Project outline" data-testid="outline">
       <div ref={listRef} className="relative min-h-0 flex-1 overflow-y-auto px-2.5 pt-3.5">
-        <ActiveFill host={listRef} dep={[onOverview, onSecrets, onApis, onWorkflows, onRuns, onApprovals, activeModule, activeTable, routeParam]} />
+        <ActiveFill host={listRef} dep={[onOverview, onSecrets, onApis, onKnowledge, onWorkflows, onRuns, onApprovals, activeModule, activeTable, routeParam]} />
         <Link to="/p/$project" params={P} className={cn(itemCls, hue.home, onOverview && onCls)} {...act(onOverview)} data-testid="outline-overview">
           {setup.show ? <ListChecks /> : <LayoutGrid />}
-          {setup.show ? (
-            <>
-              Get started <span className="ml-auto text-[11.5px] text-muted-foreground">{setup.done} / 4</span>
-            </>
-          ) : (
-            'Overview'
-          )}
+          {setup.show ? 'Get started' : 'Overview'}
+          {setup.openCount > 0 && <span className="ml-auto text-[11.5px] text-muted-foreground">Next steps · {setup.openCount}</span>}
         </Link>
 
         <GroupHeader variant="section" label="Build" />
@@ -393,6 +394,12 @@ export function ProjectOutline() {
           </div>
         ))}
         {(tables.data?.length ?? 0) === 0 && draftTables.size === 0 && <Hint>No tables yet</Hint>}
+        <Link to="/p/$project/datasets" params={P} className={cn(itemCls, hue.data, onDatasets && onCls)} {...act(onDatasets)} data-testid="outline-datasets">
+          <FileSpreadsheet /> Datasets <span className="ml-auto text-[11.5px] tabular-nums text-muted-foreground">{datasets.data?.length ?? 0}</span>
+        </Link>
+        <Link to="/p/$project/knowledge" params={P} className={cn(itemCls, hue.ai, onKnowledge && onCls)} {...act(onKnowledge)} data-testid="outline-knowledge">
+          <Waypoints /> Knowledge
+        </Link>
         <Link to="/p/$project/apis" params={P} className={cn(itemCls, hue.data, onApis && onCls)} {...act(onApis)} data-testid="outline-apis">
           <Plug /> External APIs <span className="ml-auto text-[11.5px] tabular-nums text-muted-foreground">{apiSpecs.data?.length ?? 0}</span>
         </Link>
@@ -606,6 +613,8 @@ export function ProjectRail() {
         ))}
         {(tables.data?.length ?? 0) === 0 && <RailEmpty>No tables yet</RailEmpty>}
       </RailFlyout>
+      {tip('Datasets', <Link to="/p/$project/datasets" params={P} className={cn(railBtn, matchRoute({ to: '/p/$project/datasets', params: P, fuzzy: true }) && railOn)} data-testid="rail-datasets"><FileSpreadsheet /></Link>)}
+      {tip('Knowledge', <Link to="/p/$project/knowledge" params={P} className={cn(railBtn, matchRoute({ to: '/p/$project/knowledge', params: P }) && railOn)} data-testid="rail-knowledge"><Waypoints /></Link>)}
       {tip('External APIs', <Link to="/p/$project/apis" params={P} className={cn(railBtn, matchRoute({ to: '/p/$project/apis', params: P }) && railOn)} data-testid="rail-apis"><Plug /></Link>)}
       {tip(
         missingCount > 0 ? `Secrets · ${missingCount} missing` : 'Secrets',

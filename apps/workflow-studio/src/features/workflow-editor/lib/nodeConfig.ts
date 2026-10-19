@@ -40,6 +40,7 @@ const FALLBACK_ICONS: Record<string, string> = {
   ObjectWrite: 'upload',
   ItemLists: 'list-ol',
   Sample: 'filter',
+  Html: 'file-code',
   // Flow
   If: 'git-branch',
   Switch: 'route',

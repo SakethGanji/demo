@@ -88,8 +88,8 @@ class LLMChatNode(BaseNode):
                 display_name="Max Tokens",
                 name="maxTokens",
                 type="number",
-                default=1024,
-                description="Maximum response length",
+                default=8192,
+                description="Maximum response length. Thinking models spend part of this budget before they answer.",
             ),
         ],
     )
@@ -116,11 +116,12 @@ class LLMChatNode(BaseNode):
         from ...engine.types import NodeData
         from ...engine.expression_engine import ExpressionEngine, expression_engine
 
-        model = self.get_parameter(node_definition, "model", "mock")
+        # Same default as the declared property: a definition saved without `model` (API, AI builder) is a real call.
+        model = self.get_parameter(node_definition, "model", "gemini-3.7-flash")
         system_prompt_template = self.get_parameter(node_definition, "systemPrompt", "You are a helpful assistant.")
         user_message_template = self.get_parameter(node_definition, "userMessage", "{{ $json.message }}")
         temperature = self.get_parameter(node_definition, "temperature", 0.7)
-        max_tokens = self.get_parameter(node_definition, "maxTokens", 1024)
+        max_tokens = self.get_parameter(node_definition, "maxTokens", 8192)
 
         results: list[NodeData] = []
         total_input_tokens = 0
@@ -247,6 +248,9 @@ class LLMChatNode(BaseNode):
             temperature=temperature,
             max_tokens=max_tokens,
         )
+        if getattr(response, "output_truncated", False):
+            raise ValueError(f"The model ran out of output tokens before it finished (Max Tokens is {max_tokens}). "
+                             "Raise Max Tokens and run again.")
 
         result = {
             "response": response.text or "",

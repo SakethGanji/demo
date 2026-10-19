@@ -391,3 +391,9 @@ def test_the_e2e_fake_llm_understand_rules_give_a_clean_understanding(script, re
 
     u = run(request_text, llm=ask, use_llm=True)
     assert u["warnings"] == [] and u["questions"] == [] and u["summary"]["understood"]
+
+
+def test_a_dataset_profile_report_request_recognises_the_data_concepts():
+    concepts, _ = U.seed_vocabulary()
+    found = U.recognise("profile a dataset and email a report", concepts)
+    assert {"concept:data_profiling", "concept:dataset", "concept:report"} <= set(found)

@@ -51,7 +51,7 @@ import { ClientTsPanel } from './components/ClientTsPanel'
 import { BreakingChangesDialog, DeleteModuleDialog, ModuleChangedDialog, RenameModuleDialog } from './components/ModuleDialogs'
 import { DiffDialog } from './components/DiffDialog'
 import { templateSource, TEMPLATE_LABELS, type TemplateKey } from './templates'
-import { STARTERS } from '@/features/project/components/SetupGuide'
+import { STARTERS } from '@/features/project/lib/starters'
 import type { BackendSearch } from '@/app/routes/project'
 
 export function BackendView() {

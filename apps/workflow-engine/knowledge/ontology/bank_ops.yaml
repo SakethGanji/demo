@@ -300,6 +300,21 @@ concepts:
       - one test where the payment succeeds and one where the API reports a failure
     prompt_hint: Call the payment API through its api_ref, never retry a payment blindly, and record the outcome.
 
+  - key: concept:data_profiling
+    label: Data profiling
+    kind: process
+    definition: A dataset is measured column by column (types, missing values, distinct values, duplicates, ranges) to judge its quality.
+    aliases: ["profile", "profiling", "profile it", "profile the data", "profile a dataset", "data profile", "data quality", "data-quality",
+              "column stats", "column statistics", "missing values", "null values", "duplicate rows", "duplicates", "outliers",
+              "analyse the data", "analyze the data", "analyse a dataset", "analyze a dataset"]
+    consumes: [concept:dataset]
+    slots: []
+    signatures:
+      - {node_type: Profile}
+    test_obligations:
+      - one test that profiles a small sample and checks the row and null counts
+    prompt_hint: Use a Profile node with sourceType "dataset" and datasetId set to the dataset's id; pass its JSON on to an LLMChat or a report.
+
   # ── entity ─────────────────────────────────────────────────────────────────────────────────────────────────────────
   - key: concept:exception_case
     label: Exception case
@@ -332,6 +347,20 @@ concepts:
     test_obligations:
       - one test that logs a request and checks its status
     prompt_hint: Store each request with its customer reference, type and status.
+
+  - key: concept:dataset
+    label: Dataset
+    kind: entity
+    definition: A table of data imported into the project (CSV, Parquet or Excel) and stored by the analytics service.
+    aliases: ["dataset", "datasets", "data set", "data sets", "my data", "uploaded data", "imported data", "uploaded file", "data file"]
+    slots: []
+    signatures:
+      - {node_type: Profile, params: [datasetId]}
+      - {node_type: Sample, params: [datasetId]}
+      - {node_type: Aggregate, params: [datasetId]}
+    test_obligations:
+      - one test that reads the dataset and checks the expected columns are present
+    prompt_hint: Address a dataset by its id from the project's datasets list, never by a file path.
 
   # ── control ────────────────────────────────────────────────────────────────────────────────────────────────────────
   - key: concept:sla

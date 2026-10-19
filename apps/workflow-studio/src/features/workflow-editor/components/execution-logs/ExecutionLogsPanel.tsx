@@ -46,6 +46,7 @@ import { buildAgentTraceTree } from './buildTraceTree';
 import { useExecutionLineage } from '../../hooks/useSubworkflows';
 import { ChildRunList, ChildRunRow, ErrorChildLink, ParentRunLink } from './ChildRunLinks';
 import { isFailedStatus } from '../../lib/subworkflowsApi';
+import { ReportOrData } from '@/shared/components/report/HtmlReportPreview';
 
 // ── Syntax-highlighted JSON viewer ──────────────────────────────────────
 // Safe React-element based highlighting (no dangerouslySetInnerHTML)
@@ -645,7 +646,9 @@ export default function ExecutionLogsPanel() {
                 />
 
                 {dataTab === 'output' && selectedNodeData.output?.items && selectedNodeData.output.items.length > 0 && (
-                  <JsonView data={selectedNodeData.output.items} />
+                  <ReportOrData key={selectedLog.id} items={selectedNodeData.output.items} testId="log-output-view">
+                    <JsonView data={selectedNodeData.output.items} />
+                  </ReportOrData>
                 )}
                 {dataTab === 'output' && (!selectedNodeData.output?.items || selectedNodeData.output.items.length === 0) && !selectedLog.error && (
                   <p className="text-[11px] text-muted-foreground p-2">No output data</p>

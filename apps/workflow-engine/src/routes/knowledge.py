@@ -1,12 +1,15 @@
 """Knowledge API (PLAN-CAPABILITY-GRAPH section 6.1 and 7; CONTRACTS-CAPGRAPH.md section 7).
 
-    GET  /knowledge/graph?project_id=&kinds=&focus=&depth=&learned_only=
-    GET  /knowledge/nodes/{id}?project_id=
-    GET  /knowledge/capabilities?project_id=
-    GET  /knowledge/memory?project_id=&limit=&cursor=
-    POST /knowledge/understand      {project_id, request}      lexical only; no LLM, no row
-    POST /knowledge/rebuild         {project_id, llm_tagging?}
+    GET  /knowledge/graph?project_id=&team_id=&kinds=&focus=&depth=&learned_only=
+    GET  /knowledge/nodes/{id}?project_id=&team_id=
+    GET  /knowledge/capabilities?project_id=&team_id=
+    GET  /knowledge/memory?project_id=&team_id=&limit=&cursor=
+    POST /knowledge/understand      {project_id?, team_id?, request}      lexical only; no LLM, no row
+    POST /knowledge/rebuild         {project_id?, team_id?, llm_tagging?}
     POST /knowledge/nodes/{id}/accept | /reject   {actor}  (?project_id=)
+
+Team mode: without ``project_id`` a request reads (or rebuilds) the team-wide graph of ``team_id`` (default: the studio's default team),
+every project of the team at once. When both are given, ``project_id`` wins, so the per-project behaviour is unchanged.
 """
 
 from __future__ import annotations
@@ -16,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.dependencies import get_db_session
 from ..schemas.knowledge import (
-    CapabilitiesResponse, DecideRequest, GraphResponse, MemoryResponse, NodeDetail, NodeView, RebuildRequest, RebuildResponse,
+    DEFAULT_TEAM, CapabilitiesResponse, DecideRequest, GraphResponse, MemoryResponse, NodeDetail, NodeView, RebuildRequest, RebuildResponse,
     UnderstandRequest,
 )
 from ..services import authz, kg_service
@@ -38,20 +41,35 @@ def _http(e: kg_service.KnowledgeError) -> HTTPException:
 
 @router.get("/graph", response_model=GraphResponse)
 async def get_graph(
-    request: Request, project_id: str, kinds: str | None = Query(None, description="comma-separated node kinds"),
+    request: Request, project_id: str | None = None, team_id: str = Query(DEFAULT_TEAM),
+    kinds: str | None = Query(None, description="comma-separated node kinds"),
     focus: str | None = None, depth: int = Query(1, ge=1, le=2), learned_only: bool = False, session: AsyncSession = Depends(get_db_session),
 ):
+    kind_list = [k for k in (kinds or "").split(",") if k] or None
+    if project_id is None:
+        authz.authorize(request, "knowledge.read", {"team_id": team_id})
+        try:
+            return await kg_service.graph(session, None, kinds=kind_list, focus=focus, depth=depth, learned_only=learned_only, team_id=team_id)
+        except kg_service.KnowledgeError as e:
+            raise _http(e)
     authz.authorize(request, "knowledge.read", {"project_id": project_id})
     p = await _project(session, project_id)
     try:
-        return await kg_service.graph(session, p.id, kinds=[k for k in (kinds or "").split(",") if k] or None, focus=focus, depth=depth,
+        return await kg_service.graph(session, p.id, kinds=kind_list, focus=focus, depth=depth,
                                       learned_only=learned_only)
     except kg_service.KnowledgeError as e:
         raise _http(e)
 
 
 @router.get("/nodes/{node_id}", response_model=NodeDetail)
-async def get_node(request: Request, node_id: str, project_id: str, session: AsyncSession = Depends(get_db_session)):
+async def get_node(request: Request, node_id: str, project_id: str | None = None, team_id: str = Query(DEFAULT_TEAM),
+                   session: AsyncSession = Depends(get_db_session)):
+    if project_id is None:
+        authz.authorize(request, "knowledge.read", {"team_id": team_id, "node_id": node_id})
+        try:
+            return await kg_service.node_detail(session, None, node_id, team_id=team_id)
+        except kg_service.KnowledgeError as e:
+            raise _http(e)
     authz.authorize(request, "knowledge.read", {"project_id": project_id, "node_id": node_id})
     p = await _project(session, project_id)
     try:
@@ -61,15 +79,28 @@ async def get_node(request: Request, node_id: str, project_id: str, session: Asy
 
 
 @router.get("/capabilities", response_model=CapabilitiesResponse)
-async def get_capabilities(request: Request, project_id: str, session: AsyncSession = Depends(get_db_session)):
+async def get_capabilities(request: Request, project_id: str | None = None, team_id: str = Query(DEFAULT_TEAM),
+                           session: AsyncSession = Depends(get_db_session)):
+    if project_id is None:
+        authz.authorize(request, "knowledge.read", {"team_id": team_id})
+        try:
+            return await kg_service.capabilities(session, None, team_id=team_id)
+        except kg_service.KnowledgeError as e:
+            raise _http(e)
     authz.authorize(request, "knowledge.read", {"project_id": project_id})
     p = await _project(session, project_id)
     return await kg_service.capabilities(session, p.id)
 
 
 @router.get("/memory", response_model=MemoryResponse)
-async def get_memory(request: Request, project_id: str, limit: int = Query(50, ge=1, le=200), cursor: str | None = None,
-                     session: AsyncSession = Depends(get_db_session)):
+async def get_memory(request: Request, project_id: str | None = None, team_id: str = Query(DEFAULT_TEAM),
+                     limit: int = Query(50, ge=1, le=200), cursor: str | None = None, session: AsyncSession = Depends(get_db_session)):
+    if project_id is None:
+        authz.authorize(request, "knowledge.read", {"team_id": team_id})
+        try:
+            return await kg_service.memory(session, None, limit=limit, cursor=cursor, team_id=team_id)
+        except kg_service.KnowledgeError as e:
+            raise _http(e)
     authz.authorize(request, "knowledge.read", {"project_id": project_id})
     p = await _project(session, project_id)
     try:
@@ -80,6 +111,12 @@ async def get_memory(request: Request, project_id: str, limit: int = Query(50, g
 
 @router.post("/understand")
 async def post_understand(request: Request, body: UnderstandRequest, session: AsyncSession = Depends(get_db_session)):
+    if body.project_id is None:
+        authz.authorize(request, "knowledge.read", {"team_id": body.team_id})
+        try:
+            return await kg_service.understand(session, None, body.request, team_id=body.team_id)
+        except kg_service.KnowledgeError as e:
+            raise _http(e)
     authz.authorize(request, "knowledge.read", {"project_id": body.project_id})
     p = await _project(session, body.project_id)
     return await kg_service.understand(session, p, body.request)
@@ -87,6 +124,12 @@ async def post_understand(request: Request, body: UnderstandRequest, session: As
 
 @router.post("/rebuild", response_model=RebuildResponse)
 async def post_rebuild(request: Request, body: RebuildRequest, session: AsyncSession = Depends(get_db_session)):
+    if body.project_id is None:
+        authz.authorize(request, "knowledge.write", {"team_id": body.team_id})
+        try:
+            return await kg_service.rebuild(session, None, body.llm_tagging, team_id=body.team_id)
+        except kg_service.KnowledgeError as e:
+            raise _http(e)
     authz.authorize(request, "knowledge.write", {"project_id": body.project_id})
     p = await _project(session, body.project_id)
     return await kg_service.rebuild(session, p.id, body.llm_tagging)

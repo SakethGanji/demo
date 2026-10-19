@@ -30,6 +30,14 @@ services:
       timeout: 3s
       retries: 5
 
+  # Dev mail sink for the SendEmail node: accepts any SMTP mail on 1025 and shows it at http://localhost:8025.
+  # Start it on its own (`docker compose up -d mailpit`) and run the engine with WORKFLOW_SMTP_HOST=localhost.
+  mailpit:
+    image: axllent/mailpit
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
   app:
     build: .
     ports:
@@ -40,6 +48,7 @@ services:
       WORKFLOW_ENCRYPTION_KEY: ${WORKFLOW_ENCRYPTION_KEY:-}
       WORKFLOW_DEBUG: "false"
       WORKFLOW_RELOAD: "false"
+      WORKFLOW_SMTP_HOST: mailpit
     depends_on:
       postgres:
         condition: service_healthy

@@ -4,6 +4,11 @@
  */
 
 import type { DriftAlert } from '@/features/workflow-editor/lib/testsAi'
+import type { DatasetDetail, DatasetItem } from '@/features/datasets/lib/types'
+import type {
+  KgCapabilities, KgGraph, KgMemoryPage, KgNode, KgNodeDetail, KgRebuildReport, KnowledgeScope,
+} from '@/features/knowledge/lib/types'
+import type { Understanding } from '@/features/ai-builder/types'
 import type {
   AiEditResult, ChatPage, DecideResult, Interface, InterfaceState, PreviewData, TaskCounts, TaskDetail, TaskPage,
 } from '@/features/interfaces/lib/types'
@@ -190,6 +195,54 @@ export const tablesApi = {
     request<Row>(`${P(p)}/tables/${enc(t)}/rows/${id}`, { method: 'PATCH', body: { data } }),
   deleteRow: (p: string, t: string, id: number) =>
     request<unknown>(`${P(p)}/tables/${enc(t)}/rows/${id}`, { method: 'DELETE' }),
+}
+
+/** Project datasets (files held by the analytics service, named in the project). */
+export const datasetsApi = {
+  list: (p: string) => request<DatasetItem[]>(`${P(p)}/datasets`),
+  get: (p: string, id: string) => request<DatasetDetail>(`${P(p)}/datasets/${enc(id)}`),
+  /** multipart: `http.ts` drops the JSON content type for FormData so the browser sets the boundary */
+  upload: (p: string, file: File | Blob, name?: string) => {
+    const form = new FormData()
+    form.append('file', file)
+    if (name) form.append('name', name)
+    return request<DatasetItem>(`${P(p)}/datasets`, { method: 'POST', body: form })
+  },
+  rename: (p: string, id: string, name: string) =>
+    request<DatasetItem>(`${P(p)}/datasets/${enc(id)}`, { method: 'PATCH', body: { name } }),
+  remove: (p: string, id: string) => request<unknown>(`${P(p)}/datasets/${enc(id)}`, { method: 'DELETE' }),
+}
+
+/**
+ * The capability graph (`/api/knowledge/*`). Every call takes a scope: a project scope sends the resolved project id
+ * (not a slug) as `project_id`; the team scope omits it (and `team_id`, so the engine reads the default team).
+ * Accept and reject carry the project in the query and `{ actor }` in the body, like the AI builder's writes.
+ */
+const kgProject = (s: KnowledgeScope) => (s.kind === 'project' ? s.projectId : undefined)
+const kgBody = (s: KnowledgeScope) => (s.kind === 'project' ? { project_id: s.projectId } : {})
+export const knowledgeApi = {
+  graph: (scope: KnowledgeScope, opts: { learnedOnly?: boolean } = {}, signal?: AbortSignal) =>
+    request<KgGraph>('/knowledge/graph', {
+      query: { project_id: kgProject(scope), learned_only: opts.learnedOnly ? 'true' : undefined }, signal,
+    }),
+  node: (scope: KnowledgeScope, id: string, signal?: AbortSignal) =>
+    request<KgNodeDetail>(`/knowledge/nodes/${enc(id)}`, { query: { project_id: kgProject(scope) }, signal }),
+  capabilities: (scope: KnowledgeScope, signal?: AbortSignal) =>
+    request<KgCapabilities>('/knowledge/capabilities', { query: { project_id: kgProject(scope) }, signal }),
+  memory: (scope: KnowledgeScope, cursor?: string | null, limit = 50, signal?: AbortSignal) =>
+    request<KgMemoryPage>('/knowledge/memory', { query: { project_id: kgProject(scope), limit, cursor: cursor ?? undefined }, signal }),
+  /** lexical only, nothing saved */
+  understand: (scope: KnowledgeScope, text: string, signal?: AbortSignal) =>
+    request<Understanding>('/knowledge/understand', {
+      method: 'POST', body: { ...kgBody(scope), request: text.slice(0, 4000) }, signal,
+    }),
+  /** team scope rebuilds every project and reports each in `projects` */
+  rebuild: (scope: KnowledgeScope) =>
+    request<KgRebuildReport>('/knowledge/rebuild', { method: 'POST', body: { ...kgBody(scope), llm_tagging: false } }),
+  accept: (scope: KnowledgeScope, id: string, actor: string | null) =>
+    request<KgNode>(`/knowledge/nodes/${enc(id)}/accept`, { method: 'POST', query: { project_id: kgProject(scope) }, body: { actor } }),
+  reject: (scope: KnowledgeScope, id: string, actor: string | null) =>
+    request<KgNode>(`/knowledge/nodes/${enc(id)}/reject`, { method: 'POST', query: { project_id: kgProject(scope) }, body: { actor } }),
 }
 
 export const modulesApi = {

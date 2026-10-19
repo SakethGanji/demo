@@ -97,16 +97,17 @@ async def test_seed_global_writes_the_ontology_catalog_templates_and_patterns_an
     async with pg() as s:
         sl = await KgRepository(s).load_slice(pid)
     k = {n["key"] for n in sl.nodes.values()}
-    assert len([x for x in k if x.startswith("concept:")]) == 22 and len([x for x in k if x.startswith("role:")]) == 8
+    assert len([x for x in k if x.startswith("concept:")]) == 24 and len([x for x in k if x.startswith("role:")]) == 8
     assert {"node:Approval", "node:Cron", "node:SendEmail", "ui:component:table", "tpl:refund-triage", "tpl:customer-notify"} <= k
-    assert len([x for x in k if x.startswith("tpl:")]) == 6
+    assert len([x for x in k if x.startswith("tpl:")]) == 8  # the eight shipped templates
     pats = [n for n in sl.of_kind("pattern") if n["source"] == "seed"]
-    assert len(pats) == 6 and all(p["validated_count"] == 1 and p["visibility"] == "org" for p in pats)
+    assert len(pats) == 8 and all(p["validated_count"] == 1 and p["visibility"] == "org" for p in pats)
     # the node types that alone realise a concept
     assert edge_set(sl, "node:Approval", "implements") >= {"concept:approval"}
     assert "concept:notification" in edge_set(sl, "node:SendEmail", "implements")
     assert "concept:schedule" in edge_set(sl, "node:Cron", "implements")
     assert "concept:intake" in edge_set(sl, "node:FormTrigger", "implements")
+    assert "concept:data_profiling" in edge_set(sl, "node:Profile", "implements")   # dataset needs datasetId set: a workflow, not the type
     # the edge Wave 0 deferred (Report renders with the table component) is written by the second seed pass
     assert "ui:component:table" in edge_set(sl, "concept:report", "renders_with")
     # templates: composes node types, implements concepts, requires roles; a pattern derived from the template
@@ -214,7 +215,7 @@ async def test_llm_tags_outside_the_vocabulary_are_dropped_and_a_new_concept_is_
         r = await kg_extract.rebuild(s, pid, llm_tagging=True, ask_model=fake)
     assert seen["system"].startswith("KG_AI:CONCEPT_TAG\n")
     assert [i["key"] for i in seen["user"]["untrusted_items"]] == ["api:queues.frobnicate"]       # only operations no alias covered
-    assert len(seen["user"]["concept_vocabulary"]) == 22
+    assert len(seen["user"]["concept_vocabulary"]) == 24
     assert (r.tagged, r.proposed) == (1, 1)
     async with pg() as s:
         sl = await KgRepository(s).load_slice(pid)

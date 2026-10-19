@@ -181,7 +181,8 @@ class EdgeResult:
 class GraphSlice:
     """The scoped subgraph one project can see (CONTRACTS-CAPGRAPH.md section 3). Plain data; ``kg_retrieve`` walks it in Python."""
 
-    project_id: str
+    #: None for a team-wide slice (``load_team_slice``)
+    project_id: str | None
     team_id: str | None
     nodes: dict[str, dict[str, Any]]
     edges: list[dict[str, Any]]
@@ -422,13 +423,33 @@ class KgRepository:
         nodes, this project's nodes, and learned patterns visible org-wide. Edges are kept only when both ends are in the slice,
         so other projects' capabilities (and the evidence edges that point at them) never leak through a visible pattern."""
         team_id = (await self._s.execute(text("SELECT team_id FROM projects WHERE id = :p"), {"p": project_id})).scalar()
+        return await self._scoped_slice(project_id, team_id, [project_id], statuses)
+
+    async def load_team_slice(self, team_id: str, *, statuses: Iterable[str] = DEFAULT_SLICE_STATUSES) -> GraphSlice:
+        """The team-wide slice: the same scope rule as ``load_slice`` with every project of ``team_id`` in place of one project
+        (global nodes, the team's nodes, the project nodes of each project of the team, org-visible patterns). ``project_id`` is
+        None on the returned slice, so nothing that is bound to one project (callable sub-workflows, API operations) is offered."""
+        pids = [p["id"] for p in await self.team_projects(team_id)]
+        return await self._scoped_slice(None, team_id, pids, statuses)
+
+    async def team_projects(self, team_id: str) -> list[dict[str, Any]]:
+        """``[{id, slug, name}]`` of the team's projects, by name."""
+        res = await self._s.execute(
+            text("SELECT id, slug, name FROM projects WHERE team_id = :t ORDER BY lower(name), id"), {"t": team_id},
+        )
+        return [dict(m) for m in res.mappings().all()]
+
+    async def _scoped_slice(
+        self, project_id: str | None, team_id: str | None, project_ids: list[str], statuses: Iterable[str],
+    ) -> GraphSlice:
+        """THE scope rule, in one place. ``project_ids`` is ``[project_id]`` for a project slice, the team's projects for a team slice."""
         rows = (await self._s.execute(
             text("""SELECT * FROM kg_nodes WHERE status = ANY(:st) AND (
                         scope = 'global'
                         OR (scope = 'team' AND team_id = :team)
-                        OR (scope = 'project' AND project_id = :pid)
+                        OR (scope = 'project' AND project_id = ANY(:pids))
                         OR (kind = 'pattern' AND visibility = 'org'))"""),
-            {"st": list(statuses), "team": team_id, "pid": project_id},
+            {"st": list(statuses), "team": team_id, "pids": list(project_ids)},
         )).mappings().all()
         nodes = {r["id"]: _node(r) for r in rows}
         edges: list[dict[str, Any]] = []
@@ -457,14 +478,19 @@ class KgRepository:
         return _event(m)
 
     async def list_learn_events(
-        self, project_id: str | None = None, *, limit: int = 50, before_id: int | None = None,
+        self, project_id: str | None = None, *, limit: int = 50, before_id: int | None = None, team_id: str | None = None,
     ) -> tuple[list[dict[str, Any]], int | None]:
-        """Newest first; ``(events, next_before_id)``. ``project_id`` None lists the whole org (global seed events included)."""
+        """Newest first; ``(events, next_before_id)``. ``project_id`` None lists the whole org (global seed events included), or,
+        with ``team_id``, the events of the team's projects, the team's own and the global ones (``project_id`` wins when both)."""
         limit = max(1, min(int(limit), 200))
         where, params = ["TRUE"], {"lim": limit + 1}
         if project_id is not None:
             where.append("project_id = :p")
             params["p"] = project_id
+        elif team_id is not None:
+            where.append("(project_id IN (SELECT id FROM projects WHERE team_id = :t)"
+                         " OR (project_id IS NULL AND (team_id IS NULL OR team_id = :t)))")
+            params["t"] = team_id
         if before_id is not None:
             where.append("id < :b")
             params["b"] = int(before_id)

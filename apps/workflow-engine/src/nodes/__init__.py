@@ -42,6 +42,7 @@ from .data.aggregate import AggregateNode
 from .data.set_node import SetNode
 from .data.data_table import DataTableNode
 from .data.python_step import PythonStepNode
+from .data.html import HtmlNode
 
 # Integration nodes — external services and APIs.
 from .integrations.http_request import HttpRequestNode
@@ -84,6 +85,7 @@ __all__ = [
     "NoOpNode",
     "DataTableNode",
     "PythonStepNode",
+    "HtmlNode",
     "CodeNode",
     "FilterNode",
     "ItemListsNode",

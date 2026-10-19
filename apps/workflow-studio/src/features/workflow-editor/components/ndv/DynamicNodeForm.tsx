@@ -15,6 +15,8 @@ import { jsonFieldText } from '../../lib/jsonParam';
 import CodeEditor from '@/shared/components/ui/code-editor';
 import { WorkflowSelectorField } from './WorkflowSelectorField';
 import { FilePathField } from './FilePathField';
+import { DatasetSelectorField } from './DatasetSelectorField';
+import { isExpressionValue } from '@/features/datasets/lib/datasets';
 import { registerPendingFlush } from '../../lib/pendingEdits';
 import { useCheckStore } from '../../stores/checkStore';
 import { useNDVStore } from '../../stores/ndvStore';
@@ -125,7 +127,7 @@ interface DisplayOptions {
 }
 
 // Type for property field types
-type NodePropertyType = 'string' | 'number' | 'boolean' | 'options' | 'multiOptions' | 'json' | 'collection' | 'workflowSelector' | 'filePath';
+type NodePropertyType = 'string' | 'number' | 'boolean' | 'options' | 'multiOptions' | 'json' | 'collection' | 'workflowSelector' | 'datasetSelector' | 'filePath';
 
 interface NodeProperty {
   displayName: string;
@@ -242,7 +244,7 @@ export default memo(function DynamicNodeForm({
   const getOnChange = useCallback((property: NodeProperty) => {
     // `collection` is immediate: each item edit is built from the current prop value, so a
     // debounced edit would be overwritten by the next edit of a sibling field in the same item.
-    const immediateTypes: NodePropertyType[] = ['boolean', 'options', 'workflowSelector', 'filePath', 'collection'];
+    const immediateTypes: NodePropertyType[] = ['boolean', 'options', 'workflowSelector', 'datasetSelector', 'filePath', 'collection'];
     if (immediateTypes.includes(property.type)) {
       return onChange;
     }
@@ -477,6 +479,27 @@ const PropertyField = memo(function PropertyField({ property, value, onChange, o
         <WorkflowSelectorField
           property={property}
           value={value as string}
+          onChange={onChange}
+        />
+      );
+
+    case 'datasetSelector':
+      // an expression value keeps the normal expression input (the picker only holds literal names)
+      return isExpressionValue(value) ? (
+        <StringField
+          property={property}
+          value={value as string}
+          onChange={onChange}
+          onBlur={onBlur}
+          error={error}
+          upstreamSchema={upstreamSchema}
+          sampleData={sampleData}
+          allNodeData={allNodeData}
+        />
+      ) : (
+        <DatasetSelectorField
+          property={property}
+          value={value as string | undefined}
           onChange={onChange}
         />
       );

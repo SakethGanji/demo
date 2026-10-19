@@ -2,6 +2,7 @@
 
 from .code import CodeNode
 from .filter import FilterNode
+from .html import HtmlNode
 from .item_lists import ItemListsNode
 from .sample import SampleNode
 from .profile import ProfileNode
@@ -12,6 +13,7 @@ __all__ = [
     "AggregateNode",
     "CodeNode",
     "FilterNode",
+    "HtmlNode",
     "ItemListsNode",
     "ProfileNode",
     "SampleNode",

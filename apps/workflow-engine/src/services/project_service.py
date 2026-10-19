@@ -348,6 +348,12 @@ class ProjectService:
         if (await self._s.execute(select(func.count()).select_from(CodeModuleModel).where(
                 CodeModuleModel.project_id == p.id))).scalar_one():
             raise ProjectError(409, "project_not_empty", "Project still has python modules", counts=counts)
+        # Datasets live in the analytics service; deleting them one by one removes the stored file too, so a project
+        # never leaves files behind there (the link table has no FK across the two databases).
+        from ..db.models import ProjectDatasetModel
+        if (await self._s.execute(select(func.count()).select_from(ProjectDatasetModel).where(
+                ProjectDatasetModel.project_id == p.id))).scalar_one():
+            raise ProjectError(409, "project_not_empty", "Project still has datasets; delete them first", counts=counts)
         await self._s.execute(sa_delete(ApiKeyModel).where(ApiKeyModel.project_id == p.id))
         await self._s.execute(sa_delete(ApiSpecRevisionModel).where(ApiSpecRevisionModel.project_id == p.id))
         await self._s.execute(ReleaseModel.__table__.update().where(ReleaseModel.project_id == p.id).values(source_release_id=None))

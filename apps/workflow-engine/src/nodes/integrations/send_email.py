@@ -1,10 +1,19 @@
-"""Send Email node - sends emails via a configurable email service."""
+"""Send Email node - sends an email over SMTP (multipart: a text part and an HTML part).
+
+SMTP comes from the settings (``WORKFLOW_SMTP_HOST``, ``_PORT``, ``_USERNAME``, ``_PASSWORD``, ``_FROM``, ``_STARTTLS``, ``_SSL``).
+With no host configured the email is rendered but not sent, and the item says so (``sent: false`` and a ``note``). For local
+development the mailpit service in docker-compose.yml catches everything on port 1025 and shows it at http://localhost:8025.
+"""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
-
-import markdown
+import asyncio
+import re
+import smtplib
+import ssl
+from email.message import EmailMessage
+from email.utils import formatdate, make_msgid
+from typing import TYPE_CHECKING, Any, Literal
 
 from ..base import (
     BaseNode,
@@ -14,89 +23,125 @@ from ..base import (
     NodeProperty,
     NodePropertyOption,
 )
+from ...utils.report_html import html_to_text, plain_to_html, render_markdown_report, report_document
 
 if TYPE_CHECKING:
     from ...engine.types import ExecutionContext, NodeData, NodeDefinition, NodeExecutionResult
 
 
-# =============================================================================
-# EMAIL SERVICE - Implement send_email() below with your email provider
-# =============================================================================
+NOT_CONFIGURED_NOTE = "SMTP isn't configured (WORKFLOW_SMTP_HOST), so the email was rendered but not sent."
+_ADDRESS = re.compile(r"^[^@\s<>,;]+@[^@\s<>,;]+$")
 
 
-# Default email styling for HTML/Markdown emails
-EMAIL_CSS = """
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
-h1 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
-h2 { color: #34495e; margin-top: 24px; }
-h3 { color: #7f8c8d; }
-a { color: #3498db; }
-code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-family: 'SF Mono', Monaco, monospace; font-size: 0.9em; }
-pre { background: #2d2d2d; color: #f8f8f2; padding: 16px; border-radius: 6px; overflow-x: auto; }
-pre code { background: none; padding: 0; color: inherit; }
-blockquote { border-left: 4px solid #3498db; margin: 0; padding-left: 16px; color: #666; }
-table { border-collapse: collapse; width: 100%; margin: 16px 0; }
-th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
-th { background: #f8f9fa; font-weight: 600; }
-tr:nth-child(even) { background: #f8f9fa; }
-ul, ol { padding-left: 24px; }
-li { margin: 4px 0; }
-hr { border: none; border-top: 1px solid #eee; margin: 24px 0; }
-"""
+class EmailSendError(RuntimeError):
+    """The SMTP server refused or could not be reached — surfaced as the node's error with code ``EMAIL_SEND_FAILED``."""
+
+    def __init__(self, message: str, code: str = "EMAIL_SEND_FAILED") -> None:
+        super().__init__(message)
+        self.code = code
+
+
+# ── rendering ────────────────────────────────────────────────────────────────────────────────
 
 
 def render_markdown_to_html(markdown_text: str, wrap_in_template: bool = True) -> str:
-    """Convert markdown to styled HTML for emails."""
-    # Use markdown with useful extensions
-    html_content = markdown.markdown(
-        markdown_text,
-        extensions=[
-            'tables',           # | col1 | col2 |
-            'fenced_code',      # ```code blocks```
-            'codehilite',       # syntax highlighting
-            'nl2br',            # newlines to <br>
-            'sane_lists',       # better list handling
-            'smarty',           # smart quotes, dashes
-        ],
-        extension_configs={
-            'codehilite': {'css_class': 'highlight', 'guess_lang': False}
-        }
-    )
-
+    """Markdown → the styled report document (the same renderer as the HTML node)."""
     if not wrap_in_template:
-        return html_content
+        from ...utils.report_html import markdown_to_html
 
-    # Wrap in email-friendly HTML template
-    return f"""<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<style>{EMAIL_CSS}</style>
-</head>
-<body>
-{html_content}
-</body>
-</html>"""
+        return markdown_to_html(markdown_text)
+    return render_markdown_report(markdown_text)
 
 
 def wrap_html_in_template(html_content: str) -> str:
-    """Wrap raw HTML in email template with styling."""
-    # Check if already has html/body tags
-    if '<html' in html_content.lower() or '<body' in html_content.lower():
-        return html_content
+    """An HTML fragment in the report document; a full document (e.g. an HTML node's ``html``) is kept as it is."""
+    return report_document(html_content)
 
-    return f"""<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<style>{EMAIL_CSS}</style>
-</head>
-<body>
-{html_content}
-</body>
-</html>"""
+
+def render_email(body: str, body_format: str, subject: str = "") -> tuple[str, str]:
+    """``(html, text)`` of an email body: the HTML part and its plain-text alternative. The subject titles the document but
+    does not head the body (the mail client already shows it)."""
+    if body_format == "markdown":
+        html = render_markdown_report(body, subject, heading=False)
+    elif body_format == "html":
+        html = report_document(body, subject, heading=False)
+    else:
+        return report_document(plain_to_html(body), subject, style_fragment=False, heading=False), body
+    return html, html_to_text(html)
+
+
+def parse_recipients(to: str) -> list[str]:
+    """``a@x.example, b@x.example`` → the addresses; a malformed one is an error naming it."""
+    out = [a.strip() for a in re.split(r"[,;]", to or "") if a.strip()]
+    if not out:
+        raise ValueError("To Email is required")
+    bad = [a for a in out if not _ADDRESS.match(a)]
+    if bad:
+        raise ValueError(f"Not an email address: {', '.join(repr(b) for b in bad)}")
+    return out
+
+
+# ── sending ──────────────────────────────────────────────────────────────────────────────────
+
+
+def _settings() -> Any:
+    from ...core.config import settings
+
+    return settings
+
+
+def build_message(sender: str, recipients: list[str], subject: str, text: str, html: str) -> EmailMessage:
+    msg = EmailMessage()
+    msg["From"] = sender
+    msg["To"] = ", ".join(recipients)
+    msg["Subject"] = subject
+    msg["Date"] = formatdate(localtime=True)
+    domain = sender.rsplit("@", 1)[-1].strip("> ") if "@" in sender else None
+    msg["Message-ID"] = make_msgid(domain=domain or None)
+    msg.set_content(text or " ")
+    msg.add_alternative(html, subtype="html")
+    return msg
+
+
+def _deliver(cfg: Any, msg: EmailMessage, recipients: list[str]) -> None:
+    """Blocking SMTP delivery (run in a worker thread)."""
+    host, port, timeout = cfg.smtp_host, int(cfg.smtp_port), float(getattr(cfg, "smtp_timeout_s", 30.0) or 30.0)
+    # The EHLO name is the sender's domain: smtplib's default (socket.getfqdn()) is a reverse DNS lookup that can stall each send.
+    sender = str(cfg.smtp_from or "")
+    ehlo_name = sender.rsplit("@", 1)[-1].strip("> ") if "@" in sender else "localhost"
+    if cfg.smtp_ssl:
+        client: smtplib.SMTP = smtplib.SMTP_SSL(host, port, local_hostname=ehlo_name or "localhost", timeout=timeout,
+                                                context=ssl.create_default_context())
+    else:
+        client = smtplib.SMTP(host, port, local_hostname=ehlo_name or "localhost", timeout=timeout)
+    try:
+        client.ehlo()
+        if cfg.smtp_starttls and not cfg.smtp_ssl:
+            client.starttls(context=ssl.create_default_context())
+            client.ehlo()
+        if cfg.smtp_username:
+            client.login(cfg.smtp_username, cfg.smtp_password or "")
+        client.send_message(msg, to_addrs=recipients)  # the envelope sender is the message's From
+    finally:
+        try:
+            client.quit()
+        except Exception:
+            client.close()
+
+
+def _smtp_error_text(e: BaseException, password: str | None) -> str:
+    if isinstance(e, smtplib.SMTPResponseException):
+        detail = e.smtp_error.decode("utf-8", "replace") if isinstance(e.smtp_error, bytes) else str(e.smtp_error)
+        text = f"{e.smtp_code} {detail}".strip()
+    elif isinstance(e, smtplib.SMTPRecipientsRefused):
+        text = "; ".join(
+            f"{addr}: {code} {(m.decode('utf-8', 'replace') if isinstance(m, bytes) else m)}" for addr, (code, m) in e.recipients.items()
+        )
+    else:
+        text = str(e) or type(e).__name__
+    if password:
+        text = text.replace(password, "***")
+    return text
 
 
 async def send_email(
@@ -105,70 +150,34 @@ async def send_email(
     body: str,
     body_format: Literal["plain", "html", "markdown"] = "plain",
     from_email: str | None = None,
-) -> dict:
+) -> dict[str, Any]:
+    """Render the email and send it over SMTP when ``WORKFLOW_SMTP_HOST`` is set.
+
+    Returns ``{sent, to (list), subject, html, text, message_id, note?}``. Raises ``ValueError`` for a bad recipient and
+    ``EmailSendError`` (with the SMTP error text, never the password) when the server refuses or cannot be reached.
     """
-    Send an email. Implement this with your email provider.
+    recipients = parse_recipients(to)
+    html, text = render_email(body, body_format, subject)
+    cfg = _settings()
+    out: dict[str, Any] = {"to": recipients, "subject": subject, "html": html, "text": text}
+    if not cfg.smtp_host:
+        return {**out, "sent": False, "message_id": None, "note": NOT_CONFIGURED_NOTE}
 
-    Args:
-        to: Recipient email address
-        subject: Email subject line
-        body: Email body (plain text, HTML, or Markdown based on body_format)
-        body_format: "plain", "html", or "markdown"
-        from_email: Optional sender email
-
-    Returns:
-        dict with: success, message_id, error (if failed), html_body (if applicable)
-
-    Example SMTP implementation:
-
-        import aiosmtplib
-        from email.message import EmailMessage
-
-        msg = EmailMessage()
-        msg["From"] = from_email or SMTP_USERNAME
-        msg["To"] = to
-        msg["Subject"] = subject
-
-        if body_format == "plain":
-            msg.set_content(body)
-        else:
-            html = html_body
-            msg.set_content(body)  # plain text fallback
-            msg.add_alternative(html, subtype="html")
-
-        await aiosmtplib.send(msg, hostname=SMTP_HOST, port=587,
-                              username=SMTP_USERNAME, password=SMTP_PASSWORD, start_tls=True)
-        return {"success": True, "message_id": msg["Message-ID"]}
-
-    Example HTTP API implementation:
-
-        import httpx
-        async with httpx.AsyncClient() as client:
-            resp = await client.post("https://api.your-email-service.com/send", json={
-                "to": to, "subject": subject, "body": body, "html_body": html_body
-            }, headers={"Authorization": "Bearer API_KEY"})
-            return {"success": True, "message_id": resp.json().get("id")}
-    """
-    # Convert body to HTML if needed
-    html_body = None
-    if body_format == "markdown":
-        html_body = render_markdown_to_html(body)
-    elif body_format == "html":
-        html_body = wrap_html_in_template(body)
-
-    # TODO: Implement actual email sending here
-    # For now, return stub response
-    return {
-        "success": True,
-        "message_id": "stub-not-sent",
-        "html_body": html_body,
-    }
+    sender = from_email or cfg.smtp_from
+    msg = build_message(sender, recipients, subject, text, html)
+    try:
+        await asyncio.to_thread(_deliver, cfg, msg, recipients)
+    except (smtplib.SMTPException, OSError) as e:
+        raise EmailSendError(
+            f"Couldn't send the email via {cfg.smtp_host}:{cfg.smtp_port}: {_smtp_error_text(e, cfg.smtp_password)}"
+        ) from None
+    return {**out, "sent": True, "message_id": msg["Message-ID"]}
 
 
 from ...engine import shapes as sh
 
 class SendEmailNode(BaseNode):
-    """Send Email node - sends emails via configured email service."""
+    """Send Email node - sends emails over SMTP."""
 
     node_description = NodeTypeDescription(
         name="SendEmail",
@@ -185,9 +194,12 @@ class SendEmailNode(BaseNode):
                     "type": "object",
                     "properties": {
                         "success": {"type": "boolean"},
+                        "sent": {"type": "boolean"},
                         "to": {"type": "string"},
                         "subject": {"type": "string"},
+                        "html": {"type": "string"},
                         "message_id": {"type": "string"},
+                        "note": {"type": "string"},
                     },
                 },
             )
@@ -199,8 +211,8 @@ class SendEmailNode(BaseNode):
                 type="string",
                 default="",
                 required=True,
-                placeholder="recipient@example.com",
-                description="Recipient email (supports expressions)",
+                placeholder="recipient@example.com, other@example.com",
+                description="Recipient email; several separated by commas (supports expressions)",
             ),
             NodeProperty(
                 display_name="Subject",
@@ -219,7 +231,7 @@ class SendEmailNode(BaseNode):
                 required=True,
                 options=[
                     NodePropertyOption(name="Markdown", value="markdown", description="Write in Markdown, sends as styled HTML"),
-                    NodePropertyOption(name="HTML", value="html", description="Raw HTML content"),
+                    NodePropertyOption(name="HTML", value="html", description="An HTML fragment, or a full document such as an HTML step's {{ $json.html }}"),
                     NodePropertyOption(name="Plain Text", value="plain", description="Plain text only"),
                 ],
             ),
@@ -245,18 +257,22 @@ class SendEmailNode(BaseNode):
         return "Sends an email (plain text, HTML, or Markdown)"
 
     def contract(self, params, inputs, lookups=None):
-        """Declared: ``{success, to, subject}`` always; ``body``/``message_id`` on success, ``error`` on failure."""
+        """Declared: ``{success, sent, to, subject, html, message_id}`` always (``note`` when SMTP isn't configured);
+        ``error`` is what an ``on_error: continue`` item carries."""
         s = sh.scalar
         shape = sh.object_of(
             {
                 "success": s("boolean", "declared"),
+                "sent": s("boolean", "declared"),
                 "to": s("string", "declared"),
                 "subject": s("string", "declared"),
                 "body": s("string", "declared"),
+                "html": s("string", "declared"),
                 "message_id": s("string", "declared", nullable=True),
+                "note": s("string", "declared"),
                 "error": s("string", "declared"),
             },
-            ["success", "to", "subject"], "declared")
+            ["success", "sent", "to", "subject", "html"], "declared")
         return sh.make_contract(inputs, {"main": shape})
 
     async def execute(
@@ -272,6 +288,8 @@ class SendEmailNode(BaseNode):
         subject_raw = self.get_parameter(node_definition, "subject", "")
         body_format = self.get_parameter(node_definition, "bodyFormat", "markdown")
         body_raw = self.get_parameter(node_definition, "body", "")
+        if body_format not in ("markdown", "html", "plain"):
+            raise ValueError(f"Unknown format '{body_format}': use 'markdown', 'html' or 'plain'")
 
         results: list[ND] = []
         items = input_data if input_data else [ND(json={})]
@@ -281,35 +299,29 @@ class SendEmailNode(BaseNode):
                 input_data, context.node_states, context.execution_id, idx
             )
 
-            to_email = str(expression_engine.resolve(to_email_raw, expr_context))
-            subject = str(expression_engine.resolve(subject_raw, expr_context))
-            body = str(expression_engine.resolve(body_raw, expr_context))
+            to_value = expression_engine.resolve(to_email_raw, expr_context)
+            to_email = ", ".join(str(a) for a in to_value) if isinstance(to_value, list) else str(to_value or "")
+            subject = str(expression_engine.resolve(subject_raw, expr_context) or "")
+            body = expression_engine.resolve(body_raw, expr_context)
+            body = "" if body is None else str(body)
 
-            if not to_email:
+            if not to_email.strip():
                 raise ValueError("To Email is required")
             if not subject:
                 raise ValueError("Subject is required")
 
-            try:
-                result = await send_email(
-                    to=to_email,
-                    subject=subject,
-                    body=body,
-                    body_format=body_format,
-                )
-                results.append(ND(json={
-                    "success": result.get("success", False),
-                    "to": to_email,
-                    "subject": subject,
-                    "body": body,
-                    "message_id": result.get("message_id"),
-                }))
-            except Exception as e:
-                results.append(ND(json={
-                    "success": False,
-                    "to": to_email,
-                    "subject": subject,
-                    "error": str(e),
-                }))
+            result = await send_email(to=to_email, subject=subject, body=body, body_format=body_format)
+            row: dict[str, Any] = {
+                "success": result["sent"],
+                "sent": result["sent"],
+                "to": ", ".join(result["to"]),
+                "subject": subject,
+                "body": body,
+                "html": result["html"],
+                "message_id": result["message_id"],
+            }
+            if result.get("note"):
+                row["note"] = result["note"]
+            results.append(ND(json=row))
 
         return self.output(results)

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any, TYPE_CHECKING
 
 import httpx
@@ -106,12 +105,12 @@ class AggregateNode(BaseNode):
                 display_options={"show": {"sourceType": ["file"], "fileLocation": ["s3"]}},
             ),
             NodeProperty(
-                display_name="Dataset ID",
+                display_name="Dataset",
                 name="datasetId",
-                type="string",
+                type="datasetSelector",
                 default="",
-                placeholder="dataset-uuid",
-                description="ID of the dataset in the analytics service",
+                placeholder="sales",
+                description="A dataset imported into this project (the picker saves its id; its name also works)",
                 display_options={"show": {"sourceType": ["dataset"]}},
             ),
             NodeProperty(
@@ -273,8 +272,9 @@ class AggregateNode(BaseNode):
     ) -> NodeExecutionResult:
         from ...engine.types import NodeData as ND
         from ...engine.expression_engine import ExpressionEngine, expression_engine
+        from ...services.project_dataset_service import analytics_url, resolve_dataset_for_run
 
-        service_url = os.getenv("ANALYTICS_SERVICE_URL", "http://localhost:8001")
+        service_url = analytics_url()
 
         source_type = self.get_parameter(node_definition, "sourceType", "input")
         file_location = self.get_parameter(node_definition, "fileLocation", "local")
@@ -343,6 +343,7 @@ class AggregateNode(BaseNode):
         results: list[ND] = []
         items = input_data if input_data else [ND(json={})]
 
+        dataset_ids: dict[str, str] = {}
         async with httpx.AsyncClient() as client:
             for idx, item in enumerate(items):
                 expr_context = ExpressionEngine.create_context(
@@ -357,8 +358,11 @@ class AggregateNode(BaseNode):
                 if source_type == "dataset":
                     resolved_id = expression_engine.resolve(dataset_id, expr_context)
                     if not resolved_id:
-                        raise ValueError("Dataset ID is required when source type is 'dataset'")
-                    item_payload["dataset_id"] = str(resolved_id)
+                        raise ValueError("Dataset is required when source type is 'dataset'")
+                    key = str(resolved_id).strip()
+                    if key not in dataset_ids:  # a name (or link id) -> the analytics UUID, within the run's project
+                        dataset_ids[key] = await resolve_dataset_for_run(context.project_id, key)
+                    item_payload["dataset_id"] = dataset_ids[key]
                     if version_number is not None:
                         item_payload["version_number"] = int(version_number)
                     if tag:

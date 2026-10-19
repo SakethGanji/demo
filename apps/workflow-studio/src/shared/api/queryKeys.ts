@@ -5,6 +5,13 @@
  */
 
 import type { QueryClient } from '@tanstack/react-query'
+import type { KnowledgeScope } from '@/features/knowledge/lib/types'
+
+/** Any knowledge query, in any scope (`['knowledge', …]` or `['project', p, 'knowledge', …]`). */
+export const isKnowledgeKey = (k: readonly unknown[]) => k[0] === 'knowledge' || (k[0] === 'project' && k[2] === 'knowledge')
+
+const kgRoot = (s: KnowledgeScope): readonly unknown[] =>
+  s.kind === 'project' ? ['project', s.projectId, 'knowledge'] : ['knowledge', 'team']
 
 export const qk = {
   projects: ['projects'] as const,
@@ -35,6 +42,18 @@ export const qk = {
   table: (p: string, t: string) => ['project', p, 'table', t] as const,
   rows: (p: string, t: string, q: Record<string, unknown> = {}) => ['project', p, 'table', t, 'rows', q] as const,
   rowsPrefix: (p: string, t: string) => ['project', p, 'table', t, 'rows'] as const,
+  datasets: (p: string) => ['project', p, 'datasets'] as const,
+  dataset: (p: string, id: string) => ['project', p, 'dataset', id] as const,
+  /**
+   * The capability graph, by scope. A project scope nests under the project (so `qk.project(p)` still covers it);
+   * the team scope has its own root. The two never share a key.
+   */
+  knowledge: (s: KnowledgeScope) => kgRoot(s),
+  knowledgeGraph: (s: KnowledgeScope, learnedOnly: boolean) => [...kgRoot(s), 'graph', { learnedOnly }] as const,
+  knowledgeNode: (s: KnowledgeScope, id: string) => [...kgRoot(s), 'node', id] as const,
+  knowledgeCapabilities: (s: KnowledgeScope) => [...kgRoot(s), 'capabilities'] as const,
+  knowledgeMemory: (s: KnowledgeScope) => [...kgRoot(s), 'memory'] as const,
+  knowledgeAsk: (s: KnowledgeScope, text: string) => [...kgRoot(s), 'ask', text] as const,
   modules: (p: string) => ['project', p, 'modules'] as const,
   module: (p: string, m: string) => ['project', p, 'module', m] as const,
   releases: (p: string, env?: string) => ['project', p, 'releases', env ?? 'all'] as const,
@@ -100,6 +119,13 @@ export const invalidate = {
   apiKeysChanged: (qc: QueryClient, p: string) => inv(qc, qk.apiKeys(p), qk.summary(p)),
   tablesChanged: (qc: QueryClient, p: string, t?: string) =>
     inv(qc, qk.tables(p), qk.summary(p), qk.projects, ...(t ? [qk.table(p, t)] : [])),
+  datasetsChanged: (qc: QueryClient, p: string, id?: string) =>
+    inv(qc, qk.datasets(p), ...(id ? [qk.dataset(p, id)] : [])),
+  /**
+   * Graph, nodes, coverage and memory in every scope: a project rebuild changes the team view, and a team rebuild
+   * rebuilds every project, so either one refreshes both (as does a decision).
+   */
+  knowledgeChanged: (qc: QueryClient) => qc.invalidateQueries({ predicate: (q) => isKnowledgeKey(q.queryKey) }),
   rowsChanged: (qc: QueryClient, p: string, t: string) => inv(qc, qk.rowsPrefix(p, t), qk.tables(p)),
   modulesChanged: async (qc: QueryClient, p: string) => {
     await inv(qc, qk.modules(p), qk.missingPrefix(p))

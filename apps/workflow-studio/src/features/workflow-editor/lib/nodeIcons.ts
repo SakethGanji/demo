@@ -31,6 +31,7 @@ import {
   Pause,
   ArrowRightLeft,
   FileCode,
+  FileCode2,
   FileText,
   Send,
   Database,
@@ -184,6 +185,9 @@ const iconMap: Record<string, LucideIconComponent> = {
   'fa:list-ol': ListOrdered,
   itemlists: ListOrdered,
   sample: Filter,
+  'file-code': FileCode2,
+  'fa:file-code': FileCode2,
+  html: FileCode2,
 
   // ── Integration/Database nodes ─────────────────────────────────────
   leaf: Leaf,

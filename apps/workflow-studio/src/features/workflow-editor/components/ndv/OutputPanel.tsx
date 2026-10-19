@@ -1,6 +1,6 @@
 import { memo, useState, useMemo, useCallback } from 'react';
 import { DataEmpty } from './DataEmpty';
-import { Database, Code, Pin, Zap, Globe, GitBranch, Download, History, FileCheck2 } from 'lucide-react';
+import { Database, Code, Pin, Zap, Globe, GitBranch, Download, History, FileCheck2, Eye } from 'lucide-react';
 import { toast } from 'sonner';
 import type { NodeExecutionData } from '../../types/workflow';
 import { useWorkflowStore } from '../../stores/workflowStore';
@@ -17,6 +17,8 @@ import { isObservedType } from '../../lib/contractSuggestions';
 import { learnContract, removeContract, type ContractProposal } from '../../lib/contractActions';
 import RunDataDisplay from './RunDataDisplay';
 import ContractDialog from './ContractDialog';
+import { HtmlReportPreview } from '@/shared/components/report/HtmlReportPreview';
+import { findHtmlReport, outputView, type OutputView } from '@/shared/components/report/htmlReport';
 
 interface OutputPanelProps {
   nodeId: string;
@@ -28,6 +30,9 @@ type DisplayMode = 'json' | 'schema';
 const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputPanelProps) {
   const storedOutputMode = useNDVStore((s) => s.outputDisplayMode);
   const [displayMode, setDisplayMode] = useState<DisplayMode>(storedOutputMode);
+  // Preview of an HTML report: null until the user picks a view for this node (a report opens on Preview).
+  const [pick, setPick] = useState<{ nodeId: string; preview: boolean } | null>(null);
+  const previewChoice = pick?.nodeId === nodeId ? pick.preview : null;
 
   const hasPinned = useWorkflowStore((s) => s.hasPinnedData(nodeId));
   const getPinnedDataForDisplay = useWorkflowStore((s) => s.getPinnedDataForDisplay);
@@ -107,6 +112,15 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
     a.click();
     URL.revokeObjectURL(url);
   }, [pdfBase64]);
+
+  const report = useMemo(() => findHtmlReport(displayData), [displayData]);
+  const view = outputView(displayMode, previewChoice, !!report);
+  const handleViewChange = (v: OutputView) => {
+    setPick({ nodeId, preview: v === 'preview' });
+    if (v === 'preview') return;
+    setDisplayMode(v);
+    useNDVStore.getState().setOutputDisplayMode(v);
+  };
 
   // Use server-accurate execution time
   const executionTime = metrics?.executionTimeMs != null
@@ -214,13 +228,14 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
           {/* Display mode toggle */}
           <Segmented
           size="xs"
-          value={displayMode}
-          onChange={(m) => { setDisplayMode(m); useNDVStore.getState().setOutputDisplayMode(m); }}
+          value={view}
+          onChange={handleViewChange}
           aria-label="Display mode"
           data-testid="ndv-output-display-mode"
           options={[
             { key: 'schema', label: <Database size={13} aria-label="Schema view" />, testId: 'ndv-output-mode-schema' },
             { key: 'json', label: <Code size={13} aria-label="JSON view" />, testId: 'ndv-output-mode-json' },
+            ...(report ? [{ key: 'preview' as const, label: <Eye size={13} aria-label="Preview" />, testId: 'ndv-output-mode-preview' }] : []),
           ]}
         />
         </div>
@@ -267,10 +282,12 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
               {executionData.output?.error}
             </p>
           </Callout>
+        ) : report && view === 'preview' ? (
+          <HtmlReportPreview report={report} />
         ) : displayData && displayData.length > 0 ? (
           <RunDataDisplay
             data={displayData}
-            mode={displayMode}
+            mode={view === 'preview' ? displayMode : view}
           />
         ) : (
           <DataEmpty title="No output items" hint="The node executed but returned no data" />

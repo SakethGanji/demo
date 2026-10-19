@@ -11,6 +11,9 @@ import { OverviewView } from '@/features/project/components/OverviewView'
 import { BackendView } from '@/features/backend/BackendView'
 import { DataView } from '@/features/data/DataView'
 import { SecretsView } from '@/features/secrets/SecretsView'
+import { DatasetsView } from '@/features/datasets/DatasetsView'
+import { KnowledgeView } from '@/features/knowledge/components/KnowledgeView'
+import { KNOWLEDGE_VIEWS, type KnowledgeSearch } from '@/features/knowledge/lib/search'
 import { ApiCatalogView } from '@/features/api-catalog/ApiCatalogView'
 import { RunsView } from '@/features/runs/RunsView'
 import { WorkflowsListPage } from '@/features/workflows-list/WorkflowsListPage'
@@ -92,6 +95,29 @@ export const dataRoute = createRoute({
   path: 'data/$table',
   validateSearch: (s: Record<string, unknown>): DataSearch => ({ filter: str(s.filter), sort: str(s.sort) }),
   component: DataView,
+})
+
+export const datasetsRoute = createRoute({
+  getParentRoute: () => workspaceRoute,
+  path: 'datasets',
+  component: DatasetsView,
+})
+
+export const datasetRoute = createRoute({
+  getParentRoute: () => workspaceRoute,
+  path: 'datasets/$datasetId',
+  component: DatasetsView,
+})
+
+/** The capability graph. `view` picks the lens, `node` the selection (both kept in the URL so a link reopens them). */
+export const knowledgeRoute = createRoute({
+  getParentRoute: () => workspaceRoute,
+  path: 'knowledge',
+  validateSearch: (s: Record<string, unknown>): KnowledgeSearch => ({
+    view: (KNOWLEDGE_VIEWS as readonly unknown[]).includes(s.view) ? (s.view as KnowledgeSearch['view']) : undefined,
+    node: str(s.node),
+  }),
+  component: KnowledgeView,
 })
 
 export const secretsRoute = createRoute({
@@ -215,6 +241,9 @@ export const projectRouteTree = projectRoute.addChildren([
     backendRoute,
     dataIndexRoute,
     dataRoute,
+    datasetsRoute,
+    datasetRoute,
+    knowledgeRoute,
     secretsRoute,
     apisRoute,
     runsRoute,

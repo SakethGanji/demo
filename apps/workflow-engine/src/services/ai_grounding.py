@@ -3,6 +3,8 @@
 Everything here is pure (no I/O, no LLM). The caller loads the data (project operations, checker result) and passes it in.
 
 * ``catalog_subset``      the node catalog trimmed for a prompt: full detail only for the types a spec uses plus the always-full set.
+* ``request_types``       the extra full-detail types: the dataset readers when the project has datasets, the report chain when asked.
+* ``dataset_entries``     the project's datasets as prompt entries (``id`` is what ``datasetId`` holds).
 * ``api_operations``      the project's API operations as prompt entries; every entry carries ``api_ref`` (``"refunds.issueRefund"``)
                           AND ``api_ref_param`` (``{spec_id, operation_id}``, what ``HttpRequest.parameters.api_ref`` must hold).
 * ``compact_shape(s)``    shapes as ``field -> type``, two levels deep, at most 40 fields per node.
@@ -38,7 +40,36 @@ TRIGGER_TYPE_BY_KIND: dict[str, str] = {
     "form": "FormTrigger", "webhook": "Webhook", "cron": "Cron", "manual": "Start", "chat": "ChatInput", "execute": "ExecuteWorkflowTrigger",
 }
 
+#: Sent in full when the project has datasets: the nodes that read one (``sourceType`` "dataset" + ``datasetId``).
+DATASET_TYPES: tuple[str, ...] = ("Profile", "Sample", "Aggregate")
+#: Sent in full when the request asks for a report: analyse with a model, render it, mail it (a type not registered is simply absent).
+REPORT_TYPES: tuple[str, ...] = ("LLMChat", "Html", "SendEmail")
+_REPORT_RE = re.compile(r"(?i)\b(report|e-?mail|summar|analy[sz])")
+
 _CATALOG_CACHE: dict[str, list[dict[str, Any]]] = {}
+
+
+def request_types(request: str | None, has_datasets: bool) -> set[str]:
+    """Extra full-detail types for ``catalog_subset`` from what the project has and what the request says."""
+    out = set(DATASET_TYPES) if has_datasets else set()
+    if _REPORT_RE.search(request or ""):
+        out |= set(REPORT_TYPES)
+    return out
+
+
+def dataset_entries(rows: Iterable[Any], limit: int = 25, max_columns: int = 30) -> list[dict[str, Any]]:
+    """Prompt entries for the project's datasets (``ProjectDatasetModel`` rows or dicts), at most ``limit``, in the order given:
+    ``{id, name, row_count, column_count, columns: [{name, type}]}`` with at most ``max_columns`` columns. ``id`` is what a
+    node's ``datasetId`` holds."""
+    def get(r: Any, k: str) -> Any:
+        return r.get(k) if isinstance(r, Mapping) else getattr(r, k, None)
+
+    out: list[dict[str, Any]] = []
+    for r in list(rows or [])[:limit]:
+        cols = [{"name": c.get("name"), "type": c.get("type")} for c in (get(r, "columns") or [])[:max_columns] if isinstance(c, Mapping)]
+        out.append({"id": str(get(r, "id")), "name": get(r, "name"), "row_count": get(r, "row_count"),
+                    "column_count": get(r, "column_count"), "columns": cols})
+    return out
 
 
 def catalog_hash(catalog: list[dict[str, Any]]) -> str:
