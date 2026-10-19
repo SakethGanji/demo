@@ -7,6 +7,9 @@ records the pause, nothing downstream is queued, and ``ExecutionRepository.compl
 
 Test mode: a mock (``{items, port}``) replaces the node before it runs, so it never suspends; an unmocked Approval fails
 ``TEST_UNMOCKED_EFFECT`` (effect ``human``).
+
+``notify_email``: the resolved recipients ride in the suspend payload (``notify``); ``ExecutionRepository.complete`` emails
+them a link to the task right after the task row is committed. A failed or skipped email never blocks the run.
 """
 
 from __future__ import annotations
@@ -203,6 +206,11 @@ class ApprovalNode(BaseNode):
             ),
             NodeProperty(display_name="Four Eyes", name="four_eyes", type="boolean", default=False,
                          description="Placeholder: stored and shown, not enforced until identity exists"),
+            NodeProperty(display_name="Notify Email", name="notify_email", type="string", default="",
+                         placeholder="{{ $vars.APPROVER_EMAIL }}",
+                         description="Email these addresses (comma-separated, expressions allowed) a link to the task. Empty = no email"),
+            NodeProperty(display_name="Notify Message", name="notify_message", type="string", default="",
+                         description="Optional extra text for the approver email", type_options={"rows": 3}),
         ],
     )
 
@@ -301,6 +309,7 @@ class ApprovalNode(BaseNode):
                 "allow_comment": _flag(params.get("allow_comment"), True),
                 "require_comment_on_reject": _flag(params.get("require_comment_on_reject"), False),
                 "four_eyes": _flag(params.get("four_eyes"), False),
+                **_notify_of(render, params),
             },
             secrets,
         )
@@ -323,6 +332,21 @@ class ApprovalNode(BaseNode):
         items = [NodeData(json={**d.json, "approval": approval}) for d in (input_data or [NodeData(json={})])]
         return NodeExecutionResult(outputs={p: (items if p == port else None) for p in PORTS},
                                    metadata={"approvalDecision": port})
+
+
+def _notify_of(render: Any, params: dict[str, Any]) -> dict[str, Any]:
+    """``{"notify": {to, invalid, message}}`` when ``notify_email`` resolves to something, else nothing (a plain Approval's
+    payload is unchanged). The email itself is sent once the task row exists (``services.approval_notify``)."""
+    from ...services.approval_notify import split_recipients
+
+    if not params.get("notify_email"):
+        return {}
+    to, invalid = split_recipients(render(params.get("notify_email")))
+    if not to and not invalid:
+        return {}
+    message = render(params.get("notify_message")) if params.get("notify_message") else ""
+    message = "" if message in (None, "") else str(message).strip()[:2000]
+    return {"notify": {"to": to, "invalid": invalid, "message": message}}
 
 
 def _flag(value: Any, default: bool) -> bool:

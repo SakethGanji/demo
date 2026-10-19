@@ -69,7 +69,8 @@ concepts:
     label: Approval
     kind: process
     definition: A person with authority decides approved or rejected before the process continues.
-    aliases: ["approval", "approvals", "approve", "approved", "approver", "sign off", "sign-off", "authorise", "authorize", "needs a manager"]
+    aliases: ["approval", "approvals", "approve", "approved", "approver", "sign off", "sign-off", "authorise", "authorize", "needs a manager",
+              "notify approver", "email the approver"]
     slots:
       - {name: approver_role, type: role, required: true, question: "Who approves? Pick the role that decides.",
          used_as: "Approval.assignees"}

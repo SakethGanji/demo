@@ -56,7 +56,10 @@ def detail_of(row: dict[str, Any]) -> dict[str, Any]:
     approval = snap.get("approval") or {}
     ctx = dict(row.get("context") or {})
     inp = ctx.pop("_input", {})
+    # an Approval with notify_email: what happened to the approver email (only present when one was asked for)
+    notify = {"notify": snap["notify"]} if isinstance(snap.get("notify"), dict) else {}
     return {
+        **notify,
         **summary_of(row),
         "context": ctx,
         "form": list(row.get("form") or []),

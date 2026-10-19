@@ -244,6 +244,7 @@ class ExecutionRepository:
                     self._session.add(record)
 
         meta = dict(db_execution.exec_metadata or {})
+        to_notify: list[dict[str, Any]] = []
         if status == "failed":
             # nothing will ever decide these: a failed run does not keep tasks open
             if context.mode != "test":
@@ -251,7 +252,7 @@ class ExecutionRepository:
             meta.pop("suspension", None)
         elif waiting:
             if suspended:
-                await self._create_tasks(tasks, context, db_execution)
+                to_notify = await self._create_tasks(tasks, context, db_execution)
             open_ids = await tasks.open_ids(context.execution_id)
             since = (meta.get("suspension") or {}).get("since") or datetime.now().isoformat()
             meta["suspension"] = {"tasks": open_ids, "since": since}
@@ -263,6 +264,8 @@ class ExecutionRepository:
 
         await self._session.commit()
         await self._session.refresh(db_execution)
+        if to_notify:  # after the commit: the task rows exist, so the email can link to them; a failed email never fails the run
+            await self._notify_approvers(to_notify, db_execution)
 
         # Read back node outputs for the return value
         node_outputs = await self._get_node_outputs(context.execution_id)
@@ -292,16 +295,18 @@ class ExecutionRepository:
             logger.warning("human_tasks table missing: apply migration 20261019120000_interfaces_tasks")
             return default
 
-    async def _create_tasks(self, tasks: Any, context: ExecutionContext, db_execution: ExecutionModel) -> None:
-        """One ``human_tasks`` row per Approval that paused this run (idempotent on ``(execution, node, run_index)``)."""
+    async def _create_tasks(self, tasks: Any, context: ExecutionContext, db_execution: ExecutionModel) -> list[dict[str, Any]]:
+        """One ``human_tasks`` row per Approval that paused this run (idempotent on ``(execution, node, run_index)``).
+        Returns the newly inserted rows whose Approval asked for an approver email (never in test mode)."""
         from ..engine.task_resumer import build_snapshot
         from .task_repository import new_task_id
 
+        to_notify: list[dict[str, Any]] = []
         for entry in context.suspensions:
             payload = entry["suspension"].payload
             snapshot = build_snapshot(context, entry)
             due_raw = payload.get("due_at")
-            await tasks.insert({
+            row = {
                 "id": new_task_id(),
                 "project_id": db_execution.project_id or "proj_default",
                 "workflow_id": db_execution.workflow_id,
@@ -317,7 +322,25 @@ class ExecutionRepository:
                 "due_at": datetime.fromisoformat(due_raw) if due_raw else None,
                 "on_timeout": payload.get("on_timeout") or "timed_out",
                 "snapshot": snapshot,
-            })
+            }
+            inserted = await tasks.insert(row)
+            if inserted and payload.get("notify") and context.mode != "test":
+                to_notify.append({"task": row, "notify": payload["notify"]})
+        return to_notify
+
+    async def _notify_approvers(self, to_notify: list[dict[str, Any]], db_execution: ExecutionModel) -> None:
+        """Email the approvers of the tasks just created (``services.approval_notify``). Never raises."""
+        try:
+            from ..services.approval_notify import notify_created_tasks
+
+            await notify_created_tasks(self._session, to_notify, workflow_name=db_execution.workflow_name or db_execution.workflow_id,
+                                       project_id=db_execution.project_id)
+        except Exception:
+            logger.warning("approver notification failed for %s", db_execution.id, exc_info=True)
+        try:  # a rollback inside the notifier expires loaded rows; reload before the record is built from it
+            await self._session.refresh(db_execution)
+        except Exception:
+            logger.warning("couldn't reload execution %s after the approver notification", db_execution.id, exc_info=True)
 
     @staticmethod
     def _result_of(context: ExecutionContext) -> dict[str, Any]:

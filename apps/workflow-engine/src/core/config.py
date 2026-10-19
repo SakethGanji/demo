@@ -82,6 +82,8 @@ class Settings(BaseSettings):
     smtp_starttls: bool = False  # upgrade a plain connection with STARTTLS (typically port 587)
     smtp_ssl: bool = False  # implicit TLS from the first byte (typically port 465)
     smtp_timeout_s: float = 30.0
+    # Where the studio runs: links in emails the engine sends (an Approval's approver notification) point here.
+    studio_url: str = "http://localhost:5174"
 
     # AI/LLM settings
     gemini_api_key: str | None = None

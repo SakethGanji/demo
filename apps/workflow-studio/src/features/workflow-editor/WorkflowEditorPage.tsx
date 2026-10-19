@@ -33,7 +33,7 @@ const NodeAIDialog = lazy(() => import('@/features/ai-builder/components/NodeAID
 const EditorBuilderTab = lazy(() => import('@/features/ai-builder/components/EditorBuilderTab'))
 
 // --- Floating panel shared styles ---
-const floatingPanel = 'glass-overlay overflow-hidden'
+const floatingPanel = 'glass-chrome rounded-panel overflow-hidden'
 const panelTransition = 'transition-all duration-300 ease-out'
 
 // --- Inlined from RightPanel.tsx ---
@@ -210,8 +210,8 @@ export function WorkflowEditorPage({ workflowId }: { workflowId?: string }) {
     <ReactFlowProvider>
       <Suspense fallback={<EditorLoadingFallback />}>
         <div className="h-full w-full relative overflow-clip">
-          {/* Layer 0: the canvas, a recessed well under the navbar */}
-          <div className="well absolute right-3 bottom-3 left-3 top-[68px] overflow-hidden rounded-panel">
+          {/* Layer 0: the canvas, full-bleed: the navbar and panels float on top of it */}
+          <div className="well absolute inset-0 overflow-hidden rounded-none">
             <WorkflowCanvas />
             <EmptyCanvasHint />
           </div>

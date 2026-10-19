@@ -23,7 +23,7 @@
   --background: #eef2fa;
   --sheet: transparent;                      /* the Linear content sheet: a frame only, so the glass inside it frosts the sky */
   --tile: #f3f6fc;                           /* solid tile: reduced-transparency fallback only */
-  --well: rgb(255 255 255 / .42);            /* a recess inside the glass: tables, lists, code */
+  --well: rgb(255 255 255 / .66);            /* the inner glass layer: tables, lists, code, nested tiles */
   --recess: rgb(0 0 0 / .04);            /* inputs, seg tracks, outline buttons, chips */
   --raise: #ffffff;                          /* seg thumb, kbd on a recess */
   --card: #ffffff;
@@ -39,8 +39,8 @@
   --popover-foreground: #0d1430;
   --secondary-foreground: #0d1430;
   --accent-foreground: #0d1430;
-  --muted-foreground: #55608a;
-  --faint: #8a90a8;                          /* decorative only */
+  --muted-foreground: #363f63;
+  --faint: #5a6282;                          /* decorative only */
 
   /* ── lines: hairline for rows and splits; panel-border for the sheet edge ── */
   --hairline: rgb(0 0 0 / .06);
@@ -109,38 +109,56 @@
   --sidebar-border: rgb(0 0 0 / .06);
   --sidebar-ring: #6d6bf0;
 
-  /* ── glass (Subtle): a translucent fill, a light rim, a top highlight. Cards don't blur (the backdrop is
-     already soft, so blurring it again costs frames and changes nothing); only chrome and overlays blur ── */
-  --glass-fill: rgb(255 255 255 / .58);       /* tile/card fill */
-  --glass-fill-hover: rgb(255 255 255 / .70);
-  --glass-fill-editor: rgb(255 255 255 / .62);
-  --glass-strong: rgb(255 255 255 / .78);     /* floating glass: menus, sheets, seg thumb */
-  --rim-a: rgb(255 255 255 / .75);              /* rim light: bright top-left → clear → a faint counter-rim */
-  --rim-b: rgb(255 255 255 / .22);
-  --rim-c: rgb(120 140 210 / .22);
+  /* ── glass (Liquid, double): depth from two lit layers, not from colour behind. The outer pane is nearly
+     clear with a crisp 1px rim (brightest on the top edge), a razor hairline and a soft shadow; what sits
+     inside it (wells, nested tiles: the inner layer) is raised glass with its own top highlight, a brighter
+     fill and a small contact shadow. Chrome and overlays blur; cards don't (the backdrop is calm, so a blur
+     there is invisible and only costs scroll frames). Blur literals are repeated in the recipes because
+     Safari doesn't resolve var() inside -webkit-backdrop-filter. ── */
+  --glass-fill: rgb(255 255 255 / .46);       /* outer pane: the same frosted glass as the top bar / sidebar */
+  --glass-fill-hover: rgb(255 255 255 / .56);
+  --glass-fill-editor: rgb(255 255 255 / .46);
+  --glass-strong: rgb(255 255 255 / .78);     /* dense glass: seg thumb fallback, canvas controls */
+  --glass-sheen: linear-gradient(180deg, rgb(255 255 255 / .40), rgb(255 255 255 / 0) 46%);
+  --rim-a: rgb(255 255 255 / 1);              /* rim light: top edge → sides → bottom */
+  --rim-b: rgb(255 255 255 / .55);
+  --rim-s: rgb(255 255 255 / .22);
+  --rim-c: rgb(255 255 255 / .40);
+  --edge: rgb(16 24 56 / .07);                /* the razor hairline that defines a pane on a light ground */
   --hi: rgb(255 255 255 / .95);               /* inner top highlight */
-  --shade: rgb(40 60 130 / .12);              /* inner bottom shade, recess shadow */
-  --chrome-fill: rgb(255 255 255 / .55);      /* top bar / sidebar */
-  --chrome-blur: blur(24px) saturate(170%);
-  --overlay-fill: rgb(255 255 255 / .78);    /* menus, ⌘K palette, popovers */
-  --overlay-blur: blur(26px) saturate(175%);
-  --overlay-shadow: inset 0 1px 0 var(--hi), inset 0 -14px 28px -22px var(--shade);
+  --shade: rgb(30 40 90 / .07);               /* inner bottom shade, recess shadow */
+  --glass-depth: 0 0 0 0 transparent;          /* no drop shadow: glass reads by its rim, not a cast shadow */
+  --inner-fill-hover: rgb(255 255 255 / .82);
+  /* raised inner glass (glass-raised, well, a nested tile): fill, top highlight, hairline ring, contact shadow */
+  --raised-fill: rgb(255 255 255 / .66);
+  --raised-hi: inset 0 1px 0 rgb(255 255 255 / 1);
+  --raised-ring: rgb(16 24 56 / .06);
+  --raised-contact: 0 0 0 0 transparent;
+  --inner-elevation: var(--raised-hi), 0 0 0 1px var(--raised-ring), var(--raised-contact);
+  --spec-light: rgb(255 255 255 / .70);       /* the pointer spot on clickable glass */
+  --chrome-fill: rgb(255 255 255 / .46);      /* top bar / sidebar */
+  --chrome-blur: blur(32px) saturate(190%);
+  --overlay-fill: rgb(255 255 255 / .74);    /* menus, ⌘K palette, popovers */
+  --overlay-blur: blur(40px) saturate(200%);
+  --overlay-shadow: inset 0 1px 0 var(--hi), 0 0 0 1px var(--edge), 0 2px 4px rgb(16 24 56 / .05), 0 20px 48px -16px rgb(16 24 56 / .22);
   --scrim: rgb(13 20 48 / .14);
 
   /* ── sheet edge ── */
   --sheet-ring: 0 0 0 0 transparent;
 
-  /* ── backdrop: three soft light beams and a vignette, painted once (body::before / ::after) ── */
+  /* ── backdrop: three soft light beams and a vignette, painted once (body::before / ::after). This is the
+     landing page's and the canvases' sky, unchanged. ── */
   --beam-1: rgb(96 130 255 / .28);
   --beam-2: rgb(56 189 248 / .34);
   --beam-3: rgb(167 139 250 / .30);
   --vignette: rgb(170 185 220 / .35);
 
 
-  /* ── radii (mode-invariant): Linear-tight ── */
+  /* ── radii (mode-invariant): large, continuous (squircle where corner-shape is supported) ── */
   --r-sheet: 16px;
-  --r-panel: 16px;                           /* tiles, cards, menus, palette, dialogs, slots */
-  --r-well: 10px;
+  --r-panel: 20px;                           /* tiles, cards, slots */
+  --r-overlay: 16px;                         /* menus, palette, popovers, dialogs, sheets */
+  --r-well: 12px;
   --r-ctl: 8px;                              /* buttons, inputs, seg tracks, sidebar items */
   --r-chip: 6px;                             /* badges, seg thumbs */
   --r-kbd: 4px;                              /* kbd, method chips */
@@ -179,6 +197,7 @@
   --ease-out: cubic-bezier(.16, 1, .3, 1);
   --ease-io: cubic-bezier(.65, 0, .35, 1);
   --ease-in: cubic-bezier(.4, 0, 1, 1);
+  --ease-spring: cubic-bezier(.3, 1.3, .5, 1);   /* a short, slight overshoot: hover lifts */
 }
 
 
@@ -189,7 +208,7 @@
   --background: #0c0c10;
   --sheet: transparent;                      /* the sheet is only a frame: no fill, no edge (both themes) */
   --tile: #17171d;                           /* solid tile: reduced-transparency fallback */
-  --well: rgb(0 0 0 / .35);                  /* a darker recess inside the glass so text stays crisp */
+  --well: rgb(255 255 255 / .045);           /* the inner glass layer: a step brighter than the pane */
   --recess: rgb(255 255 255 / .05);
   --raise: rgb(255 255 255 / .08);
   --card: #121217;
@@ -275,21 +294,32 @@
   --sidebar-border: rgb(255 255 255 / .07);
   --sidebar-ring: #9c8fff;
 
-  /* ── glass (Subtle, Graphite): neutral smoked glass, a white rim, a top highlight ── */
-  --glass-fill: rgb(44 44 58 / .40);
-  --glass-fill-hover: rgb(54 54 70 / .48);
-  --glass-fill-editor: rgb(40 40 52 / .36);
+  /* ── glass (Liquid, double, Graphite): clear white-on-black glass (never a grey fill), white rims ── */
+  --glass-fill: rgb(10 10 14 / .55);
+  --glass-fill-hover: rgb(22 22 30 / .60);
+  --glass-fill-editor: rgb(10 10 14 / .55);
   --glass-strong: rgb(34 34 46 / .80);
-  --rim-a: rgb(255 255 255 / .30);
-  --rim-b: rgb(255 255 255 / .08);
-  --rim-c: rgb(255 255 255 / .10);
-  --hi: rgb(255 255 255 / .16);
-  --shade: rgb(0 0 0 / .40);
-  --chrome-fill: rgb(14 14 20 / .55);
-  --chrome-blur: blur(24px) saturate(170%);
-  --overlay-fill: rgb(34 34 46 / .80);
-  --overlay-blur: blur(26px) saturate(175%);
-  --overlay-shadow: inset 0 1px 0 var(--hi), inset 0 -14px 28px -22px var(--shade);
+  --glass-sheen: linear-gradient(180deg, rgb(255 255 255 / .045), rgb(255 255 255 / 0) 46%);
+  --rim-a: rgb(255 255 255 / .26);
+  --rim-b: rgb(255 255 255 / .10);
+  --rim-s: rgb(255 255 255 / .055);
+  --rim-c: rgb(255 255 255 / .05);
+  --edge: rgb(255 255 255 / .03);
+  --hi: rgb(255 255 255 / .10);
+  --shade: rgb(0 0 0 / .35);
+  --glass-depth: 0 0 0 0 transparent;
+  --inner-fill-hover: rgb(255 255 255 / .07);
+  --raised-fill: rgb(255 255 255 / .045);
+  --raised-hi: inset 0 1px 0 rgb(255 255 255 / .08);
+  --raised-ring: rgb(255 255 255 / .045);
+  --raised-contact: 0 0 0 0 transparent;
+  --inner-elevation: var(--raised-hi), 0 0 0 1px var(--raised-ring), var(--raised-contact);
+  --spec-light: rgb(255 255 255 / .09);
+  --chrome-fill: rgb(10 10 14 / .55);
+  --chrome-blur: blur(32px) saturate(180%);
+  --overlay-fill: rgb(22 22 28 / .80);
+  --overlay-blur: blur(40px) saturate(190%);
+  --overlay-shadow: inset 0 1px 0 var(--hi), 0 0 0 1px rgb(255 255 255 / .06), 0 2px 4px rgb(0 0 0 / .4), 0 24px 56px -16px rgb(0 0 0 / .7);
   --scrim: rgb(0 0 0 / .5);
 
   --sheet-ring: 0 0 0 0 transparent;
@@ -308,9 +338,12 @@
   --focus-ring: color-mix(in srgb, var(--ring) 45%, transparent);           /* a colour, as in the studio */
   --shadow-focus: 0 0 0 2px var(--focus-ring);
   --brand-gradient: linear-gradient(135deg, var(--brand-1), var(--brand-2));
-  --glass-elevation: inset 0 1px 0 var(--hi), inset 0 -14px 28px -22px var(--shade);   /* no outer shadow */
-  --glass-hover-ring: inset 0 0 0 1px color-mix(in srgb, var(--ring) 40%, transparent);   /* clickable glass, hovered */
-  --glass-rim: linear-gradient(170deg, var(--rim-a), var(--rim-b) 18%, transparent 42%, transparent 80%, var(--rim-c));
+  /* glass light: a top highlight, a softer left one, a faint bottom edge and inner shade, then a soft depth
+     shadow (ambient + contact). Glass only: the shadcn shadow scale below stays flat. */
+  --glass-inset: inset 0 1px 0 var(--hi), inset 0 -16px 28px -24px var(--shade);
+  --glass-elevation: var(--glass-inset), 0 0 0 1px var(--edge), var(--glass-depth);
+  --glass-hover-ring: inset 0 0 0 1px color-mix(in srgb, var(--ring) 32%, transparent);   /* clickable glass, hovered */
+  --glass-rim: linear-gradient(180deg, var(--rim-a), var(--rim-b) 10%, var(--rim-s) 40%, var(--rim-s) 75%, var(--rim-c));
   /* elevation: no drop shadows anywhere (owner, 2026-10-18). Every step is the same top highlight, so
      shadcn's shadow-sm … shadow-2xl and the raise steps all read as glass light, not depth. */
   --lift: inset 0 1px 0 var(--hi);
@@ -649,43 +682,63 @@
 
 /* ════════════════════════════════════════ recipes ════════════════════════════════════════ */
 
-/* Glass (Subtle). Three families, one look:
-     glass / tile / glass-editor  cards and panes: translucent fill + rim + top highlight. NO backdrop-filter:
-                                  the backdrop is already soft, so a second blur is invisible but costs frames.
-     glass-chrome / glass-overlay things that float over scrolling content: the same plus a real blur.
-   The rim and the hover specular live in one shared rule further down (`glass rim`), not per recipe.
-   Never put glass in glass: an inner box is a `well` (Tile does this for you). */
+/* Glass (Liquid, double). Three families, one material:
+     glass / tile / glass-editor  the outer pane: a nearly clear fill, a top sheen, a crisp 1px rim (brightest
+                                  on top), a razor hairline and a soft depth shadow. No backdrop-filter: the
+                                  backdrop is calm, so a blur is invisible and costs a re-blur per scroll frame.
+     glass-chrome / glass-overlay things that float over content: the same plus a real blur + saturation.
+   The rim lives in one shared rule further down (`glass rim`). Glass in glass becomes the inner layer: raised
+   glass with its own top highlight, a brighter fill and a small contact shadow (the same look as a `well`). */
 @utility glass {
   border: 0;
+  -webkit-backdrop-filter: blur(32px) saturate(190%);
+  backdrop-filter: var(--glass-blur, var(--chrome-blur));
   border-radius: var(--r-panel);
   background-color: var(--glass-fill);
+  background-image: var(--glass-sheen);
   box-shadow: var(--glass-elevation);
 }
 
 /* Tile: the card recipe. Clickable tiles lift the fill a step on hover. */
 @utility tile {
   border: 0;
+  -webkit-backdrop-filter: blur(32px) saturate(190%);
+  backdrop-filter: var(--glass-blur, var(--chrome-blur));
   border-radius: var(--r-panel);
   background-color: var(--glass-fill);
+  background-image: var(--glass-sheen);
   box-shadow: var(--glass-elevation);
   &:is(a, button, [role="button"]):hover { background-color: var(--glass-fill-hover); }
 }
 
-/* Editor panels (backend / workflows split views): a slightly thinner fill. */
+/* Editor panels (backend / workflows split views): a slightly denser fill. */
 @utility glass-editor {
   border: 0;
+  -webkit-backdrop-filter: blur(32px) saturate(190%);
+  backdrop-filter: var(--glass-blur, var(--chrome-blur));
   background-color: var(--glass-fill-editor);
+  background-image: var(--glass-sheen);
   box-shadow: var(--glass-elevation);
 }
 
-/* Clickable glass (Tile `interactive`, stat tiles, cards): on hover it lifts 2px, brightens and picks up a
-   faint ring-coloured edge; it presses on click. Only clickable glass reacts, so hover always means "you can
-   click this". Compositor-cheap: transform + one inset ring, no pointer tracking. */
+/* Clickable glass (Tile `interactive`, stat tiles, cards): on hover it lifts 2px on a short spring, brightens,
+   picks up a faint ring-coloured edge (the accent appears only on interaction) and a soft light spot that follows the pointer (--mx / --my, set by the one shared
+   listener in shared/lib/specular.ts). It presses on click. The spot fades with a registered --spec, and is
+   off on touch and under reduced motion. */
+@property --spec {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
 @utility glass-hover {
   cursor: pointer;
-  transition: background-color var(--d-fast) var(--ease-out), box-shadow var(--d-fast) var(--ease-out), transform var(--d-fast) var(--ease-out);
+  transition: background-color 160ms var(--ease-out), box-shadow 160ms var(--ease-out), transform 180ms var(--ease-spring), --spec var(--d-base) var(--ease-out);
   &:hover { background-color: var(--glass-fill-hover); box-shadow: var(--glass-elevation), var(--glass-hover-ring); transform: translateY(-2px); }
   &:active { transform: scale(.985); }
+  @media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+    background-image: radial-gradient(320px circle at var(--mx, 50%) var(--my, -40%), color-mix(in srgb, var(--spec-light) calc(var(--spec) * 100%), transparent), transparent 70%), var(--glass-sheen);
+    &:hover { --spec: 1; }
+  }
   @media (prefers-reduced-motion: reduce) { &:hover, &:active { transform: none; } }
 }
 
@@ -699,12 +752,12 @@
   &:hover { background-color: var(--primary); color: var(--primary-foreground); }
 }
 
-/* Chrome: the top bar, the sidebar, the editor navbar. The same glass as a card (fill, rim, top highlight)
-   plus a real blur, because content passes under it. */
+/* Chrome: the top bar, the sidebar, the editor navbar. A clear fill, a strong blur and saturation. */
 @utility glass-chrome {
   border: 0;
-  background-color: var(--glass-fill);
-  -webkit-backdrop-filter: var(--chrome-blur);
+  background-color: var(--chrome-fill);
+  background-image: var(--glass-sheen);
+  -webkit-backdrop-filter: blur(32px) saturate(190%);
   backdrop-filter: var(--chrome-blur);
   box-shadow: var(--glass-elevation);
 }
@@ -714,23 +767,25 @@
 @utility glass-strip {
   border: 0;
   background: var(--chrome-fill);
-  -webkit-backdrop-filter: var(--chrome-blur);
+  -webkit-backdrop-filter: blur(32px) saturate(190%);
   backdrop-filter: var(--chrome-blur);
   box-shadow: none;
 }
 
-/* Overlay: menus, ⌘K palette, popovers, toasts, sheets, dialogs. Denser glass + blur + rim, no drop shadow. */
+/* Overlay: menus, ⌘K palette, popovers, toasts, sheets, dialogs. The densest glass: the most blur and
+   saturation, the brightest rim, and a floating shadow. */
 @utility glass-overlay {
   border: 0;
-  border-radius: var(--r-panel);
-  background: var(--overlay-fill);
-  -webkit-backdrop-filter: var(--overlay-blur);
+  border-radius: var(--r-overlay);
+  background: var(--glass-sheen), var(--overlay-fill);
+  -webkit-backdrop-filter: blur(40px) saturate(200%);
   backdrop-filter: var(--overlay-blur);
   box-shadow: var(--overlay-shadow);
 }
 
 /* No backdrop-filter support, or the user asked for less transparency: solid fills, the rim stays. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass, .tile, .glass-editor { background: var(--tile); }
   .glass-chrome, .glass-strip { background: var(--canvas); }
   .glass-overlay { background: var(--popover); }
 }
@@ -741,9 +796,82 @@
   .glass-overlay { background: var(--popover); -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
 
+/* Continuous corners: where corner-shape is supported the corners become squircles (Apple's continuous
+   curve). A squircle reads tighter than a circle at the same radius, so the radii step up with it. */
+@supports (corner-shape: squircle) {
+  :root { --r-panel: 26px; --r-overlay: 20px; --r-well: 15px; }
+  .glass, .tile, .glass-editor, .glass-chrome, .glass-overlay, .well { corner-shape: squircle; }
+}
+
+/* The canvases (workflow editor, code map) keep the committed glass exactly (owner, 2026-10-18): while a
+   React Flow canvas is mounted, the glass tokens go back to their earlier values (a denser fill, a recessed
+   canvas well, no depth shadow, tighter round corners). Overlays portal into body, so they follow. */
+body:has(.react-flow) {
+  --glass-fill: rgb(255 255 255 / .58);
+  --glass-fill-hover: rgb(255 255 255 / .70);
+  --glass-fill-editor: rgb(255 255 255 / .62);
+  --glass-strong: rgb(255 255 255 / .78);
+  --glass-sheen: none;
+  --rim-a: rgb(255 255 255 / .75);
+  --rim-b: rgb(255 255 255 / .22);
+  --rim-c: rgb(120 140 210 / .22);
+  --hi: rgb(255 255 255 / .95);
+  --shade: rgb(40 60 130 / .12);
+  --well: rgb(255 255 255 / .42);
+  --chrome-fill: rgb(255 255 255 / .46);
+  --chrome-blur: blur(32px) saturate(190%);
+  --overlay-fill: rgb(255 255 255 / .78);
+  --overlay-blur: blur(26px) saturate(175%);
+  --overlay-shadow: inset 0 1px 0 var(--hi), inset 0 -14px 28px -22px var(--shade);
+  --glass-elevation: inset 0 1px 0 var(--hi), inset 0 -14px 28px -22px var(--shade);
+  --glass-rim: linear-gradient(170deg, var(--rim-a), var(--rim-b) 18%, transparent 42%, transparent 80%, var(--rim-c));
+  --inner-elevation: inset 0 1px 3px var(--shade), inset 0 -1px 0 var(--hi);
+  --inner-fill-hover: color-mix(in srgb, var(--foreground) 6%, var(--well));
+  --r-panel: 16px;
+  --r-overlay: 16px;
+  --r-well: 10px;
+  .glass, .tile, .glass-editor, .glass-chrome, .glass-overlay, .well { corner-shape: round; }
+}
+.dark body:has(.react-flow) {
+  --glass-fill: rgb(44 44 58 / .40);
+  --glass-fill-hover: rgb(54 54 70 / .48);
+  --glass-fill-editor: rgb(40 40 52 / .36);
+  --glass-strong: rgb(34 34 46 / .80);
+  --rim-a: rgb(255 255 255 / .30);
+  --rim-b: rgb(255 255 255 / .08);
+  --rim-c: rgb(255 255 255 / .10);
+  --hi: rgb(255 255 255 / .16);
+  --shade: rgb(0 0 0 / .40);
+  --well: rgb(0 0 0 / .35);
+  --chrome-fill: rgb(10 10 14 / .55);
+  --overlay-fill: rgb(34 34 46 / .80);
+}
+
+/* Toggle glass (owner, 2026-10-18): every glass surface, the editor included, (cards, panels, the sidebar, the top bar)
+   looks like the selected pill of the Projects/Templates/Knowledge toggle: a faint white tint, a bright top edge
+   and a hairline white rim, no frost blur (the backdrop is only lifted: saturate + brightness). The thumb's own
+   tokens drive it, so both modes follow the toggle. Overlays keep their own dense glass. */
+body:not(:has(.react-flow)), body:has(.react-flow) {
+  --glass-fill: var(--thumb-glass);
+  --glass-fill-hover: color-mix(in srgb, white 10%, var(--thumb-glass));
+  --glass-fill-editor: var(--thumb-glass);
+  --chrome-fill: var(--thumb-glass);
+  --chrome-blur: saturate(160%) brightness(1.06);
+  --glass-blur: saturate(160%) brightness(1.06);
+  --glass-sheen: none;
+  --glass-elevation: var(--thumb-glass-shadow);
+  --glass-rim: none;
+}
+/* The editor: the pill glass with the slightest blur (0.5px), so nodes under a panel soften while the 1px
+   canvas dot grid still shows through (any more blur smears the dots away). */
+body:has(.react-flow) {
+  --chrome-blur: blur(.5px) saturate(160%) brightness(1.06);
+  --glass-blur: blur(.5px) saturate(160%) brightness(1.06);
+}
+
 /* Glass rim, shared by every glass recipe. In `components` so a plain `absolute`/`fixed` utility (or
-   floating-ui's inline position) still wins over the `relative` here. The rim is a 1px masked gradient
-   (a soft top edge, clear sides, a faint bottom counter-rim): the edge without a border. */
+   floating-ui's inline position) still wins over the `relative` here. The rim is a 1px masked gradient: a
+   bright top-left edge, clear sides, a counter-rim bottom-right (light passing through the glass). */
 @layer components {
   :where(.glass, .tile, .glass-editor, .glass-chrome, .glass-overlay) { position: relative; }
   :where(.glass, .tile, .glass-editor, .glass-chrome, .glass-overlay)::after {
@@ -751,6 +879,7 @@
     position: absolute;
     inset: 0;
     border-radius: inherit;
+    corner-shape: inherit;
     padding: 1px;
     pointer-events: none;
     background: var(--glass-rim);
@@ -758,15 +887,17 @@
     -webkit-mask-composite: xor;
     mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
   }
-  /* Glass in glass becomes a well, automatically: the recipes read these tokens, so re-pointing them on the
-     nested box is enough (no per-component logic, and an explicit bg-* on the inner box still wins). */
+  /* Glass in glass becomes the inner layer, automatically: the recipes read these tokens, so re-pointing
+     them on the nested box is enough (no per-component logic; an explicit bg-* on the inner box still wins). */
   :where(.glass, .tile, .glass-editor, .glass-chrome, .glass-overlay) :where(.glass, .tile, .glass-editor) {
     --glass-fill: var(--well);
-    --glass-fill-hover: color-mix(in srgb, var(--foreground) 6%, var(--well));
+    --glass-fill-hover: var(--inner-fill-hover);
     --glass-fill-editor: var(--well);
-    --glass-elevation: inset 0 1px 3px var(--shade), inset 0 -1px 0 var(--hi);
+    --glass-sheen: none;
+    --glass-elevation: var(--inner-elevation);
     --glass-rim: none;
     --r-panel: var(--r-well);
+    --glass-blur: none;
   }
 }
 
@@ -781,13 +912,24 @@
   box-shadow: var(--sheet-ring);
 }
 
-/* Well: a recessed area inside a glass tile (tables, lists, code), or the glass a nested Tile becomes.
-   A darker fill, a soft inner shadow and a bottom highlight. Never a well in a well. */
+/* Well: the inner glass layer (tables, lists, code), and what a nested Tile becomes. Raised glass inside
+   the pane: a brighter fill, its own hairline top highlight and a small contact shadow, so the pane looks
+   like it holds light. Never a well in a well. */
 @utility well {
   border: 0;
   border-radius: var(--r-well);
   background: var(--well);
-  box-shadow: inset 0 1px 3px var(--shade), inset 0 -1px 0 var(--hi);
+  box-shadow: var(--inner-elevation);
+}
+
+/* Raised: the shared inner layer of the double glass, for small things sitting on a pane (chips, stat
+   pills, cards in a lane). Brighter fill, a 1px top highlight, a hairline ring, a tight contact shadow. No
+   radius, so it drops onto any shape. Recolour the ring with `--raised-tint` (e.g. a warning hairline);
+   it keeps its own look on canvas pages, where the well goes back to a recess. */
+@utility glass-raised {
+  border: 0;
+  background: var(--raised-fill);
+  box-shadow: var(--raised-hi), 0 0 0 1px var(--raised-tint, var(--raised-ring)), var(--raised-contact);
 }
 
 /* Recess (lean §4): controls that hold a value: seg tracks, chips, search, outline buttons. Fill only. */
@@ -890,7 +1032,8 @@
   .font-mono, code, pre, kbd.font-mono { font-feature-settings: var(--font-features-mono); }
 
   /* The backdrop: three soft light beams (::before, rotated a little so they run diagonally) and a vignette
-     (::after). Plain gradients, no filter, no animation: the browser rasterises them once and composites. */
+     (::after). Plain gradients, no filter, no animation: the browser rasterises them once and composites.
+     This is the landing page's and the canvases' (workflow editor, code map) sky, kept exactly. */
   body::before, body::after {
     content: '';
     position: fixed;
@@ -908,6 +1051,46 @@
   body::after {
     inset: 0;
     background: radial-gradient(120% 95% at 50% 38%, transparent 48%, var(--vignette));
+  }
+  /* Every other app page: a light, spacey sky: the editor's beams widened, plus two more hues (pink, teal) so
+     soft colour sits across the whole sheet. Light and airy, not saturated. */
+  body:not(:has([data-testid="landing-page"], [data-testid="projects-home"], .react-flow)) {
+    --sky-1: rgb(96 130 255 / .24);
+    --sky-2: rgb(56 189 248 / .22);
+    --sky-3: rgb(167 139 250 / .22);
+    --sky-4: rgb(244 114 182 / .14);
+    --sky-5: rgb(45 212 191 / .14);
+  }
+  .dark body:not(:has([data-testid="landing-page"], [data-testid="projects-home"], .react-flow)) {
+    --sky-1: rgb(120 110 255 / .18);
+    --sky-2: rgb(255 95 170 / .14);
+    --sky-3: rgb(40 210 200 / .15);
+    --sky-4: rgb(70 140 255 / .14);
+    --sky-5: rgb(190 100 255 / .13);
+  }
+  body:not(:has([data-testid="landing-page"], [data-testid="projects-home"], .react-flow))::before {
+    background:
+      radial-gradient(110% 34% at 38% 20%, var(--sky-1), transparent 72%),
+      radial-gradient(95% 30% at 84% 56%, var(--sky-2), transparent 72%),
+      radial-gradient(90% 50% at 44% 98%, var(--sky-3), transparent 72%),
+      radial-gradient(70% 34% at 8% 62%, var(--sky-4), transparent 72%),
+      radial-gradient(60% 30% at 92% 12%, var(--sky-5), transparent 72%);
+  }
+  /* The workflow editor (and other canvases): no backdrop gradient, just the plain canvas. */
+  body:has(.react-flow)::before, body:has(.react-flow)::after {
+    background: none;
+  }
+  /* Projects page only: a plain, light top-to-bottom gradient instead of the beams. */
+  body:has([data-testid="projects-home"])::before {
+    inset: 0;
+    transform: none;
+    background: linear-gradient(180deg, #b6c9f5 0%, #d3dff9 50%, #eef2fc 100%);
+  }
+  body:has([data-testid="projects-home"])::after {
+    background: none;
+  }
+  .dark body:has([data-testid="projects-home"])::before {
+    background: linear-gradient(180deg, #0c1127 0%, #080a17 45%, #050508 100%);
   }
   #root { position: relative; z-index: 1; }
 

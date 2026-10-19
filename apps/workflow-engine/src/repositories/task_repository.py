@@ -196,6 +196,15 @@ class TaskRepository:
         )
         return r.rowcount or 0
 
+    async def set_notify(self, task_id: str, outcome: dict[str, Any]) -> None:
+        """Record the approver email's outcome on the task (``snapshot.notify``; no column of its own)."""
+        await self._s.execute(
+            text("""UPDATE human_tasks SET snapshot = jsonb_set(snapshot, '{notify}', CAST(:n AS jsonb), true), updated_at = now()
+                    WHERE id = :id"""),
+            {"id": task_id, "n": json.dumps(outcome, default=str)},
+        )
+        await self._s.commit()
+
     async def set_resume_state(self, task_id: str, state: str, *, only_from: tuple[str, ...] | None = None) -> bool:
         sql = "UPDATE human_tasks SET resume_state = :s, updated_at = now() WHERE id = :id"
         params: dict[str, Any] = {"s": state, "id": task_id}

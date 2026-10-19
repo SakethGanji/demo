@@ -99,9 +99,9 @@ async def test_seed_global_writes_the_ontology_catalog_templates_and_patterns_an
     k = {n["key"] for n in sl.nodes.values()}
     assert len([x for x in k if x.startswith("concept:")]) == 24 and len([x for x in k if x.startswith("role:")]) == 8
     assert {"node:Approval", "node:Cron", "node:SendEmail", "ui:component:table", "tpl:refund-triage", "tpl:customer-notify"} <= k
-    assert len([x for x in k if x.startswith("tpl:")]) == 8  # the eight shipped templates
+    assert len([x for x in k if x.startswith("tpl:")]) == 9  # the nine shipped templates
     pats = [n for n in sl.of_kind("pattern") if n["source"] == "seed"]
-    assert len(pats) == 8 and all(p["validated_count"] == 1 and p["visibility"] == "org" for p in pats)
+    assert len(pats) == 9 and all(p["validated_count"] == 1 and p["visibility"] == "org" for p in pats)
     # the node types that alone realise a concept
     assert edge_set(sl, "node:Approval", "implements") >= {"concept:approval"}
     assert "concept:notification" in edge_set(sl, "node:SendEmail", "implements")

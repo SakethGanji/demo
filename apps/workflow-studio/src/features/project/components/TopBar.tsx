@@ -86,7 +86,7 @@ function scrollParent(el: HTMLElement | null): HTMLElement | null {
 }
 
 /**
- * The 48px bar itself. `absolute` (the workspace) sits on the canvas. `sticky` (Projects home, landing) is
+ * The 48px bar itself. `absolute` (the workspace) sits on the canvas, clear like Projects home's bar (no glass). `sticky` (Projects home, landing) is
  * flat at the top of the page and frosts — glass fill, blur, a hairline — once content scrolls under it.
  */
 export function TopBarFrame({
@@ -112,7 +112,7 @@ export function TopBarFrame({
       data-scrolled={position === 'sticky' ? (scrolled ? '' : undefined) : undefined}
       className={cn(
         'z-20 flex h-12 items-center gap-1.5 pr-3 pl-3.5',
-        position === 'absolute' ? 'absolute inset-x-0 top-0 glass-chrome' : 'sticky top-0 transition-[background-color,box-shadow,backdrop-filter] duration-(--d-base) ease-(--ease-out)',
+        position === 'absolute' ? 'absolute inset-x-0 top-0' : 'sticky top-0 transition-[background-color,box-shadow,backdrop-filter] duration-(--d-base) ease-(--ease-out)',
         position === 'sticky' && scrolled && 'glass-strip shadow-[inset_0_-1px_0_var(--hairline)]',
         className,
       )}

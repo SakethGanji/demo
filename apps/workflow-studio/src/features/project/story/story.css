@@ -1,0 +1,439 @@
+/*
+ * Overview story map (design `overview-mockup-v3.html`): icon plates with facts beside them, wires between
+ * lanes, a run river and the ship row. Surfaces are the shared recipes (`tile`, `well`, `raise`); this file only
+ * adds the story's own shapes. Motion is transform / opacity only and happens on state change (a run lands,
+ * the focus opens); the one loop is the ring on an object with a run in flight, like `animate-live-ring`.
+ * Paused while the tab is hidden (`data-paused`), off under reduced motion (`data-motion="off"` and the query).
+ */
+.story-map {
+  container: story-map / inline-size;
+}
+.story-dots {
+  background-image: radial-gradient(var(--grid-dot) 1px, transparent 1.2px);
+  background-size: 18px 18px;
+  mask-image: radial-gradient(ellipse at center, black 40%, transparent 85%);
+}
+.story-lanes {
+  display: grid;
+  column-gap: 48px;
+  row-gap: 28px;
+  align-items: start;
+}
+.story-absent {
+  justify-self: end;
+  width: 100%;
+  max-width: 200px;
+}
+/* lane and section labels: the sidebar's group label (12px, muted), with the kind icon in its hue */
+.story-lane-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  font-size: 12px;
+  font-weight: 560;
+  color: var(--muted-foreground);
+}
+.story-lane-head > svg,
+.story-lane-head > span:first-child {
+  transition: color var(--d-fast) var(--ease-out);
+}
+@container story-map (max-width: 1080px) {
+  .story-lanes {
+    column-gap: 28px;
+  }
+  /* five lanes at this width: the icon shrinks to a glyph so the names keep their room */
+  .story-lanes .story-obj {
+    gap: 8px;
+    padding: 9px 10px 9px 8px;
+  }
+  .story-lanes .story-plate {
+    width: 24px;
+    height: 24px;
+    border-radius: var(--r-chip);
+  }
+  .story-lanes .story-plate svg {
+    width: 14px;
+    height: 14px;
+  }
+}
+@container story-map (max-width: 760px) {
+  .story-lanes {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  .story-absent {
+    justify-self: stretch;
+    max-width: none;
+  }
+  .story-wires {
+    display: none;
+  }
+}
+
+.story-wire {
+  fill: none;
+  stroke: color-mix(in srgb, var(--foreground) 16%, transparent);
+  stroke-linecap: round;
+}
+
+/* Double glass: the map, river and ship row are near-clear outer panes (`tile`); what sits on them (objects,
+   chips, stat pills, env chips) is raised inner glass with its own 1px top highlight and a hairline (no
+   drop shadows). Depth comes from the two lit layers, not colour or borders. Local until a shared raised primitive
+   lands; swap `story-raised` for it. */
+.story-raised {
+  background: color-mix(in srgb, var(--glass-strong) 82%, transparent);
+  box-shadow:
+    inset 0 1px 0 var(--hi),
+    0 0 0 1px var(--hairline);
+}
+
+/* an object: a raised card that fills its lane; the hue shows only on hover, focus, selection and trouble */
+.story-obj {
+  --c: var(--primary);
+  border-radius: var(--r-well);
+  padding: 10px 12px 10px 10px;
+  transition:
+    transform var(--d-fast) var(--ease-out),
+    box-shadow var(--d-fast) var(--ease-out),
+    background-color var(--d-fast) var(--ease-out);
+}
+.story-obj:hover {
+  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--foreground) 3%, var(--glass-strong));
+  box-shadow:
+    inset 0 1px 0 var(--hi),
+    0 0 0 1px color-mix(in srgb, var(--foreground) 12%, transparent);
+}
+.story-obj[aria-pressed='true'] {
+  box-shadow:
+    inset 0 1px 0 var(--hi),
+    0 0 0 1.5px color-mix(in srgb, var(--c) 55%, transparent);
+}
+.story-obj[data-tone='bad'] {
+  box-shadow:
+    inset 0 1px 0 var(--hi),
+    0 0 0 1px color-mix(in srgb, var(--destructive) 35%, transparent);
+}
+.story-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+/* first load: objects settle in, a few ms apart */
+.story-in {
+  animation: story-in 180ms var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 28ms);
+}
+@keyframes story-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+/* "Add to this project": plain text rows on hairlines, a + on hover */
+.story-ghost {
+  border-top: 1px solid var(--hairline);
+  transition: color var(--d-fast) var(--ease-out);
+}
+.story-ghost:hover,
+.story-ghost:focus-visible {
+  color: var(--foreground);
+}
+.story-ghost svg {
+  transition: color var(--d-fast) var(--ease-out);
+}
+.story-ghost:hover svg:first-child {
+  color: var(--c);
+}
+.story-ghost:hover svg:last-child {
+  opacity: 1;
+}
+/* the kind icon: a small neutral plate; it takes the kind's hue when the object is hovered or picked */
+.story-plate {
+  --c: var(--primary);
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-ctl);
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--foreground) 5%, transparent);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  transition:
+    color var(--d-fast) var(--ease-out),
+    background-color var(--d-fast) var(--ease-out);
+}
+.story-plate svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.75;
+}
+.story-obj:hover .story-plate,
+.story-obj:focus-visible .story-plate,
+.story-obj[aria-pressed='true'] .story-plate,
+.story-obj[data-tone='bad'] .story-plate {
+  color: var(--c);
+  background: color-mix(in srgb, var(--c) 12%, transparent);
+}
+.story-ring,
+.story-spark {
+  position: absolute;
+  inset: -4px;
+  border-radius: calc(var(--r-ctl) + 4px);
+  box-shadow: inset 0 0 0 1.5px var(--c);
+  opacity: 0;
+  pointer-events: none;
+}
+.story-spark {
+  box-shadow: inset 0 0 0 2px var(--destructive);
+}
+/* a run in flight: the one loop (as `animate-live-ring`) */
+.story-obj[data-busy='true'] .story-ring {
+  animation: story-ring 1.4s var(--ease-out) infinite;
+}
+@keyframes story-ring {
+  0% {
+    opacity: 0.6;
+    transform: scale(0.9);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.25);
+  }
+}
+.story-lock {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--r-ctl);
+  color: var(--primary-foreground);
+  background: var(--warning);
+  box-shadow: 0 0 0 2px var(--card);
+}
+.story-lock svg {
+  width: 10px;
+  height: 10px;
+}
+
+/* the focus panel opens by growing its row (0fr → 1fr), its content fading up; switching objects only
+   cross-fades the content */
+.story-focus {
+  display: grid;
+  grid-template-rows: 1fr;
+  animation: story-open var(--d-slow) var(--ease-out);
+}
+.story-focus > * {
+  min-height: 0;
+}
+@keyframes story-open {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+.story-rise {
+  animation: story-rise var(--d-slow) var(--ease-out) both;
+}
+@keyframes story-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+/* the river: a dot per run on a 24h line */
+.story-stream {
+  position: relative;
+  height: 92px;
+  overflow: hidden;
+}
+.story-axis {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  background: var(--hairline);
+}
+.story-now {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--primary);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--primary) 60%, transparent);
+}
+.story-run {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  margin: -3.5px;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--primary) 65%, transparent);
+  transition: transform var(--d-fast) var(--ease-out);
+}
+.story-run:hover {
+  transform: scale(1.8);
+}
+.story-run[data-failed='true'] {
+  width: 9px;
+  height: 9px;
+  margin: -4.5px;
+  background: var(--destructive);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--destructive) 18%, transparent);
+}
+.story-fresh {
+  animation: story-drop 0.6s var(--ease-out) both;
+}
+@keyframes story-drop {
+  from {
+    opacity: 0;
+    transform: translateX(16px) scale(1.6);
+  }
+}
+
+/* the ship row: a light running dev → live */
+.story-beam {
+  position: relative;
+  flex: 0 1 140px;
+  min-width: 60px;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--hairline);
+}
+.story-beam::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: radial-gradient(ellipse at center, var(--hue-release), transparent 70%);
+  transform: translateX(-100%);
+  /* one sweep when the row appears (or the release changes): dev flows to live */
+  animation: story-slide 1.6s var(--ease-io) 0.3s both;
+}
+.story-beam[data-blocked='true']::before {
+  background: radial-gradient(ellipse at center, var(--warning), transparent 70%);
+}
+@keyframes story-slide {
+  to {
+    transform: translateX(250%);
+  }
+}
+@container story-ship (max-width: 620px) {
+  .story-beam {
+    display: none;
+  }
+}
+
+[data-story][data-paused='true'] *,
+[data-story][data-paused='true'] *::before {
+  animation-play-state: paused !important;
+}
+[data-story][data-motion='off'] *,
+[data-story][data-motion='off'] *::before {
+  animation: none !important;
+  transition: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-story] *,
+  [data-story] *::before {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+.story-ship {
+  container: story-ship / inline-size;
+}
+.story-focus[data-closing] {
+  animation: story-close var(--d-base) var(--ease-in) forwards;
+}
+@keyframes story-close {
+  to {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+
+/* a latest-run chip: raised inner glass, a step brighter on hover */
+.story-chip {
+  border-radius: var(--r-ctl);
+  transition:
+    background-color var(--d-fast) var(--ease-out),
+    box-shadow var(--d-fast) var(--ease-out);
+}
+.story-chip:hover {
+  background: color-mix(in srgb, var(--foreground) 4%, var(--glass-strong));
+  box-shadow:
+    inset 0 1px 0 var(--hi),
+    0 0 0 1px color-mix(in srgb, var(--primary) 35%, transparent),
+    0 2px 6px var(--shade);
+}
+
+/* the story head: avatar | name + health | actions, the sentence under the name; on a phone the sentence
+   takes the full width and the actions drop under it */
+.story-head {
+  --tok-hue: var(--primary);
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) auto;
+  grid-template-areas:
+    'av title act'
+    '. body body';
+  column-gap: 16px;
+  row-gap: 8px;
+  align-items: start;
+}
+@container bt (max-width: 860px) {
+  .story-head {
+    grid-template-columns: 46px minmax(0, 1fr);
+    grid-template-areas:
+      'av title'
+      '. body'
+      '. act';
+    row-gap: 10px;
+  }
+}
+@container bt (max-width: 560px) {
+  .story-head {
+    grid-template-areas:
+      'av title'
+      'body body'
+      'act act';
+  }
+}
+
+/* river stats: hairline separators between the numbers, no boxes */
+.story-stat {
+  padding-right: 22px;
+  margin-right: 22px;
+  border-right: 1px solid var(--hairline);
+}
+.story-stat:last-child {
+  border-right: 0;
+}
+/* a release blocked by missing secrets: the live chip says so with a warning hairline */
+.story-raised[data-blocked] {
+  box-shadow:
+    inset 0 1px 0 var(--hi),
+    0 0 0 1px color-mix(in srgb, var(--warning) 60%, transparent);
+}
+@container bt (max-width: 560px) {
+  .story-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px 0;
+  }
+  .story-stats .story-stat {
+    margin-right: 0;
+    border-right: 0;
+  }
+}

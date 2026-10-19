@@ -4,6 +4,9 @@ import { RouterProvider } from '@tanstack/react-router'
 import { QueryProvider } from './providers/QueryProvider'
 import '../index.css'
 import { router } from './routes'
+import { installSpecular } from '@/shared/lib/specular'
+
+installSpecular()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

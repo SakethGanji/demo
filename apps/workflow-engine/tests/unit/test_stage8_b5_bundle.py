@@ -50,8 +50,8 @@ EXPECTED = json.loads((BROKEN / "_expected.json").read_text())
 
 def test_the_starter_templates_validate_and_are_what_the_design_lists():
     catalog = load_catalog(SHIPPED, strict=True)
-    assert sorted(catalog) == ["aml-alert-triage", "card-dispute-intake", "customer-notify", "dataset-report-email", "kyc-review",
-                               "loan-precheck", "profile-dataset", "refund-triage"]
+    assert sorted(catalog) == ["aml-alert-triage", "card-dispute-intake", "customer-notify", "dataset-report-approval",
+                               "dataset-report-email", "kyc-review", "loan-precheck", "profile-dataset", "refund-triage"]
     for slug, lt in catalog.items():
         b = lt.bundle
         assert b.slug == slug and b.format == "wf-template/1" and parse_semver(b.version)
@@ -67,10 +67,10 @@ def test_the_starter_templates_validate_and_are_what_the_design_lists():
                 assert w.publish is False
     entries_with_approval = {s for s, lt in catalog.items() for w in lt.bundle.workflows
                              if w.role == "entry" and any(n["type"] == "Approval" for n in w.definition["nodes"])}
-    assert entries_with_approval == {"refund-triage", "kyc-review"}
+    assert entries_with_approval == {"refund-triage", "kyc-review", "dataset-report-approval"}
     subs = {s: sorted(w.key for w in lt.bundle.workflows if w.role == "subworkflow") for s, lt in catalog.items()}
-    assert subs == {"aml-alert-triage": ["score"], "card-dispute-intake": [], "customer-notify": ["notify"], "dataset-report-email": [],
-                    "kyc-review": ["screen"], "loan-precheck": [], "profile-dataset": [], "refund-triage": ["eligibility"]}
+    assert subs == {"aml-alert-triage": ["score"], "card-dispute-intake": [], "customer-notify": ["notify"],
+                    "dataset-report-approval": [], "dataset-report-email": [], "kyc-review": ["screen"], "loan-precheck": [], "profile-dataset": [], "refund-triage": ["eligibility"]}
     assert [r.slug for r in catalog["refund-triage"].bundle.requires.templates] == ["customer-notify"]
     assert [s.name for s in catalog["refund-triage"].bundle.requires.secrets] == ["REFUNDS_API_KEY"]
 

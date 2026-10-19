@@ -10,8 +10,8 @@ from .conftest import uniq
 
 pytestmark = pytest.mark.integration
 
-SLUGS = ["aml-alert-triage", "card-dispute-intake", "customer-notify", "dataset-report-email", "kyc-review", "loan-precheck",
-         "profile-dataset", "refund-triage"]
+SLUGS = ["aml-alert-triage", "card-dispute-intake", "customer-notify", "dataset-report-approval", "dataset-report-email",
+         "kyc-review", "loan-precheck", "profile-dataset", "refund-triage"]
 
 
 def new_project(api, allowlist=None) -> str:

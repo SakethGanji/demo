@@ -1,21 +1,14 @@
 /**
- * Overview: the 12-column bento (DESIGN §1; `design/overview.html`), or the first-run guide.
- * The page is transparent; every box is a glass `Tile`, text sits in `Well`s. The scroller is a size
- * container (`bt`), so the grid reflows to 6 columns on the sheet's width, not the viewport's.
+ * Overview: the project's story map (`story/`, design `overview-mockup-v3.html`), or the first-run guide.
+ * The page is transparent; the map and the ship row are glass, the story and the river sit on the sky.
+ * The scroller is a size container (`bt`), so the layout follows the sheet's width, not the viewport's.
  */
 import { useSearch } from '@tanstack/react-router'
 import { AlertTriangle } from 'lucide-react'
 import { useProjectCtx } from '../ProjectContext'
 import { useProjectSummary, useRoutes, useModules } from '../hooks/useProjectData'
 import { useSetup } from '../hooks/useSetup'
-import { ActivityTile } from '../overview/ActivityTile'
-import { BackendTile } from '../overview/BackendTile'
-import { BuildingBlocks } from '../overview/BuildingBlocks'
-import { HeroTile } from '../overview/HeroTile'
-import { RecentRunsTile } from '../overview/RecentRunsTile'
-import { ReleasesTile } from '../overview/ReleasesTile'
-import { SecretsTile } from '../overview/SecretsTile'
-import { StatTiles } from '../overview/StatTiles'
+import { MapSkeleton, StoryOverview } from '../story/components/StoryOverview'
 import { NextSteps } from './NextSteps'
 import { SetupGuide } from './SetupGuide'
 import { Button } from '@/shared/components/ui/button'
@@ -38,16 +31,16 @@ export function OverviewView() {
 function OverviewSkeleton() {
   return (
     <Page className="@container/bt" data-testid="overview-loading">
-      <div className="grid grid-cols-12 gap-4">
-        <Tile className="col-span-8 h-[445px] p-5">
-          <Skeleton className="mb-4 h-8 w-56" />
-          <Skeleton className="mb-3 h-10 w-full" />
-          <Skeleton className="h-[260px] w-full" />
-        </Tile>
-        <Tile className="col-span-4 h-[445px] p-5">
-          <Skeleton className="mb-4 h-6 w-32" />
-          <Skeleton className="h-16 w-40" />
-        </Tile>
+      <div className="flex flex-col gap-4">
+        <div className="flex items-start gap-4">
+          <Skeleton className="size-[46px] shrink-0 rounded-panel" />
+          <div className="min-w-0 flex-1">
+            <Skeleton className="mt-1.5 mb-4 h-7 w-56" />
+            <Skeleton className="mb-2.5 h-4 w-full max-w-[760px]" />
+            <Skeleton className="h-4 w-2/3 max-w-[520px]" />
+          </div>
+        </div>
+        <MapSkeleton />
       </div>
     </Page>
   )
@@ -76,23 +69,10 @@ function Overview() {
     )
   if (!summary.data || !routes.data || !modules.data) return <OverviewSkeleton />
 
-  const s = summary.data
-  const hasReleaseEnv = s.project.environments.some((e) => e.kind === 'release')
-
   return (
     <Page className="@container/bt" data-testid="overview-panel">
       <NextSteps className="mb-4" />
-      <div className="grid grid-cols-6 gap-4 @min-[981px]/bt:grid-cols-12">
-        <BuildingBlocks />
-        <HeroTile summary={s} />
-        <ActivityTile runs24h={s.health.runs_24h} />
-        <StatTiles failed24h={s.health.failed_24h} />
-        <BackendTile />
-        <RecentRunsTile />
-        <SecretsTile />
-        {hasReleaseEnv && <ReleasesTile summary={s} />}
-      </div>
+      <StoryOverview summary={summary.data} />
     </Page>
   )
 }
-

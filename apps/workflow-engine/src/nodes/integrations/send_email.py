@@ -163,6 +163,17 @@ async def send_email(
     if not cfg.smtp_host:
         return {**out, "sent": False, "message_id": None, "note": NOT_CONFIGURED_NOTE}
 
+    message_id = await deliver_email(recipients, subject, text, html, from_email=from_email)
+    return {**out, "sent": True, "message_id": message_id}
+
+
+async def deliver_email(
+    recipients: list[str], subject: str, text: str, html: str, from_email: str | None = None,
+) -> str:
+    """Send an already rendered email over the configured SMTP server (``WORKFLOW_SMTP_HOST`` must be set). Returns the
+    Message-ID; raises ``EmailSendError`` (the SMTP error text, never the password). Shared by SendEmail and the Approval
+    node's approver notification."""
+    cfg = _settings()
     sender = from_email or cfg.smtp_from
     msg = build_message(sender, recipients, subject, text, html)
     try:
@@ -171,7 +182,7 @@ async def send_email(
         raise EmailSendError(
             f"Couldn't send the email via {cfg.smtp_host}:{cfg.smtp_port}: {_smtp_error_text(e, cfg.smtp_password)}"
         ) from None
-    return {**out, "sent": True, "message_id": msg["Message-ID"]}
+    return msg["Message-ID"]
 
 
 from ...engine import shapes as sh
