@@ -23,7 +23,7 @@
   --background: #eef2fa;
   --sheet: transparent;                      /* the Linear content sheet: a frame only, so the glass inside it frosts the sky */
   --tile: #f3f6fc;                           /* solid tile: reduced-transparency fallback only */
-  --well: rgb(255 255 255 / .66);            /* the inner glass layer: tables, lists, code, nested tiles */
+  --well: rgb(255 255 255 / .34);            /* the inner glass layer: tables, lists, code, nested tiles (clearer, not milkier: depth comes from the shadow) */
   --recess: rgb(0 0 0 / .04);            /* inputs, seg tracks, outline buttons, chips */
   --raise: #ffffff;                          /* seg thumb, kbd on a recess */
   --card: #ffffff;
@@ -127,13 +127,15 @@
   --edge: rgb(16 24 56 / .07);                /* the razor hairline that defines a pane on a light ground */
   --hi: rgb(255 255 255 / .95);               /* inner top highlight */
   --shade: rgb(30 40 90 / .07);               /* inner bottom shade, recess shadow */
-  --glass-depth: 0 0 0 0 transparent;          /* no drop shadow: glass reads by its rim, not a cast shadow */
+  --glass-depth: 0 1px 2px rgb(16 24 56 / .05), 0 14px 34px -14px rgb(16 24 56 / .16);   /* contact + wide ambient: sells glass on a light ground */
+  --glass-diag-sheen: linear-gradient(155deg, rgb(255 255 255 / .30), rgb(255 255 255 / 0) 38%);   /* the top-left gleam */
+  --glass-bevel: inset 0 1px 1px rgb(255 255 255 / .85), inset 1px 0 0 rgb(255 255 255 / .35);   /* the cut edge catching light */
   --inner-fill-hover: rgb(255 255 255 / .82);
   /* raised inner glass (glass-raised, well, a nested tile): fill, top highlight, hairline ring, contact shadow */
-  --raised-fill: rgb(255 255 255 / .66);
+  --raised-fill: rgb(255 255 255 / .38);
   --raised-hi: inset 0 1px 0 rgb(255 255 255 / 1);
   --raised-ring: rgb(16 24 56 / .06);
-  --raised-contact: 0 0 0 0 transparent;
+  --raised-contact: 0 1px 2px rgb(16 24 56 / .06), 0 6px 14px -8px rgb(16 24 56 / .12);   /* a smaller shadow than the pane's: one level up */
   --inner-elevation: var(--raised-hi), 0 0 0 1px var(--raised-ring), var(--raised-contact);
   --spec-light: rgb(255 255 255 / .70);       /* the pointer spot on clickable glass */
   --chrome-fill: rgb(255 255 255 / .46);      /* top bar / sidebar */
@@ -307,12 +309,14 @@
   --edge: rgb(255 255 255 / .03);
   --hi: rgb(255 255 255 / .10);
   --shade: rgb(0 0 0 / .35);
-  --glass-depth: 0 0 0 0 transparent;
+  --glass-depth: 0 1px 2px rgb(0 0 0 / .40), 0 18px 40px -16px rgb(0 0 0 / .60);
+  --glass-diag-sheen: linear-gradient(155deg, rgb(255 255 255 / .06), rgb(255 255 255 / 0) 38%);
+  --glass-bevel: inset 0 1px 1px rgb(255 255 255 / .16), inset 1px 0 0 rgb(255 255 255 / .06);
   --inner-fill-hover: rgb(255 255 255 / .07);
   --raised-fill: rgb(255 255 255 / .045);
   --raised-hi: inset 0 1px 0 rgb(255 255 255 / .08);
   --raised-ring: rgb(255 255 255 / .045);
-  --raised-contact: 0 0 0 0 transparent;
+  --raised-contact: 0 1px 2px rgb(0 0 0 / .30), 0 6px 14px -8px rgb(0 0 0 / .45);
   --inner-elevation: var(--raised-hi), 0 0 0 1px var(--raised-ring), var(--raised-contact);
   --spec-light: rgb(255 255 255 / .09);
   --chrome-fill: rgb(10 10 14 / .55);
@@ -344,8 +348,8 @@
   --glass-elevation: var(--glass-inset), 0 0 0 1px var(--edge), var(--glass-depth);
   --glass-hover-ring: inset 0 0 0 1px color-mix(in srgb, var(--ring) 32%, transparent);   /* clickable glass, hovered */
   --glass-rim: linear-gradient(180deg, var(--rim-a), var(--rim-b) 10%, var(--rim-s) 40%, var(--rim-s) 75%, var(--rim-c));
-  /* elevation: no drop shadows anywhere (owner, 2026-10-18). Every step is the same top highlight, so
-     shadcn's shadow-sm … shadow-2xl and the raise steps all read as glass light, not depth. */
+  /* elevation: the shadcn shadow scale and raise steps stay flat (owner, 2026-10-18): every step is the same
+     top highlight. Glass panes are the exception: they carry --glass-depth (owner, 2026-10-19, glass review). */
   --lift: inset 0 1px 0 var(--hi);
   --raise-sm: var(--lift);
   --raise-md: var(--lift);
@@ -850,7 +854,10 @@ body:has(.react-flow) {
 /* Toggle glass (owner, 2026-10-18): every glass surface, the editor included, (cards, panels, the sidebar, the top bar)
    looks like the selected pill of the Projects/Templates/Knowledge toggle: a faint white tint, a bright top edge
    and a hairline white rim, no frost blur (the backdrop is only lifted: saturate + brightness). The thumb's own
-   tokens drive it, so both modes follow the toggle. Overlays keep their own dense glass. */
+   tokens drive it, so both modes follow the toggle. Overlays keep their own dense glass.
+   Glass review (owner, 2026-10-19): it read as matte acrylic, so the pane gets a bevel (a dark hairline outside,
+   the lit rim just inside it: bright top-left, faint sides, a counter-rim bottom-right), a diagonal gleam, and a
+   soft depth shadow; nested glass is clearer than before and sits one shadow step lower. */
 body:not(:has(.react-flow)), body:has(.react-flow) {
   --glass-fill: var(--thumb-glass);
   --glass-fill-hover: color-mix(in srgb, white 10%, var(--thumb-glass));
@@ -858,9 +865,9 @@ body:not(:has(.react-flow)), body:has(.react-flow) {
   --chrome-fill: var(--thumb-glass);
   --chrome-blur: saturate(160%) brightness(1.06);
   --glass-blur: saturate(160%) brightness(1.06);
-  --glass-sheen: none;
-  --glass-elevation: var(--thumb-glass-shadow);
-  --glass-rim: none;
+  --glass-sheen: var(--glass-diag-sheen);
+  --glass-elevation: var(--glass-bevel), var(--thumb-glass-shadow), 0 0 0 1px var(--edge), var(--glass-depth);
+  --glass-rim: linear-gradient(160deg, var(--rim-a), var(--rim-b) 16%, var(--rim-s) 42%, var(--rim-s) 76%, var(--rim-c));
 }
 /* The editor (owner, 2026-10-18): the navbar, side and bottom panels wear the canvas toolbar's glass (the
    overlay recipe: a dense tinted fill, a strong blur, an inset top highlight and soft inner shade). */
@@ -894,6 +901,31 @@ body:has([data-testid="landing-page"]) {
   --glass-elevation: inset 0 1px 0 rgb(255 255 255 / .12), inset 0 0 0 .5px rgb(255 255 255 / .08), 0 30px 70px -30px rgb(0 0 0 / .7);
   --glass-rim: linear-gradient(170deg, rgb(255 255 255 / .32), rgb(255 255 255 / .06) 22%, transparent 45%, transparent 78%, rgb(140 130 255 / .22));
   --well: rgb(0 0 0 / .26);
+}
+/* Every app page but the landing, the editor included (owner, 2026-10-19, glass review): real frosted glass.
+   Colour pools sit behind the content (see the backdrop below) and the panes blur them, so the glass has
+   something to bend; the inner well is nearly clear and reads by its own bevel and contact shadow, not by a
+   whiter fill. Supersedes the editor's near-clear 1.2px glass above. */
+body:not(:has([data-testid="landing-page"])) {
+  --glass-fill-editor: rgb(255 255 255 / .18);
+  --chrome-fill: rgb(255 255 255 / .20);
+  --glass-elevation: var(--glass-bevel), var(--thumb-glass-shadow), 0 0 0 1px var(--edge), var(--glass-depth);
+  --glass-fill: rgb(255 255 255 / .18);
+  --glass-fill-hover: rgb(255 255 255 / .26);
+  --glass-blur: blur(22px) saturate(180%);
+  --chrome-blur: blur(22px) saturate(180%);
+  --well: rgb(255 255 255 / .14);
+  --raised-fill: rgb(255 255 255 / .22);
+  --inner-elevation: inset 0 1px 1px rgb(255 255 255 / .75), inset 0 0 0 1px rgb(255 255 255 / .30), 0 0 0 1px var(--edge), var(--raised-contact);
+}
+.dark body:not(:has([data-testid="landing-page"])) {
+  --glass-fill-editor: rgb(18 20 34 / .38);
+  --chrome-fill: rgb(14 16 28 / .42);
+  --glass-fill: rgb(18 20 34 / .38);
+  --glass-fill-hover: rgb(28 30 48 / .46);
+  --well: rgb(255 255 255 / .03);
+  --raised-fill: rgb(255 255 255 / .05);
+  --inner-elevation: inset 0 1px 1px rgb(255 255 255 / .12), inset 0 0 0 1px rgb(255 255 255 / .05), var(--raised-contact);
 }
 /* the hero canvas's dot grid */
 .landing-dots {
@@ -1211,17 +1243,28 @@ body:has([data-testid="landing-page"]) {
   body:has(.react-flow)::before, body:has(.react-flow)::after {
     background: none;
   }
-  /* Projects page only: a plain, light top-to-bottom gradient instead of the beams. */
-  body:has([data-testid="projects-home"])::before {
+  /* Every app page but the landing (the editor too): a light top-to-bottom gradient with soft colour pools,
+     for the frosted glass to bend (owner, 2026-10-19). */
+  body:not(:has([data-testid="landing-page"]))::before {
     inset: 0;
     transform: none;
-    background: linear-gradient(180deg, #b6c9f5 0%, #d3dff9 50%, #eef2fc 100%);
+    background:
+      radial-gradient(34% 30% at 16% 26%, rgb(99 102 241 / .34), transparent 70%),
+      radial-gradient(30% 28% at 84% 16%, rgb(56 189 248 / .40), transparent 70%),
+      radial-gradient(38% 34% at 66% 64%, rgb(167 139 250 / .34), transparent 70%),
+      radial-gradient(32% 30% at 20% 86%, rgb(244 114 182 / .24), transparent 70%),
+      linear-gradient(180deg, #b6c9f5 0%, #d3dff9 50%, #eef2fc 100%);
   }
-  body:has([data-testid="projects-home"])::after {
+  body:not(:has([data-testid="landing-page"]))::after {
     background: none;
   }
-  .dark body:has([data-testid="projects-home"])::before {
-    background: linear-gradient(180deg, #0c1127 0%, #080a17 45%, #050508 100%);
+  .dark body:not(:has([data-testid="landing-page"]))::before {
+    background:
+      radial-gradient(34% 30% at 16% 26%, rgb(99 102 241 / .22), transparent 70%),
+      radial-gradient(30% 28% at 84% 16%, rgb(56 189 248 / .16), transparent 70%),
+      radial-gradient(38% 34% at 66% 64%, rgb(167 139 250 / .20), transparent 70%),
+      radial-gradient(32% 30% at 20% 86%, rgb(244 114 182 / .12), transparent 70%),
+      linear-gradient(180deg, #0c1127 0%, #080a17 45%, #050508 100%);
   }
   #root { position: relative; z-index: 1; }
 
