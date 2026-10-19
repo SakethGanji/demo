@@ -862,12 +862,17 @@ body:not(:has(.react-flow)), body:has(.react-flow) {
   --glass-elevation: var(--thumb-glass-shadow);
   --glass-rim: none;
 }
-/* The editor: the pill glass with the slightest blur (0.5px), so nodes under a panel soften while the 1px
-   canvas dot grid still shows through (any more blur smears the dots away). */
-body:has(.react-flow) {
-  --chrome-blur: blur(.5px) saturate(160%) brightness(1.06);
-  --glass-blur: blur(.5px) saturate(160%) brightness(1.06);
+/* The editor (owner, 2026-10-18): the navbar, side and bottom panels wear the canvas toolbar's glass (the
+   overlay recipe: a dense tinted fill, a strong blur, an inset top highlight and soft inner shade). */
+body:has(.react-flow), .dark body:has(.react-flow) {
+  --chrome-fill: var(--overlay-fill);
+  --glass-fill: var(--overlay-fill);
+  --chrome-blur: var(--overlay-blur);
+  --glass-blur: var(--overlay-blur);
+  --glass-elevation: var(--overlay-shadow);
 }
+body:has(.react-flow) { --overlay-fill: rgb(255 255 255 / .30); --overlay-blur: blur(1.2px) saturate(160%); }
+.dark body:has(.react-flow) { --overlay-fill: rgb(34 34 46 / .35); --overlay-blur: blur(1.2px) saturate(160%); }
 
 /* Glass rim, shared by every glass recipe. In `components` so a plain `absolute`/`fixed` utility (or
    floating-ui's inline position) still wins over the `relative` here. The rim is a 1px masked gradient: a
