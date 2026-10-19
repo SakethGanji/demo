@@ -56,7 +56,7 @@ class DataTableNode(BaseNode):
         """Declared from the table's columns when the checker supplies them, else UNKNOWN.
 
         ``lookups["table_columns"]`` maps table name -> list of column dicts ``{name, type, required?}``
-        (the ``DataTableModel.columns`` format). A row item is ``{id: integer, <column>: ...}``; ``delete`` yields
+        (the ``DataTableModel.columns`` format). A row item is ``{id: integer, created_at, updated_at: date-time string, <column>: ...}``; ``delete`` yields
         ``{id, deleted: boolean}``. The ``table`` param must be a literal name (an expression -> UNKNOWN).
         """
         table = (params or {}).get("table")
@@ -67,8 +67,10 @@ class DataTableNode(BaseNode):
             shape = sh.object_of({"id": sh.scalar("integer", "declared"), "deleted": sh.scalar("boolean", "declared")},
                                  ["id", "deleted"], "declared")
             return sh.make_contract(inputs, {"main": shape})
-        props = {"id": sh.scalar("integer", "declared")}
-        required = ["id"]
+        props = {"id": sh.scalar("integer", "declared"),
+                 "created_at": sh.scalar("string", "declared", format="date-time"),
+                 "updated_at": sh.scalar("string", "declared", format="date-time")}
+        required = ["id", "created_at", "updated_at"]
         for col in columns:
             if not isinstance(col, dict) or not col.get("name"):
                 continue
@@ -100,7 +102,9 @@ class DataTableNode(BaseNode):
         project_id = context.project_id or "proj_default"
 
         def flat(r) -> dict[str, Any]:
-            return {"id": r.id, **(r.data or {})}
+            # system columns first so a data key can never shadow them
+            return {**(r.data or {}), "id": r.id, "created_at": r.created_at.isoformat(),
+                    "updated_at": r.updated_at.isoformat()}
 
         try:
             async with async_session_factory() as session:
@@ -117,7 +121,8 @@ class DataTableNode(BaseNode):
                     out = [flat(await svc.get_row(t, int(p.get("rowId"))))]
                 elif op == "list":
                     res = await svc.list_rows(t, filter=p.get("filter"), sort=p.get("sort"), limit=int(p.get("limit") or 50))
-                    out = [{"id": r["id"], **r["data"]} for r in res["rows"]]
+                    out = [{**(r["data"] or {}), "id": r["id"], "created_at": r["created_at"], "updated_at": r["updated_at"]}
+                           for r in res["rows"]]
                 elif op == "update":
                     out = [flat(await svc.update_row(t, int(p.get("rowId")), p.get("data") or {}, merge=True))]
                 elif op == "delete":

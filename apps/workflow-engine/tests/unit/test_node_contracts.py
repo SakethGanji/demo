@@ -254,8 +254,9 @@ COLS = {"orders": [{"name": "email", "type": "string", "required": True}, {"name
 def test_data_table_read_from_table_columns():
     c = node_contract(NodeDefinition(name="t", type="DataTable", parameters={"table": "orders"}), inp(a=S), table_columns=COLS)
     o = c["outputs"]["main"]
-    assert props(o) == {"id", "email", "total", "at", "meta"} and o["x-source"] == "declared"
-    assert o["properties"]["id"]["type"] == "integer" and o["required"] == ["id", "email"]
+    assert props(o) == {"id", "created_at", "updated_at", "email", "total", "at", "meta"} and o["x-source"] == "declared"
+    assert o["properties"]["id"]["type"] == "integer" and o["required"] == ["id", "created_at", "updated_at", "email"]
+    assert o["properties"]["created_at"]["format"] == "date-time"
     assert o["properties"]["at"]["format"] == "date-time" and o["properties"]["meta"]["type"] == "unknown"
     assert lookup(o, ["nope"]) is None
 

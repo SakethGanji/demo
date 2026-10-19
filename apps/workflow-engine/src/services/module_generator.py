@@ -130,6 +130,13 @@ RULES = """You write one Python backend module for a studio project. Reply by ca
   transform a secret (.upper(), slicing, hashing, encoding).
 - Tables: studio.db.table("<literal name>"). Declare in `tables` every table your code uses that is not in the
   project's table list.
+- Rows come back as {id, created_at, updated_at, <columns>}. id, created_at and updated_at are managed by the table:
+  read them, but never put them in data you insert, update or upsert. Write only the table's listed columns
+  (`*` = required on insert); an unknown column is rejected with row_invalid.
+- table.get(id) returns None when the row does not exist (`if row is None: raise HTTPError(404, ...)`).
+- There are no transactions: each table call commits on its own. Read and validate everything (lookups, stock,
+  required fields) before the first write, then write in an order where a later failure leaves no half-done state
+  (e.g. insert the order first, then decrement stock; if a later write fails, undo the earlier ones before re-raising).
 - Call integrations only through studio.nodes.<function>(...) (listed below). No file or network access otherwise.
 - Every route handler takes exactly one argument, `req`: `def get_order(req):`. Path parameters are read from
   `req.params["id"]` (never as extra function arguments), the JSON body from `req.json()`, and query values from `req.query`.
@@ -274,6 +281,51 @@ def scan_usage(source: str) -> dict[str, Any]:
     return {"tables": tables, "secrets": secrets, "dynamic_tables": dyn_tables, "dynamic_secrets": dyn_secrets}
 
 
+SYSTEM_COLUMNS = ("id", "created_at", "updated_at")
+_WRITE_ARG = {"insert": 0, "update": 1, "upsert": 1}  # positional index of the row data
+
+
+def scan_writes(source: str) -> list[dict[str, Any]]:
+    """Literal keys written to a literal table: ``[{table, column, line}]``.
+
+    Catches ``studio.db.table("t").insert({...})`` and ``x = studio.db.table("t")`` then ``x.update(id, {...})``
+    (also ``data=``, and a list of dicts on insert). Anything not written as a literal is skipped, never guessed."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []
+
+    def table_of(node: ast.AST, bound: dict[str, str]) -> str | None:
+        if isinstance(node, ast.Call) and _attr_chain(node.func) in ("studio.db.table", "db.table") and node.args \
+                and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+            return node.args[0].value
+        if isinstance(node, ast.Name):
+            return bound.get(node.id)
+        return None
+
+    bound: dict[str, str] = {}
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name):
+            t = table_of(n.value, {})
+            if t:
+                bound[n.targets[0].id] = t
+    out: list[dict[str, Any]] = []
+    for n in ast.walk(tree):
+        if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in _WRITE_ARG):
+            continue
+        table = table_of(n.func.value, bound)
+        if table is None:
+            continue
+        i = _WRITE_ARG[n.func.attr]
+        data = n.args[i] if len(n.args) > i else next((k.value for k in n.keywords if k.arg == "data"), None)
+        dicts = data.elts if isinstance(data, ast.List) else [data]
+        for d in dicts:
+            if isinstance(d, ast.Dict):
+                out += [{"table": table, "column": k.value, "line": n.lineno}
+                        for k in d.keys if isinstance(k, ast.Constant) and isinstance(k.value, str)]
+    return out
+
+
 SDK_NAMES = {"api": "from studio import api", "studio": "import studio",
              "Response": "from studio import Response", "HTTPError": "from studio import HTTPError"}
 
@@ -402,6 +454,21 @@ async def analyse(session: Any, project: ProjectModel, *, source: str, module_id
         tables.append({"name": name, "exists": exists, "columns": cols, "lines": usage["tables"].get(name, [])})
         if not exists and cols is None:
             problems.append({"code": "missing_table", "line": None, "name": name, "message": "declare it in tables"})
+
+    seen: set[tuple[str, str]] = set()
+    for w in scan_writes(source):
+        cols = next((t["columns"] for t in tables if t["name"] == w["table"]), None)
+        key = (w["table"], w["column"])
+        if cols is None or key in seen:
+            continue
+        seen.add(key)
+        if w["column"] in SYSTEM_COLUMNS:
+            problems.append({"code": "system_column", "line": w["line"], "name": w["table"],
+                             "message": f"'{w['column']}' is managed by table '{w['table']}'; don't write it"})
+        elif w["column"] not in {c["name"] for c in cols}:
+            problems.append({"code": "unknown_column", "line": w["line"], "name": w["table"],
+                             "message": f"table '{w['table']}' has no column '{w['column']}' "
+                                        f"(columns: {', '.join(c['name'] for c in cols) or 'none'})"})
 
     envs = facts["environments"]
     secrets = []
