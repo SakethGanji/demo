@@ -162,6 +162,21 @@ export const easeInOutCubic = (t: number) => {
   return u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2
 }
 
+/** Fast start, soft landing: for camera flights and zooms. */
+export const easeOutQuart = (t: number) => {
+  const u = Math.min(1, Math.max(0, t))
+  return 1 - Math.pow(1 - u, 4)
+}
+
+/**
+ * Frame-rate-independent exponential approach of `cur` toward `target` at `rate` per second; snaps once within
+ * 0.001 so callers can tell when it has settled.
+ */
+export function approach(cur: number, target: number, rate: number, dt: number): number {
+  const next = target + (cur - target) * Math.exp(-rate * Math.max(0, dt))
+  return Math.abs(next - target) < 0.001 ? target : next
+}
+
 /** `var(--viz-1)` -> `--viz-1`; anything else -> null. */
 export function cssVarName(expr: string): string | null {
   const m = /^var\((--[\w-]+)\)$/.exec(expr.trim())

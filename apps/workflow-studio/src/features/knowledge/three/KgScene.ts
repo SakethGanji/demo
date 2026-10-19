@@ -3,13 +3,14 @@
  * React wrapper (`Graph3D.tsx`) feeds it the model, the settled 3D layout, what is visible and what is lit, and it
  * paints. Only this folder imports three.js, and only through a lazy import, so none of it is in the main bundle.
  *
- *   nodes      one InstancedMesh per shape (sphere, cube, octahedron …), emissive in the kind colour, sized by degree
- *   halos      one Points cloud of soft glows behind the nodes (the project colour on the team page)
- *   links      two LineSegments: solid, and dashed for tentative links (learned, or touching a proposed node)
- *   particles  one Points cloud of dots flowing along links, coloured by relation, capped
- *   labels     sprite text in a second scene drawn after bloom, for the hovered, selected, lit and near nodes
- *   sky        a seeded starfield shell plus linear fog in the well's own colour
- *   bloom      UnrealBloomPass in the dark theme (on a light background bloom only washes out, so it is off there)
+ *   nodes      one InstancedMesh per shape (sphere, cube, octahedron …), satin-matte in the kind colour with a thin
+ *              fresnel rim for a crisp silhouette, sized by degree; hover and selection ease the size up
+ *   halos      one Points cloud of soft discs, drawn only where they mean something: the focused node, and the
+ *              project colour on the team page. No bloom, no additive blending, so nothing turns to haze
+ *   links      two hairline LineSegments: solid, and dashed for tentative links (learned, or touching a proposed node)
+ *   particles  one Points cloud of small crisp dots flowing along links, coloured by relation, capped
+ *   labels     sprite text in a second scene drawn on top, for the hovered, selected, lit and near nodes
+ *   sky        a faint seeded starfield in the dark theme only, plus a gentle linear fog in the well's colour for depth
  *
  * Every colour is a design token read at runtime (`Palette`) and re-read when the theme class flips. Rendering runs
  * on requestAnimationFrame only while the tab is visible and the canvas on screen, and only redraws when something
@@ -18,13 +19,9 @@
  */
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
-import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import type { Emphasis, GraphModel, Visible } from '../lib/graph'
 import {
-  REL_COLORS, SHAPE3D_ORDER, easeInOutCubic, fitDistance, isTentative, particlePlan, pickLabels, relColor, shapeOf,
+  REL_COLORS, SHAPE3D_ORDER, approach, easeInOutCubic, easeOutQuart, fitDistance, isTentative, particlePlan, pickLabels, relColor, shapeOf,
   type ParticleSlot, type Shape3D,
 } from '../lib/graph3d'
 import { KIND_ORDER, KIND_STYLE, kindGroup } from '../lib/kinds'
@@ -46,9 +43,13 @@ const LABEL_CACHE = 90
 const IDLE_MS = 12_000
 const FIRST_GATHER_MS = 1400
 const RELAYOUT_MS = 900
-const FLY_MS = 1000
-const STARS = 1400
+const FLY_MS = 1100
+const STARS = 700
 const CLICK_PX = 6
+/** how much bigger a hovered or selected node grows (eased, not snapped) */
+const FOCUS_GROW = 0.22
+/** hover easing rate: ~1/e of the gap closes every 1/HOVER_RATE s */
+const HOVER_RATE = 14
 
 /** visual-weight correction so every shape reads about as big as a sphere of the node's radius */
 const SHAPE_SCALE: Record<Shape3D, number> = {
@@ -121,11 +122,8 @@ export class KgScene {
   private labelScene = new THREE.Scene()
   private camera = new THREE.PerspectiveCamera(FOV, 1, 1, 40_000)
   private controls: OrbitControls
-  private composer: EffectComposer
-  private bloom: UnrealBloomPass
-  private output: OutputPass
-  private renderPass: RenderPass
   private ambient = new THREE.AmbientLight(undefined, 0.7)
+  private hemi = new THREE.HemisphereLight(undefined, undefined, 0.5)
   private key = new THREE.DirectionalLight(undefined, 1.8)
   private fog = new THREE.Fog(0, 1, 2)
 
@@ -133,7 +131,11 @@ export class KgScene {
   private geos = new Map<Shape3D, THREE.BufferGeometry>()
   private matSmooth: THREE.MeshStandardMaterial
   private matFlat: THREE.MeshStandardMaterial
-  private glow = { value: 0.5 }
+  private glow = { value: 0.1 }
+  private rim = { value: 0.3 }
+  private rimLift = { value: 0.4 }
+  /** node id -> eased focus amount (0..1); only nodes that are or were recently focused are in here */
+  private focusAmt = new Map<string, number>()
   private meshes = new Map<Shape3D, THREE.InstancedMesh>()
   /** shape -> instance index -> node id (visible ones first; `mesh.count` = how many are visible) */
   private slots = new Map<Shape3D, string[]>()
@@ -224,7 +226,7 @@ export class KgScene {
     host.appendChild(canvas)
 
     this.scene.fog = this.fog
-    this.scene.add(this.ambient)
+    this.scene.add(this.ambient, this.hemi)
     this.camera.add(this.key)
     this.key.position.set(0.4, 0.8, 0.2)
     this.scene.add(this.camera)
@@ -232,10 +234,11 @@ export class KgScene {
 
     this.controls = new OrbitControls(this.camera, canvas)
     this.controls.enableDamping = true
-    this.controls.dampingFactor = 0.08
-    this.controls.rotateSpeed = 0.6
-    this.controls.zoomSpeed = 0.9
-    this.controls.autoRotateSpeed = 0.35
+    this.controls.dampingFactor = 0.055
+    this.controls.rotateSpeed = 0.5
+    this.controls.zoomSpeed = 0.75
+    this.controls.panSpeed = 0.8
+    this.controls.autoRotateSpeed = 0.22
     this.controls.minDistance = 12
     this.controls.maxDistance = 14_000
     const onStart = () => {
@@ -253,14 +256,6 @@ export class KgScene {
       this.controls.removeEventListener('start', onStart)
       this.controls.removeEventListener('change', onChange)
     })
-
-    this.composer = new EffectComposer(this.renderer)
-    this.renderPass = new RenderPass(this.scene, this.camera)
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.85, 0.55, 0.14)
-    this.output = new OutputPass()
-    this.composer.addPass(this.renderPass)
-    this.composer.addPass(this.bloom)
-    this.composer.addPass(this.output)
 
     // node geometries, normalised to about radius 1
     const capsule = new THREE.CapsuleGeometry(0.62, 0.9, 6, 14)
@@ -282,18 +277,18 @@ export class KgScene {
     this.matSmooth = this.nodeMaterial(false)
     this.matFlat = this.nodeMaterial(true)
 
-    this.halos = this.pointCloud(0, { atten: true, core: 0 })
+    this.halos = this.pointCloud(0, { atten: true, core: 0.2 })
     this.halos.points.renderOrder = -1
     this.scene.add(this.halos.points)
-    this.particles = this.pointCloud(PARTICLE_CAP, { atten: true, core: 0.65 })
+    this.particles = this.pointCloud(PARTICLE_CAP, { atten: true, core: 0.9 })
     this.scene.add(this.particles.points)
-    this.stars = this.pointCloud(STARS, { atten: false, core: 0.4 })
+    this.stars = this.pointCloud(STARS, { atten: false, core: 0.7 })
     this.stars.points.renderOrder = -2
     this.scene.add(this.stars.points)
     this.seedStars()
 
     this.ring = new THREE.Mesh(
-      new THREE.RingGeometry(1.5, 1.68, 64),
+      new THREE.RingGeometry(1.42, 1.5, 96),
       new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false }),
     )
     this.ring.visible = false
@@ -301,11 +296,11 @@ export class KgScene {
 
     this.solid = new THREE.LineSegments(
       new THREE.BufferGeometry(),
-      new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.85, depthWrite: false }),
+      new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.7, depthWrite: false }),
     )
     this.dashed = new THREE.LineSegments(
       new THREE.BufferGeometry(),
-      new THREE.LineDashedMaterial({ vertexColors: true, transparent: true, opacity: 0.7, dashSize: 3, gapSize: 3.5, depthWrite: false }),
+      new THREE.LineDashedMaterial({ vertexColors: true, transparent: true, opacity: 0.55, dashSize: 2.5, gapSize: 4, depthWrite: false }),
     )
     this.solid.frustumCulled = false
     this.dashed.frustumCulled = false
@@ -341,8 +336,9 @@ export class KgScene {
     }
     const sphere = boundingSphere(final)
     if (sphere) {
-      this.fog.near = sphere.r * 1.4
-      this.fog.far = sphere.r * 5.5 + 400
+      // gentle aerial perspective: the far side fades a little toward the well, never into murk
+      this.fog.near = sphere.r * 2
+      this.fog.far = sphere.r * 9 + 800
     }
     if (layoutKey !== this.layoutKey) {
       this.layoutKey = layoutKey
@@ -458,10 +454,7 @@ export class KgScene {
     this.dashed.material.dispose()
     for (const l of this.labels.values()) this.freeLabel(l)
     this.labels.clear()
-    this.bloom.dispose()
-    this.output.dispose()
-    this.renderPass.dispose()
-    this.composer.dispose()
+    this.focusAmt.clear()
     this.scene.clear()
     this.labelScene.clear()
     this.renderer.dispose()
@@ -474,12 +467,21 @@ export class KgScene {
   // ── build ──────────────────────────────────────────────────────────────────────────────────────
 
   private nodeMaterial(flat: boolean): THREE.MeshStandardMaterial {
-    const mat = new THREE.MeshStandardMaterial({ roughness: 0.38, metalness: 0.12, flatShading: flat })
+    // satin-matte: no metal, soft speculars, so the kind colour reads clean in both themes
+    const mat = new THREE.MeshStandardMaterial({ roughness: 0.55, metalness: 0, flatShading: flat })
     mat.onBeforeCompile = (sh) => {
       sh.uniforms.uGlow = this.glow
-      sh.fragmentShader = 'uniform float uGlow;\n' + sh.fragmentShader.replace(
+      sh.uniforms.uRim = this.rim
+      sh.uniforms.uRimLift = this.rimLift
+      // a faint self-light so the dark side never goes muddy, and a thin fresnel rim (kind colour lifted toward
+      // white by uRimLift) that gives each node a crisp edge instead of a halo
+      sh.fragmentShader = 'uniform float uGlow;\nuniform float uRim;\nuniform float uRimLift;\n' + sh.fragmentShader.replace(
         '#include <emissivemap_fragment>',
-        '#include <emissivemap_fragment>\n  totalEmissiveRadiance += diffuseColor.rgb * uGlow;',
+        [
+          '#include <emissivemap_fragment>',
+          '  float kgRim = pow(1.0 - clamp(abs(dot(normalize(normal), normalize(vViewPosition))), 0.0, 1.0), 3.0);',
+          '  totalEmissiveRadiance += diffuseColor.rgb * uGlow + mix(diffuseColor.rgb, vec3(1.0), uRimLift) * kgRim * uRim;',
+        ].join('\n'),
       )
     }
     return mat
@@ -610,9 +612,9 @@ export class KgScene {
       const s = Math.sqrt(1 - u * u)
       const R = 9000 + rand() * 9000
       pc.pos.set([s * Math.cos(a) * R, s * Math.sin(a) * R, u * R], i * 3)
-      // power-law sizes: mostly pinpricks, a rare bright star
-      pc.size[i] = 0.9 + Math.pow(rand(), 6) * 3.6
-      pc.alpha[i] = 0.25 + rand() * 0.6
+      // power-law sizes: mostly faint pinpricks, a rare slightly brighter one
+      pc.size[i] = 0.8 + Math.pow(rand(), 6) * 1.6
+      pc.alpha[i] = 0.08 + rand() * 0.22
     }
     pc.geo.setDrawRange(0, STARS)
     pc.geo.attributes.position.needsUpdate = true
@@ -637,16 +639,22 @@ export class KgScene {
     this.scene.background = this.bg
     this.fog.color.copy(this.bg)
     this.renderer.setClearColor(this.bg, 1)
-    this.bloom.enabled = this.dark
-    this.glow.value = this.dark ? 0.55 : 0.12
-    this.ambient.intensity = this.dark ? 0.6 : 1.1
-    this.key.intensity = this.dark ? 1.6 : 1.9
+    // light and even: a soft sky/ground fill for depth, one key light from the camera's upper left, a hint of
+    // self-light and a thin rim; nothing that blooms
+    this.glow.value = this.dark ? 0.1 : 0.02
+    this.rim.value = this.dark ? 0.35 : 0.18
+    this.rimLift.value = this.dark ? 0.45 : 0.6
+    this.ambient.intensity = this.dark ? 0.55 : 0.95
+    this.hemi.color.copy(this.fg).lerp(this.bg, this.dark ? 0.2 : 0.85)
+    this.hemi.groundColor.copy(this.bg)
+    this.hemi.intensity = this.dark ? 0.5 : 0.7
+    this.key.intensity = this.dark ? 1.5 : 1.7
     this.applyBlending()
-    // stars: the foreground ink, so they are pale on dark and graphite on light
-    const star = this.dark ? this.fg : this.muted
+    // stars: a faint scatter of pinpricks in the dark theme only; on light they only read as dust
+    const star = this.fg
     for (let i = 0; i < STARS; i++) this.stars.col.set([star.r, star.g, star.b], i * 3)
     this.stars.geo.attributes.aColor.needsUpdate = true
-    this.stars.mat.uniforms.uCore.value = this.dark ? 0.4 : 0.8
+    this.stars.points.visible = this.dark
     for (const l of this.labels.values()) this.freeLabel(l)
     this.labels.clear()
     this.colorsDirty = true
@@ -655,10 +663,10 @@ export class KgScene {
     this.dirty = true
   }
 
+  /** Normal blending in both themes: additive stacking is what turned overlapping glows into a bright smear. */
   private applyBlending() {
-    const mode = this.dark ? THREE.AdditiveBlending : THREE.NormalBlending
     for (const pc of [this.halos, this.particles, this.stars]) {
-      pc.mat.blending = mode
+      pc.mat.blending = THREE.NormalBlending
       pc.mat.needsUpdate = true
     }
   }
@@ -755,8 +763,6 @@ export class KgScene {
     const dpr = Math.min(window.devicePixelRatio || 1, 2)
     this.renderer.setPixelRatio(dpr)
     this.renderer.setSize(w, h, false)
-    this.composer.setPixelRatio(dpr)
-    this.composer.setSize(w, h)
     this.camera.aspect = w / h
     this.applyViewOffset()
     const scale = (h * dpr) / (2 * Math.tan(THREE.MathUtils.degToRad(FOV) / 2))
@@ -818,7 +824,8 @@ export class KgScene {
     }
     if (this.camTween) {
       const t = (now - this.camTween.t0) / this.camTween.ms
-      const u = easeInOutCubic(t)
+      // ease out: the camera leaves at once and settles softly, which reads smoother than a symmetric S-curve
+      const u = easeOutQuart(t)
       const { from, to } = this.camTween
       this.camera.position.lerpVectors(from.pos, to.pos, u)
       this.controls.target.lerpVectors(from.target, to.target, u)
@@ -845,7 +852,7 @@ export class KgScene {
     }
     this.dirty = false
     const time = now / 1000
-    this.writeNodes(time)
+    this.writeNodes(time, dt)
     if (this.edgesDirty || this.colorsDirty) this.writeEdges()
     this.writeParticles(time)
     this.writeRing(time)
@@ -853,12 +860,9 @@ export class KgScene {
     this.colorsDirty = false
     this.edgesDirty = false
 
-    if (this.bloom.enabled) this.composer.render(dt)
-    else {
-      this.renderer.setRenderTarget(null)
-      this.renderer.clear()
-      this.renderer.render(this.scene, this.camera)
-    }
+    this.renderer.setRenderTarget(null)
+    this.renderer.clear()
+    this.renderer.render(this.scene, this.camera)
     this.renderer.clearDepth()
     this.renderer.render(this.labelScene, this.camera)
   }
@@ -878,8 +882,31 @@ export class KgScene {
     return out
   }
 
-  private writeNodes(time: number) {
+  /** Ease every node's focus amount toward 1 (hovered or selected) or 0; returns true while any is still moving. */
+  private easeFocus(dt: number): boolean {
+    const want = new Set<string>()
+    if (this.hovered) want.add(this.hovered)
+    if (this.selected) want.add(this.selected)
+    for (const id of want) if (!this.focusAmt.has(id)) this.focusAmt.set(id, 0)
+    let busy = false
+    for (const [id, cur] of this.focusAmt) {
+      const target = want.has(id) ? 1 : 0
+      const next = this.off ? target : approach(cur, target, HOVER_RATE, dt)
+      if (next === 0 && target === 0) this.focusAmt.delete(id)
+      else this.focusAmt.set(id, next)
+      if (next !== target) busy = true
+    }
+    return busy
+  }
+
+  private focusOf(id: string): number {
+    return this.focusAmt.get(id) ?? 0
+  }
+
+  private writeNodes(time: number, dt: number) {
     const spinOn = !this.off
+    // keep drawing until the hover/selection easing settles
+    if (this.easeFocus(dt)) this.dirty = true
     for (const [shape, mesh] of this.meshes) {
       const ids = this.slots.get(shape) as string[]
       const k = SHAPE_SCALE[shape]
@@ -895,8 +922,7 @@ export class KgScene {
         const t = spinOn ? time * w : 0
         this.e.set(rx + t, ry + t * 0.7, 0)
         this.q.setFromEuler(this.e)
-        const focus = id === this.hovered || id === this.selected
-        const r = this.radius(id) * k * (focus ? 1.35 : 1)
+        const r = this.radius(id) * k * (1 + FOCUS_GROW * this.focusOf(id))
         this.s.set(r, r, r)
         this.v.set(p.x, p.y, p.z)
         this.m4.compose(this.v, this.q, this.s)
@@ -908,7 +934,8 @@ export class KgScene {
       // raycasting reads the bounding sphere; drop it so it is recomputed from the moved instances
       mesh.boundingSphere = null
     }
-    // halos behind every visible node: the project colour on the team page, else the kind colour
+    // halos only where they carry meaning: a soft disc behind the focused node (eased in), and the project colour
+    // on the team page; every other node stays a clean solid with no haze around it
     const h = this.halos
     let j = 0
     const lit = this.em.lit
@@ -928,10 +955,11 @@ export class KgScene {
           h.col[j * 3 + 1] = c.g
           h.col[j * 3 + 2] = c.b
         }
-        const focus = id === this.hovered || id === this.selected
-        const base = this.dark ? 0.32 : 0.2
-        h.alpha[j] = focus ? 0.75 : lit ? (lit.has(id) ? base * 1.6 : 0.03) : base
-        h.size[j] = this.radius(id) * (focus ? 7 : 5)
+        const f = this.focusOf(id)
+        const orbitBase = this.orbit?.has(id) ? (this.dark ? 0.16 : 0.14) : 0
+        const rest = lit && !lit.has(id) ? orbitBase * 0.2 : orbitBase
+        h.alpha[j] = rest + ((this.dark ? 0.22 : 0.16) - rest * 0.5) * f
+        h.size[j] = this.radius(id) * (3.4 + 1.2 * f)
         j++
       }
     }
@@ -969,9 +997,10 @@ export class KgScene {
           if (on) c.copy(this.relColorCache.get(relColor(e.rel)) ?? this.muted)
           else {
             c.copy(this.muted)
-            dimTo(c, this.em.lit ? 0.9 : this.dark ? 0.5 : 0.55)
+            // hairlines: the resting mesh is a whisper, so the nodes carry the picture
+            dimTo(c, this.em.lit ? 0.93 : this.dark ? 0.62 : 0.66)
           }
-          if (tentative) dimTo(c, 0.35)
+          if (tentative) dimTo(c, 0.3)
           C[o] = C[o + 3] = c.r
           C[o + 1] = C[o + 4] = c.g
           C[o + 2] = C[o + 5] = c.b
@@ -1001,7 +1030,7 @@ export class KgScene {
       const b = this.shown.get(e.dst_id)
       if (!a || !b) continue
       const len = Math.max(1, Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z))
-      const speed = slot.lit ? 70 : 38
+      const speed = slot.lit ? 60 : 30
       const t = (slot.phase + (time * speed) / len) % 1
       pc.pos[n * 3] = a.x + (b.x - a.x) * t
       pc.pos[n * 3 + 1] = a.y + (b.y - a.y) * t
@@ -1010,8 +1039,8 @@ export class KgScene {
       pc.col[n * 3] = c.r
       pc.col[n * 3 + 1] = c.g
       pc.col[n * 3 + 2] = c.b
-      pc.size[n] = slot.lit ? 4.2 : 2.6
-      pc.alpha[n] = slot.lit ? 1 : this.dark ? 0.75 : 0.85
+      pc.size[n] = slot.lit ? 3 : 1.7
+      pc.alpha[n] = slot.lit ? 0.95 : this.dark ? 0.5 : 0.55
       n++
     }
     pc.geo.setDrawRange(0, n)
@@ -1028,14 +1057,16 @@ export class KgScene {
     this.ring.visible = true
     this.ring.position.set(p.x, p.y, p.z)
     this.ring.quaternion.copy(this.camera.quaternion)
-    const pulse = this.off ? 1 : 1 + Math.sin(time * 2.4) * 0.06
-    const r = this.radius(id) * 1.35 * pulse
+    // a thin still ring that grows in with the node; a slow, small breath when motion is on
+    const breath = this.off ? 1 : 1 + Math.sin(time * 1.6) * 0.025
+    const f = this.focusOf(id)
+    const r = this.radius(id) * (1 + FOCUS_GROW * f) * (0.9 + 0.1 * f) * breath
     this.ring.scale.set(r, r, r)
     if (this.colorsDirty || this.ring.userData.id !== id) {
       this.ring.userData.id = id
       this.ring.material.color.copy(this.kindColor.get(kindGroup(this.model?.byId.get(id)?.kind ?? '')) ?? this.fg)
     }
-    this.ring.material.opacity = 0.9
+    this.ring.material.opacity = 0.8 * f
   }
 
   private writeLabels() {
@@ -1078,11 +1109,12 @@ export class KgScene {
       if (!l) continue
       const d = Math.hypot(p.x - cam.x, p.y - cam.y, p.z - cam.z)
       const wpp = perPx * d
-      const focus = id === this.hovered || id === this.selected
+      const f = this.focusOf(id)
       l.sprite.scale.set(l.w * wpp, l.h * wpp, 1)
-      const lift = this.radius(id) * (focus ? 1.5 : 1.15) + 4 * wpp
+      const lift = this.radius(id) * (1.15 + 0.35 * f) + 5 * wpp
       l.sprite.position.set(p.x + up.x * lift, p.y + up.y * lift, p.z + up.z * lift)
-      l.sprite.material.opacity = focus ? 1 : this.em.lit && !this.em.lit.has(id) ? 0.4 : 0.92
+      const rest = this.em.lit && !this.em.lit.has(id) ? 0.4 : 0.9
+      l.sprite.material.opacity = rest + (1 - rest) * f
       l.sprite.visible = true
       l.used = this.frameNo
     }
@@ -1106,21 +1138,24 @@ export class KgScene {
     const canvas = document.createElement('canvas')
     const ctx = canvas.getContext('2d')
     if (!ctx) return null
-    const font = `600 ${12 * S}px ${this.font}`
+    const font = `500 ${12 * S}px ${this.font}`
     ctx.font = font
     const padX = 8 * S
-    const dot = 6 * S
+    const dot = 5 * S
     const w = Math.ceil(ctx.measureText(text).width + padX * 2 + dot + 5 * S)
     const h = 22 * S
     canvas.width = w
     canvas.height = h
     const p = this.palette
-    ctx.globalAlpha = 0.82
+    ctx.globalAlpha = 0.9
     ctx.fillStyle = p.css('var(--background)')
     ctx.beginPath()
-    ctx.roundRect(0, 0, w, h, h / 2)
+    ctx.roundRect(S / 2, S / 2, w - S, h - S, (h - S) / 2)
     ctx.fill()
     ctx.globalAlpha = 1
+    ctx.lineWidth = S
+    ctx.strokeStyle = p.css('var(--border)')
+    ctx.stroke()
     ctx.fillStyle = p.css(KIND_STYLE[kindGroup(n.kind)].color)
     ctx.beginPath()
     ctx.arc(padX + dot / 2, h / 2, dot / 2, 0, Math.PI * 2)

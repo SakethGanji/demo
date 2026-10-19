@@ -874,6 +874,132 @@ body:has(.react-flow), .dark body:has(.react-flow) {
 body:has(.react-flow) { --overlay-fill: rgb(255 255 255 / .30); --overlay-blur: blur(1.2px) saturate(160%); }
 .dark body:has(.react-flow) { --overlay-fill: rgb(34 34 46 / .35); --overlay-blur: blur(1.2px) saturate(160%); }
 
+/* The landing (owner, 2026-10-18): clear glass over the moving signal field, with no backdrop filter (a blur over
+   a field that repaints every frame re-blurs every pane every frame). A tint a step denser than the toggle glass
+   keeps text legible, plus a bright top edge, a crisp rim and a soft floating shadow. Scoped to `/` only. */
+body:has([data-testid="landing-page"]) {
+  --glass-fill: rgb(255 255 255 / .52);
+  --glass-fill-hover: rgb(255 255 255 / .62);
+  --chrome-fill: rgb(255 255 255 / .48);
+  --glass-blur: none;
+  --chrome-blur: none;
+  --glass-elevation: inset 0 1px 0 rgb(255 255 255 / .9), inset 0 0 0 .5px rgb(255 255 255 / .55), 0 24px 60px -30px rgb(40 50 120 / .35);
+  --glass-rim: linear-gradient(170deg, rgb(255 255 255 / .95), rgb(255 255 255 / .25) 22%, transparent 45%, transparent 78%, rgb(120 140 230 / .35));
+  --well: rgb(255 255 255 / .38);
+}
+.dark body:has([data-testid="landing-page"]) {
+  --glass-fill: rgb(22 22 34 / .58);
+  --glass-fill-hover: rgb(32 32 48 / .66);
+  --chrome-fill: rgb(14 14 22 / .56);
+  --glass-elevation: inset 0 1px 0 rgb(255 255 255 / .12), inset 0 0 0 .5px rgb(255 255 255 / .08), 0 30px 70px -30px rgb(0 0 0 / .7);
+  --glass-rim: linear-gradient(170deg, rgb(255 255 255 / .32), rgb(255 255 255 / .06) 22%, transparent 45%, transparent 78%, rgb(140 130 255 / .22));
+  --well: rgb(0 0 0 / .26);
+}
+/* the hero canvas's dot grid */
+.landing-dots {
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--foreground) 16%, transparent) .8px, transparent 1.2px);
+  background-size: 16px 16px;
+}
+/* the templates strip: a slow loop of cards, faded at both ends; still under reduced motion */
+.landing-marquee-mask {
+  -webkit-mask: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+  mask: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+}
+.landing-marquee { animation: landing-marquee 60s linear infinite; }
+.landing-marquee:hover { animation-play-state: paused; }
+@keyframes landing-marquee { to { transform: translateX(calc(-50% - .375rem)); } }
+@keyframes landing-marquee-rev { from { transform: translateX(calc(-50% - .375rem)); } to { transform: none; } }
+.landing-marquee-rev { animation-name: landing-marquee-rev; animation-duration: 70s; }
+/* buzzword strip: every other word drawn as an outline */
+.landing-outline {
+  color: transparent;
+  -webkit-text-stroke: 1.5px color-mix(in srgb, var(--foreground) 32%, transparent);
+}
+/* the hero window: a thin rim of light that circles the glass. The ring is a 1.5px masked frame; inside it a
+   static conic square rotates on the compositor (transform), so no per-frame repaint of the gradient. */
+.landing-halo {
+  position: relative;
+  isolation: isolate;
+}
+.landing-halo-ring {
+  position: absolute;
+  inset: -1.5px;
+  z-index: 1;
+  padding: 1.5px;
+  overflow: hidden;
+  border-radius: calc(var(--r-panel) + 1.5px);
+  pointer-events: none;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+}
+.landing-halo-ring > span {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: max(120%, 56rem);
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  background: conic-gradient(transparent 0deg, var(--brand-1) 50deg, var(--brand-2) 100deg, transparent 150deg, transparent 360deg);
+  animation: landing-spin 7s linear infinite;
+  will-change: transform;
+}
+@keyframes landing-spin { to { transform: rotate(360deg); } }
+/* the cursor sheen on the hero glass: a soft disc moved by transform, never a repainted background. Plain alpha, no
+   blend mode: a blend over the live shader forces the panel to re-blend with it every frame. */
+.landing-sheen {
+  position: absolute;
+  left: -15rem;
+  top: -15rem;
+  z-index: 5;
+  width: 30rem;
+  height: 30rem;
+  border-radius: 9999px;
+  pointer-events: none;
+  background: radial-gradient(closest-side, rgb(255 255 255 / .16), rgb(255 255 255 / .05) 45%, transparent);
+  will-change: transform, opacity;
+}
+.dark .landing-sheen {
+  background: radial-gradient(closest-side, rgb(255 255 255 / .07), rgb(255 255 255 / .02) 45%, transparent);
+}
+/* the float chips' bob, on the compositor */
+.landing-float { animation: landing-float 6s ease-in-out infinite both; }
+@keyframes landing-float { 50% { transform: translateY(-10px); } }
+/* the code view's caret */
+.landing-caret {
+  position: absolute;
+  top: .2em;
+  left: 0;
+  width: 2px;
+  height: 1.2em;
+  border-radius: 1px;
+  background: var(--primary);
+  animation: landing-blink 1s steps(1) infinite;
+}
+@keyframes landing-blink { 50% { opacity: 0; } }
+/* the UI view's skeletons: a light sweep, moved by transform */
+.landing-shimmer {
+  overflow: hidden;
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
+}
+.landing-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--foreground) 9%, transparent), transparent);
+  transform: translateX(-100%);
+  animation: landing-sweep 1.4s ease-in-out infinite;
+}
+@keyframes landing-sweep { to { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) {
+  .landing-halo-ring > span, .landing-caret, .landing-shimmer::after, .landing-float { animation: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .landing-marquee { animation: none; flex-wrap: wrap; width: auto; justify-content: center; }
+  .landing-marquee > [aria-hidden] { display: none; }
+  .landing-marquee-mask { -webkit-mask: none; mask: none; }
+}
+
 /* Glass rim, shared by every glass recipe. In `components` so a plain `absolute`/`fixed` utility (or
    floating-ui's inline position) still wins over the `relative` here. The rim is a 1px masked gradient: a
    bright top-left edge, clear sides, a counter-rim bottom-right (light passing through the glass). */

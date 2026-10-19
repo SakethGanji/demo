@@ -50,7 +50,7 @@ export function GraphFrame({
         </p>
 
         <div className="pointer-events-none absolute inset-x-3 top-3 z-10 flex flex-wrap items-start justify-between gap-2" style={{ paddingRight: inset }}>
-          <div className="flex max-w-full flex-col items-start gap-2">
+          <div className="flex max-w-full flex-wrap items-center gap-2">
             <div className="glass-chrome pointer-events-auto flex max-w-full flex-wrap items-center gap-1 rounded-panel p-1">
               <SearchBox value={query} onChange={setQuery} onSubmit={onSubmitSearch} matches={query.trim() ? matches.length : null} />
               <span className="mx-0.5 h-5 w-px bg-hairline" aria-hidden />
