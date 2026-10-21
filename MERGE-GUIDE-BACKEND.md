@@ -1,8 +1,12 @@
 # Merge guide: backend
 
 This branch (`revert-to-5684ba5`) has the latest backend updates. This guide lists what changed and where, so they can
-be merged into our code. The UI side is in `MERGE-GUIDE-UI.md`. Tests and `apps/test-builder/` (QA scratch apps) are
-not covered.
+be merged into our code. The UI side is in `MERGE-GUIDE-UI.md`. Tests are not covered.
+
+**Skip these two folders entirely.** Nothing in the engine or studio needs them:
+- `apps/test-builder/`: QA scaffolding (sample apps and scripts used to test the builder), not product code.
+- `apps/jobs-service/`: an optional sidecar for long test runs (section 7). Without it the engine runs normally; only
+  `studio.jobs.*` calls return `jobs_not_configured`.
 
 - **From**: `0fc9039`, "Studio: real frosted glass on every app page and the workflow editor"
 - **To**: `4f776cb`, "Studio + builder: one-app overview, plan in the app builder, icy frost backdrop"
@@ -86,7 +90,9 @@ The core of the builder work.
 - **M** `core/config.py` (+17): new settings `jobs_service_url`, `jobs_service_token`, `jobs_dev`, `jobs_call_timeout_s` (env `JOBS_SERVICE_URL`, …).
 - **M** `routes/modules.py`, `routes/tables.py`, `routes/api_routes.py`: pass `tables` through, plus small additions.
 
-## 7. Jobs service (`apps/jobs-service/`, all A)
+## 7. Jobs service (`apps/jobs-service/`): optional, skip
 
-A new standalone Node service (port 8095) for long browser/API test runs, AI triage and exploration. Bring over the
-whole folder except `tests/`; `README.md` explains how to run it. The engine reaches it only through `broker/jobs.py`.
+Not needed. It's a standalone Node service for long browser/API test runs and AI triage, used only by generated apps
+that run test jobs. The builder's self-tests replace it with a fake. The engine-side pieces (`broker/jobs.py`,
+`sdk/static/jobs.py`, the `jobs_*` settings in `core/config.py`) are harmless to merge, and simplest to keep because
+`backend_templates/selftest.py` refers to `studio.jobs`.
