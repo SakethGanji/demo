@@ -119,15 +119,16 @@ function SpecRow({ spec, pid, onDelete }: { spec: ApiSpecSummary; pid: string; o
   return (
     <Tile data-testid="api-row" data-spec-id={spec.id} data-name={spec.name}>
       <div className="flex items-center gap-2 px-3 py-2.5">
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="icon-xs"
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
           aria-label={open ? 'Hide endpoints' : 'Show endpoints'}
-          className="flex size-6 items-center justify-center rounded-chip text-muted-foreground transition-colors hover:bg-(--hover-fill)"
         >
           <ChevronRight size={14} className={`transition-transform ${open ? 'rotate-90' : ''}`} />
-        </button>
+        </Button>
         <div className="min-w-0 flex-1">
           <div className="truncate text-[13.5px] font-semibold text-foreground">{spec.name}</div>
           <div className="truncate font-mono text-[11.5px] text-muted-foreground">{spec.base_url || 'no base URL'}</div>
@@ -325,17 +326,19 @@ function AddApiForm({ pid, onDone }: { pid: string; onDone: () => void }) {
           </div>
         )}
 
-        <button
+        <Button
           type="button"
+          variant="link"
+          size="xs"
           onClick={() => {
             setExampleOpen((o) => !o)
             setError(null)
           }}
-          className="self-start text-[12.5px] text-primary hover:underline"
+          className="self-start px-0"
           data-testid="api-example-toggle"
         >
           {exampleOpen ? 'Use a spec instead' : 'No spec? Paste one example reply'}
-        </button>
+        </Button>
 
         {error && (
           <Callout tone="error" role="alert" data-testid="api-save-error">

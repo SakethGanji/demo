@@ -1,0 +1,24 @@
+{
+  "name": "jobs-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Heavy-work service beside Command Studio: browser/API test runs, AI triage, exploration. Reuses apps/test-builder. @playwright/test is linked to test-builder's copy so both share ONE Playwright instance (it refuses to load twice).",
+  "engines": {
+    "node": ">=23.6"
+  },
+  "scripts": {
+    "start": "node src/server.ts",
+    "dev": "JOBS_DEV=1 node --watch src/server.ts",
+    "smoke": "node scripts/smoke.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@playwright/test": "file:../test-builder/node_modules/@playwright/test"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "5.9.3"
+  }
+}

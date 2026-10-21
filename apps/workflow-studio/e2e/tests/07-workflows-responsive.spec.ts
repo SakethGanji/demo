@@ -3,6 +3,7 @@
  */
 import { test, expect } from '../fixtures/test'
 import { assertNoClipping } from '../fixtures/layout'
+import { dockMore } from '../fixtures/dock'
 import { openModule } from '../fixtures/editor'
 import { answerWorkflow, refundsAppFile, seedApp, seedProject, seedRefunds, seedWorkflow } from '../fixtures/seed'
 
@@ -10,7 +11,7 @@ test('T40 workflows page: open and run a canvas workflow', async ({ page, api, s
   const p = await seedProject(api, 'T40')
   const wf = await seedWorkflow(api, p, answerWorkflow('The answer'))
   await page.goto(`${s.studioUrl}/p/${p.slug}`)
-  await page.getByTestId('outline-workflows').click()
+  await dockMore(page, 'workflows')
   const row = page.getByTestId(`workflow-row-${wf.id}`)
   await expect(row).toContainText('The answer')
   await row.click()
@@ -44,12 +45,17 @@ for (const vp of [
     // Overview
     await page.goto(`${s.studioUrl}/p/${p.slug}`)
     await expect(page.getByTestId('overview-panel')).toBeVisible()
-    if (vp.width < 1280) await expect(page.getByTestId('outline-rail')).toBeVisible()
-    else await expect(page.getByTestId('outline')).toBeVisible()
+    // no sidebar: the dock is the navigation at every width, and the sheet stops above it
+    await expect(page.getByTestId('dock')).toBeVisible()
+    await expect(page.getByTestId('outline-panel')).toHaveCount(0)
+    const [dockBox, mainBox] = [await page.getByTestId('dock').boundingBox(), await page.getByTestId('main').boundingBox()]
+    expect(mainBox!.y + mainBox!.height).toBeLessThanOrEqual(dockBox!.y)
     await assertNoClipping(page)
 
     // Backend with a response shown: Send is fully visible and clickable
     await openModule(page, s.studioUrl, p.slug, 'refunds', '?route=refundStats')
+    // Backend pages keep a slim index of modules, routes and tables from 1024px
+    await expect(page.getByTestId('outline')).toBeVisible()
     const send = page.getByTestId('test-send')
     await expect(send).toBeInViewport({ ratio: 1 })
     await send.click()

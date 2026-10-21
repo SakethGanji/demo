@@ -24,6 +24,12 @@ class TableBody(BaseModel):
     columns: list[dict[str, Any]] | None = None
 
 
+class MigrateBody(BaseModel):
+    ops: list[dict[str, Any]]
+    dry_run: bool = False
+    plan_version: int | None = None
+
+
 class RowsBody(BaseModel):
     data: Any = None
     rows: list[Any] | None = None
@@ -72,6 +78,21 @@ async def get_table(project: str, tid: str, session: AsyncSession = Depends(get_
 async def update_table(project: str, tid: str, body: TableBody, session: AsyncSession = Depends(get_db_session)):
     p, svc, _ = await _ctx(project, session, tid)
     return await _g(svc.update_table(p, tid, body.model_dump(exclude_unset=True)))
+
+
+@router.post("/{tid}/migrate")
+async def migrate_table(project: str, tid: str, body: MigrateBody, request: Request, session: AsyncSession = Depends(get_db_session)):
+    """Apply additive column changes (add_column with backfill, add_enum_values, set_unique, ...). Destructive ops are 422
+    ``schema_change_refused``; they are made by hand with PUT on the table."""
+    p, svc, t = await _ctx(project, session, tid)
+    return await _g(svc.apply_migration(p, t.id, body.ops, plan_version=body.plan_version, actor=get_actor(request),
+                                        dry_run=body.dry_run))
+
+
+@router.get("/{tid}/migrations")
+async def table_migrations(project: str, tid: str, session: AsyncSession = Depends(get_db_session)):
+    p, svc, t = await _ctx(project, session, tid)
+    return await _g(svc.migrations(p, t.id))
 
 
 @router.delete("/{tid}")

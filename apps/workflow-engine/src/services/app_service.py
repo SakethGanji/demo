@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Iterable
 
@@ -33,6 +34,8 @@ from ..services.slug_utils import (
     validate_slug,
 )
 from ..utils.ids import app_id
+
+logger = logging.getLogger(__name__)
 
 
 # Argon2 hasher with library defaults — argon2-cffi picks sensible parameters.
@@ -691,9 +694,30 @@ class AppService:
         if files:
             await self._file_storage.save_files(version.id, files)  # type: ignore[arg-type]
 
+        await self._record_file_changes(app, version, files)
         app.current_version_id = version.id
         app.draft_source_code = source_code
         return version
+
+    async def _record_file_changes(self, app: AppModel, version: AppVersionModel, files: list[dict[str, str]] | None) -> None:
+        """The project file change log: one row per file this version changes against its parent (never fails the save)."""
+        from . import project_files as pf
+
+        try:
+            before: dict[str, str] = {}
+            if version.parent_version_id:
+                parent = await self._session.get(AppVersionModel, version.parent_version_id)
+                if parent is not None:
+                    before = {p: f["content"] for p, f in (await pf.version_files(self._session, parent)).items()}
+            after = {f["path"]: f["content"] for f in files} if files else ({"App.tsx": version.source_code} if version.source_code else {})
+            slug = await pf.app_slug(self._session, app.project_id, app.id)
+        except Exception:  # noqa: BLE001
+            logger.warning("app %s: could not compute the file changes of a new version", app.id, exc_info=True)
+            return
+        label = f"v{version.version_number}" + (f": {version.prompt[:200]}" if version.prompt else "")
+        await pf.record_changes(self._session, app.project_id, [
+            {"path": f"apps/{slug}/{p}", "before": before.get(p), "after": after.get(p), "summary": label}
+            for p in sorted(set(before) | set(after))])
 
     async def _version_response(self, version_id: int | None) -> AppVersionResponse | None:
         if not version_id:

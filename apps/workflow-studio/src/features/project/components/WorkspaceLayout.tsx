@@ -1,16 +1,14 @@
 /**
- * The workspace shell (DESIGN §1, Linear-style): the 48px top bar and the 240px outline (a 52px rail below
- * 1280px) sit on the canvas; every view renders inside one transparent sheet, 10px radius, 8px from the
- * window's right and bottom edges, so the glass tiles inside it frost the sky. It never unmounts while
- * moving between views.
+ * The workspace shell (mounted by ProjectLayout): the 48px top bar on the canvas, and every view, full window,
+ * inside one transparent sheet, 8px from the window edges, so the glass tiles
+ * inside it frost the sky. Every workspace page gets the same frame with no side panel of its own: Backend and Data
+ * open their index (modules, routes, tables) as a switcher from their own header. It never unmounts between views.
  */
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { Outlet, useNavigate } from '@tanstack/react-router'
 import { MonitorSmartphone } from 'lucide-react'
 import { useProjectCtx } from '../ProjectContext'
 import { ProjectTopBar } from './ProjectTopBar'
-import { ProjectOutline, ProjectRail } from './ProjectOutline'
-import { WorkspaceOverlays } from './WorkspaceOverlays'
 import { useViewportWidth } from '@/shared/hooks/useViewport'
 import { useModules, useTables } from '../hooks/useProjectData'
 import { cn } from '@/shared/lib/utils'
@@ -24,8 +22,8 @@ function isTyping(e: KeyboardEvent) {
   return t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) || !!t.closest('.cm-editor')
 }
 
-/** `g o/b/d/s/r/w` and `[` (§3.1, §8.2). */
-function useWorkspaceShortcuts(toggleOutline: () => void) {
+/** `g h/o/b/d/s/r/w` (§3.1, §8.2): `g h` (and `g o`) is home. */
+function useWorkspaceShortcuts() {
   const { slug, pid } = useProjectCtx()
   const navigate = useNavigate()
   const modules = useModules(pid)
@@ -36,10 +34,6 @@ function useWorkspaceShortcuts(toggleOutline: () => void) {
       if (e.metaKey || e.ctrlKey || e.altKey || isTyping(e)) return
       if (document.querySelector('[role="dialog"]')) return
       const P = { project: slug }
-      if (e.key === '[') {
-        toggleOutline()
-        return
-      }
       if (e.key === 'g') {
         gAt = Date.now()
         return
@@ -47,7 +41,7 @@ function useWorkspaceShortcuts(toggleOutline: () => void) {
       if (Date.now() - gAt > 1000) return
       gAt = 0
       const k = e.key
-      if (k === 'o') navigate({ to: '/p/$project', params: P })
+      if (k === 'o' || k === 'h') navigate({ to: '/p/$project', params: P })
       else if (k === 'b') navigate({ to: '/p/$project/backend/$module', params: { ...P, module: modules.data?.[0]?.name ?? '~new' } })
       else if (k === 'd') {
         const t = tables.data?.[0]?.name
@@ -55,47 +49,31 @@ function useWorkspaceShortcuts(toggleOutline: () => void) {
         else navigate({ to: '/p/$project/data', params: P })
       } else if (k === 's') navigate({ to: '/p/$project/secrets', params: P })
       else if (k === 'r') navigate({ to: '/p/$project/runs', params: P })
-      else if (k === 'w') navigate({ to: '/p/$project/workflows', params: P })
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [slug, navigate, modules.data, tables.data, toggleOutline])
+  }, [slug, navigate, modules.data, tables.data])
 }
 
 export function WorkspaceLayout() {
   const width = useViewportWidth()
-  const [outlineHidden, setOutlineHidden] = useState(false)
-  useWorkspaceShortcuts(() => setOutlineHidden((v) => !v))
-  const rail = width < 1280
+  useWorkspaceShortcuts()
   const narrow = width < 1024
-  const left = outlineHidden ? 8 : (rail ? 52 : 240) + 16
+  const top = narrow ? 'top-[96px]' : 'top-14'
   return (
     <div className="relative h-full w-full" data-testid="workspace">
       <ProjectTopBar />
       {narrow && (
         <div
-          className="absolute inset-x-3 top-[52px] z-10 flex items-center gap-2 rounded-ctl bg-warning-soft px-3 py-1.5 text-xs text-warning-text"
+          className="absolute inset-x-2 top-[52px] z-10 flex items-center gap-2 rounded-ctl bg-warning-soft px-3 py-1.5 text-xs text-warning-text"
           data-testid="narrow-banner"
         >
-          <MonitorSmartphone className="size-3.5" /> Command Studio works best on a wider screen
+          <MonitorSmartphone className="size-3.5 shrink-0" /> <span className="truncate">Command Studio works best on a wider screen</span>
         </div>
       )}
-      {!outlineHidden && (
-        <aside
-          className={cn('absolute bottom-2 left-2 flex flex-col overflow-hidden rounded-sheet glass-chrome', rail ? 'w-[52px]' : 'w-[240px]', narrow ? 'top-[96px]' : 'top-14')}
-          data-testid="outline-panel"
-        >
-          {rail ? <ProjectRail /> : <ProjectOutline />}
-        </aside>
-      )}
-      <div
-        className={cn('absolute right-2 bottom-2 min-w-0 overflow-hidden rounded-sheet', narrow ? 'top-[96px]' : 'top-14')}
-        style={{ left }}
-        data-testid="main"
-      >
+      <div className={cn('absolute inset-x-2 bottom-2 min-w-0 overflow-hidden rounded-sheet', top)} data-testid="main">
         <Outlet />
       </div>
-      <WorkspaceOverlays />
     </div>
   )
 }

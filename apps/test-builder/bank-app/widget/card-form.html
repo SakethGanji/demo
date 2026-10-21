@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Secure card entry</title>
+<style>
+  body { font: 14px system-ui, sans-serif; margin: 12px; }
+  label { display: block; margin: 8px 0 3px; }
+  input { padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px; width: 220px; }
+  .row { display: flex; gap: 12px; } .row input { width: 100px; }
+  button { margin-top: 12px; padding: 6px 12px; background: #0f766e; color: #fff; border: 0; border-radius: 4px; }
+  .error { color: #b91c1c; }
+</style>
+</head>
+<body>
+  <form id="f" novalidate>
+    <label for="num">Card number</label><input id="num" inputmode="numeric" autocomplete="cc-number">
+    <div class="row">
+      <div><label for="exp">Expiry (MM/YY)</label><input id="exp" autocomplete="cc-exp"></div>
+      <div><label for="cvc">Security code</label><input id="cvc" inputmode="numeric" autocomplete="cc-csc"></div>
+    </div>
+    <button type="submit">Save card</button>
+    <p id="msg" role="alert"></p>
+  </form>
+<script>
+  const PARENT = '__PARENT_ORIGIN__';
+  const num = document.getElementById('num');
+  num.addEventListener('input', () => { const d = num.value.replace(/\D/g, '').slice(0, 16); num.value = d.replace(/(.{4})(?=.)/g, '$1 '); });
+  // Third-party widget telemetry to a host that no QA allowlist will contain.
+  fetch('http://telemetry.cardvault.example/v1/load', { method: 'POST', mode: 'no-cors', body: 'widget=card-form' }).catch(() => {});
+  document.getElementById('f').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const msg = document.getElementById('msg');
+    msg.className = ''; msg.textContent = 'Saving…';
+    const r = await fetch('/widget/api/tokenize', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ number: num.value, expiry: document.getElementById('exp').value, cvc: document.getElementById('cvc').value }) });
+    const b = await r.json();
+    if (!r.ok) { msg.className = 'error'; msg.textContent = (b.error.details || []).map((d) => d.message).join('. ') || b.error.message; return; }
+    msg.textContent = `Card ending ${b.last4} verified`;
+    parent.postMessage({ type: 'card-token', token: b.token, last4: b.last4 }, PARENT);
+  });
+</script>
+</body>
+</html>

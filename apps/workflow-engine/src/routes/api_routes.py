@@ -134,7 +134,7 @@ async def test_route(project: str, rid: str, body: RouteTestBody, request: Reque
     async def only_this(_p, _e):
         return [spec], None
     disp.route_set = only_this  # type: ignore[assignment]
-    res = await disp.handle(p, req, forced_env=env)
+    res = await disp.handle(p, req, forced_env=env, actor=get_actor(request))
     disp.route_set = orig  # type: ignore[assignment]
     duration = round((time.perf_counter() - started) * 1000, 2)
 
@@ -305,7 +305,7 @@ async def create_stubs(project: str, body: StubsBody, request: Request, session:
 
 
 @router.post("/apps/{app_id}/preview-token", status_code=201)
-async def preview_token(project: str, app_id: str, session: AsyncSession = Depends(get_db_session)):
+async def preview_token(project: str, app_id: str, request: Request, session: AsyncSession = Depends(get_db_session)):
     from datetime import datetime
 
     from ..core.public_tokens import issue_token, verify_token
@@ -316,7 +316,11 @@ async def preview_token(project: str, app_id: str, session: AsyncSession = Depen
     if not app or app.project_id != p.id:
         raise_project_error(ProjectError(404, "app_not_found", "App not found in this project"))
     env = p.default_environment
-    token = issue_token(app.id, 0, ttl_seconds=3600, env=env, preview=True)
+    # The Studio user (X-User-Id of this management call) is signed into the token, so the preview's /api/p calls
+    # carry it as a verified claim the generated code cannot change. No header -> an app_token caller.
+    uid = get_actor(request)
+    name = (request.headers.get("x-user-name") or "").strip() or None
+    token = issue_token(app.id, 0, ttl_seconds=3600, env=env, preview=True, sub=uid, name=name if uid else None)
     exp = verify_token(token).exp
     return {"token": token, "environment": env, "expires_at": utc_iso(exp)}  # review C13: UTC with Z
 

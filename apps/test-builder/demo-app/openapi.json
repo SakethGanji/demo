@@ -1,0 +1,105 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Demo Bank API", "version": "1.0.0" },
+  "servers": [{ "url": "http://127.0.0.1:4477" }],
+  "paths": {
+    "/api/accounts": {
+      "get": {
+        "operationId": "listAccounts",
+        "summary": "List accounts",
+        "responses": {
+          "200": {
+            "description": "Accounts",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Account" } } } }
+          }
+        }
+      }
+    },
+    "/api/payees": {
+      "get": {
+        "operationId": "listPayees",
+        "summary": "List payees",
+        "responses": {
+          "200": {
+            "description": "Payees",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Payee" } } } }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createPayee",
+        "summary": "Create a payee",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/NewPayee" },
+              "example": { "name": "API Test Payee", "accountNumber": "12345678", "type": "business" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Payee" } } } },
+          "400": { "description": "Validation failed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ValidationError" } } } }
+        }
+      }
+    },
+    "/api/transfer": {
+      "post": {
+        "operationId": "transferFunds",
+        "summary": "Move money between accounts (DANGEROUS)",
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "amount": { "type": "number" } } } } } },
+        "responses": { "200": { "description": "Transferred" } }
+      }
+    },
+    "/api/accounts/{id}": {
+      "delete": {
+        "operationId": "deleteAccount",
+        "summary": "Delete an account (DANGEROUS)",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Deleted" } }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Account": {
+        "type": "object",
+        "required": ["id", "name", "number", "balance"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "number": { "type": "string" },
+          "balance": { "type": "number" }
+        }
+      },
+      "Payee": {
+        "type": "object",
+        "required": ["id", "name", "accountNumber", "type"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "accountNumber": { "type": "string" },
+          "type": { "type": "string", "enum": ["personal", "business"] }
+        }
+      },
+      "NewPayee": {
+        "type": "object",
+        "required": ["name", "accountNumber", "type"],
+        "properties": {
+          "name": { "type": "string" },
+          "accountNumber": { "type": "string", "pattern": "^\\d{8}$" },
+          "type": { "type": "string", "enum": ["personal", "business"] }
+        }
+      },
+      "ValidationError": {
+        "type": "object",
+        "required": ["error", "errors"],
+        "properties": {
+          "error": { "type": "string" },
+          "errors": { "type": "object" }
+        }
+      }
+    }
+  }
+}

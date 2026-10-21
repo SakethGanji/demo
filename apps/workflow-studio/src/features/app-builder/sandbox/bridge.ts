@@ -21,6 +21,7 @@ export type ParentMessage =
 export type IframeMessage =
   | { type: 'ready' }
   | { type: 'error'; message: string; stack?: string }
+  | { type: 'runtimeError'; message: string }
   | { type: 'console'; level: 'log' | 'info' | 'warn' | 'error'; args: unknown[] }
   | { type: 'apiRequest'; reqId: string; url: string; opts: RequestInit }
 
@@ -35,7 +36,7 @@ export function isIframeMessage(data: unknown): data is IframeMessage {
     data !== null &&
     typeof data === 'object' &&
     'type' in (data as Record<string, unknown>) &&
-    ['ready', 'error', 'console', 'apiRequest'].includes(
+    ['ready', 'error', 'runtimeError', 'console', 'apiRequest'].includes(
       (data as Record<string, unknown>).type as string
     )
   )

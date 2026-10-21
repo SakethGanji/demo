@@ -7,7 +7,7 @@ import type { ApiUsage, CodeModule, DataTable, MissingSecret, Route, RunListItem
 import type { ApiAppListItem } from '@/shared/lib/api'
 import type { ApiWorkflowDetail } from '@/shared/lib/backendTypes'
 import type { DatasetItem } from '@/features/datasets/lib/types'
-import type { WorkflowSummary } from '@/features/workflows-list/WorkflowCard'
+import type { WorkflowSummary } from '@/features/workflows-list/workflowMeta'
 import { runTone } from '@/shared/components/ui/status-dot'
 import { formatMs, parseTs, pluralize, timeAgo } from '../../lib/format'
 import { sortRoutes } from '../../lib/routes'

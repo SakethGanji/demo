@@ -7,10 +7,11 @@ import { SANDBOX_RUNTIME_CODE } from './sandbox-runtime'
 import { bundleFiles } from './esbuild-bundler'
 import type { AppFile } from './esbuild-bundler'
 import { config } from '@/shared/lib/config'
-import { previewRequestUrl, type PreviewRoute } from './requestPolicy'
+import { previewRequestUrl, withViewAs, type PreviewRoute, type PreviewUser } from './requestPolicy'
 import reactRuntime from '../../../../node_modules/react/umd/react.production.min.js?raw'
 import reactDomRuntime from '../../../../node_modules/react-dom/umd/react-dom.production.min.js?raw'
 import tailwindRuntime from '@tailwindcss/browser?raw'
+import { PreviewErrorCollector, apiFailure, isAccessRefusal, type PreviewError } from '../lib/previewErrors'
 import { Spinner } from '@/shared/components/ui/spinner'
 
 export interface BridgeCall {
@@ -30,6 +31,10 @@ interface IframeSandboxProps {
   getToken?: () => Promise<string | null>
   refreshToken?: () => Promise<string | null>
   onApiCall?: (call: BridgeCall) => void
+  /** "View as": sent as X-Preview-User* headers on every preview request (null = the app itself) */
+  viewAs?: PreviewUser | null
+  /** runtime errors seen after a load, deduped and settled (~3s); `[]` when a new load starts */
+  onPreviewErrors?: (errors: PreviewError[]) => void
 }
 
 /** Simple content hash to avoid redundant re-bundles. */
@@ -57,7 +62,7 @@ export function normaliseHeaders(h: unknown): Record<string, string> {
  * `fetch` from the app is proxied through this bridge (C12): relative URLs resolve against the
  * engine origin. Only selected project routes and bound workflow runs are permitted.
  */
-export function IframeSandbox({ files, projectSlug, allowedRoutes, workflowPaths, getToken, refreshToken, onApiCall }: IframeSandboxProps) {
+export function IframeSandbox({ files, projectSlug, allowedRoutes, workflowPaths, getToken, refreshToken, onApiCall, viewAs, onPreviewErrors }: IframeSandboxProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -66,9 +71,17 @@ export function IframeSandbox({ files, projectSlug, allowedRoutes, workflowPaths
   const pendingFilesRef = useRef<AppFile[] | null>(null)
   const lastHashRef = useRef<string | null>(null)
   const generation = useRef(0)
-  const propsRef = useRef({ projectSlug, allowedRoutes, workflowPaths, getToken, refreshToken, onApiCall })
-  propsRef.current = { projectSlug, allowedRoutes, workflowPaths, getToken, refreshToken, onApiCall }
+  const propsRef = useRef({ projectSlug, allowedRoutes, workflowPaths, getToken, refreshToken, onApiCall, viewAs })
+  propsRef.current = { projectSlug, allowedRoutes, workflowPaths, getToken, refreshToken, onApiCall, viewAs }
   useEffect(() => () => { generation.current++ }, [])
+
+  const errorsCbRef = useRef(onPreviewErrors)
+  errorsCbRef.current = onPreviewErrors
+  const [collector] = useState(() => new PreviewErrorCollector((errs) => errorsCbRef.current?.(errs)))
+  useEffect(() => () => {
+    collector.dispose()
+    errorsCbRef.current?.([])
+  }, [collector])
 
   const log = useConsoleStore.getState().log
 
@@ -88,6 +101,7 @@ export function IframeSandbox({ files, projectSlug, allowedRoutes, workflowPaths
             return
           }
           setError(null)
+          collector.reset()
           if (iframeRef.current) postToIframe(iframeRef.current, { type: 'render', source: code, css: css || undefined })
         })
         .catch((err) => {
@@ -97,7 +111,7 @@ export function IframeSandbox({ files, projectSlug, allowedRoutes, workflowPaths
           log('error', 'bundle', message)
         })
     },
-    [log],
+    [log, collector],
   )
 
   const handleApiRequest = useCallback(async (reqId: string, url: string, opts: RequestInit) => {
@@ -107,8 +121,8 @@ export function IframeSandbox({ files, projectSlug, allowedRoutes, workflowPaths
       win.postMessage({ type: 'apiResponse', reqId, ...msg }, '*', transfer ?? [])
     try {
       const method = (opts?.method ?? 'GET').toUpperCase()
-      const resolved = previewRequestUrl(url, method, config.engineOrigin, propsRef.current.projectSlug, propsRef.current.allowedRoutes, propsRef.current.workflowPaths)
-      const headers = normaliseHeaders(opts?.headers)
+      const resolved = previewRequestUrl(url, method, config.engineOrigin, propsRef.current.projectSlug, propsRef.current.allowedRoutes, propsRef.current.workflowPaths, 'preview')
+      const headers = withViewAs(normaliseHeaders(opts?.headers), propsRef.current.viewAs)
       const hasAuth = Object.keys(headers).some((k) => k.toLowerCase() === 'authorization')
       const isPreviewApi = resolved.origin === config.engineOrigin && resolved.pathname.startsWith('/api/p/')
       const addToken = !hasAuth && !!propsRef.current.getToken
@@ -137,6 +151,9 @@ export function IframeSandbox({ files, projectSlug, allowedRoutes, workflowPaths
           body = await response.arrayBuffer()
         }
       }
+      if (isPreviewApi && response.status >= 400 && !isAccessRefusal(response.status)) {
+        collector.add(apiFailure(method, resolved.pathname, response.status))
+      }
       if (isPreviewApi) {
         propsRef.current.onApiCall?.({
           method,
@@ -151,9 +168,11 @@ export function IframeSandbox({ files, projectSlug, allowedRoutes, workflowPaths
       })
       reply({ status: response.status, statusText: response.statusText, headers: outHeaders, body }, [body])
     } catch (err) {
-      reply({ error: err instanceof Error ? err.message : 'Fetch failed' })
+      const why = err instanceof Error ? err.message : 'Fetch failed'
+      collector.add({ kind: 'api', message: `${(opts?.method ?? 'GET').toUpperCase()} ${String(url).split('?')[0]} failed: ${why}` })
+      reply({ error: why })
     }
-  }, [])
+  }, [collector])
 
   // Messages: only from our own iframe (F12).
   const handleMessage = useCallback(
@@ -174,8 +193,16 @@ export function IframeSandbox({ files, projectSlug, allowedRoutes, workflowPaths
         case 'error':
           setError(msg.message)
           log('error', 'sandbox', msg.message)
+          collector.add({ kind: 'render', message: msg.message })
+          break
+        case 'runtimeError':
+          log('error', 'sandbox', msg.message)
+          collector.add({ kind: 'uncaught', message: msg.message })
           break
         case 'console':
+          if (msg.level === 'error') {
+            collector.add({ kind: 'console', message: msg.args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ') })
+          }
           log(
             msg.level === 'error' ? 'error' : msg.level === 'warn' ? 'warn' : 'info',
             'app',
@@ -187,7 +214,7 @@ export function IframeSandbox({ files, projectSlug, allowedRoutes, workflowPaths
           break
       }
     },
-    [sendToIframe, handleApiRequest, log],
+    [sendToIframe, handleApiRequest, log, collector],
   )
 
   useEffect(() => {

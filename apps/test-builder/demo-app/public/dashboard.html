@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Demo Bank - Dashboard</title>
+<style>
+body{font-family:sans-serif;max-width:860px;margin:30px auto}table{border-collapse:collapse;width:100%}
+td,th{border:1px solid #ccc;padding:6px;text-align:left}label{display:block;margin-top:8px}
+.err{color:#b00020}.danger{border:1px solid #b00020;padding:12px;margin-top:24px}section{margin-top:24px}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Dashboard</h1>
+    <nav aria-label="Main"><a href="https://partner-rates.example.net/rates">Partner exchange rates</a></nav>
+  </header>
+  <main>
+    <section aria-labelledby="acc-h">
+      <h2 id="acc-h">Your accounts</h2>
+      <label for="search">Search accounts</label>
+      <input id="search" type="search" placeholder="Name or number">
+      <p id="acc-status" role="status"></p>
+      <table aria-label="Accounts">
+        <thead><tr><th scope="col">Account</th><th scope="col">Number</th><th scope="col">Balance</th></tr></thead>
+        <tbody id="acc-body"></tbody>
+      </table>
+    </section>
+
+    <section aria-labelledby="payee-h">
+      <h2 id="payee-h">Add a payee</h2>
+      <form id="payee-form" aria-label="Add payee form" novalidate>
+        <label for="payee-name">Payee name</label>
+        <input id="payee-name" name="name">
+        <p id="err-name" class="err" role="alert"></p>
+        <label for="payee-acct">Account number</label>
+        <input id="payee-acct" name="accountNumber" inputmode="numeric">
+        <p id="err-accountNumber" class="err" role="alert"></p>
+        <label for="payee-type">Payee type</label>
+        <select id="payee-type" name="type">
+          <option value="">Choose...</option>
+          <option value="personal">Personal</option>
+          <option value="business">Business</option>
+        </select>
+        <p id="err-type" class="err" role="alert"></p>
+        <button type="submit">Add payee</button>
+      </form>
+      <p id="payee-status" role="status"></p>
+      <h3>Payees</h3>
+      <ul id="payee-list" aria-label="Payees"></ul>
+    </section>
+
+    <section class="danger" aria-labelledby="danger-h">
+      <h2 id="danger-h">Money movement</h2>
+      <button type="button" id="transfer">Transfer funds</button>
+      <button type="button" id="delete">Delete account</button>
+      <button type="button" id="move">Move money</button>
+      <p id="danger-status" role="status"></p>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

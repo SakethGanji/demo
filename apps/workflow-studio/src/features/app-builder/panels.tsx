@@ -1,3 +1,4 @@
+import { Button } from '@/shared/components/ui/button'
 import { useRef, useEffect } from 'react'
 import { Trash2 } from 'lucide-react'
 import { cn } from '@/shared/lib/utils'
@@ -58,13 +59,9 @@ function ConsoleTab() {
           Console ({entries.length})
         </span>
         <div className="flex-1" />
-        <button
-          onClick={clear}
-          className="text-muted-foreground hover:text-foreground transition-colors p-0.5"
-          title="Clear console"
-        >
+        <Button variant="ghost" size="icon-xs" onClick={clear} title="Clear console" aria-label="Clear console">
           <Trash2 size={11} />
-        </button>
+        </Button>
       </div>
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         {entries.length === 0 ? (

@@ -9,6 +9,7 @@ import {
   seedRefund, shot,
 } from '../fixtures/tests3a'
 import { assertNoClipping } from '../fixtures/layout'
+import { dockMore } from '../fixtures/dock'
 import type { Page } from '@playwright/test'
 
 type Wf = { definition: { tests: Array<Record<string, unknown>>; test_defaults: { mocks: Record<string, unknown> }; nodes: Array<{ name: string; parameters: Record<string, unknown> }> } }
@@ -32,13 +33,10 @@ test.describe('editor tests (stage 3A)', () => {
   })
 
   test('T16.1 API catalog: paste a spec, paste one example, delete, Swagger 2 error', async ({ page, api, s, net }) => {
-    // any workflow page has the project outline
+    // any workflow page has the project dock (compact there: it comes back from its handle)
     const { wf } = await seedRefund(api, s, p, { withSpec: false })
     await openEditor(page, s, p.slug, wf.id)
-    await page.getByTestId('outline-apis').click().catch(async () => {
-      await page.goto(`${s.studioUrl}/p/${p.slug}/workflows`)
-      await page.getByTestId('outline-apis').click()
-    })
+    await dockMore(page, 'apis')
     await expect(page.getByTestId('api-catalog')).toBeVisible()
     await expect(page.getByTestId('api-empty')).toBeVisible()
 

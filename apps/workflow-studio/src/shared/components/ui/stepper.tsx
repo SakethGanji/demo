@@ -24,10 +24,10 @@ function Marker({ state }: { state: StepState }) {
     <span
       className={cn(
         'relative z-[1] inline-flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] [&_svg]:size-3 [&_svg]:stroke-[2.5]',
-        state === 'done' && 'bg-success text-primary-foreground',
-        state === 'current' && 'bg-primary text-primary-foreground shadow-[0_0_0_4px_var(--brand-soft)]',
-        state === 'pending' && 'bg-recess text-muted-foreground shadow-[inset_0_0_0_1px_var(--input)]',
-        state === 'error' && 'bg-destructive text-primary-foreground',
+        state === 'done' && 'glass-orb bg-success text-primary-foreground',
+        state === 'current' && 'glass-orb bg-primary text-primary-foreground [--orb-ring:0_0_0_4px_var(--brand-soft)]',
+        state === 'pending' && 'glass-orb-clear text-muted-foreground',
+        state === 'error' && 'glass-orb bg-destructive text-primary-foreground',
       )}
       aria-hidden
     >

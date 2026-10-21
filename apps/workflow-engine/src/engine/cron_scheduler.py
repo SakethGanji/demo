@@ -11,6 +11,7 @@ from ..engine.types import NodeData
 logger = logging.getLogger(__name__)
 
 TICK_INTERVAL_SECONDS = 30
+SCHEDULE_TICK_SECONDS = 5  # module @schedule functions run as often as every 15 s, so they get a faster loop
 
 
 class CronScheduler:
@@ -20,9 +21,12 @@ class CronScheduler:
         self._db_session_factory = db_session_factory
         self._task: asyncio.Task | None = None
         self._smoke_tasks: set[asyncio.Task] = set()
+        self._schedule_task: asyncio.Task | None = None
+        self._schedule_runs: set[asyncio.Task] = set()
 
     def start(self) -> None:
         self._task = asyncio.create_task(self._tick_loop())
+        self._schedule_task = asyncio.create_task(self._schedule_loop())
         logger.info("CronScheduler started (interval=%ds)", TICK_INTERVAL_SECONDS)
 
     async def stop(self) -> None:
@@ -32,7 +36,7 @@ class CronScheduler:
                 await self._task
             except asyncio.CancelledError:
                 pass
-        for t in list(self._smoke_tasks):
+        for t in list(self._smoke_tasks) + list(self._schedule_runs) + ([self._schedule_task] if self._schedule_task else []):
             t.cancel()
         logger.info("CronScheduler stopped")
 
@@ -66,6 +70,28 @@ class CronScheduler:
             raise
         except Exception:
             logger.exception("CronScheduler task tick error")
+
+    async def _schedule_loop(self) -> None:
+        while True:
+            try:
+                await self._tick_module_schedules()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("CronScheduler module-schedule tick error")
+            await asyncio.sleep(SCHEDULE_TICK_SECONDS)
+
+    async def _tick_module_schedules(self) -> list[asyncio.Task]:
+        """Run the due ``@schedule`` functions of code modules (claimed first, so a slow run is never started twice)."""
+        from ..services import module_schedules as ms
+
+        started: list[asyncio.Task] = []
+        for sid in await ms.claim_due(self._db_session_factory):
+            task = asyncio.create_task(ms.execute(self._db_session_factory, sid))
+            self._schedule_runs.add(task)
+            task.add_done_callback(self._schedule_runs.discard)
+            started.append(task)
+        return started
 
     async def _tick_tasks(self) -> list[asyncio.Task]:
         """Human tasks (Stage 5): time out the ones past their deadline (``SKIP LOCKED``), resume decided tasks nobody

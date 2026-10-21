@@ -78,7 +78,7 @@ export default function WorkflowHistorySheet() {
         side="right"
         showCloseButton
         overlayClassName="hidden"
-        className="gap-0 overflow-hidden rounded-xl p-0 data-[side=right]:inset-y-3 data-[side=right]:right-3 data-[side=right]:h-auto data-[side=right]:w-[340px] data-[side=right]:max-w-[calc(100vw-24px)] data-[side=right]:sm:max-w-[340px]"
+        className="gap-0 overflow-hidden rounded-xl p-0 data-[side=right]:inset-y-2 data-[side=right]:right-2 data-[side=right]:h-auto data-[side=right]:w-[340px] data-[side=right]:max-w-[calc(100vw-16px)] data-[side=right]:sm:max-w-[340px]"
         data-testid="history-sheet"
       >
         <div className="hairline-b px-5 pt-4 pb-3 pr-12">

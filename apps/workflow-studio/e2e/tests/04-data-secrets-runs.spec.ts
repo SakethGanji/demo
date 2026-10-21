@@ -2,6 +2,7 @@
  * Secrets, Data, Runs (T2, T19, T35, T37, T38).
  */
 import { test, expect, rand } from '../fixtures/test'
+import { dockMore } from '../fixtures/dock'
 import { openModule } from '../fixtures/editor'
 import { seedModule, seedModuleSource, seedProject, seedRows, seedSecret, seedTable } from '../fixtures/seed'
 
@@ -18,7 +19,7 @@ test('T2 setup step 1 creates a write-only secret', async ({ page, api, s, net }
   await expect(page.getByTestId('setup-secret-env-prod')).toBeChecked()
   await page.getByTestId('setup-secret-save').click()
   await expect(page.getByTestId('setup-step-1-state')).toHaveAttribute('data-done', 'true')
-  await page.getByTestId('outline-secrets').click()
+  await dockMore(page, 'secrets')
   await expect(page.getByTestId('secret-cell-PAYMENTS_TOKEN-dev')).toHaveAttribute('data-state', 'set')
   await expect(page.getByTestId('secret-cell-PAYMENTS_TOKEN-prod')).toHaveAttribute('data-state', 'set')
   const rows = await api.get<Array<{ key: string; environment: string; value: unknown; allowed_hosts: string[] }>>(`/projects/${p.id}/secrets`)
@@ -86,7 +87,7 @@ test('T35 environment switch is the viewing environment', async ({ page, api, s 
   await expect(page.getByTestId('run-row')).toHaveCount(2)
   for (const env of await page.getByTestId('run-row').evaluateAll((rs) => rs.map((r) => r.getAttribute('data-env')))) expect(env).toBe('prod')
   // Secrets highlights the prod column
-  await page.getByTestId('outline-secrets').click()
+  await dockMore(page, 'secrets')
   await expect(page.getByTestId('secrets-col-prod')).toHaveAttribute('data-viewing', 'true')
   // client.ts follows the viewing env, the route test still runs in dev
   await page.goto(`${s.studioUrl}/p/${p.slug}/backend/refunds?route=refundStats`)

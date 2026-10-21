@@ -1,3 +1,4 @@
+import { Badge } from '@/shared/components/ui/badge'
 import { lazy, Suspense } from 'react';
 import { X, ScrollText, Maximize2, Minimize2, Play, AlertCircle, FlaskConical } from 'lucide-react';
 import { useCheckStore } from '../../stores/checkStore';
@@ -48,43 +49,49 @@ export default function BottomPanel() {
             >
               {tab.label}
               {tab.id === 'problems' && problemCount > 0 && (
-                <span
+                <Badge
                   data-testid="problems-count"
-                  className={`ml-0.5 rounded-full px-1.5 text-[10px] font-semibold leading-4 ${hasErrors ? 'bg-destructive-soft text-destructive' : 'bg-warning-soft text-warning-text'}`}
+                  variant={hasErrors ? 'error' : 'warning'}
+                  className="ml-0.5 h-4 px-1.5 text-[10px]"
                 >
                   {problemCount}
-                </span>
+                </Badge>
               )}
               {tab.id === 'tests' && testCount > 0 && (
-                <span
+                <Badge
                   data-testid="tests-count"
-                  className={`ml-0.5 rounded-full px-1.5 text-[10px] font-semibold leading-4 ${testsFailing ? 'bg-destructive-soft text-destructive' : 'bg-recess text-muted-foreground'}`}
+                  variant={testsFailing ? 'error' : 'neutral'}
+                  className="ml-0.5 h-4 px-1.5 text-[10px]"
                 >
                   {testCount}
-                </span>
+                </Badge>
               )}
             </EditorTab>
           ))}
         </div>
         <div className="flex-1" />
-        <button
+        <Button
+          variant="ghost"
+          size="icon-xs"
           onClick={toggleMaximized}
-          className="flex size-6 items-center justify-center rounded-ctl text-muted-foreground transition-colors hover:bg-(--hover-fill) hover:text-foreground"
+          className="text-muted-foreground"
           aria-label={isMaximized ? 'Restore panel size' : 'Maximize panel'}
           data-testid="editor-bottom-maximize"
           title={isMaximized ? 'Restore panel size' : 'Maximize panel'}
         >
           {isMaximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-xs"
           onClick={closeBottomPanel}
-          className="ml-0.5 flex size-6 items-center justify-center rounded-ctl text-muted-foreground transition-colors hover:bg-(--hover-fill) hover:text-foreground"
+          className="ml-0.5 text-muted-foreground"
           aria-label="Close panel"
           data-testid="editor-bottom-close"
           title="Close panel"
         >
           <X size={12} />
-        </button>
+        </Button>
       </div>
 
       {/* Tab content */}

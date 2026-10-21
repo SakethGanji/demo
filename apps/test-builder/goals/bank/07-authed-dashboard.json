@@ -1,0 +1,10 @@
+{
+  "goal": "With a pre-authenticated session, open the dashboard without logging in",
+  "slug": "bank-07-authed-dashboard",
+  "steps": [
+    { "action": "goto", "url": "/dashboard", "group": "Open dashboard (already signed in)" },
+    { "action": "waitFor", "target": { "role": "table", "name": "Customer accounts" }, "group": "Open dashboard (already signed in)" },
+    { "action": "expectText", "target": { "role": "cell", "name": "Business Operating" }, "text": "Business Operating", "group": "Open dashboard (already signed in)" },
+    { "action": "done", "reason": "reused pre-auth session" }
+  ]
+}

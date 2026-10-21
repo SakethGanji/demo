@@ -1,0 +1,44 @@
+{
+  "name": "northwind-bank",
+  "baseUrl": "http://127.0.0.1:4590",
+  "allowedHosts": ["127.0.0.1:4590", "localhost:4590", "127.0.0.1:4591", "localhost:4591"],
+  "forbiddenActions": ["/\\bpay now\\b|submit payment|confirm and pay|^approve$|^reject$|close account|\\bdelete\\b/i"],
+  "forbiddenRequests": [
+    "POST /api/v1/payments",
+    "POST /api/v1/payments/*/approve",
+    "POST /api/v1/payments/*/reject",
+    "POST /api/v1/accounts/*/close",
+    "POST /api/v1/bulk-payments",
+    "POST /api/v1/orders",
+    "POST /api/v1/batch",
+    "DELETE /api/v1/*",
+    "GET /legacy/repeat-payment*"
+  ],
+  "credentials": {
+    "teller_user": { "env": "TB_BANK_TELLER_USER" },
+    "teller_pass": { "env": "TB_BANK_TELLER_PASS", "secret": true },
+    "teller_totp": { "env": "TB_BANK_TELLER_TOTP", "secret": true },
+    "teller2_user": { "env": "TB_BANK_TELLER2_USER" },
+    "teller2_pass": { "env": "TB_BANK_TELLER2_PASS", "secret": true },
+    "teller2_totp": { "env": "TB_BANK_TELLER2_TOTP", "secret": true },
+    "super_user": { "env": "TB_BANK_SUPER_USER" },
+    "super_pass": { "env": "TB_BANK_SUPER_PASS", "secret": true },
+    "super_totp": { "env": "TB_BANK_SUPER_TOTP", "secret": true },
+    "auditor_user": { "env": "TB_BANK_AUDITOR_USER" },
+    "auditor_pass": { "env": "TB_BANK_AUDITOR_PASS", "secret": true },
+    "auditor_totp": { "env": "TB_BANK_AUDITOR_TOTP", "secret": true }
+  },
+  "budget": { "maxSteps": 40, "maxSeconds": 300 },
+  "api": {
+    "tokenEndpoint": "/api/v1/auth/token",
+    "tokenBody": { "username": "teller_user", "password": "teller_pass", "otp": "totp:teller_totp" },
+    "tokenField": "access_token",
+    "unauthTest": true,
+    "pathParams": { "accountId": "ACC-1001", "payeeId": "PAY-001", "paymentId": "PMT-90002", "jobId": "JOB-100000" }
+  },
+  "hooks": {
+    "resetUrl": "/api/_test/reset",
+    "resetHeaders": { "X-Test-Key": "env:TB_BANK_TEST_KEY" },
+    "resetBody": { "config": { "latencyMin": 0, "latencyMax": 120, "sessionIdleSeconds": 600 } }
+  }
+}

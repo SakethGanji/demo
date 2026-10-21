@@ -11,6 +11,7 @@ import { toggleComment } from '@codemirror/commands'
 import { lintGutter } from '@codemirror/lint'
 import { BookOpen, CircleCheck, CircleX, Code2, Ellipsis, FileCode2, FileType2, KeyRound, Play, ShieldCheck, ShieldAlert, TriangleAlert, Wand2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { WorkbenchSwitcher } from '@/features/project/components/WorkbenchSwitcher'
 import CodeEditor, { type CodeEditorHandle } from '@/shared/components/ui/code-editor'
 import { Button } from '@/shared/components/ui/button'
 import { Kbd } from '@/shared/components/ui/kbd'
@@ -626,14 +627,13 @@ function BackendWorkspace({ doc, savedUpdatedAt }: { doc: ModuleDoc; savedUpdate
       <Tile editor as="section" className="flex min-w-0 flex-[1.15] flex-col overflow-hidden" data-testid="editor-panel">
         {/* editor head */}
         <div className="flex h-12 shrink-0 items-center gap-2 px-3" data-testid="file-bar">
-          <span
-            className="inline-flex h-7 shrink-0 items-center gap-2 rounded-ctl bg-foreground/5 pr-3 pl-2 font-mono text-[12.5px]"
-            data-testid={`file-tab-${doc.module}`}
-          >
-            <FileCode2 className="size-3.5 text-muted-foreground" />
-            {doc.module === '~new' ? '~new' : `${doc.module}.py`}
-            {dirty && <span className="-ml-0.5 size-1.5 rounded-full bg-foreground/75" data-testid="dirty-dot" />}
-          </span>
+          <WorkbenchSwitcher label="Switch module, route or table" testId="backend-switcher" className="h-7 shrink-0 bg-foreground/5 pr-2 pl-2">
+            <span className="inline-flex items-center gap-2 font-mono text-[12.5px]" data-testid={`file-tab-${doc.module}`}>
+              <FileCode2 className="size-3.5 text-muted-foreground" />
+              {doc.module === '~new' ? '~new' : `${doc.module}.py`}
+              {dirty && <span className="-ml-0.5 size-1.5 rounded-full bg-foreground/75" data-testid="dirty-dot" />}
+            </span>
+          </WorkbenchSwitcher>
           <Tip label="Visual map · Visual + code · Code. Code is authoritative">
             <span className="inline-flex">
               <Segmented

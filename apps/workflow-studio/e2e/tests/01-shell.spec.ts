@@ -13,7 +13,7 @@ test('T1 projects home → create project', async ({ page, open, api }) => {
   await page.getByTestId('new-project-submit').click()
   // first-run guide in the new project
   await expect(page.getByTestId('setup-guide')).toBeVisible()
-  await expect(page.getByTestId('outline-overview')).toContainText('Get started')
+  await expect(page.getByTestId('dock-overview')).toHaveAttribute('aria-label', 'Get started')
   const slug = new URL(page.url()).pathname.split('/')[2]
   // backend state: the project exists
   const projects = await api.get<Array<{ name: string; slug: string }>>('/projects')
@@ -97,7 +97,7 @@ test('T43 first-run gating and completion', async ({ page, open, api }) => {
   const routes = await api.get<Array<{ id: string }>>(`/projects/${p.id}/routes`)
   await seedApp(api, p, 'Hello app', [refundsAppFile()], [routes[0].id])
   await page.reload() // seeded behind the UI's back, like the module in step 2
-  await page.getByTestId('outline-overview').click()
+  await page.getByTestId('dock-overview').click()
   await expect(page.getByTestId('overview-panel')).toBeVisible()
   await expect(guide).toHaveCount(0)
   await open(`/p/${p.slug}?setup=1`)

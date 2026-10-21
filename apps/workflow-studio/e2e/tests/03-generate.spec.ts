@@ -181,11 +181,11 @@ test('T7 save creates the tables, then the module', async ({ page, api, s, net }
   await page.getByTestId('run-open-editor').click()
   await expect(page.getByTestId('backend-view')).toBeVisible()
   await expect.poll(() => cursorLine(page)).toBe(create.handler.line)
-  // Overview lists the routes (the first-run guide gives way to it once all 4 steps are done: route tested + an app, T43)
+  // the Overview counts the routes (the first-run guide gives way to it once all 4 steps are done: route tested + an app, T43)
   await seedApp(api, p, 'Refunds app', [refundsAppFile()], [routes.find((r) => r.name === 'refundStats')!.id])
   await page.reload()
-  await page.getByTestId('outline-overview').click()
-  for (const op of ['createRefund', 'listRefunds', 'refundStats']) await expect(page.getByTestId(`route-row-${op}`)).toBeVisible()
+  await page.getByTestId('dock-overview').click()
+  await expect(page.getByTestId('pill-backend')).toContainText('3 routes')
 })
 
 test('T10 missing-secret widget', async ({ page, api, s }) => {

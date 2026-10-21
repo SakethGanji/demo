@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +22,8 @@ router = APIRouter()
 class ModuleCreate(BaseModel):
     name: str
     source: str
+    # Tables the module declares ([{name, columns:[{name,type,required?,default?}]}]): missing ones are created on save.
+    tables: list[dict[str, Any]] | None = None
 
 
 class ModuleUpdate(BaseModel):
@@ -31,6 +33,7 @@ class ModuleUpdate(BaseModel):
     base_source_sha: str | None = None   # alias
     base_updated_at: str | None = None
     name: str | None = None              # optional rename (UI-DESIGN §9 B4)
+    tables: list[dict[str, Any]] | None = None
 
 
 async def _ctx(project: str, session: AsyncSession):
@@ -41,10 +44,15 @@ async def _ctx(project: str, session: AsyncSession):
 
 
 async def _g(coro):
+    from sqlalchemy.exc import IntegrityError
     try:
         return await coro
     except ProjectError as e:
         raise_project_error(e)
+    except IntegrityError as e:  # a unique-index clash the planner did not foresee: a conflict, never a 500
+        raise HTTPException(status_code=409, detail={
+            "code": "route_conflict", "message": "a route or operation name in this module clashes with an existing one",
+            "detail": str(getattr(e, "orig", e))[:300]}) from e
 
 
 MAX_SOURCE_BYTES = 200_000
@@ -209,6 +217,8 @@ async def generate_module(project: str, request: Request, session: AsyncSession 
             last: dict[str, Any] | None = None
             async for ev in gen.events():
                 last = ev
+        except ProjectError as e:  # a project/module error escaping the generator is the caller's 4xx, not a 500
+            return _err(e.status, e.code, e.message, **e.extra)
         finally:
             mg.release(key)
         if last is None or last["type"] not in ("result", "error"):   # client went away mid-generation
@@ -220,9 +230,14 @@ async def generate_module(project: str, request: Request, session: AsyncSession 
     async def stream():
         seq = 0
         try:
-            async for ev in gen.events():
+            try:
+                async for ev in gen.events():
+                    seq += 1
+                    yield ServerSentEvent(data=json.dumps({**ev, "seq": seq}, default=str), event="message")
+            except ProjectError as e:
                 seq += 1
-                yield ServerSentEvent(data=json.dumps({**ev, "seq": seq}, default=str), event="message")
+                yield ServerSentEvent(data=json.dumps({"type": "error", "code": e.code, "message": e.message,
+                                                       "seq": seq}), event="message")
             yield ServerSentEvent(data="{}", event="done")
         finally:
             mg.release(key)
@@ -246,7 +261,7 @@ async def list_modules(project: str, session: AsyncSession = Depends(get_db_sess
 async def create_module(project: str, body: ModuleCreate, request: Request, dry_run: bool = False,
                         session: AsyncSession = Depends(get_db_session)):
     p, svc = await _ctx(project, session)
-    out = await _g(svc.create(p, body.name, body.source, actor=get_actor(request), dry_run=dry_run))
+    out = await _g(svc.create(p, body.name, body.source, actor=get_actor(request), dry_run=dry_run, tables=body.tables))
     if dry_run:  # review D7: a preview creates nothing → 200, not 201
         from fastapi.responses import JSONResponse
         return JSONResponse(out, status_code=200)
@@ -268,7 +283,7 @@ async def update_module(project: str, mid: str, body: ModuleUpdate, request: Req
     if_match = (request.headers.get("if-match") or "").strip().strip('"') or None
     return await _g(svc.update(p, mid, body.source, dry_run=dry_run, actor=get_actor(request),
                                base_source_sha=body.base_sha or body.base_source_sha or if_match,
-                               base_updated_at=body.base_updated_at, new_name=body.name))
+                               base_updated_at=body.base_updated_at, new_name=body.name, tables=body.tables))
 
 
 @router.delete("/projects/{project}/modules/{mid}")

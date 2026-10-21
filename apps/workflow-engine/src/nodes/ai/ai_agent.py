@@ -104,6 +104,7 @@ EVENT_TYPE_MAP: dict[str, str] = {
 
 
 from ...engine import shapes as sh
+from ...engine.tool_schema import arg_type_error
 
 # ---------------------------------------------------------------------------
 # Agent context for recursive sub-agent spawning
@@ -2182,27 +2183,12 @@ class AIAgentNode(BaseNode):
             if req not in args:
                 errors.append(f"Missing required field: '{req}'")
 
-        type_map = {
-            "string": str,
-            "number": (int, float),
-            "integer": int,
-            "boolean": bool,
-            "array": list,
-            "object": dict,
-        }
-
         for key, value in args.items():
             if key in properties:
-                expected_type = properties[key].get("type")
-                if expected_type and expected_type in type_map:
-                    py_type = type_map[expected_type]
-                    if not isinstance(value, py_type):
-                        # Allow int for number type
-                        if expected_type == "number" and isinstance(value, int):
-                            continue
-                        errors.append(
-                            f"Field '{key}': expected {expected_type}, got {type(value).__name__}"
-                        )
+                # a type list (["integer", "null"]) is a JSON Schema union; an optional key may be null
+                error = arg_type_error(key, value, properties[key].get("type"), key in required)
+                if error:
+                    errors.append(error)
 
         return errors
 

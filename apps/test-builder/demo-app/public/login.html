@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Demo Bank - Sign in</title>
+<style>body{font-family:sans-serif;max-width:420px;margin:60px auto}label{display:block;margin-top:12px}input{width:100%;padding:6px}button{margin-top:16px;padding:8px 16px}[role=alert]{color:#b00020}</style>
+</head>
+<body>
+  <main>
+    <h1>Demo Bank</h1>
+    <form id="login" aria-label="Sign in form">
+      <label for="username">Username</label>
+      <input id="username" name="username" autocomplete="username" required>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <button type="submit">Sign in</button>
+      <p id="login-error" role="alert"></p>
+    </form>
+  </main>
+  <script>
+    document.getElementById('login').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const err = document.getElementById('login-error');
+      err.textContent = '';
+      const r = await fetch('/api/login', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ username: username.value, password: password.value }),
+      });
+      if (r.ok) location.href = '/dashboard';
+      else err.textContent = (await r.json()).error;
+    });
+  </script>
+</body>
+</html>

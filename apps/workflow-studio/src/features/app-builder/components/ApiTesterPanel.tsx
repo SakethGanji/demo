@@ -136,9 +136,6 @@ const EMPTY_AUTH: AuthState = {
   apiKeyIn: 'header',
 }
 
-const ICON_BTN =
-  'h-7 w-7 inline-flex items-center justify-center rounded-ctl text-muted-foreground hover:text-foreground hover:bg-(--hover-fill) transition-colors focus-visible:shadow-focus outline-none'
-
 /** Method colour as text (the tint comes from `--method-tint`, which follows currentColor). */
 function methodTextClass(m: string) {
   switch (m.toUpperCase()) {
@@ -716,9 +713,9 @@ export function ApiTesterPanel({ onClose }: { onClose?: () => void }) {
         {onClose && (
           <>
             <ToolbarSeparator />
-            <button onClick={onClose} className={ICON_BTN} title="Close" aria-label="Close" data-testid="api-tester-close">
+            <Button variant="ghost" size="icon-sm" onClick={onClose} title="Close" aria-label="Close" data-testid="api-tester-close">
               <X className="h-3.5 w-3.5" />
-            </button>
+            </Button>
           </>
         )}
       </div>
@@ -753,24 +750,22 @@ export function ApiTesterPanel({ onClose }: { onClose?: () => void }) {
 
               {/* Name & save popover trigger */}
               <div className="relative" data-name-popover>
-                <button
+                <Button
                   type="button"
+                  variant={name ? 'secondary' : 'ghost'}
+                  size="sm"
                   onClick={() => {
                     setNameOpen((v) => !v)
                     setTimeout(() => nameInputRef.current?.focus(), 0)
                   }}
-                  className={`h-7 px-2 inline-flex items-center gap-1 rounded-ctl text-[11px] transition-colors outline-none focus-visible:shadow-focus ${
-                    name
-                      ? 'raise text-primary'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-(--hover-fill)'
-                  }`}
+                  className={name ? 'text-primary' : 'text-muted-foreground'}
                   title="Name & save"
                 >
                   <FileText className="h-3 w-3" />
                   <span className="max-w-[110px] truncate">
                     {name || 'Name'}
                   </span>
-                </button>
+                </Button>
                 {nameOpen && (
                   <div
                     className="glass-overlay absolute right-0 top-[calc(100%+6px)] z-30 w-64 p-2.5"
@@ -799,15 +794,16 @@ export function ApiTesterPanel({ onClose }: { onClose?: () => void }) {
               </div>
 
               {/* Import from cURL — small icon button, secondary action. */}
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon-sm"
                 onClick={() => setCurlOpen(true)}
-                className={ICON_BTN}
                 title="Import from cURL"
                 aria-label="Import from cURL"
               >
                 <FileDown className="h-3.5 w-3.5" />
-              </button>
+              </Button>
 
               <ToolbarSeparator />
 
@@ -978,20 +974,24 @@ function SavedRow({
             {row.name || row.url}
           </span>
         )}
-        <button
+        <Button
+          variant="ghost"
+          size="icon-xs"
           onClick={(e) => { e.stopPropagation(); setDraft(row.name ?? ''); setEditing(true) }}
-          className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 h-5 w-5 flex items-center justify-center rounded-chip text-muted-foreground hover:text-foreground hover:bg-(--hover-fill) transition-all outline-none focus-visible:shadow-focus"
+          className="text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
           title="Rename"
         >
           <Pencil className="h-3 w-3" />
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-xs"
           onClick={(e) => { e.stopPropagation(); onDelete() }}
-          className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 h-5 w-5 flex items-center justify-center rounded-chip text-muted-foreground hover:text-destructive hover:bg-destructive-soft transition-all outline-none focus-visible:shadow-focus"
+          className="text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive focus-visible:opacity-100"
           title="Delete"
         >
           <Trash2 className="h-3 w-3" />
-        </button>
+        </Button>
       </div>
       {row.name && (
         <div className="text-[10px] text-muted-foreground/80 truncate mt-0.5 ml-[78px] font-mono" title={row.url}>
@@ -1064,13 +1064,15 @@ function KvEditor({
                   placeholder="value"
                   className={`h-7 text-xs flex-1 font-mono transition-opacity ${enabled ? '' : 'opacity-50 line-through decoration-muted-foreground/40'}`}
                 />
-                <button
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
                   onClick={() => remove(i)}
-                  className={ICON_BTN + ' opacity-0 group-hover:opacity-100 transition-opacity'}
+                  className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
                   title="Remove row"
                 >
                   <Trash2 className="h-3 w-3" />
-                </button>
+                </Button>
               </div>
             )
           })}
@@ -1137,13 +1139,15 @@ function BodyEditor({
         />
         <div className="flex-1" />
         {mode === 'json' && (
-          <button
+          <Button
+            variant="ghost"
+            size="xs"
             onClick={() => onTextChange(prettyJson(text))}
-            className="h-6 px-2 text-[11px] font-medium rounded-chip text-muted-foreground hover:text-foreground hover:bg-(--hover-fill) transition-colors outline-none focus-visible:shadow-focus"
+            className="text-muted-foreground"
             title="Pretty-print JSON"
           >
             Format
-          </button>
+          </Button>
         )}
       </div>
       {mode === 'none' ? (
@@ -1291,13 +1295,15 @@ function MultipartEditor({
                 disabled={!enabled}
               />
             )}
-            <button
+            <Button
+              variant="ghost"
+              size="icon-sm"
               onClick={() => remove(i)}
-              className={ICON_BTN + ' opacity-0 group-hover:opacity-100 transition-opacity'}
+              className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
               title="Remove row"
             >
               <Trash2 className="h-3 w-3" />
-            </button>
+            </Button>
           </div>
         )
       })}
@@ -1343,20 +1349,18 @@ function FileSlot({
           {formatBytes(row.file.size)}
         </span>
         <div className="flex-1" />
-        <button
-          onClick={open}
-          className="shrink-0 h-5 px-1.5 text-[11px] rounded-chip text-muted-foreground hover:text-foreground hover:bg-(--hover-fill) transition-colors"
-          title="Replace"
-        >
+        <Button variant="ghost" size="xs" onClick={open} className="text-muted-foreground" title="Replace">
           Replace
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-xs"
           onClick={onClear}
-          className="shrink-0 h-5 w-5 inline-flex items-center justify-center rounded-chip text-muted-foreground hover:text-destructive transition-colors"
+          className="text-muted-foreground hover:text-destructive"
           title="Remove file"
         >
           <X className="h-3 w-3" />
-        </button>
+        </Button>
         <input
           ref={inputRef}
           type="file"
@@ -1379,13 +1383,9 @@ function FileSlot({
           {formatBytes(row.meta.size)}
         </span>
         <div className="flex-1" />
-        <button
-          onClick={open}
-          className="shrink-0 h-5 px-1.5 text-[11px] rounded-chip bg-warning/13 text-warning-text hover:bg-warning/20 transition-colors"
-          title="Re-attach to resend"
-        >
+        <Button variant="outline" size="xs" onClick={open} title="Re-attach to resend">
           Re-attach
-        </button>
+        </Button>
         <input
           ref={inputRef}
           type="file"
@@ -1397,10 +1397,12 @@ function FileSlot({
   }
 
   return (
-    <button
+    <Button
+      variant="outline"
+      size="sm"
       onClick={open}
       disabled={disabled}
-      className={`flex-1 h-7 px-2 inline-flex items-center gap-1.5 rounded-ctl bg-recess text-[11px] text-muted-foreground hover:text-foreground hover:bg-(--hover-fill) transition-colors outline-none focus-visible:shadow-focus ${opacity}`}
+      className={`flex-1 justify-start ${opacity}`}
     >
       <FileUp className="h-3 w-3" />
       Choose file
@@ -1410,7 +1412,7 @@ function FileSlot({
         className="hidden"
         onChange={(e) => onPick(e.target.files)}
       />
-    </button>
+    </Button>
   )
 }
 
@@ -1755,14 +1757,16 @@ function ResponsePanel({
         <Well className="group relative h-full overflow-hidden" data-testid="api-tester-response-body">
           {/* Hover-revealed copy button — top-right of body. */}
           {!response.error && (tab === 'headers' || showText) && (
-            <button
+            <Button
+              variant="secondary"
+              size="xs"
               onClick={handleCopy}
-              className="raise absolute top-1.5 right-1.5 z-10 h-6 px-1.5 inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors outline-none focus-visible:shadow-focus"
+              className="absolute top-1.5 right-1.5 z-10"
               title="Copy"
             >
               {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
               {copied ? 'Copied' : 'Copy'}
-            </button>
+            </Button>
           )}
           <div className="h-full overflow-auto text-xs font-mono">
             {response.error ? (
@@ -1865,9 +1869,9 @@ export function SavedQueriesPanel({ onClose }: { onClose?: () => void }) {
         {onClose && (
           <>
             <ToolbarSeparator />
-            <button onClick={onClose} className={ICON_BTN} title="Close" aria-label="Close" data-testid="saved-queries-close">
+            <Button variant="ghost" size="icon-sm" onClick={onClose} title="Close" aria-label="Close" data-testid="saved-queries-close">
               <X className="h-3.5 w-3.5" />
-            </button>
+            </Button>
           </>
         )}
       </div>

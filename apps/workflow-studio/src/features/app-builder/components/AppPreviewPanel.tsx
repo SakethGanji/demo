@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
-import { ExternalLink, Lock, Monitor, RotateCw, Smartphone, Sparkles, Tablet, Terminal } from 'lucide-react'
+import { AlertTriangle, ExternalLink, Lock, Monitor, RotateCw, Smartphone, Sparkles, Tablet, Terminal } from 'lucide-react'
 import { IframeSandbox, type BridgeCall } from '../sandbox/IframeSandbox'
 import type { AppFile } from '../sandbox/esbuild-bundler'
 import { FileTree, FileTreeFolder, FileTreeFile } from '@/shared/components/ai-elements/file-tree'
@@ -18,12 +18,16 @@ import { Badge } from '@/shared/components/ui/badge'
 import { StatusDot } from '@/shared/components/ui/status-dot'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/components/ui/tooltip'
 import { EmptyState } from '@/shared/components/ui/empty-state'
+import { Spinner } from '@/shared/components/ui/spinner'
 import { cn } from '@/shared/lib/utils'
 import { BottomPanel } from '../panels'
 import { useConsoleStore } from '../stores'
 import { usePreviewSession } from '../stores/previewSessionStore'
 import { formatMs } from '@/features/project/lib/format'
 import { isClientPath } from '../lib/appModel'
+import { loadViewAs, saveViewAs, type ViewAsState } from '../lib/previewUsers'
+import { ViewAsMenu } from './ViewAsMenu'
+import { errorsLabel, type PreviewError } from '../lib/previewErrors'
 
 export type BuilderMode = 'preview' | 'code'
 type Device = 'desktop' | 'tablet' | 'phone'
@@ -33,6 +37,8 @@ interface AppPreviewPanelProps {
   projectSlug: string
   allowedRoutes: import('../sandbox/requestPolicy').PreviewRoute[]
   files: AppFile[] | null
+  /** the generated api client is still loading: screens would run against no client ("api.x is not a function") */
+  clientLoading?: boolean
   mode: BuilderMode
   /** the publish address shown in the URL pill */
   slug: string
@@ -44,6 +50,46 @@ interface AppPreviewPanelProps {
   onApiCall?: (c: BridgeCall) => void
   /** file to select when the Code view opens (e.g. api/client.ts from the Backend panel) */
   codeFocus?: string | null
+  /** keys the remembered "view as" user */
+  appId: string
+  /** runtime errors the sandbox collected for the current load */
+  previewErrors?: PreviewError[]
+  onPreviewErrors?: (errors: PreviewError[]) => void
+  /** ask the builder to fix them (the manual "Fix with AI") */
+  onFixErrors?: () => void
+  fixDisabled?: boolean
+  /** an automatic fix was already sent for this version */
+  autoFixed?: boolean
+}
+
+function PreviewErrorsBar({ errors, onFix, disabled, autoFixed }: { errors: PreviewError[]; onFix?: () => void; disabled?: boolean; autoFixed?: boolean }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="shrink-0 bg-destructive-soft text-xs text-destructive shadow-[inset_0_1px_0_var(--hairline)]" data-testid="preview-errors-bar">
+      <div className="flex h-8 items-center gap-2 px-3">
+        <AlertTriangle className="size-3 shrink-0" />
+        <button type="button" className="font-medium hover:underline" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+          {errorsLabel(errors.length)}
+        </button>
+        {autoFixed && <span className="text-muted-foreground">· asked the builder to fix</span>}
+        <div className="flex-1" />
+        {onFix && (
+          <Button size="xs" variant="outline" onClick={onFix} disabled={disabled} data-testid="preview-fix-with-ai">
+            <Sparkles /> Fix with AI
+          </Button>
+        )}
+      </div>
+      {open && (
+        <ul className="max-h-28 space-y-0.5 overflow-y-auto px-3 pb-2 font-mono text-[11px]" data-testid="preview-errors-list">
+          {errors.map((e) => (
+            <li key={`${e.kind}:${e.message}`} className="truncate" title={e.message}>
+              {e.message}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
 }
 
 // ── Code view helpers ───────────────────────────────────────────────────────
@@ -233,6 +279,7 @@ const DEVICE_WIDTH: Record<Device, string> = { desktop: '100%', tablet: '768px',
 
 export function AppPreviewPanel({
   files,
+  clientLoading,
   projectSlug,
   allowedRoutes,
   workflowPaths,
@@ -245,10 +292,22 @@ export function AppPreviewPanel({
   refreshToken,
   onApiCall,
   codeFocus,
+  appId,
+  previewErrors,
+  onPreviewErrors,
+  onFixErrors,
+  fixDisabled,
+  autoFixed,
 }: AppPreviewPanelProps) {
   const [device, setDevice] = useState<Device>('desktop')
   const [reloadKey, setReloadKey] = useState(0)
   const [consoleOpen, setConsoleOpen] = useState(false)
+  const [viewAs, setViewAs] = useState<ViewAsState>(() => loadViewAs(appId))
+  const viewer = viewAs.users.find((u) => u.id === viewAs.selected) ?? null
+  const changeViewAs = (next: ViewAsState) => {
+    setViewAs(next)
+    saveViewAs(appId, next)
+  }
   const appFiles = files?.filter((f) => !isClientPath(f.path)) ?? []
 
   if (mode === 'code') return <CodeView files={files} focus={codeFocus} />
@@ -266,6 +325,7 @@ export function AppPreviewPanel({
             { key: 'phone', label: <span className="sr-only">Phone</span>, icon: <Smartphone className="size-3.5" />, testId: 'preview-device-phone' },
           ]}
         />
+        <ViewAsMenu state={viewAs} onChange={changeViewAs} />
         {showUrl ? (
           <div
             className="mx-auto flex h-7 min-w-0 max-w-[460px] flex-1 items-center gap-2 rounded-ctl bg-recess px-2.5 font-mono text-[11.5px] text-muted-foreground"
@@ -323,13 +383,17 @@ export function AppPreviewPanel({
       </div>
 
       <div className="relative min-h-0 flex-1 overflow-hidden bg-recess">
-        {appFiles.length === 0 ? (
+        {clientLoading && appFiles.length > 0 ? (
+          <div className="flex h-full items-center justify-center" data-testid="preview-client-loading">
+            <Spinner className="size-4 text-muted-foreground" />
+          </div>
+        ) : appFiles.length === 0 ? (
           <EmptyState icon={<Sparkles />} title="No app yet" className="h-full" data-testid="preview-empty">
             Describe the UI in the chat and it appears here, calling your backend.
           </EmptyState>
         ) : (
           <div className="mx-auto h-full transition-[width] duration-150" style={{ width: DEVICE_WIDTH[device], maxWidth: '100%' }}>
-            <IframeSandbox key={reloadKey} projectSlug={projectSlug} workflowPaths={workflowPaths} allowedRoutes={allowedRoutes} files={files} getToken={getToken} refreshToken={refreshToken} onApiCall={onApiCall} />
+            <IframeSandbox key={`${reloadKey}:${viewer?.id ?? ''}`} viewAs={viewer} projectSlug={projectSlug} workflowPaths={workflowPaths} allowedRoutes={allowedRoutes} files={files} getToken={getToken} refreshToken={refreshToken} onApiCall={onApiCall} onPreviewErrors={onPreviewErrors} />
           </div>
         )}
         {consoleOpen && (
@@ -338,6 +402,9 @@ export function AppPreviewPanel({
           </div>
         )}
       </div>
+      {previewErrors && previewErrors.length > 0 && (
+        <PreviewErrorsBar errors={previewErrors} onFix={onFixErrors} disabled={fixDisabled} autoFixed={autoFixed} />
+      )}
       <PreviewConsoleStrip open={consoleOpen} onToggle={() => setConsoleOpen((o) => !o)} />
     </div>
   )

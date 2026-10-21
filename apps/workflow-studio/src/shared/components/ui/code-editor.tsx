@@ -18,7 +18,7 @@ import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
 import { setDiagnostics, type Diagnostic } from '@codemirror/lint'
 import { buildCodeTheme, watchCodeTheme } from './code-theme'
 
-export type CodeLanguage = 'json' | 'javascript' | 'python'
+export type CodeLanguage = 'json' | 'javascript' | 'typescript' | 'python' | 'text'
 
 export interface CodeEditorHandle {
   view: EditorView | null
@@ -51,6 +51,8 @@ export interface CodeEditorProps {
 function languageExt(lang: CodeLanguage): Extension {
   if (lang === 'python') return [python(), indentUnit.of('    ')]
   if (lang === 'javascript') return javascript()
+  if (lang === 'typescript') return javascript({ typescript: true, jsx: true })
+  if (lang === 'text') return []
   return json()
 }
 

@@ -1,4 +1,5 @@
 /** Project attribution chips for the team-wide Knowledge page (the scope itself lives in `useKnowledgeScope`). */
+import { Badge } from '@/shared/components/ui/badge'
 import { cn } from '@/shared/lib/utils'
 import { useKnowledgeScope } from '../hooks/useKnowledgeScope'
 import { projectColor, SHARED, SHARED_COLOR } from '../lib/projects'
@@ -20,13 +21,14 @@ export function ProjectChip({ projectId, className }: { projectId: string | null
   const p = projectId && projectId !== SHARED ? projects.get(projectId) : undefined
   const label = !projectId || projectId === SHARED ? 'Shared' : (p?.name ?? p?.slug ?? 'Another project')
   return (
-    <span
-      className={cn('inline-flex h-5 max-w-40 min-w-0 items-center gap-1.5 rounded-full bg-recess px-2 text-[11px] font-medium text-muted-foreground', className)}
+    <Badge
+      variant="neutral"
+      className={cn('max-w-40 min-w-0 gap-1.5 text-[11px] font-medium', className)}
       data-testid="knowledge-project-chip"
       data-project={projectId || SHARED}
     >
       <ProjectDot projectId={projectId} />
       <span className="truncate">{label}</span>
-    </span>
+    </Badge>
   )
 }

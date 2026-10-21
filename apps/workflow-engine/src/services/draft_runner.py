@@ -76,7 +76,8 @@ async def run_draft(session: AsyncSession, project: ProjectModel, *, source: str
                     headers: dict[str, str] | None = None, body: Any = None,
                     virtual_tables: list[str] | None = None, trigger_type: str = "draft_test",
                     origin: str = "draft_test", read_only: bool = False, max_calls: int | None = None,
-                    timeout_s: float | None = None, decls: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+                    timeout_s: float | None = None, decls: list[dict[str, Any]] | None = None,
+                    extra_modules: dict[str, str] | None = None) -> dict[str, Any]:
     """Validate, run and record one draft request. Raises ProjectError for the pre-run HTTP errors."""
     from ..repositories.execution_repository import ExecutionRepository
     from ..repositories.node_output_repository import NodeOutputRepository
@@ -106,6 +107,7 @@ async def run_draft(session: AsyncSession, project: ProjectModel, *, source: str
     rows = (await session.execute(select(CodeModuleModel).where(CodeModuleModel.project_id == project.id))).scalars().all()
     modules = {m.name: m.source for m in rows if not (module_id and m.id == module_id)}
     modules[module_name] = source
+    modules.update(extra_modules or {})          # builder gates: every module of the project rewritten onto scratch tables
     if timeout_s is None:
         timeout_s = DEFAULT_TIMEOUT_S
         if module_id:

@@ -12,7 +12,6 @@ import { Button } from '@/shared/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/shared/components/ui/dialog'
 import { Field } from '@/shared/components/ui/field'
 import { Input } from '@/shared/components/ui/input'
-import { cn } from '@/shared/lib/utils'
 import { moduleNameError, templateSource, TEMPLATE_LABELS, type TemplateKey } from './templates'
 import { useDocStore } from './docStore'
 
@@ -82,19 +81,17 @@ export function NewModuleDialog({ open, onClose }: { open: boolean; onClose: () 
             <span className="text-xs font-medium">Start from</span>
             <div className="flex flex-wrap gap-2">
               {(Object.keys(TEMPLATE_LABELS) as TemplateKey[]).map((k) => (
-                <button
+                <Button
                   key={k}
                   type="button"
+                  size="sm"
+                  variant={tpl === k ? 'secondary' : 'ghost'}
                   onClick={() => setTpl(k)}
                   data-testid={`template-${k}`}
                   aria-pressed={tpl === k}
-                  className={cn(
-                    'h-7 rounded-full px-3 text-xs transition-colors duration-(--d-fast)',
-                    tpl === k ? 'bg-raise text-foreground shadow-raise-sm' : 'bg-recess text-muted-foreground hover:text-foreground',
-                  )}
                 >
                   {TEMPLATE_LABELS[k]}
-                </button>
+                </Button>
               ))}
             </div>
           </div>

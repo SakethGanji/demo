@@ -1,0 +1,74 @@
+{
+  "goal": "Log in and verify the accounts table shows 3 accounts",
+  "slug": "login-shows-accounts",
+  "steps": [
+    {
+      "action": "fill",
+      "target": {
+        "label": "Username"
+      },
+      "value": "{{username}}",
+      "group": "Log in"
+    },
+    {
+      "action": "fill",
+      "target": {
+        "label": "Password"
+      },
+      "value": "{{password}}",
+      "group": "Log in"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "Sign in"
+      },
+      "group": "Log in"
+    },
+    {
+      "action": "expectVisible",
+      "target": {
+        "role": "heading",
+        "name": "Dashboard"
+      },
+      "group": "Dashboard loads"
+    },
+    {
+      "action": "expectVisible",
+      "target": {
+        "role": "table",
+        "name": "Accounts"
+      },
+      "group": "Accounts table shows 3 accounts"
+    },
+    {
+      "action": "expectCount",
+      "target": {
+        "role": "row",
+        "within": {
+          "role": "table",
+          "name": "Accounts"
+        }
+      },
+      "count": 4,
+      "group": "Accounts table shows 3 accounts"
+    },
+    {
+      "action": "expectText",
+      "target": {
+        "role": "status",
+        "within": {
+          "role": "region",
+          "name": "Your accounts"
+        }
+      },
+      "text": "Showing 3 accounts",
+      "group": "Accounts table shows 3 accounts"
+    },
+    {
+      "action": "done",
+      "reason": "accounts table shows 3 accounts"
+    }
+  ]
+}

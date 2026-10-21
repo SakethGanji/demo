@@ -40,7 +40,7 @@ export function RunSheet({ executionId, onClose }: { executionId: string | undef
         showCloseButton
         initialFocus={focusRef}
         overlayClassName="bg-transparent supports-backdrop-filter:backdrop-blur-none"
-        className="gap-0 overflow-hidden rounded-xl p-0 data-[side=right]:inset-y-3 data-[side=right]:right-3 data-[side=right]:h-auto data-[side=right]:w-[580px] data-[side=right]:max-w-[calc(100vw-24px)] data-[side=right]:sm:max-w-[580px]"
+        className="gap-0 overflow-hidden rounded-xl p-0 data-[side=right]:inset-y-2 data-[side=right]:right-2 data-[side=right]:h-auto data-[side=right]:w-[580px] data-[side=right]:max-w-[calc(100vw-16px)] data-[side=right]:sm:max-w-[580px]"
         data-testid="run-sheet"
       >
         <div ref={focusRef} tabIndex={-1} className="flex min-h-0 flex-1 flex-col outline-none">

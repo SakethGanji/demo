@@ -7,6 +7,7 @@ import { backends } from '@/shared/lib/config';
 import type { ParsedCurlResult } from '../../../lib/parseCurl';
 import ImportCurlDialog from '../ImportCurlDialog';
 import ApiEndpointExtension from './ApiEndpointExtension';
+import PostgresConnectionExtension from './PostgresConnectionExtension';
 import SubworkflowCallPanel from '../subworkflow/SubworkflowCallPanel';
 import SubworkflowTriggerPanel from '../subworkflow/SubworkflowTriggerPanel';
 
@@ -23,6 +24,7 @@ type NodeExtensionComponent = React.ComponentType<NodeExtensionProps>;
 const nodeExtensions: Record<string, NodeExtensionComponent[]> = {
   Webhook: [WebhookUrlExtension],
   HttpRequest: [ApiEndpointExtension, CurlImportExtension],
+  Postgres: [PostgresConnectionExtension],
   ExecuteWorkflow: [SubworkflowCallPanel],
   ExecuteWorkflowTrigger: [SubworkflowTriggerPanel],
 };

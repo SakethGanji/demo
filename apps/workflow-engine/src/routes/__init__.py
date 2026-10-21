@@ -30,6 +30,7 @@ from .public_apps import router as public_apps_router
 from .api_tester import router as api_tester_router
 from .projects import router as projects_router
 from .project_secrets import router as project_secrets_router
+from .project_connections import router as project_connections_router
 from .broker import router as broker_router
 from .api_routes import router as api_routes_router, project_router as project_api_router
 from .tables import router as tables_router
@@ -39,6 +40,12 @@ from .releases import router as releases_router
 from .templates import router as templates_router
 from .subworkflows import router as subworkflows_router
 from .knowledge import router as knowledge_router
+from .project_knowledge import router as project_knowledge_router
+from .module_schedules import router as module_schedules_router
+from .builder_gates import router as builder_gates_router
+from .project_plan import router as project_plan_router
+from .builds import router as builds_router
+from .project_files import router as project_files_router
 
 # Main API router
 api_router = APIRouter(prefix="/api")
@@ -64,6 +71,18 @@ api_router.include_router(templates_router, tags=["Templates"])
 api_router.include_router(subworkflows_router, tags=["Sub-workflows"])
 # Capability graph: /knowledge/* (before workflows_router for good measure; no path overlaps)
 api_router.include_router(knowledge_router, tags=["Knowledge"])
+# Builders' per-project knowledge store: /projects/{p}/knowledge (retrieve, upsert, reindex)
+api_router.include_router(project_knowledge_router, tags=["Project Knowledge"])
+api_router.include_router(module_schedules_router, tags=["Module Schedules"])
+# The project plan: /projects/{p}/plan, /plan/versions, /plan/{v:int}, /plan/draft, /plan/revise (versions are int-typed, so
+# builder_gates' POST /plan/check never matches /plan/{v})
+api_router.include_router(project_plan_router, tags=["Project Plan"])
+# Builds of the approved plan: /projects/{p}/builds, /builds/{id}, /events, /cancel, /continue
+api_router.include_router(builds_router, tags=["Builds"])
+# One project file tree + its change log: /projects/{p}/files, /files/content, /files/history, /changes
+api_router.include_router(project_files_router, tags=["Project Files"])
+# Builder gates run on saved artifacts: /projects/{p}/modules/{m}/check, /apps/{id}/check (before apps_router: no path overlap)
+api_router.include_router(builder_gates_router, tags=["Builder Gates"])
 api_router.include_router(workflows_router, tags=["Workflows"])
 api_router.include_router(api_specs_router, tags=["API Catalog"])
 api_router.include_router(apps_router, tags=["Apps"])
@@ -77,6 +96,7 @@ api_router.include_router(folders_router, tags=["Folders"])
 api_router.include_router(variables_router, tags=["Variables"])
 api_router.include_router(api_tester_router, tags=["API Tester"])
 api_router.include_router(project_secrets_router, tags=["Project Secrets"])
+api_router.include_router(project_connections_router, tags=["Project Connections"])
 api_router.include_router(broker_router, tags=["Broker & SDK"])
 api_router.include_router(api_routes_router, tags=["API Routes"])
 api_router.include_router(tables_router, tags=["Data Tables"])

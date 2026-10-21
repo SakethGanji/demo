@@ -14,6 +14,7 @@ import type { NextStep, StartKind } from '../lib/nextSteps'
 import { Button } from '@/shared/components/ui/button'
 import { Page, Tile, Well } from '@/shared/components/ui/surface'
 import { cn } from '@/shared/lib/utils'
+import { DatabasesSection } from '@/features/connections/DatabasesSection'
 import { START_CARDS } from './setup/startCards'
 import { StartPicker } from './setup/StartPicker'
 import { GuideStartPanel } from './setup/StartPanels'
@@ -21,7 +22,7 @@ import { SecretForm } from './setup/SecretForm'
 import { Segments, StepControls, StepMarker } from './setup/parts'
 
 export function SetupGuide({ setup }: { setup: SetupState }) {
-  const { project, slug } = useProjectCtx()
+  const { pid, project, slug } = useProjectCtx()
   const navigate = useNavigate()
   const started = !setup.empty || !!setup.start
   const firstOpen = setup.steps.find((s) => s.state === 'open')?.id
@@ -49,6 +50,11 @@ export function SetupGuide({ setup }: { setup: SetupState }) {
             ))}
           </Well>
         </Tile>
+
+        {/* an existing database can be the start: connect it before anything else exists */}
+        <div className="mt-6">
+          <DatabasesSection pid={pid} />
+        </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
           {hidden > 0 && (

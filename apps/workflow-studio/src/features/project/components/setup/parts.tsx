@@ -14,10 +14,10 @@ export function StepMarker({ n, done, current, className }: { n: number; done: b
       className={cn(
         'inline-flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold transition-[background-color,box-shadow] duration-(--d-base) motion-reduce:transition-none [&_svg]:size-3 [&_svg]:stroke-[2.5]',
         done
-          ? 'bg-success text-primary-foreground'
+          ? 'glass-orb bg-success text-primary-foreground'
           : current
-            ? 'bg-primary text-primary-foreground shadow-[0_0_0_4px_var(--brand-soft)]'
-            : 'bg-recess text-muted-foreground shadow-[inset_0_0_0_1px_var(--input)]',
+            ? 'glass-orb bg-primary text-primary-foreground [--orb-ring:0_0_0_4px_var(--brand-soft)]'
+            : 'glass-orb-clear text-muted-foreground',
         className,
       )}
       data-done={done ? 'true' : 'false'}
@@ -52,21 +52,21 @@ export function StepControls({
   onDismiss: () => void
   onRestore: () => void
 }) {
-  const cls = 'text-xs text-muted-foreground transition-colors duration-(--d-fast) hover:text-foreground'
+  const cls = 'text-muted-foreground'
   return (
-    <span className="flex items-center gap-3">
+    <span className="flex items-center gap-1">
       {deferred ? (
-        <button type="button" className={cls} onClick={onRestore} data-testid={`setup-step-restore-${id}`}>
+        <Button type="button" variant="ghost" size="xs" className={cls} onClick={onRestore} data-testid={`setup-step-restore-${id}`}>
           Bring back
-        </button>
+        </Button>
       ) : (
-        <button type="button" className={cls} onClick={onLater} data-testid={`setup-step-later-${id}`}>
+        <Button type="button" variant="ghost" size="xs" className={cls} onClick={onLater} data-testid={`setup-step-later-${id}`}>
           Later
-        </button>
+        </Button>
       )}
-      <button type="button" className={cls} onClick={onDismiss} data-testid={`setup-step-dismiss-${id}`}>
+      <Button type="button" variant="ghost" size="xs" className={cls} onClick={onDismiss} data-testid={`setup-step-dismiss-${id}`}>
         Not for this project
-      </button>
+      </Button>
     </span>
   )
 }
@@ -126,7 +126,7 @@ export function TemplateChooser({
   onEngine: (t: TemplateSummary) => void
   onHome: (t: HomeTemplate) => void
 }) {
-  const row = 'flex items-center gap-3 px-3 py-2.5 shadow-[inset_0_-1px_0_var(--hairline)] last:shadow-none'
+  const row = 'flex items-center gap-1 px-3 py-2.5 shadow-[inset_0_-1px_0_var(--hairline)] last:shadow-none'
   return (
     <div className="max-h-[320px] overflow-y-auto rounded-ctl bg-raise shadow-raise-sm" data-testid="setup-template-list">
       {engine.map((t) => {

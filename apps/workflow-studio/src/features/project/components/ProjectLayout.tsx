@@ -1,6 +1,10 @@
 /**
  * Resolves `/p/$project` (slug or id) once and provides the project to every page under it.
  * `/p/{id}` is replaced with `/p/{slug}`; an unknown ref renders the full-page not-found (§2.3).
+ * There is no sidebar: the Overview is the project's home screen, and everything opened from it (an app, a workflow,
+ * a system page) takes the whole window, with the way home and the jump menu in its top bar (HomeNav). Overlays
+ * addressed by search params (settings, the create-app dialog) are mounted here, so they open over any page,
+ * editors included.
  */
 import { useEffect, useMemo } from 'react'
 import { Link, Outlet, useNavigate, useParams, useRouterState } from '@tanstack/react-router'
@@ -14,6 +18,7 @@ import { Spinner } from '@/shared/components/ui/spinner'
 import { EmptyState } from '@/shared/components/ui/empty-state'
 import { ProjectProvider, type ProjectCtx } from '../ProjectContext'
 import { useEnvProfilesStore } from '@/features/workflow-editor/stores/envProfilesStore'
+import { WorkspaceOverlays } from './WorkspaceOverlays'
 
 export function ProjectLayout() {
   const { project: ref } = useParams({ strict: false }) as { project: string }
@@ -30,8 +35,11 @@ export function ProjectLayout() {
 
   // Canonicalise /p/{id}/… → /p/{slug}/… (replace, keeps the rest of the URL).
   useEffect(() => {
-    if (project && ref !== project.slug) {
-      const rest = pathname.slice(`/p/${ref}`.length)
+    // The path flips to the slug a render before `ref` does: only rewrite while the URL still names the id,
+    // or the stale ref would cut the rest of the path off and land every deep link on the Overview.
+    const prefix = `/p/${ref}`
+    if (project && ref !== project.slug && (pathname === prefix || pathname.startsWith(`${prefix}/`))) {
+      const rest = pathname.slice(prefix.length)
       navigate({ to: `/p/${project.slug}${rest}${searchStr}` as never, replace: true })
     }
   }, [project, ref, pathname, searchStr, navigate])
@@ -86,7 +94,10 @@ export function ProjectLayout() {
   }
   return (
     <ProjectProvider value={ctx}>
-      <Outlet />
+      <div className="relative h-full w-full" data-testid="project-page">
+        <Outlet />
+      </div>
+      <WorkspaceOverlays />
     </ProjectProvider>
   )
 }

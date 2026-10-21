@@ -277,9 +277,9 @@ function ReleaseBody() {
           {releases.isError && (
             <Callout tone="error" role="alert" data-testid="release-error">
               Couldn't load releases · {errorMessage(releases.error)}{' '}
-              <button type="button" className="underline" onClick={() => releases.refetch()}>
+              <Button type="button" variant="link" size="xs" className="h-auto px-0 align-baseline" onClick={() => releases.refetch()}>
                 Retry
-              </button>
+              </Button>
             </Callout>
           )}
 
@@ -345,9 +345,9 @@ function ReleaseBody() {
           ) : dry.isError ? (
             <Callout tone="error" role="alert" data-testid="release-dry-error" className="py-2.5">
               {isApiError(dry.error, 'release_blocked') ? 'This snapshot was blocked; create a new one.' : errorMessage(dry.error)}{' '}
-              <button type="button" className="underline" onClick={rerun}>
+              <Button type="button" variant="link" size="xs" className="h-auto px-0 align-baseline" onClick={rerun}>
                 Retry
-              </button>
+              </Button>
             </Callout>
           ) : (
             <div

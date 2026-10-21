@@ -384,15 +384,9 @@ const NodeItem = memo(function NodeItem({
       onDragEnd={handleDragEnd}
       className="group flex w-full items-center gap-2.5 rounded-ctl px-2.5 py-2 text-left transition-colors hover:bg-raise hover:shadow-raise-sm cursor-grab active:cursor-grabbing"
     >
-      <div
-        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full shadow-raise-sm ${nodeGroup === 'ai' ? 'brand-fill' : ''}`}
-        style={nodeGroup === 'ai' ? undefined : {
-          backgroundColor: styles.iconBgColor,
-          color: styles.iconFgColor,
-        }}
-      >
+      <span className="icon-tile size-8 rounded-ctl" style={{ color: styles.accentColor }} aria-hidden>
         <IconComponent size={16} />
-      </div>
+      </span>
       <div className="min-w-0 flex-1">
         <p className="text-[13px] font-medium text-foreground">{node.displayName}</p>
         <p className="truncate text-[12px] text-muted-foreground leading-tight">{node.description}</p>

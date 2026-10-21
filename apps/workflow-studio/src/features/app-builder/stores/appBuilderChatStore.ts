@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import type { PlanRevision } from '../lib/chatEvents'
 import type { BaseChatMessage } from '@/shared/components/chat/types'
 
 export interface ToolCallEntry {
@@ -37,6 +38,8 @@ export interface AppChatMessage extends BaseChatMessage {
   error?: ChatError | null
   /** the user message this assistant turn answers (for Retry) */
   prompt?: string
+  /** the ask needs the plan changed first (a new table, route or role): the draft to approve, then the ask goes on */
+  planRevision?: PlanRevision | null
 }
 
 function id() {
@@ -52,6 +55,8 @@ interface ChatState {
   removeLast: (n: number) => void
   setStreaming: (s: boolean) => void
   clearHistory: () => void
+  /** seed a reloaded transcript; a no-op once the user has already said something in this session */
+  restore: (msgs: AppChatMessage[]) => void
 }
 
 export const useAppBuilderChatStore = create<ChatState>()((set) => ({
@@ -70,4 +75,5 @@ export const useAppBuilderChatStore = create<ChatState>()((set) => ({
   removeLast: (n) => set((s) => ({ messages: s.messages.slice(0, Math.max(0, s.messages.length - n)) })),
   setStreaming: (isStreaming) => set({ isStreaming }),
   clearHistory: () => set({ messages: [], isStreaming: false }),
+  restore: (msgs) => set((s) => (s.messages.length ? s : { messages: msgs })),
 }))

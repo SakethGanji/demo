@@ -1,0 +1,20 @@
+{
+  "goal": "Filter and sort an account transaction grid",
+  "slug": "bank-02-grid-filter-sort",
+  "steps": [
+    { "action": "fill", "target": { "label": "Username" }, "value": "{{teller_user}}", "group": "Sign in" },
+    { "action": "fill", "target": { "label": "Password" }, "value": "{{teller_pass}}", "group": "Sign in" },
+    { "action": "click", "target": { "role": "button", "name": "Sign in" }, "group": "Sign in" },
+    { "action": "otp", "value": "{{totp:teller_totp}}", "group": "Pass MFA" },
+    { "action": "click", "target": { "role": "button", "name": "Verify" }, "group": "Pass MFA" },
+    { "action": "waitFor", "target": { "role": "table", "name": "Customer accounts" }, "group": "Open account" },
+    { "action": "click", "target": { "role": "link", "name": "Everyday Checking" }, "group": "Open account" },
+    { "action": "waitFor", "target": { "role": "table", "name": "Transactions" }, "group": "Open account" },
+    { "action": "select", "target": { "label": "Category" }, "option": "Groceries", "group": "Filter" },
+    { "action": "waitFor", "target": { "role": "status" }, "group": "Filter" },
+    { "action": "expectText", "target": { "role": "status" }, "text": "transactions", "group": "Filter" },
+    { "action": "click", "target": { "role": "button", "name": "Amount" }, "group": "Sort by amount" },
+    { "action": "expectVisible", "target": { "role": "columnheader", "name": "Amount" }, "group": "Sort by amount" },
+    { "action": "done", "reason": "grid filtered by category and sorted by amount" }
+  ]
+}

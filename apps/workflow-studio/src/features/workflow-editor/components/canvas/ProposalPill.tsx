@@ -1,9 +1,8 @@
+import { Button } from '@/shared/components/ui/button'
 import { AnimatePresence, motion } from 'motion/react'
 import { useStageStore } from '@/features/ai-builder/stage/stageStore'
 import { dur, ease, spring } from '@/shared/motion/tokens'
 import { Roll } from '@/shared/components/ui/roll'
-
-const btn = 'rounded-full px-2.5 py-1 text-xs font-medium transition-colors duration-(--d-base) ease-(--ease-out)'
 
 /** Click the sidebar control: Keep needs the name field and confirmation that live in the review panel. */
 function clickPanel(testid: string) {
@@ -58,23 +57,23 @@ export default function ProposalPill({ inset }: { inset: number }) {
             </span>
           )}
           {(mode === 'building' || mode === 'blueprint') && playback === 'playing' && (
-            <button type="button" data-testid="ai-build-skip" className={`${btn} text-muted-foreground hover:bg-recess hover:text-foreground`} onClick={requestSkip}>
+            <Button type="button" variant="ghost" size="xs" data-testid="ai-build-skip" className="text-muted-foreground" onClick={requestSkip}>
               Skip
-            </button>
+            </Button>
           )}
           {!follow && (mode === 'building' || mode === 'review') && (
-            <button type="button" data-testid="ai-stage-follow" className={`${btn} text-primary hover:bg-recess`} onClick={() => setFollow(true)}>
+            <Button type="button" variant="ghost" size="xs" data-testid="ai-stage-follow" className="text-primary" onClick={() => setFollow(true)}>
               Follow
-            </button>
+            </Button>
           )}
           {mode === 'review' && (
             <>
-              <button type="button" data-testid="ai-stage-keep" className={`${btn} bg-primary text-primary-foreground`} onClick={() => clickPanel('ai-keep')}>
+              <Button type="button" size="xs" data-testid="ai-stage-keep" onClick={() => clickPanel('ai-keep')}>
                 Keep
-              </button>
-              <button type="button" data-testid="ai-stage-discard" className={`${btn} text-muted-foreground hover:bg-recess hover:text-foreground`} onClick={() => clickPanel('ai-discard')}>
+              </Button>
+              <Button type="button" variant="ghost" size="xs" data-testid="ai-stage-discard" className="text-muted-foreground" onClick={() => clickPanel('ai-discard')}>
                 Discard
-              </button>
+              </Button>
             </>
           )}
           {showProgress && progress && (

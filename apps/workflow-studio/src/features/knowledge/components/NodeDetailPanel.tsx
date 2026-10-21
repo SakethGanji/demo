@@ -51,7 +51,7 @@ export function NodeDetailPanel({
       animate={{ x: 0, opacity: 1 }}
       exit={off ? undefined : { x: 28, opacity: 0, transition: { duration: dur.fast, ease: ease.in } }}
       transition={{ duration: dur.slow, ease: ease.out }}
-      className="glass-overlay absolute top-3 right-3 bottom-3 z-20 flex flex-col overflow-hidden rounded-panel"
+      className="glass-overlay absolute top-2 right-2 bottom-2 z-20 flex flex-col overflow-hidden rounded-panel"
       style={{ width: `min(${PANEL_W}px, calc(100% - 24px))` }}
       aria-label={node ? `${node.label} details` : 'Node details'}
       data-testid="knowledge-detail"

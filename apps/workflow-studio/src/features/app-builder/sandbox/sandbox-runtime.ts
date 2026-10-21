@@ -38,6 +38,18 @@ export const SANDBOX_RUNTIME_CODE = `
     };
   });
 
+  // ── Uncaught errors ──────────────────────────────────────────────
+  // Reported separately from render errors so the builder can collect them and offer a fix.
+  window.addEventListener('error', function(ev) {
+    var msg = ev && ev.message ? ev.message : (ev && ev.error ? String(ev.error) : '');
+    if (msg) parent.postMessage({ type: 'runtimeError', message: msg }, '*');
+  });
+  window.addEventListener('unhandledrejection', function(ev) {
+    var r = ev && ev.reason;
+    var msg = r && r.message ? r.message : String(r);
+    parent.postMessage({ type: 'runtimeError', message: 'Unhandled promise rejection: ' + msg }, '*');
+  });
+
   // ── API fetch bridge ─────────────────────────────────────────────
   // All fetches are proxied through the parent so the generated app can call
   // any URL (relative or absolute) without hitting iframe CORS. The parent
@@ -188,6 +200,11 @@ export const SANDBOX_RUNTIME_CODE = `
     if (!css) return;
     var style = document.createElement('style');
     style.id = '__app-css';
+    // Tailwind v4 sources (@theme, @apply, @import "tailwindcss") go through the Tailwind runtime
+    if (/@(theme|apply|plugin|custom-variant|utility|source)\\b|@import\\s+["']tailwindcss/.test(css)) {
+      style.type = 'text/tailwindcss';
+      if (!/@import\\s+["']tailwindcss/.test(css)) css = '@import "tailwindcss";\\n' + css;
+    }
     style.textContent = css;
     document.head.appendChild(style);
   }
@@ -198,7 +215,7 @@ export const SANDBOX_RUNTIME_CODE = `
     if (!data || !data.type) return;
 
     if (data.type === 'render') {
-      if (data.css) injectCSS(data.css);
+      injectCSS(data.css);
       renderSource(data.source);
     } else if (data.type === 'apiResponse') {
       var pending = pendingRequests.get(data.reqId);

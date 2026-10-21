@@ -1389,7 +1389,10 @@ class WorkflowRunner:
         )
 
         # Skip $json expressions - let nodes resolve them per-item
-        resolved_params = expression_engine.resolve(node_def.parameters, expr_context, skip_json=True)
+        if context.extras.get("literal_params"):  # broker call (studio.db): values are data, never expressions
+            resolved_params = copy.deepcopy(node_def.parameters)
+        else:
+            resolved_params = expression_engine.resolve(node_def.parameters, expr_context, skip_json=True)
 
         return NodeDefinition(
             name=node_def.name,

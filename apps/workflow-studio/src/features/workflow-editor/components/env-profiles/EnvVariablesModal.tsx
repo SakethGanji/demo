@@ -232,17 +232,15 @@ function AddOrReplaceModal({
               <label className="text-xs text-muted-foreground">Type</label>
               <div className="flex gap-2 mt-1">
                 {(['string', 'secret'] as const).map((t) => (
-                  <button
+                  <Button
                     key={t}
+                    type="button"
+                    size="xs"
+                    variant={type === t ? 'default' : 'secondary'}
                     onClick={() => setType(t)}
-                    className={`px-2 py-1 text-xs rounded-ctl ${
-                      type === t
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-recess hover:bg-(--hover-fill)'
-                    }`}
                   >
                     {t}
-                  </button>
+                  </Button>
                 ))}
               </div>
             </div>

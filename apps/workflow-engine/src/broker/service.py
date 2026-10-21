@@ -16,7 +16,16 @@ from ..db.models import BrokerCallModel, ProjectModel
 from ..engine.types import NodeData, NodeDefinition, Workflow
 from ..services.vars_substitution import expand_secret_variants, redact_deep
 from ..utils.ids import generate_id
-from .policy import EgressGuard, PolicyError, check_parameters, check_read_only, egress_kind, is_exposed, snake
+from . import jobs as _jobs
+from .policy import (
+    EgressGuard,
+    PolicyError,
+    check_parameters,
+    check_read_only,
+    egress_kind,
+    is_exposed,
+    snake,
+)
 from .tokens import BrokerClaims, registry
 from .workflows import NODE_TYPE as RUN_WORKFLOW
 
@@ -24,11 +33,13 @@ logger = logging.getLogger(__name__)
 
 
 def function_index() -> dict[str, str]:
-    """{function_name: node_type} for every exposed node, plus ``run_workflow`` (``RunWorkflow``, see broker/workflows.py)."""
+    """{function_name: node_type} for every exposed node, plus ``run_workflow`` (``RunWorkflow``, see broker/workflows.py)
+    and ``jobs`` (``Jobs``, see broker/jobs.py)."""
     from ..engine.node_registry import node_registry
     from .workflows import FUNCTION, NODE_TYPE
 
-    return {**{snake(t): t for t in node_registry.list() if is_exposed(t)}, FUNCTION: NODE_TYPE}
+    return {**{snake(t): t for t in node_registry.list() if is_exposed(t)}, FUNCTION: NODE_TYPE,
+            _jobs.FUNCTION: _jobs.NODE_TYPE}
 
 
 def resolve_function(function: str | None, node: str | None) -> str:
@@ -141,24 +152,32 @@ class BrokerService:
                                       table=parameters.get("table"))
                 raise PolicyError("table_not_found", 404, f"table '{parameters.get('table')}' not found in this project",
                                   table=parameters.get("table"))
-            if claims.read_only:
+            conn_host: str | None = None
+            if node_type == "Postgres" and parameters.get("connection"):
+                parameters, conn_host = await self._connection_call(claims, parameters)
+            elif claims.read_only:
                 check_read_only(node_type, parameters)
             if claims.calls_used >= claims.max_calls:
                 raise PolicyError("call_limit_exceeded", 429, f"broker call limit ({claims.max_calls}) reached")
             claims.calls_used += 1
 
-            refs = check_parameters(parameters, items)
+            # studio.db rows are data from route code / user input: literal, never expression- or secret-resolved
+            refs = check_parameters(parameters, items, literal=node_type == "DataTable" or conn_host is not None)
             variables, secrets, rows, project = await self._load_env(claims)
             missing = sorted(k for k in refs if k not in rows)
             if missing:
-                raise PolicyError("missing_secret", 422, f"secret '{missing[0]}' is not defined in '{claims.environment}'",
-                                  key=missing[0], environment=claims.environment)
+                elsewhere = await self._envs_defining(claims, missing[0])
+                hint = (f" (it is defined in: {', '.join(elsewhere)}; secrets are scoped per environment)"
+                        if elsewhere else "")
+                raise PolicyError("missing_secret", 422,
+                                  f"secret '{missing[0]}' is not defined in '{claims.environment}'{hint}",
+                                  key=missing[0], environment=claims.environment, **({"defined_in": elsewhere} if elsewhere else {}))
             secret_keys = {k for k in refs if rows[k].type == "secret"}
             kind = egress_kind(node_type)
             secret_hosts: dict[str, list[str]] = {}
             for k in sorted(secret_keys):
                 hosts = rows[k].allowed_hosts
-                if not hosts or kind not in {"http", "postgres"}:
+                if not hosts or kind not in {"http", "postgres", "jobs"}:
                     raise PolicyError("secret_not_bound", 403,
                                       f"secret '{k}' is not bound to any host for '{snake(node_type)}'"
                                       if not hosts else f"secret '{k}' cannot be used with '{snake(node_type)}'",
@@ -170,11 +189,25 @@ class BrokerService:
                                   f"'{snake(node_type)}' egress cannot be checked against the project allowlist")
 
             # Own task => the runner's contextvars (execution id, $vars, secrets) never leak into the caller.
-            if node_type == RUN_WORKFLOW:
+            if node_type == _jobs.NODE_TYPE:
+                # jobs: a fixed engine-configured host (never the caller's), the service token added server-side and
+                # redacted from the answer and the log like any secret.
+                secrets = set(secrets) | _jobs.secret_values()
+                if _jobs.operation_of(parameters) == "start":
+                    _jobs.check_start(parameters, allowlist, secret_hosts)
+                elif secret_keys:
+                    raise PolicyError("secret_not_bound", 403, "secrets can only be sent in a job's start body",
+                                      key=min(secret_keys))
+                from ..services.vars_substitution import substitute_vars
+
+                status, body = 200, await _jobs.call(substitute_vars(parameters, variables) if refs else parameters)
+            elif node_type == RUN_WORKFLOW:
                 status, body = await asyncio.create_task(
                     self._run_workflow(claims, parameters, variables, secrets, project, allowlist))
             else:
-                guard = EgressGuard(allowlist, secret_hosts, read_only=claims.read_only)
+                # a project connection's own host is allowed for that call only; the allowlist is not opened for anything else
+                guard = EgressGuard(allowlist + [conn_host] if (conn_host and allowlist) else allowlist, secret_hosts,
+                                    read_only=claims.read_only)
                 status, body = await asyncio.create_task(
                     self._run_node(claims, node_type, parameters, items, variables, secrets, guard))
         except _VirtualResult:
@@ -187,12 +220,52 @@ class BrokerService:
             status, body = 500, {"ok": False, "call_id": call_id, "error": {"code": "internal_error", "message": str(e)}}
 
         body["call_id"] = call_id
+        if node_type == _jobs.NODE_TYPE:
+            secrets = set(secrets) | _jobs.secret_values()
+            parameters = _jobs.loggable(parameters) if isinstance(parameters, dict) else parameters
         variants = expand_secret_variants(secrets)
         body = redact_deep(body, variants, expanded=True)
         await self._log(call_id, claims, node_type, parameters, variants, body, status,
                         (time.perf_counter() - started) * 1000)
         claims.trace.append(call_id)
         return status, body
+
+    async def _connection_call(self, claims: BrokerClaims, parameters: dict[str, Any]) -> tuple[dict[str, Any], str]:
+        """A Postgres call by project connection key (``studio.connection``): only the query fields are taken from the caller,
+        the URL stays a server-side secret. Returns the cleaned parameters and the connection's host."""
+        from ..services.connection_service import lookup
+
+        key = parameters.get("connection")
+        if not isinstance(key, str) or not key:
+            raise PolicyError("invalid_request", 400, "connection must be a connection key")
+        if str(parameters.get("operation") or "query") != "query":
+            raise PolicyError("invalid_request", 400, "a project connection supports the 'query' operation only")
+        async with self._sf() as session:
+            row = await lookup(session, claims.project_id, key)
+        if row is None:
+            raise PolicyError("connection_not_found", 404, f"connection '{key}' does not exist in this project", connection=key)
+        if claims.read_only and not row.readonly:
+            raise PolicyError("read_only", 403, "read-only token: this connection is writable", function="postgres")
+        clean = {"connection": key, "operation": "query", "query": parameters.get("query", ""),
+                 "queryParameters": parameters.get("queryParameters") if parameters.get("queryParameters") is not None else [],
+                 "limit": parameters.get("limit", 100)}
+        return clean, row.host
+
+    async def _envs_defining(self, claims: BrokerClaims, key: str) -> list[str]:
+        """The project's other environments that do define ``key`` (best effort: never masks the real error)."""
+        try:
+            from ..repositories.variable_repository import VariableRepository
+            from ..services.project_service import env_names
+
+            async with self._sf() as session:
+                project = await session.get(ProjectModel, claims.project_id)
+                if project is None:
+                    return []
+                repo = VariableRepository(session)
+                return [e for e in env_names(project) if e != claims.environment
+                        and key in await repo.load_runtime_rows(claims.team_id, e, claims.project_id)]
+        except Exception:
+            return []
 
     async def _load_env(self, claims: BrokerClaims):
         from ..repositories.variable_repository import VariableRepository
@@ -239,6 +312,8 @@ class BrokerService:
 
         run_extras: dict[str, Any] = {"broker_origin": claims.origin, "parent_execution_id": claims.execution_id,
                                       **(extras or {})}
+        if node_type == "DataTable" or (node_type == "Postgres" and parameters.get("connection")):
+            run_extras["literal_params"] = True
         http_options: dict[str, Any] | None = None
         if guard is not None:
             run_extras["broker_egress_guard"] = guard

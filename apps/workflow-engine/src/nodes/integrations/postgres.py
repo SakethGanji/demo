@@ -64,9 +64,27 @@ class PostgresNode(BaseNode):
                 name="connectionString",
                 type="string",
                 default=DEFAULT_CONNECTION_STRING,
-                required=True,
-                description="PostgreSQL connection string. Supports expressions.",
+                required=False,
+                description="PostgreSQL connection string. Supports expressions. Not needed when Connection is set.",
                 placeholder="postgresql://user:pass@host:5432/dbname",
+            ),
+            NodeProperty(
+                display_name="Connection",
+                name="connection",
+                type="string",
+                default="",
+                required=False,
+                description="Key of a project database connection. Replaces the connection string; queries are read-only "
+                            "(SELECT/WITH, 10 s timeout, row limit) unless the connection is marked writable.",
+                placeholder="shopdemo",
+            ),
+            NodeProperty(
+                display_name="Row Limit",
+                name="limit",
+                type="number",
+                default=1000,
+                description="Most rows a read-only connection query returns (at most 5000).",
+                display_options={"show": {"operation": ["query"]}},
             ),
             NodeProperty(
                 display_name="Operation",
@@ -139,14 +157,20 @@ class PostgresNode(BaseNode):
 
         conn_template = self.get_parameter(node_definition, "connectionString", DEFAULT_CONNECTION_STRING)
         operation = self.get_parameter(node_definition, "operation", "query")
+        connection_key = self.get_parameter(node_definition, "connection", "")
 
         items = input_data if input_data else [ND(json={})]
 
         first_ctx = ExpressionEngine.create_context(
             input_data, context.node_states, context.execution_id, 0,
         )
-        conn_string = str(expression_engine.resolve(conn_template, first_ctx))
         guard = context.extras.get("broker_egress_guard")
+        if connection_key:
+            return await self._exec_connection(
+                str(expression_engine.resolve(connection_key, first_ctx)).strip(), operation, node_definition, items,
+                input_data, context, expression_engine, ExpressionEngine, guard,
+            )
+        conn_string = str(expression_engine.resolve(conn_template, first_ctx))
         if guard is not None:
             guard.check_postgres_connection(conn_string)
 
@@ -181,6 +205,79 @@ class PostgresNode(BaseNode):
                     else:
                         results.append(ND(json={"success": True, "rowCount": cur.rowcount}))
 
+        return self.output(results)
+
+    async def _exec_connection(
+        self, key, operation, node_definition, items, input_data, context, expression_engine, ExpressionEngine, guard,
+    ):
+        """Run against a project connection: the URL comes from the project's secret, never from the parameters.
+        A read-only connection (the default) only runs one SELECT/WITH per item, in a READ ONLY transaction."""
+        from ...engine.types import NodeData as ND
+        from ...db.session import async_session_factory
+        from ...services import external_db as xdb
+        from ...services.connection_service import lookup
+
+        if not context.project_id:
+            raise ValueError("a project connection needs a project run")
+        async with async_session_factory() as session:
+            row = await lookup(session, context.project_id, key)
+        if row is None:
+            raise ValueError(f"connection '{key}' does not exist in this project")
+        url = (context.variables or {}).get(row.secret_key)
+        if not url:
+            raise ValueError(f"the secret {row.secret_key} of connection '{key}' is not defined in this environment")
+        if guard is not None:
+            guard.check_postgres_connection(url)
+        if not row.readonly:
+            if operation == "transaction":
+                return await self._exec_transaction(url, node_definition, items, input_data, context, expression_engine, ExpressionEngine)
+            return await self._run_queries(url, node_definition, items, input_data, context, expression_engine, ExpressionEngine)
+        if operation == "transaction":
+            raise ValueError(f"connection '{key}' is read-only; transactions are not allowed")
+        literal = bool(context.extras.get("literal_params"))
+        query_template = self.get_parameter(node_definition, "query", "")
+        params_template = self.get_parameter(node_definition, "queryParameters", "[]")
+        limit = self.get_parameter(node_definition, "limit", 1000)
+        results = []
+        for idx, _item in enumerate(items):
+            if literal:
+                query, params = query_template, params_template
+            else:
+                expr_ctx = ExpressionEngine.create_context(input_data, context.node_states, context.execution_id, idx)
+                query = str(expression_engine.resolve(query_template, expr_ctx))
+                params = expression_engine.resolve_json_template(params_template, expr_ctx)
+            if not isinstance(params, (list, dict)):
+                params = parse_json_params(params)
+            try:
+                res = await xdb.run_readonly(url, query, params, limit, max_limit=xdb.SDK_MAX_LIMIT)
+            except xdb.ExternalDbError as e:
+                raise ValueError(f"{e.code}: {e.message}") from None
+            results.append(ND(json={"rows": res["rows"], "rowCount": len(res["rows"]), "truncated": res["truncated"]}))
+        return self.output(results)
+
+    async def _run_queries(self, conn_string, node_definition, items, input_data, context, expression_engine, ExpressionEngine):
+        from ...engine.types import NodeData as ND
+
+        query_template = self.get_parameter(node_definition, "query", "")
+        params_template = self.get_parameter(node_definition, "queryParameters", "[]")
+        results = []
+        async with await psycopg.AsyncConnection.connect(conn_string) as conn:
+            for idx, item in enumerate(items):
+                if context.extras.get("literal_params"):   # code via the broker: data, never expressions
+                    query, params = query_template, params_template
+                else:
+                    expr_ctx = ExpressionEngine.create_context(input_data, context.node_states, context.execution_id, idx)
+                    query = str(expression_engine.resolve(query_template, expr_ctx))
+                    params = expression_engine.resolve_json_template(params_template, expr_ctx)
+                if not isinstance(params, (list, dict)):
+                    params = parse_json_params(params)
+                async with conn.cursor() as cur:
+                    await cur.execute(query, params)
+                    if cur.description is not None:
+                        rows = await _fetch_rows(cur)
+                        results.append(ND(json={"rows": rows, "rowCount": len(rows)}))
+                    else:
+                        results.append(ND(json={"success": True, "rowCount": cur.rowcount}))
         return self.output(results)
 
     async def _exec_transaction(

@@ -1,0 +1,7 @@
+approvals.json
+bank-app/data/
+node_modules/
+playwright-report/
+runs/
+state/
+test-results/

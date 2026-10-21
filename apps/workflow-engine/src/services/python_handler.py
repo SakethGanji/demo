@@ -38,6 +38,15 @@ def structured_error(err: dict[str, Any]) -> dict[str, Any]:
             "table": (err.get("details") or {}).get("table")}  # UI-DESIGN §4.4: error.table for table_not_found
 
 
+def _trusted_req(item: dict[str, Any], default_caller: dict[str, Any], clean_headers) -> dict[str, Any]:
+    """The request the handler sees: identity headers removed, ``caller`` set by the engine (``item["caller"]`` /
+    ``item["req"]["caller"]``, written only by server code) and never taken from client input."""
+    req = dict(item["req"])
+    req["headers"] = clean_headers(req.get("headers"))
+    req["caller"] = item.get("caller") or req.get("caller") or default_caller
+    return req
+
+
 async def run_python_route(session: AsyncSession, project, spec: dict[str, Any], handler: dict[str, Any],
                            item: dict[str, Any], env: str, trigger: dict[str, Any], release) -> Any:
     from ..db.models import CodeModuleModel, ExecutionModel
@@ -46,7 +55,7 @@ async def run_python_route(session: AsyncSession, project, spec: dict[str, Any],
     from ..sandbox.service import SandboxService
     from ..utils.ids import execution_id as gen_exec_id
     from .code_module_service import CodeModuleService
-    from .route_dispatcher import DispatchResult
+    from .route_dispatcher import ANONYMOUS_CALLER, DispatchResult, clean_headers
     from .variable_loader import load_run_secrets
     from .vars_substitution import redact_deep
 
@@ -84,7 +93,7 @@ async def run_python_route(session: AsyncSession, project, spec: dict[str, Any],
     try:
         result, calls = await SandboxService().run(
             kind="route", project_id=project.id, environment=env, execution_id=exec_id, origin="python_route",
-            payload={"req": item["req"]}, entry=f"{mod_name}:{handler.get('function')}", modules=modules,
+            payload={"req": _trusted_req(item, ANONYMOUS_CALLER, clean_headers)}, entry=f"{mod_name}:{handler.get('function')}", modules=modules,
             timeout_s=float(spec.get("timeout_s") or 30), team_id=project.team_id,
             # run_workflow from this handler runs the versions this release pinned
             frame={"release_id": release.id} if release is not None else None)
@@ -108,5 +117,8 @@ async def run_python_route(session: AsyncSession, project, spec: dict[str, Any],
     res = out.get("result") or {}
     await finish("success", trace)
     body = res.get("body")
+    headers = {str(k): str(v) for k, v in (res.get("headers") or {}).items()}
+    # a handler that sets its own Content-Type (CSV, HTML, plain text) is sent as that, not JSON-encoded
+    ctype = next((headers.pop(k) for k in list(headers) if k.lower() == "content-type"), "application/json")
     return DispatchResult(int(res.get("status") or 200), redact_deep(body, secrets) if isinstance(body, (dict, list, str)) else body,
-                          {str(k): str(v) for k, v in (res.get("headers") or {}).items()}, "application/json", exec_id)
+                          headers, ctype, exec_id)

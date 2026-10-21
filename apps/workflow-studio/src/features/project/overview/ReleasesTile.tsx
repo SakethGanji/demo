@@ -26,7 +26,7 @@ export function ReleasesTile({ summary }: { summary: ProjectSummary }) {
         title="Releases"
         actions={
           <Button
-            variant="ghost"
+            variant="outline"
             size="sm"
             onClick={() => navigate({ to: '.', search: (s: Record<string, unknown>) => ({ ...s, sheet: 'release' }) } as never)}
             data-testid="releases-create"

@@ -1,6 +1,7 @@
 /**
  * Save ⌘S (UI-DESIGN §4.2 step 6):
- *  1. create checked draft tables (`409 name_taken` = exists → continue)
+ *  1. checked draft tables go with the save as `tables`: the engine creates them, or migrates existing ones additively,
+ *     before it writes the module (one server path; a destructive change refuses the whole save)
  *  2. saved module: `PUT …?dry_run=true {source, base_sha}` → breaking changes (incl. auth
  *     loosening) open BreakingChangesDialog
  *  3. `POST …/modules {name, source}` or `PUT …/modules/{M} {source, base_sha}`
@@ -10,12 +11,31 @@
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { modulesApi, tablesApi } from '@/shared/api/endpoints'
-import { ApiError, errorMessage, isApiError } from '@/shared/api/http'
+import { modulesApi } from '@/shared/api/endpoints'
+import { ApiError, errorMessage } from '@/shared/api/http'
 import { invalidate, qk } from '@/shared/api/queryKeys'
-import type { Change, ModuleWriteResult } from '@/shared/api/types'
+import type { Change, DeclaredTable, ModuleWriteResult } from '@/shared/api/types'
 import { useDocStore, clearPersisted, type ModuleDoc } from './docStore'
 import { problemsFromError, type Problem } from './useAnalysis'
+
+/** The draft's checked tables as the module save takes them (`tables` on create / update). */
+export function saveTables(doc: Pick<ModuleDoc, 'draft'>): DeclaredTable[] {
+  return (doc.draft?.tables ?? []).filter((t) => t.create).map((t) => ({ name: t.name, columns: t.columns }))
+}
+
+/** The body of the module write: the source, the base sha of a saved module, and the declared tables. */
+export function saveBody(doc: Pick<ModuleDoc, 'draft' | 'module' | 'moduleId'>, source: string, baseSha: string | null) {
+  const tables = saveTables(doc)
+  const extra = tables.length ? { tables } : {}
+  return doc.moduleId ? { source, base_sha: baseSha ?? undefined, ...extra } : { name: doc.module, source, ...extra }
+}
+
+/** Tables the save created: the engine's `tables_created` when it reports it, else the declared ones that did not exist. */
+export function createdTables(result: ModuleWriteResult, sent: DeclaredTable[], existing: string[]): string[] {
+  const reported = result.tables_created
+  if (Array.isArray(reported)) return reported.map((t) => (typeof t === 'string' ? t : String(t.name ?? '')))
+  return sent.map((t) => t.name).filter((n) => !existing.includes(n))
+}
 
 export interface SaveOutcome {
   ok: boolean
@@ -36,19 +56,9 @@ export function useSaveModule(pid: string, existingTables: string[]) {
     setSaving(true)
     setNameTaken(false)
     const source = doc.source
-    const createdTables: string[] = []
     try {
-      // 1. declared tables
-      for (const t of doc.draft?.tables ?? []) {
-        if (!t.create || existingTables.includes(t.name)) continue
-        try {
-          await tablesApi.create(pid, { name: t.name, columns: t.columns })
-          createdTables.push(t.name)
-        } catch (e) {
-          if (!isApiError(e, 'name_taken')) throw e
-        }
-      }
-      if (createdTables.length) await invalidate.tablesChanged(qc, pid)
+      // 1. declared tables travel with the write (step 3)
+      const tables = saveTables(doc)
 
       // 2. breaking-change preview for saved modules
       const baseSha = opts.overwrite ? null : doc.baseSha
@@ -62,8 +72,10 @@ export function useSaveModule(pid: string, existingTables: string[]) {
 
       // 3. write
       const result = doc.moduleId
-        ? await modulesApi.update(pid, doc.moduleId, { source, base_sha: baseSha ?? undefined })
-        : await modulesApi.create(pid, { name: doc.module, source })
+        ? await modulesApi.update(pid, doc.moduleId, saveBody(doc, source, baseSha))
+        : await modulesApi.create(pid, saveBody(doc, source, baseSha) as { name: string; source: string; tables?: DeclaredTable[] })
+      const made = createdTables(result, tables, existingTables)
+      if (tables.length) await invalidate.tablesChanged(qc, pid)
 
       patch(doc.projectId, doc.module, {
         moduleId: result.module.id,
@@ -84,7 +96,7 @@ export function useSaveModule(pid: string, existingTables: string[]) {
       const parts = [`Saved ${doc.module}.py`]
       if (created) parts.push(`${created} route${created === 1 ? '' : 's'} created`)
       if (removed) parts.push(`${removed} removed`)
-      for (const t of createdTables) parts.push(`table ${t} created`)
+      for (const t of made) parts.push(`table ${t} created`)
       toast.success(parts.join(' · '))
       return { ok: true, result }
     } catch (e) {

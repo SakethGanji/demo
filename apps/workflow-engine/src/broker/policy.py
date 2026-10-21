@@ -71,6 +71,10 @@ def egress_kind(node_type: str) -> str:
         # run_workflow: the workflow runs like any other run of the project (its HttpRequest nodes apply the project
         # egress allowlist themselves), so the call itself has no egress to check here.
         return "workflow"
+    if node_type == "Jobs":
+        # jobs (broker/jobs.py): the Jobs service host is engine config, never the caller's; a job's target hosts are
+        # checked against the project allowlist and secret bindings by jobs.check_start.
+        return "jobs"
     return "opaque"
 
 
@@ -106,10 +110,11 @@ def secret_refs(parameters: Any, items: Any = None) -> set[str]:
     return keys
 
 
-def check_parameters(parameters: dict[str, Any], items: list[Any]) -> set[str]:
+def check_parameters(parameters: dict[str, Any], items: list[Any], *, literal: bool = False) -> set[str]:
+    """``literal``: the parameters are plain data from code (``studio.db``), never expressions, so no secret refs."""
     if _has_key(parameters, "credentialId") or _has_key(parameters, "_credentials"):
         raise PolicyError("credential_not_allowed", 422, "credentialId is not allowed in broker calls; use $vars secrets")
-    return secret_refs(parameters, items)
+    return set() if literal else secret_refs(parameters, items)
 
 
 def host_matches(host: str, patterns: list[str]) -> bool:
@@ -277,5 +282,13 @@ def check_read_only(node_type: str, parameters: dict[str, Any]) -> None:
         deny("send_email sends data out")
     if node_type == "RunWorkflow":
         deny("run_workflow runs a workflow, which can write data and send it out")
+    if node_type == "Jobs":
+        from .jobs import READ_OPERATIONS
+
+        op = parameters.get("operation")
+        if not isinstance(op, str) or op.strip().lower() not in READ_OPERATIONS:
+            deny(f"jobs operation '{op}' starts or cancels a job (only {', '.join(sorted(READ_OPERATIONS))} are allowed)",
+                 operation=str(op))
+        return
     if egress_kind(node_type) == "opaque":
         deny(f"'{snake(node_type)}' has egress that cannot be checked")

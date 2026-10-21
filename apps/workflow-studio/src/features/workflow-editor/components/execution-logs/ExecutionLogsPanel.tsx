@@ -5,6 +5,7 @@
  * Used inside the BottomPanel's Logs tab.
  */
 
+import { Badge } from '@/shared/components/ui/badge'
 import { EmptyState } from '@/shared/components/ui/empty-state';
 import { useState, useEffect, useMemo } from 'react';
 import { Link } from '@tanstack/react-router';
@@ -529,14 +530,14 @@ export default function ExecutionLogsPanel() {
                     {selectedLog.nodeType}
                   </span>
                   {selectedLog.status === 'success' && (
-                    <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-success/11 text-success-text">
+                    <Badge variant="success" className="h-4 px-1.5 text-[10px]">
                       Success
-                    </span>
+                    </Badge>
                   )}
                   {selectedLog.status === 'error' && (
-                    <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-destructive-soft text-destructive">
+                    <Badge variant="error" className="h-4 px-1.5 text-[10px]">
                       Error
-                    </span>
+                    </Badge>
                   )}
                 </div>
                 <div className="flex items-center gap-2 text-[10px] text-muted-foreground">

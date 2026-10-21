@@ -1,6 +1,7 @@
 /**
- * `/p/$project/…` (UI-DESIGN §2): the project layout resolves the slug once, the workspace
- * layout (outline + main) hosts the views, and Workflows/App builder are their own pages.
+ * `/p/$project/…` (UI-DESIGN §2): the project layout resolves the slug once and holds the project rail, the
+ * workspace layout (top bar + main) hosts the views, and the workflow editor / app builder are their own pages.
+ * Apps and workflows are listed only on the Overview: the old list URLs (`apps`, `workflows`) redirect there.
  * URLs use the slug; query keys use the resolved id (D10).
  */
 import { createRoute, redirect } from '@tanstack/react-router'
@@ -9,14 +10,16 @@ import { ProjectLayout } from '@/features/project/components/ProjectLayout'
 import { WorkspaceLayout } from '@/features/project/components/WorkspaceLayout'
 import { OverviewView } from '@/features/project/components/OverviewView'
 import { BackendView } from '@/features/backend/BackendView'
+import { BackendIndex } from '@/features/backend/BackendIndex'
 import { DataView } from '@/features/data/DataView'
 import { SecretsView } from '@/features/secrets/SecretsView'
 import { DatasetsView } from '@/features/datasets/DatasetsView'
 import { KnowledgeView } from '@/features/knowledge/components/KnowledgeView'
 import { KNOWLEDGE_VIEWS, type KnowledgeSearch } from '@/features/knowledge/lib/search'
 import { ApiCatalogView } from '@/features/api-catalog/ApiCatalogView'
+import { BuildView } from '@/features/plan/BuildView'
+import { CodeView } from '@/features/code/CodeView'
 import { RunsView } from '@/features/runs/RunsView'
-import { WorkflowsListPage } from '@/features/workflows-list/WorkflowsListPage'
 import { ProjectWorkflowEditor } from '@/features/workflows-list/ProjectWorkflowEditor'
 import { ProjectAppBuilder } from '@/features/app-builder/ProjectAppBuilder'
 import { ApprovalsPage } from '@/features/approvals/ApprovalsPage'
@@ -66,6 +69,12 @@ export interface BackendSearch {
   prompt?: string
   generate?: 1
 }
+
+export const backendIndexRoute = createRoute({
+  getParentRoute: () => workspaceRoute,
+  path: 'backend',
+  component: BackendIndex,
+})
 
 export const backendRoute = createRoute({
   getParentRoute: () => workspaceRoute,
@@ -118,6 +127,35 @@ export const knowledgeRoute = createRoute({
     node: str(s.node),
   }),
   component: KnowledgeView,
+})
+
+/** The old plan page: the plan now lives on the home page and in the app builder's Plan tab, so the URL redirects home. */
+export const planRoute = createRoute({
+  getParentRoute: () => workspaceRoute,
+  path: 'plan',
+  beforeLoad: ({ params }) => {
+    throw redirect({ to: '/p/$project', params: { project: params.project }, replace: true })
+  },
+})
+
+/** One build of the approved plan in full: the detail view behind the app builder's build card. */
+export const buildRoute = createRoute({
+  getParentRoute: () => workspaceRoute,
+  path: 'build/$build',
+  component: BuildView,
+})
+
+/** Every file the builders wrote (plan, modules, tables, routes, app files): a tree, a viewer/editor, each file's
+ *  history and the project's change log (`build` filters it to one build). */
+export const codeRoute = createRoute({
+  getParentRoute: () => workspaceRoute,
+  path: 'code',
+  validateSearch: (s: Record<string, unknown>): { path?: string; build?: string; tab?: 'changes' } => ({
+    path: str(s.path),
+    build: str(s.build),
+    tab: s.tab === 'changes' ? 'changes' : undefined,
+  }),
+  component: CodeView,
 })
 
 export const secretsRoute = createRoute({
@@ -188,9 +226,11 @@ export const appsIndexRoute = createRoute({
 })
 
 export const workflowsRoute = createRoute({
-  getParentRoute: () => workspaceRoute,
+  getParentRoute: () => projectRoute,
   path: 'workflows',
-  component: WorkflowsListPage,
+  beforeLoad: ({ params }) => {
+    throw redirect({ to: '/p/$project', params: { project: params.project }, replace: true })
+  },
 })
 
 /** Templates live at the top level now: the old project URL opens the catalog with this project preselected. */
@@ -238,21 +278,25 @@ export const appRoute = createRoute({
 export const projectRouteTree = projectRoute.addChildren([
   workspaceRoute.addChildren([
     overviewRoute,
+    backendIndexRoute,
     backendRoute,
     dataIndexRoute,
     dataRoute,
     datasetsRoute,
     datasetRoute,
     knowledgeRoute,
+    planRoute,
+    buildRoute,
+    codeRoute,
     secretsRoute,
     apisRoute,
     runsRoute,
     runRoute,
     approvalsRoute,
     approvalTaskRoute,
-    workflowsRoute,
   ]),
   appsIndexRoute,
+  workflowsRoute,
   projectTemplatesRoute,
   workflowRoute,
   aiBuildRoute,

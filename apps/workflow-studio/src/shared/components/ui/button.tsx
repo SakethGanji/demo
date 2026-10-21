@@ -10,10 +10,8 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default: "brand-fill shadow-[var(--btn-primary-top)] hover:brightness-110",
-        outline:
-          "bg-recess text-foreground hover:bg-(--hover-fill) aria-expanded:bg-(--hover-fill)",
-        secondary:
-          "bg-(--hover-fill) text-foreground hover:bg-foreground/14 aria-expanded:bg-foreground/14",
+        outline: "glass-bubble text-foreground",
+        secondary: "glass-bubble text-foreground",
         ghost:
           "text-foreground/85 hover:bg-(--hover-fill) hover:text-foreground aria-expanded:bg-(--hover-fill) aria-expanded:text-foreground",
         destructive:
@@ -55,6 +53,7 @@ const Button = React.forwardRef<
       ref={ref as React.Ref<HTMLButtonElement>}
       data-slot="button"
       data-variant={variant ?? undefined}
+      data-size={size ?? undefined}
       className={cn(buttonVariants({ variant, size, className }))}
       render={render}
       nativeButton={nativeButton ?? (render ? false : undefined)}

@@ -91,6 +91,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception:
         logger.warning("startup sweep of interrupted approvals failed (is the interfaces_tasks migration applied?)", exc_info=True)
 
+    # Builds left running by the previous process end as failed / interrupted (a new build skips the finished modules).
+    from .services import build_coordinator
+    try:
+        await build_coordinator.startup_sweep(async_session_factory)
+    except Exception:
+        logger.warning("startup sweep of interrupted builds failed (is the project_builds migration applied?)", exc_info=True)
+
     # Stage 5 6.2: chat completion hooks live for the whole process, so a run that waited on an approval still replies after a restart.
     from .services import chat_service
     if not chat_service.register_hooks():
@@ -109,6 +116,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await cron_scheduler.stop()
     await stale_reaper.stop()
     await retention_cleaner.stop()
+    await build_coordinator.shutdown()
 
     # Wait for running executions to finish
     running = execution_registry.get_all()

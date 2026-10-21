@@ -1,3 +1,4 @@
+import { Button } from '@/shared/components/ui/button'
 import { lazy, Suspense, useEffect } from 'react'
 import { ReactFlowProvider } from '@xyflow/react'
 import { Loader2, X, Blocks, Sparkles, LayoutTemplate, WandSparkles } from 'lucide-react'
@@ -63,15 +64,17 @@ function RightPanel() {
           </EditorTab>
         ))}
         <div className="flex-1" />
-        <button
+        <Button
+          variant="ghost"
+          size="icon-xs"
           onClick={closeRightPanel}
-          className="mr-1 flex size-6 items-center justify-center rounded-ctl text-muted-foreground transition-colors hover:bg-(--hover-fill) hover:text-foreground"
+          className="mr-1 text-muted-foreground"
           title="Close panel"
           aria-label="Close panel"
           data-testid="editor-right-close"
         >
           <X size={12} />
-        </button>
+        </Button>
       </EditorTabList>
       <div className="flex-1 overflow-hidden min-h-0">
         <Suspense fallback={<div className="flex-1" />}>
@@ -217,12 +220,12 @@ export function WorkflowEditorPage({ workflowId }: { workflowId?: string }) {
           </div>
 
           {/* Layer 2: Floating navbar */}
-          <div className="absolute top-3 left-3 right-3 z-20">
+          <div className="absolute top-2 left-2 right-2 z-20">
             <WorkflowNavbar />
           </div>
 
           {/* Viewing a saved run */}
-          <div className="absolute top-[76px] left-1/2 z-20 flex -translate-x-1/2 flex-col items-center gap-2">
+          <div className="absolute top-[68px] left-1/2 z-20 flex -translate-x-1/2 flex-col items-center gap-2">
             <ViewingRunBanner />
             <DriftBanner />
           </div>
@@ -230,12 +233,12 @@ export function WorkflowEditorPage({ workflowId }: { workflowId?: string }) {
           {/* Layer 1: Floating right panel */}
           <div
             className={[
-              'absolute right-3 bottom-3 z-10',
+              'absolute right-2 bottom-2 z-10',
               floatingPanel,
               panelTransition,
-              rightPanelOpen ? 'translate-x-0 opacity-100' : 'translate-x-[calc(100%+12px)] opacity-0 pointer-events-none',
+              rightPanelOpen ? 'translate-x-0 opacity-100' : 'translate-x-[calc(100%+8px)] opacity-0 pointer-events-none',
             ].join(' ')}
-            style={{ width: 'min(384px, 50vw - 24px)', top: 'calc(0.75rem + 44px + 0.75rem)' }}
+            style={{ width: 'min(384px, 50vw - 16px)', top: 60 }}
           >
             <RightPanel />
           </div>
@@ -243,13 +246,13 @@ export function WorkflowEditorPage({ workflowId }: { workflowId?: string }) {
           {/* Layer 1: Floating bottom panel */}
           <div
             className={[
-              'absolute left-3 bottom-3 z-10',
+              'absolute left-2 bottom-2 z-10',
               floatingPanel,
               panelTransition,
-              bottomPanelMaximized ? 'h-[calc(100%-80px)]' : 'h-[min(280px,50vh)]',
-              bottomPanelOpen ? 'translate-y-0 opacity-100' : 'translate-y-[calc(100%+12px)] opacity-0 pointer-events-none',
+              bottomPanelMaximized ? 'h-[calc(100%-68px)]' : 'h-[min(280px,50vh)]',
+              bottomPanelOpen ? 'translate-y-0 opacity-100' : 'translate-y-[calc(100%+8px)] opacity-0 pointer-events-none',
             ].join(' ')}
-            style={{ right: rightPanelOpen ? 'calc(min(384px, 50vw - 24px) + 24px)' : 12 }}
+            style={{ right: rightPanelOpen ? 'calc(min(384px, 50vw - 16px) + 16px)' : 8 }}
           >
             <BottomPanel />
           </div>

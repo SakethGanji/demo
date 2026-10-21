@@ -24,9 +24,8 @@ let initPromise: Promise<void> | null = null
 
 function ensureInit(): Promise<void> {
   if (!initPromise) {
-    initPromise = esbuild.initialize({
-      wasmURL: '/esbuild.wasm',
-    })
+    // Node (tests) loads the wasm from the package itself; the browser fetches it from our origin.
+    initPromise = esbuild.initialize(typeof window === 'undefined' ? {} : { wasmURL: '/esbuild.wasm' })
   }
   return initPromise
 }
@@ -56,6 +55,7 @@ function join(...parts: string[]): string {
 // ---------------------------------------------------------------------------
 
 const EXTENSIONS = ['.tsx', '.ts', '.jsx', '.js']
+const ASSET_LOADERS: Record<string, esbuild.Loader> = { css: 'css', json: 'json' }
 const INDEX_FILES = EXTENSIONS.map((e) => `index${e}`)
 
 /** Map of global externals — these come from packaged runtime scripts, not the bundle. */
@@ -98,6 +98,9 @@ function virtualFsPlugin(files: AppFile[]): esbuild.Plugin {
         return { contents: `module.exports = ${globalRef}`, loader: 'js' }
       })
 
+      // Tailwind's own stylesheet import is resolved by the preview's Tailwind runtime, not bundled
+      build.onResolve({ filter: /^tailwindcss(\/.*)?$/ }, (args) => ({ path: args.path, external: true }))
+
       // Relative imports → resolve in virtual filesystem
       build.onResolve({ filter: /^\./ }, (args) => {
         const dir = args.importer ? dirname(args.importer) : ''
@@ -118,8 +121,8 @@ function virtualFsPlugin(files: AppFile[]): esbuild.Plugin {
       build.onLoad({ filter: /.*/, namespace: 'virtual' }, (args) => {
         const file = fileMap.get(args.path)
         if (!file) return { errors: [{ text: `File not found: ${args.path}` }] }
-        const ext = (args.path.split('.').pop() ?? 'tsx') as esbuild.Loader
-        return { contents: file.content, loader: ext }
+        const ext = args.path.split('.').pop() ?? 'tsx'
+        return { contents: file.content, loader: ASSET_LOADERS[ext] ?? (ext as esbuild.Loader) }
       })
     },
   }
@@ -169,6 +172,8 @@ export async function bundleFiles(files: AppFile[]): Promise<BundleResult> {
       jsxFactory: 'React.createElement',
       jsxFragment: 'React.Fragment',
       write: false,
+      // CSS imported from the app is emitted as a sibling output file (returned as `css`); esbuild needs an outdir for it
+      outdir: 'out',
       plugins: [virtualFsPlugin(files)],
       define: {
         'process.env.NODE_ENV': '"production"',

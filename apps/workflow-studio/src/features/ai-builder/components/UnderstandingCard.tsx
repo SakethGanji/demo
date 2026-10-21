@@ -1,10 +1,11 @@
+import { Button } from '@/shared/components/ui/button'
 import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, CircleCheck, GitBranch, HelpCircle, LayoutTemplate, Sparkles } from 'lucide-react';
 import { ConceptChip } from '@/features/knowledge/kit/ConceptChip';
 import { Construct, type ConstructMode } from '@/features/knowledge/kit/Construct';
-import { Callout, Tile } from '@/shared/components/ui/surface';
+import { Callout, IconTile, Tile } from '@/shared/components/ui/surface';
 import { Roll } from '@/shared/components/ui/roll';
 import { cn } from '@/shared/lib/utils';
 import { motionOff } from '@/shared/motion/testFlag';
@@ -158,13 +159,13 @@ export function UnderstandingCard({ proposalId, projectId, understanding: u, com
               className="flex flex-col gap-2.5 overflow-hidden"
             >
               <div className="flex items-center gap-2">
-                <Sparkles className="size-3.5 shrink-0 text-ai-text" aria-hidden />
+                <IconTile hue="ai" className="size-6"><Sparkles aria-hidden /></IconTile>
                 <span className="text-[13px] font-semibold text-foreground">Understood · {chips.length}</span>
                 <div className="flex-1" />
                 {compact && (
-                  <button type="button" onClick={() => setExpanded(false)} className="rounded-chip px-1.5 py-0.5 text-[12px] text-muted-foreground outline-none hover:text-foreground focus-visible:shadow-focus" aria-label="Show less">
+                  <Button type="button" variant="ghost" size="icon-xs" onClick={() => setExpanded(false)} aria-label="Show less">
                     <ChevronDown className="size-3.5 rotate-180" aria-hidden />
-                  </button>
+                  </Button>
                 )}
               </div>
 
@@ -197,16 +198,18 @@ export function UnderstandingCard({ proposalId, projectId, understanding: u, com
                   <TypedText text={reusingText(u.summary.reusing)} active={first} delay={REUSING_AT_S} className="font-medium text-foreground" data-testid="ai-reusing-text" />
                   <div className="flex-1" />
                   {items.length > 0 && (
-                    <button
+                    <Button
                       type="button"
+                      variant="ghost"
+                      size="xs"
                       onClick={() => setReusingOpen((v) => !v)}
                       aria-expanded={reusingOpen}
-                      className="inline-flex items-center gap-0.5 rounded-chip px-1.5 py-0.5 text-[12px] text-muted-foreground outline-none hover:text-foreground focus-visible:shadow-focus"
+                      className="text-muted-foreground"
                       data-testid="ai-reusing-toggle"
                     >
                       {reusingOpen ? 'Hide' : 'Show'}
                       <ChevronDown className={cn('size-3 transition-transform duration-(--d-fast)', reusingOpen && 'rotate-180')} aria-hidden />
-                    </button>
+                    </Button>
                   )}
                 </div>
                 <AnimatePresence initial={false}>

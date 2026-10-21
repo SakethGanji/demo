@@ -1,0 +1,73 @@
+{
+  "goal": "Submit an invalid payee and see the validation error",
+  "slug": "invalid-payee-validation",
+  "steps": [
+    {
+      "action": "fill",
+      "target": {
+        "label": "Username"
+      },
+      "value": "{{username}}",
+      "group": "Log in"
+    },
+    {
+      "action": "fill",
+      "target": {
+        "label": "Password"
+      },
+      "value": "{{password}}",
+      "group": "Log in"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "Sign in"
+      },
+      "group": "Log in"
+    },
+    {
+      "action": "fill",
+      "target": {
+        "label": "Payee name"
+      },
+      "value": "Bad Number Ltd",
+      "group": "Enter an invalid account number"
+    },
+    {
+      "action": "fill",
+      "target": {
+        "label": "Account number"
+      },
+      "value": "12AB",
+      "group": "Enter an invalid account number"
+    },
+    {
+      "action": "select",
+      "target": {
+        "label": "Payee type"
+      },
+      "option": "Personal",
+      "group": "Enter an invalid account number"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "Add payee"
+      },
+      "group": "Submit"
+    },
+    {
+      "action": "expectVisible",
+      "target": {
+        "text": "Account number must be exactly 8 digits"
+      },
+      "group": "Validation error is shown"
+    },
+    {
+      "action": "done",
+      "reason": "validation error shown"
+    }
+  ]
+}

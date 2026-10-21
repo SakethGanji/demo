@@ -3,7 +3,7 @@
  * METHOD /path stub), a composer with the route-picker chip, and the stream/save error state
  * (`builder-stream-error`) with Retry.
  */
-import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react'
+import { useEffect, useRef, useState, forwardRef, useImperativeHandle, type ReactNode } from 'react'
 import {
   AlertTriangle,
   ArrowUp,
@@ -21,6 +21,7 @@ import {
   Wrench,
 } from 'lucide-react'
 import { useAppBuilderChatStore, type AppChatMessage } from '../stores/appBuilderChatStore'
+import { PlanRevisionCard } from '@/features/plan/PlanRevisionCard'
 import { usePreviewSession } from '../stores/previewSessionStore'
 import { apiTesterApi, type ApiTestExecutionListItem } from '@/shared/lib/api'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/shared/components/ui/collapsible'
@@ -28,7 +29,7 @@ import { Button } from '@/shared/components/ui/button'
 import { Badge } from '@/shared/components/ui/badge'
 import { Checkbox } from '@/shared/components/ui/checkbox'
 import { Input } from '@/shared/components/ui/input'
-import { Callout } from '@/shared/components/ui/surface'
+import { Callout, IconTile } from '@/shared/components/ui/surface'
 import { Message, MessageContent, MessageResponse } from '@/shared/components/ai-elements/message'
 import { Shimmer } from '@/shared/components/ai-elements/shimmer'
 import { Popover, PopoverContent, PopoverTrigger } from '@/shared/components/ui/popover'
@@ -90,10 +91,13 @@ function AssistantMessage({
   msg,
   streaming,
   onRetry,
+  onSend,
 }: {
   msg: AppChatMessage
   streaming: boolean
   onRetry: () => void
+  /** sends the ask again once a plan revision it needed is approved */
+  onSend?: (t: string) => void
 }) {
   const otherTools = (msg.toolCalls ?? []).filter((t) => !['write_files', 'edit_files', 'declare_endpoint'].includes(t.tool))
   return (
@@ -169,6 +173,7 @@ function AssistantMessage({
             {msg.content}
           </MessageResponse>
         )}
+        {msg.planRevision ? <PlanRevisionCard revision={msg.planRevision} prompt={msg.prompt} onContinue={onSend} /> : null}
         {streaming && (
           <div className="flex items-center gap-2 text-muted-foreground" data-testid="chat-activity">
             <Sparkles className="size-3 shrink-0 text-ai" />
@@ -300,8 +305,10 @@ const Composer = forwardRef<
     onSaveRoutes: (ids: string[]) => Promise<unknown>
     attached: string[]
     onAttach: (ids: string[]) => void
+    /** while set, the composer is closed and says why (a build from the plan is making this app) */
+    locked?: string
   }
->(function Composer({ streaming, onSend, onStop, routes, routeIds, onSaveRoutes, attached, onAttach }, ref) {
+>(function Composer({ streaming, onSend, onStop, routes, routeIds, onSaveRoutes, attached, onAttach, locked }, ref) {
   const [text, setText] = useState('')
   const taRef = useRef<HTMLTextAreaElement>(null)
   const draft = usePreviewSession((s) => s.composerDraft)
@@ -320,7 +327,7 @@ const Composer = forwardRef<
   }, [draft])
   const submit = () => {
     const t = text.trim()
-    if (!t || streaming) return
+    if (!t || streaming || locked) return
     onSend(t)
     setText('')
   }
@@ -337,7 +344,8 @@ const Composer = forwardRef<
           }
         }}
         rows={2}
-        placeholder="Ask for a change…"
+        disabled={!!locked}
+        placeholder={locked ?? 'Ask for a change…'}
         className="block max-h-40 min-h-11 w-full resize-none bg-transparent px-3 pt-2.5 text-[13px] leading-5 outline-none placeholder:text-muted-foreground"
         data-testid="chat-input"
       />
@@ -350,7 +358,7 @@ const Composer = forwardRef<
             <Square className="fill-current" />
           </Button>
         ) : (
-          <Button size="icon-sm" onClick={submit} disabled={!text.trim()} aria-label="Send" data-testid="chat-send">
+          <Button size="icon-sm" onClick={submit} disabled={!text.trim() || !!locked} aria-label="Send" data-testid="chat-send">
             <ArrowUp />
           </Button>
         )}
@@ -374,9 +382,12 @@ export const AppBuilderChatPanel = forwardRef<
     onSend: (t: string) => void
     onRetry: () => void
     onStop: () => void
+    /** the plan-and-build conversation that made this app, ahead of the chat about changes */
+    prelude?: ReactNode
+    locked?: string
   }
 >(function AppBuilderChatPanel(
-  { projectName, routes, routeIds, onSaveRoutes, attached, onAttach, isStreaming, onSend, onRetry, onStop },
+  { projectName, routes, routeIds, onSaveRoutes, attached, onAttach, isStreaming, onSend, onRetry, onStop, prelude, locked },
   ref,
 ) {
   const messages = useAppBuilderChatStore((s) => s.messages)
@@ -392,7 +403,9 @@ export const AppBuilderChatPanel = forwardRef<
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <div className="hairline-b flex h-11 shrink-0 items-center gap-2 pl-3.5 pr-2.5">
-        <Sparkles className="size-3.5 text-ai" />
+        <IconTile hue="ai" className="size-6">
+          <Sparkles />
+        </IconTile>
         <span className="text-panel-title font-semibold tracking-[-0.01em]">Build with AI</span>
         <div className="flex-1" />
         <Tooltip>
@@ -420,7 +433,8 @@ export const AppBuilderChatPanel = forwardRef<
             ? `Started from ${projectName} · ${attachedCount} ${attachedCount === 1 ? 'route' : 'routes'} attached`
             : `${projectName} · no routes attached`}
         </div>
-        {messages.length === 0 && (
+        {prelude}
+        {messages.length === 0 && !prelude && (
           <div className="mt-6 text-center text-xs leading-5 text-muted-foreground" data-testid="chat-empty">
             Describe the UI you want. The AI writes React on your typed <span className="font-mono">api</span> client and the
             preview calls your backend.
@@ -432,7 +446,7 @@ export const AppBuilderChatPanel = forwardRef<
               <MessageContent className="whitespace-pre-wrap text-[13px] leading-[19px]">{m.content}</MessageContent>
             </Message>
           ) : (
-            <AssistantMessage key={m.id} msg={m} streaming={isStreaming && i === messages.length - 1} onRetry={onRetry} />
+            <AssistantMessage key={m.id} msg={m} streaming={isStreaming && i === messages.length - 1} onRetry={onRetry} onSend={onSend} />
           ),
         )}
       </div>
@@ -446,6 +460,7 @@ export const AppBuilderChatPanel = forwardRef<
         onSaveRoutes={onSaveRoutes}
         attached={attached}
         onAttach={onAttach}
+        locked={locked}
       />
     </div>
   )

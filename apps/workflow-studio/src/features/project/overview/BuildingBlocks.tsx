@@ -175,7 +175,7 @@ export function BuildingBlocks() {
         count={workflowList.length}
         openTestId="block-workflows-open"
         openTip="All workflows"
-        open={(p) => <Link to="/p/$project/workflows" params={P} {...p} />}
+        open={(p) => <Link to="/p/$project" params={P} {...p} />}
         noun="workflow"
         onNew={newWorkflow}
       >

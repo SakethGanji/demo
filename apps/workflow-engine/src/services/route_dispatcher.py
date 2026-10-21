@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +21,49 @@ from .project_service import env_kind
 from .spec_tools import PARAM_RE, validate
 
 STRIP_HEADERS = {"authorization", "x-api-key", "cookie", "host", "content-length"}
+
+
+def is_identity_header(name: str) -> bool:
+    """Headers a client could use to claim an identity. They are dropped before a handler sees the request: the only
+    identity a handler may trust is ``req.caller``, which the engine resolves server-side."""
+    n = name.lower()
+    return n.startswith(("x-studio-", "x-preview-user", "x-user-", "x-forwarded-user", "x-auth-", "x-principal"))
+
+
+def clean_headers(headers: dict[str, str] | None) -> dict[str, str]:
+    return {k: v for k, v in (headers or {}).items() if k.lower() not in STRIP_HEADERS and not is_identity_header(k)}
+
+
+def apply_view_as(cred: "Credential", headers: dict[str, str]) -> "Credential":
+    """Studio preview "view as": ``X-Preview-User`` (+ ``-Name``, ``-Roles`` as ``a,b``) on a request authenticated with a
+    PREVIEW token makes ``req.caller`` that user. Only ever called for preview tokens; the headers are ignored elsewhere."""
+    uid = (headers.get("x-preview-user") or "").strip()[:255]
+    if not uid:
+        return cred
+    name = (headers.get("x-preview-user-name") or "").strip()[:200] or None
+    roles = [r.strip()[:64] for r in (headers.get("x-preview-user-roles") or "").split(",") if r.strip()][:20]
+    return replace(cred, user_id=uid, user_name=name, user_roles=roles, view_as=True)
+
+
+ANONYMOUS_CALLER = {"kind": "anonymous", "id": None, "name": "anonymous"}
+SCHEDULE_CALLER = {"kind": "schedule", "id": "system:schedule", "name": "system:schedule"}
+
+
+async def resolve_user(session: AsyncSession, project: ProjectModel, user_id: str, name: str | None = None) -> dict[str, Any]:
+    """A ``kind: "user"`` caller. Email/name/roles come from the users + team_members tables when the id is there
+    (roles = the user's team role on the project's team, e.g. ``["editor"]``); otherwise the id stands alone."""
+    from ..db.models import TeamMemberModel, UserModel
+
+    u = await session.get(UserModel, user_id)
+    caller: dict[str, Any] = {"kind": "user", "id": user_id, "name": (u.display_name if u and u.display_name else name) or user_id,
+                              "email": u.email if u else (user_id if "@" in user_id else None), "roles": []}
+    if project.team_id:
+        from sqlalchemy import select
+        m = (await session.execute(select(TeamMemberModel).where(TeamMemberModel.team_id == project.team_id,
+                                                                  TeamMemberModel.user_id == user_id))).scalars().first()
+        if m:
+            caller["roles"] = [m.role]
+    return caller
 
 
 @dataclass
@@ -51,6 +94,10 @@ class Credential:
     key_id: str | None = None
     preview: bool = False
     test: bool = False  # /test (management call, auth bypassed)
+    user_id: str | None = None  # signed Studio user (preview token `sub`)
+    user_name: str | None = None
+    user_roles: list[str] | None = None  # preview "view as" roles (X-Preview-User-Roles); never set for other credentials
+    view_as: bool = False  # the identity came from X-Preview-User on a preview token
 
     @property
     def trigger_type(self) -> str:
@@ -140,7 +187,8 @@ class RouteDispatcher:
                 env = claims.env or project.default_environment
                 if env_kind(project, env) != "draft":
                     raise AuthError()
-                return Credential("app_token", env, app_id=app.id, preview=True)
+                cred = Credential("app_token", env, app_id=app.id, preview=True, user_id=claims.sub, user_name=claims.name)
+                return apply_view_as(cred, headers)
             if not app_token_valid_for(app, claims):  # review D3: app + rotation key, not the version
                 raise AuthError()
             return Credential("app_token", project.live_environment, app_id=app.id)
@@ -150,9 +198,11 @@ class RouteDispatcher:
 
     # ── entry point ──────────────────────────────────────────────────────
 
-    async def handle(self, project: ProjectModel, req: RouteRequest, *, forced_env: str | None = None) -> DispatchResult:
+    async def handle(self, project: ProjectModel, req: RouteRequest, *, forced_env: str | None = None,
+                     actor: str | None = None) -> DispatchResult:
         try:
-            cred = Credential("api_key", forced_env, test=True) if forced_env else await self.authenticate(project, req.headers)
+            cred = (Credential("api_key", forced_env, test=True, user_id=actor) if forced_env
+                    else await self.authenticate(project, req.headers))
         except AuthError as e:
             return DispatchResult(e.status, {"error": e.error})
         result = await self._dispatch(project, req, cred)
@@ -205,19 +255,33 @@ class RouteDispatcher:
         trigger = {"type": cred.trigger_type, "route_id": spec["id"], "method": spec["method"], "route": spec["path"],
                    "path": req.path, "app_id": cred.app_id, "api_key_id": cred.key_id, "auth": cred.kind,
                    "release_id": getattr(release, "id", None)}
+        headers = clean_headers(req.headers)
+        caller = await self._caller(project, cred)
         item = {
             "req": {"method": req.method.upper(), "path": req.path, "route": spec["path"], "params": params,
-                    "query": req.query, "headers": {k: v for k, v in req.headers.items() if k.lower() not in STRIP_HEADERS},
-                    "body": req.body},
-            "params": params, "query": req.query,
-            "headers": {k: v for k, v in req.headers.items() if k.lower() not in STRIP_HEADERS},
-            "body": req.body, "method": req.method.upper(),
+                    "query": req.query, "headers": headers, "body": req.body, "caller": caller},
+            "params": params, "query": req.query, "headers": headers,
+            "body": req.body, "method": req.method.upper(), "caller": caller,
         }
         if handler.get("type") == "workflow":
             return await self._run_workflow(spec, handler, item, cred.environment, trigger, release)
         if handler.get("type") == "python":
             return await self._run_python(project, spec, handler, item, cred.environment, trigger, release)
         return DispatchResult(500, {"error": "invalid_handler"})
+
+    async def _caller(self, project: ProjectModel, cred: Credential) -> dict[str, Any]:
+        """Who is calling, resolved from the verified credential only (never from a header the client sent)."""
+        if cred.view_as and cred.user_id:
+            return {"kind": "user", "id": cred.user_id, "name": cred.user_name or cred.user_id,
+                    "email": cred.user_id if "@" in cred.user_id else None, "roles": list(cred.user_roles or []),
+                    "preview": True}
+        if cred.user_id:
+            return await resolve_user(self._s, project, cred.user_id, cred.user_name)
+        if cred.kind == "app_token":
+            return {"kind": "app_token", "id": cred.app_id, "name": f"app:{cred.app_id}"}
+        if cred.kind == "api_key":
+            return {"kind": "api_key", "id": cred.key_id, "name": f"api_key:{cred.key_id}" if cred.key_id else "api_key"}
+        return dict(ANONYMOUS_CALLER)
 
     # ── handlers ─────────────────────────────────────────────────────────
 

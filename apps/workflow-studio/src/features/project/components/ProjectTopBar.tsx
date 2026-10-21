@@ -1,11 +1,11 @@
 /**
- * ProjectTopBar (DESIGN §1, UI-DESIGN §2.4), on the canvas as glass chrome:
- * `[>_ Command Studio] / [P Project ⇕] … [Search ⌘K] [● dev | ● prod] [Release] [☀]`
- * Workflows are a sidebar group (like Backend), not a top-bar tab.
+ * ProjectTopBar (DESIGN §1, UI-DESIGN §2.4), the slim glass bar of the home screen and every system page:
+ * `[⌂][⊞] [Project ▾] › Page … [Search ⌘K] [● dev | ● prod] [Release] [☀]`. Home and Jump (HomeNav) are the way
+ * back and the way across; the crumb names the page you opened.
  */
 import { useEffect, useState } from 'react'
-import { useNavigate } from '@tanstack/react-router'
-import { ChevronsUpDown, Plus, Rocket } from 'lucide-react'
+import { useNavigate, useRouterState } from '@tanstack/react-router'
+import { ChevronRight, ChevronsUpDown, Plus, Rocket } from 'lucide-react'
 import { useProjectCtx } from '../ProjectContext'
 import { useMissingSecrets, useProjectSummary, useProjects } from '../hooks/useProjectData'
 import { healthTone } from '../lib/healthTone'
@@ -15,9 +15,12 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/shared/components/ui/
 import { SearchMenuList } from '@/shared/components/ui/search-menu'
 import { Tip } from '@/shared/components/ui/tooltip'
 import { cn } from '@/shared/lib/utils'
+import { useViewportWidth } from '@/shared/hooks/useViewport'
 import { CommandPalette } from './CommandPalette'
 import { NewProjectDialog } from './NewProjectDialog'
-import { Brand, CrumbSep, SearchTrigger, SegTrack, ThemeToggle, TopBarFrame, segItem } from './TopBar'
+import { SearchTrigger, SegTrack, ThemeToggle, TopBarFrame, segItem } from './TopBar'
+import { HomeNav } from './HomeNav'
+import { PLACES } from '../lib/places'
 
 export function ProjectAvatar({ name, size = 18, className }: { name: string; size?: number; className?: string }) {
   return (
@@ -36,7 +39,8 @@ function isTyping(e: KeyboardEvent) {
   return !!t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) || !!t.closest('.cm-editor'))
 }
 
-export function ProjectSwitcher() {
+/** The project name with its health; `compact` (the folded rail) shows the avatar alone. */
+export function ProjectSwitcher({ compact, className }: { compact?: boolean; className?: string }) {
   const { project } = useProjectCtx()
   const projects = useProjects()
   const summary = useProjectSummary(project.id)
@@ -59,18 +63,27 @@ export function ProjectSwitcher() {
   return (
     <>
       <Popover open={open} onOpenChange={setOpen}>
-        <Tip label="Switch project" kbd="⌘P" side="bottom">
+        <Tip label={compact ? `${project.name} · switch project` : 'Switch project'} kbd="⌘P" side={compact ? 'right' : 'bottom'}>
           <PopoverTrigger
             data-testid="project-switcher"
-            className="inline-flex h-7 items-center gap-2 rounded-ctl px-2 text-[13px] font-medium hover:bg-(--hover-fill) aria-expanded:bg-(--hover-fill)"
+            aria-label={compact ? project.name : undefined}
+            className={cn(
+              'relative inline-flex h-7 min-w-0 items-center gap-2 rounded-ctl text-[13px] font-medium outline-none hover:bg-(--hover-fill) focus-visible:shadow-focus aria-expanded:bg-(--hover-fill)',
+              compact ? 'w-9 shrink-0 justify-center' : 'px-2',
+              className,
+            )}
           >
-            <ProjectAvatar name={project.name} />
-            <span className="max-w-48 truncate">{project.name}</span>
-            <StatusDot tone={healthTone(summary.data?.health.status)} data-testid="project-health-dot" />
-            <ChevronsUpDown className="size-3 text-muted-foreground" />
+            <ProjectAvatar name={project.name} size={compact ? 22 : 18} />
+            {!compact && <span className="min-w-0 flex-1 truncate text-left">{project.name}</span>}
+            <StatusDot
+              tone={healthTone(summary.data?.health.status)}
+              data-testid="project-health-dot"
+              className={compact ? 'absolute -top-0.5 right-0' : undefined}
+            />
+            {!compact && <ChevronsUpDown className="size-3 shrink-0 text-muted-foreground" />}
           </PopoverTrigger>
         </Tip>
-        <PopoverContent className="w-72 p-0">
+        <PopoverContent className="w-72 p-0" side={compact ? 'right' : 'bottom'}>
           <SearchMenuList
             placeholder="Find a project…"
             testId="project-switcher-menu"
@@ -150,6 +163,10 @@ export function ProjectTopBar() {
   const live = project.live_environment
   const liveRelease = summary.data?.active_releases?.[live]
   const hasReleaseEnv = project.environments.some((e) => e.kind === 'release')
+  const phone = useViewportWidth() < 640
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  const seg = pathname.split('/')[3]
+  const place = PLACES.find((p) => p.key === seg)
   const openRelease = () => navigate({ to: '.', search: (s: Record<string, unknown>) => ({ ...s, sheet: 'release' }) } as never)
 
   // ⇧R opens the release sheet (ignored while typing)
@@ -166,15 +183,23 @@ export function ProjectTopBar() {
   })
 
   return (
-    <TopBarFrame data-testid="topbar">
-      <Brand />
-      <CrumbSep />
-      <ProjectSwitcher />
+    <TopBarFrame data-testid="topbar" className="pl-1">
+      <HomeNav />
+      <span className="mx-1 h-4 w-px shrink-0 bg-hairline" aria-hidden />
+      <ProjectSwitcher className={phone ? 'max-w-[150px]' : 'max-w-[240px]'} />
+      {place && (
+        <span className="flex min-w-0 items-center gap-1.5 text-[13px] font-medium" data-testid="topbar-page">
+          <ChevronRight className="size-3.5 shrink-0 text-faint" aria-hidden />
+          <place.Icon className={cn('size-4 shrink-0 stroke-[1.75]', place.text)} aria-hidden />
+          <span className="truncate">{place.label}</span>
+        </span>
+      )}
       <div className="flex-1" />
-      <SearchTrigger onClick={() => setPaletteOpen(true)} />
+      {!phone && <SearchTrigger onClick={() => setPaletteOpen(true)} />}
       <span className="mx-1" />
-      <EnvSwitch />
-      {hasReleaseEnv && (
+      {/* phones keep the brand, the project and the theme; environments and releases need a wider screen */}
+      {!phone && <EnvSwitch />}
+      {hasReleaseEnv && !phone && (
         <Tip label="Create a release" kbd="⇧R" side="bottom">
           <Button variant="outline" size="sm" className="ml-1.5" data-testid="open-release" onClick={openRelease}>
             <Rocket /> Release

@@ -123,3 +123,64 @@ def test_runs_daily_buckets_backdated_runs_by_day_and_drops_older_than_window(ap
     # another project's runs never leak in
     Q, _ = new_project(api, "dailyother")
     assert sum(x["total"] for x in api.get(f"/projects/{Q}/runs/daily").json()) == 0
+
+
+# ── clarify dialogue gaps (backend_templates/gaps.py): no topic is asked twice across modules ──────────────────────
+
+_SPEC = {"entities": [{"name": "runs", "fields": [{"name": "key", "type": "string"}]}],
+         "workflows": [{"entity": "runs", "states": ["queued", "done"], "transitions": [{"from": "queued", "to": "done"}]}],
+         "roles": [{"name": "lead"}], "external_systems": [{"name": "Jobs", "use": "run tests"}]}
+
+
+def test_domain_questions_skip_topics_already_answered():
+    from src.services.backend_templates import gaps
+
+    prompt = "approve runs, import from jira, keep history, call the jobs api with a password, delete old runs"
+    full = {q["topic"] for q in gaps.domain_questions(prompt, _SPEC, ["dev", "live"])}
+    assert {"credentials", "environments", "retention", "approvals"} <= full
+    left = {q["topic"] for q in gaps.domain_questions(prompt, _SPEC, ["dev", "live"], answered={"credentials", "retention"})}
+    assert left == full - {"credentials", "retention"}
+
+
+def test_stored_answers_map_back_to_their_topic():
+    from src.services.backend_templates import gaps
+
+    assert gaps.topic_of("runs:dom_credentials") == "credentials"
+    assert gaps.topic_of("runs:dom2_secret_names") == "credentials"
+    assert gaps.topic_of("runs:q1") is None and gaps.topic_of("runs:q1", "roles") == "roles"
+
+
+def test_secret_names_followup_needs_names_not_known():
+    from src.services.backend_templates import gaps
+
+    spec = {**_SPEC, "open_questions": [{"id": "dom_credentials", "topic": "credentials", "question": "?"}]}
+    ids = lambda ans, **kw: {q["id"] for q in gaps.followup_questions(spec, {"dom_credentials": ans}, 1, **kw)}   # noqa: E731
+    assert "dom2_secret_names" in ids("Project secrets referenced by name")
+    assert "dom2_secret_names" not in ids("Project secrets: BANK_USER and BANK_PASS")
+    assert "dom2_secret_names" not in ids("Project secrets for the bank", known_secrets={"bank"})
+    assert "dom2_secret_names" in ids("Project secrets for the bank", known_secrets={"other"})
+    # the other follow-ups are unaffected
+    spec2 = {**_SPEC, "open_questions": [{"id": "dom_safety", "topic": "safety", "question": "?"}]}
+    assert gaps.followup_questions(spec2, {"dom_safety": "Server-side limits"}, 1, known_secrets={"x"})[0]["id"] == "dom2_limits"
+
+
+def test_plan_routes_ledger_is_the_plans_routes_only():
+    from src.services.backend_templates import coverage
+
+    spec = {"routes": [{"key": "POST /runs"}, {"key": "GET /runs/{id}"}, {"key": "bogus"}],
+            "acceptance_criteria": ["GET /elsewhere works"]}
+    assert coverage.plan_routes(spec) == {"POST /runs": "POST /runs", "GET /runs/{}": "GET /runs/{id}"}
+    assert coverage.plan_routes(None) == {}
+
+
+def test_plan_block_states_contracts_helpers_and_the_import_rule():
+    from src.services.backend_templates import prompts
+
+    spec = {"routes": [{"key": "POST /runs", "purpose": "start",
+                        "request": {"fields": [{"name": "test_ids", "required": True}]},
+                        "response": {"fields": [{"name": "id"}]}, "errors": [{"status": 409, "code": "illegal_transition"}]}],
+            "helpers": [{"name": "audit", "signature": "audit(event)"}], "shared_module": "common",
+            "nfr": {"errors": {"shape": "{error, message}"}, "pagination": {"shape": "{rows,total}"}}}
+    out = prompts.plan_block(spec)
+    assert "POST /runs" in out and "test_ids*" in out and "409 illegal_transition" in out
+    assert "from common import audit" in out and "never redefine" in out and "{error, message}" in out

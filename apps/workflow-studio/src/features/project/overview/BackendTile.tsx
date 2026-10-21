@@ -32,7 +32,7 @@ export function BackendTile() {
         actions={
           modules.data?.[0] && (
             <Button
-              variant="ghost"
+              variant="outline"
               size="sm"
               render={<Link to="/p/$project/backend/$module" params={{ ...P, module: modules.data[0].name }} />}
               data-testid="open-editor"

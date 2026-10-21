@@ -22,6 +22,7 @@ export const qk = {
   apps: (p: string) => ['project', p, 'apps'] as const,
   runs: (p: string, f: Record<string, unknown> = {}) => ['project', p, 'runs', f] as const,
   runsPrefix: (p: string) => ['project', p, 'runs'] as const,
+  schedules: (p: string) => ['project', p, 'schedules'] as const,
   run: (p: string, x: string) => ['project', p, 'run', x] as const,
   secrets: (p: string, env?: string) => ['project', p, 'secrets', env ?? 'all'] as const,
   secretsPrefix: (p: string) => ['project', p, 'secrets'] as const,

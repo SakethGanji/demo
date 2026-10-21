@@ -111,6 +111,8 @@ def reference() -> dict[str, Any]:
     api_mod = importlib.import_module("src.sdk.static.api")
     secret_mod = importlib.import_module("src.sdk.static.secret")
     db_mod = importlib.import_module("src.sdk.static.db")
+    jobs_mod = importlib.import_module("src.sdk.static.jobs")
+    conn_mod = importlib.import_module("src.sdk.static.connections")
     from ..services.code_module_service import DECORATOR_KEYWORDS, ROUTE_AUTHS
 
     entries: list[dict[str, Any]] = []
@@ -123,18 +125,43 @@ def reference() -> dict[str, Any]:
         add(f"api.{m}", getattr(api_mod, m), "decorator",
             f"Declare a {m.upper()} route handled by the decorated function(req).",
             auth_values=sorted(ROUTE_AUTHS), keywords=sorted(DECORATOR_KEYWORDS))
+    add("schedule", api_mod.schedule, "decorator",
+        "Run the decorated function on a schedule with no HTTP call: @schedule(\"*/5 * * * *\") or @schedule(every_seconds=30), "
+        "min 15 s. Runs sandboxed as system:schedule, never overlapping; status at GET /projects/{p}/schedules. Use it to sync "
+        "pending Jobs runs so results persist without a browser polling.")
     add("Response", api_mod.Response.__init__, "class", "Return a custom status/headers/body from a route handler.",
         drop_first=True)
     add("HTTPError", api_mod.HTTPError.__init__, "exception", "Raise to answer with an HTTP error status and body.",
         drop_first=True)
     entries.append({"name": "Request", "kind": "class", "signature": "Request",
-                    "attributes": ["method", "path", "route", "params", "query", "headers", "body"],
-                    "doc": "The `req` argument of a route handler; `req.json()` returns the body.", "params": []})
+                    "attributes": ["method", "path", "route", "params", "query", "headers", "body", "caller"],
+                    "doc": "The `req` argument of a route handler; `req.json()` returns the body. `req.caller` is the engine-verified "
+                           "{kind: user|app_token|api_key|schedule|anonymous, id, name, email?, roles?}; identity headers a client "
+                           "sends are stripped, so use caller.id (never a body `actor`) for maker-checker / approver checks.",
+                    "params": []})
     add("studio.secret", secret_mod.secret, "function",
         "A reference to a project secret; its str() is a placeholder the broker resolves server-side.")
     add("studio.db.table", db_mod.table, "function", "A project data table.")
-    for op in ("insert", "get", "list", "update", "delete", "upsert"):
-        add(f"studio.db.table(name).{op}", getattr(db_mod.Table, op), "method", f"Table.{op}", drop_first=True)
+    for op in ("insert", "get", "list", "update", "delete", "upsert", "all", "count", "page"):
+        doc = (getattr(db_mod.Table, op).__doc__ or f"Table.{op}").strip().split("\n\n")[0]
+        add(f"studio.db.table(name).{op}", getattr(db_mod.Table, op), "method", " ".join(doc.split()), drop_first=True)
+    add("studio.connection", conn_mod.connection, "function",
+        "A project's external database by connection key: read-only SQL (SELECT/WITH only, 10 s timeout, row cap) via the broker; "
+        "the URL never reaches your code.")
+    for op in ("query", "schema"):
+        add(f"studio.connection(key).{op}", getattr(conn_mod.Connection, op), "method",
+            " ".join((getattr(conn_mod.Connection, op).__doc__ or op).split()), drop_first=True)
+    for op in ("start", "get", "events", "frame", "artifacts", "artifact", "cancel", "control"):
+        fn = getattr(jobs_mod, op)
+        add(f"studio.jobs.{op}", fn, "function", " ".join((fn.__doc__ or op).split()))
+    res_mod = importlib.import_module("src.sdk.static.resources")
+    add("studio.resource", res_mod.Resource.__init__, "function",
+        "Standard CRUD for one table: returns a Resource whose handlers your @api routes call (list, get, create, update, "
+        "delete, transition, move, row, record). Validates from the plan columns; errors are {error, message, field?}; "
+        "hooks: @res.validate, before_/after_ create, update, transition, delete.", drop_first=True)
+    for op in ("list", "get", "create", "update", "transition", "move", "delete", "row", "record", "check"):
+        fn = getattr(res_mod.Resource, op)
+        add(f"studio.resource(...).{op}", fn, "method", " ".join((fn.__doc__ or op).split()), drop_first=True)
     add("studio.nodes.call", lambda node, parameters=None, items=None: None, "function",
         "Call any function-exposed node by type (see GET /api/sdk/functions for named functions).")
     entries[-1]["signature"] = "studio.nodes.call(node: str, parameters: dict | None = None, items: list[dict] | None = None)"
@@ -150,6 +177,17 @@ def reference() -> dict[str, Any]:
                       "draft; a release runs the version the release pinned, else the latest published version. A "
                       "failed workflow raises BrokerError (code SUBWORKFLOW_FAILED, details child_execution_id/child_node); "
                       "calling a workflow that is already running this code is refused (SUBWORKFLOW_CYCLE)."),
+        "jobs": ("studio.jobs runs long work in the Jobs service (browser/API test runs: type 'test-run'; AI triage of a "
+                 "failed case: type 'triage' with job_id + case_id; exploration: type 'explore' with target + goal). "
+                 "start returns {job_id, status:'queued'} at once: store the job_id, never wait for the job inside a "
+                 "request. Pause/resume/step a running UI test with studio.jobs.control(job_id, action) (action: pause|resume|step; takeover answers 501, reserved). Poll get/events/frame from routes the UI calls every ~1 s. A job's terminal status is "
+                 "passed, failed, error or cancelled. Each call has a ~10 s timeout (BrokerError jobs_timeout / "
+                 "jobs_unavailable / job_not_found). frame() is base64 JSON, so return it as JSON and let the UI build "
+                 "a data: URL. Put login passwords in the start body as studio.secret('K') (bound to the target host)."),
+        "connections": ("studio.connection('key').query(sql, params=None, limit=100) returns rows (list of dicts) from a project's "
+                        "external database. Use %s placeholders with params, never f-strings; only SELECT/WITH is allowed, "
+                        "each query has a 10 s timeout. The external tables are not studio.db tables: do not create or "
+                        "write them; copy what you need into a data table if you must keep it."),
         "responses": "Return a dict/list (200 JSON), or Response(status=…, body=…, headers=…); raise HTTPError(status, body) for errors.",
     }
     return {"version": generate_python_sdk()["version"], "entries": entries, "rules": rules}
@@ -273,7 +311,7 @@ __all__ = ["nodes", "secret", "SecretRef", "BrokerError", "configure"]
 
 def _optional_static() -> dict[str, str]:
     out = {}
-    for name in ("db.py", "api.py"):
+    for name in ("db.py", "api.py", "jobs.py", "resources.py", "connections.py"):
         p = STATIC_DIR / name
         if p.exists():
             out[name] = p.read_text()
@@ -292,10 +330,16 @@ def generate_python_sdk() -> dict[str, Any]:
     if "db.py" in static:
         extra_imports += "from . import db\n"
     if "api.py" in static:
-        extra_imports += "from . import api\nfrom .api import HTTPError, Response\n"
+        extra_imports += "from . import api\nfrom .api import HTTPError, Response, schedule\n"
+    if "jobs.py" in static:
+        extra_imports += "from . import jobs\n"
+    if "connections.py" in static:
+        extra_imports += "from .connections import connection\n"
+    if "resources.py" in static:
+        extra_imports += "from .resources import Resource, resource\n"
     if extra_imports:
         init = init.replace("from . import nodes\n", "from . import nodes\n" + extra_imports)
-        init = init.replace('__all__ = ["nodes",', '__all__ = ["nodes", "db", "api", "HTTPError", "Response",')
+        init = init.replace('__all__ = ["nodes",', '__all__ = ["nodes", "db", "api", "HTTPError", "Response", "schedule", "jobs", "resource", "Resource", "connection",')
     files = {"studio/__init__.py": init, "studio/nodes.py": _render_nodes(cat)}
     for name, src in static.items():
         files[f"studio/{name}"] = src

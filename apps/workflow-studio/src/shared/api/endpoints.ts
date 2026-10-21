@@ -24,7 +24,9 @@ import type {
   DryRunResult,
   EffectiveVar,
   MissingSecret,
+  ModuleSchedule,
   ModuleWriteResult,
+  DeclaredTable,
   PreviewToken,
   Project,
   ProjectCreate,
@@ -102,6 +104,11 @@ export const runsApi = {
   /** Per-day totals and failures for the last `days` days, computed in SQL (not limited to the newest 100 runs). */
   daily: (p: string, q: { days?: number; environment?: string } = {}) =>
     request<DailyRuns[]>(`${P(p)}/runs/daily`, { query: { days: 30, ...q } as never }),
+}
+
+export const schedulesApi = {
+  /** The project's scheduled module functions, each with its next and last run. */
+  list: (p: string) => request<ModuleSchedule[]>(`${P(p)}/schedules`),
 }
 
 export const secretsApi = {
@@ -250,11 +257,12 @@ export const modulesApi = {
     request<import('./codeMapTypes').CodeMapResult>(`${P(p)}/modules/code-map`, { method: 'POST', body: { source, module_id: moduleId }, signal }),
   list: (p: string) => request<CodeModule[]>(`${P(p)}/modules`),
   get: (p: string, m: string) => request<CodeModule>(`${P(p)}/modules/${enc(m)}`),
-  create: (p: string, b: { name: string; source: string }) =>
+  /** `tables`: the tables the module declares; the save creates or (additively) migrates them before writing the module. */
+  create: (p: string, b: { name: string; source: string; tables?: DeclaredTable[] }) =>
     request<ModuleWriteResult>(`${P(p)}/modules`, { method: 'POST', body: b }),
   createDryRun: (p: string, b: { name: string; source: string }, signal?: AbortSignal) =>
     request<DryRunResult>(`${P(p)}/modules`, { method: 'POST', body: b, query: { dry_run: true }, signal }),
-  update: (p: string, m: string, b: { source?: string; base_sha?: string | null; name?: string }) =>
+  update: (p: string, m: string, b: { source?: string; base_sha?: string | null; name?: string; tables?: DeclaredTable[] }) =>
     request<ModuleWriteResult>(`${P(p)}/modules/${enc(m)}`, { method: 'PUT', body: b }),
   updateDryRun: (p: string, m: string, b: { source: string; base_sha?: string | null }, signal?: AbortSignal) =>
     request<DryRunResult>(`${P(p)}/modules/${enc(m)}`, { method: 'PUT', body: b, query: { dry_run: true }, signal }),

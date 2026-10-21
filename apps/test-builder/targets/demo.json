@@ -1,0 +1,12 @@
+{
+  "name": "demo-bank",
+  "baseUrl": "http://127.0.0.1:4477",
+  "allowedHosts": ["127.0.0.1:4477", "localhost:4477"],
+  "forbiddenActions": ["/transfer|delete|\\bpay\\b|approve/i"],
+  "forbiddenRequests": ["POST /api/transfer*", "DELETE /api/*"],
+  "credentials": {
+    "username": { "env": "TB_DEMO_USER" },
+    "password": { "env": "TB_DEMO_PASSWORD", "secret": true }
+  },
+  "budget": { "maxSteps": 60, "maxSeconds": 600 }
+}

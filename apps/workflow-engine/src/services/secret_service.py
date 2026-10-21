@@ -58,16 +58,28 @@ class SecretService:
         self._repo = VariableRepository(session)
 
     async def effective(self, project: ProjectModel, environment: str | None = None) -> list[dict[str, Any]]:
-        envs = [environment] if environment else env_names(project)
-        out: list[dict[str, Any]] = []
-        for env in envs:
+        """Rows per env. Each row also says where its key is defined (``defined_in``) and which of the project's
+        environments lack it (``missing_in``): a route running in 'prod' with the key only in 'dev' is a silent failure."""
+        all_envs = env_names(project)
+        envs = [environment] if environment else all_envs
+        loaded: dict[str, tuple[dict, dict]] = {}
+        defined: dict[str, set[str]] = {}
+        for env in dict.fromkeys([*all_envs, *envs]):
             team = {v.key: v for v in await self._repo.list(team_id=project.team_id, environment=env)}
             proj = {v.key: v for v in await self._repo.list(team_id=project.team_id, environment=env, project_id=project.id)}
+            loaded[env] = (team, proj)
+            for key in set(team) | set(proj):
+                defined.setdefault(key, set()).add(env)
+        out: list[dict[str, Any]] = []
+        for env in envs:
+            team, proj = loaded[env]
             for key in sorted(set(team) | set(proj)):
+                where = [e for e in all_envs if e in defined.get(key, ())]
+                extra = {"defined_in": where, "missing_in": [e for e in all_envs if e not in where]}
                 if key in proj:
-                    out.append(_row(proj[key], overrides_team=key in team))
+                    out.append({**_row(proj[key], overrides_team=key in team), **extra})
                 if key in team:
-                    out.append(_row(team[key], overridden=key in proj))
+                    out.append({**_row(team[key], overridden=key in proj), **extra})
         return out
 
     async def create(self, project: ProjectModel, body: dict[str, Any]) -> dict[str, Any]:

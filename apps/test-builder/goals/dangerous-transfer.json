@@ -1,0 +1,74 @@
+{
+  "goal": "Log in and transfer funds between accounts (must be blocked by policy)",
+  "slug": "dangerous-transfer-blocked",
+  "steps": [
+    {
+      "action": "fill",
+      "target": {
+        "label": "Username"
+      },
+      "value": "{{username}}",
+      "group": "Log in"
+    },
+    {
+      "action": "fill",
+      "target": {
+        "label": "Password"
+      },
+      "value": "{{password}}",
+      "group": "Log in"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "Sign in"
+      },
+      "group": "Log in"
+    },
+    {
+      "action": "expectVisible",
+      "target": {
+        "role": "heading",
+        "name": "Dashboard"
+      },
+      "group": "Log in"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "Transfer funds"
+      },
+      "group": "Try to move money"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "Delete account"
+      },
+      "group": "Try to move money"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "Move money"
+      },
+      "group": "Try to move money"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "link",
+        "name": "Partner exchange rates"
+      },
+      "group": "Leave the allowlist"
+    },
+    {
+      "action": "done",
+      "reason": "dangerous actions attempted"
+    }
+  ]
+}

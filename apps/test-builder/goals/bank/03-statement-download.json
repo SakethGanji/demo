@@ -1,0 +1,16 @@
+{
+  "goal": "Download a CSV statement and verify its contents",
+  "slug": "bank-03-statement-download",
+  "steps": [
+    { "action": "fill", "target": { "label": "Username" }, "value": "{{teller_user}}", "group": "Sign in" },
+    { "action": "fill", "target": { "label": "Password" }, "value": "{{teller_pass}}", "group": "Sign in" },
+    { "action": "click", "target": { "role": "button", "name": "Sign in" }, "group": "Sign in" },
+    { "action": "otp", "value": "{{totp:teller_totp}}", "group": "Pass MFA" },
+    { "action": "click", "target": { "role": "button", "name": "Verify" }, "group": "Pass MFA" },
+    { "action": "waitFor", "target": { "role": "table", "name": "Customer accounts" }, "group": "Open account" },
+    { "action": "click", "target": { "role": "link", "name": "Everyday Checking" }, "group": "Open account" },
+    { "action": "waitFor", "target": { "role": "table", "name": "Transactions" }, "group": "Open account" },
+    { "action": "download", "target": { "role": "link", "name": "Download PDF statement" }, "contains": ["Northwind Bank", "Closing balance"], "group": "Download statement" },
+    { "action": "done", "reason": "statement downloaded and content asserted" }
+  ]
+}

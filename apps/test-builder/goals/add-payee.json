@@ -1,0 +1,78 @@
+{
+  "goal": "Log in, add a payee and see a success message",
+  "slug": "add-payee-success",
+  "steps": [
+    {
+      "action": "fill",
+      "target": {
+        "label": "Username"
+      },
+      "value": "{{username}}",
+      "group": "Log in"
+    },
+    {
+      "action": "fill",
+      "target": {
+        "label": "Password"
+      },
+      "value": "{{password}}",
+      "group": "Log in"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "Sign in"
+      },
+      "group": "Log in"
+    },
+    {
+      "action": "fill",
+      "target": {
+        "label": "Payee name"
+      },
+      "value": "Acme Utilities",
+      "group": "Fill in the payee"
+    },
+    {
+      "action": "fill",
+      "target": {
+        "label": "Account number"
+      },
+      "value": "12345678",
+      "group": "Fill in the payee"
+    },
+    {
+      "action": "select",
+      "target": {
+        "label": "Payee type"
+      },
+      "option": "Business",
+      "group": "Fill in the payee"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "Add payee"
+      },
+      "group": "Submit"
+    },
+    {
+      "action": "expectText",
+      "target": {
+        "role": "status",
+        "within": {
+          "role": "region",
+          "name": "Add a payee"
+        }
+      },
+      "text": "Payee Acme Utilities added",
+      "group": "Success message is shown"
+    },
+    {
+      "action": "done",
+      "reason": "payee added"
+    }
+  ]
+}

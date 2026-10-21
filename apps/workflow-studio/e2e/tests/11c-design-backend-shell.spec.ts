@@ -6,6 +6,7 @@
 import { test, expect } from '../fixtures/test'
 import { expectTheme, THEMES, type Theme } from '../fixtures/design'
 import { editorText, openModule } from '../fixtures/editor'
+import { dockMore } from '../fixtures/dock'
 import { answerWorkflow, seedModule, seedProject, seedRefunds, seedTable, seedWorkflow } from '../fixtures/seed'
 
 for (const theme of THEMES) {
@@ -169,39 +170,49 @@ for (const theme of THEMES) {
       expect(page.url()).toContain('sheet=release')
     })
 
-    test('sidebar marks the active item with [data-active] as navigation changes', async ({ page, api, s }) => {
+    test('dock and index mark the active item with [data-active] as navigation changes', async ({ page, api, s }) => {
       const p = await seedProject(api, 'S4')
       await seedRefunds(api, p)
       const active = (id: string) => page.getByTestId(id)
+      const dockActive = page.getByTestId('dock').locator('[data-active]')
       await page.goto(`${s.studioUrl}/p/${p.slug}`)
       await expectTheme(page, theme)
-      await expect(active('outline-overview')).toHaveAttribute('data-active', '')
-      await expect(active('outline-runs')).not.toHaveAttribute('data-active', '')
+      await expect(active('dock-overview')).toHaveAttribute('data-active', '')
+      await expect(active('dock-overview')).toHaveAttribute('aria-current', 'page')
+      await expect(active('dock-runs')).not.toHaveAttribute('data-active', '')
 
-      await active('outline-runs').click()
+      await active('dock-runs').click()
       await expect(page).toHaveURL(new RegExp(`/p/${p.slug}/runs`))
-      await expect(active('outline-runs')).toHaveAttribute('data-active', '')
-      await expect(active('outline-overview')).not.toHaveAttribute('data-active', '')
+      await expect(active('dock-runs')).toHaveAttribute('data-active', '')
+      await expect(active('dock-overview')).not.toHaveAttribute('data-active', '')
+      await expect(dockActive).toHaveCount(1)
 
-      await active('outline-secrets').click()
-      await expect(active('outline-secrets')).toHaveAttribute('data-active', '')
-      await expect(active('outline-runs')).not.toHaveAttribute('data-active', '')
+      // Secrets lives in the More stack: More carries the ring while you are there
+      await dockMore(page, 'secrets')
+      await expect(page.getByTestId('secrets-view')).toBeVisible()
+      await expect(active('dock-more')).toHaveAttribute('data-active', '')
+      await expect(active('dock-runs')).not.toHaveAttribute('data-active', '')
+      // no sidebar outside Backend and Data
+      await expect(page.getByTestId('outline-panel')).toHaveCount(0)
 
-      await active('outline-table-refunds').click()
+      await active('dock-data').click()
       await expect(page).toHaveURL(new RegExp(`/data/refunds`))
+      await expect(active('dock-data')).toHaveAttribute('data-active', '')
       await expect(active('outline-table-refunds')).toHaveAttribute('data-active', '')
-      await expect(active('outline-secrets')).not.toHaveAttribute('data-active', '')
+      await expect(active('dock-more')).not.toHaveAttribute('data-active', '')
 
-      // a module marks itself; its routes appear under it and mark themselves instead
+      // a module marks itself in the index (and Backend in the dock); its routes appear under it and mark themselves instead
       await active('outline-module-refunds').click()
       await expect(active('outline-module-refunds')).toHaveAttribute('data-active', '')
+      await expect(active('dock-backend')).toHaveAttribute('data-active', '')
       await expect(active('outline-table-refunds')).not.toHaveAttribute('data-active', '')
       await active('outline-route-refundStats').click()
       await expect(page).toHaveURL(/route=refundStats/)
       await expect(active('outline-module-refunds')).not.toHaveAttribute('data-active', '')
       await expect(active('outline-route-refundStats')).toHaveAttribute('data-active', '')
-      // exactly one active leaf in the nav at a time
+      // exactly one active leaf in the index and one in the dock at a time
       await expect(page.getByTestId('outline').locator('[data-active]')).toHaveCount(1)
+      await expect(dockActive).toHaveCount(1)
 
       // browser back follows too
       await page.goBack()
@@ -214,25 +225,25 @@ for (const theme of THEMES) {
       const wf = await seedWorkflow(api, p, answerWorkflow('Nightly answer'))
       await page.goto(`${s.studioUrl}/p/${p.slug}`)
       await expectTheme(page, theme)
-      await expect(page.getByTestId('outline-overview')).toHaveAttribute('data-active', '')
-      await page.getByTestId('outline-workflows').click()
+      await expect(page.getByTestId('dock-overview')).toHaveAttribute('data-active', '')
+      await dockMore(page, 'workflows')
       await expect(page).toHaveURL(new RegExp(`/p/${p.slug}/workflows$`))
       await expect(page.getByTestId('workflows-page')).toBeVisible()
-      await expect(page.getByTestId('outline-workflows')).toHaveAttribute('data-active', '')
-      await expect(page.getByTestId('outline-overview')).not.toHaveAttribute('data-active', '')
-      // it is a page of the workspace: sidebar and top bar are still there
+      await expect(page.getByTestId('dock-more')).toHaveAttribute('data-active', '')
+      await expect(page.getByTestId('dock-overview')).not.toHaveAttribute('data-active', '')
+      // it is a page of the workspace: dock and top bar are still there
       await expect(page.getByTestId('workspace')).toBeVisible()
-      await expect(page.getByTestId('outline')).toBeVisible()
+      await expect(page.getByTestId('dock')).toBeVisible()
       await expect(page.getByTestId('topbar')).toBeVisible()
       await expect(page.getByTestId(`workflow-open-${wf.id}`)).toHaveText('Nightly answer')
       // g then w from another page lands here as well
-      await page.getByTestId('outline-runs').click()
+      await page.getByTestId('dock-runs').click()
       await expect(page.getByTestId('runs-view')).toBeVisible()
       await page.locator('body').click({ position: { x: 5, y: 400 } })
       await page.keyboard.press('g')
       await page.keyboard.press('w')
       await expect(page).toHaveURL(new RegExp(`/p/${p.slug}/workflows$`))
-      await expect(page.getByTestId('outline-workflows')).toHaveAttribute('data-active', '')
+      await expect(page.getByTestId('dock-more')).toHaveAttribute('data-active', '')
     })
   })
 }

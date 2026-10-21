@@ -25,6 +25,7 @@ import {
   Workflow,
 } from 'lucide-react';
 import { Link } from '@tanstack/react-router';
+import { HomeNav } from '@/features/project/components/HomeNav';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useEditorLayoutStore } from '../../stores/editorLayoutStore';
 import { useHistoryStore } from '../../stores/historyStore';
@@ -62,7 +63,6 @@ import type { WorkflowNodeData } from '../../types/workflow';
 import type { Node } from '@xyflow/react';
 export default function WorkflowNavbar() {
   const projectSlug = useEditorProjectStore((s) => s.slug);
-  const projectName = useEditorProjectStore((s) => s.name);
   const workflowName = useWorkflowStore((s) => s.workflowName);
   const workflowId = useWorkflowStore((s) => s.workflowId);
   const isActive = useWorkflowStore((s) => s.isActive);
@@ -205,23 +205,16 @@ export default function WorkflowNavbar() {
 
   return (
     <>
-      <div className="glass-chrome flex h-11 items-center gap-1.5 rounded-panel pr-2 pl-3" data-testid="workflow-navbar">
-        {/* Crumb: Project / Workflows / name */}
+      <div className="glass-chrome flex h-11 items-center gap-1.5 rounded-panel pr-2 pl-1.5" data-testid="workflow-navbar">
+        {/* Home + Jump (the same on every project page), then the crumb: Workflows / name */}
+        <HomeNav />
+        <span className="mx-0.5 h-4 w-px shrink-0 bg-hairline" aria-hidden />
         <nav className="flex min-w-0 items-center gap-1.5 text-[13px]" aria-label="Breadcrumb">
           <Link
             to="/p/$project"
             params={{ project: projectSlug }}
-            className="max-w-40 truncate text-muted-foreground transition-colors hover:text-foreground"
-            data-testid="editor-crumb-project"
-          >
-            {projectName || projectSlug}
-          </Link>
-          <ChevronRight size={13} className="shrink-0 text-faint" aria-hidden />
-          <Link
-            to="/p/$project/workflows"
-            params={{ project: projectSlug }}
             className="text-muted-foreground transition-colors hover:text-foreground"
-            title="Back to workflows"
+            title="Back to the project's workflows (on the Overview)"
             data-testid="editor-back"
           >
             Workflows

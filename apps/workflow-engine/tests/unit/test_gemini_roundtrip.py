@@ -121,6 +121,6 @@ def test_builder_reports_truncation_instead_of_silent_completion(monkeypatch):
 
     with pytest.raises(builder._LLMFailed, match="output limit"):
         asyncio.run(collect())
-    assert call.await_count == 1
+    assert call.await_count == builder.TRUNCATION_RETRIES + 1  # retried in smaller pieces before failing
     assert call.call_args.kwargs["max_tokens"] == 32_000
     assert call.call_args.kwargs["thinking_level"] == "LOW"

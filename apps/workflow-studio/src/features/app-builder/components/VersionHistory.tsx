@@ -1,3 +1,4 @@
+import { Button } from '@/shared/components/ui/button'
 import { useEffect, useState, useCallback } from 'react'
 import {
   Sparkles,
@@ -77,14 +78,9 @@ export function VersionHistory({ appId, currentVersionId, publishedVersionId, on
         <span className="text-[13px] font-semibold tracking-[-0.01em]">
           Version history
         </span>
-        <button
-          type="button"
-          aria-label="Close version history"
-          onClick={onClose}
-          className="h-6 w-6 flex items-center justify-center rounded-chip text-muted-foreground hover:text-foreground hover:bg-(--hover-fill) transition-colors"
-        >
+        <Button type="button" variant="ghost" size="icon-xs" aria-label="Close version history" onClick={onClose}>
           <X size={12} />
-        </button>
+        </Button>
       </div>
 
       {/* List */}

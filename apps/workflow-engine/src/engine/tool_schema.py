@@ -182,6 +182,20 @@ def harden_schema(schema: dict[str, Any], provider: str) -> dict[str, Any]:
     for key in strip_keys:
         schema.pop(key, None)
 
+    # Gemini's Schema takes one type name: a JSON Schema type list becomes nullable / anyOf
+    if provider == "gemini" and isinstance(schema.get("type"), list):
+        types = [t for t in schema.pop("type") if isinstance(t, str)]
+        kept = [t for t in types if t.lower() != "null"]
+        if len(kept) > 1:
+            schema["anyOf"] = [{"type": t} for t in kept]
+        else:
+            schema["type"] = kept[0] if kept else "string"
+        if len(kept) < len(types):
+            schema["nullable"] = True
+
+    if "anyOf" in schema and isinstance(schema["anyOf"], list):
+        schema["anyOf"] = [harden_schema(v, provider) if isinstance(v, dict) else v for v in schema["anyOf"]]
+
     type_val = schema.get("type", "")
     is_object = isinstance(type_val, str) and type_val.lower() == "object"
 
@@ -332,26 +346,36 @@ def validate_tool_args(
         if req not in args:
             errors.append(f"Missing required field: '{req}'")
 
-    type_map = {
-        "string": str,
-        "number": (int, float),
-        "integer": int,
-        "boolean": bool,
-        "array": list,
-        "object": dict,
-    }
-
     for key, value in args.items():
         if key in properties:
-            expected_type = properties[key].get("type", "").lower()
-            if expected_type and expected_type in type_map:
-                py_type = type_map[expected_type]
-                if not isinstance(value, py_type):
-                    if expected_type == "number" and isinstance(value, int):
-                        continue
-                    errors.append(
-                        f"Field '{key}': expected {expected_type}, "
-                        f"got {type(value).__name__}"
-                    )
+            error = arg_type_error(key, value, properties[key].get("type"), key in required)
+            if error:
+                errors.append(error)
 
     return errors
+
+
+_ARG_TYPES: dict[str, Any] = {
+    "string": str,
+    "number": (int, float),
+    "integer": int,
+    "boolean": bool,
+    "array": list,
+    "object": dict,
+}
+
+
+def arg_type_error(key: str, value: Any, expected: Any, required: bool) -> str | None:
+    """The type error of one top-level tool argument, or None. ``expected`` is a JSON Schema ``type``: a name or a list of
+    names (``["integer", "null"]``). An optional key sent as null is accepted (models send ``null`` for "not given")."""
+    names = [str(t).lower() for t in (expected if isinstance(expected, list) else [expected]) if t]
+    if value is None and ("null" in names or not required):
+        return None
+    known = [t for t in names if t in _ARG_TYPES]
+    if not known:
+        return None
+    for t in known:
+        if isinstance(value, _ARG_TYPES[t]):
+            return None
+    shown = known[0] if len(names) == 1 else names
+    return f"Field '{key}': expected {shown}, got {type(value).__name__}"

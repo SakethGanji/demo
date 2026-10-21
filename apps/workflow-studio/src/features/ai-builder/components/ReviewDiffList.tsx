@@ -1,13 +1,14 @@
+import { Badge } from '@/shared/components/ui/badge'
 import { Minus, PenLine, Plus } from 'lucide-react';
 import type { DiffMark } from '@/features/workflow-editor/stores/historyStore';
 import { cn } from '@/shared/lib/utils';
 import { diffItems, fieldLabel } from '../proposalMarks';
 import type { ProposalDiff } from '../types';
 
-const KIND: Record<DiffMark, { word: string; icon: typeof Plus; tone: string }> = {
-  added: { word: 'Added', icon: Plus, tone: 'bg-success-soft text-success-text' },
-  changed: { word: 'Changed', icon: PenLine, tone: 'bg-warning-soft text-warning-text' },
-  removed: { word: 'Removed', icon: Minus, tone: 'bg-destructive-soft text-destructive' },
+const KIND: Record<DiffMark, { word: string; icon: typeof Plus; variant: 'success' | 'warning' | 'error' }> = {
+  added: { word: 'Added', icon: Plus, variant: 'success' },
+  changed: { word: 'Changed', icon: PenLine, variant: 'warning' },
+  removed: { word: 'Removed', icon: Minus, variant: 'error' },
 };
 
 /** What the change does to the workflow, one row per step. Clicking a row brings that step into view on the canvas. */
@@ -45,9 +46,9 @@ export function ReviewDiffList({ diff, selected, onSelect }: {
                   selected === it.name && 'bg-(--hover-fill)',
                 )}
               >
-                <span className={cn('mt-px inline-flex h-5 shrink-0 items-center gap-1 rounded-chip px-1.5 text-[11.5px] font-medium', k.tone)}>
+                <Badge variant={k.variant} className="mt-px">
                   <Icon className="size-3" /> {k.word}
-                </span>
+                </Badge>
                 <span className="min-w-0">
                   <span className="font-medium">{it.name}</span>
                   {it.kind === 'changed' && it.fields.length > 0 && (

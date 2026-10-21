@@ -10,6 +10,7 @@ import {
   AppWindow,
   Check,
   ChevronsUpDown,
+  ClipboardList,
   CodeXml,
   Eye,
   History,
@@ -21,18 +22,22 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useProjectCtx } from '@/features/project/ProjectContext'
+import { PlanFlowThread } from '@/features/plan/PlanFlow'
+import { PlanWorkspace } from '@/features/plan/PlanView'
+import { usePlanFlow } from '@/features/plan/usePlanFlow'
+import { usePlan } from '@/features/plan/usePlan'
+import { useBuilds } from '@/features/plan/useBuild'
 import { useProjectApps, useProjectSummary, useRoutes } from '@/features/project/hooks/useProjectData'
-import { ProjectAvatar } from '@/features/project/components/ProjectTopBar'
+import { HomeNav } from '@/features/project/components/HomeNav'
 import { healthTone } from '@/features/project/lib/healthTone'
-import { Brand, CrumbSep, ThemeToggle, TopBarFrame } from '@/features/project/components/TopBar'
+import { ThemeToggle, TopBarFrame } from '@/features/project/components/TopBar'
 import { Tile } from '@/shared/components/ui/surface'
-import { StatusDot } from '@/shared/components/ui/status-dot'
 import { appsApi, type ApiAppDetail } from '@/shared/lib/api'
 import { backends } from '@/shared/lib/config'
 import { errorMessage } from '@/shared/api/http'
 import { qk } from '@/shared/api/queryKeys'
 import { Button } from '@/shared/components/ui/button'
-import { Badge } from '@/shared/components/ui/badge'
+import { Badge, badgeVariants } from '@/shared/components/ui/badge'
 import { Segmented } from '@/shared/components/ui/segmented'
 import { Popover, PopoverContent, PopoverTrigger } from '@/shared/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/components/ui/tooltip'
@@ -44,6 +49,10 @@ import { cn } from '@/shared/lib/utils'
 import type { AppSearch } from '@/app/routes/project'
 import { useAppDocumentStore, useConsoleStore } from '../stores'
 import { useAppBuilderChatStore } from '../stores/appBuilderChatStore'
+import { restoreChatMessages } from '../lib/restoreChat'
+import { fixRequestText, shouldAutoFix, type PreviewError } from '../lib/previewErrors'
+import { autotestFromBuild } from '../lib/autotest'
+import { ChecksChip } from './ChecksChip'
 import { usePreviewSession } from '../stores/previewSessionStore'
 import { useApiUsage, useApp, useClientTs, useSaveApp, useSpecRevision } from '../hooks/useAppData'
 import { usePreviewToken } from '../hooks/usePreviewToken'
@@ -61,6 +70,9 @@ import { DeleteAppDialog, UnpublishDialog } from './AppDialogs'
 
 /** A builder pane: an editor-glass tile (DESIGN §1, editor pages split the sheet into panes). */
 const panel = 'overflow-hidden'
+
+/** The builder's centre view: the plan, the running app, or its code. */
+type ShellMode = BuilderMode | 'plan'
 
 /** Prompts already auto-sent (module scope: survives StrictMode remounts and URL rewrites). */
 const autoSent = new Set<string>()
@@ -162,9 +174,8 @@ function VersionBadge({ saving, error, onSave }: { saving: boolean; error: strin
             onClick={onSave}
             disabled={saving || !files?.length}
             className={cn(
-              'ml-1 inline-flex h-5 items-center gap-1 rounded-full bg-recess px-2 text-xs font-medium whitespace-nowrap text-muted-foreground hover:bg-(--hover-fill) disabled:cursor-default',
-              (error || dirty) && 'bg-warning-soft text-warning-text',
-              error && 'bg-destructive-soft text-destructive',
+              badgeVariants({ variant: error ? 'error' : dirty ? 'warning' : 'neutral' }),
+              'ml-1 outline-none disabled:cursor-default',
             )}
             data-testid="builder-save"
             data-state={label}
@@ -204,7 +215,16 @@ export function AppBuilderShell({ appId }: { appId: string }) {
   const files = useAppDocumentStore((s) => s.files)
   const currentVersion = useAppDocumentStore((s) => s.currentVersion)
   const [loadedFor, setLoadedFor] = useState<string | null>(null)
-  const [mode, setMode] = useState<BuilderMode>('preview')
+  // `?view=plan` (the Overview's Plan button) opens on the plan
+  const openOnPlan = (useSearch({ strict: false }) as { view?: string }).view === 'plan'
+  const [mode, setModeState] = useState<ShellMode>(openOnPlan ? 'plan' : 'preview')
+  // set once the user picks a view themselves; until then the preview opens by itself when the app is ready
+  const userPickedMode = useRef(openOnPlan)
+  const openOnPlanRef = useRef(openOnPlan)
+  openOnPlanRef.current = openOnPlan
+  const setMode = useCallback((m: ShellMode) => setModeState(m), [])
+  const [previewErrors, setPreviewErrors] = useState<PreviewError[]>([])
+  const fixedVersions = useRef<Set<string>>(new Set())
   const [codeFocus, setCodeFocus] = useState<string | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -224,9 +244,59 @@ export function AppBuilderShell({ appId }: { appId: string }) {
     usePreviewSession.getState().reset(appId)
     useConsoleStore.getState().clear()
     setLoadedFor(null)
-    setMode('preview')
+    // a deep link to the Plan tab (the Overview's "Plan" button) opens there and stays until the user switches
+    setMode(openOnPlanRef.current ? 'plan' : 'preview')
+    userPickedMode.current = openOnPlanRef.current
+    fixedVersions.current = new Set()
+    setPreviewErrors([])
     setHistoryOpen(false)
-  }, [appId])
+  }, [appId, setMode])
+
+  // A reload empties the in-memory chat: rebuild it from the app's AI versions (the engine keeps no transcript).
+  // The plan the app came from supplies the original request and the checklist answers a build's versions lack.
+  const planQ = usePlan(pid)
+  const planFetched = planQ.isFetched
+  const planBody = (planQ.data?.approved ?? planQ.data?.draft)?.body
+  useEffect(() => {
+    if (!planFetched) return
+    let live = true
+    appsApi
+      .listVersions(appId)
+      .then((vs) => {
+        const msgs = restoreChatMessages(vs, {
+          title: planBody?.title,
+          summary: planBody?.summary,
+          request: planBody?.requirements?.request,
+          answers: planBody?.requirements?.answers,
+        })
+        if (live && msgs.length) useAppBuilderChatStore.getState().restore(msgs)
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [appId, planFetched, planBody])
+
+  // The plan-and-build conversation, when this app came out of it: shown ahead of the chat, and the chat waits while the
+  // build is still making the app. As the build's UI step saves versions, the preview follows them.
+  const flow = usePlanFlow(pid, appId)
+  const building = flow.visible && (flow.phase === 'building' || flow.phase === 'input')
+  const seededVersion = useRef<number | null>(null)
+  const onAppActivity = useCallback(() => {
+    void qc.invalidateQueries({ queryKey: qk.app(appId) })
+  }, [qc, appId])
+  useEffect(() => {
+    if (!flow.visible || !app || loadedFor !== appId || app.id !== appId) return
+    const v = app.current_version?.id ?? null
+    if (v == null || v === seededVersion.current) return
+    seededVersion.current = v
+    const doc = useAppDocumentStore.getState()
+    if (doc.dirty) return
+    const appFiles = stripClient(app.files)
+    if (appFiles.length) doc.setFiles(appFiles)
+    else if (app.source_code) doc.setSourceCode(app.source_code)
+    doc.setCurrentVersion(app.current_version ?? null)
+  }, [flow.visible, app, appId, loadedFor])
 
   // Seed the document once per app from the query.
   useEffect(() => {
@@ -236,14 +306,54 @@ export function AppBuilderShell({ appId }: { appId: string }) {
     if (appFiles.length) doc.setFiles(appFiles)
     else if (app.source_code) doc.setSourceCode(app.source_code)
     doc.setCurrentVersion(app.current_version ?? null)
+    seededVersion.current = app.current_version?.id ?? null
     setLoadedFor(appId)
   }, [app, appId, loadedFor])
   const loaded = loadedFor === appId
+
+  // The preview opens by itself once the app is ready (files seeded or a build finished), unless the user chose a view.
+  const hasFiles = !!files?.length
+  useEffect(() => {
+    if (loaded && hasFiles && !userPickedMode.current) setMode('preview')
+  }, [loaded, hasFiles, building, setMode])
+
+  // the build that made this app (the one this session started, else the latest that touched it) carries the scenario checks
+  const builds = useBuilds(pid).data
+  const checks = useMemo(() => {
+    const b = (builds ?? []).find((x) => x.id === flow.buildId) ?? (builds ?? []).find((x) => x.steps.some((st) => st.app_id === appId))
+    return autotestFromBuild(b)
+  }, [builds, flow.buildId, appId])
 
   const execIds = app?.api_execution_ids
   const attached = useMemo(() => execIds ?? [], [execIds])
   const chat = useAppBuilderChat({ appId, pid, apiExecutionIds: attached })
   const sendMessage = chat.sendMessage
+
+  // Preview errors -> one automatic fix per version (never while a build or edit runs), else a manual "Fix with AI".
+  const busy = chat.isStreaming || building
+  const versionKey = currentVersion?.id ?? null
+  const wasBusy = useRef(false)
+  useEffect(() => {
+    // the version an automatic fix produced counts as fixed: no chain of automatic fixes
+    if (wasBusy.current && !busy && autoFixPending.current && versionKey != null) {
+      fixedVersions.current.add(String(versionKey))
+      autoFixPending.current = false
+    }
+    wasBusy.current = busy
+  }, [busy, versionKey])
+  const autoFixPending = useRef(false)
+  const sendFix = useCallback(
+    (auto: boolean) => {
+      if (!previewErrors.length) return
+      if (auto) autoFixPending.current = true
+      if (versionKey != null) fixedVersions.current.add(String(versionKey))
+      void sendMessage(fixRequestText(previewErrors))
+    },
+    [previewErrors, versionKey, sendMessage],
+  )
+  useEffect(() => {
+    if (loaded && shouldAutoFix({ errors: previewErrors, versionKey, fixed: fixedVersions.current, busy })) sendFix(true)
+  }, [loaded, previewErrors, versionKey, busy, sendFix])
 
   // Auto-send the Create UI prompt once, then drop it from the URL (§5.1 step 3).
   useEffect(() => {
@@ -409,20 +519,9 @@ export function AppBuilderShell({ appId }: { appId: string }) {
   return (
     <div className="relative h-full w-full overflow-hidden" data-testid="app-builder">
       {/* top bar */}
-      <TopBarFrame data-testid="builder-topbar">
-        <Brand />
-        <CrumbSep />
-        <Link
-          to="/p/$project"
-          params={{ project: slug }}
-          className="inline-flex h-7 min-w-0 items-center gap-1.5 rounded-ctl px-2 text-muted-foreground hover:bg-(--hover-fill) hover:text-foreground"
-          data-testid="builder-project-link"
-        >
-          <ProjectAvatar name={project.name} />
-          <span className="max-w-40 truncate">{project.name}</span>
-          <StatusDot tone={tone} />
-        </Link>
-        <CrumbSep />
+      <TopBarFrame data-testid="builder-topbar" className="pl-1.5">
+        <HomeNav />
+        <span className="mx-0.5 h-4 w-px shrink-0 bg-hairline" aria-hidden />
         {app ? <AppSwitcher app={app} onDelete={() => setDeleteOpen(true)} /> : <span className="px-2 text-muted-foreground">Loading…</span>}
         {app && <VersionBadge saving={saving} error={saveError} onSave={() => void handleSave()} />}
         {app && (
@@ -436,14 +535,16 @@ export function AppBuilderShell({ appId }: { appId: string }) {
           </Badge>
         )}
         <div className="flex-1" />
-        <Segmented<BuilderMode>
+        <Segmented<ShellMode>
           value={mode}
           onChange={(m) => {
+            userPickedMode.current = true
             setMode(m)
             if (m === 'code') setCodeFocus(null)
           }}
           aria-label="View"
           options={[
+            { key: 'plan', label: 'Plan', icon: <ClipboardList className="size-3" />, testId: 'builder-mode-plan' },
             { key: 'preview', label: 'Preview', icon: <Eye className="size-3" />, testId: 'builder-mode-preview' },
             { key: 'code', label: 'Code', icon: <CodeXml className="size-3" />, testId: 'builder-mode-code' },
           ]}
@@ -514,7 +615,14 @@ export function AppBuilderShell({ appId }: { appId: string }) {
         )}
 
         <Tile editor as="section" className={cn(panel, 'min-w-0 flex-1')} data-testid="builder-preview-panel">
-          <div className={cn('h-full', (historyOpen || testerOpen) && 'invisible')} data-testid="builder-preview-content">
+          {mode === 'plan' && !historyOpen && !testerOpen && (
+            <div className="absolute inset-0 z-20 overflow-y-auto px-6 py-5" data-testid="builder-plan">
+              <div className="mx-auto max-w-3xl">
+                <PlanWorkspace compact />
+              </div>
+            </div>
+          )}
+          <div className={cn('h-full', (historyOpen || testerOpen || mode === 'plan') && 'invisible')} data-testid="builder-preview-content">
           {!loaded ? (
             <div className="flex h-full items-center justify-center" data-testid="builder-loading">
               <Spinner className="text-muted-foreground" />
@@ -522,11 +630,13 @@ export function AppBuilderShell({ appId }: { appId: string }) {
           ) : (
             <AppPreviewPanel
               key={appId}
+              appId={appId}
               projectSlug={slug}
               workflowPaths={(app?.workflow_ids ?? []).map((id) => `/api/apps/${encodeURIComponent(appId)}/workflow/${encodeURIComponent(id)}/run`)}
               allowedRoutes={(routes ?? []).filter((route) => routeIdsOf(app).includes(route.id))}
               files={previewFiles}
-              mode={mode}
+              clientLoading={clientQ.isPending}
+              mode={mode === 'plan' ? 'preview' : mode}
               slug={publishSlug}
               env={env}
               publishedUrl={app?.active && app.slug ? publicUrl(app.slug) : null}
@@ -534,6 +644,11 @@ export function AppBuilderShell({ appId }: { appId: string }) {
               getToken={token.get}
               refreshToken={token.refresh}
               onApiCall={onApiCall}
+              previewErrors={previewErrors}
+              onPreviewErrors={setPreviewErrors}
+              onFixErrors={() => sendFix(false)}
+              fixDisabled={busy}
+              autoFixed={versionKey != null && fixedVersions.current.has(String(versionKey))}
               codeFocus={codeFocus}
             />
           )}
@@ -566,6 +681,15 @@ export function AppBuilderShell({ appId }: { appId: string }) {
             onSend={(t) => void chat.sendMessage(t)}
             onRetry={() => void chat.retry()}
             onStop={chat.cancelStream}
+            prelude={
+              flow.visible ? (
+                <>
+                  <PlanFlowThread f={flow} slug={slug} onAppActivity={onAppActivity} />
+                  {checks && <ChecksChip autotest={checks} />}
+                </>
+              ) : undefined
+            }
+            locked={building ? 'The build is still making this app; ask for changes when it is done' : undefined}
           />
         </Tile>
 

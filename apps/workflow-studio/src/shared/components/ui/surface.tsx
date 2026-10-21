@@ -100,7 +100,7 @@ export function SectionHeader({
   return (
     <div className={cn('flex min-h-7 items-center gap-2.5', className)} data-slot="section-header">
       {icon && hue && <IconTile hue={hue}>{icon}</IconTile>}
-      {icon && !hue && <span className="text-muted-foreground [&_svg]:size-[15px]">{icon}</span>}
+      {icon && !hue && <span className="icon-tile text-muted-foreground [&_svg]:size-[15px]">{icon}</span>}
       <span className={cn('text-panel-title font-semibold tracking-[-0.01em]', titleClassName)}>{title}</span>
       {sub && <span className="min-w-0 truncate text-[12.5px] text-muted-foreground">{sub}</span>}
       <div className="flex-1" />

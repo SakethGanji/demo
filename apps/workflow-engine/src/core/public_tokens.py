@@ -51,6 +51,8 @@ class PublicTokenClaims:
     env: str | None = None  # environment override (preview tokens)
     preview: bool = False  # studio preview token (draft env, no published version needed)
     rk: str | None = None  # review D3: app rotation key — token bound to the app, not to a version
+    sub: str | None = None  # signed Studio user id (preview tokens minted for an identified Studio user)
+    name: str | None = None
 
 
 class PublicTokenError(Exception):
@@ -79,7 +81,8 @@ def _b64u_decode(s: str) -> bytes:
 
 
 def issue_token(app_id: str, version_id: int, ttl_seconds: int = _DEFAULT_TTL_SECONDS, *,
-                env: str | None = None, preview: bool = False, rk: str | None = None) -> str:
+                env: str | None = None, preview: bool = False, rk: str | None = None,
+                sub: str | None = None, name: str | None = None) -> str:
     payload = {
         "app_id": app_id,
         "version_id": version_id,
@@ -91,6 +94,10 @@ def issue_token(app_id: str, version_id: int, ttl_seconds: int = _DEFAULT_TTL_SE
         payload["preview"] = True
     if rk is not None:
         payload["rk"] = rk
+    if sub:
+        payload["sub"] = sub[:255]
+        if name:
+            payload["name"] = name[:200]
     body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
     body_b64 = _b64u_encode(body)
     sig = hmac.new(_signing_secret(), body_b64.encode("ascii"), hashlib.sha256).digest()
@@ -131,6 +138,8 @@ def verify_token(token: str) -> PublicTokenClaims:
         env=payload.get("env"),
         preview=bool(payload.get("preview", False)),
         rk=payload.get("rk"),
+        sub=payload.get("sub") or None,
+        name=payload.get("name") or None,
     )
 
 

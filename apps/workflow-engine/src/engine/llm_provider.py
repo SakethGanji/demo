@@ -83,6 +83,48 @@ class LLMResponse:
                 **({"_gemini_content": self.gemini_content} if self.gemini_content else {})}
 
 
+class OutputTruncatedError(RuntimeError):
+    """The reply was cut off by the output limit, or its tool arguments could not be parsed (so they are likely cut off)."""
+
+    def __init__(self, message: str, response: "LLMResponse | None" = None) -> None:
+        super().__init__(message)
+        self.response = response
+        self.truncated = True
+
+
+def is_truncated(resp: "LLMResponse") -> bool:
+    """True when the reply hit the output limit (any provider) or carries a tool call whose arguments failed to parse."""
+    return bool(resp.output_truncated or resp.malformed_tool_call)
+
+
+def require_complete(resp: "LLMResponse") -> "LLMResponse":
+    """Return ``resp`` unchanged, or raise :class:`OutputTruncatedError` when :func:`is_truncated`, so a caller can split the work."""
+    if is_truncated(resp):
+        why = "output limit reached" if resp.output_truncated else "tool arguments did not parse"
+        raise OutputTruncatedError(f"the model reply was incomplete ({why})", resp)
+    return resp
+
+
+# Calls asking for more output than this stream the reply (a long non-streaming call is refused or dropped by the SDKs).
+STREAM_ABOVE_TOKENS = 16_000
+# Per-call timeout (seconds) for a large generation: a ~60KB JSON reply takes several minutes.
+DEFAULT_TIMEOUT_S = 120.0
+LARGE_OUTPUT_TIMEOUT_S = 600.0
+
+
+def call_timeout(kwargs: dict[str, Any]) -> float:
+    """Seconds one provider call may take: an explicit ``timeout`` kwarg, else longer for big output budgets."""
+    t = kwargs.get("timeout")
+    if t:
+        return float(t)
+    return LARGE_OUTPUT_TIMEOUT_S if (kwargs.get("max_tokens") or 0) > 8_000 else DEFAULT_TIMEOUT_S
+
+
+def _timeout_kw(kwargs: dict[str, Any]) -> dict[str, float]:
+    """``timeout=`` for the SDK call only when the caller set one or asked for a big output; small calls keep the SDK default."""
+    return {"timeout": call_timeout(kwargs)} if kwargs.get("timeout") or (kwargs.get("max_tokens") or 0) > 8_000 else {}
+
+
 # ---------------------------------------------------------------------------
 # Model & Configuration Registry
 # ---------------------------------------------------------------------------
@@ -476,6 +518,13 @@ async def _call_gemini_vertex(
         if "schema" in rf:
             config_kwargs["response_schema"] = rf["schema"]
 
+    try:
+        from google.genai.types import HttpOptions
+        if _timeout_kw(kwargs):
+            config_kwargs["http_options"] = HttpOptions(timeout=int(call_timeout(kwargs) * 1000))
+    except Exception:  # older SDKs without per-call options keep the client default
+        pass
+
     config = GenerateContentConfig(**config_kwargs)
 
     from time import perf_counter as _pc
@@ -647,7 +696,7 @@ async def _call_openai_compat(
     }
     if api_tools:
         completion_kwargs["tools"] = api_tools
-        completion_kwargs["tool_choice"] = "auto"
+        completion_kwargs["tool_choice"] = "required" if kwargs.get("tool_choice") == "required" else "auto"
         completion_kwargs["parallel_tool_calls"] = True
     if kwargs.get("max_tokens"):
         completion_kwargs["max_tokens"] = kwargs["max_tokens"]
@@ -669,7 +718,7 @@ async def _call_openai_compat(
 
     from time import perf_counter as _pc
     _t0 = _pc()
-    completion = await client.chat.completions.create(**completion_kwargs)
+    completion = await client.chat.completions.create(**completion_kwargs, **_timeout_kw(kwargs))
     _elapsed = round((_pc() - _t0) * 1000, 2)
 
     resp = LLMResponse()
@@ -689,6 +738,8 @@ async def _call_openai_compat(
 
     msg = choice.message
     resp.text = msg.content or None
+    if getattr(choice, "finish_reason", None) == "length":
+        resp.output_truncated = True
     if msg.tool_calls:
         for tc in msg.tool_calls:
             raw_args_str = tc.function.arguments or ""
@@ -758,10 +809,17 @@ async def _call_anthropic(
         call_kwargs["tools"] = api_tools
     if temperature is not None:
         call_kwargs["temperature"] = temperature
+    if api_tools and kwargs.get("tool_choice") == "required":
+        call_kwargs["tool_choice"] = {"type": "any"}
 
     from time import perf_counter as _pc
     _t0 = _pc()
-    response = await client.messages.create(**call_kwargs)
+    if call_kwargs["max_tokens"] > STREAM_ABOVE_TOKENS:
+        # The SDK refuses a long non-streaming call; stream and take the assembled message.
+        async with client.messages.stream(**call_kwargs, **_timeout_kw(kwargs)) as stream:
+            response = await stream.get_final_message()
+    else:
+        response = await client.messages.create(**call_kwargs, **_timeout_kw(kwargs))
     _elapsed = round((_pc() - _t0) * 1000, 2)
 
     resp = LLMResponse()
@@ -787,6 +845,8 @@ async def _call_anthropic(
             ))
     if text_parts:
         resp.text = "\n".join(text_parts)
+    if getattr(response, "stop_reason", None) == "max_tokens":
+        resp.output_truncated = True
 
     return resp
 

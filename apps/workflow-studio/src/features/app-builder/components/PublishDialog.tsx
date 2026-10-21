@@ -207,14 +207,15 @@ export function PublishDialog({ open, onClose, app, project, summary, routes, us
                   Calls <span className="font-mono">/api/p/{project.slug}/…</span> with an app token that refreshes itself.
                 </span>
                 <div className="flex-1" />
-                <button
+                <Button
                   type="button"
-                  className="font-medium text-destructive hover:underline"
+                  variant="destructive"
+                  size="xs"
                   onClick={() => setUnpublishOpen(true)}
                   data-testid="publish-unpublish"
                 >
                   Unpublish
-                </button>
+                </Button>
               </div>
             </div>
           ) : (

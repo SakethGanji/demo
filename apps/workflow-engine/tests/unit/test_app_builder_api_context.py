@@ -42,18 +42,16 @@ def test_client_codegen_and_usage_scan_roundtrip():
     ]
 
 
-def test_spec_context_preserves_nested_response_fields_beyond_old_cutoff():
+def test_spec_context_inlines_only_small_schemas_and_points_to_the_signature_lookup():
     import json
-    schema = {"type": "object", "properties": {
-        "transaction": {"type": "object", "properties": {
-            f"field_{i}": {"type": "string"} for i in range(30)}},
-        "events": {"type": "array", "items": {"type": "object", "properties": {"message": {"type": "string"}}}},
-    }}
-    spec = {**SPECS[0], "response_schema": schema}
-    summary = build_spec_summary("shop", [spec])
-    response = summary.split("  response: `", 1)[1].split("`", 1)[0]
-    assert json.loads(response) == schema
-    assert '"events"' in response and '"message"' in response
+    big = {"type": "object", "properties": {
+        "transaction": {"type": "object", "properties": {f"field_{i}": {"type": "string"} for i in range(30)}},
+        "events": {"type": "array", "items": {"type": "object", "properties": {"message": {"type": "string"}}}}}}
+    summary = build_spec_summary("shop", [{**SPECS[0], "response_schema": big}])
+    assert "field_7" not in summary and "get_route_signature" in summary  # the prompt stays small; the model looks the fields up
+    small = {"type": "object", "properties": {"id": {"type": "string"}}}
+    summary = build_spec_summary("shop", [{**SPECS[0], "response_schema": small}])
+    assert json.loads(summary.split("  response: `", 1)[1].split("`", 1)[0]) == small
 
 
 def test_refinement_loads_saved_entry_source_without_a_file_version():

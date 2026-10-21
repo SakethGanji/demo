@@ -69,6 +69,23 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("ANALYTICS_SERVICE_URL", "WORKFLOW_ANALYTICS_SERVICE_URL"),
     )
 
+    # Jobs service (apps/jobs-service): long browser/API test runs, AI triage, exploration. Python routes reach it only
+    # through the broker (`studio.jobs.*`, broker/jobs.py); sandboxed code never sees the URL or the token.
+    # JOBS_SERVICE_URL: where it listens. JOBS_SERVICE_TOKEN: its bearer token. JOBS_DEV=1 (dev only) allows the
+    # well-known dev token when JOBS_SERVICE_TOKEN is unset; without either, studio.jobs calls fail with jobs_not_configured.
+    jobs_service_url: str = Field(
+        default="http://127.0.0.1:8095",
+        validation_alias=AliasChoices("JOBS_SERVICE_URL", "WORKFLOW_JOBS_SERVICE_URL"),
+    )
+    jobs_service_token: str | None = Field(
+        default=None, validation_alias=AliasChoices("JOBS_SERVICE_TOKEN", "WORKFLOW_JOBS_SERVICE_TOKEN"),
+    )
+    jobs_dev: bool = Field(default=False, validation_alias=AliasChoices("JOBS_DEV", "WORKFLOW_JOBS_DEV"))
+    # Per broker call; a python route has 30 s in all, so one call must leave room for the rest of the handler.
+    jobs_call_timeout_s: float = Field(
+        default=10.0, validation_alias=AliasChoices("JOBS_CALL_TIMEOUT_S", "WORKFLOW_JOBS_CALL_TIMEOUT_S"),
+    )
+
     # MongoDB (PromptLab session/run state)
     mongo_url: str | None = None
 

@@ -118,6 +118,23 @@ export interface RunListItem {
   /** HTTP status the route answered with; null for runs that were not a route call */
   status_code: number | null
 }
+/** `GET …/schedules`: a code module's scheduled function (`@schedule(every=…)` or a cron), with its clock. */
+export interface ModuleSchedule {
+  id: string
+  module_id: string
+  module: string | null
+  function: string
+  cron: string | null
+  every_seconds: number | null
+  enabled: boolean
+  next_run_at: string | null
+  running: boolean
+  last_run_at: string | null
+  last_status: string | null
+  last_error: string | null
+  duration_ms: number | null
+  last_execution_id: string | null
+}
 /** `GET …/runs/daily`: one entry per UTC day, oldest first, zero-filled */
 export interface DailyRuns {
   date: string
@@ -431,6 +448,11 @@ export interface ModuleWriteResult {
   spec_revision: number
   spec_hash: string
   breaking_changes: Change[]
+  /** Tables the save created or migrated (sent when the write declared `tables`). */
+  tables_created?: Array<string | { name?: string }>
+  tables_migrated?: unknown[]
+  schema_refused?: unknown[]
+  plan_version?: number | null
 }
 
 // ── generate / run-draft (UI-DESIGN §10) ────────────────────────────────────

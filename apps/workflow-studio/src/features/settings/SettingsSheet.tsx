@@ -23,7 +23,7 @@ import { DangerSection } from "./DangerSection";
 
 /** The floating sheet look shared with the Release sheet (mockup `.sheet`). */
 export const floatingSheetCls =
-  "gap-0 overflow-hidden p-0 data-[side=right]:inset-y-3 data-[side=right]:right-3 data-[side=right]:h-auto data-[side=right]:sm:max-w-[calc(100vw-24px)] data-[side=right]:max-w-[calc(100vw-24px)]";
+  "gap-0 overflow-hidden p-0 data-[side=right]:inset-y-2 data-[side=right]:right-2 data-[side=right]:h-auto data-[side=right]:sm:max-w-[calc(100vw-16px)] data-[side=right]:max-w-[calc(100vw-16px)]";
 
 export function SettingsSheet({
   open,

@@ -1,0 +1,15 @@
+{
+  "goal": "Log in as a teller with password and TOTP MFA and see the customer accounts",
+  "slug": "bank-01-login-mfa",
+  "steps": [
+    { "action": "fill", "target": { "label": "Username" }, "value": "{{teller_user}}", "group": "Sign in" },
+    { "action": "fill", "target": { "label": "Password" }, "value": "{{teller_pass}}", "group": "Sign in" },
+    { "action": "click", "target": { "role": "button", "name": "Sign in" }, "group": "Sign in" },
+    { "action": "otp", "value": "{{totp:teller_totp}}", "group": "Pass MFA" },
+    { "action": "click", "target": { "role": "button", "name": "Verify" }, "group": "Pass MFA" },
+    { "action": "waitFor", "target": { "role": "table", "name": "Customer accounts" }, "group": "Dashboard loads" },
+    { "action": "expectVisible", "target": { "role": "table", "name": "Customer accounts" }, "group": "Dashboard loads" },
+    { "action": "expectText", "target": { "role": "cell", "name": "Everyday Checking" }, "text": "Everyday Checking", "group": "Dashboard loads" },
+    { "action": "done", "reason": "logged in with MFA and saw accounts" }
+  ]
+}

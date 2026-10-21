@@ -4,12 +4,14 @@
  * `filter` (engine filter JSON) and `sort` (default `-created_at`). Data is shared by every
  * environment (D11), so the env switch does not apply here.
  */
+import { Badge } from '@/shared/components/ui/badge'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { Plus, Table2 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { DataSearch } from '@/app/routes/project'
 import { useProjectCtx } from '@/features/project/ProjectContext'
+import { WorkbenchSwitcher } from '@/features/project/components/WorkbenchSwitcher'
 import { useTables } from '@/features/project/hooks/useProjectData'
 import { pluralize } from '@/features/project/lib/format'
 import { errorMessage } from '@/shared/api/http'
@@ -162,7 +164,7 @@ export function DataView() {
 const money = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 2 })
 
 function TableView({ table }: { table: DataTable }) {
-  const { pid, slug, project } = useProjectCtx()
+  const { pid, project } = useProjectCtx()
   const search = useSearch({ strict: false }) as DataSearch
   const navigate = useNavigate()
   const model = useMemo(() => parseFilter(search.filter), [search.filter])
@@ -238,9 +240,9 @@ function TableView({ table }: { table: DataTable }) {
             </span>
             <span data-testid="data-project-name">{project.name}</span>
             <span className="text-faint">/</span>
-            <Link to="/p/$project/data" params={{ project: slug }} className="rounded-xs outline-none hover:text-foreground focus-visible:shadow-focus" data-testid="data-crumb">
+            <WorkbenchSwitcher label="Switch table, module or route" testId="data-crumb" className="-mx-1 px-1 hover:text-foreground">
               Tables
-            </Link>
+            </WorkbenchSwitcher>
           </div>
           <PageHeader
             className="mt-3"
@@ -249,10 +251,10 @@ function TableView({ table }: { table: DataTable }) {
                 <span className="font-mono font-semibold tracking-[-0.04em]" data-testid="data-table-name">
                   {table.name}
                 </span>
-                <span className="inline-flex h-[22px] items-center rounded-full bg-recess px-2 text-[12px] font-normal tracking-normal text-muted-foreground" data-testid="data-row-count">
+                <Badge variant="neutral" className="h-[22px] text-[12px] font-normal tracking-normal" data-testid="data-row-count">
                   <Roll value={rowCount} />
                   &nbsp;{rowCount === 1 ? 'row' : 'rows'}
-                </span>
+                </Badge>
               </span>
             }
           >

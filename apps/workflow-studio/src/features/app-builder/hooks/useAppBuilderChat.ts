@@ -4,7 +4,7 @@
  * endpoints_declared, error`) then always `done` (§9 C5). A stream that closes without `done` is
  * an error. `code` files drop `api/client.ts` before `setFiles` and before the auto-save.
  */
-import { useCallback, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAppBuilderChatStore, type AppChatMessage, type DeclaredEndpoint } from '../stores/appBuilderChatStore'
 import { useAppDocumentStore } from '../stores'
@@ -13,12 +13,16 @@ import { apiUrl, errorMessage, parseError } from '@/shared/api/http'
 import { qk, invalidate } from '@/shared/api/queryKeys'
 import type { ApiAppDetail, ApiAppFile } from '@/shared/lib/api'
 import { entrySource, routeIdsOf, stripClient, usedOperations } from '../lib/appModel'
+import { clientGate } from '../lib/clientGate'
+import { liveEventOf, planRevisionOf, type LiveEvent } from '../lib/chatEvents'
 import { saveApp } from './useAppData'
 
 interface Options {
   appId: string
   pid: string
   apiExecutionIds?: string[]
+  /** the builders' `file` / `route` / `preview` events on this chat's stream (LIVE-FILES §5), for the live code view */
+  onLive?: (ev: LiveEvent) => void
 }
 
 const STOPPED = 'The assistant stopped unexpectedly'
@@ -37,9 +41,13 @@ function addedLines(prev: ApiAppFile[] | null, next: ApiAppFile[]): { paths: str
   return { paths, added }
 }
 
-export function useAppBuilderChat({ appId, pid, apiExecutionIds }: Options) {
+export function useAppBuilderChat({ appId, pid, apiExecutionIds, onLive }: Options) {
   const qc = useQueryClient()
   const abortRef = useRef<AbortController | null>(null)
+  const liveRef = useRef(onLive)
+  useEffect(() => {
+    liveRef.current = onLive
+  }, [onLive])
   const pendingSaveRef = useRef<{ files: ApiAppFile[]; prompt: string } | null>(null)
 
   const afterTurn = useCallback(() => {
@@ -103,6 +111,7 @@ export function useAppBuilderChat({ appId, pid, apiExecutionIds }: Options) {
       let gotDone = false
       let sawError = false
       const saving: { p: Promise<true | string> | null } = { p: null }
+      const client = clientGate(() => qc.refetchQueries({ queryKey: [...qk.spec(pid), 'client-ts'] }))
 
       try {
         const res = await fetch(apiUrl('/api/ai/app-builder/chat'), {
@@ -193,6 +202,7 @@ export function useAppBuilderChat({ appId, pid, apiExecutionIds }: Options) {
               }))
               update({ declared: [...(last()?.declared ?? []), ...declared] })
               void invalidate.routesChanged(qc, pid)
+              client.refresh()
               break
             }
             case 'code': {
@@ -202,7 +212,7 @@ export function useAppBuilderChat({ appId, pid, apiExecutionIds }: Options) {
               const files = stripClient(raw)
               const prev = useAppDocumentStore.getState().files
               update({ wrote: addedLines(prev, files), uses: usedOperations(files) })
-              useAppDocumentStore.getState().setFiles(files)
+              void client.after(() => useAppDocumentStore.getState().setFiles(files))
               // serialise saves when a turn emits several `code` events
               saving.p = (saving.p ?? Promise.resolve<true | string>(true)).then(() => autoSave(files, message))
               break
@@ -213,6 +223,26 @@ export function useAppBuilderChat({ appId, pid, apiExecutionIds }: Options) {
                 error: { kind: 'stream', code: (data.code as string) ?? null, message: String(data.message ?? STOPPED) },
               })
               break
+            case 'file':
+            case 'route':
+            case 'preview': {
+              const ev = liveEventOf(data)
+              if (ev) liveRef.current?.(ev)
+              if (ev?.type === 'route') {
+                void invalidate.routesChanged(qc, pid)
+                client.refresh()
+              }
+              if (ev?.type === 'file' && ev.builder === 'backend' && ev.done) {
+                void invalidate.modulesChanged(qc, pid)
+                client.refresh()
+              }
+              break
+            }
+            case 'plan_revision': {
+              const rev = planRevisionOf(data)
+              if (rev) update({ planRevision: rev })
+              break
+            }
             // the obsolete `plan` event is no longer handled (§5.2)
           }
         })

@@ -18,6 +18,7 @@ OPS = ["insert", "get", "list", "update", "delete", "upsert"]
 
 
 from ...engine import shapes as sh
+from ...services.data_table_service import iso_utc
 
 class DataTableNode(BaseNode):
     node_description = NodeTypeDescription(
@@ -89,7 +90,10 @@ class DataTableNode(BaseNode):
 
         items = input_data or [NodeData(json={})]
         expr = ExpressionEngine.create_context(items, context.node_states, context.execution_id, 0)
-        p = {k: expression_engine.resolve(v, expr) for k, v in node_definition.parameters.items()}
+        if context.extras.get("literal_params"):  # broker call: values are data from code, never expressions
+            p = dict(node_definition.parameters)
+        else:
+            p = {k: expression_engine.resolve(v, expr) for k, v in node_definition.parameters.items()}
         for k in ("data", "filter", "matchColumns"):
             if isinstance(p.get(k), str) and p[k].strip():
                 try:
@@ -103,8 +107,8 @@ class DataTableNode(BaseNode):
 
         def flat(r) -> dict[str, Any]:
             # system columns first so a data key can never shadow them
-            return {**(r.data or {}), "id": r.id, "created_at": r.created_at.isoformat(),
-                    "updated_at": r.updated_at.isoformat()}
+            return {**(r.data or {}), "id": r.id, "created_at": iso_utc(r.created_at),
+                    "updated_at": iso_utc(r.updated_at)}
 
         try:
             async with async_session_factory() as session:
