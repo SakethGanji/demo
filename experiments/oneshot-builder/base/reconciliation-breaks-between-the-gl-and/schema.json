@@ -1,0 +1,152 @@
+{
+  "roles": [
+    "member",
+    "controller"
+  ],
+  "tables": [
+    {
+      "name": "breaks",
+      "columns": [
+        {
+          "name": "reference",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "break_date",
+          "type": "date",
+          "required": true
+        },
+        {
+          "name": "gl_amount",
+          "type": "money",
+          "required": true
+        },
+        {
+          "name": "core_amount",
+          "type": "money",
+          "required": true
+        },
+        {
+          "name": "difference",
+          "type": "money",
+          "required": true
+        },
+        {
+          "name": "status",
+          "type": "choice",
+          "choices": [
+            "open",
+            "assigned",
+            "pending_writeoff",
+            "resolved",
+            "written_off"
+          ],
+          "required": true
+        },
+        {
+          "name": "assignee",
+          "type": "person"
+        },
+        {
+          "name": "resolution_reason",
+          "type": "text"
+        },
+        {
+          "name": "writeoff_requested_by",
+          "type": "person"
+        },
+        {
+          "name": "writeoff_approved_by",
+          "type": "person"
+        }
+      ],
+      "sample_rows": [
+        {
+          "reference": "ACH-20931",
+          "break_date": "2026-10-15",
+          "gl_amount": 4200,
+          "core_amount": 0,
+          "difference": 4200,
+          "status": "open"
+        },
+        {
+          "reference": "WIRE-88213",
+          "break_date": "2026-10-14",
+          "gl_amount": 15000,
+          "core_amount": 14250,
+          "difference": 750,
+          "status": "assigned",
+          "assignee": "j.park@bank.example"
+        },
+        {
+          "reference": "CHK-55120",
+          "break_date": "2026-10-19",
+          "gl_amount": 980.5,
+          "core_amount": 980,
+          "difference": 0.5,
+          "status": "open"
+        },
+        {
+          "reference": "FEE-1009",
+          "break_date": "2026-10-08",
+          "gl_amount": 1500,
+          "core_amount": 2600,
+          "difference": -1100,
+          "status": "pending_writeoff",
+          "assignee": "t.nguyen@bank.example",
+          "resolution_reason": "Fee waived in core, never reversed in GL",
+          "writeoff_requested_by": "t.nguyen@bank.example"
+        },
+        {
+          "reference": "ATM-7731",
+          "break_date": "2026-10-10",
+          "gl_amount": 320,
+          "core_amount": 0,
+          "difference": 320,
+          "status": "resolved",
+          "assignee": "j.park@bank.example",
+          "resolution_reason": "Timing difference; posted in core on 10/13"
+        },
+        {
+          "reference": "INT-4420",
+          "break_date": "2026-10-05",
+          "gl_amount": 60,
+          "core_amount": 55,
+          "difference": 5,
+          "status": "written_off",
+          "assignee": "m.chen@bank.example",
+          "resolution_reason": "Rounding difference on interest accrual",
+          "writeoff_requested_by": "m.chen@bank.example"
+        },
+        {
+          "reference": "ACH-20977",
+          "break_date": "2026-10-16",
+          "gl_amount": 8800,
+          "core_amount": 0,
+          "difference": 8800,
+          "status": "assigned",
+          "assignee": "m.chen@bank.example"
+        }
+      ]
+    }
+  ],
+  "queries": [
+    {
+      "name": "open_breaks_by_age",
+      "sql": "SELECT reference, difference, status, assignee, CAST(julianday(:today) - julianday(break_date) AS INTEGER) AS age_days FROM breaks WHERE status IN ('open', 'assigned', 'pending_writeoff') ORDER BY age_days DESC"
+    },
+    {
+      "name": "my_breaks",
+      "sql": "SELECT reference, difference, status, break_date FROM breaks WHERE assignee = :me AND status IN ('assigned', 'pending_writeoff') ORDER BY break_date"
+    },
+    {
+      "name": "pending_writeoffs",
+      "sql": "SELECT reference, difference, resolution_reason, writeoff_requested_by FROM breaks WHERE status = 'pending_writeoff' ORDER BY ABS(difference) DESC"
+    },
+    {
+      "name": "unassigned_breaks",
+      "sql": "SELECT reference, difference, break_date FROM breaks WHERE status = 'open' ORDER BY break_date"
+    }
+  ]
+}

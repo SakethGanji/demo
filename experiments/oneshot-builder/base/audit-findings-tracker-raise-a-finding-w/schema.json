@@ -1,0 +1,142 @@
+{
+  "roles": [
+    "member",
+    "risk_manager"
+  ],
+  "tables": [
+    {
+      "name": "findings",
+      "columns": [
+        {
+          "name": "title",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "description",
+          "type": "text"
+        },
+        {
+          "name": "severity",
+          "type": "choice",
+          "choices": [
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "required": true
+        },
+        {
+          "name": "status",
+          "type": "choice",
+          "choices": [
+            "open",
+            "pending_approval",
+            "closed"
+          ],
+          "required": true
+        },
+        {
+          "name": "owner",
+          "type": "person"
+        },
+        {
+          "name": "due_date",
+          "type": "date"
+        },
+        {
+          "name": "evidence_notes",
+          "type": "text"
+        },
+        {
+          "name": "closure_requested_by",
+          "type": "person"
+        },
+        {
+          "name": "approved_by",
+          "type": "person"
+        },
+        {
+          "name": "closed_on",
+          "type": "date"
+        }
+      ],
+      "sample_rows": [
+        {
+          "title": "Terminated users still have core banking access",
+          "description": "12 accounts of leavers active after 30 days.",
+          "severity": "high",
+          "status": "open",
+          "owner": "m.chen@bank.example",
+          "due_date": "2026-11-15"
+        },
+        {
+          "title": "Wire transfer dual control bypassed on weekends",
+          "description": "Single-approver wires found in Q3 sample.",
+          "severity": "critical",
+          "status": "pending_approval",
+          "owner": "d.okafor@bank.example",
+          "due_date": "2026-10-31",
+          "evidence_notes": "Weekend dual-control enforced in system config; 30-day log review shows no exceptions.",
+          "closure_requested_by": "d.okafor@bank.example"
+        },
+        {
+          "title": "Vendor contract missing exit clause",
+          "description": "Cloud hosting contract lacks termination assistance terms.",
+          "severity": "medium",
+          "status": "open",
+          "owner": "r.alvarez@bank.example",
+          "due_date": "2026-10-10"
+        },
+        {
+          "title": "Branch cash count log not signed",
+          "description": "3 of 20 branches missing sign-off.",
+          "severity": "low",
+          "status": "open"
+        },
+        {
+          "title": "Backup restore test not performed",
+          "description": "No restore test evidence for 2025.",
+          "severity": "medium",
+          "status": "closed",
+          "owner": "m.chen@bank.example",
+          "due_date": "2026-09-30",
+          "evidence_notes": "Restore test completed 2026-09-18, report attached to ticket INC-4471.",
+          "closure_requested_by": "m.chen@bank.example",
+          "closed_on": "2026-09-20"
+        },
+        {
+          "title": "Policy review overdue for AML procedures",
+          "description": "AML procedures last reviewed in 2023.",
+          "severity": "high",
+          "status": "open",
+          "owner": "d.okafor@bank.example",
+          "due_date": "2026-12-01"
+        }
+      ]
+    }
+  ],
+  "queries": [
+    {
+      "name": "my_open_findings",
+      "sql": "SELECT title, severity, status, due_date FROM findings WHERE owner = :me AND status != 'closed' ORDER BY due_date"
+    },
+    {
+      "name": "overdue_findings",
+      "sql": "SELECT title, severity, owner, due_date FROM findings WHERE status != 'closed' AND due_date IS NOT NULL AND due_date < :today ORDER BY due_date"
+    },
+    {
+      "name": "unassigned_findings",
+      "sql": "SELECT title, severity, created_at FROM findings WHERE status != 'closed' AND (owner IS NULL OR due_date IS NULL)"
+    },
+    {
+      "name": "awaiting_risk_approval",
+      "sql": "SELECT title, severity, closure_requested_by, evidence_notes FROM findings WHERE status = 'pending_approval'"
+    },
+    {
+      "name": "open_by_severity",
+      "sql": "SELECT severity, COUNT(*) AS total FROM findings WHERE status != 'closed' GROUP BY severity"
+    }
+  ]
+}

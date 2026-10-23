@@ -1,0 +1,130 @@
+{
+  "roles": [
+    "analyst",
+    "lead",
+    "compliance"
+  ],
+  "tables": [
+    {
+      "name": "kyc_reviews",
+      "columns": [
+        {
+          "name": "customer_name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "risk_level",
+          "type": "choice",
+          "choices": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "required": true
+        },
+        {
+          "name": "status",
+          "type": "choice",
+          "choices": [
+            "unassigned",
+            "in_progress",
+            "completed",
+            "escalated",
+            "closed"
+          ],
+          "required": true
+        },
+        {
+          "name": "assignee",
+          "type": "person"
+        },
+        {
+          "name": "due_date",
+          "type": "date",
+          "required": true
+        },
+        {
+          "name": "completed_at",
+          "type": "datetime"
+        },
+        {
+          "name": "completion_notes",
+          "type": "text"
+        },
+        {
+          "name": "escalation_reason",
+          "type": "text"
+        },
+        {
+          "name": "compliance_decision",
+          "type": "text"
+        }
+      ],
+      "sample_rows": [
+        {
+          "customer_name": "Harbor Logistics LLC",
+          "risk_level": "high",
+          "status": "in_progress",
+          "assignee": "m.chen@bank.example",
+          "due_date": "2026-10-15"
+        },
+        {
+          "customer_name": "Priya Nair",
+          "risk_level": "low",
+          "status": "in_progress",
+          "assignee": "j.okafor@bank.example",
+          "due_date": "2026-10-30"
+        },
+        {
+          "customer_name": "Brightwell Dental Group",
+          "risk_level": "medium",
+          "status": "unassigned",
+          "due_date": "2026-10-20"
+        },
+        {
+          "customer_name": "Tomas Eriksen",
+          "risk_level": "medium",
+          "status": "in_progress",
+          "assignee": "m.chen@bank.example",
+          "due_date": "2026-10-19"
+        },
+        {
+          "customer_name": "Calloway Holdings",
+          "risk_level": "high",
+          "status": "escalated",
+          "assignee": "j.okafor@bank.example",
+          "due_date": "2026-10-12",
+          "escalation_reason": "Unclear beneficial ownership structure"
+        },
+        {
+          "customer_name": "Elena Petrova",
+          "risk_level": "low",
+          "status": "completed",
+          "assignee": "j.okafor@bank.example",
+          "due_date": "2026-10-10",
+          "completed_at": "2026-10-09T15:30:00",
+          "completion_notes": "Documents verified, no concerns"
+        }
+      ]
+    }
+  ],
+  "queries": [
+    {
+      "name": "overdue_reviews",
+      "sql": "SELECT id, customer_name, risk_level, status, assignee, due_date, CAST(julianday(:today) - julianday(due_date) AS INTEGER) AS days_overdue FROM kyc_reviews WHERE status IN ('unassigned', 'in_progress') AND due_date < :today ORDER BY due_date"
+    },
+    {
+      "name": "overdue_by_analyst",
+      "sql": "SELECT COALESCE(assignee, 'unassigned') AS analyst, COUNT(*) AS overdue_count, MIN(due_date) AS oldest_due FROM kyc_reviews WHERE status IN ('unassigned', 'in_progress') AND due_date < :today GROUP BY COALESCE(assignee, 'unassigned') ORDER BY overdue_count DESC"
+    },
+    {
+      "name": "my_open_reviews",
+      "sql": "SELECT id, customer_name, risk_level, status, due_date, due_date < :today AS is_overdue FROM kyc_reviews WHERE assignee = :me AND status = 'in_progress' ORDER BY due_date"
+    },
+    {
+      "name": "escalated_queue",
+      "sql": "SELECT id, customer_name, risk_level, assignee, escalation_reason, updated_at FROM kyc_reviews WHERE status = 'escalated' ORDER BY updated_at"
+    }
+  ]
+}

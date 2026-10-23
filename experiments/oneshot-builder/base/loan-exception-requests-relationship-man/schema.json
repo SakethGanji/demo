@@ -1,0 +1,142 @@
+{
+  "roles": [
+    "relationship_manager",
+    "credit_officer",
+    "chief_credit_officer"
+  ],
+  "tables": [
+    {
+      "name": "waiver_requests",
+      "columns": [
+        {
+          "name": "borrower",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "loan_number",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "exception_type",
+          "type": "text"
+        },
+        {
+          "name": "amount",
+          "type": "money",
+          "required": true
+        },
+        {
+          "name": "reason",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "status",
+          "type": "choice",
+          "choices": [
+            "pending_credit_officer",
+            "pending_chief_credit_officer",
+            "approved",
+            "rejected"
+          ],
+          "required": true
+        },
+        {
+          "name": "requester_email",
+          "type": "person",
+          "required": true
+        },
+        {
+          "name": "decided_by",
+          "type": "person"
+        },
+        {
+          "name": "decided_at",
+          "type": "datetime"
+        },
+        {
+          "name": "decision_note",
+          "type": "text"
+        }
+      ],
+      "sample_rows": [
+        {
+          "borrower": "Harborview Dental Group",
+          "loan_number": "LN-10421",
+          "exception_type": "Covenant waiver",
+          "amount": 85000,
+          "reason": "DSCR slightly below covenant for Q2",
+          "status": "pending_credit_officer",
+          "requester_email": "a.patel@bank.example"
+        },
+        {
+          "borrower": "Northgate Logistics",
+          "loan_number": "LN-10388",
+          "exception_type": "Late fee waiver",
+          "amount": 180000,
+          "reason": "Payment delayed by a bank system outage",
+          "status": "pending_credit_officer",
+          "requester_email": "j.okafor@bank.example"
+        },
+        {
+          "borrower": "Blue Heron Farms",
+          "loan_number": "LN-10117",
+          "exception_type": "Covenant waiver",
+          "amount": 250000,
+          "reason": "Crop-season cash flow timing",
+          "status": "pending_credit_officer",
+          "requester_email": "j.okafor@bank.example"
+        },
+        {
+          "borrower": "Summit Ridge Developers",
+          "loan_number": "LN-10502",
+          "exception_type": "Collateral shortfall",
+          "amount": 640000,
+          "reason": "Appraisal came in below expected value",
+          "status": "pending_chief_credit_officer",
+          "requester_email": "a.patel@bank.example"
+        },
+        {
+          "borrower": "Lakeside Hospitality",
+          "loan_number": "LN-09876",
+          "exception_type": "Fee waiver",
+          "amount": 120000,
+          "reason": "Long-standing client, renewal retention",
+          "status": "approved",
+          "requester_email": "j.okafor@bank.example",
+          "decided_by": "d.nguyen@bank.example",
+          "decided_at": "2026-09-30T14:05:00",
+          "decision_note": "Approved, strong payment history"
+        },
+        {
+          "borrower": "Cobalt Manufacturing",
+          "loan_number": "LN-09954",
+          "exception_type": "Covenant waiver",
+          "amount": 410000,
+          "reason": "Leverage above limit after acquisition",
+          "status": "rejected",
+          "requester_email": "a.patel@bank.example",
+          "decided_by": "e.rossi@bank.example",
+          "decided_at": "2026-10-02T10:30:00",
+          "decision_note": "Leverage too high without a remediation plan"
+        }
+      ]
+    }
+  ],
+  "queries": [
+    {
+      "name": "pending_requests",
+      "sql": "SELECT borrower, loan_number, amount, status, requester_email, created_at FROM waiver_requests WHERE status IN ('pending_credit_officer', 'pending_chief_credit_officer') ORDER BY amount DESC"
+    },
+    {
+      "name": "my_requests",
+      "sql": "SELECT borrower, loan_number, amount, status, decision_note FROM waiver_requests WHERE requester_email = :me ORDER BY created_at DESC"
+    },
+    {
+      "name": "decided_by_approver",
+      "sql": "SELECT decided_by, status, COUNT(*) AS requests, SUM(amount) AS total FROM waiver_requests WHERE decided_by IS NOT NULL GROUP BY decided_by, status"
+    }
+  ]
+}

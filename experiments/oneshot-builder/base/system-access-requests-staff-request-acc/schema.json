@@ -1,0 +1,134 @@
+{
+  "roles": [
+    "member",
+    "manager",
+    "it"
+  ],
+  "tables": [
+    {
+      "name": "access_requests",
+      "columns": [
+        {
+          "name": "system",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "reason",
+          "type": "text"
+        },
+        {
+          "name": "requester_email",
+          "type": "person",
+          "required": true
+        },
+        {
+          "name": "manager_email",
+          "type": "person",
+          "required": true
+        },
+        {
+          "name": "status",
+          "type": "choice",
+          "choices": [
+            "pending_approval",
+            "approved",
+            "rejected",
+            "completed"
+          ],
+          "required": true
+        },
+        {
+          "name": "decision_note",
+          "type": "text"
+        },
+        {
+          "name": "decided_at",
+          "type": "datetime"
+        },
+        {
+          "name": "completed_by",
+          "type": "person"
+        },
+        {
+          "name": "completed_at",
+          "type": "datetime"
+        }
+      ],
+      "sample_rows": [
+        {
+          "system": "Bloomberg Terminal",
+          "reason": "Market research for treasury desk",
+          "requester_email": "r.alvarez@bank.example",
+          "manager_email": "d.okafor@bank.example",
+          "status": "pending_approval"
+        },
+        {
+          "system": "Core Banking Admin",
+          "reason": "Cover month-end reconciliation",
+          "requester_email": "m.chen@bank.example",
+          "manager_email": "d.okafor@bank.example",
+          "status": "approved",
+          "decision_note": "Approved for month-end only",
+          "decided_at": "2026-10-19T14:05:00"
+        },
+        {
+          "system": "Salesforce",
+          "reason": "Needs to log client calls",
+          "requester_email": "p.singh@bank.example",
+          "manager_email": "l.novak@bank.example",
+          "status": "pending_approval"
+        },
+        {
+          "system": "Jira",
+          "reason": "Joined the payments project",
+          "requester_email": "j.park@bank.example",
+          "manager_email": "l.novak@bank.example",
+          "status": "completed",
+          "decision_note": "OK",
+          "decided_at": "2026-10-12T09:30:00",
+          "completed_by": "it.desk@bank.example",
+          "completed_at": "2026-10-13T11:00:00"
+        },
+        {
+          "system": "Payments Gateway",
+          "reason": "Curious about the dashboards",
+          "requester_email": "t.nguyen@bank.example",
+          "manager_email": "l.novak@bank.example",
+          "status": "rejected",
+          "decision_note": "Not needed for your role",
+          "decided_at": "2026-10-15T16:20:00"
+        },
+        {
+          "system": "Splunk",
+          "reason": "Investigating login alerts",
+          "requester_email": "r.alvarez@bank.example",
+          "manager_email": "d.okafor@bank.example",
+          "status": "completed",
+          "decision_note": "Approved",
+          "decided_at": "2026-09-30T10:00:00",
+          "completed_by": "it.desk@bank.example",
+          "completed_at": "2026-10-01T08:45:00"
+        }
+      ]
+    }
+  ],
+  "queries": [
+    {
+      "name": "my_requests",
+      "sql": "SELECT id, system, status, decision_note, created_at FROM access_requests WHERE requester_email = :me ORDER BY created_at DESC"
+    },
+    {
+      "name": "awaiting_my_approval",
+      "sql": "SELECT id, system, reason, requester_email, created_at FROM access_requests WHERE manager_email = :me AND status = 'pending_approval' ORDER BY created_at"
+    },
+    {
+      "name": "it_queue",
+      "sql": "SELECT id, system, requester_email, decided_at, CAST(julianday(:today) - julianday(decided_at) AS INTEGER) AS days_waiting FROM access_requests WHERE status = 'approved' ORDER BY decided_at"
+    },
+    {
+      "name": "open_by_status",
+      "sql": "SELECT status, COUNT(*) AS total FROM access_requests WHERE status IN ('pending_approval', 'approved') GROUP BY status"
+    }
+  ]
+}

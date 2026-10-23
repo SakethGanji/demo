@@ -1,0 +1,876 @@
+[
+  {
+    "request": "Track vendor invoices. Anyone in AP can add one; over $5,000 needs a manager to approve before it can be paid. Rejecting emails the submitter.",
+    "assumed": "Assumed: Roles are `ap` (adds invoices, marks them paid) and `manager` (also adds, and approves or rejects). Exactly $5,000 is not \"over\", so it goes straight to ready_to_pay. A manager can't approve or reject their own invoice. A rejection needs a reason, and only needs_approval invoices can be approved or rejected. Only ready_to_pay invoices can be marked paid.",
+    "first_pass": true,
+    "final_pass": true,
+    "fixes": 0,
+    "seconds": 32.3,
+    "calls": [
+      32.3
+    ],
+    "tables": [
+      "invoices"
+    ],
+    "first_failures": [],
+    "checks": [
+      {
+        "layer": "data",
+        "name": "tables: invoices",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "data",
+        "name": "query \"open_by_vendor\" (3 rows on sample data)",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "data",
+        "name": "query \"awaiting_approval\" (2 rows on sample data)",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "data",
+        "name": "query \"my_submitted\" (0 rows on sample data)",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "data",
+        "name": "query \"overdue_unpaid\" (0 rows on sample data)",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "Adding a $12,400 invoice sets it to needs approval",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "Invoices of $5,000 or less can be paid without approval",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A new invoice is credited to the person who entered it",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "An invoice with no amount is refused",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A manager can approve an invoice so it becomes ready to pay",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "An AP clerk is not allowed to approve invoices",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A manager can't approve an invoice they submitted themselves",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "An invoice that is already ready to pay can't be approved again",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "Rejecting an invoice emails the person who submitted it",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A manager must give a reason when rejecting an invoice",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "An invoice that has already been paid can't be rejected",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "An invoice that is ready to pay can be marked paid",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "An invoice still waiting for approval can't be paid",
+        "ok": true,
+        "error": ""
+      }
+    ]
+  },
+  {
+    "request": "Branch daily cash count sheet. Tellers submit counted vs expected cash; differences over $50 get flagged and need a branch manager sign-off.",
+    "assumed": "Assumed: roles are teller and branch_manager. Flag threshold is a difference over $50, so exactly $50 is not flagged. Difference is counted minus expected. Statuses are balanced, flagged and signed_off. Each teller gets one sheet per day, with no future dates. Managers can't sign off their own sheet, and sign-off needs a note.",
+    "first_pass": true,
+    "final_pass": true,
+    "fixes": 0,
+    "seconds": 38.8,
+    "calls": [
+      38.8
+    ],
+    "tables": [
+      "count_sheets"
+    ],
+    "first_failures": [],
+    "checks": [
+      {
+        "layer": "data",
+        "name": "tables: count_sheets",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "data",
+        "name": "query \"awaiting_signoff\" (2 rows on sample data)",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "data",
+        "name": "query \"my_sheets\" (0 rows on sample data)",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "data",
+        "name": "query \"todays_sheets\" (4 rows on sample data)",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "data",
+        "name": "query \"branch_totals\" (3 rows on sample data)",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A count that is only $25 off is accepted without needing sign-off",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A difference of exactly $50 is not flagged",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A count that is $60 short is flagged for manager sign-off",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A teller can't submit two counts for the same day",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A count dated in the future is refused",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A branch manager can sign off a flagged sheet and the teller is told",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A sheet that is not flagged can't be signed off",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A manager can't sign off a count they submitted themselves",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A teller is not allowed to sign off a flagged sheet",
+        "ok": true,
+        "error": ""
+      }
+    ]
+  },
+  {
+    "request": "KYC review queue: reviews get assigned to analysts, have a due date, and can be completed or escalated to compliance. Show who's overdue.",
+    "assumed": "Assumed: roles are analyst, lead (assigns and creates reviews) and compliance (resolves escalations). Statuses are unassigned, in_progress, completed, escalated and closed. Only the assigned analyst (or a lead) can complete or escalate a review. Completing needs notes and escalating needs a reason. Due dates can't be in the past when a review is created or assigned. Escalations notify compliance@bank.example. \"Overdue\" means unassigned or in-progress with a due date before today.",
+    "first_pass": true,
+    "final_pass": true,
+    "fixes": 0,
+    "seconds": 33.9,
+    "calls": [
+      33.9
+    ],
+    "tables": [
+      "kyc_reviews"
+    ],
+    "first_failures": [],
+    "checks": [
+      {
+        "layer": "data",
+        "name": "tables: kyc_reviews",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "data",
+        "name": "query \"overdue_reviews\" (3 rows on sample data)",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "data",
+        "name": "query \"overdue_by_analyst\" (2 rows on sample data)",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "data",
+        "name": "query \"my_open_reviews\" (0 rows on sample data)",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "data",
+        "name": "query \"escalated_queue\" (1 rows on sample data)",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A newly created review is unassigned and waiting in the queue",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A review can't be created with a due date in the past",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "Assigning a review moves it to in progress and emails the analyst",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A completed review can't be reassigned",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "The assigned analyst can complete their review with notes",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "An analyst can't complete a review assigned to someone else",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "Escalating a review marks it escalated and emails compliance",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "Escalating without a reason is refused",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "Compliance can close an escalated review with a decision",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "Compliance can't resolve a review that was never escalated",
+        "ok": true,
+        "error": ""
+      }
+    ]
+  },
+  {
+    "request": "Audit findings tracker: raise a finding with severity, assign an owner and due date, close only with evidence notes. High severity closes need risk-manager approval.",
+    "assumed": "Assumed: roles are member (raises, assigns and closes findings) and risk_manager (approves or rejects closures); severities are low/medium/high/critical, and high and critical closes need risk-manager approval; statuses are open \u2192 pending_approval \u2192 closed; evidence notes need at least 20 characters; due dates can't be in the past; a risk manager can't approve a closure they requested themselves.",
+    "first_pass": true,
+    "final_pass": true,
+    "fixes": 0,
+    "seconds": 40.7,
+    "calls": [
+      40.7
+    ],
+    "tables": [
+      "findings"
+    ],
+    "first_failures": [],
+    "checks": [
+      {
+        "layer": "data",
+        "name": "tables: findings",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "data",
+        "name": "query \"my_open_findings\" (0 rows on sample data)",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "data",
+        "name": "query \"overdue_findings\" (1 rows on sample data)",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "data",
+        "name": "query \"unassigned_findings\" (1 rows on sample data)",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "data",
+        "name": "query \"awaiting_risk_approval\" (1 rows on sample data)",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "data",
+        "name": "query \"open_by_severity\" (4 rows on sample data)",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A newly raised finding starts as open with its severity",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A finding without a title is refused",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "Assigning a finding sets the owner and due date and emails the owner",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A due date in the past is refused",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A low severity finding closes straight away when evidence is given",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "Closing without proper evidence notes is refused",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "Closing a high severity finding sends it to the risk manager instead of closing it",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A risk manager can approve a pending closure and the requester is told",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A risk manager can't approve a closure they requested themselves",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A regular member can't approve a closure",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "Rejecting a closure sends the finding back to open",
+        "ok": true,
+        "error": ""
+      }
+    ]
+  },
+  {
+    "request": "Loan exception requests: relationship managers request a waiver with an amount; up to $250k a credit officer approves, above that the chief credit officer must.",
+    "assumed": "Assumed: Roles are relationship_manager, credit_officer and chief_credit_officer. Waivers of $250,000 or less go to a credit officer, and anything above that goes to the chief credit officer. The chief credit officer can also approve smaller ones. Only relationship managers can request. Nobody can decide their own request. A rejection needs a note, only pending requests can be decided, and the requester is emailed the outcome.",
+    "first_pass": true,
+    "final_pass": true,
+    "fixes": 0,
+    "seconds": 35.4,
+    "calls": [
+      35.4
+    ],
+    "tables": [
+      "waiver_requests"
+    ],
+    "first_failures": [],
+    "checks": [
+      {
+        "layer": "data",
+        "name": "tables: waiver_requests",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "data",
+        "name": "query \"pending_requests\" (4 rows on sample data)",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "data",
+        "name": "query \"my_requests\" (0 rows on sample data)",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "data",
+        "name": "query \"decided_by_approver\" (2 rows on sample data)",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A $100,000 waiver request is routed to a credit officer",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A $300,000 waiver request is routed to the chief credit officer",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A credit officer cannot submit a waiver request",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A credit officer can approve a waiver of exactly $250,000 and the requester is emailed",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A credit officer cannot approve a $640,000 waiver",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "The chief credit officer can approve a $640,000 waiver",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "An approver cannot approve a request they submitted themselves",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "Rejecting needs a written reason and follows the same approval limit",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A request that was already approved cannot be decided a second time",
+        "ok": true,
+        "error": ""
+      }
+    ]
+  },
+  {
+    "request": "Customer complaint log with SLA: log, assign, respond, close. Complaints must be responded to within 5 business days; list the ones breaching SLA.",
+    "assumed": "Assumed: roles are agent (logs, responds, closes their own) and supervisor (also assigns, and can respond or close any complaint). SLA is 5 business days (Mon\u2013Fri, no bank holidays) from the received date, and the due date is stored when the complaint is logged. Statuses run new \u2192 assigned \u2192 responded \u2192 closed. A complaint breaches if it has no response by its due date, or if it was answered after it.",
+    "first_pass": true,
+    "final_pass": true,
+    "fixes": 0,
+    "seconds": 52.4,
+    "calls": [
+      52.4
+    ],
+    "tables": [
+      "complaints"
+    ],
+    "first_failures": [],
+    "checks": [
+      {
+        "layer": "data",
+        "name": "tables: complaints",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "data",
+        "name": "query \"sla_breaches\" (3 rows on sample data)",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "data",
+        "name": "query \"my_open_complaints\" (0 rows on sample data)",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "data",
+        "name": "query \"unassigned_complaints\" (2 rows on sample data)",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A complaint received on a Friday is due the following Friday",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A complaint received on a Saturday is due five business days after the weekend",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A complaint cannot be logged as received in the future",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "Assigning a new complaint marks it assigned and emails the assignee",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "Agents are not allowed to assign complaints",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A closed complaint cannot be assigned again",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "The assigned person can record their response",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "An agent who is not the assignee cannot respond",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A complaint that has not been assigned cannot be responded to",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A responded complaint can be closed by its assignee",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A complaint that has not been responded to cannot be closed",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "The breach list shows overdue unanswered complaints and late responses, but not on-time ones",
+        "ok": true,
+        "error": ""
+      }
+    ]
+  },
+  {
+    "request": "System access requests: staff request access to a system, their manager approves, then IT marks it done. Requester gets an email at each step.",
+    "assumed": "Assumed: Roles are member (any staff), manager and it. The requester names their manager on the request, and only that manager can approve or reject it. Nobody can name themselves as approver. A person can't have two open requests for the same system. Rejections need a reason. IT can only complete approved requests. Requesters are emailed on submission, approval, rejection and completion, and the manager is also emailed when a request needs their approval.",
+    "first_pass": true,
+    "final_pass": true,
+    "fixes": 0,
+    "seconds": 36.3,
+    "calls": [
+      36.3
+    ],
+    "tables": [
+      "access_requests"
+    ],
+    "first_failures": [],
+    "checks": [
+      {
+        "layer": "data",
+        "name": "tables: access_requests",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "data",
+        "name": "query \"my_requests\" (0 rows on sample data)",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "data",
+        "name": "query \"awaiting_my_approval\" (0 rows on sample data)",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "data",
+        "name": "query \"it_queue\" (1 rows on sample data)",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "data",
+        "name": "query \"open_by_status\" (2 rows on sample data)",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A new request starts as waiting for approval and emails the requester and manager",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "You can't choose yourself as the approver",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "You can't ask again for a system you already have an open request for",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "The named manager approves a request and the requester is emailed",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A manager who isn't the requester's manager can't approve",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A manager rejects a request with a reason and the requester is emailed",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A rejection without a reason is refused",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "IT marks an approved request done and the requester is emailed",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "IT can't complete a request that hasn't been approved",
+        "ok": true,
+        "error": ""
+      }
+    ]
+  },
+  {
+    "request": "Reconciliation breaks between the GL and the core banking system: assign breaks, resolve with a reason, write-offs over $1,000 need controller approval.",
+    "assumed": "Assumed: roles are member and controller. Break statuses are open, assigned, pending_writeoff, resolved and written_off. The break amount is GL minus core. Write-offs of $1,000 or less go through immediately, and anything larger needs a controller other than the requester. Only the assignee or a controller can resolve or write off a break.",
+    "first_pass": true,
+    "final_pass": true,
+    "fixes": 0,
+    "seconds": 57.5,
+    "calls": [
+      57.5
+    ],
+    "tables": [
+      "breaks"
+    ],
+    "first_failures": [],
+    "checks": [
+      {
+        "layer": "data",
+        "name": "tables: breaks",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "data",
+        "name": "query \"open_breaks_by_age\" (5 rows on sample data)",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "data",
+        "name": "query \"my_breaks\" (0 rows on sample data)",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "data",
+        "name": "query \"pending_writeoffs\" (1 rows on sample data)",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "data",
+        "name": "query \"unassigned_breaks\" (2 rows on sample data)",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "Logging a break with GL 5,000 and core 4,200 records an 800 difference",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A break cannot be logged when the GL and core amounts agree",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "Assigning a break marks it assigned and emails the assignee",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A resolved break cannot be assigned again",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "The assignee can resolve a break by giving a reason",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "Resolving needs a reason and only the assignee or a controller may do it",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A write-off of $1,000 or less is completed without approval",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A write-off over $1,000 waits for controller approval",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "A controller can approve a pending write-off and the requester is told",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "Members cannot approve write-offs and controllers cannot approve their own",
+        "ok": true,
+        "error": ""
+      },
+      {
+        "layer": "actions",
+        "name": "Rejecting a write-off sends the break back to assigned with the reason",
+        "ok": true,
+        "error": ""
+      }
+    ]
+  }
+]

@@ -1,0 +1,98 @@
+[
+  {
+    "layer": "data",
+    "name": "tables: breaks",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "data",
+    "name": "query \"open_breaks_by_age\" (5 rows on sample data)",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "data",
+    "name": "query \"my_breaks\" (0 rows on sample data)",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "data",
+    "name": "query \"pending_writeoffs\" (1 rows on sample data)",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "data",
+    "name": "query \"unassigned_breaks\" (2 rows on sample data)",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "Logging a break with GL 5,000 and core 4,200 records an 800 difference",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "A break cannot be logged when the GL and core amounts agree",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "Assigning a break marks it assigned and emails the assignee",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "A resolved break cannot be assigned again",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "The assignee can resolve a break by giving a reason",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "Resolving needs a reason and only the assignee or a controller may do it",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "A write-off of $1,000 or less is completed without approval",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "A write-off over $1,000 waits for controller approval",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "A controller can approve a pending write-off and the requester is told",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "Members cannot approve write-offs and controllers cannot approve their own",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "Rejecting a write-off sends the break back to assigned with the reason",
+    "ok": true,
+    "error": ""
+  }
+]

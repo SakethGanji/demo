@@ -1,0 +1,220 @@
+from decimal import Decimal
+from kit import action, ActionError
+
+APPROVAL_LIMIT = Decimal("5000")
+PAYMENT_METHODS = ("ach", "wire", "check")
+
+
+def _cents(x):
+    return Decimal(str(x)).quantize(Decimal("0.01"))
+
+
+@action(roles=["manager"])
+def block_vendor(db, user, vendor_id: int):
+    """Block a vendor so no new invoices can be added for them."""
+    vendor = db.get("vendors", vendor_id)
+    if vendor["status"] == "blocked":
+        raise ActionError("This vendor is already blocked")
+    return db.update("vendors", vendor_id, status="blocked")
+
+
+@action(roles=["manager"])
+def unblock_vendor(db, user, vendor_id: int):
+    """Make a blocked vendor active again."""
+    vendor = db.get("vendors", vendor_id)
+    if vendor["status"] == "active":
+        raise ActionError("This vendor is already active")
+    return db.update("vendors", vendor_id, status="active")
+
+
+@action(roles=["member", "manager"])
+def add_invoice(db, user, vendor_id: int, invoice_number: str, amount: float, submitter_email: str = None):
+    """Add an invoice for an active vendor. Over $5,000 needs manager approval."""
+    vendor = db.get("vendors", vendor_id)
+    if vendor["status"] == "blocked":
+        raise ActionError("Vendor is blocked, so invoices can't be added for them")
+    amt = _cents(amount)
+    if amt <= 0:
+        raise ActionError("Amount must be more than 0")
+    if db.find("invoices", vendor_id=vendor_id, invoice_number=invoice_number):
+        raise ActionError("This vendor already has an invoice with that number")
+    status = "needs_approval" if amt > APPROVAL_LIMIT else "ready_to_pay"
+    return db.insert("invoices", vendor_id=vendor_id, invoice_number=invoice_number,
+                     amount=float(amt), amount_paid=0, status=status,
+                     submitter_email=(submitter_email or user.email).lower())
+
+
+@action(roles=["manager"])
+def approve_invoice(db, user, invoice_id: int):
+    """Approve an invoice that is waiting for manager approval so it can be paid."""
+    inv = db.get("invoices", invoice_id)
+    if inv["status"] != "needs_approval":
+        raise ActionError("Only invoices waiting for approval can be approved")
+    if (inv.get("submitter_email") or "").lower() == user.email:
+        raise ActionError("You can't approve an invoice you submitted yourself")
+    row = db.update("invoices", invoice_id, status="ready_to_pay", approved_by=user.email)
+    if inv.get("submitter_email"):
+        db.notify(inv["submitter_email"], "Invoice approved",
+                  "Invoice %s was approved and is ready to pay." % inv["invoice_number"])
+    return row
+
+
+@action(roles=["manager"])
+def reject_invoice(db, user, invoice_id: int, reason: str):
+    """Reject an invoice that is waiting for manager approval."""
+    inv = db.get("invoices", invoice_id)
+    if inv["status"] != "needs_approval":
+        raise ActionError("Only invoices waiting for approval can be rejected")
+    if not reason or not reason.strip():
+        raise ActionError("Please give a reason for rejecting")
+    row = db.update("invoices", invoice_id, status="rejected")
+    if inv.get("submitter_email"):
+        db.notify(inv["submitter_email"], "Invoice rejected",
+                  "Invoice %s was rejected: %s" % (inv["invoice_number"], reason.strip()))
+    return row
+
+
+@action(roles=["member", "manager"])
+def record_payment(db, user, invoice_id: int, amount: float, payment_method: str, paid_on: str = None):
+    """Record a full or partial payment (ACH, wire or check) against an approved invoice."""
+    inv = db.get("invoices", invoice_id)
+    if inv["status"] == "needs_approval":
+        raise ActionError("This invoice needs manager approval before it can be paid")
+    if inv["status"] == "rejected":
+        raise ActionError("This invoice was rejected and can't be paid")
+    if inv["status"] == "paid":
+        raise ActionError("This invoice is already paid")
+    method = (payment_method or "").strip().lower()
+    if method not in PAYMENT_METHODS:
+        raise ActionError("Payment method must be ACH, wire or check")
+    amt = _cents(amount)
+    if amt <= 0:
+        raise ActionError("Payment must be more than 0")
+    paid_so_far = sum((_cents(p["amount"]) for p in db.find("payments", invoice_id=invoice_id)), Decimal("0"))
+    balance = _cents(inv["amount"]) - paid_so_far
+    if amt > balance:
+        raise ActionError("Payment is more than the remaining balance of %s" % balance)
+    db.insert("payments", invoice_id=invoice_id, amount=float(amt), payment_method=method,
+              paid_on=paid_on or db.today(), paid_by=user.email)
+    total = paid_so_far + amt
+    status = "paid" if total >= _cents(inv["amount"]) else "partially_paid"
+    return db.update("invoices", invoice_id, amount_paid=float(total), status=status)
+
+
+def test_large_invoice_needs_approval(t):
+    """Adding a $12,400 invoice sets it to needs approval"""
+    row = t.run("add_invoice", as_role="member", vendor_id=1, invoice_number="INV-2000", amount=12400)
+    assert row["status"] == "needs_approval", row
+
+
+def test_small_invoice_ready_to_pay(t):
+    """Adding a $900 invoice makes it ready to pay straight away"""
+    row = t.run("add_invoice", as_role="member", vendor_id=2, invoice_number="INV-2041", amount=900)
+    assert row["status"] == "ready_to_pay", row
+
+
+def test_blocked_vendor_invoice_refused(t):
+    """An invoice can't be added for a blocked vendor"""
+    msg = t.fails("add_invoice", as_role="member", vendor_id=4, invoice_number="X-1", amount=100)
+    assert "blocked" in msg.lower(), msg
+
+
+def test_duplicate_invoice_number_refused(t):
+    """The same invoice number can't be entered twice for one vendor"""
+    t.fails("add_invoice", as_role="member", vendor_id=1, invoice_number="INV-1001", amount=100)
+
+
+def test_block_then_unblock_vendor(t):
+    """A manager can block a vendor and later unblock them"""
+    t.run("block_vendor", as_role="manager", vendor_id=2)
+    assert t.get("vendors", 2)["status"] == "blocked"
+    t.fails("add_invoice", as_role="member", vendor_id=2, invoice_number="Z-1", amount=50)
+    t.run("unblock_vendor", as_role="manager", vendor_id=2)
+    assert t.get("vendors", 2)["status"] == "active"
+
+
+def test_member_cannot_block_vendor(t):
+    """A regular member can't block a vendor"""
+    t.fails("block_vendor", as_role="member", vendor_id=1)
+
+
+def test_manager_approves_and_submitter_notified(t):
+    """A manager approving an invoice makes it ready to pay and emails the submitter"""
+    row = t.run("approve_invoice", as_role="manager", as_user="m.chen@bank.example", invoice_id=1)
+    assert row["status"] == "ready_to_pay", row
+    assert row["approved_by"] == "m.chen@bank.example", row
+    assert len(t.outbox) == 1 and t.outbox[0]["to"] == "r.alvarez@bank.example", t.outbox
+
+
+def test_cannot_approve_own_invoice(t):
+    """A manager can't approve an invoice they submitted themselves"""
+    msg = t.fails("approve_invoice", as_role="manager", as_user="r.alvarez@bank.example", invoice_id=1)
+    assert "yourself" in msg, msg
+
+
+def test_member_cannot_approve(t):
+    """A regular member can't approve an invoice"""
+    t.fails("approve_invoice", as_role="member", invoice_id=1)
+
+
+def test_reject_needs_reason(t):
+    """Rejecting an invoice requires a reason, and then marks it rejected"""
+    t.fails("reject_invoice", as_role="manager", as_user="m.chen@bank.example", invoice_id=1, reason=" ")
+    row = t.run("reject_invoice", as_role="manager", as_user="m.chen@bank.example", invoice_id=1, reason="Duplicate billing")
+    assert row["status"] == "rejected", row
+
+
+def test_unapproved_invoice_cannot_be_paid(t):
+    """An invoice over $5,000 can't be paid until a manager approves it"""
+    msg = t.fails("record_payment", as_role="member", invoice_id=1, amount=500, payment_method="ach")
+    assert "approval" in msg.lower(), msg
+
+
+def test_rejected_invoice_cannot_be_paid(t):
+    """A rejected invoice can't be paid"""
+    t.fails("record_payment", as_role="member", invoice_id=6, amount=100, payment_method="ach")
+
+
+def test_partial_payment_keeps_invoice_open(t):
+    """Paying part of an approved invoice leaves it partially paid"""
+    row = t.run("record_payment", as_role="member", invoice_id=5, amount=1000, payment_method="ach")
+    assert row["status"] == "partially_paid", row
+    assert row["amount_paid"] == 1000, row
+
+
+def test_payments_cover_invoice_marks_paid(t):
+    """Once payments add up to the invoice amount, it becomes paid"""
+    t.run("record_payment", as_role="member", invoice_id=5, amount=1000, payment_method="ach")
+    row = t.run("record_payment", as_role="member", invoice_id=5, amount=1300, payment_method="check")
+    assert row["status"] == "paid", row
+    assert len(t.find("payments", invoice_id=5)) == 2
+
+
+def test_overpayment_refused(t):
+    """A payment larger than the remaining balance is refused"""
+    t.fails("record_payment", as_role="member", invoice_id=2, amount=600, payment_method="ach")
+
+
+def test_paid_invoice_refuses_more_payments(t):
+    """An invoice that's already paid can't take another payment"""
+    t.fails("record_payment", as_role="member", invoice_id=4, amount=10, payment_method="ach")
+
+
+def test_payment_method_is_recorded(t):
+    """A payment remembers whether it was made by ACH, wire or check"""
+    t.run("record_payment", as_role="member", invoice_id=5, amount=500, payment_method="Wire")
+    pays = t.find("payments", invoice_id=5)
+    assert len(pays) == 1 and pays[0]["payment_method"] == "wire", pays
+
+
+def test_unknown_payment_method_refused(t):
+    """A payment made by an unlisted method such as cash is refused and nothing is recorded"""
+    msg = t.fails("record_payment", as_role="member", invoice_id=5, amount=500, payment_method="cash")
+    assert "ach" in msg.lower(), msg
+    assert t.find("payments", invoice_id=5) == []
+
+
+def test_payments_list_shows_method(t):
+    """The payments list shows how each payment was made"""
+    rows = t.query("payments_by_invoice")
+    assert all(r["payment_method"] in ("ach", "wire", "check") for r in rows), rows

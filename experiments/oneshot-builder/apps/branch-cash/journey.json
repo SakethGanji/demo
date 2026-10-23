@@ -1,0 +1,356 @@
+[
+ {
+  "as": "teller",
+  "user": "r.alvarez@bank.example"
+ },
+ {
+  "tab": "Cash counts"
+ },
+ {
+  "click": "Submit my count"
+ },
+ {
+  "fill": {
+   "Count date": "2026-10-05",
+   "Expected amount": 4000,
+   "Counted amount": 3913.37,
+   "Note": "E2E-short"
+  }
+ },
+ {
+  "submit": true
+ },
+ {
+  "see": "Submit my count: done"
+ },
+ {
+  "api": "/api/tables/cash_counts?note=E2E-short",
+  "expect": {
+   "status": "needs_signoff",
+   "variance": -86.63,
+   "teller_id": 3,
+   "branch_id": 2,
+   "count_date": "2026-10-05"
+  }
+ },
+ {
+  "api": "/api/outbox",
+  "contains": "d.okafor@bank.example"
+ },
+ {
+  "row": "3,913.37",
+  "shows": "Needs signoff"
+ },
+ {
+  "row": "3,913.37",
+  "no_button": "Sign off"
+ },
+ {
+  "click": "Submit my count"
+ },
+ {
+  "fill": {
+   "Count date": "2026-10-05",
+   "Expected amount": 100,
+   "Counted amount": 100,
+   "Note": "E2E-dup"
+  }
+ },
+ {
+  "submit": true
+ },
+ {
+  "error": "already"
+ },
+ {
+  "close": true
+ },
+ {
+  "api": "/api/tables/cash_counts?note=E2E-dup",
+  "expect": {
+   "total": 0
+  }
+ },
+ {
+  "click": "Submit my count"
+ },
+ {
+  "fill": {
+   "Count date": "2099-01-01",
+   "Expected amount": 100,
+   "Counted amount": 100,
+   "Note": "E2E-future"
+  }
+ },
+ {
+  "submit": true
+ },
+ {
+  "error": "future"
+ },
+ {
+  "close": true
+ },
+ {
+  "api": "/api/tables/cash_counts?note=E2E-future",
+  "expect": {
+   "total": 0
+  }
+ },
+ {
+  "click": "Submit my count"
+ },
+ {
+  "fill": {
+   "Count date": "2026-10-06",
+   "Expected amount": 1000,
+   "Counted amount": 1030.25,
+   "Note": "E2E-small"
+  }
+ },
+ {
+  "submit": true
+ },
+ {
+  "see": "Submit my count: done"
+ },
+ {
+  "api": "/api/tables/cash_counts?note=E2E-small",
+  "expect": {
+   "status": "ok",
+   "variance": 30.25,
+   "branch_id": 2
+  }
+ },
+ {
+  "row": "1,030.25",
+  "no_button": "Sign off"
+ },
+ {
+  "as": "manager",
+  "user": "m.chen@bank.example"
+ },
+ {
+  "tab": "Waiting for sign-off"
+ },
+ {
+  "click": "Sign off",
+  "row": "3,913.37"
+ },
+ {
+  "error": "Only the manager of Riverside"
+ },
+ {
+  "api": "/api/tables/cash_counts?note=E2E-short",
+  "expect": {
+   "status": "needs_signoff"
+  }
+ },
+ {
+  "as": "manager",
+  "user": "d.okafor@bank.example"
+ },
+ {
+  "tab": "Cash counts"
+ },
+ {
+  "row": "1,030.25",
+  "no_button": "Sign off"
+ },
+ {
+  "tab": "Waiting for sign-off"
+ },
+ {
+  "click": "Sign off",
+  "row": "3,913.37"
+ },
+ {
+  "see": "Sign off: done"
+ },
+ {
+  "api": "/api/tables/cash_counts?note=E2E-short",
+  "expect": {
+   "status": "signed_off",
+   "signed_off_by": "d.okafor@bank.example"
+  }
+ },
+ {
+  "tab": "Cash counts"
+ },
+ {
+  "row": "3,913.37",
+  "shows": "Signed off"
+ },
+ {
+  "row": "3,913.37",
+  "no_button": "Sign off"
+ },
+ {
+  "tab": "Monthly variance"
+ },
+ {
+  "see": "Riverside"
+ },
+ {
+  "as": "manager",
+  "user": "m.chen@bank.example"
+ },
+ {
+  "tab": "Branches and tellers"
+ },
+ {
+  "click": "Add teller",
+  "row": "Downtown"
+ },
+ {
+  "fill": {
+   "Name": "E2E Teller",
+   "Email": "E2E.Teller@bank.example"
+  }
+ },
+ {
+  "submit": true
+ },
+ {
+  "see": "Add teller: done"
+ },
+ {
+  "api": "/api/tables/tellers?email=e2e.teller@bank.example",
+  "expect": {
+   "branch_id": 1,
+   "active": true,
+   "name": "E2E Teller"
+  }
+ },
+ {
+  "click": "Add teller",
+  "row": "Riverside"
+ },
+ {
+  "fill": {
+   "Name": "E2E Nope",
+   "Email": "e2e.nope@bank.example"
+  }
+ },
+ {
+  "submit": true
+ },
+ {
+  "error": "Only the manager of Riverside"
+ },
+ {
+  "close": true
+ },
+ {
+  "api": "/api/tables/tellers?email=e2e.nope@bank.example",
+  "expect": {
+   "total": 0
+  }
+ },
+ {
+  "click": "Move",
+  "row": "E2E Teller"
+ },
+ {
+  "fill": {
+   "New branch": "Hillcrest"
+  }
+ },
+ {
+  "submit": true
+ },
+ {
+  "see": "Move: done"
+ },
+ {
+  "api": "/api/tables/tellers?email=e2e.teller@bank.example",
+  "expect": {
+   "branch_id": 3
+  }
+ },
+ {
+  "click": "Move",
+  "row": "E2E Teller"
+ },
+ {
+  "fill": {
+   "New branch": "Downtown"
+  }
+ },
+ {
+  "submit": true
+ },
+ {
+  "error": "Only the manager of Hillcrest"
+ },
+ {
+  "close": true
+ },
+ {
+  "api": "/api/tables/tellers?email=e2e.teller@bank.example",
+  "expect": {
+   "branch_id": 3
+  }
+ },
+ {
+  "click": "Add branch"
+ },
+ {
+  "fill": {
+   "Name": "E2E Branch",
+   "Code": "E2E01"
+  }
+ },
+ {
+  "submit": true
+ },
+ {
+  "see": "Add branch: done"
+ },
+ {
+  "api": "/api/tables/branches?code=E2E01",
+  "expect": {
+   "name": "E2E Branch",
+   "manager_email": "m.chen@bank.example"
+  }
+ },
+ {
+  "click": "Add branch"
+ },
+ {
+  "fill": {
+   "Name": "E2E Dup",
+   "Code": "DT01"
+  }
+ },
+ {
+  "submit": true
+ },
+ {
+  "error": "already exists"
+ },
+ {
+  "close": true
+ },
+ {
+  "api": "/api/tables/branches?name=E2E Dup",
+  "expect": {
+   "total": 0
+  }
+ },
+ {
+  "as": "teller",
+  "user": "r.alvarez@bank.example"
+ },
+ {
+  "tab": "Branches and tellers"
+ },
+ {
+  "row": "E2E Teller",
+  "no_button": "Move"
+ },
+ {
+  "row": "E2E Branch",
+  "no_button": "Add teller"
+ }
+]

@@ -1,0 +1,80 @@
+[
+  {
+    "layer": "data",
+    "name": "tables: waiver_requests",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "data",
+    "name": "query \"pending_requests\" (4 rows on sample data)",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "data",
+    "name": "query \"my_requests\" (0 rows on sample data)",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "data",
+    "name": "query \"decided_by_approver\" (2 rows on sample data)",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "A $100,000 waiver request is routed to a credit officer",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "A $300,000 waiver request is routed to the chief credit officer",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "A credit officer cannot submit a waiver request",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "A credit officer can approve a waiver of exactly $250,000 and the requester is emailed",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "A credit officer cannot approve a $640,000 waiver",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "The chief credit officer can approve a $640,000 waiver",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "An approver cannot approve a request they submitted themselves",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "Rejecting needs a written reason and follows the same approval limit",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "A request that was already approved cannot be decided a second time",
+    "ok": true,
+    "error": ""
+  }
+]

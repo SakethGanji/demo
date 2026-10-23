@@ -1,0 +1,275 @@
+{
+  "roles": [
+    "auditor",
+    "owner"
+  ],
+  "tables": [
+    {
+      "name": "audits",
+      "columns": [
+        {
+          "name": "title",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "scope",
+          "type": "text"
+        },
+        {
+          "name": "lead_email",
+          "type": "person",
+          "required": true
+        },
+        {
+          "name": "status",
+          "type": "choice",
+          "choices": [
+            "open",
+            "closed"
+          ],
+          "required": true,
+          "default": "open"
+        },
+        {
+          "name": "closed_at",
+          "type": "datetime"
+        }
+      ],
+      "sample_rows": [
+        {
+          "title": "Treasury Controls Q3",
+          "scope": "Wire transfers and bank reconciliations",
+          "lead_email": "r.alvarez@bank.example",
+          "status": "open"
+        },
+        {
+          "title": "Vendor Management 2026",
+          "scope": "Critical third-party vendors",
+          "lead_email": "r.alvarez@bank.example",
+          "status": "open"
+        },
+        {
+          "title": "Access Reviews 2026",
+          "scope": "User access recertification",
+          "lead_email": "m.chen@bank.example",
+          "status": "open"
+        },
+        {
+          "title": "BSA/AML Testing 2025",
+          "scope": "Transaction monitoring",
+          "lead_email": "m.chen@bank.example",
+          "status": "closed",
+          "closed_at": "2026-01-20T16:00:00"
+        },
+        {
+          "title": "Business Continuity 2026",
+          "scope": "Disaster recovery readiness",
+          "lead_email": "r.alvarez@bank.example",
+          "status": "open"
+        }
+      ]
+    },
+    {
+      "name": "findings",
+      "columns": [
+        {
+          "name": "audit_id",
+          "type": "ref",
+          "table": "audits",
+          "required": true
+        },
+        {
+          "name": "title",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "description",
+          "type": "text"
+        },
+        {
+          "name": "severity",
+          "type": "choice",
+          "choices": [
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "required": true
+        },
+        {
+          "name": "status",
+          "type": "choice",
+          "choices": [
+            "open",
+            "closed"
+          ],
+          "required": true,
+          "default": "open"
+        },
+        {
+          "name": "closed_at",
+          "type": "datetime"
+        }
+      ],
+      "sample_rows": [
+        {
+          "audit_id": 1,
+          "title": "Dual approval missing on wires",
+          "description": "Wires under $50,000 released by one person",
+          "severity": "high",
+          "status": "open"
+        },
+        {
+          "audit_id": 1,
+          "title": "Stale bank reconciliations",
+          "description": "Reconciling items older than 60 days",
+          "severity": "medium",
+          "status": "open"
+        },
+        {
+          "audit_id": 2,
+          "title": "No exit plan for critical vendor",
+          "description": "Core processor has no documented exit strategy",
+          "severity": "high",
+          "status": "open"
+        },
+        {
+          "audit_id": 3,
+          "title": "Terminated users retained access",
+          "description": "12 accounts active after termination",
+          "severity": "high",
+          "status": "closed",
+          "closed_at": "2026-09-30T10:00:00"
+        },
+        {
+          "audit_id": 3,
+          "title": "Quarterly review not documented",
+          "description": "No evidence of Q2 access review",
+          "severity": "low",
+          "status": "closed",
+          "closed_at": "2026-09-30T10:05:00"
+        },
+        {
+          "audit_id": 4,
+          "title": "Alert thresholds not reviewed",
+          "description": "Thresholds unchanged since 2023",
+          "severity": "medium",
+          "status": "closed",
+          "closed_at": "2026-01-15T09:00:00"
+        }
+      ]
+    },
+    {
+      "name": "action_items",
+      "columns": [
+        {
+          "name": "finding_id",
+          "type": "ref",
+          "table": "findings",
+          "required": true
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "owner_email",
+          "type": "person",
+          "required": true
+        },
+        {
+          "name": "due_date",
+          "type": "date",
+          "required": true
+        },
+        {
+          "name": "status",
+          "type": "choice",
+          "choices": [
+            "open",
+            "done"
+          ],
+          "required": true,
+          "default": "open"
+        },
+        {
+          "name": "done_at",
+          "type": "datetime"
+        }
+      ],
+      "sample_rows": [
+        {
+          "finding_id": 1,
+          "description": "Enforce dual approval in wire system",
+          "owner_email": "t.nguyen@bank.example",
+          "due_date": "2026-09-30",
+          "status": "done",
+          "done_at": "2026-09-25T11:00:00"
+        },
+        {
+          "finding_id": 1,
+          "description": "Retrain wire operations staff",
+          "owner_email": "d.okafor@bank.example",
+          "due_date": "2026-11-15",
+          "status": "open"
+        },
+        {
+          "finding_id": 2,
+          "description": "Clear reconciling items older than 60 days",
+          "owner_email": "p.shah@bank.example",
+          "due_date": "2026-10-01",
+          "status": "open"
+        },
+        {
+          "finding_id": 3,
+          "description": "Draft vendor exit plan",
+          "owner_email": "l.brandt@bank.example",
+          "due_date": "2026-12-01",
+          "status": "open"
+        },
+        {
+          "finding_id": 4,
+          "description": "Disable the 12 terminated accounts",
+          "owner_email": "t.nguyen@bank.example",
+          "due_date": "2026-09-15",
+          "status": "done",
+          "done_at": "2026-09-12T14:00:00"
+        },
+        {
+          "finding_id": 5,
+          "description": "Document Q2 access review",
+          "owner_email": "p.shah@bank.example",
+          "due_date": "2026-09-20",
+          "status": "done",
+          "done_at": "2026-09-18T13:00:00"
+        },
+        {
+          "finding_id": 6,
+          "description": "Review and update alert thresholds",
+          "owner_email": "d.okafor@bank.example",
+          "due_date": "2026-01-10",
+          "status": "done",
+          "done_at": "2026-01-08T15:00:00"
+        }
+      ]
+    }
+  ],
+  "queries": [
+    {
+      "name": "overdue_action_items",
+      "sql": "SELECT id, finding_id, description, owner_email, due_date FROM action_items WHERE status != 'done' AND due_date < :today ORDER BY due_date"
+    },
+    {
+      "name": "my_action_items",
+      "sql": "SELECT id, finding_id, description, due_date, status FROM action_items WHERE owner_email = :me AND status != 'done' ORDER BY due_date"
+    },
+    {
+      "name": "open_findings_by_audit",
+      "sql": "SELECT a.title AS audit, COUNT(f.id) AS open_findings FROM audits a LEFT JOIN findings f ON f.audit_id = a.id AND f.status = 'open' WHERE a.status = 'open' GROUP BY a.id, a.title"
+    }
+  ]
+}

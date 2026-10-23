@@ -1,0 +1,98 @@
+[
+  {
+    "layer": "data",
+    "name": "tables: complaints",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "data",
+    "name": "query \"sla_breaches\" (3 rows on sample data)",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "data",
+    "name": "query \"my_open_complaints\" (0 rows on sample data)",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "data",
+    "name": "query \"unassigned_complaints\" (2 rows on sample data)",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "A complaint received on a Friday is due the following Friday",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "A complaint received on a Saturday is due five business days after the weekend",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "A complaint cannot be logged as received in the future",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "Assigning a new complaint marks it assigned and emails the assignee",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "Agents are not allowed to assign complaints",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "A closed complaint cannot be assigned again",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "The assigned person can record their response",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "An agent who is not the assignee cannot respond",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "A complaint that has not been assigned cannot be responded to",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "A responded complaint can be closed by its assignee",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "A complaint that has not been responded to cannot be closed",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "The breach list shows overdue unanswered complaints and late responses, but not on-time ones",
+    "ok": true,
+    "error": ""
+  }
+]

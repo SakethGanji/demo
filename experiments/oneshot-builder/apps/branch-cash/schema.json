@@ -1,0 +1,267 @@
+{
+  "roles": [
+    "teller",
+    "manager"
+  ],
+  "tables": [
+    {
+      "name": "branches",
+      "columns": [
+        {
+          "name": "name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "code",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "manager_email",
+          "type": "person",
+          "required": true
+        }
+      ],
+      "sample_rows": [
+        {
+          "name": "Downtown",
+          "code": "DT01",
+          "manager_email": "m.chen@bank.example"
+        },
+        {
+          "name": "Riverside",
+          "code": "RS02",
+          "manager_email": "d.okafor@bank.example"
+        },
+        {
+          "name": "Hillcrest",
+          "code": "HC03",
+          "manager_email": "s.patel@bank.example"
+        },
+        {
+          "name": "Airport",
+          "code": "AP04",
+          "manager_email": "l.romero@bank.example"
+        }
+      ]
+    },
+    {
+      "name": "tellers",
+      "columns": [
+        {
+          "name": "name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "email",
+          "type": "person",
+          "required": true
+        },
+        {
+          "name": "branch_id",
+          "type": "ref",
+          "table": "branches",
+          "required": true
+        },
+        {
+          "name": "active",
+          "type": "boolean",
+          "default": true
+        }
+      ],
+      "sample_rows": [
+        {
+          "name": "Anh Nguyen",
+          "email": "a.nguyen@bank.example",
+          "branch_id": 1,
+          "active": true
+        },
+        {
+          "name": "Joon Kim",
+          "email": "j.kim@bank.example",
+          "branch_id": 1,
+          "active": true
+        },
+        {
+          "name": "Rosa Alvarez",
+          "email": "r.alvarez@bank.example",
+          "branch_id": 2,
+          "active": true
+        },
+        {
+          "name": "Tom Brown",
+          "email": "t.brown@bank.example",
+          "branch_id": 2,
+          "active": true
+        },
+        {
+          "name": "Priya Singh",
+          "email": "p.singh@bank.example",
+          "branch_id": 3,
+          "active": true
+        },
+        {
+          "name": "Kenji Ito",
+          "email": "k.ito@bank.example",
+          "branch_id": 4,
+          "active": true
+        }
+      ]
+    },
+    {
+      "name": "cash_counts",
+      "columns": [
+        {
+          "name": "teller_id",
+          "type": "ref",
+          "table": "tellers",
+          "required": true
+        },
+        {
+          "name": "branch_id",
+          "type": "ref",
+          "table": "branches",
+          "required": true
+        },
+        {
+          "name": "count_date",
+          "type": "date",
+          "required": true
+        },
+        {
+          "name": "expected_amount",
+          "type": "money",
+          "required": true
+        },
+        {
+          "name": "counted_amount",
+          "type": "money",
+          "required": true
+        },
+        {
+          "name": "variance",
+          "type": "money",
+          "required": true
+        },
+        {
+          "name": "status",
+          "type": "choice",
+          "choices": [
+            "ok",
+            "needs_signoff",
+            "signed_off"
+          ],
+          "required": true
+        },
+        {
+          "name": "note",
+          "type": "text"
+        },
+        {
+          "name": "signed_off_by",
+          "type": "person"
+        },
+        {
+          "name": "signed_off_at",
+          "type": "datetime"
+        }
+      ],
+      "sample_rows": [
+        {
+          "teller_id": 1,
+          "branch_id": 1,
+          "count_date": "2026-09-29",
+          "expected_amount": 8200,
+          "counted_amount": 8200,
+          "variance": 0,
+          "status": "ok"
+        },
+        {
+          "teller_id": 2,
+          "branch_id": 1,
+          "count_date": "2026-09-29",
+          "expected_amount": 6150,
+          "counted_amount": 6085,
+          "variance": -65,
+          "status": "signed_off",
+          "note": "Miskeyed deposit slip",
+          "signed_off_by": "m.chen@bank.example",
+          "signed_off_at": "2026-09-30T09:15:00"
+        },
+        {
+          "teller_id": 3,
+          "branch_id": 2,
+          "count_date": "2026-09-30",
+          "expected_amount": 9400,
+          "counted_amount": 9410,
+          "variance": 10,
+          "status": "ok"
+        },
+        {
+          "teller_id": 4,
+          "branch_id": 2,
+          "count_date": "2026-10-01",
+          "expected_amount": 5000,
+          "counted_amount": 5120,
+          "variance": 120,
+          "status": "signed_off",
+          "note": "Customer left cash behind",
+          "signed_off_by": "d.okafor@bank.example",
+          "signed_off_at": "2026-10-02T10:00:00"
+        },
+        {
+          "teller_id": 5,
+          "branch_id": 3,
+          "count_date": "2026-10-01",
+          "expected_amount": 7300,
+          "counted_amount": 7262.5,
+          "variance": -37.5,
+          "status": "ok"
+        },
+        {
+          "teller_id": 6,
+          "branch_id": 4,
+          "count_date": "2026-10-02",
+          "expected_amount": 12000,
+          "counted_amount": 11940,
+          "variance": -60,
+          "status": "needs_signoff"
+        },
+        {
+          "teller_id": 1,
+          "branch_id": 1,
+          "count_date": "2026-10-02",
+          "expected_amount": 8100,
+          "counted_amount": 8130,
+          "variance": 30,
+          "status": "ok"
+        },
+        {
+          "teller_id": 3,
+          "branch_id": 2,
+          "count_date": "2026-10-03",
+          "expected_amount": 9000,
+          "counted_amount": 8920,
+          "variance": -80,
+          "status": "needs_signoff"
+        }
+      ]
+    }
+  ],
+  "queries": [
+    {
+      "name": "monthly_variance_by_branch",
+      "sql": "SELECT b.name AS branch, strftime('%Y-%m', c.count_date) AS month, COUNT(*) AS counts, SUM(c.variance) AS net_variance, SUM(ABS(c.variance)) AS gross_variance FROM cash_counts c JOIN branches b ON b.id = c.branch_id GROUP BY b.name, strftime('%Y-%m', c.count_date) ORDER BY month DESC, b.name"
+    },
+    {
+      "name": "my_pending_signoffs",
+      "sql": "SELECT c.id, b.name AS branch, t.name AS teller, c.count_date, c.variance, c.note FROM cash_counts c JOIN branches b ON b.id = c.branch_id JOIN tellers t ON t.id = c.teller_id WHERE c.status = 'needs_signoff' AND b.manager_email = :me ORDER BY c.count_date"
+    },
+    {
+      "name": "tellers_by_branch",
+      "sql": "SELECT b.name AS branch, t.name AS teller, t.email, t.active FROM tellers t JOIN branches b ON b.id = t.branch_id ORDER BY b.name, t.name"
+    }
+  ]
+}

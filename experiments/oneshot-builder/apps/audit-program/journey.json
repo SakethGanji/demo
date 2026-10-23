@@ -1,0 +1,274 @@
+[
+ {
+  "as": "auditor"
+ },
+ {
+  "tab": "Audits"
+ },
+ {
+  "click": "New audit"
+ },
+ {
+  "fill": {
+   "Title": "E2E Audit",
+   "Scope": "E2E scope"
+  }
+ },
+ {
+  "submit": true
+ },
+ {
+  "see": "New audit: done"
+ },
+ {
+  "api": "/api/tables/audits?title=E2E Audit",
+  "expect": {
+   "status": "open",
+   "scope": "E2E scope",
+   "lead_email": "auditor.user@bank.example"
+  }
+ },
+ {
+  "row": "E2E Audit",
+  "shows": "Open"
+ },
+ {
+  "click": "Add finding",
+  "row": "E2E Audit"
+ },
+ {
+  "fill": {
+   "Title": "E2E Finding",
+   "Severity": "High"
+  }
+ },
+ {
+  "submit": true
+ },
+ {
+  "see": "Add finding: done"
+ },
+ {
+  "api": "/api/tables/findings?title=E2E Finding",
+  "expect": {
+   "status": "open",
+   "severity": "high"
+  }
+ },
+ {
+  "click": "Close",
+  "row": "E2E Audit"
+ },
+ {
+  "error": "still open"
+ },
+ {
+  "api": "/api/tables/audits?title=E2E Audit",
+  "expect": {
+   "status": "open"
+  }
+ },
+ {
+  "tab": "Findings"
+ },
+ {
+  "row": "E2E Finding",
+  "shows": "0 of 0"
+ },
+ {
+  "click": "Add action item",
+  "row": "E2E Finding"
+ },
+ {
+  "fill": {
+   "Description": "E2E Old news",
+   "Owner email": "owner.user@bank.example",
+   "Due date": "2020-01-01"
+  }
+ },
+ {
+  "submit": true
+ },
+ {
+  "error": "past"
+ },
+ {
+  "close": true
+ },
+ {
+  "api": "/api/tables/action_items?description=E2E Old news",
+  "expect": {
+   "total": 0
+  }
+ },
+ {
+  "click": "Add action item",
+  "row": "E2E Finding"
+ },
+ {
+  "fill": {
+   "Description": "E2E Fix controls",
+   "Owner email": "owner.user@bank.example",
+   "Due date": "2026-12-31"
+  }
+ },
+ {
+  "submit": true
+ },
+ {
+  "see": "Add action item: done"
+ },
+ {
+  "api": "/api/tables/action_items?description=E2E Fix controls",
+  "expect": {
+   "status": "open",
+   "owner_email": "owner.user@bank.example",
+   "due_date": "2026-12-31"
+  }
+ },
+ {
+  "api": "/api/outbox",
+  "contains": "owner.user@bank.example"
+ },
+ {
+  "row": "E2E Finding",
+  "shows": "0 of 1"
+ },
+ {
+  "click": "Close",
+  "row": "E2E Finding"
+ },
+ {
+  "error": "not done"
+ },
+ {
+  "api": "/api/tables/findings?title=E2E Finding",
+  "expect": {
+   "status": "open"
+  }
+ },
+ {
+  "as": "owner"
+ },
+ {
+  "tab": "Findings"
+ },
+ {
+  "row": "E2E Finding",
+  "no_button": "Close"
+ },
+ {
+  "tab": "Action items"
+ },
+ {
+  "click": "Mark done",
+  "row": "Draft vendor exit plan"
+ },
+ {
+  "error": "Only the owner"
+ },
+ {
+  "api": "/api/tables/action_items?description=Draft vendor exit plan",
+  "expect": {
+   "status": "open"
+  }
+ },
+ {
+  "tab": "My action items"
+ },
+ {
+  "row": "E2E Fix controls",
+  "shows": "Open"
+ },
+ {
+  "click": "Mark done",
+  "row": "E2E Fix controls"
+ },
+ {
+  "see": "Mark done: done"
+ },
+ {
+  "api": "/api/tables/action_items?description=E2E Fix controls",
+  "expect": {
+   "status": "done"
+  }
+ },
+ {
+  "row": "E2E Fix controls",
+  "shows": "Done"
+ },
+ {
+  "row": "E2E Fix controls",
+  "no_button": "Mark done"
+ },
+ {
+  "as": "auditor"
+ },
+ {
+  "tab": "Ready to close"
+ },
+ {
+  "row": "E2E Finding",
+  "shows": "1 of 1"
+ },
+ {
+  "click": "Close",
+  "row": "E2E Finding"
+ },
+ {
+  "see": "Close: done"
+ },
+ {
+  "api": "/api/tables/findings?title=E2E Finding",
+  "expect": {
+   "status": "closed"
+  }
+ },
+ {
+  "tab": "Findings"
+ },
+ {
+  "row": "E2E Finding",
+  "shows": "Closed"
+ },
+ {
+  "row": "E2E Finding",
+  "no_button": "Close"
+ },
+ {
+  "row": "E2E Finding",
+  "no_button": "Add action item"
+ },
+ {
+  "row": "Alert thresholds not reviewed",
+  "no_button": "Close"
+ },
+ {
+  "tab": "Audits"
+ },
+ {
+  "click": "Close",
+  "row": "E2E Audit"
+ },
+ {
+  "see": "Close: done"
+ },
+ {
+  "api": "/api/tables/audits?title=E2E Audit",
+  "expect": {
+   "status": "closed"
+  }
+ },
+ {
+  "row": "E2E Audit",
+  "shows": "Closed"
+ },
+ {
+  "row": "E2E Audit",
+  "no_button": "Add finding"
+ },
+ {
+  "row": "E2E Audit",
+  "no_button": "Close"
+ }
+]

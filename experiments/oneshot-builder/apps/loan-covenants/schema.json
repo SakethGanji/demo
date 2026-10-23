@@ -1,0 +1,338 @@
+{
+  "roles": [
+    "member",
+    "credit_officer"
+  ],
+  "tables": [
+    {
+      "name": "loans",
+      "columns": [
+        {
+          "name": "borrower",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "principal",
+          "type": "money",
+          "required": true
+        },
+        {
+          "name": "status",
+          "type": "choice",
+          "choices": [
+            "active",
+            "watchlist",
+            "paid_off"
+          ],
+          "required": true,
+          "default": "active"
+        },
+        {
+          "name": "relationship_manager",
+          "type": "person",
+          "required": true
+        }
+      ],
+      "sample_rows": [
+        {
+          "borrower": "Harbor Logistics LLC",
+          "principal": 4500000,
+          "status": "active",
+          "relationship_manager": "j.okafor@bank.example"
+        },
+        {
+          "borrower": "Pinecrest Senior Living",
+          "principal": 12000000,
+          "status": "watchlist",
+          "relationship_manager": "d.nguyen@bank.example"
+        },
+        {
+          "borrower": "Alder Manufacturing",
+          "principal": 7250000,
+          "status": "active",
+          "relationship_manager": "j.okafor@bank.example"
+        },
+        {
+          "borrower": "Summit Dental Group",
+          "principal": 2100000,
+          "status": "active",
+          "relationship_manager": "p.shah@bank.example"
+        },
+        {
+          "borrower": "Lakeview Retail Partners",
+          "principal": 9800000,
+          "status": "watchlist",
+          "relationship_manager": "d.nguyen@bank.example"
+        }
+      ]
+    },
+    {
+      "name": "covenants",
+      "columns": [
+        {
+          "name": "loan_id",
+          "type": "ref",
+          "table": "loans",
+          "required": true
+        },
+        {
+          "name": "covenant_type",
+          "type": "choice",
+          "choices": [
+            "min_dscr",
+            "max_debt_to_ebitda",
+            "min_current_ratio",
+            "max_ltv",
+            "min_liquidity"
+          ],
+          "required": true
+        },
+        {
+          "name": "direction",
+          "type": "choice",
+          "choices": [
+            "minimum",
+            "maximum"
+          ],
+          "required": true
+        },
+        {
+          "name": "threshold",
+          "type": "number",
+          "required": true
+        },
+        {
+          "name": "frequency",
+          "type": "choice",
+          "choices": [
+            "quarterly",
+            "semiannual",
+            "annual"
+          ],
+          "required": true,
+          "default": "quarterly"
+        },
+        {
+          "name": "status",
+          "type": "choice",
+          "choices": [
+            "compliant",
+            "breached",
+            "waived"
+          ],
+          "required": true,
+          "default": "compliant"
+        }
+      ],
+      "sample_rows": [
+        {
+          "loan_id": 1,
+          "covenant_type": "min_dscr",
+          "direction": "minimum",
+          "threshold": 1.25,
+          "frequency": "quarterly",
+          "status": "compliant"
+        },
+        {
+          "loan_id": 1,
+          "covenant_type": "max_debt_to_ebitda",
+          "direction": "maximum",
+          "threshold": 4.0,
+          "frequency": "quarterly",
+          "status": "compliant"
+        },
+        {
+          "loan_id": 2,
+          "covenant_type": "min_dscr",
+          "direction": "minimum",
+          "threshold": 1.2,
+          "frequency": "quarterly",
+          "status": "breached"
+        },
+        {
+          "loan_id": 3,
+          "covenant_type": "min_current_ratio",
+          "direction": "minimum",
+          "threshold": 1.5,
+          "frequency": "quarterly",
+          "status": "compliant"
+        },
+        {
+          "loan_id": 4,
+          "covenant_type": "max_ltv",
+          "direction": "maximum",
+          "threshold": 0.75,
+          "frequency": "annual",
+          "status": "compliant"
+        },
+        {
+          "loan_id": 5,
+          "covenant_type": "min_dscr",
+          "direction": "minimum",
+          "threshold": 1.3,
+          "frequency": "quarterly",
+          "status": "waived"
+        }
+      ]
+    },
+    {
+      "name": "covenant_tests",
+      "columns": [
+        {
+          "name": "covenant_id",
+          "type": "ref",
+          "table": "covenants",
+          "required": true
+        },
+        {
+          "name": "period",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "test_date",
+          "type": "date",
+          "required": true
+        },
+        {
+          "name": "actual_value",
+          "type": "number",
+          "required": true
+        },
+        {
+          "name": "result",
+          "type": "choice",
+          "choices": [
+            "passed",
+            "failed"
+          ],
+          "required": true
+        }
+      ],
+      "sample_rows": [
+        {
+          "covenant_id": 1,
+          "period": "2026-Q2",
+          "test_date": "2026-07-22",
+          "actual_value": 1.41,
+          "result": "passed"
+        },
+        {
+          "covenant_id": 2,
+          "period": "2026-Q2",
+          "test_date": "2026-07-22",
+          "actual_value": 3.6,
+          "result": "passed"
+        },
+        {
+          "covenant_id": 3,
+          "period": "2026-Q2",
+          "test_date": "2026-07-24",
+          "actual_value": 1.05,
+          "result": "failed"
+        },
+        {
+          "covenant_id": 4,
+          "period": "2026-Q2",
+          "test_date": "2026-07-25",
+          "actual_value": 1.62,
+          "result": "passed"
+        },
+        {
+          "covenant_id": 6,
+          "period": "2026-Q2",
+          "test_date": "2026-07-29",
+          "actual_value": 1.1,
+          "result": "failed"
+        }
+      ]
+    },
+    {
+      "name": "waivers",
+      "columns": [
+        {
+          "name": "covenant_id",
+          "type": "ref",
+          "table": "covenants",
+          "required": true
+        },
+        {
+          "name": "reason",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "status",
+          "type": "choice",
+          "choices": [
+            "requested",
+            "approved",
+            "rejected"
+          ],
+          "required": true,
+          "default": "requested"
+        },
+        {
+          "name": "requested_by",
+          "type": "person",
+          "required": true
+        },
+        {
+          "name": "decided_by",
+          "type": "person"
+        },
+        {
+          "name": "decided_on",
+          "type": "date"
+        }
+      ],
+      "sample_rows": [
+        {
+          "covenant_id": 6,
+          "reason": "Seasonal inventory build; DSCR expected to recover by Q4",
+          "status": "approved",
+          "requested_by": "d.nguyen@bank.example",
+          "decided_by": "c.brandt@bank.example",
+          "decided_on": "2026-08-14"
+        },
+        {
+          "covenant_id": 3,
+          "reason": "Delayed Medicaid reimbursements; borrower has cured the shortfall in July",
+          "status": "requested",
+          "requested_by": "d.nguyen@bank.example"
+        },
+        {
+          "covenant_id": 2,
+          "reason": "One-time equipment purchase inflated debt",
+          "status": "rejected",
+          "requested_by": "j.okafor@bank.example",
+          "decided_by": "c.brandt@bank.example",
+          "decided_on": "2026-03-10"
+        },
+        {
+          "covenant_id": 1,
+          "reason": "Acquisition-related costs in Q4 2025",
+          "status": "approved",
+          "requested_by": "j.okafor@bank.example",
+          "decided_by": "c.brandt@bank.example",
+          "decided_on": "2026-02-02"
+        }
+      ]
+    }
+  ],
+  "queries": [
+    {
+      "name": "open_breaches",
+      "sql": "SELECT l.borrower, l.relationship_manager, c.covenant_type, c.direction, c.threshold, t.period, t.actual_value FROM covenants c JOIN loans l ON l.id = c.loan_id LEFT JOIN covenant_tests t ON t.covenant_id = c.id AND t.id = (SELECT MAX(id) FROM covenant_tests WHERE covenant_id = c.id) WHERE c.status = 'breached' ORDER BY l.borrower"
+    },
+    {
+      "name": "pending_waivers",
+      "sql": "SELECT w.id, l.borrower, c.covenant_type, w.reason, w.requested_by, w.created_at FROM waivers w JOIN covenants c ON c.id = w.covenant_id JOIN loans l ON l.id = c.loan_id WHERE w.status = 'requested' ORDER BY w.created_at"
+    },
+    {
+      "name": "my_loan_covenants",
+      "sql": "SELECT l.borrower, c.id AS covenant_id, c.covenant_type, c.direction, c.threshold, c.frequency, c.status FROM loans l JOIN covenants c ON c.loan_id = l.id WHERE l.relationship_manager = :me AND l.status != 'paid_off' ORDER BY l.borrower, c.id"
+    }
+  ]
+}

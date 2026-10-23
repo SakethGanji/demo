@@ -1,0 +1,159 @@
+{
+  "roles": [
+    "teller",
+    "branch_manager"
+  ],
+  "tables": [
+    {
+      "name": "count_sheets",
+      "columns": [
+        {
+          "name": "branch",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "count_date",
+          "type": "date",
+          "required": true
+        },
+        {
+          "name": "teller_email",
+          "type": "person",
+          "required": true
+        },
+        {
+          "name": "expected_cash",
+          "type": "money",
+          "required": true
+        },
+        {
+          "name": "counted_cash",
+          "type": "money",
+          "required": true
+        },
+        {
+          "name": "difference",
+          "type": "money",
+          "required": true
+        },
+        {
+          "name": "status",
+          "type": "choice",
+          "choices": [
+            "balanced",
+            "flagged",
+            "signed_off"
+          ],
+          "required": true
+        },
+        {
+          "name": "teller_note",
+          "type": "text"
+        },
+        {
+          "name": "signoff_by",
+          "type": "person"
+        },
+        {
+          "name": "signoff_at",
+          "type": "datetime"
+        },
+        {
+          "name": "signoff_note",
+          "type": "text"
+        }
+      ],
+      "sample_rows": [
+        {
+          "branch": "Downtown",
+          "count_date": "2026-10-22",
+          "teller_email": "j.okafor@bank.example",
+          "expected_cash": 18250,
+          "counted_cash": 18250,
+          "difference": 0,
+          "status": "balanced"
+        },
+        {
+          "branch": "Downtown",
+          "count_date": "2026-10-22",
+          "teller_email": "p.nguyen@bank.example",
+          "expected_cash": 9400,
+          "counted_cash": 9375,
+          "difference": -25,
+          "status": "balanced",
+          "teller_note": "Two $10 bills short, rechecked twice"
+        },
+        {
+          "branch": "Eastside",
+          "count_date": "2026-10-22",
+          "teller_email": "d.patel@bank.example",
+          "expected_cash": 12100,
+          "counted_cash": 12018.5,
+          "difference": -81.5,
+          "status": "flagged",
+          "teller_note": "Possible miskeyed deposit"
+        },
+        {
+          "branch": "Eastside",
+          "count_date": "2026-10-21",
+          "teller_email": "s.romero@bank.example",
+          "expected_cash": 7600,
+          "counted_cash": 7690,
+          "difference": 90,
+          "status": "signed_off",
+          "teller_note": "Over at close",
+          "signoff_by": "l.haddad@bank.example",
+          "signoff_at": "2026-10-21T17:40:00",
+          "signoff_note": "Found unrecorded deposit slip, corrected"
+        },
+        {
+          "branch": "Downtown",
+          "count_date": "2026-10-21",
+          "teller_email": "j.okafor@bank.example",
+          "expected_cash": 15000,
+          "counted_cash": 15000,
+          "difference": 0,
+          "status": "balanced"
+        },
+        {
+          "branch": "Westgate",
+          "count_date": "2026-10-22",
+          "teller_email": "k.brandt@bank.example",
+          "expected_cash": 5300,
+          "counted_cash": 5350,
+          "difference": 50,
+          "status": "balanced",
+          "teller_note": "Exactly at threshold"
+        },
+        {
+          "branch": "Westgate",
+          "count_date": "2026-10-21",
+          "teller_email": "m.ito@bank.example",
+          "expected_cash": 6200,
+          "counted_cash": 6120,
+          "difference": -80,
+          "status": "flagged"
+        }
+      ]
+    }
+  ],
+  "queries": [
+    {
+      "name": "awaiting_signoff",
+      "sql": "SELECT id, branch, count_date, teller_email, expected_cash, counted_cash, difference FROM count_sheets WHERE status = 'flagged' ORDER BY count_date, branch"
+    },
+    {
+      "name": "my_sheets",
+      "sql": "SELECT id, branch, count_date, expected_cash, counted_cash, difference, status FROM count_sheets WHERE teller_email = :me ORDER BY count_date DESC"
+    },
+    {
+      "name": "todays_sheets",
+      "sql": "SELECT id, branch, teller_email, expected_cash, counted_cash, difference, status FROM count_sheets WHERE count_date = :today ORDER BY branch"
+    },
+    {
+      "name": "branch_totals",
+      "sql": "SELECT branch, COUNT(*) AS sheets, SUM(CASE WHEN status = 'flagged' THEN 1 ELSE 0 END) AS open_flags, SUM(difference) AS net_difference FROM count_sheets GROUP BY branch ORDER BY branch"
+    }
+  ]
+}

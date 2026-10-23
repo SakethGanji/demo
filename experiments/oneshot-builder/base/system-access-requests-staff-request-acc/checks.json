@@ -1,0 +1,86 @@
+[
+  {
+    "layer": "data",
+    "name": "tables: access_requests",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "data",
+    "name": "query \"my_requests\" (0 rows on sample data)",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "data",
+    "name": "query \"awaiting_my_approval\" (0 rows on sample data)",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "data",
+    "name": "query \"it_queue\" (1 rows on sample data)",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "data",
+    "name": "query \"open_by_status\" (2 rows on sample data)",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "A new request starts as waiting for approval and emails the requester and manager",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "You can't choose yourself as the approver",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "You can't ask again for a system you already have an open request for",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "The named manager approves a request and the requester is emailed",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "A manager who isn't the requester's manager can't approve",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "A manager rejects a request with a reason and the requester is emailed",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "A rejection without a reason is refused",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "IT marks an approved request done and the requester is emailed",
+    "ok": true,
+    "error": ""
+  },
+  {
+    "layer": "actions",
+    "name": "IT can't complete a request that hasn't been approved",
+    "ok": true,
+    "error": ""
+  }
+]
