@@ -42,6 +42,18 @@ This guide was written on a different branch, so your copy may not match it exac
 - **If your copy has files this guide doesn't mention** (for example `services/workflow_oneshot.py`), read
   [If your copy has newer work](#if-your-copy-has-newer-work) before starting.
 
+## Two repos, not one monorepo
+
+On the owner's machine the engine and the studio are **separate git repos**: the engine repo root is `apps/workflow-engine`,
+the studio repo root is `apps/workflow-studio`. So:
+
+- Run each command from its own repo root and drop the `apps/workflow-studio/` and `apps/workflow-engine/` prefixes in the
+  greps below (for example `grep -rn "features/knowledge" src e2e` in the studio repo).
+- The two repos must stay **siblings** (`.../workflow-engine` next to `.../workflow-studio`). The engine reads the studio's
+  `node_modules` by path: `services/app_bundler.py` (~167, the Tailwind v3 CLI) and `services/app_builder_ai_service.py`
+  (~650, `tsc` and `@types/react` for the typecheck). Those paths are why B5 keeps `tailwindcss-v3`.
+- Each repo has its own baseline, gates and commit. A step that touches both (A1, A2, A4, A5) is two changes, one per repo.
+
 ## What this pass does
 
 This pass cuts the features we don't need and removes dead code.
@@ -195,8 +207,10 @@ The plain order (A1 → A6, then B) would leave the build broken between steps, 
 - **Delete:**
   - `services/kg_*.py` (3.5k);
   - `routes/knowledge.py`;
-  - `repositories/kg_repository.py` (0.5k), `schemas/knowledge.py` (0.16k) and `db/knowledge_models.py`. Keep the tables;
-    only the model module goes. If Alembic or migrate reads the models, keep the file.
+  - `repositories/kg_repository.py` (0.5k) and `schemas/knowledge.py` (0.16k). Keep the tables.
+  - **Keep `db/knowledge_models.py`.** It holds `ProjectKnowledgeModel` and `KINDS`/`SOURCES`/`STATUSES`, which the kept
+    `services/project_knowledge.py` and `routes/project_knowledge.py` import. The `Kg*` models (`KgNodeModel`, `KgEdgeModel`
+    and friends) live in `db/models.py`; leave them there (tables stay) unless nothing imports them.
   - `engine/knowledge/ontology/` (`bank_ops.yaml`), once nothing reads it.
 - **Edit:**
   - `src/main.py`, around lines 71–73: remove the `kg_extract.seed_global()` startup call;
@@ -208,7 +222,10 @@ The plain order (A1 → A6, then B) would leave the build broken between steps, 
 - **Prompts:** remove every capability-graph section from the AI-workflow-builder prompts. Leave no empty headings. The
   project-knowledge sections of the app and backend builders stay.
 - **Tests:**
-  - delete `test_kg_*.py`, `test_kg_repository.py` and `test_ai_builder_graph_http.py` (it imports `kg_learn`);
+  - delete `test_kg_*.py`, `test_kg_repository.py`, `tests/unit/_kg_support.py`, `tests/journeys/test_capability_graph_two_teams.py`
+    (it also calls `/ai/apps`; delete it in A2 or A1, whichever comes first) and `test_ai_builder_graph_http.py` (it imports
+    `kg_learn`). `tests/unit/test_reference_workflow_pick.py` imports `kg_repository`: edit it, don't delete it, if it also
+    tests kept code;
   - `grep -rln "kg_\|knowledge" tests`, then delete only the tests of deleted code.
 
 **Check:**
@@ -241,7 +258,12 @@ The users are `ApprovalsPage`, `TaskDetailPage`, `TaskParts`, `useTaskDecision`,
 
 **Studio, edit:**
 - `workflow-editor/WorkflowEditorPage.tsx` (around lines 31–32): the lazy `InterfacePanel` and `InterfaceDock`;
-- `workflow-editor/components/WorkflowNavbar.tsx` (around 60–61): `useInterfaceState` and `interfaceDraft`;
+- `workflow-editor/components/workflow-navbar/WorkflowNavbar.tsx` (around 60–61): `useInterfaceState` and `interfaceDraft`; also
+  the `'interface'` right-panel tab button (~278) and its `openRightPanel('interface')`;
+- `workflow-editor/components/canvas/Controls.tsx` (~10, 27): imports `DOCK_LABEL` and `useEditorInterface` from
+  `components/interface/`. Remove the dock button;
+- `workflow-editor/components/canvas/nodes/WorkflowNode.tsx` (~27, 537): renders `NodeChips`, which also lives in
+  `components/interface/` and uses `useInterfaceState`. Remove the chips (and `WiredChips`/`useEditorInterface` with the folder);
 - `workflow-editor/stores/workflowStore.ts` (around 9): it imports `formFields`. Point it at the moved file;
 - `app/routes/public.tsx` (around 7–8): drop `PublicInterfacePage` and `PublicRunPage`;
 - `shared/api/endpoints.ts` (around 14): the interface endpoints;
@@ -263,7 +285,12 @@ The users are `ApprovalsPage`, `TaskDetailPage`, `TaskParts`, `useTaskDecision`,
   - check what `register_hooks` wires;
   - if it's only interface chat, remove the hook call and the chat-interface parts;
   - if Approvals or the run path needs it, keep `interface_service.py` and delete only the routes.
-- **Tests:** the interface route tests, and the e2e specs that open the interface builder or public pages.
+- `services/interface_ai.py` and `services/interface_promote.py` are only reached through `interface_service.py`; they go with
+  it if you delete it.
+- **Tests:** the interface route tests (`test_public_interface_routes`, `test_interface_internal_routes`, `test_interface_ai`,
+  `test_interface_publish`, `test_interface_detached_run`, `test_stage5_t1_public`, `test_stage6_b5_chat`, `test_chat_service`,
+  `_interface_fakes.py`; keep `test_interface_service.py` if `interface_service.py` stays), and the e2e specs that open the
+  interface builder or public pages.
 
 **Check:**
 - the editor opens and runs are followed live;
@@ -342,7 +369,7 @@ This is the **app** builder's `WORKFLOW_BUILDER_MODE=pipeline` switch. It's unre
   - remove the role-split pipeline only: class `Builders` (~96–372) and the pipeline branch inside `class Coordinator`
     (~688–1380);
   - keep every helper the files above use, and grep each one before removing it.
-- **`backend_templates/scaffold.py` (0.35k):**
+- **`services/backend_templates/scaffold.py` (0.35k):**
   - `build_coordinator.py` imports `leftovers` and `todo_message` from it (~53) and the module itself (~159);
   - if the one-shot path still calls `leftovers`/`todo_message` after the pipeline is gone, keep those two functions and
     delete the rest;

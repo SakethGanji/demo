@@ -1,6 +1,6 @@
 # Plan: simpler AI app builder and AI workflow builder
 
-2026-10-22. This is guidance for the agent doing the work. It builds on `docs/history/SIMPLIFICATION-PLAN.md` sections 4–6 and replaces them where they disagree. Do the cuts in `CUT-GUIDE.md` first.
+2026-10-22. This is guidance for the agent doing the work. It replaces any older `SIMPLIFICATION-PLAN.md` (sections 4–6) in your repo where they disagree. Do the cuts in `CUT-GUIDE.md` first.
 
 > **These guides were written on a different branch.** Your code may differ: file names, line numbers, sizes and test
 > counts are pointers, not exact targets. Find the same thing in your copy by name and adapt. The prompts and the ideas
@@ -138,7 +138,7 @@ The app-builder steps below are replaced by the porting guide. The two tracks to
 3. Give it one chat and one store, and remove BuildStudio as a second screen.
 4. Switch the default once the evals pass, then delete the retired app-builder code, one change per area.
 
-**Gates after each step:** the same as `docs/history/SIMPLIFICATION-PLAN.md` section 8 (tsc 0 errors, vitest, lint ≤ 93, design check, build, engine unit tests, and the browser journeys). Add one rule: **the eval numbers don't go down.**
+**Gates after each step:** tsc 0 errors, vitest, lint ≤ 93, design check, build, engine unit tests, and the browser journeys. Add one rule: **the eval numbers don't go down.**
 
 ## Out of scope
 

@@ -7,7 +7,7 @@ This folder is the design reference for **Studio Workbench**, the agent workspac
 - `mockup.html`: a single, self-contained, clickable mockup. Open it in a browser. Click a suggestion in the command bar to start, and press `?` to reset.
 - `STUDIO-WORKBENCH-GUIDE.md` (this file): how it works and how the UI should look.
 
-The mockup is the spec for **look, layout and behaviour**. Everything in it is fake: the timers, the data and the "Harbor" bank app. Rebuild it in `apps/workflow-studio`, following `apps/workflow-studio/DESIGN-STANDARD.md`. Do not copy the mockup's code.
+The mockup is the spec for **look, layout and behaviour**. Everything in it is fake: the timers, the data and the "Harbor" bank app. Rebuild it in the studio app (`apps/workflow-studio`, the UI repo), following `DESIGN-STANDARD.md` at that app's root and the tokens in `src/index.css`. Do not copy the mockup's code.
 
 ---
 
@@ -64,15 +64,15 @@ On desktop, at about 1320 px and wider:
 ```
 
 - **Activity rail** (icons only): Tasks, Explorer, Search, Scheduled.
-- **Explorer:** a tree of tasks (with status dots), connections (`payments-uat · read-only`, `harbor-uat · browser profile`), workflows, scripts (show 4, then "39 more"), and files.
+- **Explorer:** a tree of tasks (with status dots), connections (`payments-uat · read-only`, `harbor-uat · browser profile`), workflows, scripts (show 4, then "38 more"), and files.
 - **Editor tabs:** these can be closed. Tab kinds: 🗄 query, 🌐 browser, 📊 results grid, ⚙ workflow run, ✎ change review, 📄 report (markdown walkthrough whose steps link back to the timeline).
 - **Steps panel:** the task title, the agent state with a pulse, Pause / Stop, the "Saved as …" status line with schedule chips, then the steps.
-- **On a phone (390 px):**
+- **On narrow screens (under 900 px; designed for a 390 px phone):**
   - the command bar sits on top, with one tab at a time and a tab switcher;
   - Steps opens as a bottom sheet, and the timeline is a thin strip;
   - Manager becomes a stacked list;
   - there must be no horizontal scroll.
-- **Light and dark (Graphite)** follow the Studio glass standard.
+- **Light and dark (Graphite in dark)** follow the OS setting and the Studio glass standard (`DESIGN-STANDARD.md`).
 
 ## 3. The reference flow (what the mockup demonstrates)
 

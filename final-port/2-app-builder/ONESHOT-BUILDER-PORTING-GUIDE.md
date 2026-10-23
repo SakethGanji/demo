@@ -8,10 +8,15 @@ It **replaces the app-builder parts of `AI-BUILDERS-PLAN.md`**: "How apps get da
 - the gates;
 - the out-of-scope list.
 
-**Session 2 of 5** (see `final-port/START-HERE.md`): after `CUT-GUIDE.md`, before the workflow builder guide.
+**Session 2 of 5** (see `final-port/START-HERE.md`): after `final-port/1-cut/CUT-GUIDE.md`, before the workflow builder guide.
 
 **The owner's rule: simple and fast.** When something fails, fix the prompt or the platform. Don't add a stage, a planner or a question round.
 
+> **Two repos.** The backend (`apps/workflow-engine`) and the UI (`apps/workflow-studio`) are separate repos on your
+> machine, and `final-port/` sits at the backend repo root. Engine paths in this guide (`services/...`, `routes/...`,
+> `src/sandbox/`, `tests/...`) are relative to the backend root (`src/`). Studio paths written as
+> `apps/workflow-studio/src/...` mean `src/...` in the UI repo.
+>
 > **These guides were written on a different branch.** Your code may differ: file names, line numbers, sizes and test
 > counts are pointers, not exact targets. Find the same thing in your copy by name and adapt. The prompts and the ideas
 > stay the same.
@@ -137,13 +142,13 @@ Don't touch app code yet.
    cd final-port/2-app-builder/oneshot-builder/ui && npm ci && npx playwright install chromium
    cd ..
    ```
-   - The UI versions are pinned to the studio's: React 18.3.1, esbuild 0.25.12, playwright 1.62.1, TypeScript 5.9.3.
+   - The UI versions are pinned: React 18.3.1 and playwright 1.62.1 match the studio, TypeScript 5.9.3 matches its `~5.9.3`; the checker uses native esbuild 0.25.12 (the studio bundles with `esbuild-wasm` 0.24).
    - The checker and robot need Chromium. Skip `playwright install` if a Chromium is already set up for
      Playwright on the machine.
    - The Python side needs Python 3.11+ and `uv`, since the backend server runs with
      `uv run --no-project --with fastapi --with uvicorn`. Without `uv`, `pip install fastapi uvicorn` in a venv and run
      `server.py` with that venv.
-   - `node_modules` is not git-ignored at the repo root. Don't commit `final-port/2-app-builder/oneshot-builder/ui/node_modules`.
+   - The folder's own `.gitignore` covers `ui/node_modules/`, `out/`, `out2/`, `apps/` and `app.db`. Check `git status` before committing, and never commit `node_modules`.
 2. The model:
    - `build.call_model` uses the `claude` CLI if there is no key. The CLI must be installed and logged in for the user
      running the scripts. Check with `claude -p "say ok"`.
@@ -195,7 +200,7 @@ So:
   with an additive migration if there's no JSONB settings field;
 - add `set_locked` and `set_edit_roles` to `ADDITIVE_OPS` if edits need to change them.
 
-Extend `DataTableService`; don't keep a side store. Grep for its tests (`tests/unit/test_*data_table*`) and add cases
+Extend `DataTableService`; don't keep a side store. Grep `tests/` for `DataTableService` (e.g. `test_schema_evolution.py`) and add cases
 for the new keys.
 
 **The `DB` facade** (`services/app_runtime/db.py`):
@@ -212,7 +217,7 @@ for the new keys.
 - **Migrations on edits:** use the existing `POST /{tid}/migrate`. It's additive-only, which matches the contract. Keep `existing_data_fits` from `kit.py` as the pre-check.
 
 **Actions run in-process,** with the prototype's import allowlist: datetime, math, decimal, re, json, kit. The engine's
-bwrap sandbox (`apps/workflow-engine/src/sandbox/`, not the studio's preview sandbox) can't reach the DB. Moving actions
+bwrap sandbox (`src/sandbox/` in the backend, not the studio's preview sandbox) can't reach the DB. Moving actions
 into it is security work the owner has deferred.
 
 **Identity:**
@@ -294,7 +299,7 @@ All `sandbox/` paths here are the studio's: `apps/workflow-studio/src/features/a
   - Optional tabs: Data (the app's tables), Actions (try one), Checks.
   - No plan page, no questions, no BuildStudio second screen.
 - **Gate:**
-  - `tsc -b` with 0 errors, vitest, lint, the design check and `npm run test:ui`;
+  - `tsc -b` with 0 errors, vitest (`npm run test:unit`), lint, the design check and the browser tests (`npm run test:e2e`, or `test:ui` if your UI repo has it);
   - plus one browser test that builds the vendor-payments request through the studio chat and runs its journey in the preview.
 
 ## 8. Phase 4: switch over and delete
@@ -317,13 +322,13 @@ All `sandbox/` paths here are the studio's: `apps/workflow-studio/src/features/a
      (`oneshot_builder.py`, `app_autotest.py`, `app_builder_ai_service.py`, `routes/builds.py` and `main.py` import it).
      Delete it only together with those, after `grep -rn build_coordinator src tests` shows no other user.
    - **Keep the chat endpoint** (`POST /ai/app-builder/chat`) and the studio hook that calls it. Grep for
-     `ai/app-builder/chat` in `apps/workflow-studio/src` to find the hook (it was `useAppBuilderChat.ts`); it may have moved.
+     `ai/app-builder/chat` in the UI repo's `src` to find the hook (it was `useAppBuilderChat.ts`); it may have moved.
    - **If your copy has newer app-builder work** (a bigger `oneshot_builder.py`, `app_kit/board.tsx`,
      `display.tsx`, `layout.tsx`, `overlay.tsx`, `plots.tsx`, `theme.css`, or `app_bundler_tailwind.mjs`), it's the
      current builder's improvements. It retires with the rest at this step. Don't port it into the new path.
 3. **Also delete `tailwindcss-v3`** from the studio's `package.json` (`npm uninstall tailwindcss-v3`), together with
    the old `app_bundler.py` CSS step that runs it. Do this once nothing else uses them: grep for `tailwindcss-v3` in
-   `apps/workflow-engine/src` and `apps/workflow-studio`.
+   the backend `src/` and the UI repo. Note `app_bundler.py` finds the CLI at `../workflow-studio/node_modules/tailwindcss-v3` relative to the backend, so that path only works if both repos sit side by side.
 4. **Keep the eval set and rerun it after every prompt or kit change.** A change that lowers a first-call pass rate gets reverted.
 
 ## 9. Open decisions for the owner

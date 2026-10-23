@@ -97,14 +97,34 @@ after the cut. If one was deleted, restore it from git history rather than rewri
 
 ## 4. Step 1: apply the patches
 
-Run from the repo root. Keep a copy or commit of your tree first.
+Keep a copy or commit of your tree first. The patch paths start with `apps/workflow-engine/` or `apps/workflow-studio/`.
+Patches 1 and 2 touch only the engine; patch 3 touches only the studio.
+
+**Backend and UI are separate repos** (the usual layout on your machine). `-p3` strips `apps/<app>/`. Run patches 1 and 2 from the
+backend repo root, and patch 3 from the UI repo root. Adjust the path to `final-port/` for the UI repo:
 
 ```bash
-git apply --check final-port/3-workflow-builder/1-engine-fixes.patch    # then 2, then 3
+# in the backend repo (apps/workflow-engine)
+git apply -p3 --check final-port/3-workflow-builder/1-engine-fixes.patch
+git apply -p3 final-port/3-workflow-builder/1-engine-fixes.patch
+git apply -p3 --check final-port/3-workflow-builder/2-ai-chat.patch     # check 2 only after 1 is applied
+git apply -p3 final-port/3-workflow-builder/2-ai-chat.patch
+
+# in the UI repo (apps/workflow-studio)
+git apply -p3 --check /path/to/backend/final-port/3-workflow-builder/3-read-view.patch
+git apply -p3 /path/to/backend/final-port/3-workflow-builder/3-read-view.patch
+```
+
+**Monorepo** (both apps under one root), run from the repo root:
+
+```bash
+git apply --check final-port/3-workflow-builder/1-engine-fixes.patch    # then 2, then 3 (check 2 after applying 1)
 git apply final-port/3-workflow-builder/1-engine-fixes.patch
 git apply final-port/3-workflow-builder/2-ai-chat.patch
 git apply final-port/3-workflow-builder/3-read-view.patch
 ```
+
+(Do not run patch 3 with `-p3` in the backend repo, or patches 1 and 2 in the UI repo: the paths don't exist there.)
 
 **If a patch doesn't apply** (your copy differs slightly):
 1. Try `git apply --3way <patch>`. This needs a git repo with the base commit.
@@ -120,7 +140,7 @@ git apply final-port/3-workflow-builder/3-read-view.patch
   database and the test database.
 
 **After patch 3:** in `apps/workflow-studio`, run `npm install @dagrejs/dagre@^1.1.4`. The read view lays out with it.
-The patch adds it to `package.json` but not to the lock file.
+The patch changes neither `package.json` nor the lock file, so this command adds it to both.
 
 ## 5. Patch 1: engine fixes
 

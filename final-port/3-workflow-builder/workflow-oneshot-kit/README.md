@@ -5,6 +5,9 @@ product yet: this folder is the prompt, the harness, the eval cases, the generat
 
 **To run it, copy this folder to `apps/workflow-engine/prototypes/workflow-oneshot/`.** The scripts import the engine from there.
 The generated `runs/`, chat state and logs were left out, so the Results section describes runs you won't find here.
+**Edit mode and the live runs need `runs/crazy-live`** (`wf_edit.py` and `live/setup.py` read the base workflows from it). Make it
+first with a model call: `venv/bin/python -W ignore $P/wf_build.py --crazy --out $P/runs/crazy-live` (the first block below defines `$P`).
+`live/enc.key` is also not included; step 4 of the live runs creates it.
 
 All commands run from `apps/workflow-engine` with the engine's venv.
 
@@ -25,7 +28,7 @@ P=prototypes/workflow-oneshot
 | `complex_cases.py`, `tough_cases.py`, `crazy_cases.py` | write the eval sets into `complex/`, `tough/`, `crazy/` (`eval/*.json` cases with hidden tests, `apis/*.yaml`) |
 | `rescore.py` | re-score saved workflows without a model call |
 | `edit_cases.py`, `wf_edit.py` | edit mode: 15 change requests on the 5 live-tested workflows, two reply formats compared |
-| `runs/` | generated workflows + `results.json` per run (see Results) |
+| `runs/` | generated workflows + `results.json` per run (see Results). **Not included**; the harnesses create it |
 | `live/` | real-run kit: mock bank API, DB seed, engine setup, scenario driver, logs |
 
 ## Build: run the evals
@@ -150,7 +153,7 @@ Two bugs found live and fixed:
   4. Reject required form fields.
   5. A Postgres `transaction` ran only item 0.
   6. Test mode recorded only item 0's request.
-- What's left for production is in `/WORKFLOW-POC-ISSUES.md`.
+- What's left for production is in `final-port/4-workflow-hardening/WORKFLOW-HARDENING-GUIDE.md`.
 - `rescore.py` on crazy-live: recert scores 2/3 hidden. That's a known harness limit: a static mock can't count rows that
   the workflow wrote itself. Live it is correct. The other 4 are full.
 

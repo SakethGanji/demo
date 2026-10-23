@@ -35,9 +35,10 @@ session closes them, so the builder's output is safe by default.
   - wire_release: `Callback task`, `Callback task again` and `SAR task` have nothing on `rejected`.
   - hardship_restructure: `Record answer` has nothing on `rejected`.
   - A Reject therefore ends the run silently. Wire it or flag it.
+  - The checker already has this rule as a warning (`WF015` in `workflow_checker.py`: "a rejection goes nowhere"). The gap is that the builder's result passes with it, so the fix is a prompt rule and treating `WF015` as a fix-loop finding.
 - **Invented risky defaults:** hardship `Officer assessment` uses `on_timeout: reject` without being asked.
 - **Approvals with no deadline:** treasury, credit committee, refund manager.
-- **"Four eyes" is not enforced.** `four_eyes: true` is stored, but `authorize_decide` always allows, so one person can approve both steps. The builder doesn't say so.
+- **"Four eyes" is not enforced.** (The checker has an info note, `WF016`, but the builder doesn't pass it on.) `four_eyes: true` is stored, but `authorize_decide` always allows, so one person can approve both steps. The builder doesn't say so.
 - **No auth on bank API calls:** generated HTTP nodes never send `BANK_API_KEY`, and the specs declare no securitySchemes.
 - **No error handling in batches.** One failed per-item call stops the run for everyone after it (kyc `Check documents`, recert `Revoke access`). Only 3 `on_error` uses in 20 hard workflows.
 - **Step ordering doesn't allow a retry:**
@@ -53,13 +54,13 @@ session closes them, so the builder's output is safe by default.
 ### Platform
 - DB connections are always created read-only, and there is no API to make one writable (only the `project_connections.readonly` column changes it).
 - An `onReceived` webhook answers "success / Workflow triggered" before the run starts. A run that then fails is visible only in executions.
-- Waits are in-process `asyncio.sleep`, capped at 300s and not durable across restarts.
-- A failed Postgres `transaction` doesn't fail the step. It emits `success: false, rolledBack: true` for that item, and the run carries on unless the workflow checks `$json.success`.
-- `per_item` Approval:
+- Waits are in-process `asyncio.sleep`, capped at 300s and not durable across restarts. Still true after the patches (`nodes/flow/wait.py`).
+- A failed Postgres `transaction` doesn't fail the step. (Patch 1 fixed the separate bug that a `transaction` only ran for item 0.) It emits `success: false, rolledBack: true` for that item, and the run carries on unless the workflow checks `$json.success`.
+- `per_item` Approval (added by patch 1, so these are limits of the new feature):
   - Each task stores its own copy of the run snapshot.
   - The inbox has no grouped "N of M answered" view.
   - If resuming fails, only the task that triggered the resume is marked.
-- **DataTable acts on item 0 only.** A DataTable insert/update with several input items writes the first one and drops the rest
+- **DataTable acts on item 0 only.** Still true after the patches (patch 1 doesn't touch `nodes/data/data_table.py`). A DataTable insert/update with several input items writes the first one and drops the rest
   (the prompt tells the model "one request per job"). A Postgres write handles every item. Fix the DataTable node to go per item.
 
 ### Studio chat on the one-shot builder (wired 2026-10-23)

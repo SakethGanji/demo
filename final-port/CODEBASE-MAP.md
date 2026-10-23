@@ -1,6 +1,6 @@
 # Codebase map: where the code is
 
-Measured 2026-10-22, checked 2026-10-23. Counts are lines of source code, not counting tests.
+Measured 2026-10-22, checked 2026-10-23. Counts are lines of source code, not counting tests. They were measured on a working copy with uncommitted work (the visual editor, newer app kit and one-shot builder), so a clean checkout of the earlier commit is smaller: engine about 100k, studio about 100k, `services/` about 52k, `oneshot_builder.py` about 2.0k.
 
 > **These guides were written on a different branch.** Your code may differ: file names, line numbers, sizes and test
 > counts are pointers, not exact targets. Find the same thing in your copy by name and adapt. The prompts and the ideas
@@ -57,7 +57,7 @@ Two more:
 
 | Feature | Lines | Main files |
 |---|---|---|
-| **App builder core** | 10.0k | `app_builder_ai_service` 3.3k, `oneshot_builder` 2.3k, `build_coordinator` 1.5k, `builder_gates` 1.1k, `app_scaffold`, `app_service`, `app_autotest`, `backend_templates/selftest.py`; plus `editability_lint`. **`build_coordinator` is not dead code:** its role-split pipeline is legacy, but the default one-shot app build runs inside `Coordinator.execute`, and `oneshot_builder`, `app_autotest`, `app_builder_ai_service`, `routes/builds.py` and `main.py` import it. |
+| **App builder core** | 10.0k | `app_builder_ai_service` 3.3k, `oneshot_builder` 2.3k, `build_coordinator` 1.5k, `builder_gates` 1.1k, `app_scaffold`, `app_service`, `app_autotest`, `backend_templates/selftest.py`; plus `editability_lint` (newer copies only). **`build_coordinator` is not dead code:** its role-split pipeline is legacy, but the default one-shot app build runs inside `Coordinator.execute`, and `oneshot_builder`, `app_autotest`, `app_builder_ai_service`, `routes/builds.py` and `main.py` import it. |
 | App kit + bundler | 5.0k | `app_kit/*.tsx`: the components generated apps import. Newer copies add `board`, `display`, `layout`, `overlay`, `plots`, `theme.css` and a Tailwind v4 bundler. |
 | Backend builder | 7.2k | `module_generator` 1.8k, `backend_templates/` 3.0k, module and route services |
 | Workflow management | 8.5k | `workflow_service` 1.0k, `template_installer` 1.0k, `template_bundle` 0.9k, `n8n_import` 1.2k, subworkflows, executions |
@@ -142,4 +142,4 @@ Check these before deleting any route or page:
   the other `dummy_*.py` files.
 
 The order of the work is in `final-port/START-HERE.md`.
-`docs/history/SIMPLIFICATION-PLAN.md` is superseded.
+Any older `SIMPLIFICATION-PLAN.md` in your repo is superseded.

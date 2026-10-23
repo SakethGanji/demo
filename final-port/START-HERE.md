@@ -7,6 +7,11 @@ each, and finish each one green before starting the next.
 > counts are pointers, not exact targets. Find the same thing in your copy by name and adapt. The prompts and the ideas
 > stay the same.
 
+**To begin:** copy this folder into the backend repo root and paste the prompt from `STARTER-PROMPT.md` into an agent.
+The backend and the UI are separate repos. `apps/workflow-engine/<x>` in these guides means `<x>` in the backend repo,
+and `apps/workflow-studio/<x>` means `<x>` in the UI repo. Keep the two checkouts side by side (the engine reads
+`../workflow-studio/node_modules` for its Tailwind and `tsc` checks). Don't connect their deployments.
+
 ## The goals
 
 1. **Simplify the process.**
@@ -46,4 +51,4 @@ Session 5 is independent of 1–4, so it can run in parallel if you want.
   on it.
 - `CODEBASE-MAP.md` maps where the code lives, with sizes per area.
 
-Older plans and handoffs are in `docs/history/` for reference only. Don't follow them.
+Older plans and handoffs in your repo are superseded by these guides. Don't follow them.
