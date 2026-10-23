@@ -2,20 +2,9 @@
 
 Measured 2026-10-22, checked 2026-10-23. Counts are lines of source code, not counting tests.
 
-**Two trees, two sets of numbers.**
-- The detailed tables below were measured on the owner's **local** tree. That tree has uncommitted work: the visual
-  editor, newer app-kit files and builder changes, and the one-shot workflow chat.
-- GitHub `revert-to-5684ba5` at `74e8575` (the same code as `87989ea`) is smaller:
-
-| App | GitHub `74e8575` | Local tree |
-|---|---|---|
-| Studio | 100.4k | 111.8k |
-| Engine | 102.1k | 104.9k |
-| **Total** | **~202k** | **~217k** |
-
-Where a row below differs on GitHub, the GitHub number is given too. `CUT-GUIDE.md` uses the GitHub numbers.
-
-**Your copy may differ from both.** Use these numbers to find your way, not as exact targets.
+> **These guides were written on a different branch.** Your code may differ: file names, line numbers, sizes and test
+> counts are pointers, not exact targets. Find the same thing in your copy by name and adapt. The prompts and the ideas
+> stay the same.
 
 **"Being cut" doesn't mean "nothing uses it".** Several cut areas have importers in kept code: knowledge, interfaces,
 releases and `build_coordinator`. `CUT-GUIDE.md` lists them. Always grep for importers before deleting.
@@ -27,10 +16,10 @@ releases and `build_coordinator`. `CUT-GUIDE.md` lists them. Always grep for imp
 | `apps/workflow-studio`: React UI | **111.8k** | 10.2k of it is the uncommitted visual editor |
 | `apps/workflow-engine`: Python API | **104.9k** | |
 | `apps/analytics-service` | 8.4k | optional sidecar, but the studio's Datasets pages (`features/datasets`) and the engine's `project_dataset_service.py` (`settings.analytics_service_url`) call it, and some workflow templates use datasets |
-| `apps/test-builder` | 4.7k (GitHub 4.2k) | only jobs-service uses it (jobs-service links `@playwright/test` from `../test-builder/node_modules`) |
-| `apps/jobs-service` | 2.1k (GitHub 1.7k) | the engine calls it: `broker/jobs.py`, `core/config.py` (`JOBS_SERVICE_*`), `sdk/static/jobs.py`, and jobs wiring in generated backends (`backend_templates/checks.py`, `selftest.py`) |
-| **Total, the main two apps** | **~217k** (GitHub ~202k) | |
-| Tests, on top of that | 85k | engine 67.8k, studio 17.2k (GitHub 66.9k and 16.8k) |
+| `apps/test-builder` | 4.7k | only jobs-service uses it (jobs-service links `@playwright/test` from `../test-builder/node_modules`) |
+| `apps/jobs-service` | 2.1k | the engine calls it: `broker/jobs.py`, `core/config.py` (`JOBS_SERVICE_*`), `sdk/static/jobs.py`, and jobs wiring in generated backends (`backend_templates/checks.py`, `selftest.py`) |
+| **Total, the main two apps** | **~217k** | |
+| Tests, on top of that | 85k | engine 67.8k, studio 17.2k |
 
 ## The 10 biggest areas, across both apps
 
@@ -44,7 +33,7 @@ releases and `build_coordinator`. `CUT-GUIDE.md` lists them. Always grep for imp
 | 6 | **Engine plumbing** (routes, DB, schemas, repositories, queue, SDK) | 19.7k | `engine/routes`, `db`, `schemas`, `repositories`, `broker`, `sdk`, `core`, `utils`, `sandbox` |
 | 7 | **Project pages** (overview, home, nav, plan) | 15.2k | `studio/features/project` 10.7k + `plan` 4.5k |
 | 8 | **Backend builder** | 13.6k | engine module generator and templates 7.2k + `studio/features/backend` 6.4k |
-| 9 | **Visual editor** (local only, not on GitHub; being dropped) | 10.2k | `studio/features/app-builder/visual` |
+| 9 | **Visual editor** (being dropped) | 10.2k | `studio/features/app-builder/visual` |
 | 10 | **Knowledge** (being cut) | 9.8k | engine `kg_*` 3.5k + `studio/features/knowledge` 6.3k. Kept code imports it: `main.py` (startup seed), `ai_builder.py`, `ai_spec.py`, the landing page (`useMotionOff`). `project_knowledge.py` is **not** part of this; the backend and app builders use it. |
 
 Two more:
@@ -55,7 +44,7 @@ Two more:
 
 | Folder | Lines | What's in it |
 |---|---|---|
-| `services/` | 57.2k (GitHub 54.6k) | all the business logic, split in the next table |
+| `services/` | 57.2k | all the business logic, split in the next table |
 | `nodes/` | 17.4k | ai 8.8k · data 3.2k · flow 2.4k · integrations 2.0k · triggers 0.8k |
 | `engine/` | 9.3k | the workflow runner (1.5k), the LLM provider (1.0k), test recipes (0.9k), … |
 | `routes/` | 7.0k | HTTP endpoints |
@@ -68,11 +57,11 @@ Two more:
 
 | Feature | Lines | Main files |
 |---|---|---|
-| **App builder core** | 10.0k | `app_builder_ai_service` 3.3k (GitHub 3.2k), `oneshot_builder` 2.3k (GitHub 2.0k), `build_coordinator` 1.5k, `builder_gates` 1.1k, `app_scaffold`, `app_service`, `app_autotest`, `backend_templates/selftest.py`; plus `editability_lint` (local only). **`build_coordinator` is not dead code:** its role-split pipeline is legacy, but the default one-shot app build runs inside `Coordinator.execute`, and `oneshot_builder`, `app_autotest`, `app_builder_ai_service`, `routes/builds.py` and `main.py` import it. |
-| App kit + bundler | 5.0k (GitHub ~2.65k) | `app_kit/*.tsx`: the components generated apps import. The local tree adds `board`, `display`, `layout`, `overlay`, `plots`, `theme.css` and a Tailwind v4 bundler. |
+| **App builder core** | 10.0k | `app_builder_ai_service` 3.3k, `oneshot_builder` 2.3k, `build_coordinator` 1.5k, `builder_gates` 1.1k, `app_scaffold`, `app_service`, `app_autotest`, `backend_templates/selftest.py`; plus `editability_lint`. **`build_coordinator` is not dead code:** its role-split pipeline is legacy, but the default one-shot app build runs inside `Coordinator.execute`, and `oneshot_builder`, `app_autotest`, `app_builder_ai_service`, `routes/builds.py` and `main.py` import it. |
+| App kit + bundler | 5.0k | `app_kit/*.tsx`: the components generated apps import. Newer copies add `board`, `display`, `layout`, `overlay`, `plots`, `theme.css` and a Tailwind v4 bundler. |
 | Backend builder | 7.2k | `module_generator` 1.8k, `backend_templates/` 3.0k, module and route services |
 | Workflow management | 8.5k | `workflow_service` 1.0k, `template_installer` 1.0k, `template_bundle` 0.9k, `n8n_import` 1.2k, subworkflows, executions |
-| AI workflow builder | 6.9k | `ai_builder` 2.1k, `ai_spec`, `ai_repairs`, `ai_grounding`, `workflow_toolkit`, `proposal_sandbox`, … The local tree adds `workflow_oneshot.py` (0.7k) and `oneshot_prompt.md`: the editor's AI chat now builds in one call by default and reuses `ai_builder` helpers. |
+| AI workflow builder | 6.9k | `ai_builder` 2.1k, `ai_spec`, `ai_repairs`, `ai_grounding`, `workflow_toolkit`, `proposal_sandbox`, … Newer copies add `workflow_oneshot.py` (0.7k) and `oneshot_prompt.md`: the editor's AI chat now builds in one call by default and reuses `ai_builder` helpers. |
 | Knowledge (`kg_*`) | 3.5k | extract, learn, understand, slots, ontology, retrieve |
 | Plan step | 2.6k | `project_plan` 1.1k, `plan_clarify`, `plan_checklist`, `plan_compact` |
 | Releases and interfaces | 1.8k | `release_service`, `interface_*`. Both have live users: the route dispatcher, public apps and broker call `release_service`; the approval node and workflow service use `schemas/interface.py` and `interface_repository`. |
@@ -87,8 +76,8 @@ The app builder adds up to about **25k** of engine code: core 10.0k, kit and bun
 
 | Folder | Lines | What's in it |
 |---|---|---|
-| `features/workflow-editor` | 23.9k (GitHub 22.5k) | canvas, node forms (`DynamicNodeForm` 1.1k), store (1.1k), runs, the Tests tab, interfaces/AskBar pieces |
-| `features/app-builder` | 19.3k (GitHub 7.85k) | **visual editor 10.2k** (local only) + chat, preview and sandbox 9.1k (`ApiTesterPanel` alone is 1.9k) |
+| `features/workflow-editor` | 23.9k | canvas, node forms (`DynamicNodeForm` 1.1k), store (1.1k), runs, the Tests tab, interfaces/AskBar pieces |
+| `features/app-builder` | 19.3k | **visual editor 10.2k** + chat, preview and sandbox 9.1k (`ApiTesterPanel` alone is 1.9k) |
 | `shared/` | 11.8k | components 8.8k (incl. the copied-in `ai-elements` kit; `prompt-input.tsx` alone is 1.5k), API client 2.7k |
 | `features/project` | 10.7k | project overview, home, nav, setup panels, the old dead `story/` (2.4k) and overview tiles (1.0k). `HealthBadge`, `overview/home/`, `lib/pulse` and `lib/stats` are live. |
 | `features/ai-builder` | 7.8k | the AI workflow builder chat panel, plus the hidden app composer (`apps/`, 1.8k) |
@@ -105,9 +94,9 @@ The app builder adds up to about **25k** of engine code: core 10.0k, kit and bun
 
 | Lines | File |
 |---|---|
-| 3,265 | engine `services/app_builder_ai_service.py` (GitHub 3,207) |
+| 3,265 | engine `services/app_builder_ai_service.py` |
 | 2,749 | engine `nodes/ai/ai_agent.py` |
-| 2,262 | engine `services/oneshot_builder.py` (GitHub 1,967) |
+| 2,262 | engine `services/oneshot_builder.py` |
 | 2,141 | engine `services/ai_builder.py` |
 | 1,920 | studio `app-builder/components/ApiTesterPanel.tsx` |
 | 1,775 | engine `services/module_generator.py` |

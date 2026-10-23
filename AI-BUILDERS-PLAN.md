@@ -2,6 +2,10 @@
 
 2026-10-22. This is guidance for the agent doing the work. It builds on `docs/history/SIMPLIFICATION-PLAN.md` sections 4–6 and replaces them where they disagree. Do the cuts in `CUT-GUIDE.md` first.
 
+> **These guides were written on a different branch.** Your code may differ: file names, line numbers, sizes and test
+> counts are pointers, not exact targets. Find the same thing in your copy by name and adapt. The prompts and the ideas
+> stay the same.
+
 ## The idea in one paragraph
 
 Both builders today are pipelines of roles: plan, clarify, spec, generate, repair, check, fix, and each hand-off is a place to break. Current models are strong enough to do the whole job in **one call**, provided they get the full context up front and their output is checked by running it. So each builder becomes:

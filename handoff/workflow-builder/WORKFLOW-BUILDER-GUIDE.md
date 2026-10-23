@@ -1,8 +1,11 @@
 # Workflow builder guide: the one-shot workflow chat
 
-2026-10-23. Guidance for the agent on the other machine. This brings the AI workflow builder from the owner's main machine
-into your copy, then retires the old staged builder. **This is the last of the three guides:** do it after
+2026-10-23. This brings the one-shot AI workflow builder into your copy, then retires the old staged builder. **This is the last of the three guides:** do it after
 `CUT-GUIDE.md` and `ONESHOT-BUILDER-PORTING-GUIDE.md` are done and green.
+
+> **These guides were written on a different branch.** Your code may differ: file names, line numbers, sizes and test
+> counts are pointers, not exact targets. Find the same thing in your copy by name and adapt. The prompts and the ideas
+> stay the same.
 
 **Simple and fast is the rule.** When something fails, fix the prompt or the platform. Don't add a stage, a planner or
 a question round.
@@ -59,8 +62,8 @@ a question round.
 | `3-read-view.patch` | studio: a read-only "Read" view of a workflow as a top-to-bottom flowchart, beside "Canvas" (8 files) | 0.7k lines |
 | `oneshot_prompt.md` | **the exact builder prompt**, as a plain file so you can read it. Byte-identical to the copy inside patch 2; patch 2 creates it at `apps/workflow-engine/src/services/oneshot_prompt.md`. If you apply patch 2 by hand, copy this file there verbatim. | 193 lines |
 
-The patches are made against GitHub `revert-to-5684ba5` at `74e8575`. On a clean copy of that commit, all three apply,
-205 engine tests pass, `tsc -b` gives 0 errors and the read-view tests pass. That was checked on 2026-10-23.
+The patches were made on the branch these guides were written on. There, all three applied, 205 engine tests passed,
+`tsc -b` gave 0 errors and the read-view tests passed. On your copy, expect some hunks to need applying by hand (below).
 
 Patch 2 needs patch 1 (the tests use per-item approvals). Patch 3 is independent: skip it if the owner doesn't want
 the read view.
@@ -76,7 +79,7 @@ the read view.
 product; the workflow chat is self-contained (its own service, prompt and tests) and touches few shared files, so it
 goes in last with the least conflict risk.
 
-**What that means for the patches:** they were made against GitHub `74e8575`, before the cut. Patch 1 touches only
+**What that means for the patches:** they were made before the cut. Patch 1 touches only
 workflow-engine runtime files the cut and the port leave alone, so it should apply cleanly. Expect conflicts in:
 
 | File | Who changed it before you | How to resolve |
@@ -225,9 +228,9 @@ The new tests are `test_approval_per_item_pg.py`, `test_loop_approval_resume_pg.
      tests/unit/test_loop_approval_resume_pg.py tests/unit/test_postgres_transaction_per_item_pg.py \
      tests/unit/test_json_template_structures.py tests/unit/test_stage6_b5_chat.py
    ```
-   On `74e8575` plus the patches: 205 passed.
+   Where the patches were made: 205 passed.
    - Then run the whole unit suite and compare it with your baseline.
-   - Already red on `74e8575`: `test_stage8_b5_install_pg.py` (30), `test_kg_extract`, `test_kg_team`.
+   - Already red where the patches were made: `test_stage8_b5_install_pg.py` (30), `test_kg_extract`, `test_kg_team`.
    - Order-dependent, pass alone: `test_platform_data_layer::test_studio_db_values...`,
      `test_oneshot_builder::test_the_default_build_is_one_model_call...`.
 2. **Studio:** `npx tsc -b` (0 errors), `npx vitest run`, `npm run lint` (no worse than before), `npm run design:check`.

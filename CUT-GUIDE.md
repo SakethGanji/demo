@@ -2,13 +2,13 @@
 
 Status, 2026-10-23: a guide only. Nothing has been removed yet.
 
-**Revised 2026-10-23.** The first version was checked against GitHub (`revert-to-5684ba5` at `74e8575`), one agent per guide.
-Every path in it existed, but several deletions had importers it didn't name, and one package it removed is still needed.
-This version fixes those. Changes from the first version are marked **(fixed)**.
+> **These guides were written on a different branch.** Your code may differ: file names, line numbers, sizes and test
+> counts are pointers, not exact targets. Find the same thing in your copy by name and adapt. The prompts and the ideas
+> stay the same.
 
 ## Contents
 
-- [Read this first: your copy is not exactly this one](#read-this-first-your-copy-is-not-exactly-this-one)
+- [Read this first: your code may differ](#read-this-first-your-code-may-differ)
 - [What this pass does](#what-this-pass-does)
 - [Where this gets us](#where-this-gets-us)
 - [Rules for doing the cuts](#rules-for-doing-the-cuts)
@@ -22,26 +22,25 @@ This version fixes those. Changes from the first version are marked **(fixed)**.
   - [A5. API tester](#a5-the-app-builders-api-tester-24k-low-risk)
   - [A6. Legacy builder pipeline](#a6-legacy-app-builder-pipeline-10k-low-medium-risk)
 - [Part B: remove dead code](#part-b-remove-dead-code-6k)
-- [If your copy has the newer local work](#if-your-copy-has-the-newer-local-work)
+- [If your copy has newer work](#if-your-copy-has-newer-work)
 - [Not cut in this pass](#not-cut-in-this-pass)
 - [After Part A and Part B](#after-part-a-and-part-b)
 - [Open decisions](#open-decisions)
 
-## Read this first: your copy is not exactly this one
+## Read this first: your code may differ
 
-This guide was measured on GitHub `revert-to-5684ba5` at `74e8575` (the code is identical to `87989ea`; only docs differ).
-The copy you're working on was downloaded separately and may differ slightly.
+This guide was written on a different branch, so your copy may not match it exactly.
 
 - **Line numbers are hints.** Find code by the file and symbol name (function, class, component, route path), then
   confirm the line.
 - **Line counts are approximate.** Don't stop because a count is off by a few hundred.
 - **Never trust "nothing else uses it".** Before every deletion, grep your copy for importers (the commands are in rule 4).
-  This guide lists every importer found on `74e8575`. Your copy may have more; treat any extra importer as a reason to
+  This guide lists the importers found when it was written. Your copy may have more; treat any extra importer as a reason to
   look, not to delete it too.
 - **If a file named here doesn't exist** in your copy, search for the symbol. If it's gone entirely, skip that line and note
   it.
 - **If your copy has files this guide doesn't mention** (for example `services/workflow_oneshot.py`), read
-  [If your copy has the newer local work](#if-your-copy-has-the-newer-local-work) before starting.
+  [If your copy has newer work](#if-your-copy-has-newer-work) before starting.
 
 ## What this pass does
 
@@ -58,12 +57,12 @@ confidence level: `engine-appbuilder.md`, `engine-platform.md`, `studio-builder.
 
 | | Lines, not counting tests |
 |---|---|
-| GitHub `74e8575`: studio 100.4k + engine 102.1k | **~202k** |
+| When written: studio ~100k + engine ~102k | **~202k** |
 | After Part A (feature cuts) | ~181k |
 | After Part B (dead code) | **~175k** |
 
-Part A is smaller than the first version said (~21k, not ~24k). Releases' engine service, environments and the
-approval-screen parts of interfaces stay, because live code uses them **(fixed)**.
+Releases' engine service, environments and the
+approval-screen parts of interfaces stay, because live code uses them.
 
 About 10–12k test lines also go with the removed code. They are not counted above.
 
@@ -76,7 +75,7 @@ About 10–12k test lines also go with the removed code. They are not counted ab
    - studio (`apps/workflow-studio`): `npx tsc -b` error count, `npx vitest run` failures, `npm run lint` error count;
    - engine (`apps/workflow-engine`): the unit-test failures (`pytest tests/unit -q`).
 
-   Write them down. A gate below means "no worse than the baseline". On `74e8575`, these engine tests already fail:
+   Write them down. A gate below means "no worse than the baseline". When this was written, these engine tests already failed:
    `test_stage8_b5_install_pg.py` (30 tests), `test_kg_extract`, `test_kg_team`. These are order-dependent and pass when run alone:
    `test_platform_data_layer::test_studio_db_values_are_stored_and_read_back_literally` and
    `test_oneshot_builder::test_the_default_build_is_one_model_call`.
@@ -107,11 +106,11 @@ About 10–12k test lines also go with the removed code. They are not counted ab
    - prompt text: `platform_index.py`, `backend_templates/prompts.py`, the one-shot prompts.
 6. **Database.** Keep the tables and write no destructive migrations. Dropping data is a separate decision.
 7. **Tests.** Delete only the tests of deleted code. Never skip or weaken any other test. Each step below lists the tests found
-   on `74e8575`; grep for more.
+   when this was written; grep for more.
 
 ## Order of the steps
 
-**(fixed)** The first version's order (A1 → A6, then B) left the build broken between steps, because `ai-builder/apps/` and
+The plain order (A1 → A6, then B) would leave the build broken between steps, because `ai-builder/apps/` and
 `app_composer` import knowledge code, `project/story` imports knowledge helpers, and interfaces import releases. Do this:
 
 1. **A2:** the hidden app composer. It imports knowledge, so it goes first.
@@ -131,28 +130,28 @@ About 10–12k test lines also go with the removed code. They are not counted ab
 - **Studio:**
   - delete `features/ai-builder/apps/` (1.4k);
   - in `features/ai-builder/components/BuilderPanel.tsx`, remove the `AppPlanPanel` import and the button or tab that mounts
-    it (around lines 23–24 and 239) **(fixed: it's in `BuilderPanel`)**;
+    it (around lines 23–24 and 239);
   - remove the composer's functions from `features/ai-builder/api.ts`, and any query keys only they use.
 - **Engine (1.6k):**
   - delete `services/app_composer.py`, `services/app_plan.py`, `services/app_bundle.py`, `routes/ai_apps.py` and
     `schemas/ai_apps.py`;
   - remove `ai_apps_router` from `routes/__init__.py`;
   - in `services/ai_builder.py`, remove the branch that lazily imports `app_composer.part_seam` (search `part_seam`,
-    around line 1764) **(fixed)**;
+    around line 1764);
   - delete `repositories/app_build_repository.py`. Its only other user is `services/kg_learn.py`, which A1 deletes. If you do
-    A2 before A1 as ordered, leave the repository until A1 removes `kg_learn.py`, then delete it **(fixed)**.
+    A2 before A1 as ordered, leave the repository until A1 removes `kg_learn.py`, then delete it.
 - **Tests:** delete the composer's tests (`grep -rln "app_composer\|app_plan\|ai_apps" tests`), including
   `tests/unit/test_ai_apps_http.py` if present.
 - **Check:** the workflow editor's AI panel still opens and builds a workflow.
 
 ### B1a. Dead studio files that import knowledge code (do before A1)
 - Delete `features/project/story/` (~2.4k). Nothing imports it, and it imports `features/knowledge/lib/layout` and
-  `useMotionOff`, so it must go before A1 **(fixed)**.
+  `useMotionOff`, so it must go before A1.
 - Check with `grep -rn "project/story" apps/workflow-studio/src`: no hits outside the folder.
 
 ### A1. Knowledge (~10k, medium risk)
 
-**What stays (fixed):**
+**What stays:**
 - `services/project_knowledge.py` stays. The kept backend builder and app builder call it:
   - `module_generator.py`, around lines 1559, 1601 and 1626;
   - `builder_gates.py`, around 594 and 1102;
@@ -175,7 +174,7 @@ About 10–12k test lines also go with the removed code. They are not counted ab
 - **Delete:**
   - `features/knowledge/` (6.3k without tests), including `KnowledgeHomeCard` (nothing imports it);
   - `app/routes/knowledge.tsx`.
-- **Remove the references (fixed: the first version named only the nav):**
+- **Remove the references (not just the nav):**
   - `app/routes/project.tsx`: the second `knowledgeRoute` (around lines 122 and 287) and its imports (around 17–18);
   - `app/routes/index.ts` (around lines 7 and 19);
   - `shared/api/endpoints.ts` (around 10 and 230) and `shared/api/queryKeys.ts` (around 8 and 52–56);
@@ -199,7 +198,7 @@ About 10–12k test lines also go with the removed code. They are not counted ab
   - `repositories/kg_repository.py` (0.5k), `schemas/knowledge.py` (0.16k) and `db/knowledge_models.py`. Keep the tables;
     only the model module goes. If Alembic or migrate reads the models, keep the file.
   - `engine/knowledge/ontology/` (`bank_ops.yaml`), once nothing reads it.
-- **Edit (fixed: none of these were listed):**
+- **Edit:**
   - `src/main.py`, around lines 71–73: remove the `kg_extract.seed_global()` startup call;
   - `routes/__init__.py`: remove `knowledge_router` (around lines 42 and 73);
   - `services/ai_builder.py`: the `kg_*` imports and calls, around lines 329–429, 934, 1569 and 2097. These are the
@@ -221,7 +220,7 @@ About 10–12k test lines also go with the removed code. They are not counted ab
 
 ### A4. Interface builder, public interfaces and AskBar (~2.5k, medium risk)
 
-**(fixed)** The first version said the only editor edit was one polling helper. In fact Approvals (kept), the editor and
+It's not just one polling helper in the editor. Approvals (kept), the editor and
 the engine's approval node all use pieces of `interfaces`. Cut the interface *builder*, the public interface pages and
 AskBar; keep what Approvals and task screens use.
 
@@ -273,7 +272,7 @@ The users are `ApprovalsPage`, `TaskDetailPage`, `TaskParts`, `useTaskDecision`,
 
 ### A3. Releases UI (~1.5k, medium risk)
 
-**(fixed)** Live runtime code calls `ReleaseService`:
+Live runtime code calls `ReleaseService`:
 - `broker/workflows.py` (~110);
 - `routes/public_apps.py` (~483);
 - `services/route_dispatcher.py` (~155 and ~371, `pins_from_snapshot`);
@@ -311,13 +310,13 @@ the service stays.
 - **Studio:**
   - **Delete:** `app-builder/components/ApiTesterPanel.tsx` (1.9k) and the attach-API popover.
   - **`RoutePicker.tsx`:** it exports `RouteChecklist`, which `AppSettingsSheet.tsx` (~23) imports. Keep
-    `RouteChecklist` (move it into `AppSettingsSheet` or its own file), then delete the rest **(fixed)**.
+    `RouteChecklist` (move it into `AppSettingsSheet` or its own file), then delete the rest.
   - **`apiTesterApi`:** it's used by `AppBuilderChatPanel.tsx` (~219) and `AppSettingsSheet.tsx` (~74). Remove those uses,
-    then the API object **(fixed)**.
+    then the API object.
   - **`AppBuilderShell.tsx`** (around 65 and 698–703): it hosts the tester panels. Remove the tab and the panel.
 - **Engine:**
   - **Delete:** `routes/api_tester.py`, and remove `api_tester_router` from `routes/__init__.py` (around 30 and 97).
-  - **Keep `routes/test_mocks.py` (fixed).** It serves `POST /workflows/{id}/nodes/{n}/mock/generate`, which the
+  - **Keep `routes/test_mocks.py`.** It serves `POST /workflows/{id}/nodes/{n}/mock/generate`, which the
     editor's Tests tab calls (`testActions.ts` ~161, `api.ts` ~557).
 - **Keep** `BackendPanel` and all of `features/backend`. The backend builder stays.
 - **Check:**
@@ -331,7 +330,7 @@ the service stays.
 This is the **app** builder's `WORKFLOW_BUILDER_MODE=pipeline` switch. It's unrelated to the workflow chat's
 `WF_CHAT_BUILDER` switch (see below).
 
-**(fixed)** `services/build_coordinator.py` **cannot be deleted.** Its users:
+`services/build_coordinator.py` **cannot be deleted.** Its users:
 - `oneshot_builder.py` imports it at module level (~38) and uses about 20 helpers: `emit`, `emit_file`, `_factory`,
   `_app_service`, `concurrency`, `route_statuses`, `_emit_tables` and others;
 - `app_autotest.py` (~255), `app_builder_ai_service.py` (~1951, 1961 and 2008), `routes/builds.py` (~24) and `main.py`
@@ -368,10 +367,10 @@ mark the ones no other file imports.
 ### B1. Unreachable studio files (~1.7k after B1a, high confidence)
 - **Old overview tiles plus `useWidth`** (~1.0k) in `features/project/overview`:
   - **keep** `HealthBadge` (used by `OverviewView`), `overview/home/`, `lib/pulse` and `lib/stats`;
-  - delete only the tiles nothing imports **(fixed)**.
+  - delete only the tiles nothing imports.
 - **`features/projects/hooks/`:**
   - delete `useAppActions`, `useApps`, `useLatestExecutions` and `useWorkflowActions` together;
-  - **keep `useWorkflows.ts` (fixed).** It's live: `overview/home/Builds.tsx` and the editor's
+  - **keep `useWorkflows.ts`.** It's live: `overview/home/Builds.tsx` and the editor's
     `WorkflowSelectorField`, `versionDiffView`, `workflowDiff` and `workflowTransform` import it.
 - `features/projects/lib`, if nothing imports it.
 - `workflows-list/workflowMeta.ts`.
@@ -395,8 +394,8 @@ mark the ones no other file imports.
   - `invalidate.appSaved` and `invalidate.tasksChanged`; `invalidate.interfaceChanged` goes in A4.
 - **Everything else:**
   - about 60 zero-use exports and 9 unused types;
-  - dead helpers in `tests.ts` and `shapes.ts`, and in `workflow-editor/components/canvas/stageGeometry.ts` **(fixed: it's
-    under `components/canvas/`, not `lib/`)**.
+  - dead helpers in `tests.ts` and `shapes.ts`, and in `workflow-editor/components/canvas/stageGeometry.ts` (it's
+    under `components/canvas/`, not `lib/`).
 - Grep each name before removing it.
 
 ### B3. The copied-in `ai-elements` chat UI kit, unused parts (~1.25k, medium-high confidence)
@@ -416,7 +415,7 @@ mark the ones no other file imports.
 
 ### B5. Unused packages (low risk)
 - **Studio:** `npm uninstall` `@unocss/core`, `@unocss/preset-wind`, `react-markdown`, `remark-gfm` and `immer`.
-  - **Keep `tailwindcss-v3` (fixed).** The engine's `services/app_bundler.py` (~167) runs
+  - **Keep `tailwindcss-v3`.** The engine's `services/app_bundler.py` (~167) runs
     `workflow-studio/node_modules/tailwindcss-v3/lib/cli.js` and fails every app publish without it. Only remove it if your
     copy's `app_bundler.py` no longer mentions `tailwindcss-v3` (the newer local bundler uses Tailwind v4 via
     `@tailwindcss/node`).
@@ -426,7 +425,7 @@ mark the ones no other file imports.
 - **Engine:**
   - remove `aiosqlite`;
   - remove `openpyxl` only together with `apps/workflow-engine/dummy_excel_api.py`, which imports it (~23). That file is a
-    demo helper; keep both if anyone still runs it **(fixed)**;
+    demo helper; keep both if anyone still runs it;
   - keep `python-multipart`.
 
 ### B6. Copy-pasted helpers (~0.4k, medium confidence)
@@ -436,16 +435,16 @@ mark the ones no other file imports.
   - `median` (3);
   - the reduced-motion helper (5; after A1 one of them is `shared/hooks/useMotionOff`);
   - the relative-time formatters.
-- **Engine (fixed):** `_chain` is defined in 2 files, `backend_templates/checks.py` and `backend_templates/selftest.py`.
+- **Engine:** `_chain` is defined in 2 files, `backend_templates/checks.py` and `backend_templates/selftest.py`.
   Merge them only if they're identical. `_attr_chain` in `project_knowledge.py` and `module_generator.py` is a different
   helper; leave it.
 - **Leave `slugify`/`SLUG_RE` alone.** The copies differ.
 
 ---
 
-## If your copy has the newer local work
+## If your copy has newer work
 
-The owner's main machine has work that wasn't on GitHub at `74e8575`. Your copy may have some of it.
+Your copy may have newer work than the code this guide was written on.
 
 The workflow part of that work comes as patches in `handoff/workflow-builder/`: engine fixes, the one-shot workflow chat
 and the read view. **Don't apply them now.** The order is this cut → `ONESHOT-BUILDER-PORTING-GUIDE.md` →
@@ -485,7 +484,7 @@ the newer work and these cuts both edit. Resolve by keeping the newer work's beh
 
 ## After Part A and Part B
 
-| Area | GitHub `74e8575` | After |
+| Area | When written | After |
 |---|---|---|
 | Studio | 100.4k | ~82k |
 | Engine | 102.1k | ~93k |

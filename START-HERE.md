@@ -2,6 +2,10 @@
 
 This page lists the documents that are current. Anything not listed here is history.
 
+> **These guides were written on a different branch.** Your code may differ: file names, line numbers, sizes and test
+> counts are pointers, not exact targets. Find the same thing in your copy by name and adapt. The prompts and the ideas
+> stay the same.
+
 ## The work, in order
 
 | # | Guide | What it does |

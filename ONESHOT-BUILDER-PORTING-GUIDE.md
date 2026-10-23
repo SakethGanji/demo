@@ -13,11 +13,12 @@ It **replaces the app-builder parts of `AI-BUILDERS-PLAN.md`**: "How apps get da
 
 **The owner's rule: simple and fast.** When something fails, fix the prompt or the platform. Don't add a stage, a planner or a question round.
 
-**Revised 2026-10-23** after a check against GitHub `revert-to-5684ba5` at `74e8575`. Fixes are marked **(fixed)**.
+> **These guides were written on a different branch.** Your code may differ: file names, line numbers, sizes and test
+> counts are pointers, not exact targets. Find the same thing in your copy by name and adapt. The prompts and the ideas
+> stay the same.
 
 **Before you start:**
-- **Your copy differs slightly from the one this was written on.** File and symbol names are reliable; line numbers are
-  hints. Grep for importers before deleting anything.
+- **Grep for importers before deleting anything.** File and symbol names are reliable; line numbers are hints.
 - **You need `experiments/oneshot-builder/`** and `AI-BUILDERS-PLAN.md`. If either is missing from your copy, stop and
   ask the owner. Nothing here works without the prototype. It is code and prompts only (about 2k lines), plus:
   - `fixture/vendor-payments/`: one known-good app, for testing the runtime with no model call (Phase 1);
@@ -138,18 +139,18 @@ Don't touch app code yet.
    cd ..
    ```
    - The UI versions are pinned to the studio's: React 18.3.1, esbuild 0.25.12, playwright 1.62.1, TypeScript 5.9.3.
-   - **(fixed)** The checker and robot need Chromium. Skip `playwright install` if a Chromium is already set up for
+   - The checker and robot need Chromium. Skip `playwright install` if a Chromium is already set up for
      Playwright on the machine.
-   - **(fixed)** The Python side needs Python 3.11+ and `uv`, since the backend server runs with
+   - The Python side needs Python 3.11+ and `uv`, since the backend server runs with
      `uv run --no-project --with fastapi --with uvicorn`. Without `uv`, `pip install fastapi uvicorn` in a venv and run
      `server.py` with that venv.
-   - **(fixed)** `node_modules` is not git-ignored at the repo root. Don't commit `experiments/oneshot-builder/ui/node_modules`.
+   - `node_modules` is not git-ignored at the repo root. Don't commit `experiments/oneshot-builder/ui/node_modules`.
 2. The model:
    - `build.call_model` uses the `claude` CLI if there is no key. The CLI must be installed and logged in for the user
      running the scripts. Check with `claude -p "say ok"`.
    - With `ANTHROPIC_API_KEY` and `LLM_MODEL` set, it calls the API.
    - **Use the model the engine will use in production.** The numbers in section 1 came from a Sonnet-class model.
-   - **(fixed)** This costs real model calls: about 3 calls per app, roughly 40–60 calls for the whole Phase 0 set. Tell the
+   - This costs real model calls: about 3 calls per app, roughly 40–60 calls for the whole Phase 0 set. Tell the
      owner before running it.
 3. Run:
    - `python api_test.py` (no model; the fixture must pass 31/31 before anything else);
@@ -182,7 +183,7 @@ Column type mapping:
 | `datetime` | `datetime` | |
 | `ref` | `integer` + `ref: "<table>.id"` | check the row exists; refuse delete while referenced |
 
-**(fixed)** What `DataTableService` accepts today (`services/data_table_service.py`, near the top):
+What `DataTableService` accepts today (`services/data_table_service.py`, near the top):
 - `ref` must look like `table.column` (`REF_RE`), so write `"<table>.id"`, not just the table name;
 - `required` and `default` are core column keys; they're already supported;
 - `META_KEYS` is `unique`, `index`, `deprecated`, `enum`, `ref` and `description`. **There's no `locked`**;
@@ -280,12 +281,12 @@ All `sandbox/` paths here are the studio's: `apps/workflow-studio/src/features/a
 - **Transport:**
   - The preview iframe is sandboxed, so change the kit's `api()` to send `apiRequest` over `sandbox/bridge.ts`. The parent
     already does the fetch (`IframeSandbox.tsx`).
-  - **(fixed)** `sandbox/requestPolicy.ts` (`previewRequestUrl`) today only lets requests under `/api/p/{slug}/` through, for
+  - `sandbox/requestPolicy.ts` (`previewRequestUrl`) today only lets requests under `/api/p/{slug}/` through, for
     both `preview` and `published` scope. Add a second allowed prefix, `/api/apps/{this app's id}/rt/`, for this app only.
     Pass the app id in where `slug` is passed.
   - Add vitest cases: this app's runtime is allowed; another app's runtime and other paths are refused.
 - **The role switcher** sends the "view as" headers through the bridge.
-  - **(fixed)** It lives in the prototype's `AppShell` in `ui/kit.tsx` (around line 185), which comes into the studio with
+  - It lives in the prototype's `AppShell` in `ui/kit.tsx` (around line 185), which comes into the studio with
     the kit.
   - There's no studio `AppShell`. The engine's `app_kit/resource.tsx` has an unrelated `AppShell`; don't confuse them.
   - `previewUserHeaders` and `withViewAs` in `requestPolicy.ts` already build the `X-Preview-User*` headers, so reuse them.
@@ -306,19 +307,19 @@ All `sandbox/` paths here are the studio's: `apps/workflow-studio/src/features/a
      are still `app_files` rows.
 2. Delete the retired app-builder code from the "What this retires" list in `AI-BUILDERS-PLAN.md`, one area per change.
    Map importers first (`grep -rn "<module>" src tests`).
-   - **(fixed) Sizes:**
+   - **Sizes:**
      - the engine app-builder code that goes is about 14k lines across about 20 files;
      - with the studio side (chat, plan, BuildStudio), about 22k;
      - the prototype that replaces it is about 2k.
      - Measure on your copy.
-   - **(fixed) Already gone if CUT-GUIDE was done:** `app_composer.py`, `app_plan.py` and `app_bundle.py` (CUT-GUIDE
+   - **Already gone if CUT-GUIDE was done:** `app_composer.py`, `app_plan.py` and `app_bundle.py` (CUT-GUIDE
      A2), and the role-split pipeline (A6).
-   - **(fixed) `build_coordinator.py`:** it's on the retire list, but the current one-shot app build runs inside it
+   - **`build_coordinator.py`:** it's on the retire list, but the current one-shot app build runs inside it
      (`oneshot_builder.py`, `app_autotest.py`, `app_builder_ai_service.py`, `routes/builds.py` and `main.py` import it).
      Delete it only together with those, after `grep -rn build_coordinator src tests` shows no other user.
    - **Keep the chat endpoint** (`POST /ai/app-builder/chat`) and the studio hook that calls it. Grep for
      `ai/app-builder/chat` in `apps/workflow-studio/src` to find the hook (it was `useAppBuilderChat.ts`); it may have moved.
-   - **(fixed) If your copy has newer app-builder work** (a bigger `oneshot_builder.py`, `app_kit/board.tsx`,
+   - **If your copy has newer app-builder work** (a bigger `oneshot_builder.py`, `app_kit/board.tsx`,
      `display.tsx`, `layout.tsx`, `overlay.tsx`, `plots.tsx`, `theme.css`, or `app_bundler_tailwind.mjs`), it's the
      current builder's improvements. It retires with the rest at this step. Don't port it into the new path.
 3. **Also delete `tailwindcss-v3`** from the studio's `package.json` (`npm uninstall tailwindcss-v3`), together with
