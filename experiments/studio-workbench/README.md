@@ -3,8 +3,7 @@
 This folder is the design reference for **Studio Workbench**, the agent workspace in Command Studio. It holds:
 
 - `mockup.html`: a single, self-contained, clickable mockup. Open it in a browser. Click a suggestion in the command bar to start, and press `?` to reset.
-- `screens/`: 13 stills of the full flow, including dark mode and phone.
-- `README.md` (this file): what to build, and how the mockup maps to real parts.
+- `README.md` (this file): how it works and how the UI should look.
 
 The mockup is the spec for **look, layout and behaviour**. Everything in it is fake: the timers, the data and the "Harbor" bank app. Rebuild it in `apps/workflow-studio`, following `apps/workflow-studio/DESIGN-STANDARD.md`. Do not copy the mockup's code.
 
@@ -100,29 +99,7 @@ On desktop, at about 1320 px and wider:
 
 Keep these numbers consistent everywhere: 4 tasks, 6 workflows, 42 scripts (43 after the save), Nightly tests 13/14 with 1 likely bug, and 3 wires with 1 mismatch.
 
-## 4. Mapping to real parts (for the implementer)
-
-| Mockup piece | Real implementation |
-|---|---|
-| Live browser tab | A cloud Chromium driven by Playwright on the server (reuse `apps/test-builder`'s browser runner). Stream it to the page with the CDP `Page.startScreencast` → JPEG frames over a WebSocket → `<canvas>`. Take over forwards mouse and keyboard as `Input.dispatchMouseEvent` / `Input.dispatchKeyEvent`, and pauses the agent loop while it is held. **Never expose the CDP port or DevTools URL to the client**; the server proxies everything. (noVNC streaming a whole desktop is the fallback if a non-browser app is ever needed.) |
-| Query tab / Results grid | Named DB connections set up by IT. These are read-only by default; a write only happens through a Change review. |
-| Workflow run tab, schedules | The existing workflow engine and its runs. "Every morning 8:00" is a schedule trigger on the saved script. The "Request Maria's OK" flow is the engine's approval step. |
-| Steps = script | Persist every task as an ordered list of typed steps (`tool`, `args`, `result`, timestamps). The saved script is that list, and replay runs it with **no LLM**. An edited step invalidates the steps after it, so "Rerun from here" replays from that index. |
-| Timeline | An append-only action log per task (`ts`, `step`, `tool`, `summary`, plus a snapshot ref: a screenshot for browser actions, a result-set id for queries). Scrubbing renders the snapshot, not live state. Fork copies the log up to that tick into a new task. |
-| Comments | Threads anchored to a target (`row:W-88202`, `step:3`, `dom:<selector>@tick`). A comment wakes the agent with the anchor as context. Its reply is posted in the thread, and any new steps go into the plan. |
-| Change review | The agent never writes directly. It proposes a change set (a DB diff and/or workflow runs, plus environment and reason). The UI renders the diff. Approve executes it; request-approval routes it to the named approver. Production writes always need a second person. |
-| Manager | A list of tasks with their status and the latest snapshot as the thumbnail. "Needs you" is a pending Take over or a pending Change review. |
-
-Build order suggestion:
-
-1. Build the shell: the layout, the Editor/Manager views, the Explorer and the tab system, against fake data.
-2. Add the task model: steps, the action log, and the timeline.
-3. Add read-only tools (query and browser) with the CDP screencast and Take over.
-4. Add Change review and approvals.
-5. Add comments.
-6. Add saved scripts with no-AI replay, and schedules.
-
-## 5. Known gaps in the mockup (don't copy these)
+## 4. Known gaps in the mockup (don't copy these)
 
 - The seeded "Stuck wires check" card says step 3/5, but opening it replays from step 1. A real task should resume where it is.
 - Only the W-88202 row gets a real reply to a comment. Everything else gets "Noted".
