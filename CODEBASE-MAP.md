@@ -154,4 +154,4 @@ Check these before deleting any route or page:
 
 Order: `CUT-GUIDE.md` (what to cut), then `ONESHOT-BUILDER-PORTING-GUIDE.md` (the new app builder), then
 `handoff/workflow-builder/WORKFLOW-BUILDER-GUIDE.md` (the workflow chat).
-`SIMPLIFICATION-PLAN.md` is superseded.
+`docs/history/SIMPLIFICATION-PLAN.md` is superseded.

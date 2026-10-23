@@ -3,7 +3,7 @@
 This folder is the design reference for **Studio Workbench**, the agent workspace in Command Studio. It holds:
 
 - `mockup.html`: a single, self-contained, clickable mockup. Open it in a browser. Click a suggestion in the command bar to start, and press `?` to reset.
-- `README.md` (this file): how it works and how the UI should look.
+- `STUDIO-WORKBENCH-GUIDE.md` (this file): how it works and how the UI should look.
 
 The mockup is the spec for **look, layout and behaviour**. Everything in it is fake: the timers, the data and the "Harbor" bank app. Rebuild it in `apps/workflow-studio`, following `apps/workflow-studio/DESIGN-STANDARD.md`. Do not copy the mockup's code.
 
