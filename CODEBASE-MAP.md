@@ -152,5 +152,6 @@ Check these before deleting any route or page:
   `db/migrations/` (SQL migrations, add-only), and helpers such as `prompt_lab_standalone.py`, `dummy_excel_api.py` and
   the other `dummy_*.py` files.
 
-See `CUT-GUIDE.md` for what to cut, then `ONESHOT-BUILDER-PORTING-GUIDE.md` for the new app builder.
+Order: `CUT-GUIDE.md` (what to cut), then `ONESHOT-BUILDER-PORTING-GUIDE.md` (the new app builder), then
+`handoff/workflow-builder/WORKFLOW-BUILDER-GUIDE.md` (the workflow chat).
 `SIMPLIFICATION-PLAN.md` is superseded.

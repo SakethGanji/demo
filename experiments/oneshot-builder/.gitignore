@@ -1,0 +1,7 @@
+out/
+out2/
+apps/
+app.db
+*.log
+*-failed.png
+ui/node_modules/

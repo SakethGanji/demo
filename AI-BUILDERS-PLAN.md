@@ -118,7 +118,10 @@ The target is about 8–10k for the two together. That includes the preview and 
 
 ## Order
 
-The two tracks are independent: they can run in either order, or in parallel by different agents, because they touch no common files.
+**Owner's order (2026-10-23): cut and prune (`CUT-GUIDE.md`) → app builder (`ONESHOT-BUILDER-PORTING-GUIDE.md`) →
+workflow builder (`handoff/workflow-builder/WORKFLOW-BUILDER-GUIDE.md`).** The workflow track below is already built on
+the owner's machine as `workflow_oneshot.py` and ships as patches in that folder; follow its guide, not the steps below.
+The app-builder steps below are replaced by the porting guide. The two tracks touch almost no common files.
 
 **Workflow builder track**
 1. Build `workflow_ai_build.py` beside the old path, behind a flag, and run the workflow evals. It's the lower-risk track: the editor works and the checker exists.

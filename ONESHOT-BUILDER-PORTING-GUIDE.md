@@ -8,7 +8,8 @@ It **replaces the app-builder parts of `AI-BUILDERS-PLAN.md`**: "How apps get da
 - the gates;
 - the out-of-scope list.
 
-Do the cuts in `CUT-GUIDE.md` first.
+**Order of the three guides:** `CUT-GUIDE.md` first, then this guide, then
+`handoff/workflow-builder/WORKFLOW-BUILDER-GUIDE.md` (the workflow chat) last.
 
 **The owner's rule: simple and fast.** When something fails, fix the prompt or the platform. Don't add a stage, a planner or a question round.
 
@@ -17,13 +18,15 @@ Do the cuts in `CUT-GUIDE.md` first.
 **Before you start:**
 - **Your copy differs slightly from the one this was written on.** File and symbol names are reliable; line numbers are
   hints. Grep for importers before deleting anything.
-- **You need `experiments/oneshot-builder/`** (the prototype: about 2.2k lines of Python, TSX and prompts, plus `apps/` and
-  `base/` fixtures) and `AI-BUILDERS-PLAN.md`. If either is missing from your copy, stop and ask the owner. Nothing here
-  works without the prototype.
-- **The workflow-builder half of `AI-BUILDERS-PLAN.md` is already done** if your copy has
-  `apps/workflow-engine/src/services/workflow_oneshot.py`: the editor's AI chat builds and edits workflows in one call.
-  That's documented in `apps/workflow-engine/prototypes/workflow-oneshot/README.md` ("In the product"). This guide is
-  only about apps.
+- **You need `experiments/oneshot-builder/`** and `AI-BUILDERS-PLAN.md`. If either is missing from your copy, stop and
+  ask the owner. Nothing here works without the prototype. It is code and prompts only (about 2k lines), plus:
+  - `fixture/vendor-payments/`: one known-good app, for testing the runtime with no model call (Phase 1);
+  - `ui/example-journey.json`: part of the journey prompt (`{{EXAMPLE}}`).
+  Generated apps are not kept; Phase 0 builds them.
+- **The exact prompts are the files:** `PROMPT.md` (backend), `ui/UI_PROMPT.md` + `ui/example-App.tsx` (page),
+  `ui/JOURNEY_PROMPT.md` + `ui/example-journey.json` (test). The edit and fix-round wording is in `build.py`,
+  `ui_build.py` and `journey_build.py`. Copy all of it verbatim.
+- **This guide is only about apps.** The workflow chat is the third guide.
 
 ## Contents
 
@@ -105,7 +108,8 @@ A build or an edit takes 2–3 minutes and 3 model calls. The role-split pipelin
 | `PROMPT.md`, `ui/UI_PROMPT.md`, `ui/JOURNEY_PROMPT.md`, `ui/example-App.tsx` | prompt files next to `app_ai_build.py` | copy verbatim; every line was earned by a failure (section 3) |
 | `ui/kit.tsx`, `ui/main.tsx` | the studio's virtual `./kit` module for generated apps | its `api()` changes to go through the iframe bridge (Phase 3) |
 | `ui/check.mjs`, `ui/journey.mjs`, `ui/package.json` | a small node tool the engine shells out to | the same way `app_bundler.py` already shells out to esbuild |
-| `eval.py`, `eval2.py`, `edit_e2e.py`, `base/`, `apps/` | the eval set, plus fixtures for Phase 1 | rerun after every prompt or kit change |
+| `eval.py`, `eval2.py`, `edit_e2e.py` | the eval set | rerun after every prompt or kit change; outputs go to `out/`, `out2/`, `apps/` (git-ignored) |
+| `fixture/vendor-payments/`, `api_test.py` | the Phase 1 gate | a fixed app, so the runtime is tested without a model |
 
 ## 3. Lessons: don't undo these
 
@@ -148,12 +152,14 @@ Don't touch app code yet.
    - **(fixed)** This costs real model calls: about 3 calls per app, roughly 40–60 calls for the whole Phase 0 set. Tell the
      owner before running it.
 3. Run:
-   - `python eval.py`, then `python eval2.py` (backend);
-   - `python ui_build.py apps/<app> "<request>"` for the 4 multi-table apps;
-   - `python journey_build.py apps/<app> "<request>"`;
-   - `python edit_e2e.py`.
+   - `python api_test.py` (no model; the fixture must pass 31/31 before anything else);
+   - `python eval.py` (8 single-table backends, into `out/`), then `python eval2.py` (4 multi-table backends into
+     `out2/`, plus 4 edits that start from `eval.py`'s apps in `out/`);
+   - `python ui_build.py out2/<app> "<request>"` then `python journey_build.py out2/<app> "<request>"` for the 4
+     multi-table apps. Requests are in `eval2.MULTI`;
+   - `python edit_e2e.py` (builds `apps/vendor-payments` and `apps/audit-program` first if missing, then edits them).
 
-   Requests are in `eval2.MULTI`. The backend server runs with `uv run --no-project --with fastapi --with uvicorn`.
+   The backend server runs with `uv run --no-project --with fastapi --with uvicorn`.
 4. **Gate:** first-call pass rates within one case of section 1. If they're worse, fix the prompts here before porting anything.
 
 ## 5. Phase 1: the app runtime in the engine (no AI yet)
@@ -232,9 +238,9 @@ The endpoints:
 Keep the response shapes exactly. The kit and the robot depend on them.
 
 **Gate:**
-1. Load `experiments/oneshot-builder/apps/vendor-payments-edit` (`schema.json`, `actions.py`, `App.tsx`) into a project with a small script.
+1. Load `experiments/oneshot-builder/fixture/vendor-payments` (`schema.json`, `actions.py`, `App.tsx`) into a project with a small script.
 2. Point `api_test.py` at the engine route (change the base URL and headers): it must pass.
-3. Run `journey.json` and `crud.json` there with `ui/journey.mjs` against the engine: they must pass. Then do the same for the other fixture apps.
+3. Run `journey.json` and `crud.json` there with `ui/journey.mjs` against the engine: they must pass. Then do the same for the apps Phase 0 built.
 4. Run the engine unit tests.
 
 ## 6. Phase 2: the build in the engine

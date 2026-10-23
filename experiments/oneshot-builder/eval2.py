@@ -1,6 +1,6 @@
 """Harder cases: several related tables, and edits to existing apps.
 
-    python eval2.py [N_PARALLEL]      (edits start from the apps in base/)
+    python eval2.py [N_PARALLEL]      (run eval.py first: edits start from its apps in out/)
 """
 import json
 import shutil
@@ -21,7 +21,7 @@ MULTI = [
     "close when all its action items are done; an audit can only close when all its findings are closed.",
 ]
 
-EDITS = [  # (app folder from the base run, change)
+EDITS = [  # (app folder from eval.py's run in out/, change)
     ("track-vendor-invoices-anyone-in-ap-can-a",
      "Add a due date to invoices (default 30 days after it's added) and a list of overdue unpaid invoices."),
     ("customer-complaint-log-with-sla-log-assi",
@@ -34,7 +34,7 @@ EDITS = [  # (app folder from the base run, change)
 
 if __name__ == "__main__":
     n = int(sys.argv[1]) if len(sys.argv) > 1 else 8
-    base = HERE / "base"
+    base = HERE / "out"
     jobs = [(c, HERE / "out2" / slug(c), None) for c in MULTI]
     for app, change in EDITS:
         target = HERE / "out2" / ("edit-" + app[:30])

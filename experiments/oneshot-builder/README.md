@@ -56,9 +56,16 @@ The one failure was ours again: the test helper `t.run(name, ...)` clashed with 
 ## E2E step 1: the app runs as a server (done)
 
 ```
-uv run --no-project --with fastapi --with uvicorn python server.py apps/vendor-payments --port 8100
-python api_test.py apps/vendor-payments      # starts its own server, 31 HTTP checks
+uv run --no-project --with fastapi --with uvicorn python server.py fixture/vendor-payments --port 8100
+python api_test.py fixture/vendor-payments      # starts its own server, 31 HTTP checks
 ```
+
+Generated apps (`out/`, `out2/`, `apps/`) are not kept in git; every script rebuilds what it needs. Two things are kept
+on purpose:
+- `fixture/vendor-payments/`: one known-good app (the vendor-payments edit: `schema.json`, `actions.py`, `App.tsx`,
+  `journey.json`, and the hand-checked direct-editing test `crud.json`). It tests the runtime without any model call.
+  `api_test.py` part B is written for it.
+- `ui/example-journey.json`: a real passing journey. It is the `{{EXAMPLE}}` in the journey prompt.
 
 `server.py` is written once and is the same for every app; nothing in it is generated. It provides:
 - **Data kept in a file:** `APP_DIR/app.db`. Sample rows go in only the first time, and new columns from edits are added in place, with their defaults.

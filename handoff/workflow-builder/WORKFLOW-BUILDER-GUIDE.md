@@ -1,7 +1,8 @@
 # Workflow builder guide: the one-shot workflow chat
 
 2026-10-23. Guidance for the agent on the other machine. This brings the AI workflow builder from the owner's main machine
-into your copy, then retires the old staged builder.
+into your copy, then retires the old staged builder. **This is the last of the three guides:** do it after
+`CUT-GUIDE.md` and `ONESHOT-BUILDER-PORTING-GUIDE.md` are done and green.
 
 **Simple and fast is the rule.** When something fails, fix the prompt or the platform. Don't add a stage, a planner or
 a question round.
@@ -56,6 +57,7 @@ a question round.
 | `1-engine-fixes.patch` | engine bugs the live runs found, plus `per_item` approvals and a migration (23 files) | 1.6k lines |
 | `2-ai-chat.patch` | the one-shot builder (`workflow_oneshot.py`, its prompt), wiring into the chat, and 22 tests (7 files) | 1.4k lines |
 | `3-read-view.patch` | studio: a read-only "Read" view of a workflow as a top-to-bottom flowchart, beside "Canvas" (8 files) | 0.7k lines |
+| `oneshot_prompt.md` | **the exact builder prompt**, as a plain file so you can read it. Byte-identical to the copy inside patch 2; patch 2 creates it at `apps/workflow-engine/src/services/oneshot_prompt.md`. If you apply patch 2 by hand, copy this file there verbatim. | 193 lines |
 
 The patches are made against GitHub `revert-to-5684ba5` at `74e8575`. On a clean copy of that commit, all three apply,
 205 engine tests pass, `tsc -b` gives 0 errors and the read-view tests pass. That was checked on 2026-10-23.
@@ -65,14 +67,28 @@ the read view.
 
 ## 3. Order with the other guides
 
-1. **This guide, steps 1–2:** apply the patches and check them.
-2. **`CUT-GUIDE.md`:**
-   - Its section "If your copy has the newer local work" now applies to you.
-   - A1 (knowledge) retires the old staged chat by default, because it uses the Understand step that A1 removes. That is
-     step 3 of this guide, so do them together.
-3. **`ONESHOT-BUILDER-PORTING-GUIDE.md`:** the app builder.
+1. **`CUT-GUIDE.md`** (cut and prune). Its A1 removes only the Understand stage from the old staged chat and keeps that
+   chat working.
+2. **`ONESHOT-BUILDER-PORTING-GUIDE.md`** (the app builder).
+3. **This guide:** step 1 (patches), step 2 (check), step 3 (retire the old staged chat).
 
-Applying the patches before the cut means the cut sees `workflow_oneshot.py` and keeps what it uses.
+**Why this order:** the cut makes the tree small and green first; the app builder is the biggest change and the main
+product; the workflow chat is self-contained (its own service, prompt and tests) and touches few shared files, so it
+goes in last with the least conflict risk.
+
+**What that means for the patches:** they were made against GitHub `74e8575`, before the cut. Patch 1 touches only
+workflow-engine runtime files the cut and the port leave alone, so it should apply cleanly. Expect conflicts in:
+
+| File | Who changed it before you | How to resolve |
+|---|---|---|
+| `services/ai_builder.py` (patch 2) | CUT-GUIDE A1 removed the Understand stage | The patch's only change is a 4-line branch in `revise()`, right after the "only a ready proposal can be revised" check: if `parent.get("provider") == "oneshot"`, return `await workflow_oneshot.revise(parent, instruction, actor)`. Add it by hand. |
+| `services/ai_chat_service.py` (patch 2) | maybe A1 | Add `local_route`, `use_oneshot` and the `workflow_oneshot` call in the chat stream as described in section 6. |
+| `tests/unit/test_stage6_b5_chat.py`, `tests/integration/conftest.py` (patch 2) | maybe A1 | The patch only sets `WF_CHAT_BUILDER=legacy` in them. Add that line. |
+| `WorkflowNavbar.tsx`, `WorkflowEditorPage.tsx` (patch 3) | CUT-GUIDE A4 removed the interface panel | Keep A4's removal and add the Canvas/Read switch and the read view (section 7). |
+
+New files in the patches always apply: `workflow_oneshot.py`, `oneshot_prompt.md`, the tests, the migration, the read
+view. Before applying, check that every helper `workflow_oneshot.py` imports (section 6, "What it reuses") still exists
+after the cut. If one was deleted, restore it from git history rather than rewriting it.
 
 ## 4. Step 1: apply the patches
 
@@ -226,7 +242,8 @@ The new tests are `test_approval_per_item_pg.py`, `test_loop_approval_resume_pg.
 
 ## 9. Step 3: retire the old builder
 
-Do this with CUT-GUIDE A1, after step 2 passes. One area per change, and grep for importers before every deletion.
+Do this right after step 2 passes. One area per change, and grep for importers before every deletion. CUT-GUIDE A1
+already removed the Understand stage and the `kg_*` calls; delete whatever of the legacy path is left.
 
 **Engine:**
 - Remove the `WF_CHAT_BUILDER=legacy` branch in `ai_chat_service.py` and `use_oneshot()`.
@@ -247,8 +264,9 @@ Do this with CUT-GUIDE A1, after step 2 passes. One area per change, and grep fo
 - never weaken a test that still covers live code.
 
 **Studio** (`features/ai-builder`):
-- delete the spec, clarifying-questions, rounds and Understand UI (`ClarifyQuestions`, `QuestionControl`,
-  `UnderstandingCard`, `LiveConcepts`, `lib/understanding.ts`, and those stages in `useStageDriver`/`buildState`);
+- delete the spec, clarifying-questions and rounds UI (`ClarifyQuestions`, `QuestionControl`, the small knowledge-kit
+  pieces A1 moved into `ai-builder/components/`, and those stages in `useStageDriver`/`buildState`). The Understand UI
+  is already gone after A1;
 - **keep** the chat panel and the proposal review: diff, tests, Keep, Undo, "Ask for a change".
 
 **Check:** step 2 again, plus a revise from the review.

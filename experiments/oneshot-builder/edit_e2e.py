@@ -2,6 +2,8 @@
 check -> new journey (1 call). Same three calls as a new app.
 
     python edit_e2e.py           # runs EDITS in parallel, results in apps/<app>-edit/
+
+If apps/<app> isn't there yet, it is built first from the original request (backend, page, journey).
 """
 import json
 import shutil
@@ -24,8 +26,17 @@ EDITS = [  # (app, its original request, the change)
 ]
 
 
+def ensure_base(app, request, port):
+    src = HERE / "apps" / app
+    if not (src / "journey.json").exists():
+        build(request, src)
+        build_ui(src, request, port)
+        build_journey(src, request, port)
+    return src
+
+
 def run(app, request, change, port):
-    t0, src, d = time.time(), HERE / "apps" / app, HERE / "apps" / (app + "-edit")
+    t0, src, d = time.time(), ensure_base(app, request, port), HERE / "apps" / (app + "-edit")
     shutil.rmtree(d, ignore_errors=True)
     shutil.copytree(src, d, ignore=shutil.ignore_patterns("app.db", "ui", "*.log", "*-failed.png"))
     out = {"app": app, "change": change}

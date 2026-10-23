@@ -188,9 +188,9 @@ About 10–12k test lines also go with the removed code. They are not counted ab
   - remove the Understand stage from `useStageDriver` and `buildState`;
   - `ClarifyQuestions.tsx` and `QuestionControl` import `lib/understanding.ts` and `features/knowledge/kit/*`
     (`Construct`, `ConceptChip`, `beats`). `BuilderPanel` imports all of these.
-  - Either move the small kit pieces they use into `ai-builder/components/`, or, if your copy already has the one-shot
-    workflow chat (see [below](#if-your-copy-has-the-newer-local-work)), delete the clarify UI together with the legacy
-    builder.
+  - Move the small kit pieces they use into `ai-builder/components/`, so the clarify UI keeps working. Don't delete the
+    clarify UI or the staged builder here: the old workflow chat must keep working until the workflow builder guide
+    (`handoff/workflow-builder/WORKFLOW-BUILDER-GUIDE.md`, done last) replaces it and retires it.
 
 **Engine:**
 - **Delete:**
@@ -448,14 +448,14 @@ mark the ones no other file imports.
 The owner's main machine has work that wasn't on GitHub at `74e8575`. Your copy may have some of it.
 
 The workflow part of that work comes as patches in `handoff/workflow-builder/`: engine fixes, the one-shot workflow chat
-and the read view. **Apply them before starting this cut**, following `handoff/workflow-builder/WORKFLOW-BUILDER-GUIDE.md`
-steps 1–2. Its step 3 (retiring the old workflow chat) goes with A1.
+and the read view. **Don't apply them now.** The order is this cut → `ONESHOT-BUILDER-PORTING-GUIDE.md` →
+`handoff/workflow-builder/WORKFLOW-BUILDER-GUIDE.md`. That guide applies the patches last and retires the old chat.
 
 Check for each:
 
 | If your copy has… | Then… |
 |---|---|
-| `services/workflow_oneshot.py` and `oneshot_prompt.md` (the editor's AI chat builds workflows in one call; `WF_CHAT_BUILDER` switch) | It uses `schemas/interface.py` (`generate_interface`, `slugify`; kept by A4), `ai_spec.SPEC_VERSION`, `proposal_sandbox` and many `ai_builder` helpers (`_finish`, `load_ctx`, `check_all`, `Ctx`, `_sf`, `_sha`, `get_view`). A1 edits `ai_builder.py`: keep every helper `workflow_oneshot.py` calls. `WF_CHAT_BUILDER=legacy` brings back the staged builder, which uses the Understand step that A1 removes. **Default: retire the legacy chat path in A1.** Delete the Understand, clarify and rounds UI with it, and keep `ai_builder.revise`'s branch to `workflow_oneshot.revise`. The unit and integration tests that pin `WF_CHAT_BUILDER=legacy` (`test_stage6_b5_chat.py`, `tests/integration/conftest.py`) then need rewriting for the one-shot path, or deleting with the legacy builder. Ask the owner if unsure. |
+| `services/workflow_oneshot.py` and `oneshot_prompt.md` (the editor's AI chat builds workflows in one call; `WF_CHAT_BUILDER` switch) | It uses `schemas/interface.py` (`generate_interface`, `slugify`; kept by A4), `ai_spec.SPEC_VERSION`, `proposal_sandbox` and many `ai_builder` helpers (`_finish`, `load_ctx`, `check_all`, `Ctx`, `_sf`, `_sha`, `get_view`). A1 edits `ai_builder.py`: keep every helper `workflow_oneshot.py` calls, and keep `revise()`'s branch to `workflow_oneshot.revise`. A1 removes only the Understand stage; the legacy chat (`WF_CHAT_BUILDER=legacy`) keeps working without it. Retiring it is step 3 of the workflow builder guide, done last. |
 | `app_bundler.py` using `@tailwindcss/node` (Tailwind v4) and `app_bundler_tailwind.mjs` | `tailwindcss-v3` can go in B5. |
 | `app_kit/board.tsx`, `display.tsx`, `layout.tsx`, `overlay.tsx`, `plots.tsx`, `theme.css` | The newer app kit. Keep it; nothing here cuts it. |
 | `features/app-builder/visual/`, `visual-edit-runtime.ts`, `visualSave.ts`, `editability_lint.py`, `editability/` | The visual editor. The owner dropped it. Delete it as its own step (about 10k lines) after A5, with its tests, and grep for importers the same way. |
@@ -492,7 +492,8 @@ the newer work and these cuts both edit. Resolve by keeping the newer work's beh
 | **Total** | **~202k** | **~175k** |
 
 Next is `ONESHOT-BUILDER-PORTING-GUIDE.md`: one app-builder path, with no plan step. It retires the agent loop, the plan
-step and the old app-builder checks.
+step and the old app-builder checks. Last is `handoff/workflow-builder/WORKFLOW-BUILDER-GUIDE.md`: the one-shot workflow
+chat, then retiring the old staged chat.
 
 ## Later simplifications
 
@@ -510,5 +511,5 @@ after the cut and the app-builder port, one at a time, with the same gates:
 ## Open decisions
 
 1. **Database tables** for knowledge, releases and interfaces: leave them unused (the default), or drop the data?
-2. **The legacy workflow chat (`WF_CHAT_BUILDER=legacy`)**, if your copy has it: retire it in A1 (the default), or keep it
-   working without the Understand step?
+2. *(settled)* The old staged workflow chat keeps working through this cut (A1 removes only its Understand step). The
+   workflow builder guide, done last, retires it.

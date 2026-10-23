@@ -1,6 +1,6 @@
 """Step 1 test: drive a generated app over real HTTP, the way the studio would.
 
-    python api_test.py apps/vendor-payments
+    python api_test.py fixture/vendor-payments
 
 Starts server.py as its own process, talks to it only through HTTP, restarts
 it mid-way to prove data is kept. Part A works for any app; part B is the
@@ -15,7 +15,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-APP = Path(sys.argv[1] if len(sys.argv) > 1 else "apps/vendor-payments")
+APP = Path(sys.argv[1] if len(sys.argv) > 1 else "fixture/vendor-payments")
 PORT = 8111
 BASE = f"http://127.0.0.1:{PORT}"
 results = []
@@ -120,7 +120,8 @@ try:
     iid = inv["id"]
     pay_in = [i["name"] for i in acts[pay]["inputs"]]
     pid = next(k for k in pay_in if "invoice" in k)
-    s, body = act(pay, {pid: iid, "amount": 5000}, AP)
+    how = {k: "ach" for k in pay_in if "method" in k}   # the edited app also asks how it was paid
+    s, body = act(pay, {pid: iid, "amount": 5000, **how}, AP)
     check("paying before approval is refused (400)", s == 400, (s, body))
     s, body = act(approve, {next(i["name"] for i in acts[approve]["inputs"] if "id" in i["name"]): iid}, AP)
     check("member can't approve (403)", s == 403, (s, body))
@@ -129,11 +130,11 @@ try:
     check("manager can't approve their own invoice (400)", s == 400, (s, body))
     s, body = act(approve, {next(i["name"] for i in acts[approve]["inputs"] if "id" in i["name"]): iid}, MGR)
     check("manager approves", s == 200, (s, body))
-    s, body = act(pay, {pid: iid, "amount": 5000}, AP)
+    s, body = act(pay, {pid: iid, "amount": 5000, **how}, AP)
     s2, row = call("GET", f"/api/tables/invoices/{iid}")
     check("partial payment of $5,000 -> partially paid", s == 200 and "partial" in str(row.get("status")), (s, body, row))
     n_before = call("GET", "/api/tables/payments")[1]["total"]
-    s, body = act(pay, {pid: iid, "amount": 9000}, AP)
+    s, body = act(pay, {pid: iid, "amount": 9000, **how}, AP)
     check("overpaying the $7,400 balance is refused (400)", s == 400, (s, body))
     s, body = call("GET", "/api/tables/payments")
     check("a refused action wrote nothing", body["total"] == n_before, body)
@@ -146,7 +147,7 @@ try:
     check("after restart: the invoice and its state are still there",
           s == 200 and "partial" in str(row.get("status")), (s, row))
     check("after restart: its change history is kept", len(row.get("_history", [])) >= 3, row.get("_history"))
-    s, body = act(pay, {pid: iid, "amount": 7400}, AP)
+    s, body = act(pay, {pid: iid, "amount": 7400, **how}, AP)
     s2, row = call("GET", f"/api/tables/invoices/{iid}")
     check("paying the rest -> paid", s == 200 and row.get("status") == "paid", (s, body, row))
     s, mails = call("GET", "/api/outbox")

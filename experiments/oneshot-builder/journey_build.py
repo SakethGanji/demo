@@ -27,7 +27,7 @@ def prompt(app_dir: Path, request: str, port: int) -> str:
     steps = (UI / "journey.mjs").read_text().split("import fs")[0]
     return ((UI / "JOURNEY_PROMPT.md").read_text()
             .replace("{{STEPS}}", steps)
-            .replace("{{EXAMPLE}}", (HERE / "apps" / "vendor-payments" / "journey.json").read_text())
+            .replace("{{EXAMPLE}}", (UI / "example-journey.json").read_text())
             .replace("{{REQUEST}}", request)
             .replace("{{APP}}", json.dumps(app, indent=1))
             .replace("{{ACTIONS}}", (app_dir / "actions.py").read_text())
