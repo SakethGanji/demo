@@ -1,5 +1,25 @@
 # Simplification plan
 
+> **Superseded 2026-10-23. Don't follow this plan.** Use these instead, in this order:
+> 1. **`CUT-GUIDE.md`.** It replaces Phase 1 (the cuts), with the missing importers added.
+> 2. **`ONESHOT-BUILDER-PORTING-GUIDE.md`.** It replaces Phases 2 and 3 (one app-builder path, named SQL queries, no plan
+>    step). That also settles open question 3 here.
+>
+> **Phase 4 (the one-call AI workflow builder) is built.** It comes as patches with their own guide in
+> `handoff/workflow-builder/` (`WORKFLOW-BUILDER-GUIDE.md`). Once applied, your copy has `services/workflow_oneshot.py`:
+> - The editor's AI chat builds and edits workflows in one call. `WF_CHAT_BUILDER=legacy` brings back the old builder.
+> - See `apps/workflow-engine/prototypes/workflow-oneshot/README.md` ("In the product") and `WORKFLOW-POC-ISSUES.md`.
+> - What's left there:
+>   - retire the legacy path (CUT-GUIDE A1 does this by default);
+>   - then delete the parts of `ai_builder.py` that only it uses: spec, clarify, rounds, repairs, grounding, Understand.
+>     `workflow_oneshot.py` reuses `ai_builder` helpers (`_finish`, `load_ctx`, `check_all`, `Ctx`, `_sf`, `_sha`,
+>     `get_view`), `ai_spec.SPEC_VERSION` and `proposal_sandbox`, so delete piece by piece, not the whole file;
+>   - retire only the AI builder's use of fuzz and drift. The editor's Tests tab keeps them.
+>
+> **The line counts below are from the owner's local tree** (about 213k). GitHub `74e8575` is about 202k.
+>
+> The rest of this file is kept for history.
+
 2026-10-22. A plan only: nothing has been removed yet. The working tree is exactly as it was before the cleanup agents ran; it was restored from the snapshot and verified identical.
 
 Evidence for every item is in the review reports:
