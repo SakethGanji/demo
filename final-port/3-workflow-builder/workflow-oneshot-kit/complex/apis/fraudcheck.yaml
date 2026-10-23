@@ -1,0 +1,37 @@
+openapi: 3.0.3
+info:
+  title: fraudcheck
+  version: '1.0'
+servers:
+- url: http://fraudcheck.bank.test
+paths:
+  /fraud-checks:
+    post:
+      operationId: check
+      summary: Fraud check of an applicant
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  applicant_id:
+                    type: string
+                  flagged:
+                    type: boolean
+                required:
+                - applicant_id
+                - flagged
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                applicant_id:
+                  type: string
+              required:
+              - applicant_id

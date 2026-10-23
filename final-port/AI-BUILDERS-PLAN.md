@@ -29,7 +29,7 @@ Both builders today are pipelines of roles: plan, clarify, spec, generate, repai
 - **Reasoning happens inside the same call** (extended thinking, or a short thinking block). There's no separate planner call.
 - **No hand-written repair heuristics for things the model gets right on its own.** Keep only the cheap deterministic fixes in the next list.
 
-**Keep deterministic clean-up, because it's cheap and v0 shows it's worth a lot** (64.7% → 93.9% error-free builds; see `docs/cleanup/v0-research.md`). Before bundling:
+**Keep deterministic clean-up, because it's cheap and v0 shows it's worth a lot** (64.7% → 93.9% error-free builds; see `final-port/1-cut/evidence/v0-research.md`). Before bundling:
 - add missing kit imports by name;
 - map unknown icon names to the nearest allowed one;
 - replace imports from outside the kit and React with a clear stub;
@@ -123,7 +123,7 @@ The target is about 8–10k for the two together. That includes the preview and 
 ## Order
 
 **Owner's order (2026-10-23): cut and prune (`CUT-GUIDE.md`) → app builder (`ONESHOT-BUILDER-PORTING-GUIDE.md`) →
-workflow builder (`handoff/workflow-builder/WORKFLOW-BUILDER-GUIDE.md`).** The workflow track below is already built on
+workflow builder (`final-port/3-workflow-builder/WORKFLOW-BUILDER-GUIDE.md`).** The workflow track below is already built on
 the owner's machine as `workflow_oneshot.py` and ships as patches in that folder; follow its guide, not the steps below.
 The app-builder steps below are replaced by the porting guide. The two tracks touch almost no common files.
 

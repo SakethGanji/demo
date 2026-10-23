@@ -1,0 +1,115 @@
+openapi: 3.0.3
+info:
+  title: accounts
+  version: '1.0'
+servers:
+- url: http://accounts.bank.test
+paths:
+  /accounts/{account_id}/freeze:
+    post:
+      operationId: freeze
+      summary: Freeze an account
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  account_id:
+                    type: string
+                  status:
+                    type: string
+                required:
+                - account_id
+                - status
+      parameters:
+      - name: account_id
+        in: path
+        required: true
+        schema:
+          type: string
+  /customers/{customer_id}/restrict:
+    post:
+      operationId: restrictCustomer
+      summary: Restrict all of a customer's accounts
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  customer_id:
+                    type: string
+                required:
+                - customer_id
+      parameters:
+      - name: customer_id
+        in: path
+        required: true
+        schema:
+          type: string
+  /customers/{customer_id}/lift-restriction:
+    post:
+      operationId: liftRestriction
+      summary: Lift a customer's restriction
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  customer_id:
+                    type: string
+                required:
+                - customer_id
+      parameters:
+      - name: customer_id
+        in: path
+        required: true
+        schema:
+          type: string
+  /loans/{loan_id}/restructure:
+    post:
+      operationId: restructureLoan
+      summary: Apply a restructuring plan to a loan
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  loan_id:
+                    type: string
+                  status:
+                    type: string
+                required:
+                - loan_id
+                - status
+      parameters:
+      - name: loan_id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                plan:
+                  type: string
+                months:
+                  type: integer
+              required:
+              - plan
+              - months

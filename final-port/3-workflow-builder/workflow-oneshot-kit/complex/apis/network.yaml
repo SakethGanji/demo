@@ -1,0 +1,33 @@
+openapi: 3.0.3
+info:
+  title: network
+  version: '1.0'
+servers:
+- url: http://network.bank.test
+paths:
+  /settlements/yesterday:
+    get:
+      operationId: settlements
+      summary: Yesterday's card settlement report
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rows:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        reference:
+                          type: string
+                        amount:
+                          type: number
+                      required:
+                      - reference
+                      - amount
+                required:
+                - rows

@@ -1,6 +1,6 @@
 # Workflow builder guide: the one-shot workflow chat
 
-2026-10-23. This brings the one-shot AI workflow builder into your copy, then retires the old staged builder. **This is the last of the three guides:** do it after
+2026-10-23. This brings the one-shot AI workflow builder into your copy, then retires the old staged builder. **Session 3 of 5** (see `final-port/START-HERE.md`): do it after
 `CUT-GUIDE.md` and `ONESHOT-BUILDER-PORTING-GUIDE.md` are done and green.
 
 > **These guides were written on a different branch.** Your code may differ: file names, line numbers, sizes and test
@@ -60,6 +60,7 @@ a question round.
 | `1-engine-fixes.patch` | engine bugs the live runs found, plus `per_item` approvals and a migration (23 files) | 1.6k lines |
 | `2-ai-chat.patch` | the one-shot builder (`workflow_oneshot.py`, its prompt), wiring into the chat, and 22 tests (7 files) | 1.4k lines |
 | `3-read-view.patch` | studio: a read-only "Read" view of a workflow as a top-to-bottom flowchart, beside "Canvas" (8 files) | 0.7k lines |
+| `workflow-oneshot-kit/` | the prototype and eval kit: the 35 bank eval cases with hidden tests, the build and edit harnesses, and the live-run kit (mock bank API, DB seed, driver). Generated runs and logs are not included. Copy it to `apps/workflow-engine/prototypes/workflow-oneshot/` to run it; its own README has the commands. | ~0.8 MB |
 | `oneshot_prompt.md` | **the exact builder prompt**, as a plain file so you can read it. Byte-identical to the copy inside patch 2; patch 2 creates it at `apps/workflow-engine/src/services/oneshot_prompt.md`. If you apply patch 2 by hand, copy this file there verbatim. | 193 lines |
 
 The patches were made on the branch these guides were written on. There, all three applied, 205 engine tests passed,
@@ -77,7 +78,8 @@ the read view.
 
 **Why this order:** the cut makes the tree small and green first; the app builder is the biggest change and the main
 product; the workflow chat is self-contained (its own service, prompt and tests) and touches few shared files, so it
-goes in last with the least conflict risk.
+goes in after them with the least conflict risk. Session 4 (`final-port/4-workflow-hardening/`) then
+fixes the known issues in the builder's output.
 
 **What that means for the patches:** they were made before the cut. Patch 1 touches only
 workflow-engine runtime files the cut and the port leave alone, so it should apply cleanly. Expect conflicts in:
@@ -98,10 +100,10 @@ after the cut. If one was deleted, restore it from git history rather than rewri
 Run from the repo root. Keep a copy or commit of your tree first.
 
 ```bash
-git apply --check handoff/workflow-builder/1-engine-fixes.patch    # then 2, then 3
-git apply handoff/workflow-builder/1-engine-fixes.patch
-git apply handoff/workflow-builder/2-ai-chat.patch
-git apply handoff/workflow-builder/3-read-view.patch
+git apply --check final-port/3-workflow-builder/1-engine-fixes.patch    # then 2, then 3
+git apply final-port/3-workflow-builder/1-engine-fixes.patch
+git apply final-port/3-workflow-builder/2-ai-chat.patch
+git apply final-port/3-workflow-builder/3-read-view.patch
 ```
 
 **If a patch doesn't apply** (your copy differs slightly):

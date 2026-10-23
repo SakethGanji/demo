@@ -1,6 +1,6 @@
 # Cut guide: unneeded features and dead code
 
-Status, 2026-10-23: a guide only. Nothing has been removed yet.
+**Session 1 of 5** (see `final-port/START-HERE.md`). Do this first.
 
 > **These guides were written on a different branch.** Your code may differ: file names, line numbers, sizes and test
 > counts are pointers, not exact targets. Find the same thing in your copy by name and adapt. The prompts and the ideas
@@ -49,7 +49,7 @@ This pass cuts the features we don't need and removes dead code.
 The **workflow editor, runner and clone** are not touched, apart from small import moves where a cut feature shares a helper
 with them. Simplifying the two builders comes later; see `ONESHOT-BUILDER-PORTING-GUIDE.md` (app builder).
 
-The evidence for each item is in `docs/cleanup/`, if your copy has it. Each report gives file:line, importer counts and a
+The evidence for each item is in `final-port/1-cut/evidence/`, if your copy has it. Each report gives file:line, importer counts and a
 confidence level: `engine-appbuilder.md`, `engine-platform.md`, `studio-builder.md`, `studio-editor-shared.md`,
 `python-deadcode.md`, `ts-deadcode.md`. They were made on a different tree, so re-check everything on your copy.
 
@@ -189,7 +189,7 @@ The plain order (A1 → A6, then B) would leave the build broken between steps, 
     (`Construct`, `ConceptChip`, `beats`). `BuilderPanel` imports all of these.
   - Move the small kit pieces they use into `ai-builder/components/`, so the clarify UI keeps working. Don't delete the
     clarify UI or the staged builder here: the old workflow chat must keep working until the workflow builder guide
-    (`handoff/workflow-builder/WORKFLOW-BUILDER-GUIDE.md`, done last) replaces it and retires it.
+    (`final-port/3-workflow-builder/WORKFLOW-BUILDER-GUIDE.md`, done last) replaces it and retires it.
 
 **Engine:**
 - **Delete:**
@@ -406,7 +406,7 @@ mark the ones no other file imports.
 ### B4. Engine dead code (~0.7k, high confidence)
 - **Unused modules:** `services/schema_analyzer.py`, `nodes/data/object_store.py` and `nodes/ai/memory/utils.py` (0.3k).
   Nothing imports them, not even tests, and no registry loads them.
-- **Dead functions:** the 17 confirmed by grep (~130 lines; listed in `docs/cleanup/python-deadcode.md`), and `fetchBlob` in
+- **Dead functions:** the 17 confirmed by grep (~130 lines; listed in `final-port/1-cut/evidence/python-deadcode.md`), and `fetchBlob` in
   `app_kit/hooks.ts`.
 - **Kept on purpose:**
   - n8n import, credentials and folders;
@@ -446,9 +446,9 @@ mark the ones no other file imports.
 
 Your copy may have newer work than the code this guide was written on.
 
-The workflow part of that work comes as patches in `handoff/workflow-builder/`: engine fixes, the one-shot workflow chat
+The workflow part of that work comes as patches in `final-port/3-workflow-builder/`: engine fixes, the one-shot workflow chat
 and the read view. **Don't apply them now.** The order is this cut → `ONESHOT-BUILDER-PORTING-GUIDE.md` →
-`handoff/workflow-builder/WORKFLOW-BUILDER-GUIDE.md`. That guide applies the patches last and retires the old chat.
+`final-port/3-workflow-builder/WORKFLOW-BUILDER-GUIDE.md`. That guide applies the patches last and retires the old chat.
 
 Check for each:
 
@@ -491,7 +491,7 @@ the newer work and these cuts both edit. Resolve by keeping the newer work's beh
 | **Total** | **~202k** | **~175k** |
 
 Next is `ONESHOT-BUILDER-PORTING-GUIDE.md`: one app-builder path, with no plan step. It retires the agent loop, the plan
-step and the old app-builder checks. Last is `handoff/workflow-builder/WORKFLOW-BUILDER-GUIDE.md`: the one-shot workflow
+step and the old app-builder checks. Last is `final-port/3-workflow-builder/WORKFLOW-BUILDER-GUIDE.md`: the one-shot workflow
 chat, then retiring the old staged chat.
 
 ## Later simplifications

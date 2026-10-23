@@ -1,6 +1,6 @@
 # Porting guide: the one-shot app builder
 
-2026-10-22. This is guidance for the agent doing the work. It ports the prototype in `experiments/oneshot-builder/` into the engine and the studio.
+2026-10-22. This is guidance for the agent doing the work. It ports the prototype in `final-port/2-app-builder/oneshot-builder/` into the engine and the studio.
 
 It **replaces the app-builder parts of `AI-BUILDERS-PLAN.md`**: "How apps get data" and the "App builder track" under "Order". Everything else in that plan still holds:
 - the two builders stay fully separate;
@@ -8,8 +8,7 @@ It **replaces the app-builder parts of `AI-BUILDERS-PLAN.md`**: "How apps get da
 - the gates;
 - the out-of-scope list.
 
-**Order of the three guides:** `CUT-GUIDE.md` first, then this guide, then
-`handoff/workflow-builder/WORKFLOW-BUILDER-GUIDE.md` (the workflow chat) last.
+**Session 2 of 5** (see `final-port/START-HERE.md`): after `CUT-GUIDE.md`, before the workflow builder guide.
 
 **The owner's rule: simple and fast.** When something fails, fix the prompt or the platform. Don't add a stage, a planner or a question round.
 
@@ -19,7 +18,7 @@ It **replaces the app-builder parts of `AI-BUILDERS-PLAN.md`**: "How apps get da
 
 **Before you start:**
 - **Grep for importers before deleting anything.** File and symbol names are reliable; line numbers are hints.
-- **You need `experiments/oneshot-builder/`** and `AI-BUILDERS-PLAN.md`. If either is missing from your copy, stop and
+- **You need `final-port/2-app-builder/oneshot-builder/`** and `AI-BUILDERS-PLAN.md`. If either is missing from your copy, stop and
   ask the owner. Nothing here works without the prototype. It is code and prompts only (about 2k lines), plus:
   - `fixture/vendor-payments/`: one known-good app, for testing the runtime with no model call (Phase 1);
   - `ui/example-journey.json`: part of the journey prompt (`{{EXAMPLE}}`).
@@ -52,7 +51,7 @@ Everything below ran for real:
 - real Chromium;
 - data checked through the API after every change.
 
-`experiments/oneshot-builder/README.md` has the details.
+`final-port/2-app-builder/oneshot-builder/README.md` has the details.
 
 | Stage | One model call writes | Checked by | First-call pass | Time |
 |---|---|---|---|---|
@@ -135,7 +134,7 @@ Don't touch app code yet.
 
 1. Install and run:
    ```
-   cd experiments/oneshot-builder/ui && npm ci && npx playwright install chromium
+   cd final-port/2-app-builder/oneshot-builder/ui && npm ci && npx playwright install chromium
    cd ..
    ```
    - The UI versions are pinned to the studio's: React 18.3.1, esbuild 0.25.12, playwright 1.62.1, TypeScript 5.9.3.
@@ -144,7 +143,7 @@ Don't touch app code yet.
    - The Python side needs Python 3.11+ and `uv`, since the backend server runs with
      `uv run --no-project --with fastapi --with uvicorn`. Without `uv`, `pip install fastapi uvicorn` in a venv and run
      `server.py` with that venv.
-   - `node_modules` is not git-ignored at the repo root. Don't commit `experiments/oneshot-builder/ui/node_modules`.
+   - `node_modules` is not git-ignored at the repo root. Don't commit `final-port/2-app-builder/oneshot-builder/ui/node_modules`.
 2. The model:
    - `build.call_model` uses the `claude` CLI if there is no key. The CLI must be installed and logged in for the user
      running the scripts. Check with `claude -p "say ok"`.
@@ -239,7 +238,7 @@ The endpoints:
 Keep the response shapes exactly. The kit and the robot depend on them.
 
 **Gate:**
-1. Load `experiments/oneshot-builder/fixture/vendor-payments` (`schema.json`, `actions.py`, `App.tsx`) into a project with a small script.
+1. Load `final-port/2-app-builder/oneshot-builder/fixture/vendor-payments` (`schema.json`, `actions.py`, `App.tsx`) into a project with a small script.
 2. Point `api_test.py` at the engine route (change the base URL and headers): it must pass.
 3. Run `journey.json` and `crud.json` there with `ui/journey.mjs` against the engine: they must pass. Then do the same for the apps Phase 0 built.
 4. Run the engine unit tests.

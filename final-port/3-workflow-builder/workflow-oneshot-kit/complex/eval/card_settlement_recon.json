@@ -1,0 +1,604 @@
+{
+ "id": "card_settlement_recon",
+ "request": "Every day at 6am, get yesterday's card settlement report from the card network and our ledger's card entries for yesterday, and match them by reference. A reference in the report but not in our ledger is a 'missing' break; one in both with different amounts is an 'amount_mismatch'; one in our ledger but not in the report is 'unsettled'. Add one row per break to the recon_breaks table (reference, network_amount, ledger_amount, kind; leave an amount empty when that side doesn't have it). Then email finance ops how many breaks of each kind there were. If there are no breaks, send nothing.",
+ "apis": [
+  "network.yaml",
+  "ledger.yaml"
+ ],
+ "tables": {
+  "recon_breaks": [
+   {
+    "name": "reference",
+    "type": "string"
+   },
+   {
+    "name": "network_amount",
+    "type": "number"
+   },
+   {
+    "name": "ledger_amount",
+    "type": "number"
+   },
+   {
+    "name": "kind",
+    "type": "string"
+   }
+  ]
+ },
+ "expect": {
+  "trigger": "Cron",
+  "must_have_types": [
+   "Code",
+   "DataTable",
+   "SendEmail"
+  ],
+  "must_call": [
+   "network.settlements",
+   "ledger.entries"
+  ],
+  "max_nodes": 12
+ },
+ "hidden_tests": [
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Everything matches: no rows, no email",
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "$api:network.settlements": {
+     "http": {
+      "status": 200,
+      "body": {
+       "rows": [
+        {
+         "reference": "R1",
+         "amount": 100
+        },
+        {
+         "reference": "R2",
+         "amount": 50
+        }
+       ]
+      }
+     }
+    },
+    "$api:ledger.entries": {
+     "http": {
+      "status": 200,
+      "body": {
+       "entries": [
+        {
+         "reference": "R2",
+         "amount": 50
+        },
+        {
+         "reference": "R1",
+         "amount": 100
+        }
+       ]
+      }
+     }
+    },
+    "$op:DataTable.insert|upsert?": {
+     "items": [
+      {
+       "id": 1
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$op:DataTable.insert|upsert?",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$all:SendEmail",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Missing in our ledger",
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "$api:network.settlements": {
+     "http": {
+      "status": 200,
+      "body": {
+       "rows": [
+        {
+         "reference": "R1",
+         "amount": 100
+        },
+        {
+         "reference": "R2",
+         "amount": 50
+        }
+       ]
+      }
+     }
+    },
+    "$api:ledger.entries": {
+     "http": {
+      "status": 200,
+      "body": {
+       "entries": [
+        {
+         "reference": "R1",
+         "amount": 100
+        }
+       ]
+      }
+     }
+    },
+    "$op:DataTable.insert|upsert?": {
+     "items": [
+      {
+       "id": 1
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$op:DataTable.insert|upsert",
+     "subject": "request",
+     "item": "any",
+     "path": "params.data.reference",
+     "op": "eq",
+     "value": "R2"
+    },
+    {
+     "node": "$op:DataTable.insert|upsert",
+     "subject": "request",
+     "item": "any",
+     "path": "params.data.kind",
+     "op": "eq",
+     "value": "missing"
+    },
+    {
+     "node": "$all:SendEmail",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$all:SendEmail",
+     "subject": "request",
+     "item": "any",
+     "path": "params.toEmail",
+     "op": "eq",
+     "value": "finops@bank.test"
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Amount mismatch keeps both amounts",
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "$api:network.settlements": {
+     "http": {
+      "status": 200,
+      "body": {
+       "rows": [
+        {
+         "reference": "R1",
+         "amount": 100
+        }
+       ]
+      }
+     }
+    },
+    "$api:ledger.entries": {
+     "http": {
+      "status": 200,
+      "body": {
+       "entries": [
+        {
+         "reference": "R1",
+         "amount": 90
+        }
+       ]
+      }
+     }
+    },
+    "$op:DataTable.insert|upsert?": {
+     "items": [
+      {
+       "id": 1
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$op:DataTable.insert|upsert",
+     "subject": "request",
+     "item": "any",
+     "path": "params.data.kind",
+     "op": "eq",
+     "value": "amount_mismatch"
+    },
+    {
+     "node": "$op:DataTable.insert|upsert",
+     "subject": "request",
+     "item": "any",
+     "path": "params.data.network_amount",
+     "op": "eq",
+     "value": 100
+    },
+    {
+     "node": "$op:DataTable.insert|upsert",
+     "subject": "request",
+     "item": "any",
+     "path": "params.data.ledger_amount",
+     "op": "eq",
+     "value": 90
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Unsettled ledger entry",
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "$api:network.settlements": {
+     "http": {
+      "status": 200,
+      "body": {
+       "rows": [
+        {
+         "reference": "R1",
+         "amount": 100
+        }
+       ]
+      }
+     }
+    },
+    "$api:ledger.entries": {
+     "http": {
+      "status": 200,
+      "body": {
+       "entries": [
+        {
+         "reference": "R1",
+         "amount": 100
+        },
+        {
+         "reference": "R9",
+         "amount": 70
+        }
+       ]
+      }
+     }
+    },
+    "$op:DataTable.insert|upsert?": {
+     "items": [
+      {
+       "id": 1
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$op:DataTable.insert|upsert",
+     "subject": "request",
+     "item": "any",
+     "path": "params.data.reference",
+     "op": "eq",
+     "value": "R9"
+    },
+    {
+     "node": "$op:DataTable.insert|upsert",
+     "subject": "request",
+     "item": "any",
+     "path": "params.data.kind",
+     "op": "eq",
+     "value": "unsettled"
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Three kinds at once: three rows, one email",
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "$api:network.settlements": {
+     "http": {
+      "status": 200,
+      "body": {
+       "rows": [
+        {
+         "reference": "R1",
+         "amount": 100
+        },
+        {
+         "reference": "R2",
+         "amount": 50
+        },
+        {
+         "reference": "R3",
+         "amount": 10
+        }
+       ]
+      }
+     }
+    },
+    "$api:ledger.entries": {
+     "http": {
+      "status": 200,
+      "body": {
+       "entries": [
+        {
+         "reference": "R1",
+         "amount": 90
+        },
+        {
+         "reference": "R3",
+         "amount": 10
+        },
+        {
+         "reference": "R8",
+         "amount": 5
+        }
+       ]
+      }
+     }
+    },
+    "$op:DataTable.insert|upsert?": {
+     "items": [
+      {
+       "id": 1
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$op:DataTable.insert|upsert",
+     "subject": "request",
+     "op": "count",
+     "value": 3
+    },
+    {
+     "node": "$all:SendEmail",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$op:DataTable.insert|upsert",
+     "subject": "request",
+     "item": "any",
+     "path": "params.data.kind",
+     "op": "eq",
+     "value": "missing"
+    },
+    {
+     "node": "$op:DataTable.insert|upsert",
+     "subject": "request",
+     "item": "any",
+     "path": "params.data.kind",
+     "op": "eq",
+     "value": "amount_mismatch"
+    },
+    {
+     "node": "$op:DataTable.insert|upsert",
+     "subject": "request",
+     "item": "any",
+     "path": "params.data.kind",
+     "op": "eq",
+     "value": "unsettled"
+    }
+   ]
+  }
+ ],
+ "variables": {
+  "WIRE_OPS_EMAIL": {
+   "value": "wireops@bank.test"
+  },
+  "BRANCH_OPS_EMAIL": {
+   "value": "branchops@bank.test"
+  },
+  "FINANCE_OPS_EMAIL": {
+   "value": "finops@bank.test"
+  },
+  "ATM_DAILY_LIMIT": {
+   "value": "1000",
+   "description": "standard ATM limit per day, USD"
+  },
+  "COMPLIANCE_EMAIL": {
+   "value": "compliance@bank.test"
+  },
+  "CARDS_API_KEY": {
+   "value": "sk-test-123",
+   "secret": true
+  }
+ },
+ "subworkflows": [
+  {
+   "id": "wf_kyc_verify",
+   "name": "Verify customer identity",
+   "description": "Checks a customer's ID document against our KYC provider and records the result.",
+   "inputs": [
+    {
+     "name": "customer_id",
+     "type": "string",
+     "required": true
+    },
+    {
+     "name": "document_id",
+     "type": "string",
+     "required": true
+    }
+   ],
+   "output_fields": [
+    "verified",
+    "reason"
+   ],
+   "definition": {
+    "name": "child",
+    "nodes": [
+     {
+      "name": "Called",
+      "type": "ExecuteWorkflowTrigger",
+      "parameters": {
+       "inputSource": "fields",
+       "fields": [
+        {
+         "name": "customer_id",
+         "type": "string",
+         "required": true
+        },
+        {
+         "name": "document_id",
+         "type": "string",
+         "required": true
+        }
+       ]
+      }
+     },
+     {
+      "name": "Result",
+      "type": "Set",
+      "parameters": {
+       "mode": "manual",
+       "keepOnlySet": true,
+       "fields": [
+        {
+         "name": "verified",
+         "value": "{{ true }}"
+        },
+        {
+         "name": "reason",
+         "value": "ok"
+        }
+       ]
+      }
+     }
+    ],
+    "connections": [
+     {
+      "source_node": "Called",
+      "target_node": "Result",
+      "source_output": "main",
+      "target_input": "main"
+     }
+    ]
+   }
+  },
+  {
+   "id": "wf_notify_customer",
+   "name": "Notify customer",
+   "description": "Sends a customer a message on their preferred channel (sms or email) and logs it.",
+   "inputs": [
+    {
+     "name": "customer_id",
+     "type": "string",
+     "required": true
+    },
+    {
+     "name": "message",
+     "type": "string",
+     "required": true
+    }
+   ],
+   "output_fields": [
+    "sent",
+    "channel"
+   ],
+   "definition": {
+    "name": "child",
+    "nodes": [
+     {
+      "name": "Called",
+      "type": "ExecuteWorkflowTrigger",
+      "parameters": {
+       "inputSource": "fields",
+       "fields": [
+        {
+         "name": "customer_id",
+         "type": "string",
+         "required": true
+        },
+        {
+         "name": "message",
+         "type": "string",
+         "required": true
+        }
+       ]
+      }
+     },
+     {
+      "name": "Result",
+      "type": "Set",
+      "parameters": {
+       "mode": "manual",
+       "keepOnlySet": true,
+       "fields": [
+        {
+         "name": "sent",
+         "value": "{{ true }}"
+        },
+        {
+         "name": "channel",
+         "value": "sms"
+        }
+       ]
+      }
+     }
+    ],
+    "connections": [
+     {
+      "source_node": "Called",
+      "target_node": "Result",
+      "source_output": "main",
+      "target_input": "main"
+     }
+    ]
+   }
+  }
+ ]
+}

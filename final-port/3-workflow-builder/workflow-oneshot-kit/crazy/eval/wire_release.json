@@ -1,0 +1,2039 @@
+{
+ "id": "wire_release",
+ "request": "Outgoing wires arrive by webhook from the payments hub with wire_id, account_id, customer_id, amount, beneficiary_name and beneficiary_country. Write an audit_log row in ops_db at each outcome below (entity 'wire', the wire id, and the action in brackets). Under 10,000: release it [released]. Otherwise payments ops must call the customer back: look up the customer's name and phone in core banking and give PAYMENTS_OPS_EMAIL a task, due in 2 hours, showing the customer's name, phone, the amount and the beneficiary, where they record customer_confirmed (yes, no or unreachable). If nobody has done it in 2 hours, email PAYMENTS_LEAD_EMAIL a reminder and give payments ops the task again, due in 1 hour. If that runs out too, or the customer was unreachable, hold the wire and email the customer that we couldn't reach them [held_no_callback]. If the customer says no, it's fraud: hold the wire, freeze the account and email FRAUD_TEAM_EMAIL [fraud]. If the customer confirms, screen the beneficiary for sanctions. A hit goes to the MLRO (MLRO_EMAIL), due in 4 hours and rejected automatically if nobody decides, who chooses a disposition: false_positive or true_match. A true match, or a rejection: block the wire [blocked], then give the MLRO a second task, due in 1 day, to enter the sar_reference, and record it as the detail of an audit row [sar_filed]. A false positive, or no hit: wires of 1,000,000 or more also need two treasury approvals one after the other (TREASURY_EMAIL, four eyes), then release [released]; a treasury rejection holds the wire [held_by_treasury]. Under 1,000,000: release [released].",
+ "apis": [
+  "wires.yaml",
+  "accounts.yaml",
+  "screening.yaml"
+ ],
+ "tables": {},
+ "expect": {
+  "trigger": "Webhook",
+  "must_have_types": [
+   "Approval",
+   "Postgres",
+   "SendEmail"
+  ],
+  "must_call": [
+   "wires.release",
+   "wires.hold",
+   "wires.block",
+   "accounts.freeze",
+   "screening.screen"
+  ],
+  "max_nodes": 45,
+  "min_types": {
+   "Approval": 6
+  }
+ },
+ "hidden_tests": [
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "9,999.99 is released at once",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "wire_id": "W5",
+       "account_id": "A9",
+       "customer_id": "CU9",
+       "amount": 9999.99,
+       "beneficiary_name": "Orion Trading",
+       "beneficiary_country": "AE"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pgr:customers?": {
+     "items": [
+      {
+       "rows": [
+        {
+         "customer_id": "CU9",
+         "full_name": "Kai Moreno",
+         "email": "kai@mail.test",
+         "phone": "+15550199",
+         "segment": "retail"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "$nth:Approval:PAYMENTS_OPS_EMAIL:1": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "customer_confirmed": "yes"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:PAYMENTS_OPS_EMAIL:2?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "customer_confirmed": "yes"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:MLRO_EMAIL:1?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "disposition": "false_positive"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:MLRO_EMAIL:2?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "sar_reference": "SAR-77"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$has:Approval:TREASURY_EMAIL?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:TREASURY_EMAIL:2?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$api:screening.screen?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "hit": false,
+       "list": ""
+      }
+     }
+    },
+    "$api:wires.release?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W5",
+       "status": "released"
+      }
+     }
+    },
+    "$api:wires.hold?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W5",
+       "status": "held"
+      }
+     }
+    },
+    "$api:wires.block?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W5",
+       "status": "blocked"
+      }
+     }
+    },
+    "$api:accounts.freeze?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "account_id": "A9",
+       "status": "frozen"
+      }
+     }
+    },
+    "$pgw:audit_log": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "$all:SendEmail?": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$all:Approval",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$api:wires.release",
+     "subject": "request",
+     "item": "any",
+     "path": "url",
+     "op": "contains",
+     "value": "W5"
+    },
+    {
+     "node": "$pgw:audit_log",
+     "subject": "request",
+     "item": "any",
+     "path": "text",
+     "op": "contains",
+     "value": "released"
+    },
+    {
+     "node": "$pgw:audit_log",
+     "subject": "request",
+     "item": "any",
+     "path": "text",
+     "op": "contains",
+     "value": "w5"
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Customer confirms, no hit, under a million: released",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "wire_id": "W5",
+       "account_id": "A9",
+       "customer_id": "CU9",
+       "amount": 50000,
+       "beneficiary_name": "Orion Trading",
+       "beneficiary_country": "AE"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pgr:customers?": {
+     "items": [
+      {
+       "rows": [
+        {
+         "customer_id": "CU9",
+         "full_name": "Kai Moreno",
+         "email": "kai@mail.test",
+         "phone": "+15550199",
+         "segment": "retail"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "$nth:Approval:PAYMENTS_OPS_EMAIL:1": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "customer_confirmed": "yes"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:PAYMENTS_OPS_EMAIL:2?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "customer_confirmed": "yes"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:MLRO_EMAIL:1?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "disposition": "false_positive"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:MLRO_EMAIL:2?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "sar_reference": "SAR-77"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$has:Approval:TREASURY_EMAIL?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:TREASURY_EMAIL:2?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$api:screening.screen?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "hit": false,
+       "list": ""
+      }
+     }
+    },
+    "$api:wires.release?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W5",
+       "status": "released"
+      }
+     }
+    },
+    "$api:wires.hold?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W5",
+       "status": "held"
+      }
+     }
+    },
+    "$api:wires.block?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W5",
+       "status": "blocked"
+      }
+     }
+    },
+    "$api:accounts.freeze?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "account_id": "A9",
+       "status": "frozen"
+      }
+     }
+    },
+    "$pgw:audit_log": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "$all:SendEmail?": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$all:Approval",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$nth:Approval:PAYMENTS_OPS_EMAIL:1",
+     "subject": "request",
+     "item": "any",
+     "path": "params.notify_email",
+     "op": "eq",
+     "value": "payops@bank.test"
+    },
+    {
+     "node": "$nth:Approval:PAYMENTS_OPS_EMAIL:1",
+     "subject": "request",
+     "item": "any",
+     "path": "params.due_in",
+     "op": "one_of",
+     "value": [
+      "2h",
+      "120m"
+     ]
+    },
+    {
+     "node": "$api:screening.screen",
+     "subject": "request",
+     "item": "any",
+     "path": "body.name",
+     "op": "eq",
+     "value": "Orion Trading"
+    },
+    {
+     "node": "$api:wires.release",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$api:wires.hold",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$pgw:audit_log",
+     "subject": "request",
+     "item": "any",
+     "path": "text",
+     "op": "contains",
+     "value": "released"
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Ops silent 2h: lead reminded, second task confirms",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "wire_id": "W5",
+       "account_id": "A9",
+       "customer_id": "CU9",
+       "amount": 50000,
+       "beneficiary_name": "Orion Trading",
+       "beneficiary_country": "AE"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pgr:customers?": {
+     "items": [
+      {
+       "rows": [
+        {
+         "customer_id": "CU9",
+         "full_name": "Kai Moreno",
+         "email": "kai@mail.test",
+         "phone": "+15550199",
+         "segment": "retail"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "$nth:Approval:PAYMENTS_OPS_EMAIL:1": {
+     "port": "timed_out",
+     "approval": {
+      "decision": "timed_out",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:PAYMENTS_OPS_EMAIL:2?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "customer_confirmed": "yes"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:MLRO_EMAIL:1?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "disposition": "false_positive"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:MLRO_EMAIL:2?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "sar_reference": "SAR-77"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$has:Approval:TREASURY_EMAIL?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:TREASURY_EMAIL:2?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$api:screening.screen?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "hit": false,
+       "list": ""
+      }
+     }
+    },
+    "$api:wires.release?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W5",
+       "status": "released"
+      }
+     }
+    },
+    "$api:wires.hold?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W5",
+       "status": "held"
+      }
+     }
+    },
+    "$api:wires.block?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W5",
+       "status": "blocked"
+      }
+     }
+    },
+    "$api:accounts.freeze?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "account_id": "A9",
+       "status": "frozen"
+      }
+     }
+    },
+    "$pgw:audit_log": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "$all:SendEmail?": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$all:SendEmail",
+     "subject": "request",
+     "item": "any",
+     "path": "params.toEmail",
+     "op": "eq",
+     "value": "paylead@bank.test"
+    },
+    {
+     "node": "$all:Approval",
+     "subject": "request",
+     "op": "count",
+     "value": 2
+    },
+    {
+     "node": "$nth:Approval:PAYMENTS_OPS_EMAIL:2?",
+     "subject": "request",
+     "item": "any",
+     "path": "params.due_in",
+     "op": "one_of",
+     "value": [
+      "1h",
+      "60m"
+     ]
+    },
+    {
+     "node": "$api:wires.release",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Ops silent twice: held, customer emailed",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "wire_id": "W5",
+       "account_id": "A9",
+       "customer_id": "CU9",
+       "amount": 50000,
+       "beneficiary_name": "Orion Trading",
+       "beneficiary_country": "AE"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pgr:customers?": {
+     "items": [
+      {
+       "rows": [
+        {
+         "customer_id": "CU9",
+         "full_name": "Kai Moreno",
+         "email": "kai@mail.test",
+         "phone": "+15550199",
+         "segment": "retail"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "$nth:Approval:PAYMENTS_OPS_EMAIL:1": {
+     "port": "timed_out",
+     "approval": {
+      "decision": "timed_out",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:PAYMENTS_OPS_EMAIL:2?": {
+     "port": "timed_out",
+     "approval": {
+      "decision": "timed_out",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:MLRO_EMAIL:1?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "disposition": "false_positive"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:MLRO_EMAIL:2?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "sar_reference": "SAR-77"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$has:Approval:TREASURY_EMAIL?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:TREASURY_EMAIL:2?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$api:screening.screen?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "hit": false,
+       "list": ""
+      }
+     }
+    },
+    "$api:wires.release?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W5",
+       "status": "released"
+      }
+     }
+    },
+    "$api:wires.hold?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W5",
+       "status": "held"
+      }
+     }
+    },
+    "$api:wires.block?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W5",
+       "status": "blocked"
+      }
+     }
+    },
+    "$api:accounts.freeze?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "account_id": "A9",
+       "status": "frozen"
+      }
+     }
+    },
+    "$pgw:audit_log": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "$all:SendEmail?": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$api:wires.hold",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$api:wires.release",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$all:SendEmail",
+     "subject": "request",
+     "item": "any",
+     "path": "params.toEmail",
+     "op": "eq",
+     "value": "kai@mail.test"
+    },
+    {
+     "node": "$pgw:audit_log",
+     "subject": "request",
+     "item": "any",
+     "path": "text",
+     "op": "contains",
+     "value": "held_no_callback"
+    },
+    {
+     "node": "$api:screening.screen",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Customer unreachable: held",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "wire_id": "W5",
+       "account_id": "A9",
+       "customer_id": "CU9",
+       "amount": 50000,
+       "beneficiary_name": "Orion Trading",
+       "beneficiary_country": "AE"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pgr:customers?": {
+     "items": [
+      {
+       "rows": [
+        {
+         "customer_id": "CU9",
+         "full_name": "Kai Moreno",
+         "email": "kai@mail.test",
+         "phone": "+15550199",
+         "segment": "retail"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "$nth:Approval:PAYMENTS_OPS_EMAIL:1": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "customer_confirmed": "unreachable"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:PAYMENTS_OPS_EMAIL:2?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "customer_confirmed": "unreachable"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:MLRO_EMAIL:1?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "disposition": "false_positive"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:MLRO_EMAIL:2?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "sar_reference": "SAR-77"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$has:Approval:TREASURY_EMAIL?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:TREASURY_EMAIL:2?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$api:screening.screen?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "hit": false,
+       "list": ""
+      }
+     }
+    },
+    "$api:wires.release?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W5",
+       "status": "released"
+      }
+     }
+    },
+    "$api:wires.hold?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W5",
+       "status": "held"
+      }
+     }
+    },
+    "$api:wires.block?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W5",
+       "status": "blocked"
+      }
+     }
+    },
+    "$api:accounts.freeze?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "account_id": "A9",
+       "status": "frozen"
+      }
+     }
+    },
+    "$pgw:audit_log": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "$all:SendEmail?": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$api:wires.hold",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$api:screening.screen",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$pgw:audit_log",
+     "subject": "request",
+     "item": "any",
+     "path": "text",
+     "op": "contains",
+     "value": "held_no_callback"
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Customer says no: fraud",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "wire_id": "W5",
+       "account_id": "A9",
+       "customer_id": "CU9",
+       "amount": 50000,
+       "beneficiary_name": "Orion Trading",
+       "beneficiary_country": "AE"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pgr:customers?": {
+     "items": [
+      {
+       "rows": [
+        {
+         "customer_id": "CU9",
+         "full_name": "Kai Moreno",
+         "email": "kai@mail.test",
+         "phone": "+15550199",
+         "segment": "retail"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "$nth:Approval:PAYMENTS_OPS_EMAIL:1": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "customer_confirmed": "no"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:PAYMENTS_OPS_EMAIL:2?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "customer_confirmed": "no"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:MLRO_EMAIL:1?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "disposition": "false_positive"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:MLRO_EMAIL:2?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "sar_reference": "SAR-77"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$has:Approval:TREASURY_EMAIL?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:TREASURY_EMAIL:2?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$api:screening.screen?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "hit": false,
+       "list": ""
+      }
+     }
+    },
+    "$api:wires.release?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W5",
+       "status": "released"
+      }
+     }
+    },
+    "$api:wires.hold?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W5",
+       "status": "held"
+      }
+     }
+    },
+    "$api:wires.block?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W5",
+       "status": "blocked"
+      }
+     }
+    },
+    "$api:accounts.freeze?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "account_id": "A9",
+       "status": "frozen"
+      }
+     }
+    },
+    "$pgw:audit_log": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "$all:SendEmail?": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$api:wires.hold",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$api:accounts.freeze",
+     "subject": "request",
+     "item": "any",
+     "path": "url",
+     "op": "contains",
+     "value": "A9"
+    },
+    {
+     "node": "$all:SendEmail",
+     "subject": "request",
+     "item": "any",
+     "path": "params.toEmail",
+     "op": "eq",
+     "value": "fraud@bank.test"
+    },
+    {
+     "node": "$pgw:audit_log",
+     "subject": "request",
+     "item": "any",
+     "path": "text",
+     "op": "contains",
+     "value": "fraud"
+    },
+    {
+     "node": "$api:wires.release",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$api:screening.screen",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Sanctions hit, true match: blocked and SAR reference recorded",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "wire_id": "W5",
+       "account_id": "A9",
+       "customer_id": "CU9",
+       "amount": 50000,
+       "beneficiary_name": "Orion Trading",
+       "beneficiary_country": "AE"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pgr:customers?": {
+     "items": [
+      {
+       "rows": [
+        {
+         "customer_id": "CU9",
+         "full_name": "Kai Moreno",
+         "email": "kai@mail.test",
+         "phone": "+15550199",
+         "segment": "retail"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "$nth:Approval:PAYMENTS_OPS_EMAIL:1": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "customer_confirmed": "yes"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:PAYMENTS_OPS_EMAIL:2?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "customer_confirmed": "yes"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:MLRO_EMAIL:1?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "disposition": "true_match"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:MLRO_EMAIL:2?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "sar_reference": "SAR-77"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$has:Approval:TREASURY_EMAIL?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:TREASURY_EMAIL:2?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$api:screening.screen?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "hit": true,
+       "list": "OFAC"
+      }
+     }
+    },
+    "$api:wires.release?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W5",
+       "status": "released"
+      }
+     }
+    },
+    "$api:wires.hold?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W5",
+       "status": "held"
+      }
+     }
+    },
+    "$api:wires.block?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W5",
+       "status": "blocked"
+      }
+     }
+    },
+    "$api:accounts.freeze?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "account_id": "A9",
+       "status": "frozen"
+      }
+     }
+    },
+    "$pgw:audit_log": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "$all:SendEmail?": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$api:wires.block",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$api:wires.release",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$nth:Approval:MLRO_EMAIL:1?",
+     "subject": "request",
+     "item": "any",
+     "path": "params.due_in",
+     "op": "one_of",
+     "value": [
+      "4h",
+      "240m"
+     ]
+    },
+    {
+     "node": "$nth:Approval:MLRO_EMAIL:1?",
+     "subject": "request",
+     "item": "any",
+     "path": "params.on_timeout",
+     "op": "eq",
+     "value": "reject"
+    },
+    {
+     "node": "$pgw:audit_log",
+     "subject": "request",
+     "item": "any",
+     "path": "text",
+     "op": "contains",
+     "value": "sar-77"
+    },
+    {
+     "node": "$pgw:audit_log",
+     "subject": "request",
+     "item": "any",
+     "path": "text",
+     "op": "contains",
+     "value": "blocked"
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Hit cleared as false positive on 2,000,000: treasury twice, released",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "wire_id": "W5",
+       "account_id": "A9",
+       "customer_id": "CU9",
+       "amount": 2000000,
+       "beneficiary_name": "Orion Trading",
+       "beneficiary_country": "AE"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pgr:customers?": {
+     "items": [
+      {
+       "rows": [
+        {
+         "customer_id": "CU9",
+         "full_name": "Kai Moreno",
+         "email": "kai@mail.test",
+         "phone": "+15550199",
+         "segment": "retail"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "$nth:Approval:PAYMENTS_OPS_EMAIL:1": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "customer_confirmed": "yes"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:PAYMENTS_OPS_EMAIL:2?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "customer_confirmed": "yes"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:MLRO_EMAIL:1?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "disposition": "false_positive"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:MLRO_EMAIL:2?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "sar_reference": "SAR-77"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$has:Approval:TREASURY_EMAIL?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:TREASURY_EMAIL:2?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$api:screening.screen?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "hit": true,
+       "list": "OFAC"
+      }
+     }
+    },
+    "$api:wires.release?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W5",
+       "status": "released"
+      }
+     }
+    },
+    "$api:wires.hold?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W5",
+       "status": "held"
+      }
+     }
+    },
+    "$api:wires.block?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W5",
+       "status": "blocked"
+      }
+     }
+    },
+    "$api:accounts.freeze?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "account_id": "A9",
+       "status": "frozen"
+      }
+     }
+    },
+    "$pgw:audit_log": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "$all:SendEmail?": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$has:Approval:TREASURY_EMAIL",
+     "subject": "request",
+     "op": "count",
+     "value": 2
+    },
+    {
+     "node": "$has:Approval:TREASURY_EMAIL",
+     "subject": "request",
+     "item": "all",
+     "path": "params.four_eyes",
+     "op": "eq",
+     "value": true
+    },
+    {
+     "node": "$api:wires.release",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$api:wires.block",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Exactly 1,000,000, second treasury approver rejects: held",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "wire_id": "W5",
+       "account_id": "A9",
+       "customer_id": "CU9",
+       "amount": 1000000,
+       "beneficiary_name": "Orion Trading",
+       "beneficiary_country": "AE"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pgr:customers?": {
+     "items": [
+      {
+       "rows": [
+        {
+         "customer_id": "CU9",
+         "full_name": "Kai Moreno",
+         "email": "kai@mail.test",
+         "phone": "+15550199",
+         "segment": "retail"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "$nth:Approval:PAYMENTS_OPS_EMAIL:1": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "customer_confirmed": "yes"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:PAYMENTS_OPS_EMAIL:2?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "customer_confirmed": "yes"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:MLRO_EMAIL:1?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "disposition": "false_positive"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:MLRO_EMAIL:2?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "sar_reference": "SAR-77"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$has:Approval:TREASURY_EMAIL?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:TREASURY_EMAIL:2?": {
+     "port": "rejected",
+     "approval": {
+      "decision": "rejected",
+      "comment": "no",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$api:screening.screen?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "hit": false,
+       "list": ""
+      }
+     }
+    },
+    "$api:wires.release?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W5",
+       "status": "released"
+      }
+     }
+    },
+    "$api:wires.hold?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W5",
+       "status": "held"
+      }
+     }
+    },
+    "$api:wires.block?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W5",
+       "status": "blocked"
+      }
+     }
+    },
+    "$api:accounts.freeze?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "account_id": "A9",
+       "status": "frozen"
+      }
+     }
+    },
+    "$pgw:audit_log": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "$all:SendEmail?": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$has:Approval:TREASURY_EMAIL",
+     "subject": "request",
+     "op": "count",
+     "value": 2
+    },
+    {
+     "node": "$api:wires.hold",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$api:wires.release",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$pgw:audit_log",
+     "subject": "request",
+     "item": "any",
+     "path": "text",
+     "op": "contains",
+     "value": "held_by_treasury"
+    }
+   ]
+  }
+ ],
+ "variables": {
+  "UNDERWRITER_EMAIL": {
+   "value": "underwriters@bank.test"
+  },
+  "HEAD_OF_LENDING_EMAIL": {
+   "value": "head-lending@bank.test"
+  },
+  "CREDIT_COMMITTEE_EMAIL": {
+   "value": "committee@bank.test"
+  },
+  "PAYMENTS_OPS_EMAIL": {
+   "value": "payops@bank.test"
+  },
+  "PAYMENTS_LEAD_EMAIL": {
+   "value": "paylead@bank.test"
+  },
+  "FRAUD_TEAM_EMAIL": {
+   "value": "fraud@bank.test"
+  },
+  "MLRO_EMAIL": {
+   "value": "mlro@bank.test"
+  },
+  "TREASURY_EMAIL": {
+   "value": "treasury@bank.test"
+  },
+  "KYC_TEAM_EMAIL": {
+   "value": "kyc@bank.test"
+  },
+  "RM_EMAIL": {
+   "value": "rm@bank.test"
+  },
+  "CISO_EMAIL": {
+   "value": "ciso@bank.test"
+  },
+  "COLLECTIONS_OFFICER_EMAIL": {
+   "value": "collections@bank.test"
+  },
+  "RISK_MANAGER_EMAIL": {
+   "value": "risk@bank.test"
+  },
+  "BANK_API_KEY": {
+   "value": "sk-bank-31337",
+   "secret": true
+  }
+ },
+ "subworkflows": [],
+ "databases": {
+  "core_banking": {
+   "writable": false,
+   "description": "read replica of core banking",
+   "tables": {
+    "customers": [
+     [
+      "customer_id",
+      "text"
+     ],
+     [
+      "full_name",
+      "text"
+     ],
+     [
+      "email",
+      "text"
+     ],
+     [
+      "phone",
+      "text"
+     ],
+     [
+      "segment",
+      "text"
+     ]
+    ],
+    "loans": [
+     [
+      "loan_id",
+      "text"
+     ],
+     [
+      "customer_id",
+      "text"
+     ],
+     [
+      "outstanding",
+      "numeric"
+     ],
+     [
+      "days_past_due",
+      "integer"
+     ],
+     [
+      "status",
+      "text"
+     ]
+    ]
+   }
+  },
+  "iam_db": {
+   "writable": false,
+   "description": "identity and access management",
+   "tables": {
+    "user_access": [
+     [
+      "user_id",
+      "text"
+     ],
+     [
+      "user_email",
+      "text"
+     ],
+     [
+      "system",
+      "text"
+     ],
+     [
+      "manager_email",
+      "text"
+     ]
+    ]
+   }
+  },
+  "ops_db": {
+   "writable": true,
+   "description": "our operations database",
+   "tables": {
+    "audit_log": [
+     [
+      "id",
+      "serial"
+     ],
+     [
+      "entity",
+      "text"
+     ],
+     [
+      "entity_id",
+      "text"
+     ],
+     [
+      "action",
+      "text"
+     ],
+     [
+      "detail",
+      "text"
+     ],
+     [
+      "created_at",
+      "timestamptz default now()"
+     ]
+    ],
+    "mortgage_applications": [
+     [
+      "application_id",
+      "text primary key"
+     ],
+     [
+      "applicant_email",
+      "text"
+     ],
+     [
+      "amount",
+      "numeric"
+     ],
+     [
+      "status",
+      "text"
+     ]
+    ],
+    "kyc_requests": [
+     [
+      "id",
+      "serial"
+     ],
+     [
+      "customer_id",
+      "text"
+     ],
+     [
+      "email",
+      "text"
+     ],
+     [
+      "requested_on",
+      "date"
+     ],
+     [
+      "reminders_sent",
+      "integer"
+     ],
+     [
+      "status",
+      "text: open | restricted | complete"
+     ]
+    ],
+    "restructure_plans": [
+     [
+      "id",
+      "serial"
+     ],
+     [
+      "loan_id",
+      "text"
+     ],
+     [
+      "plan",
+      "text"
+     ],
+     [
+      "months",
+      "integer"
+     ],
+     [
+      "status",
+      "text"
+     ]
+    ]
+   }
+  }
+ }
+}

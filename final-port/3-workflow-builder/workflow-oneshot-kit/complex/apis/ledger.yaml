@@ -1,0 +1,33 @@
+openapi: 3.0.3
+info:
+  title: ledger
+  version: '1.0'
+servers:
+- url: http://ledger.bank.test
+paths:
+  /entries/yesterday:
+    get:
+      operationId: entries
+      summary: Our ledger's card entries for yesterday
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        reference:
+                          type: string
+                        amount:
+                          type: number
+                      required:
+                      - reference
+                      - amount
+                required:
+                - entries

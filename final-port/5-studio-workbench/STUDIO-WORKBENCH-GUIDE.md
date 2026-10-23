@@ -1,5 +1,7 @@
 # Studio Workbench: mockup and build brief
 
+**Session 5 of 5** (see `final-port/START-HERE.md`).
+
 This folder is the design reference for **Studio Workbench**, the agent workspace in Command Studio. It holds:
 
 - `mockup.html`: a single, self-contained, clickable mockup. Open it in a browser. Click a suggestion in the command bar to start, and press `?` to reset.
