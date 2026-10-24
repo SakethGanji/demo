@@ -5,6 +5,7 @@
 
 import {
   MousePointer,
+  UserCheck,
   Play,
   Clock,
   Webhook,
@@ -146,6 +147,9 @@ const iconMap: Record<string, LucideIconComponent> = {
   pause: Pause,
   'hourglass-half': Pause,
   'fa:hourglass-half': Pause,
+  'user-check': UserCheck,
+  'fa:user-check': UserCheck,
+  approval: UserCheck,
   wait: Pause,
   sync: RefreshCw,
   'fa:sync': RefreshCw,

@@ -1,0 +1,735 @@
+{
+ "name": "Payment batch screening and release",
+ "nodes": [
+  {
+   "name": "Batch received",
+   "type": "Webhook",
+   "parameters": {
+    "method": "POST",
+    "path": "payment-batch",
+    "responseMode": "lastNode"
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Split payments",
+   "type": "ItemLists",
+   "parameters": {
+    "operation": "splitOut",
+    "arrayField": "body.payments",
+    "includeOther": false
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "Screen beneficiary",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "screening",
+     "operation_id": "screen"
+    },
+    "method": "POST",
+    "url": "",
+    "body": {
+     "name": "{{ $json.beneficiary }}",
+     "country": "{{ $json.country }}"
+    }
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Add result",
+   "type": "Set",
+   "parameters": {
+    "mode": "manual",
+    "keepOnlySet": true,
+    "fields": [
+     {
+      "name": "payment_id",
+      "value": "{{ at($node[\"Split payments\"].data, $itemIndex).payment_id }}"
+     },
+     {
+      "name": "amount",
+      "value": "{{ at($node[\"Split payments\"].data, $itemIndex).amount }}"
+     },
+     {
+      "name": "hit",
+      "value": "{{ $json.body.hit }}"
+     },
+     {
+      "name": "list",
+      "value": "{{ $json.body.list }}"
+     }
+    ]
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Sort out batch",
+   "type": "Code",
+   "parameters": {
+    "code": "hits = []\nremaining = []\ntotal = 0.0\nfor it in items:\n    p = it[\"json\"]\n    if p[\"hit\"]:\n        hits.append(p)\n    else:\n        remaining.append(p)\n        total = total + float(p[\"amount\"])\nreturn [new_item({\"batch_id\": node_data[\"Batch received\"][\"json\"][\"body\"][\"batch_id\"], \"hits\": hits, \"remaining\": remaining, \"hit_count\": len(hits), \"remaining_count\": len(remaining), \"total\": total})]"
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  },
+  {
+   "name": "Split hits",
+   "type": "ItemLists",
+   "parameters": {
+    "operation": "splitOut",
+    "arrayField": "hits",
+    "includeOther": false
+   },
+   "position": {
+    "x": 950,
+    "y": 0
+   }
+  },
+  {
+   "name": "Hold sanctioned payment",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "payments",
+     "operation_id": "hold"
+    },
+    "method": "POST",
+    "url": "",
+    "path_params": {
+     "payment_id": "{{ $json.payment_id }}"
+    },
+    "body": {
+     "reason": "Sanctions hit on {{ $json.list }}"
+    }
+   },
+   "position": {
+    "x": 1140,
+    "y": 0
+   }
+  },
+  {
+   "name": "Over 1M?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ float($json.total) > 1000000 }}"
+   },
+   "position": {
+    "x": 950,
+    "y": 110
+   }
+  },
+  {
+   "name": "Head of treasury approval",
+   "type": "Approval",
+   "parameters": {
+    "title": "Approve payment batch {{ $json.batch_id }}",
+    "context": {
+     "Batch": "{{ $json.batch_id }}",
+     "Payments to release": "{{ $json.remaining_count }}",
+     "Total": "{{ $json.total }}",
+     "Held for sanctions": "{{ $json.hit_count }}"
+    },
+    "notify_email": "{{ $vars.HEAD_OF_TREASURY_EMAIL }}",
+    "require_comment_on_reject": true
+   },
+   "position": {
+    "x": 1140,
+    "y": 110
+   }
+  },
+  {
+   "name": "Reply released",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "batch_id": "{{ $json.batch_id }}",
+     "released": "{{ $json.remaining_count }}",
+     "held": "{{ $json.hit_count }}"
+    }
+   },
+   "position": {
+    "x": 0,
+    "y": 290
+   }
+  },
+  {
+   "name": "Reply all held",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "batch_id": "{{ $json.batch_id }}",
+     "released": 0,
+     "held": "{{ $json.hit_count + $json.remaining_count }}"
+    }
+   },
+   "position": {
+    "x": 0,
+    "y": 400
+   }
+  },
+  {
+   "name": "Split remaining",
+   "type": "ItemLists",
+   "parameters": {
+    "operation": "splitOut",
+    "arrayField": "remaining",
+    "includeOther": false
+   },
+   "position": {
+    "x": 190,
+    "y": 290
+   }
+  },
+  {
+   "name": "Release payment",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "payments",
+     "operation_id": "release"
+    },
+    "method": "POST",
+    "url": "",
+    "path_params": {
+     "payment_id": "{{ $json.payment_id }}"
+    }
+   },
+   "position": {
+    "x": 380,
+    "y": 290
+   }
+  },
+  {
+   "name": "Split remaining to hold",
+   "type": "ItemLists",
+   "parameters": {
+    "operation": "splitOut",
+    "arrayField": "remaining",
+    "includeOther": false
+   },
+   "position": {
+    "x": 190,
+    "y": 400
+   }
+  },
+  {
+   "name": "Hold rejected payment",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "payments",
+     "operation_id": "hold"
+    },
+    "method": "POST",
+    "url": "",
+    "path_params": {
+     "payment_id": "{{ $json.payment_id }}"
+    },
+    "body": {
+     "reason": "Batch rejected by head of treasury"
+    }
+   },
+   "position": {
+    "x": 380,
+    "y": 400
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Batch received",
+   "target_node": "Split payments",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Split payments",
+   "target_node": "Screen beneficiary",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Screen beneficiary",
+   "target_node": "Add result",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Add result",
+   "target_node": "Sort out batch",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Sort out batch",
+   "target_node": "Split hits",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Split hits",
+   "target_node": "Hold sanctioned payment",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Sort out batch",
+   "target_node": "Over 1M?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Over 1M?",
+   "target_node": "Head of treasury approval",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Over 1M?",
+   "target_node": "Reply released",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Head of treasury approval",
+   "target_node": "Reply released",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Head of treasury approval",
+   "target_node": "Reply all held",
+   "source_output": "rejected",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Reply released",
+   "target_node": "Split remaining",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Split remaining",
+   "target_node": "Release payment",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Reply all held",
+   "target_node": "Split remaining to hold",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Split remaining to hold",
+   "target_node": "Hold rejected payment",
+   "source_output": "main",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Small clean batch is released without approval",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "batch_id": "B1",
+       "payments": [
+        {
+         "payment_id": "P1",
+         "beneficiary": "Acme Ltd",
+         "country": "DE",
+         "amount": 400000
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Screen beneficiary": {
+     "http": {
+      "status": 200,
+      "body": {
+       "hit": false,
+       "list": ""
+      }
+     }
+    },
+    "Release payment": {
+     "http": {
+      "status": 200,
+      "body": {
+       "payment_id": "P1",
+       "status": "released"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Head of treasury approval",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Release payment",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Release payment",
+     "subject": "request",
+     "path": "url",
+     "op": "contains",
+     "value": "P1"
+    },
+    {
+     "node": "Hold sanctioned payment",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Reply released",
+     "subject": "request",
+     "path": "body.released",
+     "op": "eq",
+     "value": 1
+    },
+    {
+     "node": "Reply released",
+     "subject": "request",
+     "path": "body.held",
+     "op": "eq",
+     "value": 0
+    }
+   ]
+  },
+  {
+   "name": "Sanctioned beneficiary is held and never released",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "batch_id": "B2",
+       "payments": [
+        {
+         "payment_id": "P2",
+         "beneficiary": "Bad Actor",
+         "country": "XX",
+         "amount": 5000
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Screen beneficiary": {
+     "http": {
+      "status": 200,
+      "body": {
+       "hit": true,
+       "list": "OFAC"
+      }
+     }
+    },
+    "Hold sanctioned payment": {
+     "http": {
+      "status": 200,
+      "body": {
+       "payment_id": "P2",
+       "status": "held"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Hold sanctioned payment",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Hold sanctioned payment",
+     "subject": "request",
+     "path": "body.reason",
+     "op": "contains",
+     "value": "OFAC"
+    },
+    {
+     "node": "Release payment",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Reply released",
+     "subject": "request",
+     "path": "body.released",
+     "op": "eq",
+     "value": 0
+    },
+    {
+     "node": "Reply released",
+     "subject": "request",
+     "path": "body.held",
+     "op": "eq",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "name": "Exactly 1,000,000 needs no approval",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "batch_id": "B3",
+       "payments": [
+        {
+         "payment_id": "P3",
+         "beneficiary": "Big Co",
+         "country": "US",
+         "amount": 1000000
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Screen beneficiary": {
+     "http": {
+      "status": 200,
+      "body": {
+       "hit": false,
+       "list": ""
+      }
+     }
+    },
+    "Release payment": {
+     "http": {
+      "status": 200,
+      "body": {
+       "payment_id": "P3",
+       "status": "released"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Head of treasury approval",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Release payment",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "name": "Over 1M approved is released",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "batch_id": "B4",
+       "payments": [
+        {
+         "payment_id": "P4",
+         "beneficiary": "Big Co",
+         "country": "US",
+         "amount": 1500000
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Screen beneficiary": {
+     "http": {
+      "status": 200,
+      "body": {
+       "hit": false,
+       "list": ""
+      }
+     }
+    },
+    "Head of treasury approval": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Release payment": {
+     "http": {
+      "status": 200,
+      "body": {
+       "payment_id": "P4",
+       "status": "released"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Head of treasury approval",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Release payment",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Reply released",
+     "subject": "request",
+     "path": "body.released",
+     "op": "eq",
+     "value": 1
+    },
+    {
+     "node": "Hold rejected payment",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Over 1M rejected holds the remaining payments",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "batch_id": "B5",
+       "payments": [
+        {
+         "payment_id": "P5",
+         "beneficiary": "Big Co",
+         "country": "US",
+         "amount": 1500000
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Screen beneficiary": {
+     "http": {
+      "status": 200,
+      "body": {
+       "hit": false,
+       "list": ""
+      }
+     }
+    },
+    "Head of treasury approval": {
+     "port": "rejected",
+     "approval": {
+      "decision": "rejected",
+      "comment": "Too risky",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Hold rejected payment": {
+     "http": {
+      "status": 200,
+      "body": {
+       "payment_id": "P5",
+       "status": "held"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Hold rejected payment",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Hold rejected payment",
+     "subject": "request",
+     "path": "url",
+     "op": "contains",
+     "value": "P5"
+    },
+    {
+     "node": "Release payment",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Reply all held",
+     "subject": "request",
+     "path": "body.held",
+     "op": "eq",
+     "value": 1
+    },
+    {
+     "node": "Reply all held",
+     "subject": "request",
+     "path": "body.released",
+     "op": "eq",
+     "value": 0
+    }
+   ]
+  }
+ ]
+}

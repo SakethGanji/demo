@@ -326,6 +326,8 @@ export const appsApi = {
       create_version?: boolean;
       version_trigger?: string;
       version_prompt?: string;
+      /** optimistic concurrency: the version this save was made on; a stale one is refused with 409 `stale_base` */
+      base_version_id?: number;
       slug?: string;
       access?: ApiAppAccess;
       access_password?: string;

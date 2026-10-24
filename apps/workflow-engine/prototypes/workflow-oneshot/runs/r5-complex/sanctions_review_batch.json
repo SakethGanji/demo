@@ -1,0 +1,479 @@
+{
+ "name": "Daily sanctions review",
+ "nodes": [
+  {
+   "name": "Weekday 7am",
+   "type": "Cron",
+   "parameters": {
+    "mode": "cron",
+    "cronExpression": "0 7 * * 1-5"
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "List pending",
+   "type": "DataTable",
+   "parameters": {
+    "table": "sanctions_review",
+    "operation": "list",
+    "filter": {
+     "status": "pending"
+    }
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "Screen name",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "screening",
+     "operation_id": "screen"
+    },
+    "method": "POST",
+    "url": "",
+    "body": {
+     "name": "{{ $json.name }}",
+     "country": "{{ $json.country }}"
+    }
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Combine result",
+   "type": "Set",
+   "parameters": {
+    "mode": "manual",
+    "fields": [
+     {
+      "name": "id",
+      "value": "{{ at($node[\"List pending\"].data, $itemIndex).id }}"
+     },
+     {
+      "name": "name",
+      "value": "{{ at($node[\"List pending\"].data, $itemIndex).name }}"
+     },
+     {
+      "name": "country",
+      "value": "{{ at($node[\"List pending\"].data, $itemIndex).country }}"
+     },
+     {
+      "name": "hit",
+      "value": "{{ $json.body.hit }}"
+     },
+     {
+      "name": "list",
+      "value": "{{ $json.body.list }}"
+     }
+    ]
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Hit?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $json.hit == true }}"
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  },
+  {
+   "name": "Mark hit",
+   "type": "DataTable",
+   "parameters": {
+    "table": "sanctions_review",
+    "operation": "update",
+    "rowId": "{{ $json.id }}",
+    "data": {
+     "status": "hit"
+    }
+   },
+   "position": {
+    "x": 950,
+    "y": 0
+   }
+  },
+  {
+   "name": "Open case",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "compliance",
+     "operation_id": "openCase"
+    },
+    "method": "POST",
+    "url": "",
+    "body": {
+     "subject": "{{ $json.name }}",
+     "reason": "Sanctions screening hit for {{ $json.name }} ({{ $json.country }}) on list {{ $json.list }}"
+    }
+   },
+   "position": {
+    "x": 950,
+    "y": 110
+   }
+  },
+  {
+   "name": "Mark cleared",
+   "type": "DataTable",
+   "parameters": {
+    "table": "sanctions_review",
+    "operation": "update",
+    "rowId": "{{ $json.id }}",
+    "data": {
+     "status": "cleared"
+    }
+   },
+   "position": {
+    "x": 950,
+    "y": 330
+   }
+  },
+  {
+   "name": "Collect hits",
+   "type": "Code",
+   "parameters": {
+    "code": "if not items:\n    return []\nnames = []\nfor it in items:\n    names.append(it[\"json\"][\"name\"])\nreturn [new_item({\"names\": \", \".join(names), \"count\": len(names)})]"
+   },
+   "position": {
+    "x": 950,
+    "y": 220
+   }
+  },
+  {
+   "name": "Email compliance",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $vars.COMPLIANCE_EMAIL }}",
+    "subject": "Sanctions screening: {{ $json.count }} hit(s)",
+    "bodyFormat": "plain",
+    "body": "Sanctions screening hits today: {{ $json.names }}"
+   },
+   "position": {
+    "x": 1140,
+    "y": 0
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Weekday 7am",
+   "target_node": "List pending",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "List pending",
+   "target_node": "Screen name",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Screen name",
+   "target_node": "Combine result",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Combine result",
+   "target_node": "Hit?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Hit?",
+   "target_node": "Mark hit",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Hit?",
+   "target_node": "Open case",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Hit?",
+   "target_node": "Collect hits",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Hit?",
+   "target_node": "Mark cleared",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Collect hits",
+   "target_node": "Email compliance",
+   "source_output": "main",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Hit marks row, opens case, emails compliance",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "List pending": {
+     "items": [
+      {
+       "id": "r1",
+       "name": "Ivan Petrov",
+       "country": "RU",
+       "status": "pending"
+      }
+     ]
+    },
+    "Screen name": {
+     "http": {
+      "status": 200,
+      "body": {
+       "hit": true,
+       "list": "OFAC"
+      }
+     }
+    },
+    "Mark hit": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Open case": {
+     "http": {
+      "status": 200,
+      "body": {
+       "case_id": "C-1"
+      }
+     }
+    },
+    "Email compliance": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Mark hit",
+     "subject": "request",
+     "path": "params.data.status",
+     "op": "eq",
+     "value": "hit"
+    },
+    {
+     "node": "Mark hit",
+     "subject": "request",
+     "path": "params.rowId",
+     "op": "eq",
+     "value": "r1"
+    },
+    {
+     "node": "Open case",
+     "subject": "request",
+     "path": "body.subject",
+     "op": "eq",
+     "value": "Ivan Petrov"
+    },
+    {
+     "node": "Email compliance",
+     "subject": "request",
+     "path": "params.body",
+     "op": "contains",
+     "value": "Ivan Petrov"
+    },
+    {
+     "node": "Mark cleared",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "No hit clears row, no case, no email",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "List pending": {
+     "items": [
+      {
+       "id": "r2",
+       "name": "Jane Smith",
+       "country": "GB",
+       "status": "pending"
+      }
+     ]
+    },
+    "Screen name": {
+     "http": {
+      "status": 200,
+      "body": {
+       "hit": false,
+       "list": ""
+      }
+     }
+    },
+    "Mark cleared": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Mark cleared",
+     "subject": "request",
+     "path": "params.data.status",
+     "op": "eq",
+     "value": "cleared"
+    },
+    {
+     "node": "Mark cleared",
+     "subject": "request",
+     "path": "params.rowId",
+     "op": "eq",
+     "value": "r2"
+    },
+    {
+     "node": "Mark hit",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Open case",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Email compliance",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Screening gets the name and country",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "List pending": {
+     "items": [
+      {
+       "id": "r3",
+       "name": "Ana Lopez",
+       "country": "ES",
+       "status": "pending"
+      }
+     ]
+    },
+    "Screen name": {
+     "http": {
+      "status": 200,
+      "body": {
+       "hit": false,
+       "list": ""
+      }
+     }
+    },
+    "Mark cleared": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Screen name",
+     "subject": "request",
+     "path": "body.name",
+     "op": "eq",
+     "value": "Ana Lopez"
+    },
+    {
+     "node": "Screen name",
+     "subject": "request",
+     "path": "body.country",
+     "op": "eq",
+     "value": "ES"
+    }
+   ]
+  },
+  {
+   "name": "Nothing pending does nothing",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "List pending": {
+     "items": []
+    }
+   },
+   "expect": [
+    {
+     "node": "Screen name",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Email compliance",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  }
+ ]
+}

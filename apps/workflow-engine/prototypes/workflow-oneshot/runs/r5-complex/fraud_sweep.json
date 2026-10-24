@@ -1,0 +1,758 @@
+{
+ "name": "Flagged card transaction triage",
+ "nodes": [
+  {
+   "name": "Every 15 minutes",
+   "type": "Cron",
+   "parameters": {
+    "mode": "interval",
+    "interval": 900
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Get flagged",
+   "type": "HttpRequest",
+   "parameters": {
+    "method": "GET",
+    "url": "",
+    "api_ref": {
+     "spec_id": "fraud",
+     "operation_id": "listFlagged"
+    }
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "Count frozen",
+   "type": "Code",
+   "parameters": {
+    "code": "txs = json_data['body']['transactions']\nn = 0\nfor t in txs:\n    if t['score'] >= 40:\n        n = n + 1\nreturn [new_item({'frozen_count': n, 'transactions': txs})]"
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Split transactions",
+   "type": "ItemLists",
+   "parameters": {
+    "operation": "splitOut",
+    "arrayField": "transactions",
+    "includeOther": false
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Each transaction",
+   "type": "Loop",
+   "parameters": {
+    "batchSize": 1
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  },
+  {
+   "name": "Score band",
+   "type": "Switch",
+   "parameters": {
+    "mode": "rules",
+    "numberOfOutputs": 2,
+    "rules": [
+     {
+      "output": 0,
+      "field": "{{ $json.score }}",
+      "operation": "lt",
+      "value": "40"
+     },
+     {
+      "output": 1,
+      "field": "{{ $json.score }}",
+      "operation": "lt",
+      "value": "80"
+     }
+    ]
+   },
+   "position": {
+    "x": 950,
+    "y": 0
+   }
+  },
+  {
+   "name": "Clear transaction",
+   "type": "HttpRequest",
+   "parameters": {
+    "method": "POST",
+    "url": "",
+    "api_ref": {
+     "spec_id": "fraud",
+     "operation_id": "clear"
+    },
+    "path_params": {
+     "txn_id": "{{ $node[\"Each transaction\"].json.txn_id }}"
+    },
+    "body": {}
+   },
+   "position": {
+    "x": 1140,
+    "y": 0
+   }
+  },
+  {
+   "name": "Freeze card medium",
+   "type": "HttpRequest",
+   "parameters": {
+    "method": "POST",
+    "url": "",
+    "api_ref": {
+     "spec_id": "cardctl",
+     "operation_id": "freeze"
+    },
+    "path_params": {
+     "card_id": "{{ $node[\"Each transaction\"].json.card_id }}"
+    },
+    "body": {}
+   },
+   "position": {
+    "x": 1140,
+    "y": 110
+   }
+  },
+  {
+   "name": "Text customer",
+   "type": "HttpRequest",
+   "parameters": {
+    "method": "POST",
+    "url": "",
+    "api_ref": {
+     "spec_id": "sms",
+     "operation_id": "send"
+    },
+    "body": {
+     "to": "{{ $node[\"Each transaction\"].json.customer_phone }}",
+     "text": "Your card has been frozen due to suspicious activity."
+    }
+   },
+   "position": {
+    "x": 0,
+    "y": 510
+   }
+  },
+  {
+   "name": "Freeze card high",
+   "type": "HttpRequest",
+   "parameters": {
+    "method": "POST",
+    "url": "",
+    "api_ref": {
+     "spec_id": "cardctl",
+     "operation_id": "freeze"
+    },
+    "path_params": {
+     "card_id": "{{ $node[\"Each transaction\"].json.card_id }}"
+    },
+    "body": {}
+   },
+   "position": {
+    "x": 1140,
+    "y": 220
+   }
+  },
+  {
+   "name": "Block card",
+   "type": "HttpRequest",
+   "parameters": {
+    "method": "POST",
+    "url": "",
+    "api_ref": {
+     "spec_id": "cardctl",
+     "operation_id": "block"
+    },
+    "path_params": {
+     "card_id": "{{ $node[\"Each transaction\"].json.card_id }}"
+    },
+    "body": {}
+   },
+   "position": {
+    "x": 0,
+    "y": 620
+   }
+  },
+  {
+   "name": "Open fraud case",
+   "type": "HttpRequest",
+   "parameters": {
+    "method": "POST",
+    "url": "",
+    "api_ref": {
+     "spec_id": "fraud",
+     "operation_id": "openCase"
+    },
+    "body": {
+     "card_id": "{{ $node[\"Each transaction\"].json.card_id }}",
+     "txn_id": "{{ $node[\"Each transaction\"].json.txn_id }}"
+    }
+   },
+   "position": {
+    "x": 190,
+    "y": 510
+   }
+  },
+  {
+   "name": "Any frozen?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $node[\"Count frozen\"].json.frozen_count > 0 }}"
+   },
+   "position": {
+    "x": 950,
+    "y": 110
+   }
+  },
+  {
+   "name": "Email fraud team",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $vars.FRAUD_TEAM_EMAIL }}",
+    "subject": "Cards frozen: {{ $node[\"Count frozen\"].json.frozen_count }}",
+    "bodyFormat": "plain",
+    "body": "{{ $node[\"Count frozen\"].json.frozen_count }} cards were frozen in this run."
+   },
+   "position": {
+    "x": 1140,
+    "y": 330
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Every 15 minutes",
+   "target_node": "Get flagged",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Get flagged",
+   "target_node": "Count frozen",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Count frozen",
+   "target_node": "Split transactions",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Split transactions",
+   "target_node": "Each transaction",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Each transaction",
+   "target_node": "Score band",
+   "source_output": "loop",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Each transaction",
+   "target_node": "Any frozen?",
+   "source_output": "done",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Score band",
+   "target_node": "Clear transaction",
+   "source_output": "output0",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Score band",
+   "target_node": "Freeze card medium",
+   "source_output": "output1",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Score band",
+   "target_node": "Freeze card high",
+   "source_output": "fallback",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Clear transaction",
+   "target_node": "Each transaction",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Freeze card medium",
+   "target_node": "Text customer",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Text customer",
+   "target_node": "Each transaction",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Freeze card high",
+   "target_node": "Block card",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Block card",
+   "target_node": "Open fraud case",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Open fraud case",
+   "target_node": "Each transaction",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Any frozen?",
+   "target_node": "Email fraud team",
+   "source_output": "true",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Mixed scores take each action",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "Get flagged": {
+     "http": {
+      "status": 200,
+      "body": {
+       "transactions": [
+        {
+         "txn_id": "t1",
+         "card_id": "c1",
+         "customer_phone": "+100",
+         "score": 20
+        },
+        {
+         "txn_id": "t2",
+         "card_id": "c2",
+         "customer_phone": "+200",
+         "score": 55
+        },
+        {
+         "txn_id": "t3",
+         "card_id": "c3",
+         "customer_phone": "+300",
+         "score": 90
+        }
+       ]
+      }
+     }
+    },
+    "Clear transaction": {
+     "http": {
+      "status": 200,
+      "body": {
+       "txn_id": "t1",
+       "status": "cleared"
+      }
+     }
+    },
+    "Freeze card medium": {
+     "http": {
+      "status": 200,
+      "body": {
+       "card_id": "c2",
+       "status": "frozen"
+      }
+     }
+    },
+    "Text customer": {
+     "http": {
+      "status": 200,
+      "body": {
+       "sent": true
+      }
+     }
+    },
+    "Freeze card high": {
+     "http": {
+      "status": 200,
+      "body": {
+       "card_id": "c3",
+       "status": "frozen"
+      }
+     }
+    },
+    "Block card": {
+     "http": {
+      "status": 200,
+      "body": {
+       "card_id": "c3",
+       "status": "blocked"
+      }
+     }
+    },
+    "Open fraud case": {
+     "http": {
+      "status": 200,
+      "body": {
+       "case_id": "case1"
+      }
+     }
+    },
+    "Email fraud team": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Clear transaction",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Freeze card medium",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Text customer",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Freeze card high",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Block card",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Open fraud case",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Email fraud team",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Email fraud team",
+     "subject": "request",
+     "path": "params.body",
+     "op": "contains",
+     "value": "2 cards"
+    }
+   ]
+  },
+  {
+   "name": "All under 40 clears and sends no email",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "Get flagged": {
+     "http": {
+      "status": 200,
+      "body": {
+       "transactions": [
+        {
+         "txn_id": "t1",
+         "card_id": "c1",
+         "customer_phone": "+100",
+         "score": 10
+        },
+        {
+         "txn_id": "t2",
+         "card_id": "c2",
+         "customer_phone": "+200",
+         "score": 39
+        }
+       ]
+      }
+     }
+    },
+    "Clear transaction": {
+     "http": {
+      "status": 200,
+      "body": {
+       "txn_id": "t1",
+       "status": "cleared"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Clear transaction",
+     "subject": "request",
+     "op": "count",
+     "value": 2
+    },
+    {
+     "node": "Freeze card medium",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Freeze card high",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Email fraud team",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Score 40 is frozen and texted, not blocked",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "Get flagged": {
+     "http": {
+      "status": 200,
+      "body": {
+       "transactions": [
+        {
+         "txn_id": "t1",
+         "card_id": "c1",
+         "customer_phone": "+100",
+         "score": 40
+        }
+       ]
+      }
+     }
+    },
+    "Freeze card medium": {
+     "http": {
+      "status": 200,
+      "body": {
+       "card_id": "c1",
+       "status": "frozen"
+      }
+     }
+    },
+    "Text customer": {
+     "http": {
+      "status": 200,
+      "body": {
+       "sent": true
+      }
+     }
+    },
+    "Email fraud team": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Clear transaction",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Freeze card medium",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Text customer",
+     "subject": "request",
+     "path": "body.to",
+     "op": "eq",
+     "value": "+100"
+    },
+    {
+     "node": "Block card",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Email fraud team",
+     "subject": "request",
+     "path": "params.body",
+     "op": "contains",
+     "value": "1 cards"
+    }
+   ]
+  },
+  {
+   "name": "Scores 79 and 80 split at the boundary",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "Get flagged": {
+     "http": {
+      "status": 200,
+      "body": {
+       "transactions": [
+        {
+         "txn_id": "t1",
+         "card_id": "c1",
+         "customer_phone": "+100",
+         "score": 79
+        },
+        {
+         "txn_id": "t2",
+         "card_id": "c2",
+         "customer_phone": "+200",
+         "score": 80
+        }
+       ]
+      }
+     }
+    },
+    "Freeze card medium": {
+     "http": {
+      "status": 200,
+      "body": {
+       "card_id": "c1",
+       "status": "frozen"
+      }
+     }
+    },
+    "Text customer": {
+     "http": {
+      "status": 200,
+      "body": {
+       "sent": true
+      }
+     }
+    },
+    "Freeze card high": {
+     "http": {
+      "status": 200,
+      "body": {
+       "card_id": "c2",
+       "status": "frozen"
+      }
+     }
+    },
+    "Block card": {
+     "http": {
+      "status": 200,
+      "body": {
+       "card_id": "c2",
+       "status": "blocked"
+      }
+     }
+    },
+    "Open fraud case": {
+     "http": {
+      "status": 200,
+      "body": {
+       "case_id": "case1"
+      }
+     }
+    },
+    "Email fraud team": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Text customer",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Block card",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Block card",
+     "subject": "request",
+     "path": "url",
+     "op": "contains",
+     "value": "c2"
+    },
+    {
+     "node": "Open fraud case",
+     "subject": "request",
+     "path": "body.txn_id",
+     "op": "eq",
+     "value": "t2"
+    },
+    {
+     "node": "Email fraud team",
+     "subject": "request",
+     "path": "params.body",
+     "op": "contains",
+     "value": "2 cards"
+    }
+   ]
+  }
+ ]
+}

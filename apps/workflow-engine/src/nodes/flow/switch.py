@@ -201,6 +201,7 @@ class SwitchNode(BaseNode):
                     context.node_states,
                     context.execution_id,
                     item_index=idx,
+                    variables=context.variables,
                 )
                 for rule in rules:
                     if self._evaluate_rule(rule, item.json, expr_context):

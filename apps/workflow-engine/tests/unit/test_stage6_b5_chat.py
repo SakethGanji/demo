@@ -24,6 +24,7 @@ def _clean(monkeypatch):
     wf_ai.clear_cache()
     for k in ("WF_AI_MAX_CALLS", "WF_AI_ALLOWED_MODELS"):
         monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("WF_CHAT_BUILDER", "legacy")   # these test the staged builder; the one-shot chat is test_workflow_oneshot.py
     B._BUSY.clear()
     yield
     uninstall()

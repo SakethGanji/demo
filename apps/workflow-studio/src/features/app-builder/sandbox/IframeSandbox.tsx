@@ -2,8 +2,9 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import { AlertTriangle, RefreshCw } from 'lucide-react'
 import { useConsoleStore } from '../stores'
 import { postToIframe, isIframeMessage } from './bridge'
-import type { IframeMessage } from './bridge'
+import type { CanvasRect, DropTargetMsg, IframeMessage, ParentMessage, PreviewScreen } from './bridge'
 import { SANDBOX_RUNTIME_CODE } from './sandbox-runtime'
+import { VISUAL_EDIT_RUNTIME_CODE } from './visual-edit-runtime'
 import { bundleFiles } from './esbuild-bundler'
 import type { AppFile } from './esbuild-bundler'
 import { config } from '@/shared/lib/config'
@@ -35,6 +36,46 @@ interface IframeSandboxProps {
   viewAs?: PreviewUser | null
   /** runtime errors seen after a load, deduped and settled (~3s); `[]` when a new load starts */
   onPreviewErrors?: (errors: PreviewError[]) => void
+  /** visual editing (behind its flag): tags the bundle with source locations and loads the edit runtime into the iframe */
+  visualEdit?: VisualEditBridge
+}
+
+export interface VisualEditBridge {
+  /** clicks select instead of acting */
+  editing: boolean
+  /** the element to outline (re-found after every render) */
+  highlight: {
+    vsrc: string
+    vpart?: string | null
+    label?: string
+    /** the selection's movable siblings (drag to reorder): its own index, the child count and the tagged children */
+    siblings?: { index: number; count: number; items: { vsrc: string; index: number }[] } | null
+    /** the selection's parent element (a drop there reorders) and the containers it can be dragged into */
+    parent?: string | null
+    targets?: DropTargetMsg[]
+  } | null
+  onSelect: (picked: { chain: { vsrc: string; name: string }[]; part: { owner: string; vpart: string } | null }) => void
+  /** a double-click: enter the definition of a reusable component */
+  onDblSelect: (picked: { chain: { vsrc: string; name: string }[]; part: { owner: string; vpart: string } | null }) => void
+  /** a drag-drop in the preview: move the selection before child `before` of its parent, or of container `target` */
+  onMove: (before: number, target?: string | null) => void
+  /** keys inside the preview: Alt+Arrow (a delta), Delete/Backspace, Ctrl/Cmd+D, Escape */
+  onKey: (key: -1 | 1 | 'delete' | 'duplicate' | 'deselect') => void
+  /** where the preview draws the selection now (for the canvas toolbar and handles) */
+  onRect?: (r: CanvasRect) => void
+  /** the AppShell screen the preview shows changed (null: none rendered) */
+  onScreen?: (screen: PreviewScreen | null) => void
+  /** an inline text edit: `begin` asks whether the element's text may be edited, `commit` applies the new text; true when it did */
+  onText: (phase: 'begin' | 'commit', picked: { chain: { vsrc: string; name: string }[]; part: { owner: string; vpart: string } | null }, value?: string) => boolean
+  /** a palette item dropped in the preview */
+  onInsert: (target: string, before: number) => void
+  /** the preview's message port (null when it goes away), for palette drags */
+  connect: (port: VisualEditPort | null) => void
+}
+
+export interface VisualEditPort {
+  post: (msg: ParentMessage) => void
+  frame: HTMLIFrameElement
 }
 
 /** Simple content hash to avoid redundant re-bundles. */
@@ -62,7 +103,7 @@ export function normaliseHeaders(h: unknown): Record<string, string> {
  * `fetch` from the app is proxied through this bridge (C12): relative URLs resolve against the
  * engine origin. Only selected project routes and bound workflow runs are permitted.
  */
-export function IframeSandbox({ files, projectSlug, allowedRoutes, workflowPaths, getToken, refreshToken, onApiCall, viewAs, onPreviewErrors }: IframeSandboxProps) {
+export function IframeSandbox({ files, projectSlug, allowedRoutes, workflowPaths, getToken, refreshToken, onApiCall, viewAs, onPreviewErrors, visualEdit }: IframeSandboxProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -74,6 +115,10 @@ export function IframeSandbox({ files, projectSlug, allowedRoutes, workflowPaths
   const propsRef = useRef({ projectSlug, allowedRoutes, workflowPaths, getToken, refreshToken, onApiCall, viewAs })
   propsRef.current = { projectSlug, allowedRoutes, workflowPaths, getToken, refreshToken, onApiCall, viewAs }
   useEffect(() => () => { generation.current++ }, [])
+  // fixed for the life of the iframe: the edit runtime is part of its document
+  const [tagged] = useState(() => !!visualEdit)
+  const visualRef = useRef(visualEdit)
+  visualRef.current = visualEdit
 
   const errorsCbRef = useRef(onPreviewErrors)
   errorsCbRef.current = onPreviewErrors
@@ -91,7 +136,7 @@ export function IframeSandbox({ files, projectSlug, allowedRoutes, workflowPaths
       if (hash === lastHashRef.current) return
       lastHashRef.current = hash
       const current = ++generation.current
-      bundleFiles(appFiles)
+      bundleFiles(appFiles, { tagSources: tagged })
         .then(({ code, css, errors }) => {
           if (current !== generation.current) return
           if (errors.length > 0) {
@@ -102,7 +147,14 @@ export function IframeSandbox({ files, projectSlug, allowedRoutes, workflowPaths
           }
           setError(null)
           collector.reset()
-          if (iframeRef.current) postToIframe(iframeRef.current, { type: 'render', source: code, css: css || undefined })
+          if (!iframeRef.current) return
+          const v = propsRef.current.viewAs
+          postToIframe(iframeRef.current, {
+            type: 'render',
+            source: code,
+            css: css || undefined,
+            ...(tagged ? { viewer: v ? { id: v.id, roles: v.roles } : null } : {}),
+          })
         })
         .catch((err) => {
           if (current !== generation.current) return
@@ -111,7 +163,7 @@ export function IframeSandbox({ files, projectSlug, allowedRoutes, workflowPaths
           log('error', 'bundle', message)
         })
     },
-    [log, collector],
+    [log, collector, tagged],
   )
 
   const handleApiRequest = useCallback(async (reqId: string, url: string, opts: RequestInit) => {
@@ -212,6 +264,33 @@ export function IframeSandbox({ files, projectSlug, allowedRoutes, workflowPaths
         case 'apiRequest':
           void handleApiRequest(msg.reqId, msg.url, msg.opts)
           break
+        case 'vselect':
+          visualRef.current?.onSelect({ chain: msg.chain, part: msg.part })
+          break
+        case 'vdblselect':
+          visualRef.current?.onDblSelect({ chain: msg.chain, part: msg.part })
+          break
+        case 'vtext': {
+          const ok = visualRef.current?.onText(msg.phase, { chain: msg.chain, part: msg.part }, msg.value) ?? false
+          if (iframeRef.current) postToIframe(iframeRef.current, { type: 'vtextgo', phase: msg.phase, ok })
+          break
+        }
+        case 'vmove':
+          visualRef.current?.onMove(msg.before, msg.target ?? null)
+          break
+        case 'vkey':
+          visualRef.current?.onKey(msg.action ?? msg.delta ?? 1)
+          break
+        case 'vinsert':
+          visualRef.current?.onInsert(msg.target, msg.before)
+          break
+        case 'vrect':
+          // the message is a CanvasRect plus its `type`: passed whole so new optional fields reach the studio untouched
+          visualRef.current?.onRect?.(msg)
+          break
+        case 'vscreen':
+          visualRef.current?.onScreen?.(msg.screen)
+          break
       }
     },
     [sendToIframe, handleApiRequest, log, collector],
@@ -228,12 +307,30 @@ export function IframeSandbox({ files, projectSlug, allowedRoutes, workflowPaths
     return () => clearTimeout(timeout)
   }, [ready, blobUrl])
 
+  const editing = !!visualEdit?.editing
+  const hl = visualEdit?.highlight ?? null
+  useEffect(() => {
+    if (tagged && ready && iframeRef.current) postToIframe(iframeRef.current, { type: 'veditMode', on: editing })
+  }, [tagged, ready, editing])
+  useEffect(() => {
+    if (tagged && ready && iframeRef.current) {
+      postToIframe(iframeRef.current, { type: 'vhighlight', vsrc: hl?.vsrc ?? null, vpart: hl?.vpart ?? null, label: hl?.label, siblings: hl?.siblings ?? null, parent: hl?.parent ?? null, targets: hl?.targets ?? [] })
+    }
+  }, [tagged, ready, hl?.vsrc, hl?.vpart, hl?.label, hl?.siblings, hl?.parent, hl?.targets])
+  const connect = visualEdit?.connect
+  useEffect(() => {
+    const frame = iframeRef.current
+    if (!tagged || !ready || !frame || !connect) return
+    connect({ frame, post: (m) => postToIframe(frame, m) })
+    return () => connect(null)
+  }, [tagged, ready, connect])
+
   // One blob document per mount.
   useEffect(() => {
-    const url = URL.createObjectURL(new Blob([buildIframeHTML()], { type: 'text/html' }))
+    const url = URL.createObjectURL(new Blob([buildIframeHTML(tagged)], { type: 'text/html' }))
     setBlobUrl(url)
     return () => URL.revokeObjectURL(url)
-  }, [])
+  }, [tagged])
 
   useEffect(() => {
     if (!files || files.length === 0) return
@@ -263,7 +360,7 @@ export function IframeSandbox({ files, projectSlug, allowedRoutes, workflowPaths
               setError(null)
               lastHashRef.current = null
               if (!ready) {
-                const next = URL.createObjectURL(new Blob([buildIframeHTML()], { type: 'text/html' }))
+                const next = URL.createObjectURL(new Blob([buildIframeHTML(tagged)], { type: 'text/html' }))
                 if (blobUrl) URL.revokeObjectURL(blobUrl)
                 setLoading(true)
                 setBlobUrl(next)
@@ -295,7 +392,8 @@ export function IframeSandbox({ files, projectSlug, allowedRoutes, workflowPaths
 
 function inlineScript(source: string): string { return source.replace(/<\/script/gi, '<\\/script') }
 
-function buildIframeHTML(): string {
+function buildIframeHTML(visualEdit = false): string {
+  const sessionId = `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
   // The iframe has an opaque origin (no allow-same-origin: a blob: document would otherwise share
   // the studio's origin and could reach the parent), so storage is shimmed in memory.
   // Dependencies are packaged with Studio; the preview never needs public script CDNs.
@@ -306,6 +404,7 @@ function buildIframeHTML(): string {
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <script>(function(){function mem(){var d={};return{getItem:function(k){return Object.prototype.hasOwnProperty.call(d,k)?d[k]:null},setItem:function(k,v){d[k]=String(v)},removeItem:function(k){delete d[k]},clear:function(){d={}},key:function(i){return Object.keys(d)[i]||null},get length(){return Object.keys(d).length}}};['localStorage','sessionStorage'].forEach(function(n){try{void window[n].length}catch(e){try{Object.defineProperty(window,n,{value:mem(),configurable:true})}catch(e2){}}})})();<\/script>
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data: blob: https:; font-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'" />
+  <script>window.__studioPreviewState = true; window.__studioPreviewSession = '${sessionId}';<\/script>
   <script>${inlineScript(reactRuntime)}<\/script>
   <script>${inlineScript(reactDomRuntime)}<\/script>
   <script>${inlineScript(tailwindRuntime)}<\/script>
@@ -318,6 +417,7 @@ function buildIframeHTML(): string {
 </head>
 <body>
   <div id="root"></div>
+  ${visualEdit ? `<script>${inlineScript(VISUAL_EDIT_RUNTIME_CODE)}</script>` : ''}
   <script>${SANDBOX_RUNTIME_CODE}<\/script>
 </body>
 </html>`

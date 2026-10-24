@@ -1,0 +1,346 @@
+{
+ "name": "Vendor onboarding with sanctions screening",
+ "nodes": [
+  {
+   "name": "Vendor posted",
+   "type": "Webhook",
+   "parameters": {
+    "method": "POST",
+    "path": "new-vendor",
+    "responseMode": "lastNode"
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Screen vendor",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "sanctions",
+     "operation_id": "screen"
+    },
+    "method": "POST",
+    "url": "",
+    "body": {
+     "name": "{{ $node[\"Vendor posted\"].json.body.name }}",
+     "country": "{{ $node[\"Vendor posted\"].json.body.country }}"
+    }
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "Sanctions match?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $json.body.match == true }}"
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Reply refused",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 403,
+    "body": {
+     "status": "refused",
+     "message": "Vendor matches a sanctions list and was not created."
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Create vendor",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "vendors",
+     "operation_id": "create"
+    },
+    "method": "POST",
+    "url": "",
+    "body": {
+     "name": "{{ $node[\"Vendor posted\"].json.body.name }}",
+     "country": "{{ $node[\"Vendor posted\"].json.body.country }}",
+     "contact_email": "{{ $node[\"Vendor posted\"].json.body.contact_email }}"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 110
+   }
+  },
+  {
+   "name": "Reply created",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 201,
+    "body": {
+     "status": "created",
+     "message": "Vendor created.",
+     "vendor_id": "{{ $json.body.vendor_id }}"
+    }
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Vendor posted",
+   "target_node": "Screen vendor",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Screen vendor",
+   "target_node": "Sanctions match?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Sanctions match?",
+   "target_node": "Reply refused",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Sanctions match?",
+   "target_node": "Create vendor",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Create vendor",
+   "target_node": "Reply created",
+   "source_output": "main",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Sanctions match refuses and creates nothing",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "name": "Bad Corp",
+       "country": "XX",
+       "contact_email": "a@badcorp.com"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Screen vendor": {
+     "http": {
+      "status": 200,
+      "body": {
+       "match": true,
+       "list_name": "OFAC"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Sanctions match?",
+     "port": "true",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Create vendor",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Reply created",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Reply refused",
+     "subject": "request",
+     "path": "statusCode",
+     "op": "eq",
+     "value": 403
+    },
+    {
+     "node": "Reply refused",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "refused"
+    }
+   ]
+  },
+  {
+   "name": "No match creates the vendor and replies created",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "name": "Good Ltd",
+       "country": "GB",
+       "contact_email": "ap@good.co.uk"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Screen vendor": {
+     "http": {
+      "status": 200,
+      "body": {
+       "match": false
+      }
+     }
+    },
+    "Create vendor": {
+     "http": {
+      "status": 201,
+      "body": {
+       "vendor_id": "V-100",
+       "status": "active"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Sanctions match?",
+     "port": "false",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Reply refused",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Create vendor",
+     "subject": "request",
+     "path": "body.name",
+     "op": "eq",
+     "value": "Good Ltd"
+    },
+    {
+     "node": "Create vendor",
+     "subject": "request",
+     "path": "body.contact_email",
+     "op": "eq",
+     "value": "ap@good.co.uk"
+    },
+    {
+     "node": "Reply created",
+     "subject": "request",
+     "path": "statusCode",
+     "op": "eq",
+     "value": 201
+    },
+    {
+     "node": "Reply created",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "created"
+    },
+    {
+     "node": "Reply created",
+     "subject": "request",
+     "path": "body.vendor_id",
+     "op": "eq",
+     "value": "V-100"
+    }
+   ]
+  },
+  {
+   "name": "Screening gets the posted name and country",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "name": "Acme SA",
+       "country": "FR",
+       "contact_email": "x@acme.fr"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Screen vendor": {
+     "http": {
+      "status": 200,
+      "body": {
+       "match": false
+      }
+     }
+    },
+    "Create vendor": {
+     "http": {
+      "status": 201,
+      "body": {
+       "vendor_id": "V-7",
+       "status": "active"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Screen vendor",
+     "subject": "request",
+     "path": "body.name",
+     "op": "eq",
+     "value": "Acme SA"
+    },
+    {
+     "node": "Screen vendor",
+     "subject": "request",
+     "path": "body.country",
+     "op": "eq",
+     "value": "FR"
+    },
+    {
+     "node": "Screen vendor",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Create vendor",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    }
+   ]
+  }
+ ]
+}

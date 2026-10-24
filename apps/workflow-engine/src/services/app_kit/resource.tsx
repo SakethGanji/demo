@@ -2,7 +2,9 @@
  * Backend-bound blocks and page layouts for `studio.resource` routes; each fetches for itself and handles its own loading,
  * empty and error states. Take `resource` (a ResourceDef or its registered name) plus a few props. Colours come from the
  * CSS variables of the app's index.css (--primary, --card, --border, --radius, ...). */
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { ColorSchemeToggle } from './layout'
+import { cx } from './ui'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -67,6 +69,10 @@ export interface ResourceDef<Row extends BaseRow> {
   search?: boolean
 }
 
+/** HTML attributes a block passes to its root element (`id`, `style`, `data-*`, `aria-*`), minus names the kit uses itself
+ * (`resource` is an RDFa attribute on plain elements). */
+type Attrs<E = HTMLDivElement> = Omit<React.HTMLAttributes<E>, 'title' | 'children' | 'color' | 'content' | 'onChange' | 'onSelect' | 'resource' | 'defaultValue' | 'placeholder' | 'prefix'>
+
 export type ErrorInfo = { code: string; message: string; field?: string }
 
 /** The `{error, message, field?}` body of a failed route, or the plain error message. */
@@ -117,7 +123,7 @@ function Btn({ tone = 'default', small, loading, className = '', children, ...re
   React.ButtonHTMLAttributes<HTMLButtonElement> & { tone?: 'primary' | 'danger' | 'default'; small?: boolean; loading?: boolean }) {
   return (
     <button type="button" {...rest} disabled={rest.disabled || loading}
-      className={`${K.btn} ${K[tone]} ${small ? 'px-2 py-1 text-xs' : ''} ${className}`}>
+      className={className ? cx(`${K.btn} ${K[tone]} ${small ? 'px-2 py-1 text-xs' : ''}`, className) : `${K.btn} ${K[tone]} ${small ? 'px-2 py-1 text-xs' : ''}`}>
       {loading ? '…' : null}{children}
     </button>
   )
@@ -138,10 +144,12 @@ function toneOf(state: string): keyof typeof BADGE {
   return 'none'
 }
 
-/** A state as a coloured pill. */
-export function StateBadge({ value }: { value: unknown }) {
+/** A state as a coloured pill.
+ * @category display
+ * @example <StateBadge value="approved" /> */
+export function StateBadge({ value, className, ...rest }: { value: unknown; className?: string } & Attrs<HTMLSpanElement>) {
   const s = value === null || value === undefined || value === '' ? '—' : String(value)
-  return <span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${BADGE[toneOf(s)]}`}>{titleCase(s)}</span>
+  return <span data-vcomp="StateBadge" {...rest} className={cx('inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium', BADGE[toneOf(s)], className)}>{titleCase(s)}</span>
 }
 
 function Notice({ kind, children }: { kind: 'error' | 'ok'; children: React.ReactNode }) {
@@ -181,8 +189,10 @@ export function notify(text: string, kind: 'ok' | 'error' = 'ok'): void {
   toastListeners.forEach((l) => l(t))
 }
 
-/** Mount once (App.tsx). */
-export function ToastHost() {
+/** Mount once (App.tsx).
+ * @category overlay
+ * @example <ToastHost /> */
+export function ToastHost({ className, ...rest }: { className?: string } & Attrs = {}) {
   const [items, setItems] = useState<ToastItem[]>([])
   useEffect(() => {
     const on = (t: ToastItem) => {
@@ -193,38 +203,70 @@ export function ToastHost() {
     return () => { toastListeners.delete(on) }
   }, [])
   return (
-    <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex flex-col gap-2">
+    <div data-vcomp="ToastHost" {...rest} className={cx('pointer-events-none fixed bottom-4 right-4 z-50 flex flex-col gap-2', className)}>
       {items.map((t) => <div key={t.id} className="pointer-events-auto"><Notice kind={t.kind}>{t.text}</Notice></div>)}
     </div>
   )
 }
 
+// ── Visual-editor hooks ──────────────────────────────────────────────────────
+
+/** First index of each name in a list prop (`columns`, `fields`): the `data-vpart` index of the part it renders. */
+function partIndex(names?: string[]): Map<string, number> | null {
+  if (!names) return null
+  const m = new Map<string, number>()
+  names.forEach((n, i) => { if (!m.has(n)) m.set(n, i) })
+  return m
+}
+
+/** The prop name ResourceTable's column parts are tagged with (`recentColumns` inside DashboardLayout). */
+const ColumnsPart = createContext('columns')
+
+/** useState that, inside the Studio preview (`globalThis.__studioPreviewState`), survives a re-render of the app under `key`. */
+function usePreviewState(key: string, init: string, valid: (v: string) => boolean): [string, (v: string) => void] {
+  const [v, setV] = useState<string>(() => {
+    const st = (globalThis as any).__studioPreviewState
+    const saved = st && typeof st === 'object' && !Array.isArray(st) ? st[key] : undefined
+    return typeof saved === 'string' && valid(saved) ? saved : init
+  })
+  const set = useCallback((x: string) => {
+    setV(x)
+    const st = (globalThis as any).__studioPreviewState
+    if (st && typeof st === 'object' && !Array.isArray(st)) st[key] = x
+  }, [key])
+  return [v, set]
+}
+
 // ── Page chrome ──────────────────────────────────────────────────────────────
 
-/** Title, one-line purpose and right-aligned actions at the top of a page. */
-export function PageHeader({ title, subtitle, actions }: { title: React.ReactNode; subtitle?: React.ReactNode; actions?: React.ReactNode }) {
+/** Title, one-line purpose and right-aligned actions at the top of a page.
+ * @category page
+ * @example <PageHeader title="Expenses" subtitle="Claims waiting for approval" actions={<Button variant="primary">New</Button>} /> */
+export function PageHeader({ title, subtitle, actions, className, ...rest }: { /** @control text */ title: React.ReactNode; /** @control text */ subtitle?: React.ReactNode; actions?: React.ReactNode; className?: string } & Omit<React.HTMLAttributes<HTMLDivElement>, 'title' | 'children'>) {
   return (
-    <div className="mb-4 flex flex-wrap items-start gap-3">
+    <div data-vcomp="PageHeader" {...rest} className={cx('mb-4 flex flex-wrap items-start gap-3 text-[var(--foreground)]', className)}>
       <div className="min-w-0 flex-1">
-        <h1 className="m-0 text-xl font-semibold text-[var(--foreground)]">{title}</h1>
-        {subtitle ? <p className={`mt-1 text-sm ${K.muted}`}>{subtitle}</p> : null}
+        <h1 className="m-0 text-xl font-semibold">{title}</h1>
+        {subtitle ? <p className="mt-1 text-sm opacity-65">{subtitle}</p> : null}
       </div>
       {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
     </div>
   )
 }
 
-/** Bordered panel with an optional title. */
-export function Panel({ title, actions, children }: { title?: React.ReactNode; actions?: React.ReactNode; children?: React.ReactNode }) {
+/** Bordered panel with an optional title.
+ * @category layout
+ * @example <Panel title="Details">Content</Panel> */
+export function Panel({ title, actions, children, className, headerClassName, bodyClassName, ...rest }: { /** @control text */ title?: React.ReactNode; actions?: React.ReactNode; children?: React.ReactNode; className?: string; headerClassName?: string; bodyClassName?: string } & Omit<React.HTMLAttributes<HTMLElement>, 'title'>) {
   return (
-    <section className={K.card}>
+    <section data-vcomp="Panel" {...rest} className={cx(K.card, className)}>
       {title || actions ? (
-        <header className="flex flex-wrap items-center gap-2 border-b border-[var(--border)] px-4 py-3">
+        <header data-vpart="header" className={cx('flex flex-wrap items-center gap-2 border-b border-[var(--border)] px-4 py-3', headerClassName)}>
           {title ? <h2 className="m-0 text-sm font-semibold">{title}</h2> : null}
           {actions ? <div className="ml-auto flex items-center gap-2">{actions}</div> : null}
         </header>
       ) : null}
-      <div className="p-4">{children}</div>
+      <div data-vpart="body" className={cx('p-4', bodyClassName)}>{children}</div>
     </section>
   )
 }
@@ -255,8 +297,11 @@ export function useResourceList<Row extends BaseRow>(resource: Res<Row>, query: 
 // ── ResourceTable ────────────────────────────────────────────────────────────
 
 /** Backend-bound list of a resource's records (sorted, paged, searchable; fetches by itself). `columns` picks fields; `filters`
- * fixes a query such as `{ status: 'pending' }`. For plain in-memory rows use DataTable. */
-export function ResourceTable<Row extends BaseRow>({ resource, columns, filters, pageSize = 20, onSelect, selectedId, onCreate, createLabel, emptyText, actions, rowActions, reloadKey = 0 }: {
+ * fixes a query such as `{ status: 'pending' }`. For plain in-memory rows use DataTable.
+ * @category data
+ * @example <ResourceTable resource="expenses" columns={['title', 'amount', 'status']} filters={{ status: 'pending' }} /> */
+export function ResourceTable<Row extends BaseRow>({ resource, columns, filters, pageSize = 20, onSelect, selectedId, onCreate, createLabel, emptyText, actions, rowActions, reloadKey = 0,
+  density = 'comfortable', className, toolbarClassName, footerClassName, ...rest }: Attrs & {
   resource: Res<Row>
   columns?: string[]
   filters?: Filters
@@ -265,13 +310,24 @@ export function ResourceTable<Row extends BaseRow>({ resource, columns, filters,
   selectedId?: number | null
   onCreate?: () => void
   createLabel?: string
+  /** @control text */
   emptyText?: React.ReactNode
   actions?: React.ReactNode
   rowActions?: (row: Row) => React.ReactNode
   /** change it to refetch (after a save elsewhere on the page) */
   reloadKey?: number
+  /** Row height.
+   * @control select @options comfortable|compact @group Style @default comfortable */
+  density?: 'comfortable' | 'compact'
+  className?: string
+  toolbarClassName?: string
+  footerClassName?: string
 }) {
   const def = resolve(resource)
+  const td = density === 'compact' ? `${K.td} py-1` : K.td
+  const part = useContext(ColumnsPart)
+  const parts = partIndex(columns)
+  const vpart = (name: string) => (parts?.has(name) ? `${part}.${parts.get(name)}` : undefined)
   const cols = useMemo(() => {
     const visible = def.fields.filter((f) => !f.hidden)
     return columns ? columns.map((n) => visible.find((f) => f.name === n)).filter((f): f is FieldDef => !!f) : visible.slice(0, 6)
@@ -297,8 +353,8 @@ export function ResourceTable<Row extends BaseRow>({ resource, columns, filters,
     return f.name === def.titleField ? <span className="font-medium">{show(f, v)}</span> : show(f, v)
   }
   return (
-    <div className={K.card}>
-      <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border)] px-3 py-2">
+    <div data-vcomp="ResourceTable" {...rest} className={cx(K.card, className)}>
+      <div data-vpart="toolbar" className={cx('flex flex-wrap items-center gap-2 border-b border-[var(--border)] px-3 py-2', toolbarClassName)}>
         {def.search ? <input aria-label={`Search ${def.label}`} className={`${K.input} max-w-xs`} placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} /> : null}
         {filterFields.map((f) => (
           <select key={f.name} aria-label={`Filter by ${f.label}`} className={`${K.input} w-auto`} value={chosen[f.name] ?? ''}
@@ -318,7 +374,7 @@ export function ResourceTable<Row extends BaseRow>({ resource, columns, filters,
           <thead>
             <tr className="border-b border-[var(--border)]">
               {cols.map((f) => (
-                <th key={f.name} className={K.th} aria-sort={sort === f.name ? 'ascending' : sort === `-${f.name}` ? 'descending' : 'none'}>
+                <th key={f.name} data-vpart={vpart(f.name)} className={K.th} aria-sort={sort === f.name ? 'ascending' : sort === `-${f.name}` ? 'descending' : 'none'}>
                   <button type="button" className="uppercase" onClick={() => sortBy(f.name)}>{f.label}{sort === f.name ? ' ↑' : sort === `-${f.name}` ? ' ↓' : ''}</button>
                 </th>
               ))}
@@ -329,8 +385,8 @@ export function ResourceTable<Row extends BaseRow>({ resource, columns, filters,
             {data?.rows.map((row) => (
               <tr key={row.id} onClick={onSelect ? () => onSelect(row) : undefined}
                 className={`border-b border-[var(--border)] last:border-0 ${onSelect ? 'cursor-pointer hover:bg-[var(--muted)]' : ''} ${selectedId === row.id ? 'bg-[var(--muted)]' : ''}`}>
-                {cols.map((f) => <td key={f.name} className={K.td}>{cell(f, row)}</td>)}
-                {rowActions ? <td className={`${K.td} text-right`} onClick={(e) => e.stopPropagation()}>{rowActions(row)}</td> : null}
+                {cols.map((f) => <td key={f.name} data-vpart={vpart(f.name)} className={td}>{cell(f, row)}</td>)}
+                {rowActions ? <td className={`${td} text-right`} onClick={(e) => e.stopPropagation()}>{rowActions(row)}</td> : null}
               </tr>
             ))}
           </tbody>
@@ -340,7 +396,7 @@ export function ResourceTable<Row extends BaseRow>({ resource, columns, filters,
       {!loading && !error && data && data.rows.length === 0 ? (
         <p className={`px-4 py-8 text-center text-sm ${K.muted}`}>{emptyText ?? `No ${def.label.toLowerCase()} yet.`}</p>
       ) : null}
-      <div className={`flex items-center gap-2 px-3 py-2 text-xs ${K.muted}`}>
+      <div data-vpart="footer" className={cx(`flex items-center gap-2 px-3 py-2 text-xs ${K.muted}`, footerClassName)}>
         <span>{total === 0 ? '0' : `${offset + 1}–${Math.min(offset + pageSize, total)}`} of {total}</span>
         <div className="ml-auto flex gap-2">
           <Btn small disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - pageSize))}>Previous</Btn>
@@ -375,8 +431,10 @@ function editable(f: FieldDef, stateField?: string): boolean {
 }
 
 /** Create or edit form generated from the def: input per field type, enum selects, reference pickers, required checks and the
- * route's `{error, message, field}` errors shown on the field. Pass `record` to edit; `fields` limits/orders the fields. */
-export function ResourceForm<Row extends BaseRow>({ resource, record, initial, fields, submitLabel, onSaved, onCancel }: {
+ * route's `{error, message, field}` errors shown on the field. Pass `record` to edit; `fields` limits/orders the fields.
+ * @category form
+ * @example <ResourceForm resource="expenses" fields={['title', 'amount']} submitLabel="Submit" onSaved={() => go('list')} /> */
+export function ResourceForm<Row extends BaseRow>({ resource, record, initial, fields, submitLabel, onSaved, onCancel, className, ...rest }: Omit<Attrs<HTMLFormElement>, 'onSubmit'> & {
   resource: Res<Row>
   record?: Row | null
   initial?: Record<string, unknown>
@@ -384,12 +442,14 @@ export function ResourceForm<Row extends BaseRow>({ resource, record, initial, f
   submitLabel?: string
   onSaved?: (row: Row) => void
   onCancel?: () => void
+  className?: string
 }) {
   const def = resolve(resource)
   const list = useMemo(() => {
     const all = def.fields.filter((f) => editable(f, def.states?.field))
     return fields ? fields.map((n) => all.find((f) => f.name === n)).filter((f): f is FieldDef => !!f) : all
   }, [def, fields])
+  const parts = partIndex(fields)
   const start = useCallback((): Record<string, string> => {
     const out: Record<string, string> = {}
     for (const f of list) {
@@ -443,14 +503,14 @@ export function ResourceForm<Row extends BaseRow>({ resource, record, initial, f
     }
   }
   return (
-    <form onSubmit={submit} className="flex flex-col gap-3" noValidate>
+    <form data-vcomp="ResourceForm" {...rest} onSubmit={submit} className={cx('flex flex-col gap-3', className)} noValidate>
       {banner ? <Notice kind="error">{banner}</Notice> : null}
       {list.map((f) => {
         const id = `${def.name}-${f.name}`
         const v = values[f.name] ?? ''
         const set = (x: string) => setValues((cur) => ({ ...cur, [f.name]: x }))
         return (
-          <div key={f.name} className="flex flex-col gap-1">
+          <div key={f.name} className="flex flex-col gap-1" data-vpart={parts?.has(f.name) ? `fields.${parts.get(f.name)}` : undefined}>
             {f.type === 'boolean' ? (
               <label className="flex items-center gap-2 text-sm"><input id={id} type="checkbox" checked={v === 'true'} onChange={(e) => set(e.target.checked ? 'true' : 'false')} />{f.label}</label>
             ) : (
@@ -472,7 +532,7 @@ export function ResourceForm<Row extends BaseRow>({ resource, record, initial, f
           </div>
         )
       })}
-      <div className="flex gap-2">
+      <div data-vpart="footer" className="flex gap-2">
         <Btn tone="primary" type="submit" loading={busy}>{submitLabel ?? (record ? 'Save changes' : `Create ${def.singular.toLowerCase()}`)}</Btn>
         {onCancel ? <Btn onClick={onCancel}>Cancel</Btn> : null}
       </div>
@@ -483,8 +543,10 @@ export function ResourceForm<Row extends BaseRow>({ resource, record, initial, f
 // ── StatusActions ────────────────────────────────────────────────────────────
 
 /** The buttons the state machine allows from the row's current state (Approve, Reject, …). A transition marked with a comment
- * asks for one first and sends it with the move. Server refusals (e.g. `illegal_transition`) are shown, never swallowed. */
-export function StatusActions<Row extends BaseRow>({ resource, row, onDone, small = true }: { resource: Res<Row>; row: Row; onDone?: (row: Row) => void; small?: boolean }) {
+ * asks for one first and sends it with the move. Server refusals (e.g. `illegal_transition`) are shown, never swallowed.
+ * @category data
+ * @example <StatusActions resource="expenses" row={row} onDone={reload} /> */
+export function StatusActions<Row extends BaseRow>({ resource, row, onDone, small = true, className, ...rest }: { resource: Res<Row>; row: Row; onDone?: (row: Row) => void; small?: boolean; className?: string } & Attrs) {
   const def = resolve(resource)
   const sm = def.states
   const [pending, setPending] = useState<Transition | null>(null)
@@ -515,7 +577,7 @@ export function StatusActions<Row extends BaseRow>({ resource, row, onDone, smal
     }
   }
   return (
-    <div className="flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
+    <div data-vcomp="StatusActions" {...rest} className={cx('flex flex-col gap-2', className)} onClick={(e) => e.stopPropagation()}>
       <div className="flex flex-wrap gap-2">
         {options.map((t) => (
           <Btn key={t.to} small={small} tone={t.tone ?? 'default'} disabled={busy}
@@ -539,13 +601,17 @@ export function StatusActions<Row extends BaseRow>({ resource, row, onDone, smal
 // ── RecordPanel ──────────────────────────────────────────────────────────────
 
 /** Detail of one record: every field, its status actions, an edit form and a history built from `<state>_at` / `<state>_by`
- * columns. Renders nothing while `id` is null. */
-export function RecordPanel<Row extends BaseRow>({ resource, id, onClose, onChanged, extra }: {
+ * columns. Renders nothing while `id` is null.
+ * @category data
+ * @example <RecordPanel resource="expenses" id={selectedId} onClose={() => setSelectedId(null)} /> */
+export function RecordPanel<Row extends BaseRow>({ resource, id, onClose, onChanged, extra, className, bodyClassName, ...rest }: Omit<Attrs<HTMLElement>, 'id'> & {
   resource: Res<Row>
   id: number | null
   onClose?: () => void
   onChanged?: (row: Row) => void
   extra?: React.ReactNode
+  className?: string
+  bodyClassName?: string
 }) {
   const def = resolve(resource)
   const [row, setRow] = useState<Row | null>(null)
@@ -566,7 +632,7 @@ export function RecordPanel<Row extends BaseRow>({ resource, id, onClose, onChan
     return { label: titleCase(f.name.replace(/_at$/, '')), at: show(f, val(row, f.name)), who: who ? String(who) : '' }
   }) : []
   return (
-    <Panel title={row ? String(val(row, def.titleField) ?? `${def.singular} ${row.id}`) : def.singular}
+    <Panel data-vcomp="RecordPanel" {...rest} className={className} bodyClassName={bodyClassName} title={row ? String(val(row, def.titleField) ?? `${def.singular} ${row.id}`) : def.singular}
       actions={<>
         {row && def.client.update && !editing ? <Btn small onClick={() => setEditing(true)}>Edit</Btn> : null}
         {onClose ? <Btn small onClick={onClose}>Close</Btn> : null}
@@ -609,10 +675,23 @@ export interface TileDef {
   /** sum this numeric field over the matching records instead of counting them */
   sum?: string
   tone?: 'good' | 'warn' | 'bad' | 'none'
+  /** not shown */
+  hidden?: boolean
 }
 
-/** Row of KPI tiles: counts (from the list route's `total`) or sums over filtered records. */
-export function StatTiles<Row extends BaseRow>({ resource, tiles, reloadKey = 0 }: { resource: Res<Row>; tiles: TileDef[]; reloadKey?: number }) {
+const TILE_COLS: Record<number, string> = { 2: 'lg:grid-cols-2', 3: 'lg:grid-cols-3', 4: 'lg:grid-cols-4' }
+
+/** Row of KPI tiles: counts (from the list route's `total`) or sums over filtered records.
+ * @category data
+ * @example <StatTiles resource="expenses" tiles={[{ label: 'Pending', filter: { status: 'pending' }, tone: 'warn' }, { label: 'Total', sum: 'amount' }]} /> */
+export function StatTiles<Row extends BaseRow>({ resource, tiles, reloadKey = 0, cols = 4, className, tileClassName, ...rest }: { resource: Res<Row>; tiles: TileDef[]; reloadKey?: number
+  /** Tiles per row on wide screens (two on phones).
+   * @control select @options 2|3|4 @group Layout @default 4 */
+  cols?: 2 | 3 | 4
+  className?: string
+  /** Classes for every tile.
+   * @control hidden @group Style */
+  tileClassName?: string } & Attrs) {
   const def = resolve(resource)
   const [values, setValues] = useState<Array<number | null>>(tiles.map(() => null))
   const [error, setError] = useState<string | null>(null)
@@ -627,31 +706,33 @@ export function StatTiles<Row extends BaseRow>({ resource, tiles, reloadKey = 0 
     return () => { alive = false }
   }, [def, key, reloadKey])
   return (
-    <div>
-      {error ? <Notice kind="error">{error}</Notice> : null}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {tiles.map((t, i) => (
-          <div key={t.label} className={`${K.card} p-4`}>
+    <div data-vcomp="StatTiles" {...rest} className={cx('grid grid-cols-2 gap-3', TILE_COLS[cols] ?? TILE_COLS[4], className)}>
+      {error ? <div className="col-span-full"><Notice kind="error">{error}</Notice></div> : null}
+        {tiles.map((t, i) => t.hidden ? null : (
+          <div key={t.label} data-vpart={`tiles.${i}`} className={cx(`${K.card} p-4`, tileClassName)}>
             <div className={`text-xs font-medium uppercase tracking-wide ${K.muted}`}>{t.label}</div>
             <div className={`mt-1 text-2xl font-semibold ${t.tone === 'bad' ? 'text-[var(--danger)]' : t.tone === 'good' ? 'text-[var(--success)]' : t.tone === 'warn' ? 'text-[var(--warning)]' : ''}`}>
               {values[i] === null ? '…' : values[i]?.toLocaleString(undefined, { maximumFractionDigits: 2 })}
             </div>
           </div>
         ))}
-      </div>
     </div>
   )
 }
 
 /** Horizontal bars: records per value of `groupBy` (or the sum of `sum` per value). Enum fields are counted per option from the
- * list route's `total`; other fields group up to 1000 records. */
-export function GroupChart<Row extends BaseRow>({ resource, groupBy, sum, title, filter, reloadKey = 0 }: {
+ * list route's `total`; other fields group up to 1000 records.
+ * @category chart
+ * @example <GroupChart resource="expenses" groupBy="category" sum="amount" title="Spend by category" /> */
+export function GroupChart<Row extends BaseRow>({ resource, groupBy, sum, title, filter, reloadKey = 0, className, bodyClassName, ...rest }: Attrs<HTMLElement> & {
   resource: Res<Row>
   groupBy: string
   sum?: string
   title?: string
   filter?: Filters
   reloadKey?: number
+  className?: string
+  bodyClassName?: string
 }) {
   const def = resolve(resource)
   const field = def.fields.find((f) => f.name === groupBy)
@@ -676,7 +757,7 @@ export function GroupChart<Row extends BaseRow>({ resource, groupBy, sum, title,
   }, [def, groupBy, sum, fkey, reloadKey, field])
   const top = Math.max(1, ...(bars ?? []).map((b) => b.value))
   return (
-    <Panel title={title ?? `${def.label} by ${field?.label.toLowerCase() ?? groupBy}`}>
+    <Panel data-vcomp="GroupChart" {...rest} className={className} bodyClassName={bodyClassName} title={title ?? `${def.label} by ${field?.label.toLowerCase() ?? groupBy}`}>
       {error ? <Notice kind="error">{error}</Notice> : null}
       {!bars && !error ? <p className={`text-sm ${K.muted}`}>Loading…</p> : null}
       {bars && bars.length === 0 ? <p className={`text-sm ${K.muted}`}>Nothing to chart yet.</p> : null}
@@ -702,8 +783,11 @@ function csvCell(v: unknown): string {
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 
-/** Download the matching records as CSV (pages through the list route, 1000 at a time). */
-export function ExportButton<Row extends BaseRow>({ resource, filters, filename, label = 'Export CSV' }: { resource: Res<Row>; filters?: Filters; filename?: string; label?: string }) {
+/** Download the matching records as CSV (pages through the list route, 1000 at a time).
+ * @category data
+ * @example <ExportButton resource="expenses" filename="expenses.csv" /> */
+export function ExportButton<Row extends BaseRow>({ resource, filters, filename, label = 'Export CSV', className, ...rest }: { resource: Res<Row>; filters?: Filters; filename?: string; label?: string; className?: string }
+  & Omit<React.HTMLAttributes<HTMLButtonElement>, 'title' | 'children' | 'onClick' | 'resource' | 'content' | 'color'>) {
   const def = resolve(resource)
   const [busy, setBusy] = useState(false)
   const run = async () => {
@@ -730,19 +814,26 @@ export function ExportButton<Row extends BaseRow>({ resource, filters, filename,
       setBusy(false)
     }
   }
-  return <Btn loading={busy} onClick={run}>{label}</Btn>
+  return <Btn data-vcomp="ExportButton" {...rest} className={className} loading={busy} onClick={run}>{label}</Btn>
 }
 
 // ── Inbox ────────────────────────────────────────────────────────────────────
 
 /** A work queue: the records in one state (tabs when several), each as a card with its key fields and the status actions, so
- * a reviewer can approve or reject without opening anything. Defaults to the state the first transition leaves. */
-export function Inbox<Row extends BaseRow>({ resource, states, fields, emptyText, onOpen }: {
+ * a reviewer can approve or reject without opening anything. Defaults to the state the first transition leaves.
+ * @category data
+ * @example <Inbox resource="expenses" states={['submitted']} fields={['title', 'amount']} /> */
+export function Inbox<Row extends BaseRow>({ resource, states, fields, emptyText, onOpen, className, cardClassName, ...rest }: Attrs & {
   resource: Res<Row>
   states?: string[]
   fields?: string[]
+  /** @control text */
   emptyText?: React.ReactNode
   onOpen?: (row: Row) => void
+  className?: string
+  /** Classes for every record card.
+   * @control hidden @group Style */
+  cardClassName?: string
 }) {
   const def = resolve(resource)
   const sm = def.states
@@ -751,20 +842,23 @@ export function Inbox<Row extends BaseRow>({ resource, states, fields, emptyText
   const [nonce, setNonce] = useState(0)
   const query: ListQuery = { limit: 50, ...(sm && tab ? { [sm.field]: tab } : {}), _r: nonce }
   const { data, error, loading } = useResourceList(def, query)
+  const fieldPart = partIndex(fields)
+  const statePart = partIndex(states)
   const shown = (fields ? fields.map((n) => def.fields.find((f) => f.name === n)) : def.fields.filter((f) => !f.hidden && f.name !== def.titleField && f.name !== sm?.field).slice(0, 4))
     .filter((f): f is FieldDef => !!f)
   return (
-    <div className="flex flex-col gap-3">
+    <div data-vcomp="Inbox" {...rest} className={cx('flex flex-col gap-3', className)}>
       {tabs.length > 1 ? (
         <div className="flex gap-2" role="tablist">
-          {tabs.map((t) => <Btn key={t} small tone={t === tab ? 'primary' : 'default'} role="tab" aria-selected={t === tab} onClick={() => setTab(t)}>{titleCase(t)}</Btn>)}
+          {tabs.map((t) => <Btn key={t} small tone={t === tab ? 'primary' : 'default'} role="tab" aria-selected={t === tab} onClick={() => setTab(t)}
+            data-vpart={statePart?.has(t) ? `states.${statePart.get(t)}` : undefined}>{titleCase(t)}</Btn>)}
         </div>
       ) : null}
       {error ? <Notice kind="error">{error.message}</Notice> : null}
       {loading && !data ? <p className={`text-sm ${K.muted}`}>Loading…</p> : null}
       {data && data.rows.length === 0 ? <div className={`${K.card} px-4 py-8 text-center text-sm ${K.muted}`}>{emptyText ?? 'Nothing waiting. You are all caught up.'}</div> : null}
       {data?.rows.map((row) => (
-        <article key={row.id} className={`${K.card} flex flex-col gap-3 p-4`}>
+        <article key={row.id} data-vpart="card" className={cx(`${K.card} flex flex-col gap-3 p-4`, cardClassName)}>
           <header className="flex flex-wrap items-center gap-2">
             <h3 className="m-0 min-w-0 flex-1 truncate text-sm font-semibold">
               {onOpen ? <button type="button" className="underline-offset-2 hover:underline" onClick={() => onOpen(row)}>{String(val(row, def.titleField) ?? `${def.singular} ${row.id}`)}</button> : String(val(row, def.titleField) ?? `${def.singular} ${row.id}`)}
@@ -773,7 +867,7 @@ export function Inbox<Row extends BaseRow>({ resource, states, fields, emptyText
           </header>
           <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4">
             {shown.map((f) => (
-              <div key={f.name} className="min-w-0"><dt className={`text-xs ${K.muted}`}>{f.label}</dt><dd className="m-0 truncate text-sm">{show(f, val(row, f.name))}</dd></div>
+              <div key={f.name} className="min-w-0" data-vpart={fieldPart?.has(f.name) ? `fields.${fieldPart.get(f.name)}` : undefined}><dt className={`text-xs ${K.muted}`}>{f.label}</dt><dd className="m-0 truncate text-sm">{show(f, val(row, f.name))}</dd></div>
             ))}
           </dl>
           <StatusActions resource={def} row={row} onDone={() => { setNonce((n) => n + 1) }} />
@@ -785,10 +879,12 @@ export function Inbox<Row extends BaseRow>({ resource, states, fields, emptyText
 
 // ── Layouts ──────────────────────────────────────────────────────────────────
 
-/** A page: title, one-line purpose, optional actions, then the content. */
-export function Page({ title, subtitle, actions, children }: { title: React.ReactNode; subtitle?: React.ReactNode; actions?: React.ReactNode; children?: React.ReactNode }) {
+/** A page: title, one-line purpose, optional actions, then the content.
+ * @category page
+ * @example <Page title="Expenses" subtitle="Claims waiting for approval">Content</Page> */
+export function Page({ title, subtitle, actions, children, className, ...rest }: { /** @control text */ title: React.ReactNode; /** @control text */ subtitle?: React.ReactNode; actions?: React.ReactNode; children?: React.ReactNode; className?: string } & Omit<React.HTMLAttributes<HTMLDivElement>, 'title'>) {
   return (
-    <div>
+    <div data-vcomp="Page" {...rest} className={className}>
       <PageHeader title={title} subtitle={subtitle} actions={actions} />
       {children}
     </div>
@@ -800,41 +896,58 @@ export interface ShellScreen {
   label: string
   /** the page; `go(id)` switches screen (e.g. to the list after a form is saved) */
   render: (go: (id: string) => void) => React.ReactNode
+  /** only viewers with one of these roles see the screen (omit: everyone) */
+  roles?: string[]
+  /** not shown in the navigation */
+  hidden?: boolean
 }
 
-/** App frame: side navigation (top bar on phones), the active screen and the toast host. Mount once as the root. */
-export function AppShell({ title, screens }: { title: string; screens: ShellScreen[] }) {
-  const [current, setCurrent] = useState(screens[0]?.id ?? '')
-  const active = screens.find((s) => s.id === current) ?? screens[0]
+/** App frame: side navigation (top bar on phones), the active screen and the toast host. Mount once as the root.
+ * @category page
+ * @example <AppShell title="Expenses" screens={[{ id: 'list', label: 'Claims', render: () => <ClaimsScreen /> }]} /> */
+export function AppShell({ title, screens, viewerRoles, className, navClassName, bodyClassName, ...rest }: { title: string; screens: ShellScreen[]; viewerRoles?: string[]
+  className?: string; navClassName?: string; bodyClassName?: string } & Attrs) {
+  // `roles` screens are matched against viewerRoles, else the Studio preview's View-as user; neither known: every screen shows
+  const viewer: unknown = viewerRoles ?? (globalThis as any).__studioViewer?.roles
+  const roles = Array.isArray(viewer) ? viewer.map(String) : null
+  const shown = screens.map((s, i) => ({ s, i }))
+    .filter(({ s }) => !s.hidden && (!roles || !s.roles?.length || s.roles.some((r) => roles.includes(r))))
+  const [current, setCurrent] = usePreviewState(`appshell:${title}`, shown[0]?.s.id ?? '', (id) => shown.some((x) => x.s.id === id))
+  const active = shown.find((x) => x.s.id === current)?.s ?? shown[0]?.s
   return (
-    <div className="flex min-h-screen flex-col bg-[var(--background)] text-[var(--foreground)] md:flex-row">
-      <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-[var(--border)] bg-[var(--card)] p-3 md:w-56 md:flex-col md:border-b-0 md:border-r">
-        <div className="hidden px-2 pb-3 text-sm font-semibold md:block">{title}</div>
-        {screens.map((s) => (
-          <button key={s.id} type="button" onClick={() => setCurrent(s.id)} aria-current={s.id === active?.id ? 'page' : undefined}
+    <div data-vcomp="AppShell" {...rest} className={cx('flex min-h-screen flex-col bg-[var(--background)] text-[var(--foreground)] md:flex-row', className)}>
+      <nav data-vpart="nav" className={cx('flex shrink-0 gap-1 overflow-x-auto border-b border-[var(--border)] bg-[var(--card)] p-3 md:w-56 md:flex-col md:border-b-0 md:border-r', navClassName)}>
+        <div data-vpart="title" className="hidden px-2 pb-3 text-sm font-semibold md:block">{title}</div>
+        {shown.map(({ s, i }) => (
+          <button key={s.id} type="button" data-vpart={`screens.${i}`} onClick={() => setCurrent(s.id)} aria-current={s.id === active?.id ? 'page' : undefined}
             className={`whitespace-nowrap rounded-[var(--radius)] px-3 py-2 text-left text-sm ${s.id === active?.id ? 'bg-[var(--primary)] text-[var(--primary-foreground)]' : 'text-[var(--muted-foreground)] hover:bg-[var(--muted)]'}`}>
             {s.label}
           </button>
         ))}
+        <ColorSchemeToggle className="ml-auto shrink-0 self-center md:ml-0 md:mt-auto md:self-start" />
       </nav>
-      <main className="min-w-0 flex-1 p-4 md:p-6">{active ? active.render(setCurrent) : null}</main>
+      <main data-vpart="body" className={cx('min-w-0 flex-1 p-4 md:p-6', bodyClassName)}>{active ? active.render(setCurrent) : null}</main>
       <ToastHost />
     </div>
   )
 }
 
 /** Table of a resource with the record beside it: click a row to open it (edit, status actions, history), "New" opens the
- * create form, Export downloads CSV. Create/edit/transition buttons appear only when the resource's routes exist. */
-export function ListDetailLayout<Row extends BaseRow>({ resource, title, subtitle, columns, filters, emptyText, pageSize, createLabel, exportable = true }: {
+ * create form, Export downloads CSV. Create/edit/transition buttons appear only when the resource's routes exist.
+ * @category page
+ * @example <ListDetailLayout resource="expenses" title="Expenses" columns={['title', 'amount', 'status']} createLabel="New claim" /> */
+export function ListDetailLayout<Row extends BaseRow>({ resource, title, subtitle, columns, filters, emptyText, pageSize, createLabel, exportable = true, className, ...rest }: Attrs & {
   resource: Res<Row>
   title: string
   subtitle?: string
   columns?: string[]
   filters?: Filters
+  /** @control text */
   emptyText?: React.ReactNode
   pageSize?: number
   createLabel?: string
   exportable?: boolean
+  className?: string
 }) {
   const def = resolve(resource)
   const [selected, setSelected] = useState<number | null>(null)
@@ -842,7 +955,7 @@ export function ListDetailLayout<Row extends BaseRow>({ resource, title, subtitl
   const [tick, setTick] = useState(0)
   const side = selected !== null || creating
   return (
-    <Page title={title} subtitle={subtitle} actions={exportable ? <ExportButton resource={def} filters={filters} /> : undefined}>
+    <Page data-vcomp="ListDetailLayout" {...rest} className={className} title={title} subtitle={subtitle} actions={exportable ? <ExportButton resource={def} filters={filters} /> : undefined}>
       <div className={`grid grid-cols-1 gap-4 ${side ? 'lg:grid-cols-[minmax(0,1fr)_380px]' : ''}`}>
         <ResourceTable resource={def} columns={columns} filters={filters} pageSize={pageSize} emptyText={emptyText} reloadKey={tick} selectedId={selected}
           createLabel={createLabel} onSelect={(row) => { setSelected(row.id); setCreating(false) }}
@@ -857,8 +970,10 @@ export function ListDetailLayout<Row extends BaseRow>({ resource, title, subtitl
   )
 }
 
-/** KPI tiles, a chart of the records per `groupBy` value and a short recent list. */
-export function DashboardLayout<Row extends BaseRow>({ resource, title, subtitle, tiles, groupBy, sum, recentColumns }: {
+/** KPI tiles, a chart of the records per `groupBy` value and a short recent list.
+ * @category page
+ * @example <DashboardLayout resource="expenses" title="Overview" tiles={[{ label: 'Pending', filter: { status: 'pending' } }]} groupBy="category" recentColumns={['title', 'amount']} /> */
+export function DashboardLayout<Row extends BaseRow>({ resource, title, subtitle, tiles, groupBy, sum, recentColumns, className, ...rest }: Attrs & {
   resource: Res<Row>
   title: string
   subtitle?: string
@@ -866,59 +981,73 @@ export function DashboardLayout<Row extends BaseRow>({ resource, title, subtitle
   groupBy?: string
   sum?: string
   recentColumns?: string[]
+  className?: string
 }) {
   const def = resolve(resource)
   return (
-    <Page title={title} subtitle={subtitle}>
+    <Page data-vcomp="DashboardLayout" {...rest} className={className} title={title} subtitle={subtitle}>
       <div className="flex flex-col gap-4">
         <StatTiles resource={def} tiles={tiles} />
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {groupBy ? <GroupChart resource={def} groupBy={groupBy} sum={sum} /> : null}
-          <div className="min-w-0"><ResourceTable resource={def} pageSize={5} columns={recentColumns} emptyText="Nothing to show yet." /></div>
+          <div className="min-w-0">
+            <ColumnsPart.Provider value="recentColumns">
+              <ResourceTable resource={def} pageSize={5} columns={recentColumns} emptyText="Nothing to show yet." />
+            </ColumnsPart.Provider>
+          </div>
         </div>
       </div>
     </Page>
   )
 }
 
-/** A create form on its own page. `onDone` runs after a successful save (e.g. `() => go('my-requests')`). */
-export function FormPage<Row extends BaseRow>({ resource, title, subtitle, fields, submitLabel, onDone }: {
+/** A create form on its own page. `onDone` runs after a successful save (e.g. `() => go('my-requests')`).
+ * @category page
+ * @example <FormPage resource="expenses" title="New claim" fields={['title', 'amount']} submitLabel="Submit" /> */
+export function FormPage<Row extends BaseRow>({ resource, title, subtitle, fields, submitLabel, onDone, className, ...rest }: Attrs & {
   resource: Res<Row>
   title: string
   subtitle?: string
   fields?: string[]
   submitLabel?: string
   onDone?: (row: Row) => void
+  className?: string
 }) {
   return (
-    <Page title={title} subtitle={subtitle}>
+    <Page data-vcomp="FormPage" {...rest} className={className} title={title} subtitle={subtitle}>
       <div className="max-w-xl"><Panel><ResourceForm resource={resource} fields={fields} submitLabel={submitLabel} onSaved={onDone} /></Panel></div>
     </Page>
   )
 }
 
-/** A work queue of the records in one state (tabs for several) with their status actions on each card. */
-export function InboxLayout<Row extends BaseRow>({ resource, title, subtitle, states, fields, emptyText }: {
+/** A work queue of the records in one state (tabs for several) with their status actions on each card.
+ * @category page
+ * @example <InboxLayout resource="expenses" title="To approve" states={['submitted']} fields={['title', 'amount']} /> */
+export function InboxLayout<Row extends BaseRow>({ resource, title, subtitle, states, fields, emptyText, className, ...rest }: Attrs & {
   resource: Res<Row>
   title: string
   subtitle?: string
   states?: string[]
   fields?: string[]
+  /** @control text */
   emptyText?: React.ReactNode
+  className?: string
 }) {
   return (
-    <Page title={title} subtitle={subtitle}>
+    <Page data-vcomp="InboxLayout" {...rest} className={className} title={title} subtitle={subtitle}>
       <Inbox resource={resource} states={states} fields={fields} emptyText={emptyText} />
     </Page>
   )
 }
 
-/** Edit the single settings record (the first row; created when none exists). */
-export function SettingsPage<Row extends BaseRow>({ resource, title, subtitle, fields }: { resource: Res<Row>; title: string; subtitle?: string; fields?: string[] }) {
+/** Edit the single settings record (the first row; created when none exists).
+ * @category page
+ * @example <SettingsPage resource="settings" title="Settings" /> */
+export function SettingsPage<Row extends BaseRow>({ resource, title, subtitle, fields, className, ...rest }: { resource: Res<Row>; title: string; subtitle?: string; fields?: string[]; className?: string } & Attrs) {
   const { data, loading, error, reload } = useResourceList(resource)
   const current = data && data.rows.length ? data.rows[0] : null
   return (
-    <Page title={title} subtitle={subtitle}>
+    <Page data-vcomp="SettingsPage" {...rest} className={className} title={title} subtitle={subtitle}>
       <div className="max-w-xl">
         <Panel>
           {error ? <Notice kind="error">{error.message}</Notice> : null}

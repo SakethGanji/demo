@@ -4,6 +4,8 @@ import type { NodeCreatorView } from '../types/workflow';
 export type BottomPanelTab = 'logs' | 'input' | 'problems' | 'tests';
 export type RightPanelTab = 'nodes' | 'ai' | 'interface' | 'builder';
 type CanvasMode = 'pointer' | 'hand';
+/** `canvas`: the editable node graph. `read`: the same workflow as a top-to-bottom flowchart, for reading. */
+export type EditorViewMode = 'canvas' | 'read';
 
 const STORAGE_PREFIX = 'workflow-studio:editor-layout';
 
@@ -36,6 +38,14 @@ function loadRightTab(fallback: RightPanelTab): RightPanelTab {
   }
 }
 
+function loadViewMode(): EditorViewMode {
+  try {
+    return localStorage.getItem(`${STORAGE_PREFIX}:view-mode`) === '"read"' ? 'read' : 'canvas';
+  } catch {
+    return 'canvas';
+  }
+}
+
 function persist(key: string, value: unknown) {
   localStorage.setItem(`${STORAGE_PREFIX}:${key}`, JSON.stringify(value));
 }
@@ -64,6 +74,10 @@ interface EditorLayoutState {
   openInterfaceDock: () => void;
   closeInterfaceDock: () => void;
   toggleInterfaceDock: () => void;
+
+  // Canvas or read view
+  viewMode: EditorViewMode;
+  setViewMode: (mode: EditorViewMode) => void;
 
   // Canvas mode
   canvasMode: CanvasMode;
@@ -114,6 +128,12 @@ export const useEditorLayoutStore = create<EditorLayoutState>((set, get) => ({
   openInterfaceDock: () => set({ interfaceDockOpen: true }),
   closeInterfaceDock: () => set({ interfaceDockOpen: false }),
   toggleInterfaceDock: () => set((s) => ({ interfaceDockOpen: !s.interfaceDockOpen })),
+
+  viewMode: loadViewMode(),
+  setViewMode: (mode) => {
+    persist('view-mode', mode);
+    set({ viewMode: mode });
+  },
 
   // Canvas mode
   canvasMode: 'hand' as CanvasMode,

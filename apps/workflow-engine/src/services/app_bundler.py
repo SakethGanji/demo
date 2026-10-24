@@ -20,6 +20,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import shutil
 import tempfile
 from dataclasses import dataclass
@@ -91,6 +92,36 @@ _REACT_SHIM_BANNER = (
 )
 
 
+_STUDIO_NODE_MODULES = Path(__file__).resolve().parents[3] / "workflow-studio/node_modules"
+_TAILWIND_SCRIPT = Path(__file__).resolve().parent / "app_bundler_tailwind.mjs"
+_TW_IMPORT = re.compile(r"""@import\s*(?:url\()?\s*["']tailwindcss(?:/[\w./-]*)?["']\s*\)?[^;]*;""")
+_TW_CODE_DIRECTIVE = re.compile(r"@(plugin|config)\b")
+_SCAN_EXTS = (".tsx", ".ts", ".jsx", ".js", ".html", ".mdx", ".md")
+
+
+async def compile_tailwind(css: str, files: list[AppFileInput]) -> str:
+    """The app's stylesheet compiled the way the preview compiles it: Tailwind v4 (``@import "tailwindcss"`` + the esbuild CSS
+    output, so ``@theme`` tokens, ``@custom-variant`` and token utilities such as ``bg-card`` exist in both), with the class
+    candidates scanned from the app's source files. App CSS never runs code: ``@plugin`` / ``@config`` are refused here and
+    again by the compile script's resolvers, and ``@source`` globs are ignored (candidates come only from ``files``)."""
+    node = shutil.which("node")
+    if not node or not (_STUDIO_NODE_MODULES / "@tailwindcss/node").is_dir() or not (_STUDIO_NODE_MODULES / "@tailwindcss/oxide").is_dir():
+        raise BundlerUnavailableError("Tailwind compiler unavailable: install workflow-studio dependencies and put node on PATH")
+    if _TW_CODE_DIRECTIVE.search(css):
+        raise BundleBuildError("App CSS may not use @plugin or @config (they load code)", stderr="")
+    source = '@import "tailwindcss";\n' + _TW_IMPORT.sub("", css)
+    contents = [{"content": f.content, "extension": f.path.rsplit(".", 1)[-1]} for f in files if f.path.endswith(_SCAN_EXTS)]
+    payload = json.dumps({"css": source, "contents": contents, "node_modules": str(_STUDIO_NODE_MODULES)}).encode("utf-8")
+    proc = await asyncio.create_subprocess_exec(
+        node, str(_TAILWIND_SCRIPT),
+        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+    )
+    out, err = await proc.communicate(payload)
+    if proc.returncode != 0:
+        raise BundleBuildError("Tailwind compilation failed", stderr=err.decode("utf-8", errors="replace"))
+    return out.decode("utf-8")
+
+
 async def bundle_app(files: list[AppFileInput]) -> BundleArtifact:
     """Bundle an app into a production artifact.
 
@@ -108,11 +139,17 @@ async def bundle_app(files: list[AppFileInput]) -> BundleArtifact:
     # we don't reuse temp dirs across publishes — bundle output ends up in
     # Postgres / object storage, not on disk.
     with tempfile.TemporaryDirectory(prefix="app-bundle-") as tmp:
+        has_theme = any(f.path == "theme.css" for f in files)
         for f in files:
             full = os.path.join(tmp, f.path)
             os.makedirs(os.path.dirname(full) or tmp, exist_ok=True)
+            content = f.content
+            if has_theme and f.path == entry:
+                # theme.css (the visual theme panel's overrides) loads last, so it wins over the kit and index.css tokens
+                rel = os.path.relpath("theme.css", os.path.dirname(entry) or ".").replace(os.sep, "/")
+                content += f"\nimport {json.dumps(rel if rel.startswith('.') else './' + rel)}\n"
             with open(full, "w", encoding="utf-8") as fh:
-                fh.write(f.content)
+                fh.write(content)
 
         outdir = os.path.join(tmp, "__out__")
         os.makedirs(outdir, exist_ok=True)
@@ -132,6 +169,8 @@ async def bundle_app(files: list[AppFileInput]) -> BundleArtifact:
             "--external:react",
             "--external:react-dom",
             "--external:react-dom/client",
+            # `@import "tailwindcss"` in the app CSS is Tailwind's own stylesheet, compiled below (the preview leaves it to its runtime)
+            "--external:tailwindcss",
             f"--define:process.env.NODE_ENV={json.dumps('production')}",
             f"--outdir={outdir}",
             "--log-level=warning",
@@ -162,27 +201,7 @@ async def bundle_app(files: list[AppFileInput]) -> BundleArtifact:
             elif name.endswith(".css"):
                 out_css = contents
 
-        # Compile the utilities at publish time instead of running Tailwind's
-        # development CDN compiler in every visitor's browser.
-        cli = Path(__file__).resolve().parents[3] / "workflow-studio/node_modules/tailwindcss-v3/lib/cli.js"
-        node = shutil.which("node")
-        if not node or not cli.is_file():
-            raise BundlerUnavailableError("Tailwind compiler unavailable: install workflow-studio dependencies and put node on PATH")
-        css_input = Path(tmp) / "__tailwind_input.css"
-        css_output = Path(outdir) / "__tailwind.css"
-        css_config = Path(tmp) / "__tailwind_config.json"
-        css_input.write_text("@tailwind base;\n@tailwind components;\n@tailwind utilities;\n")
-        # Never discover/execute a tailwind.config.js supplied in the app files.
-        css_config.write_text(json.dumps({"content": [str(Path(tmp) / "**/*.{tsx,jsx,ts,js,html}")]}))
-        proc = await asyncio.create_subprocess_exec(
-            node, str(cli), "-i", str(css_input), "-o", str(css_output),
-            "--config", str(css_config), "--minify",
-            cwd=tmp, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-        )
-        _, css_error = await proc.communicate()
-        if proc.returncode != 0:
-            raise BundleBuildError("Tailwind compilation failed", stderr=css_error.decode("utf-8", errors="replace"))
-        out_css = css_output.read_text() + "\n" + out_css
+        out_css = await compile_tailwind(out_css, files)
 
     if not out_js:
         raise BundleBuildError(

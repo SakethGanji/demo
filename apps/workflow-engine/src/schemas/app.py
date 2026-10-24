@@ -52,6 +52,8 @@ class AppUpdateRequest(BaseModel):
     version_trigger: str = Field("manual", description="Version trigger type: ai, manual, publish")
     version_prompt: str | None = Field(None, description="User message that triggered AI generation")
     files: list[AppFilePayload] = Field(default_factory=list, description="Multi-file app contents")
+    base_version_id: int | None = Field(
+        None, description="Optimistic concurrency: the version this save was made on; 409 stale_base when it is not the head")
     # Publishing settings — editable from the studio prior to publish.
     slug: str | None = Field(
         None,

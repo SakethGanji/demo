@@ -1,0 +1,222 @@
+[
+ {
+  "id": "address_change_reuse",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 20.2,
+  "nodes": 7,
+  "own_tests": 3,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   3,
+   3
+  ],
+  "first_hidden": [
+   3,
+   3
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: nothing"
+ },
+ {
+  "id": "atm_limit_increase",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 30.6,
+  "nodes": 9,
+  "own_tests": 4,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   5,
+   5
+  ],
+  "first_hidden": [
+   5,
+   5
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: `$vars.BRANCH_MANAGER_EMAIL` (address of the branch manager who approves)"
+ },
+ {
+  "id": "business_account_opening",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 71.6,
+  "nodes": 25,
+  "own_tests": 6,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   8,
+   8
+  ],
+  "first_hidden": [
+   8,
+   8
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: $vars.HEAD_OF_COMPLIANCE_EMAIL. I couldn't test-run the workflow, only walk the tests through it by hand."
+ },
+ {
+  "id": "card_settlement_recon",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 29.7,
+  "nodes": 7,
+  "own_tests": 4,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   5,
+   5
+  ],
+  "first_hidden": [
+   5,
+   5
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: nothing. The finance ops address uses the existing `$vars.FINANCE_OPS_EMAIL`. I have not run the tests."
+ },
+ {
+  "id": "cash_withdrawal_dual_control",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 37.3,
+  "nodes": 12,
+  "own_tests": 7,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   6,
+   6
+  ],
+  "first_hidden": [
+   6,
+   6
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: $vars.BRANCH_MANAGER_EMAIL, $vars.REGIONAL_OPS_EMAIL"
+ },
+ {
+  "id": "fraud_sweep",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 42.0,
+  "nodes": 14,
+  "own_tests": 4,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   5,
+   5
+  ],
+  "first_hidden": [
+   5,
+   5
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: $vars.FRAUD_TEAM_EMAIL"
+ },
+ {
+  "id": "loan_decision_pipeline",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 45.7,
+  "nodes": 13,
+  "own_tests": 5,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   5,
+   5
+  ],
+  "first_hidden": [
+   5,
+   5
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: nothing"
+ },
+ {
+  "id": "payment_batch_release",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 60.0,
+  "nodes": 15,
+  "own_tests": 5,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   5,
+   5
+  ],
+  "first_hidden": [
+   5,
+   5
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: $vars.HEAD_OF_TREASURY_EMAIL"
+ },
+ {
+  "id": "sanctions_review_batch",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 33.7,
+  "nodes": 10,
+  "own_tests": 4,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   5,
+   5
+  ],
+  "first_hidden": [
+   5,
+   5
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: $vars.COMPLIANCE_EMAIL"
+ },
+ {
+  "id": "wire_settlement_tracker",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 31.6,
+  "nodes": 12,
+  "own_tests": 5,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   5,
+   5
+  ],
+  "first_hidden": [
+   5,
+   5
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: nothing"
+ }
+]

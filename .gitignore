@@ -6,3 +6,9 @@ __pycache__/
 apps/workflow-studio/public/esbuild.wasm
 .env
 .env.local
+
+# local build/test output
+apps/analytics-service/web/node_modules/
+apps/analytics-service/web/dist/
+apps/analytics-service/.coverage
+test-results/

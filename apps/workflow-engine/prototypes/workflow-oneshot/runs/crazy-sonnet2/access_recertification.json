@@ -1,0 +1,922 @@
+{
+ "name": "Quarterly access recertification",
+ "nodes": [
+  {
+   "name": "Quarter start",
+   "type": "Cron",
+   "parameters": {
+    "mode": "cron",
+    "cronExpression": "0 6 1 1,4,7,10 *"
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Read access",
+   "type": "Postgres",
+   "parameters": {
+    "connection": "iam_db",
+    "operation": "query",
+    "query": "SELECT user_id, user_email, system, manager_email FROM user_access ORDER BY manager_email, user_id",
+    "queryParameters": []
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "Group by manager",
+   "type": "Code",
+   "parameters": {
+    "code": "groups = {}\norder = []\nfor r in json_data[\"rows\"]:\n    m = r[\"manager_email\"]\n    if m not in groups:\n        groups[m] = []\n        order.append(m)\n    groups[m].append({\"user_id\": r[\"user_id\"], \"system\": r[\"system\"]})\nout = []\nfor m in order:\n    us = groups[m]\n    parts = []\n    for u in us:\n        parts.append(u[\"user_id\"] + \" (\" + u[\"system\"] + \")\")\n    out.append(new_item({\"manager_email\": m, \"users\": us, \"listing\": \"; \".join(parts)}))\nreturn out"
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Each manager",
+   "type": "Loop",
+   "parameters": {
+    "batchSize": 1
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Manager task",
+   "type": "Approval",
+   "parameters": {
+    "title": "Access recertification for {{ $node[\"Each manager\"].json.manager_email }}",
+    "context": {
+     "Manager": "{{ $node[\"Each manager\"].json.manager_email }}",
+     "Your people and their systems": "{{ $node[\"Each manager\"].json.listing }}"
+    },
+    "form": [
+     {
+      "name": "revoke",
+      "label": "User ids to revoke (comma-separated, empty keeps everyone)",
+      "type": "text",
+      "required": false
+     }
+    ],
+    "due_in": "7d",
+    "on_timeout": "timed_out",
+    "notify_email": "{{ $node[\"Each manager\"].json.manager_email }}"
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  },
+  {
+   "name": "Send reminder",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $node[\"Each manager\"].json.manager_email }}",
+    "subject": "Reminder: access recertification is waiting for you",
+    "bodyFormat": "plain",
+    "body": "You have not yet answered your quarterly access recertification. A new task has been sent to you and is due in 3 days. If it also goes unanswered, access for all your users will be revoked."
+   },
+   "position": {
+    "x": 950,
+    "y": 0
+   }
+  },
+  {
+   "name": "Second task",
+   "type": "Approval",
+   "parameters": {
+    "title": "Final reminder: access recertification for {{ $node[\"Each manager\"].json.manager_email }}",
+    "context": {
+     "Manager": "{{ $node[\"Each manager\"].json.manager_email }}",
+     "Your people and their systems": "{{ $node[\"Each manager\"].json.listing }}"
+    },
+    "form": [
+     {
+      "name": "revoke",
+      "label": "User ids to revoke (comma-separated, empty keeps everyone)",
+      "type": "text",
+      "required": false
+     }
+    ],
+    "due_in": "3d",
+    "on_timeout": "timed_out",
+    "notify_email": "{{ $node[\"Each manager\"].json.manager_email }}"
+   },
+   "position": {
+    "x": 1140,
+    "y": 0
+   }
+  },
+  {
+   "name": "Email CISO timeout",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $vars.CISO_EMAIL }}",
+    "subject": "Recertification timed out: {{ $node[\"Each manager\"].json.manager_email }}",
+    "bodyFormat": "plain",
+    "body": "Manager {{ $node[\"Each manager\"].json.manager_email }} did not answer two recertification tasks. Access for all of their users is being revoked: {{ $node[\"Each manager\"].json.listing }}"
+   },
+   "position": {
+    "x": 0,
+    "y": 290
+   }
+  },
+  {
+   "name": "Decide",
+   "type": "Code",
+   "parameters": {
+    "code": "m = node_data[\"Each manager\"][\"json\"]\nusers = m[\"users\"]\nappr = json_data.get(\"approval\")\nids = []\nif appr is None:\n    for u in users:\n        ids.append(u[\"user_id\"])\n    action = \"revoked_all_timeout\"\n    reason = \"Quarterly recertification: manager did not respond\"\nelse:\n    fd = appr.get(\"form_data\") or {}\n    text = fd.get(\"revoke\") or \"\"\n    valid = []\n    for u in users:\n        valid.append(u[\"user_id\"])\n    for x in text.split(\",\"):\n        x = x.strip()\n        if x != \"\" and x in valid and x not in ids:\n            ids.append(x)\n    action = \"revoked_some\" if len(ids) > 0 else \"confirmed\"\n    reason = \"Quarterly recertification: revoked by manager\"\nlst = []\nfor i in ids:\n    lst.append({\"user_id\": i, \"reason\": reason})\nreturn [new_item({\"manager_email\": m[\"manager_email\"], \"action\": action, \"revoke_list\": lst, \"revoke_count\": len(ids), \"detail\": \"revoked: \" + \", \".join(ids)})]"
+   },
+   "position": {
+    "x": 190,
+    "y": 290
+   }
+  },
+  {
+   "name": "Anyone to revoke?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $json.revoke_count > 0 }}"
+   },
+   "position": {
+    "x": 380,
+    "y": 290
+   }
+  },
+  {
+   "name": "Split users",
+   "type": "ItemLists",
+   "parameters": {
+    "operation": "splitOut",
+    "arrayField": "revoke_list",
+    "includeOther": false
+   },
+   "position": {
+    "x": 570,
+    "y": 290
+   }
+  },
+  {
+   "name": "Revoke access",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "iam",
+     "operation_id": "revoke"
+    },
+    "method": "POST",
+    "url": "",
+    "path_params": {
+     "user_id": "{{ $json.user_id }}"
+    },
+    "body": {
+     "reason": "{{ $json.reason }}"
+    }
+   },
+   "position": {
+    "x": 760,
+    "y": 290
+   }
+  },
+  {
+   "name": "Count revoked",
+   "type": "ItemLists",
+   "parameters": {
+    "operation": "summarize"
+   },
+   "position": {
+    "x": 950,
+    "y": 290
+   }
+  },
+  {
+   "name": "Record outcome",
+   "type": "Postgres",
+   "parameters": {
+    "connection": "ops_db",
+    "operation": "transaction",
+    "statements": [
+     {
+      "query": "INSERT INTO audit_log (entity, entity_id, action, detail) VALUES ('recert', %s, %s, %s)",
+      "params": [
+       "{{ $node[\"Decide\"].json.manager_email }}",
+       "{{ $node[\"Decide\"].json.action }}",
+       "{{ $node[\"Decide\"].json.detail }}"
+      ]
+     }
+    ]
+   },
+   "position": {
+    "x": 1140,
+    "y": 290
+   }
+  },
+  {
+   "name": "Read outcomes",
+   "type": "Postgres",
+   "parameters": {
+    "connection": "ops_db",
+    "operation": "query",
+    "query": "SELECT entity_id, action, detail FROM audit_log WHERE entity = 'recert' AND created_at > now() - interval '14 days' ORDER BY id",
+    "queryParameters": []
+   },
+   "position": {
+    "x": 760,
+    "y": 110
+   }
+  },
+  {
+   "name": "Build summary",
+   "type": "Code",
+   "parameters": {
+    "code": "lines = []\nfor r in json_data[\"rows\"]:\n    lines.append(r[\"entity_id\"] + \": \" + r[\"action\"] + \" (\" + str(r[\"detail\"]) + \")\")\nreturn [new_item({\"body\": \"Quarterly access recertification finished. Managers: \" + str(len(lines)) + \"\\n\" + \"\\n\".join(lines)})]"
+   },
+   "position": {
+    "x": 950,
+    "y": 110
+   }
+  },
+  {
+   "name": "Email summary",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $vars.CISO_EMAIL }}",
+    "subject": "Quarterly access recertification summary",
+    "bodyFormat": "plain",
+    "body": "{{ $json.body }}"
+   },
+   "position": {
+    "x": 1140,
+    "y": 110
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Quarter start",
+   "target_node": "Read access",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Read access",
+   "target_node": "Group by manager",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Group by manager",
+   "target_node": "Each manager",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Each manager",
+   "target_node": "Manager task",
+   "source_output": "loop",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Manager task",
+   "target_node": "Decide",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Manager task",
+   "target_node": "Decide",
+   "source_output": "rejected",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Manager task",
+   "target_node": "Send reminder",
+   "source_output": "timed_out",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Send reminder",
+   "target_node": "Second task",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Second task",
+   "target_node": "Decide",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Second task",
+   "target_node": "Decide",
+   "source_output": "rejected",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Second task",
+   "target_node": "Email CISO timeout",
+   "source_output": "timed_out",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Email CISO timeout",
+   "target_node": "Decide",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Decide",
+   "target_node": "Anyone to revoke?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Anyone to revoke?",
+   "target_node": "Split users",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Anyone to revoke?",
+   "target_node": "Record outcome",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Split users",
+   "target_node": "Revoke access",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Revoke access",
+   "target_node": "Count revoked",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Count revoked",
+   "target_node": "Record outcome",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Record outcome",
+   "target_node": "Each manager",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Each manager",
+   "target_node": "Read outcomes",
+   "source_output": "done",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Read outcomes",
+   "target_node": "Build summary",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Build summary",
+   "target_node": "Email summary",
+   "source_output": "main",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Empty answer keeps everyone",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "Read access": {
+     "items": [
+      {
+       "rows": [
+        {
+         "user_id": "u1",
+         "user_email": "a@bank.test",
+         "system": "CRM",
+         "manager_email": "m@bank.test"
+        },
+        {
+         "user_id": "u2",
+         "user_email": "b@bank.test",
+         "system": "Core",
+         "manager_email": "m@bank.test"
+        }
+       ],
+       "rowCount": 2
+      }
+     ]
+    },
+    "Manager task": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "revoke": ""
+      },
+      "decided_by": "test"
+     }
+    },
+    "Record outcome": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Read outcomes": {
+     "items": [
+      {
+       "rows": [
+        {
+         "entity_id": "m@bank.test",
+         "action": "confirmed",
+         "detail": "revoked: "
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Email summary": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Revoke access",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Send reminder",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Decide",
+     "path": "action",
+     "op": "eq",
+     "value": "confirmed"
+    },
+    {
+     "node": "Record outcome",
+     "subject": "request",
+     "path": "params.statements.0.params.1",
+     "op": "eq",
+     "value": "confirmed"
+    },
+    {
+     "node": "Email summary",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "name": "Listed user is revoked, others stay",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "Read access": {
+     "items": [
+      {
+       "rows": [
+        {
+         "user_id": "u1",
+         "user_email": "a@bank.test",
+         "system": "CRM",
+         "manager_email": "m@bank.test"
+        },
+        {
+         "user_id": "u2",
+         "user_email": "b@bank.test",
+         "system": "Core",
+         "manager_email": "m@bank.test"
+        }
+       ],
+       "rowCount": 2
+      }
+     ]
+    },
+    "Manager task": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "revoke": "u1"
+      },
+      "decided_by": "test"
+     }
+    },
+    "Revoke access": {
+     "http": {
+      "status": 200,
+      "body": {
+       "user_id": "u1"
+      }
+     }
+    },
+    "Record outcome": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Read outcomes": {
+     "items": [
+      {
+       "rows": [
+        {
+         "entity_id": "m@bank.test",
+         "action": "revoked_some",
+         "detail": "revoked: u1"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Email summary": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Revoke access",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Revoke access",
+     "subject": "request",
+     "path": "url",
+     "op": "contains",
+     "value": "u1"
+    },
+    {
+     "node": "Record outcome",
+     "subject": "request",
+     "path": "params.statements.0.params.1",
+     "op": "eq",
+     "value": "revoked_some"
+    },
+    {
+     "node": "Email CISO timeout",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Unknown user id is ignored",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "Read access": {
+     "items": [
+      {
+       "rows": [
+        {
+         "user_id": "u1",
+         "user_email": "a@bank.test",
+         "system": "CRM",
+         "manager_email": "m@bank.test"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Manager task": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "revoke": "u9"
+      },
+      "decided_by": "test"
+     }
+    },
+    "Record outcome": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Read outcomes": {
+     "items": [
+      {
+       "rows": [],
+       "rowCount": 0
+      }
+     ]
+    },
+    "Email summary": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Revoke access",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Decide",
+     "path": "action",
+     "op": "eq",
+     "value": "confirmed"
+    }
+   ]
+  },
+  {
+   "name": "Late answer after reminder is honoured",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "Read access": {
+     "items": [
+      {
+       "rows": [
+        {
+         "user_id": "u1",
+         "user_email": "a@bank.test",
+         "system": "CRM",
+         "manager_email": "m@bank.test"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Manager task": {
+     "port": "timed_out",
+     "approval": {
+      "decision": "timed_out",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Send reminder": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Second task": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "revoke": ""
+      },
+      "decided_by": "test"
+     }
+    },
+    "Record outcome": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Read outcomes": {
+     "items": [
+      {
+       "rows": [],
+       "rowCount": 0
+      }
+     ]
+    },
+    "Email summary": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Send reminder",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Email CISO timeout",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Revoke access",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Decide",
+     "path": "action",
+     "op": "eq",
+     "value": "confirmed"
+    }
+   ]
+  },
+  {
+   "name": "Two timeouts revoke all and alert the CISO",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "Read access": {
+     "items": [
+      {
+       "rows": [
+        {
+         "user_id": "u1",
+         "user_email": "a@bank.test",
+         "system": "CRM",
+         "manager_email": "m@bank.test"
+        },
+        {
+         "user_id": "u2",
+         "user_email": "b@bank.test",
+         "system": "Core",
+         "manager_email": "m@bank.test"
+        }
+       ],
+       "rowCount": 2
+      }
+     ]
+    },
+    "Manager task": {
+     "port": "timed_out",
+     "approval": {
+      "decision": "timed_out",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Send reminder": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Second task": {
+     "port": "timed_out",
+     "approval": {
+      "decision": "timed_out",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Email CISO timeout": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Revoke access": {
+     "http": {
+      "status": 200,
+      "body": {
+       "user_id": "u"
+      }
+     }
+    },
+    "Record outcome": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Read outcomes": {
+     "items": [
+      {
+       "rows": [
+        {
+         "entity_id": "m@bank.test",
+         "action": "revoked_all_timeout",
+         "detail": "revoked: u1, u2"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Email summary": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Email CISO timeout",
+     "subject": "request",
+     "path": "params.toEmail",
+     "op": "eq",
+     "value": "ciso@bank.test"
+    },
+    {
+     "node": "Email CISO timeout",
+     "subject": "request",
+     "path": "params.body",
+     "op": "contains",
+     "value": "m@bank.test"
+    },
+    {
+     "node": "Revoke access",
+     "subject": "request",
+     "op": "count",
+     "value": 2
+    },
+    {
+     "node": "Record outcome",
+     "subject": "request",
+     "path": "params.statements.0.params.1",
+     "op": "eq",
+     "value": "revoked_all_timeout"
+    }
+   ]
+  }
+ ]
+}

@@ -4,18 +4,21 @@
  * endpoints_declared, error`) then always `done` (§9 C5). A stream that closes without `done` is
  * an error. `code` files drop `api/client.ts` before `setFiles` and before the auto-save.
  */
+import { selectionForTurn } from '../visual/askAi'
 import { useCallback, useEffect, useRef } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { useAppBuilderChatStore, type AppChatMessage, type DeclaredEndpoint } from '../stores/appBuilderChatStore'
 import { useAppDocumentStore } from '../stores'
 import { consumeSSEStream } from '@/shared/lib/sseParser'
 import { apiUrl, errorMessage, parseError } from '@/shared/api/http'
 import { qk, invalidate } from '@/shared/api/queryKeys'
-import type { ApiAppDetail, ApiAppFile } from '@/shared/lib/api'
+import { appsApi, type ApiAppDetail, type ApiAppFile } from '@/shared/lib/api'
 import { entrySource, routeIdsOf, stripClient, usedOperations } from '../lib/appModel'
 import { clientGate } from '../lib/clientGate'
 import { liveEventOf, planRevisionOf, type LiveEvent } from '../lib/chatEvents'
 import { saveApp } from './useAppData'
+import { useEditHistory } from '../visual/history'
+import { isStaleBase, STALE_BASE_MESSAGE, type SaveResult } from './visualSave'
 
 interface Options {
   appId: string
@@ -23,6 +26,11 @@ interface Options {
   apiExecutionIds?: string[]
   /** the builders' `file` / `route` / `preview` events on this chat's stream (LIVE-FILES §5), for the live code view */
   onLive?: (ev: LiveEvent) => void
+  /**
+   * Called before every turn (typed, "Ask AI about this element", "Fix with AI", automatic fixes): saves pending visual
+   * edits so the AI's base version holds them. Anything but `true` blocks the turn with that message (ARCHITECTURE §6.2).
+   */
+  beforeSend?: () => Promise<SaveResult>
 }
 
 const STOPPED = 'The assistant stopped unexpectedly'
@@ -41,13 +49,33 @@ function addedLines(prev: ApiAppFile[] | null, next: ApiAppFile[]): { paths: str
   return { paths, added }
 }
 
-export function useAppBuilderChat({ appId, pid, apiExecutionIds, onLive }: Options) {
+/** The app as the server has it now (bypassing the cache). */
+async function fetchHead(qc: QueryClient, appId: string): Promise<ApiAppDetail> {
+  const fresh = await appsApi.get(appId)
+  qc.setQueryData(qk.app(appId), fresh)
+  return fresh
+}
+
+/** Load the server's head into the document (files and current version): the rebase when nothing local is unsaved. */
+async function adoptHead(qc: QueryClient, appId: string): Promise<void> {
+  const fresh = await fetchHead(qc, appId)
+  const doc = useAppDocumentStore.getState()
+  const own = stripClient(fresh.files ?? [])
+  if (own.length) doc.setFiles(own)
+  else if (fresh.source_code) doc.setSourceCode(fresh.source_code)
+  doc.setCurrentVersion(fresh.current_version ?? null)
+  doc.setDirty(false)
+}
+
+export function useAppBuilderChat({ appId, pid, apiExecutionIds, onLive, beforeSend }: Options) {
   const qc = useQueryClient()
   const abortRef = useRef<AbortController | null>(null)
   const liveRef = useRef(onLive)
+  const beforeSendRef = useRef(beforeSend)
   useEffect(() => {
     liveRef.current = onLive
-  }, [onLive])
+    beforeSendRef.current = beforeSend
+  }, [onLive, beforeSend])
   const pendingSaveRef = useRef<{ files: ApiAppFile[]; prompt: string } | null>(null)
 
   const afterTurn = useCallback(() => {
@@ -55,15 +83,19 @@ export function useAppBuilderChat({ appId, pid, apiExecutionIds, onLive }: Optio
   }, [qc, appId])
 
   const autoSave = useCallback(
-    async (files: ApiAppFile[], prompt: string) => {
-      const { setCurrentVersion } = useAppDocumentStore.getState()
+    async (files: ApiAppFile[], prompt: string, overwrite = false) => {
+      const { setCurrentVersion, currentVersion } = useAppDocumentStore.getState()
       try {
+        // based on the version the turn started from (and each save of this turn): a save that landed elsewhere meanwhile
+        // is refused (409) rather than overwritten; a retry (`overwrite`) is the user choosing to keep the AI's version
+        const base = overwrite ? (await fetchHead(qc, appId)).current_version?.id : currentVersion?.id
         const updated = await saveApp(qc, appId, {
           source_code: entrySource(files),
           files,
           create_version: true,
           version_trigger: 'ai',
           version_prompt: prompt,
+          ...(base != null ? { base_version_id: base } : {}),
         })
         pendingSaveRef.current = null
         useAppDocumentStore.getState().setDirty(false)
@@ -72,7 +104,7 @@ export function useAppBuilderChat({ appId, pid, apiExecutionIds, onLive }: Optio
       } catch (err) {
         pendingSaveRef.current = { files, prompt }
         useAppDocumentStore.getState().setDirty(true)
-        return errorMessage(err)
+        return isStaleBase(err) ? `${STALE_BASE_MESSAGE}. Retry keeps the AI's version` : errorMessage(err)
       } finally {
         afterTurn()
       }
@@ -81,9 +113,8 @@ export function useAppBuilderChat({ appId, pid, apiExecutionIds, onLive }: Optio
   )
 
   const run = useCallback(
-    async (message: string) => {
+    async function turn(message: string, rebased = false, withSelection = true): Promise<void> {
       const store = useAppBuilderChatStore.getState()
-      const { currentVersion } = useAppDocumentStore.getState()
       const history = store.messages
         .filter((m) => m.content.trim() !== '' && !m.error)
         .slice(-6)
@@ -91,29 +122,51 @@ export function useAppBuilderChat({ appId, pid, apiExecutionIds, onLive }: Optio
 
       store.addMessage({ role: 'user', content: message })
       store.addMessage({ role: 'assistant', content: '', prompt: message })
+      // streaming from here: visual edits lock while the pending ones are flushed, so the base below is exact
       store.setStreaming(true)
       const update = (u: Partial<AppChatMessage>) => useAppBuilderChatStore.getState().updateLastMessage(u)
       const last = () => useAppBuilderChatStore.getState().messages.at(-1)
-
-      const app = qc.getQueryData<ApiAppDetail>(qk.app(appId))
-      const body = {
-        message,
-        app_id: appId,
-        current_version_id: currentVersion?.id ?? undefined,
-        api_execution_ids: apiExecutionIds ?? [],
-        project_id: pid,
-        route_ids: routeIdsOf(app),
-        conversation_history: history,
-      }
 
       const controller = new AbortController()
       abortRef.current = controller
       let gotDone = false
       let sawError = false
+      let retryRebased = false
       const saving: { p: Promise<true | string> | null } = { p: null }
       const client = clientGate(() => qc.refetchQueries({ queryKey: [...qk.spec(pid), 'client-ts'] }))
 
       try {
+        // 1. flush pending visual edits (a save in flight is waited out); a failed save blocks the send
+        if (beforeSendRef.current) {
+          update({ phase: 'Saving your visual edits…' })
+          const flushed = await beforeSendRef.current()
+          if (flushed !== true) {
+            update({
+              error: { kind: 'stream', code: 'unsaved_edits', message: `Your visual edits aren't saved yet (${flushed}). Retry to save them and send.` },
+              phase: null,
+            })
+            return
+          }
+          update({ phase: null })
+        }
+        const { currentVersion } = useAppDocumentStore.getState()
+        const visualEdits = visualEditsSinceAi()
+        // automatic turns (error fixes, the Create UI prompt) aren't about the selected element
+        const selected = withSelection ? selectionForTurn() : null
+        const app = qc.getQueryData<ApiAppDetail>(qk.app(appId))
+        const body = {
+          message,
+          app_id: appId,
+          current_version_id: currentVersion?.id ?? undefined,
+          // 2. optimistic concurrency: the server refuses (409) when this is no longer the app's head
+          base_version_id: currentVersion?.id ?? undefined,
+          api_execution_ids: apiExecutionIds ?? [],
+          project_id: pid,
+          route_ids: routeIdsOf(app),
+          conversation_history: history,
+          ...(visualEdits.length ? { visual_edits: visualEdits } : {}),
+          ...(selected ? { selection: selected } : {}),
+        }
         const res = await fetch(apiUrl('/api/ai/app-builder/chat'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -129,6 +182,20 @@ export function useAppBuilderChat({ appId, pid, apiExecutionIds, onLive }: Optio
             /* keep text */
           }
           const e = parseError(res.status, parsed)
+          if (isStaleBase(e)) {
+            // another tab or session saved since this copy was loaded. With nothing unsaved here, take the latest
+            // version and send once more; otherwise say so and keep the local edits for the user to decide.
+            if (!rebased && !useAppDocumentStore.getState().dirty) {
+              await adoptHead(qc, appId)
+              retryRebased = true
+              return
+            }
+            update({
+              error: { kind: 'stream', code: e.code, message: `${STALE_BASE_MESSAGE}. Reload the app to get the latest version, then ask again.` },
+              phase: null,
+            })
+            return
+          }
           update({ error: { kind: 'stream', code: e.code, message: e.message }, phase: null })
           return
         }
@@ -259,12 +326,20 @@ export function useAppBuilderChat({ appId, pid, apiExecutionIds, onLive }: Optio
           const r = await saving.p
           if (r !== true && !last()?.error) update({ error: { kind: 'save', message: `Couldn't save this version: ${r}` } })
         } else afterTurn()
+        // (in `finally`: the 409 path returns out of `try`) resend once on the server's head, as the same chat turn
+        if (retryRebased) {
+          useAppBuilderChatStore.getState().removeLast(2)
+          await turn(message, true, withSelection)
+        }
       }
     },
     [qc, appId, pid, apiExecutionIds, autoSave, afterTurn],
   )
 
-  const sendMessage = useCallback((message: string) => run(message), [run])
+  const sendMessage = useCallback(
+    (message: string, opts?: { selection?: boolean }) => run(message, false, opts?.selection ?? true),
+    [run],
+  )
 
   /** Retry the failed turn: a stream error resends the prompt; a save error re-saves. */
   const retry = useCallback(async () => {
@@ -274,7 +349,7 @@ export function useAppBuilderChat({ appId, pid, apiExecutionIds, onLive }: Optio
     if (lastMsg.error.kind === 'save' && pendingSaveRef.current) {
       const { files, prompt } = pendingSaveRef.current
       useAppBuilderChatStore.getState().updateLastMessage({ error: null })
-      const r = await autoSave(files, prompt)
+      const r = await autoSave(files, prompt, true)
       if (r !== true) useAppBuilderChatStore.getState().updateLastMessage({ error: { kind: 'save', message: `Couldn't save this version: ${r}` } })
       return
     }
@@ -290,4 +365,24 @@ export function useAppBuilderChat({ appId, pid, apiExecutionIds, onLive }: Optio
 
   const isStreaming = useAppBuilderChatStore((s) => s.isStreaming)
   return { sendMessage, retry, isStreaming, cancelStream }
+}
+
+/** Short summaries of the visual edits since the last AI turn (the undo history after its newest AI transaction), oldest first. */
+export function visualEditsSinceAi(max = 25): string[] {
+  const past = useEditHistory.getState().past
+  let from = 0
+  for (let i = past.length - 1; i >= 0; i--) {
+    if (past[i].origin === 'chat') {
+      from = i + 1
+      break
+    }
+  }
+  const out: string[] = []
+  for (const tx of past.slice(from)) {
+    if (tx.origin !== 'visual') continue
+    const files = [...new Set(tx.patches.map((p) => p.path))].join(', ')
+    const line = `${tx.label} (${files})`.slice(0, 200)
+    if (out[out.length - 1] !== line) out.push(line)
+  }
+  return out.slice(-max)
 }

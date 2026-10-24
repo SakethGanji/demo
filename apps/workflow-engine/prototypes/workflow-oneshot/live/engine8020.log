@@ -1,0 +1,168 @@
+/home/saketh/Projects/playground/work/demo/apps/workflow-engine/src/schemas/workflow.py:15: UserWarning: Field name "json" in "PinnedDataItem" shadows an attribute in parent "BaseModel"
+  class PinnedDataItem(BaseModel):
+INFO:     Started server process [4055605]
+INFO:     Waiting for application startup.
+2026-10-23 00:47:28 INFO  [exec:-] src.db.session — Postgres connection OK: 1
+2026-10-23 00:47:28 INFO  [exec:-] src.db.session — Postgres connection OK: 1
+2026-10-23 00:47:28 WARNING [exec:-] src.db.seed — WORKFLOW_MONGO_URL is not set; skipping PromptLab Mongo index creation
+2026-10-23 00:47:28 INFO  [exec:-] src.main — Dev seed applied
+2026-10-23 00:47:29 INFO  [exec:-] src.main — Capability graph seeded (+0 new, 0 changed)
+2026-10-23 00:47:29 INFO  [exec:-] src.engine.cron_scheduler — CronScheduler started (interval=30s)
+2026-10-23 00:47:29 INFO  [exec:-] src.engine.stale_reaper — StaleReaper started (interval=300s, threshold=4h)
+2026-10-23 00:47:29 INFO  [exec:-] src.engine.retention_cleaner — RetentionCleaner started (interval=3600s, retention=30d)
+2026-10-23 00:47:29 INFO  [exec:-] src.main — Workflow Engine v0.1.0 started on http://0.0.0.0:8000
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8020 (Press CTRL+C to quit)
+  Skipped (unchanged): PromptLab
+
+Seeding complete. Added 0 workflows, skipped 3 existing.
+INFO:     127.0.0.1:47526 - "GET /docs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47534 - "POST /api/ai/chat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58314 - "GET /api/ai/proposals/p_fb50f2586455 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58318 - "POST /api/ai/proposals/p_fb50f2586455/keep HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58320 - "POST /api/workflows/wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58322 - "GET /api/executions/exec_01a1674d-1e78-7f6b-bdc7-e247e2b8993e HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58338 - "POST /api/workflows/wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58342 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58356 - "GET /api/tasks/tsk_01a1674d-1f6b-7477-a53d-cb02f7355e70 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58370 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58374 - "POST /api/tasks/tsk_01a1674d-1f6b-7477-a53d-cb02f7355e70/decide HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58384 - "GET /api/executions/exec_01a1674d-1f25-7443-b9fb-c3381b7c6632 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58398 - "GET /api/executions/exec_01a1674d-1f25-7443-b9fb-c3381b7c6632 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58414 - "POST /api/workflows/wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58428 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58438 - "POST /api/tasks/tsk_01a1674d-2262-785d-ac6b-3dae4a18264d/decide HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58440 - "GET /api/executions/exec_01a1674d-2237-7f23-884a-3478e2e80e0d HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58442 - "GET /api/executions/exec_01a1674d-2237-7f23-884a-3478e2e80e0d HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58444 - "POST /api/workflows/wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58460 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34228 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58758 - "GET /api/executions/exec_01a1674d-24d2-797b-82f1-74c50ea2eed3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58760 - "POST /api/workflows/wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58772 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58774 - "POST /api/tasks/tsk_01a1674d-bbed-75c9-9034-17e5c7b7b60b/decide HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58788 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58790 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58802 - "POST /api/tasks/tsk_01a1674d-bc44-7bee-b5c9-cfecf811818b/decide HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58814 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58818 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58826 - "POST /api/tasks/tsk_01a1674d-be54-7373-9e7d-a3782ff73d55/decide HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58832 - "GET /api/executions/exec_01a1674d-bbbc-7c4b-8369-4877be8a62f6 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58846 - "GET /api/executions/exec_01a1674d-bbbc-7c4b-8369-4877be8a62f6 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58850 - "POST /api/workflows/wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58856 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58872 - "POST /api/tasks/tsk_01a1674d-c2a1-754d-8650-472c7d18044b/decide HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58884 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58898 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41380 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41394 - "POST /api/tasks/tsk_01a1674e-2e9a-7295-8eef-706c5946751a/decide HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41400 - "GET /api/executions/exec_01a1674d-c263-7673-81c8-b09de3e1ee37 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41402 - "GET /api/executions/exec_01a1674d-c263-7673-81c8-b09de3e1ee37 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41414 - "POST /api/workflows/wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41416 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41428 - "POST /api/tasks/tsk_01a1674e-3213-7de9-bc49-90c5fc68089e/decide HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41434 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41446 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41462 - "POST /api/tasks/tsk_01a1674e-3266-75bc-9bfb-216b4b40b55d/decide HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41478 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41482 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41496 - "POST /api/tasks/tsk_01a1674e-345f-7b17-872d-cb9b42b6ba05/decide HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41506 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41520 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41534 - "POST /api/tasks/tsk_01a1674e-365c-7589-96bf-5fc2c4eec263/decide HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41550 - "GET /api/executions/exec_01a1674e-31dc-7425-9871-91c2066c852d HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41554 - "GET /api/executions/exec_01a1674e-31dc-7425-9871-91c2066c852d HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41568 - "POST /api/workflows/wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41582 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41586 - "POST /api/tasks/tsk_01a1674e-3acd-78a2-a6a4-5d0c62bf91f9/decide HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41602 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41618 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41632 - "POST /api/tasks/tsk_01a1674e-3b5a-711d-88d3-f5cc37c61185/decide HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41644 - "GET /api/executions/exec_01a1674e-3a97-7751-9167-0960f50a0e97 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41650 - "GET /api/executions/exec_01a1674e-3a97-7751-9167-0960f50a0e97 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41660 - "POST /api/ai/chat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42128 - "GET /api/ai/proposals/p_712bbcedaaf9 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42142 - "POST /api/ai/proposals/p_712bbcedaaf9/keep HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42148 - "POST /api/workflows/wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42154 - "GET /api/executions/exec_01a1674e-9aae-734a-8ef3-30f706c0a71f HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42170 - "POST /api/workflows/wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42180 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42188 - "GET /api/tasks/tsk_01a1674e-9b81-7c83-88f0-8cc1af68fe7c HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42190 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42204 - "POST /api/tasks/tsk_01a1674e-9b81-7c83-88f0-8cc1af68fe7c/decide HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42208 - "GET /api/executions/exec_01a1674e-9b46-79d5-b839-b789dd0938f5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42222 - "GET /api/executions/exec_01a1674e-9b46-79d5-b839-b789dd0938f5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42238 - "POST /api/workflows/wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42248 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42262 - "POST /api/tasks/tsk_01a1674e-9e33-7fa3-9039-e891bade9acc/decide HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42268 - "GET /api/executions/exec_01a1674e-9df9-7a62-bd39-8fc5d62c887e HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42278 - "GET /api/executions/exec_01a1674e-9df9-7a62-bd39-8fc5d62c887e HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42284 - "POST /api/workflows/wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42300 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42316 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52832 - "GET /api/executions/exec_01a1674e-a0dc-7528-9522-c26b9e0c7c57 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52844 - "POST /api/workflows/wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52852 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52854 - "POST /api/tasks/tsk_01a1674f-1c93-7981-9d96-f3573796e4cb/decide HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52858 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52862 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52876 - "POST /api/tasks/tsk_01a1674f-1cec-7f43-a893-80a13b7f2e72/decide HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52888 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52896 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52898 - "POST /api/tasks/tsk_01a1674f-1efe-7ef9-9a3e-a06c1e4f2c85/decide HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52904 - "GET /api/executions/exec_01a1674f-1c48-7894-84d9-2c17fb11dc02 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52914 - "GET /api/executions/exec_01a1674f-1c48-7894-84d9-2c17fb11dc02 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52924 - "POST /api/workflows/wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52928 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52930 - "POST /api/tasks/tsk_01a1674f-261b-7ec9-a89e-0a667173335d/decide HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52940 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52952 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47088 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47100 - "POST /api/tasks/tsk_01a1674f-8ffd-7651-a814-75d251a8c566/decide HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47108 - "GET /api/executions/exec_01a1674f-25d9-7a5c-a574-4d19ce3c6a3c HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47114 - "GET /api/executions/exec_01a1674f-25d9-7a5c-a574-4d19ce3c6a3c HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47120 - "POST /api/workflows/wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47136 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47152 - "POST /api/tasks/tsk_01a1674f-956f-726c-a885-8e1071802e94/decide HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47154 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47170 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47178 - "POST /api/tasks/tsk_01a1674f-95ae-7197-a0de-7f176ae53eaa/decide HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47184 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47198 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47202 - "POST /api/tasks/tsk_01a1674f-97a9-75fc-820a-61a01040b4bb/decide HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47210 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47226 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47230 - "POST /api/tasks/tsk_01a1674f-99a8-7e88-a5cc-fffe32e36126/decide HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47234 - "GET /api/executions/exec_01a1674f-9542-70b9-ba65-664de65ee847 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47248 - "GET /api/executions/exec_01a1674f-9542-70b9-ba65-664de65ee847 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47250 - "POST /api/workflows/wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47256 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47266 - "POST /api/tasks/tsk_01a1674f-9dfa-720f-b90b-d8330de3b806/decide HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47276 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59584 - "GET /api/tasks?status=open&workflow_id=wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59586 - "POST /api/tasks/tsk_01a1674f-9e37-7dad-8b61-c814b41a1773/decide HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59596 - "GET /api/executions/exec_01a1674f-9dd0-7863-aea8-4f1c2b14b70a HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59600 - "GET /api/executions/exec_01a1674f-9dd0-7863-aea8-4f1c2b14b70a HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59612 - "POST /api/workflows/wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59622 - "GET /api/executions/exec_01a1674f-a256-7c55-ae18-9551fdba986d HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59626 - "POST /api/ai/chat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39834 - "GET /api/ai/proposals/p_2a662e6e611d HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39840 - "POST /api/ai/proposals/p_2a662e6e611d/keep HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39852 - "POST /api/workflows/wf_01a16750-2d58-7bb2-90dd-a0ca35ae9cee/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39864 - "GET /api/tasks?status=open&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39874 - "POST /api/tasks/tsk_01a16750-2e12-787d-b8c6-7e22f7045fb1/decide HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39876 - "GET /api/executions/exec_01a16750-2da9-7883-934a-8679cc3f7510 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39882 - "GET /api/executions/exec_01a16750-2da9-7883-934a-8679cc3f7510 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39898 - "POST /api/workflows/wf_01a16750-2d58-7bb2-90dd-a0ca35ae9cee/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39900 - "GET /api/tasks?status=open&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39908 - "POST /api/tasks/tsk_01a16750-30e9-7ab4-8585-0574eaa90e2f/decide HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39924 - "GET /api/executions/exec_01a16750-308a-7c5e-8387-8a5386183163 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39926 - "GET /api/executions/exec_01a16750-308a-7c5e-8387-8a5386183163 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39938 - "POST /api/ai/chat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60692 - "GET /api/ai/proposals/p_4566b5c4042d HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60698 - "POST /api/ai/proposals/p_4566b5c4042d/keep HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60704 - "POST /api/workflows/wf_01a16750-2d58-7bb2-90dd-a0ca35ae9cee/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60710 - "GET /api/tasks?status=open&limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60712 - "POST /api/tasks/tsk_01a16750-7f02-712a-a356-a48cde4b6e07/decide HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60724 - "GET /api/executions/exec_01a16750-7e96-74ba-97ad-4065f9eef53c HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60730 - "GET /api/executions/exec_01a16750-7e96-74ba-97ad-4065f9eef53c HTTP/1.1" 200 OK

@@ -1,0 +1,746 @@
+{
+ "name": "Large cash withdrawal",
+ "nodes": [
+  {
+   "name": "Withdrawal form",
+   "type": "FormTrigger",
+   "parameters": {
+    "title": "Large cash withdrawal",
+    "input_schema": {
+     "type": "object",
+     "properties": {
+      "account_id": {
+       "type": "string"
+      },
+      "amount": {
+       "type": "number"
+      },
+      "customer_name": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "account_id",
+      "amount",
+      "customer_name"
+     ]
+    }
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Over 10000?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $json.amount > 10000 }}"
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "Branch manager approval",
+   "type": "Approval",
+   "parameters": {
+    "title": "Withdrawal of {{ $node[\"Withdrawal form\"].json.amount }} for {{ $node[\"Withdrawal form\"].json.customer_name }}",
+    "context": {
+     "Account": "{{ $node[\"Withdrawal form\"].json.account_id }}",
+     "Amount": "{{ $node[\"Withdrawal form\"].json.amount }}",
+     "Customer": "{{ $node[\"Withdrawal form\"].json.customer_name }}"
+    },
+    "notify_email": "{{ $vars.BRANCH_MANAGER_EMAIL }}"
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Over 50000?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $node[\"Withdrawal form\"].json.amount > 50000 }}"
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Regional ops approval",
+   "type": "Approval",
+   "parameters": {
+    "title": "Withdrawal of {{ $node[\"Withdrawal form\"].json.amount }} for {{ $node[\"Withdrawal form\"].json.customer_name }}",
+    "context": {
+     "Account": "{{ $node[\"Withdrawal form\"].json.account_id }}",
+     "Amount": "{{ $node[\"Withdrawal form\"].json.amount }}",
+     "Customer": "{{ $node[\"Withdrawal form\"].json.customer_name }}"
+    },
+    "notify_email": "{{ $vars.REGIONAL_OPS_EMAIL }}"
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  },
+  {
+   "name": "Debit account",
+   "type": "HttpRequest",
+   "on_error": "error_output",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "core",
+     "operation_id": "debit"
+    },
+    "method": "POST",
+    "url": "",
+    "path_params": {
+     "account_id": "{{ $node[\"Withdrawal form\"].json.account_id }}"
+    },
+    "body": {
+     "amount": "{{ $node[\"Withdrawal form\"].json.amount }}"
+    }
+   },
+   "position": {
+    "x": 950,
+    "y": 0
+   }
+  },
+  {
+   "name": "Record approved",
+   "type": "DataTable",
+   "parameters": {
+    "table": "withdrawals",
+    "operation": "insert",
+    "data": {
+     "account_id": "{{ $node[\"Withdrawal form\"].json.account_id }}",
+     "amount": "{{ $node[\"Withdrawal form\"].json.amount }}",
+     "customer_name": "{{ $node[\"Withdrawal form\"].json.customer_name }}",
+     "status": "approved"
+    }
+   },
+   "position": {
+    "x": 1140,
+    "y": 0
+   }
+  },
+  {
+   "name": "Record failed",
+   "type": "DataTable",
+   "parameters": {
+    "table": "withdrawals",
+    "operation": "insert",
+    "data": {
+     "account_id": "{{ $node[\"Withdrawal form\"].json.account_id }}",
+     "amount": "{{ $node[\"Withdrawal form\"].json.amount }}",
+     "customer_name": "{{ $node[\"Withdrawal form\"].json.customer_name }}",
+     "status": "failed"
+    }
+   },
+   "position": {
+    "x": 1140,
+    "y": 110
+   }
+  },
+  {
+   "name": "Record rejected",
+   "type": "DataTable",
+   "parameters": {
+    "table": "withdrawals",
+    "operation": "insert",
+    "data": {
+     "account_id": "{{ $node[\"Withdrawal form\"].json.account_id }}",
+     "amount": "{{ $node[\"Withdrawal form\"].json.amount }}",
+     "customer_name": "{{ $node[\"Withdrawal form\"].json.customer_name }}",
+     "status": "rejected"
+    }
+   },
+   "position": {
+    "x": 950,
+    "y": 110
+   }
+  },
+  {
+   "name": "Reply approved",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "approved",
+     "message": "Approved - cash can be handed out"
+    }
+   },
+   "position": {
+    "x": 0,
+    "y": 400
+   }
+  },
+  {
+   "name": "Reply failed",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "failed",
+     "message": "Debit failed - do not hand out cash"
+    }
+   },
+   "position": {
+    "x": 0,
+    "y": 510
+   }
+  },
+  {
+   "name": "Reply rejected",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "rejected",
+     "message": "Withdrawal rejected - do not hand out cash"
+    }
+   },
+   "position": {
+    "x": 1140,
+    "y": 220
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Withdrawal form",
+   "target_node": "Over 10000?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Over 10000?",
+   "target_node": "Branch manager approval",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Over 10000?",
+   "target_node": "Debit account",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Branch manager approval",
+   "target_node": "Over 50000?",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Branch manager approval",
+   "target_node": "Record rejected",
+   "source_output": "rejected",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Over 50000?",
+   "target_node": "Regional ops approval",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Over 50000?",
+   "target_node": "Debit account",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Regional ops approval",
+   "target_node": "Debit account",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Regional ops approval",
+   "target_node": "Record rejected",
+   "source_output": "rejected",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Debit account",
+   "target_node": "Record approved",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Debit account",
+   "target_node": "Record failed",
+   "source_output": "error",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Record approved",
+   "target_node": "Reply approved",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Record failed",
+   "target_node": "Reply failed",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Record rejected",
+   "target_node": "Reply rejected",
+   "source_output": "main",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Exactly 10000 is approved automatically",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "account_id": "A100",
+      "amount": 10000,
+      "customer_name": "Ann Lee"
+     }
+    ]
+   },
+   "mocks": {
+    "Debit account": {
+     "http": {
+      "status": 200,
+      "body": {
+       "txn_id": "T1"
+      }
+     }
+    },
+    "Record approved": {
+     "items": [
+      {
+       "id": "1"
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Branch manager approval",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Debit account",
+     "subject": "request",
+     "path": "body.amount",
+     "op": "eq",
+     "value": 10000
+    },
+    {
+     "node": "Debit account",
+     "subject": "request",
+     "path": "url",
+     "op": "contains",
+     "value": "A100"
+    },
+    {
+     "node": "Record approved",
+     "subject": "request",
+     "path": "params.data.status",
+     "op": "eq",
+     "value": "approved"
+    },
+    {
+     "node": "Reply approved",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "approved"
+    }
+   ]
+  },
+  {
+   "name": "25000 needs only the branch manager",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "account_id": "A200",
+      "amount": 25000,
+      "customer_name": "Bo Chen"
+     }
+    ]
+   },
+   "mocks": {
+    "Branch manager approval": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Debit account": {
+     "http": {
+      "status": 200,
+      "body": {
+       "txn_id": "T2"
+      }
+     }
+    },
+    "Record approved": {
+     "items": [
+      {
+       "id": "2"
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Regional ops approval",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Debit account",
+     "subject": "request",
+     "path": "body.amount",
+     "op": "eq",
+     "value": 25000
+    },
+    {
+     "node": "Reply approved",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "approved"
+    }
+   ]
+  },
+  {
+   "name": "Exactly 50000 does not need regional operations",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "account_id": "A300",
+      "amount": 50000,
+      "customer_name": "Cy Park"
+     }
+    ]
+   },
+   "mocks": {
+    "Branch manager approval": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Debit account": {
+     "http": {
+      "status": 200,
+      "body": {
+       "txn_id": "T3"
+      }
+     }
+    },
+    "Record approved": {
+     "items": [
+      {
+       "id": "3"
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Regional ops approval",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Debit account",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    }
+   ]
+  },
+  {
+   "name": "60000 needs both and is debited when both approve",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "account_id": "A400",
+      "amount": 60000,
+      "customer_name": "Di Roy"
+     }
+    ]
+   },
+   "mocks": {
+    "Branch manager approval": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Regional ops approval": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Debit account": {
+     "http": {
+      "status": 200,
+      "body": {
+       "txn_id": "T4"
+      }
+     }
+    },
+    "Record approved": {
+     "items": [
+      {
+       "id": "4"
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Regional ops approval",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Debit account",
+     "subject": "request",
+     "path": "body.amount",
+     "op": "eq",
+     "value": 60000
+    },
+    {
+     "node": "Record approved",
+     "subject": "request",
+     "path": "params.data.status",
+     "op": "eq",
+     "value": "approved"
+    }
+   ]
+  },
+  {
+   "name": "Regional rejection means no debit",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "account_id": "A500",
+      "amount": 70000,
+      "customer_name": "Ed Sun"
+     }
+    ]
+   },
+   "mocks": {
+    "Branch manager approval": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Regional ops approval": {
+     "port": "rejected",
+     "approval": {
+      "decision": "rejected",
+      "comment": "no",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Record rejected": {
+     "items": [
+      {
+       "id": "5"
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Debit account",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Record rejected",
+     "subject": "request",
+     "path": "params.data.status",
+     "op": "eq",
+     "value": "rejected"
+    },
+    {
+     "node": "Reply rejected",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "rejected"
+    }
+   ]
+  },
+  {
+   "name": "Branch manager rejection stops everything",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "account_id": "A600",
+      "amount": 20000,
+      "customer_name": "Flo Tan"
+     }
+    ]
+   },
+   "mocks": {
+    "Branch manager approval": {
+     "port": "rejected",
+     "approval": {
+      "decision": "rejected",
+      "comment": "no",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Record rejected": {
+     "items": [
+      {
+       "id": "6"
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Regional ops approval",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Debit account",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Record rejected",
+     "subject": "request",
+     "path": "params.data.status",
+     "op": "eq",
+     "value": "rejected"
+    }
+   ]
+  },
+  {
+   "name": "Failed debit tells the teller not to hand out cash",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "account_id": "A700",
+      "amount": 5000,
+      "customer_name": "Gus Wu"
+     }
+    ]
+   },
+   "mocks": {
+    "Debit account": {
+     "error": {
+      "message": "core unavailable",
+      "code": "500"
+     }
+    },
+    "Record failed": {
+     "items": [
+      {
+       "id": "7"
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Debit account",
+     "port": "error",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Record approved",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Record failed",
+     "subject": "request",
+     "path": "params.data.status",
+     "op": "eq",
+     "value": "failed"
+    },
+    {
+     "node": "Reply failed",
+     "subject": "request",
+     "path": "body.message",
+     "op": "eq",
+     "value": "Debit failed - do not hand out cash"
+    }
+   ]
+  }
+ ],
+ "interface": {
+  "kind": "form",
+  "slug": "large-cash-withdrawal",
+  "title": "Large cash withdrawal",
+  "description": "",
+  "access": {
+   "mode": "public"
+  },
+  "trigger_node": "Withdrawal form",
+  "result_node": "Reply rejected"
+ }
+}

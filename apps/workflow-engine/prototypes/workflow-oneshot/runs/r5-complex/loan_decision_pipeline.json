@@ -1,0 +1,767 @@
+{
+ "name": "Loan application decision",
+ "nodes": [
+  {
+   "name": "Loan application",
+   "type": "Webhook",
+   "parameters": {
+    "method": "POST",
+    "path": "loan-applications",
+    "responseMode": "lastNode"
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Credit check",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "bureau",
+     "operation_id": "creditScore"
+    },
+    "method": "POST",
+    "url": "",
+    "body": {
+     "applicant_id": "{{ $node[\"Loan application\"].json.body.applicant_id }}"
+    }
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "Fraud check",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "fraudcheck",
+     "operation_id": "check"
+    },
+    "method": "POST",
+    "url": "",
+    "body": {
+     "applicant_id": "{{ $node[\"Loan application\"].json.body.applicant_id }}"
+    }
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Fraud flagged?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $json.body.flagged == true }}"
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Decline fraud",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "loans",
+     "operation_id": "decline"
+    },
+    "method": "POST",
+    "url": "",
+    "body": {
+     "applicant_id": "{{ $node[\"Loan application\"].json.body.applicant_id }}",
+     "reason": "Fraud check flagged the applicant"
+    }
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  },
+  {
+   "name": "Route by score",
+   "type": "Switch",
+   "parameters": {
+    "mode": "rules",
+    "numberOfOutputs": 3,
+    "rules": [
+     {
+      "output": 0,
+      "field": "{{ $node[\"Credit check\"].json.body.score }}",
+      "operation": "lt",
+      "value": "580"
+     },
+     {
+      "output": 1,
+      "field": "{{ $node[\"Loan application\"].json.body.product }}",
+      "operation": "equals",
+      "value": "mortgage"
+     },
+     {
+      "output": 2,
+      "field": "{{ $node[\"Credit check\"].json.body.score }}",
+      "operation": "gte",
+      "value": "720"
+     }
+    ]
+   },
+   "position": {
+    "x": 760,
+    "y": 110
+   }
+  },
+  {
+   "name": "Decline low score",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "loans",
+     "operation_id": "decline"
+    },
+    "method": "POST",
+    "url": "",
+    "body": {
+     "applicant_id": "{{ $node[\"Loan application\"].json.body.applicant_id }}",
+     "reason": "Credit score {{ $node[\"Credit check\"].json.body.score }} is below 580"
+    }
+   },
+   "position": {
+    "x": 950,
+    "y": 0
+   }
+  },
+  {
+   "name": "Summarise application",
+   "type": "AIAgent",
+   "parameters": {
+    "systemPrompt": "You help bank underwriters. Write a short, factual summary of a loan application. Do not make the decision.",
+    "task": "Summarise this loan application in three sentences for an underwriter. Applicant: {{ $node[\"Loan application\"].json.body.applicant_id }}. Product: {{ $node[\"Loan application\"].json.body.product }}. Amount: {{ $node[\"Loan application\"].json.body.amount }}. Income: {{ $node[\"Loan application\"].json.body.income }}. Credit score: {{ $node[\"Credit check\"].json.body.score }}. Fraud check: not flagged.",
+    "outputSchema": {
+     "type": "object",
+     "properties": {
+      "summary": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "summary"
+     ]
+    }
+   },
+   "position": {
+    "x": 950,
+    "y": 110
+   }
+  },
+  {
+   "name": "Underwriter review",
+   "type": "Approval",
+   "parameters": {
+    "title": "Loan review: {{ $node[\"Loan application\"].json.body.product }} for {{ $node[\"Loan application\"].json.body.applicant_id }}",
+    "context": {
+     "Applicant": "{{ $node[\"Loan application\"].json.body.applicant_id }}",
+     "Product": "{{ $node[\"Loan application\"].json.body.product }}",
+     "Amount": "{{ $node[\"Loan application\"].json.body.amount }}",
+     "Income": "{{ $node[\"Loan application\"].json.body.income }}",
+     "Credit score": "{{ $node[\"Credit check\"].json.body.score }}",
+     "AI summary": "{{ $json.structured.summary }}"
+    },
+    "require_comment_on_reject": true
+   },
+   "position": {
+    "x": 1140,
+    "y": 0
+   }
+  },
+  {
+   "name": "Decline by underwriter",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "loans",
+     "operation_id": "decline"
+    },
+    "method": "POST",
+    "url": "",
+    "body": {
+     "applicant_id": "{{ $node[\"Loan application\"].json.body.applicant_id }}",
+     "reason": "Declined by underwriter: {{ $json.approval.comment }}"
+    }
+   },
+   "position": {
+    "x": 0,
+    "y": 400
+   }
+  },
+  {
+   "name": "Book loan",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "loans",
+     "operation_id": "book"
+    },
+    "method": "POST",
+    "url": "",
+    "body": {
+     "applicant_id": "{{ $node[\"Loan application\"].json.body.applicant_id }}",
+     "product": "{{ $node[\"Loan application\"].json.body.product }}",
+     "amount": "{{ $node[\"Loan application\"].json.body.amount }}"
+    }
+   },
+   "position": {
+    "x": 0,
+    "y": 290
+   }
+  },
+  {
+   "name": "Reply approved",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "decision": "approved",
+     "loan_id": "{{ $json.body.loan_id }}"
+    }
+   },
+   "position": {
+    "x": 190,
+    "y": 400
+   }
+  },
+  {
+   "name": "Reply declined",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "decision": "declined",
+     "decline_id": "{{ $json.body.decline_id }}"
+    }
+   },
+   "position": {
+    "x": 190,
+    "y": 290
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Loan application",
+   "target_node": "Credit check",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Credit check",
+   "target_node": "Fraud check",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Fraud check",
+   "target_node": "Fraud flagged?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Fraud flagged?",
+   "target_node": "Decline fraud",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Fraud flagged?",
+   "target_node": "Route by score",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Decline fraud",
+   "target_node": "Reply declined",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Route by score",
+   "target_node": "Decline low score",
+   "source_output": "output0",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Route by score",
+   "target_node": "Summarise application",
+   "source_output": "output1",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Route by score",
+   "target_node": "Book loan",
+   "source_output": "output2",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Route by score",
+   "target_node": "Summarise application",
+   "source_output": "fallback",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Decline low score",
+   "target_node": "Reply declined",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Summarise application",
+   "target_node": "Underwriter review",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Underwriter review",
+   "target_node": "Book loan",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Underwriter review",
+   "target_node": "Decline by underwriter",
+   "source_output": "rejected",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Decline by underwriter",
+   "target_node": "Reply declined",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Book loan",
+   "target_node": "Reply approved",
+   "source_output": "main",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Fraud flag declines straight away",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "applicant_id": "A1",
+       "product": "personal",
+       "amount": 5000,
+       "income": 60000
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Credit check": {
+     "http": {
+      "status": 200,
+      "body": {
+       "applicant_id": "A1",
+       "score": 800
+      }
+     }
+    },
+    "Fraud check": {
+     "http": {
+      "status": 200,
+      "body": {
+       "applicant_id": "A1",
+       "flagged": true
+      }
+     }
+    },
+    "Decline fraud": {
+     "http": {
+      "status": 200,
+      "body": {
+       "decline_id": "D1"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Decline fraud",
+     "subject": "request",
+     "path": "body.reason",
+     "op": "contains",
+     "value": "Fraud"
+    },
+    {
+     "node": "Book loan",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Underwriter review",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Reply declined",
+     "subject": "request",
+     "path": "body.decision",
+     "op": "eq",
+     "value": "declined"
+    }
+   ]
+  },
+  {
+   "name": "Score 579 is declined",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "applicant_id": "A2",
+       "product": "auto",
+       "amount": 12000,
+       "income": 40000
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Credit check": {
+     "http": {
+      "status": 200,
+      "body": {
+       "applicant_id": "A2",
+       "score": 579
+      }
+     }
+    },
+    "Fraud check": {
+     "http": {
+      "status": 200,
+      "body": {
+       "applicant_id": "A2",
+       "flagged": false
+      }
+     }
+    },
+    "Decline low score": {
+     "http": {
+      "status": 200,
+      "body": {
+       "decline_id": "D2"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Decline low score",
+     "subject": "request",
+     "path": "body.applicant_id",
+     "op": "eq",
+     "value": "A2"
+    },
+    {
+     "node": "Underwriter review",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Book loan",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Reply declined",
+     "subject": "request",
+     "path": "body.decision",
+     "op": "eq",
+     "value": "declined"
+    }
+   ]
+  },
+  {
+   "name": "Score 580 goes to an underwriter and is booked when approved",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "applicant_id": "A3",
+       "product": "personal",
+       "amount": 8000,
+       "income": 50000
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Credit check": {
+     "http": {
+      "status": 200,
+      "body": {
+       "applicant_id": "A3",
+       "score": 580
+      }
+     }
+    },
+    "Fraud check": {
+     "http": {
+      "status": 200,
+      "body": {
+       "applicant_id": "A3",
+       "flagged": false
+      }
+     }
+    },
+    "Summarise application": {
+     "items": [
+      {
+       "response": "",
+       "structured": {
+        "summary": "Borderline personal loan applicant."
+       }
+      }
+     ]
+    },
+    "Underwriter review": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Book loan": {
+     "http": {
+      "status": 200,
+      "body": {
+       "loan_id": "L3"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Summarise application",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Underwriter review",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Book loan",
+     "subject": "request",
+     "path": "body.amount",
+     "op": "eq",
+     "value": 8000
+    },
+    {
+     "node": "Decline low score",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Reply approved",
+     "subject": "request",
+     "path": "body.decision",
+     "op": "eq",
+     "value": "approved"
+    }
+   ]
+  },
+  {
+   "name": "Score 720 personal loan is booked automatically",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "applicant_id": "A4",
+       "product": "personal",
+       "amount": 20000,
+       "income": 90000
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Credit check": {
+     "http": {
+      "status": 200,
+      "body": {
+       "applicant_id": "A4",
+       "score": 720
+      }
+     }
+    },
+    "Fraud check": {
+     "http": {
+      "status": 200,
+      "body": {
+       "applicant_id": "A4",
+       "flagged": false
+      }
+     }
+    },
+    "Book loan": {
+     "http": {
+      "status": 200,
+      "body": {
+       "loan_id": "L4"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Book loan",
+     "subject": "request",
+     "path": "body.product",
+     "op": "eq",
+     "value": "personal"
+    },
+    {
+     "node": "Underwriter review",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Summarise application",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Reply approved",
+     "subject": "request",
+     "path": "body.loan_id",
+     "op": "eq",
+     "value": "L4"
+    }
+   ]
+  },
+  {
+   "name": "High-score mortgage always goes to an underwriter and is declined when rejected",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "applicant_id": "A5",
+       "product": "mortgage",
+       "amount": 300000,
+       "income": 150000
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Credit check": {
+     "http": {
+      "status": 200,
+      "body": {
+       "applicant_id": "A5",
+       "score": 800
+      }
+     }
+    },
+    "Fraud check": {
+     "http": {
+      "status": 200,
+      "body": {
+       "applicant_id": "A5",
+       "flagged": false
+      }
+     }
+    },
+    "Summarise application": {
+     "items": [
+      {
+       "response": "",
+       "structured": {
+        "summary": "Strong mortgage applicant."
+       }
+      }
+     ]
+    },
+    "Underwriter review": {
+     "port": "rejected",
+     "approval": {
+      "decision": "rejected",
+      "comment": "Debt too high",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Decline by underwriter": {
+     "http": {
+      "status": 200,
+      "body": {
+       "decline_id": "D5"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Underwriter review",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Book loan",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Decline by underwriter",
+     "subject": "request",
+     "path": "body.reason",
+     "op": "contains",
+     "value": "Debt too high"
+    },
+    {
+     "node": "Reply declined",
+     "subject": "request",
+     "path": "body.decision",
+     "op": "eq",
+     "value": "declined"
+    }
+   ]
+  }
+ ]
+}

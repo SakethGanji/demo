@@ -57,9 +57,13 @@ import { usePreviewSession } from '../stores/previewSessionStore'
 import { useApiUsage, useApp, useClientTs, useSaveApp, useSpecRevision } from '../hooks/useAppData'
 import { usePreviewToken } from '../hooks/usePreviewToken'
 import { useAppBuilderChat } from '../hooks/useAppBuilderChat'
+import { createVisualSaver, isStaleBase, saveErrorMessage, STALE_BASE_MESSAGE, type SaveResult, type VisualSaver } from '../hooks/visualSave'
 import { CLIENT_PATH, entrySource, matchRoute, routeIdsOf, slugify, stripClient } from '../lib/appModel'
 import type { BridgeCall } from '../sandbox/IframeSandbox'
 import { AppPreviewPanel, type BuilderMode } from './AppPreviewPanel'
+import { visualEditEnabled } from '../visual/flag'
+import { installHistory, useEditHistory } from '../visual/history'
+import { useAskAi } from '../visual/askAi'
 import { AppBuilderChatPanel, type ComposerHandle } from './AppBuilderChatPanel'
 import { BackendPanel, BackendRail, useOpCounts } from './BackendPanel'
 import { ApiTesterPanel, SavedQueriesPanel } from './ApiTesterPanel'
@@ -326,11 +330,16 @@ export function AppBuilderShell({ appId }: { appId: string }) {
 
   const execIds = app?.api_execution_ids
   const attached = useMemo(() => execIds ?? [], [execIds])
-  const chat = useAppBuilderChat({ appId, pid, apiExecutionIds: attached })
+  // every AI turn first saves pending visual edits, so its base version holds them (ARCHITECTURE §6.2); the saver is below
+  const saverRef = useRef<VisualSaver | null>(null)
+  const [visualSaving, setVisualSaving] = useState(false)
+  const flushVisualSave = useCallback((): Promise<SaveResult> => saverRef.current?.flush() ?? Promise.resolve(true), [])
+  const chat = useAppBuilderChat({ appId, pid, apiExecutionIds: attached, beforeSend: flushVisualSave })
   const sendMessage = chat.sendMessage
 
-  // Preview errors -> one automatic fix per version (never while a build or edit runs), else a manual "Fix with AI".
+  // Preview errors -> one automatic fix per version (never while a build, edit or visual save runs), else a manual "Fix with AI".
   const busy = chat.isStreaming || building
+  const aiBusy = busy || visualSaving
   const versionKey = currentVersion?.id ?? null
   const wasBusy = useRef(false)
   useEffect(() => {
@@ -347,13 +356,13 @@ export function AppBuilderShell({ appId }: { appId: string }) {
       if (!previewErrors.length) return
       if (auto) autoFixPending.current = true
       if (versionKey != null) fixedVersions.current.add(String(versionKey))
-      void sendMessage(fixRequestText(previewErrors))
+      void sendMessage(fixRequestText(previewErrors), { selection: false })
     },
     [previewErrors, versionKey, sendMessage],
   )
   useEffect(() => {
-    if (loaded && shouldAutoFix({ errors: previewErrors, versionKey, fixed: fixedVersions.current, busy })) sendFix(true)
-  }, [loaded, previewErrors, versionKey, busy, sendFix])
+    if (loaded && shouldAutoFix({ errors: previewErrors, versionKey, fixed: fixedVersions.current, busy: aiBusy })) sendFix(true)
+  }, [loaded, previewErrors, versionKey, aiBusy, sendFix])
 
   // Auto-send the Create UI prompt once, then drop it from the URL (§5.1 step 3).
   useEffect(() => {
@@ -361,7 +370,7 @@ export function AppBuilderShell({ appId }: { appId: string }) {
     const key = `${appId}\0${search.prompt}`
     if (!autoSent.has(key)) {
       autoSent.add(key)
-      void sendMessage(search.prompt)
+      void sendMessage(search.prompt, { selection: false })
     }
     navigate({
       to: '.',
@@ -404,8 +413,10 @@ export function AppBuilderShell({ appId }: { appId: string }) {
     setSaveError(null)
     try {
       const own = stripClient(cur)
+      // a manual save is the user keeping what they see: no base check, and it covers any pending visual save
       const res = await save({ source_code: entrySource(own), files: own, create_version: true, version_trigger: 'manual' })
       if (res.current_version) useAppDocumentStore.getState().setCurrentVersion(res.current_version)
+      saverRef.current?.markClean()
       useAppDocumentStore.getState().setDirty(false)
     } catch (e) {
       setSaveError(errorMessage(e))
@@ -435,6 +446,85 @@ export function AppBuilderShell({ appId }: { appId: string }) {
     },
     [appId, qc, refreshUsage],
   )
+
+  // Load the server's latest version into the editor (after a stale-base refusal: the app changed elsewhere).
+  const loadLatest = useCallback(async () => {
+    try {
+      const fresh = await appsApi.get(appId)
+      qc.setQueryData(qk.app(appId), fresh)
+      const doc = useAppDocumentStore.getState()
+      const own = stripClient(fresh.files)
+      if (own.length) doc.setFiles(own)
+      else if (fresh.source_code) doc.setSourceCode(fresh.source_code)
+      doc.setCurrentVersion(fresh.current_version ?? null)
+      saverRef.current?.markClean()
+      doc.setDirty(false)
+      setSaveError(null)
+    } catch (e) {
+      toast.error("Couldn't load the latest version", { description: errorMessage(e) })
+    }
+  }, [appId, qc])
+
+  // Visual editing (flag-gated trial): one undo history over chat and visual edits, and visual edits saved as a version
+  // shortly after they stop (undo / redo too), so a reload keeps them. Each save is based on the version the editor holds:
+  // the server refuses it (409) when another tab or session saved first, rather than overwrite that save.
+  const [visualOn] = useState(visualEditEnabled)
+  useEffect(() => (visualOn ? installHistory() : undefined), [visualOn])
+  useEffect(() => {
+    const saver = createVisualSaver(
+      async () => {
+        const doc = useAppDocumentStore.getState()
+        const cur = doc.files
+        if (!cur?.length) return
+        const own = stripClient(cur)
+        const label = useEditHistory.getState().past.at(-1)?.label ?? 'Visual edit'
+        const base = doc.currentVersion?.id
+        try {
+          const res = await save({
+            source_code: entrySource(own),
+            files: own,
+            create_version: true,
+            version_trigger: 'visual',
+            version_prompt: label,
+            ...(base != null ? { base_version_id: base } : {}),
+          })
+          if (res.current_version) useAppDocumentStore.getState().setCurrentVersion(res.current_version)
+          setSaveError(null)
+        } finally {
+          refreshUsage()
+        }
+      },
+      (e) => {
+        setSaveError(saveErrorMessage(e, errorMessage))
+        if (isStaleBase(e))
+          toast.error('Your visual edit was not saved', {
+            description: `${STALE_BASE_MESSAGE}. Load the latest version, or save to keep yours.`,
+            action: { label: 'Load latest', onClick: () => void loadLatest() },
+          })
+      },
+    )
+    saverRef.current = saver
+    const unsub = saver.subscribe(() => {
+      setVisualSaving(saver.isSaving())
+      if (!saver.hasPending()) useAppDocumentStore.getState().setDirty(false)
+    })
+    return () => {
+      unsub()
+      // leaving the app: save what is pending (the files are read now, before the document resets)
+      if (saver.hasPending()) void saver.flush()
+      saver.dispose()
+      if (saverRef.current === saver) saverRef.current = null
+      setVisualSaving(false)
+    }
+  }, [appId, save, refreshUsage, loadLatest])
+  const localRev = useEditHistory((s) => s.localRev)
+  const seenRev = useRef(localRev)
+  useEffect(() => {
+    if (!visualOn || localRev === seenRev.current) return
+    seenRev.current = localRev
+    useAppDocumentStore.getState().setDirty(true)
+    saverRef.current?.schedule()
+  }, [visualOn, localRev])
 
   // ⌘S save, ⌘I focus the composer (§8.2).
   useEffect(() => {
@@ -647,9 +737,14 @@ export function AppBuilderShell({ appId }: { appId: string }) {
               previewErrors={previewErrors}
               onPreviewErrors={setPreviewErrors}
               onFixErrors={() => sendFix(false)}
-              fixDisabled={busy}
+              fixDisabled={aiBusy}
               autoFixed={versionKey != null && fixedVersions.current.has(String(versionKey))}
               codeFocus={codeFocus}
+              visual={visualOn ? { onAskAi: (prompt) => {
+                  // the prompt already carries the element's source: no chip on top of it
+                  useAskAi.getState().dismiss()
+                  void sendMessage(prompt)
+                }, busy, aiBusy: visualSaving } : undefined}
             />
           )}
           </div>

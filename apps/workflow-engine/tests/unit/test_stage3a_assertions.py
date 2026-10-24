@@ -145,3 +145,10 @@ def test_result_structure():
     r = ev(id="a1", path="name", op="eq", value="Ada", port="main")
     assert set(r) >= {"passed", "node", "port", "path", "op", "expected", "actual", "message"} and r["id"] == "a1"
     assert r["actual"] == "Ada" and r["expected"] == "Ada" and r["port"] == "main"
+
+
+def test_a_list_index_may_be_written_with_a_dot():
+    """Models write `statements.0.params.1` as often as `statements[0].params[1]`; both mean the same, and a dict key "0" still wins."""
+    assert resolve_path({"s": [{"p": [1, 2]}]}, "s.0.p.1") == (True, 2)
+    assert resolve_path({"s": {"0": "key"}}, "s.0") == (True, "key")
+    assert resolve_path({"s": [1]}, "s.3") == (False, None)

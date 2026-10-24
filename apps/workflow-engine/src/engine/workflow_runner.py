@@ -34,6 +34,7 @@ from .test_mode import (
     http_mock_client,
     live_client,
     plan_mock,
+    shape_plan,
     refusing_client,
     test_rng_var,
 )
@@ -52,6 +53,9 @@ from .types import (
     WorkflowStopSignal,
     NO_OUTPUT_SIGNAL,
 )
+
+#: Effectful node types that act once per input item; test mode records one request per item for them.
+PER_ITEM_EFFECT_TYPES = frozenset({"Postgres", "SendEmail"})
 
 if TYPE_CHECKING:
     from .node_registry import NodeRegistryClass
@@ -167,6 +171,8 @@ class WorkflowRunner:
         if isinstance(resume, dict):
             start_run_index = int(resume.get("run_index") or 0)
             context.node_run_counts.update(resume.get("node_run_counts") or {})
+            # a Loop's pending items (and any other per-node state) carry on from the snapshot too
+            context.node_internal_state.update(copy.deepcopy(resume.get("node_internal_state") or {}))
             execution_resume_key_var.set(f"{context.execution_id}:{resume.get('node')}:{start_run_index}")
         else:
             execution_resume_key_var.set("")
@@ -759,7 +765,8 @@ class WorkflowRunner:
             inline = node_def.type == "ExecuteWorkflow" and job.node_name in opts.inline_subworkflows
             for mocks in (() if (live or inline) else (opts.mocks, opts.default_mocks)):
                 if job.node_name in mocks:
-                    plan = plan_mock(mocks[job.node_name], job.node_name, node_def.type, job.input_data, context)
+                    plan = shape_plan(plan_mock(mocks[job.node_name], job.node_name, node_def.type, job.input_data, context),
+                                      node_def.type, node_def.parameters, job.input_data, mocks[job.node_name])
                     if plan is not None:
                         break
             if plan is not None and isinstance(plan.error, BadMockError):
@@ -819,12 +826,17 @@ class WorkflowRunner:
 
         if opts is not None and effect_of(node_def.type) != "none" and node_def.type != "HttpRequest":
             # what an outside step would have been asked (HttpRequest records real requests through its mock client)
-            ectx = ExpressionEngine.create_context(
-                job.input_data, context.node_states, context.execution_id, 0, variables=context.variables
-            )
-            params = expression_engine.resolve(copy.deepcopy(node_def.parameters), ectx)
-            params = {k: v for k, v in params.items() if k != "_credentials"}
-            context.test_requests.setdefault(job.node_name, []).append({"params": params})
+            # nodes that act once per item (a query, an email, a per_item Approval's task) record one request per item,
+            # not just item 0's: a test must see the second manager's task and the second audit row
+            per_item = node_def.type in PER_ITEM_EFFECT_TYPES or (
+                node_def.type == "Approval" and str(node_def.parameters.get("per_item")).lower() in ("true", "1"))
+            for idx in range(max(1, len(job.input_data)) if per_item else 1):
+                ectx = ExpressionEngine.create_context(
+                    job.input_data, context.node_states, context.execution_id, idx, variables=context.variables
+                )
+                params = expression_engine.resolve(copy.deepcopy(node_def.parameters), ectx)
+                params = {k: v for k, v in params.items() if k != "_credentials"}
+                context.test_requests.setdefault(job.node_name, []).append({"params": params})
 
         # Execute node with retry and error handling
         result: NodeExecutionResult | None = None
@@ -1393,6 +1405,10 @@ class WorkflowRunner:
             resolved_params = copy.deepcopy(node_def.parameters)
         else:
             resolved_params = expression_engine.resolve(node_def.parameters, expr_context, skip_json=True)
+            if node_def.type == "Switch" and "rules" in (node_def.parameters or {}):
+                # Switch resolves each rule per item itself; pre-resolving `{{ $node["X"].json.risk }}` here would hand it "low",
+                # which it then reads as a field PATH (no rule matches)
+                resolved_params["rules"] = copy.deepcopy(node_def.parameters["rules"])
 
         return NodeDefinition(
             name=node_def.name,

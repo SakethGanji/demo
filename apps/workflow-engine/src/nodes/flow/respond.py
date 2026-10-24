@@ -85,4 +85,6 @@ class RespondNode(BaseNode):
             status_code=status, body=body, headers=headers,
             content_type=params.get("contentType", "application/json") or "application/json",
         )
+        if getattr(context, "test_options", None) is not None:  # a test can assert on the reply like on any outside step's request
+            context.test_requests.setdefault(node_definition.name, []).append({"statusCode": status, "body": body})
         return self.output(items, metadata={"responseStatusCode": status})

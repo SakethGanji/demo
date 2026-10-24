@@ -32,6 +32,7 @@ const InterfacePanel = lazy(() => import('@/features/workflow-editor/components/
 const InterfaceDock = lazy(() => import('@/features/workflow-editor/components/interface/InterfaceDock'))
 const NodeAIDialog = lazy(() => import('@/features/ai-builder/components/NodeAIDialog'))
 const EditorBuilderTab = lazy(() => import('@/features/ai-builder/components/EditorBuilderTab'))
+const WorkflowReadView = lazy(() => import('@/features/workflow-editor/components/read-view/WorkflowReadView'))
 
 // --- Floating panel shared styles ---
 const floatingPanel = 'glass-chrome rounded-panel overflow-hidden'
@@ -208,6 +209,7 @@ export function WorkflowEditorPage({ workflowId }: { workflowId?: string }) {
   const rightPanelOpen = useEditorLayoutStore((s) => s.rightPanelOpen)
   const bottomPanelOpen = useEditorLayoutStore((s) => s.bottomPanelOpen)
   const bottomPanelMaximized = useEditorLayoutStore((s) => s.bottomPanelMaximized)
+  const viewMode = useEditorLayoutStore((s) => s.viewMode)
 
   return (
     <ReactFlowProvider>
@@ -217,6 +219,12 @@ export function WorkflowEditorPage({ workflowId }: { workflowId?: string }) {
           <div className="well absolute inset-0 overflow-hidden rounded-none">
             <WorkflowCanvas />
             <EmptyCanvasHint />
+            {/* Read view: the same workflow top to bottom, over the (still mounted) canvas, on the same well */}
+            {viewMode === 'read' && (
+              <div className="absolute inset-0 z-[1] bg-background">
+                <WorkflowReadView rightInset={rightPanelOpen ? 392 : 0} />
+              </div>
+            )}
           </div>
 
           {/* Layer 2: Floating navbar */}

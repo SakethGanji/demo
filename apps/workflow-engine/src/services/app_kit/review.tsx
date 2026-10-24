@@ -8,6 +8,8 @@ import type { FilterChip } from './DataTable'
 // ── StepDiff ─────────────────────────────────────────────────────────────────
 
 type Rec = Record<string, unknown>
+/** HTML attributes passed to a component's root element (`id`, `style`, `data-*`, `aria-*`), minus names the kit uses itself. */
+type Attrs<E = HTMLDivElement> = Omit<React.HTMLAttributes<E>, 'title' | 'children' | 'color' | 'content' | 'onChange' | 'onSelect' | 'defaultValue' | 'placeholder' | 'prefix'>
 
 /** Steps as objects: accepts an array, a JSON string of an array, `{steps: [...]}`, or null. Strings that hold JSON are parsed. */
 export function parseSteps(v: unknown): Rec[] {
@@ -80,29 +82,31 @@ export function diffSteps(before: Rec[], after: Rec[]): DiffRow[] {
 }
 
 const KIND_STYLE: Record<string, string> = {
-  added: 'border-emerald-200 bg-emerald-50/60',
-  removed: 'border-red-200 bg-red-50/60',
-  changed: 'border-amber-200 bg-amber-50/50',
-  same: 'border-slate-200 bg-white',
+  added: 'border-success-border bg-success-soft/60',
+  removed: 'border-danger-border bg-danger-soft/60',
+  changed: 'border-warning-border bg-warning-soft/50',
+  same: 'border-border bg-card',
 }
 
 function Line({ s, strike }: { s: Rec; strike?: boolean }) {
   const d = describeStep(s)
   return (
-    <span className={cx('min-w-0 text-sm [overflow-wrap:anywhere]', strike && 'text-red-700 line-through')}>
-      {d.group && <span className="mr-1.5 rounded bg-slate-100 px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-500">{d.group}</span>}
-      <b className="whitespace-nowrap font-semibold text-slate-900">{d.action || '(step)'}</b>
-      {d.target && <> <code className="rounded bg-slate-100 px-1 py-0.5 text-xs text-slate-700">{d.target}</code></>}
-      {d.value && <> <span className="text-slate-600">= {d.value}</span></>}
+    <span className={cx('min-w-0 text-sm [overflow-wrap:anywhere]', strike && 'text-danger line-through')}>
+      {d.group && <span className="mr-1.5 rounded bg-muted px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{d.group}</span>}
+      <b className="whitespace-nowrap font-semibold text-foreground">{d.action || '(step)'}</b>
+      {d.target && <> <code className="rounded bg-muted px-1 py-0.5 text-xs text-soft-foreground">{d.target}</code></>}
+      {d.value && <> <span className="text-soft-foreground">= {d.value}</span></>}
     </span>
   )
 }
 
 /** Readable before/after of a step array: added, removed and changed steps (action, target, value); never raw JSON.
  * `before`/`after` take arrays of step objects or JSON strings. The header counts changes and states whether assertion
- * steps changed (computed from the data). Unchanged steps collapse behind a toggle. */
-export function StepDiff({ before, after, title = 'Step changes', showUnchanged = false, className }:
-  { before: unknown; after: unknown; title?: React.ReactNode; showUnchanged?: boolean; className?: string }) {
+ * steps changed (computed from the data). Unchanged steps collapse behind a toggle.
+ * @category data
+ * @example <StepDiff before={oldSteps} after={newSteps} title="Step changes" /> */
+export function StepDiff({ before, after, title = 'Step changes', showUnchanged = false, className, headerClassName, ...rest }:
+  { before: unknown; after: unknown; /** @control text */ title?: React.ReactNode; showUnchanged?: boolean; className?: string; headerClassName?: string } & Attrs) {
   const [all, setAll] = useState(showUnchanged)
   const rows = useMemo(() => diffSteps(parseSteps(before), parseSteps(after)), [before, after])
   const added = rows.filter((r) => r.kind === 'added').length
@@ -112,9 +116,9 @@ export function StepDiff({ before, after, title = 'Step changes', showUnchanged 
   const assertionsTouched = rows.filter((r) => r.kind !== 'same' && ((r.before && isAssertion(r.before)) || (r.after && isAssertion(r.after)))).length
   const visible = all ? rows : rows.filter((r) => r.kind !== 'same')
   return (
-    <div className={cx('overflow-hidden rounded-xl border border-slate-200 bg-white', className)} data-testid="step-diff">
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs">
-        <b className="text-slate-800">{title}</b>
+    <div data-vcomp="StepDiff" {...rest} className={cx('overflow-hidden rounded-xl border border-border bg-card text-card-foreground', className)} data-testid="step-diff">
+      <div data-vpart="header" className={cx('flex flex-wrap items-center gap-2 border-b border-border bg-subtle px-3 py-2 text-xs', headerClassName)}>
+        <b>{title}</b>
         <span className="ml-auto flex flex-wrap items-center gap-1.5">
           {added > 0 && <Tag tone="green">+{added} added</Tag>}
           {removed > 0 && <Tag tone="red">−{removed} removed</Tag>}
@@ -126,9 +130,9 @@ export function StepDiff({ before, after, title = 'Step changes', showUnchanged 
       <ol className="m-0 flex list-none flex-col gap-1.5 p-3">
         {visible.map((r, k) => (
           <li key={k} className={cx('flex flex-col gap-0.5 rounded-lg border px-2.5 py-1.5', KIND_STYLE[r.kind])} data-diff={r.kind}>
-            <div className="flex items-center gap-2 text-[11px] text-slate-400">
+            <div className="flex items-center gap-2 text-[11px] text-faint-foreground">
               <span className="tabular-nums">step {r.no || '·'}</span>
-              {r.kind !== 'same' && <span className="font-semibold uppercase tracking-wide text-slate-500">{r.kind}</span>}
+              {r.kind !== 'same' && <span className="font-semibold uppercase tracking-wide text-muted-foreground">{r.kind}</span>}
             </div>
             <div className="flex min-w-0 flex-col gap-0.5">
               {r.kind === 'changed' && r.before && r.after ? (
@@ -140,10 +144,10 @@ export function StepDiff({ before, after, title = 'Step changes', showUnchanged 
             </div>
           </li>
         ))}
-        {visible.length === 0 && <li className="text-sm text-slate-500">No step changes.</li>}
+        {visible.length === 0 && <li className="text-sm text-muted-foreground">No step changes.</li>}
       </ol>
       {same_ > 0 && (
-        <button type="button" onClick={() => setAll(!all)} className="w-full border-t border-slate-200 bg-slate-50 px-3 py-1.5 text-left text-xs font-medium text-slate-600 hover:bg-slate-100">
+        <button type="button" onClick={() => setAll(!all)} className="w-full border-t border-border bg-subtle px-3 py-1.5 text-left text-xs font-medium text-soft-foreground hover:bg-muted">
           {all ? 'Hide' : 'Show'} {same_} unchanged step{same_ > 1 ? 's' : ''}
         </button>
       )}
@@ -153,30 +157,32 @@ export function StepDiff({ before, after, title = 'Step changes', showUnchanged 
 
 // ── GuardChecks ──────────────────────────────────────────────────────────────
 
-export interface GuardCheck { id?: string; label: React.ReactNode; status: 'pass' | 'fail' | 'pending' | 'warn'; detail?: React.ReactNode }
+export interface GuardCheck { id?: string; /** @control text */ label: React.ReactNode; status: 'pass' | 'fail' | 'pending' | 'warn'; detail?: React.ReactNode }
 
 const GUARD_ICON: Record<string, { icon: string; cls: string; sr: string }> = {
-  pass: { icon: '✓', cls: 'bg-emerald-100 text-emerald-700', sr: 'passed' },
-  fail: { icon: '✕', cls: 'bg-red-100 text-red-700', sr: 'failed' },
-  warn: { icon: '!', cls: 'bg-amber-100 text-amber-700', sr: 'warning' },
-  pending: { icon: '…', cls: 'bg-slate-100 text-slate-500', sr: 'pending' },
+  pass: { icon: '✓', cls: 'bg-success-soft text-success', sr: 'passed' },
+  fail: { icon: '✕', cls: 'bg-danger-soft text-danger', sr: 'failed' },
+  warn: { icon: '!', cls: 'bg-warning-soft text-warning', sr: 'warning' },
+  pending: { icon: '…', cls: 'bg-muted text-muted-foreground', sr: 'pending' },
 }
 
 /** Checklist of pass/fail guard conditions before approving an AI change (re-run 3/3, evidence hash, assertions unchanged).
- * Each check is `{label, status: pass|fail|warn|pending, detail?}`. Build `status` from fields the API returns — never hard-code a pass. */
-export function GuardChecks({ checks, title, className }: { checks: GuardCheck[]; title?: React.ReactNode; className?: string }) {
+ * Each check is `{label, status: pass|fail|warn|pending, detail?}`. Build `status` from fields the API returns — never hard-code a pass.
+ * @category data
+ * @example <GuardChecks title="Before approving" checks={[{ label: 'Re-run 3/3', status: 'pass' }]} /> */
+export function GuardChecks({ checks, title, className, headerClassName, ...rest }: { checks: GuardCheck[]; /** @control text */ title?: React.ReactNode; className?: string; headerClassName?: string } & Attrs) {
   const failing = checks.filter((c) => c.status === 'fail').length
   return (
-    <div className={cx('rounded-xl border border-slate-200 bg-white', className)} data-testid="guard-checks">
-      {title && <div className="border-b border-slate-200 px-3 py-2 text-xs font-semibold text-slate-800">{title}{failing > 0 && <span className="ml-2 text-red-700">{failing} failing</span>}</div>}
+    <div data-vcomp="GuardChecks" {...rest} className={cx('rounded-xl border border-border bg-card text-card-foreground', className)} data-testid="guard-checks">
+      {title && <div data-vpart="header" className={cx('border-b border-border px-3 py-2 text-xs font-semibold', headerClassName)}>{title}{failing > 0 && <span className="ml-2 text-danger">{failing} failing</span>}</div>}
       <ul className="m-0 flex list-none flex-col gap-1.5 p-3">
         {checks.map((c, i) => {
           const g = GUARD_ICON[c.status] ?? GUARD_ICON.pending
           return (
-            <li key={c.id ?? i} className="flex items-start gap-2 text-sm" data-status={c.status}>
+            <li key={c.id ?? i} data-vpart={`checks.${i}`} className="flex items-start gap-2 text-sm" data-status={c.status}>
               <span aria-hidden className={cx('mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold', g.cls)}>{g.icon}</span>
               <span className="sr-only">{g.sr}: </span>
-              <span className="min-w-0 flex-1 text-slate-800">{c.label}{c.detail && <span className="ml-1.5 text-xs text-slate-500">{c.detail}</span>}</span>
+              <span className="min-w-0 flex-1">{c.label}{c.detail && <span className="ml-1.5 text-xs opacity-65">{c.detail}</span>}</span>
             </li>
           )
         })}
@@ -187,9 +193,11 @@ export function GuardChecks({ checks, title, className }: { checks: GuardCheck[]
 
 // ── Changed by AI ────────────────────────────────────────────────────────────
 
-/** Purple "AI" chip marking items changed by an agent; pair with changedByAiFilter. Show only when a real field says so. */
-export function AiChip({ label = 'AI', title = 'Changed by AI', className }: { label?: React.ReactNode; title?: string; className?: string }) {
-  return <span title={title} data-testid="ai-chip"><Tag tone="purple" className={className}>{label}</Tag></span>
+/** Purple "AI" chip marking items changed by an agent; pair with changedByAiFilter. Show only when a real field says so.
+ * @category display
+ * @example <AiChip /> */
+export function AiChip({ label = 'AI', title = 'Changed by AI', className, ...rest }: { /** @control text */ label?: React.ReactNode; title?: string; className?: string } & Attrs<HTMLSpanElement>) {
+  return <Tag tone="purple" title={title} data-testid="ai-chip" data-vcomp="AiChip" {...rest} className={className}>{label}</Tag>
 }
 
 /** A DataTable filter chip "Changed by AI": `filters={[changedByAiFilter((r) => r.changed_by === 'ai')]}` — test must read a real field. */
@@ -199,16 +207,18 @@ export function changedByAiFilter<T>(test: (row: T) => boolean, label: React.Rea
 
 // ── RowActions ───────────────────────────────────────────────────────────────
 
-export interface RowAction { label: React.ReactNode; onClick: () => void; tone?: 'default' | 'primary' | 'danger'; disabled?: boolean; title?: string }
+export interface RowAction { /** @control text */ label: React.ReactNode; onClick: () => void; tone?: 'default' | 'primary' | 'danger'; disabled?: boolean; title?: string; hidden?: boolean }
 
 /** Real buttons in a table row cell (Triage, Approve, Run) that act on that row and do not trigger onRowClick.
- * Build each closure from the row: `onClick: () => openFinding(r.id)`. */
-export function RowActions({ actions, className }: { actions: RowAction[]; className?: string }) {
-  const tone = { default: 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50', primary: 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700', danger: 'border-red-200 bg-white text-red-700 hover:bg-red-50' }
+ * Build each closure from the row: `onClick: () => openFinding(r.id)`.
+ * @category data
+ * @example <RowActions actions={[{ label: 'Approve', tone: 'primary', onClick: () => approve(row.id) }]} /> */
+export function RowActions({ actions, className, ...rest }: { actions: RowAction[]; className?: string } & Attrs<HTMLSpanElement>) {
+  const tone = { default: 'border-input bg-card text-soft-foreground hover:bg-subtle', primary: 'border-primary bg-primary text-primary-foreground hover:bg-primary/90', danger: 'border-danger-border bg-card text-danger hover:bg-danger-soft' }
   return (
-    <span className={cx('inline-flex flex-wrap gap-1.5', className)} onClick={(e) => e.stopPropagation()}>
-      {actions.map((a, i) => (
-        <button key={i} type="button" disabled={a.disabled} title={a.title} onClick={(e) => { e.stopPropagation(); a.onClick() }}
+    <span data-vcomp="RowActions" {...rest} className={cx('inline-flex flex-wrap gap-1.5', className)} onClick={(e) => e.stopPropagation()}>
+      {actions.map((a, i) => a.hidden ? null : (
+        <button key={i} type="button" data-vpart={`actions.${i}`} disabled={a.disabled} title={a.title} onClick={(e) => { e.stopPropagation(); a.onClick() }}
           className={cx('rounded-md border px-2 py-0.5 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50', tone[a.tone ?? 'default'])}>
           {a.label}
         </button>
@@ -231,9 +241,14 @@ export function useCommandK(toggle: () => void): void {
 }
 
 /** ⌘K "Ask the agent" overlay with input, suggestion chips and an answer area; pair with useCommandK and a header button.
- * `onAsk(question)` returns the answer (string or node) from a real route; while it runs a spinner shows, a thrown error is shown in red. Pair with `useCommandK` and a header button. */
-export function CommandPalette({ open, onClose, onAsk, title = 'Ask the agent', placeholder = 'Ask a question…', suggestions = [] }:
-  { open: boolean; onClose: () => void; onAsk: (question: string) => Promise<React.ReactNode | string | void>; title?: React.ReactNode; placeholder?: string; suggestions?: string[] }) {
+ * `onAsk(question)` returns the answer (string or node) from a real route; while it runs a spinner shows, a thrown error is shown in red. Pair with `useCommandK` and a header button.
+ * @category overlay
+ * @example <CommandPalette open={askOpen} onClose={() => setAskOpen(false)} onAsk={(q) => api.ask(q)} suggestions={['What failed today?']} /> */
+export function CommandPalette({ open, onClose, onAsk, title = 'Ask the agent', placeholder = 'Ask a question…', suggestions = [], className, ...rest }:
+  { open: boolean; onClose: () => void; onAsk: (question: string) => Promise<React.ReactNode | string | void>; /** @control text */ title?: React.ReactNode; placeholder?: string; suggestions?: string[]
+    /** Classes for the palette panel.
+     * @control hidden @group Style */
+    className?: string } & Attrs) {
   const [q, setQ] = useState('')
   const [busy, setBusy] = useState(false)
   const [answer, setAnswer] = useState<React.ReactNode>(null)
@@ -284,22 +299,23 @@ export function CommandPalette({ open, onClose, onAsk, title = 'Ask the agent', 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-[12vh]" data-testid="command-palette"
       onKeyDown={(e) => { if (isEscape(e.nativeEvent)) { e.stopPropagation(); close(e) } }}>
-      <div className="absolute inset-0 bg-slate-900/30" data-testid="palette-backdrop" onClick={close} aria-hidden />
-      <div ref={dialog} role="dialog" aria-modal="true" aria-label="Ask" tabIndex={-1} className="relative w-full max-w-xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
-        <form onSubmit={(e) => { e.preventDefault(); void ask(q) }} className="flex items-center gap-2 border-b border-slate-200 px-4 py-3">
-          <span className="text-xs font-semibold text-slate-500">{title}</span>
+      <div className="absolute inset-0 bg-overlay" data-testid="palette-backdrop" onClick={close} aria-hidden />
+      <div role="dialog" aria-modal="true" aria-label="Ask" tabIndex={-1} data-vcomp="CommandPalette" {...rest} ref={dialog}
+        className={cx('relative w-full max-w-xl overflow-hidden rounded-2xl border border-border bg-card text-card-foreground shadow-2xl', className)}>
+        <form data-vpart="header" onSubmit={(e) => { e.preventDefault(); void ask(q) }} className="flex items-center gap-2 border-b border-border px-4 py-3">
+          <span className="text-xs font-semibold text-muted-foreground">{title}</span>
           <input ref={input} value={q} onChange={(e) => setQ(e.target.value)} placeholder={placeholder} aria-label="Question"
-            className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400" />
-          <button type="submit" disabled={busy || !q.trim()} className="rounded-md bg-blue-600 px-2.5 py-1 text-xs font-medium text-white disabled:opacity-50">Ask</button>
-          <kbd className="rounded border border-slate-300 px-1 text-[10px] text-slate-500">esc</kbd>
+            className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-faint-foreground" />
+          <button type="submit" disabled={busy || !q.trim()} className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">Ask</button>
+          <kbd className="rounded border border-input px-1 text-[10px] text-muted-foreground">esc</kbd>
         </form>
-        <div className="max-h-[50vh] overflow-y-auto px-4 py-3 text-sm text-slate-800">
-          {busy && <div className="flex items-center gap-2 text-slate-500"><Spinner /> Thinking…</div>}
-          {error && <div className="text-red-700" role="alert">{error}</div>}
+        <div data-vpart="body" className="max-h-[50vh] overflow-y-auto px-4 py-3 text-sm">
+          {busy && <div className="flex items-center gap-2 text-muted-foreground"><Spinner /> Thinking…</div>}
+          {error && <div className="text-danger" role="alert">{error}</div>}
           {!busy && !error && answer && <div className="whitespace-pre-wrap" data-testid="palette-answer">{answer}</div>}
           {!busy && !error && !answer && suggestions.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
-              {suggestions.map((s) => <button key={s} type="button" onClick={() => { setQ(s); void ask(s) }} className="rounded-full border border-slate-300 px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50">{s}</button>)}
+              {suggestions.map((s, i) => <button key={s} type="button" data-vpart={`suggestions.${i}`} onClick={() => { setQ(s); void ask(s) }} className="rounded-full border border-input px-2.5 py-1 text-xs text-soft-foreground hover:bg-subtle">{s}</button>)}
             </div>
           )}
         </div>

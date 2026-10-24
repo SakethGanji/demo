@@ -81,12 +81,33 @@ function resolveFile(fileMap: Map<string, AppFile>, rawPath: string): string | u
   return undefined
 }
 
-function virtualFsPlugin(files: AppFile[]): esbuild.Plugin {
+/**
+ * jsxDEV runtime for tagged preview bundles: elements written in app files (not the kit) get `data-vsrc="file:line:col"`,
+ * which the visual editor maps back to the source element. esbuild passes the location as jsxDEV's fifth argument.
+ */
+export const JSX_DEV_SHIM = `const R = window.React
+export const Fragment = R.Fragment
+export function jsxDEV(type, props, key, _s, src) {
+  const file = src && src.fileName.replace(/^virtual:/, '')
+  if (file && type !== R.Fragment && !file.startsWith('kit/')) props = { ...props, 'data-vsrc': file + ':' + src.lineNumber + ':' + src.columnNumber }
+  if (key !== undefined) props = { ...props, key }
+  return R.createElement(type, props)
+}`
+
+/** The app-owned theme overrides (visual/theme): loaded after everything else so they win over the kit and index.css tokens. */
+export const THEME_PATH = 'theme.css'
+
+function virtualFsPlugin(files: AppFile[], entryPoint: string, tagSources = false): esbuild.Plugin {
   const fileMap = new Map(files.map((f) => [f.path, f]))
 
   return {
     name: 'virtual-fs',
     setup(build) {
+      if (tagSources) {
+        build.onResolve({ filter: /^react\/jsx-dev-runtime$/ }, () => ({ path: 'jsx-dev-runtime', namespace: 'jsx-shim' }))
+        build.onLoad({ filter: /.*/, namespace: 'jsx-shim' }, () => ({ contents: JSX_DEV_SHIM, loader: 'js' }))
+      }
+
       // Global externals (react, react-dom) → shimmed to window globals
       build.onResolve({ filter: /^react(-dom)?(\/.*)?$/ }, (args) => ({
         path: args.path,
@@ -122,7 +143,9 @@ function virtualFsPlugin(files: AppFile[]): esbuild.Plugin {
         const file = fileMap.get(args.path)
         if (!file) return { errors: [{ text: `File not found: ${args.path}` }] }
         const ext = args.path.split('.').pop() ?? 'tsx'
-        return { contents: file.content, loader: ASSET_LOADERS[ext] ?? (ext as esbuild.Loader) }
+        // theme.css is imported last from the entry, so its :root / .dark overrides come after the kit's and the app's own CSS
+        const contents = args.path === entryPoint && fileMap.has(THEME_PATH) ? `${file.content}\nimport '${THEME_PATH}'\n` : file.content
+        return { contents, loader: ASSET_LOADERS[ext] ?? (ext as esbuild.Loader) }
       })
     },
   }
@@ -157,10 +180,18 @@ function findEntryPoint(files: AppFile[]): string {
   return first?.path ?? 'App.tsx'
 }
 
-export async function bundleFiles(files: AppFile[]): Promise<BundleResult> {
+export interface BundleOptions {
+  /** tag elements with their source location for the visual editor (preview only; never the published bundle) */
+  tagSources?: boolean
+}
+
+export async function bundleFiles(files: AppFile[], options: BundleOptions = {}): Promise<BundleResult> {
   await ensureInit()
 
   const entryPoint = findEntryPoint(files)
+  const jsx: esbuild.BuildOptions = options.tagSources
+    ? { jsx: 'automatic', jsxDev: true }
+    : { jsx: 'transform', jsxFactory: 'React.createElement', jsxFragment: 'React.Fragment' }
 
   try {
     const result = await esbuild.build({
@@ -168,13 +199,11 @@ export async function bundleFiles(files: AppFile[]): Promise<BundleResult> {
       bundle: true,
       format: 'iife',
       globalName: '__AppModule',
-      jsx: 'transform',
-      jsxFactory: 'React.createElement',
-      jsxFragment: 'React.Fragment',
+      ...jsx,
       write: false,
       // CSS imported from the app is emitted as a sibling output file (returned as `css`); esbuild needs an outdir for it
       outdir: 'out',
-      plugins: [virtualFsPlugin(files)],
+      plugins: [virtualFsPlugin(files, entryPoint, options.tagSources)],
       define: {
         'process.env.NODE_ENV': '"production"',
       },

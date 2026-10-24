@@ -1,0 +1,613 @@
+{
+ "name": "Track sent wires",
+ "nodes": [
+  {
+   "name": "Every 10 minutes",
+   "type": "Cron",
+   "parameters": {
+    "mode": "interval",
+    "interval": 600
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "List sent wires",
+   "type": "DataTable",
+   "parameters": {
+    "table": "wire_tracking",
+    "operation": "list",
+    "filter": {
+     "status": "sent"
+    }
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "Get wire status",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "wires",
+     "operation_id": "wireStatus"
+    },
+    "method": "GET",
+    "url": "",
+    "path_params": {
+     "wire_id": "{{ $json.wire_id }}"
+    }
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Join reply to wire",
+   "type": "Set",
+   "parameters": {
+    "mode": "manual",
+    "fields": [
+     {
+      "name": "row_id",
+      "value": "{{ at($node[\"List sent wires\"].data, $itemIndex).id }}"
+     },
+     {
+      "name": "wire_id",
+      "value": "{{ at($node[\"List sent wires\"].data, $itemIndex).wire_id }}"
+     },
+     {
+      "name": "checks",
+      "value": "{{ at($node[\"List sent wires\"].data, $itemIndex).checks }}"
+     },
+     {
+      "name": "wire_status",
+      "value": "{{ $json.body.status }}"
+     }
+    ]
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Route status",
+   "type": "Switch",
+   "parameters": {
+    "mode": "rules",
+    "numberOfOutputs": 3,
+    "rules": [
+     {
+      "output": 0,
+      "field": "{{ $json.wire_status }}",
+      "operation": "equals",
+      "value": "settled"
+     },
+     {
+      "output": 1,
+      "field": "{{ $json.wire_status }}",
+      "operation": "equals",
+      "value": "failed"
+     },
+     {
+      "output": 2,
+      "field": "{{ $json.wire_status }}",
+      "operation": "equals",
+      "value": "pending"
+     }
+    ]
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  },
+  {
+   "name": "Mark settled",
+   "type": "DataTable",
+   "parameters": {
+    "table": "wire_tracking",
+    "operation": "update",
+    "rowId": "{{ $json.row_id }}",
+    "data": {
+     "status": "settled"
+    }
+   },
+   "position": {
+    "x": 950,
+    "y": 0
+   }
+  },
+  {
+   "name": "Mark failed",
+   "type": "DataTable",
+   "parameters": {
+    "table": "wire_tracking",
+    "operation": "update",
+    "rowId": "{{ $json.row_id }}",
+    "data": {
+     "status": "failed"
+    }
+   },
+   "position": {
+    "x": 950,
+    "y": 110
+   }
+  },
+  {
+   "name": "Email wire failed",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $vars.WIRE_OPS_EMAIL }}",
+    "subject": "Wire failed: {{ $json.wire_id }}",
+    "bodyFormat": "plain",
+    "body": "Wire {{ $json.wire_id }} failed."
+   },
+   "position": {
+    "x": 950,
+    "y": 220
+   }
+  },
+  {
+   "name": "Checked 12 times?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ float($json.checks) >= 12 }}"
+   },
+   "position": {
+    "x": 950,
+    "y": 330
+   }
+  },
+  {
+   "name": "Mark stuck",
+   "type": "DataTable",
+   "parameters": {
+    "table": "wire_tracking",
+    "operation": "update",
+    "rowId": "{{ $json.row_id }}",
+    "data": {
+     "status": "stuck"
+    }
+   },
+   "position": {
+    "x": 1140,
+    "y": 0
+   }
+  },
+  {
+   "name": "Email wire stuck",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $vars.WIRE_OPS_EMAIL }}",
+    "subject": "Wire stuck: {{ $json.wire_id }}",
+    "bodyFormat": "plain",
+    "body": "Wire {{ $json.wire_id }} is stuck: still pending after 12 checks (two hours)."
+   },
+   "position": {
+    "x": 1140,
+    "y": 110
+   }
+  },
+  {
+   "name": "Add one check",
+   "type": "DataTable",
+   "parameters": {
+    "table": "wire_tracking",
+    "operation": "update",
+    "rowId": "{{ $json.row_id }}",
+    "data": {
+     "checks": "{{ float($json.checks) + 1 }}"
+    }
+   },
+   "position": {
+    "x": 1140,
+    "y": 220
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Every 10 minutes",
+   "target_node": "List sent wires",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "List sent wires",
+   "target_node": "Get wire status",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Get wire status",
+   "target_node": "Join reply to wire",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Join reply to wire",
+   "target_node": "Route status",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Route status",
+   "target_node": "Mark settled",
+   "source_output": "output0",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Route status",
+   "target_node": "Mark failed",
+   "source_output": "output1",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Route status",
+   "target_node": "Email wire failed",
+   "source_output": "output1",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Route status",
+   "target_node": "Checked 12 times?",
+   "source_output": "output2",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Checked 12 times?",
+   "target_node": "Mark stuck",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Checked 12 times?",
+   "target_node": "Email wire stuck",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Checked 12 times?",
+   "target_node": "Add one check",
+   "source_output": "false",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Settled wire is marked settled",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "List sent wires": {
+     "items": [
+      {
+       "id": "r1",
+       "wire_id": "W1",
+       "status": "sent",
+       "checks": 2
+      }
+     ]
+    },
+    "Get wire status": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W1",
+       "status": "settled"
+      }
+     }
+    },
+    "Mark settled": {
+     "items": [
+      {
+       "id": "r1"
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Mark settled",
+     "subject": "request",
+     "path": "params.data.status",
+     "op": "eq",
+     "value": "settled"
+    },
+    {
+     "node": "Mark failed",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Email wire failed",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Add one check",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Failed wire is marked failed and wire ops emailed",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "List sent wires": {
+     "items": [
+      {
+       "id": "r2",
+       "wire_id": "W2",
+       "status": "sent",
+       "checks": 1
+      }
+     ]
+    },
+    "Get wire status": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W2",
+       "status": "failed"
+      }
+     }
+    },
+    "Mark failed": {
+     "items": [
+      {
+       "id": "r2"
+      }
+     ]
+    },
+    "Email wire failed": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Mark failed",
+     "subject": "request",
+     "path": "params.data.status",
+     "op": "eq",
+     "value": "failed"
+    },
+    {
+     "node": "Email wire failed",
+     "subject": "request",
+     "path": "params.body",
+     "op": "contains",
+     "value": "W2"
+    },
+    {
+     "node": "Email wire failed",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Mark settled",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Pending wire checked 3 times gets one more check",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "List sent wires": {
+     "items": [
+      {
+       "id": "r3",
+       "wire_id": "W3",
+       "status": "sent",
+       "checks": 3
+      }
+     ]
+    },
+    "Get wire status": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W3",
+       "status": "pending"
+      }
+     }
+    },
+    "Add one check": {
+     "items": [
+      {
+       "id": "r3"
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Add one check",
+     "subject": "request",
+     "path": "params.data.checks",
+     "op": "eq",
+     "value": 4
+    },
+    {
+     "node": "Mark stuck",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Email wire stuck",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Pending wire checked 11 times is not stuck yet",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "List sent wires": {
+     "items": [
+      {
+       "id": "r4",
+       "wire_id": "W4",
+       "status": "sent",
+       "checks": 11
+      }
+     ]
+    },
+    "Get wire status": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W4",
+       "status": "pending"
+      }
+     }
+    },
+    "Add one check": {
+     "items": [
+      {
+       "id": "r4"
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Add one check",
+     "subject": "request",
+     "path": "params.data.checks",
+     "op": "eq",
+     "value": 12
+    },
+    {
+     "node": "Mark stuck",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Pending wire already checked 12 times becomes stuck",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "List sent wires": {
+     "items": [
+      {
+       "id": "r5",
+       "wire_id": "W5",
+       "status": "sent",
+       "checks": 12
+      }
+     ]
+    },
+    "Get wire status": {
+     "http": {
+      "status": 200,
+      "body": {
+       "wire_id": "W5",
+       "status": "pending"
+      }
+     }
+    },
+    "Mark stuck": {
+     "items": [
+      {
+       "id": "r5"
+      }
+     ]
+    },
+    "Email wire stuck": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Mark stuck",
+     "subject": "request",
+     "path": "params.data.status",
+     "op": "eq",
+     "value": "stuck"
+    },
+    {
+     "node": "Email wire stuck",
+     "subject": "request",
+     "path": "params.body",
+     "op": "contains",
+     "value": "W5"
+    },
+    {
+     "node": "Email wire stuck",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Add one check",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  }
+ ]
+}

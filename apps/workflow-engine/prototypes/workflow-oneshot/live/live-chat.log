@@ -1,0 +1,33 @@
+== wire_fraud_email
+  chat wire_fraud_email: 16.2s, 1 model call(s) -> ready passed=True
+    On the fraud path (customer says no on the callback), a new "Email compliance" step now emails compliance@bank.test the wire id and amount, after "Email fraud team". It also adds tests for the fraud path and for the confirmed path. Proposed: 1 added. Tests pass.
+  PASS wire_small
+  PASS wire_confirmed_clean
+  PASS wire_fraud
+  PASS wire_no_callback
+  PASS wire_sanctions_true_match_sar
+  PASS wire_sanctions_mlro_silent
+  PASS wire_million_treasury
+  PASS wire_million_treasury_rejects
+== wire_country_block
+  chat wire_country_block: 23.3s, 1 model call(s) -> ready passed=True
+    Added a "Blocked country?" check straight after the webhook. Wires to KP or IR are blocked via the wires API, get a `blocked_country` audit row in ops_db and an email to compliance@bank.test. They skip the callback, screening and the amount check, and every other wire carries on as before. Proposed: 4 added. Tests pass.
+  PASS wire_small
+  PASS wire_confirmed_clean
+  PASS wire_fraud
+  PASS wire_no_callback
+  PASS wire_sanctions_true_match_sar
+  PASS wire_sanctions_mlro_silent
+  PASS wire_million_treasury
+  PASS wire_million_treasury_rejects
+  PASS wire_country_KP
+== build_delinquency
+  chat build_delinquency: 35.5s, 1 model call(s) -> ready passed=True
+    A manual sweep reads delinquent loans (30+ days past due) with customer details, emails each customer a reminder and logs it in ops_db. For loans over 15000 outstanding, it asks collections@bank.test to approve escalation within 2 days. On approval it logs 'escalated' and emails collections. On rejection or no answer, nothing more happens. Proposed: 10 added. Tests pass. Needs: nothing. The core_banking and ops_db connections and the variables already exist. I haven't run the tests.
+  PASS delinquency_approved
+  PASS delinquency_rejected
+== edit_delinquency
+  chat edit_delinquency: 19.2s, 1 model call(s) -> ready passed=True
+    The "Read loans" query now picks up loans 7 or more days past due, with no filter on loan status, and I added tests for the 7-day boundary and the exact query. Proposed: 1 changed. Tests pass.
+  PASS delinquency_wider_approved
+4/4 steps passed

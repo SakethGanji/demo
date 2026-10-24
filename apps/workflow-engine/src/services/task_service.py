@@ -73,8 +73,9 @@ def detail_of(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def validate_form_data(form: list[dict[str, Any]], data: Any) -> dict[str, str]:
-    """Check the approver's answers against the task form. Returns ``{field: message}`` (empty = valid)."""
+def validate_form_data(form: list[dict[str, Any]], data: Any, *, rejecting: bool = False) -> dict[str, str]:
+    """Check the approver's answers against the task form. Returns ``{field: message}`` (empty = valid).
+    A rejection needs no answers (the form is what an approval records); anything given is still checked."""
     errors: dict[str, str] = {}
     if data is None:
         data = {}
@@ -87,7 +88,7 @@ def validate_form_data(form: list[dict[str, Any]], data: Any) -> dict[str, str]:
     for name, f in spec.items():
         present = name in data and data[name] is not None and data[name] != ""
         if not present:
-            if f.get("required") and f.get("type") != "checkbox":
+            if f.get("required") and f.get("type") != "checkbox" and not rejecting:
                 errors[name] = "is required"
             continue
         v, t = data[name], f.get("type", "text")
@@ -182,7 +183,7 @@ class TaskService:
             raise TaskError(422, "VALIDATION_FAILED", "comments are turned off for this task", {"comment": "comments are turned off for this task"})
         if decision == "rejected" and approval.get("require_comment_on_reject") and not comment:
             raise TaskError(422, "VALIDATION_FAILED", "a comment is required to reject", {"comment": "is required to reject"})
-        errors = validate_form_data(row.get("form") or [], form_data)
+        errors = validate_form_data(row.get("form") or [], form_data, rejecting=decision == "rejected")
         if errors:
             raise TaskError(422, "VALIDATION_FAILED", "The form has errors", errors)
 

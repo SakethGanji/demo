@@ -8,6 +8,11 @@ records the pause, nothing downstream is queued, and ``ExecutionRepository.compl
 Test mode: a mock (``{items, port}``) replaces the node before it runs, so it never suspends; an unmocked Approval fails
 ``TEST_UNMOCKED_EFFECT`` (effect ``human``).
 
+``per_item``: one task per item, all created at once (the suspend payload carries ``items``, one rendered task per input
+item; ``ExecutionRepository.complete`` inserts them with ``item_index`` 0..N-1 under the same ``(execution, node,
+run_index)``). The resumer re-enters the run only when every task of that group is settled, once, and hands the node
+``resume["items"]`` (each task's decision); item i then leaves on its own port. 0 items: no tasks, nothing emitted.
+
 ``notify_email``: the resolved recipients ride in the suspend payload (``notify``); ``ExecutionRepository.complete`` emails
 them a link to the task right after the task row is committed. A failed or skipped email never blocks the run.
 """
@@ -174,7 +179,8 @@ class ApprovalNode(BaseNode):
     node_description = NodeTypeDescription(
         name="Approval",
         display_name="Approval",
-        description="Pause the run until a person approves or rejects (a durable task in the inbox)",
+        description="Pause the run until a person approves or rejects (a durable task in the inbox). "
+                    "per_item: one task per item, all at once, each item routed by its own decision",
         icon="fa:user-check",
         group=["flow", "ui"],
         inputs=[NodeInputDefinition(name="main", display_name="Input")],
@@ -184,6 +190,13 @@ class ApprovalNode(BaseNode):
             NodeOutputDefinition(name="timed_out", display_name="Timed out", schema={"type": "unknown", "passthrough": True}),
         ],
         properties=[
+            NodeProperty(display_name="One Task Per Item", name="per_item", type="boolean", default=False,
+                         description="On: every item gets its own task, all created at once (title, context, assignees, "
+                                     "notify_email, due_in and form resolved with $json = that item). The run waits until "
+                                     "every task is decided or timed out, then each item leaves on its own port "
+                                     "(approved / rejected / timed_out) with its own approval. Use one item per person; "
+                                     "for reminders, chain a second per_item Approval on timed_out. Off: one task decides "
+                                     "every item"),
             NodeProperty(display_name="Title", name="title", type="string", default="",
                          description="Task title shown in the inbox (expressions allowed). Default: the node name"),
             NodeProperty(display_name="Assignees", name="assignees", type="json", default=[],
@@ -258,14 +271,29 @@ class ApprovalNode(BaseNode):
         resume = context.extras.get("resume")
         if isinstance(resume, dict) and resume.get("node") == node_definition.name and not resume.get("consumed"):
             resume["consumed"] = True  # a loop that reaches this node again suspends again (the dict stays: complete() reads task_id)
+            if isinstance(resume.get("items"), list):
+                return self._on_item_decisions(resume, input_data)
             return self._on_decision(resume, input_data)
 
+        params = node_definition.parameters
+        if _flag(params.get("per_item"), False):
+            if not input_data:
+                return NodeExecutionResult(outputs={p: None for p in PORTS})  # nobody to ask: no tasks, nothing emitted
+            tasks = [self._render_task(context, node_definition, input_data, i) for i in range(len(input_data))]
+            # the top level is the first item's task (what a reader of one suspension sees); ``items`` is every task
+            payload = {**tasks[0], "per_item": True, "items": tasks}
+            return NodeExecutionResult(outputs={}, suspend=Suspension(kind="approval", payload=payload))
+        payload = self._render_task(context, node_definition, input_data or [NodeData(json={})], 0)
+        return NodeExecutionResult(outputs={}, suspend=Suspension(kind="approval", payload=payload))
+
+    @staticmethod
+    def _render_task(context: ExecutionContext, node_definition: NodeDefinition, items: list[NodeData], index: int) -> dict[str, Any]:
+        """The rendered, redacted task of one item (``$json`` = ``items[index]``)."""
         from ...engine.expression_engine import ExpressionEngine, expression_engine
         from ...services.vars_substitution import redact_deep
 
         params = node_definition.parameters
-        items = input_data or [NodeData(json={})]
-        ectx = ExpressionEngine.create_context(items, context.node_states, context.execution_id, 0, variables=context.variables)
+        ectx = ExpressionEngine.create_context(items, context.node_states, context.execution_id, index, variables=context.variables)
 
         def render(value: Any) -> Any:
             return expression_engine.resolve(value, ectx)
@@ -298,7 +326,7 @@ class ApprovalNode(BaseNode):
         secrets = context.extras.get("secret_values") or set()
         body = cap_context(rendered_ctx)
         body.update(captured)
-        payload = redact_deep(
+        return redact_deep(
             {
                 "title": title,
                 "context": body,
@@ -313,25 +341,45 @@ class ApprovalNode(BaseNode):
             },
             secrets,
         )
-        return NodeExecutionResult(outputs={}, suspend=Suspension(kind="approval", payload=payload))
 
     @staticmethod
     def _on_decision(resume: dict[str, Any], input_data: list[NodeData]) -> NodeExecutionResult:
         from ...engine.types import NodeData, NodeExecutionResult
 
-        decision = resume.get("decision") or {}
-        port = decision.get("decision") if decision.get("decision") in PORTS else "timed_out"
-        approval = {
-            "decision": port,
-            "comment": decision.get("comment"),
-            "form_data": decision.get("form_data") or {},
-            "decided_by": decision.get("decided_by"),
-            "decided_at": decision.get("decided_at"),
-            "task_id": resume.get("task_id"),
-        }
+        port, approval = _approval_of(resume.get("decision") or {}, resume.get("task_id"))
         items = [NodeData(json={**d.json, "approval": approval}) for d in (input_data or [NodeData(json={})])]
         return NodeExecutionResult(outputs={p: (items if p == port else None) for p in PORTS},
                                    metadata={"approvalDecision": port})
+
+    @staticmethod
+    def _on_item_decisions(resume: dict[str, Any], input_data: list[NodeData]) -> NodeExecutionResult:
+        """``per_item``: every task of the group is settled; item i goes out on its own task's port with its own
+        ``approval``. Output order is input order."""
+        from ...engine.types import NodeData, NodeExecutionResult
+
+        by_index = {int(d.get("item_index") or 0): d for d in resume.get("items") or [] if isinstance(d, dict)}
+        out: dict[str, list[NodeData]] = {p: [] for p in PORTS}
+        counts: dict[str, int] = {p: 0 for p in PORTS}
+        for i, d in enumerate(input_data or []):
+            entry = by_index.get(i) or {}
+            port, approval = _approval_of(entry.get("decision") or {}, entry.get("task_id"))
+            out[port].append(NodeData(json={**d.json, "approval": approval}))
+            counts[port] += 1
+        return NodeExecutionResult(outputs={p: (out[p] or None) for p in PORTS},
+                                   metadata={"approvalDecisions": counts})
+
+
+def _approval_of(decision: dict[str, Any], task_id: Any) -> tuple[str, dict[str, Any]]:
+    """The port and the ``approval`` object of one settled task."""
+    port = decision.get("decision") if decision.get("decision") in PORTS else "timed_out"
+    return port, {
+        "decision": port,
+        "comment": decision.get("comment"),
+        "form_data": decision.get("form_data") or {},
+        "decided_by": decision.get("decided_by"),
+        "decided_at": decision.get("decided_at"),
+        "task_id": task_id,
+    }
 
 
 def _notify_of(render: Any, params: dict[str, Any]) -> dict[str, Any]:

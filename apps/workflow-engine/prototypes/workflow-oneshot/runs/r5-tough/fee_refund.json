@@ -1,0 +1,821 @@
+{
+ "name": "Fee refund request",
+ "nodes": [
+  {
+   "name": "Fee refund form",
+   "type": "FormTrigger",
+   "parameters": {
+    "title": "Fee refund request",
+    "input_schema": {
+     "type": "object",
+     "properties": {
+      "account_id": {
+       "type": "string"
+      },
+      "fee_amount": {
+       "type": "number"
+      },
+      "reason": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "account_id",
+      "fee_amount",
+      "reason"
+     ]
+    }
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Get account",
+   "type": "Postgres",
+   "parameters": {
+    "connection": "core_banking",
+    "operation": "query",
+    "query": "SELECT a.account_id, a.customer_id, c.segment FROM accounts a JOIN customers c ON c.customer_id = a.customer_id WHERE a.account_id = %s",
+    "queryParameters": [
+     "{{ $json.account_id }}"
+    ]
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "Account found?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $json.rowCount > 0 }}"
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Account not found reply",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "not_found",
+     "message": "Account not found"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 110
+   }
+  },
+  {
+   "name": "Gather details",
+   "type": "Set",
+   "parameters": {
+    "mode": "manual",
+    "keepOnlySet": true,
+    "fields": [
+     {
+      "name": "account_id",
+      "value": "{{ $node[\"Fee refund form\"].json.account_id }}"
+     },
+     {
+      "name": "fee_amount",
+      "value": "{{ $node[\"Fee refund form\"].json.fee_amount }}"
+     },
+     {
+      "name": "reason",
+      "value": "{{ $node[\"Fee refund form\"].json.reason }}"
+     },
+     {
+      "name": "customer_id",
+      "value": "{{ $json.rows[0].customer_id }}"
+     },
+     {
+      "name": "segment",
+      "value": "{{ $json.rows[0].segment }}"
+     }
+    ]
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Auto refund?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ lower($json.segment) == 'premium' and float($json.fee_amount) <= float($vars.AUTO_REFUND_LIMIT) }}"
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  },
+  {
+   "name": "Auto refund terms",
+   "type": "Set",
+   "parameters": {
+    "mode": "manual",
+    "fields": [
+     {
+      "name": "refund_amount",
+      "value": "{{ $json.fee_amount }}"
+     },
+     {
+      "name": "approved_by_manager",
+      "value": "{{ false }}"
+     }
+    ]
+   },
+   "position": {
+    "x": 950,
+    "y": 0
+   }
+  },
+  {
+   "name": "Branch manager review",
+   "type": "Approval",
+   "parameters": {
+    "title": "Fee refund for account {{ $json.account_id }}",
+    "context": {
+     "Account": "{{ $json.account_id }}",
+     "Customer segment": "{{ $json.segment }}",
+     "Fee amount": "{{ $json.fee_amount }}",
+     "Reason": "{{ $json.reason }}"
+    },
+    "form": [
+     {
+      "name": "refund_type",
+      "label": "Refund type",
+      "type": "select",
+      "options": [
+       "full",
+       "partial"
+      ],
+      "required": true
+     },
+     {
+      "name": "refund_amount",
+      "label": "Refund amount (partial only)",
+      "type": "number",
+      "required": false
+     }
+    ],
+    "notify_email": "{{ $vars.BRANCH_MANAGER_EMAIL }}"
+   },
+   "position": {
+    "x": 950,
+    "y": 110
+   }
+  },
+  {
+   "name": "Manager refund terms",
+   "type": "Set",
+   "parameters": {
+    "mode": "manual",
+    "fields": [
+     {
+      "name": "refund_amount",
+      "value": "{{ $json.fee_amount if $json.approval.form_data.refund_type == 'full' else $json.approval.form_data.refund_amount }}"
+     },
+     {
+      "name": "approved_by_manager",
+      "value": "{{ true }}"
+     }
+    ]
+   },
+   "position": {
+    "x": 1140,
+    "y": 0
+   }
+  },
+  {
+   "name": "Refund details",
+   "type": "NoOp",
+   "parameters": {},
+   "position": {
+    "x": 0,
+    "y": 290
+   }
+  },
+  {
+   "name": "Refund fee",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "corebank",
+     "operation_id": "refundFee"
+    },
+    "method": "POST",
+    "url": "",
+    "path_params": {
+     "account_id": "{{ $json.account_id }}"
+    },
+    "body": {
+     "amount": "{{ $json.refund_amount }}"
+    }
+   },
+   "position": {
+    "x": 190,
+    "y": 290
+   }
+  },
+  {
+   "name": "Record refund",
+   "type": "Postgres",
+   "parameters": {
+    "connection": "ops_db",
+    "operation": "transaction",
+    "statements": [
+     {
+      "query": "INSERT INTO fee_refunds (account_id, amount, approved_by_manager) VALUES (%s, %s, %s)",
+      "params": [
+       "{{ $node[\"Refund details\"].json.account_id }}",
+       "{{ $node[\"Refund details\"].json.refund_amount }}",
+       "{{ $node[\"Refund details\"].json.approved_by_manager }}"
+      ]
+     }
+    ]
+   },
+   "position": {
+    "x": 380,
+    "y": 290
+   }
+  },
+  {
+   "name": "Notify refunded",
+   "type": "ExecuteWorkflow",
+   "parameters": {
+    "workflowId": "wf_notify_customer",
+    "version": "latest",
+    "inputMode": "map",
+    "inputs": {
+     "customer_id": "{{ $node[\"Refund details\"].json.customer_id }}",
+     "message": "We have refunded {{ $node[\"Refund details\"].json.refund_amount }} to your account."
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 290
+   }
+  },
+  {
+   "name": "Reply refunded",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "refunded",
+     "message": "Refunded {{ $node[\"Refund details\"].json.refund_amount }}"
+    }
+   },
+   "position": {
+    "x": 760,
+    "y": 290
+   }
+  },
+  {
+   "name": "Notify declined",
+   "type": "ExecuteWorkflow",
+   "parameters": {
+    "workflowId": "wf_notify_customer",
+    "version": "latest",
+    "inputMode": "map",
+    "inputs": {
+     "customer_id": "{{ $json.customer_id }}",
+     "message": "Your fee refund request was declined."
+    }
+   },
+   "position": {
+    "x": 1140,
+    "y": 110
+   }
+  },
+  {
+   "name": "Reply declined",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "declined",
+     "message": "Declined"
+    }
+   },
+   "position": {
+    "x": 0,
+    "y": 400
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Fee refund form",
+   "target_node": "Get account",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Get account",
+   "target_node": "Account found?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Account found?",
+   "target_node": "Gather details",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Account found?",
+   "target_node": "Account not found reply",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Gather details",
+   "target_node": "Auto refund?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Auto refund?",
+   "target_node": "Auto refund terms",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Auto refund?",
+   "target_node": "Branch manager review",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Auto refund terms",
+   "target_node": "Refund details",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Branch manager review",
+   "target_node": "Manager refund terms",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Branch manager review",
+   "target_node": "Notify declined",
+   "source_output": "rejected",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Manager refund terms",
+   "target_node": "Refund details",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Refund details",
+   "target_node": "Refund fee",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Refund fee",
+   "target_node": "Record refund",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Record refund",
+   "target_node": "Notify refunded",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Notify refunded",
+   "target_node": "Reply refunded",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Notify declined",
+   "target_node": "Reply declined",
+   "source_output": "main",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Unknown account is refused",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "account_id": "X1",
+      "fee_amount": 20,
+      "reason": "late fee"
+     }
+    ]
+   },
+   "mocks": {
+    "Get account": {
+     "items": [
+      {
+       "rows": [],
+       "rowCount": 0
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Account not found reply",
+     "subject": "request",
+     "path": "body.message",
+     "op": "eq",
+     "value": "Account not found"
+    },
+    {
+     "node": "Refund fee",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Branch manager review",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Premium fee of exactly the limit is refunded automatically",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "account_id": "A1",
+      "fee_amount": 50,
+      "reason": "monthly fee"
+     }
+    ]
+   },
+   "mocks": {
+    "Get account": {
+     "items": [
+      {
+       "rows": [
+        {
+         "account_id": "A1",
+         "customer_id": "C1",
+         "segment": "premium"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Refund fee": {
+     "http": {
+      "status": 200,
+      "body": {
+       "refund_id": "R1"
+      }
+     }
+    },
+    "Record refund": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Notify refunded": {
+     "items": [
+      {
+       "sent": true,
+       "channel": "email"
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Branch manager review",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Refund fee",
+     "subject": "request",
+     "path": "body.amount",
+     "op": "eq",
+     "value": 50
+    },
+    {
+     "node": "Refund fee",
+     "subject": "request",
+     "path": "url",
+     "op": "contains",
+     "value": "A1"
+    },
+    {
+     "node": "Notify refunded",
+     "subject": "request",
+     "path": "params.inputs.message",
+     "op": "eq",
+     "value": "We have refunded 50 to your account."
+    },
+    {
+     "node": "Reply refunded",
+     "subject": "request",
+     "path": "body.message",
+     "op": "eq",
+     "value": "Refunded 50"
+    }
+   ]
+  },
+  {
+   "name": "Premium fee over the limit goes to the manager, partial refund",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "account_id": "A1",
+      "fee_amount": 51,
+      "reason": "overdraft fee"
+     }
+    ]
+   },
+   "mocks": {
+    "Get account": {
+     "items": [
+      {
+       "rows": [
+        {
+         "account_id": "A1",
+         "customer_id": "C1",
+         "segment": "premium"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Branch manager review": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "refund_type": "partial",
+       "refund_amount": 20
+      },
+      "decided_by": "test"
+     }
+    },
+    "Refund fee": {
+     "http": {
+      "status": 200,
+      "body": {
+       "refund_id": "R2"
+      }
+     }
+    },
+    "Record refund": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Notify refunded": {
+     "items": [
+      {
+       "sent": true,
+       "channel": "email"
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Branch manager review",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Refund fee",
+     "subject": "request",
+     "path": "body.amount",
+     "op": "eq",
+     "value": 20
+    },
+    {
+     "node": "Record refund",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Reply refunded",
+     "subject": "request",
+     "path": "body.message",
+     "op": "eq",
+     "value": "Refunded 20"
+    }
+   ]
+  },
+  {
+   "name": "Standard customer small fee needs the manager, full refund",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "account_id": "A2",
+      "fee_amount": 10,
+      "reason": "card fee"
+     }
+    ]
+   },
+   "mocks": {
+    "Get account": {
+     "items": [
+      {
+       "rows": [
+        {
+         "account_id": "A2",
+         "customer_id": "C2",
+         "segment": "standard"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Branch manager review": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "refund_type": "full"
+      },
+      "decided_by": "test"
+     }
+    },
+    "Refund fee": {
+     "http": {
+      "status": 200,
+      "body": {
+       "refund_id": "R3"
+      }
+     }
+    },
+    "Record refund": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Notify refunded": {
+     "items": [
+      {
+       "sent": true,
+       "channel": "sms"
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Branch manager review",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Refund fee",
+     "subject": "request",
+     "path": "body.amount",
+     "op": "eq",
+     "value": 10
+    },
+    {
+     "node": "Reply refunded",
+     "subject": "request",
+     "path": "body.message",
+     "op": "eq",
+     "value": "Refunded 10"
+    }
+   ]
+  },
+  {
+   "name": "Manager rejection records nothing and declines",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "account_id": "A2",
+      "fee_amount": 80,
+      "reason": "service fee"
+     }
+    ]
+   },
+   "mocks": {
+    "Get account": {
+     "items": [
+      {
+       "rows": [
+        {
+         "account_id": "A2",
+         "customer_id": "C2",
+         "segment": "premium"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Branch manager review": {
+     "port": "rejected",
+     "approval": {
+      "decision": "rejected",
+      "comment": "no",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Notify declined": {
+     "items": [
+      {
+       "sent": true,
+       "channel": "email"
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Refund fee",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Record refund",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Notify declined",
+     "subject": "request",
+     "path": "params.inputs.message",
+     "op": "eq",
+     "value": "Your fee refund request was declined."
+    },
+    {
+     "node": "Reply declined",
+     "subject": "request",
+     "path": "body.message",
+     "op": "eq",
+     "value": "Declined"
+    }
+   ]
+  }
+ ],
+ "interface": {
+  "kind": "form",
+  "slug": "fee-refund-request",
+  "title": "Fee refund request",
+  "description": "",
+  "access": {
+   "mode": "public"
+  },
+  "trigger_node": "Fee refund form",
+  "result_node": "Reply declined"
+ }
+}

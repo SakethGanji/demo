@@ -11,7 +11,7 @@ import pytest
 
 from src.engine.expression_engine import expression_engine
 from src.engine.test_mode import TestRunOptions, current_rng, current_time, parse_now, plan_mock
-from src.engine.types import ExecutionContext, NodeData, NodeExecutionResult, Workflow
+from src.engine.types import Connection, ExecutionContext, NodeData, NodeExecutionResult, Workflow
 from src.engine.workflow_runner import WorkflowRunner
 from src.nodes.flow.wait import WaitNode
 
@@ -153,8 +153,11 @@ async def test_expressions_in_items_resolve_per_input_item():
 
 
 async def test_items_without_expressions_are_emitted_once_not_per_input_item():
-    runner, _ = runner_with_outside_steps()
-    ctx = await runner.run(chain(node("db", "Postgres")), "a", items({"x": 1}, {"x": 2}, {"x": 3}),
+    """On a node that acts once per job. Postgres and SendEmail act once per item: see
+    test_a_one_item_static_mock_on_a_per_item_step_answers_every_item."""
+    runner, log = runner_with_outside_steps()
+    runner._registry._nodes["DataTable"] = PassNode(log)
+    ctx = await runner.run(chain(node("db", "DataTable", parameters={"operation": "insert"})), "a", items({"x": 1}, {"x": 2}, {"x": 3}),
                            test_options=opts({"db": {"items": [{"fixed": 1}]}}))
     assert len(ctx.node_states["db"]) == 1
 
@@ -224,6 +227,24 @@ async def test_outside_steps_record_their_resolved_parameters():
     ctx = await runner.run(w, "a", items({"n": 5}), test_options=opts({"db": {"items": [{}]}}))
     [req] = ctx.test_requests["db"]
     assert req["params"]["query"] == "select 5" and "_credentials" not in req["params"]
+
+
+async def test_per_item_steps_record_one_request_per_item():
+    """A query/email acts once per item, and so does a per_item Approval: a test must see every item's request."""
+    runner, log = runner_with_outside_steps()
+    runner._registry._nodes["Approval"] = PassNode(log)
+    mocks = {"db": {"items": [{"n": "{{ $json.n }}"}]}, "ask": {"approval": {"decision": "approved"}}}
+    two = items({"n": 1}, {"n": 2})
+
+    w = chain(node("db", "Postgres", parameters={"query": "select {{ $json.n }}"}),
+              node("ask", "Approval", parameters={"notify_email": "{{ $json.n }}@x", "per_item": True}))
+    ctx = await runner.run(w, "a", two, test_options=opts(mocks))
+    assert [r["params"]["query"] for r in ctx.test_requests["db"]] == ["select 1", "select 2"]
+    assert [r["params"]["notify_email"] for r in ctx.test_requests["ask"]] == ["1@x", "2@x"]
+
+    one = chain(node("ask", "Approval", parameters={"notify_email": "{{ $json.n }}@x"}))
+    ctx = await runner.run(one, "a", two, test_options=opts(mocks))
+    assert [r["params"]["notify_email"] for r in ctx.test_requests["ask"]] == ["1@x"]  # one task for the whole group
 
 
 async def test_secret_vars_are_masked_and_plain_vars_resolve():
@@ -402,3 +423,63 @@ async def test_unmocked_http_request_fails_and_a_real_run_still_works_without_op
     runner = real_runner()
     ctx = await runner.run(http_workflow(), "Start", items({"id": "a", "amount": 1}), test_options=opts())
     assert ctx.errors[0].error_code == "TEST_UNMOCKED_EFFECT" and ctx.errors[0].details["effect"] == "network"
+
+
+# ── fidelity: a mocked node behaves like the real one with this many items (each gap was found by a live run) ──
+
+async def test_a_timed_out_mock_leaves_by_the_approvals_on_timeout_port():
+    runner, _ = make_runner()
+    runner._registry._nodes["Approval"] = PassNode([])
+    w = chain(node("ask", "Approval", parameters={"on_timeout": "reject"}))
+    w.connections = [c for c in w.connections if c.source_node != "ask"]
+    ctx = await runner.run(w, "a", items({"n": 1}), test_options=opts({"ask": {"approval": {"decision": "timed_out"}}}))
+    out = ctx.test_outputs["ask"]
+    assert "timed_out" not in out or not out["timed_out"]
+    assert out["rejected"][0].json["approval"]["decision"] == "rejected"
+    assert out["rejected"][0].json["approval"]["decided_by"] == "system:timeout"
+
+
+async def test_one_approval_task_decides_the_whole_group_unless_per_item():
+    runner, _ = make_runner()
+    runner._registry._nodes["Approval"] = PassNode([])
+    mock = {"approval": {"decision": "{{ 'rejected' if $json.n == 2 else 'approved' }}"}}
+    group = chain(node("ask", "Approval"))
+    group.connections = [c for c in group.connections if c.source_node != "ask"]
+    ctx = await runner.run(group, "a", items({"n": 1}, {"n": 2}), test_options=opts({"ask": mock}))
+    assert [i.json["n"] for i in ctx.test_outputs["ask"]["approved"]] == [1, 2] and not ctx.test_outputs["ask"].get("rejected")
+
+    each = chain(node("ask", "Approval", parameters={"per_item": True}))
+    each.connections = [c for c in each.connections if c.source_node != "ask"]
+    ctx = await runner.run(each, "a", items({"n": 1}, {"n": 2}), test_options=opts({"ask": mock}))
+    assert [i.json["n"] for i in ctx.test_outputs["ask"]["approved"]] == [1]
+    assert [i.json["n"] for i in ctx.test_outputs["ask"]["rejected"]] == [2]
+
+
+async def test_a_one_item_static_mock_on_a_per_item_step_answers_every_item():
+    runner, _ = runner_with_outside_steps()
+    ctx = await runner.run(chain(node("db", "Postgres", parameters={"query": "update t"})), "a", items({"n": 1}, {"n": 2}, {"n": 3}),
+                           test_options=opts({"db": {"items": [{"rowCount": 1}]}}))
+    assert [i.json for i in ctx.node_states["db"]] == [{"rowCount": 1}] * 3
+    ctx = await runner.run(chain(node("db", "Postgres", parameters={"query": "select"})), "a", items({"n": 1}, {"n": 2}),
+                           test_options=opts({"db": {"items": [{"a": 1}, {"a": 2}, {"a": 3}]}}))
+    assert len(ctx.node_states["db"]) == 3   # a list of rows stays as written
+
+
+async def test_switch_rules_that_read_another_node_route_per_item():
+    runner = real_runner()
+    rules = [{"output": 0, "field": '{{ $node["Start"].json.risk }}', "operation": "equals", "value": "low"},
+             {"output": 1, "field": "{{ $json.risk }}", "operation": "equals", "value": "{{ $vars.HIGH }}"}]
+    w = Workflow(name="t", nodes=[node("Start", "Start"), node("Route", "Switch", parameters={"mode": "rules", "numberOfOutputs": 2, "rules": rules})],
+                 connections=[Connection(source_node="Start", target_node="Route")])
+    ctx = await runner.run(w, "Start", items({"risk": "low"}), test_options=opts())
+    assert not ctx.errors and [i.json["risk"] for i in ctx.test_outputs["Route"]["output0"]] == ["low"]
+    ctx = await runner.run(w, "Start", items({"risk": "high"}), test_options=opts(), variables={"HIGH": "high"})
+    assert not ctx.errors and [i.json["risk"] for i in ctx.test_outputs["Route"]["output1"]] == ["high"]
+
+
+async def test_respond_records_its_reply_in_a_test_run():
+    runner = real_runner()
+    w = Workflow(name="t", nodes=[node("Start", "Start"), node("Reply", "Respond", parameters={"statusCode": 201, "body": '{"id": "{{ $json.id }}"}'})],
+                 connections=[Connection(source_node="Start", target_node="Reply")])
+    ctx = await runner.run(w, "Start", items({"id": "x1"}), test_options=opts())
+    assert ctx.test_requests["Reply"] == [{"statusCode": 201, "body": {"id": "x1"}}]

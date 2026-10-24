@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import re
 from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 from ..engine import ai_policy, wf_ai
@@ -97,6 +99,10 @@ class AIChatService:
         yield _sse("done", {"type": "done"})
 
     async def _stream(self, request: AIChatRequest, actor: str | None) -> AsyncGenerator[dict[str, Any], None]:
+        if use_oneshot():
+            async for ev in self._stream_oneshot(request, actor):
+                yield ev
+            return
         message = (request.message or "").strip()
         if not message:
             raise B.RequestInvalid("Say what you want to know or change.")
@@ -133,6 +139,50 @@ class AIChatService:
 
         yield _sse("phase", {"type": "phase", "phase": "building", "message": "Making the change on a copy. Nothing is saved until you keep it."})
         view = await B.chat_change(request.workflow_id or "", message, who, project_id=request.project_id, node=node)
+        yield _sse("proposal", _proposal_event(view))
+
+    # ── the one-shot builder (prototypes/workflow-oneshot): one call builds a tested workflow, one call patches it ──────────
+
+    async def _stream_oneshot(self, request: AIChatRequest, actor: str | None) -> AsyncGenerator[dict[str, Any], None]:
+        from . import workflow_oneshot as W
+
+        message = (request.message or "").strip()
+        if not message:
+            raise B.RequestInvalid("Say what you want to know or change.")
+        if len(message) > B.MAX_REQUEST_CHARS:
+            raise B.RequestInvalid(f"The message is longer than {B.MAX_REQUEST_CHARS} characters.")
+        base, ctx, project_ref = await self._open_context(request)
+        route = {"generate": "build", "modify": "modify", "fix": "fix", "explain": "explain"}.get(request.mode_hint) or local_route(message)
+        route = self._possible(route, base is not None, project_ref is not None)
+        names = {n.get("name") for n in (base or {}).get("nodes") or []}
+        node = request.selected_node if request.selected_node in names else None
+        yield _sse("route", {"type": "route", "route": route, "node": node})
+
+        if route == "explain":
+            yield _sse("phase", {"type": "phase", "phase": "routing", "message": "Reading the workflow..."})
+            clean, _ = ai_policy.scrub_payload({"workflow": W.shown(base) if base else None, "question": message}, ctx.secrets if ctx else set())
+            history = "\n".join(f"{m.role}: {m.content[:MAX_TURN_CHARS]}" for m in request.conversation_history[-MAX_HISTORY_TURNS:] if m.content)
+            answer = await W.call_model(
+                "You help people at a bank understand their automations (workflows). Answer the question in a few short sentences "
+                "of plain language, naming the steps involved. Don't write JSON or code unless asked.\n\n"
+                + (f"# The workflow\n\n```json\n{json.dumps(clean['workflow'], indent=1)}\n```\n\n" if clean.get("workflow") else "No workflow is open.\n\n")
+                + (f"# The conversation so far\n\n{history}\n\n" if history else "") + f"# The question\n\n{clean['question']}\n")
+            if not answer.strip():
+                raise B.AIFailed("The model did not produce an answer.", ai_code="bad_json")
+            yield _sse("text", {"type": "text", "content": answer.strip()})
+            return
+
+        who = B.clean_actor(actor)
+        if route == "build":
+            if not project_ref:
+                raise B.RequestInvalid("Open a project to build a workflow: send `project_id`.")
+            yield _sse("phase", {"type": "phase", "phase": "building",
+                                 "message": "Writing the workflow and its tests, then running them. Nothing is saved until you keep it."})
+            view = await W.build(project_ref, message, who)
+        else:
+            yield _sse("phase", {"type": "phase", "phase": "building",
+                                 "message": "Making the change on a copy and re-running the tests. Nothing is saved until you keep it."})
+            view = await W.edit(request.workflow_id or "", message, who, project_id=request.project_id, node=node)
         yield _sse("proposal", _proposal_event(view))
 
     # ── context ─────────────────────────────────────────────────────────────────────────
@@ -191,16 +241,43 @@ class AIChatService:
 # ── events ──────────────────────────────────────────────────────────────────────────────
 
 
+def use_oneshot() -> bool:
+    """The editor chat builds with the one-shot builder unless ``WF_CHAT_BUILDER=legacy`` (the staged spec -> ops builder)."""
+    return (os.environ.get("WF_CHAT_BUILDER") or "oneshot").strip().lower() != "legacy"
+
+
+_QUESTION = re.compile(r"^(what|why|how|which|where|who|explain|describe|summari[sz]e|tell me|walk me|does|is|are|did)\b")
+_ASK_TO_EXPLAIN = re.compile(r"^(can|could|would|will) you (please )?(explain|tell|describe|walk|summari[sz]e|show me how)\b")
+_ASK_TO_DO = re.compile(r"^(please|(can|could|would|will) you)\b")
+
+
+def local_route(message: str) -> str:
+    """No model call to route: a question is answered, anything else is a change (a build when nothing is open). "When X, do Y"
+    and "Can you add Y?" are changes; "Can you explain Y?", "How does Y work" and anything else ending in "?" are questions."""
+    s = message.strip().lower()
+    if _ASK_TO_EXPLAIN.match(s):
+        return "explain"
+    if _ASK_TO_DO.match(s):
+        return "modify"
+    return "explain" if _QUESTION.match(s) or s.endswith("?") else "modify"
+
+
 def _proposal_event(view: dict[str, Any]) -> dict[str, Any]:
     diff = view.get("diff") or {}
     counts = diff.get("counts") or {"added": 0, "removed": 0, "changed": 0}
-    passed = bool((view.get("report") or {}).get("passed"))
+    report = view.get("report") or {}
+    passed = bool(report.get("passed"))
     status = view.get("status")
     if status != "ready":
         summary = view.get("error_message") or "The change could not be built."
     else:
         bits = [f"{counts.get(k, 0)} {k}" for k in ("added", "changed", "removed") if counts.get(k)]
         summary = ("Proposed: " + ", ".join(bits) if bits else "Proposed: no change to the nodes") + (". Tests pass." if passed else ". Some tests fail.")
+        if report.get("summary"):
+            summary = report["summary"] + " " + summary
+        needs = str(report.get("needs") or "").strip()
+        if needs and needs.rstrip(".").lower() != "nothing":
+            summary += " Needs: " + needs
     return {"type": "proposal", "proposal_id": view["id"], "workflow_id": view.get("workflow_id"), "status": status, "summary": summary,
             "diff": {"counts": counts}, "report": {"passed": passed}}
 

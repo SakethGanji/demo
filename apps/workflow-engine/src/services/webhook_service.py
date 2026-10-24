@@ -125,6 +125,12 @@ class WebhookService:
         headers = substitute_vars(headers, variables)
         query_params = substitute_vars(query_params, variables)
 
+        # Same run extras as a manual/API run: the API catalog (api_ref HttpRequest nodes) and the egress allowlist.
+        from .api_catalog import load_api_specs
+        from .execution_service import _egress_allowlist
+        extras = {"egress_allowlist": _egress_allowlist(project),
+                  "api_specs": await load_api_specs(self._workflow_repo._session, stored.workflow.nodes)}
+
         # Build webhook data (includes raw body for signature verification etc.)
         webhook_data = NodeData(
             json={
@@ -141,9 +147,9 @@ class WebhookService:
         response_mode = webhook_node.parameters.get("responseMode", "onReceived")
 
         if response_mode == "onReceived":
-            return await self._handle_on_received(stored, webhook_node, webhook_data, variables, secrets)
+            return await self._handle_on_received(stored, webhook_node, webhook_data, variables, secrets, env, extras)
         else:
-            return await self._handle_last_node(stored, webhook_node, webhook_data, variables, secrets)
+            return await self._handle_last_node(stored, webhook_node, webhook_data, variables, secrets, env, extras)
 
     async def _handle_on_received(
         self,
@@ -152,6 +158,8 @@ class WebhookService:
         webhook_data: NodeData,
         variables: dict[str, str],
         secrets: set[str],
+        env: str | None = None,
+        extras: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Respond immediately and execute workflow in the background."""
         from ..utils.ids import execution_id
@@ -160,7 +168,7 @@ class WebhookService:
         # Fire-and-forget background execution with registry tracking
         from ..engine import execution_registry
         task = asyncio.create_task(
-            self._run_background(stored, webhook_node, webhook_data, exec_id, variables, secrets)
+            self._run_background(stored, webhook_node, webhook_data, exec_id, variables, secrets, env, extras)
         )
         execution_registry.register(exec_id, task)
 
@@ -178,6 +186,8 @@ class WebhookService:
         execution_id: str,
         variables: dict[str, str],
         secrets: set[str],
+        env: str | None = None,
+        extras: dict[str, Any] | None = None,
     ) -> None:
         """Run workflow in background and save execution with its own DB session."""
         from ..engine.workflow_runner import WorkflowRunner
@@ -190,7 +200,8 @@ class WebhookService:
             # Pre-create execution row so node_outputs FK is satisfied during run
             async with async_session_factory() as session:
                 exec_repo = ExecutionRepository(session)
-                await exec_repo.start(execution_id, stored.id, stored.name, "webhook", project_id=stored.project_id)
+                await exec_repo.start(execution_id, stored.id, stored.name, "webhook", project_id=stored.project_id,
+                                      environment=env)
 
             runner = WorkflowRunner(db_session_factory=async_session_factory)
             context = await runner.run(
@@ -203,6 +214,8 @@ class WebhookService:
                 variables=variables,
                 secret_values=secrets,
                 project_id=stored.project_id,
+                environment=env,
+                extras=dict(extras or {}),
                 subworkflow_invoker=subworkflow_invoker(async_session_factory),
             )
 
@@ -244,6 +257,8 @@ class WebhookService:
         webhook_data: NodeData,
         variables: dict[str, str],
         secrets: set[str],
+        env: str | None = None,
+        extras: dict[str, Any] | None = None,
     ) -> dict[str, Any] | WebhookResponse:
         """Execute workflow synchronously and return last node's output."""
         from ..engine.workflow_runner import WorkflowRunner
@@ -265,6 +280,8 @@ class WebhookService:
             variables=variables,
             secret_values=secrets,
             project_id=stored.project_id,
+            environment=env,
+            extras=dict(extras or {}),
             subworkflow_invoker=subworkflow_invoker(async_session_factory),
         )
 

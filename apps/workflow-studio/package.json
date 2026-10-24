@@ -26,6 +26,7 @@
     "@codemirror/merge": "^6.12.2",
     "@codemirror/state": "^6.5.2",
     "@codemirror/view": "^6.38.8",
+    "@dagrejs/dagre": "^1.1.4",
     "@lezer/highlight": "^1.2.3",
     "@radix-ui/react-visually-hidden": "^1.2.4",
     "@streamdown/cjk": "^1.0.2",

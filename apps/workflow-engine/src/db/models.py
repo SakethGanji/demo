@@ -775,7 +775,7 @@ class HumanTask(SQLModel, table=True):
     """A durable human step created by an Approval node (status open until someone decides)."""
 
     __tablename__ = "human_tasks"
-    __table_args__ = (Index("human_tasks_exec_node_idx", "execution_id", "node_name", "run_index", unique=True),)
+    __table_args__ = (Index("human_tasks_exec_node_item_idx", "execution_id", "node_name", "run_index", "item_index", unique=True),)
 
     id: str = Field(primary_key=True)  # tsk_<uuid7>
     project_id: str = Field(foreign_key="projects.id")
@@ -784,6 +784,7 @@ class HumanTask(SQLModel, table=True):
     execution_id: str = Field(foreign_key="executions.id")
     node_name: str
     run_index: int = Field(default=0)
+    item_index: int = Field(default=0)  # per_item Approval: the item's position; tasks of one node-run share run_index
     kind: str = Field(default="approval")
     title: str
     context: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB, nullable=False, server_default="{}"))

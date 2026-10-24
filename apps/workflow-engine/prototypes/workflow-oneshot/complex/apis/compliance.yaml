@@ -1,0 +1,37 @@
+openapi: 3.0.3
+info:
+  title: compliance
+  version: '1.0'
+servers:
+- url: http://compliance.bank.test
+paths:
+  /cases:
+    post:
+      operationId: openCase
+      summary: Open a compliance case
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  case_id:
+                    type: string
+                required:
+                - case_id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                subject:
+                  type: string
+                reason:
+                  type: string
+              required:
+              - subject
+              - reason

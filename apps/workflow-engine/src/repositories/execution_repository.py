@@ -296,7 +296,8 @@ class ExecutionRepository:
             return default
 
     async def _create_tasks(self, tasks: Any, context: ExecutionContext, db_execution: ExecutionModel) -> list[dict[str, Any]]:
-        """One ``human_tasks`` row per Approval that paused this run (idempotent on ``(execution, node, run_index)``).
+        """One ``human_tasks`` row per Approval that paused this run, or one per item for a ``per_item`` Approval
+        (idempotent on ``(execution, node, run_index, item_index)``).
         Returns the newly inserted rows whose Approval asked for an approver email (never in test mode)."""
         from ..engine.task_resumer import build_snapshot
         from .task_repository import new_task_id
@@ -305,27 +306,31 @@ class ExecutionRepository:
         for entry in context.suspensions:
             payload = entry["suspension"].payload
             snapshot = build_snapshot(context, entry)
-            due_raw = payload.get("due_at")
-            row = {
-                "id": new_task_id(),
-                "project_id": db_execution.project_id or "proj_default",
-                "workflow_id": db_execution.workflow_id,
-                "workflow_version_id": context.version_id,
-                "execution_id": context.execution_id,
-                "node_name": entry["node"],
-                "run_index": entry["run_index"],
-                "kind": "approval",
-                "title": payload.get("title") or entry["node"],
-                "context": payload.get("context") or {},
-                "form": payload.get("form") or [],
-                "assignees": payload.get("assignees") or [],
-                "due_at": datetime.fromisoformat(due_raw) if due_raw else None,
-                "on_timeout": payload.get("on_timeout") or "timed_out",
-                "snapshot": snapshot,
-            }
-            inserted = await tasks.insert(row)
-            if inserted and payload.get("notify") and context.mode != "test":
-                to_notify.append({"task": row, "notify": payload["notify"]})
+            # per_item: one task per item, all under the same (execution, node, run_index), told apart by item_index
+            per_task = payload.get("items") if payload.get("per_item") and isinstance(payload.get("items"), list) else [payload]
+            for item_index, task in enumerate(per_task):
+                due_raw = task.get("due_at")
+                row = {
+                    "id": new_task_id(),
+                    "project_id": db_execution.project_id or "proj_default",
+                    "workflow_id": db_execution.workflow_id,
+                    "workflow_version_id": context.version_id,
+                    "execution_id": context.execution_id,
+                    "node_name": entry["node"],
+                    "run_index": entry["run_index"],
+                    "item_index": item_index,
+                    "kind": "approval",
+                    "title": task.get("title") or entry["node"],
+                    "context": task.get("context") or {},
+                    "form": task.get("form") or [],
+                    "assignees": task.get("assignees") or [],
+                    "due_at": datetime.fromisoformat(due_raw) if due_raw else None,
+                    "on_timeout": task.get("on_timeout") or "timed_out",
+                    "snapshot": snapshot,
+                }
+                inserted = await tasks.insert(row)
+                if inserted and task.get("notify") and context.mode != "test":
+                    to_notify.append({"task": row, "notify": task["notify"]})
         return to_notify
 
     async def _notify_approvers(self, to_notify: list[dict[str, Any]], db_execution: ExecutionModel) -> None:

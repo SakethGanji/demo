@@ -22,7 +22,8 @@ from ..utils.ids import generate_id
 CLOSED_STATUSES = ("approved", "rejected", "timed_out", "cancelled")
 _JSON_COLS = ("context", "form", "assignees", "decision", "snapshot")
 _LIST_COLS = (
-    "t.id, t.project_id, t.workflow_id, t.workflow_version_id, t.execution_id, t.node_name, t.run_index, t.kind, t.title, "
+    "t.id, t.project_id, t.workflow_id, t.workflow_version_id, t.execution_id, t.node_name, t.run_index, t.item_index, "
+    "t.kind, t.title, "
     "t.context, t.form, t.assignees, t.status, t.due_at, t.on_timeout, t.decision, t.decided_by, t.decided_at, "
     "t.decide_key, t.resume_state, t.created_at, t.updated_at"
 )
@@ -63,20 +64,23 @@ class TaskRepository:
     # ── create ────────────────────────────────────────────────────────────────
 
     async def insert(self, row: dict[str, Any]) -> bool:
-        """Insert a task; ``(execution_id, node_name, run_index)`` is unique, so a repeat is a no-op. True when inserted."""
+        """Insert a task; ``(execution_id, node_name, run_index, item_index)`` is unique, so a repeat is a no-op. True when
+        inserted. A ``per_item`` Approval's tasks share ``(execution_id, node_name, run_index)``: that is the group the
+        run waits on."""
         res = await self._s.execute(
             text("""
                 INSERT INTO human_tasks (id, project_id, workflow_id, workflow_version_id, execution_id, node_name, run_index,
-                                         kind, title, context, form, assignees, due_at, on_timeout, snapshot)
+                                         item_index, kind, title, context, form, assignees, due_at, on_timeout, snapshot)
                 VALUES (:id, :project_id, :workflow_id, :workflow_version_id, :execution_id, :node_name, :run_index,
-                        :kind, :title, CAST(:context AS jsonb), CAST(:form AS jsonb), CAST(:assignees AS jsonb),
+                        :item_index, :kind, :title, CAST(:context AS jsonb), CAST(:form AS jsonb), CAST(:assignees AS jsonb),
                         :due_at, :on_timeout, CAST(:snapshot AS jsonb))
-                ON CONFLICT (execution_id, node_name, run_index) DO NOTHING
+                ON CONFLICT (execution_id, node_name, run_index, item_index) DO NOTHING
             """),
             {
                 "id": row["id"], "project_id": row["project_id"], "workflow_id": row["workflow_id"],
                 "workflow_version_id": row.get("workflow_version_id"), "execution_id": row["execution_id"],
-                "node_name": row["node_name"], "run_index": row.get("run_index", 0), "kind": row.get("kind", "approval"),
+                "node_name": row["node_name"], "run_index": row.get("run_index", 0),
+                "item_index": row.get("item_index", 0), "kind": row.get("kind", "approval"),
                 "title": row["title"], "context": json.dumps(row.get("context") or {}, default=str),
                 "form": json.dumps(row.get("form") or [], default=str),
                 "assignees": json.dumps(row.get("assignees") or [], default=str),

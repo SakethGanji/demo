@@ -32,6 +32,7 @@ import logging
 import os
 import re
 import time
+from pathlib import Path
 from typing import Any, Awaitable, Callable, Iterator
 
 from ..core.config import settings
@@ -55,6 +56,36 @@ Log = Callable[[str], Awaitable[None]]
 def builder_mode() -> str:
     """``oneshot`` (default) or ``pipeline`` (the role-split pipeline), from WORKFLOW_BUILDER_MODE."""
     return "pipeline" if os.environ.get("WORKFLOW_BUILDER_MODE", "").strip().lower() == "pipeline" else "oneshot"
+
+
+def editable_rules_enabled() -> bool:
+    """Visual-editing trial (WORKFLOW_EDITABLE_RULES=1): the brief teaches the editable shape and a build whose UI scores low on
+    the editability lint gets one repair pass. Off: the brief and the build are exactly as before."""
+    return os.environ.get("WORKFLOW_EDITABLE_RULES", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+EDITABLE_REPAIR_BELOW = 0.6       # editability score under which a working build gets the repair pass
+EDITABLE_REPAIR_BUDGET_S = 900.0  # no repair pass once a build has run this long
+_EDITABLE_KIT = {"Select", "Box", "Stack", "Grid", "Text", "Heading", "Field", "Divider", "Spacer",   # kit symbols the brief
+                 "ColorSchemeToggle", "useColorScheme", "setColorScheme"}                          # lists only with the flag on
+_EDITABLE_PROPS = {("AppShell", "viewerRoles"), ("Tabs", "stateKey"), ("DataTable", "stateKey")}
+# kit files (and preview-state hooks) taught only with the flag on: off, the brief stays exactly as before they existed
+_EDITABLE_KIT_FILES = ("overlay.tsx", "display.tsx", "board.tsx", "plots.tsx")
+_EDITABLE_KIT |= {"usePersistedUiState", "useRestoredValue", "inStudioPreview", "cn"}
+
+
+def _trial_kit_names() -> set[str]:
+    kit = Path(__file__).resolve().parent / "app_kit"
+    out: set[str] = set()
+    for name in _EDITABLE_KIT_FILES:
+        try:
+            out |= set(re.findall(r"^export (?:function|const) (\w+)", (kit / name).read_text(encoding="utf-8"), re.M))
+        except OSError:
+            continue
+    return out
+
+
+_EDITABLE_KIT |= _trial_kit_names()
 
 
 def model() -> str:
@@ -216,21 +247,91 @@ def _sdk_lines() -> list[str]:
 
 
 def _kit_prop(p: dict[str, Any]) -> str:
-    if p["name"] == "className":
+    if p["name"].endswith("ClassName") or p["name"] == "className":   # per-part styling is the visual editor's, not the brief's
         return ""
     t = " ".join(str(p.get("type") or "").split()).replace("React.ReactNode", "node")
     t = re.sub(r"\(([^()]*)\)\s*=>", lambda m: "(" + ", ".join(x.split(":")[0].strip() for x in m.group(1).split(",") if x.strip()) + ")=>", t)
     return f"{p['name']}{'' if p.get('required') else '?'}" + (f":{t}" if 0 < len(t) <= (26 if p.get("required") else 15) and t != "node" else "")
 
 
-def _kit_lines() -> tuple[list[str], list[str]]:
+# ── Component registry (flag on): the same extractor as the Studio's props panel ──
+
+REGISTRY_JS = Path(__file__).resolve().parent / "editability" / "registry.mjs"
+REGISTRY_TIMEOUT_S = 30
+REGISTRY_EXAMPLE_MAX = 130   # longer @examples are left out of the brief line (get_component has them)
+_registry_cache: dict[str, list[dict[str, Any]]] = {}
+
+
+def _run_registry(files: list[dict] | None = None) -> list[dict[str, Any]]:
+    """Component schemas of the kit (plus ``files``' own components) from ``editability/registry.mjs``; [] when node, the parser
+    or the extractor is unavailable (the caller falls back to the kit index). The kit alone is computed once per process."""
+    import shutil
+    import subprocess
+
+    from .editability_lint import KIT_DIR, _parser
+
+    own = [{"path": str(f["path"]), "content": f["content"]} for f in files or []
+           if isinstance(f, dict) and isinstance(f.get("content"), str) and str(f.get("path") or "").endswith((".tsx", ".jsx"))
+           and not str(f["path"]).startswith("kit/")]
+    key = "" if not own else json.dumps(own, sort_keys=True)
+    if key in _registry_cache:
+        return _registry_cache[key]
+    out: list[dict[str, Any]] = []
+    try:
+        node, parser = shutil.which("node"), _parser()
+        if node and parser and REGISTRY_JS.is_file():
+            payload = json.dumps({"kit_dir": str(KIT_DIR), "parser": parser, **({"files": own} if own else {})})
+            p = subprocess.run([node, str(REGISTRY_JS)], input=payload, capture_output=True, text=True, timeout=REGISTRY_TIMEOUT_S)
+            if p.returncode == 0:
+                comps = json.loads(p.stdout).get("components")
+                out = [c for c in comps if isinstance(c, dict) and c.get("name")] if isinstance(comps, list) else []
+            else:
+                logger.warning("component registry failed: %s", (p.stderr or "").strip()[-300:])
+    except Exception:  # noqa: BLE001 — the registry only enriches the brief
+        logger.warning("component registry unavailable", exc_info=True)
+    if len(_registry_cache) > 32:
+        _registry_cache.clear()
+    _registry_cache[key] = out
+    return out
+
+
+def _registry_prop(p: dict[str, Any]) -> str:
+    """``name?:a|b`` / ``name:number`` / ``name`` (a slot, callback or object: see the example)."""
+    name = f"{p['name']}{'' if p.get('required') else '?'}"
+    if p.get("options"):
+        return f"{name}:{'|'.join(str(o) for o in p['options'])}"
+    t = " ".join(str(p.get("type") or "").split())
+    return f"{name}:{t}" if t in ("string", "number", "boolean", "string[]", "number[]") else name
+
+
+def _registry_line(c: dict[str, Any]) -> str:
+    props = [p for p in c.get("props") or [] if p.get("name") not in ("className", "stateKey", "key", "children") and not str(p.get("name")).endswith("ClassName")]
+    shown = ", ".join(_registry_prop(p) for p in props)
+    desc = _sentence(re.sub(r"\s*\(e\.g\.[^)]*\)", "", str(c.get("description") or "")), 56)
+    ex = " ".join(str(c.get("example") or "").split())
+    where = "" if str(c.get("file") or "").startswith("kit/") else f" [{c['file']}]"
+    line = f"- `{c['name']}({{{shown}}})`{where}: {desc}"
+    return line + (f" `{ex}`" if ex and len(ex) <= REGISTRY_EXAMPLE_MAX else "")
+
+
+def _kit_lines(files: list[dict] | None = None) -> tuple[list[str], list[str]]:
     from .platform_index import kit_components
 
+    on = editable_rules_enabled()
+    reg = {}
+    if on:
+        for c in _run_registry(files):
+            reg.setdefault(c["name"], c)
     comps, helpers = [], []
     for c in kit_components():
+        if not on and c["name"] in _EDITABLE_KIT:
+            continue
         use = _sentence(c.get("use_when") or c.get("file_doc"), 46)
+        if c["kind"] == "component" and c["name"] in reg:
+            comps.append(_registry_line(reg.pop(c["name"])))
+            continue
         if c["kind"] == "component":
-            props = [p for p in c.get("props") or [] if p["name"] != "className"]
+            props = [p for p in c.get("props") or [] if p["name"] not in ("className", "stateKey") and (on or (c["name"], p["name"]) not in _EDITABLE_PROPS)]
             shown = ", ".join(x for x in (_kit_prop(p) for p in props) if x)
             comps.append(f"- `{c['name']}({{{shown}}})`: {use}")
         else:
@@ -240,6 +341,10 @@ def _kit_lines() -> tuple[list[str], list[str]]:
             sig = re.sub(r"^(?:async )?function ", "", sig)
             head = f"`{c['name']}` ({c['kind']})" if len(sig) > 80 else f"`{sig}`"
             helpers.append(f"- {head}" + (f": {use}" if use else ""))
+    own = [c for c in reg.values() if not str(c.get("file") or "").startswith("kit/")]
+    if own:
+        comps.append("This app's own components (reuse them; the path is where they live):")
+        comps += [_registry_line(c) for c in own]
     return comps, helpers
 
 
@@ -262,20 +367,24 @@ PREVIEW_USERS: list[dict[str, Any]] = [   # mirrors the Studio preview's "View a
 PREVIEW_USERS_TEXT = "; ".join(f"`{u['id']}` ({u['name']}, roles {', '.join(u['roles'])})" for u in PREVIEW_USERS)
 
 
-def brief() -> str:
+def brief(app_files: list[dict] | None = None) -> str:
     """The runtime brief the writer works from, generated from the platform (SDK reference, resource API, kit components and
-    hooks, column rules), so it cannot drift from what the sandbox and the kit really provide."""
+    hooks, column rules), so it cannot drift from what the sandbox and the kit really provide. With the editable-rules flag on,
+    component lines come from the schema registry, and ``app_files`` (an edit's current app) adds the app's own components."""
     from ..sdk.generate import reference
     from . import project_plan as pp
     from .data_table_service import MAX_BULK
     from .schema_migrations import COLUMN_KEYS, SYSTEM_COLUMNS
 
     rules = reference()["rules"]
-    comps, helpers = _kit_lines()
+    comps, helpers = _kit_lines(app_files if editable_rules_enabled() else None)
     hooks = ", ".join(f"`@res.{h}`" for h in _resource_hooks())
     cols = ", ".join(k for k in COLUMN_KEYS if k != "deprecated")
     sys_cols = ", ".join(sorted(SYSTEM_COLUMNS))
     nl = "\n"
+    no_css = ("No index.html/index.tsx/bootstrap. Theme tokens ship with the kit (`kit/theme.css`); to restyle, write `index.css` "
+              "(import it in `App.tsx`) overriding `:root{--primary:...}` and the matching `.dark{...}`"
+              if editable_rules_enabled() else "No index.html/index.tsx/index.css/bootstrap")
     out = f"""# Build a small internal app on Command Studio
 
 You get an approved plan (tables, routes, screens). Write the WHOLE app in one reply: tables, seed rows, Python backend module(s), React app. Use only what is described here. Reply by calling `emit_bundle` and nothing else.
@@ -313,7 +422,7 @@ Each route with `auth` `none`/`app_token` is an operation of the generated typed
 - Sends the app token, parses JSON, throws `ApiError {{status, body}}` on non-2xx (`body` is your route's `{{error, message, field?}}`). List routes answer `{{rows, total, limit, offset}}`. Untyped responses are `any`: use the exact fields your handlers return.
 
 ## 4. The React app
-Sandboxed iframe with React 18, ReactDOM and Tailwind preloaded; it mounts the default export of `App.tsx` (`export default function App()`). No index.html/index.tsx/index.css/bootstrap; no npm packages beyond React; handle loading/error states.
+Sandboxed iframe with React 18, ReactDOM and Tailwind preloaded; it mounts the default export of `App.tsx` (`export default function App()`). {no_css}; no npm packages beyond React; handle loading/error states.
 Sandbox: `html, body, #root` are `height:100%; overflow:clip`. Outermost wrapper `h-full flex flex-col` (NEVER `h-screen`/`100vh`); scroll areas `flex-1 min-h-0 overflow-y-auto`. No `position:fixed` for layout (only `fixed inset-0 z-50` overlays). Scroll with `ref.current.scrollTop`, never `scrollIntoView()`/`window.scrollTo()`. In-app routing with `useState` (no pushState). No `EventSource`/`WebSocket`: poll. `fetch()` is proxied; no streaming, `AbortController` signal or `FormData`. Downloads: `Blob` + `URL.createObjectURL` + `<a download>`. Images: absolute URLs or inline SVG. Return cleanup from every `useEffect` that sets timers/listeners.
 Files: relative `path` (`App.tsx`, `views/Review.tsx`); each starts with a `/** ... */` comment (what it is), every exported component has a JSDoc; keep files under ~250 lines.
 
@@ -352,6 +461,38 @@ Row ids are assigned on insert: in seed rows a `ref` column holds the 1-based po
 BRIEF_SECTIONS: list[Callable[[], str]] = []
 """Extension point: each callable returns a markdown section (``## ...``) appended to the end of :func:`brief`, or ``""`` for none
 (e.g. database-schema context). Register with ``BRIEF_SECTIONS.append(fn)``."""
+
+
+def _editable_section() -> str:
+    """The editable shape (flag on only): the UI written so the Studio's visual editor can change it without code."""
+    if not editable_rules_enabled():
+        return ""
+    return """## 7. Editable shape
+The owner edits the app visually (clicks a column, tab, screen or badge and changes it). The editor edits only literal config on kit components, so write the UI in this shape. Behaviour (data, handlers, state) stays code as usual.
+- Table columns: a module-level const (`const COLUMNS: Column<Row>[] = [...]`) or inline in the JSX; never built inside the component or in `useMemo`. A cell that shows ONE field uses `format` (`'text'|'date'|'datetime'|'ago'|'money'|'number'|'bool'|'badge'`, `badge` with `toneMap`), not `render`; `render` only for a genuine multi-field cell.
+  - Good: `{ key: 'status', header: 'Status', format: 'badge', toneMap: STATUS_TONE }`, `{ key: 'created_at', header: 'Created', format: 'date' }`
+  - Bad: `render: (r) => <Tag tone={r.status === 'approved' ? 'green' : 'gray'}>{r.status}</Tag>`, `render: (r) => new Date(r.created_at).toLocaleDateString()`
+- Tones and variants: a module-level `as const` map indexed in the prop, never a ternary chain.
+  - Good: `const STATUS_TONE = { pending: 'amber', approved: 'green', rejected: 'red' } as const` then `<Tag tone={STATUS_TONE[r.status]}>`
+  - Bad: `tone={s === 'approved' ? 'green' : s === 'rejected' ? 'red' : 'amber'}`
+- Dropdowns: the kit `Select`, never a raw `<select>`.
+  - Good: `<Select label="Status" value={status} onChange={setStatus} options={['open', 'closed']} />` (options may be `{ value, label }`)
+- Tabs and segmented views: the kit `Tabs`, never buttons with a conditional active class.
+  - Good: `<Tabs tabs={[{ id: 'open', label: 'Open' }, { id: 'done', label: 'Done' }]} value={tab} onChange={setTab} />`
+  - Bad: `<button className={tab === 'open' ? 'border-b-2 font-semibold' : ''} onClick={() => setTab('open')}>Open</button>`
+- Navigation: ONE literal `screens` array given to `AppShell`; a role-only screen carries `roles: ['admin']` (AppShell hides it from other viewers). Never push screens under an `if`, spread them or add `cond && {...}` entries.
+  - Good: `screens={[{ id: 'requests', label: 'Requests', render: () => <Requests /> }, { id: 'users', label: 'Users', roles: ['admin'], render: () => <Users /> }]}`
+  - Bad: `const screens = [...]; if (isAdmin) screens.push({ id: 'users', ... })`
+- Titles, labels, headers, empty-state text: string literals (`title="Supply requests"`); put a dynamic count in its own element, not in the title.
+- Layout: build pages from the kit primitives, never `<div className="flex ...">` / `grid` soup: `Stack` (column or `direction="row"`, `gap`, `align`, `justify`, `wrap`, `grow`), `Grid` (`cols`, `colsMd`, `colsLg`, `gap`), `Box` (`padding`, `surface`, `border`, `radius`), `Text` (`size`, `weight`, `tone`: `'default'|'muted'|'soft'|'faint'|'primary'|'success'|'warning'|'danger'`), `Heading` (`level` 1-4), `Field` (`label`, `hint`, `error`, `required` around an input), `Divider`, `Spacer`. Spacing values are strings on the scale `'0'..'12'`. A raw element only when no primitive fits (a table cell, an `<input>` inside `Field`).
+  - Good: `<Stack direction="row" gap="2" align="center" justify="between"><Heading level={2}>Requests</Heading><Button variant="primary">New</Button></Stack>`, `<Grid cols={1} colsMd={3} gap="4">...</Grid>`
+  - Bad: `<div className="flex items-center justify-between gap-2"><h2 className="text-xl font-semibold">Requests</h2>...</div>`
+- Colours: no `slate-*` / `gray-*` / `zinc-*` / `neutral-*` / `stone-*` / `blue-*` palette classes; use kit tones, the primitives' `tone`/`surface` props or the theme token utilities (`bg-card`, `bg-muted`, `text-foreground`, `text-muted-foreground`, `border-border`, `bg-primary text-primary-foreground`, `text-danger`, `bg-success-soft`). Dark mode is automatic (AppShell has the toggle); never hard-code light colours.
+- To drop a column, tab, screen, tile or row action conditionally, give it `hidden: <boolean>` instead of filtering the array.
+"""
+
+
+BRIEF_SECTIONS.append(_editable_section)
 
 
 # ── tools ────────────────────────────────────────────────────────────────────
@@ -1470,12 +1611,14 @@ def select_for_request(bundle: dict[str, Any], request: str, cap: int = EDIT_CON
     return _fit(items, cap)
 
 
-def edit_prompt(bundle: dict[str, Any], request: str) -> tuple[str, list[str]]:
+def edit_prompt(bundle: dict[str, Any], request: str, notes: str = "") -> tuple[str, list[str]]:
     """``(user message, paths shown in full)`` of an edit call: the request, the index, the selected files, the change rules."""
     shown = select_for_request(bundle, request)
     req = _tokens(request)
     mentioned = [t for t in bundle["tables"] if t["name"].lower() in request.lower() or (_tokens(t["name"]) and _tokens(t["name"]) <= req)]
     parts = ["## Request", request.strip(), "", "## The app (index)", bundle_index(bundle), ""]
+    if notes:
+        parts += [notes.strip(), ""]
     if mentioned:
         parts += ["## Tables the request mentions (full definitions)", json.dumps(mentioned, ensure_ascii=False, separators=(",", ":")), ""]
     parts += ["## Files shown in full (current text)", _file_blocks(shown), ""]
@@ -1615,7 +1758,8 @@ async def ask_changes(user: str, shown: list[str], bundle: dict[str, Any], *, ph
     asked_fix = False
     while True:
         offer = [EMIT_CHANGES] + ([READ_FILES] if reads < READ_ROUNDS else [])
-        name, args = await _ask_any(brief(), user + extra, offer, phase=phase, timer=timer)
+        name, args = await _ask_any(brief(((bundle.get("app") or {}).get("files") or None) if editable_rules_enabled() else None),
+                                    user + extra, offer, phase=phase, timer=timer)
         if name == "read_files":
             reads += 1
             extra += "\n\n" + read_section(bundle, args.get("paths"), seen)
@@ -1829,9 +1973,160 @@ async def build(project_id: str, plan: dict[str, Any], *, app_key: str | None = 
         auto = await autotest(project_id, loaded["app_id"], bundle, errors, timer=timer, log=log)
     auto = {**auto, "tests_changed_by_fix": tests_fixed}
     errors = errors + failure_errors(auto)
+    extra: dict[str, Any] = {}
+    lint = await _editability(bundle)
+    if lint is not None:
+        extra["editability"] = _lint_summary(lint)
+    if editable_rules_enabled():
+        rep: dict[str, Any] = {"ran": False, "kept": False, "reason": "", "score_before": (lint or {}).get("score"), "score_after": None, "seconds": 0.0}
+        rep["reason"] = _repair_skip(lint, ok=not errors, fix=fix, elapsed=time.monotonic() - timer.t0)
+        if not rep["reason"]:
+            bundle, loaded, rep = await _repair(project_id, bundle, loaded, lint, rep, name=name, known=known_modules, timer=timer,
+                                                smoke=smoke, log=log)
+            if rep["kept"]:
+                extra["editability"] = _lint_summary(rep.pop("lint"))
+            rep.pop("lint", None)
+        extra["repair"] = rep
     return {"ok": not errors, "bundle": bundle, "app_id": loaded["app_id"], "version_id": loaded["version_id"],
             "errors": errors[:MAX_ERRORS], "routes": chk["routes"], "modules": loaded["modules"], "fixed": fixed,
-            "autotest": auto, "timing": timer.summary()}
+            "autotest": auto, **extra, "timing": timer.summary()}
+
+
+# ── editability (visual-editing trial) ───────────────────────────────────────
+
+
+def _app_files(bundle: dict[str, Any]) -> list[dict[str, Any]]:
+    return [f for f in bundle["app"]["files"] if not f["path"].startswith("kit/") and f["path"] != CLIENT_PATH]
+
+
+async def _editability(bundle: dict[str, Any]) -> dict[str, Any] | None:
+    """The editability lint of the bundle's app, or None when the lint cannot run. Never raises."""
+    from . import editability_lint as el
+    try:
+        rep = await el.lint_files_async(_app_files(bundle))
+    except Exception:  # noqa: BLE001 - a lint never breaks a build
+        logger.debug("one-shot: the editability lint failed", exc_info=True)
+        return None
+    return rep if rep.get("available") else None
+
+
+def _lint_summary(lint: dict[str, Any]) -> dict[str, Any]:
+    keys = ("score", "score_strict", "kit_nodes", "editable", "eligible", "elements", "column_renders", "column_renders_trivial",
+            "violation_counts")
+    return {k: lint.get(k) for k in keys} | {"violations": (lint.get("violations") or [])[:10]}
+
+
+def _repair_skip(lint: dict[str, Any] | None, *, ok: bool, fix: bool, elapsed: float) -> str:
+    """Why the repair pass does not run ("" = it runs)."""
+    from . import editability_lint as el
+    if not ok:
+        return "the build has errors"
+    if not fix:
+        return "fix passes are off"
+    if lint is None:
+        return "the editability lint is not available"
+    if (lint.get("score") or 0) >= EDITABLE_REPAIR_BELOW:
+        return f"score {lint.get('score')} is at least {EDITABLE_REPAIR_BELOW}"
+    if not el.mechanical(lint):
+        return "no mechanical violations"
+    if elapsed > EDITABLE_REPAIR_BUDGET_S:
+        return "the build has run long"
+    return ""
+
+
+def repair_text(bundle: dict[str, Any], lint: dict[str, Any]) -> tuple[str, list[str]]:
+    """``(user message, paths shown in full)`` of the editability repair call: the violations with a one-line fix each and the
+    full text of the files they are in."""
+    from . import editability_lint as el
+    vs = el.mechanical(lint)
+    paths = list(dict.fromkeys(v["file"] for v in vs))
+    by = {f["path"]: f["content"] for f in _app_files(bundle)}
+    shown = _fit([(p, by[p]) for p in paths if p in by], FIX_CONTEXT_CHARS)
+    lines = [f"- {v['file']}:{v['line']} [{v['rule']}] {v['message']}. Fix: {v['fix']}" for v in vs]
+    parts = ["## Make the app's UI editable",
+             f"The app works. Its UI scores {lint.get('score')} on editability (share of elements the visual editor can change); "
+             "rewrite the places below into the editable shape of the system prompt. Change ONLY app view files (`App.tsx`, `views/`, "
+             "components): no tables, modules, seed or tests. Keep the behaviour and the look exactly; edit surgically (small `edits`), "
+             "keep every `api.` call as it is, and leave anything you are unsure of unchanged.",
+             "", "## Violations (file:line)", *lines, "", "## The files (current text)", _file_blocks(shown), "", _CHANGE_RULES]
+    return "\n".join(parts), [p for p, _ in shown]
+
+
+def _merge_app_files(bundle: dict[str, Any], raw: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    """``bundle`` with only the app view files of ``raw`` applied (kit, client, deletes, tables, modules, seed and tests ignored)."""
+    ch = normalize_bundle(raw)
+    out = copy.deepcopy(bundle)
+    files = {f["path"]: f for f in out["app"]["files"]}
+    changed = []
+    for f in ch["app"]["files"]:
+        p = f["path"]
+        if p.startswith("kit/") or p == CLIENT_PATH or not p.endswith(_UI_EXT) or files.get(p, {}).get("content") == f["content"]:
+            continue
+        files[p] = f
+        changed.append(p)
+    out["app"]["files"] = list(files.values())
+    return out, changed
+
+
+async def _repair_gate(project_id: str, before: dict[str, Any], after: dict[str, Any]) -> list[str]:
+    """Problems of the repaired app before it is saved: the TSX gates, and any change to the operations it calls."""
+    from . import builder_gates as bg
+    from .project_service import resolve_project
+
+    old, _ = scan_api_calls(_app_files(before))
+    new, _ = scan_api_calls(_app_files(after))
+    out = [f"api.{op}() is new" for op in sorted(set(new) - set(old))]
+    async with bc._factory()() as s:
+        gate = await bg.check_app_files(s, await resolve_project(s, project_id), _app_files(after))
+    out += list(gate["tsc"]["errors"])
+    for k in ("syntax", "contract", "call_shape", "invented_literals"):
+        out += list(gate[k])
+    return out
+
+
+async def _repair(project_id: str, bundle: dict[str, Any], loaded: dict[str, Any], lint: dict[str, Any], rep: dict[str, Any], *,
+                  name: str | None, known: set[str] | None, timer: Timer, smoke: bool,
+                  log: Log | None) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """One model call that rewrites the app's views into the editable shape. Kept only when the result passes the gates before it
+    is saved and loads clean after; otherwise the working bundle stays (and is saved again if the repaired one was). Never raises."""
+    async def say(msg: str) -> None:
+        if log is not None:
+            await log(msg)
+
+    t0 = time.monotonic()
+    rep = {**rep, "ran": True}
+    await say(f"Editability {lint.get('score')}: one pass to make the UI editable")
+    saved = False
+    try:
+        user, shown = repair_text(bundle, lint)
+        raw = await ask_changes(user, shown, bundle, phase="repair", timer=timer)
+        new, changed = _merge_app_files(bundle, raw)
+        if not changed:
+            rep["reason"] = "the repair changed no app file"
+        elif problems := await _repair_gate(project_id, bundle, new):
+            rep["reason"] = f"discarded: {len(problems)} problem(s), e.g. {str(problems[0])[:200]}"
+        else:
+            saved = True
+            nl, nchk = await _load_check(project_id, new, app_id=loaded["app_id"], app_name=name, save_app=True, known=known,
+                                         timer=timer, phase="repair", prompt="one-shot build (editability repair)", smoke=smoke, log=log)
+            if nl["errors"] or nchk["errors"]:
+                rep["reason"] = f"discarded: the repaired app failed its checks ({(nl['errors'] + nchk['errors'])[0]['message'][:200]})"
+            else:
+                after = await _editability(new)
+                rep.update(kept=True, reason=f"{len(changed)} file(s) changed", score_after=(after or {}).get("score"), lint=after or lint)
+                bundle, loaded = new, nl
+    except Exception as e:  # noqa: BLE001 - the repair is an extra; the working build always stands
+        logger.warning("one-shot: the editability repair failed", exc_info=True)
+        rep["reason"] = f"discarded: {type(e).__name__}: {str(e)[:200]}"
+    if saved and not rep["kept"]:
+        try:      # the repaired version was saved: save the working one again so it is the app's current version
+            loaded, _ = await _load_check(project_id, bundle, app_id=loaded["app_id"], app_name=name, save_app=True, known=known,
+                                          timer=timer, phase="repair_restore", prompt="one-shot build", smoke=False, log=log)
+        except Exception:  # noqa: BLE001
+            logger.warning("one-shot: restoring the app after a failed repair failed", exc_info=True)
+    rep["seconds"] = round(time.monotonic() - t0, 2)
+    await say(("Editability repair kept: " if rep["kept"] else "Editability repair not kept: ") + rep["reason"])
+    return bundle, loaded, rep
 
 
 async def current_bundle(project_id: str, app_id: str) -> dict[str, Any]:
@@ -1918,7 +2213,7 @@ async def record_plan_revision(project_id: str, tables: list[dict[str, Any]]) ->
 
 async def edit_app(project_id: str, app_id: str, request: str, *, save_app: bool = True, log: Log | None = None,
                    timer: Timer | None = None, smoke: bool = True, known_modules: set[str] | None = None,
-                   bundle: dict[str, Any] | None = None) -> dict[str, Any]:
+                   bundle: dict[str, Any] | None = None, notes: str = "") -> dict[str, Any]:
     """One model call that sees the request, an index of the app and the files the request is about (:func:`select_for_request`; any
     other file through ``read_files``), and returns the changed parts as targeted ``edits`` or whole files (new / changed table columns
     included); then load + check + one fix pass. A data change records a plan revision.
@@ -1926,7 +2221,7 @@ async def edit_app(project_id: str, app_id: str, request: str, *, save_app: bool
     timer = timer or Timer()
     await _load_db_context(project_id)
     current = bundle or await current_bundle(project_id, app_id)
-    user, shown = edit_prompt(current, request)
+    user, shown = edit_prompt(current, request, notes)
     with timer.phase("edit"):
         raw = await ask_changes(user, shown, current, phase="edit", timer=timer)
     merged = merge_changes(current, raw)

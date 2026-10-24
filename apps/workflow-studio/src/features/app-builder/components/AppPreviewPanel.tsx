@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
-import { AlertTriangle, ExternalLink, Lock, Monitor, RotateCw, Smartphone, Sparkles, Tablet, Terminal } from 'lucide-react'
+import { AlertTriangle, ExternalLink, Lock, Monitor, MousePointerClick, Palette, Redo2, RotateCw, Smartphone, Sparkles, Tablet, Terminal, Undo2 } from 'lucide-react'
 import { IframeSandbox, type BridgeCall } from '../sandbox/IframeSandbox'
 import type { AppFile } from '../sandbox/esbuild-bundler'
 import { FileTree, FileTreeFolder, FileTreeFile } from '@/shared/components/ai-elements/file-tree'
@@ -28,6 +28,13 @@ import { isClientPath } from '../lib/appModel'
 import { loadViewAs, saveViewAs, type ViewAsState } from '../lib/previewUsers'
 import { ViewAsMenu } from './ViewAsMenu'
 import { errorsLabel, type PreviewError } from '../lib/previewErrors'
+import { useVisualEdit } from '../visual/useVisualEdit'
+import { useEditHistory } from '../visual/history'
+import { VisualEditPanel } from '../visual/VisualEditPanel'
+import { CanvasToolbar } from '../visual/canvas/CanvasToolbar'
+import { ThemePanel } from '../visual/theme/ThemePanel'
+import { useDeviceStore } from '../visual/style/deviceStore'
+import { Popover, PopoverContent, PopoverTrigger } from '@/shared/components/ui/popover'
 
 export type BuilderMode = 'preview' | 'code'
 type Device = 'desktop' | 'tablet' | 'phone'
@@ -60,6 +67,14 @@ interface AppPreviewPanelProps {
   fixDisabled?: boolean
   /** an automatic fix was already sent for this version */
   autoFixed?: boolean
+  /** the visual-editing trial (flag-gated by the shell): absent, the preview is exactly as before */
+  visual?: {
+    onAskAi: (prompt: string) => void
+    /** a chat turn is writing the files: visual edits and Ask AI wait */
+    busy: boolean
+    /** a visual save is in flight: Ask AI waits (visual edits don't) */
+    aiBusy?: boolean
+  }
 }
 
 function PreviewErrorsBar({ errors, onFix, disabled, autoFixed }: { errors: PreviewError[]; onFix?: () => void; disabled?: boolean; autoFixed?: boolean }) {
@@ -298,8 +313,11 @@ export function AppPreviewPanel({
   onFixErrors,
   fixDisabled,
   autoFixed,
+  visual,
 }: AppPreviewPanelProps) {
-  const [device, setDevice] = useState<Device>('desktop')
+  // the device lives in the style panel's store: style edits land on this device's breakpoint (visual/style/breakpoints.ts)
+  const device = useDeviceStore((s) => s.device)
+  const setDevice = useDeviceStore((s) => s.setDevice)
   const [reloadKey, setReloadKey] = useState(0)
   const [consoleOpen, setConsoleOpen] = useState(false)
   const [viewAs, setViewAs] = useState<ViewAsState>(() => loadViewAs(appId))
@@ -309,6 +327,63 @@ export function AppPreviewPanel({
     saveViewAs(appId, next)
   }
   const appFiles = files?.filter((f) => !isClientPath(f.path)) ?? []
+  const ve = useVisualEdit(files, !!visual?.busy)
+  const canUndo = useEditHistory((s) => s.past.length > 0)
+  const canRedo = useEditHistory((s) => s.future.length > 0)
+  const undoLabel = useEditHistory((s) => s.past[s.past.length - 1]?.label)
+  const notice = useEditHistory((s) => s.notice)
+  const historyOn = !!visual && !visual.busy
+
+  // ⌘Z / ⌘⇧Z undo and redo every change (visual and chat), unless a text box has the keys
+  useEffect(() => {
+    if (!historyOn) return
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'z') return
+      const t = e.target as HTMLElement | null
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return
+      e.preventDefault()
+      if (e.shiftKey) useEditHistory.getState().redo()
+      else useEditHistory.getState().undo()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [historyOn])
+
+  // Alt+Arrow moves the selected element among its siblings (the preview forwards the same keys)
+  const veMove = ve.move
+  const moveOn = historyOn && ve.editing
+  useEffect(() => {
+    if (!moveOn) return
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.altKey || !/^Arrow(Up|Down|Left|Right)$/.test(e.key)) return
+      const t = e.target as HTMLElement | null
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return
+      e.preventDefault()
+      veMove(e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? -1 : 1)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [moveOn, veMove])
+
+  // Delete / Backspace deletes the selected element, ⌘D / Ctrl+D duplicates it (the preview forwards the same keys)
+  const veRemove = ve.remove
+  const veDuplicate = ve.duplicate
+  const hasSelection = !!ve.selection
+  useEffect(() => {
+    if (!moveOn || !hasSelection) return
+    const onKey = (e: KeyboardEvent) => {
+      const del = (e.key === 'Delete' || e.key === 'Backspace') && !e.altKey && !e.metaKey && !e.ctrlKey
+      const dup = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd'
+      if (!del && !dup) return
+      const t = e.target as HTMLElement | null
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return
+      e.preventDefault()
+      if (del) veRemove()
+      else veDuplicate()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [moveOn, hasSelection, veRemove, veDuplicate])
 
   if (mode === 'code') return <CodeView files={files} focus={codeFocus} />
 
@@ -326,6 +401,49 @@ export function AppPreviewPanel({
           ]}
         />
         <ViewAsMenu state={viewAs} onChange={changeViewAs} />
+        {visual && (
+          <>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className={cn(ve.editing && 'bg-raise text-foreground shadow-raise-sm')}
+                    onClick={() => ve.setEditing(!ve.editing)}
+                    aria-pressed={ve.editing}
+                    aria-label="Edit visually"
+                    data-testid="preview-visual-edit"
+                  />
+                }
+              >
+                <MousePointerClick />
+              </TooltipTrigger>
+              <TooltipContent>{ve.editing ? 'Stop editing' : 'Select and edit elements'}</TooltipContent>
+            </Tooltip>
+            <Button variant="ghost" size="icon-sm" disabled={!historyOn || !canUndo} onClick={() => useEditHistory.getState().undo()} aria-label="Undo" title={undoLabel ? `Undo ${undoLabel}` : 'Undo'} data-testid="preview-undo">
+              <Undo2 />
+            </Button>
+            <Button variant="ghost" size="icon-sm" disabled={!historyOn || !canRedo} onClick={() => useEditHistory.getState().redo()} aria-label="Redo" title="Redo" data-testid="preview-redo">
+              <Redo2 />
+            </Button>
+            <Popover>
+              <PopoverTrigger
+                render={<Button variant="ghost" size="icon-sm" aria-label="Theme" title="Theme" data-testid="preview-theme" />}
+              >
+                <Palette />
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-[300px] p-0">
+                <ThemePanel disabled={visual.busy} />
+              </PopoverContent>
+            </Popover>
+            {notice && (
+              <span className="max-w-[200px] truncate text-[11px] text-muted-foreground" title={notice} data-testid="preview-history-notice">
+                {notice}
+              </span>
+            )}
+          </>
+        )}
         {showUrl ? (
           <div
             className="mx-auto flex h-7 min-w-0 max-w-[460px] flex-1 items-center gap-2 rounded-ctl bg-recess px-2.5 font-mono text-[11.5px] text-muted-foreground"
@@ -382,7 +500,8 @@ export function AppPreviewPanel({
         )}
       </div>
 
-      <div className="relative min-h-0 flex-1 overflow-hidden bg-recess">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+      <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-recess">
         {clientLoading && appFiles.length > 0 ? (
           <div className="flex h-full items-center justify-center" data-testid="preview-client-loading">
             <Spinner className="size-4 text-muted-foreground" />
@@ -393,14 +512,17 @@ export function AppPreviewPanel({
           </EmptyState>
         ) : (
           <div className="mx-auto h-full transition-[width] duration-150" style={{ width: DEVICE_WIDTH[device], maxWidth: '100%' }}>
-            <IframeSandbox key={`${reloadKey}:${viewer?.id ?? ''}`} viewAs={viewer} projectSlug={projectSlug} workflowPaths={workflowPaths} allowedRoutes={allowedRoutes} files={files} getToken={getToken} refreshToken={refreshToken} onApiCall={onApiCall} onPreviewErrors={onPreviewErrors} />
+            <IframeSandbox key={`${reloadKey}:${viewer?.id ?? ''}`} viewAs={viewer} projectSlug={projectSlug} workflowPaths={workflowPaths} allowedRoutes={allowedRoutes} files={files} getToken={getToken} refreshToken={refreshToken} onApiCall={onApiCall} onPreviewErrors={onPreviewErrors} visualEdit={visual ? ve.bridge : undefined} />
           </div>
         )}
+        {visual && ve.editing && appFiles.length > 0 && !clientLoading && <CanvasToolbar ve={ve} />}
         {consoleOpen && (
           <div className="absolute inset-x-0 bottom-0 z-20 h-[min(220px,45%)] glass-overlay rounded-none">
             <BottomPanel />
           </div>
         )}
+      </div>
+      {visual && ve.editing && appFiles.length > 0 && <VisualEditPanel ve={ve} onAskAi={visual.onAskAi} busy={visual.busy || !!visual.aiBusy} onClose={() => ve.setEditing(false)} />}
       </div>
       {previewErrors && previewErrors.length > 0 && (
         <PreviewErrorsBar errors={previewErrors} onFix={onFixErrors} disabled={fixDisabled} autoFixed={autoFixed} />

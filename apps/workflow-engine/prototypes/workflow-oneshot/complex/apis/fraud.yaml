@@ -1,0 +1,94 @@
+openapi: 3.0.3
+info:
+  title: fraud
+  version: '1.0'
+servers:
+- url: http://fraud.bank.test
+paths:
+  /flagged-transactions:
+    get:
+      operationId: listFlagged
+      summary: Card transactions flagged by the fraud model since the last pull
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transactions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        txn_id:
+                          type: string
+                        card_id:
+                          type: string
+                        customer_phone:
+                          type: string
+                        score:
+                          type: integer
+                      required:
+                      - txn_id
+                      - card_id
+                      - customer_phone
+                      - score
+                required:
+                - transactions
+  /transactions/{txn_id}/clear:
+    post:
+      operationId: clear
+      summary: Mark a flagged transaction as fine
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  txn_id:
+                    type: string
+                  status:
+                    type: string
+                required:
+                - txn_id
+                - status
+      parameters:
+      - name: txn_id
+        in: path
+        required: true
+        schema:
+          type: string
+  /cases:
+    post:
+      operationId: openCase
+      summary: Open a fraud case
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  case_id:
+                    type: string
+                required:
+                - case_id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                card_id:
+                  type: string
+                txn_id:
+                  type: string
+              required:
+              - card_id
+              - txn_id

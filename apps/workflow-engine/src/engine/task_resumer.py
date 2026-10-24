@@ -97,6 +97,23 @@ def load_pending(raw: dict[str, dict[str, Any]] | None) -> dict[str, dict[str, A
     }
 
 
+def _dump_internal_state(context: Any) -> dict[str, Any]:
+    """Per-node state kept across a node's runs in one execution (a Loop's pending items and cursor, a Poll's attempt
+    counter). Without it a resumed Loop forgets its items and re-emits the loop-back item as the next one.
+
+    Only JSON-safe entries are stored; a sub-workflow call memo (keyed by the identity of an in-memory input list) is
+    meaningless in a fresh runner and is left out."""
+    out: dict[str, Any] = {}
+    for key, value in (getattr(context, "node_internal_state", None) or {}).items():
+        if key.endswith(":subworkflow"):
+            continue
+        try:
+            out[key] = json.loads(json.dumps(value))
+        except (TypeError, ValueError):
+            logger.warning("node state %r is not JSON-safe and is not kept across the approval pause", key)
+    return out
+
+
 def build_snapshot(context: Any, entry: dict[str, Any]) -> dict[str, Any]:
     """The resume snapshot of one suspension (``context.suspensions`` entry). Raises ``SnapshotTooLargeError`` over 1 MB.
 
@@ -127,6 +144,7 @@ def build_snapshot(context: Any, entry: dict[str, Any]) -> dict[str, Any]:
         "input_items": items_out,
         "pending_inputs": pending,
         "node_run_counts": counts,
+        "node_internal_state": _dump_internal_state(context),
         "mode": context.mode,
         "environment": context.environment,
         "project_id": context.project_id,
@@ -139,6 +157,8 @@ def build_snapshot(context: Any, entry: dict[str, Any]) -> dict[str, Any]:
         },
         "screen": (iface.get("screens") or {}).get(f"task:{node}"),
     }
+    if payload.get("per_item"):  # one task per item: the run resumes once every task of the group is settled
+        snapshot["per_item"] = True
     size = len(json.dumps(snapshot, default=str))
     if size > MAX_SNAPSHOT_BYTES:
         raise SnapshotTooLargeError(size)
@@ -151,7 +171,8 @@ def build_snapshot(context: Any, entry: dict[str, Any]) -> dict[str, Any]:
 async def _claim(sf: Callable[[], Any], task_id: str) -> dict[str, Any] | str:
     """Claim a decided task for this process. Returns the task row (with ``snapshot``) or why nothing happened:
     ``not_found`` / ``not_pending`` / ``busy`` (another resume of the same run is in flight, retried later) /
-    ``closed`` (the run was cancelled or already ended)."""
+    ``closed`` (the run was cancelled or already ended) / ``waiting`` (a per_item task whose group still has open
+    tasks: it is marked ``done`` and the claim of the group's last settled task resumes for all of them)."""
     from ..repositories.task_repository import _row
 
     async with sf() as session:
@@ -179,6 +200,27 @@ async def _claim(sf: Callable[[], Any], task_id: str) -> dict[str, Any] | str:
             )
             await session.commit()
             return "closed"
+        # The tasks of this node-run (more than one for a per_item Approval). The execution row lock above serialises
+        # every claim of this run, and each claim reads after its own decision committed, so the claim of the last
+        # task to settle always sees the whole group settled: the run resumes exactly once.
+        group = [_row(g) for g in (await session.execute(
+            text("""SELECT id, status, decision, decided_by, item_index, resume_state FROM human_tasks
+                     WHERE execution_id = :e AND node_name = :n AND run_index = :r ORDER BY item_index FOR UPDATE"""),
+            {"e": row["execution_id"], "n": row["node_name"], "r": row["run_index"]},
+        )).mappings().all()]
+        if any(g["status"] == "open" for g in group):
+            # settled, but others of its group are still open: nothing to resume yet (the last one resumes for all)
+            await session.execute(
+                text("UPDATE human_tasks SET resume_state = 'done', updated_at = now() WHERE id = :id"), {"id": task_id}
+            )
+            await session.commit()
+            return "waiting"
+        await session.execute(
+            text("""UPDATE human_tasks SET resume_state = 'done', updated_at = now()
+                     WHERE execution_id = :e AND node_name = :n AND run_index = :r AND id <> :id
+                       AND resume_state = 'pending'"""),
+            {"e": row["execution_id"], "n": row["node_name"], "r": row["run_index"], "id": task_id},
+        )  # absorbed: this claim resumes for the whole group
         await session.execute(
             text("""UPDATE human_tasks SET resume_state = 'running', resume_owner = :boot, resume_heartbeat = now(),
                            updated_at = now() WHERE id = :id"""),
@@ -191,7 +233,9 @@ async def _claim(sf: Callable[[], Any], task_id: str) -> dict[str, Any] | str:
             {"e": row["execution_id"], "patch": json.dumps({"resumed_at": datetime.now().isoformat()})},
         )
         await session.commit()
-        return _row(row)
+        claimed = _row(row)
+        claimed["group"] = group
+        return claimed
 
 
 async def _heartbeat(sf: Callable[[], Any], task_id: str) -> None:
@@ -235,6 +279,23 @@ def decision_of(task: dict[str, Any]) -> dict[str, Any]:
     return d
 
 
+def resume_decision_of(task: dict[str, Any]) -> dict[str, Any]:
+    """What the Approval node is handed on resume. A per_item group also gets ``items``: every task's decision, by
+    ``item_index``."""
+    snap = task.get("snapshot") or {}
+    out: dict[str, Any] = {
+        "task_id": task["id"], "node": task["node_name"], "run_index": task["run_index"],
+        "decision": decision_of(task), "node_run_counts": snap.get("node_run_counts") or {},
+        "node_internal_state": snap.get("node_internal_state") or {},
+    }
+    if snap.get("per_item"):
+        out["items"] = [
+            {"item_index": g["item_index"], "task_id": g["id"], "decision": decision_of(g)}
+            for g in task.get("group") or [task]
+        ]
+    return out
+
+
 async def _run_resume(sf: Callable[[], Any], task: dict[str, Any]) -> None:
     from ..repositories.execution_repository import ExecutionRepository
     from ..repositories.workflow_repository import WorkflowRepository, definition_to_workflow
@@ -269,17 +330,14 @@ async def _run_resume(sf: Callable[[], Any], task: dict[str, Any]) -> None:
             pending_inputs=load_pending(snap.get("pending_inputs")),
             execution_id=task["execution_id"],
             skip_start=True,
-            resume_decision={
-                "task_id": task["id"], "node": task["node_name"], "run_index": task["run_index"],
-                "decision": decision_of(task), "node_run_counts": snap.get("node_run_counts") or {},
-            },
+            resume_decision=resume_decision_of(task),
             stored_override=override,
         )
 
 
 async def claim_and_resume(task_id: str, session_factory: Callable[[], Any] | None = None) -> str:
     """Claim and run the resume of one decided task. Returns an outcome string:
-    ``resumed`` / ``failed`` / ``fault_injected`` / ``busy`` / ``closed`` / ``not_pending`` / ``not_found``."""
+    ``resumed`` / ``failed`` / ``fault_injected`` / ``busy`` / ``closed`` / ``waiting`` / ``not_pending`` / ``not_found``."""
     from ..repositories.execution_repository import ExecutionRepository
     from ..repositories.task_repository import TaskRepository
     from . import execution_registry

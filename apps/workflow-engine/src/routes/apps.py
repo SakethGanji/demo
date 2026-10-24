@@ -13,7 +13,7 @@ from ..schemas.app import (
     CreateVersionRequest,
     UpdateVersionLabelRequest,
 )
-from ..services.app_service import AppPublishError, AppService, AppValidationError, SlugTakenError
+from ..services.app_service import AppPublishError, AppService, AppValidationError, SlugTakenError, StaleBaseError
 
 router = APIRouter(prefix="/apps")
 
@@ -61,6 +61,8 @@ async def update_app(
 ):
     try:
         result = await service.update_app(app_id, req)
+    except StaleBaseError as e:
+        raise HTTPException(status_code=409, detail=e.detail()) from e
     except AppValidationError as e:
         raise HTTPException(status_code=422, detail=e.detail()) from e
     except SlugTakenError as e:

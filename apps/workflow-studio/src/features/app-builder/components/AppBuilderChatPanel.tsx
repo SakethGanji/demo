@@ -19,6 +19,7 @@ import {
   Square,
   SquarePen,
   Wrench,
+  X,
 } from 'lucide-react'
 import { useAppBuilderChatStore, type AppChatMessage } from '../stores/appBuilderChatStore'
 import { PlanRevisionCard } from '@/features/plan/PlanRevisionCard'
@@ -37,6 +38,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/components/ui/
 import { MethodBadge } from '@/shared/components/api/MethodBadge'
 import type { Route } from '@/shared/api/types'
 import { RoutePicker } from './RoutePicker'
+import { chipLabel, useAskAi } from '../visual/askAi'
 
 const TOOL_LABEL: Record<string, string> = {
   write_files: 'Writing',
@@ -325,6 +327,10 @@ const Composer = forwardRef<
       })
     }
   }, [draft])
+  const picked = useAskAi((s) => s.selection)
+  const dismissed = useAskAi((s) => s.dismissed)
+  const dismiss = useAskAi((s) => s.dismiss)
+  const chip = picked && dismissed !== `${picked.file}:${picked.line}` ? picked : null
   const submit = () => {
     const t = text.trim()
     if (!t || streaming || locked) return
@@ -333,6 +339,16 @@ const Composer = forwardRef<
   }
   return (
     <div className="mx-3 mb-3 rounded-panel bg-recess has-[textarea:focus-visible]:shadow-focus" data-recess>
+      {chip && (
+        <div className="px-2 pt-2" data-testid="chat-selection-chip">
+          <Badge variant="ai" className="max-w-full gap-1 pr-1">
+            <span className="truncate">{chipLabel(chip)}</span>
+            <button type="button" className="rounded-full p-0.5 hover:bg-(--hover-fill)" aria-label="Remove the selected element from this message" onClick={dismiss}>
+              <X />
+            </button>
+          </Badge>
+        </div>
+      )}
       <textarea
         ref={taRef}
         value={text}

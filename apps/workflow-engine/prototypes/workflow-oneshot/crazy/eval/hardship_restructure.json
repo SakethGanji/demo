@@ -1,0 +1,1203 @@
+{
+ "id": "hardship_restructure",
+ "request": "Customers in financial difficulty apply by webhook with loan_id, customer_email and reason. Look the loan up in core banking; if it isn't there, reply 404 {status: 'not_found'} and stop. Otherwise reply 202 {status: 'in_review'} straight away and carry on. A collections officer (task for COLLECTIONS_OFFICER_EMAIL, due in 2 days) assesses it and chooses plan (payment_holiday, term_extension or reduced_payments) and months; they can also reject it. A payment holiday longer than 3 months, or any plan on a loan with more than 50,000 outstanding, also needs the risk manager (RISK_MANAGER_EMAIL, due in 1 day, rejected automatically if nobody decides). Once approved, email the customer the offer (plan and months) and give COLLECTIONS_OFFICER_EMAIL a task, due in 5 days, to record the customer's answer as customer_response (accepted or declined). If there's no answer in 5 days, email the customer a reminder and give the officer the task again, due in 5 more days; if that runs out too, the offer lapses: email the customer and record the plan in ops_db restructure_plans with status 'lapsed'. Accepted: apply it through core banking (restructureLoan with plan and months), and in one ops_db transaction insert the restructure_plans row (loan id, plan, months, status 'active') and an audit_log row (entity 'loan', the loan id, action 'restructured'); then email the customer a confirmation. Declined by the customer or rejected by the officer or risk manager: email the customer, and record the plan with status 'declined'.",
+ "apis": [
+  "accounts.yaml"
+ ],
+ "tables": {},
+ "expect": {
+  "trigger": "Webhook",
+  "must_have_types": [
+   "Approval",
+   "Postgres",
+   "Respond",
+   "SendEmail"
+  ],
+  "must_call": [
+   "accounts.restructureLoan"
+  ],
+  "max_nodes": 40,
+  "min_types": {
+   "Approval": 4
+  }
+ },
+ "hidden_tests": [
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Unknown loan: 404 and nothing else",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "loan_id": "L3",
+       "customer_email": "jo@mail.test",
+       "reason": "lost my job"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pg:loans": {
+     "items": [
+      {
+       "rows": [],
+       "rowCount": 0
+      }
+     ]
+    },
+    "$nth:Approval:COLLECTIONS_OFFICER_EMAIL:1": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "plan": "payment_holiday",
+       "months": 3
+      },
+      "decided_by": "test"
+     }
+    },
+    "$has:Approval:RISK_MANAGER_EMAIL?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:COLLECTIONS_OFFICER_EMAIL:2?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "customer_response": "accepted"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:COLLECTIONS_OFFICER_EMAIL:3?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "customer_response": "accepted"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$api:accounts.restructureLoan?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "loan_id": "L3",
+       "status": "restructured"
+      }
+     }
+    },
+    "$pgw:restructure_plans?": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "$all:SendEmail?": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "statusCode",
+     "op": "eq",
+     "value": 404
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$all:Approval",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "3-month holiday, accepted first time: 202 then restructured",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "loan_id": "L3",
+       "customer_email": "jo@mail.test",
+       "reason": "lost my job"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pg:loans": {
+     "items": [
+      {
+       "rows": [
+        {
+         "loan_id": "L3",
+         "customer_id": "CU3",
+         "outstanding": "20000.00",
+         "days_past_due": 10,
+         "status": "active"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "$nth:Approval:COLLECTIONS_OFFICER_EMAIL:1": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "plan": "payment_holiday",
+       "months": 3
+      },
+      "decided_by": "test"
+     }
+    },
+    "$has:Approval:RISK_MANAGER_EMAIL?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:COLLECTIONS_OFFICER_EMAIL:2?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "customer_response": "accepted"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:COLLECTIONS_OFFICER_EMAIL:3?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "customer_response": "accepted"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$api:accounts.restructureLoan?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "loan_id": "L3",
+       "status": "restructured"
+      }
+     }
+    },
+    "$pgw:restructure_plans?": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "$all:SendEmail?": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "statusCode",
+     "op": "eq",
+     "value": 202
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "body.status",
+     "op": "eq",
+     "value": "in_review"
+    },
+    {
+     "node": "$has:Approval:RISK_MANAGER_EMAIL?",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$api:accounts.restructureLoan",
+     "subject": "request",
+     "item": "any",
+     "path": "body.plan",
+     "op": "eq",
+     "value": "payment_holiday"
+    },
+    {
+     "node": "$api:accounts.restructureLoan",
+     "subject": "request",
+     "item": "any",
+     "path": "body.months",
+     "op": "eq",
+     "value": 3
+    },
+    {
+     "node": "$pgw:restructure_plans?",
+     "subject": "request",
+     "item": "any",
+     "path": "text",
+     "op": "contains",
+     "value": "active"
+    },
+    {
+     "node": "$pgw:restructure_plans?",
+     "subject": "request",
+     "item": "any",
+     "path": "sql",
+     "op": "contains",
+     "value": "audit_log"
+    },
+    {
+     "node": "$all:SendEmail",
+     "subject": "request",
+     "item": "any",
+     "path": "params.toEmail",
+     "op": "eq",
+     "value": "jo@mail.test"
+    },
+    {
+     "node": "$all:SendEmail",
+     "subject": "request",
+     "op": "count",
+     "value": 2
+    },
+    {
+     "node": "$nth:Approval:COLLECTIONS_OFFICER_EMAIL:2?",
+     "subject": "request",
+     "item": "any",
+     "path": "params.due_in",
+     "op": "one_of",
+     "value": [
+      "5d",
+      "120h"
+     ]
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "4-month holiday needs the risk manager",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "loan_id": "L3",
+       "customer_email": "jo@mail.test",
+       "reason": "lost my job"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pg:loans": {
+     "items": [
+      {
+       "rows": [
+        {
+         "loan_id": "L3",
+         "customer_id": "CU3",
+         "outstanding": "20000.00",
+         "days_past_due": 10,
+         "status": "active"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "$nth:Approval:COLLECTIONS_OFFICER_EMAIL:1": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "plan": "payment_holiday",
+       "months": 4
+      },
+      "decided_by": "test"
+     }
+    },
+    "$has:Approval:RISK_MANAGER_EMAIL?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:COLLECTIONS_OFFICER_EMAIL:2?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "customer_response": "accepted"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:COLLECTIONS_OFFICER_EMAIL:3?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "customer_response": "accepted"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$api:accounts.restructureLoan?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "loan_id": "L3",
+       "status": "restructured"
+      }
+     }
+    },
+    "$pgw:restructure_plans?": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "$all:SendEmail?": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$has:Approval:RISK_MANAGER_EMAIL?",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$has:Approval:RISK_MANAGER_EMAIL?",
+     "subject": "request",
+     "item": "any",
+     "path": "params.on_timeout",
+     "op": "eq",
+     "value": "reject"
+    },
+    {
+     "node": "$api:accounts.restructureLoan",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Over 50,000 outstanding: risk manager rejects, customer told, declined recorded",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "loan_id": "L3",
+       "customer_email": "jo@mail.test",
+       "reason": "lost my job"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pg:loans": {
+     "items": [
+      {
+       "rows": [
+        {
+         "loan_id": "L3",
+         "customer_id": "CU3",
+         "outstanding": "50000.01",
+         "days_past_due": 10,
+         "status": "active"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "$nth:Approval:COLLECTIONS_OFFICER_EMAIL:1": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "plan": "term_extension",
+       "months": 12
+      },
+      "decided_by": "test"
+     }
+    },
+    "$has:Approval:RISK_MANAGER_EMAIL?": {
+     "port": "rejected",
+     "approval": {
+      "decision": "rejected",
+      "comment": "too large",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:COLLECTIONS_OFFICER_EMAIL:2?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "customer_response": "accepted"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:COLLECTIONS_OFFICER_EMAIL:3?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "customer_response": "accepted"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$api:accounts.restructureLoan?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "loan_id": "L3",
+       "status": "restructured"
+      }
+     }
+    },
+    "$pgw:restructure_plans?": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "$all:SendEmail?": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$has:Approval:RISK_MANAGER_EMAIL?",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$api:accounts.restructureLoan",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$nth:Approval:COLLECTIONS_OFFICER_EMAIL:2?",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$all:SendEmail",
+     "subject": "request",
+     "item": "any",
+     "path": "params.toEmail",
+     "op": "eq",
+     "value": "jo@mail.test"
+    },
+    {
+     "node": "$pgw:restructure_plans?",
+     "subject": "request",
+     "item": "any",
+     "path": "text",
+     "op": "contains",
+     "value": "declined"
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Customer silent 5 days, then declines",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "loan_id": "L3",
+       "customer_email": "jo@mail.test",
+       "reason": "lost my job"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pg:loans": {
+     "items": [
+      {
+       "rows": [
+        {
+         "loan_id": "L3",
+         "customer_id": "CU3",
+         "outstanding": "20000.00",
+         "days_past_due": 10,
+         "status": "active"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "$nth:Approval:COLLECTIONS_OFFICER_EMAIL:1": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "plan": "payment_holiday",
+       "months": 3
+      },
+      "decided_by": "test"
+     }
+    },
+    "$has:Approval:RISK_MANAGER_EMAIL?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:COLLECTIONS_OFFICER_EMAIL:2?": {
+     "port": "timed_out",
+     "approval": {
+      "decision": "timed_out",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:COLLECTIONS_OFFICER_EMAIL:3?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "customer_response": "declined"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$api:accounts.restructureLoan?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "loan_id": "L3",
+       "status": "restructured"
+      }
+     }
+    },
+    "$pgw:restructure_plans?": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "$all:SendEmail?": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$nth:Approval:COLLECTIONS_OFFICER_EMAIL:3?",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$api:accounts.restructureLoan",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$pgw:restructure_plans?",
+     "subject": "request",
+     "item": "any",
+     "path": "text",
+     "op": "contains",
+     "value": "declined"
+    },
+    {
+     "node": "$all:SendEmail",
+     "subject": "request",
+     "op": "count",
+     "value": 3
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Customer silent 10 days: lapsed",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "loan_id": "L3",
+       "customer_email": "jo@mail.test",
+       "reason": "lost my job"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pg:loans": {
+     "items": [
+      {
+       "rows": [
+        {
+         "loan_id": "L3",
+         "customer_id": "CU3",
+         "outstanding": "20000.00",
+         "days_past_due": 10,
+         "status": "active"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "$nth:Approval:COLLECTIONS_OFFICER_EMAIL:1": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "plan": "payment_holiday",
+       "months": 3
+      },
+      "decided_by": "test"
+     }
+    },
+    "$has:Approval:RISK_MANAGER_EMAIL?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:COLLECTIONS_OFFICER_EMAIL:2?": {
+     "port": "timed_out",
+     "approval": {
+      "decision": "timed_out",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:COLLECTIONS_OFFICER_EMAIL:3?": {
+     "port": "timed_out",
+     "approval": {
+      "decision": "timed_out",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$api:accounts.restructureLoan?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "loan_id": "L3",
+       "status": "restructured"
+      }
+     }
+    },
+    "$pgw:restructure_plans?": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "$all:SendEmail?": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$api:accounts.restructureLoan",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$pgw:restructure_plans?",
+     "subject": "request",
+     "item": "any",
+     "path": "text",
+     "op": "contains",
+     "value": "lapsed"
+    },
+    {
+     "node": "$all:SendEmail",
+     "subject": "request",
+     "op": "count",
+     "value": 3
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Officer rejects: no risk manager, no offer",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "loan_id": "L3",
+       "customer_email": "jo@mail.test",
+       "reason": "lost my job"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pg:loans": {
+     "items": [
+      {
+       "rows": [
+        {
+         "loan_id": "L3",
+         "customer_id": "CU3",
+         "outstanding": "20000.00",
+         "days_past_due": 10,
+         "status": "active"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "$nth:Approval:COLLECTIONS_OFFICER_EMAIL:1": {
+     "port": "rejected",
+     "approval": {
+      "decision": "rejected",
+      "comment": "not eligible",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$has:Approval:RISK_MANAGER_EMAIL?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:COLLECTIONS_OFFICER_EMAIL:2?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "customer_response": "accepted"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$nth:Approval:COLLECTIONS_OFFICER_EMAIL:3?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "customer_response": "accepted"
+      },
+      "decided_by": "test"
+     }
+    },
+    "$api:accounts.restructureLoan?": {
+     "http": {
+      "status": 200,
+      "body": {
+       "loan_id": "L3",
+       "status": "restructured"
+      }
+     }
+    },
+    "$pgw:restructure_plans?": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "$all:SendEmail?": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$has:Approval:RISK_MANAGER_EMAIL?",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$nth:Approval:COLLECTIONS_OFFICER_EMAIL:2?",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$pgw:restructure_plans?",
+     "subject": "request",
+     "item": "any",
+     "path": "text",
+     "op": "contains",
+     "value": "declined"
+    },
+    {
+     "node": "$all:SendEmail",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    }
+   ]
+  }
+ ],
+ "variables": {
+  "UNDERWRITER_EMAIL": {
+   "value": "underwriters@bank.test"
+  },
+  "HEAD_OF_LENDING_EMAIL": {
+   "value": "head-lending@bank.test"
+  },
+  "CREDIT_COMMITTEE_EMAIL": {
+   "value": "committee@bank.test"
+  },
+  "PAYMENTS_OPS_EMAIL": {
+   "value": "payops@bank.test"
+  },
+  "PAYMENTS_LEAD_EMAIL": {
+   "value": "paylead@bank.test"
+  },
+  "FRAUD_TEAM_EMAIL": {
+   "value": "fraud@bank.test"
+  },
+  "MLRO_EMAIL": {
+   "value": "mlro@bank.test"
+  },
+  "TREASURY_EMAIL": {
+   "value": "treasury@bank.test"
+  },
+  "KYC_TEAM_EMAIL": {
+   "value": "kyc@bank.test"
+  },
+  "RM_EMAIL": {
+   "value": "rm@bank.test"
+  },
+  "CISO_EMAIL": {
+   "value": "ciso@bank.test"
+  },
+  "COLLECTIONS_OFFICER_EMAIL": {
+   "value": "collections@bank.test"
+  },
+  "RISK_MANAGER_EMAIL": {
+   "value": "risk@bank.test"
+  },
+  "BANK_API_KEY": {
+   "value": "sk-bank-31337",
+   "secret": true
+  }
+ },
+ "subworkflows": [],
+ "databases": {
+  "core_banking": {
+   "writable": false,
+   "description": "read replica of core banking",
+   "tables": {
+    "customers": [
+     [
+      "customer_id",
+      "text"
+     ],
+     [
+      "full_name",
+      "text"
+     ],
+     [
+      "email",
+      "text"
+     ],
+     [
+      "phone",
+      "text"
+     ],
+     [
+      "segment",
+      "text"
+     ]
+    ],
+    "loans": [
+     [
+      "loan_id",
+      "text"
+     ],
+     [
+      "customer_id",
+      "text"
+     ],
+     [
+      "outstanding",
+      "numeric"
+     ],
+     [
+      "days_past_due",
+      "integer"
+     ],
+     [
+      "status",
+      "text"
+     ]
+    ]
+   }
+  },
+  "iam_db": {
+   "writable": false,
+   "description": "identity and access management",
+   "tables": {
+    "user_access": [
+     [
+      "user_id",
+      "text"
+     ],
+     [
+      "user_email",
+      "text"
+     ],
+     [
+      "system",
+      "text"
+     ],
+     [
+      "manager_email",
+      "text"
+     ]
+    ]
+   }
+  },
+  "ops_db": {
+   "writable": true,
+   "description": "our operations database",
+   "tables": {
+    "audit_log": [
+     [
+      "id",
+      "serial"
+     ],
+     [
+      "entity",
+      "text"
+     ],
+     [
+      "entity_id",
+      "text"
+     ],
+     [
+      "action",
+      "text"
+     ],
+     [
+      "detail",
+      "text"
+     ],
+     [
+      "created_at",
+      "timestamptz default now()"
+     ]
+    ],
+    "mortgage_applications": [
+     [
+      "application_id",
+      "text primary key"
+     ],
+     [
+      "applicant_email",
+      "text"
+     ],
+     [
+      "amount",
+      "numeric"
+     ],
+     [
+      "status",
+      "text"
+     ]
+    ],
+    "kyc_requests": [
+     [
+      "id",
+      "serial"
+     ],
+     [
+      "customer_id",
+      "text"
+     ],
+     [
+      "email",
+      "text"
+     ],
+     [
+      "requested_on",
+      "date"
+     ],
+     [
+      "reminders_sent",
+      "integer"
+     ],
+     [
+      "status",
+      "text: open | restricted | complete"
+     ]
+    ],
+    "restructure_plans": [
+     [
+      "id",
+      "serial"
+     ],
+     [
+      "loan_id",
+      "text"
+     ],
+     [
+      "plan",
+      "text"
+     ],
+     [
+      "months",
+      "integer"
+     ],
+     [
+      "status",
+      "text"
+     ]
+    ]
+   }
+  }
+ }
+}

@@ -1,0 +1,1380 @@
+{
+ "name": "Mortgage application",
+ "nodes": [
+  {
+   "name": "Application received",
+   "type": "Webhook",
+   "parameters": {
+    "method": "POST",
+    "path": "mortgage-applications"
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Get credit score",
+   "type": "HttpRequest",
+   "parameters": {
+    "method": "POST",
+    "url": "",
+    "api_ref": {
+     "spec_id": "bureau",
+     "operation_id": "creditScore"
+    },
+    "body": {
+     "applicant_id": "{{ $json.body.application_id }}"
+    }
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "Gather facts",
+   "type": "Set",
+   "parameters": {
+    "mode": "manual",
+    "fields": [
+     {
+      "name": "application_id",
+      "value": "{{ $node[\"Application received\"].json.body.application_id }}"
+     },
+     {
+      "name": "applicant_email",
+      "value": "{{ $node[\"Application received\"].json.body.applicant_email }}"
+     },
+     {
+      "name": "amount",
+      "value": "{{ $node[\"Application received\"].json.body.amount }}"
+     },
+     {
+      "name": "property_value",
+      "value": "{{ $node[\"Application received\"].json.body.property_value }}"
+     },
+     {
+      "name": "score",
+      "value": "{{ $json.body.score }}"
+     },
+     {
+      "name": "ltv",
+      "value": "{{ round(float($node[\"Application received\"].json.body.amount) / float($node[\"Application received\"].json.body.property_value), 2) }}"
+     }
+    ]
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Score below 580?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $json.score < 580 }}"
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Underwriter decision",
+   "type": "Approval",
+   "parameters": {
+    "title": "Mortgage decision for {{ $json.application_id }}",
+    "context": {
+     "Amount": "{{ $json.amount }}",
+     "Property value": "{{ $json.property_value }}",
+     "Loan to value": "{{ $json.ltv }}",
+     "Credit score": "{{ $json.score }}"
+    },
+    "form": [
+     {
+      "name": "approved_amount",
+      "label": "Approved amount",
+      "type": "number",
+      "required": true
+     },
+     {
+      "name": "conditions",
+      "label": "Conditions",
+      "type": "textarea",
+      "required": false
+     }
+    ],
+    "due_in": "2d",
+    "on_timeout": "timed_out",
+    "notify_email": "{{ $vars.UNDERWRITER_EMAIL }}"
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  },
+  {
+   "name": "Email underwriter reminder",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $vars.UNDERWRITER_EMAIL }}",
+    "subject": "Reminder: mortgage decision needed for {{ $node[\"Gather facts\"].json.application_id }}",
+    "bodyFormat": "plain",
+    "body": "The mortgage application {{ $node[\"Gather facts\"].json.application_id }} still needs your decision. You have one more day."
+   },
+   "position": {
+    "x": 950,
+    "y": 0
+   }
+  },
+  {
+   "name": "Underwriter second ask",
+   "type": "Approval",
+   "parameters": {
+    "title": "Mortgage decision (reminder) for {{ $node[\"Gather facts\"].json.application_id }}",
+    "context": {
+     "Amount": "{{ $node[\"Gather facts\"].json.amount }}",
+     "Property value": "{{ $node[\"Gather facts\"].json.property_value }}",
+     "Loan to value": "{{ $node[\"Gather facts\"].json.ltv }}",
+     "Credit score": "{{ $node[\"Gather facts\"].json.score }}"
+    },
+    "form": [
+     {
+      "name": "approved_amount",
+      "label": "Approved amount",
+      "type": "number",
+      "required": true
+     },
+     {
+      "name": "conditions",
+      "label": "Conditions",
+      "type": "textarea",
+      "required": false
+     }
+    ],
+    "due_in": "1d",
+    "on_timeout": "timed_out",
+    "notify_email": "{{ $vars.UNDERWRITER_EMAIL }}"
+   },
+   "position": {
+    "x": 1140,
+    "y": 0
+   }
+  },
+  {
+   "name": "Head of lending decision",
+   "type": "Approval",
+   "parameters": {
+    "title": "Mortgage decision (escalated) for {{ $node[\"Gather facts\"].json.application_id }}",
+    "context": {
+     "Amount": "{{ $node[\"Gather facts\"].json.amount }}",
+     "Property value": "{{ $node[\"Gather facts\"].json.property_value }}",
+     "Loan to value": "{{ $node[\"Gather facts\"].json.ltv }}",
+     "Credit score": "{{ $node[\"Gather facts\"].json.score }}"
+    },
+    "form": [
+     {
+      "name": "approved_amount",
+      "label": "Approved amount",
+      "type": "number",
+      "required": true
+     },
+     {
+      "name": "conditions",
+      "label": "Conditions",
+      "type": "textarea",
+      "required": false
+     }
+    ],
+    "due_in": "1d",
+    "on_timeout": "reject",
+    "notify_email": "{{ $vars.HEAD_OF_LENDING_EMAIL }}"
+   },
+   "position": {
+    "x": 0,
+    "y": 180
+   }
+  },
+  {
+   "name": "Capture decision",
+   "type": "Set",
+   "parameters": {
+    "mode": "manual",
+    "fields": [
+     {
+      "name": "approved_amount",
+      "value": "{{ $json.approval.form_data.approved_amount }}"
+     },
+     {
+      "name": "conditions",
+      "value": "{{ $json.approval.form_data.conditions }}"
+     }
+    ]
+   },
+   "position": {
+    "x": 190,
+    "y": 180
+   }
+  },
+  {
+   "name": "Over 500000?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ float($json.approved_amount) > 500000 }}"
+   },
+   "position": {
+    "x": 380,
+    "y": 180
+   }
+  },
+  {
+   "name": "Committee member 1",
+   "type": "Approval",
+   "parameters": {
+    "title": "Large mortgage approval (1 of 2) for {{ $node[\"Gather facts\"].json.application_id }}",
+    "context": {
+     "Approved amount": "{{ $node[\"Capture decision\"].json.approved_amount }}",
+     "Conditions": "{{ $node[\"Capture decision\"].json.conditions }}"
+    },
+    "four_eyes": true,
+    "notify_email": "{{ $vars.CREDIT_COMMITTEE_EMAIL }}"
+   },
+   "position": {
+    "x": 570,
+    "y": 180
+   }
+  },
+  {
+   "name": "Committee member 2",
+   "type": "Approval",
+   "parameters": {
+    "title": "Large mortgage approval (2 of 2) for {{ $node[\"Gather facts\"].json.application_id }}",
+    "context": {
+     "Approved amount": "{{ $node[\"Capture decision\"].json.approved_amount }}",
+     "Conditions": "{{ $node[\"Capture decision\"].json.conditions }}"
+    },
+    "four_eyes": true,
+    "notify_email": "{{ $vars.CREDIT_COMMITTEE_EMAIL }}"
+   },
+   "position": {
+    "x": 760,
+    "y": 180
+   }
+  },
+  {
+   "name": "Email decline",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $node[\"Gather facts\"].json.applicant_email }}",
+    "subject": "Your mortgage application",
+    "bodyFormat": "plain",
+    "body": "We are sorry, we cannot offer you a mortgage for application {{ $node[\"Gather facts\"].json.application_id }}."
+   },
+   "position": {
+    "x": 950,
+    "y": 180
+   }
+  },
+  {
+   "name": "Mark declined",
+   "type": "Postgres",
+   "parameters": {
+    "connection": "ops_db",
+    "operation": "transaction",
+    "statements": [
+     {
+      "query": "UPDATE mortgage_applications SET status = %s WHERE application_id = %s",
+      "params": [
+       "declined",
+       "{{ $node[\"Gather facts\"].json.application_id }}"
+      ]
+     }
+    ]
+   },
+   "position": {
+    "x": 1140,
+    "y": 180
+   }
+  },
+  {
+   "name": "Email offer",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $node[\"Gather facts\"].json.applicant_email }}",
+    "subject": "Your mortgage offer",
+    "bodyFormat": "plain",
+    "body": "We are pleased to offer you a mortgage of {{ $node[\"Capture decision\"].json.approved_amount }}. Conditions: {{ $node[\"Capture decision\"].json.conditions }}. A document to sign will follow."
+   },
+   "position": {
+    "x": 950,
+    "y": 290
+   }
+  },
+  {
+   "name": "Send for signature",
+   "type": "HttpRequest",
+   "parameters": {
+    "method": "POST",
+    "url": "",
+    "api_ref": {
+     "spec_id": "esign",
+     "operation_id": "createEnvelope"
+    },
+    "body": {
+     "signer_email": "{{ $node[\"Gather facts\"].json.applicant_email }}",
+     "document": "Mortgage offer {{ $node[\"Gather facts\"].json.application_id }}",
+     "reference": "{{ $node[\"Gather facts\"].json.application_id }}"
+    }
+   },
+   "position": {
+    "x": 1140,
+    "y": 290
+   }
+  },
+  {
+   "name": "Signature checks",
+   "type": "Loop",
+   "parameters": {
+    "batchSize": 1,
+    "maxIterations": 5
+   },
+   "position": {
+    "x": 0,
+    "y": 470
+   }
+  },
+  {
+   "name": "Wait a day",
+   "type": "Wait",
+   "parameters": {
+    "unit": "hours",
+    "duration": 24
+   },
+   "position": {
+    "x": 190,
+    "y": 470
+   }
+  },
+  {
+   "name": "Get signature status",
+   "type": "HttpRequest",
+   "parameters": {
+    "method": "GET",
+    "url": "",
+    "api_ref": {
+     "spec_id": "esign",
+     "operation_id": "getEnvelope"
+    },
+    "path_params": {
+     "envelope_id": "{{ $node[\"Send for signature\"].json.body.envelope_id }}"
+    }
+   },
+   "position": {
+    "x": 380,
+    "y": 470
+   }
+  },
+  {
+   "name": "Signed?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $json.body.status == \"signed\" }}"
+   },
+   "position": {
+    "x": 570,
+    "y": 470
+   }
+  },
+  {
+   "name": "Book mortgage",
+   "type": "HttpRequest",
+   "parameters": {
+    "method": "POST",
+    "url": "",
+    "api_ref": {
+     "spec_id": "mortgages",
+     "operation_id": "book"
+    },
+    "body": {
+     "application_id": "{{ $node[\"Gather facts\"].json.application_id }}",
+     "amount": "{{ $node[\"Capture decision\"].json.approved_amount }}"
+    }
+   },
+   "position": {
+    "x": 760,
+    "y": 470
+   }
+  },
+  {
+   "name": "Mark booked",
+   "type": "Postgres",
+   "parameters": {
+    "connection": "ops_db",
+    "operation": "transaction",
+    "statements": [
+     {
+      "query": "UPDATE mortgage_applications SET status = %s WHERE application_id = %s",
+      "params": [
+       "booked",
+       "{{ $node[\"Gather facts\"].json.application_id }}"
+      ]
+     },
+     {
+      "query": "INSERT INTO audit_log (entity, entity_id, action) VALUES (%s, %s, %s)",
+      "params": [
+       "mortgage",
+       "{{ $node[\"Gather facts\"].json.application_id }}",
+       "booked"
+      ]
+     }
+    ]
+   },
+   "position": {
+    "x": 950,
+    "y": 470
+   }
+  },
+  {
+   "name": "Email welcome",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $node[\"Gather facts\"].json.applicant_email }}",
+    "subject": "Welcome - your mortgage is booked",
+    "bodyFormat": "plain",
+    "body": "Your mortgage of {{ $node[\"Capture decision\"].json.approved_amount }} is booked. Welcome!"
+   },
+   "position": {
+    "x": 1140,
+    "y": 470
+   }
+  },
+  {
+   "name": "Fifth check?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $node[\"Signature checks\"].json.i >= 4 }}"
+   },
+   "position": {
+    "x": 760,
+    "y": 580
+   }
+  },
+  {
+   "name": "Email sign reminder",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $node[\"Gather facts\"].json.applicant_email }}",
+    "subject": "Please sign your mortgage offer",
+    "bodyFormat": "plain",
+    "body": "Your mortgage offer for application {{ $node[\"Gather facts\"].json.application_id }} is still waiting for your signature."
+   },
+   "position": {
+    "x": 950,
+    "y": 690
+   }
+  },
+  {
+   "name": "Cancel envelope",
+   "type": "HttpRequest",
+   "parameters": {
+    "method": "POST",
+    "url": "",
+    "api_ref": {
+     "spec_id": "esign",
+     "operation_id": "cancelEnvelope"
+    },
+    "path_params": {
+     "envelope_id": "{{ $node[\"Send for signature\"].json.body.envelope_id }}"
+    },
+    "body": {}
+   },
+   "position": {
+    "x": 950,
+    "y": 580
+   }
+  },
+  {
+   "name": "Email offer expired",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $node[\"Gather facts\"].json.applicant_email }}",
+    "subject": "Your mortgage offer has expired",
+    "bodyFormat": "plain",
+    "body": "Your mortgage offer for application {{ $node[\"Gather facts\"].json.application_id }} was not signed in time and has expired."
+   },
+   "position": {
+    "x": 1140,
+    "y": 580
+   }
+  },
+  {
+   "name": "Mark expired",
+   "type": "Postgres",
+   "parameters": {
+    "connection": "ops_db",
+    "operation": "transaction",
+    "statements": [
+     {
+      "query": "UPDATE mortgage_applications SET status = %s WHERE application_id = %s",
+      "params": [
+       "expired",
+       "{{ $node[\"Gather facts\"].json.application_id }}"
+      ]
+     }
+    ]
+   },
+   "position": {
+    "x": 0,
+    "y": 870
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Application received",
+   "target_node": "Get credit score",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Get credit score",
+   "target_node": "Gather facts",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Gather facts",
+   "target_node": "Score below 580?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Score below 580?",
+   "target_node": "Email decline",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Score below 580?",
+   "target_node": "Underwriter decision",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Underwriter decision",
+   "target_node": "Capture decision",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Underwriter decision",
+   "target_node": "Email decline",
+   "source_output": "rejected",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Underwriter decision",
+   "target_node": "Email underwriter reminder",
+   "source_output": "timed_out",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Email underwriter reminder",
+   "target_node": "Underwriter second ask",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Underwriter second ask",
+   "target_node": "Capture decision",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Underwriter second ask",
+   "target_node": "Email decline",
+   "source_output": "rejected",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Underwriter second ask",
+   "target_node": "Head of lending decision",
+   "source_output": "timed_out",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Head of lending decision",
+   "target_node": "Capture decision",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Head of lending decision",
+   "target_node": "Email decline",
+   "source_output": "rejected",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Capture decision",
+   "target_node": "Over 500000?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Over 500000?",
+   "target_node": "Committee member 1",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Over 500000?",
+   "target_node": "Email offer",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Committee member 1",
+   "target_node": "Committee member 2",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Committee member 1",
+   "target_node": "Email decline",
+   "source_output": "rejected",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Committee member 2",
+   "target_node": "Email offer",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Committee member 2",
+   "target_node": "Email decline",
+   "source_output": "rejected",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Email decline",
+   "target_node": "Mark declined",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Email offer",
+   "target_node": "Send for signature",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Send for signature",
+   "target_node": "Signature checks",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Signature checks",
+   "target_node": "Wait a day",
+   "source_output": "loop",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Wait a day",
+   "target_node": "Get signature status",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Get signature status",
+   "target_node": "Signed?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Signed?",
+   "target_node": "Book mortgage",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Signed?",
+   "target_node": "Fifth check?",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Book mortgage",
+   "target_node": "Mark booked",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Mark booked",
+   "target_node": "Email welcome",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Fifth check?",
+   "target_node": "Cancel envelope",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Fifth check?",
+   "target_node": "Email sign reminder",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Email sign reminder",
+   "target_node": "Signature checks",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Cancel envelope",
+   "target_node": "Email offer expired",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Email offer expired",
+   "target_node": "Mark expired",
+   "source_output": "main",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Score 579 is declined",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "application_id": "A1",
+       "applicant_email": "a@x.test",
+       "amount": 300000,
+       "property_value": 400000
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Get credit score": {
+     "http": {
+      "status": 200,
+      "body": {
+       "applicant_id": "A1",
+       "score": 579
+      }
+     }
+    },
+    "Email decline": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Mark declined": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Underwriter decision",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Email decline",
+     "subject": "request",
+     "path": "params.toEmail",
+     "op": "eq",
+     "value": "a@x.test"
+    },
+    {
+     "node": "Mark declined",
+     "subject": "request",
+     "path": "params.statements.0.params.0",
+     "op": "eq",
+     "value": "declined"
+    },
+    {
+     "node": "Send for signature",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Score 580 and exactly 500000 books without committee",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "application_id": "A2",
+       "applicant_email": "b@x.test",
+       "amount": 500000,
+       "property_value": 700000
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Get credit score": {
+     "http": {
+      "status": 200,
+      "body": {
+       "applicant_id": "A2",
+       "score": 580
+      }
+     }
+    },
+    "Underwriter decision": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "approved_amount": 500000,
+       "conditions": "Valuation"
+      },
+      "decided_by": "test"
+     }
+    },
+    "Email offer": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Send for signature": {
+     "http": {
+      "status": 200,
+      "body": {
+       "envelope_id": "env1"
+      }
+     }
+    },
+    "Get signature status": {
+     "http": {
+      "status": 200,
+      "body": {
+       "envelope_id": "env1",
+       "status": "signed"
+      }
+     }
+    },
+    "Book mortgage": {
+     "http": {
+      "status": 200,
+      "body": {
+       "mortgage_id": "M1"
+      }
+     }
+    },
+    "Mark booked": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Email welcome": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Committee member 1",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Book mortgage",
+     "subject": "request",
+     "path": "body.amount",
+     "op": "eq",
+     "value": 500000
+    },
+    {
+     "node": "Mark booked",
+     "subject": "request",
+     "path": "params.statements.1.params.2",
+     "op": "eq",
+     "value": "booked"
+    },
+    {
+     "node": "Email welcome",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Cancel envelope",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Over 500000 needs two committee approvals",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "application_id": "A3",
+       "applicant_email": "c@x.test",
+       "amount": 700000,
+       "property_value": 900000
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Get credit score": {
+     "http": {
+      "status": 200,
+      "body": {
+       "applicant_id": "A3",
+       "score": 700
+      }
+     }
+    },
+    "Underwriter decision": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "approved_amount": 600000,
+       "conditions": "None"
+      },
+      "decided_by": "test"
+     }
+    },
+    "Committee member 1": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Committee member 2": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Email offer": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Send for signature": {
+     "http": {
+      "status": 200,
+      "body": {
+       "envelope_id": "env3"
+      }
+     }
+    },
+    "Get signature status": {
+     "http": {
+      "status": 200,
+      "body": {
+       "envelope_id": "env3",
+       "status": "signed"
+      }
+     }
+    },
+    "Book mortgage": {
+     "http": {
+      "status": 200,
+      "body": {
+       "mortgage_id": "M3"
+      }
+     }
+    },
+    "Mark booked": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Email welcome": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Committee member 2",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Book mortgage",
+     "subject": "request",
+     "path": "body.amount",
+     "op": "eq",
+     "value": 600000
+    }
+   ]
+  },
+  {
+   "name": "Committee rejection declines",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "application_id": "A4",
+       "applicant_email": "d@x.test",
+       "amount": 700000,
+       "property_value": 900000
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Get credit score": {
+     "http": {
+      "status": 200,
+      "body": {
+       "applicant_id": "A4",
+       "score": 700
+      }
+     }
+    },
+    "Underwriter decision": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "approved_amount": 600000,
+       "conditions": "None"
+      },
+      "decided_by": "test"
+     }
+    },
+    "Committee member 1": {
+     "port": "rejected",
+     "approval": {
+      "decision": "rejected",
+      "comment": "too risky",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Email decline": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Mark declined": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Committee member 2",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Email decline",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Send for signature",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Nobody decides so it is declined after one reminder",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "application_id": "A5",
+       "applicant_email": "e@x.test",
+       "amount": 300000,
+       "property_value": 400000
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Get credit score": {
+     "http": {
+      "status": 200,
+      "body": {
+       "applicant_id": "A5",
+       "score": 650
+      }
+     }
+    },
+    "Underwriter decision": {
+     "port": "timed_out",
+     "approval": {
+      "decision": "timed_out",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Email underwriter reminder": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Underwriter second ask": {
+     "port": "timed_out",
+     "approval": {
+      "decision": "timed_out",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Head of lending decision": {
+     "port": "rejected",
+     "approval": {
+      "decision": "rejected",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Email decline": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Mark declined": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Email underwriter reminder",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Head of lending decision",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Email decline",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Book mortgage",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Never signed expires after five checks",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "application_id": "A6",
+       "applicant_email": "f@x.test",
+       "amount": 300000,
+       "property_value": 400000
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Get credit score": {
+     "http": {
+      "status": 200,
+      "body": {
+       "applicant_id": "A6",
+       "score": 650
+      }
+     }
+    },
+    "Underwriter decision": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "approved_amount": 300000,
+       "conditions": "None"
+      },
+      "decided_by": "test"
+     }
+    },
+    "Email offer": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Send for signature": {
+     "http": {
+      "status": 200,
+      "body": {
+       "envelope_id": "env6"
+      }
+     }
+    },
+    "Get signature status": {
+     "http": {
+      "status": 200,
+      "body": {
+       "envelope_id": "env6",
+       "status": "sent"
+      }
+     }
+    },
+    "Email sign reminder": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Cancel envelope": {
+     "http": {
+      "status": 200,
+      "body": {
+       "envelope_id": "env6",
+       "status": "cancelled"
+      }
+     }
+    },
+    "Email offer expired": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Mark expired": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Get signature status",
+     "subject": "request",
+     "op": "count",
+     "value": 5
+    },
+    {
+     "node": "Email sign reminder",
+     "subject": "request",
+     "op": "count",
+     "value": 4
+    },
+    {
+     "node": "Cancel envelope",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Mark expired",
+     "subject": "request",
+     "path": "params.statements.0.params.0",
+     "op": "eq",
+     "value": "expired"
+    },
+    {
+     "node": "Book mortgage",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  }
+ ]
+}

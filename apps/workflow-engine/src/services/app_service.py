@@ -59,6 +59,25 @@ class SlugTakenError(AppPublishError):
         return {"code": "slug_taken", "message": str(self), "slug": self.slug}
 
 
+class StaleBaseError(RuntimeError):
+    """A save or AI turn was based on a version that is no longer the app's head (another save landed first) → 409."""
+
+    def __init__(self, base_version_id: int | None, current_version_id: int | None) -> None:
+        super().__init__(
+            f"this app changed since version {base_version_id}; reload the latest version before saving")
+        self.base_version_id, self.current_version_id = base_version_id, current_version_id
+
+    def detail(self) -> dict:
+        return {"code": "stale_base", "message": str(self),
+                "base_version_id": self.base_version_id, "current_version_id": self.current_version_id}
+
+
+def check_base(row: AppModel, base_version_id: int | None) -> None:
+    """Optimistic concurrency: raise StaleBaseError when ``base_version_id`` is given and is not the app's head."""
+    if base_version_id is not None and row.current_version_id != base_version_id:
+        raise StaleBaseError(base_version_id, row.current_version_id)
+
+
 class AppValidationError(ValueError):
     def __init__(self, code: str, message: str, **extra) -> None:
         super().__init__(message)
@@ -188,9 +207,12 @@ class AppService:
         return await self._to_detail(row)
 
     async def update_app(self, aid: str, req: AppUpdateRequest) -> AppDetailResponse | None:
-        row = await self._session.get(AppModel, aid)
+        base = getattr(req, "base_version_id", None)
+        # a based save locks the row so two concurrent saves from the same base can't both pass the check
+        row = await self._session.get(AppModel, aid, with_for_update=base is not None)
         if not row:
             return None
+        check_base(row, base)
         if req.name is not None:
             row.name = req.name
         if getattr(req, "project_id", None):

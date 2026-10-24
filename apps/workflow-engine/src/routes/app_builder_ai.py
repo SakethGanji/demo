@@ -6,12 +6,13 @@ import asyncio
 import logging
 from typing import AsyncGenerator
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sse_starlette.sse import EventSourceResponse, ServerSentEvent
 
 from ..core.dependencies import get_app_builder_ai_service
 from ..schemas.app_builder import AppBuilderChatRequest
 from ..services.app_builder_ai_service import AppBuilderAIService
+from ..services.app_service import StaleBaseError
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,11 @@ async def app_builder_chat(
     http_request: Request,
     service: AppBuilderAIService = Depends(get_app_builder_ai_service),
 ) -> EventSourceResponse:
-    """Stream app builder AI response as SSE."""
+    """Stream app builder AI response as SSE. A stale ``base_version_id`` is refused with 409 before streaming."""
+    try:
+        await service.check_base(request)
+    except StaleBaseError as e:
+        raise HTTPException(status_code=409, detail=e.detail()) from e
 
     async def event_generator() -> AsyncGenerator[ServerSentEvent, None]:
         try:

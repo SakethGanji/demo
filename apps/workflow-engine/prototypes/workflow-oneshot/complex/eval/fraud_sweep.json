@@ -1,0 +1,392 @@
+{
+ "id": "fraud_sweep",
+ "request": "Every 15 minutes, pull the flagged card transactions from the fraud service. For each one: a score under 40 is fine, so clear the transaction. A score from 40 to 79 means freeze the card and text the customer that their card is frozen. A score of 80 or more means freeze the card, block it permanently and open a fraud case. When all of them are done, if any card was frozen, email the fraud team how many cards were frozen. If none were frozen, send no email.",
+ "apis": [
+  "fraud.yaml",
+  "cardctl.yaml",
+  "sms.yaml"
+ ],
+ "tables": {},
+ "expect": {
+  "trigger": "Cron",
+  "must_have_types": [
+   "Switch|If",
+   "SendEmail"
+  ],
+  "must_call": [
+   "fraud.listFlagged",
+   "fraud.clear",
+   "cardctl.freeze",
+   "cardctl.block",
+   "fraud.openCase",
+   "sms.send"
+  ],
+  "max_nodes": 20
+ },
+ "hidden_tests": [
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Each score band does its own thing",
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "$api:fraud.listFlagged": {
+     "http": {
+      "status": 200,
+      "body": {
+       "transactions": [
+        {
+         "txn_id": "T1",
+         "card_id": "C1",
+         "customer_phone": "+15550001",
+         "score": 10
+        },
+        {
+         "txn_id": "T2",
+         "card_id": "C2",
+         "customer_phone": "+15550002",
+         "score": 50
+        },
+        {
+         "txn_id": "T3",
+         "card_id": "C3",
+         "customer_phone": "+15550003",
+         "score": 90
+        }
+       ]
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "$api:fraud.clear",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$api:fraud.clear",
+     "subject": "request",
+     "item": "any",
+     "path": "url",
+     "op": "contains",
+     "value": "T1"
+    },
+    {
+     "node": "$api:cardctl.freeze",
+     "subject": "request",
+     "op": "count",
+     "value": 2
+    },
+    {
+     "node": "$api:cardctl.freeze",
+     "subject": "request",
+     "item": "any",
+     "path": "url",
+     "op": "contains",
+     "value": "C2"
+    },
+    {
+     "node": "$api:cardctl.freeze",
+     "subject": "request",
+     "item": "any",
+     "path": "url",
+     "op": "contains",
+     "value": "C3"
+    },
+    {
+     "node": "$api:cardctl.block",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$api:cardctl.block",
+     "subject": "request",
+     "item": "any",
+     "path": "url",
+     "op": "contains",
+     "value": "C3"
+    },
+    {
+     "node": "$api:fraud.openCase",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$api:fraud.openCase",
+     "subject": "request",
+     "item": "any",
+     "path": "body.txn_id",
+     "op": "eq",
+     "value": "T3"
+    },
+    {
+     "node": "$api:sms.send",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$api:sms.send",
+     "subject": "request",
+     "item": "any",
+     "path": "body.to",
+     "op": "eq",
+     "value": "+15550002"
+    },
+    {
+     "node": "$all:SendEmail",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$all:SendEmail",
+     "subject": "request",
+     "item": "any",
+     "path": "params.body",
+     "op": "contains",
+     "value": "2"
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "All low scores: cleared, nothing frozen, no email",
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "$api:fraud.listFlagged": {
+     "http": {
+      "status": 200,
+      "body": {
+       "transactions": [
+        {
+         "txn_id": "T1",
+         "card_id": "C1",
+         "customer_phone": "+15550001",
+         "score": 5
+        },
+        {
+         "txn_id": "T2",
+         "card_id": "C2",
+         "customer_phone": "+15550002",
+         "score": 39
+        }
+       ]
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "$api:fraud.clear",
+     "subject": "request",
+     "op": "count",
+     "value": 2
+    },
+    {
+     "node": "$api:cardctl.freeze",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$all:SendEmail",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "40 freezes but does not block",
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "$api:fraud.listFlagged": {
+     "http": {
+      "status": 200,
+      "body": {
+       "transactions": [
+        {
+         "txn_id": "T1",
+         "card_id": "C1",
+         "customer_phone": "+15550001",
+         "score": 40
+        }
+       ]
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "$api:cardctl.freeze",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$api:cardctl.block",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$api:fraud.openCase",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$api:sms.send",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$all:SendEmail",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "79 is not blocked, 80 is",
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "$api:fraud.listFlagged": {
+     "http": {
+      "status": 200,
+      "body": {
+       "transactions": [
+        {
+         "txn_id": "T1",
+         "card_id": "C1",
+         "customer_phone": "+15550001",
+         "score": 79
+        },
+        {
+         "txn_id": "T2",
+         "card_id": "C2",
+         "customer_phone": "+15550002",
+         "score": 80
+        }
+       ]
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "$api:cardctl.freeze",
+     "subject": "request",
+     "op": "count",
+     "value": 2
+    },
+    {
+     "node": "$api:cardctl.block",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$api:cardctl.block",
+     "subject": "request",
+     "item": "any",
+     "path": "url",
+     "op": "contains",
+     "value": "C2"
+    },
+    {
+     "node": "$api:sms.send",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$api:sms.send",
+     "subject": "request",
+     "item": "any",
+     "path": "body.to",
+     "op": "eq",
+     "value": "+15550001"
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Nothing flagged: nothing happens",
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "$api:fraud.listFlagged": {
+     "http": {
+      "status": 200,
+      "body": {
+       "transactions": []
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "$api:fraud.clear",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$api:cardctl.freeze",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$all:SendEmail",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  }
+ ]
+}

@@ -165,6 +165,14 @@ def test_validate_form_data_is_pure():
     assert validate_form_data([], [1]) == {"form_data": "must be an object"}
 
 
+def test_reject_needs_no_required_answers_but_given_ones_are_checked():
+    form = [{"name": "plan", "type": "select", "options": ["a", "b"], "required": True}, {"name": "months", "type": "number", "required": True}]
+    assert validate_form_data(form, {}, rejecting=True) == {}
+    assert validate_form_data(form, {}) == {"plan": "is required", "months": "is required"}
+    assert validate_form_data(form, {"plan": "zzz"}, rejecting=True) == {"plan": "must be one of the listed options"}
+    assert validate_form_data(form, {"nope": 1}, rejecting=True) == {"nope": "is not a field of this form"}
+
+
 async def test_the_decision_form_data_reaches_the_workflow(world):
     stored, exec_id, task = await paused(world, form=[{"name": "note", "type": "text"}])
     await world.decide(task["id"], "approved", comment="c", form_data={"note": "ship it"})

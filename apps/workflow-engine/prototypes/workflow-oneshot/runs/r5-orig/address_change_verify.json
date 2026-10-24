@@ -1,0 +1,356 @@
+{
+ "name": "Customer address change with OTP",
+ "nodes": [
+  {
+   "name": "Address change received",
+   "type": "Webhook",
+   "parameters": {
+    "method": "POST",
+    "path": "address-change",
+    "responseMode": "lastNode"
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Verify code",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "otp",
+     "operation_id": "verify"
+    },
+    "method": "POST",
+    "url": "",
+    "body": {
+     "customer_id": "{{ $json.body.customer_id }}",
+     "code": "{{ $json.body.otp_code }}"
+    }
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "Code valid?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $json.body.valid == true }}"
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Update address",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "customers",
+     "operation_id": "updateAddress"
+    },
+    "method": "POST",
+    "url": "",
+    "path_params": {
+     "customer_id": "{{ $node[\"Address change received\"].json.body.customer_id }}"
+    },
+    "body": {
+     "address_line": "{{ $node[\"Address change received\"].json.body.address_line }}",
+     "city": "{{ $node[\"Address change received\"].json.body.city }}",
+     "postcode": "{{ $node[\"Address change received\"].json.body.postcode }}"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Reply updated",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "updated",
+     "customer_id": "{{ $node[\"Address change received\"].json.body.customer_id }}"
+    }
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  },
+  {
+   "name": "Reply refused",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 401,
+    "body": {
+     "status": "refused",
+     "message": "The one-time code is not valid. The address was not changed."
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 110
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Address change received",
+   "target_node": "Verify code",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Verify code",
+   "target_node": "Code valid?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Code valid?",
+   "target_node": "Update address",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Code valid?",
+   "target_node": "Reply refused",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Update address",
+   "target_node": "Reply updated",
+   "source_output": "main",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Valid code updates the address",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "customer_id": "C100",
+       "address_line": "12 High Street",
+       "city": "Leeds",
+       "postcode": "LS1 4AB",
+       "otp_code": "123456"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Verify code": {
+     "http": {
+      "status": 200,
+      "body": {
+       "valid": true
+      }
+     }
+    },
+    "Update address": {
+     "http": {
+      "status": 200,
+      "body": {
+       "customer_id": "C100",
+       "updated": true
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Verify code",
+     "subject": "request",
+     "path": "body.code",
+     "op": "eq",
+     "value": "123456"
+    },
+    {
+     "node": "Verify code",
+     "subject": "request",
+     "path": "body.customer_id",
+     "op": "eq",
+     "value": "C100"
+    },
+    {
+     "node": "Update address",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Update address",
+     "subject": "request",
+     "path": "url",
+     "op": "contains",
+     "value": "C100"
+    },
+    {
+     "node": "Update address",
+     "subject": "request",
+     "path": "body.postcode",
+     "op": "eq",
+     "value": "LS1 4AB"
+    },
+    {
+     "node": "Update address",
+     "subject": "request",
+     "path": "body.city",
+     "op": "eq",
+     "value": "Leeds"
+    },
+    {
+     "node": "Reply updated",
+     "subject": "request",
+     "path": "statusCode",
+     "op": "eq",
+     "value": 200
+    },
+    {
+     "node": "Reply refused",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Invalid code changes nothing and replies 401",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "customer_id": "C100",
+       "address_line": "12 High Street",
+       "city": "Leeds",
+       "postcode": "LS1 4AB",
+       "otp_code": "000000"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Verify code": {
+     "http": {
+      "status": 200,
+      "body": {
+       "valid": false
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Update address",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Reply updated",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Reply refused",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Reply refused",
+     "subject": "request",
+     "path": "statusCode",
+     "op": "eq",
+     "value": 401
+    },
+    {
+     "node": "Reply refused",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "refused"
+    }
+   ]
+  },
+  {
+   "name": "Code is checked before anything else runs",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "customer_id": "C200",
+       "address_line": "5 Mill Lane",
+       "city": "York",
+       "postcode": "YO1 7HH",
+       "otp_code": "999999"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Verify code": {
+     "http": {
+      "status": 200,
+      "body": {
+       "valid": false
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Verify code",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Verify code",
+     "subject": "request",
+     "path": "body.customer_id",
+     "op": "eq",
+     "value": "C200"
+    },
+    {
+     "node": "Code valid?",
+     "port": "false",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Code valid?",
+     "port": "true",
+     "op": "count",
+     "value": 0
+    },
+    {
+     "node": "Update address",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  }
+ ]
+}

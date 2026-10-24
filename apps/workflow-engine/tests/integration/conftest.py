@@ -133,7 +133,9 @@ def fake_env(db: "TestDatabase", **extra: str) -> dict[str, str]:
     """UI-DESIGN §10.3 / §12.1: the env that starts the engine with the test-only fake LLM."""
     return {"WORKFLOW_LLM_PROVIDER": "fake", "WORKFLOW_TEST_MODE": "1", "WORKFLOW_BIND_HOST": "127.0.0.1",
             "WORKFLOW_FAKE_LLM_TOKEN": FAKE_LLM_TOKEN, "WORKFLOW_DISABLE_DOTENV": "1",
-            "WORKFLOW_FAKE_LLM_SCRIPT": str(FAKE_SCRIPT), **db.env(), **extra}
+            "WORKFLOW_FAKE_LLM_SCRIPT": str(FAKE_SCRIPT),
+            "WF_CHAT_BUILDER": "legacy",  # the fake-LLM script drives the staged builder; the one-shot chat has its own tests
+            **db.env(), **extra}
 
 
 class EngineServer:

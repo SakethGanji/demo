@@ -22,6 +22,7 @@ const ALLOW = [
   'src/index.css',
   'src/shared/lib/starfield.ts', // canvas painting: literal star colours
   'src/features/app-builder/sandbox/', // the generated app's own runtime and colours
+  'src/features/app-builder/visual/theme/', // writes the generated app's theme.css: its colours are the user's picks
   'src/app/routes/design.tsx', // the reference page shows raw tokens on purpose
   'src/shared/lib/liquid-glass.ts', // sets the refraction filter as an inline backdrop-filter
 ]

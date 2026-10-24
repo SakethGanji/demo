@@ -1,0 +1,615 @@
+{
+ "name": "Customer exit",
+ "nodes": [
+  {
+   "name": "Exit requested",
+   "type": "Webhook",
+   "parameters": {
+    "method": "POST",
+    "path": "customer-exit"
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Get open accounts",
+   "type": "Postgres",
+   "parameters": {
+    "connection": "core_banking",
+    "operation": "query",
+    "query": "SELECT account_id, balance FROM accounts WHERE customer_id = %s AND status = 'open'",
+    "queryParameters": [
+     "{{ $json.body.customer_id }}"
+    ]
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "Get active loans",
+   "type": "Postgres",
+   "parameters": {
+    "connection": "core_banking",
+    "operation": "query",
+    "query": "SELECT loan_id FROM loans WHERE customer_id = %s AND status = 'active'",
+    "queryParameters": [
+     "{{ $node[\"Exit requested\"].json.body.customer_id }}"
+    ]
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Find blockers",
+   "type": "Code",
+   "parameters": {
+    "code": "cust = node_data[\"Exit requested\"][\"json\"][\"body\"][\"customer_id\"]\naccts = node_data[\"Get open accounts\"][\"json\"].get(\"rows\", [])\nloans = node_data[\"Get active loans\"][\"json\"].get(\"rows\", [])\nblockers = [a[\"account_id\"] for a in accts if float(a[\"balance\"]) != 0] + [l[\"loan_id\"] for l in loans]\nreturn [new_item({\"customer_id\": cust, \"accounts\": [{\"account_id\": a[\"account_id\"]} for a in accts], \"account_ids\": [a[\"account_id\"] for a in accts], \"blockers\": blockers})]"
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Any blockers?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ length($json.blockers) > 0 }}"
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  },
+  {
+   "name": "Reply blocked",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 409,
+    "body": {
+     "status": "blocked",
+     "blockers": "{{ $json.blockers }}"
+    }
+   },
+   "position": {
+    "x": 950,
+    "y": 0
+   }
+  },
+  {
+   "name": "Ops manager approval",
+   "type": "Approval",
+   "parameters": {
+    "title": "Approve customer exit {{ $json.customer_id }}",
+    "context": {
+     "Customer id": "{{ $json.customer_id }}",
+     "Accounts": "{{ join($json.account_ids, ', ') }}"
+    },
+    "notify_email": "{{ $vars.OPS_MANAGER_EMAIL }}"
+   },
+   "position": {
+    "x": 950,
+    "y": 110
+   }
+  },
+  {
+   "name": "Reply rejected",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "rejected"
+    }
+   },
+   "position": {
+    "x": 1140,
+    "y": 110
+   }
+  },
+  {
+   "name": "Split accounts",
+   "type": "ItemLists",
+   "parameters": {
+    "operation": "splitOut",
+    "arrayField": "accounts",
+    "includeOther": false
+   },
+   "position": {
+    "x": 1140,
+    "y": 0
+   }
+  },
+  {
+   "name": "Each account",
+   "type": "Loop",
+   "parameters": {
+    "batchSize": 1
+   },
+   "position": {
+    "x": 0,
+    "y": 290
+   }
+  },
+  {
+   "name": "Close account",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "corebank",
+     "operation_id": "closeAccount"
+    },
+    "method": "POST",
+    "url": "",
+    "path_params": {
+     "account_id": "{{ $node[\"Each account\"].json.account_id }}"
+    }
+   },
+   "position": {
+    "x": 190,
+    "y": 290
+   }
+  },
+  {
+   "name": "Record closure",
+   "type": "Postgres",
+   "parameters": {
+    "connection": "ops_db",
+    "operation": "transaction",
+    "statements": [
+     {
+      "query": "INSERT INTO account_closures (account_id, customer_id) VALUES (%s, %s)",
+      "params": [
+       "{{ $node[\"Each account\"].json.account_id }}",
+       "{{ $node[\"Exit requested\"].json.body.customer_id }}"
+      ]
+     },
+     {
+      "query": "INSERT INTO audit_log (entity, entity_id, action) VALUES ('account', %s, 'closed')",
+      "params": [
+       "{{ $node[\"Each account\"].json.account_id }}"
+      ]
+     }
+    ]
+   },
+   "position": {
+    "x": 380,
+    "y": 290
+   }
+  },
+  {
+   "name": "Reply closed",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "closed",
+     "accounts": "{{ length($node[\"Find blockers\"].json.account_ids) }}"
+    }
+   },
+   "position": {
+    "x": 190,
+    "y": 400
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Exit requested",
+   "target_node": "Get open accounts",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Get open accounts",
+   "target_node": "Get active loans",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Get active loans",
+   "target_node": "Find blockers",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Find blockers",
+   "target_node": "Any blockers?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Any blockers?",
+   "target_node": "Reply blocked",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Any blockers?",
+   "target_node": "Ops manager approval",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Ops manager approval",
+   "target_node": "Split accounts",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Ops manager approval",
+   "target_node": "Reply rejected",
+   "source_output": "rejected",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Split accounts",
+   "target_node": "Each account",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Each account",
+   "target_node": "Close account",
+   "source_output": "loop",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Close account",
+   "target_node": "Record closure",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Record closure",
+   "target_node": "Each account",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Each account",
+   "target_node": "Reply closed",
+   "source_output": "done",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Non-zero balance and active loan block the exit",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "customer_id": "C1"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Get open accounts": {
+     "items": [
+      {
+       "rows": [
+        {
+         "account_id": "A1",
+         "balance": "0"
+        },
+        {
+         "account_id": "A2",
+         "balance": "25.50"
+        }
+       ],
+       "rowCount": 2
+      }
+     ]
+    },
+    "Get active loans": {
+     "items": [
+      {
+       "rows": [
+        {
+         "loan_id": "L1"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Reply blocked",
+     "subject": "request",
+     "path": "statusCode",
+     "op": "eq",
+     "value": 409
+    },
+    {
+     "node": "Reply blocked",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "blocked"
+    },
+    {
+     "node": "Reply blocked",
+     "subject": "request",
+     "path": "body.blockers",
+     "op": "eq",
+     "value": [
+      "A2",
+      "L1"
+     ]
+    },
+    {
+     "node": "Ops manager approval",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Close account",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Active loan alone blocks even with zero balances",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "customer_id": "C2"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Get open accounts": {
+     "items": [
+      {
+       "rows": [
+        {
+         "account_id": "A3",
+         "balance": "0.00"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Get active loans": {
+     "items": [
+      {
+       "rows": [
+        {
+         "loan_id": "L9"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Reply blocked",
+     "subject": "request",
+     "path": "body.blockers",
+     "op": "eq",
+     "value": [
+      "L9"
+     ]
+    },
+    {
+     "node": "Close account",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Approved exit closes every account and records each",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "customer_id": "C3"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Get open accounts": {
+     "items": [
+      {
+       "rows": [
+        {
+         "account_id": "A4",
+         "balance": "0.00"
+        },
+        {
+         "account_id": "A5",
+         "balance": "0"
+        }
+       ],
+       "rowCount": 2
+      }
+     ]
+    },
+    "Get active loans": {
+     "items": [
+      {
+       "rows": [],
+       "rowCount": 0
+      }
+     ]
+    },
+    "Ops manager approval": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Close account": {
+     "http": {
+      "status": 200,
+      "body": {
+       "account_id": "A4",
+       "status": "closed"
+      }
+     }
+    },
+    "Record closure": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Close account",
+     "subject": "request",
+     "op": "count",
+     "value": 2
+    },
+    {
+     "node": "Record closure",
+     "subject": "request",
+     "op": "count",
+     "value": 2
+    },
+    {
+     "node": "Reply closed",
+     "subject": "request",
+     "path": "statusCode",
+     "op": "eq",
+     "value": 200
+    },
+    {
+     "node": "Reply closed",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "closed"
+    },
+    {
+     "node": "Reply closed",
+     "subject": "request",
+     "path": "body.accounts",
+     "op": "eq",
+     "value": 2
+    },
+    {
+     "node": "Reply rejected",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Rejected exit closes nothing",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "customer_id": "C4"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Get open accounts": {
+     "items": [
+      {
+       "rows": [
+        {
+         "account_id": "A6",
+         "balance": "0"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Get active loans": {
+     "items": [
+      {
+       "rows": [],
+       "rowCount": 0
+      }
+     ]
+    },
+    "Ops manager approval": {
+     "port": "rejected",
+     "approval": {
+      "decision": "rejected",
+      "comment": "no",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Reply rejected",
+     "subject": "request",
+     "path": "statusCode",
+     "op": "eq",
+     "value": 200
+    },
+    {
+     "node": "Reply rejected",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "rejected"
+    },
+    {
+     "node": "Close account",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Record closure",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Reply closed",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  }
+ ]
+}

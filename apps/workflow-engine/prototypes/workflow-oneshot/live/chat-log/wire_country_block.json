@@ -1,0 +1,6191 @@
+{
+ "message": "Wires to beneficiary country KP or IR are blocked straight away, before the callback: block the wire via the wires API, write an audit row in ops_db (entity 'wire', the wire id, action 'blocked_country', detail = the country) and email compliance@bank.test. No callback task, no screening for those.",
+ "seconds": 23.3,
+ "events": [
+  {
+   "type": "route",
+   "route": "modify",
+   "node": null
+  },
+  {
+   "type": "phase",
+   "phase": "building",
+   "message": "Making the change on a copy and re-running the tests. Nothing is saved until you keep it."
+  },
+  {
+   "type": "proposal",
+   "proposal_id": "p_712bbcedaaf9",
+   "workflow_id": "wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1",
+   "status": "ready",
+   "summary": "Added a \"Blocked country?\" check straight after the webhook. Wires to KP or IR are blocked via the wires API, get a `blocked_country` audit row in ops_db and an email to compliance@bank.test. They skip the callback, screening and the amount check, and every other wire carries on as before. Proposed: 4 added. Tests pass.",
+   "diff": {
+    "counts": {
+     "added": 4,
+     "changed": 0,
+     "removed": 0
+    }
+   },
+   "report": {
+    "passed": true
+   }
+  },
+  {
+   "type": "done"
+  }
+ ],
+ "view": {
+  "id": "p_712bbcedaaf9",
+  "project_id": "proj_01a166f0-d344-79b9-b05f-e556bc5e44de",
+  "team_id": "default",
+  "workflow_id": "wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1",
+  "parent_id": null,
+  "kind": "modify",
+  "status": "ready",
+  "actor": "live-test@bank.test",
+  "request": "Wires to beneficiary country KP or IR are blocked straight away, before the callback: block the wire via the wires API, write an audit row in ops_db (entity 'wire', the wire id, action 'blocked_country', detail = the country) and email compliance@bank.test. No callback task, no screening for those.",
+  "request_sha256": "9672793f47aec45908aba7937a8448f2e5074efd406d3fd027444a001b8b562a",
+  "spec": {
+   "rules": [],
+   "steps": [],
+   "tests": [],
+   "title": "Outgoing wire controls",
+   "issues": [],
+   "summary": "Added a \"Blocked country?\" check straight after the webhook. Wires to KP or IR are blocked via the wires API, get a `blocked_country` audit row in ops_db and an email to compliance@bank.test. They skip the callback, screening and the amount check, and every other wire carries on as before.",
+   "trigger": {
+    "kind": "manual",
+    "fields": []
+   },
+   "warnings": [],
+   "interface": null,
+   "questions": [],
+   "rule_tests": {},
+   "assumptions": [],
+   "spec_version": 1
+  },
+  "base_definition": {
+   "nodes": [
+    {
+     "name": "Wire received",
+     "type": "Webhook",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 0.0,
+      "y": 0.0
+     },
+     "parameters": {
+      "path": "outgoing-wires",
+      "method": "POST"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Under 10000?",
+     "type": "If",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 190.0,
+      "y": 0.0
+     },
+     "parameters": {
+      "condition": "{{ float($json.body.amount) < 10000 }}"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Get customer",
+     "type": "Postgres",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 380.0,
+      "y": 0.0
+     },
+     "parameters": {
+      "query": "SELECT full_name, phone, email FROM customers WHERE customer_id = %s",
+      "operation": "query",
+      "connection": "core_banking",
+      "queryParameters": [
+       "{{ $node[\"Wire received\"].json.body.customer_id }}"
+      ]
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Gather details",
+     "type": "Set",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 570.0,
+      "y": 0.0
+     },
+     "parameters": {
+      "mode": "manual",
+      "fields": [
+       {
+        "name": "wire_id",
+        "value": "{{ $node[\"Wire received\"].json.body.wire_id }}"
+       },
+       {
+        "name": "customer_name",
+        "value": "{{ $json.rows[0].full_name }}"
+       },
+       {
+        "name": "customer_phone",
+        "value": "{{ $json.rows[0].phone }}"
+       },
+       {
+        "name": "customer_email",
+        "value": "{{ $json.rows[0].email }}"
+       }
+      ]
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Callback task",
+     "type": "Approval",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 760.0,
+      "y": 0.0
+     },
+     "parameters": {
+      "form": [
+       {
+        "name": "customer_confirmed",
+        "type": "select",
+        "label": "Customer confirmed",
+        "options": [
+         "yes",
+         "no",
+         "unreachable"
+        ],
+        "required": true
+       }
+      ],
+      "title": "Customer callback for wire {{ $node[\"Wire received\"].json.body.wire_id }}",
+      "due_in": "2h",
+      "context": {
+       "Phone": "{{ $node[\"Gather details\"].json.customer_phone }}",
+       "Amount": "{{ $node[\"Wire received\"].json.body.amount }}",
+       "Customer": "{{ $node[\"Gather details\"].json.customer_name }}",
+       "Beneficiary": "{{ $node[\"Wire received\"].json.body.beneficiary_name }}"
+      },
+      "on_timeout": "timed_out",
+      "notify_email": "{{ $vars.PAYMENTS_OPS_EMAIL }}"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Remind payments lead",
+     "type": "SendEmail",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 950.0,
+      "y": 0.0
+     },
+     "parameters": {
+      "body": "Nobody has done the customer callback for wire {{ $node[\"Wire received\"].json.body.wire_id }} within 2 hours. It has been given to payments ops again.",
+      "subject": "Callback overdue for wire {{ $node[\"Wire received\"].json.body.wire_id }}",
+      "toEmail": "{{ $vars.PAYMENTS_LEAD_EMAIL }}",
+      "bodyFormat": "plain"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Callback task again",
+     "type": "Approval",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 1140.0,
+      "y": 0.0
+     },
+     "parameters": {
+      "form": [
+       {
+        "name": "customer_confirmed",
+        "type": "select",
+        "label": "Customer confirmed",
+        "options": [
+         "yes",
+         "no",
+         "unreachable"
+        ],
+        "required": true
+       }
+      ],
+      "title": "Customer callback (second ask) for wire {{ $node[\"Wire received\"].json.body.wire_id }}",
+      "due_in": "1h",
+      "context": {
+       "Phone": "{{ $node[\"Gather details\"].json.customer_phone }}",
+       "Amount": "{{ $node[\"Wire received\"].json.body.amount }}",
+       "Customer": "{{ $node[\"Gather details\"].json.customer_name }}",
+       "Beneficiary": "{{ $node[\"Wire received\"].json.body.beneficiary_name }}"
+      },
+      "on_timeout": "timed_out",
+      "notify_email": "{{ $vars.PAYMENTS_OPS_EMAIL }}"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Customer answer",
+     "type": "Switch",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 0.0,
+      "y": 180.0
+     },
+     "parameters": {
+      "mode": "rules",
+      "rules": [
+       {
+        "field": "{{ $json.approval.form_data.customer_confirmed }}",
+        "value": "yes",
+        "output": 0,
+        "operation": "equals"
+       },
+       {
+        "field": "{{ $json.approval.form_data.customer_confirmed }}",
+        "value": "no",
+        "output": 1,
+        "operation": "equals"
+       }
+      ],
+      "numberOfOutputs": 2
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Hold wire no callback",
+     "type": "HttpRequest",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 190.0,
+      "y": 180.0
+     },
+     "parameters": {
+      "url": "",
+      "body": {
+       "reason": "Customer callback not completed"
+      },
+      "method": "POST",
+      "api_ref": {
+       "spec_id": "api_471947fafd8c",
+       "operation_id": "hold"
+      },
+      "path_params": {
+       "wire_id": "{{ $node[\"Wire received\"].json.body.wire_id }}"
+      }
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Audit held no callback",
+     "type": "Postgres",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 380.0,
+      "y": 180.0
+     },
+     "parameters": {
+      "operation": "transaction",
+      "connection": "ops_db",
+      "statements": [
+       {
+        "query": "INSERT INTO audit_log (entity, entity_id, action, detail) VALUES ('wire', %s, 'held_no_callback', %s)",
+        "params": [
+         "{{ $node[\"Wire received\"].json.body.wire_id }}",
+         "Customer callback not completed"
+        ]
+       }
+      ]
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Email customer",
+     "type": "SendEmail",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 570.0,
+      "y": 180.0
+     },
+     "parameters": {
+      "body": "Dear {{ $node[\"Gather details\"].json.customer_name }}, we tried to reach you to confirm your outgoing wire {{ $node[\"Wire received\"].json.body.wire_id }} but could not. The wire is on hold. Please contact the bank.",
+      "subject": "We could not reach you about your wire",
+      "toEmail": "{{ $node[\"Gather details\"].json.customer_email }}",
+      "bodyFormat": "plain"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Hold wire fraud",
+     "type": "HttpRequest",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 190.0,
+      "y": 400.0
+     },
+     "parameters": {
+      "url": "",
+      "body": {
+       "reason": "Customer denied the wire: suspected fraud"
+      },
+      "method": "POST",
+      "api_ref": {
+       "spec_id": "api_471947fafd8c",
+       "operation_id": "hold"
+      },
+      "path_params": {
+       "wire_id": "{{ $node[\"Wire received\"].json.body.wire_id }}"
+      }
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Freeze account",
+     "type": "HttpRequest",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 380.0,
+      "y": 400.0
+     },
+     "parameters": {
+      "url": "",
+      "method": "POST",
+      "api_ref": {
+       "spec_id": "api_d4c3fc8146db",
+       "operation_id": "freeze"
+      },
+      "path_params": {
+       "account_id": "{{ $node[\"Wire received\"].json.body.account_id }}"
+      }
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Audit fraud",
+     "type": "Postgres",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 570.0,
+      "y": 400.0
+     },
+     "parameters": {
+      "operation": "transaction",
+      "connection": "ops_db",
+      "statements": [
+       {
+        "query": "INSERT INTO audit_log (entity, entity_id, action, detail) VALUES ('wire', %s, 'fraud', %s)",
+        "params": [
+         "{{ $node[\"Wire received\"].json.body.wire_id }}",
+         "Customer denied the wire; account frozen"
+        ]
+       }
+      ]
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Email fraud team",
+     "type": "SendEmail",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 760.0,
+      "y": 290.0
+     },
+     "parameters": {
+      "body": "The customer denied wire {{ $node[\"Wire received\"].json.body.wire_id }} for {{ $node[\"Wire received\"].json.body.amount }} to {{ $node[\"Wire received\"].json.body.beneficiary_name }}. The wire is held and account {{ $node[\"Wire received\"].json.body.account_id }} is frozen.",
+      "subject": "Suspected fraud on wire {{ $node[\"Wire received\"].json.body.wire_id }}",
+      "toEmail": "{{ $vars.FRAUD_TEAM_EMAIL }}",
+      "bodyFormat": "plain"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Screen beneficiary",
+     "type": "HttpRequest",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 190.0,
+      "y": 290.0
+     },
+     "parameters": {
+      "url": "",
+      "body": {
+       "name": "{{ $node[\"Wire received\"].json.body.beneficiary_name }}",
+       "country": "{{ $node[\"Wire received\"].json.body.beneficiary_country }}"
+      },
+      "method": "POST",
+      "api_ref": {
+       "spec_id": "api_7cf26f323e71",
+       "operation_id": "screen"
+      }
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Sanctions hit?",
+     "type": "If",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 380.0,
+      "y": 290.0
+     },
+     "parameters": {
+      "condition": "{{ $json.body.hit == true }}"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "MLRO review",
+     "type": "Approval",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 570.0,
+      "y": 290.0
+     },
+     "parameters": {
+      "form": [
+       {
+        "name": "disposition",
+        "type": "select",
+        "label": "Disposition",
+        "options": [
+         "false_positive",
+         "true_match"
+        ],
+        "required": true
+       }
+      ],
+      "title": "Sanctions hit on wire {{ $node[\"Wire received\"].json.body.wire_id }}",
+      "due_in": "4h",
+      "context": {
+       "List": "{{ $json.body.list }}",
+       "Amount": "{{ $node[\"Wire received\"].json.body.amount }}",
+       "Country": "{{ $node[\"Wire received\"].json.body.beneficiary_country }}",
+       "Beneficiary": "{{ $node[\"Wire received\"].json.body.beneficiary_name }}"
+      },
+      "on_timeout": "reject",
+      "notify_email": "{{ $vars.MLRO_EMAIL }}"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "True match?",
+     "type": "If",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 760.0,
+      "y": 180.0
+     },
+     "parameters": {
+      "condition": "{{ $json.approval.form_data.disposition == \"true_match\" }}"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Block wire",
+     "type": "HttpRequest",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 950.0,
+      "y": 290.0
+     },
+     "parameters": {
+      "url": "",
+      "method": "POST",
+      "api_ref": {
+       "spec_id": "api_471947fafd8c",
+       "operation_id": "block"
+      },
+      "path_params": {
+       "wire_id": "{{ $node[\"Wire received\"].json.body.wire_id }}"
+      }
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Audit blocked",
+     "type": "Postgres",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 1140.0,
+      "y": 290.0
+     },
+     "parameters": {
+      "operation": "transaction",
+      "connection": "ops_db",
+      "statements": [
+       {
+        "query": "INSERT INTO audit_log (entity, entity_id, action, detail) VALUES ('wire', %s, 'blocked', %s)",
+        "params": [
+         "{{ $node[\"Wire received\"].json.body.wire_id }}",
+         "Sanctions: true match or MLRO rejection"
+        ]
+       }
+      ]
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "SAR task",
+     "type": "Approval",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 0.0,
+      "y": 690.0
+     },
+     "parameters": {
+      "form": [
+       {
+        "name": "sar_reference",
+        "type": "text",
+        "label": "SAR reference",
+        "required": true
+       }
+      ],
+      "title": "File SAR for blocked wire {{ $node[\"Wire received\"].json.body.wire_id }}",
+      "due_in": "1d",
+      "context": {
+       "Amount": "{{ $node[\"Wire received\"].json.body.amount }}",
+       "Country": "{{ $node[\"Wire received\"].json.body.beneficiary_country }}",
+       "Beneficiary": "{{ $node[\"Wire received\"].json.body.beneficiary_name }}"
+      },
+      "on_timeout": "timed_out",
+      "notify_email": "{{ $vars.MLRO_EMAIL }}"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Audit SAR filed",
+     "type": "Postgres",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 190.0,
+      "y": 800.0
+     },
+     "parameters": {
+      "operation": "transaction",
+      "connection": "ops_db",
+      "statements": [
+       {
+        "query": "INSERT INTO audit_log (entity, entity_id, action, detail) VALUES ('wire', %s, 'sar_filed', %s)",
+        "params": [
+         "{{ $node[\"Wire received\"].json.body.wire_id }}",
+         "{{ $json.approval.form_data.sar_reference }}"
+        ]
+       }
+      ]
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Treasury needed?",
+     "type": "If",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 950.0,
+      "y": 180.0
+     },
+     "parameters": {
+      "condition": "{{ float($node[\"Wire received\"].json.body.amount) >= 1000000 }}"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Treasury approval 1",
+     "type": "Approval",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 1140.0,
+      "y": 180.0
+     },
+     "parameters": {
+      "title": "Treasury approval 1 of 2 for wire {{ $node[\"Wire received\"].json.body.wire_id }}",
+      "context": {
+       "Amount": "{{ $node[\"Wire received\"].json.body.amount }}",
+       "Country": "{{ $node[\"Wire received\"].json.body.beneficiary_country }}",
+       "Beneficiary": "{{ $node[\"Wire received\"].json.body.beneficiary_name }}"
+      },
+      "four_eyes": true,
+      "notify_email": "{{ $vars.TREASURY_EMAIL }}"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Treasury approval 2",
+     "type": "Approval",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 0.0,
+      "y": 580.0
+     },
+     "parameters": {
+      "title": "Treasury approval 2 of 2 for wire {{ $node[\"Wire received\"].json.body.wire_id }}",
+      "context": {
+       "Amount": "{{ $node[\"Wire received\"].json.body.amount }}",
+       "Country": "{{ $node[\"Wire received\"].json.body.beneficiary_country }}",
+       "Beneficiary": "{{ $node[\"Wire received\"].json.body.beneficiary_name }}"
+      },
+      "four_eyes": true,
+      "notify_email": "{{ $vars.TREASURY_EMAIL }}"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Hold wire treasury",
+     "type": "HttpRequest",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 190.0,
+      "y": 690.0
+     },
+     "parameters": {
+      "url": "",
+      "body": {
+       "reason": "Rejected by treasury"
+      },
+      "method": "POST",
+      "api_ref": {
+       "spec_id": "api_471947fafd8c",
+       "operation_id": "hold"
+      },
+      "path_params": {
+       "wire_id": "{{ $node[\"Wire received\"].json.body.wire_id }}"
+      }
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Audit held by treasury",
+     "type": "Postgres",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 380.0,
+      "y": 690.0
+     },
+     "parameters": {
+      "operation": "transaction",
+      "connection": "ops_db",
+      "statements": [
+       {
+        "query": "INSERT INTO audit_log (entity, entity_id, action, detail) VALUES ('wire', %s, 'held_by_treasury', %s)",
+        "params": [
+         "{{ $node[\"Wire received\"].json.body.wire_id }}",
+         "Rejected by treasury"
+        ]
+       }
+      ]
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Release wire",
+     "type": "HttpRequest",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 190.0,
+      "y": 580.0
+     },
+     "parameters": {
+      "url": "",
+      "method": "POST",
+      "api_ref": {
+       "spec_id": "api_471947fafd8c",
+       "operation_id": "release"
+      },
+      "path_params": {
+       "wire_id": "{{ $node[\"Wire received\"].json.body.wire_id }}"
+      }
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Audit released",
+     "type": "Postgres",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 380.0,
+      "y": 580.0
+     },
+     "parameters": {
+      "operation": "transaction",
+      "connection": "ops_db",
+      "statements": [
+       {
+        "query": "INSERT INTO audit_log (entity, entity_id, action, detail) VALUES ('wire', %s, 'released', %s)",
+        "params": [
+         "{{ $node[\"Wire received\"].json.body.wire_id }}",
+         "Wire released"
+        ]
+       }
+      ]
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Email compliance",
+     "type": "SendEmail",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 950,
+      "y": 400
+     },
+     "parameters": {
+      "body": "The customer denied wire {{ $node[\"Wire received\"].json.body.wire_id }} for an amount of {{ $node[\"Wire received\"].json.body.amount }}.",
+      "subject": "Suspected fraud on wire {{ $node[\"Wire received\"].json.body.wire_id }}",
+      "toEmail": "compliance@bank.test",
+      "bodyFormat": "plain"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    }
+   ],
+   "tests": [
+    {
+     "id": "t_487b1819",
+     "name": "Customer denies wire emails compliance",
+     "input": {
+      "items": [
+       {
+        "body": {
+         "amount": 15000,
+         "wire_id": "W-100",
+         "account_id": "A1",
+         "customer_id": "C1",
+         "beneficiary_name": "Acme",
+         "beneficiary_country": "DE"
+        }
+       }
+      ]
+     },
+     "mocks": {
+      "Audit fraud": {
+       "items": [
+        {
+         "success": true
+        }
+       ]
+      },
+      "Get customer": {
+       "items": [
+        {
+         "rows": [
+          {
+           "email": "jane@example.test",
+           "phone": "555-0100",
+           "full_name": "Jane Doe"
+          }
+         ],
+         "rowCount": 1
+        }
+       ]
+      },
+      "Callback task": {
+       "port": "approved",
+       "approval": {
+        "comment": "",
+        "decision": "approved",
+        "form_data": {
+         "customer_confirmed": "no"
+        },
+        "decided_by": "test"
+       }
+      },
+      "Freeze account": {
+       "http": {
+        "body": {
+         "status": "frozen",
+         "account_id": "A1"
+        },
+        "status": 200
+       }
+      },
+      "Hold wire fraud": {
+       "http": {
+        "body": {
+         "status": "held",
+         "wire_id": "W-100"
+        },
+        "status": 200
+       }
+      },
+      "Email compliance": {
+       "items": [
+        {
+         "success": true
+        }
+       ]
+      },
+      "Email fraud team": {
+       "items": [
+        {
+         "success": true
+        }
+       ]
+      }
+     },
+     "expect": [
+      {
+       "op": "status",
+       "node": "Email fraud team",
+       "value": "success",
+       "subject": "node"
+      },
+      {
+       "op": "status",
+       "node": "Email compliance",
+       "value": "success",
+       "subject": "node"
+      },
+      {
+       "op": "count",
+       "node": "Email compliance",
+       "value": 1,
+       "subject": "request"
+      },
+      {
+       "op": "eq",
+       "node": "Email compliance",
+       "path": "params.toEmail",
+       "value": "compliance@bank.test",
+       "subject": "request"
+      },
+      {
+       "op": "contains",
+       "node": "Email compliance",
+       "path": "params.body",
+       "value": "W-100",
+       "subject": "request"
+      },
+      {
+       "op": "contains",
+       "node": "Email compliance",
+       "path": "params.body",
+       "value": "15000",
+       "subject": "request"
+      },
+      {
+       "op": "status",
+       "node": "Release wire",
+       "value": "not_run",
+       "subject": "node"
+      }
+     ],
+     "locked": false,
+     "source": "human",
+     "status": "draft",
+     "target": {
+      "kind": "workflow"
+     },
+     "category": "normal"
+    },
+    {
+     "id": "t_0024b567",
+     "name": "Customer confirms wire does not email compliance",
+     "input": {
+      "items": [
+       {
+        "body": {
+         "amount": 15000,
+         "wire_id": "W-101",
+         "account_id": "A1",
+         "customer_id": "C1",
+         "beneficiary_name": "Acme",
+         "beneficiary_country": "DE"
+        }
+       }
+      ]
+     },
+     "mocks": {
+      "Get customer": {
+       "items": [
+        {
+         "rows": [
+          {
+           "email": "jane@example.test",
+           "phone": "555-0100",
+           "full_name": "Jane Doe"
+          }
+         ],
+         "rowCount": 1
+        }
+       ]
+      },
+      "Release wire": {
+       "http": {
+        "body": {
+         "status": "released",
+         "wire_id": "W-101"
+        },
+        "status": 200
+       }
+      },
+      "Callback task": {
+       "port": "approved",
+       "approval": {
+        "comment": "",
+        "decision": "approved",
+        "form_data": {
+         "customer_confirmed": "yes"
+        },
+        "decided_by": "test"
+       }
+      },
+      "Audit released": {
+       "items": [
+        {
+         "success": true
+        }
+       ]
+      },
+      "Screen beneficiary": {
+       "http": {
+        "body": {
+         "hit": false,
+         "list": ""
+        },
+        "status": 200
+       }
+      }
+     },
+     "expect": [
+      {
+       "op": "status",
+       "node": "Hold wire fraud",
+       "value": "not_run",
+       "subject": "node"
+      },
+      {
+       "op": "status",
+       "node": "Email fraud team",
+       "value": "not_run",
+       "subject": "node"
+      },
+      {
+       "op": "status",
+       "node": "Email compliance",
+       "value": "not_run",
+       "subject": "node"
+      },
+      {
+       "op": "status",
+       "node": "Release wire",
+       "value": "success",
+       "subject": "node"
+      }
+     ],
+     "locked": false,
+     "source": "human",
+     "status": "draft",
+     "target": {
+      "kind": "workflow"
+     },
+     "category": "normal"
+    }
+   ],
+   "settings": {},
+   "connections": [
+    {
+     "source_node": "Wire received",
+     "target_node": "Under 10000?",
+     "target_input": "main",
+     "source_output": "main"
+    },
+    {
+     "source_node": "Under 10000?",
+     "target_node": "Release wire",
+     "target_input": "main",
+     "source_output": "true"
+    },
+    {
+     "source_node": "Under 10000?",
+     "target_node": "Get customer",
+     "target_input": "main",
+     "source_output": "false"
+    },
+    {
+     "source_node": "Get customer",
+     "target_node": "Gather details",
+     "target_input": "main",
+     "source_output": "main"
+    },
+    {
+     "source_node": "Gather details",
+     "target_node": "Callback task",
+     "target_input": "main",
+     "source_output": "main"
+    },
+    {
+     "source_node": "Callback task",
+     "target_node": "Customer answer",
+     "target_input": "main",
+     "source_output": "approved"
+    },
+    {
+     "source_node": "Callback task",
+     "target_node": "Remind payments lead",
+     "target_input": "main",
+     "source_output": "timed_out"
+    },
+    {
+     "source_node": "Remind payments lead",
+     "target_node": "Callback task again",
+     "target_input": "main",
+     "source_output": "main"
+    },
+    {
+     "source_node": "Callback task again",
+     "target_node": "Customer answer",
+     "target_input": "main",
+     "source_output": "approved"
+    },
+    {
+     "source_node": "Callback task again",
+     "target_node": "Hold wire no callback",
+     "target_input": "main",
+     "source_output": "timed_out"
+    },
+    {
+     "source_node": "Customer answer",
+     "target_node": "Screen beneficiary",
+     "target_input": "main",
+     "source_output": "output0"
+    },
+    {
+     "source_node": "Customer answer",
+     "target_node": "Hold wire fraud",
+     "target_input": "main",
+     "source_output": "output1"
+    },
+    {
+     "source_node": "Customer answer",
+     "target_node": "Hold wire no callback",
+     "target_input": "main",
+     "source_output": "fallback"
+    },
+    {
+     "source_node": "Hold wire no callback",
+     "target_node": "Audit held no callback",
+     "target_input": "main",
+     "source_output": "main"
+    },
+    {
+     "source_node": "Audit held no callback",
+     "target_node": "Email customer",
+     "target_input": "main",
+     "source_output": "main"
+    },
+    {
+     "source_node": "Hold wire fraud",
+     "target_node": "Freeze account",
+     "target_input": "main",
+     "source_output": "main"
+    },
+    {
+     "source_node": "Freeze account",
+     "target_node": "Audit fraud",
+     "target_input": "main",
+     "source_output": "main"
+    },
+    {
+     "source_node": "Audit fraud",
+     "target_node": "Email fraud team",
+     "target_input": "main",
+     "source_output": "main"
+    },
+    {
+     "source_node": "Screen beneficiary",
+     "target_node": "Sanctions hit?",
+     "target_input": "main",
+     "source_output": "main"
+    },
+    {
+     "source_node": "Sanctions hit?",
+     "target_node": "MLRO review",
+     "target_input": "main",
+     "source_output": "true"
+    },
+    {
+     "source_node": "Sanctions hit?",
+     "target_node": "Treasury needed?",
+     "target_input": "main",
+     "source_output": "false"
+    },
+    {
+     "source_node": "MLRO review",
+     "target_node": "True match?",
+     "target_input": "main",
+     "source_output": "approved"
+    },
+    {
+     "source_node": "MLRO review",
+     "target_node": "Block wire",
+     "target_input": "main",
+     "source_output": "rejected"
+    },
+    {
+     "source_node": "True match?",
+     "target_node": "Block wire",
+     "target_input": "main",
+     "source_output": "true"
+    },
+    {
+     "source_node": "True match?",
+     "target_node": "Treasury needed?",
+     "target_input": "main",
+     "source_output": "false"
+    },
+    {
+     "source_node": "Block wire",
+     "target_node": "Audit blocked",
+     "target_input": "main",
+     "source_output": "main"
+    },
+    {
+     "source_node": "Audit blocked",
+     "target_node": "SAR task",
+     "target_input": "main",
+     "source_output": "main"
+    },
+    {
+     "source_node": "SAR task",
+     "target_node": "Audit SAR filed",
+     "target_input": "main",
+     "source_output": "approved"
+    },
+    {
+     "source_node": "Treasury needed?",
+     "target_node": "Treasury approval 1",
+     "target_input": "main",
+     "source_output": "true"
+    },
+    {
+     "source_node": "Treasury needed?",
+     "target_node": "Release wire",
+     "target_input": "main",
+     "source_output": "false"
+    },
+    {
+     "source_node": "Treasury approval 1",
+     "target_node": "Treasury approval 2",
+     "target_input": "main",
+     "source_output": "approved"
+    },
+    {
+     "source_node": "Treasury approval 1",
+     "target_node": "Hold wire treasury",
+     "target_input": "main",
+     "source_output": "rejected"
+    },
+    {
+     "source_node": "Treasury approval 2",
+     "target_node": "Release wire",
+     "target_input": "main",
+     "source_output": "approved"
+    },
+    {
+     "source_node": "Treasury approval 2",
+     "target_node": "Hold wire treasury",
+     "target_input": "main",
+     "source_output": "rejected"
+    },
+    {
+     "source_node": "Hold wire treasury",
+     "target_node": "Audit held by treasury",
+     "target_input": "main",
+     "source_output": "main"
+    },
+    {
+     "source_node": "Release wire",
+     "target_node": "Audit released",
+     "target_input": "main",
+     "source_output": "main"
+    },
+    {
+     "source_node": "Email fraud team",
+     "target_node": "Email compliance",
+     "target_input": "main",
+     "source_output": "main"
+    }
+   ],
+   "test_defaults": {
+    "mocks": {}
+   }
+  },
+  "spec_approved_by": "live-test@bank.test",
+  "spec_approved_at": "2026-10-23T05:49:03.676255+00:00",
+  "spec_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "base_draft_hash": "7729445b450f99ab6f68564c26297e71242f6b5dcdd87a1b95d4efbd03b69c7e",
+  "proposed_definition": {
+   "name": "Outgoing wire controls",
+   "nodes": [
+    {
+     "name": "Wire received",
+     "type": "Webhook",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 0.0,
+      "y": 0.0
+     },
+     "parameters": {
+      "path": "outgoing-wires",
+      "method": "POST"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Under 10000?",
+     "type": "If",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 190.0,
+      "y": 0.0
+     },
+     "parameters": {
+      "condition": "{{ float($json.body.amount) < 10000 }}"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Get customer",
+     "type": "Postgres",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 380.0,
+      "y": 0.0
+     },
+     "parameters": {
+      "query": "SELECT full_name, phone, email FROM customers WHERE customer_id = %s",
+      "operation": "query",
+      "connection": "core_banking",
+      "queryParameters": [
+       "{{ $node[\"Wire received\"].json.body.customer_id }}"
+      ]
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Gather details",
+     "type": "Set",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 570.0,
+      "y": 0.0
+     },
+     "parameters": {
+      "mode": "manual",
+      "fields": [
+       {
+        "name": "wire_id",
+        "value": "{{ $node[\"Wire received\"].json.body.wire_id }}"
+       },
+       {
+        "name": "customer_name",
+        "value": "{{ $json.rows[0].full_name }}"
+       },
+       {
+        "name": "customer_phone",
+        "value": "{{ $json.rows[0].phone }}"
+       },
+       {
+        "name": "customer_email",
+        "value": "{{ $json.rows[0].email }}"
+       }
+      ]
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Callback task",
+     "type": "Approval",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 760.0,
+      "y": 0.0
+     },
+     "parameters": {
+      "form": [
+       {
+        "name": "customer_confirmed",
+        "type": "select",
+        "label": "Customer confirmed",
+        "options": [
+         "yes",
+         "no",
+         "unreachable"
+        ],
+        "required": true
+       }
+      ],
+      "title": "Customer callback for wire {{ $node[\"Wire received\"].json.body.wire_id }}",
+      "due_in": "2h",
+      "context": {
+       "Phone": "{{ $node[\"Gather details\"].json.customer_phone }}",
+       "Amount": "{{ $node[\"Wire received\"].json.body.amount }}",
+       "Customer": "{{ $node[\"Gather details\"].json.customer_name }}",
+       "Beneficiary": "{{ $node[\"Wire received\"].json.body.beneficiary_name }}"
+      },
+      "on_timeout": "timed_out",
+      "notify_email": "{{ $vars.PAYMENTS_OPS_EMAIL }}"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Remind payments lead",
+     "type": "SendEmail",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 950.0,
+      "y": 0.0
+     },
+     "parameters": {
+      "body": "Nobody has done the customer callback for wire {{ $node[\"Wire received\"].json.body.wire_id }} within 2 hours. It has been given to payments ops again.",
+      "subject": "Callback overdue for wire {{ $node[\"Wire received\"].json.body.wire_id }}",
+      "toEmail": "{{ $vars.PAYMENTS_LEAD_EMAIL }}",
+      "bodyFormat": "plain"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Callback task again",
+     "type": "Approval",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 1140.0,
+      "y": 0.0
+     },
+     "parameters": {
+      "form": [
+       {
+        "name": "customer_confirmed",
+        "type": "select",
+        "label": "Customer confirmed",
+        "options": [
+         "yes",
+         "no",
+         "unreachable"
+        ],
+        "required": true
+       }
+      ],
+      "title": "Customer callback (second ask) for wire {{ $node[\"Wire received\"].json.body.wire_id }}",
+      "due_in": "1h",
+      "context": {
+       "Phone": "{{ $node[\"Gather details\"].json.customer_phone }}",
+       "Amount": "{{ $node[\"Wire received\"].json.body.amount }}",
+       "Customer": "{{ $node[\"Gather details\"].json.customer_name }}",
+       "Beneficiary": "{{ $node[\"Wire received\"].json.body.beneficiary_name }}"
+      },
+      "on_timeout": "timed_out",
+      "notify_email": "{{ $vars.PAYMENTS_OPS_EMAIL }}"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Customer answer",
+     "type": "Switch",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 0.0,
+      "y": 180.0
+     },
+     "parameters": {
+      "mode": "rules",
+      "rules": [
+       {
+        "field": "{{ $json.approval.form_data.customer_confirmed }}",
+        "value": "yes",
+        "output": 0,
+        "operation": "equals"
+       },
+       {
+        "field": "{{ $json.approval.form_data.customer_confirmed }}",
+        "value": "no",
+        "output": 1,
+        "operation": "equals"
+       }
+      ],
+      "numberOfOutputs": 2
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Hold wire no callback",
+     "type": "HttpRequest",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 190.0,
+      "y": 180.0
+     },
+     "parameters": {
+      "url": "",
+      "body": {
+       "reason": "Customer callback not completed"
+      },
+      "method": "POST",
+      "api_ref": {
+       "spec_id": "api_471947fafd8c",
+       "operation_id": "hold"
+      },
+      "path_params": {
+       "wire_id": "{{ $node[\"Wire received\"].json.body.wire_id }}"
+      }
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Audit held no callback",
+     "type": "Postgres",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 380.0,
+      "y": 180.0
+     },
+     "parameters": {
+      "operation": "transaction",
+      "connection": "ops_db",
+      "statements": [
+       {
+        "query": "INSERT INTO audit_log (entity, entity_id, action, detail) VALUES ('wire', %s, 'held_no_callback', %s)",
+        "params": [
+         "{{ $node[\"Wire received\"].json.body.wire_id }}",
+         "Customer callback not completed"
+        ]
+       }
+      ]
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Email customer",
+     "type": "SendEmail",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 570.0,
+      "y": 180.0
+     },
+     "parameters": {
+      "body": "Dear {{ $node[\"Gather details\"].json.customer_name }}, we tried to reach you to confirm your outgoing wire {{ $node[\"Wire received\"].json.body.wire_id }} but could not. The wire is on hold. Please contact the bank.",
+      "subject": "We could not reach you about your wire",
+      "toEmail": "{{ $node[\"Gather details\"].json.customer_email }}",
+      "bodyFormat": "plain"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Hold wire fraud",
+     "type": "HttpRequest",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 190.0,
+      "y": 400.0
+     },
+     "parameters": {
+      "url": "",
+      "body": {
+       "reason": "Customer denied the wire: suspected fraud"
+      },
+      "method": "POST",
+      "api_ref": {
+       "spec_id": "api_471947fafd8c",
+       "operation_id": "hold"
+      },
+      "path_params": {
+       "wire_id": "{{ $node[\"Wire received\"].json.body.wire_id }}"
+      }
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Freeze account",
+     "type": "HttpRequest",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 380.0,
+      "y": 400.0
+     },
+     "parameters": {
+      "url": "",
+      "method": "POST",
+      "api_ref": {
+       "spec_id": "api_d4c3fc8146db",
+       "operation_id": "freeze"
+      },
+      "path_params": {
+       "account_id": "{{ $node[\"Wire received\"].json.body.account_id }}"
+      }
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Audit fraud",
+     "type": "Postgres",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 570.0,
+      "y": 400.0
+     },
+     "parameters": {
+      "operation": "transaction",
+      "connection": "ops_db",
+      "statements": [
+       {
+        "query": "INSERT INTO audit_log (entity, entity_id, action, detail) VALUES ('wire', %s, 'fraud', %s)",
+        "params": [
+         "{{ $node[\"Wire received\"].json.body.wire_id }}",
+         "Customer denied the wire; account frozen"
+        ]
+       }
+      ]
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Email fraud team",
+     "type": "SendEmail",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 760.0,
+      "y": 290.0
+     },
+     "parameters": {
+      "body": "The customer denied wire {{ $node[\"Wire received\"].json.body.wire_id }} for {{ $node[\"Wire received\"].json.body.amount }} to {{ $node[\"Wire received\"].json.body.beneficiary_name }}. The wire is held and account {{ $node[\"Wire received\"].json.body.account_id }} is frozen.",
+      "subject": "Suspected fraud on wire {{ $node[\"Wire received\"].json.body.wire_id }}",
+      "toEmail": "{{ $vars.FRAUD_TEAM_EMAIL }}",
+      "bodyFormat": "plain"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Screen beneficiary",
+     "type": "HttpRequest",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 190.0,
+      "y": 290.0
+     },
+     "parameters": {
+      "url": "",
+      "body": {
+       "name": "{{ $node[\"Wire received\"].json.body.beneficiary_name }}",
+       "country": "{{ $node[\"Wire received\"].json.body.beneficiary_country }}"
+      },
+      "method": "POST",
+      "api_ref": {
+       "spec_id": "api_7cf26f323e71",
+       "operation_id": "screen"
+      }
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Sanctions hit?",
+     "type": "If",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 380.0,
+      "y": 290.0
+     },
+     "parameters": {
+      "condition": "{{ $json.body.hit == true }}"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "MLRO review",
+     "type": "Approval",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 570.0,
+      "y": 290.0
+     },
+     "parameters": {
+      "form": [
+       {
+        "name": "disposition",
+        "type": "select",
+        "label": "Disposition",
+        "options": [
+         "false_positive",
+         "true_match"
+        ],
+        "required": true
+       }
+      ],
+      "title": "Sanctions hit on wire {{ $node[\"Wire received\"].json.body.wire_id }}",
+      "due_in": "4h",
+      "context": {
+       "List": "{{ $json.body.list }}",
+       "Amount": "{{ $node[\"Wire received\"].json.body.amount }}",
+       "Country": "{{ $node[\"Wire received\"].json.body.beneficiary_country }}",
+       "Beneficiary": "{{ $node[\"Wire received\"].json.body.beneficiary_name }}"
+      },
+      "on_timeout": "reject",
+      "notify_email": "{{ $vars.MLRO_EMAIL }}"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "True match?",
+     "type": "If",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 760.0,
+      "y": 180.0
+     },
+     "parameters": {
+      "condition": "{{ $json.approval.form_data.disposition == \"true_match\" }}"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Block wire",
+     "type": "HttpRequest",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 950.0,
+      "y": 290.0
+     },
+     "parameters": {
+      "url": "",
+      "method": "POST",
+      "api_ref": {
+       "spec_id": "api_471947fafd8c",
+       "operation_id": "block"
+      },
+      "path_params": {
+       "wire_id": "{{ $node[\"Wire received\"].json.body.wire_id }}"
+      }
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Audit blocked",
+     "type": "Postgres",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 1140.0,
+      "y": 290.0
+     },
+     "parameters": {
+      "operation": "transaction",
+      "connection": "ops_db",
+      "statements": [
+       {
+        "query": "INSERT INTO audit_log (entity, entity_id, action, detail) VALUES ('wire', %s, 'blocked', %s)",
+        "params": [
+         "{{ $node[\"Wire received\"].json.body.wire_id }}",
+         "Sanctions: true match or MLRO rejection"
+        ]
+       }
+      ]
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "SAR task",
+     "type": "Approval",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 0.0,
+      "y": 690.0
+     },
+     "parameters": {
+      "form": [
+       {
+        "name": "sar_reference",
+        "type": "text",
+        "label": "SAR reference",
+        "required": true
+       }
+      ],
+      "title": "File SAR for blocked wire {{ $node[\"Wire received\"].json.body.wire_id }}",
+      "due_in": "1d",
+      "context": {
+       "Amount": "{{ $node[\"Wire received\"].json.body.amount }}",
+       "Country": "{{ $node[\"Wire received\"].json.body.beneficiary_country }}",
+       "Beneficiary": "{{ $node[\"Wire received\"].json.body.beneficiary_name }}"
+      },
+      "on_timeout": "timed_out",
+      "notify_email": "{{ $vars.MLRO_EMAIL }}"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Audit SAR filed",
+     "type": "Postgres",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 190.0,
+      "y": 800.0
+     },
+     "parameters": {
+      "operation": "transaction",
+      "connection": "ops_db",
+      "statements": [
+       {
+        "query": "INSERT INTO audit_log (entity, entity_id, action, detail) VALUES ('wire', %s, 'sar_filed', %s)",
+        "params": [
+         "{{ $node[\"Wire received\"].json.body.wire_id }}",
+         "{{ $json.approval.form_data.sar_reference }}"
+        ]
+       }
+      ]
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Treasury needed?",
+     "type": "If",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 950.0,
+      "y": 180.0
+     },
+     "parameters": {
+      "condition": "{{ float($node[\"Wire received\"].json.body.amount) >= 1000000 }}"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Treasury approval 1",
+     "type": "Approval",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 1140.0,
+      "y": 180.0
+     },
+     "parameters": {
+      "title": "Treasury approval 1 of 2 for wire {{ $node[\"Wire received\"].json.body.wire_id }}",
+      "context": {
+       "Amount": "{{ $node[\"Wire received\"].json.body.amount }}",
+       "Country": "{{ $node[\"Wire received\"].json.body.beneficiary_country }}",
+       "Beneficiary": "{{ $node[\"Wire received\"].json.body.beneficiary_name }}"
+      },
+      "four_eyes": true,
+      "notify_email": "{{ $vars.TREASURY_EMAIL }}"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Treasury approval 2",
+     "type": "Approval",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 0.0,
+      "y": 580.0
+     },
+     "parameters": {
+      "title": "Treasury approval 2 of 2 for wire {{ $node[\"Wire received\"].json.body.wire_id }}",
+      "context": {
+       "Amount": "{{ $node[\"Wire received\"].json.body.amount }}",
+       "Country": "{{ $node[\"Wire received\"].json.body.beneficiary_country }}",
+       "Beneficiary": "{{ $node[\"Wire received\"].json.body.beneficiary_name }}"
+      },
+      "four_eyes": true,
+      "notify_email": "{{ $vars.TREASURY_EMAIL }}"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Hold wire treasury",
+     "type": "HttpRequest",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 190.0,
+      "y": 690.0
+     },
+     "parameters": {
+      "url": "",
+      "body": {
+       "reason": "Rejected by treasury"
+      },
+      "method": "POST",
+      "api_ref": {
+       "spec_id": "api_471947fafd8c",
+       "operation_id": "hold"
+      },
+      "path_params": {
+       "wire_id": "{{ $node[\"Wire received\"].json.body.wire_id }}"
+      }
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Audit held by treasury",
+     "type": "Postgres",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 380.0,
+      "y": 690.0
+     },
+     "parameters": {
+      "operation": "transaction",
+      "connection": "ops_db",
+      "statements": [
+       {
+        "query": "INSERT INTO audit_log (entity, entity_id, action, detail) VALUES ('wire', %s, 'held_by_treasury', %s)",
+        "params": [
+         "{{ $node[\"Wire received\"].json.body.wire_id }}",
+         "Rejected by treasury"
+        ]
+       }
+      ]
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Release wire",
+     "type": "HttpRequest",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 190.0,
+      "y": 580.0
+     },
+     "parameters": {
+      "url": "",
+      "method": "POST",
+      "api_ref": {
+       "spec_id": "api_471947fafd8c",
+       "operation_id": "release"
+      },
+      "path_params": {
+       "wire_id": "{{ $node[\"Wire received\"].json.body.wire_id }}"
+      }
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Audit released",
+     "type": "Postgres",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 380.0,
+      "y": 580.0
+     },
+     "parameters": {
+      "operation": "transaction",
+      "connection": "ops_db",
+      "statements": [
+       {
+        "query": "INSERT INTO audit_log (entity, entity_id, action, detail) VALUES ('wire', %s, 'released', %s)",
+        "params": [
+         "{{ $node[\"Wire received\"].json.body.wire_id }}",
+         "Wire released"
+        ]
+       }
+      ]
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Email compliance",
+     "type": "SendEmail",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 950,
+      "y": 400
+     },
+     "parameters": {
+      "body": "The customer denied wire {{ $node[\"Wire received\"].json.body.wire_id }} for an amount of {{ $node[\"Wire received\"].json.body.amount }}.",
+      "subject": "Suspected fraud on wire {{ $node[\"Wire received\"].json.body.wire_id }}",
+      "toEmail": "compliance@bank.test",
+      "bodyFormat": "plain"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Blocked country?",
+     "type": "If",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 190,
+      "y": 110
+     },
+     "parameters": {
+      "condition": "{{ upper(trim($json.body.beneficiary_country)) == \"KP\" or upper(trim($json.body.beneficiary_country)) == \"IR\" }}"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Block wire country",
+     "type": "HttpRequest",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 380,
+      "y": 110
+     },
+     "parameters": {
+      "url": "",
+      "method": "POST",
+      "api_ref": {
+       "spec_id": "api_471947fafd8c",
+       "operation_id": "block"
+      },
+      "path_params": {
+       "wire_id": "{{ $node[\"Wire received\"].json.body.wire_id }}"
+      }
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Audit blocked country",
+     "type": "Postgres",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 570,
+      "y": 110
+     },
+     "parameters": {
+      "operation": "transaction",
+      "connection": "ops_db",
+      "statements": [
+       {
+        "query": "INSERT INTO audit_log (entity, entity_id, action, detail) VALUES ('wire', %s, 'blocked_country', %s)",
+        "params": [
+         "{{ $node[\"Wire received\"].json.body.wire_id }}",
+         "{{ $node[\"Wire received\"].json.body.beneficiary_country }}"
+        ]
+       }
+      ]
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    },
+    {
+     "name": "Email compliance country",
+     "type": "SendEmail",
+     "disabled": false,
+     "on_error": "stop",
+     "position": {
+      "x": 760,
+      "y": 110
+     },
+     "parameters": {
+      "body": "Wire {{ $node[\"Wire received\"].json.body.wire_id }} for {{ $node[\"Wire received\"].json.body.amount }} to {{ $node[\"Wire received\"].json.body.beneficiary_name }} was blocked because the beneficiary country is {{ $node[\"Wire received\"].json.body.beneficiary_country }}.",
+      "subject": "Wire {{ $node[\"Wire received\"].json.body.wire_id }} blocked: restricted country",
+      "toEmail": "compliance@bank.test",
+      "bodyFormat": "plain"
+     },
+     "retry_delay": 1000,
+     "retry_on_fail": 0
+    }
+   ],
+   "tests": [
+    {
+     "id": "t_487b1819",
+     "name": "Customer denies wire emails compliance",
+     "input": {
+      "items": [
+       {
+        "body": {
+         "amount": 15000,
+         "wire_id": "W-100",
+         "account_id": "A1",
+         "customer_id": "C1",
+         "beneficiary_name": "Acme",
+         "beneficiary_country": "DE"
+        }
+       }
+      ]
+     },
+     "mocks": {
+      "Audit fraud": {
+       "items": [
+        {
+         "success": true
+        }
+       ]
+      },
+      "Get customer": {
+       "items": [
+        {
+         "rows": [
+          {
+           "email": "jane@example.test",
+           "phone": "555-0100",
+           "full_name": "Jane Doe"
+          }
+         ],
+         "rowCount": 1
+        }
+       ]
+      },
+      "Callback task": {
+       "port": "approved",
+       "approval": {
+        "comment": "",
+        "decision": "approved",
+        "form_data": {
+         "customer_confirmed": "no"
+        },
+        "decided_by": "test"
+       }
+      },
+      "Freeze account": {
+       "http": {
+        "body": {
+         "status": "frozen",
+         "account_id": "A1"
+        },
+        "status": 200
+       }
+      },
+      "Hold wire fraud": {
+       "http": {
+        "body": {
+         "status": "held",
+         "wire_id": "W-100"
+        },
+        "status": 200
+       }
+      },
+      "Email compliance": {
+       "items": [
+        {
+         "success": true
+        }
+       ]
+      },
+      "Email fraud team": {
+       "items": [
+        {
+         "success": true
+        }
+       ]
+      }
+     },
+     "expect": [
+      {
+       "op": "status",
+       "node": "Email fraud team",
+       "value": "success",
+       "subject": "node"
+      },
+      {
+       "op": "status",
+       "node": "Email compliance",
+       "value": "success",
+       "subject": "node"
+      },
+      {
+       "op": "count",
+       "node": "Email compliance",
+       "value": 1,
+       "subject": "request"
+      },
+      {
+       "op": "eq",
+       "node": "Email compliance",
+       "path": "params.toEmail",
+       "value": "compliance@bank.test",
+       "subject": "request"
+      },
+      {
+       "op": "contains",
+       "node": "Email compliance",
+       "path": "params.body",
+       "value": "W-100",
+       "subject": "request"
+      },
+      {
+       "op": "contains",
+       "node": "Email compliance",
+       "path": "params.body",
+       "value": "15000",
+       "subject": "request"
+      },
+      {
+       "op": "status",
+       "node": "Release wire",
+       "value": "not_run",
+       "subject": "node"
+      }
+     ],
+     "locked": false,
+     "source": "human",
+     "status": "draft",
+     "target": {
+      "kind": "workflow"
+     },
+     "category": "normal"
+    },
+    {
+     "id": "t_0024b567",
+     "name": "Customer confirms wire does not email compliance",
+     "input": {
+      "items": [
+       {
+        "body": {
+         "amount": 15000,
+         "wire_id": "W-101",
+         "account_id": "A1",
+         "customer_id": "C1",
+         "beneficiary_name": "Acme",
+         "beneficiary_country": "DE"
+        }
+       }
+      ]
+     },
+     "mocks": {
+      "Get customer": {
+       "items": [
+        {
+         "rows": [
+          {
+           "email": "jane@example.test",
+           "phone": "555-0100",
+           "full_name": "Jane Doe"
+          }
+         ],
+         "rowCount": 1
+        }
+       ]
+      },
+      "Release wire": {
+       "http": {
+        "body": {
+         "status": "released",
+         "wire_id": "W-101"
+        },
+        "status": 200
+       }
+      },
+      "Callback task": {
+       "port": "approved",
+       "approval": {
+        "comment": "",
+        "decision": "approved",
+        "form_data": {
+         "customer_confirmed": "yes"
+        },
+        "decided_by": "test"
+       }
+      },
+      "Audit released": {
+       "items": [
+        {
+         "success": true
+        }
+       ]
+      },
+      "Screen beneficiary": {
+       "http": {
+        "body": {
+         "hit": false,
+         "list": ""
+        },
+        "status": 200
+       }
+      }
+     },
+     "expect": [
+      {
+       "op": "status",
+       "node": "Hold wire fraud",
+       "value": "not_run",
+       "subject": "node"
+      },
+      {
+       "op": "status",
+       "node": "Email fraud team",
+       "value": "not_run",
+       "subject": "node"
+      },
+      {
+       "op": "status",
+       "node": "Email compliance",
+       "value": "not_run",
+       "subject": "node"
+      },
+      {
+       "op": "status",
+       "node": "Release wire",
+       "value": "success",
+       "subject": "node"
+      }
+     ],
+     "locked": false,
+     "source": "human",
+     "status": "draft",
+     "target": {
+      "kind": "workflow"
+     },
+     "category": "normal"
+    },
+    {
+     "id": "t_4a8659f7",
+     "name": "Wire to KP is blocked before callback",
+     "input": {
+      "items": [
+       {
+        "body": {
+         "amount": 50000,
+         "wire_id": "W-200",
+         "account_id": "A1",
+         "customer_id": "C1",
+         "beneficiary_name": "Acme",
+         "beneficiary_country": "KP"
+        }
+       }
+      ]
+     },
+     "mocks": {
+      "Block wire country": {
+       "http": {
+        "body": {
+         "status": "blocked",
+         "wire_id": "W-200"
+        },
+        "status": 200
+       }
+      },
+      "Audit blocked country": {
+       "items": [
+        {
+         "success": true
+        }
+       ]
+      },
+      "Email compliance country": {
+       "items": [
+        {
+         "success": true
+        }
+       ]
+      }
+     },
+     "expect": [
+      {
+       "op": "status",
+       "node": "Block wire country",
+       "value": "success",
+       "subject": "node"
+      },
+      {
+       "op": "contains",
+       "node": "Block wire country",
+       "path": "url",
+       "value": "W-200",
+       "subject": "request"
+      },
+      {
+       "op": "eq",
+       "node": "Audit blocked country",
+       "path": "params.statements.0.params.1",
+       "value": "KP",
+       "subject": "request"
+      },
+      {
+       "op": "eq",
+       "node": "Audit blocked country",
+       "path": "params.statements.0.params.0",
+       "value": "W-200",
+       "subject": "request"
+      },
+      {
+       "op": "eq",
+       "node": "Email compliance country",
+       "path": "params.toEmail",
+       "value": "compliance@bank.test",
+       "subject": "request"
+      },
+      {
+       "op": "status",
+       "node": "Callback task",
+       "value": "not_run",
+       "subject": "node"
+      },
+      {
+       "op": "status",
+       "node": "Get customer",
+       "value": "not_run",
+       "subject": "node"
+      },
+      {
+       "op": "status",
+       "node": "Screen beneficiary",
+       "value": "not_run",
+       "subject": "node"
+      },
+      {
+       "op": "status",
+       "node": "Release wire",
+       "value": "not_run",
+       "subject": "node"
+      }
+     ],
+     "locked": false,
+     "source": "human",
+     "status": "draft",
+     "target": {
+      "kind": "workflow"
+     },
+     "category": "normal"
+    },
+    {
+     "id": "t_3e9ce46c",
+     "name": "Small wire to IR is blocked too",
+     "input": {
+      "items": [
+       {
+        "body": {
+         "amount": 500,
+         "wire_id": "W-201",
+         "account_id": "A1",
+         "customer_id": "C1",
+         "beneficiary_name": "Acme",
+         "beneficiary_country": "IR"
+        }
+       }
+      ]
+     },
+     "mocks": {
+      "Block wire country": {
+       "http": {
+        "body": {
+         "status": "blocked",
+         "wire_id": "W-201"
+        },
+        "status": 200
+       }
+      },
+      "Audit blocked country": {
+       "items": [
+        {
+         "success": true
+        }
+       ]
+      },
+      "Email compliance country": {
+       "items": [
+        {
+         "success": true
+        }
+       ]
+      }
+     },
+     "expect": [
+      {
+       "op": "status",
+       "node": "Block wire country",
+       "value": "success",
+       "subject": "node"
+      },
+      {
+       "op": "eq",
+       "node": "Audit blocked country",
+       "path": "params.statements.0.params.1",
+       "value": "IR",
+       "subject": "request"
+      },
+      {
+       "op": "status",
+       "node": "Email compliance country",
+       "value": "success",
+       "subject": "node"
+      },
+      {
+       "op": "status",
+       "node": "Release wire",
+       "value": "not_run",
+       "subject": "node"
+      },
+      {
+       "op": "status",
+       "node": "Under 10000?",
+       "value": "not_run",
+       "subject": "node"
+      }
+     ],
+     "locked": false,
+     "source": "human",
+     "status": "draft",
+     "target": {
+      "kind": "workflow"
+     },
+     "category": "normal"
+    },
+    {
+     "id": "t_179b8ce9",
+     "name": "Other countries are not blocked by country",
+     "input": {
+      "items": [
+       {
+        "body": {
+         "amount": 5000,
+         "wire_id": "W-202",
+         "account_id": "A1",
+         "customer_id": "C1",
+         "beneficiary_name": "Acme",
+         "beneficiary_country": "DE"
+        }
+       }
+      ]
+     },
+     "mocks": {
+      "Release wire": {
+       "http": {
+        "body": {
+         "status": "released",
+         "wire_id": "W-202"
+        },
+        "status": 200
+       }
+      },
+      "Audit released": {
+       "items": [
+        {
+         "success": true
+        }
+       ]
+      }
+     },
+     "expect": [
+      {
+       "op": "status",
+       "node": "Block wire country",
+       "value": "not_run",
+       "subject": "node"
+      },
+      {
+       "op": "status",
+       "node": "Audit blocked country",
+       "value": "not_run",
+       "subject": "node"
+      },
+      {
+       "op": "status",
+       "node": "Email compliance country",
+       "value": "not_run",
+       "subject": "node"
+      },
+      {
+       "op": "status",
+       "node": "Release wire",
+       "value": "success",
+       "subject": "node"
+      }
+     ],
+     "locked": false,
+     "source": "human",
+     "status": "draft",
+     "target": {
+      "kind": "workflow"
+     },
+     "category": "normal"
+    }
+   ],
+   "settings": {},
+   "connections": [
+    {
+     "source_node": "Under 10000?",
+     "target_node": "Release wire",
+     "target_input": "main",
+     "source_output": "true"
+    },
+    {
+     "source_node": "Under 10000?",
+     "target_node": "Get customer",
+     "target_input": "main",
+     "source_output": "false"
+    },
+    {
+     "source_node": "Get customer",
+     "target_node": "Gather details",
+     "target_input": "main",
+     "source_output": "main"
+    },
+    {
+     "source_node": "Gather details",
+     "target_node": "Callback task",
+     "target_input": "main",
+     "source_output": "main"
+    },
+    {
+     "source_node": "Callback task",
+     "target_node": "Customer answer",
+     "target_input": "main",
+     "source_output": "approved"
+    },
+    {
+     "source_node": "Callback task",
+     "target_node": "Remind payments lead",
+     "target_input": "main",
+     "source_output": "timed_out"
+    },
+    {
+     "source_node": "Remind payments lead",
+     "target_node": "Callback task again",
+     "target_input": "main",
+     "source_output": "main"
+    },
+    {
+     "source_node": "Callback task again",
+     "target_node": "Customer answer",
+     "target_input": "main",
+     "source_output": "approved"
+    },
+    {
+     "source_node": "Callback task again",
+     "target_node": "Hold wire no callback",
+     "target_input": "main",
+     "source_output": "timed_out"
+    },
+    {
+     "source_node": "Customer answer",
+     "target_node": "Screen beneficiary",
+     "target_input": "main",
+     "source_output": "output0"
+    },
+    {
+     "source_node": "Customer answer",
+     "target_node": "Hold wire fraud",
+     "target_input": "main",
+     "source_output": "output1"
+    },
+    {
+     "source_node": "Customer answer",
+     "target_node": "Hold wire no callback",
+     "target_input": "main",
+     "source_output": "fallback"
+    },
+    {
+     "source_node": "Hold wire no callback",
+     "target_node": "Audit held no callback",
+     "target_input": "main",
+     "source_output": "main"
+    },
+    {
+     "source_node": "Audit held no callback",
+     "target_node": "Email customer",
+     "target_input": "main",
+     "source_output": "main"
+    },
+    {
+     "source_node": "Hold wire fraud",
+     "target_node": "Freeze account",
+     "target_input": "main",
+     "source_output": "main"
+    },
+    {
+     "source_node": "Freeze account",
+     "target_node": "Audit fraud",
+     "target_input": "main",
+     "source_output": "main"
+    },
+    {
+     "source_node": "Audit fraud",
+     "target_node": "Email fraud team",
+     "target_input": "main",
+     "source_output": "main"
+    },
+    {
+     "source_node": "Screen beneficiary",
+     "target_node": "Sanctions hit?",
+     "target_input": "main",
+     "source_output": "main"
+    },
+    {
+     "source_node": "Sanctions hit?",
+     "target_node": "MLRO review",
+     "target_input": "main",
+     "source_output": "true"
+    },
+    {
+     "source_node": "Sanctions hit?",
+     "target_node": "Treasury needed?",
+     "target_input": "main",
+     "source_output": "false"
+    },
+    {
+     "source_node": "MLRO review",
+     "target_node": "True match?",
+     "target_input": "main",
+     "source_output": "approved"
+    },
+    {
+     "source_node": "MLRO review",
+     "target_node": "Block wire",
+     "target_input": "main",
+     "source_output": "rejected"
+    },
+    {
+     "source_node": "True match?",
+     "target_node": "Block wire",
+     "target_input": "main",
+     "source_output": "true"
+    },
+    {
+     "source_node": "True match?",
+     "target_node": "Treasury needed?",
+     "target_input": "main",
+     "source_output": "false"
+    },
+    {
+     "source_node": "Block wire",
+     "target_node": "Audit blocked",
+     "target_input": "main",
+     "source_output": "main"
+    },
+    {
+     "source_node": "Audit blocked",
+     "target_node": "SAR task",
+     "target_input": "main",
+     "source_output": "main"
+    },
+    {
+     "source_node": "SAR task",
+     "target_node": "Audit SAR filed",
+     "target_input": "main",
+     "source_output": "approved"
+    },
+    {
+     "source_node": "Treasury needed?",
+     "target_node": "Treasury approval 1",
+     "target_input": "main",
+     "source_output": "true"
+    },
+    {
+     "source_node": "Treasury needed?",
+     "target_node": "Release wire",
+     "target_input": "main",
+     "source_output": "false"
+    },
+    {
+     "source_node": "Treasury approval 1",
+     "target_node": "Treasury approval 2",
+     "target_input": "main",
+     "source_output": "approved"
+    },
+    {
+     "source_node": "Treasury approval 1",
+     "target_node": "Hold wire treasury",
+     "target_input": "main",
+     "source_output": "rejected"
+    },
+    {
+     "source_node": "Treasury approval 2",
+     "target_node": "Release wire",
+     "target_input": "main",
+     "source_output": "approved"
+    },
+    {
+     "source_node": "Treasury approval 2",
+     "target_node": "Hold wire treasury",
+     "target_input": "main",
+     "source_output": "rejected"
+    },
+    {
+     "source_node": "Hold wire treasury",
+     "target_node": "Audit held by treasury",
+     "target_input": "main",
+     "source_output": "main"
+    },
+    {
+     "source_node": "Release wire",
+     "target_node": "Audit released",
+     "target_input": "main",
+     "source_output": "main"
+    },
+    {
+     "source_node": "Email fraud team",
+     "target_node": "Email compliance",
+     "target_input": "main",
+     "source_output": "main"
+    },
+    {
+     "source_node": "Wire received",
+     "target_node": "Blocked country?",
+     "target_input": "main",
+     "source_output": "main"
+    },
+    {
+     "source_node": "Blocked country?",
+     "target_node": "Block wire country",
+     "target_input": "main",
+     "source_output": "true"
+    },
+    {
+     "source_node": "Blocked country?",
+     "target_node": "Under 10000?",
+     "target_input": "main",
+     "source_output": "false"
+    },
+    {
+     "source_node": "Block wire country",
+     "target_node": "Audit blocked country",
+     "target_input": "main",
+     "source_output": "main"
+    },
+    {
+     "source_node": "Audit blocked country",
+     "target_node": "Email compliance country",
+     "target_input": "main",
+     "source_output": "main"
+    }
+   ],
+   "test_defaults": {
+    "mocks": {}
+   }
+  },
+  "ops_log": [],
+  "diff": {
+   "nodes": {
+    "added": [
+     "Blocked country?",
+     "Block wire country",
+     "Audit blocked country",
+     "Email compliance country"
+    ],
+    "changed": [],
+    "removed": []
+   },
+   "tests": {
+    "added": [
+     "t_4a8659f7",
+     "t_3e9ce46c",
+     "t_179b8ce9"
+    ],
+    "changed": [],
+    "removed": []
+   },
+   "counts": {
+    "added": 4,
+    "changed": 0,
+    "removed": 0
+   },
+   "new_code": [],
+   "interface": {
+    "changed": false
+   },
+   "connections": {
+    "added": [
+     [
+      "Wire received",
+      "main",
+      "Blocked country?",
+      "main"
+     ],
+     [
+      "Blocked country?",
+      "true",
+      "Block wire country",
+      "main"
+     ],
+     [
+      "Blocked country?",
+      "false",
+      "Under 10000?",
+      "main"
+     ],
+     [
+      "Block wire country",
+      "main",
+      "Audit blocked country",
+      "main"
+     ],
+     [
+      "Audit blocked country",
+      "main",
+      "Email compliance country",
+      "main"
+     ]
+    ],
+    "removed": [
+     [
+      "Wire received",
+      "main",
+      "Under 10000?",
+      "main"
+     ]
+    ]
+   },
+   "new_destinations": []
+  },
+  "report": {
+   "needs": "nothing",
+   "tests": {
+    "grid": {
+     "rows": [
+      {
+       "node": "Under 10000?",
+       "categories": {
+        "normal": {
+         "tests": [
+          "t_3e9ce46c"
+         ],
+         "status": "fail"
+        },
+        "missing": {
+         "tests": [],
+         "status": "none"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "none"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "na"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "na"
+        }
+       }
+      },
+      {
+       "node": "Get customer",
+       "categories": {
+        "normal": {
+         "tests": [
+          "t_4a8659f7"
+         ],
+         "status": "fail"
+        },
+        "missing": {
+         "tests": [],
+         "status": "na"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "na"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "none"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "none"
+        }
+       }
+      },
+      {
+       "node": "Gather details",
+       "categories": {
+        "normal": {
+         "tests": [],
+         "status": "none"
+        },
+        "missing": {
+         "tests": [],
+         "status": "none"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "none"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "na"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "na"
+        }
+       }
+      },
+      {
+       "node": "Callback task",
+       "categories": {
+        "normal": {
+         "tests": [
+          "t_4a8659f7"
+         ],
+         "status": "fail"
+        },
+        "missing": {
+         "tests": [],
+         "status": "na"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "na"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "na"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "na"
+        }
+       }
+      },
+      {
+       "node": "Remind payments lead",
+       "categories": {
+        "normal": {
+         "tests": [],
+         "status": "none"
+        },
+        "missing": {
+         "tests": [],
+         "status": "na"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "na"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "none"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "none"
+        }
+       }
+      },
+      {
+       "node": "Callback task again",
+       "categories": {
+        "normal": {
+         "tests": [],
+         "status": "none"
+        },
+        "missing": {
+         "tests": [],
+         "status": "na"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "na"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "na"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "na"
+        }
+       }
+      },
+      {
+       "node": "Customer answer",
+       "categories": {
+        "normal": {
+         "tests": [],
+         "status": "none"
+        },
+        "missing": {
+         "tests": [],
+         "status": "none"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "none"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "na"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "na"
+        }
+       }
+      },
+      {
+       "node": "Hold wire no callback",
+       "categories": {
+        "normal": {
+         "tests": [],
+         "status": "none"
+        },
+        "missing": {
+         "tests": [],
+         "status": "na"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "na"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "none"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "none"
+        }
+       }
+      },
+      {
+       "node": "Audit held no callback",
+       "categories": {
+        "normal": {
+         "tests": [],
+         "status": "none"
+        },
+        "missing": {
+         "tests": [],
+         "status": "na"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "na"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "none"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "none"
+        }
+       }
+      },
+      {
+       "node": "Email customer",
+       "categories": {
+        "normal": {
+         "tests": [],
+         "status": "none"
+        },
+        "missing": {
+         "tests": [],
+         "status": "na"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "na"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "none"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "none"
+        }
+       }
+      },
+      {
+       "node": "Hold wire fraud",
+       "categories": {
+        "normal": {
+         "tests": [
+          "t_0024b567"
+         ],
+         "status": "pass"
+        },
+        "missing": {
+         "tests": [],
+         "status": "na"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "na"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "none"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "none"
+        }
+       }
+      },
+      {
+       "node": "Freeze account",
+       "categories": {
+        "normal": {
+         "tests": [],
+         "status": "none"
+        },
+        "missing": {
+         "tests": [],
+         "status": "na"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "na"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "none"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "none"
+        }
+       }
+      },
+      {
+       "node": "Audit fraud",
+       "categories": {
+        "normal": {
+         "tests": [],
+         "status": "none"
+        },
+        "missing": {
+         "tests": [],
+         "status": "na"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "na"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "none"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "none"
+        }
+       }
+      },
+      {
+       "node": "Email fraud team",
+       "categories": {
+        "normal": {
+         "tests": [
+          "t_487b1819",
+          "t_0024b567"
+         ],
+         "status": "fail"
+        },
+        "missing": {
+         "tests": [],
+         "status": "na"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "na"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "none"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "none"
+        }
+       }
+      },
+      {
+       "node": "Screen beneficiary",
+       "categories": {
+        "normal": {
+         "tests": [
+          "t_4a8659f7"
+         ],
+         "status": "fail"
+        },
+        "missing": {
+         "tests": [],
+         "status": "na"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "na"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "none"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "none"
+        }
+       }
+      },
+      {
+       "node": "Sanctions hit?",
+       "categories": {
+        "normal": {
+         "tests": [],
+         "status": "none"
+        },
+        "missing": {
+         "tests": [],
+         "status": "none"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "none"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "na"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "na"
+        }
+       }
+      },
+      {
+       "node": "MLRO review",
+       "categories": {
+        "normal": {
+         "tests": [],
+         "status": "none"
+        },
+        "missing": {
+         "tests": [],
+         "status": "na"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "na"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "na"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "na"
+        }
+       }
+      },
+      {
+       "node": "True match?",
+       "categories": {
+        "normal": {
+         "tests": [],
+         "status": "none"
+        },
+        "missing": {
+         "tests": [],
+         "status": "none"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "none"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "na"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "na"
+        }
+       }
+      },
+      {
+       "node": "Block wire",
+       "categories": {
+        "normal": {
+         "tests": [],
+         "status": "none"
+        },
+        "missing": {
+         "tests": [],
+         "status": "na"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "na"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "none"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "none"
+        }
+       }
+      },
+      {
+       "node": "Audit blocked",
+       "categories": {
+        "normal": {
+         "tests": [],
+         "status": "none"
+        },
+        "missing": {
+         "tests": [],
+         "status": "na"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "na"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "none"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "none"
+        }
+       }
+      },
+      {
+       "node": "SAR task",
+       "categories": {
+        "normal": {
+         "tests": [],
+         "status": "none"
+        },
+        "missing": {
+         "tests": [],
+         "status": "na"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "na"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "na"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "na"
+        }
+       }
+      },
+      {
+       "node": "Audit SAR filed",
+       "categories": {
+        "normal": {
+         "tests": [],
+         "status": "none"
+        },
+        "missing": {
+         "tests": [],
+         "status": "na"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "na"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "none"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "none"
+        }
+       }
+      },
+      {
+       "node": "Treasury needed?",
+       "categories": {
+        "normal": {
+         "tests": [],
+         "status": "none"
+        },
+        "missing": {
+         "tests": [],
+         "status": "none"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "none"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "na"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "na"
+        }
+       }
+      },
+      {
+       "node": "Treasury approval 1",
+       "categories": {
+        "normal": {
+         "tests": [],
+         "status": "none"
+        },
+        "missing": {
+         "tests": [],
+         "status": "na"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "na"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "na"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "na"
+        }
+       }
+      },
+      {
+       "node": "Treasury approval 2",
+       "categories": {
+        "normal": {
+         "tests": [],
+         "status": "none"
+        },
+        "missing": {
+         "tests": [],
+         "status": "na"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "na"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "na"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "na"
+        }
+       }
+      },
+      {
+       "node": "Hold wire treasury",
+       "categories": {
+        "normal": {
+         "tests": [],
+         "status": "none"
+        },
+        "missing": {
+         "tests": [],
+         "status": "na"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "na"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "none"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "none"
+        }
+       }
+      },
+      {
+       "node": "Audit held by treasury",
+       "categories": {
+        "normal": {
+         "tests": [],
+         "status": "none"
+        },
+        "missing": {
+         "tests": [],
+         "status": "na"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "na"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "none"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "none"
+        }
+       }
+      },
+      {
+       "node": "Release wire",
+       "categories": {
+        "normal": {
+         "tests": [
+          "t_487b1819",
+          "t_0024b567",
+          "t_4a8659f7",
+          "t_3e9ce46c",
+          "t_179b8ce9"
+         ],
+         "status": "fail"
+        },
+        "missing": {
+         "tests": [],
+         "status": "na"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "na"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "none"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "none"
+        }
+       }
+      },
+      {
+       "node": "Audit released",
+       "categories": {
+        "normal": {
+         "tests": [],
+         "status": "none"
+        },
+        "missing": {
+         "tests": [],
+         "status": "na"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "na"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "none"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "none"
+        }
+       }
+      },
+      {
+       "node": "Email compliance",
+       "categories": {
+        "normal": {
+         "tests": [
+          "t_487b1819",
+          "t_0024b567"
+         ],
+         "status": "fail"
+        },
+        "missing": {
+         "tests": [],
+         "status": "na"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "na"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "none"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "none"
+        }
+       }
+      },
+      {
+       "node": "Blocked country?",
+       "categories": {
+        "normal": {
+         "tests": [],
+         "status": "none"
+        },
+        "missing": {
+         "tests": [],
+         "status": "none"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "none"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "na"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "na"
+        }
+       }
+      },
+      {
+       "node": "Block wire country",
+       "categories": {
+        "normal": {
+         "tests": [
+          "t_4a8659f7",
+          "t_3e9ce46c",
+          "t_179b8ce9"
+         ],
+         "status": "fail"
+        },
+        "missing": {
+         "tests": [],
+         "status": "na"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "na"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "none"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "none"
+        }
+       }
+      },
+      {
+       "node": "Audit blocked country",
+       "categories": {
+        "normal": {
+         "tests": [
+          "t_4a8659f7",
+          "t_3e9ce46c",
+          "t_179b8ce9"
+         ],
+         "status": "fail"
+        },
+        "missing": {
+         "tests": [],
+         "status": "na"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "na"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "none"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "none"
+        }
+       }
+      },
+      {
+       "node": "Email compliance country",
+       "categories": {
+        "normal": {
+         "tests": [
+          "t_4a8659f7",
+          "t_3e9ce46c",
+          "t_179b8ce9"
+         ],
+         "status": "fail"
+        },
+        "missing": {
+         "tests": [],
+         "status": "na"
+        },
+        "unusual": {
+         "tests": [],
+         "status": "na"
+        },
+        "boundary": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_empty": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_error": {
+         "tests": [],
+         "status": "none"
+        },
+        "wrong_type": {
+         "tests": [],
+         "status": "na"
+        },
+        "ext_success": {
+         "tests": [],
+         "status": "none"
+        },
+        "ext_timeout": {
+         "tests": [],
+         "status": "none"
+        }
+       }
+      }
+     ],
+     "categories": [
+      "normal",
+      "boundary",
+      "missing",
+      "wrong_type",
+      "unusual",
+      "ext_success",
+      "ext_error",
+      "ext_timeout",
+      "ext_empty"
+     ]
+    },
+    "badges": {
+     "Get customer": "pass",
+     "Release wire": "pass",
+     "Under 10000?": "pass",
+     "Callback task": "pass",
+     "Hold wire fraud": "pass",
+     "Email compliance": "fail",
+     "Email fraud team": "fail",
+     "Block wire country": "pass",
+     "Screen beneficiary": "pass",
+     "Audit blocked country": "pass",
+     "Email compliance country": "fail"
+    },
+    "results": [
+     {
+      "name": "Customer denies wire emails compliance",
+      "status": "failed",
+      "outputs": {
+       "Audit fraud": {
+        "main": [
+         {
+          "success": true
+         }
+        ]
+       },
+       "Get customer": {
+        "main": [
+         {
+          "rows": [
+           {
+            "email": "jane@example.test",
+            "phone": "555-0100",
+            "full_name": "Jane Doe"
+           }
+          ],
+          "rowCount": 1
+         }
+        ]
+       },
+       "Under 10000?": {
+        "false": [
+         {
+          "body": {
+           "amount": 15000,
+           "wire_id": "W-100",
+           "account_id": "A1",
+           "customer_id": "C1",
+           "beneficiary_name": "Acme",
+           "beneficiary_country": "DE"
+          }
+         }
+        ]
+       },
+       "Callback task": {
+        "approved": [
+         {
+          "rows": [
+           {
+            "email": "jane@example.test",
+            "phone": "555-0100",
+            "full_name": "Jane Doe"
+           }
+          ],
+          "wire_id": "W-100",
+          "approval": {
+           "comment": "",
+           "decision": "approved",
+           "form_data": {
+            "customer_confirmed": "no"
+           },
+           "decided_by": "test"
+          },
+          "rowCount": 1,
+          "customer_name": "Jane Doe",
+          "customer_email": "jane@example.test",
+          "customer_phone": "555-0100"
+         }
+        ]
+       },
+       "Wire received": {
+        "main": [
+         {
+          "body": {
+           "amount": 15000,
+           "wire_id": "W-100",
+           "account_id": "A1",
+           "customer_id": "C1",
+           "beneficiary_name": "Acme",
+           "beneficiary_country": "DE"
+          }
+         }
+        ]
+       },
+       "Freeze account": {
+        "main": [
+         {
+          "body": {
+           "status": "frozen",
+           "account_id": "A1"
+          },
+          "headers": {
+           "content-type": "application/json",
+           "content-length": "37"
+          },
+          "statusCode": 200
+         }
+        ]
+       },
+       "Gather details": {
+        "main": [
+         {
+          "rows": [
+           {
+            "email": "jane@example.test",
+            "phone": "555-0100",
+            "full_name": "Jane Doe"
+           }
+          ],
+          "wire_id": "W-100",
+          "rowCount": 1,
+          "customer_name": "Jane Doe",
+          "customer_email": "jane@example.test",
+          "customer_phone": "555-0100"
+         }
+        ]
+       },
+       "Customer answer": {
+        "output1": [
+         {
+          "rows": [
+           {
+            "email": "jane@example.test",
+            "phone": "555-0100",
+            "full_name": "Jane Doe"
+           }
+          ],
+          "wire_id": "W-100",
+          "approval": {
+           "comment": "",
+           "decision": "approved",
+           "form_data": {
+            "customer_confirmed": "no"
+           },
+           "decided_by": "test"
+          },
+          "rowCount": 1,
+          "customer_name": "Jane Doe",
+          "customer_email": "jane@example.test",
+          "customer_phone": "555-0100"
+         }
+        ]
+       },
+       "Hold wire fraud": {
+        "main": [
+         {
+          "body": {
+           "status": "held",
+           "wire_id": "W-100"
+          },
+          "headers": {
+           "content-type": "application/json",
+           "content-length": "35"
+          },
+          "statusCode": 200
+         }
+        ]
+       },
+       "Blocked country?": {
+        "false": [
+         {
+          "body": {
+           "amount": 15000,
+           "wire_id": "W-100",
+           "account_id": "A1",
+           "customer_id": "C1",
+           "beneficiary_name": "Acme",
+           "beneficiary_country": "DE"
+          }
+         }
+        ]
+       },
+       "Email compliance": {
+        "main": [
+         {
+          "success": true
+         }
+        ]
+       },
+       "Email fraud team": {
+        "main": [
+         {
+          "success": true
+         }
+        ]
+       }
+      },
+      "test_id": "t_487b1819",
+      "failures": [
+       {
+        "kind": "contract",
+        "node": "Email fraud team",
+        "path": "sent",
+        "port": "main",
+        "actual": "missing",
+        "message": "Email fraud team emitted data that breaks its declared shape at sent: required property 'sent' is missing",
+        "expected": "required",
+        "direction": "output"
+       },
+       {
+        "kind": "contract",
+        "node": "Email fraud team",
+        "path": "to",
+        "port": "main",
+        "actual": "missing",
+        "message": "Email fraud team emitted data that breaks its declared shape at to: required property 'to' is missing",
+        "expected": "required",
+        "direction": "output"
+       },
+       {
+        "kind": "contract",
+        "node": "Email fraud team",
+        "path": "subject",
+        "port": "main",
+        "actual": "missing",
+        "message": "Email fraud team emitted data that breaks its declared shape at subject: required property 'subject' is missing",
+        "expected": "required",
+        "direction": "output"
+       },
+       {
+        "kind": "contract",
+        "node": "Email fraud team",
+        "path": "html",
+        "port": "main",
+        "actual": "missing",
+        "message": "Email fraud team emitted data that breaks its declared shape at html: required property 'html' is missing",
+        "expected": "required",
+        "direction": "output"
+       },
+       {
+        "kind": "contract",
+        "node": "Email compliance",
+        "path": "sent",
+        "port": "main",
+        "actual": "missing",
+        "message": "Email compliance emitted data that breaks its declared shape at sent: required property 'sent' is missing",
+        "expected": "required",
+        "direction": "output"
+       },
+       {
+        "kind": "contract",
+        "node": "Email compliance",
+        "path": "to",
+        "port": "main",
+        "actual": "missing",
+        "message": "Email compliance emitted data that breaks its declared shape at to: required property 'to' is missing",
+        "expected": "required",
+        "direction": "output"
+       },
+       {
+        "kind": "contract",
+        "node": "Email compliance",
+        "path": "subject",
+        "port": "main",
+        "actual": "missing",
+        "message": "Email compliance emitted data that breaks its declared shape at subject: required property 'subject' is missing",
+        "expected": "required",
+        "direction": "output"
+       },
+       {
+        "kind": "contract",
+        "node": "Email compliance",
+        "path": "html",
+        "port": "main",
+        "actual": "missing",
+        "message": "Email compliance emitted data that breaks its declared shape at html: required property 'html' is missing",
+        "expected": "required",
+        "direction": "output"
+       }
+      ],
+      "requests": {
+       "Audit fraud": [
+        {
+         "params": {
+          "operation": "transaction",
+          "connection": "ops_db",
+          "statements": [
+           {
+            "query": "INSERT INTO audit_log (entity, entity_id, action, detail) VALUES ('wire', %s, 'fraud', %s)",
+            "params": [
+             "W-100",
+             "Customer denied the wire; account frozen"
+            ]
+           }
+          ]
+         }
+        }
+       ],
+       "Get customer": [
+        {
+         "params": {
+          "query": "SELECT full_name, phone, email FROM customers WHERE customer_id = %s",
+          "operation": "query",
+          "connection": "core_banking",
+          "queryParameters": [
+           "C1"
+          ]
+         }
+        }
+       ],
+       "Callback task": [
+        {
+         "params": {
+          "form": [
+           {
+            "name": "customer_confirmed",
+            "type": "select",
+            "label": "Customer confirmed",
+            "options": [
+             "yes",
+             "no",
+             "unreachable"
+            ],
+            "required": true
+           }
+          ],
+          "title": "Customer callback for wire W-100",
+          "due_in": "2h",
+          "context": {
+           "Phone": "555-0100",
+           "Amount": 15000,
+           "Customer": "Jane Doe",
+           "Beneficiary": "Acme"
+          },
+          "on_timeout": "timed_out",
+          "notify_email": "payops@bank.test"
+         }
+        }
+       ],
+       "Freeze account": [
+        {
+         "url": "http://127.0.0.1:9100/accounts/A1/freeze",
+         "body": null,
+         "method": "POST",
+         "headers": {
+          "host": "127.0.0.1:9100",
+          "accept": "*/*",
+          "connection": "keep-alive",
+          "user-agent": "python-httpx/0.28.1",
+          "content-type": "application/json",
+          "content-length": "0",
+          "accept-encoding": "gzip, deflate"
+         }
+        }
+       ],
+       "Hold wire fraud": [
+        {
+         "url": "http://127.0.0.1:9100/wires/W-100/hold",
+         "body": {
+          "reason": "Customer denied the wire: suspected fraud"
+         },
+         "method": "POST",
+         "headers": {
+          "host": "127.0.0.1:9100",
+          "accept": "*/*",
+          "connection": "keep-alive",
+          "user-agent": "python-httpx/0.28.1",
+          "content-type": "application/json",
+          "content-length": "54",
+          "accept-encoding": "gzip, deflate"
+         }
+        }
+       ],
+       "Email compliance": [
+        {
+         "params": {
+          "body": "The customer denied wire W-100 for an amount of 15000.",
+          "subject": "Suspected fraud on wire W-100",
+          "toEmail": "compliance@bank.test",
+          "bodyFormat": "plain"
+         }
+        }
+       ],
+       "Email fraud team": [
+        {
+         "params": {
+          "body": "The customer denied wire W-100 for 15000 to Acme. The wire is held and account A1 is frozen.",
+          "subject": "Suspected fraud on wire W-100",
+          "toEmail": "fraud@bank.test",
+          "bodyFormat": "plain"
+         }
+        }
+       ]
+      },
+      "warnings": [],
+      "assertions": [
+       {
+        "op": "status",
+        "node": "Email fraud team",
+        "path": "",
+        "port": null,
+        "actual": "success",
+        "passed": true,
+        "message": "status is success",
+        "expected": "success"
+       },
+       {
+        "op": "status",
+        "node": "Email compliance",
+        "path": "",
+        "port": null,
+        "actual": "success",
+        "passed": true,
+        "message": "status is success",
+        "expected": "success"
+       },
+       {
+        "op": "count",
+        "node": "Email compliance",
+        "path": "",
+        "port": null,
+        "actual": 1,
+        "passed": true,
+        "message": "count matches",
+        "expected": 1
+       },
+       {
+        "op": "eq",
+        "node": "Email compliance",
+        "path": "params.toEmail",
+        "port": null,
+        "actual": "compliance@bank.test",
+        "passed": true,
+        "message": "equal",
+        "expected": "compliance@bank.test"
+       },
+       {
+        "op": "contains",
+        "node": "Email compliance",
+        "path": "params.body",
+        "port": null,
+        "actual": "The customer denied wire W-100 for an amount of 15000.",
+        "passed": true,
+        "message": "contains",
+        "expected": "W-100"
+       },
+       {
+        "op": "contains",
+        "node": "Email compliance",
+        "path": "params.body",
+        "port": null,
+        "actual": "The customer denied wire W-100 for an amount of 15000.",
+        "passed": true,
+        "message": "contains",
+        "expected": "15000"
+       },
+       {
+        "op": "status",
+        "node": "Release wire",
+        "path": "",
+        "port": null,
+        "actual": "not_run",
+        "passed": true,
+        "message": "status is not_run",
+        "expected": "not_run"
+       }
+      ],
+      "duration_ms": 15.75,
+      "node_status": {
+       "SAR task": "not_run",
+       "Block wire": "not_run",
+       "Audit fraud": "success",
+       "MLRO review": "not_run",
+       "True match?": "not_run",
+       "Get customer": "success",
+       "Release wire": "not_run",
+       "Under 10000?": "success",
+       "Audit blocked": "not_run",
+       "Callback task": "success",
+       "Wire received": "success",
+       "Audit released": "not_run",
+       "Email customer": "not_run",
+       "Freeze account": "success",
+       "Gather details": "success",
+       "Sanctions hit?": "not_run",
+       "Audit SAR filed": "not_run",
+       "Customer answer": "success",
+       "Hold wire fraud": "success",
+       "Blocked country?": "success",
+       "Email compliance": "success",
+       "Email fraud team": "success",
+       "Treasury needed?": "not_run",
+       "Block wire country": "not_run",
+       "Hold wire treasury": "not_run",
+       "Screen beneficiary": "not_run",
+       "Callback task again": "not_run",
+       "Treasury approval 1": "not_run",
+       "Treasury approval 2": "not_run",
+       "Remind payments lead": "not_run",
+       "Audit blocked country": "not_run",
+       "Hold wire no callback": "not_run",
+       "Audit held by treasury": "not_run",
+       "Audit held no callback": "not_run",
+       "Email compliance country": "not_run"
+      },
+      "ports_taken": {
+       "Audit fraud": [
+        "main"
+       ],
+       "Get customer": [
+        "main"
+       ],
+       "Under 10000?": [
+        "false"
+       ],
+       "Callback task": [
+        "approved"
+       ],
+       "Wire received": [
+        "main"
+       ],
+       "Freeze account": [
+        "main"
+       ],
+       "Gather details": [
+        "main"
+       ],
+       "Customer answer": [
+        "output1"
+       ],
+       "Hold wire fraud": [
+        "main"
+       ],
+       "Blocked country?": [
+        "false"
+       ],
+       "Email compliance": [
+        "main"
+       ],
+       "Email fraud team": [
+        "main"
+       ]
+      },
+      "execution_id": null
+     },
+     {
+      "name": "Customer confirms wire does not email compliance",
+      "status": "passed",
+      "outputs": {
+       "Get customer": {
+        "main": [
+         {
+          "rows": [
+           {
+            "email": "jane@example.test",
+            "phone": "555-0100",
+            "full_name": "Jane Doe"
+           }
+          ],
+          "rowCount": 1
+         }
+        ]
+       },
+       "Release wire": {
+        "main": [
+         {
+          "body": {
+           "status": "released",
+           "wire_id": "W-101"
+          },
+          "headers": {
+           "content-type": "application/json",
+           "content-length": "39"
+          },
+          "statusCode": 200
+         }
+        ]
+       },
+       "Under 10000?": {
+        "false": [
+         {
+          "body": {
+           "amount": 15000,
+           "wire_id": "W-101",
+           "account_id": "A1",
+           "customer_id": "C1",
+           "beneficiary_name": "Acme",
+           "beneficiary_country": "DE"
+          }
+         }
+        ]
+       },
+       "Callback task": {
+        "approved": [
+         {
+          "rows": [
+           {
+            "email": "jane@example.test",
+            "phone": "555-0100",
+            "full_name": "Jane Doe"
+           }
+          ],
+          "wire_id": "W-101",
+          "approval": {
+           "comment": "",
+           "decision": "approved",
+           "form_data": {
+            "customer_confirmed": "yes"
+           },
+           "decided_by": "test"
+          },
+          "rowCount": 1,
+          "customer_name": "Jane Doe",
+          "customer_email": "jane@example.test",
+          "customer_phone": "555-0100"
+         }
+        ]
+       },
+       "Wire received": {
+        "main": [
+         {
+          "body": {
+           "amount": 15000,
+           "wire_id": "W-101",
+           "account_id": "A1",
+           "customer_id": "C1",
+           "beneficiary_name": "Acme",
+           "beneficiary_country": "DE"
+          }
+         }
+        ]
+       },
+       "Audit released": {
+        "main": [
+         {
+          "success": true
+         }
+        ]
+       },
+       "Gather details": {
+        "main": [
+         {
+          "rows": [
+           {
+            "email": "jane@example.test",
+            "phone": "555-0100",
+            "full_name": "Jane Doe"
+           }
+          ],
+          "wire_id": "W-101",
+          "rowCount": 1,
+          "customer_name": "Jane Doe",
+          "customer_email": "jane@example.test",
+          "customer_phone": "555-0100"
+         }
+        ]
+       },
+       "Sanctions hit?": {
+        "false": [
+         {
+          "body": {
+           "hit": false,
+           "list": ""
+          },
+          "headers": {
+           "content-type": "application/json",
+           "content-length": "23"
+          },
+          "statusCode": 200
+         }
+        ]
+       },
+       "Customer answer": {
+        "output0": [
+         {
+          "rows": [
+           {
+            "email": "jane@example.test",
+            "phone": "555-0100",
+            "full_name": "Jane Doe"
+           }
+          ],
+          "wire_id": "W-101",
+          "approval": {
+           "comment": "",
+           "decision": "approved",
+           "form_data": {
+            "customer_confirmed": "yes"
+           },
+           "decided_by": "test"
+          },
+          "rowCount": 1,
+          "customer_name": "Jane Doe",
+          "customer_email": "jane@example.test",
+          "customer_phone": "555-0100"
+         }
+        ]
+       },
+       "Blocked country?": {
+        "false": [
+         {
+          "body": {
+           "amount": 15000,
+           "wire_id": "W-101",
+           "account_id": "A1",
+           "customer_id": "C1",
+           "beneficiary_name": "Acme",
+           "beneficiary_country": "DE"
+          }
+         }
+        ]
+       },
+       "Treasury needed?": {
+        "false": [
+         {
+          "body": {
+           "hit": false,
+           "list": ""
+          },
+          "headers": {
+           "content-type": "application/json",
+           "content-length": "23"
+          },
+          "statusCode": 200
+         }
+        ]
+       },
+       "Screen beneficiary": {
+        "main": [
+         {
+          "body": {
+           "hit": false,
+           "list": ""
+          },
+          "headers": {
+           "content-type": "application/json",
+           "content-length": "23"
+          },
+          "statusCode": 200
+         }
+        ]
+       }
+      },
+      "test_id": "t_0024b567",
+      "failures": [],
+      "requests": {
+       "Get customer": [
+        {
+         "params": {
+          "query": "SELECT full_name, phone, email FROM customers WHERE customer_id = %s",
+          "operation": "query",
+          "connection": "core_banking",
+          "queryParameters": [
+           "C1"
+          ]
+         }
+        }
+       ],
+       "Release wire": [
+        {
+         "url": "http://127.0.0.1:9100/wires/W-101/release",
+         "body": null,
+         "method": "POST",
+         "headers": {
+          "host": "127.0.0.1:9100",
+          "accept": "*/*",
+          "connection": "keep-alive",
+          "user-agent": "python-httpx/0.28.1",
+          "content-type": "application/json",
+          "content-length": "0",
+          "accept-encoding": "gzip, deflate"
+         }
+        }
+       ],
+       "Callback task": [
+        {
+         "params": {
+          "form": [
+           {
+            "name": "customer_confirmed",
+            "type": "select",
+            "label": "Customer confirmed",
+            "options": [
+             "yes",
+             "no",
+             "unreachable"
+            ],
+            "required": true
+           }
+          ],
+          "title": "Customer callback for wire W-101",
+          "due_in": "2h",
+          "context": {
+           "Phone": "555-0100",
+           "Amount": 15000,
+           "Customer": "Jane Doe",
+           "Beneficiary": "Acme"
+          },
+          "on_timeout": "timed_out",
+          "notify_email": "payops@bank.test"
+         }
+        }
+       ],
+       "Audit released": [
+        {
+         "params": {
+          "operation": "transaction",
+          "connection": "ops_db",
+          "statements": [
+           {
+            "query": "INSERT INTO audit_log (entity, entity_id, action, detail) VALUES ('wire', %s, 'released', %s)",
+            "params": [
+             "W-101",
+             "Wire released"
+            ]
+           }
+          ]
+         }
+        }
+       ],
+       "Screen beneficiary": [
+        {
+         "url": "http://127.0.0.1:9100/screen",
+         "body": {
+          "name": "Acme",
+          "country": "DE"
+         },
+         "method": "POST",
+         "headers": {
+          "host": "127.0.0.1:9100",
+          "accept": "*/*",
+          "connection": "keep-alive",
+          "user-agent": "python-httpx/0.28.1",
+          "content-type": "application/json",
+          "content-length": "30",
+          "accept-encoding": "gzip, deflate"
+         }
+        }
+       ]
+      },
+      "warnings": [],
+      "assertions": [
+       {
+        "op": "status",
+        "node": "Hold wire fraud",
+        "path": "",
+        "port": null,
+        "actual": "not_run",
+        "passed": true,
+        "message": "status is not_run",
+        "expected": "not_run"
+       },
+       {
+        "op": "status",
+        "node": "Email fraud team",
+        "path": "",
+        "port": null,
+        "actual": "not_run",
+        "passed": true,
+        "message": "status is not_run",
+        "expected": "not_run"
+       },
+       {
+        "op": "status",
+        "node": "Email compliance",
+        "path": "",
+        "port": null,
+        "actual": "not_run",
+        "passed": true,
+        "message": "status is not_run",
+        "expected": "not_run"
+       },
+       {
+        "op": "status",
+        "node": "Release wire",
+        "path": "",
+        "port": null,
+        "actual": "success",
+        "passed": true,
+        "message": "status is success",
+        "expected": "success"
+       }
+      ],
+      "duration_ms": 14.61,
+      "node_status": {
+       "SAR task": "not_run",
+       "Block wire": "not_run",
+       "Audit fraud": "not_run",
+       "MLRO review": "not_run",
+       "True match?": "not_run",
+       "Get customer": "success",
+       "Release wire": "success",
+       "Under 10000?": "success",
+       "Audit blocked": "not_run",
+       "Callback task": "success",
+       "Wire received": "success",
+       "Audit released": "success",
+       "Email customer": "not_run",
+       "Freeze account": "not_run",
+       "Gather details": "success",
+       "Sanctions hit?": "success",
+       "Audit SAR filed": "not_run",
+       "Customer answer": "success",
+       "Hold wire fraud": "not_run",
+       "Blocked country?": "success",
+       "Email compliance": "not_run",
+       "Email fraud team": "not_run",
+       "Treasury needed?": "success",
+       "Block wire country": "not_run",
+       "Hold wire treasury": "not_run",
+       "Screen beneficiary": "success",
+       "Callback task again": "not_run",
+       "Treasury approval 1": "not_run",
+       "Treasury approval 2": "not_run",
+       "Remind payments lead": "not_run",
+       "Audit blocked country": "not_run",
+       "Hold wire no callback": "not_run",
+       "Audit held by treasury": "not_run",
+       "Audit held no callback": "not_run",
+       "Email compliance country": "not_run"
+      },
+      "ports_taken": {
+       "Get customer": [
+        "main"
+       ],
+       "Release wire": [
+        "main"
+       ],
+       "Under 10000?": [
+        "false"
+       ],
+       "Callback task": [
+        "approved"
+       ],
+       "Wire received": [
+        "main"
+       ],
+       "Audit released": [
+        "main"
+       ],
+       "Gather details": [
+        "main"
+       ],
+       "Sanctions hit?": [
+        "false"
+       ],
+       "Customer answer": [
+        "output0"
+       ],
+       "Blocked country?": [
+        "false"
+       ],
+       "Treasury needed?": [
+        "false"
+       ],
+       "Screen beneficiary": [
+        "main"
+       ]
+      },
+      "execution_id": null
+     },
+     {
+      "name": "Wire to KP is blocked before callback",
+      "status": "failed",
+      "outputs": {
+       "Wire received": {
+        "main": [
+         {
+          "body": {
+           "amount": 50000,
+           "wire_id": "W-200",
+           "account_id": "A1",
+           "customer_id": "C1",
+           "beneficiary_name": "Acme",
+           "beneficiary_country": "KP"
+          }
+         }
+        ]
+       },
+       "Blocked country?": {
+        "true": [
+         {
+          "body": {
+           "amount": 50000,
+           "wire_id": "W-200",
+           "account_id": "A1",
+           "customer_id": "C1",
+           "beneficiary_name": "Acme",
+           "beneficiary_country": "KP"
+          }
+         }
+        ]
+       },
+       "Block wire country": {
+        "main": [
+         {
+          "body": {
+           "status": "blocked",
+           "wire_id": "W-200"
+          },
+          "headers": {
+           "content-type": "application/json",
+           "content-length": "38"
+          },
+          "statusCode": 200
+         }
+        ]
+       },
+       "Audit blocked country": {
+        "main": [
+         {
+          "success": true
+         }
+        ]
+       },
+       "Email compliance country": {
+        "main": [
+         {
+          "success": true
+         }
+        ]
+       }
+      },
+      "test_id": "t_4a8659f7",
+      "failures": [
+       {
+        "kind": "contract",
+        "node": "Email compliance country",
+        "path": "sent",
+        "port": "main",
+        "actual": "missing",
+        "message": "Email compliance country emitted data that breaks its declared shape at sent: required property 'sent' is missing",
+        "expected": "required",
+        "direction": "output"
+       },
+       {
+        "kind": "contract",
+        "node": "Email compliance country",
+        "path": "to",
+        "port": "main",
+        "actual": "missing",
+        "message": "Email compliance country emitted data that breaks its declared shape at to: required property 'to' is missing",
+        "expected": "required",
+        "direction": "output"
+       },
+       {
+        "kind": "contract",
+        "node": "Email compliance country",
+        "path": "subject",
+        "port": "main",
+        "actual": "missing",
+        "message": "Email compliance country emitted data that breaks its declared shape at subject: required property 'subject' is missing",
+        "expected": "required",
+        "direction": "output"
+       },
+       {
+        "kind": "contract",
+        "node": "Email compliance country",
+        "path": "html",
+        "port": "main",
+        "actual": "missing",
+        "message": "Email compliance country emitted data that breaks its declared shape at html: required property 'html' is missing",
+        "expected": "required",
+        "direction": "output"
+       }
+      ],
+      "requests": {
+       "Block wire country": [
+        {
+         "url": "http://127.0.0.1:9100/wires/W-200/block",
+         "body": null,
+         "method": "POST",
+         "headers": {
+          "host": "127.0.0.1:9100",
+          "accept": "*/*",
+          "connection": "keep-alive",
+          "user-agent": "python-httpx/0.28.1",
+          "content-type": "application/json",
+          "content-length": "0",
+          "accept-encoding": "gzip, deflate"
+         }
+        }
+       ],
+       "Audit blocked country": [
+        {
+         "params": {
+          "operation": "transaction",
+          "connection": "ops_db",
+          "statements": [
+           {
+            "query": "INSERT INTO audit_log (entity, entity_id, action, detail) VALUES ('wire', %s, 'blocked_country', %s)",
+            "params": [
+             "W-200",
+             "KP"
+            ]
+           }
+          ]
+         }
+        }
+       ],
+       "Email compliance country": [
+        {
+         "params": {
+          "body": "Wire W-200 for 50000 to Acme was blocked because the beneficiary country is KP.",
+          "subject": "Wire W-200 blocked: restricted country",
+          "toEmail": "compliance@bank.test",
+          "bodyFormat": "plain"
+         }
+        }
+       ]
+      },
+      "warnings": [],
+      "assertions": [
+       {
+        "op": "status",
+        "node": "Block wire country",
+        "path": "",
+        "port": null,
+        "actual": "success",
+        "passed": true,
+        "message": "status is success",
+        "expected": "success"
+       },
+       {
+        "op": "contains",
+        "node": "Block wire country",
+        "path": "url",
+        "port": null,
+        "actual": "http://127.0.0.1:9100/wires/W-200/block",
+        "passed": true,
+        "message": "contains",
+        "expected": "W-200"
+       },
+       {
+        "op": "eq",
+        "node": "Audit blocked country",
+        "path": "params.statements.0.params.1",
+        "port": null,
+        "actual": "KP",
+        "passed": true,
+        "message": "equal",
+        "expected": "KP"
+       },
+       {
+        "op": "eq",
+        "node": "Audit blocked country",
+        "path": "params.statements.0.params.0",
+        "port": null,
+        "actual": "W-200",
+        "passed": true,
+        "message": "equal",
+        "expected": "W-200"
+       },
+       {
+        "op": "eq",
+        "node": "Email compliance country",
+        "path": "params.toEmail",
+        "port": null,
+        "actual": "compliance@bank.test",
+        "passed": true,
+        "message": "equal",
+        "expected": "compliance@bank.test"
+       },
+       {
+        "op": "status",
+        "node": "Callback task",
+        "path": "",
+        "port": null,
+        "actual": "not_run",
+        "passed": true,
+        "message": "status is not_run",
+        "expected": "not_run"
+       },
+       {
+        "op": "status",
+        "node": "Get customer",
+        "path": "",
+        "port": null,
+        "actual": "not_run",
+        "passed": true,
+        "message": "status is not_run",
+        "expected": "not_run"
+       },
+       {
+        "op": "status",
+        "node": "Screen beneficiary",
+        "path": "",
+        "port": null,
+        "actual": "not_run",
+        "passed": true,
+        "message": "status is not_run",
+        "expected": "not_run"
+       },
+       {
+        "op": "status",
+        "node": "Release wire",
+        "path": "",
+        "port": null,
+        "actual": "not_run",
+        "passed": true,
+        "message": "status is not_run",
+        "expected": "not_run"
+       }
+      ],
+      "duration_ms": 11.71,
+      "node_status": {
+       "SAR task": "not_run",
+       "Block wire": "not_run",
+       "Audit fraud": "not_run",
+       "MLRO review": "not_run",
+       "True match?": "not_run",
+       "Get customer": "not_run",
+       "Release wire": "not_run",
+       "Under 10000?": "not_run",
+       "Audit blocked": "not_run",
+       "Callback task": "not_run",
+       "Wire received": "success",
+       "Audit released": "not_run",
+       "Email customer": "not_run",
+       "Freeze account": "not_run",
+       "Gather details": "not_run",
+       "Sanctions hit?": "not_run",
+       "Audit SAR filed": "not_run",
+       "Customer answer": "not_run",
+       "Hold wire fraud": "not_run",
+       "Blocked country?": "success",
+       "Email compliance": "not_run",
+       "Email fraud team": "not_run",
+       "Treasury needed?": "not_run",
+       "Block wire country": "success",
+       "Hold wire treasury": "not_run",
+       "Screen beneficiary": "not_run",
+       "Callback task again": "not_run",
+       "Treasury approval 1": "not_run",
+       "Treasury approval 2": "not_run",
+       "Remind payments lead": "not_run",
+       "Audit blocked country": "success",
+       "Hold wire no callback": "not_run",
+       "Audit held by treasury": "not_run",
+       "Audit held no callback": "not_run",
+       "Email compliance country": "success"
+      },
+      "ports_taken": {
+       "Wire received": [
+        "main"
+       ],
+       "Blocked country?": [
+        "true"
+       ],
+       "Block wire country": [
+        "main"
+       ],
+       "Audit blocked country": [
+        "main"
+       ],
+       "Email compliance country": [
+        "main"
+       ]
+      },
+      "execution_id": null
+     },
+     {
+      "name": "Small wire to IR is blocked too",
+      "status": "failed",
+      "outputs": {
+       "Wire received": {
+        "main": [
+         {
+          "body": {
+           "amount": 500,
+           "wire_id": "W-201",
+           "account_id": "A1",
+           "customer_id": "C1",
+           "beneficiary_name": "Acme",
+           "beneficiary_country": "IR"
+          }
+         }
+        ]
+       },
+       "Blocked country?": {
+        "true": [
+         {
+          "body": {
+           "amount": 500,
+           "wire_id": "W-201",
+           "account_id": "A1",
+           "customer_id": "C1",
+           "beneficiary_name": "Acme",
+           "beneficiary_country": "IR"
+          }
+         }
+        ]
+       },
+       "Block wire country": {
+        "main": [
+         {
+          "body": {
+           "status": "blocked",
+           "wire_id": "W-201"
+          },
+          "headers": {
+           "content-type": "application/json",
+           "content-length": "38"
+          },
+          "statusCode": 200
+         }
+        ]
+       },
+       "Audit blocked country": {
+        "main": [
+         {
+          "success": true
+         }
+        ]
+       },
+       "Email compliance country": {
+        "main": [
+         {
+          "success": true
+         }
+        ]
+       }
+      },
+      "test_id": "t_3e9ce46c",
+      "failures": [
+       {
+        "kind": "contract",
+        "node": "Email compliance country",
+        "path": "sent",
+        "port": "main",
+        "actual": "missing",
+        "message": "Email compliance country emitted data that breaks its declared shape at sent: required property 'sent' is missing",
+        "expected": "required",
+        "direction": "output"
+       },
+       {
+        "kind": "contract",
+        "node": "Email compliance country",
+        "path": "to",
+        "port": "main",
+        "actual": "missing",
+        "message": "Email compliance country emitted data that breaks its declared shape at to: required property 'to' is missing",
+        "expected": "required",
+        "direction": "output"
+       },
+       {
+        "kind": "contract",
+        "node": "Email compliance country",
+        "path": "subject",
+        "port": "main",
+        "actual": "missing",
+        "message": "Email compliance country emitted data that breaks its declared shape at subject: required property 'subject' is missing",
+        "expected": "required",
+        "direction": "output"
+       },
+       {
+        "kind": "contract",
+        "node": "Email compliance country",
+        "path": "html",
+        "port": "main",
+        "actual": "missing",
+        "message": "Email compliance country emitted data that breaks its declared shape at html: required property 'html' is missing",
+        "expected": "required",
+        "direction": "output"
+       }
+      ],
+      "requests": {
+       "Block wire country": [
+        {
+         "url": "http://127.0.0.1:9100/wires/W-201/block",
+         "body": null,
+         "method": "POST",
+         "headers": {
+          "host": "127.0.0.1:9100",
+          "accept": "*/*",
+          "connection": "keep-alive",
+          "user-agent": "python-httpx/0.28.1",
+          "content-type": "application/json",
+          "content-length": "0",
+          "accept-encoding": "gzip, deflate"
+         }
+        }
+       ],
+       "Audit blocked country": [
+        {
+         "params": {
+          "operation": "transaction",
+          "connection": "ops_db",
+          "statements": [
+           {
+            "query": "INSERT INTO audit_log (entity, entity_id, action, detail) VALUES ('wire', %s, 'blocked_country', %s)",
+            "params": [
+             "W-201",
+             "IR"
+            ]
+           }
+          ]
+         }
+        }
+       ],
+       "Email compliance country": [
+        {
+         "params": {
+          "body": "Wire W-201 for 500 to Acme was blocked because the beneficiary country is IR.",
+          "subject": "Wire W-201 blocked: restricted country",
+          "toEmail": "compliance@bank.test",
+          "bodyFormat": "plain"
+         }
+        }
+       ]
+      },
+      "warnings": [],
+      "assertions": [
+       {
+        "op": "status",
+        "node": "Block wire country",
+        "path": "",
+        "port": null,
+        "actual": "success",
+        "passed": true,
+        "message": "status is success",
+        "expected": "success"
+       },
+       {
+        "op": "eq",
+        "node": "Audit blocked country",
+        "path": "params.statements.0.params.1",
+        "port": null,
+        "actual": "IR",
+        "passed": true,
+        "message": "equal",
+        "expected": "IR"
+       },
+       {
+        "op": "status",
+        "node": "Email compliance country",
+        "path": "",
+        "port": null,
+        "actual": "success",
+        "passed": true,
+        "message": "status is success",
+        "expected": "success"
+       },
+       {
+        "op": "status",
+        "node": "Release wire",
+        "path": "",
+        "port": null,
+        "actual": "not_run",
+        "passed": true,
+        "message": "status is not_run",
+        "expected": "not_run"
+       },
+       {
+        "op": "status",
+        "node": "Under 10000?",
+        "path": "",
+        "port": null,
+        "actual": "not_run",
+        "passed": true,
+        "message": "status is not_run",
+        "expected": "not_run"
+       }
+      ],
+      "duration_ms": 11.55,
+      "node_status": {
+       "SAR task": "not_run",
+       "Block wire": "not_run",
+       "Audit fraud": "not_run",
+       "MLRO review": "not_run",
+       "True match?": "not_run",
+       "Get customer": "not_run",
+       "Release wire": "not_run",
+       "Under 10000?": "not_run",
+       "Audit blocked": "not_run",
+       "Callback task": "not_run",
+       "Wire received": "success",
+       "Audit released": "not_run",
+       "Email customer": "not_run",
+       "Freeze account": "not_run",
+       "Gather details": "not_run",
+       "Sanctions hit?": "not_run",
+       "Audit SAR filed": "not_run",
+       "Customer answer": "not_run",
+       "Hold wire fraud": "not_run",
+       "Blocked country?": "success",
+       "Email compliance": "not_run",
+       "Email fraud team": "not_run",
+       "Treasury needed?": "not_run",
+       "Block wire country": "success",
+       "Hold wire treasury": "not_run",
+       "Screen beneficiary": "not_run",
+       "Callback task again": "not_run",
+       "Treasury approval 1": "not_run",
+       "Treasury approval 2": "not_run",
+       "Remind payments lead": "not_run",
+       "Audit blocked country": "success",
+       "Hold wire no callback": "not_run",
+       "Audit held by treasury": "not_run",
+       "Audit held no callback": "not_run",
+       "Email compliance country": "success"
+      },
+      "ports_taken": {
+       "Wire received": [
+        "main"
+       ],
+       "Blocked country?": [
+        "true"
+       ],
+       "Block wire country": [
+        "main"
+       ],
+       "Audit blocked country": [
+        "main"
+       ],
+       "Email compliance country": [
+        "main"
+       ]
+      },
+      "execution_id": null
+     },
+     {
+      "name": "Other countries are not blocked by country",
+      "status": "passed",
+      "outputs": {
+       "Release wire": {
+        "main": [
+         {
+          "body": {
+           "status": "released",
+           "wire_id": "W-202"
+          },
+          "headers": {
+           "content-type": "application/json",
+           "content-length": "39"
+          },
+          "statusCode": 200
+         }
+        ]
+       },
+       "Under 10000?": {
+        "true": [
+         {
+          "body": {
+           "amount": 5000,
+           "wire_id": "W-202",
+           "account_id": "A1",
+           "customer_id": "C1",
+           "beneficiary_name": "Acme",
+           "beneficiary_country": "DE"
+          }
+         }
+        ]
+       },
+       "Wire received": {
+        "main": [
+         {
+          "body": {
+           "amount": 5000,
+           "wire_id": "W-202",
+           "account_id": "A1",
+           "customer_id": "C1",
+           "beneficiary_name": "Acme",
+           "beneficiary_country": "DE"
+          }
+         }
+        ]
+       },
+       "Audit released": {
+        "main": [
+         {
+          "success": true
+         }
+        ]
+       },
+       "Blocked country?": {
+        "false": [
+         {
+          "body": {
+           "amount": 5000,
+           "wire_id": "W-202",
+           "account_id": "A1",
+           "customer_id": "C1",
+           "beneficiary_name": "Acme",
+           "beneficiary_country": "DE"
+          }
+         }
+        ]
+       }
+      },
+      "test_id": "t_179b8ce9",
+      "failures": [],
+      "requests": {
+       "Release wire": [
+        {
+         "url": "http://127.0.0.1:9100/wires/W-202/release",
+         "body": null,
+         "method": "POST",
+         "headers": {
+          "host": "127.0.0.1:9100",
+          "accept": "*/*",
+          "connection": "keep-alive",
+          "user-agent": "python-httpx/0.28.1",
+          "content-type": "application/json",
+          "content-length": "0",
+          "accept-encoding": "gzip, deflate"
+         }
+        }
+       ],
+       "Audit released": [
+        {
+         "params": {
+          "operation": "transaction",
+          "connection": "ops_db",
+          "statements": [
+           {
+            "query": "INSERT INTO audit_log (entity, entity_id, action, detail) VALUES ('wire', %s, 'released', %s)",
+            "params": [
+             "W-202",
+             "Wire released"
+            ]
+           }
+          ]
+         }
+        }
+       ]
+      },
+      "warnings": [],
+      "assertions": [
+       {
+        "op": "status",
+        "node": "Block wire country",
+        "path": "",
+        "port": null,
+        "actual": "not_run",
+        "passed": true,
+        "message": "status is not_run",
+        "expected": "not_run"
+       },
+       {
+        "op": "status",
+        "node": "Audit blocked country",
+        "path": "",
+        "port": null,
+        "actual": "not_run",
+        "passed": true,
+        "message": "status is not_run",
+        "expected": "not_run"
+       },
+       {
+        "op": "status",
+        "node": "Email compliance country",
+        "path": "",
+        "port": null,
+        "actual": "not_run",
+        "passed": true,
+        "message": "status is not_run",
+        "expected": "not_run"
+       },
+       {
+        "op": "status",
+        "node": "Release wire",
+        "path": "",
+        "port": null,
+        "actual": "success",
+        "passed": true,
+        "message": "status is success",
+        "expected": "success"
+       }
+      ],
+      "duration_ms": 11.11,
+      "node_status": {
+       "SAR task": "not_run",
+       "Block wire": "not_run",
+       "Audit fraud": "not_run",
+       "MLRO review": "not_run",
+       "True match?": "not_run",
+       "Get customer": "not_run",
+       "Release wire": "success",
+       "Under 10000?": "success",
+       "Audit blocked": "not_run",
+       "Callback task": "not_run",
+       "Wire received": "success",
+       "Audit released": "success",
+       "Email customer": "not_run",
+       "Freeze account": "not_run",
+       "Gather details": "not_run",
+       "Sanctions hit?": "not_run",
+       "Audit SAR filed": "not_run",
+       "Customer answer": "not_run",
+       "Hold wire fraud": "not_run",
+       "Blocked country?": "success",
+       "Email compliance": "not_run",
+       "Email fraud team": "not_run",
+       "Treasury needed?": "not_run",
+       "Block wire country": "not_run",
+       "Hold wire treasury": "not_run",
+       "Screen beneficiary": "not_run",
+       "Callback task again": "not_run",
+       "Treasury approval 1": "not_run",
+       "Treasury approval 2": "not_run",
+       "Remind payments lead": "not_run",
+       "Audit blocked country": "not_run",
+       "Hold wire no callback": "not_run",
+       "Audit held by treasury": "not_run",
+       "Audit held no callback": "not_run",
+       "Email compliance country": "not_run"
+      },
+      "ports_taken": {
+       "Release wire": [
+        "main"
+       ],
+       "Under 10000?": [
+        "true"
+       ],
+       "Wire received": [
+        "main"
+       ],
+       "Audit released": [
+        "main"
+       ],
+       "Blocked country?": [
+        "false"
+       ]
+      },
+      "execution_id": null
+     }
+    ],
+    "summary": {
+     "total": 5,
+     "failed": 3,
+     "passed": 2,
+     "errored": 0,
+     "approved_total": 0,
+     "approved_failed": 0
+    },
+    "stale_test_ids": []
+   },
+   "passed": true,
+   "rounds": [
+    {
+     "round": 0,
+     "errors": 0,
+     "seconds": 23.3,
+     "failures": []
+    }
+   ],
+   "builder": "oneshot",
+   "checker": {
+    "errors": 0,
+    "findings": [
+     {
+      "code": "WF015",
+      "node": "Callback task",
+      "message": "'Callback task': a rejection goes nowhere (the 'rejected' output isn't connected).",
+      "severity": "warning"
+     },
+     {
+      "code": "WF015",
+      "node": "Callback task again",
+      "message": "'Callback task again': a rejection goes nowhere (the 'rejected' output isn't connected).",
+      "severity": "warning"
+     },
+     {
+      "code": "WF015",
+      "node": "SAR task",
+      "message": "'SAR task': a rejection goes nowhere (the 'rejected' output isn't connected).",
+      "severity": "warning"
+     },
+     {
+      "code": "WF015",
+      "node": "SAR task",
+      "message": "'SAR task': a timeout goes nowhere (the 'timed_out' output isn't connected).",
+      "severity": "warning"
+     }
+    ],
+    "warnings": 4
+   },
+   "summary": "Added a \"Blocked country?\" check straight after the webhook. Wires to KP or IR are blocked via the wires API, get a `blocked_country` audit row in ops_db and an email to compliance@bank.test. They skip the callback, screening and the amount check, and every other wire carries on as before.",
+   "failures": [],
+   "grounding": [],
+   "best_round": 0,
+   "spec_coverage": {},
+   "stopped_because": "passed"
+  },
+  "test_change_requests": [],
+  "answer": null,
+  "error_code": null,
+  "error_message": null,
+  "kept_by": null,
+  "kept_at": null,
+  "kept_draft_hash": null,
+  "accepted_failing": false,
+  "understanding": null,
+  "app_build_id": null,
+  "part_key": null,
+  "created_at": "2026-10-23T05:49:03.677234+00:00",
+  "updated_at": "2026-10-23T05:49:26.952359+00:00",
+  "usage": {
+   "llm_calls": 0,
+   "input_tokens": 0,
+   "output_tokens": 0,
+   "cost_usd": null,
+   "duration_ms": 23270
+  },
+  "policy": {
+   "model": "cli:sonnet",
+   "provider": "oneshot",
+   "region": null
+  }
+ }
+}

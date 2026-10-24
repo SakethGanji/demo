@@ -288,9 +288,16 @@ def get_component(name: str) -> dict[str, Any] | None:
 
 
 def kit_index_lines() -> list[str]:
-    """One line per kit component (name - use-when): the generated replacement for a hand-written prop list."""
-    return [f"{c['name']}: {(c['use_when'] or c['file_doc']).splitlines()[0][:120]}" for c in kit_components()
+    """One line per kit component (name - use-when): the generated replacement for a hand-written prop list. Only the
+    use-when's first sentence, so the index stays short as the kit grows (get_component has the rest)."""
+    return [f"{c['name']}: {_first_sentence(c['use_when'] or c['file_doc'])}" for c in kit_components()
             if c["kind"] == "component"]
+
+
+def _first_sentence(text: str, cap: int = 90) -> str:
+    line = (text.splitlines() or [""])[0]
+    m = re.match(r"(.+?[.;])(?:\s|$)", line)
+    return (m.group(1) if m else line)[:cap]
 
 
 # ── SDK symbols ───────────────────────────────────────────────────────────────

@@ -31,7 +31,9 @@ INBOX = re.compile(r"(approv|queue|inbox|review|triage|pending|to.?do|moderat)")
 FORM = re.compile(r"^(new|create|submit|request|add|apply|file|log|raise|book|report an?)\b")
 STATE_FIELDS = ("status", "state", "stage")
 
-THEME = """/* Theme tokens: every colour, radius and font of the app comes from here (shadcn-style). Edit the values to restyle it. */
+THEME = """/* Theme tokens: every colour, radius and font of the app comes from here (shadcn-style). Edit the values to restyle it.
+ * They override the kit's defaults (kit/theme.css lists every token: --soft-foreground, --info, --success-border, --chart-1..8, ...);
+ * utilities such as bg-card, text-muted-foreground and border-border read them. */
 :root {
   --background: #f8fafc;
   --foreground: #0f172a;
@@ -41,6 +43,8 @@ THEME = """/* Theme tokens: every colour, radius and font of the app comes from 
   --border: #e2e8f0;
   --primary: #4f46e5;
   --primary-foreground: #ffffff;
+  --primary-soft: #eef2ff;
+  --ring: #e0e7ff;
   --success: #047857;
   --success-soft: #d1fae5;
   --warning: #b45309;
@@ -51,23 +55,24 @@ THEME = """/* Theme tokens: every colour, radius and font of the app comes from 
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0b1020;
-    --foreground: #e2e8f0;
-    --card: #131a2e;
-    --muted: #1c2540;
-    --muted-foreground: #94a3b8;
-    --border: #263152;
-    --primary: #818cf8;
-    --primary-foreground: #0b1020;
-    --success: #6ee7b7;
-    --success-soft: #064e3b;
-    --warning: #fcd34d;
-    --warning-soft: #451a03;
-    --danger: #fca5a5;
-    --danger-soft: #450a0a;
-  }
+/* Dark mode: the `dark` class on <html> (AppShell's theme toggle: the viewer's choice, else the OS setting). */
+.dark {
+  --background: #0b1020;
+  --foreground: #e2e8f0;
+  --card: #131a2e;
+  --muted: #1c2540;
+  --muted-foreground: #94a3b8;
+  --border: #263152;
+  --primary: #818cf8;
+  --primary-foreground: #0b1020;
+  --primary-soft: #1e1b4b;
+  --ring: rgb(129 140 248 / 0.35);
+  --success: #6ee7b7;
+  --success-soft: #064e3b;
+  --warning: #fcd34d;
+  --warning-soft: #451a03;
+  --danger: #fca5a5;
+  --danger-soft: #450a0a;
 }
 
 body {
@@ -77,6 +82,10 @@ body {
   font-family: var(--font-sans);
 }
 """
+
+
+# App-owned overrides written by the studio's theme panel; the bundlers load it after the kit and index.css.
+THEME_OVERRIDES = "/* Theme overrides (written by the theme panel). */\n"
 
 
 @dataclass
@@ -550,6 +559,7 @@ def build(plan: dict[str, Any], app_key: str, routes: list[dict[str, Any]]) -> S
                 _route_norm(k) == _route_norm(f"{r.get('method')} {r.get('path')}") for k in s["routes"])]
             out.custom.append({"name": s["name"], "path": path, "purpose": s["purpose"], "operations": ops})
     out.files += [{"path": CSS_PATH, "content": THEME},
+                  {"path": "theme.css", "content": THEME_OVERRIDES},
                   {"path": RESOURCES_PATH, "content": resources_src},
                   {"path": "App.tsx", "content": app_source(app["name"] or p["title"] or "App", screens_meta)}]
     out.operations = sorted({m for m in re.findall(r"\bapi\.(\w+)\(", resources_src)})

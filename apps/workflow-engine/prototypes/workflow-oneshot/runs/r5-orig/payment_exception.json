@@ -1,0 +1,414 @@
+{
+ "name": "Failed payment retry",
+ "nodes": [
+  {
+   "name": "Payment failed",
+   "type": "Webhook",
+   "parameters": {
+    "method": "POST",
+    "path": "payment-failed",
+    "responseMode": "lastNode"
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Transient error?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $json.body.error_code in [\"timeout\", \"network_error\"] }}"
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "Retry payment",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "payments",
+     "operation_id": "retry"
+    },
+    "method": "POST",
+    "url": "",
+    "path_params": {
+     "payment_id": "{{ $node[\"Payment failed\"].json.body.payment_id }}"
+    },
+    "body": {
+     "reason": "Automatic retry after {{ $node[\"Payment failed\"].json.body.error_code }}"
+    }
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Reply retried automatically",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "retried_automatically",
+     "payment_id": "{{ $node[\"Payment failed\"].json.body.payment_id }}",
+     "error_code": "{{ $node[\"Payment failed\"].json.body.error_code }}",
+     "retry_status": "{{ $json.body.status }}"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Ops review",
+   "type": "Approval",
+   "parameters": {
+    "title": "Retry failed payment {{ $json.body.payment_id }}?",
+    "context": {
+     "Payment": "{{ $json.body.payment_id }}",
+     "Error code": "{{ $json.body.error_code }}",
+     "Amount": "{{ $json.body.amount }}"
+    },
+    "notify_email": "{{ $vars.OPS_EMAIL }}",
+    "require_comment_on_reject": true
+   },
+   "position": {
+    "x": 380,
+    "y": 110
+   }
+  },
+  {
+   "name": "Retry after review",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "payments",
+     "operation_id": "retry"
+    },
+    "method": "POST",
+    "url": "",
+    "path_params": {
+     "payment_id": "{{ $node[\"Payment failed\"].json.body.payment_id }}"
+    },
+    "body": {
+     "reason": "Approved by ops after {{ $node[\"Payment failed\"].json.body.error_code }}"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 110
+   }
+  },
+  {
+   "name": "Reply retried after approval",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "retried_after_approval",
+     "payment_id": "{{ $node[\"Payment failed\"].json.body.payment_id }}",
+     "error_code": "{{ $node[\"Payment failed\"].json.body.error_code }}",
+     "retry_status": "{{ $json.body.status }}"
+    }
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  },
+  {
+   "name": "Reply not retried",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "not_retried",
+     "payment_id": "{{ $node[\"Payment failed\"].json.body.payment_id }}",
+     "error_code": "{{ $node[\"Payment failed\"].json.body.error_code }}",
+     "message": "Ops rejected the retry: {{ $json.approval.comment }}"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 220
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Payment failed",
+   "target_node": "Transient error?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Transient error?",
+   "target_node": "Retry payment",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Transient error?",
+   "target_node": "Ops review",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Retry payment",
+   "target_node": "Reply retried automatically",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Ops review",
+   "target_node": "Retry after review",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Ops review",
+   "target_node": "Reply not retried",
+   "source_output": "rejected",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Retry after review",
+   "target_node": "Reply retried after approval",
+   "source_output": "main",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Timeout is retried automatically once",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "payment_id": "pay_1",
+       "error_code": "timeout",
+       "amount": 250
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Retry payment": {
+     "http": {
+      "status": 200,
+      "body": {
+       "payment_id": "pay_1",
+       "status": "retried"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Retry payment",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Retry payment",
+     "subject": "request",
+     "path": "url",
+     "op": "contains",
+     "value": "pay_1"
+    },
+    {
+     "node": "Ops review",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Reply retried automatically",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "retried_automatically"
+    }
+   ]
+  },
+  {
+   "name": "Network error is retried automatically",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "payment_id": "pay_2",
+       "error_code": "network_error",
+       "amount": 80
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Retry payment": {
+     "http": {
+      "status": 200,
+      "body": {
+       "payment_id": "pay_2",
+       "status": "retried"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Retry payment",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Ops review",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Reply retried automatically",
+     "subject": "request",
+     "path": "body.retry_status",
+     "op": "eq",
+     "value": "retried"
+    }
+   ]
+  },
+  {
+   "name": "Insufficient funds approved by ops is retried",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "payment_id": "pay_3",
+       "error_code": "insufficient_funds",
+       "amount": 1200
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Ops review": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "funds arrived",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Retry after review": {
+     "http": {
+      "status": 200,
+      "body": {
+       "payment_id": "pay_3",
+       "status": "retried"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Retry payment",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Retry after review",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Retry after review",
+     "subject": "request",
+     "path": "url",
+     "op": "contains",
+     "value": "pay_3"
+    },
+    {
+     "node": "Reply retried after approval",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "retried_after_approval"
+    }
+   ]
+  },
+  {
+   "name": "Invalid account rejected by ops is not retried",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "payment_id": "pay_4",
+       "error_code": "invalid_account",
+       "amount": 300
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Ops review": {
+     "port": "rejected",
+     "approval": {
+      "decision": "rejected",
+      "comment": "account closed",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Retry payment",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Retry after review",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Reply not retried",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "not_retried"
+    },
+    {
+     "node": "Reply not retried",
+     "subject": "request",
+     "path": "body.message",
+     "op": "contains",
+     "value": "account closed"
+    }
+   ]
+  }
+ ]
+}

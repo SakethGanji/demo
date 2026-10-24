@@ -1,0 +1,470 @@
+{
+ "name": "One-day ATM limit change",
+ "nodes": [
+  {
+   "name": "Limit request",
+   "type": "FormTrigger",
+   "parameters": {
+    "title": "ATM limit change",
+    "input_schema": {
+     "type": "object",
+     "properties": {
+      "customer_id": {
+       "type": "string"
+      },
+      "requested_limit": {
+       "type": "number"
+      },
+      "reason": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "customer_id",
+      "requested_limit",
+      "reason"
+     ]
+    }
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Within twice standard?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $json.requested_limit <= 2 * float($vars.ATM_DAILY_LIMIT) }}"
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "Branch manager approval",
+   "type": "Approval",
+   "parameters": {
+    "title": "ATM limit above twice standard for customer {{ $json.customer_id }}",
+    "context": {
+     "Customer": "{{ $json.customer_id }}",
+     "Requested limit": "{{ $json.requested_limit }}",
+     "Standard limit": "{{ $vars.ATM_DAILY_LIMIT }}",
+     "Reason": "{{ $json.reason }}"
+    },
+    "notify_email": "{{ $vars.BRANCH_MANAGER_EMAIL }}",
+    "require_comment_on_reject": true
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Apply limit",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "cards",
+     "operation_id": "setLimit"
+    },
+    "method": "POST",
+    "url": "",
+    "path_params": {
+     "customer_id": "{{ $node[\"Limit request\"].json.customer_id }}"
+    },
+    "body": {
+     "limit": "{{ $node[\"Limit request\"].json.requested_limit }}"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Above standard?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $node[\"Limit request\"].json.requested_limit > float($vars.ATM_DAILY_LIMIT) }}"
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  },
+  {
+   "name": "Email branch ops",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $vars.BRANCH_OPS_EMAIL }}",
+    "subject": "ATM limit raised for customer {{ $node[\"Limit request\"].json.customer_id }}",
+    "bodyFormat": "plain",
+    "body": "Customer {{ $node[\"Limit request\"].json.customer_id }} now has a one-day ATM limit of {{ $node[\"Limit request\"].json.requested_limit }}."
+   },
+   "position": {
+    "x": 950,
+    "y": 0
+   }
+  },
+  {
+   "name": "Reply applied above standard",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "applied",
+     "message": "One-day ATM limit of {{ $node[\"Limit request\"].json.requested_limit }} applied for customer {{ $node[\"Limit request\"].json.customer_id }}. Branch ops notified."
+    }
+   },
+   "position": {
+    "x": 1140,
+    "y": 0
+   }
+  },
+  {
+   "name": "Reply applied standard",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "applied",
+     "message": "One-day ATM limit of {{ $node[\"Limit request\"].json.requested_limit }} applied for customer {{ $node[\"Limit request\"].json.customer_id }}."
+    }
+   },
+   "position": {
+    "x": 950,
+    "y": 110
+   }
+  },
+  {
+   "name": "Reply refused",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "refused",
+     "message": "The branch manager rejected the request. Reason: {{ $json.approval.comment }}"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 110
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Limit request",
+   "target_node": "Within twice standard?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Within twice standard?",
+   "target_node": "Apply limit",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Within twice standard?",
+   "target_node": "Branch manager approval",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Branch manager approval",
+   "target_node": "Apply limit",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Branch manager approval",
+   "target_node": "Reply refused",
+   "source_output": "rejected",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Apply limit",
+   "target_node": "Above standard?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Above standard?",
+   "target_node": "Email branch ops",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Above standard?",
+   "target_node": "Reply applied standard",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Email branch ops",
+   "target_node": "Reply applied above standard",
+   "source_output": "main",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Exactly twice standard is applied without approval",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "customer_id": "C100",
+      "requested_limit": 2000,
+      "reason": "Travel"
+     }
+    ]
+   },
+   "mocks": {
+    "Apply limit": {
+     "http": {
+      "status": 200,
+      "body": {
+       "limit": 2000
+      }
+     }
+    },
+    "Email branch ops": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Branch manager approval",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Apply limit",
+     "subject": "request",
+     "path": "body.limit",
+     "op": "eq",
+     "value": 2000
+    },
+    {
+     "node": "Apply limit",
+     "subject": "request",
+     "path": "url",
+     "op": "contains",
+     "value": "C100"
+    },
+    {
+     "node": "Email branch ops",
+     "subject": "request",
+     "path": "params.toEmail",
+     "op": "eq",
+     "value": "branchops@bank.test"
+    },
+    {
+     "node": "Email branch ops",
+     "subject": "request",
+     "path": "params.body",
+     "op": "contains",
+     "value": "2000"
+    },
+    {
+     "node": "Reply applied above standard",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "applied"
+    }
+   ]
+  },
+  {
+   "name": "Limit within standard is applied with no email",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "customer_id": "C101",
+      "requested_limit": 1000,
+      "reason": "Routine"
+     }
+    ]
+   },
+   "mocks": {
+    "Apply limit": {
+     "http": {
+      "status": 200,
+      "body": {
+       "limit": 1000
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Branch manager approval",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Apply limit",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Email branch ops",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Reply applied standard",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "applied"
+    }
+   ]
+  },
+  {
+   "name": "Above twice standard approved is applied and emailed",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "customer_id": "C102",
+      "requested_limit": 2001,
+      "reason": "Property purchase"
+     }
+    ]
+   },
+   "mocks": {
+    "Branch manager approval": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Apply limit": {
+     "http": {
+      "status": 200,
+      "body": {
+       "limit": 2001
+      }
+     }
+    },
+    "Email branch ops": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Apply limit",
+     "subject": "request",
+     "path": "body.limit",
+     "op": "eq",
+     "value": 2001
+    },
+    {
+     "node": "Email branch ops",
+     "subject": "request",
+     "path": "params.body",
+     "op": "contains",
+     "value": "C102"
+    },
+    {
+     "node": "Reply refused",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Reply applied above standard",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "applied"
+    }
+   ]
+  },
+  {
+   "name": "Above twice standard rejected is not applied",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "customer_id": "C103",
+      "requested_limit": 5000,
+      "reason": "Unclear"
+     }
+    ]
+   },
+   "mocks": {
+    "Branch manager approval": {
+     "port": "rejected",
+     "approval": {
+      "decision": "rejected",
+      "comment": "No justification",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Apply limit",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Email branch ops",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Reply refused",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "refused"
+    }
+   ]
+  }
+ ],
+ "interface": {
+  "kind": "form",
+  "slug": "one-day-atm-limit-change",
+  "title": "ATM limit change",
+  "description": "",
+  "access": {
+   "mode": "public"
+  },
+  "trigger_node": "Limit request",
+  "result_node": "Reply refused"
+ }
+}

@@ -226,6 +226,41 @@ def _approval_outputs(leaf: dict[str, Any], context: Any, items: list[NodeData],
     return port, [NodeData(json={**copy.deepcopy(base), "approval": approval}, binary=src.binary, meta=src.meta)]
 
 
+_PER_ITEM_ANSWER = frozenset({"Postgres", "SendEmail"})
+
+
+def shape_plan(plan: MockPlan | None, node_type: str, params: dict[str, Any] | None, input_items: list[NodeData], mock: Any) -> MockPlan | None:
+    """Make a mock's plan do what the real node does with this many items (each gap was found by a live run):
+
+    * an Approval whose deadline passes with ``on_timeout`` reject/approve leaves by that port, as the real task expiry does;
+    * an Approval without ``per_item`` makes ONE task for the whole group, so every item leaves with item 0's decision;
+    * Postgres and SendEmail answer once per item, so a one-item static mock is repeated for each incoming item.
+    """
+    if plan is None or plan.kind != "items":
+        return plan
+    params = params or {}
+    if node_type == "Approval":
+        auto = params.get("on_timeout")
+        if auto in ("reject", "approve") and plan.outputs.get("timed_out"):
+            port = "rejected" if auto == "reject" else "approved"
+            moved = plan.outputs.pop("timed_out")
+            for it in moved:
+                it.json["approval"] = {**(it.json.get("approval") or {}), "decision": port, "decided_by": "system:timeout"}
+            plan.outputs.setdefault(port, []).extend(moved)
+        per_item = str(params.get("per_item")).lower() in ("true", "1")
+        ports = [p for p, its in plan.outputs.items() if its]   # item 0 is planned first, so its port comes first
+        if not per_item and len(input_items) > 1 and len(ports) > 1:
+            decision = plan.outputs[ports[0]][0].json.get("approval") or {}
+            moved = [it for p in ports for it in plan.outputs[p]]
+            for it in moved:
+                it.json["approval"] = copy.deepcopy(decision)
+            plan.outputs = {ports[0]: moved}
+    elif (node_type in _PER_ITEM_ANSWER and len(input_items) > 1 and len(plan.outputs.get("main") or []) == 1
+          and not has_expression(mock.get("items") if isinstance(mock, dict) else None)):
+        plan.outputs["main"] = [copy.deepcopy(plan.outputs["main"][0]) for _ in input_items]
+    return plan
+
+
 def plan_mock(mock: Any, node: str, node_type: str, input_items: list[NodeData], context: Any) -> MockPlan | None:
     """Turn a mock into a plan for this job; None when it doesn't apply (rules without a match: try the next level)."""
     kind = mock_kind(mock)

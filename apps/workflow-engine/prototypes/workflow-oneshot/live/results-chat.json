@@ -1,0 +1,921 @@
+{
+ "wire_fraud_email": {
+  "ok": true,
+  "seconds": 90.1,
+  "runs": [
+   {
+    "scenario": "wire_small",
+    "ok": true,
+    "checks": [
+     {
+      "check": "execution succeeded",
+      "ok": true
+     },
+     {
+      "check": "audit actions = ['released']",
+      "ok": true
+     },
+     {
+      "check": "audit rows are entity 'wire', W1",
+      "ok": true
+     },
+     {
+      "check": "bank API: POST /wires/W1/release",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/block",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/hold",
+      "ok": true
+     },
+     {
+      "check": "no callback task for a small wire",
+      "ok": true
+     },
+     {
+      "check": "compliance not emailed (unchanged paths)",
+      "ok": true
+     }
+    ],
+    "log": [
+     "run -> success ",
+     "finished: success "
+    ],
+    "execution": "exec_01a1674d-1e78-7f6b-bdc7-e247e2b8993e"
+   },
+   {
+    "scenario": "wire_confirmed_clean",
+    "ok": true,
+    "checks": [
+     {
+      "check": "callback task shows Bo Park +1-555-0102 from core_banking",
+      "ok": true
+     },
+     {
+      "check": "execution succeeded",
+      "ok": true
+     },
+     {
+      "check": "audit actions = ['released']",
+      "ok": true
+     },
+     {
+      "check": "audit rows are entity 'wire', W1",
+      "ok": true
+     },
+     {
+      "check": "bank API: POST /screen",
+      "ok": true
+     },
+     {
+      "check": "bank API: POST /wires/W1/release",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/block",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/hold",
+      "ok": true
+     },
+     {
+      "check": "compliance not emailed (unchanged paths)",
+      "ok": true
+     }
+    ],
+    "log": [
+     "run -> waiting ",
+     "Callback task: approved {'customer_confirmed': 'yes'}",
+     "finished: success "
+    ],
+    "execution": "exec_01a1674d-1f25-7443-b9fb-c3381b7c6632"
+   },
+   {
+    "scenario": "wire_fraud",
+    "ok": true,
+    "checks": [
+     {
+      "check": "execution succeeded",
+      "ok": true
+     },
+     {
+      "check": "audit actions = ['fraud']",
+      "ok": true
+     },
+     {
+      "check": "audit rows are entity 'wire', W1",
+      "ok": true
+     },
+     {
+      "check": "bank API: POST /wires/W1/hold",
+      "ok": true
+     },
+     {
+      "check": "bank API: POST /accounts/A1/freeze",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/block",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/release",
+      "ok": true
+     },
+     {
+      "check": "email to fraud@bank.test",
+      "ok": true
+     },
+     {
+      "check": "compliance emailed about the fraud (new)",
+      "ok": true
+     }
+    ],
+    "log": [
+     "run -> waiting ",
+     "Callback task: approved {'customer_confirmed': 'no'}",
+     "finished: success "
+    ],
+    "execution": "exec_01a1674d-2237-7f23-884a-3478e2e80e0d"
+   },
+   {
+    "scenario": "wire_no_callback",
+    "ok": true,
+    "checks": [
+     {
+      "check": "execution succeeded",
+      "ok": true
+     },
+     {
+      "check": "audit actions = ['held_no_callback']",
+      "ok": true
+     },
+     {
+      "check": "audit rows are entity 'wire', W1",
+      "ok": true
+     },
+     {
+      "check": "bank API: POST /wires/W1/hold",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/block",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/release",
+      "ok": true
+     },
+     {
+      "check": "email to paylead@bank.test",
+      "ok": true
+     },
+     {
+      "check": "email to bo@mail.test",
+      "ok": true
+     },
+     {
+      "check": "compliance not emailed (unchanged paths)",
+      "ok": true
+     }
+    ],
+    "log": [
+     "run -> waiting ",
+     "Callback task: no answer -> timed_out by sweeper",
+     "Callback task again: no answer -> timed_out by sweeper",
+     "finished: success "
+    ],
+    "execution": "exec_01a1674d-24d2-797b-82f1-74c50ea2eed3"
+   },
+   {
+    "scenario": "wire_sanctions_true_match_sar",
+    "ok": true,
+    "checks": [
+     {
+      "check": "execution succeeded",
+      "ok": true
+     },
+     {
+      "check": "audit actions = ['blocked', 'sar_filed']",
+      "ok": true
+     },
+     {
+      "check": "audit rows are entity 'wire', W1",
+      "ok": true
+     },
+     {
+      "check": "bank API: POST /screen",
+      "ok": true
+     },
+     {
+      "check": "bank API: POST /wires/W1/block",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/release",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/hold",
+      "ok": true
+     },
+     {
+      "check": "SAR reference recorded (SAR-2026-0042)",
+      "ok": true
+     },
+     {
+      "check": "compliance not emailed (unchanged paths)",
+      "ok": true
+     }
+    ],
+    "log": [
+     "run -> waiting ",
+     "Callback task: approved {'customer_confirmed': 'yes'}",
+     "MLRO review: approved {'disposition': 'true_match'}",
+     "SAR task: approved {'sar_reference': 'SAR-2026-0042'}",
+     "finished: success "
+    ],
+    "execution": "exec_01a1674d-bbbc-7c4b-8369-4877be8a62f6"
+   },
+   {
+    "scenario": "wire_sanctions_mlro_silent",
+    "ok": true,
+    "checks": [
+     {
+      "check": "execution succeeded",
+      "ok": true
+     },
+     {
+      "check": "audit actions = ['blocked', 'sar_filed']",
+      "ok": true
+     },
+     {
+      "check": "audit rows are entity 'wire', W1",
+      "ok": true
+     },
+     {
+      "check": "bank API: POST /wires/W1/block",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/release",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/hold",
+      "ok": true
+     },
+     {
+      "check": "SAR reference recorded (SAR-2026-0043)",
+      "ok": true
+     },
+     {
+      "check": "compliance not emailed (unchanged paths)",
+      "ok": true
+     }
+    ],
+    "log": [
+     "run -> waiting ",
+     "Callback task: approved {'customer_confirmed': 'yes'}",
+     "MLRO review: no answer -> rejected by sweeper",
+     "SAR task: approved {'sar_reference': 'SAR-2026-0043'}",
+     "finished: success "
+    ],
+    "execution": "exec_01a1674d-c263-7673-81c8-b09de3e1ee37"
+   },
+   {
+    "scenario": "wire_million_treasury",
+    "ok": true,
+    "checks": [
+     {
+      "check": "execution succeeded",
+      "ok": true
+     },
+     {
+      "check": "audit actions = ['released']",
+      "ok": true
+     },
+     {
+      "check": "audit rows are entity 'wire', W1",
+      "ok": true
+     },
+     {
+      "check": "bank API: POST /wires/W1/release",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/block",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/hold",
+      "ok": true
+     },
+     {
+      "check": "treasury asked twice",
+      "ok": true
+     },
+     {
+      "check": "compliance not emailed (unchanged paths)",
+      "ok": true
+     }
+    ],
+    "log": [
+     "run -> waiting ",
+     "Callback task: approved {'customer_confirmed': 'yes'}",
+     "MLRO review: approved {'disposition': 'false_positive'}",
+     "Treasury approval 1: approved ",
+     "Treasury approval 2: approved ",
+     "finished: success "
+    ],
+    "execution": "exec_01a1674e-31dc-7425-9871-91c2066c852d"
+   },
+   {
+    "scenario": "wire_million_treasury_rejects",
+    "ok": true,
+    "checks": [
+     {
+      "check": "execution succeeded",
+      "ok": true
+     },
+     {
+      "check": "audit actions = ['held_by_treasury']",
+      "ok": true
+     },
+     {
+      "check": "audit rows are entity 'wire', W1",
+      "ok": true
+     },
+     {
+      "check": "bank API: POST /wires/W1/hold",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/block",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/release",
+      "ok": true
+     },
+     {
+      "check": "compliance not emailed (unchanged paths)",
+      "ok": true
+     }
+    ],
+    "log": [
+     "run -> waiting ",
+     "Callback task: approved {'customer_confirmed': 'yes'}",
+     "Treasury approval 1: rejected ",
+     "finished: success "
+    ],
+    "execution": "exec_01a1674e-3a97-7751-9167-0960f50a0e97"
+   }
+  ]
+ },
+ "wire_country_block": {
+  "ok": true,
+  "seconds": 91.0,
+  "runs": [
+   {
+    "scenario": "wire_small",
+    "ok": true,
+    "checks": [
+     {
+      "check": "execution succeeded",
+      "ok": true
+     },
+     {
+      "check": "audit actions = ['released']",
+      "ok": true
+     },
+     {
+      "check": "audit rows are entity 'wire', W1",
+      "ok": true
+     },
+     {
+      "check": "bank API: POST /wires/W1/release",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/block",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/hold",
+      "ok": true
+     },
+     {
+      "check": "no callback task for a small wire",
+      "ok": true
+     }
+    ],
+    "log": [
+     "run -> success ",
+     "finished: success "
+    ],
+    "execution": "exec_01a1674e-9aae-734a-8ef3-30f706c0a71f"
+   },
+   {
+    "scenario": "wire_confirmed_clean",
+    "ok": true,
+    "checks": [
+     {
+      "check": "callback task shows Bo Park +1-555-0102 from core_banking",
+      "ok": true
+     },
+     {
+      "check": "execution succeeded",
+      "ok": true
+     },
+     {
+      "check": "audit actions = ['released']",
+      "ok": true
+     },
+     {
+      "check": "audit rows are entity 'wire', W1",
+      "ok": true
+     },
+     {
+      "check": "bank API: POST /screen",
+      "ok": true
+     },
+     {
+      "check": "bank API: POST /wires/W1/release",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/block",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/hold",
+      "ok": true
+     }
+    ],
+    "log": [
+     "run -> waiting ",
+     "Callback task: approved {'customer_confirmed': 'yes'}",
+     "finished: success "
+    ],
+    "execution": "exec_01a1674e-9b46-79d5-b839-b789dd0938f5"
+   },
+   {
+    "scenario": "wire_fraud",
+    "ok": true,
+    "checks": [
+     {
+      "check": "execution succeeded",
+      "ok": true
+     },
+     {
+      "check": "audit actions = ['fraud']",
+      "ok": true
+     },
+     {
+      "check": "audit rows are entity 'wire', W1",
+      "ok": true
+     },
+     {
+      "check": "bank API: POST /wires/W1/hold",
+      "ok": true
+     },
+     {
+      "check": "bank API: POST /accounts/A1/freeze",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/block",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/release",
+      "ok": true
+     },
+     {
+      "check": "email to fraud@bank.test",
+      "ok": true
+     }
+    ],
+    "log": [
+     "run -> waiting ",
+     "Callback task: approved {'customer_confirmed': 'no'}",
+     "finished: success "
+    ],
+    "execution": "exec_01a1674e-9df9-7a62-bd39-8fc5d62c887e"
+   },
+   {
+    "scenario": "wire_no_callback",
+    "ok": true,
+    "checks": [
+     {
+      "check": "execution succeeded",
+      "ok": true
+     },
+     {
+      "check": "audit actions = ['held_no_callback']",
+      "ok": true
+     },
+     {
+      "check": "audit rows are entity 'wire', W1",
+      "ok": true
+     },
+     {
+      "check": "bank API: POST /wires/W1/hold",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/block",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/release",
+      "ok": true
+     },
+     {
+      "check": "email to paylead@bank.test",
+      "ok": true
+     },
+     {
+      "check": "email to bo@mail.test",
+      "ok": true
+     }
+    ],
+    "log": [
+     "run -> waiting ",
+     "Callback task: no answer -> timed_out by sweeper",
+     "Callback task again: no answer -> timed_out by sweeper",
+     "finished: success "
+    ],
+    "execution": "exec_01a1674e-a0dc-7528-9522-c26b9e0c7c57"
+   },
+   {
+    "scenario": "wire_sanctions_true_match_sar",
+    "ok": true,
+    "checks": [
+     {
+      "check": "execution succeeded",
+      "ok": true
+     },
+     {
+      "check": "audit actions = ['blocked', 'sar_filed']",
+      "ok": true
+     },
+     {
+      "check": "audit rows are entity 'wire', W1",
+      "ok": true
+     },
+     {
+      "check": "bank API: POST /screen",
+      "ok": true
+     },
+     {
+      "check": "bank API: POST /wires/W1/block",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/release",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/hold",
+      "ok": true
+     },
+     {
+      "check": "SAR reference recorded (SAR-2026-0042)",
+      "ok": true
+     }
+    ],
+    "log": [
+     "run -> waiting ",
+     "Callback task: approved {'customer_confirmed': 'yes'}",
+     "MLRO review: approved {'disposition': 'true_match'}",
+     "SAR task: approved {'sar_reference': 'SAR-2026-0042'}",
+     "finished: success "
+    ],
+    "execution": "exec_01a1674f-1c48-7894-84d9-2c17fb11dc02"
+   },
+   {
+    "scenario": "wire_sanctions_mlro_silent",
+    "ok": true,
+    "checks": [
+     {
+      "check": "execution succeeded",
+      "ok": true
+     },
+     {
+      "check": "audit actions = ['blocked', 'sar_filed']",
+      "ok": true
+     },
+     {
+      "check": "audit rows are entity 'wire', W1",
+      "ok": true
+     },
+     {
+      "check": "bank API: POST /wires/W1/block",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/release",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/hold",
+      "ok": true
+     },
+     {
+      "check": "SAR reference recorded (SAR-2026-0043)",
+      "ok": true
+     }
+    ],
+    "log": [
+     "run -> waiting ",
+     "Callback task: approved {'customer_confirmed': 'yes'}",
+     "MLRO review: no answer -> rejected by sweeper",
+     "SAR task: approved {'sar_reference': 'SAR-2026-0043'}",
+     "finished: success "
+    ],
+    "execution": "exec_01a1674f-25d9-7a5c-a574-4d19ce3c6a3c"
+   },
+   {
+    "scenario": "wire_million_treasury",
+    "ok": true,
+    "checks": [
+     {
+      "check": "execution succeeded",
+      "ok": true
+     },
+     {
+      "check": "audit actions = ['released']",
+      "ok": true
+     },
+     {
+      "check": "audit rows are entity 'wire', W1",
+      "ok": true
+     },
+     {
+      "check": "bank API: POST /wires/W1/release",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/block",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/hold",
+      "ok": true
+     },
+     {
+      "check": "treasury asked twice",
+      "ok": true
+     }
+    ],
+    "log": [
+     "run -> waiting ",
+     "Callback task: approved {'customer_confirmed': 'yes'}",
+     "MLRO review: approved {'disposition': 'false_positive'}",
+     "Treasury approval 1: approved ",
+     "Treasury approval 2: approved ",
+     "finished: success "
+    ],
+    "execution": "exec_01a1674f-9542-70b9-ba65-664de65ee847"
+   },
+   {
+    "scenario": "wire_million_treasury_rejects",
+    "ok": true,
+    "checks": [
+     {
+      "check": "execution succeeded",
+      "ok": true
+     },
+     {
+      "check": "audit actions = ['held_by_treasury']",
+      "ok": true
+     },
+     {
+      "check": "audit rows are entity 'wire', W1",
+      "ok": true
+     },
+     {
+      "check": "bank API: POST /wires/W1/hold",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/block",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/release",
+      "ok": true
+     }
+    ],
+    "log": [
+     "run -> waiting ",
+     "Callback task: approved {'customer_confirmed': 'yes'}",
+     "Treasury approval 1: rejected ",
+     "finished: success "
+    ],
+    "execution": "exec_01a1674f-9dd0-7863-aea8-4f1c2b14b70a"
+   },
+   {
+    "scenario": "wire_country_KP",
+    "ok": true,
+    "checks": [
+     {
+      "check": "execution succeeded",
+      "ok": true
+     },
+     {
+      "check": "audit actions = ['blocked_country']",
+      "ok": true
+     },
+     {
+      "check": "audit rows are entity 'wire', W1",
+      "ok": true
+     },
+     {
+      "check": "bank API: POST /wires/W1/block",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/release",
+      "ok": true
+     },
+     {
+      "check": "no POST /wires/W1/hold",
+      "ok": true
+     },
+     {
+      "check": "email to compliance@bank.test",
+      "ok": true
+     },
+     {
+      "check": "no screening call",
+      "ok": true
+     },
+     {
+      "check": "no callback task / email to payops",
+      "ok": true
+     },
+     {
+      "check": "audit detail is the country",
+      "ok": true
+     }
+    ],
+    "log": [
+     "run -> success ",
+     "finished: success "
+    ],
+    "execution": "exec_01a1674f-a256-7c55-ae18-9551fdba986d"
+   }
+  ]
+ },
+ "build_delinquency": {
+  "ok": true,
+  "seconds": 37.0,
+  "runs": [
+   {
+    "scenario": "delinquency_approved",
+    "ok": true,
+    "checks": [
+     {
+      "check": "execution succeeded",
+      "ok": true
+     },
+     {
+      "check": "reminder audit rows = ['L1']",
+      "ok": true
+     },
+     {
+      "check": "entity is 'loan'",
+      "ok": true
+     },
+     {
+      "check": "reminder emailed to ann@mail.test naming L1",
+      "ok": true
+     },
+     {
+      "check": "no reminder to cy@mail.test",
+      "ok": true
+     },
+     {
+      "check": "escalated = ['L1']",
+      "ok": true
+     },
+     {
+      "check": "collections emailed about the escalation only when escalated",
+      "ok": true
+     },
+     {
+      "check": "collections asked once per loan over 15000",
+      "ok": true
+     }
+    ],
+    "log": [
+     "run -> waiting ",
+     "Approve escalation: approved",
+     "finished: success "
+    ],
+    "execution": "exec_01a16750-2da9-7883-934a-8679cc3f7510"
+   },
+   {
+    "scenario": "delinquency_rejected",
+    "ok": true,
+    "checks": [
+     {
+      "check": "execution succeeded",
+      "ok": true
+     },
+     {
+      "check": "reminder audit rows = ['L1']",
+      "ok": true
+     },
+     {
+      "check": "entity is 'loan'",
+      "ok": true
+     },
+     {
+      "check": "reminder emailed to ann@mail.test naming L1",
+      "ok": true
+     },
+     {
+      "check": "no reminder to cy@mail.test",
+      "ok": true
+     },
+     {
+      "check": "escalated = []",
+      "ok": true
+     },
+     {
+      "check": "collections emailed about the escalation only when escalated",
+      "ok": true
+     },
+     {
+      "check": "collections asked once per loan over 15000",
+      "ok": true
+     }
+    ],
+    "log": [
+     "run -> waiting ",
+     "Approve escalation: rejected",
+     "finished: success "
+    ],
+    "execution": "exec_01a16750-308a-7c5e-8387-8a5386183163"
+   }
+  ]
+ },
+ "edit_delinquency": {
+  "ok": true,
+  "seconds": 20.0,
+  "runs": [
+   {
+    "scenario": "delinquency_wider_approved",
+    "ok": true,
+    "checks": [
+     {
+      "check": "execution succeeded",
+      "ok": true
+     },
+     {
+      "check": "reminder audit rows = ['L1', 'L2']",
+      "ok": true
+     },
+     {
+      "check": "entity is 'loan'",
+      "ok": true
+     },
+     {
+      "check": "reminder emailed to ann@mail.test naming L1",
+      "ok": true
+     },
+     {
+      "check": "reminder emailed to cy@mail.test naming L2",
+      "ok": true
+     },
+     {
+      "check": "escalated = ['L1']",
+      "ok": true
+     },
+     {
+      "check": "collections emailed about the escalation only when escalated",
+      "ok": true
+     },
+     {
+      "check": "collections asked once per loan over 15000",
+      "ok": true
+     }
+    ],
+    "log": [
+     "run -> waiting ",
+     "Approve escalation: approved",
+     "finished: success "
+    ],
+    "execution": "exec_01a16750-7e96-74ba-97ad-4065f9eef53c"
+   }
+  ]
+ }
+}

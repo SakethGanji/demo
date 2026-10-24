@@ -1,0 +1,43 @@
+openapi: 3.0.3
+info:
+  title: cards
+  version: '1.0'
+servers:
+- url: http://cards.bank.test
+paths:
+  /cards/{card_id}/limit:
+    post:
+      operationId: setLimit
+      summary: Set a card's daily limit
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  card_id:
+                    type: string
+                  daily_limit:
+                    type: number
+                required:
+                - card_id
+                - daily_limit
+      parameters:
+      - name: card_id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                daily_limit:
+                  type: number
+              required:
+              - daily_limit

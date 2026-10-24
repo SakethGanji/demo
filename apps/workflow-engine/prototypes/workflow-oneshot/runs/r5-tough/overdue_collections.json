@@ -1,0 +1,829 @@
+{
+ "name": "Overdue loan collections",
+ "nodes": [
+  {
+   "name": "Weekdays 7am",
+   "type": "Cron",
+   "parameters": {
+    "mode": "cron",
+    "cronExpression": "0 7 * * 1-5"
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Find overdue loans",
+   "type": "Postgres",
+   "parameters": {
+    "connection": "core_banking",
+    "operation": "query",
+    "query": "SELECT l.loan_id, l.outstanding, l.days_past_due, l.officer_email, c.email FROM loans l JOIN customers c ON c.customer_id = l.customer_id WHERE l.status = 'active' AND l.days_past_due >= 30",
+    "queryParameters": []
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "Any overdue?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $json.rowCount > 0 }}"
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Count stages",
+   "type": "Code",
+   "parameters": {
+    "code": "rows = json_data[\"rows\"]\nreminder = 0\nfinal_notice = 0\ncollections = 0\nfor r in rows:\n    d = float(r[\"days_past_due\"])\n    if d >= 90:\n        collections = collections + 1\n    elif d >= 60:\n        final_notice = final_notice + 1\n    else:\n        reminder = reminder + 1\nreturn [new_item({\"rows\": rows, \"reminder\": reminder, \"final_notice\": final_notice, \"collections\": collections, \"total\": len(rows)})]"
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Split loans",
+   "type": "ItemLists",
+   "parameters": {
+    "operation": "splitOut",
+    "arrayField": "rows",
+    "includeOther": false
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  },
+  {
+   "name": "Each loan",
+   "type": "Loop",
+   "parameters": {
+    "batchSize": 1
+   },
+   "position": {
+    "x": 950,
+    "y": 0
+   }
+  },
+  {
+   "name": "Route stage",
+   "type": "Switch",
+   "parameters": {
+    "mode": "rules",
+    "numberOfOutputs": 3,
+    "rules": [
+     {
+      "output": 0,
+      "field": "{{ float($node[\"Each loan\"].json.days_past_due) }}",
+      "operation": "gte",
+      "value": "90"
+     },
+     {
+      "output": 1,
+      "field": "{{ float($node[\"Each loan\"].json.days_past_due) }}",
+      "operation": "gte",
+      "value": "60"
+     },
+     {
+      "output": 2,
+      "field": "{{ float($node[\"Each loan\"].json.days_past_due) }}",
+      "operation": "gte",
+      "value": "30"
+     }
+    ]
+   },
+   "position": {
+    "x": 1140,
+    "y": 0
+   }
+  },
+  {
+   "name": "Hand to agency",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "collections",
+     "operation_id": "openCase"
+    },
+    "method": "POST",
+    "url": "",
+    "body": {
+     "loan_id": "{{ $node[\"Each loan\"].json.loan_id }}",
+     "outstanding": "{{ float($node[\"Each loan\"].json.outstanding) }}"
+    }
+   },
+   "position": {
+    "x": 0,
+    "y": 290
+   }
+  },
+  {
+   "name": "Record collections",
+   "type": "Postgres",
+   "parameters": {
+    "connection": "ops_db",
+    "operation": "transaction",
+    "statements": [
+     {
+      "query": "INSERT INTO collection_actions (loan_id, stage) VALUES (%s, 'collections')",
+      "params": [
+       "{{ $node[\"Each loan\"].json.loan_id }}"
+      ]
+     }
+    ]
+   },
+   "position": {
+    "x": 190,
+    "y": 290
+   }
+  },
+  {
+   "name": "Email final notice",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $node[\"Each loan\"].json.email }}",
+    "subject": "Final notice: your loan payment is overdue",
+    "bodyFormat": "plain",
+    "body": "Your loan {{ $node[\"Each loan\"].json.loan_id }} is {{ $node[\"Each loan\"].json.days_past_due }} days past due. This is a final notice. Please pay the overdue amount immediately."
+   },
+   "position": {
+    "x": 0,
+    "y": 400
+   }
+  },
+  {
+   "name": "Email officer",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $node[\"Each loan\"].json.officer_email }}",
+    "subject": "Final notice sent for loan {{ $node[\"Each loan\"].json.loan_id }}",
+    "bodyFormat": "plain",
+    "body": "Loan {{ $node[\"Each loan\"].json.loan_id }} is {{ $node[\"Each loan\"].json.days_past_due }} days past due. A final notice was sent to the customer."
+   },
+   "position": {
+    "x": 190,
+    "y": 400
+   }
+  },
+  {
+   "name": "Record final notice",
+   "type": "Postgres",
+   "parameters": {
+    "connection": "ops_db",
+    "operation": "transaction",
+    "statements": [
+     {
+      "query": "INSERT INTO collection_actions (loan_id, stage) VALUES (%s, 'final_notice')",
+      "params": [
+       "{{ $node[\"Each loan\"].json.loan_id }}"
+      ]
+     }
+    ]
+   },
+   "position": {
+    "x": 380,
+    "y": 290
+   }
+  },
+  {
+   "name": "Email reminder",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $node[\"Each loan\"].json.email }}",
+    "subject": "Payment reminder: your loan is overdue",
+    "bodyFormat": "plain",
+    "body": "Your loan {{ $node[\"Each loan\"].json.loan_id }} is {{ $node[\"Each loan\"].json.days_past_due }} days past due. Please make your payment as soon as possible."
+   },
+   "position": {
+    "x": 0,
+    "y": 510
+   }
+  },
+  {
+   "name": "Record reminder",
+   "type": "Postgres",
+   "parameters": {
+    "connection": "ops_db",
+    "operation": "transaction",
+    "statements": [
+     {
+      "query": "INSERT INTO collection_actions (loan_id, stage) VALUES (%s, 'reminder')",
+      "params": [
+       "{{ $node[\"Each loan\"].json.loan_id }}"
+      ]
+     }
+    ]
+   },
+   "position": {
+    "x": 190,
+    "y": 510
+   }
+  },
+  {
+   "name": "Email summary",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $vars.COLLECTIONS_LEAD_EMAIL }}",
+    "subject": "Overdue loans summary",
+    "bodyFormat": "plain",
+    "body": "Overdue loans handled today: {{ $node[\"Count stages\"].json.total }}\nReminders: {{ $node[\"Count stages\"].json.reminder }}\nFinal notices: {{ $node[\"Count stages\"].json.final_notice }}\nCollections: {{ $node[\"Count stages\"].json.collections }}"
+   },
+   "position": {
+    "x": 1140,
+    "y": 110
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Weekdays 7am",
+   "target_node": "Find overdue loans",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Find overdue loans",
+   "target_node": "Any overdue?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Any overdue?",
+   "target_node": "Count stages",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Count stages",
+   "target_node": "Split loans",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Split loans",
+   "target_node": "Each loan",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Each loan",
+   "target_node": "Route stage",
+   "source_output": "loop",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Each loan",
+   "target_node": "Email summary",
+   "source_output": "done",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Route stage",
+   "target_node": "Hand to agency",
+   "source_output": "output0",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Route stage",
+   "target_node": "Email final notice",
+   "source_output": "output1",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Route stage",
+   "target_node": "Email reminder",
+   "source_output": "output2",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Route stage",
+   "target_node": "Each loan",
+   "source_output": "fallback",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Hand to agency",
+   "target_node": "Record collections",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Record collections",
+   "target_node": "Each loan",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Email final notice",
+   "target_node": "Email officer",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Email officer",
+   "target_node": "Record final notice",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Record final notice",
+   "target_node": "Each loan",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Email reminder",
+   "target_node": "Record reminder",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Record reminder",
+   "target_node": "Each loan",
+   "source_output": "main",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Boundaries 30, 60 and 90 each take their own stage",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "Find overdue loans": {
+     "items": [
+      {
+       "rows": [
+        {
+         "loan_id": "L1",
+         "outstanding": "1000",
+         "days_past_due": 30,
+         "officer_email": "o1@bank.test",
+         "email": "c1@bank.test"
+        },
+        {
+         "loan_id": "L2",
+         "outstanding": "2000",
+         "days_past_due": 60,
+         "officer_email": "o2@bank.test",
+         "email": "c2@bank.test"
+        },
+        {
+         "loan_id": "L3",
+         "outstanding": "3000",
+         "days_past_due": 90,
+         "officer_email": "o3@bank.test",
+         "email": "c3@bank.test"
+        }
+       ],
+       "rowCount": 3
+      }
+     ]
+    },
+    "Email reminder": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Email final notice": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Email officer": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Hand to agency": {
+     "http": {
+      "status": 200,
+      "body": {
+       "case_id": "C1"
+      }
+     }
+    },
+    "Record reminder": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Record final notice": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Record collections": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Email summary": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Email reminder",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Email reminder",
+     "subject": "request",
+     "path": "params.toEmail",
+     "op": "eq",
+     "value": "c1@bank.test"
+    },
+    {
+     "node": "Email final notice",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Email officer",
+     "subject": "request",
+     "path": "params.toEmail",
+     "op": "eq",
+     "value": "o2@bank.test"
+    },
+    {
+     "node": "Hand to agency",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Hand to agency",
+     "subject": "request",
+     "path": "body.loan_id",
+     "op": "eq",
+     "value": "L3"
+    },
+    {
+     "node": "Hand to agency",
+     "subject": "request",
+     "path": "body.outstanding",
+     "op": "eq",
+     "value": 3000
+    },
+    {
+     "node": "Record reminder",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Record final notice",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Record collections",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "name": "Summary counts per stage and goes to the collections lead",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "Find overdue loans": {
+     "items": [
+      {
+       "rows": [
+        {
+         "loan_id": "L1",
+         "outstanding": "1000",
+         "days_past_due": 45,
+         "officer_email": "o1@bank.test",
+         "email": "c1@bank.test"
+        },
+        {
+         "loan_id": "L2",
+         "outstanding": "2000",
+         "days_past_due": 59,
+         "officer_email": "o2@bank.test",
+         "email": "c2@bank.test"
+        },
+        {
+         "loan_id": "L3",
+         "outstanding": "3000",
+         "days_past_due": 95,
+         "officer_email": "o3@bank.test",
+         "email": "c3@bank.test"
+        },
+        {
+         "loan_id": "L4",
+         "outstanding": "4000",
+         "days_past_due": 120,
+         "officer_email": "o4@bank.test",
+         "email": "c4@bank.test"
+        }
+       ],
+       "rowCount": 4
+      }
+     ]
+    },
+    "Email reminder": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Email final notice": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Email officer": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Hand to agency": {
+     "http": {
+      "status": 200,
+      "body": {
+       "case_id": "C1"
+      }
+     }
+    },
+    "Record reminder": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Record final notice": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Record collections": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Email summary": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Email summary",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Email summary",
+     "subject": "request",
+     "path": "params.toEmail",
+     "op": "eq",
+     "value": "collections-lead@bank.test"
+    },
+    {
+     "node": "Email summary",
+     "subject": "request",
+     "path": "params.body",
+     "op": "contains",
+     "value": "Reminders: 2"
+    },
+    {
+     "node": "Email summary",
+     "subject": "request",
+     "path": "params.body",
+     "op": "contains",
+     "value": "Final notices: 0"
+    },
+    {
+     "node": "Email summary",
+     "subject": "request",
+     "path": "params.body",
+     "op": "contains",
+     "value": "Collections: 2"
+    },
+    {
+     "node": "Hand to agency",
+     "subject": "request",
+     "op": "count",
+     "value": 2
+    },
+    {
+     "node": "Email officer",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Final notice also emails the officer and is recorded",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "Find overdue loans": {
+     "items": [
+      {
+       "rows": [
+        {
+         "loan_id": "L9",
+         "outstanding": "500",
+         "days_past_due": 89,
+         "officer_email": "officer9@bank.test",
+         "email": "c9@bank.test"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Email final notice": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Email officer": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Record final notice": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Email summary": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Email final notice",
+     "subject": "request",
+     "path": "params.toEmail",
+     "op": "eq",
+     "value": "c9@bank.test"
+    },
+    {
+     "node": "Email officer",
+     "subject": "request",
+     "path": "params.toEmail",
+     "op": "eq",
+     "value": "officer9@bank.test"
+    },
+    {
+     "node": "Record final notice",
+     "subject": "request",
+     "path": "params.statements.0.params.0",
+     "op": "eq",
+     "value": "L9"
+    },
+    {
+     "node": "Hand to agency",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Email reminder",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "No overdue loans sends nothing",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "Find overdue loans": {
+     "items": [
+      {
+       "rows": [],
+       "rowCount": 0
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Any overdue?",
+     "port": "false",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Email summary",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Email reminder",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Email final notice",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Hand to agency",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Record reminder",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  }
+ ]
+}

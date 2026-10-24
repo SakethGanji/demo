@@ -1,0 +1,35 @@
+[
+ {
+  "id": "access_recertification",
+  "pass": false,
+  "first_pass": false,
+  "fixes": 0,
+  "seconds": 84.2,
+  "nodes": 18,
+  "own_tests": 5,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   1,
+   3
+  ],
+  "first_hidden": [
+   1,
+   3
+  ],
+  "struct": [],
+  "hidden_fail": [
+   {
+    "name": "One manager revokes one user, the other keeps everyone",
+    "ok": false,
+    "reason": "assertion: Write audit count  2: expected 2 item(s), got 3"
+   },
+   {
+    "name": "m1 answers, m2 ignores the task and the reminder: only m2's user revoked, CISO told",
+    "ok": false,
+    "reason": "assertion: Reminder email+Email CISO timeout+Email summary requests eq params.toEmail \"m2@bank.test\": no item passes (expected 'm2@bank.test', got 'ciso@bank.test')"
+   }
+  ],
+  "needs": "Needs: nothing. All variables used (CISO_EMAIL) and both database connections (iam_db, ops_db) already exist."
+ }
+]

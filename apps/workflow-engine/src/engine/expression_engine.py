@@ -344,6 +344,9 @@ class ExpressionEngine:
         This ensures that expression results with quotes, arrays, objects, etc.
         are inserted as proper typed values, not string-interpolated.
         """
+        # Already-parsed JSON (a workflow written as JSON holds a real list/object): resolve each value in place.
+        if isinstance(json_string, (list, dict)):
+            return self.resolve(json_string, context)
         if not json_string or not isinstance(json_string, str):
             return json_string
 

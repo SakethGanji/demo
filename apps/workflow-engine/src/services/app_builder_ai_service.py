@@ -90,7 +90,7 @@ def kit_files() -> list[dict[str, str]]:
     global _KIT_CACHE
     if _KIT_CACHE is None:
         _KIT_CACHE = [{"path": KIT_PREFIX + p.name, "content": p.read_text(encoding="utf-8")}
-                      for p in sorted(_KIT_DIR.iterdir()) if p.suffix in (".ts", ".tsx")]
+                      for p in sorted(_KIT_DIR.iterdir()) if p.suffix in (".ts", ".tsx", ".css")]
     return _KIT_CACHE
 
 
@@ -750,13 +750,18 @@ def _kit_prompt() -> str:
     """The kit section of the system prompt, generated: one line per component from ``platform_index`` (name: use-when), so a new
     kit component is taught by adding a JSDoc line to it. Props come from ``get_component`` on demand."""
     try:
+        import os
         from .platform_index import kit_index_lines
         def short(line: str) -> str:  # "Name: first sentence", at most ~85 chars
             head = re.split(r"(?<=[a-z)])\.\s+(?=[A-Z])", line, maxsplit=1)[0]
             return head if len(head) <= 85 else head[:82].rsplit(" ", 1)[0] + "…"
         # the backend-bound layouts/blocks are named on one line: each composes the same few props (resource, columns, fields)
-        bound = [line for line in kit_index_lines() if line.split(":", 1)[0] in _BOUND_BLOCKS]
-        index = "\n".join(f"- {short(line)}" for line in kit_index_lines() if line not in bound)
+        # Select is listed only with the visual-editing trial on (oneshot_builder.editable_rules_enabled)
+        trial = os.environ.get("WORKFLOW_EDITABLE_RULES", "").strip().lower() in ("1", "true", "yes", "on")
+        from .oneshot_builder import _EDITABLE_KIT  # Select + the layout primitives (kit/layout.tsx): trial-only
+        lines = [line for line in kit_index_lines() if trial or line.split(":", 1)[0] not in _EDITABLE_KIT]
+        bound = [line for line in lines if line.split(":", 1)[0] in _BOUND_BLOCKS]
+        index = "\n".join(f"- {short(line)}" for line in lines if line not in bound)
         if bound:
             index += ("\n- Backend-bound (`resource={def}`; fetch, loading/empty/error, toasts built in): "
                       + ", ".join(line.split(":", 1)[0] for line in bound))
@@ -1015,6 +1020,21 @@ class AppBuilderAIService:
 
     # ── Public ────────────────────────────────────────────────────────
 
+    async def check_base(self, request: AppBuilderChatRequest) -> None:
+        """Refuse a turn whose working copy is stale (raises StaleBaseError → 409) before any streaming starts.
+
+        The client flushes its pending visual saves and sends the resulting head as ``base_version_id``; if another save
+        landed in between, the AI would edit an old copy and its reply would overwrite the newer edits.
+        """
+        if not request.app_id or request.base_version_id is None:
+            return
+        from ..db.models import AppModel
+        from .app_service import check_base
+
+        row = await self._app_service._session.get(AppModel, request.app_id)
+        if row is not None:
+            check_base(row, request.base_version_id)
+
     async def stream_chat(
         self, request: AppBuilderChatRequest
     ) -> AsyncGenerator[dict[str, Any], None]:
@@ -1085,7 +1105,12 @@ class AppBuilderAIService:
             self._digest = await self._route_digest(set(request.route_ids or []))
 
         # 2c. Studio UI kit: always the current copy, before the snapshot so a question-only turn emits nothing.
+        stale_kit = {f["path"]: f["content"] for f in working_set if is_kit_path(f["path"])}
         inject_kit(working_set)
+        # An older app carries a stale kit copy (no theme tokens, old cx): refreshing it counts as a change so the studio saves a
+        # new version. An app without kit files, and a question-only turn on a current kit, stay untouched.
+        kit_refreshed = bool(stale_kit) and any(stale_kit.get(k["path"]) != k["content"] for k in kit_files())
+        self._notes = await self._turn_notes(request, working_set)
 
         # 3. Snapshot initial state to detect if agent modified anything
         initial_snapshot = {f["path"]: f["content"] for f in working_set}
@@ -1100,7 +1125,7 @@ class AppBuilderAIService:
 
         # 5. Emit final files only if the working set was modified
         current_snapshot = {f["path"]: f["content"] for f in working_set}
-        files_changed = current_snapshot != initial_snapshot
+        files_changed = current_snapshot != initial_snapshot or kit_refreshed
 
         if working_set and files_changed:
             errors = await _generated_syntax_errors(working_set)
@@ -1136,6 +1161,33 @@ class AppBuilderAIService:
 
         # (review C6: stubs are created inside each declare_endpoint call, see _declare_endpoint_now)
 
+    async def _turn_notes(self, request: AppBuilderChatRequest, working_set: list[dict]) -> str:
+        """Extra context for this turn, "" when there is none: the hand edits the user made in the visual editor since the last
+        AI turn (keep them) and, with the editable-rules flag on, the editability lint's open warnings on the app's own files."""
+        parts: list[str] = []
+        edits = [str(e).strip()[:200] for e in (request.visual_edits or []) if str(e).strip()][:25]
+        if edits:
+            parts.append("## Hand edits\nThe user edited these by hand; keep them unless asked to change them.\n"
+                         + "\n".join(f"- {e}" for e in edits))
+        sel = request.selection
+        if sel is not None and sel.file:
+            parts.append("## Selected element\nThe user selected this element in the preview; apply the request to it: "
+                         f"{sel.file}:{sel.line} {sel.name}\n```tsx\n{sel.snippet[:1500]}\n```")
+        from . import oneshot_builder as ob
+        if ob.editable_rules_enabled():
+            try:
+                from . import editability_lint as el
+                mine = [f for f in working_set if not is_kit_path(f["path"]) and f["path"] != "api/client.ts"
+                        and f["path"].endswith((".tsx", ".ts"))]
+                vs = el.mechanical(await el.lint_files_async(mine))[:8] if mine else []
+            except Exception:  # noqa: BLE001 - a lint never breaks a turn
+                vs = []
+            if vs:
+                parts.append("## Editability warnings\nThese spots in the app are not in the editable shape (see the editable-shape rules). "
+                             "Rewrite one only when you are changing that code anyway; write everything new in the editable shape.\n"
+                             + "\n".join(f"- {v['file']}:{v['line']} {v['message']}. Fix: {v['fix']}" for v in vs))
+        return "\n\n".join(parts)
+
     async def _is_oneshot_app(self, request: AppBuilderChatRequest) -> bool:
         """True for an app the one-shot builder wrote (``definition.studio.oneshot``) while the one-shot mode is on."""
         from . import oneshot_builder as ob
@@ -1163,7 +1215,8 @@ class AppBuilderAIService:
             mine = [{"path": f["path"], "content": f["content"]} for f in working_set if not is_kit_path(f["path"]) and f["path"] != "api/client.ts"]
             if mine:
                 current["app"]["files"] = mine
-            res = await ob.edit_app(pid, request.app_id, request.message, save_app=False, bundle=current)
+            res = await ob.edit_app(pid, request.app_id, request.message, save_app=False, bundle=current,
+                                    notes=getattr(self, "_notes", ""))
         except ob.WriteError as e:
             raise _LLMFailed(e) from e
         self._model_calls = getattr(self, "_model_calls", 0) + int(res["timing"]["model_calls"])
@@ -2180,6 +2233,11 @@ class AppBuilderAIService:
                 module, version, instr = pending
                 system_prompt += "\n" + (_BACKEND_RESUME if self._approved["version"] >= version else _BACKEND_WAITING).format(
                     version=version, module=module, instruction=instr[:600])
+        from . import oneshot_builder as _ob
+        if _ob.editable_rules_enabled():
+            system_prompt += "\n\n" + _ob._editable_section()
+        if getattr(self, "_notes", ""):
+            system_prompt += "\n\n" + self._notes
         if self._brief_required:
             system_prompt += "\n\n" + _BRIEF_PROMPT
             if self._vague_first:

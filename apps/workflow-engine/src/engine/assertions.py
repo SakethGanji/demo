@@ -36,7 +36,15 @@ _TOKEN = re.compile(r"\[(\d+)\]|([^.\[\]]+)")
 
 
 def resolve_path(obj: Any, path: str | None) -> tuple[bool, Any]:
-    """Follow ``a.b[0].c`` through dicts and lists. ``""`` is the object itself. Returns ``(found, value)``."""
+    """Follow ``a.b[0].c`` through dicts and lists. ``""`` is the object itself. Returns ``(found, value)``.
+    A list index may also be written with a dot (``a.0.c``); a dict key ``"0"`` is tried first."""
+    found, value = _resolve_path(obj, path)
+    if not found and path and re.search(r"\.\d+(?=\.|\[|$)", path):
+        return _resolve_path(obj, re.sub(r"\.(\d+)(?=\.|\[|$)", r"[\1]", path))
+    return found, value
+
+
+def _resolve_path(obj: Any, path: str | None) -> tuple[bool, Any]:
     cur = obj
     for m in _TOKEN.finditer(path or ""):
         if m.group(1) is not None:

@@ -1,0 +1,491 @@
+{
+ "name": "KYC upload completeness check",
+ "nodes": [
+  {
+   "name": "KYC upload received",
+   "type": "Webhook",
+   "parameters": {
+    "method": "POST",
+    "path": "kyc-upload"
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Check completeness",
+   "type": "AIAgent",
+   "parameters": {
+    "systemPrompt": "You check KYC files for completeness at a bank. A complete file needs all three: a photo ID (passport, driving licence, national ID card), proof of address (utility bill, bank statement, council tax letter, tenancy agreement) and a source of funds statement. Judge only from the file names given. List in 'missing' exactly the required documents that no file name covers, using the labels: photo ID, proof of address, source of funds statement. If nothing is missing, 'missing' is an empty list and 'complete' is true.",
+    "task": "Customer {{ $json.body.customer_id }} uploaded these documents: {{ json_stringify($json.body.documents) }}",
+    "outputSchema": {
+     "type": "object",
+     "properties": {
+      "complete": {
+       "type": "boolean"
+      },
+      "missing": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     },
+     "required": [
+      "complete",
+      "missing"
+     ]
+    },
+    "temperature": 0
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "File complete?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $json.structured.complete and length($json.structured.missing) == 0 }}"
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Request missing documents",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "kyc",
+     "operation_id": "requestDocuments"
+    },
+    "method": "POST",
+    "url": "",
+    "path_params": {
+     "customer_id": "{{ $node[\"KYC upload received\"].json.body.customer_id }}"
+    },
+    "body": {
+     "missing_documents": "{{ $json.structured.missing }}"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 110
+   }
+  },
+  {
+   "name": "KYC analyst review",
+   "type": "Approval",
+   "parameters": {
+    "title": "KYC review for customer {{ $node[\"KYC upload received\"].json.body.customer_id }}",
+    "context": {
+     "Customer": "{{ $node[\"KYC upload received\"].json.body.customer_id }}",
+     "Documents": "{{ join($node[\"KYC upload received\"].json.body.documents, \", \") }}"
+    },
+    "allow_comment": true
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Mark approved",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "kyc",
+     "operation_id": "updateStatus"
+    },
+    "method": "POST",
+    "url": "",
+    "path_params": {
+     "customer_id": "{{ $node[\"KYC upload received\"].json.body.customer_id }}"
+    },
+    "body": {
+     "status": "approved",
+     "reviewer": "{{ $json.approval.decided_by }}"
+    }
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  },
+  {
+   "name": "Mark rejected",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "kyc",
+     "operation_id": "updateStatus"
+    },
+    "method": "POST",
+    "url": "",
+    "path_params": {
+     "customer_id": "{{ $node[\"KYC upload received\"].json.body.customer_id }}"
+    },
+    "body": {
+     "status": "rejected",
+     "reviewer": "{{ $json.approval.decided_by }}"
+    }
+   },
+   "position": {
+    "x": 760,
+    "y": 110
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "KYC upload received",
+   "target_node": "Check completeness",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Check completeness",
+   "target_node": "File complete?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "File complete?",
+   "target_node": "KYC analyst review",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "File complete?",
+   "target_node": "Request missing documents",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "KYC analyst review",
+   "target_node": "Mark approved",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "KYC analyst review",
+   "target_node": "Mark rejected",
+   "source_output": "rejected",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Missing documents are requested, no analyst review",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "customer_id": "C100",
+       "documents": [
+        "passport.pdf"
+       ]
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Check completeness": {
+     "items": [
+      {
+       "response": "",
+       "structured": {
+        "complete": false,
+        "missing": [
+         "proof of address",
+         "source of funds statement"
+        ]
+       }
+      }
+     ]
+    },
+    "Request missing documents": {
+     "http": {
+      "status": 200,
+      "body": {
+       "request_id": "R1"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Request missing documents",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Request missing documents",
+     "subject": "request",
+     "path": "url",
+     "op": "contains",
+     "value": "C100"
+    },
+    {
+     "node": "Request missing documents",
+     "subject": "request",
+     "path": "body.missing_documents",
+     "op": "eq",
+     "value": [
+      "proof of address",
+      "source of funds statement"
+     ]
+    },
+    {
+     "node": "KYC analyst review",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Mark approved",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Mark rejected",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Complete file approved by analyst is marked approved",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "customer_id": "C200",
+       "documents": [
+        "passport.pdf",
+        "utility_bill.pdf",
+        "source_of_funds.pdf"
+       ]
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Check completeness": {
+     "items": [
+      {
+       "response": "",
+       "structured": {
+        "complete": true,
+        "missing": []
+       }
+      }
+     ]
+    },
+    "KYC analyst review": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Mark approved": {
+     "http": {
+      "status": 200,
+      "body": {
+       "customer_id": "C200",
+       "status": "approved"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Mark approved",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "approved"
+    },
+    {
+     "node": "Mark approved",
+     "subject": "request",
+     "path": "url",
+     "op": "contains",
+     "value": "C200"
+    },
+    {
+     "node": "Mark rejected",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Request missing documents",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Complete file rejected by analyst is marked rejected",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "customer_id": "C300",
+       "documents": [
+        "id.png",
+        "bank_statement.pdf",
+        "funds.pdf"
+       ]
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Check completeness": {
+     "items": [
+      {
+       "response": "",
+       "structured": {
+        "complete": true,
+        "missing": []
+       }
+      }
+     ]
+    },
+    "KYC analyst review": {
+     "port": "rejected",
+     "approval": {
+      "decision": "rejected",
+      "comment": "Documents look altered",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Mark rejected": {
+     "http": {
+      "status": 200,
+      "body": {
+       "customer_id": "C300",
+       "status": "rejected"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Mark rejected",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "rejected"
+    },
+    {
+     "node": "Mark rejected",
+     "subject": "request",
+     "path": "url",
+     "op": "contains",
+     "value": "C300"
+    },
+    {
+     "node": "Mark approved",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Request missing documents",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "AI says complete but lists a missing document, so it is treated as incomplete",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "customer_id": "C400",
+       "documents": [
+        "passport.pdf",
+        "utility_bill.pdf"
+       ]
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Check completeness": {
+     "items": [
+      {
+       "response": "",
+       "structured": {
+        "complete": true,
+        "missing": [
+         "source of funds statement"
+        ]
+       }
+      }
+     ]
+    },
+    "Request missing documents": {
+     "http": {
+      "status": 200,
+      "body": {
+       "request_id": "R2"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Request missing documents",
+     "subject": "request",
+     "path": "body.missing_documents",
+     "op": "eq",
+     "value": [
+      "source of funds statement"
+     ]
+    },
+    {
+     "node": "KYC analyst review",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Mark approved",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  }
+ ]
+}

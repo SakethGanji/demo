@@ -1,0 +1,1365 @@
+{
+ "name": "Hardship loan restructuring",
+ "nodes": [
+  {
+   "name": "Loan application",
+   "type": "Webhook",
+   "parameters": {
+    "method": "POST",
+    "path": "loan-hardship",
+    "responseMode": "lastNode"
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Look up loan",
+   "type": "Postgres",
+   "parameters": {
+    "connection": "core_banking",
+    "operation": "query",
+    "query": "SELECT loan_id, customer_id, outstanding, days_past_due, status FROM loans WHERE loan_id = %s",
+    "queryParameters": [
+     "{{ $json.body.loan_id }}"
+    ]
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "Loan found?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $json.rowCount > 0 }}"
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Reply not found",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 404,
+    "body": {
+     "status": "not_found"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 110
+   }
+  },
+  {
+   "name": "Reply in review",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 202,
+    "body": {
+     "status": "in_review"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Gather loan details",
+   "type": "Set",
+   "parameters": {
+    "mode": "manual",
+    "fields": [
+     {
+      "name": "loan_id",
+      "value": "{{ $node[\"Loan application\"].json.body.loan_id }}"
+     },
+     {
+      "name": "customer_email",
+      "value": "{{ $node[\"Loan application\"].json.body.customer_email }}"
+     },
+     {
+      "name": "reason",
+      "value": "{{ $node[\"Loan application\"].json.body.reason }}"
+     },
+     {
+      "name": "outstanding",
+      "value": "{{ float($json.rows[0].outstanding) }}"
+     }
+    ]
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  },
+  {
+   "name": "Officer assessment",
+   "type": "Approval",
+   "parameters": {
+    "title": "Assess hardship request for loan {{ $json.loan_id }}",
+    "context": {
+     "Loan": "{{ $json.loan_id }}",
+     "Customer": "{{ $json.customer_email }}",
+     "Outstanding": "{{ $json.outstanding }}",
+     "Reason": "{{ $json.reason }}"
+    },
+    "form": [
+     {
+      "name": "plan",
+      "label": "Plan",
+      "type": "select",
+      "required": true,
+      "options": [
+       "payment_holiday",
+       "term_extension",
+       "reduced_payments"
+      ]
+     },
+     {
+      "name": "months",
+      "label": "Months",
+      "type": "number",
+      "required": true
+     }
+    ],
+    "due_in": "2d",
+    "on_timeout": "reject",
+    "notify_email": "{{ $vars.COLLECTIONS_OFFICER_EMAIL }}"
+   },
+   "position": {
+    "x": 950,
+    "y": 0
+   }
+  },
+  {
+   "name": "Rejected plan",
+   "type": "Set",
+   "parameters": {
+    "mode": "manual",
+    "fields": [
+     {
+      "name": "plan",
+      "value": "{{ get($json.approval.form_data, 'plan', '') }}"
+     },
+     {
+      "name": "months",
+      "value": "{{ int(get($json.approval.form_data, 'months', 0)) }}"
+     }
+    ]
+   },
+   "position": {
+    "x": 1140,
+    "y": 110
+   }
+  },
+  {
+   "name": "Plan details",
+   "type": "Set",
+   "parameters": {
+    "mode": "manual",
+    "fields": [
+     {
+      "name": "plan",
+      "value": "{{ $json.approval.form_data.plan }}"
+     },
+     {
+      "name": "months",
+      "value": "{{ int($json.approval.form_data.months) }}"
+     }
+    ]
+   },
+   "position": {
+    "x": 1140,
+    "y": 0
+   }
+  },
+  {
+   "name": "Email offer",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $json.customer_email }}",
+    "subject": "Your loan restructuring offer",
+    "bodyFormat": "plain",
+    "body": "We can offer you the following for loan {{ $json.loan_id }}: {{ $json.plan }} for {{ $json.months }} months. Please let us know whether you accept."
+   },
+   "position": {
+    "x": 0,
+    "y": 290
+   }
+  },
+  {
+   "name": "Record answer",
+   "type": "Approval",
+   "parameters": {
+    "title": "Record customer answer for loan {{ $node[\"Plan details\"].json.loan_id }}",
+    "context": {
+     "Customer": "{{ $node[\"Plan details\"].json.customer_email }}",
+     "Plan": "{{ $node[\"Plan details\"].json.plan }}",
+     "Months": "{{ $node[\"Plan details\"].json.months }}"
+    },
+    "form": [
+     {
+      "name": "customer_response",
+      "label": "Customer response",
+      "type": "select",
+      "required": true,
+      "options": [
+       "accepted",
+       "declined"
+      ]
+     }
+    ],
+    "due_in": "5d",
+    "notify_email": "{{ $vars.COLLECTIONS_OFFICER_EMAIL }}"
+   },
+   "position": {
+    "x": 190,
+    "y": 290
+   }
+  },
+  {
+   "name": "Send reminder",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $node[\"Plan details\"].json.customer_email }}",
+    "subject": "Reminder: your loan restructuring offer",
+    "bodyFormat": "plain",
+    "body": "We have not heard back about our offer ({{ $node[\"Plan details\"].json.plan }} for {{ $node[\"Plan details\"].json.months }} months) for loan {{ $node[\"Plan details\"].json.loan_id }}. Please get in touch."
+   },
+   "position": {
+    "x": 380,
+    "y": 290
+   }
+  },
+  {
+   "name": "Record answer again",
+   "type": "Approval",
+   "parameters": {
+    "title": "Record customer answer (second ask) for loan {{ $node[\"Plan details\"].json.loan_id }}",
+    "context": {
+     "Customer": "{{ $node[\"Plan details\"].json.customer_email }}",
+     "Plan": "{{ $node[\"Plan details\"].json.plan }}",
+     "Months": "{{ $node[\"Plan details\"].json.months }}"
+    },
+    "form": [
+     {
+      "name": "customer_response",
+      "label": "Customer response",
+      "type": "select",
+      "required": true,
+      "options": [
+       "accepted",
+       "declined"
+      ]
+     }
+    ],
+    "due_in": "5d",
+    "notify_email": "{{ $vars.COLLECTIONS_OFFICER_EMAIL }}"
+   },
+   "position": {
+    "x": 570,
+    "y": 290
+   }
+  },
+  {
+   "name": "Email lapsed",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $node[\"Plan details\"].json.customer_email }}",
+    "subject": "Your loan restructuring offer has lapsed",
+    "bodyFormat": "plain",
+    "body": "We did not hear back, so our offer for loan {{ $node[\"Plan details\"].json.loan_id }} has lapsed. Please contact us if you still need help."
+   },
+   "position": {
+    "x": 760,
+    "y": 400
+   }
+  },
+  {
+   "name": "Record lapsed",
+   "type": "Postgres",
+   "parameters": {
+    "connection": "ops_db",
+    "operation": "transaction",
+    "statements": [
+     {
+      "query": "INSERT INTO restructure_plans (loan_id, plan, months, status) VALUES (%s, %s, %s, 'lapsed')",
+      "params": [
+       "{{ $node[\"Plan details\"].json.loan_id }}",
+       "{{ $node[\"Plan details\"].json.plan }}",
+       "{{ $node[\"Plan details\"].json.months }}"
+      ]
+     }
+    ]
+   },
+   "position": {
+    "x": 950,
+    "y": 510
+   }
+  },
+  {
+   "name": "Accepted?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $json.approval.form_data.customer_response == 'accepted' }}"
+   },
+   "position": {
+    "x": 760,
+    "y": 290
+   }
+  },
+  {
+   "name": "Apply restructuring",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "accounts",
+     "operation_id": "restructureLoan"
+    },
+    "method": "POST",
+    "url": "",
+    "path_params": {
+     "loan_id": "{{ $node[\"Plan details\"].json.loan_id }}"
+    },
+    "body": {
+     "plan": "{{ $node[\"Plan details\"].json.plan }}",
+     "months": "{{ $node[\"Plan details\"].json.months }}"
+    }
+   },
+   "position": {
+    "x": 950,
+    "y": 290
+   }
+  },
+  {
+   "name": "Record restructure",
+   "type": "Postgres",
+   "parameters": {
+    "connection": "ops_db",
+    "operation": "transaction",
+    "statements": [
+     {
+      "query": "INSERT INTO restructure_plans (loan_id, plan, months, status) VALUES (%s, %s, %s, 'active')",
+      "params": [
+       "{{ $node[\"Plan details\"].json.loan_id }}",
+       "{{ $node[\"Plan details\"].json.plan }}",
+       "{{ $node[\"Plan details\"].json.months }}"
+      ]
+     },
+     {
+      "query": "INSERT INTO audit_log (entity, entity_id, action, detail) VALUES ('loan', %s, 'restructured', %s)",
+      "params": [
+       "{{ $node[\"Plan details\"].json.loan_id }}",
+       "{{ $node[\"Plan details\"].json.plan }} for {{ $node[\"Plan details\"].json.months }} months"
+      ]
+     }
+    ]
+   },
+   "position": {
+    "x": 1140,
+    "y": 400
+   }
+  },
+  {
+   "name": "Email confirmation",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $node[\"Plan details\"].json.customer_email }}",
+    "subject": "Your loan restructuring is confirmed",
+    "bodyFormat": "plain",
+    "body": "Your plan for loan {{ $node[\"Plan details\"].json.loan_id }} is now active: {{ $node[\"Plan details\"].json.plan }} for {{ $node[\"Plan details\"].json.months }} months."
+   },
+   "position": {
+    "x": 0,
+    "y": 800
+   }
+  },
+  {
+   "name": "Customer declined",
+   "type": "Set",
+   "parameters": {
+    "mode": "manual",
+    "fields": [
+     {
+      "name": "plan",
+      "value": "{{ $node[\"Plan details\"].json.plan }}"
+     },
+     {
+      "name": "months",
+      "value": "{{ $node[\"Plan details\"].json.months }}"
+     },
+     {
+      "name": "loan_id",
+      "value": "{{ $node[\"Plan details\"].json.loan_id }}"
+     },
+     {
+      "name": "customer_email",
+      "value": "{{ $node[\"Plan details\"].json.customer_email }}"
+     }
+    ]
+   },
+   "position": {
+    "x": 950,
+    "y": 400
+   }
+  },
+  {
+   "name": "Declined case",
+   "type": "Set",
+   "parameters": {
+    "mode": "manual",
+    "fields": [
+     {
+      "name": "plan",
+      "value": "{{ $json.plan }}"
+     },
+     {
+      "name": "months",
+      "value": "{{ $json.months }}"
+     },
+     {
+      "name": "loan_id",
+      "value": "{{ $json.loan_id }}"
+     },
+     {
+      "name": "customer_email",
+      "value": "{{ $json.customer_email }}"
+     }
+    ]
+   },
+   "position": {
+    "x": 1140,
+    "y": 290
+   }
+  },
+  {
+   "name": "Record declined",
+   "type": "Postgres",
+   "parameters": {
+    "connection": "ops_db",
+    "operation": "transaction",
+    "statements": [
+     {
+      "query": "INSERT INTO restructure_plans (loan_id, plan, months, status) VALUES (%s, %s, %s, 'declined')",
+      "params": [
+       "{{ $json.loan_id }}",
+       "{{ $json.plan }}",
+       "{{ $json.months }}"
+      ]
+     }
+    ]
+   },
+   "position": {
+    "x": 0,
+    "y": 690
+   }
+  },
+  {
+   "name": "Email declined",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $node[\"Declined case\"].json.customer_email }}",
+    "subject": "Your loan restructuring request",
+    "bodyFormat": "plain",
+    "body": "Unfortunately we are not going ahead with a restructuring plan for loan {{ $node[\"Declined case\"].json.loan_id }}. Please contact us to discuss other options."
+   },
+   "position": {
+    "x": 190,
+    "y": 690
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Loan application",
+   "target_node": "Look up loan",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Look up loan",
+   "target_node": "Loan found?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Loan found?",
+   "target_node": "Reply in review",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Loan found?",
+   "target_node": "Reply not found",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Reply in review",
+   "target_node": "Gather loan details",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Gather loan details",
+   "target_node": "Officer assessment",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Officer assessment",
+   "target_node": "Plan details",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Officer assessment",
+   "target_node": "Rejected plan",
+   "source_output": "rejected",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Rejected plan",
+   "target_node": "Declined case",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Plan details",
+   "target_node": "Email offer",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Email offer",
+   "target_node": "Record answer",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Record answer",
+   "target_node": "Accepted?",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Record answer",
+   "target_node": "Send reminder",
+   "source_output": "timed_out",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Send reminder",
+   "target_node": "Record answer again",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Record answer again",
+   "target_node": "Accepted?",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Record answer again",
+   "target_node": "Email lapsed",
+   "source_output": "timed_out",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Email lapsed",
+   "target_node": "Record lapsed",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Accepted?",
+   "target_node": "Apply restructuring",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Accepted?",
+   "target_node": "Customer declined",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Customer declined",
+   "target_node": "Declined case",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Apply restructuring",
+   "target_node": "Record restructure",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Record restructure",
+   "target_node": "Email confirmation",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Declined case",
+   "target_node": "Record declined",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Record declined",
+   "target_node": "Email declined",
+   "source_output": "main",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Unknown loan gets 404 and stops",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "loan_id": "L404",
+       "customer_email": "a@x.test",
+       "reason": "job loss"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Look up loan": {
+     "items": [
+      {
+       "rows": [],
+       "rowCount": 0
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Reply not found",
+     "subject": "request",
+     "path": "statusCode",
+     "op": "eq",
+     "value": 404
+    },
+    {
+     "node": "Reply not found",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "not_found"
+    },
+    {
+     "node": "Reply in review",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Officer assessment",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Small loan, term extension accepted is applied and recorded",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "loan_id": "L1",
+       "customer_email": "a@x.test",
+       "reason": "job loss"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Look up loan": {
+     "items": [
+      {
+       "rows": [
+        {
+         "loan_id": "L1",
+         "customer_id": "C1",
+         "outstanding": "10000",
+         "days_past_due": 30,
+         "status": "active"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Officer assessment": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "plan": "term_extension",
+       "months": 6
+      },
+      "decided_by": "test"
+     }
+    },
+    "Email offer": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Record answer": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "customer_response": "accepted"
+      },
+      "decided_by": "test"
+     }
+    },
+    "Apply restructuring": {
+     "http": {
+      "status": 200,
+      "body": {
+       "loan_id": "L1",
+       "status": "restructured"
+      }
+     }
+    },
+    "Record restructure": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Email confirmation": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Reply in review",
+     "subject": "request",
+     "path": "statusCode",
+     "op": "eq",
+     "value": 202
+    },
+    {
+     "node": "Email offer",
+     "subject": "request",
+     "path": "params.toEmail",
+     "op": "eq",
+     "value": "a@x.test"
+    },
+    {
+     "node": "Apply restructuring",
+     "subject": "request",
+     "path": "body.plan",
+     "op": "eq",
+     "value": "term_extension"
+    },
+    {
+     "node": "Apply restructuring",
+     "subject": "request",
+     "path": "body.months",
+     "op": "eq",
+     "value": 6
+    },
+    {
+     "node": "Apply restructuring",
+     "subject": "request",
+     "path": "url",
+     "op": "contains",
+     "value": "L1"
+    },
+    {
+     "node": "Record restructure",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Email confirmation",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Record declined",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Holiday of 4 months goes straight to the customer, who declines",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "loan_id": "L2",
+       "customer_email": "b@x.test",
+       "reason": "illness"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Look up loan": {
+     "items": [
+      {
+       "rows": [
+        {
+         "loan_id": "L2",
+         "customer_id": "C2",
+         "outstanding": "20000",
+         "days_past_due": 60,
+         "status": "active"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Officer assessment": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "plan": "payment_holiday",
+       "months": 4
+      },
+      "decided_by": "test"
+     }
+    },
+    "Email offer": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Record answer": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "customer_response": "declined"
+      },
+      "decided_by": "test"
+     }
+    },
+    "Record declined": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Email declined": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Email offer",
+     "subject": "request",
+     "path": "params.toEmail",
+     "op": "eq",
+     "value": "b@x.test"
+    },
+    {
+     "node": "Email offer",
+     "subject": "request",
+     "path": "params.body",
+     "op": "contains",
+     "value": "payment_holiday for 4 months"
+    },
+    {
+     "node": "Apply restructuring",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Record declined",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Email declined",
+     "subject": "request",
+     "path": "params.toEmail",
+     "op": "eq",
+     "value": "b@x.test"
+    }
+   ]
+  },
+  {
+   "name": "Loan over 50000 goes straight to the customer and is applied when accepted",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "loan_id": "L6",
+       "customer_email": "f@x.test",
+       "reason": "illness"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Look up loan": {
+     "items": [
+      {
+       "rows": [
+        {
+         "loan_id": "L6",
+         "customer_id": "C6",
+         "outstanding": "60000",
+         "days_past_due": 45,
+         "status": "active"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Officer assessment": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "plan": "reduced_payments",
+       "months": 12
+      },
+      "decided_by": "test"
+     }
+    },
+    "Email offer": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Record answer": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "customer_response": "accepted"
+      },
+      "decided_by": "test"
+     }
+    },
+    "Apply restructuring": {
+     "http": {
+      "status": 200,
+      "body": {
+       "loan_id": "L6",
+       "status": "restructured"
+      }
+     }
+    },
+    "Record restructure": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Email confirmation": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Email offer",
+     "subject": "request",
+     "path": "params.toEmail",
+     "op": "eq",
+     "value": "f@x.test"
+    },
+    {
+     "node": "Apply restructuring",
+     "subject": "request",
+     "path": "body.plan",
+     "op": "eq",
+     "value": "reduced_payments"
+    },
+    {
+     "node": "Apply restructuring",
+     "subject": "request",
+     "path": "body.months",
+     "op": "eq",
+     "value": 12
+    },
+    {
+     "node": "Email confirmation",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Record declined",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Holiday of exactly 3 months on exactly 50000, customer declines",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "loan_id": "L3",
+       "customer_email": "c@x.test",
+       "reason": "debt"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Look up loan": {
+     "items": [
+      {
+       "rows": [
+        {
+         "loan_id": "L3",
+         "customer_id": "C3",
+         "outstanding": "50000",
+         "days_past_due": 10,
+         "status": "active"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Officer assessment": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "plan": "payment_holiday",
+       "months": 3
+      },
+      "decided_by": "test"
+     }
+    },
+    "Email offer": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Record answer": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "customer_response": "declined"
+      },
+      "decided_by": "test"
+     }
+    },
+    "Record declined": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Email declined": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Email offer",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Apply restructuring",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Record declined",
+     "subject": "request",
+     "path": "params.statements.0.params.1",
+     "op": "eq",
+     "value": "payment_holiday"
+    },
+    {
+     "node": "Email declined",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    }
+   ]
+  },
+  {
+   "name": "Officer rejection declines without offer",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "loan_id": "L5",
+       "customer_email": "e@x.test",
+       "reason": "debt"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Look up loan": {
+     "items": [
+      {
+       "rows": [
+        {
+         "loan_id": "L5",
+         "customer_id": "C5",
+         "outstanding": "9000",
+         "days_past_due": 5,
+         "status": "active"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Officer assessment": {
+     "port": "rejected",
+     "approval": {
+      "decision": "rejected",
+      "comment": "no",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Record declined": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Email declined": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Email declined",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Record declined",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Email offer",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "No answer twice lapses the offer",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "loan_id": "L4",
+       "customer_email": "d@x.test",
+       "reason": "illness"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Look up loan": {
+     "items": [
+      {
+       "rows": [
+        {
+         "loan_id": "L4",
+         "customer_id": "C4",
+         "outstanding": "8000",
+         "days_past_due": 20,
+         "status": "active"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Officer assessment": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "plan": "reduced_payments",
+       "months": 12
+      },
+      "decided_by": "test"
+     }
+    },
+    "Email offer": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Record answer": {
+     "port": "timed_out",
+     "approval": {
+      "decision": "timed_out",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Send reminder": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Record answer again": {
+     "port": "timed_out",
+     "approval": {
+      "decision": "timed_out",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Email lapsed": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Record lapsed": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Send reminder",
+     "subject": "request",
+     "path": "params.toEmail",
+     "op": "eq",
+     "value": "d@x.test"
+    },
+    {
+     "node": "Email lapsed",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Record lapsed",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Apply restructuring",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  }
+ ]
+}

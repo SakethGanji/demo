@@ -273,3 +273,47 @@ async def test_a_disabled_approval_passes_the_item_on_approved():
     w.nodes[1].disabled = True
     ctx = await runner.run(w, "in", items({"a": 1}))
     assert ctx.suspensions == [] and "yes" in log and "no" not in log
+
+
+# ── per_item: one task per item ───────────────────────────────────────────────
+
+async def test_per_item_renders_one_task_per_item_against_that_item():
+    runner, log = approval_runner()
+    w = flow(per_item=True, title="Review {{ $json.team }}", context={"Team": "{{ $json.team }}"},
+             assignees=["{{ $json.email }}"], notify_email="{{ $json.email }}", due_in="2h")
+    ctx = await runner.run(w, "in", items({"team": "Ops", "email": "ana@bank.example"},
+                                          {"team": "Risk", "email": "ben@bank.example"}))
+    assert len(ctx.suspensions) == 1 and log == ["in"]
+    p = ctx.suspensions[0]["suspension"].payload
+    assert p["per_item"] is True and len(p["items"]) == 2
+    assert [t["title"] for t in p["items"]] == ["Review Ops", "Review Risk"]
+    assert [t["context"]["Team"] for t in p["items"]] == ["Ops", "Risk"]
+    assert [t["assignees"] for t in p["items"]] == [["ana@bank.example"], ["ben@bank.example"]]
+    assert [t["notify"]["to"] for t in p["items"]] == [["ana@bank.example"], ["ben@bank.example"]]
+    assert all(t["due_at"] for t in p["items"])
+    assert p["title"] == "Review Ops"  # the top level reads like the first item's task
+
+
+async def test_per_item_false_keeps_the_single_task_payload():
+    runner, _ = approval_runner()
+    ctx = await runner.run(flow(title="Review {{ $json.team }}"), "in", items({"team": "Ops"}, {"team": "Risk"}))
+    p = ctx.suspensions[0]["suspension"].payload
+    assert "items" not in p and "per_item" not in p and p["title"] == "Review Ops"
+
+
+async def test_per_item_resume_routes_each_item_by_its_own_decision_in_input_order():
+    runner, log = approval_runner()
+    decided = lambda d, by: {"decision": d, "comment": None, "form_data": {}, "decided_by": by, "decided_at": "t"}  # noqa: E731
+    extras = resume_extras("approved")
+    extras["resume"]["items"] = [
+        {"item_index": 2, "task_id": "tsk_c", "decision": decided("timed_out", "system:timeout")},
+        {"item_index": 0, "task_id": "tsk_a", "decision": decided("approved", "ana")},
+        {"item_index": 1, "task_id": "tsk_b", "decision": decided("rejected", "ben")},
+        {"item_index": 3, "task_id": "tsk_d", "decision": decided("approved", "dee")},
+    ]
+    ctx = await runner.run(flow(per_item=True), "review", items({"n": 0}, {"n": 1}, {"n": 2}, {"n": 3}), extras=extras)
+    assert sorted(log) == ["late", "no", "yes"]  # each port's downstream runs once
+    assert [(i.json["n"], i.json["approval"]["task_id"]) for i in ctx.node_states["yes"]] == [(0, "tsk_a"), (3, "tsk_d")]
+    assert [i.json["approval"]["decided_by"] for i in ctx.node_states["no"]] == ["ben"]
+    assert [i.json["approval"]["decision"] for i in ctx.node_states["late"]] == ["timed_out"]
+    assert ctx.suspensions == []

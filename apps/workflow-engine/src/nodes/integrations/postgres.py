@@ -286,56 +286,63 @@ class PostgresNode(BaseNode):
         from ...engine.types import NodeData as ND
 
         stmts_template = self.get_parameter(node_definition, "statements", "[]")
+        results: list[ND] = []
 
-        expr_ctx = ExpressionEngine.create_context(
-            input_data, context.node_states, context.execution_id, 0,
-        )
-        stmts = expression_engine.resolve_json_template(stmts_template, expr_ctx)
-        if not isinstance(stmts, list) or len(stmts) == 0:
-            return self.output([ND(json={"success": False, "error": "No statements provided"})])
-
-        statement_results = []
-        total_affected = 0
-
+        # one transaction per item, like `query` runs once per item: each item's statements commit or roll back together
         async with await psycopg.AsyncConnection.connect(conn_string) as conn:
-            try:
-                for i, stmt in enumerate(stmts):
-                    query = str(expression_engine.resolve(stmt.get("query", ""), expr_ctx))
-                    params = parse_json_params(stmt.get("params", []))
+            for idx in range(max(1, len(items))):
+                expr_ctx = ExpressionEngine.create_context(
+                    input_data, context.node_states, context.execution_id, idx,
+                )
+                stmts = expression_engine.resolve_json_template(stmts_template, expr_ctx)
+                if not isinstance(stmts, list) or len(stmts) == 0:
+                    results.append(ND(json={"success": False, "error": "No statements provided"}))
+                    continue
 
-                    async with conn.cursor() as cur:
-                        await cur.execute(query, params)
-                        is_select = cur.description is not None
+                statement_results = []
+                total_affected = 0
+                i = 0
+                try:
+                    for i, stmt in enumerate(stmts):
+                        query = str(expression_engine.resolve(stmt.get("query", ""), expr_ctx))
+                        params = parse_json_params(stmt.get("params", []))
 
-                        if is_select:
-                            rows = await _fetch_rows(cur)
-                            statement_results.append({
-                                "statementIndex": i,
-                                "rows": rows,
-                                "rowCount": len(rows),
-                            })
-                        else:
-                            affected = cur.rowcount
-                            total_affected += affected
-                            statement_results.append({
-                                "statementIndex": i,
-                                "rowCount": affected,
-                            })
+                        async with conn.cursor() as cur:
+                            await cur.execute(query, params)
+                            is_select = cur.description is not None
 
-                await conn.commit()
-            except Exception as e:
-                await conn.rollback()
-                return self.output([ND(json={
-                    "success": False,
-                    "error": str(e),
-                    "rolledBack": True,
-                    "failedStatementIndex": i,
-                    "completedStatements": statement_results,
-                })])
+                            if is_select:
+                                rows = await _fetch_rows(cur)
+                                statement_results.append({
+                                    "statementIndex": i,
+                                    "rows": rows,
+                                    "rowCount": len(rows),
+                                })
+                            else:
+                                affected = cur.rowcount
+                                total_affected += affected
+                                statement_results.append({
+                                    "statementIndex": i,
+                                    "rowCount": affected,
+                                })
 
-        return self.output([ND(json={
-            "success": True,
-            "totalAffectedRows": total_affected,
-            "statementCount": len(stmts),
-            "results": statement_results,
-        })])
+                    await conn.commit()
+                except Exception as e:
+                    await conn.rollback()
+                    results.append(ND(json={
+                        "success": False,
+                        "error": str(e),
+                        "rolledBack": True,
+                        "failedStatementIndex": i,
+                        "completedStatements": statement_results,
+                    }))
+                    continue
+
+                results.append(ND(json={
+                    "success": True,
+                    "totalAffectedRows": total_affected,
+                    "statementCount": len(stmts),
+                    "results": statement_results,
+                }))
+
+        return self.output(results)

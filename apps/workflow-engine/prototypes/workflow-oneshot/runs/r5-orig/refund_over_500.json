@@ -1,0 +1,485 @@
+{
+ "name": "Customer refund",
+ "nodes": [
+  {
+   "name": "Refund form",
+   "type": "FormTrigger",
+   "parameters": {
+    "title": "Refund request",
+    "input_schema": {
+     "type": "object",
+     "properties": {
+      "customer_email": {
+       "type": "string"
+      },
+      "amount": {
+       "type": "number"
+      },
+      "reason": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "customer_email",
+      "amount",
+      "reason"
+     ]
+    }
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Over $500?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $json.amount > 500 }}"
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "Manager approval",
+   "type": "Approval",
+   "parameters": {
+    "title": "Approve refund over $500",
+    "context": {
+     "Customer": "{{ $json.customer_email }}",
+     "Amount": "{{ $json.amount }}",
+     "Reason": "{{ $json.reason }}"
+    },
+    "notify_email": "{{ $vars.MANAGER_EMAIL }}",
+    "require_comment_on_reject": true
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Issue refund",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "refunds",
+     "operation_id": "issueRefund"
+    },
+    "method": "POST",
+    "url": "",
+    "body": {
+     "customer_email": "{{ $json.customer_email }}",
+     "amount": "{{ $json.amount }}",
+     "reason": "{{ $json.reason }}"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Tell customer paid",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "notify",
+     "operation_id": "sendMessage"
+    },
+    "method": "POST",
+    "url": "",
+    "body": {
+     "to": "{{ $node[\"Refund form\"].json.customer_email }}",
+     "text": "Your refund of ${{ $node[\"Refund form\"].json.amount }} has been issued.",
+     "channel": "email"
+    }
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  },
+  {
+   "name": "Reply paid",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "paid",
+     "message": "Refund of {{ $node[\"Refund form\"].json.amount }} issued to {{ $node[\"Refund form\"].json.customer_email }}.",
+     "refund_id": "{{ $node[\"Issue refund\"].json.body.refund_id }}"
+    }
+   },
+   "position": {
+    "x": 950,
+    "y": 0
+   }
+  },
+  {
+   "name": "Tell customer rejected",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "notify",
+     "operation_id": "sendMessage"
+    },
+    "method": "POST",
+    "url": "",
+    "body": {
+     "to": "{{ $node[\"Refund form\"].json.customer_email }}",
+     "text": "Sorry, your refund request of ${{ $node[\"Refund form\"].json.amount }} was not approved.",
+     "channel": "email"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 110
+   }
+  },
+  {
+   "name": "Reply rejected",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "rejected",
+     "message": "The refund of {{ $node[\"Refund form\"].json.amount }} was not approved by a manager."
+    }
+   },
+   "position": {
+    "x": 760,
+    "y": 110
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Refund form",
+   "target_node": "Over $500?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Over $500?",
+   "target_node": "Manager approval",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Over $500?",
+   "target_node": "Issue refund",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Manager approval",
+   "target_node": "Issue refund",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Manager approval",
+   "target_node": "Tell customer rejected",
+   "source_output": "rejected",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Issue refund",
+   "target_node": "Tell customer paid",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Tell customer paid",
+   "target_node": "Reply paid",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Tell customer rejected",
+   "target_node": "Reply rejected",
+   "source_output": "main",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Exactly 500 is paid straight away",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "customer_email": "a@example.com",
+      "amount": 500,
+      "reason": "Duplicate charge"
+     }
+    ]
+   },
+   "mocks": {
+    "Issue refund": {
+     "http": {
+      "status": 201,
+      "body": {
+       "refund_id": "r1",
+       "status": "issued"
+      }
+     }
+    },
+    "Tell customer paid": {
+     "http": {
+      "status": 200,
+      "body": {
+       "delivered": true
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Over $500?",
+     "port": "false",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Manager approval",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Issue refund",
+     "subject": "request",
+     "path": "body.amount",
+     "op": "eq",
+     "value": 500
+    },
+    {
+     "node": "Tell customer paid",
+     "subject": "request",
+     "path": "body.to",
+     "op": "eq",
+     "value": "a@example.com"
+    },
+    {
+     "node": "Reply paid",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "paid"
+    }
+   ]
+  },
+  {
+   "name": "Small refund is paid and customer told",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "customer_email": "b@example.com",
+      "amount": 80,
+      "reason": "Late delivery"
+     }
+    ]
+   },
+   "mocks": {
+    "Issue refund": {
+     "http": {
+      "status": 201,
+      "body": {
+       "refund_id": "r2",
+       "status": "issued"
+      }
+     }
+    },
+    "Tell customer paid": {
+     "http": {
+      "status": 200,
+      "body": {
+       "delivered": true
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Manager approval",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Issue refund",
+     "subject": "request",
+     "path": "body.customer_email",
+     "op": "eq",
+     "value": "b@example.com"
+    },
+    {
+     "node": "Tell customer rejected",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Reply paid",
+     "subject": "request",
+     "path": "body.refund_id",
+     "op": "eq",
+     "value": "r2"
+    }
+   ]
+  },
+  {
+   "name": "Over 500 approved by manager is paid",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "customer_email": "c@example.com",
+      "amount": 501,
+      "reason": "Fraud"
+     }
+    ]
+   },
+   "mocks": {
+    "Manager approval": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Issue refund": {
+     "http": {
+      "status": 201,
+      "body": {
+       "refund_id": "r3",
+       "status": "issued"
+      }
+     }
+    },
+    "Tell customer paid": {
+     "http": {
+      "status": 200,
+      "body": {
+       "delivered": true
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Over $500?",
+     "port": "true",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Manager approval",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Issue refund",
+     "subject": "request",
+     "path": "body.amount",
+     "op": "eq",
+     "value": 501
+    },
+    {
+     "node": "Reply paid",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "paid"
+    }
+   ]
+  },
+  {
+   "name": "Over 500 rejected is not paid",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "customer_email": "d@example.com",
+      "amount": 900,
+      "reason": "Changed mind"
+     }
+    ]
+   },
+   "mocks": {
+    "Manager approval": {
+     "port": "rejected",
+     "approval": {
+      "decision": "rejected",
+      "comment": "Not eligible",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Tell customer rejected": {
+     "http": {
+      "status": 200,
+      "body": {
+       "delivered": true
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Issue refund",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Tell customer paid",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Tell customer rejected",
+     "subject": "request",
+     "path": "body.to",
+     "op": "eq",
+     "value": "d@example.com"
+    },
+    {
+     "node": "Reply rejected",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "rejected"
+    }
+   ]
+  }
+ ],
+ "interface": {
+  "kind": "form",
+  "slug": "customer-refund",
+  "title": "Refund request",
+  "description": "",
+  "access": {
+   "mode": "public"
+  },
+  "trigger_node": "Refund form",
+  "result_node": "Reply rejected"
+ }
+}

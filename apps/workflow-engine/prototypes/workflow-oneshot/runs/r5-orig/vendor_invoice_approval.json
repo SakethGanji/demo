@@ -1,0 +1,485 @@
+{
+ "name": "Invoice approval and payment scheduling",
+ "nodes": [
+  {
+   "name": "Invoice received",
+   "type": "Webhook",
+   "parameters": {
+    "method": "POST",
+    "path": "invoices"
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Over 10000?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ float($json.body.amount) > 10000 }}"
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "First approver",
+   "type": "Approval",
+   "parameters": {
+    "title": "Approve invoice {{ $json.body.invoice_id }} (first of two)",
+    "context": {
+     "Invoice": "{{ $json.body.invoice_id }}",
+     "Vendor": "{{ $json.body.vendor_id }}",
+     "Amount": "{{ $json.body.amount }}"
+    },
+    "four_eyes": true,
+    "require_comment_on_reject": true
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Second approver",
+   "type": "Approval",
+   "parameters": {
+    "title": "Approve invoice {{ $node[\"Invoice received\"].json.body.invoice_id }} (second of two)",
+    "context": {
+     "Invoice": "{{ $node[\"Invoice received\"].json.body.invoice_id }}",
+     "Vendor": "{{ $node[\"Invoice received\"].json.body.vendor_id }}",
+     "Amount": "{{ $node[\"Invoice received\"].json.body.amount }}"
+    },
+    "four_eyes": true,
+    "require_comment_on_reject": true
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Approver",
+   "type": "Approval",
+   "parameters": {
+    "title": "Approve invoice {{ $json.body.invoice_id }}",
+    "context": {
+     "Invoice": "{{ $json.body.invoice_id }}",
+     "Vendor": "{{ $json.body.vendor_id }}",
+     "Amount": "{{ $json.body.amount }}"
+    },
+    "require_comment_on_reject": true
+   },
+   "position": {
+    "x": 380,
+    "y": 110
+   }
+  },
+  {
+   "name": "Schedule payment",
+   "type": "HttpRequest",
+   "parameters": {
+    "method": "POST",
+    "url": "",
+    "api_ref": {
+     "spec_id": "payments",
+     "operation_id": "schedule"
+    },
+    "path_params": {},
+    "body": {
+     "vendor_id": "{{ $node[\"Invoice received\"].json.body.vendor_id }}",
+     "invoice_id": "{{ $node[\"Invoice received\"].json.body.invoice_id }}",
+     "amount": "{{ $node[\"Invoice received\"].json.body.amount }}"
+    }
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Invoice received",
+   "target_node": "Over 10000?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Over 10000?",
+   "target_node": "First approver",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Over 10000?",
+   "target_node": "Approver",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "First approver",
+   "target_node": "Second approver",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Second approver",
+   "target_node": "Schedule payment",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Approver",
+   "target_node": "Schedule payment",
+   "source_output": "approved",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Small invoice with one approval is scheduled",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "invoice_id": "INV-1",
+       "vendor_id": "V-1",
+       "amount": 5000
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Approver": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Schedule payment": {
+     "http": {
+      "status": 201,
+      "body": {
+       "payment_id": "P-1",
+       "status": "scheduled"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Approver",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "First approver",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Second approver",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Schedule payment",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Schedule payment",
+     "subject": "request",
+     "path": "body.amount",
+     "op": "eq",
+     "value": 5000
+    },
+    {
+     "node": "Schedule payment",
+     "subject": "request",
+     "path": "body.invoice_id",
+     "op": "eq",
+     "value": "INV-1"
+    }
+   ]
+  },
+  {
+   "name": "Exactly 10000 needs only one approver",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "invoice_id": "INV-2",
+       "vendor_id": "V-2",
+       "amount": 10000
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Approver": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Schedule payment": {
+     "http": {
+      "status": 201,
+      "body": {
+       "payment_id": "P-2",
+       "status": "scheduled"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Approver",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "First approver",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Schedule payment",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "name": "Over 10000 with both approvals is scheduled",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "invoice_id": "INV-3",
+       "vendor_id": "V-3",
+       "amount": 15000
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "First approver": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Second approver": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Schedule payment": {
+     "http": {
+      "status": 201,
+      "body": {
+       "payment_id": "P-3",
+       "status": "scheduled"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Approver",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "First approver",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Second approver",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Schedule payment",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Schedule payment",
+     "subject": "request",
+     "path": "body.amount",
+     "op": "eq",
+     "value": 15000
+    }
+   ]
+  },
+  {
+   "name": "Large invoice rejected by first approver is not scheduled",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "invoice_id": "INV-4",
+       "vendor_id": "V-4",
+       "amount": 20000
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "First approver": {
+     "port": "rejected",
+     "approval": {
+      "decision": "rejected",
+      "comment": "no",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Second approver",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Schedule payment",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Large invoice rejected by second approver is not scheduled",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "invoice_id": "INV-5",
+       "vendor_id": "V-5",
+       "amount": 10000.01
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "First approver": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Second approver": {
+     "port": "rejected",
+     "approval": {
+      "decision": "rejected",
+      "comment": "no",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Second approver",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Schedule payment",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Small invoice rejected is not scheduled",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "invoice_id": "INV-6",
+       "vendor_id": "V-6",
+       "amount": 300
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Approver": {
+     "port": "rejected",
+     "approval": {
+      "decision": "rejected",
+      "comment": "no",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Schedule payment",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  }
+ ]
+}

@@ -367,3 +367,73 @@ export function toImageSrc(frame: FrameLike): string | null {
   if (f.image) return toImageSrc(f.image)
   return null
 }
+
+// ── Preview UI state ──────────────────────────────────────────────────────────
+
+/** True inside the Studio preview (it sets `globalThis.__studioPreviewState`); false in a published app. */
+export function inStudioPreview(): boolean {
+  try {
+    const st = (globalThis as any).__studioPreviewState
+    return !!st && typeof st === 'object' && !Array.isArray(st)
+  } catch { return false }
+}
+
+function uiStateKey(key: string): string {
+  let ns = 'preview'
+  try { const s = (globalThis as any).__studioPreviewSession; if (typeof s === 'string' && s) ns = s } catch { /* no namespace */ }
+  return `studio:ui:${ns}:${key}`
+}
+
+function readUiState(key: string): { found: boolean; value?: unknown } {
+  try {
+    const st = (globalThis as any).__studioPreviewState
+    const k = uiStateKey(key)
+    if (st && Object.prototype.hasOwnProperty.call(st, k)) return { found: true, value: st[k] }
+    const raw = sessionStorage.getItem(k)
+    if (raw != null) return { found: true, value: JSON.parse(raw) }
+  } catch { /* storage unavailable or a corrupt value: start fresh */ }
+  return { found: false }
+}
+
+function writeUiState(key: string, value: unknown): void {
+  const k = uiStateKey(key)
+  try { const st = (globalThis as any).__studioPreviewState; if (st && typeof st === 'object') st[k] = value } catch { /* ignore */ }
+  try { sessionStorage.setItem(k, JSON.stringify(value)) } catch { /* storage unavailable or value not serialisable */ }
+}
+
+/** useState for UI-only state (active tab, open panel, sort, filters) that survives the remount every Studio preview edit
+ * does. Outside the preview (a published app) it is exactly useState. A restored value whose type differs from `initial`,
+ * or that `valid` rejects, is ignored. Key it by something stable: a `stateKey` prop, else component name + a derived id. */
+export function usePersistedUiState<T>(key: string | null | undefined, initial: T | (() => T), valid?: (v: unknown) => boolean): [T, (v: T | ((prev: T) => T)) => void] {
+  const on = !!key && inStudioPreview()
+  const [v, setV] = useState<T>(() => {
+    const init = typeof initial === 'function' ? (initial as () => T)() : initial
+    if (!on) return init
+    const saved = readUiState(key as string)
+    if (!saved.found) return init
+    const sameType = init === null || init === undefined || saved.value === null || typeof saved.value === typeof init
+    return sameType && (!valid || valid(saved.value)) ? (saved.value as T) : init
+  })
+  const set = useCallback((next: T | ((prev: T) => T)) => {
+    setV((prev) => {
+      const value = typeof next === 'function' ? (next as (p: T) => T)(prev) : next
+      if (on) writeUiState(key as string, value)
+      return value
+    })
+  }, [on, key])
+  return [v, set]
+}
+
+/** A controlled value (Tabs' `value`) the Studio preview restores after a remount: on mount a remembered value is handed to
+ * `onChange` once, and every later value is remembered. Outside the preview it does nothing. */
+export function useRestoredValue<T>(key: string, value: T, onChange: ((v: T) => void) | undefined, valid: (v: unknown) => boolean): void {
+  const [saved, setSaved] = usePersistedUiState<T>(key, value, valid)
+  const first = useRef(true)
+  useEffect(() => {
+    if (first.current) {
+      first.current = false
+      if (saved !== value && onChange) { onChange(saved); return }
+    }
+    if (inStudioPreview()) setSaved(value)
+  }, [value]) // eslint-disable-line react-hooks/exhaustive-deps
+}

@@ -1984,6 +1984,10 @@ async def revise(proposal_id: str, instruction: str, actor: str, project_id: str
     parent = await get_row(proposal_id, project_id)
     if parent["status"] != "ready":
         raise BadState(parent["status"], "Only a proposal that is ready can be revised.")
+    if parent.get("provider") == "oneshot":   # built by the editor chat's one-shot builder: revised the same way, by one patch
+        from . import workflow_oneshot
+
+        return await workflow_oneshot.revise(parent, instruction, actor)
     if not isinstance(parent.get("spec"), dict) or not parent["spec"]:
         # a node-level assist has no spec to build from; refuse BEFORE the parent is touched so the ready proposal stays as it was
         raise BadState(parent["status"], "This proposal came from a node assist and has no spec; ask the node assistant again instead of revising it.")

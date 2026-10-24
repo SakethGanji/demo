@@ -23,6 +23,7 @@ import {
   History,
   LayoutTemplate,
   Workflow,
+  BookOpen,
 } from 'lucide-react';
 import { Link } from '@tanstack/react-router';
 import { HomeNav } from '@/features/project/components/HomeNav';
@@ -55,6 +56,7 @@ import { StatusDot } from '@/shared/components/ui/status-dot';
 import { cn } from '@/shared/lib/utils';
 import { useEditorProjectStore } from '../../stores/editorProjectStore';
 import { ToolbarSeparator } from '@/shared/components/ui/toolbar';
+import { Segmented } from '@/shared/components/ui/segmented';
 import { EnvProfileSelector } from '../env-profiles/EnvProfileSelector';
 import TestBar from '../tests/TestBar';
 import { useInterfaceState } from '@/features/interfaces/hooks/useInterfaceState';
@@ -78,6 +80,8 @@ export default function WorkflowNavbar() {
   const { importWorkflow } = useImportWorkflow();
   const { executeWorkflow, isExecuting, cancelExecution } = useExecutionStream();
 
+  const viewMode = useEditorLayoutStore((s) => s.viewMode);
+  const setViewMode = useEditorLayoutStore((s) => s.setViewMode);
   const rightPanelOpen = useEditorLayoutStore((s) => s.rightPanelOpen);
   const rightPanelTab = useEditorLayoutStore((s) => s.rightPanelTab);
   const openRightPanel = useEditorLayoutStore((s) => s.openRightPanel);
@@ -283,6 +287,18 @@ export default function WorkflowNavbar() {
             <LayoutTemplate /> {navbarLabel(interfaceState.data?.interface)}
           </Button>
         </Tip>
+
+        <Segmented
+          size="xs"
+          value={viewMode}
+          onChange={setViewMode}
+          aria-label="View"
+          className="shrink-0"
+          options={[
+            { key: 'canvas', label: 'Canvas', icon: <Workflow />, testId: 'editor-view-canvas' },
+            { key: 'read', label: 'Read', icon: <BookOpen />, testId: 'editor-view-read' },
+          ]}
+        />
 
         <TestBar />
 

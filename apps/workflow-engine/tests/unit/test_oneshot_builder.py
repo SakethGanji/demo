@@ -95,6 +95,8 @@ async def new_project(pg) -> str:
 def test_the_brief_is_generated_from_the_platform():
     b = ob.brief()
     for c in pi.kit_components():
+        if c["name"] in ob._EDITABLE_KIT and not ob.editable_rules_enabled():
+            continue        # listed only with the visual-editing trial on (test_editability)
         assert c["name"] in b, f"kit {c['kind']} {c['name']} missing from the brief"
     for e in pi.sdk_symbols():
         if e["kind"] == "rule":

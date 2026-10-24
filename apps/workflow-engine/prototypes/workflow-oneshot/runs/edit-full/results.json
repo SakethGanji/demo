@@ -1,0 +1,643 @@
+[
+ {
+  "id": "T1_mortgage_3_days",
+  "tier": "tweak",
+  "mode": "full",
+  "seconds": 43.0,
+  "calls": 1,
+  "prompt_chars": 68934,
+  "reply_chars": 19863,
+  "first": {
+   "pass": true,
+   "landed": true,
+   "kept": true,
+   "checked": true,
+   "clean": true
+  },
+  "final": {
+   "pass": true,
+   "landed": true,
+   "kept": true,
+   "checked": true,
+   "clean": true
+  },
+  "final_fails": [],
+  "checks": [],
+  "kept": [
+   7,
+   7
+  ],
+  "kept_fail": [],
+  "new": [
+   1,
+   1
+  ],
+  "new_fail": [],
+  "drift": {
+   "changed": [],
+   "removed": [],
+   "rewired": []
+  },
+  "own_tests": 6
+ },
+ {
+  "id": "T2_wire_25k",
+  "tier": "tweak",
+  "mode": "full",
+  "seconds": 53.5,
+  "calls": 1,
+  "prompt_chars": 72899,
+  "reply_chars": 22620,
+  "first": {
+   "pass": true,
+   "landed": true,
+   "kept": true,
+   "checked": true,
+   "clean": true
+  },
+  "final": {
+   "pass": true,
+   "landed": true,
+   "kept": true,
+   "checked": true,
+   "clean": true
+  },
+  "final_fails": [],
+  "checks": [],
+  "kept": [
+   9,
+   9
+  ],
+  "kept_fail": [],
+  "new": [
+   2,
+   2
+  ],
+  "new_fail": [],
+  "drift": {
+   "changed": [],
+   "removed": [],
+   "rewired": []
+  },
+  "own_tests": 8
+ },
+ {
+  "id": "T3_kyc_summary_to_rm",
+  "tier": "tweak",
+  "mode": "full",
+  "seconds": 45.0,
+  "calls": 1,
+  "prompt_chars": 65485,
+  "reply_chars": 18452,
+  "first": {
+   "pass": true,
+   "landed": true,
+   "kept": true,
+   "checked": true,
+   "clean": true
+  },
+  "final": {
+   "pass": true,
+   "landed": true,
+   "kept": true,
+   "checked": true,
+   "clean": true
+  },
+  "final_fails": [],
+  "checks": [
+   {
+    "name": "summary reaches the RM",
+    "ok": true,
+    "detail": ""
+   }
+  ],
+  "kept": [
+   5,
+   5
+  ],
+  "kept_fail": [],
+  "new": [
+   0,
+   0
+  ],
+  "new_fail": [],
+  "drift": {
+   "changed": [],
+   "removed": [],
+   "rewired": []
+  },
+  "own_tests": 6
+ },
+ {
+  "id": "T4_recert_10_days",
+  "tier": "tweak",
+  "mode": "full",
+  "seconds": 32.7,
+  "calls": 1,
+  "prompt_chars": 60074,
+  "reply_chars": 13916,
+  "first": {
+   "pass": true,
+   "landed": true,
+   "kept": true,
+   "checked": true,
+   "clean": true
+  },
+  "final": {
+   "pass": true,
+   "landed": true,
+   "kept": true,
+   "checked": true,
+   "clean": true
+  },
+  "final_fails": [],
+  "checks": [],
+  "kept": [
+   2,
+   2
+  ],
+  "kept_fail": [],
+  "new": [
+   1,
+   1
+  ],
+  "new_fail": [],
+  "drift": {
+   "changed": [],
+   "removed": [],
+   "rewired": []
+  },
+  "own_tests": 5
+ },
+ {
+  "id": "T5_hardship_risk_timeout_approves",
+  "tier": "tweak",
+  "mode": "full",
+  "seconds": 49.2,
+  "calls": 1,
+  "prompt_chars": 66786,
+  "reply_chars": 21171,
+  "first": {
+   "pass": true,
+   "landed": true,
+   "kept": true,
+   "checked": true,
+   "clean": true
+  },
+  "final": {
+   "pass": true,
+   "landed": true,
+   "kept": true,
+   "checked": true,
+   "clean": true
+  },
+  "final_fails": [],
+  "checks": [],
+  "kept": [
+   6,
+   6
+  ],
+  "kept_fail": [],
+  "new": [
+   1,
+   1
+  ],
+  "new_fail": [],
+  "drift": {
+   "changed": [],
+   "removed": [],
+   "rewired": []
+  },
+  "own_tests": 7
+ },
+ {
+  "id": "A1_mortgage_email_on_booking",
+  "tier": "add",
+  "mode": "full",
+  "seconds": 44.7,
+  "calls": 1,
+  "prompt_chars": 69002,
+  "reply_chars": 21481,
+  "first": {
+   "pass": true,
+   "landed": true,
+   "kept": true,
+   "checked": true,
+   "clean": true
+  },
+  "final": {
+   "pass": true,
+   "landed": true,
+   "kept": true,
+   "checked": true,
+   "clean": true
+  },
+  "final_fails": [],
+  "checks": [],
+  "kept": [
+   8,
+   8
+  ],
+  "kept_fail": [],
+  "new": [
+   1,
+   1
+  ],
+  "new_fail": [],
+  "drift": {
+   "changed": [],
+   "removed": [],
+   "rewired": []
+  },
+  "own_tests": 6
+ },
+ {
+  "id": "A2_wire_fraud_tells_customer",
+  "tier": "add",
+  "mode": "full",
+  "seconds": 50.8,
+  "calls": 1,
+  "prompt_chars": 72956,
+  "reply_chars": 23254,
+  "first": {
+   "pass": true,
+   "landed": true,
+   "kept": true,
+   "checked": true,
+   "clean": true
+  },
+  "final": {
+   "pass": true,
+   "landed": true,
+   "kept": true,
+   "checked": true,
+   "clean": true
+  },
+  "final_fails": [],
+  "checks": [],
+  "kept": [
+   9,
+   9
+  ],
+  "kept_fail": [],
+  "new": [
+   1,
+   1
+  ],
+  "new_fail": [],
+  "drift": {
+   "changed": [],
+   "removed": [],
+   "rewired": []
+  },
+  "own_tests": 7
+ },
+ {
+  "id": "A3_kyc_upload_tells_rm",
+  "tier": "add",
+  "mode": "full",
+  "seconds": 42.7,
+  "calls": 1,
+  "prompt_chars": 65534,
+  "reply_chars": 18242,
+  "first": {
+   "pass": true,
+   "landed": true,
+   "kept": true,
+   "checked": true,
+   "clean": true
+  },
+  "final": {
+   "pass": true,
+   "landed": true,
+   "kept": true,
+   "checked": true,
+   "clean": true
+  },
+  "final_fails": [],
+  "checks": [],
+  "kept": [
+   5,
+   5
+  ],
+  "kept_fail": [],
+  "new": [
+   1,
+   1
+  ],
+  "new_fail": [],
+  "drift": {
+   "changed": [],
+   "removed": [],
+   "rewired": [
+    "Thank customer -main-> Each request"
+   ]
+  },
+  "own_tests": 6
+ },
+ {
+  "id": "A4_hardship_accept_tells_officer",
+  "tier": "add",
+  "mode": "full",
+  "seconds": 46.6,
+  "calls": 1,
+  "prompt_chars": 66822,
+  "reply_chars": 21533,
+  "first": {
+   "pass": true,
+   "landed": true,
+   "kept": true,
+   "checked": true,
+   "clean": true
+  },
+  "final": {
+   "pass": true,
+   "landed": true,
+   "kept": true,
+   "checked": true,
+   "clean": true
+  },
+  "final_fails": [],
+  "checks": [],
+  "kept": [
+   7,
+   7
+  ],
+  "kept_fail": [],
+  "new": [
+   1,
+   1
+  ],
+  "new_fail": [],
+  "drift": {
+   "changed": [],
+   "removed": [],
+   "rewired": []
+  },
+  "own_tests": 6
+ },
+ {
+  "id": "A5_recert_tell_revoked_users",
+  "tier": "add",
+  "mode": "full",
+  "seconds": 40.4,
+  "calls": 1,
+  "prompt_chars": 60099,
+  "reply_chars": 15768,
+  "first": {
+   "pass": true,
+   "landed": true,
+   "kept": true,
+   "checked": true,
+   "clean": true
+  },
+  "final": {
+   "pass": true,
+   "landed": true,
+   "kept": true,
+   "checked": true,
+   "clean": true
+  },
+  "final_fails": [],
+  "checks": [],
+  "kept": [
+   3,
+   3
+  ],
+  "kept_fail": [],
+  "new": [
+   1,
+   1
+  ],
+  "new_fail": [],
+  "drift": {
+   "changed": [],
+   "removed": [],
+   "rewired": []
+  },
+  "own_tests": 5
+ },
+ {
+  "id": "R1_wire_mlro_escalation",
+  "tier": "restructure",
+  "mode": "full",
+  "seconds": 68.0,
+  "calls": 1,
+  "prompt_chars": 73117,
+  "reply_chars": 29391,
+  "first": {
+   "pass": true,
+   "landed": true,
+   "kept": true,
+   "checked": true,
+   "clean": true
+  },
+  "final": {
+   "pass": true,
+   "landed": true,
+   "kept": true,
+   "checked": true,
+   "clean": true
+  },
+  "final_fails": [],
+  "checks": [
+   {
+    "name": "MLRO timeout escalates",
+    "ok": true,
+    "detail": ""
+   }
+  ],
+  "kept": [
+   8,
+   8
+  ],
+  "kept_fail": [],
+  "new": [
+   3,
+   3
+  ],
+  "new_fail": [],
+  "drift": {
+   "changed": [],
+   "removed": [],
+   "rewired": []
+  },
+  "own_tests": 10
+ },
+ {
+  "id": "R2_mortgage_committee_parallel",
+  "tier": "restructure",
+  "mode": "full",
+  "seconds": 58.2,
+  "calls": 1,
+  "prompt_chars": 68999,
+  "reply_chars": 20910,
+  "first": {
+   "pass": true,
+   "landed": true,
+   "kept": true,
+   "checked": true,
+   "clean": true
+  },
+  "final": {
+   "pass": true,
+   "landed": true,
+   "kept": true,
+   "checked": true,
+   "clean": true
+  },
+  "final_fails": [],
+  "checks": [
+   {
+    "name": "committee asked in parallel",
+    "ok": true,
+    "detail": ""
+   }
+  ],
+  "kept": [
+   7,
+   7
+  ],
+  "kept_fail": [],
+  "new": [
+   1,
+   1
+  ],
+  "new_fail": [],
+  "drift": {
+   "changed": [],
+   "removed": [],
+   "rewired": []
+  },
+  "own_tests": 6
+ },
+ {
+  "id": "R3_kyc_team_confirms_restriction",
+  "tier": "restructure",
+  "mode": "full",
+  "seconds": 49.2,
+  "calls": 1,
+  "prompt_chars": 65629,
+  "reply_chars": 21899,
+  "first": {
+   "pass": true,
+   "landed": true,
+   "kept": true,
+   "checked": true,
+   "clean": true
+  },
+  "final": {
+   "pass": true,
+   "landed": true,
+   "kept": true,
+   "checked": true,
+   "clean": true
+  },
+  "final_fails": [],
+  "checks": [],
+  "kept": [
+   5,
+   5
+  ],
+  "kept_fail": [],
+  "new": [
+   2,
+   2
+  ],
+  "new_fail": [],
+  "drift": {
+   "changed": [],
+   "removed": [],
+   "rewired": []
+  },
+  "own_tests": 8
+ },
+ {
+  "id": "R4_hardship_no_risk_review",
+  "tier": "restructure",
+  "mode": "full",
+  "seconds": 49.1,
+  "calls": 1,
+  "prompt_chars": 66798,
+  "reply_chars": 20585,
+  "first": {
+   "pass": true,
+   "landed": true,
+   "kept": true,
+   "checked": true,
+   "clean": true
+  },
+  "final": {
+   "pass": true,
+   "landed": true,
+   "kept": true,
+   "checked": true,
+   "clean": true
+  },
+  "final_fails": [],
+  "checks": [
+   {
+    "name": "risk review gone",
+    "ok": true,
+    "detail": ""
+   }
+  ],
+  "kept": [
+   5,
+   5
+  ],
+  "kept_fail": [],
+  "new": [
+   2,
+   2
+  ],
+  "new_fail": [],
+  "drift": {
+   "changed": [],
+   "removed": [],
+   "rewired": []
+  },
+  "own_tests": 7
+ },
+ {
+  "id": "R5_recert_auto_confirm_single",
+  "tier": "restructure",
+  "mode": "full",
+  "seconds": 53.8,
+  "calls": 1,
+  "prompt_chars": 60178,
+  "reply_chars": 24277,
+  "first": {
+   "pass": true,
+   "landed": true,
+   "kept": true,
+   "checked": true,
+   "clean": true
+  },
+  "final": {
+   "pass": true,
+   "landed": true,
+   "kept": true,
+   "checked": true,
+   "clean": true
+  },
+  "final_fails": [],
+  "checks": [],
+  "kept": [
+   0,
+   0
+  ],
+  "kept_fail": [],
+  "new": [
+   3,
+   3
+  ],
+  "new_fail": [],
+  "drift": {
+   "changed": [],
+   "removed": [],
+   "rewired": []
+  },
+  "own_tests": 7
+ }
+]
