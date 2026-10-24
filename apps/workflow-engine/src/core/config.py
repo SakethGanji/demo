@@ -86,6 +86,9 @@ class Settings(BaseSettings):
         default=10.0, validation_alias=AliasChoices("JOBS_CALL_TIMEOUT_S", "WORKFLOW_JOBS_CALL_TIMEOUT_S"),
     )
 
+    # Notebooks: full row sets of cell results (the DB keeps a <=50-row preview). WORKFLOW_NOTEBOOK_STORAGE_DIR.
+    notebook_storage_dir: str = str(__import__("pathlib").Path(__file__).resolve().parents[2] / "data" / "notebooks")
+
     # MongoDB (PromptLab session/run state)
     mongo_url: str | None = None
 

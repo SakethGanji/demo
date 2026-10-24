@@ -8,6 +8,10 @@
 import { test, expect, type EngineApi } from '../fixtures/test'
 import { seedProject, seedWorkflow, type P } from '../fixtures/seed'
 import { nodeEl, openEditor } from '../fixtures/tests3a'
+import { legacyEditor } from '../fixtures/legacy'
+
+// these specs guard the legacy canvas editor (the glass editor is the default)
+test.beforeEach(async ({ page }) => legacyEditor(page))
 
 type Json = Record<string, unknown>
 const link = (a: string, b: string) => ({ source_node: a, source_output: 'main', target_node: b, target_input: 'main' })

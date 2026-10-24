@@ -11,6 +11,10 @@ import {
 import { assertNoClipping } from '../fixtures/layout'
 import { dockMore } from '../fixtures/dock'
 import type { Page } from '@playwright/test'
+import { legacyEditor } from '../fixtures/legacy'
+
+// these specs guard the legacy canvas editor (the glass editor is the default)
+test.beforeEach(async ({ page }) => legacyEditor(page))
 
 type Wf = { definition: { tests: Array<Record<string, unknown>>; test_defaults: { mocks: Record<string, unknown> }; nodes: Array<{ name: string; parameters: Record<string, unknown> }> } }
 const getWf = (api: EngineApi, id: string) => api.get<Wf>(`/workflows/${id}`)

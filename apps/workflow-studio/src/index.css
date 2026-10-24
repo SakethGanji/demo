@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "./shared/glass/glass.css";
 @plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
@@ -920,6 +921,21 @@ body:not(:has([data-testid="landing-page"])) {
   --raised-ring: rgb(255 255 255 / .08);
   --raised-contact: 0 1px 2px rgb(0 0 0 / .3);
   --inner-elevation: 0 0 0 1px rgb(255 255 255 / .06);
+}
+/* Dark pages (owner, 2026-10-24: "our glass looks bad"): the toggle glass's white tint read as grey-navy plastic that
+   picked up the sky's purple. Off the canvases and the landing, dark glass is the Workbench mockup's smoked glass:
+   a near-black fill, a faint vertical sheen and a hairline edge, so panels sit almost flush with the canvas. */
+.dark body:not(:has(.react-flow, [data-testid="landing-page"])) {
+  --glass-fill: rgb(10 10 14 / .55);
+  --glass-fill-hover: rgb(22 22 30 / .60);
+  --glass-fill-editor: rgb(10 10 14 / .55);
+  --chrome-fill: rgb(10 10 14 / .55);
+  --glass-sheen: linear-gradient(180deg, rgb(255 255 255 / .045), rgb(255 255 255 / 0) 46%);
+  --glass-elevation: inset 0 1px 0 var(--hi), inset 0 -16px 28px -24px var(--shade), 0 0 0 1px var(--edge), var(--glass-depth);
+  --raised-ring: rgb(255 255 255 / .045);
+  --raised-hi: inset 0 1px 0 rgb(255 255 255 / .08);
+  --raised-contact: 0 1px 2px rgb(0 0 0 / .30), 0 6px 14px -8px rgb(0 0 0 / .45);
+  --well: rgb(255 255 255 / .045);
 }
 /* the hero canvas's dot grid */
 .landing-dots {

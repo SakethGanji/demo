@@ -37,10 +37,11 @@ export default async function globalTeardown() {
     killGroup(s.enginePid)
     killGroup(s.vitePid)
     if (s.fake_api_pid) killGroup(s.fake_api_pid)
+    if (s.jobsPid) killGroup(s.jobsPid)
     await new Promise((r) => setTimeout(r, 1500))
     const upstream = (globalThis as Record<string, unknown>).__e2eUpstream as http.Server | undefined
     upstream?.close()
-    execFileSync(path.join(ENGINE_DIR, 'venv/bin/python'), ['tests/e2e_stack.py', 'down', '--db', s.dbName], {
+    execFileSync(path.join(ENGINE_DIR, 'venv/bin/python'), ['tests/e2e_stack.py', 'down', '--db', s.dbName, ...(s.nb_db_name ? ['--nbdb', s.nb_db_name] : [])], {
       cwd: ENGINE_DIR,
       env: { PATH: `${path.join(ENGINE_DIR, 'venv/bin')}:/usr/bin:/bin`, HOME: s.tmp, LANG: 'C.UTF-8' },
       stdio: 'inherit',

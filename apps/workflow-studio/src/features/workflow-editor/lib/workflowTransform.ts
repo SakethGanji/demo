@@ -10,7 +10,7 @@
  */
 
 import type { Node, Edge } from '@xyflow/react';
-import type { WorkflowNodeData } from '../types/workflow';
+import type { WorkflowNodeData, StickyNoteData } from '../types/workflow';
 import type { WorkflowDefinition } from '@/features/projects/hooks/useWorkflows';
 import { getNodeIcon, isTriggerType, normalizeNodeGroup } from './nodeConfig';
 import type { TestCase, TestDefaults } from './tests';
@@ -51,6 +51,49 @@ export function generateNodeName(
   }
 
   return `${baseName}${counter}`;
+}
+
+// ============================================================================
+// Sticky notes ↔ workflow settings
+// ============================================================================
+
+export const STICKY_NOTES_KEY = 'sticky_notes';
+
+interface SavedStickyNote {
+  id: string;
+  position: { x: number; y: number };
+  content: string;
+  color: StickyNoteData['color'];
+  width?: number;
+  height?: number;
+}
+
+function toStickyNotes(nodes: Node[]): SavedStickyNote[] {
+  return nodes
+    .filter((n) => n.type === 'stickyNote')
+    .map((n) => {
+      const d = (n.data ?? {}) as Partial<StickyNoteData>;
+      return {
+        id: n.id,
+        position: { x: Math.round(n.position.x), y: Math.round(n.position.y) },
+        content: typeof d.content === 'string' ? d.content : '',
+        color: d.color ?? 'yellow',
+        ...(d.width ? { width: d.width } : {}),
+        ...(d.height ? { height: d.height } : {}),
+      };
+    });
+}
+
+function fromStickyNotes(raw: unknown): Node[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((r): r is SavedStickyNote => !!r && typeof r === 'object' && typeof (r as SavedStickyNote).id === 'string')
+    .map((r) => ({
+      id: r.id,
+      type: 'stickyNote',
+      position: { x: Number(r.position?.x) || 0, y: Number(r.position?.y) || 0 },
+      data: { content: r.content ?? '', color: r.color ?? 'yellow', ...(r.width ? { width: r.width } : {}), ...(r.height ? { height: r.height } : {}) },
+    }));
 }
 
 // ============================================================================
@@ -133,6 +176,8 @@ export function toBackendWorkflow(
     name: workflowName,
     nodes: backendNodes,
     connections,
+    // Sticky notes are not steps: they ride in settings (the engine merges settings keys on update)
+    settings: { [STICKY_NOTES_KEY]: toStickyNotes(nodes) },
     ...(testData
       ? {
           tests: testData.tests,
@@ -268,6 +313,8 @@ export function fromBackendWorkflow(api: ApiWorkflowDetail): {
       ...(conn.waypoints ? { data: { waypoints: conn.waypoints } } : {}),
     };
   });
+
+  nodes.push(...(fromStickyNotes(api.definition.settings?.[STICKY_NOTES_KEY]) as Node<WorkflowNodeData>[]));
 
   return {
     nodes,

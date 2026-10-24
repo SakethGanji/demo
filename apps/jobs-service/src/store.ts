@@ -25,6 +25,8 @@ export interface CaseResult {
   failed_step?: { index: number; step: unknown; description?: string };
   error?: string;
   artifacts: string[];
+  /** Plain notes about the artifacts, e.g. what was not kept because the page was taken over. */
+  notes?: string[];
 }
 
 /** Everything triage needs about a failed case (already scrubbed of credential values). */
@@ -70,9 +72,16 @@ export interface PassBaseline {
 }
 
 /** Pause/step state, honoured by UI cases between steps. */
-export interface JobControl { paused: boolean; stepCredits: number }
+export interface JobControl {
+  paused: boolean; stepCredits: number; /** the user drives the live page (take over) */ takenOver?: boolean;
+  /** text typed during take over (memory only, never persisted): redacted from anything a case keeps */ typed?: string[];
+}
 
-export interface LiveCase { page: Page; context: BrowserContext; cdp?: CDPSession }
+export interface LiveCase {
+  page: Page; context: BrowserContext; cdp?: CDPSession;
+  /** set by the UI case: stops recording (trace) before the user gets the page */ onTakeover?: () => Promise<void>;
+  /** resolves once onTakeover has finished; relayed input waits for it */ cut?: Promise<void>;
+}
 
 export interface Job {
   job_id: string;

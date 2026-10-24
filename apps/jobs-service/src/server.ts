@@ -11,7 +11,7 @@ import {
 import { BadRequest, buildTarget, normalizeCases } from './spec.ts';
 import { runTestRun } from './testRun.ts';
 import { triage } from './triage.ts';
-import { applyControl, CONTROL_ACTIONS, ControlError, type ControlAction } from './control.ts';
+import { applyControl, CONTROL_ACTIONS, ControlError, InputError, relayInput, type ControlAction, type RelayedInput } from './control.ts';
 import { runExplore } from './exploreJob.ts';
 import { closeBrowser } from './uiCase.ts';
 
@@ -227,12 +227,20 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   }
   if (sub === 'control' && method === 'POST') {
     const action = (await readBody(req)).action;
-    if (action === undefined || action === 'takeover') return send(res, 501, { error: 'not implemented', reserved: 'takeover', live_cases: [...job.live.keys()] });
-    if (typeof action !== 'string' || !CONTROL_ACTIONS.includes(action as ControlAction)) throw new BadRequest('action must be one of pause, resume, step (takeover is reserved)');
+    if (typeof action !== 'string' || !CONTROL_ACTIONS.includes(action as ControlAction)) throw new BadRequest(`action must be one of ${CONTROL_ACTIONS.join(', ')}`);
     try {
       return send(res, 200, { job_id: job.job_id, status: job.status, action, ...applyControl(job, action as ControlAction) });
     } catch (e) {
       if (e instanceof ControlError) return send(res, e.status, { error: e.message, status: job.status });
+      throw e;
+    }
+  }
+  if (sub === 'input' && method === 'POST') {
+    // take over: one click / type / key / scroll on the live page (POST /jobs/{id}/control {action:'takeover'} first)
+    try {
+      return send(res, 200, { job_id: job.job_id, ...(await relayInput(job, (await readBody(req)) as unknown as RelayedInput)) });
+    } catch (e) {
+      if (e instanceof ControlError || e instanceof InputError) return send(res, e.status, { error: e.message, status: job.status });
       throw e;
     }
   }

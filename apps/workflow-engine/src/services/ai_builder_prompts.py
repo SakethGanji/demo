@@ -503,7 +503,7 @@ def default_expression_help() -> dict[str, Any]:
         "first": "first(list)", "last": "last(list)", "at": "at(list, i)", "slice": "slice(list, start, end=None)", "reverse": "reverse(list)", "sort": "sort(list)",
         "unique": "unique(list)", "flatten": "flatten(list_of_lists)", "abs": "abs(n)", "min": "min(a, b, ...)", "max": "max(a, b, ...)", "sum": "sum(list)", "round": "round(n, digits=0)",
         "floor": "floor(n)", "ceil": "ceil(n)", "now": "now() -> epoch milliseconds", "date_now": "date_now() -> ISO timestamp", "timestamp": "timestamp() -> epoch seconds",
-        "json_stringify": "json_stringify(v)", "json_parse": "json_parse(s)", "typeof": "typeof(v)", "is_array": "is_array(v)", "is_empty": "is_empty(v)", "is_none": "is_none(v)",
+        "json_stringify": "json_stringify(v)", "json_parse": "json_parse(s)", "base64": "base64(s) -> base64 text", "typeof": "typeof(v)", "is_array": "is_array(v)", "is_empty": "is_empty(v)", "is_none": "is_none(v)",
         "keys": "keys(obj)", "values": "values(obj)", "get": "get(obj, key, default=None)", "concat": "concat(list, item)", "extend": "extend(list_a, list_b)", "push": "push(list, item)",
         "merge": "merge(obj_a, obj_b)", "omit": "omit(obj, *keys)", "pick": "pick(obj, *keys)", "coalesce": "coalesce(a, b, ...)", "default": "default(value, fallback)",
         "str": "str(v)", "int": "int(v)", "float": "float(v)", "bool": "bool(v)", "list": "list(v)", "dict": "dict(...)",

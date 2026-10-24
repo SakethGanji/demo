@@ -1,0 +1,247 @@
+{
+  "name": "Payment checks",
+  "description": "A payment is screened by two services at the same time; cleared payments wait for settlement and are logged, the rest stop for review.",
+  "nodes": [
+    {
+      "name": "Webhook",
+      "type": "Webhook",
+      "label": "Payment arrives",
+      "parameters": {
+        "method": "POST",
+        "path": "payment-checks",
+        "responseMode": "onReceived"
+      },
+      "position": {
+        "x": 0,
+        "y": 200
+      }
+    },
+    {
+      "name": "Normalize",
+      "type": "Set",
+      "label": "Normalize payment",
+      "parameters": {
+        "mode": "manual",
+        "keepOnlySet": true,
+        "fields": [
+          {
+            "name": "payment_id",
+            "value": "{{ $json.body.payment_id }}"
+          },
+          {
+            "name": "amount",
+            "value": "{{ $json.body.amount }}"
+          },
+          {
+            "name": "fraud_url",
+            "value": "{{ $json.body.fraud_url }}"
+          }
+        ]
+      },
+      "position": {
+        "x": 260,
+        "y": 200
+      }
+    },
+    {
+      "name": "Sanctions API",
+      "type": "HttpRequest",
+      "label": "Sanctions screen",
+      "parameters": {
+        "method": "POST",
+        "url": "__OK_URL__",
+        "body": "{\"payment_id\": \"{{ $json.payment_id }}\"}",
+        "responseType": "json"
+      },
+      "position": {
+        "x": 520,
+        "y": 100
+      },
+      "on_error": "continue"
+    },
+    {
+      "name": "Fraud score",
+      "type": "HttpRequest",
+      "label": "Fraud score",
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $json.fraud_url }}",
+        "body": "{\"payment_id\": \"{{ $json.payment_id }}\"}",
+        "responseType": "json"
+      },
+      "position": {
+        "x": 520,
+        "y": 300
+      },
+      "retry_on_fail": 1,
+      "retry_delay": 200,
+      "on_error": "stop"
+    },
+    {
+      "name": "Both checks",
+      "type": "Merge",
+      "label": "Both checks back",
+      "parameters": {
+        "mode": "append"
+      },
+      "position": {
+        "x": 780,
+        "y": 200
+      }
+    },
+    {
+      "name": "Cleared",
+      "type": "If",
+      "label": "Under 5,000?",
+      "parameters": {
+        "condition": "{{ $node[\"Normalize\"].json.amount < 5000 }}"
+      },
+      "position": {
+        "x": 1040,
+        "y": 200
+      }
+    },
+    {
+      "name": "Wait for settlement",
+      "type": "Poll",
+      "label": "Wait for settlement",
+      "parameters": {
+        "condition": "{{ true }}",
+        "interval": 1,
+        "timeout": 30
+      },
+      "position": {
+        "x": 1300,
+        "y": 100
+      }
+    },
+    {
+      "name": "Check ledger",
+      "type": "NoOp",
+      "label": "Check the ledger",
+      "parameters": {},
+      "position": {
+        "x": 1560,
+        "y": 40
+      }
+    },
+    {
+      "name": "Log payment",
+      "type": "DataTable",
+      "label": "Log the payment",
+      "parameters": {
+        "table": "payments",
+        "operation": "insert",
+        "data": {
+          "payment_id": "{{ $node[\"Normalize\"].json.payment_id }}",
+          "amount": "{{ $node[\"Normalize\"].json.amount }}",
+          "status": "cleared"
+        }
+      },
+      "position": {
+        "x": 1560,
+        "y": 160
+      }
+    },
+    {
+      "name": "Settlement timed out",
+      "type": "StopAndError",
+      "label": "Settlement timed out",
+      "parameters": {
+        "errorType": "error",
+        "message": "Settlement did not arrive"
+      },
+      "position": {
+        "x": 1560,
+        "y": 260
+      }
+    },
+    {
+      "name": "Needs review",
+      "type": "StopAndError",
+      "label": "Stop for review",
+      "parameters": {
+        "errorType": "error",
+        "message": "Payment needs a person"
+      },
+      "position": {
+        "x": 1300,
+        "y": 320
+      }
+    }
+  ],
+  "connections": [
+    {
+      "source_node": "Webhook",
+      "target_node": "Normalize",
+      "source_output": "main",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Normalize",
+      "target_node": "Sanctions API",
+      "source_output": "main",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Normalize",
+      "target_node": "Fraud score",
+      "source_output": "main",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Sanctions API",
+      "target_node": "Both checks",
+      "source_output": "main",
+      "target_input": "input0"
+    },
+    {
+      "source_node": "Fraud score",
+      "target_node": "Both checks",
+      "source_output": "main",
+      "target_input": "input1"
+    },
+    {
+      "source_node": "Both checks",
+      "target_node": "Cleared",
+      "source_output": "main",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Cleared",
+      "target_node": "Wait for settlement",
+      "source_output": "true",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Cleared",
+      "target_node": "Needs review",
+      "source_output": "false",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Wait for settlement",
+      "target_node": "Check ledger",
+      "source_output": "loop",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Check ledger",
+      "target_node": "Wait for settlement",
+      "source_output": "main",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Wait for settlement",
+      "target_node": "Log payment",
+      "source_output": "done",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Wait for settlement",
+      "target_node": "Settlement timed out",
+      "source_output": "timeout",
+      "target_input": "main"
+    }
+  ]
+}

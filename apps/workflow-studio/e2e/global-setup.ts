@@ -21,7 +21,8 @@ const HERE = path.dirname(fileURLToPath(import.meta.url))
 const STUDIO_DIR = path.resolve(HERE, '..')
 const ENGINE_DIR = path.resolve(STUDIO_DIR, '../workflow-engine')
 const VENV_PY = path.join(ENGINE_DIR, 'venv/bin/python')
-export const STATE_FILE = path.join(HERE, '.stack', 'state.json')
+/** per run (the main process's pid): two concurrent `test:e2e` runs must not read or delete each other's stack */
+export const STATE_FILE = process.env.E2E_STATE ?? path.join(HERE, '.stack', `state-${process.pid}.json`)
 
 export interface StackState {
   dbName: string
@@ -40,6 +41,54 @@ export interface StackState {
   fake_api_ok_url: string
   fake_api_fail_url: string
   fake_api_pid: number
+  /** notebook specs: the bank DB + its connections (nbseed), and the optional jobs-service (browser cells) */
+  nb_db_name?: string
+  nb_conn_bank?: string
+  nb_conn_bank_rw?: string
+  jobsUrl?: string | null
+  jobsPid?: number | null
+  jobsSkip?: string | null
+}
+
+const NO_PORTS = new Set([8000, 8010, 8095, 5173, 5174])
+
+/** apps/jobs-service on a free port (JOBS_DEV=1, JOBS_LLM=off, tmp data dir), for notebook browser cells. Optional:
+ *  returns why it was skipped instead of failing the stack. */
+async function startJobs(tmp: string): Promise<{ url: string; pid: number } | { skip: string }> {
+  const dir = path.resolve(STUDIO_DIR, '../jobs-service')
+  if (!fs.existsSync(path.join(dir, 'src/server.ts'))) return { skip: 'apps/jobs-service is missing' }
+  const pwRoot = process.env.PLAYWRIGHT_BROWSERS_PATH || path.join(os.homedir(), '.cache/ms-playwright')
+  if (!fs.existsSync(pwRoot) || !fs.readdirSync(pwRoot).some((d) => d.startsWith('chromium'))) return { skip: "Playwright's chromium is not installed" }
+  let port = await freePort()
+  while (NO_PORTS.has(port)) port = await freePort()
+  const dataDir = path.join(tmp, 'jobs-data')
+  fs.mkdirSync(dataDir, { recursive: true })
+  const log = path.join(tmp, 'jobs.log')
+  const out = fs.openSync(log, 'w')
+  const env: Record<string, string> = {
+    PATH: [path.dirname(process.execPath), '/usr/bin', '/bin'].join(':'),
+    HOME: process.env.HOME ?? tmp,
+    LANG: 'C.UTF-8',
+    JOBS_DEV: '1',
+    JOBS_LLM: 'off',
+    JOBS_DATA_DIR: dataDir,
+    JOBS_PORT: String(port),
+    JOBS_HOST: '127.0.0.1',
+  }
+  if (process.env.PLAYWRIGHT_BROWSERS_PATH) env.PLAYWRIGHT_BROWSERS_PATH = process.env.PLAYWRIGHT_BROWSERS_PATH
+  const proc = spawn(process.execPath, ['src/server.ts'], { cwd: dir, env, detached: true, stdio: ['ignore', out, out] })
+  const url = `http://127.0.0.1:${port}`
+  try {
+    await waitFor(`${url}/health`, 30_000, {}, proc, log)
+  } catch (e) {
+    try {
+      process.kill(-proc.pid!, 'SIGTERM')
+    } catch {
+      /* gone */
+    }
+    return { skip: `jobs-service did not start: ${String(e).slice(0, 300)}` }
+  }
+  return { url, pid: proc.pid! }
 }
 
 async function freePort(min = 0): Promise<number> {
@@ -151,6 +200,8 @@ export default async function globalSetup() {
     env: { PATH: '/usr/bin:/bin', HOME: tmp },
     encoding: 'utf8',
   }).trim()
+  const jobs = await startJobs(tmp)
+  if ('skip' in jobs) console.log(`[e2e] jobs-service skipped: ${jobs.skip}`)
   const engineCwd = path.join(tmp, 'engine-cwd')
   // the SDK cache lives under TMPDIR=<tmp>; sandbox jobs use short /tmp/sbx-* dirs (AF_UNIX path limit)
   fs.mkdirSync(engineCwd, { recursive: true })
@@ -176,6 +227,8 @@ export default async function globalSetup() {
     WORKFLOW_LOG_LEVEL: 'warning',
     SEED: '0',
     E2E_UPSTREAM_URL: upstreamUrl,
+    WORKFLOW_NOTEBOOK_STORAGE_DIR: path.join(tmp, 'nb-store'),
+    ...('url' in jobs ? { JOBS_SERVICE_URL: jobs.url, JOBS_DEV: '1' } : {}),
   }
   for (const k of Object.keys(engineEnv)) if (/^(ANTHROPIC|OPENAI|GOOGLE|GEMINI)_/.test(k)) throw new Error(`provider key ${k} in env`)
   const engineLog = path.join(tmp, 'engine.log')
@@ -207,6 +260,16 @@ export default async function globalSetup() {
     }).trim().split('\n').pop()!,
   ) as Pick<StackState, 'refund_workflow_id' | 'refund_failed_execution_id' | 'refund_table_id' | 'fake_api_url' | 'fake_api_ok_url' | 'fake_api_fail_url' | 'fake_api_pid'>
 
+  // 5c. notebook specs: a bank DB + connections bank / bank_rw in proj_default
+  const nbSeeded = JSON.parse(
+    execFileSync(VENV_PY, ['tests/e2e_stack.py', 'nbseed', '--engine-url', engineUrl], {
+      cwd: ENGINE_DIR,
+      env: { PATH: `${path.join(ENGINE_DIR, 'venv/bin')}:/usr/bin:/bin`, HOME: tmp, LANG: 'C.UTF-8' },
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'inherit'],
+    }).trim().split('\n').pop()!,
+  ) as Pick<StackState, 'nb_db_name' | 'nb_conn_bank' | 'nb_conn_bank_rw'>
+
   // 4. studio
   const vitePort = await freePort(5180)
   if (vitePort === 5173) throw new Error('refusing vite on :5173')
@@ -234,6 +297,10 @@ export default async function globalSetup() {
     vitePid: vite.pid!,
     scriptPath,
     ...seeded,
+    ...nbSeeded,
+    jobsUrl: 'url' in jobs ? jobs.url : null,
+    jobsPid: 'url' in jobs ? jobs.pid : null,
+    jobsSkip: 'skip' in jobs ? jobs.skip : null,
   }
   fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
   process.env.E2E_STATE = STATE_FILE

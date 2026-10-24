@@ -52,7 +52,7 @@ async function runOne(i: TestRunInput, c: CaseBody, res: CaseResult, secrets: st
   job.progress.current_case_id = c.id;
   emit(job, 'case_start', c.id, `${c.id} ${c.title ?? ''}`.trim(), { kind: c.kind });
   const t0 = Date.now();
-  let out: { status: CaseResult['status']; failed_step?: CaseResult['failed_step']; error?: string; files: string[] };
+  let out: { status: CaseResult['status']; failed_step?: CaseResult['failed_step']; error?: string; notes?: string[]; files: string[] };
   try {
     out = c.kind === 'ui'
       ? await runUiCase({ job, target: i.target, caseId: c.id, steps: c.steps, caseDir, signal: i.signal })
@@ -64,11 +64,14 @@ async function runOne(i: TestRunInput, c: CaseBody, res: CaseResult, secrets: st
   res.status = out.status;
   if (out.failed_step) res.failed_step = scrubDeep(out.failed_step, job.creds);
   if (out.error) res.error = scrubDeep(out.error, job.creds);
+  if (out.notes?.length) res.notes = out.notes;
 
-  // Mask before anything becomes downloadable: traces record fill() values verbatim.
-  const before = await scanForLeaks(caseDir, secrets);
-  const masked = before.occurrences ? await maskArtifacts(caseDir, secrets) : [];
-  const after = await scanForLeaks(caseDir, secrets);
+  // Mask before anything becomes downloadable: traces record fill() values verbatim. Text typed during take over is
+  // treated like a secret too (memory only; the take-over trace chunk is already gone, this is the second line).
+  const caseSecrets = [...new Set([...secrets, ...(job.control.typed ?? []), (job.control.typed ?? []).join('')].filter((v) => v && v.length >= 4))];
+  const before = await scanForLeaks(caseDir, caseSecrets);
+  const masked = before.occurrences ? await maskArtifacts(caseDir, caseSecrets) : [];
+  const after = await scanForLeaks(caseDir, caseSecrets);
   hygiene.push({ case_id: c.id, before, masked, after });
   if (after.occurrences) {
     emit(job, 'log', c.id, `LEAK: ${after.occurrences} secret occurrence(s) survived masking; artifacts withheld`, after.hits);

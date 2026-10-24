@@ -430,3 +430,65 @@ def test_findings_are_deduplicated():
 def test_parse_matches_engine_transform():
     from src.engine.expression_engine import expression_engine
     ast.parse(expression_engine._transform_expression("$json.a.b"), mode="eval")
+
+
+# ── WF030 / WF031: Loop "Run at a time" ──
+
+def _loop(loop_params, body_type="Set", body_params=None, extra_nodes=(), extra_conns=()):
+    nodes = [trigger(), N("L", "Loop", loop_params), N("Body", body_type, body_params or {}), N("After"), *extra_nodes]
+    conns = [C("Start", "L"), C("L", "Body", out="loop"), C("Body", "L"), C("L", "After", out="done"), *extra_conns]
+    return run(nodes, conns)
+
+
+@pytest.mark.parametrize("value", [1000, 21, 2.5, "lots", -3, 0, "2.5"])
+def test_wf030_bad_concurrency_is_a_warning(value):
+    f = codes(_loop({"concurrency": value}), "WF030")
+    assert len(f) == 1 and f[0]["severity"] == "warning" and f[0]["node"] == "L" and f[0]["param"] == "concurrency", f
+    if value in (1000, 21):
+        assert "20" in f[0]["message"]
+    # the message says what the runner really does: a number 2.5 runs 2 at a time (int), the text forms run 1
+    assert ("runs 2 items at a time" if value == 2.5 else "20" if value in (1000, 21) else "runs one item") in f[0]["message"], f
+
+
+@pytest.mark.parametrize("value", [None, 1, 5, 20, "7", 3.0, "{{ $json.n }}"])
+def test_wf030_not_raised_for_valid_concurrency(value):
+    params = {} if value is None else {"concurrency": value}
+    assert codes(_loop(params), "WF030") == []
+
+
+HTTP = {"method": "POST", "url": "https://api.example.com/pay"}
+
+
+@pytest.mark.parametrize("body_type, params", [("HttpRequest", HTTP), ("HttpRequest", {"url": "https://api.example.com/x"}),
+                                               ("Postgres", {"query": "update t set a = 1"}), ("SendEmail", {})])
+def test_wf031_stop_with_concurrency_and_an_external_step(body_type, params):
+    f = codes(_loop({"concurrency": 5}, body_type, params), "WF031")
+    assert len(f) == 1 and f[0]["severity"] == "warning" and f[0]["node"] == "L" and f[0]["param"] == "concurrency", f
+    m = f[0]["message"]
+    assert '"Body"' in m and "already started" in m and "'run at a time' to 1" in m.lower(), m
+    assert "payment" in m.lower(), m
+
+
+@pytest.mark.parametrize("loop_params, body_type, params", [
+    ({"concurrency": 1}, "HttpRequest", HTTP),                                   # one at a time: nothing in flight
+    ({}, "HttpRequest", HTTP),                                                   # default
+    ({"concurrency": 5, "onItemFailure": "skip"}, "HttpRequest", HTTP),         # skip: no stop to overrun
+    ({"concurrency": 5}, "Set", {}),                                             # nothing external in the body
+    ({"concurrency": "lots"}, "HttpRequest", HTTP),                              # runs as 1
+])
+def test_wf031_not_raised(loop_params, body_type, params):
+    assert codes(_loop(loop_params, body_type, params), "WF031") == []
+
+
+def test_wf031_not_raised_when_the_body_runs_one_at_a_time_anyway():
+    # a Wait in the body makes the runner run the passes one after another (concurrencyFallback)
+    r = run([trigger(), N("L", "Loop", {"concurrency": 5}), N("Body", "HttpRequest", HTTP), N("Hold", "Wait", {"amount": 1}), N("After")],
+            [C("Start", "L"), C("L", "Body", out="loop"), C("Body", "Hold"), C("Hold", "L"), C("L", "After", out="done")])
+    assert codes(r, "WF031") == []
+
+
+def test_wf031_names_an_external_step_deeper_in_the_body():
+    r = run([trigger(), N("L", "Loop", {"concurrency": 3}), N("Prep"), N("Pay", "HttpRequest", HTTP), N("After")],
+            [C("Start", "L"), C("L", "Prep", out="loop"), C("Prep", "Pay"), C("Pay", "L"), C("L", "After", out="done")])
+    f = codes(r, "WF031")
+    assert len(f) == 1 and "Pay" in f[0]["message"] and "After" not in f[0]["message"]

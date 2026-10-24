@@ -1,0 +1,8 @@
+{
+  "slug": "blank",
+  "title": "Blank notebook",
+  "description": "Start from an empty page and add cells with / or the palette.",
+  "icon": "file",
+  "keeps_as": null,
+  "cells": []
+}

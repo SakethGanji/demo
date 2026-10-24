@@ -6,6 +6,7 @@ Uses simpleeval for safe expression evaluation (no eval() or exec()).
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import logging
@@ -110,6 +111,7 @@ class ExpressionEngine:
             # JSON functions
             "json_stringify": lambda v: json.dumps(v),
             "json_parse": lambda s: json.loads(s) if s else None,
+            "base64": lambda s: base64.b64encode(str(s).encode()).decode(),  # Basic auth: base64("user:" + $vars.X)
             # Type checking
             "typeof": lambda v: type(v).__name__,
             "is_array": lambda v: isinstance(v, list),

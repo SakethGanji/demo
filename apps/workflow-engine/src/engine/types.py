@@ -156,6 +156,12 @@ class ExecutionContext:
     root_execution_id: str | None = None  # the top-level execution this run belongs to
     deadline: float | None = None  # time.monotonic() deadline inherited from the parent / the workflow's max_execution_time
 
+    # Per-item loop history and repeat-until tries (engine.loop_history): extra recorded data only, bounded, saved into
+    # the execution's metadata. They never change outputs.
+    loop_runs: dict[str, Any] = field(default_factory=dict)  # Loop name -> {passes: {index: record}, ...}
+    poll_tries: dict[str, Any] = field(default_factory=dict)  # Poll name -> [session {tries: [...], outcome}]
+    loop_bodies: dict[str, Any] = field(default_factory=dict)  # Loop name -> frozenset of body steps (cache)
+
 
 def run_status(context: ExecutionContext) -> str:
     """How a finished ``runner.run`` reads to a caller: ``failed`` (any error), ``waiting`` (an Approval paused the run for a

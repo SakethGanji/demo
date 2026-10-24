@@ -46,6 +46,8 @@ from .builder_gates import router as builder_gates_router
 from .project_plan import router as project_plan_router
 from .builds import router as builds_router
 from .project_files import router as project_files_router
+from .notebook_keep import router as notebook_keep_router
+from .notebooks import router as notebooks_router
 
 # Main API router
 api_router = APIRouter(prefix="/api")
@@ -83,6 +85,9 @@ api_router.include_router(builds_router, tags=["Builds"])
 api_router.include_router(project_files_router, tags=["Project Files"])
 # Builder gates run on saved artifacts: /projects/{p}/modules/{m}/check, /apps/{id}/check (before apps_router: no path overlap)
 api_router.include_router(builder_gates_router, tags=["Builder Gates"])
+# Notebooks: notebook_keep first so the literal /notebooks/capabilities never matches /notebooks/{notebook_id}
+api_router.include_router(notebook_keep_router, tags=["Notebooks"])
+api_router.include_router(notebooks_router, tags=["Notebooks"])
 api_router.include_router(workflows_router, tags=["Workflows"])
 api_router.include_router(api_specs_router, tags=["API Catalog"])
 api_router.include_router(apps_router, tags=["Apps"])

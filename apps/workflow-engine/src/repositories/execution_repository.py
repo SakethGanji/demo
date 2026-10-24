@@ -193,6 +193,9 @@ class ExecutionRepository:
                 if e.node_name == node_name:
                     node_error = e.error
                     node_status = "error"
+                    if e.error_code and not (metrics or {}).get("errorCode"):
+                        # an error raised beside the node's own run (a Loop that stopped early) keeps its code on read-back
+                        metrics = {**(metrics or {}), "errorCode": e.error_code, "errorDetails": e.details or {}}
                     break
 
             # Upsert node output
@@ -244,6 +247,15 @@ class ExecutionRepository:
                     self._session.add(record)
 
         meta = dict(db_execution.exec_metadata or {})
+        # per-item loop history and repeat-until tries (extra, bounded; a resumed run adds to what was saved before)
+        from ..engine import loop_history as _lh
+
+        loops = _lh.serialise_loops(context) if getattr(context, "loop_runs", None) else {}
+        if loops:
+            meta["loop_runs"] = _lh.merge_saved(meta.get("loop_runs"), loops, "loops")
+        polls = _lh.serialise_polls(context) if getattr(context, "poll_tries", None) else {}
+        if polls:
+            meta["poll_tries"] = _lh.merge_saved(meta.get("poll_tries"), polls, "polls")
         to_notify: list[dict[str, Any]] = []
         if status == "failed":
             # nothing will ever decide these: a failed run does not keep tasks open

@@ -104,7 +104,10 @@ class PollNode(BaseNode):
         state_key = node_definition.name
         state: dict[str, Any] = context.node_internal_state.get(state_key, {})
 
-        if "started_at" not in state:
+        from ...engine import loop_history as lh
+
+        new_session = "started_at" not in state
+        if new_session:
             state = {"started_at": time.time(), "attempts": 0}
 
         state["attempts"] += 1
@@ -114,6 +117,8 @@ class PollNode(BaseNode):
         elapsed = time.time() - state["started_at"]
         if timeout > 0 and elapsed >= timeout:
             context.node_internal_state.pop(state_key, None)
+            lh.poll_try(context, state_key, attempt=state["attempts"], result="timeout",
+                        value=input_data[0].json if input_data else None, new_session=new_session)
             return self.outputs({
                 "loop": None,
                 "done": None,
@@ -122,6 +127,10 @@ class PollNode(BaseNode):
 
         # Evaluate condition
         condition_met = self._evaluate_condition(condition, input_data, context, node_definition)
+
+        # each try is noted (history only): when, the outcome, a short value
+        lh.poll_try(context, state_key, attempt=state["attempts"], result="met" if condition_met else "pending",
+                    value=input_data[0].json if input_data else None, new_session=new_session)
 
         if condition_met:
             context.node_internal_state.pop(state_key, None)
@@ -149,7 +158,10 @@ class PollNode(BaseNode):
     ) -> bool:
         from ...engine.types import NodeData as ND
 
-        if not condition or not condition.strip():
+        # the parameter may arrive already resolved (`{{ $json.done }}` → True)
+        if isinstance(condition, (bool, int, float)):
+            return bool(condition)
+        if not condition or not str(condition).strip():
             return False
 
         try:

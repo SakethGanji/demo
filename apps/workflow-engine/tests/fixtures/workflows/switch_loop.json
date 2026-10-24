@@ -1,0 +1,363 @@
+{
+  "name": "Wire review",
+  "description": "Pending wires arrive in a batch: each is routed by rail. Fed wires are reviewed one by one (large ones flagged), ACH wires get two checks each (a loop inside a loop), anything else is held.",
+  "nodes": [
+    {
+      "name": "Webhook",
+      "type": "Webhook",
+      "label": "Wires arrive",
+      "parameters": {
+        "method": "POST",
+        "path": "wire-review",
+        "responseMode": "onReceived"
+      },
+      "position": {
+        "x": 0,
+        "y": 200
+      }
+    },
+    {
+      "name": "Split wires",
+      "type": "ItemLists",
+      "label": "One item per wire",
+      "parameters": {
+        "operation": "splitOut",
+        "arrayField": "body.wires",
+        "includeOther": false
+      },
+      "position": {
+        "x": 260,
+        "y": 200
+      }
+    },
+    {
+      "name": "Rail",
+      "type": "Switch",
+      "label": "Which rail?",
+      "parameters": {
+        "mode": "rules",
+        "numberOfOutputs": 2,
+        "rules": [
+          {
+            "output": 0,
+            "field": "rail",
+            "operation": "equals",
+            "value": "fed"
+          },
+          {
+            "output": 1,
+            "field": "rail",
+            "operation": "equals",
+            "value": "ach"
+          }
+        ]
+      },
+      "position": {
+        "x": 520,
+        "y": 200
+      }
+    },
+    {
+      "name": "Fed wires",
+      "type": "Set",
+      "label": "Fed wires",
+      "parameters": {
+        "mode": "manual",
+        "keepOnlySet": false,
+        "fields": [
+          {
+            "name": "queue",
+            "value": "fed"
+          }
+        ]
+      },
+      "position": {
+        "x": 780,
+        "y": 60
+      }
+    },
+    {
+      "name": "Each fed wire",
+      "type": "Loop",
+      "label": "Each fed wire",
+      "parameters": {
+        "batchSize": 1
+      },
+      "position": {
+        "x": 1040,
+        "y": 60
+      }
+    },
+    {
+      "name": "Large wire",
+      "type": "If",
+      "label": "Over 10,000?",
+      "parameters": {
+        "condition": "{{ $json.amount > 10000 }}"
+      },
+      "position": {
+        "x": 1300,
+        "y": 60
+      }
+    },
+    {
+      "name": "Flag for review",
+      "type": "Set",
+      "label": "Flag for review",
+      "parameters": {
+        "mode": "manual",
+        "keepOnlySet": false,
+        "fields": [
+          {
+            "name": "status",
+            "value": "needs_review"
+          }
+        ]
+      },
+      "position": {
+        "x": 1560,
+        "y": 0
+      }
+    },
+    {
+      "name": "Release wire",
+      "type": "Set",
+      "label": "Release the wire",
+      "parameters": {
+        "mode": "manual",
+        "keepOnlySet": false,
+        "fields": [
+          {
+            "name": "status",
+            "value": "released"
+          }
+        ]
+      },
+      "position": {
+        "x": 1560,
+        "y": 120
+      }
+    },
+    {
+      "name": "Fed summary",
+      "type": "Set",
+      "label": "Fed summary",
+      "parameters": {
+        "mode": "manual",
+        "keepOnlySet": true,
+        "fields": [
+          {
+            "name": "reviewed",
+            "value": "{{ $json.total_items }}"
+          }
+        ]
+      },
+      "position": {
+        "x": 1300,
+        "y": 200
+      }
+    },
+    {
+      "name": "ACH wires",
+      "type": "Set",
+      "label": "ACH wires",
+      "parameters": {
+        "mode": "manual",
+        "keepOnlySet": false,
+        "fields": [
+          {
+            "name": "queue",
+            "value": "ach"
+          }
+        ]
+      },
+      "position": {
+        "x": 780,
+        "y": 320
+      }
+    },
+    {
+      "name": "Each ACH wire",
+      "type": "Loop",
+      "label": "Each ACH wire",
+      "parameters": {
+        "batchSize": 1
+      },
+      "position": {
+        "x": 1040,
+        "y": 320
+      }
+    },
+    {
+      "name": "Two checks",
+      "type": "Loop",
+      "label": "Two checks",
+      "parameters": {
+        "batchSize": 1,
+        "maxIterations": 2
+      },
+      "position": {
+        "x": 1300,
+        "y": 320
+      }
+    },
+    {
+      "name": "Check ACH",
+      "type": "NoOp",
+      "label": "Check the ACH record",
+      "parameters": {},
+      "position": {
+        "x": 1560,
+        "y": 320
+      }
+    },
+    {
+      "name": "ACH summary",
+      "type": "Set",
+      "label": "ACH summary",
+      "parameters": {
+        "mode": "manual",
+        "keepOnlySet": true,
+        "fields": [
+          {
+            "name": "checked",
+            "value": "{{ $json.total_items }}"
+          }
+        ]
+      },
+      "position": {
+        "x": 1300,
+        "y": 440
+      }
+    },
+    {
+      "name": "Hold wire",
+      "type": "Set",
+      "label": "Hold for a person",
+      "parameters": {
+        "mode": "manual",
+        "keepOnlySet": false,
+        "fields": [
+          {
+            "name": "status",
+            "value": "held"
+          }
+        ]
+      },
+      "position": {
+        "x": 780,
+        "y": 480
+      }
+    }
+  ],
+  "connections": [
+    {
+      "source_node": "Webhook",
+      "target_node": "Split wires",
+      "source_output": "main",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Split wires",
+      "target_node": "Rail",
+      "source_output": "main",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Rail",
+      "target_node": "Fed wires",
+      "source_output": "output0",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Rail",
+      "target_node": "ACH wires",
+      "source_output": "output1",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Rail",
+      "target_node": "Hold wire",
+      "source_output": "fallback",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Fed wires",
+      "target_node": "Each fed wire",
+      "source_output": "main",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Each fed wire",
+      "target_node": "Large wire",
+      "source_output": "loop",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Large wire",
+      "target_node": "Flag for review",
+      "source_output": "true",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Large wire",
+      "target_node": "Release wire",
+      "source_output": "false",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Flag for review",
+      "target_node": "Each fed wire",
+      "source_output": "main",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Release wire",
+      "target_node": "Each fed wire",
+      "source_output": "main",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Each fed wire",
+      "target_node": "Fed summary",
+      "source_output": "done",
+      "target_input": "main"
+    },
+    {
+      "source_node": "ACH wires",
+      "target_node": "Each ACH wire",
+      "source_output": "main",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Each ACH wire",
+      "target_node": "Two checks",
+      "source_output": "loop",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Two checks",
+      "target_node": "Check ACH",
+      "source_output": "loop",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Check ACH",
+      "target_node": "Two checks",
+      "source_output": "main",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Two checks",
+      "target_node": "Each ACH wire",
+      "source_output": "done",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Each ACH wire",
+      "target_node": "ACH summary",
+      "source_output": "done",
+      "target_input": "main"
+    }
+  ]
+}

@@ -409,6 +409,68 @@ export interface ApiExecutionDetail {
   errors: Array<{ node_name: string; error: string; timestamp?: string }>;
   node_data: Record<string, Array<{ json: Record<string, unknown> }>>;
   node_metrics?: Record<string, unknown>;
+  /** Per-item loop history (absent / null for runs saved before the engine kept it). */
+  loop_runs?: Record<string, ApiLoopRun> | null;
+  /** Each try of a repeat-until (Poll) step (absent / null for older runs). */
+  poll_tries?: Record<string, ApiPollRun> | null;
+}
+
+export interface ApiLoopStep {
+  status: string;
+  ports?: string[];
+  portCounts?: Record<string, number>;
+  items?: Array<Record<string, unknown>>;
+  itemCount?: number;
+  error?: string;
+  ms?: number;
+  runs?: number;
+  retries?: number;
+  branchDecision?: unknown;
+  truncated?: boolean;
+}
+
+export interface ApiLoopPass {
+  index: number;
+  /** ok | failed | skipped | running */
+  status: string;
+  items?: Array<Record<string, unknown>>;
+  itemCount?: number;
+  nodes: Record<string, ApiLoopStep>;
+  order?: string[];
+  failedAt?: string;
+  error?: string;
+  startedAt?: string;
+  completedAt?: string;
+}
+
+export interface ApiLoopRun {
+  totalItems?: number;
+  batchSize?: number;
+  concurrency?: number;
+  onItemFailure?: string;
+  stopAfterFailures?: number;
+  concurrencyFallback?: string;
+  /** set only when "Run at a time" was above the limit (20) and was clamped */
+  concurrencyClamped?: string;
+  passes: ApiLoopPass[];
+  truncated?: boolean;
+  stoppedEarly?: boolean;
+  failed?: number;
+  skipped?: number;
+  longestFailStreak?: number;
+}
+
+export interface ApiPollTry {
+  n: number;
+  at: string;
+  /** pending | met | timeout */
+  result: string;
+  value?: unknown;
+}
+
+export interface ApiPollRun {
+  sessions: Array<{ startedAt?: string; tries: ApiPollTry[]; outcome?: string; attempts?: number; passes?: Record<string, number>; truncated?: boolean }>;
+  truncated?: boolean;
 }
 
 export const executionsApi = {

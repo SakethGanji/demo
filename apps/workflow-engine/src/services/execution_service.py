@@ -193,6 +193,7 @@ class ExecutionService:
                 start_time=e.start_time.isoformat(),
                 end_time=e.end_time.isoformat() if e.end_time else None,
                 error_count=len(e.errors),
+                attribution=(e.metadata or {}).get("attribution"),
             )
             for e in executions
         ]
@@ -233,6 +234,9 @@ class ExecutionService:
                 for name, data in execution.node_data.items()
             },
             node_metrics=execution.node_metrics,
+            attribution=(execution.metadata or {}).get("attribution"),
+            loop_runs=(execution.metadata or {}).get("loop_runs"),
+            poll_tries=(execution.metadata or {}).get("poll_tries"),
         )
 
     async def _version_numbers(self, version_ids: list[int | None]) -> dict[int, int]:
@@ -329,14 +333,16 @@ class ExecutionService:
 
         new_exec_id = runner._generate_id()  # the id the run really uses (returned to the caller, cancellable)
 
+        # The row exists before the id is handed back (a client may GET it at once) and while the run is in flight
+        # (node outputs and any sub-workflow rows point at it).
+        async with async_session_factory() as session:
+            from ..repositories.execution_repository import ExecutionRepository
+            await ExecutionRepository(session).start(
+                new_exec_id, stored.id, stored.name, execution.mode,
+                project_id=stored.project_id, environment=env)
+
         async def _run() -> None:
             try:
-                # The row exists while the run is in flight (node outputs and any sub-workflow rows point at it).
-                async with async_session_factory() as session:
-                    from ..repositories.execution_repository import ExecutionRepository
-                    await ExecutionRepository(session).start(
-                        new_exec_id, stored.id, stored.name, execution.mode,
-                        project_id=stored.project_id, environment=env)
                 context = await runner.run(
                     stored.workflow,
                     start_node.name,

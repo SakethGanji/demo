@@ -168,6 +168,9 @@ async def _run_workflow_with_events(
             event_queue.put_nowait(None)
 
     task = asyncio.create_task(run_workflow())
+    from ..engine import execution_registry
+
+    execution_registry.register(exec_id, task)  # so POST /executions/{id}/cancel stops a streamed run
 
     try:
         while True:

@@ -11,6 +11,10 @@ import { nodeEl, openEditor, openTestsTab, pick } from '../fixtures/tests3a'
 import type { Page } from '@playwright/test'
 import fs from 'node:fs'
 import path from 'node:path'
+import { legacyEditor } from '../fixtures/legacy'
+
+// these specs guard the legacy canvas editor (the glass editor is the default)
+test.beforeEach(async ({ page }) => legacyEditor(page))
 
 const SHOTS = '/tmp/claude-1000/-home-saketh-Projects-playground-work-demo/3b980f2a-bdc6-4187-b5dc-d2b1e0bdc78d/scratchpad/shots/stage8'
 

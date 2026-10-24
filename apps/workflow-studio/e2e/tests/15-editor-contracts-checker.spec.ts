@@ -8,6 +8,10 @@ import path from 'node:path'
 import { test, expect, type EngineApi } from '../fixtures/test'
 import { seedProject, seedWorkflow, type P } from '../fixtures/seed'
 import type { StackState } from '../global-setup'
+import { legacyEditor } from '../fixtures/legacy'
+
+// these specs guard the legacy canvas editor (the glass editor is the default)
+test.beforeEach(async ({ page }) => legacyEditor(page))
 
 const SHOTS = '/tmp/claude-1000/-home-saketh-Projects-playground-work/07d49b96-ad12-42c5-9569-58e6b1f9be16/scratchpad/shots2'
 

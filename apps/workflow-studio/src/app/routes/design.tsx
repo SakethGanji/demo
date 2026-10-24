@@ -36,6 +36,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Brand, ThemeToggle } from '@/features/project/components/TopBar'
 import { AppThumb, SystemDiagram, type SystemDiagramHandle } from '@/shared/components/art/SystemDiagram'
 import { useRef } from 'react'
+import { GlassShowcase } from '@/shared/glass/GlassShowcase'
 
 function Section({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) {
   return (
@@ -524,6 +525,8 @@ function DesignReference() {
           )}
           <StackTrace traceback={TRACE} onOpenFrame={(f) => toast(`Open ${f.file}:${f.line}`)} />
         </Section>
+
+        <GlassShowcase />
       </div>
     </div>
   )

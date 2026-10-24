@@ -74,3 +74,54 @@ test('pause / step / resume gate a UI case between steps', async () => {
   job.status = 'passed';
   assert.throws(() => applyControl(job, 'pause'), ControlError);
 });
+
+// ---- take over: the user drives the live page, then hands it back ------------------------------------------------
+const { relayInput, InputError } = await import('../src/control.ts');
+
+function fakeLive() {
+  const calls: unknown[][] = [];
+  const page = {
+    viewportSize: () => ({ width: 1280, height: 800 }),
+    mouse: { click: async (x: number, y: number) => { calls.push(['click', x, y]); }, wheel: async (dx: number, dy: number) => { calls.push(['wheel', dx, dy]); } },
+    keyboard: { type: async (t: string) => { calls.push(['type', t]); }, press: async (k: string) => { calls.push(['press', k]); } },
+  };
+  return { calls, live: { page, context: {} } };
+}
+
+test('takeover pauses and relays click / type / key / scroll to the live page; handback resumes', async () => {
+  const { calls, live } = fakeLive();
+  const job = { status: 'running', control: { paused: false, stepCredits: 0, takenOver: false }, progress: { current_case_id: 'c1' }, events: [], seq: 0, creds: { pw: 's3cret-value' }, job_id: 'job_test_unit', live: new Map([['c1', live]]) } as unknown as Job;
+  // input before takeover is refused
+  await assert.rejects(relayInput(job, { type: 'click', x: 0.5, y: 0.5 }), ControlError);
+  const tk = applyControl(job, 'takeover');
+  assert.deepEqual([tk.paused, tk.taken_over], [true, true]);
+  // the scripted steps wait while the user has the page
+  const ctl = new AbortController();
+  let released = false;
+  const waiting = gate(job, 'c1', ctl.signal).then(() => { released = true; });
+  try {
+  await relayInput(job, { type: 'click', x: 0.5, y: 0.25 });
+  await relayInput(job, { type: 'type', text: 's3cret-value' });
+  await relayInput(job, { type: 'key', key: 'Enter' });
+  await relayInput(job, { type: 'scroll', dx: 0, dy: 300 });
+  assert.deepEqual(calls, [['click', 640, 200], ['type', 's3cret-value'], ['press', 'Enter'], ['wheel', 0, 300]]);
+  assert.throws(() => applyControl(job, 'step'), ControlError); // hand back first
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal(released, false);
+  // the typed text never reaches the event log
+  assert.ok(!JSON.stringify(job.events).includes('s3cret'), JSON.stringify(job.events));
+  assert.ok(job.events.some((e) => /typed 12 characters/.test(e.text)));
+  // bad input is a 400, not a crash
+  for (const bad of [{ type: 'click', x: 2, y: 0 }, { type: 'key', key: 'Control+Alt+Delete' }, { type: 'type', text: 'x'.repeat(5000) }, { type: 'drag' }, { type: 'scroll', dx: 'a', dy: 1 }])
+    await assert.rejects(relayInput(job, bad as never), InputError, JSON.stringify(bad));
+  const h = applyControl(job, 'handback');
+  assert.deepEqual([h.paused, h.taken_over], [false, false]);
+  await waiting;
+  assert.equal(released, true);
+  } finally { ctl.abort(); }
+  await assert.rejects(relayInput(job, { type: 'key', key: 'Tab' }), ControlError); // no longer taken over
+  assert.throws(() => applyControl(job, 'handback'), ControlError);
+  // nothing live → nothing to take over
+  const idle = { ...job, live: new Map(), control: { paused: false, stepCredits: 0, takenOver: false }, events: [] } as unknown as Job;
+  assert.throws(() => applyControl(idle, 'takeover'), ControlError);
+});

@@ -25,6 +25,8 @@ import { ProjectAppBuilder } from '@/features/app-builder/ProjectAppBuilder'
 import { ApprovalsPage } from '@/features/approvals/ApprovalsPage'
 import { TaskDetailPage } from '@/features/approvals/TaskDetailPage'
 import { aiBuildRoute } from './ai-build'
+import { NotebookManagerPage } from '@/features/notebook/NotebookManagerPage'
+import { NotebookPage } from '@/features/notebook/NotebookPage'
 
 const str = (v: unknown) => (typeof v === 'string' && v.length > 0 ? v : undefined)
 
@@ -217,6 +219,24 @@ export const approvalTaskRoute = createRoute({
   component: TaskDetailPage,
 })
 
+export const notebooksRoute = createRoute({
+  getParentRoute: () => workspaceRoute,
+  path: 'notebooks',
+  component: NotebookManagerPage,
+})
+
+export interface NotebookSearch {
+  cell?: string
+  run?: string
+}
+
+export const notebookRoute = createRoute({
+  getParentRoute: () => workspaceRoute,
+  path: 'notebooks/$notebookId',
+  validateSearch: (s: Record<string, unknown>): NotebookSearch => ({ cell: str(s.cell), run: str(s.run) }),
+  component: NotebookPage,
+})
+
 export const appsIndexRoute = createRoute({
   getParentRoute: () => projectRoute,
   path: 'apps',
@@ -294,6 +314,8 @@ export const projectRouteTree = projectRoute.addChildren([
     runRoute,
     approvalsRoute,
     approvalTaskRoute,
+    notebooksRoute,
+    notebookRoute,
   ]),
   appsIndexRoute,
   workflowsRoute,

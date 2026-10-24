@@ -1,0 +1,144 @@
+{
+  "name": "Payment checks",
+  "description": "A batch of payments arrives; each is checked against its screening URL, three at a time. A payment whose check fails is skipped and the rest go on; five failures in a row stop the batch early.",
+  "nodes": [
+    {
+      "name": "Webhook",
+      "type": "Webhook",
+      "label": "Payments arrive",
+      "parameters": {
+        "method": "POST",
+        "path": "payment-batch",
+        "responseMode": "onReceived"
+      },
+      "position": {
+        "x": 0,
+        "y": 200
+      }
+    },
+    {
+      "name": "Split payments",
+      "type": "ItemLists",
+      "label": "One item per payment",
+      "parameters": {
+        "operation": "splitOut",
+        "arrayField": "body.payments",
+        "includeOther": false
+      },
+      "position": {
+        "x": 260,
+        "y": 200
+      }
+    },
+    {
+      "name": "Each payment",
+      "type": "Loop",
+      "label": "Each payment",
+      "parameters": {
+        "batchSize": 1,
+        "concurrency": 3,
+        "onItemFailure": "skip",
+        "stopAfterFailures": 5
+      },
+      "position": {
+        "x": 520,
+        "y": 200
+      }
+    },
+    {
+      "name": "Screen payment",
+      "type": "HttpRequest",
+      "label": "Screen the payment",
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $json.check_url }}",
+        "body": "{\"payment_id\": \"{{ $json.id }}\"}",
+        "responseType": "json"
+      },
+      "position": {
+        "x": 780,
+        "y": 200
+      }
+    },
+    {
+      "name": "Mark screened",
+      "type": "Set",
+      "label": "Mark screened",
+      "parameters": {
+        "mode": "manual",
+        "keepOnlySet": true,
+        "fields": [
+          {
+            "name": "id",
+            "value": "{{ $node[\"Each payment\"].json.id }}"
+          },
+          {
+            "name": "status",
+            "value": "screened"
+          }
+        ]
+      },
+      "position": {
+        "x": 1040,
+        "y": 200
+      }
+    },
+    {
+      "name": "Batch summary",
+      "type": "Set",
+      "label": "Batch summary",
+      "parameters": {
+        "mode": "manual",
+        "keepOnlySet": true,
+        "fields": [
+          {
+            "name": "screened",
+            "value": "{{ $json.total_items }}"
+          }
+        ]
+      },
+      "position": {
+        "x": 780,
+        "y": 420
+      }
+    }
+  ],
+  "connections": [
+    {
+      "source_node": "Webhook",
+      "target_node": "Split payments",
+      "source_output": "main",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Split payments",
+      "target_node": "Each payment",
+      "source_output": "main",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Each payment",
+      "target_node": "Screen payment",
+      "source_output": "loop",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Screen payment",
+      "target_node": "Mark screened",
+      "source_output": "main",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Mark screened",
+      "target_node": "Each payment",
+      "source_output": "main",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Each payment",
+      "target_node": "Batch summary",
+      "source_output": "done",
+      "target_input": "main"
+    }
+  ]
+}

@@ -330,24 +330,13 @@ function WorkflowEdge({
     return isHovered ? EDGE_COLORS.hover : EDGE_COLORS.default;
   }, [edgeStatus, isHovered, isDragging]);
 
-  // Track transitions — only animate when status *changes* to running, not on stale remounts
-  const prevEdgeStatusRef = useRef<string | null>(null);
-  const [liveRunning, setLiveRunning] = useState(false);
+  // Track transitions — only animate when status *changes* to running, not on stale remounts.
+  // Adjusted during render, not in an effect: a fast run changes every edge's status on each event, and a
+  // setState in an effect per status change chained >50 commits on a long workflow ("Maximum update depth").
+  const [statusTrack, setStatusTrack] = useState({ status: edgeStatus, live: false });
+  if (statusTrack.status !== edgeStatus) setStatusTrack({ status: edgeStatus, live: edgeStatus === 'running' });
 
-  useEffect(() => {
-    const prev = prevEdgeStatusRef.current;
-    prevEdgeStatusRef.current = edgeStatus;
-
-    if (prev === null) return; // skip initial mount — avoids replaying stale animations
-
-    if (edgeStatus === 'running' && prev !== 'running') {
-      setLiveRunning(true);
-    } else if (edgeStatus !== 'running') {
-      setLiveRunning(false);
-    }
-  }, [edgeStatus]);
-
-  const isAnimated = liveRunning;
+  const isAnimated = statusTrack.live;
   const finishAnim = useCallback((expected: string) => {
     useStageStore.getState().setEdges((es) =>
       es.map((e) => (e.id === id && (e.data as { anim?: string } | undefined)?.anim === expected

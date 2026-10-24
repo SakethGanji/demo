@@ -138,11 +138,15 @@ class WorkflowService:
         # Build updated workflow from existing + request
         internal_workflow = Workflow(
             name=request.name or existing.workflow.name,
-            nodes=[n.to_dataclass() for n in request.nodes] if request.nodes else existing.workflow.nodes,
-            connections=[c.to_dataclass() for c in request.connections] if request.connections else existing.workflow.connections,
+            # An explicit [] means "none" (every step / wire removed); only an absent field keeps the stored ones
+            nodes=[n.to_dataclass() for n in request.nodes] if request.nodes is not None else existing.workflow.nodes,
+            connections=(
+                [c.to_dataclass() for c in request.connections] if request.connections is not None else existing.workflow.connections
+            ),
             id=workflow_id,
             description=request.description or existing.workflow.description,
-            settings=request.settings or existing.workflow.settings,
+            # settings merge by key: a client saving one key (the editor's sticky_notes) keeps the others
+            settings={**(existing.workflow.settings or {}), **request.settings} if request.settings is not None else existing.workflow.settings,
             tests=tests,
             test_defaults=test_defaults,
             interface=existing.workflow.interface,       # Stage 5: edited only through the interface endpoints
@@ -676,6 +680,7 @@ class WorkflowService:
         workflow_id: str,
         input_data: dict[str, Any] | None = None,
         environment: str = "default",
+        attribution: dict[str, Any] | None = None,
     ) -> ExecutionResponse:
         """Run a saved workflow (draft definition) with optional input data.
 
@@ -686,7 +691,8 @@ class WorkflowService:
         # Review C2: a studio run is "manual" even when it carries input_data (was stored as "webhook").
         _, context = await svc.run_saved_workflow(workflow_id, input_data, environment=environment,
                                                   strict_environment=True, mode="manual",
-                                                  metadata={"trigger": {"type": "manual"}})
+                                                  metadata={"trigger": {"type": "manual"},
+                                                            **({"attribution": attribution} if attribution else {})})
         return self._build_execution_response(context)
 
     async def test_node(self, workflow_id: str, name: str, body: Any) -> ExecutionResponse:

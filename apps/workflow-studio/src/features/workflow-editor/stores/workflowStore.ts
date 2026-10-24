@@ -245,6 +245,17 @@ interface WorkflowState {
 }
 
 /** Count only real workflow nodes (excludes placeholders and sticky notes). */
+
+/** node id → pinned items, for the nodes that carry pinned data. */
+function pinnedFromNodes(nodes: Node[]): Record<string, Array<{ json: Record<string, unknown> }>> {
+  const out: Record<string, Array<{ json: Record<string, unknown> }>> = {};
+  for (const n of nodes) {
+    const pd = (n.data as Partial<WorkflowNodeData> | undefined)?.pinnedData;
+    if (n.type === 'workflowNode' && Array.isArray(pd) && pd.length) out[n.id] = pd as Array<{ json: Record<string, unknown> }>;
+  }
+  return out;
+}
+
 function countWorkflowNodes(nodes: Node[]) {
   return nodes.filter((n) => n.type === 'workflowNode').length;
 }
@@ -508,6 +519,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         _isDirty: true,
       });
     }
+    // A changed label (the step's display name) is an edit too: it is saved with the workflow.
+    if (before && typeof data.label === 'string' && data.label !== before.label) set({ _isDirty: true });
     set({
       nodes: get().nodes.map((node) => {
         if (node.id !== nodeId) return node;
@@ -624,6 +637,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     // Atomic update: both pinnedData and node.data.pinnedData in one set()
     const { pinnedData, nodes } = get();
     set({
+      _isDirty: true,
       pinnedData: { ...pinnedData, [nodeId]: data },
       nodes: nodes.map((node) =>
         node.id === nodeId
@@ -639,6 +653,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     const newPinnedData = { ...pinnedData };
     delete newPinnedData[nodeId];
     set({
+      _isDirty: true,
       pinnedData: newPinnedData,
       nodes: nodes.map((node) =>
         node.id === nodeId
@@ -685,7 +700,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       selectedNodeId: null,
       executionData: {},
       viewingExecution: null,
-      pinnedData: {},
+      // The server's pins arrive on node.data (fromBackendWorkflow); the record the canvas reads mirrors them.
+      pinnedData: pinnedFromNodes(processedNodes),
       tests: data.tests ?? [],
       testDefaults: data.testDefaults ?? { mocks: {} },
       nodeRenames: {},

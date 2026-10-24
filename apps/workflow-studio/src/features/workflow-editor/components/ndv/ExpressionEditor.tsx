@@ -1,9 +1,14 @@
-import { useState, useRef, useEffect, useMemo, memo, useCallback } from 'react';
+import { useState, useRef, useEffect, useMemo, memo, useCallback, createContext, useContext } from 'react';
 import { X, ChevronDown, Eye, EyeOff, Maximize2 } from 'lucide-react';
 import FullscreenExpressionEditor from './FullscreenExpressionEditor';
 import { useActiveNodeName, useShapesByNode } from '../../hooks/useWorkflowSelectors';
 import { contractSuggestions } from '../../lib/contractSuggestions';
 import { detectTrigger, filterByToken, applyTrigger, type ExpressionTrigger } from '../../lib/expressionTrigger';
+
+/** When true, editors start with the resolved-value preview shown (the glass node sheet turns it on). */
+export const ExpressionPreviewContext = createContext(false);
+/** Fallback sample data for editors nested where the form does not pass it down (e.g. inside a collection). */
+export const ExpressionSampleContext = createContext<{ sampleData?: Record<string, unknown>[]; allNodeData?: Record<string, Record<string, unknown>[]> }>({});
 
 // Type definitions for output schema (matching workflow-engine)
 interface OutputSchemaProperty {
@@ -197,11 +202,14 @@ export default memo(function ExpressionEditor({
   id,
   onBlur,
   outputSchema,
-  sampleData,
-  allNodeData,
+  sampleData: sampleDataProp,
+  allNodeData: allNodeDataProp,
   rows = 2,
   maxRows = 15,
 }: ExpressionEditorProps) {
+  const sampleCtx = useContext(ExpressionSampleContext);
+  const sampleData = sampleDataProp ?? sampleCtx.sampleData;
+  const allNodeData = allNodeDataProp ?? sampleCtx.allNodeData;
   // Local state for responsive typing — prevents parent re-renders from resetting input
   const [localValue, setLocalValue] = useState(value);
   const prevValueRef = useRef(value);
@@ -224,7 +232,7 @@ export default memo(function ExpressionEditor({
   const setShowSuggestions = (open: boolean) => { if (!open) setSuggest(null); };
   const [cursorPosition, setCursorPosition] = useState(0);
   const [isDragOver, setIsDragOver] = useState(false);
-  const [showPreview, setShowPreview] = useState(false);
+  const [showPreview, setShowPreview] = useState(useContext(ExpressionPreviewContext));
   const [activeIndex, setActiveIndex] = useState(0);
   const [showFullscreen, setShowFullscreen] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -596,7 +604,7 @@ export default memo(function ExpressionEditor({
 
         {/* Preview display */}
         {showPreview && previewValue && (
-          <div className="mt-1 rounded-ctl bg-warning-soft px-2 py-1">
+          <div className="mt-1 rounded-ctl bg-warning-soft px-2 py-1" data-testid="expr-preview">
             <div className="flex items-center gap-1 mb-0.5">
               <Eye size={10} className="text-warning-text" />
               <span className="text-[10.5px] font-medium text-warning-text">Preview</span>

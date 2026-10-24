@@ -8,6 +8,10 @@ import path from 'node:path'
 import { test, expect, rand, type EngineApi } from '../fixtures/test'
 import { seedProject, seedWorkflow, type P } from '../fixtures/seed'
 import type { StackState } from '../global-setup'
+import { legacyEditor } from '../fixtures/legacy'
+
+// these specs guard the legacy canvas editor (the glass editor is the default)
+test.beforeEach(async ({ page }) => legacyEditor(page))
 
 type Items = Array<{ json: Record<string, unknown> }>
 interface ExecDetail {

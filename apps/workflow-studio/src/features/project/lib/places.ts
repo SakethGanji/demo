@@ -3,9 +3,9 @@
  * Each has its own icon and hue, like an app on a home screen. `overlay` places open as a sheet over the current
  * page instead of navigating (Settings).
  */
-import { CheckCheck, CodeXml, Database, FileCode2, FileSpreadsheet, History, KeyRound, Plug, Settings2, Waypoints, type LucideIcon } from 'lucide-react'
+import { CheckCheck, CodeXml, Database, FileCode2, FileSpreadsheet, History, KeyRound, NotebookPen, Plug, Settings2, Waypoints, type LucideIcon } from 'lucide-react'
 
-export type PlaceKey = 'runs' | 'approvals' | 'data' | 'backend' | 'code' | 'secrets' | 'knowledge' | 'datasets' | 'apis' | 'settings'
+export type PlaceKey = 'notebooks' | 'runs' | 'approvals' | 'data' | 'backend' | 'code' | 'secrets' | 'knowledge' | 'datasets' | 'apis' | 'settings'
 
 export interface Place {
   key: PlaceKey
@@ -19,6 +19,7 @@ export interface Place {
 }
 
 export const PLACES: Place[] = [
+  { key: 'notebooks', label: 'Notebooks', Icon: NotebookPen, text: 'text-hue-ai', tint: 'bg-hue-ai/16', to: '/p/$project/notebooks' },
   { key: 'runs', label: 'Runs', Icon: History, text: 'text-hue-runs', tint: 'bg-hue-runs/16', to: '/p/$project/runs' },
   { key: 'approvals', label: 'Approvals', Icon: CheckCheck, text: 'text-hue-flow', tint: 'bg-hue-flow/16', to: '/p/$project/approvals' },
   { key: 'data', label: 'Data', Icon: Database, text: 'text-hue-data', tint: 'bg-hue-data/16', to: '/p/$project/data' },

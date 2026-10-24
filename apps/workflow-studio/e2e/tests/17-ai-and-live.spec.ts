@@ -10,6 +10,10 @@ import { mkTest, openEditor, openTestsTab, rowByName, seedRefund } from '../fixt
 import { OwnFakeApi, putLlmRules, restoreLlmScript, shot } from '../fixtures/shots17'
 import type { Page } from '@playwright/test'
 import type { StackState } from '../global-setup'
+import { legacyEditor } from '../fixtures/legacy'
+
+// these specs guard the legacy canvas editor (the glass editor is the default)
+test.beforeEach(async ({ page }) => legacyEditor(page))
 
 
 type TestCase = Record<string, unknown> & { id: string; name: string; status?: string; locked?: boolean; source?: string; approved_by?: string; expect?: Array<Record<string, unknown>> }

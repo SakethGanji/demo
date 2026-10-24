@@ -30,9 +30,12 @@ FUNCTION = "jobs"
 #: The function's identity in tokens, ``allowed_functions`` and the broker_calls log (``snake(NODE_TYPE) == FUNCTION``).
 NODE_TYPE = "Jobs"
 
-OPERATIONS = ("start", "get", "events", "frame", "artifacts", "artifact", "cancel", "control")
-#: ``control`` actions the Jobs service understands (``takeover`` is reserved there and answers 501 for now).
-CONTROL_ACTIONS = ("pause", "resume", "step", "takeover")
+OPERATIONS = ("start", "get", "events", "frame", "artifacts", "artifact", "cancel", "control", "input")
+#: ``control`` actions the Jobs service understands; ``takeover`` pauses the scripted steps so the user can drive the
+#: live page (``input``), ``handback`` resumes them.
+CONTROL_ACTIONS = ("pause", "resume", "step", "takeover", "handback")
+#: ``input`` (take over only): one relayed event; the Jobs service validates the fields again.
+INPUT_TYPES = ("click", "type", "key", "scroll")
 READ_OPERATIONS = frozenset({"get", "events", "frame", "artifacts", "artifact"})
 
 #: The token used when ``JOBS_DEV`` is on and ``JOBS_SERVICE_TOKEN`` is unset. Must equal the Jobs service's own dev
@@ -139,6 +142,9 @@ def check_start(parameters: dict[str, Any], allowlist: list[str], secret_hosts: 
 
 def loggable(parameters: dict[str, Any]) -> dict[str, Any]:
     """Parameters as stored in broker_calls: credential values never land in the log, secret or not."""
+    ev = parameters.get("input")
+    if isinstance(ev, dict) and "text" in ev:  # typed text while taken over may be a password
+        parameters = {**parameters, "input": {**ev, "text": f"*** ({len(str(ev.get('text') or ''))} characters)"}}
     body = parameters.get("body")
     if isinstance(body, dict) and isinstance(body.get("credentials"), dict):
         body = {**body, "credentials": {k: "***" for k in body["credentials"]}}
@@ -175,6 +181,12 @@ def _request(op: str, parameters: dict[str, Any]) -> tuple[str, str, dict[str, A
             raise PolicyError("invalid_request", 400, f"`action` must be one of {', '.join(CONTROL_ACTIONS)}",
                               action=str(action)[:40])
         return "POST", f"/jobs/{jid}/control", {"action": action.strip().lower()}, None
+    if op == "input":
+        ev = parameters.get("input")
+        if not isinstance(ev, dict) or ev.get("type") not in INPUT_TYPES:
+            raise PolicyError("invalid_request", 400, f"`input.type` must be one of {', '.join(INPUT_TYPES)}")
+        allowed = {"click": ("x", "y"), "type": ("text",), "key": ("key",), "scroll": ("dx", "dy")}[ev["type"]]
+        return "POST", f"/jobs/{jid}/input", {"type": ev["type"], **{k: ev.get(k) for k in allowed}}, None
     return "POST", f"/jobs/{jid}/cancel", None, None
 
 

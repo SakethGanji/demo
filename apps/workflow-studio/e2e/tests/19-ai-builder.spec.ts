@@ -13,6 +13,10 @@ import type { Page } from '@playwright/test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { legacyEditor } from '../fixtures/legacy'
+
+// these specs guard the legacy canvas editor (the glass editor is the default)
+test.beforeEach(async ({ page }) => legacyEditor(page))
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const SCRIPTS = path.resolve(HERE, '../../../workflow-engine/tests/fixtures/fake_llm/ai_builder')

@@ -1,5 +1,5 @@
 // UI cases: one fresh browser context per case, test-builder's policy + executor, live frames, trace + video.
-import { mkdirSync, renameSync, existsSync } from 'node:fs';
+import { mkdirSync, renameSync, existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium, type Browser, type Page } from '@playwright/test';
 import { execute, type ExecResult } from '../../test-builder/src/explore.ts';
@@ -101,7 +101,24 @@ async function startFrames(job: Job, caseId: string, page: Page): Promise<() => 
 
 // ---------------------------------------------------------------- runner
 export interface UiCaseInput { job: Job; target: Target; caseId: string; steps: UiStep[]; caseDir: string; signal: AbortSignal }
-type UiOutcome = Pick<CaseResult, 'status' | 'failed_step' | 'error'> & { files: string[] };
+type UiOutcome = Pick<CaseResult, 'status' | 'failed_step' | 'error' | 'notes'> & { files: string[] };
+
+/** Credentials plus everything typed during take over: what must be redacted from text a case keeps. */
+export function redactions(job: Job): Record<string, string> {
+  const typed = job.control.typed ?? [];
+  const out: Record<string, string> = { ...job.creds };
+  typed.forEach((t, n) => { out[`typed_${n + 1}`] = t; });
+  if (typed.length > 1) out.typed = typed.join('');
+  return out;
+}
+/** An aria snapshot without the values of text fields (`- textbox "Note": hello` -> `- textbox "Note"`). */
+export const withoutFieldValues = (snap: string) => snap.replace(/^(\s*-\s+(?:textbox|searchbox|combobox|spinbutton)\b[^\n]*?)(?::\s.*)$/gm, '$1');
+
+export const TAKEOVER_NOTES = {
+  trace: 'trace not kept after take over: the trace stops when take over starts, so it holds only the steps before it',
+  video: 'video not kept: take over used',
+  screenshots: 'screenshots after take over not kept: take over used',
+} as const;
 
 const STEP_TIMEOUT = 5000;
 
@@ -137,7 +154,18 @@ export async function runUiCase(i: UiCaseInput): Promise<UiOutcome> {
   await context.tracing.start({ screenshots: true, snapshots: true });
   const page = await context.newPage();
   trackRequests(page);
-  job.live.set(caseId, { page, context });
+  const tracePath = join(i.caseDir, `${caseId}.trace.zip`);
+  // Take over: end the trace chunk (it holds only the scripted steps so far) before the user gets the page; nothing
+  // after that is traced, recorded on video or screenshotted, because the page now holds what the user typed.
+  let takenOver = false;
+  let preTrace = false;
+  const onTakeover = async () => {
+    if (takenOver) return;
+    takenOver = true;
+    preTrace = await context.tracing.stopChunk({ path: tracePath }).then(() => true, () => false);
+    emit(job, 'log', caseId, 'take over: the trace stops here; the video and later screenshots are not kept', { control: 'trace_cut' });
+  };
+  job.live.set(caseId, { page, context, onTakeover });
   const onAbort = () => { context.close().catch(() => {}); };
   i.signal.addEventListener('abort', onAbort);
 
@@ -161,6 +189,7 @@ export async function runUiCase(i: UiCaseInput): Promise<UiOutcome> {
   const stopFrames = await startFrames(job, caseId, page);
   let outcome: UiOutcome = { status: 'passed', files };
   const shot = async (name: string) => {
+    if (takenOver) return; // the page may show what the user typed
     const f = join(i.caseDir, `${caseId}.${name}.png`);
     if (await page.screenshot({ path: f, timeout: 3000 }).then(() => true, () => false)) files.push(f);
   };
@@ -190,7 +219,7 @@ export async function runUiCase(i: UiCaseInput): Promise<UiOutcome> {
         r = { outcome: 'error', message: (e as Error).message };
       }
       const ms = Date.now() - t0;
-      const msg = r.message ? scrub(r.message.replace(/\u001b\[[0-9;]*m/g, '').split('\n').slice(0, 3).join(' ').slice(0, 600), job.creds) : undefined;
+      const msg = r.message ? scrub(r.message.replace(/\u001b\[[0-9;]*m/g, '').split('\n').slice(0, 3).join(' ').slice(0, 600), redactions(job)) : undefined;
       if (i.signal.aborted) { outcome = { status: 'cancelled', files }; break; }
       if (r.outcome === 'ok') { netCount[String(idx)] = network.length; emit(job, 'step_pass', caseId, desc, { index: idx, ms }); continue; }
       if (r.outcome === 'blocked') {
@@ -203,7 +232,8 @@ export async function runUiCase(i: UiCaseInput): Promise<UiOutcome> {
       emit(job, 'step_fail', caseId, `${desc}: ${msg}`, { index: idx, ms, error: msg });
       await shot('failure');
       // Evidence for triage: what the page actually offers, near the target.
-      const snap = scrub(await page.locator('body').ariaSnapshot({ timeout: 3000 }).catch(() => ''), job.creds);
+      const rawSnap = await page.locator('body').ariaSnapshot({ timeout: 3000 }).catch(() => '');
+      const snap = scrub(takenOver ? withoutFieldValues(rawSnap) : rawSnap, redactions(job));
       const ref = refOf(step);
       const pairs = ariaPairs(snap);
       const candidates = ref?.name !== undefined
@@ -214,12 +244,12 @@ export async function runUiCase(i: UiCaseInput): Promise<UiOutcome> {
       job.failures[caseId] = {
         case_id: caseId, kind: 'ui', steps, failed_index: idx, failed_step: step, error: msg ?? 'step failed',
         url: page.url(), title: await page.title().catch(() => ''), candidates, aria_snapshot: snap.slice(0, 6000), network: network.slice(-25),
-        job_id: job.job_id, full_network: network.slice(0, 200), text_lines: await visibleLines(page, job.creds), screenshot: `${caseId}.failure.png`,
+        job_id: job.job_id, full_network: network.slice(0, 200), text_lines: await visibleLines(page, redactions(job)), ...(takenOver ? {} : { screenshot: `${caseId}.failure.png` }),
       };
       outcome = { status: 'failed', failed_step: { index: idx, step, description: desc }, error: msg, files };
       break;
     }
-    if (outcome.status === 'passed') {
+    if (outcome.status === 'passed' && !takenOver) { // a taken-over pass is not a scripted pass: no baseline
       await shot('final');
       // What a pass looks like, so a later failure of this case can be diffed against it.
       saveBaseline({
@@ -229,16 +259,22 @@ export async function runUiCase(i: UiCaseInput): Promise<UiOutcome> {
       });
     }
   } catch (e) {
-    outcome = { status: i.signal.aborted ? 'cancelled' : 'error', error: scrub((e as Error).message.slice(0, 600), job.creds), files };
+    outcome = { status: i.signal.aborted ? 'cancelled' : 'error', error: scrub((e as Error).message.slice(0, 600), redactions(job)), files };
   } finally {
     i.signal.removeEventListener('abort', onAbort);
     await stopFrames();
     const video = page.video();
-    const tracePath = join(i.caseDir, `${caseId}.trace.zip`);
-    if (await context.tracing.stop({ path: tracePath }).then(() => true, () => false)) files.push(tracePath);
+    if (takenOver) {
+      await context.tracing.stop().catch(() => {}); // the chunk since take over is thrown away
+      if (preTrace && existsSync(tracePath)) files.push(tracePath);
+    } else if (await context.tracing.stop({ path: tracePath }).then(() => true, () => false)) files.push(tracePath);
     await context.close().catch(() => {});
     const vp = await video?.path().catch(() => null);
-    if (vp && existsSync(vp)) {
+    if (takenOver) {
+      if (vp) rmSync(vp, { force: true });
+      job.frame = null; // the last live frame may show what was typed
+      outcome.notes = [TAKEOVER_NOTES.trace, TAKEOVER_NOTES.video, TAKEOVER_NOTES.screenshots];
+    } else if (vp && existsSync(vp)) {
       const dest = join(i.caseDir, `${caseId}.video.webm`);
       renameSync(vp, dest);
       files.push(dest);

@@ -1,5 +1,5 @@
 import { registerEditorAction } from '../../stores/editorActionsStore';
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type DragEvent } from 'react';
 import {
   ReactFlow,
   Background,
@@ -117,7 +117,23 @@ interface DraggedNodeData {
   properties?: ApiProperty[];
 }
 
-export default function WorkflowCanvas() {
+export default function WorkflowCanvas({
+  nodeTypes: nodeTypeOverride,
+  edgeTypes: edgeTypeOverride,
+  className,
+}: {
+  /** Replace node renderers by type (the glass editor swaps `workflowNode`); pass a module-stable object. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  nodeTypes?: Record<string, ComponentType<any>>;
+  /** Replace edge renderers by type (the glass editor swaps `workflowEdge`); pass a module-stable object. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  edgeTypes?: Record<string, ComponentType<any>>;
+  className?: string;
+} = {}) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const resolvedNodeTypes: any = useMemo(() => (nodeTypeOverride ? { ...nodeTypes, ...nodeTypeOverride } : nodeTypes), [nodeTypeOverride]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const resolvedEdgeTypes: any = useMemo(() => (edgeTypeOverride ? { ...edgeTypes, ...edgeTypeOverride } : edgeTypes), [edgeTypeOverride]);
   const nodes = useWorkflowStore((s) => s.nodes);
   const edges = useWorkflowStore((s) => s.edges);
   const onEdgesChange = useWorkflowStore((s) => s.onEdgesChange);
@@ -140,7 +156,7 @@ export default function WorkflowCanvas() {
   const bottomPanelOpen = useEditorLayoutStore((s) => s.bottomPanelOpen);
   const rightPanelOpen = useEditorLayoutStore((s) => s.rightPanelOpen);
   const coveredCls = bottomPanelOpen ? 'pointer-events-none opacity-0' : 'transition-opacity';
-  const { fitView, screenToFlowPosition, getNodes, getEdges } = useReactFlow();
+  const { fitView, screenToFlowPosition, getNodes, getEdges, setCenter, getZoom } = useReactFlow();
 
   // Track the current connection being dragged
   const connectingRef = useRef<{ nodeId: string; handleId: string | null } | null>(null);
@@ -256,6 +272,12 @@ export default function WorkflowCanvas() {
       return () => clearTimeout(timer);
     }
   }, [nodes.length > 1]); // Only trigger when we go from 1 node to more
+
+  // Clicking the minimap centres the view there (dragging it pans: `pannable`)
+  const handleMiniMapClick = useCallback(
+    (_: unknown, pos: { x: number; y: number }) => void setCenter(pos.x, pos.y, { zoom: getZoom(), duration: 200 }),
+    [setCenter, getZoom]
+  );
 
   const handleConnect: OnConnect = useCallback(
     (connection) => {
@@ -661,7 +683,7 @@ export default function WorkflowCanvas() {
   return (
     <div
       ref={wrapperRef}
-      className={`relative h-full w-full ${stageActive ? 'stage-on' : ''} ${stageActive && stageMode === 'blueprint' ? 'stage-dim' : ''}`}
+      className={`relative h-full w-full ${stageActive ? 'stage-on' : ''} ${stageActive && stageMode === 'blueprint' ? 'stage-dim' : ''} ${className ?? ''}`}
       data-stage={stageActive ? stageMode : 'off'}
       data-playback={stageActive ? stagePlayback : 'idle'}
       data-build-head={buildHeadNode}
@@ -685,8 +707,8 @@ export default function WorkflowCanvas() {
         onNodeDoubleClick={handleNodeDoubleClick}
         onError={handleError}
         isValidConnection={handleIsValidConnection}
-        nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes}
+        nodeTypes={resolvedNodeTypes}
+        edgeTypes={resolvedEdgeTypes}
         defaultEdgeOptions={DEFAULT_EDGE_OPTIONS}
         fitView
         fitViewOptions={FIT_VIEW_OPTIONS}
@@ -734,6 +756,8 @@ export default function WorkflowCanvas() {
           className={bottomPanelOpen || rightPanelOpen ? 'pointer-events-none opacity-0' : 'transition-opacity'}
           nodeColor={getMinimapNodeColor}
           maskColor="color-mix(in srgb, var(--canvas) 55%, transparent)"
+          pannable
+          onClick={handleMiniMapClick}
         />
 
       </ReactFlow>

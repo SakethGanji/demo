@@ -1,6 +1,6 @@
 # Design standard (for feature code)
 
-The coding version of `demo/design/DESIGN.md`. Read that for the why; this page says **which component or utility to use**. The values live in `src/index.css` (tokens from `demo/design/handoff/tokens.css`); `npm run design:check` enforces the rules below.
+This page says **which component or utility to use** (the root `README.md` covers the glass design of the new features). The values live in `src/index.css` (tokens from `demo/design/handoff/tokens.css`); `npm run design:check` enforces the rules below.
 
 ## The idea in one line
 Subtle glass over a calm, still backdrop of soft light beams (Graphite in dark, pale sky in light). The page is transparent (the backdrop shows), every box is glass with a light rim instead of a border, nothing casts a shadow, and colour means something. Reference: the approved mockup (`glass-studio.html`, Subtle + Graphite).

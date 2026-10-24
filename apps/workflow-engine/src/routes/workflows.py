@@ -206,7 +206,11 @@ async def run_workflow(
     try:
         input_data = body.input_data if body else None
         environment = body.environment if body else "default"
-        return await service.run_workflow(workflow_id, input_data, environment=environment)
+        attribution = None
+        if body and (body.triggered_by or body.run_as or body.via_agent):
+            attribution = {"triggered_by": body.triggered_by, "run_as": body.run_as, "via_agent": body.via_agent,
+                           "via": "api"}
+        return await service.run_workflow(workflow_id, input_data, environment=environment, attribution=attribution)
     except ProjectError as e:
         raise HTTPException(status_code=e.status, detail=e.detail())
     except WorkflowNotFoundError as e:

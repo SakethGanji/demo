@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 #: trigger-like nodes that emit the test's input items instead of running when a test starts at them
 _TEST_TRIGGER_TYPES = {"Start", "Webhook", "Cron", "ChatInput", "FormTrigger", "ErrorTrigger", "ExecuteWorkflowTrigger"}
 
+from . import loop_history as lh
 from .effects import can_go_live, effect_of
 from .expression_engine import ExpressionEngine, expression_engine
 from .logging import execution_id_var, execution_resume_key_var, execution_variables_var, execution_secrets_var
@@ -852,7 +853,33 @@ class WorkflowRunner:
         node_start = perf_counter()
         started_at = datetime.now()
 
-        for attempt in range(max_retries + 1):
+        # A Loop set to run N items at a time: the passes run side by side, each in its own copy of the run state, and
+        # their results are put back in item order (so the output is the same as one after another). A body that
+        # cannot run that way (it pauses, waits, repeats or holds another loop) runs one after another as always.
+        concurrency_fallback: str | None = None
+        concurrent_done = False
+        if node_def.type == "Loop" and plan is None and job.node_name not in context.node_internal_state:
+            from ..nodes.flow.loop import loop_policy
+
+            try:
+                bsz = max(1, int(resolved_node_def.parameters.get("batchSize", 1) or 1))
+            except (TypeError, ValueError):
+                bsz = 1
+            if loop_policy(node, resolved_node_def, bsz)["concurrency"] > 1:
+                concurrency_fallback = self._concurrency_blocker(context, node_def, node_map)
+                if concurrency_fallback is None:
+                    outcome = await self._run_loop_concurrently(context, node, resolved_node_def, job, queue, node_map, on_event)
+                    if outcome is None:
+                        return True  # a pass failed and the run stops (errors recorded)
+                    result, final_run_index = outcome
+                    job = ExecutionJob(node_name=job.node_name, input_data=job.input_data, source_node=job.source_node,
+                                       source_output=job.source_output, run_index=final_run_index)
+                    concurrent_done = True
+                    # the Loop's last call comes after its passes (as one after another)
+                    context.execution_order += 1
+                    execution_order = context.execution_order
+
+        for attempt in range(0 if concurrent_done else max_retries + 1):
             try:
                 if plan is None:
                     result = await node.execute(context, resolved_node_def, job.input_data)
@@ -863,7 +890,10 @@ class WorkflowRunner:
                 break  # Success, exit retry loop
             except WorkflowStopSignal as stop:
                 # Handle graceful workflow stop
+                lh.record_step(context, job.node_name, status="stopped", error=stop.message)
                 if stop.error_type == "error":
+                    for loop_name in lh.enclosing_loops(context, job.node_name):
+                        lh.fail_pass(context, loop_name, job.node_name, stop.message, skipped=False)
                     context.errors.append(
                         ExecutionError(
                             node_name=job.node_name,
@@ -893,6 +923,7 @@ class WorkflowRunner:
         execution_time_ms = round((perf_counter() - node_start) * 1000, 2)
 
         error_routed = False
+        continued_error: str | None = None
 
         # Handle final error after all retries exhausted
         if (last_error or not result) and node_def.on_error == "error_output":
@@ -912,15 +943,17 @@ class WorkflowRunner:
             retry_info = f" (after {max_retries + 1} attempts)" if max_retries > 0 else ""
             error_code = getattr(last_error, "code", None) if isinstance(getattr(last_error, "code", None), str) else None
             error_details = getattr(last_error, "details", None) if isinstance(getattr(last_error, "details", None), dict) else None
-            context.errors.append(
-                ExecutionError(
-                    node_name=job.node_name,
-                    error=f"{error_msg}{retry_info}",
-                    timestamp=datetime.now(),
-                    error_code=error_code,
-                    details=error_details,
-                )
+            # A Loop set to "skip it and keep going" holds this step: the item is skipped, the run carries on
+            skip_loop = self._skipping_loop(context, node_def)
+            node_error = ExecutionError(
+                node_name=job.node_name,
+                error=f"{error_msg}{retry_info}",
+                timestamp=datetime.now(),
+                error_code=error_code,
+                details=error_details,
             )
+            if skip_loop is None:
+                context.errors.append(node_error)
 
             # Build error metrics
             error_metrics: dict[str, Any] = {
@@ -936,6 +969,10 @@ class WorkflowRunner:
             if error_code:
                 error_metrics["errorCode"] = error_code
                 error_metrics["errorDetails"] = error_details or {}
+            if skip_loop is not None:
+                error_metrics["status"] = "skipped"
+                error_metrics["skippedBy"] = skip_loop
+                error_metrics["error"] = error_msg
             context.node_metrics[job.node_name] = error_metrics
 
             self._emit_event(
@@ -951,23 +988,30 @@ class WorkflowRunner:
                 ),
             )
 
-            # Persist error output to DB
+            # Persist error output to DB (a skipped item's row is "skipped", so the run's errors leave it out)
             await self._persist_node_output(
                 execution_id=context.execution_id,
                 node_name=job.node_name,
                 output=None,
                 metrics=error_metrics,
-                status="error",
+                status="skipped" if skip_loop is not None else "error",
                 run_index=job.run_index,
                 error=error_msg,
             )
 
+            if skip_loop is not None:
+                return self._skip_item(context, node_def, job, queue, node_map, skip_loop, node_error, error_metrics)
+
             # Check continueOnFail
             if node_def.on_error == "continue":
+                continued_error = error_msg
                 result = NodeExecutionResult(
                     outputs={"main": [NodeData(json={"error": error_msg, "_errorNode": job.node_name})]}
                 )
             else:
+                lh.record_step(context, job.node_name, status="failed", metrics=error_metrics, error=error_msg)
+                for loop_name in lh.enclosing_loops(context, job.node_name):
+                    lh.fail_pass(context, loop_name, job.node_name, error_msg, skipped=False)
                 # Stop execution: clear the queue so no downstream nodes run
                 queue.clear()
                 # Propagate NO_OUTPUT to any multi-input nodes waiting on this branch
@@ -1038,7 +1082,21 @@ class WorkflowRunner:
         # Merge node-provided metadata (tokens, HTTP status, branch info, etc.)
         if result.metadata:
             node_metrics.update(result.metadata)
+        if node_def.type == "Loop":
+            loop_rec = context.loop_runs.get(job.node_name)
+            if concurrency_fallback and loop_rec is not None:
+                loop_rec["concurrencyFallback"] = concurrency_fallback
+            if loop_rec and loop_rec.get("concurrencyFallback"):
+                node_metrics["concurrencyFallback"] = loop_rec["concurrencyFallback"]
+            if loop_rec and loop_rec.get("concurrencyClamped"):
+                node_metrics["concurrencyClamped"] = loop_rec["concurrencyClamped"]
         context.node_metrics[job.node_name] = node_metrics
+        # per-item loop history (extra recorded data only)
+        lh.record_step(
+            context, job.node_name,
+            status="error_routed" if error_routed else ("error_continued" if continued_error else "ok"),
+            outputs=result.outputs, metrics=node_metrics, error=error_msg if error_routed else continued_error,
+        )
 
         # Persist node output to DB (non-blocking, non-critical)
         await self._persist_node_output(
@@ -1053,6 +1111,274 @@ class WorkflowRunner:
         # Queue next nodes based on outputs
         self._queue_next_nodes(context, node_def, result, queue, node_map, job.run_index)
         return False
+
+    # ------------------------------------------------------------------------------------------- loop settings
+
+    #: steps a Loop body may not hold to run several items at a time (they pause, wait, repeat, answer or stop the run)
+    _NOT_CONCURRENT = frozenset({"Loop", "Poll", "Approval", "Wait", "StopAndError", "Respond", "RespondToWebhook"})
+
+    def _skipping_loop(self, context: ExecutionContext, node_def: NodeDefinition) -> str | None:
+        """The innermost Loop holding this step whose setting is "skip it and keep going", if that Loop is iterating."""
+        loops = lh.enclosing_loops(context, node_def.name)
+        if not loops:
+            return None
+        inner = loops[0]
+        return inner if lh.policy(context, inner).get("onItemFailure") == "skip" else None
+
+    def _skip_item(
+        self,
+        context: ExecutionContext,
+        node_def: NodeDefinition,
+        job: ExecutionJob,
+        queue: list[ExecutionJob],
+        node_map: dict[str, NodeDefinition],
+        loop_name: str,
+        node_error: ExecutionError,
+        error_metrics: dict[str, Any],
+    ) -> bool:
+        """A step inside a "skip" Loop failed: note it, then go on with the next item (or stop early)."""
+        lh.record_step(context, job.node_name, status="skipped", metrics=error_metrics, error=node_error.error)
+        streak = lh.fail_pass(context, loop_name, job.node_name, node_error.error, skipped=True)
+        pol = lh.policy(context, loop_name)
+        # nothing downstream of the failed step runs for this item
+        self._propagate_no_output(context, node_def, queue, node_map, job.run_index)
+        if pol.get("concurrent"):
+            return False  # the concurrent driver goes on with the other items and checks the failure streak itself
+        stop_after = int(pol.get("stopAfterFailures") or 0)
+        if stop_after > 0 and streak >= stop_after:
+            context.errors.append(node_error)
+            context.errors.append(self._stopped_early_error(loop_name, streak, node_error))
+            lh.finish_loop(context, loop_name, stopped_early=True)
+            queue.clear()
+            return True
+        body = lh.loop_body(context, loop_name)
+        if not any(j.node_name in body or j.node_name == loop_name for j in queue):
+            # the Loop takes the next item (its other lanes, if any are still queued, bring it round themselves)
+            queue.append(ExecutionJob(node_name=loop_name, input_data=list(job.input_data), source_node=job.node_name,
+                                      source_output="main", run_index=job.run_index))
+        return False
+
+    @staticmethod
+    def _stopped_early_error(loop_name: str, streak: int, node_error: ExecutionError) -> ExecutionError:
+        return ExecutionError(
+            node_name=loop_name,
+            error=f"Stopped the loop: {streak} items in a row failed (last at {node_error.node_name}: {node_error.error})",
+            timestamp=datetime.now(),
+            error_code="LOOP_STOPPED_EARLY",
+            details={"failures_in_a_row": streak, "last_failed_step": node_error.node_name},
+        )
+
+    def _concurrency_blocker(
+        self, context: ExecutionContext, node_def: NodeDefinition, node_map: dict[str, NodeDefinition]
+    ) -> str | None:
+        """Why this Loop's body must run one item after another; None when its passes can run side by side."""
+        body = lh.loop_body(context, node_def.name)
+        if not body:
+            return "the loop has no steps inside"
+        for name in sorted(body):
+            nd = node_map.get(name)
+            if nd is not None and nd.type in self._NOT_CONCURRENT:
+                return f'"{name}" ({nd.type}) runs one item at a time'
+        for c in context.workflow.connections:
+            if c.target_node in body and c.source_node not in body and c.source_node != node_def.name:
+                return f'"{c.target_node}" is also fed from outside the loop'
+        if context.stop_at is not None and context.stop_at in body:
+            return "a partial run stops inside the loop"
+        return None
+
+    async def _run_loop_concurrently(
+        self,
+        context: ExecutionContext,
+        node: Any,
+        rdef: NodeDefinition,
+        job: ExecutionJob,
+        queue: list[ExecutionJob],
+        node_map: dict[str, NodeDefinition],
+        on_event: ExecutionEventCallback | None,
+    ) -> tuple[NodeExecutionResult, int] | None:
+        """Run a Loop's passes N at a time. Returns the Loop's ``done`` result and the run index it leaves at (the same
+        as one after another), or None when a pass failed and the run stops (its errors are on ``context``)."""
+        loop_name = rdef.name
+        r0 = job.run_index
+        first = await node.execute(context, rdef, job.input_data)
+        state = context.node_internal_state.get(loop_name)
+        if not state:  # no items: the Loop said "done" straight away
+            return first, r0
+        pol = dict(state.get("policy") or {})
+        items = state["items"]
+        bs = max(1, int(pol.get("batchSize") or 1))
+        batches = [items[i:i + bs] for i in range(0, len(items), bs)]
+        n = len(batches)
+        conc = max(1, int(pol.get("concurrency") or 1))
+        stop_after = int(pol.get("stopAfterFailures") or 0)
+        skip = pol.get("onItemFailure") == "skip"
+        body = lh.loop_body(context, loop_name)
+        context.node_internal_state.pop(loop_name, None)
+        base_states = context.node_states
+        base_counts = dict(context.node_run_counts)
+
+        results: list[ExecutionContext | None] = [None] * n
+        status: list[str | None] = [None] * n  # "ok" | "failed"
+        stop = {"flag": False, "early_at": None}
+        sem = asyncio.Semaphore(conc)
+
+        def check_prefix() -> None:
+            # the failure streak, read in item order over the passes finished so far (as one after another would)
+            streak = 0
+            for i in range(n):
+                if status[i] is None:
+                    return
+                if status[i] == "failed":
+                    if not skip:
+                        stop["flag"] = True
+                        return
+                    streak += 1
+                    if stop_after > 0 and streak >= stop_after:
+                        stop["flag"] = True
+                        stop["early_at"] = i if stop["early_at"] is None else min(stop["early_at"], i)
+                        return
+                else:
+                    streak = 0
+
+        async def run_pass(p: int) -> None:
+            async with sem:
+                if stop["flag"]:
+                    return
+                batch = [NodeData(json=x) for x in batches[p]]
+                child = copy.copy(context)
+                child.node_states = dict(base_states)
+                child.node_states[loop_name] = batch
+                child.node_run_counts = dict(base_counts)
+                child.pending_inputs = {}
+                child.node_internal_state = {
+                    **context.node_internal_state,
+                    loop_name: {"items": items, "currentIndex": min(len(items), (p + 1) * bs),
+                                "policy": {**pol, "concurrent": True}},
+                }
+                child.errors = []
+                child.node_metrics = {}
+                child.execution_order = 0
+                child.test_requests, child.test_outputs, child.test_inputs = {}, {}, {}
+                child.suspensions = []
+                if p > 0:
+                    lh.open_pass(context, loop_name, p, batch)
+                pass_queue: list[ExecutionJob] = []
+                self._queue_next_nodes(child, rdef, NodeExecutionResult(outputs={"loop": batch, "done": None}),
+                                       pass_queue, node_map, r0 + p)
+                guard = 0
+                while pass_queue and guard < 1000:
+                    guard += 1
+                    layer = [j for j in pass_queue if j.node_name != loop_name]  # back to the Loop: this pass is over
+                    pass_queue = []
+                    outs = await asyncio.gather(*(self._process_job(child, j, pass_queue, node_map, on_event) for j in layer),
+                                                return_exceptions=True)
+                    for j, o in zip(layer, outs):
+                        if isinstance(o, Exception) and not any(e.node_name == j.node_name for e in child.errors):
+                            child.errors.append(ExecutionError(node_name=j.node_name, error=str(o) or type(o).__name__,
+                                                               timestamp=datetime.now(), error_code="NODE_FAILED"))
+                rec = (context.loop_runs.get(loop_name) or {}).get("passes", {}).get(p)
+                failed = bool(child.errors) or bool(rec and rec.get("status") in ("failed", "skipped"))
+                if not failed:
+                    lh.close_pass(child, loop_name, p)
+                elif child.errors and rec and rec.get("status") == "running":
+                    first_err = child.errors[0]
+                    lh.fail_pass(child, loop_name, first_err.node_name, first_err.error, skipped=False)
+                results[p] = child
+                status[p] = "failed" if failed else "ok"
+                check_prefix()
+
+        await asyncio.gather(*(run_pass(p) for p in range(n)))
+        check_prefix()
+
+        # where one after another would have stopped: the first failed pass (stop), or where the failures in a row
+        # reached the limit (skip). Passes after it may have run side by side already; their results are not kept, so
+        # the outputs, counts and errors are the same as one after another.
+        cut = n - 1
+        if not skip:
+            cut = next((i for i in range(n) if status[i] == "failed"), n - 1)
+        elif stop["early_at"] is not None:
+            cut = stop["early_at"]
+        loop_rec = context.loop_runs.get(loop_name) or {}
+        ran_after = [p for p in range(cut + 1, n) if results[p] is not None]
+        if ran_after and loop_rec:
+            loop_rec["ranAfterStop"] = ran_after
+            for p in ran_after:
+                loop_rec.get("passes", {}).pop(p, None)
+            kept = list((loop_rec.get("passes") or {}).values())
+            loop_rec["failed"] = sum(1 for x in kept if x.get("status") in ("failed", "skipped"))
+            loop_rec["skipped"] = sum(1 for x in kept if x.get("status") == "skipped")
+        streak = longest = 0
+        for p, child in enumerate(results):
+            if child is None or p > cut:
+                continue
+            st = (loop_rec.get("passes") or {}).get(p) or {}
+            if st.get("status") in ("failed", "skipped"):
+                streak += 1
+                longest = max(longest, streak)
+            else:
+                streak = 0
+            for name, value in child.node_states.items():
+                if name in body:
+                    context.node_states[name] = value
+            offset = context.execution_order
+            for name, m in child.node_metrics.items():
+                m = dict(m)
+                if isinstance(m.get("executionOrder"), int):
+                    m["executionOrder"] += offset
+                context.node_metrics[name] = m
+            context.execution_order += child.execution_order
+            for name in body:
+                grew = child.node_run_counts.get(name, 0) - base_counts.get(name, 0)
+                if grew:
+                    context.node_run_counts[name] = context.node_run_counts.get(name, 0) + grew
+            context.errors.extend(child.errors)
+            for src, dst in ((child.test_requests, context.test_requests), (child.test_inputs, context.test_inputs)):
+                for k, v in src.items():
+                    dst.setdefault(k, []).extend(v)
+            for k, ports in child.test_outputs.items():
+                for port, v in ports.items():
+                    context.test_outputs.setdefault(k, {}).setdefault(port, []).extend(v)
+            if child.last_completed_node:
+                context.last_completed_node = child.last_completed_node
+            if context.webhook_response is None and child.webhook_response is not None:
+                context.webhook_response = child.webhook_response
+        if loop_rec:
+            loop_rec["longestFailStreak"] = longest
+            loop_rec["streak"] = streak
+
+        started = [p for p in range(n) if results[p] is not None and p <= cut]
+        context.node_run_counts[loop_name] = context.node_run_counts.get(loop_name, 0) + len(started)
+        # the Loop's own rows, one per pass, as one after another would leave them
+        for p in started:
+            batch = [NodeData(json=x) for x in batches[p]]
+            context.node_states[loop_name] = batch
+            loop_metrics = {"status": "success", "activeOutputs": ["loop"], "outputItemCount": len(batch),
+                            "inputItemCount": len(job.input_data), "concurrency": conc}
+            await self._persist_node_output(
+                execution_id=context.execution_id, node_name=loop_name, output=batch,
+                metrics=loop_metrics, status="success", run_index=r0 + p,
+            )
+        if started:
+            context.node_metrics[loop_name] = {**context.node_metrics.get(loop_name, {}), **loop_metrics}
+
+        if stop["early_at"] is not None:
+            p = stop["early_at"]
+            st = (loop_rec.get("passes") or {}).get(p) or {}
+            failed_at = st.get("failedAt") or loop_name
+            err = ExecutionError(node_name=failed_at, error=st.get("error") or "Item failed", timestamp=datetime.now())
+            context.errors.append(err)
+            context.errors.append(self._stopped_early_error(loop_name, stop_after, err))
+            lh.finish_loop(context, loop_name, stopped_early=True)
+        if context.errors:
+            queue.clear()
+            self._propagate_no_output(context, rdef, queue, node_map, r0)
+            return None
+
+        lh.finish_loop(context, loop_name)
+        done = NodeExecutionResult(outputs={"loop": None, "done": [NodeData(json={
+            "_loop_completed": True, "total_items": len(items), "items": items,
+        })]})
+        return done, r0 + n
 
     async def _suspend(
         self,

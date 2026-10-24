@@ -1,5 +1,5 @@
 import { Button } from '@/shared/components/ui/button'
-import { lazy, Suspense, useEffect } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { ReactFlowProvider } from '@xyflow/react'
 import { Loader2, X, Blocks, Sparkles, LayoutTemplate, WandSparkles } from 'lucide-react'
 import { toast } from 'sonner'
@@ -33,6 +33,8 @@ const InterfaceDock = lazy(() => import('@/features/workflow-editor/components/i
 const NodeAIDialog = lazy(() => import('@/features/ai-builder/components/NodeAIDialog'))
 const EditorBuilderTab = lazy(() => import('@/features/ai-builder/components/EditorBuilderTab'))
 const WorkflowReadView = lazy(() => import('@/features/workflow-editor/components/read-view/WorkflowReadView'))
+// The glass editor (BUILD-PLAN §1.5) is the default; `?legacy=1` keeps the canvas editor above as a safety net.
+const GlassEditorShell = lazy(() => import('@/features/workflow-editor/glass/GlassEditorShell'))
 
 // --- Floating panel shared styles ---
 const floatingPanel = 'glass-chrome rounded-panel overflow-hidden'
@@ -105,6 +107,9 @@ function EditorLoadingFallback() {
  * `/p/$project/workflows/$workflowId` (`new` = a fresh workflow).
  */
 export function WorkflowEditorPage({ workflowId }: { workflowId?: string }) {
+  // Read from the address bar, not the route search (the route's validateSearch drops unknown params), and latched
+  // at mount so a later navigate that rewrites the search keeps the editor the page opened with.
+  const [legacy] = useState(() => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('legacy') === '1')
   const loadWorkflow = useWorkflowStore((s) => s.loadWorkflow)
   const resetWorkflow = useWorkflowStore((s) => s.resetWorkflow)
   const currentWorkflowId = useWorkflowStore((s) => s.workflowId)
@@ -210,6 +215,16 @@ export function WorkflowEditorPage({ workflowId }: { workflowId?: string }) {
   const bottomPanelOpen = useEditorLayoutStore((s) => s.bottomPanelOpen)
   const bottomPanelMaximized = useEditorLayoutStore((s) => s.bottomPanelMaximized)
   const viewMode = useEditorLayoutStore((s) => s.viewMode)
+
+  if (!legacy) {
+    return (
+      <ReactFlowProvider>
+        <Suspense fallback={<EditorLoadingFallback />}>
+          <GlassEditorShell workflowId={workflowId} />
+        </Suspense>
+      </ReactFlowProvider>
+    )
+  }
 
   return (
     <ReactFlowProvider>

@@ -12,6 +12,10 @@ import { test, expect, rand, stack, type EngineApi } from '../fixtures/test'
 import { seedProject, seedWorkflow, type P } from '../fixtures/seed'
 import { OwnFakeApi, putLlmRules, restoreLlmScript, shot } from '../fixtures/shots17'
 import type { Page } from '@playwright/test'
+import { legacyEditor } from '../fixtures/legacy'
+
+// these specs guard the legacy canvas editor (the glass editor is the default)
+test.beforeEach(async ({ page }) => legacyEditor(page))
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const FIX = path.resolve(HERE, '../../../workflow-engine/tests/fixtures/workflows')

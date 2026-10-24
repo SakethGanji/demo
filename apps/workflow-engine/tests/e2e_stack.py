@@ -5,7 +5,10 @@
                                             # after the engine is up: starts tests/fake_refund_api.py, creates the
                                             # "Refund triage" workflow + its table, seeds ONE failed run, points the
                                             # draft back at the OK route; prints one JSON line (see seed())
-    python tests/e2e_stack.py down --db NAME [--pid FAKE_SERVER_PID]
+    python tests/e2e_stack.py nbseed --engine-url URL
+                                            # notebook specs: creates workflows_test_nbdata_<8hex> with bank.wires and
+                                            # connections ``bank`` (read-only) + ``bank_rw`` in proj_default; one JSON line
+    python tests/e2e_stack.py down --db NAME [--pid FAKE_SERVER_PID] [--nbdb NBDATA_NAME]
 
 Refuses any name that is not ``workflows_test_e2e_<8 hex>`` (so never the live ``workflows`` DB)."""
 
@@ -26,6 +29,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 NAME_RE = re.compile(r"^workflows_test_e2e_[0-9a-f]{8}$")
+NBDATA_RE = re.compile(r"^workflows_test_nbdata_[0-9a-f]{8}$")
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "workflows" / "refund_triage.json"
 FAKE_SERVER = Path(__file__).resolve().parent / "fake_refund_api.py"
 UI_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "workflows" / "refund_triage_ui.json"
@@ -147,19 +151,82 @@ def _seed_interfaces(base: str, raw_url: str) -> dict:
     return out
 
 
+NB_BANK_SQL = """
+CREATE SCHEMA bank;
+CREATE TABLE bank.wires (wire_id TEXT PRIMARY KEY, amount NUMERIC NOT NULL, status TEXT NOT NULL,
+                         created_at TIMESTAMP NOT NULL);
+INSERT INTO bank.wires VALUES ('W1', 100.50, 'stuck', now() - interval '3 days'),
+                              ('W2', 12500, 'stuck', now() - interval '4 days'),
+                              ('W3', 75, 'sent', now() - interval '5 days'),
+                              ('W4', 40, 'stuck', now() - interval '2 hours');
+"""
+
+
+def nbseed(engine_url: str) -> dict:
+    """A throwaway bank database for the notebook specs plus two project connections on it (``bank`` read-only,
+    ``bank_rw`` writable). Drop it with ``down --nbdb NAME``."""
+    import uuid
+    from urllib.parse import quote
+
+    import psycopg2
+
+    from tests.integration import conftest as c
+
+    name = f"workflows_test_nbdata_{uuid.uuid4().hex[:8]}"
+    if not NBDATA_RE.match(name):
+        raise RuntimeError("bad nbdata name")
+    a = c._admin_conn()
+    with a.cursor() as cur:
+        cur.execute(f'CREATE DATABASE "{name}"')
+    a.close()
+    conn = psycopg2.connect(host=c.DB_HOST, port=c.DB_PORT, user=c.DB_USER, password=c.DB_PASSWORD, dbname=name)
+    with conn.cursor() as cur:
+        cur.execute(NB_BANK_SQL)
+    conn.commit()
+    conn.close()
+    url = f"postgresql://{quote(c.DB_USER)}:{quote(c.DB_PASSWORD)}@{c.DB_HOST}:{c.DB_PORT}/{name}"
+    base = engine_url.rstrip("/") + "/api"
+    out: dict = {"nb_db_name": name}
+    for key, ro in (("bank", True), ("bank_rw", False)):
+        code, body = _call(base, "POST", "/projects/proj_default/connections",
+                           {"name": key, "kind": "postgres", "url": url, "readonly": ro})
+        if code != 201:
+            raise RuntimeError(f"create connection {key} failed: {code} {body}")
+        out[f"nb_conn_{key}"] = body.get("key") or key
+    return out
+
+
+def _drop_nbdb(name: str) -> None:
+    if not NBDATA_RE.match(name):
+        raise RuntimeError(f"refusing to drop {name!r}")
+    from tests.integration import conftest as c
+
+    a = c._admin_conn()
+    with a.cursor() as cur:
+        cur.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+    a.close()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("action", choices=["up", "down", "seed"])
+    ap.add_argument("action", choices=["up", "down", "seed", "nbseed"])
     ap.add_argument("--db")
     ap.add_argument("--engine-url")
     ap.add_argument("--state-file")
     ap.add_argument("--pid", type=int)
+    ap.add_argument("--nbdb")
     args = ap.parse_args()
     if args.action == "seed":
         if not args.engine_url:
             print("seed needs --engine-url", file=sys.stderr)
             return 2
         print(json.dumps(seed(args.engine_url, args.state_file)))
+        return 0
+    if args.action == "nbseed":
+        if not args.engine_url:
+            print("nbseed needs --engine-url", file=sys.stderr)
+            return 2
+        print(json.dumps(nbseed(args.engine_url)))
         return 0
     name = args.db or os.environ.get("TEST_DB_NAME", "")
     if not NAME_RE.match(name):
@@ -180,6 +247,8 @@ def main() -> int:
                 os.killpg(args.pid, signal.SIGTERM)
             except (ProcessLookupError, PermissionError):
                 pass
+        if args.nbdb:
+            _drop_nbdb(args.nbdb)
         db.drop()
     return 0
 

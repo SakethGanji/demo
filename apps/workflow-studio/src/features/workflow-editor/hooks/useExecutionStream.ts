@@ -77,8 +77,15 @@ export function useExecutionStream(): UseExecutionStreamResult {
   }, []);
   const [progress, setProgress] = useState<{ completed: number; total: number } | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const executionIdRef = useRef<string | null>(null);
 
   const cancelExecution = useCallback(() => {
+    // Aborting the stream alone leaves the run going on the engine: cancel it there too
+    const runId = executionIdRef.current;
+    executionIdRef.current = null;
+    if (runId) {
+      void fetch(`${backends.workflow}/api/executions/${encodeURIComponent(runId)}/cancel`, { method: 'POST' }).catch(() => {});
+    }
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
@@ -114,6 +121,7 @@ export function useExecutionStream(): UseExecutionStreamResult {
     clearExecutionData();
     setIsExecuting(true);
     setProgress(null);
+    executionIdRef.current = null;
 
     // Mark all workflow nodes as pending initially
     const workflowNodes = nodes.filter((n) => n.type === 'workflowNode');
@@ -184,9 +192,11 @@ export function useExecutionStream(): UseExecutionStreamResult {
         }
       });
 
+      executionIdRef.current = null;
       setIsExecuting(false);
       setProgress(null);
     } catch (error) {
+      executionIdRef.current = null;
       if ((error as Error).name === 'AbortError') {
         toast.info('Execution cancelled');
       } else {
@@ -214,7 +224,10 @@ export function useExecutionStream(): UseExecutionStreamResult {
       nodeOutputs: Record<string, Array<{ json: Record<string, unknown> }>>,
     ) {
       const store = useWorkflowStore.getState();
-      if (event.executionId && !event.subworkflowParentNode) useTestStore.getState().setLastExecutionId(event.executionId);
+      if (event.executionId && !event.subworkflowParentNode) {
+        useTestStore.getState().setLastExecutionId(event.executionId);
+        if (event.executionId !== 'error') executionIdRef.current = event.executionId;
+      }
 
       switch (event.type) {
         case 'execution:start':

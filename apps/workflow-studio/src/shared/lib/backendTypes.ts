@@ -147,5 +147,7 @@ export interface ApiWorkflowDetail {
     }>;
     tests?: TestCase[];
     test_defaults?: TestDefaults;
+    /** Workflow settings; `sticky_notes` holds the canvas notes (they never run) */
+    settings?: Record<string, unknown>;
   };
 }

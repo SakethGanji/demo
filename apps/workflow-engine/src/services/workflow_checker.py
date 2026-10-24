@@ -38,6 +38,8 @@ WF026    warn/info child output can't be typed (warning); ``Respond`` body ignor
 WF027    error     the called workflow is in another project
 WF028    warning   static call chain deeper than ``max_execution_depth``
 WF029    info      child declares no inputs (passthrough), so the call can't be type-checked
+WF030    warning   Loop "Run at a time" (``concurrency``) above the limit (20), not a whole number, or below 1
+WF031    warning   Loop runs items side by side, stops on a failure, and its body calls out (network / database / ...)
 =======  ========  ======================================================================================
 
 Deliberate leniency (documented in the Stage 2 report)
@@ -713,6 +715,7 @@ class _Checker:
             if not node.disabled:
                 self._check_node(node, inputs_of[name], sources_of[name])
         self._check_branches()
+        self._check_loops()
         self._check_reachability()
         self._check_forms_and_approvals()
         self._check_interface()
@@ -1249,6 +1252,71 @@ class _Checker:
             for p in ports:
                 if p not in connected and not (node.type == "Switch" and p == "fallback"):
                     self.add("WF004", "warning", f"Output '{p}' of '{name}' isn't connected to anything.", node=name, path=p)
+
+    def _check_loops(self) -> None:
+        """WF030: a "Run at a time" the runner won't use as written. WF031: side by side + stop on failure + a body that
+        calls out: items already in flight when one fails still make their calls."""
+        from ..engine.effects import effect_of
+        from ..engine.workflow_runner import WorkflowRunner
+        from ..nodes.flow.loop import MAX_LOOP_CONCURRENCY
+
+        for name, node in self.nodes.items():
+            if node.disabled or node.type != "Loop":
+                continue
+            params = node.parameters or {}
+            raw = params.get("concurrency")
+            if raw is None or isinstance(raw, bool) or (isinstance(raw, str) and ("{{" in raw or not raw.strip())):
+                continue  # default (1), or an expression only known at run time
+            try:
+                num = float(raw)
+            except (TypeError, ValueError):
+                num = None
+            try:  # what the runner uses (loop_policy): int(value), else 1; at least 1
+                conc = max(1, int(raw))
+            except (TypeError, ValueError, OverflowError):
+                conc = 1
+            if num is None or num != num or not num.is_integer():
+                runs = "one item" if conc == 1 else f"{min(conc, MAX_LOOP_CONCURRENCY)} items"
+                self.add("WF030", "warning", f"'Run at a time' must be a whole number; '{raw}' runs {runs} at a time.",
+                         node=name, param="concurrency")
+            elif num < 1:
+                self.add("WF030", "warning", f"'Run at a time' must be at least 1; {int(num)} runs one item at a time.",
+                         node=name, param="concurrency")
+                continue
+            elif conc > MAX_LOOP_CONCURRENCY:
+                self.add("WF030", "warning", f"'Run at a time' is {conc}; a loop runs at most {MAX_LOOP_CONCURRENCY} items "
+                                             f"at a time, so it will run {MAX_LOOP_CONCURRENCY}.", node=name, param="concurrency")
+            on_fail = str(params.get("onItemFailure") or "stop").strip().lower()
+            if conc <= 1 or on_fail == "skip":
+                continue
+            body = self._loop_body(name)
+            # the runner runs these bodies one after another anyway (concurrencyFallback): nothing is in flight
+            if not body or any(self.nodes[b].type in WorkflowRunner._NOT_CONCURRENT for b in body):
+                continue
+            if any(e.dst in body and e.src not in body and e.src != name for e in self.edges):
+                continue
+            ext = [b for b in self.names if b in body and not self.nodes[b].disabled
+                   and effect_of(self.nodes[b].type) not in ("none", "human")]
+            if not ext:
+                continue
+            steps = ", ".join(f'"{b}"' for b in ext[:3]) + (f" and {len(ext) - 3} more" if len(ext) > 3 else "")
+            self.add("WF031", "warning",
+                     f"This loop runs {min(conc, MAX_LOOP_CONCURRENCY)} items at a time and stops the run when one fails, "
+                     f"but items already started may still send their calls after that failure ({steps} calls out). "
+                     "Set 'Run at a time' to 1 for payments and other one-time actions.",
+                     node=name, param="concurrency")
+
+    def _loop_body(self, loop: str) -> set[str]:
+        """The steps reachable from the Loop's ``loop`` port without passing back through the Loop (as the runner)."""
+        seen: set[str] = set()
+        todo = [e.dst for e in self.edges if e.src == loop and e.src_port == "loop" and e.dst != loop]
+        while todo:
+            cur = todo.pop()
+            if cur in seen or cur == loop:
+                continue
+            seen.add(cur)
+            todo.extend(e.dst for e in self.edges if e.src == cur and e.dst not in seen and e.dst != loop)
+        return seen
 
     def _check_reachability(self) -> None:
         roots = [n for n, d in self.nodes.items() if d.type in TRIGGER_NODE_TYPES]

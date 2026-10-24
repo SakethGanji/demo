@@ -125,7 +125,8 @@ class ConnectionService:
                                     description=f"URL of the '{name}' database connection (managed)", project_id=project.id,
                                     allowed_hosts=[facts["host"]])
         c = ProjectConnectionModel(id=generate_id("conn"), project_id=project.id, key=key, name=name, kind="postgres",
-                                   host=facts["host"], port=facts["port"], database=facts["database"], readonly=True,
+                                   host=facts["host"], port=facts["port"], database=facts["database"],
+                                   readonly=body.get("readonly") is not False,  # writable only when asked for explicitly
                                    secret_key=skey)
         self._s.add(c)
         await self._s.commit()

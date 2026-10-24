@@ -1,0 +1,81 @@
+{
+  "slug": "portal-smoke",
+  "title": "Portal smoke check",
+  "description": "Sign in to the portal, check the accounts table shows, then confirm the health endpoint answers.",
+  "icon": "globe",
+  "keeps_as": "test_suite",
+  "placeholders": [
+    "__BASE_URL__"
+  ],
+  "cells": [
+    {
+      "kind": "browser",
+      "title": "Sign in and see the accounts table",
+      "spec": {
+        "base_url": "__BASE_URL__",
+        "allowed_hosts": [],
+        "credential_slot": "portal_login",
+        "steps": [
+          {
+            "action": "fill",
+            "target": {
+              "label": "Username"
+            },
+            "value": "{{$cred.username}}",
+            "group": "Sign in"
+          },
+          {
+            "action": "fill",
+            "target": {
+              "label": "Password"
+            },
+            "value": "{{$cred.password}}",
+            "group": "Sign in"
+          },
+          {
+            "action": "click",
+            "target": {
+              "role": "button",
+              "name": "Sign in"
+            },
+            "group": "Sign in"
+          },
+          {
+            "action": "expectVisible",
+            "target": {
+              "role": "table"
+            },
+            "group": "Accounts"
+          }
+        ],
+        "writes": false
+      }
+    },
+    {
+      "kind": "rule",
+      "title": "Every step passed",
+      "spec": {
+        "op": "assert",
+        "left": "{{cells.c1.steps}}",
+        "where": [
+          {
+            "field": "status",
+            "op": "eq",
+            "value": "passed"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "http",
+      "title": "Health endpoint answers",
+      "spec": {
+        "method": "GET",
+        "url": "__BASE_URL__/health",
+        "expect": {
+          "status": 200
+        }
+      }
+    }
+  ]
+}
