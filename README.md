@@ -479,10 +479,16 @@ These are not part of the three features, but they are in this repo since `4f776
 
 - **One-shot workflow builder:** `services/workflow_oneshot.py` and `oneshot_prompt.md`, wired into the editor chat in `ai_chat_service.py`.
   - It builds in one model call, then applies `changes.json` patches for edits. `WF_CHAT_BUILDER=legacy` brings back the staged builder.
+  - `services/ai_builder.py` sends revisions of a one-shot-built workflow back through `workflow_oneshot.revise`.
   - The prototype and its results are in `apps/workflow-engine/prototypes/workflow-oneshot/`; see its `README.md`.
 - **App builder visual editing:**
   - studio `features/app-builder/visual/` and `sandbox/visual-edit-runtime.ts`;
   - engine `services/app_kit/`, `editability/`, `editability_lint.py`, `app_bundler_tailwind.mjs` (Tailwind compile at publish), plus `oneshot_builder.py`, `app_bundler.py`, `app_scaffold.py`, `app_service.py`, `routes/apps.py`, `schemas/app.py`, `routes/app_builder_ai.py`;
+  - small engine edits for it:
+    - `schemas/app_builder.py`: the chat request takes `base_version_id`, `visual_edits` and the preview `selection`;
+    - `services/app_builder_ai_service.py`: refuses a stale base, adds the hand edits and the selected element to the turn, and refreshes an old app's stale kit copy;
+    - `services/platform_index.py`: shorter kit index lines, and trial-only kit parts listed only with the flag on;
+  - small studio edits for it: in `features/app-builder/`, `components/AppBuilderChatPanel.tsx`, `AppBuilderShell.tsx` and `AppPreviewPanel.tsx`, `hooks/useAppBuilderChat.ts` and `visualSave.ts`, and `sandbox/IframeSandbox.tsx`, `bridge.ts` and `esbuild-bundler.ts`;
   - a save or AI turn based on an out-of-date version is refused with 409 `stale_base` (`tests/unit/test_stale_base.py`).
 
   Behind `WORKFLOW_EDITABLE_RULES=1` and the studio flag in `visual/flag.ts`.
