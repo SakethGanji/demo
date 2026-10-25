@@ -16,10 +16,10 @@ from urllib.parse import quote as _aquote
 
 API_IDENT = _are.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,99}$")
 ASSERT_OPS = ("eq", "ne", "lt", "le", "gt", "ge", "contains", "not_contains", "exists", "not_exists", "matches",
-              "in")
+              "in", "has_item")
 _OP_WORD = {"eq": "equals", "ne": "is not", "lt": "is under", "le": "is at most", "gt": "is over", "ge": "is at least",
             "contains": "contains", "not_contains": "does not contain", "exists": "exists",
-            "not_exists": "does not exist", "matches": "matches", "in": "is one of"}
+            "not_exists": "does not exist", "matches": "matches", "in": "is one of", "has_item": "has an item with"}
 
 
 class ApiTestError(Exception):
@@ -265,6 +265,14 @@ def _compare(op, got, want):
             return False
     if op == "in":
         return isinstance(want, list) and got in want
+    if op == "has_item":
+        # a list with an item whose fields equal every field of ``want`` ({"id": 5}); a plain ``want`` is an item
+        if not isinstance(got, list):
+            return False
+        if isinstance(want, dict):
+            return any(isinstance(x, dict) and all(k in x and _compare("eq", x[k], v) for k, v in want.items())
+                       for x in got)
+        return any(_compare("eq", x, want) for x in got)
     return False
 
 

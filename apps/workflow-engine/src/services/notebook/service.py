@@ -64,7 +64,7 @@ def run_out(r: NotebookRunModel) -> dict[str, Any]:
     return {"id": r.id, "notebook_id": r.notebook_id, "n": r.n, "from_position": r.from_position, "status": r.status,
             "stop": r.stop, "on_applied": r.on_applied, "triggered_by": r.triggered_by, "run_as": r.run_as,
             "via_agent": r.via_agent, "heartbeat_at": r.heartbeat_at, "started_at": r.started_at,
-            "finished_at": r.finished_at}
+            "finished_at": r.finished_at, "continue_on_fail": bool(getattr(r, "continue_on_fail", False))}
 
 
 def notebook_base(nb: NotebookModel) -> dict[str, Any]:
@@ -72,7 +72,18 @@ def notebook_base(nb: NotebookModel) -> dict[str, Any]:
             "description": nb.description, "status": nb.status, "environment": nb.environment,
             "template_slug": nb.template_slug, "run_as": nb.run_as, "created_by": nb.created_by,
             "active_run_id": nb.active_run_id, "kept": list(nb.kept or []), "created_at": nb.created_at,
-            "updated_at": nb.updated_at}
+            "updated_at": nb.updated_at, "notes": getattr(nb, "ai_notes", None)}
+
+
+NOTES_MAX = 2000
+
+
+def clean_notes(v: Any) -> str | None:
+    """Ask's notes as stored: trimmed, at most ``NOTES_MAX`` characters; empty is None (no notes)."""
+    if not isinstance(v, str):
+        return None
+    v = v.strip()[:NOTES_MAX].strip()
+    return v or None
 
 
 MAX_WAIT_S = 7 * 86400
@@ -305,6 +316,8 @@ class NotebookService:
                 if k == "title" and v is None:
                     continue
                 setattr(nb, k, v)
+        if "notes" in body.model_fields_set:
+            nb.ai_notes = clean_notes(body.notes)
         nb.updated_at = datetime.now()
         await self.s.commit()
         return nb

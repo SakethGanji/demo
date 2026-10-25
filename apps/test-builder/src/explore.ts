@@ -73,6 +73,21 @@ async function resolveOne(page: Page, ref: ElementRef) {
 
 export interface ExecResult { outcome: 'ok' | 'error' | 'blocked'; message?: string }
 
+const FOUND_TEXT_MAX = 120;
+const firstLine = (e: unknown) => String((e as Error)?.message ?? e).replace(/\u001b\[[0-9;]*m/g, '').split('\n')[0]!.trim();
+
+/** What a failed expectText actually saw: `found: '<text>'` (whitespace collapsed, capped), or how many matched. */
+export async function foundText(loc: ReturnType<typeof toLocator>): Promise<string> {
+  const n = await loc.count().catch(() => -1);
+  if (n === 0) return 'found no matching element';
+  if (n < 0) return 'could not read the element';
+  const raw = await loc.first().innerText({ timeout: 1000 }).catch(() => null);
+  if (raw === null) return `found ${n} matching element(s), text unreadable`;
+  const t = raw.replace(/\s+/g, ' ').trim();
+  const shown = t.length > FOUND_TEXT_MAX ? `${t.slice(0, FOUND_TEXT_MAX - 1)}…` : t;
+  return `${n > 1 ? `found ${n} matching elements; the first has` : 'found'}: '${shown}'`;
+}
+
 export async function execute(
   page: Page, a: Action, t: Target, creds: Record<string, string>, blocks: PolicyBlock[], downloadsDir: string,
 ): Promise<ExecResult> {
@@ -174,12 +189,25 @@ export async function execute(
     case 'expectVisible':
       await expect(toLocator(page, a.target)).toBeVisible({ timeout: STEP_TIMEOUT });
       break;
-    case 'expectText':
-      await expect(toLocator(page, a.target)).toContainText(a.text, { timeout: STEP_TIMEOUT });
+    case 'expectText': {
+      const loc = toLocator(page, a.target);
+      try {
+        await expect(loc).toContainText(a.text, { timeout: STEP_TIMEOUT });
+      } catch (e) {
+        throw new Error(`${await foundText(loc)}; ${firstLine(e)}`);
+      }
       break;
-    case 'expectCount':
-      await expect(toLocator(page, a.target)).toHaveCount(a.count, { timeout: STEP_TIMEOUT });
+    }
+    case 'expectCount': {
+      const loc = toLocator(page, a.target);
+      try {
+        await expect(loc).toHaveCount(a.count, { timeout: STEP_TIMEOUT });
+      } catch (e) {
+        const n = await loc.count().catch(() => -1);
+        throw new Error(`${n >= 0 ? `found ${n}` : 'could not count the matches'} (expected ${a.count}); ${firstLine(e)}`);
+      }
       break;
+    }
     case 'done':
       return { outcome: 'ok' };
   }

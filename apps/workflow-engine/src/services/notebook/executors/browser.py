@@ -75,12 +75,57 @@ def _cred_placeholders(v: Any) -> Any:
     return v
 
 
+#: Credential fields that are not secret: outside a ``fill``/``otp`` value (expectText, a target name, a URL) their
+#: value is written into the step. Every other field (password, a TOTP seed, a token) only ever goes to the jobs
+#: service as a ``{{name}}`` placeholder, which it fills in typed values only and masks everywhere else.
+PUBLIC_CRED_FIELDS = frozenset({"username", "user", "user_name", "login", "email"})
+#: Steps whose ``value`` the jobs service fills from the credentials itself.
+_TYPED_ACTIONS = frozenset({"fill", "otp"})
+
+
+def cred_misuse(steps: Any) -> list[str]:
+    """``["step 3 (expectText): {{$cred.password}} ..."]`` for each secret credential field used outside a fill/otp
+    value. Never includes a value."""
+    out: list[str] = []
+    for i, s in enumerate(steps or []):
+        if not isinstance(s, dict):
+            continue
+        typed = s.get("action") in _TYPED_ACTIONS
+        for k, v in s.items():
+            if typed and k == "value":
+                continue
+            for f in _CRED_RE.findall(json.dumps(v, default=str)):
+                if f not in PUBLIC_CRED_FIELDS:
+                    out.append(f"step {i + 1} ({s.get('action')}): {{{{$cred.{f}}}}} is secret and may only be the "
+                               "value of a fill step")
+    return out
+
+
+def _cred_expand(v: Any, creds: dict[str, str]) -> Any:
+    """Outside a typed value: ``{{$cred.username}}`` becomes the username itself (public fields only; anything else
+    is left as the jobs-service placeholder)."""
+    if isinstance(v, str):
+        return _CRED_RE.sub(lambda m: creds[m.group(1)] if m.group(1) in PUBLIC_CRED_FIELDS and m.group(1) in creds
+                            else "{{" + m.group(1) + "}}", v)
+    if isinstance(v, list):
+        return [_cred_expand(x, creds) for x in v]
+    if isinstance(v, dict):
+        return {k: _cred_expand(x, creds) for k, x in v.items()}
+    return v
+
+
+def _step_creds(s: dict[str, Any], creds: dict[str, str] | None) -> dict[str, Any]:
+    typed = s.get("action") in _TYPED_ACTIONS
+    return {k: (_cred_placeholders(x) if typed and k == "value" else _cred_expand(x, creds or {}))
+            for k, x in s.items()}
+
+
 def build_job(cell: Any, spec: dict[str, Any], credentials: dict[str, str] | None = None,
               label: str | None = None) -> dict[str, Any]:
     """The jobs-service ``POST /jobs`` body for one browser cell."""
     steps = []
     for s in spec.get("steps") or []:
-        s = _cred_placeholders(dict(s))
+        s = _step_creds(dict(s), credentials)
         if s.get("action") == "done":
             continue
         steps.append(s)
@@ -198,6 +243,9 @@ async def run(ctx: Any, cell: Any, inputs: Any = None) -> CellOutcome:
     t0 = time.monotonic()
     if not spec.get("base_url") or not spec.get("steps"):
         return CellOutcome.fail("invalid_spec", "a browser cell needs base_url and at least one step")
+    misuse = cred_misuse(spec.get("steps"))
+    if misuse:
+        return CellOutcome.fail("invalid_spec", "; ".join(misuse[:3]))
     try:
         creds = await _credentials(ctx, spec.get("credential_slot"))
     except Exception as e:  # noqa: BLE001 - a broken secret store must not crash the run loop

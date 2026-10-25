@@ -1,5 +1,6 @@
 """store: rows into a project data table (``append``, or ``upsert`` by ``key``); ``new_table`` creates the table with
-column types inferred from the rows."""
+column types inferred from the rows. Data tables reserve ``id``, ``created_at`` and ``updated_at`` (any row carrying
+them used to fail the cell), so those fields are stored as ``src_id``, ``src_created_at`` and ``src_updated_at``."""
 
 from __future__ import annotations
 
@@ -31,7 +32,20 @@ def _rows(v: Any) -> list[dict[str, Any]]:
         v = v["rows"]
     if not isinstance(v, list):
         raise ValueError("rows must be a list of rows (e.g. {{cells.c2.rows}})")
-    return [r if isinstance(r, dict) else {"value": r} for r in v]
+    return [_rename(r) if isinstance(r, dict) else {"value": r} for r in v]
+
+
+RESERVED = ("id", "created_at", "updated_at")
+
+
+def stored_name(k: str) -> str:
+    return f"src_{k}" if k in RESERVED else k
+
+
+def _rename(r: dict[str, Any]) -> dict[str, Any]:
+    if not any(k in r for k in RESERVED):
+        return r
+    return {(stored_name(k) if stored_name(k) not in r else k): v for k, v in r.items()}
 
 
 async def run(ctx: Any, cell: Any, inputs: dict[str, Any]) -> CellOutcome:
@@ -45,7 +59,7 @@ async def run(ctx: Any, cell: Any, inputs: dict[str, Any]) -> CellOutcome:
     except ValueError as e:
         return CellOutcome.fail("store_failed", str(e))
     keys = inputs.get("key")
-    keys = [keys] if isinstance(keys, str) else list(keys or [])
+    keys = [stored_name(k) for k in ([keys] if isinstance(keys, str) else list(keys or []))]
     try:
         async with ctx.session() as s:
             project = await resolve_project(s, ctx.project_id)

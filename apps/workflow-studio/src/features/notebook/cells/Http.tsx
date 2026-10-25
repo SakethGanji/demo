@@ -15,11 +15,12 @@ const METHODS: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']
 const OP_WORD: Record<AssertionOp, string> = {
   eq: 'is', ne: 'is not', lt: 'is under', le: 'is at most', gt: 'is over', ge: 'is at least', contains: 'contains',
   not_contains: 'does not contain', exists: 'exists', not_exists: 'is absent', matches: 'matches', in: 'is one of',
+  has_item: 'has an item with',
 }
 const OPS_FOR: Record<AssertionKind, AssertionOp[]> = {
   status: ['eq', 'ne', 'lt', 'ge', 'in'],
   time: ['lt', 'le'],
-  json_path: ['eq', 'ne', 'exists', 'not_exists', 'contains', 'not_contains', 'gt', 'lt', 'ge', 'le', 'matches', 'in'],
+  json_path: ['eq', 'ne', 'exists', 'not_exists', 'contains', 'not_contains', 'gt', 'lt', 'ge', 'le', 'matches', 'in', 'has_item'],
   header: ['exists', 'not_exists', 'eq', 'contains', 'matches'],
   schema: ['eq'],
 }

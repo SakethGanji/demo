@@ -5,7 +5,7 @@
 import { useRef, useState } from 'react'
 import { Palette, type PaletteItem } from '@/shared/glass'
 import { useNb } from '../context'
-import { KIND_LABEL } from '../lib/cells'
+import { askNotice, KIND_LABEL } from '../lib/cells'
 import { TOP_LEVEL_ONLY_KINDS, type CellKind } from '../types'
 import { DraftCell } from './DraftCell'
 
@@ -104,7 +104,7 @@ export function Composer({ draft, setDraft, inside, setInside, onImport }: {
       {
         onSuccess: (r) => {
           setText('')
-          notify(r.planned.length ? `Studio wrote ${r.planned.length} cells` : 'Studio could not plan this', r.planned.length ? 'ok' : 'need')
+          notify(...askNotice(r))
         },
         onError: fail,
       },

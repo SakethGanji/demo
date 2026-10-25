@@ -466,6 +466,17 @@ function plannedBy(ask: Cell, cells: Cell[]): Cell[] {
   return run
 }
 
+/** "Removed c3, c4 · could not remove c5 (a run is in progress)" from the Ask's `removed` / `not_removed`. */
+function removedLine(o: Record<string, unknown>): string | null {
+  const gone = Array.isArray(o.removed) ? (o.removed as string[]) : []
+  const kept = Array.isArray(o.not_removed) ? (o.not_removed as { name?: string; reason?: string }[]) : []
+  const bits = [
+    gone.length ? `Removed ${gone.join(', ')}` : null,
+    ...kept.map((k) => `could not remove ${k.name ?? '?'}${k.reason ? ` (${k.reason})` : ''}`),
+  ].filter(Boolean)
+  return bits.length ? bits.join(' · ') : null
+}
+
 export function AskBody({ cell }: { cell: Cell }) {
   const { nb, numberOf } = useNb()
   const r = cell.latest
@@ -514,6 +525,7 @@ export function AskBody({ cell }: { cell: Cell }) {
             .join(' · ')}
         </div>
       )}
+      {removedLine(o) && <div className="nb-faint mt-1" data-testid="nb-ask-removed">{removedLine(o)}</div>}
       {skipped && <div className="nb-faint mt-1">Skipped on rerun · Ask runs once; the cells it wrote run without AI.</div>}
     </>
   )

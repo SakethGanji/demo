@@ -11,7 +11,7 @@ import { useProjectWorkflows } from '@/features/project/hooks/useProjectData'
 import { notebookApi } from '../api'
 import { useNb } from '../context'
 import { nbKeys } from '../hooks'
-import { asRows, plural } from '../lib/cells'
+import { askNotice, asRows, plural } from '../lib/cells'
 import { isStatusColumn } from '../lib/look'
 import { StatusPill } from './Look'
 import type { Cell, HttpMethod, QuerySpec } from '../types'
@@ -144,7 +144,7 @@ export function RowsTable({ cell, compact }: { cell: Cell; compact?: boolean }) 
       {
         onSuccess: (res) => {
           setAskText('')
-          notify(res.planned.length ? `Studio wrote ${plural(res.planned.length, 'cell')} for ${plural(keys.length, 'selected row')}` : 'Studio could not plan this', res.planned.length ? 'ok' : 'need')
+          notify(...askNotice(res, ` for ${plural(keys.length, 'selected row')}`))
         },
         onError: fail,
       },

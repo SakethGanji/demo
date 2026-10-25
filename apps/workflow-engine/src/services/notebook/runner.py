@@ -127,7 +127,8 @@ async def start_run(s: Any, nb: NotebookModel, body: Any) -> NotebookRunModel:
         return NotebookRunModel(id=run_id, notebook_id=nb_id, n=n, from_position=from_position, status="running",
                                 on_applied=body.on_applied, reapply=list(body.reapply or []),
                                 triggered_by=body.triggered_by, run_as=body.run_as or nb_run_as,
-                                via_agent=body.via_agent, heartbeat_at=now, started_at=now)
+                                via_agent=body.via_agent, heartbeat_at=now, started_at=now,
+                                continue_on_fail=bool(getattr(body, "continue_on_fail", False)))
 
     run = await _open_run(s, nb, build)
     _spawn(run_id, from_position)
@@ -358,10 +359,22 @@ async def _record_store_write(s: Any, run: NotebookRunModel, cell: NotebookCellM
 _CALL_WRITE_KINDS = ("http", "workflow")
 
 
+def resends(cell: NotebookCellModel) -> bool:
+    """An http cell marked ``rerun: "always"``: re-sending it on every run is intended."""
+    return cell.kind == "http" and (cell.spec or {}).get("rerun") == "always"
+
+
+def continues(run: NotebookRunModel, cell: NotebookCellModel) -> bool:
+    """A failure of this cell does not stop the run (the run option, or the cell's ``continue_on_fail``)."""
+    return bool(getattr(run, "continue_on_fail", False)) or (cell.spec or {}).get("continue_on_fail") is True
+
+
 async def _record_call_write(s: Any, run: NotebookRunModel, cell: NotebookCellModel, inputs: dict[str, Any],
                              out: CellOutcome, row_index: int | None) -> None:
     """A successful http/workflow cell that writes: one ``notebook_writes`` row keyed by cell + resolved inputs."""
     if cell.kind not in _CALL_WRITE_KINDS or out.status != "success":
+        return
+    if resends(cell):  # safe to send again (a login, a test call): not an applied write, so a rerun goes on
         return
     if not fx.is_write(await fx.cell_effect(s, cell.kind, inputs)):
         return
@@ -436,6 +449,7 @@ async def _loop(run_id: str, from_position: int,
         reapply = set(run.reapply or [])
         done_here = set((await s.execute(select(NotebookCellResultModel.cell_id).where(
             NotebookCellResultModel.run_id == run_id, NotebookCellResultModel.row_index.is_(None)))).scalars().all())
+        continued = False
 
         for cell in top:
             if cell.position < from_position or cell.id in done_here or (only and cell.id != only[0]):
@@ -447,8 +461,9 @@ async def _loop(run_id: str, from_position: int,
                 continue
             children = sorted(kids.get(cell.id, []), key=lambda x: x.position)
             # stop before a write that already happened
-            if cell.kind in ("change", "store", "for_each") + _CALL_WRITE_KINDS and cell.id not in reapply and not only:
-                w = await _written(s, [cell.id] + [x.id for x in children])
+            if (cell.kind in ("change", "store", "for_each") + _CALL_WRITE_KINDS and cell.id not in reapply and not only
+                    and not resends(cell)):
+                w = await _written(s, [cell.id] + [x.id for x in children if not resends(x)])
                 if w is not None:
                     if run.on_applied == "skip":
                         prev = values.results.get(cell.name)
@@ -484,8 +499,30 @@ async def _loop(run_id: str, from_position: int,
             if out.status == "waiting":
                 return "needs_you", {"reason": "waiting", "cell_id": cell.id}
             if out.status == "error":
+                if continues(run, cell):
+                    continued = True
+                    # later cells must see this run's outcome, never an older run's success: the failed result when
+                    # it has output (an http whose checks failed still has the response), else no result at all
+                    if out.output:
+                        values.results[cell.name] = r
+                    else:
+                        values.results.pop(cell.name, None)
+                    continue
                 return "failed", {"reason": "cell_failed", "cell_id": cell.id,
                                   "code": (out.error or {}).get("code")}
+        if continued or run.continue_on_fail or any((c.spec or {}).get("continue_on_fail") is True for c in top):
+            # a run that kept going past a failure still ends failed, at its first failing cell (this run's results,
+            # so a failure before a pause for approval still counts after the resume)
+            first = (await s.execute(select(NotebookCellResultModel.cell_id).join(
+                NotebookCellModel, NotebookCellModel.id == NotebookCellResultModel.cell_id).where(
+                NotebookCellResultModel.run_id == run_id, NotebookCellResultModel.row_index.is_(None),
+                NotebookCellResultModel.status == "error", NotebookCellModel.parent_cell_id.is_(None))
+                .order_by(NotebookCellModel.position).limit(1))).scalar()
+            if first is not None:
+                n_failed = (await s.execute(select(func.count()).select_from(NotebookCellResultModel).where(
+                    NotebookCellResultModel.run_id == run_id, NotebookCellResultModel.row_index.is_(None),
+                    NotebookCellResultModel.status == "error"))).scalar() or 0
+                return "failed", {"reason": "cell_failed", "cell_id": first, "continued": True, "failed": n_failed}
         return "done", None
 
 

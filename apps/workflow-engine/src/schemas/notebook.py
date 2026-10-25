@@ -193,7 +193,7 @@ class HttpAssertion(_Spec):
 
     kind: Literal["status", "time", "json_path", "header", "schema"]
     op: Literal["eq", "ne", "lt", "le", "gt", "ge", "contains", "not_contains", "exists", "not_exists", "matches",
-                "in"] = "eq"
+                "in", "has_item"] = "eq"  # has_item: the list at ``path`` has an item whose fields equal ``value``
     path: str | None = Field(None, max_length=500)
     name: str | None = Field(None, max_length=200)
     value: Any = None
@@ -209,6 +209,8 @@ class HttpAssertion(_Spec):
             raise ValueError("a schema assertion needs json_schema")
         if self.kind == "time" and not isinstance(self.value, (int, float)):
             raise ValueError("a time assertion needs a number of milliseconds")
+        if self.op == "has_item" and self.kind != "json_path":
+            raise ValueError("has_item is a json_path check: path names a list, value the fields an item must have")
         return self
 
 
@@ -233,6 +235,10 @@ class HttpSpec(_Spec):
     extract: list[HttpExtract] = Field(default_factory=list, max_length=20)
     expect: HttpExpect | None = None
     credential_slot: str | None = None
+    # ``always``: the request is safe to send again (a login, a test call), so a success is not recorded as an applied
+    # write and a rerun does not stop before it. Unset/``once`` (the default) keeps the stop-before-applied-write rule.
+    rerun: Literal["once", "always"] | None = None
+    continue_on_fail: bool | None = None  # true: a failure of this cell does not stop the run
 
 
 class WorkflowSpec(_Spec):
@@ -261,6 +267,8 @@ class RuleSpec(_Spec):
     key: str | list[str] | None = None
     fields: list[RuleField] = Field(default_factory=list)
     where: list[RuleWhere] = Field(default_factory=list)
+    continue_on_fail: bool | None = None  # true: a failing check does not stop the run
+    fail_on_mismatch: bool | None = None  # compare only: true makes any mismatch fail the rule (default: report only)
 
 
 class ChangeSpec(_Spec):
@@ -279,6 +287,7 @@ class DataSpec(_Spec):
     columns: list[str] = Field(default_factory=list)
     rows: list[dict[str, Any]] | list[list[Any]] = Field(default_factory=list, max_length=MAX_DATA_ROWS)
     csv: str | None = None  # pasted CSV, parsed into columns/rows at create time
+    from_table: str | None = None  # a project data table (id or name): its current rows, read when the cell runs
 
 
 class StoreSpec(_Spec):
@@ -372,10 +381,19 @@ def validate_spec(kind: str, spec: dict[str, Any]) -> dict[str, Any]:
     if model is None:
         raise notebook_error(422, "unknown_kind", f"unknown cell kind: {kind!r}", kinds=list(CELL_KINDS))
     try:
-        return model.model_validate(spec or {}).model_dump(mode="json", exclude_none=False)
+        out = model.model_validate(spec or {}).model_dump(mode="json", exclude_none=False)
     except ValidationError as e:
         fields = [{"loc": list(err["loc"]), "msg": err["msg"]} for err in e.errors()]
         raise notebook_error(422, "invalid_spec", f"invalid {kind} spec", fields=fields) from None
+    for k in OPTIONAL_SPEC_FIELDS:  # newer optional fields are stored only when set: older specs dump unchanged
+        if k in out and out[k] is None:
+            del out[k]
+    return out
+
+
+#: Spec fields added after the first release. Left out of a validated spec when unset, so a spec without them
+#: validates (and is stored, hashed and compared) exactly as before.
+OPTIONAL_SPEC_FIELDS: tuple[str, ...] = ("rerun", "continue_on_fail", "from_table", "fail_on_mismatch")
 
 
 class Guard(_Spec):
@@ -464,6 +482,7 @@ class RunSummary(BaseModel):
     heartbeat_at: datetime | None = None
     started_at: datetime
     finished_at: datetime | None = None
+    continue_on_fail: bool = False
 
 
 class Run(RunSummary):
@@ -526,6 +545,7 @@ class Notebook(BaseModel):
     updated_at: datetime
     cells: list[Cell] = Field(default_factory=list)
     runs: list[RunSummary] = Field(default_factory=list)  # latest 20, newest first
+    notes: str | None = None  # Ask's running notes for this notebook (the model rewrites them; PATCH clears them)
 
 
 # --------------------------------------------------------------------------------------------------------------------
@@ -585,6 +605,7 @@ class NotebookPatch(_Req):
     description: str | None = None
     environment: str | None = None
     run_as: str | None = None
+    notes: str | None = Field(None, max_length=20000)  # "" or null clears Ask's notes; longer text is cut to 2000
 
 
 class CellCreate(_Req):
@@ -615,6 +636,7 @@ class RunCreate(_Req):
     triggered_by: str | None = None
     run_as: str | None = None
     via_agent: str | None = None
+    continue_on_fail: bool = False  # a failing cell does not stop the run; the run still ends ``failed``
 
 
 class ApplyRequest(_Req):
@@ -754,6 +776,7 @@ class AskRequest(_Req):
 class AskResponse(BaseModel):
     ask_cell: Cell  # its latest result is error{code:"llm_unavailable"} when degraded
     planned: list[Cell] = Field(default_factory=list)
+    removed: list[str] = Field(default_factory=list)  # names of the cells the plan's `remove` deleted
 
 
 class ReportResponse(BaseModel):

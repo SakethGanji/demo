@@ -29,6 +29,7 @@ class NotebookModel(SQLModel, table=True):
     created_by: str | None = Field(default=None)
     active_run_id: str | None = Field(default=None)  # NULL = free (the run lock)
     kept: list[dict[str, Any]] = Field(default_factory=list, sa_column=SAColumn(JSONB, nullable=False, server_default="[]"))
+    ai_notes: str | None = Field(default=None)  # Ask's running notes (migration 20261102120000), at most 2000 chars
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 
@@ -68,6 +69,7 @@ class NotebookRunModel(SQLModel, table=True):
     heartbeat_at: datetime | None = Field(default=None)
     started_at: datetime = Field(default_factory=datetime.now)
     finished_at: datetime | None = Field(default=None)
+    continue_on_fail: bool = Field(default=False)  # a failing cell does not stop the run (migration 20261102120000)
 
 
 class NotebookCellResultModel(SQLModel, table=True):

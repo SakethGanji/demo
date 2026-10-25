@@ -1,6 +1,6 @@
 /** Pure helpers for cells: status, numbering, references, spec paths. No React. */
 import type { StepStatus } from '@/shared/glass'
-import type { Cell, CellResult, Notebook, RowsPreview, StoredCellKind } from '../types'
+import type { AskResponse, Cell, CellResult, Notebook, RowsPreview, StoredCellKind } from '../types'
 
 /** Labels for every stored kind: the removed ones (approval / person) still need a name on their read-only card. */
 export const KIND_LABEL: Record<StoredCellKind, string> = {
@@ -213,3 +213,11 @@ export function tabFor(kind: StoredCellKind): WsTab | null {
 
 /** Tabs that open the workspace by themselves (browser, table, write): the calm rule. */
 export const AUTO_TABS: WsTab[] = ['browser', 'results', 'change', 'workflow']
+
+/** The toast after an Ask: cells written; an answer with no cells (Ask replied in its notes); or nothing planned. */
+export function askNotice(res: AskResponse, suffix = ''): [string, 'ok' | 'need'] {
+  if (res.planned.length) return [`Studio wrote ${plural(res.planned.length, 'cell')}${suffix}`, 'ok']
+  const rec = res.ask_cell.latest
+  const summary = rec?.status === 'success' ? String((rec.output as { summary?: unknown } | null)?.summary ?? '').trim() : ''
+  return summary ? [`Studio: ${summary.length > 160 ? summary.slice(0, 157) + '…' : summary}`, 'ok'] : ['Studio could not plan this', 'need']
+}

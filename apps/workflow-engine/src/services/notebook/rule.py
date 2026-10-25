@@ -150,7 +150,8 @@ def _keys(key: Any) -> list[str]:
 
 def evaluate(spec: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
     """Run a resolved rule spec. Returns ``{rows, columns, passed, summary, ...}``; ``passed`` False means the rule
-    failed (only ``assert`` fails; ``compare`` reports mismatches as rows and passes when there are none)."""
+    failed (``assert`` fails on a breaking row; ``compare`` reports mismatches as rows and fails on them only with
+    ``fail_on_mismatch``)."""
     op = spec.get("op")
     left = _rows(spec.get("left"), "left")
     where = spec.get("where") or []
@@ -200,7 +201,7 @@ def evaluate(spec: dict[str, Any], now: datetime | None = None) -> dict[str, Any
             if kk not in lkeys:
                 mism.append({**dict(zip(keys, [_get(rr, x) for x in keys])), "field": "(missing)", "left": None,
                              "right": "present"})
-        return {"rows": mism, "passed": True, "matched": matched, "mismatches": len(mism),
+        return {"rows": mism, "passed": not (mism and spec.get("fail_on_mismatch")), "matched": matched, "mismatches": len(mism),
                 "columns": [*keys, "field", "left", "right"],
                 "summary": "no mismatches" if not mism else f"{len(mism)} mismatch{'es' if len(mism) != 1 else ''}"}
     raise RuleError(f"unknown rule op {op!r}")

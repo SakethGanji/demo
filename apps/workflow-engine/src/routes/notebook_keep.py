@@ -21,7 +21,7 @@ from types import SimpleNamespace
 from typing import Any
 from urllib.parse import urljoin
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -129,6 +129,33 @@ async def _record_ask(session: AsyncSession, nb_id: str, cell_id: str, by: str |
     raise notebook_error(409, "run_in_progress", "could not record the Ask result; try again")
 
 
+async def _remove_cells(svc: Any, notebook_id: str, cells: list[NotebookCellModel],
+                        names: list[str]) -> tuple[list[str], list[dict[str, str]]]:
+    """Ask's ``remove``: delete those existing cells (never the Ask cell itself). Each refusal (a run in progress, an
+    applied change, an unknown name) is reported, not raised."""
+    by_name = {c.name: c.id for c in cells}
+    removed: list[str] = []
+    refused: list[dict[str, str]] = []
+    for n in names:
+        cid = by_name.get(n)
+        if cid is None:
+            refused.append({"name": n, "reason": "no such cell"})
+            continue
+        try:
+            c = await svc.require_cell(cid)
+        except HTTPException:
+            removed.append(n)  # already gone with its for_each parent
+            continue
+        try:
+            await svc.delete_cell(c)
+            removed.append(n)
+        except HTTPException as e:
+            await svc.s.rollback()
+            d = e.detail if isinstance(e.detail, dict) else {}
+            refused.append({"name": n, "reason": str(d.get("message") or d.get("code") or e.detail)[:200]})
+    return removed, refused
+
+
 @router.post("/notebooks/{notebook_id}/ask", response_model=AskResponse)
 async def ask(notebook_id: str, body: AskRequest, session: AsyncSession = Depends(get_db_session)):
     """Always 200 when the notebook exists; LLM failure gives ``ask_cell`` error ``llm_unavailable`` and ``planned=[]``."""
@@ -165,6 +192,10 @@ async def ask(notebook_id: str, body: AskRequest, session: AsyncSession = Depend
         return {"ask_cell": await svc.cell_view(await svc.require_cell(cell_id)), "planned": []}
     caps.note_ai_success()
     nb = await svc.require_notebook(notebook_id)
+    if A.has_notes({"notes": res.get("notes")}):  # omitted (or blank) notes keep the current ones
+        from ..services.notebook.service import clean_notes
+
+        nb.ai_notes = clean_notes(res["notes"])
     by = body.by or "ask"
     names: list[str] = []
     for pc in res["cells"]:
@@ -177,13 +208,17 @@ async def ask(notebook_id: str, body: AskRequest, session: AsyncSession = Depend
                                    parent_cell_id=top.id, created_by=by, created_via="agent", commit=False)
             names.append(x.name)
     await session.commit()
+    # removals last: new cells are named after the highest existing name, so removing first could shift them
+    removed, not_removed = await _remove_cells(svc, notebook_id, cells, res.get("remove") or [])
     ms = int((time.monotonic() - t0) * 1000)
-    await _record_ask(session, notebook_id, cell_id, body.by, "success",
-                      {"summary": res["summary"], "planned": names, "calls": res["calls"], "llm_ms": res["ms"],
-                       "rejected": res["rejected"][:20]}, None, ms)
+    out = {"summary": res["summary"], "planned": names, "calls": res["calls"], "llm_ms": res["ms"],
+           "rejected": res["rejected"][:20], "notes_updated": A.has_notes({"notes": res.get("notes")})}
+    if removed or not_removed:
+        out.update(removed=removed, not_removed=not_removed)
+    await _record_ask(session, notebook_id, cell_id, body.by, "success", out, None, ms)
     full = await svc.full(await svc.require_notebook(notebook_id))
     by_id = {c["id"]: c for c in full["cells"]}
-    return {"ask_cell": by_id[cell_id], "planned": [by_id[i] for i in planned_ids if i in by_id]}
+    return {"ask_cell": by_id[cell_id], "planned": [by_id[i] for i in planned_ids if i in by_id], "removed": removed}
 
 
 # -- browser cell -----------------------------------------------------------------------------------------------------

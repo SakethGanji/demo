@@ -5,6 +5,8 @@ and the cell fails).
 - ``mode: sequential`` runs rows in order; ``parallel`` runs up to ``concurrency`` rows at once (``child_task`` is
   refused at create: coming).
 - A retry (``ctx.only_rows``) runs just those rows and merges them into the retried output (``ctx.previous``).
+- Each result row also carries the input ``row`` (when it is an object), so later cells can act on the failed or
+  passed inputs: a rule filter on ``status`` and then ``{{cells.cN.rows.row.id}}``.
 """
 
 from __future__ import annotations
@@ -50,6 +52,8 @@ async def run(ctx: Any, cell: Any, inputs: dict[str, Any]) -> CellOutcome:
             per_row[i] = {"i": i, "status": "success"}
         else:
             per_row[i] = {"i": i, "status": "error", "error": res.error}
+        if isinstance(over[i], dict):
+            per_row[i]["row"] = over[i]
             if stop_on_fail:
                 stopped.append(i)
 
@@ -70,7 +74,7 @@ async def run(ctx: Any, cell: Any, inputs: dict[str, Any]) -> CellOutcome:
     ok = sum(1 for r in rows if r["status"] == "success")
     failed = sum(1 for r in rows if r["status"] == "error")
     stopped_at = min(stopped) if stopped else None
-    out = {"ok": ok, "failed": failed, "row_count": len(over), "rows": rows[:500], "columns": ["i", "status", "error"],
+    out = {"ok": ok, "failed": failed, "row_count": len(over), "rows": rows[:500], "columns": ["i", "status", "error", "row"],
            "stopped_at": stopped_at, "mode": "parallel" if parallel else "sequential",
            "retried": todo if only is not None else None,
            "summary": f"{ok} ok, {failed} failed of {len(over)}"}

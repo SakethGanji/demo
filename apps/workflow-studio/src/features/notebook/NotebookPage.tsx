@@ -386,6 +386,27 @@ function Loaded({ nb }: { nb: Notebook }) {
                     </div>
                   ) : (
                     <div className="nb-ex">
+                      <details className="nb-notes" data-testid="nb-ai-notes">
+                        <summary>AI notes</summary>
+                        {nb.notes ? (
+                          <>
+                            <div className="nb-notes-body">{nb.notes}</div>
+                            <button
+                              type="button"
+                              className="gl-btn"
+                              data-variant="ghost"
+                              data-size="sm"
+                              disabled={actions.patch.isPending}
+                              onClick={() => actions.patch.mutate({ notes: '' }, { onError: fail })}
+                              data-testid="nb-ai-notes-clear"
+                            >
+                              Clear
+                            </button>
+                          </>
+                        ) : (
+                          <p className="nb-faint">No notes yet</p>
+                        )}
+                      </details>
                       <details open>
                         <summary>Connections used</summary>
                         {usedConns.length === 0 ? <p className="nb-faint">None</p> : usedConns.map((c) => <p key={c}>⛁ {c}</p>)}

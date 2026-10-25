@@ -85,6 +85,8 @@
 .nb-ex details[open] summary::before { transform: rotate(90deg); }
 .nb-ex summary:hover { background: var(--recess); }
 .nb-ex p { margin: 0; padding: 3px 10px 3px 24px; color: var(--muted-foreground); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nb-notes-body { margin: 2px 10px 6px 24px; padding: 8px 10px; border-radius: 10px; background: var(--recess); color: var(--muted-foreground); font-size: 12px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; }
+.nb-notes .gl-btn { margin-left: 24px; }
 
 /* ── header ─────────────────────────────────────────────────────────────────────────────── */
 .nb-head { display: flex; flex-direction: column; margin-bottom: 14px; }

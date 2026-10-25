@@ -70,7 +70,7 @@ export type HttpAuthType = 'none' | 'bearer' | 'basic' | 'api_key'
 /** `secret` is a project secret's key: the request uses it as {{ $vars.KEY }}; its value is never stored or shown. */
 export interface HttpAuth { type: HttpAuthType; secret?: string | null; username?: string | null; name?: string | null; add_to?: 'header' | 'query' }
 export type AssertionKind = 'status' | 'time' | 'json_path' | 'header' | 'schema'
-export type AssertionOp = 'eq' | 'ne' | 'lt' | 'le' | 'gt' | 'ge' | 'contains' | 'not_contains' | 'exists' | 'not_exists' | 'matches' | 'in'
+export type AssertionOp = 'eq' | 'ne' | 'lt' | 'le' | 'gt' | 'ge' | 'contains' | 'not_contains' | 'exists' | 'not_exists' | 'matches' | 'in' | 'has_item'
 export interface HttpAssertion { kind: AssertionKind; op?: AssertionOp; path?: string | null; name?: string | null; value?: unknown; json_schema?: Record<string, unknown> | null }
 export interface HttpExtract { name: string; source?: 'json_path' | 'header' | 'status'; path?: string | null }
 export interface HttpSpec {
@@ -86,6 +86,10 @@ export interface HttpSpec {
   extract?: HttpExtract[]
   expect?: HttpExpect | null
   credential_slot?: string | null
+  /** 'always': resend on every run (logins, test calls) instead of stopping before an applied write */
+  rerun?: 'once' | 'always' | null
+  /** a failure here does not stop the run */
+  continue_on_fail?: boolean | null
 }
 /** One checked assertion on an http result: the sentence, pass/fail, and the actual value it saw. */
 export interface AssertionResult { label: string; kind: AssertionKind | 'expect'; passed: boolean; actual: unknown; expected?: unknown; message?: string | null }
@@ -132,6 +136,10 @@ export interface RuleSpec {
   key?: string | string[] | null
   fields?: RuleField[]
   where?: RuleWhere[]
+  /** compare only: any mismatch fails the rule (default: report mismatches and pass) */
+  fail_on_mismatch?: boolean | null
+  /** a failing check does not stop the run */
+  continue_on_fail?: boolean | null
 }
 
 export interface ChangeSpec {
@@ -147,6 +155,8 @@ export interface DataSpec {
   columns?: string[]
   rows?: Record<string, unknown>[] | unknown[][]
   csv?: string | null
+  /** a project data table (id or name): the cell reads its current rows when it runs */
+  from_table?: string | null
   /** GET /notebooks/{id} cuts rows to 50: never PATCH such a spec back */
   rows_truncated?: boolean
   row_count?: number
@@ -289,6 +299,8 @@ export interface RunSummary {
   triggered_by: string | null
   run_as: string | null
   via_agent: string | null
+  /** later cells ran after a failure */
+  continue_on_fail?: boolean
   heartbeat_at: string | null
   started_at: string
   finished_at: string | null
@@ -337,6 +349,8 @@ export interface Notebook {
   run_as: string | null
   created_by: string | null
   active_run_id: string | null
+  /** Ask's running notes (its memory for this notebook); null when none */
+  notes?: string | null
   kept: KeptEntry[]
   created_at: string
   updated_at: string
@@ -368,7 +382,7 @@ export interface NotebookCreate {
   description?: string | null
 }
 
-export interface NotebookPatch { title?: string; description?: string | null; environment?: string | null; run_as?: string | null }
+export interface NotebookPatch { title?: string; description?: string | null; environment?: string | null; run_as?: string | null; notes?: string | null }
 
 export interface CellCreate<K extends CellKind = CellKind> {
   kind: K
@@ -389,6 +403,7 @@ export interface RunCreate {
   triggered_by?: string | null
   run_as?: string | null
   via_agent?: string | null
+  continue_on_fail?: boolean
 }
 
 export interface ApplyRequest { approved_by: string; idempotency_key?: string | null }
@@ -409,7 +424,7 @@ export interface ControlRequest { action: ControlAction }
 /** Rows the user ticked in a result table, sent with an Ask ("release the selected wires"). */
 export interface AskSelection { cell: string; key: string; keys: (string | number | boolean | null)[] }
 export interface AskRequest { text: string; by?: string | null; selection?: AskSelection | null }
-export interface AskResponse { ask_cell: Cell<'ask'>; planned: Cell[] }
+export interface AskResponse { ask_cell: Cell<'ask'>; planned: Cell[]; removed?: string[] }
 
 export interface ReportResponse { markdown: string }
 

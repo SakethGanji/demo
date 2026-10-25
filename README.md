@@ -20,16 +20,16 @@ Only about 650 existing lines were deleted in total. For the new folders, copyin
 
 ## How to bring it over
 
-1. **Engine first.** Copy the new engine files, then make the edits to shared engine files listed in §2 and §3.4.
-   - Run the 3 new migrations: `python -m src.db.migrate`.
+1. **Engine first.** Copy the new engine files, then make the edits to shared engine files listed in §2, §3.3 and §3.4.
+   - Run the 4 new migrations: `python -m src.db.migrate`.
    - Run the targeted engine tests in §5.
 2. **Studio next.**
    - Copy `src/shared/glass/`, `src/features/workflow-editor/glass/`, `src/features/workflow-editor/components/read-view/` and `src/features/notebook/`.
-   - Make the shared-file edits in §1.4 and §3.4.
+   - Make the shared-file edits in §1.4, §3.3 and §3.4.
    - Run `npm install`; this adds `@dagrejs/dagre`.
    - `npx tsc -b` must show 0 errors.
-3. **jobs-service.** Apply the take-over changes (§3.3). They are only needed for browser take over in the notebook.
-4. **Check by using it.** Run the API scenarios in §5, open the pages, then run the e2e specs for each feature once.
+3. **jobs-service and test-builder.** Apply the take-over changes (§3.3); they are only needed for browser take over in the notebook. Apply the `explore.ts` change in §3.4, which adds "found …" to browser failures.
+4. **Check by using it.** Run the API scenarios in §3.5 and the three Ask conversations in §3.4 with the real model, open the pages, then run the e2e specs for each feature once.
 
 Keep engine changes additive. Every new setting is optional, and its default is the old behaviour. Old workflows and old stored runs must load and run unchanged.
 
@@ -312,7 +312,71 @@ GET/PUT    /notebooks/{id}/environments     POST /notebooks/{id}/import-http
 - `src/control.ts`, `server.ts`, `store.ts`, `testRun.ts`, `uiCase.ts`: take over, relayed input, the trace and video cut, and masking typed text.
 - Tests: `tests/evidence.test.ts`, plus the new `tests/takeover-trace.test.ts`, which runs a real browser.
 
-### 3.4 How to check it over the API
+### 3.4 Ask: notes, last run, data tables and run options
+
+A follow-up round added these after the first commit. All of it is additive: each setting is optional, and its default is the old behaviour.
+
+**What the model sees and returns**
+- **Notes, the model's memory, with no extra LLM call.**
+  - `plan_cells` takes an optional `notes` string. The model rewrites its notes in the same reply as its cells.
+  - Notes are stored on the notebook (`notebooks.ai_notes`, trimmed, capped at 2000 characters) and shown at the top of every Ask prompt.
+  - `GET /notebooks/{id}` returns them. `PATCH {notes: ""}` clears them.
+  - A reply with empty `cells` is allowed when it carries notes, so the model can just answer or refuse.
+  - The studio has a collapsible "AI notes" panel with a Clear button.
+- **Last-run summary** in the prompt:
+  - the run number and time;
+  - ok or FAILED for each cell;
+  - each failure message, capped at 260 characters;
+  - for a for_each, which rows failed (`rows 1 (id "T2") failed`).
+  - Each cell's result line also says passed or did not pass, and lists the failed checks.
+- **Project data tables** (`store` tables) and their columns are listed in the prompt. A `data` cell can read one back with `{from_table}`.
+- **Project variables that aren't secrets** (e.g. `BASE_URL=…`) are listed in the prompt. The model is told to record the site URL, paths and login labels in its notes once, and reuse them.
+- **`remove: ["cN"]`** on plan_cells deletes obsolete cells in the same call. It refuses while a run is in progress, after a cell has applied a change, and on the Ask cell itself. The result carries `removed` and `not_removed`.
+
+**New cell options**
+- **http `rerun: "always"`:** the call is resent on every run and never recorded as an applied write. Use it for logins and test calls. Without it, a rerun still stops before an applied write.
+- **`continue_on_fail`:** on http and rule cells, and as a run option. Later cells (e.g. cleanup) still run. The run still ends `failed`, with `continued: true`.
+- **`has_item` check** on http: the array contains an item where field = value.
+- **compare `fail_on_mismatch: true`:** a compare rule fails on mismatches. Before, it always passed.
+- **`change.set`** values can be refs, resolved at run time.
+- **for_each result rows carry the input `row`,** so results can be written back per row (`{{cells.cN.rows.row.id}}`) and failures re-run.
+- **store:** columns named `id`, `created_at` and `updated_at` in the source rows are saved as `src_id`, `src_created_at` and `src_updated_at`, because data tables reserve those names.
+
+**Browser**
+- **`{{$cred.username}}` is expanded in every step,** including expectText. The same goes for user, user_name, login and email. The password and other secret fields stay placeholders that only `fill` and `otp` steps may use. Using one anywhere else fails the cell with `invalid_spec`, and Ask sends such a plan back for repair.
+- **expectCount and expectText failures say what the page had:** `found 2 (expected 5)`, or `found: '<text>'`. This is in `apps/test-builder/src/explore.ts`, which is shared with the jobs-service.
+
+**Prompt wording** (all in `executors/ask.py`):
+- `assert` passes on empty input, so count and compare to require a row;
+- the exact json_path syntax;
+- the required fields for each browser action;
+- row matching is exact, so prefer cell targets or `exact:false`;
+- all environments, with their variable names;
+- the format of the change `table`;
+- after an apply, refer to the change cell's own rows;
+- cast DB numbers when comparing them with page text;
+- answer or refuse with a note;
+- internal `CONN_*_URL` secret names are hidden, and null fields are dropped from echoed specs.
+
+**Files**
+- New migration: `db/migrations/20261102120000_notebook_ai_notes.sql`.
+- Engine, edited: `db/notebook_models.py`, `routes/notebook_keep.py`, `schemas/notebook.py`, and in `services/notebook/`: `service.py`, `runner.py`, `rule.py`, `apitest.py`, plus `executors/ask.py`, `browser.py`, `data.py`, `for_each.py` and `store.py`.
+- Studio, edited: in `features/notebook/`: `NotebookPage.tsx`, `types.ts`, `notebook.css`, `composer/Composer.tsx`, `lib/cells.ts`, and `cells/ApiSuite.tsx`, `Bodies.tsx`, `Http.tsx`, `RowsTable.tsx` and `Sentence.tsx`.
+- test-builder, edited: `apps/test-builder/src/explore.ts`.
+- Tests, new: `tests/unit/test_notebook_ask_prompt.py` and `test_notebook_ask_followups.py`, plus in `tests/integration/`: `test_notebook_ask_memory.py`, `test_notebook_run_options.py`, `test_notebook_ask_followups.py` and `test_notebook_ask_walkthrough.py`.
+
+**Checked end to end over the API.** These ran on one isolated engine with a real jobs-service, Chromium, a Postgres bank DB and a small local site, with Sonnet acting as the model from the real prompt alone:
+1. **A business rule:** "balance over 10k shows a Premium badge; the site and the DB agree". It passed. After a badge was removed, the rerun named the failing step and what the page had.
+2. **A test_cases table:** UI and API cases ran in one for_each, and the results were written back. Later, "what failed? re-run those" re-ran only the failed case.
+3. **Back-to-back commands:** log in → profile → directory → check the table → call the API.
+
+**Limits:**
+- Each browser cell starts a fresh browser, so a login doesn't carry over to the next browser cell. Put "log in, then section A, then section B" in one cell; the prompt tells the model to do this.
+- A `change` inside a for_each (an approval per row) is not supported.
+- "Run all" still stops after an applied change; "Run from here" avoids it.
+- `rerun`, `continue_on_fail` and `fail_on_mismatch` have no UI controls. They are set by Ask or the API.
+
+### 3.5 How to check it over the API
 
 These scenarios all pass here. The driver scripts are not in the repo; recreate them from this list.
 
@@ -371,7 +435,8 @@ Both the editor and the Notebook use the Studio glass look. The values live in `
 | Engine: loops, poll, checker | `cd apps/workflow-engine && venv/bin/python -m pytest -q tests/unit/test_loop_characterisation.py tests/unit/test_loop_history.py tests/unit/test_poll_condition.py tests/unit/test_workflow_checker.py tests/integration/test_loop_stop_early_api.py` | all pass |
 | Engine: prompts (base64) | `venv/bin/python -m pytest -q tests/unit/test_prompts_optional_sections.py tests/unit/test_ai_builder_prompts.py` | 172 pass |
 | Engine: approvals, Postgres per item | `venv/bin/python -m pytest -q tests/unit/test_approval_per_item_pg.py tests/unit/test_loop_approval_resume_pg.py tests/unit/test_postgres_transaction_per_item_pg.py tests/unit/test_json_template_structures.py` | pass (needs Postgres) |
-| Engine: notebook | `venv/bin/python -m pytest -q tests/integration/test_notebook_*.py tests/integration/test_update_explicit_empty.py` | 127 pass |
+| Engine: notebook | `venv/bin/python -m pytest -q tests/integration/test_notebook_*.py tests/integration/test_update_explicit_empty.py` | 135 passed before the §3.4 follow-ups. The new files passed on their own (`walkthrough` 3/3, `followups` 3/3); the full set was not re-run after the last changes |
+| Engine: notebook Ask prompt | `venv/bin/python -m pytest -q tests/unit/test_notebook_ask_prompt.py tests/unit/test_notebook_ask_followups.py` | 18 pass |
 | jobs-service | `cd apps/jobs-service && npm test` | 8 pass |
 | Studio types | `cd apps/workflow-studio && npx tsc -b` | 0 errors |
 | Studio unit | `npm run test:unit` | 1220/1222 (2 old `layout3d` failures) |
@@ -387,7 +452,10 @@ Each e2e run brings up its own throwaway DB, engine, jobs-service, fake LLM and 
 
 ## 6. Not done and known limits
 
-- **The live AI path is untested** because there were no credentials. That covers notebook Ask, "Generate negative tests" and the AI builder; they were only checked against a fake LLM and for a clean `llm_unavailable`.
+- **The live AI path is untested** because there were no credentials. That covers notebook Ask, "Generate negative tests" and the AI builder.
+  - They were checked against a fake LLM, and for a clean `llm_unavailable`.
+  - For notebook Ask, Sonnet also acted as the model from the real prompt (§3.4).
+  - The real provider round trip (tool schema out, reply back) has not been run. Run the three §3.4 conversations once with a real key.
 - **Shown as "coming":** agent-driven browsing, Fork, for-each with child tasks, the Mailbox trigger and event-based waits.
 - **Waits in kept notebook workflows are capped at 5 minutes.** The Wait there is in-process; port the durable Wait to lift the cap.
 - **Not yet in the glass Canvas** (the legacy editor still has them):

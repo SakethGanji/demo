@@ -12,7 +12,7 @@ import { useApiSpec, useApiSpecs } from '@/features/api-catalog/useApiSpecs'
 import { notebookApi } from '../api'
 import { useNb } from '../context'
 import { nbKeys } from '../hooks'
-import { plural } from '../lib/cells'
+import { askNotice, plural } from '../lib/cells'
 import type { Cell, EnvSet, HttpOutput, HttpSpec, ImportHttpResponse, NotebookEnvironments } from '../types'
 
 const WRITES = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
@@ -58,7 +58,7 @@ export function ApiSuiteBar({ importOpen, setImportOpen, onKeep }: { importOpen:
   }
   const askFor = (text: string) =>
     actions.ask.mutate({ text, by: me }, {
-      onSuccess: (r) => notify(r.planned.length ? `Studio wrote ${plural(r.planned.length, 'cell')}` : 'Studio could not plan this', r.planned.length ? 'ok' : 'need'),
+      onSuccess: (r) => notify(...askNotice(r)),
       onError: fail,
     })
   const verdict = sum.ran === 0 ? 'not run yet' : sum.bad === 0 && sum.ran === sum.total ? 'all passed' : `${sum.bad} failed`

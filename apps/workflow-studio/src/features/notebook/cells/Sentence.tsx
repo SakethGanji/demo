@@ -44,6 +44,7 @@ export function Sentence({ cell }: { cell: Cell }): ReactNode {
     }
     case 'data': {
       const s = cell.spec as DataSpec
+      if (s.from_table) return <>Read the rows of table <Tok cell={cell} path="from_table" label="table" /></>
       const rows = (s.rows ?? []) as Record<string, unknown>[]
       if (rows.length === 1 && !Array.isArray(rows[0])) {
         const cols = Object.keys(rows[0])
