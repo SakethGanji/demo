@@ -438,6 +438,13 @@ Untagged files are pure. No unit test calls a live LLM.
 | `test_stage8_t1_extract_props.py` | 801 | | Convert selection on 400 seeded random graphs (175 skip when the seed already has a checker error). |
 | `test_stage8_t1_runtime_edges.py` | 50 | | Sub-workflow cycles, depth 10, timeouts (1 strict xfail that can never pass). |
 
+### Notebook Ask prompt
+
+| File | Tests | Tags | Protects |
+|---|---|---|---|
+| `test_notebook_ask_prompt.py` | 14 | | The prompt content. It carries notes, the last-run summary, data tables, all environments and the cell rules. Hidden `CONN_*_URL` secrets and null spec fields are left out. |
+| `test_notebook_ask_followups.py` | 4 | | `$cred` expansion (username in any step, secrets only in fill/otp), the `remove` validation, project variables, and the prompt's row-match and number-cast rules. |
+
 ## A5. Engine integration catalogue (`apps/workflow-engine/tests/integration`)
 
 Every file needs Postgres and an engine subprocess. Extra tags:
@@ -529,6 +536,10 @@ Every file needs Postgres and an engine subprocess. Extra tags:
 | `test_notebook_edge.py` | 68 | STACK | Hostile input, hostile SQL, races, 404s, paging bounds, guards. |
 | `test_notebook_keep.py` | 10 | | Keep turns a notebook into a saved workflow with no LLM. |
 | `test_notebook_rows.py` | 5 | | A change scoped to exactly the selected rows. |
+| `test_notebook_ask_memory.py` | 3 | FAKE | Notes are saved from plan_cells and shown in the next prompt; PATCH clears them; a notes-only reply creates no cells. |
+| `test_notebook_run_options.py` | 5 | | http `rerun: "always"`, `continue_on_fail`, `has_item`, compare `fail_on_mismatch`, and for_each rows carrying their input `row`. |
+| `test_notebook_ask_followups.py` | 3 | FAKE JOBS BR | The username expands in expect steps, failures report "found …", `remove` deletes cells, and project variables appear in the prompt. |
+| `test_notebook_ask_walkthrough.py` | 3 | FAKE JOBS BR | The three owner journeys end to end: a business rule across site, DB and API; a test-case table run with write-back and re-running the failures; back-to-back commands. It boots a small local site with a login. |
 
 ### Modules, sandbox, broker, apps
 

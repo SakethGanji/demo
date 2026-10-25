@@ -12,7 +12,7 @@ The diff baseline is commit `4f776cb` (2026-10-21). Everything listed below was 
 |---|---|---|---|
 | 1. Workflow editor: Page view + Canvas (studio) | ~10.8k lines | ~2.9k | new folders |
 | 2. Engine: loops, Poll, checks, approvals per item, smaller fixes | ~5.5k | ~3.8k | edits to existing files |
-| 3. Notebook (studio + engine + jobs-service) | ~13.7k | ~5.1k | new folders |
+| 3. Notebook (studio + engine + jobs-service) | ~14.3k | ~6.1k | new folders (the §3.4 follow-ups added ~0.6k code and ~1k tests) |
 
 Only about 650 existing lines were deleted in total. For the new folders, copying them in is enough. For edits to shared files, apply what each change is for, because your copies of those files have drifted.
 
@@ -493,12 +493,13 @@ These are not part of the three features, but they are in this repo since `4f776
 
 `A` = new, `M` = edited. This excludes `prototypes/`, screenshots and test output.
 
-<details><summary><b>Engine: notebook</b> (46 files)</summary>
+<details><summary><b>Engine: notebook</b> (53 files)</summary>
 
 ```
 A  apps/workflow-engine/scripts/notebook_spec.mts
 A  apps/workflow-engine/src/db/migrations/20261031120000_notebooks.sql
 A  apps/workflow-engine/src/db/migrations/20261101130000_notebook_environments.sql
+A  apps/workflow-engine/src/db/migrations/20261102120000_notebook_ai_notes.sql
 A  apps/workflow-engine/src/db/notebook_models.py
 A  apps/workflow-engine/src/routes/notebook_keep.py
 A  apps/workflow-engine/src/routes/notebooks.py
@@ -542,6 +543,12 @@ A  apps/workflow-engine/tests/integration/test_notebook_browser.py
 A  apps/workflow-engine/tests/integration/test_notebook_edge.py
 A  apps/workflow-engine/tests/integration/test_notebook_keep.py
 A  apps/workflow-engine/tests/integration/test_notebook_rows.py
+A  apps/workflow-engine/tests/integration/test_notebook_ask_memory.py
+A  apps/workflow-engine/tests/integration/test_notebook_run_options.py
+A  apps/workflow-engine/tests/integration/test_notebook_ask_followups.py
+A  apps/workflow-engine/tests/integration/test_notebook_ask_walkthrough.py
+A  apps/workflow-engine/tests/unit/test_notebook_ask_prompt.py
+A  apps/workflow-engine/tests/unit/test_notebook_ask_followups.py
 ```
 </details>
 
@@ -652,6 +659,13 @@ M  apps/jobs-service/src/testRun.ts
 M  apps/jobs-service/src/uiCase.ts
 M  apps/jobs-service/tests/evidence.test.ts
 A  apps/jobs-service/tests/takeover-trace.test.ts
+```
+</details>
+
+<details><summary><b>test-builder</b> (1 file)</summary>
+
+```
+M  apps/test-builder/src/explore.ts
 ```
 </details>
 
