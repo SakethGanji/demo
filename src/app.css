@@ -1,0 +1,15 @@
+/* The two-page shell, plus the .ne-root base text styles both pages assume. */
+html, body { margin: 0; background: var(--ne-canvas); color: var(--ne-fg); font-family: var(--ne-font); }
+a { color: inherit; text-decoration: none; }
+.ne-root, .ne-root * { box-sizing: border-box; }
+.ne-root { font-family: var(--ne-font); color: var(--ne-fg); font-size: 13.5px; line-height: 1.45; -webkit-font-smoothing: antialiased;
+  font-feature-settings: "cv01", "ss03"; font-variant-numeric: tabular-nums; }
+.ne-root button { font: inherit; color: inherit; }
+.app { min-height: 100vh; }
+.app__top { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 12px; height: 50px; padding: 0 16px;
+  background: color-mix(in srgb, var(--ne-canvas) 75%, transparent); backdrop-filter: blur(14px); border-bottom: 1px solid var(--ne-hairline); }
+.app__nav { display: flex; gap: 2px; }
+.app__nav a, .app__theme { padding: 6px 11px; border-radius: 8px; font-size: 13px; font-weight: 500; color: var(--ne-muted); }
+.app__nav a:hover, .app__theme:hover { color: var(--ne-fg); }
+.app__nav a.on { background: var(--ne-glass-strong); color: var(--ne-fg); box-shadow: var(--ne-shadow-sm); }
+.app__theme { margin-left: auto; border: 1px solid var(--ne-hairline); background: none; font: inherit; font-size: 13px; cursor: pointer; }
