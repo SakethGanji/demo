@@ -1,0 +1,132 @@
+/* modern-tokens: modern pass.
+   A refined layer over tokens.css. It overrides the existing --ne-* vars (no parallel system) and adds a few
+   new ones the modern pass needs: a type scale, a radius scale, accent "line" colours for thin rings and
+   left accents, and a soft xs / lift shadow pair. Derived vars are defined once on :root and read the
+   theme vars, so they resolve per theme. Light values sit on :root; the dark block repeats tokens.css's
+   two selectors (system dark without data-theme="light", and data-theme="dark"). */
+
+:root {
+  /* type: Inter when present, then the platform UI fonts; mono prefers JetBrains / SF / Cascadia */
+  --ne-font: 'Inter Var', 'InterVariable', 'Inter', 'Geist', -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui,
+    'Segoe UI Variable Text', 'Segoe UI', Roboto, 'Noto Sans', 'Liberation Sans', sans-serif;
+  --ne-mono: 'JetBrains Mono', 'JetBrainsMono Nerd Font', 'Geist Mono', 'SF Mono', ui-monospace, 'SFMono-Regular',
+    'Cascadia Code', Menlo, Consolas, 'Liberation Mono', monospace;
+  --ne-ease: cubic-bezier(.2, .8, .2, 1);
+  --ne-dur: 160ms;
+
+  /* type scale (px, tight) */
+  --ne-text-2xs: 10px;    /* kind labels, counts, mono meta */
+  --ne-text-xs: 11px;     /* pills, table heads */
+  --ne-text-sm: 12.5px;   /* annotations, table cells, output text */
+  --ne-text-md: 13.5px;   /* body */
+  --ne-text-lg: 15px;     /* note cells */
+  --ne-text-step: 16.5px; /* the step sentence */
+  --ne-text-ask: 19px;    /* the Ask sentence */
+  --ne-lh-tight: 1.35;
+  --ne-lh: 1.5;
+  --ne-track-tight: -.014em;
+  --ne-track-mono: .04em;
+
+  /* radius scale */
+  --ne-radius: 16px;      /* panes */
+  --ne-radius-sm: 12px;   /* wells, tables, cards */
+  --ne-radius-md: 10px;   /* inner wells, output blocks */
+  --ne-radius-ctl: 8px;   /* buttons, inputs */
+  --ne-radius-xs: 6px;    /* tags, code chips */
+  --ne-radius-pill: 999px;
+
+  /* palette: a touch richer indigo, cleaner status hues, text with a little more contrast */
+  --ne-fg: #0b1124;
+  --ne-muted: #3a4263;
+  --ne-faint: #5b6383;
+  --ne-primary: #5b55f0;
+  --ne-primary-2: #0ea5e9;
+  --ne-primary-text: #4a43d8;
+  --ne-primary-soft: color-mix(in srgb, #5b55f0 8%, transparent);
+  --ne-focus: 0 0 0 2px color-mix(in srgb, #5b55f0 70%, transparent);
+
+  --ne-ok: #12a150;   --ne-ok-text: #0e7438;   --ne-ok-soft: color-mix(in srgb, #12a150 9%, transparent);
+  --ne-warn: #e08600; --ne-warn-text: #8f5000; --ne-warn-soft: color-mix(in srgb, #e08600 10%, transparent);
+  --ne-bad: #dc3434;  --ne-bad-text: #bf2626;  --ne-bad-soft: color-mix(in srgb, #dc3434 8%, transparent);
+  --ne-ai: #7c5cf0;   --ne-ai-text: #6142d6;   --ne-ai-soft: color-mix(in srgb, #7c5cf0 10%, transparent);
+
+  /* accent lines: thin rings and left accents (derived, so they follow the theme) */
+  --ne-primary-line: color-mix(in srgb, var(--ne-primary) 26%, transparent);
+  --ne-ok-line: color-mix(in srgb, var(--ne-ok) 28%, transparent);
+  --ne-warn-line: color-mix(in srgb, var(--ne-warn) 32%, transparent);
+  --ne-bad-line: color-mix(in srgb, var(--ne-bad) 30%, transparent);
+  --ne-ai-line: color-mix(in srgb, var(--ne-ai) 24%, transparent);
+
+  /* quieter hairlines */
+  --ne-hairline: rgb(16 24 56 / .055);
+  --ne-ring: rgb(16 24 56 / .06);
+  --ne-ring-strong: rgb(16 24 56 / .11);
+
+  /* softer, layered depth: a contact shadow plus a long low-alpha fall-off */
+  --ne-raised-contact: 0 0 0 .5px rgb(16 24 56 / .03), 0 1px 2px rgb(16 24 56 / .05), 0 4px 12px -6px rgb(16 24 56 / .10);
+  --ne-depth: 0 1px 1px rgb(16 24 56 / .03), 0 3px 8px -3px rgb(16 24 56 / .06), 0 18px 44px -20px rgb(16 24 56 / .18);
+  --ne-shadow-xs: 0 1px 1px rgb(16 24 56 / .03), 0 1px 3px -1px rgb(16 24 56 / .06);
+  --ne-shadow-lift: 0 1px 2px rgb(16 24 56 / .04), 0 6px 16px -8px rgb(16 24 56 / .14);
+
+  /* rail: the taken path is a quieter green */
+  --ne-rail-path: color-mix(in srgb, var(--ne-ok) 46%, transparent);
+
+  /* code: a slightly cooler, denser well; syntax closer to modern editor themes */
+  --ne-code-bg: rgb(246 248 252 / .78);
+  --ne-syn-kw: #c0266a; --ne-syn-str: #0e7438; --ne-syn-num: #9a4f00; --ne-syn-fn: #4a43d8; --ne-syn-com: #7a8094;
+}
+
+/* ANSI colours mapped onto the status text tokens, so terminal output reads at the kit's contrast.
+   :root[data-theme="dark"] outranks nteract.css's [data-theme="dark"], so this covers both themes */
+:root, :root[data-theme="dark"] {
+  --ansi-red: var(--ne-bad-text);
+  --ansi-green: var(--ne-ok-text);
+  --ansi-yellow: var(--ne-warn-text);
+  --ansi-blue: var(--ne-primary-text);
+  --ansi-magenta: var(--ne-syn-kw);
+  --ansi-cyan: var(--ne-kind-chart);
+  --ansi-bright-black: var(--ne-faint);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ne-fg: #f2f3f8; --ne-muted: #a7a9ba; --ne-faint: #7b7e92;
+    --ne-primary: #6a63f2; --ne-primary-2: #38d0e6; --ne-primary-text: #b5adff;
+    --ne-primary-soft: color-mix(in srgb, #9c8fff 12%, transparent);
+    --ne-focus: 0 0 0 2px color-mix(in srgb, #9c8fff 80%, transparent);
+    --ne-ok-soft: color-mix(in srgb, #4ade80 11%, transparent);
+    --ne-warn-soft: color-mix(in srgb, #f59e0b 14%, transparent);
+    --ne-bad: #f47272; --ne-bad-text: #fb8a8a; --ne-bad-soft: color-mix(in srgb, #f87171 13%, transparent);
+    --ne-ai-soft: color-mix(in srgb, #a08bff 12%, transparent);
+    --ne-hairline: rgb(255 255 255 / .065);
+    --ne-ring: rgb(255 255 255 / .06);
+    --ne-ring-strong: rgb(255 255 255 / .12);
+    --ne-raised-contact: 0 0 0 .5px rgb(0 0 0 / .4), 0 1px 2px rgb(0 0 0 / .32), 0 6px 14px -8px rgb(0 0 0 / .5);
+    --ne-depth: 0 1px 1px rgb(0 0 0 / .3), 0 4px 10px -4px rgb(0 0 0 / .4), 0 22px 48px -20px rgb(0 0 0 / .65);
+    --ne-shadow-xs: 0 1px 1px rgb(0 0 0 / .3), 0 1px 3px -1px rgb(0 0 0 / .4);
+    --ne-shadow-lift: 0 1px 2px rgb(0 0 0 / .35), 0 8px 18px -8px rgb(0 0 0 / .55);
+    --ne-rail-path: color-mix(in srgb, var(--ne-ok) 40%, transparent);
+    --ne-code-bg: rgb(0 0 0 / .22);
+    --ne-syn-kw: #f472b6; --ne-syn-str: #86e0a8; --ne-syn-num: #fbbf24; --ne-syn-fn: #b5adff; --ne-syn-com: #747890;
+  }
+}
+:root[data-theme="dark"] {
+  --ne-fg: #f2f3f8; --ne-muted: #a7a9ba; --ne-faint: #7b7e92;
+  --ne-primary: #6a63f2; --ne-primary-2: #38d0e6; --ne-primary-text: #b5adff;
+  --ne-primary-soft: color-mix(in srgb, #9c8fff 12%, transparent);
+  --ne-focus: 0 0 0 2px color-mix(in srgb, #9c8fff 80%, transparent);
+  --ne-ok-soft: color-mix(in srgb, #4ade80 11%, transparent);
+  --ne-warn-soft: color-mix(in srgb, #f59e0b 14%, transparent);
+  --ne-bad: #f47272; --ne-bad-text: #fb8a8a; --ne-bad-soft: color-mix(in srgb, #f87171 13%, transparent);
+  --ne-ai-soft: color-mix(in srgb, #a08bff 12%, transparent);
+  --ne-hairline: rgb(255 255 255 / .065);
+  --ne-ring: rgb(255 255 255 / .06);
+  --ne-ring-strong: rgb(255 255 255 / .12);
+  --ne-raised-contact: 0 0 0 .5px rgb(0 0 0 / .4), 0 1px 2px rgb(0 0 0 / .32), 0 6px 14px -8px rgb(0 0 0 / .5);
+  --ne-depth: 0 1px 1px rgb(0 0 0 / .3), 0 4px 10px -4px rgb(0 0 0 / .4), 0 22px 48px -20px rgb(0 0 0 / .65);
+  --ne-shadow-xs: 0 1px 1px rgb(0 0 0 / .3), 0 1px 3px -1px rgb(0 0 0 / .4);
+  --ne-shadow-lift: 0 1px 2px rgb(0 0 0 / .35), 0 8px 18px -8px rgb(0 0 0 / .55);
+  --ne-rail-path: color-mix(in srgb, var(--ne-ok) 40%, transparent);
+  --ne-code-bg: rgb(0 0 0 / .22);
+  --ne-syn-kw: #f472b6; --ne-syn-str: #86e0a8; --ne-syn-num: #fbbf24; --ne-syn-fn: #b5adff; --ne-syn-com: #747890;
+}
