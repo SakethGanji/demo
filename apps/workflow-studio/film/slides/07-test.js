@@ -1,4 +1,4 @@
-/* 07 · Test — "Use case 2 we are targeting: testing."
+/* 07 · Test — "Describe what to check. It runs the tests for you."
  * One hero: the test runner window. Left, the three business cases as raised cards (the UI test expanded into its
  * five steps); right, a live browser pane that plays the UI test: the portal loads, the runner fills the username,
  * a person takes over for the password (never recorded, never shown), the runner clicks Sign in, the accounts
@@ -9,8 +9,8 @@ Film.slide({
   id: 'test',
   name: 'Test',
   word: 'Testing',
-  kicker: '07 · Use case 2 · testing',
-  caption: 'Use case 2 we are targeting: testing.',
+  kicker: '07 · Idea 2 · testing',
+  caption: 'Describe what to check. It runs the tests for you.',
   sub: 'Business cases in, tests run.',
   dur: 13,
   css: `

@@ -14,7 +14,7 @@ Film.slide({
   kicker: '04 · Macro elements',
   captions: [
     { at: 0.6, text: 'Macro elements: each block is a whole capability.' },
-    { at: 9.5, text: 'Two use cases we are targeting: data analysis and testing, both in the notebook.' },
+    { at: 9.5, text: 'Two ideas to show next: data analysis and testing.' },
   ],
   sub: 'What it is now · macro elements, not micro nodes',
   subAt: 1.25,
@@ -102,7 +102,7 @@ Film.slide({
         io: [['In', 'bank.wires'], ['Out', 'one alert']], last: ['history', 'Last run · today 07:00 · 3 stuck found'],
         badge: '4 steps inside', inner: 'Inside · 4 micro nodes', tok: ['bank · read-only', ''],
         nodes: [['Query', 'database', 'data'], ['Rule', 'filter', 'flow'], ['Source API', 'globe', 'out'], ['Alert', 'alert', 'trigger']],
-        tag: 'Use case 1 · data analysis',
+        tag: 'Idea 1 · data analysis',
       },
       {
         name: 'Browser test', ic: 'browser', kind: 'trigger', fx: 'Effects · network',
@@ -110,7 +110,7 @@ Film.slide({
         io: [['In', 'portal sign-in'], ['Out', 'spec.ts']], last: ['checkCircle', 'Last run · 5 of 5 steps passed'],
         badge: '4 steps inside', inner: 'Inside · 4 micro nodes', tok: ['spec.ts', ''],
         nodes: [['Open portal', 'browser', 'trigger'], ['Fill', 'form', 'code'], ['Sign in', 'hand', 'person'], ['Export', 'download', 'out']],
-        tag: 'Use case 2 · testing',
+        tag: 'Idea 2 · testing',
       },
       {
         name: 'Approval chain', ic: 'users', kind: 'person', fx: 'Effects · a person',

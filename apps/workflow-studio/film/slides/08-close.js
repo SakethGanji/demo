@@ -36,8 +36,8 @@ Film.slide({
     root.appendChild(h('div.cl-head', l1, l2))
 
     const STATS = [
-      { ic: 'workflow', kc: 'var(--primary)', v: '35', l: 'node types in an n8n-style engine I built' },
-      { ic: 'notebook', kc: 'var(--brand-2)', v: '2 use cases', l: 'we are targeting: data analysis and testing, both in the notebook' },
+      { ic: 'workflow', kc: 'var(--primary)', v: '35', l: 'node types in an engine built from scratch' },
+      { ic: 'notebook', kc: 'var(--brand-2)', v: '2 ideas', l: 'data analysis and testing, both in the notebook, on the same engine' },
       { ic: 'lock', kc: 'var(--ok)', v: 'Read-only', l: 'by default. Notebook writes wait for a person.' },
     ]
     const fan = h('div.cl-fan')

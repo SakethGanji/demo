@@ -1723,7 +1723,7 @@ Film.slide({
 
 </script>
 <script data-slide="02-connect">
-/* 02 · Connect — "It talks to the systems a bank already has."
+/* 02 · Connect — "It plugs into the tools and systems teams already use."
  * One hero object: a frosted glass globe with an etched lattice, the engine (a small glass gear) at its heart,
  * and seventeen integration tiles on its surface. Everything is projected from one pure function of t
  * (yaw eases from -60° to 50° and settles): tiles in front sit above the glass and stay crisp, tiles behind
@@ -1737,7 +1737,7 @@ Film.slide({
   name: 'Connect',
   word: 'Connections',
   kicker: '02 · What it connects to',
-  caption: 'It talks to the systems a bank already has.',
+  caption: 'It plugs into the tools and systems teams already use.',
   headAt: 0.45,
   dur: 10,
   css: `
@@ -2602,7 +2602,7 @@ Film.slide({
   kicker: '04 · Macro elements',
   captions: [
     { at: 0.6, text: 'Macro elements: each block is a whole capability.' },
-    { at: 9.5, text: 'Two use cases we are targeting: data analysis and testing, both in the notebook.' },
+    { at: 9.5, text: 'Two ideas to show next: data analysis and testing.' },
   ],
   sub: 'What it is now · macro elements, not micro nodes',
   subAt: 1.25,
@@ -2690,7 +2690,7 @@ Film.slide({
         io: [['In', 'bank.wires'], ['Out', 'one alert']], last: ['history', 'Last run · today 07:00 · 3 stuck found'],
         badge: '4 steps inside', inner: 'Inside · 4 micro nodes', tok: ['bank · read-only', ''],
         nodes: [['Query', 'database', 'data'], ['Rule', 'filter', 'flow'], ['Source API', 'globe', 'out'], ['Alert', 'alert', 'trigger']],
-        tag: 'Use case 1 · data analysis',
+        tag: 'Idea 1 · data analysis',
       },
       {
         name: 'Browser test', ic: 'browser', kind: 'trigger', fx: 'Effects · network',
@@ -2698,7 +2698,7 @@ Film.slide({
         io: [['In', 'portal sign-in'], ['Out', 'spec.ts']], last: ['checkCircle', 'Last run · 5 of 5 steps passed'],
         badge: '4 steps inside', inner: 'Inside · 4 micro nodes', tok: ['spec.ts', ''],
         nodes: [['Open portal', 'browser', 'trigger'], ['Fill', 'form', 'code'], ['Sign in', 'hand', 'person'], ['Export', 'download', 'out']],
-        tag: 'Use case 2 · testing',
+        tag: 'Idea 2 · testing',
       },
       {
         name: 'Approval chain', ic: 'users', kind: 'person', fx: 'Effects · a person',
@@ -2876,9 +2876,9 @@ Film.slide({
   id: 'ask',
   name: 'Ask',
   word: 'Data analysis',
-  kicker: '05 · Use case 1 · data analysis',
+  kicker: '05 · Idea 1 · data analysis',
   captions: [
-    { at: 0.6, text: 'Use case 1 we are targeting: data analysis.' },
+    { at: 0.6, text: 'Ask your data a question in plain words.' },
     { at: 3.4, text: 'AI drafts the cells. The engine runs them.' },
     { at: 8.4, text: 'Nothing writes until a person says so.' },
     { at: 12.4, text: 'Written once. On the record.' },
@@ -3582,7 +3582,7 @@ Film.slide({
 
 </script>
 <script data-slide="07-test">
-/* 07 · Test — "Use case 2 we are targeting: testing."
+/* 07 · Test — "Describe what to check. It runs the tests for you."
  * One hero: the test runner window. Left, the three business cases as raised cards (the UI test expanded into its
  * five steps); right, a live browser pane that plays the UI test: the portal loads, the runner fills the username,
  * a person takes over for the password (never recorded, never shown), the runner clicks Sign in, the accounts
@@ -3593,8 +3593,8 @@ Film.slide({
   id: 'test',
   name: 'Test',
   word: 'Testing',
-  kicker: '07 · Use case 2 · testing',
-  caption: 'Use case 2 we are targeting: testing.',
+  kicker: '07 · Idea 2 · testing',
+  caption: 'Describe what to check. It runs the tests for you.',
   sub: 'Business cases in, tests run.',
   dur: 13,
   css: `
@@ -4016,8 +4016,8 @@ Film.slide({
     root.appendChild(h('div.cl-head', l1, l2))
 
     const STATS = [
-      { ic: 'workflow', kc: 'var(--primary)', v: '35', l: 'node types in an n8n-style engine I built' },
-      { ic: 'notebook', kc: 'var(--brand-2)', v: '2 use cases', l: 'we are targeting: data analysis and testing, both in the notebook' },
+      { ic: 'workflow', kc: 'var(--primary)', v: '35', l: 'node types in an engine built from scratch' },
+      { ic: 'notebook', kc: 'var(--brand-2)', v: '2 ideas', l: 'data analysis and testing, both in the notebook, on the same engine' },
       { ic: 'lock', kc: 'var(--ok)', v: 'Read-only', l: 'by default. Notebook writes wait for a person.' },
     ]
     const fan = h('div.cl-fan')

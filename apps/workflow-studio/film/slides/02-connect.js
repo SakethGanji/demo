@@ -1,4 +1,4 @@
-/* 02 · Connect — "It talks to the systems a bank already has."
+/* 02 · Connect — "It plugs into the tools and systems teams already use."
  * One hero object: a frosted glass globe with an etched lattice, the engine (a small glass gear) at its heart,
  * and seventeen integration tiles on its surface. Everything is projected from one pure function of t
  * (yaw eases from -60° to 50° and settles): tiles in front sit above the glass and stay crisp, tiles behind
@@ -12,7 +12,7 @@ Film.slide({
   name: 'Connect',
   word: 'Connections',
   kicker: '02 · What it connects to',
-  caption: 'It talks to the systems a bank already has.',
+  caption: 'It plugs into the tools and systems teams already use.',
   headAt: 0.45,
   dur: 10,
   css: `

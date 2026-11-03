@@ -22,8 +22,11 @@ const P = 'default'
 const EASE = [0.22, 1, 0.36, 1] as const
 
 /** the film's scenes, in order, as the rail names them */
-const PARTS = ['Where it started', 'The engine', 'Connections', 'Safety', 'Macro elements', 'Use case 1 · data analysis', 'Keep it running', 'Use case 2 · testing', 'Recap']
+const PARTS = ['Where it started', 'The engine', 'Connections', 'Safety', 'Macro elements', 'Idea 1 · data analysis', 'Keep it running', 'Idea 2 · testing', 'Recap']
 const STOPS = PARTS.length + 1
+
+/** after a pointer click, give focus back to the page so the presenter's Space and arrow keys keep driving the film */
+const dropFocus = () => requestAnimationFrame(() => (document.activeElement as HTMLElement | null)?.blur())
 
 type Film = {
   play: (i: number) => void
@@ -132,7 +135,8 @@ export default function LandingPage() {
       />
 
       {/* no top bar: only the theme switch floats in the corner */}
-      <div className="glass-strip absolute top-4 right-4 z-30 rounded-full p-0.5" data-testid="landing-theme">
+      {/* a click here must not keep focus, or Space would press the toggle instead of moving to the next part */}
+      <div className="glass-strip absolute top-4 right-4 z-30 rounded-full p-0.5" data-testid="landing-theme" onPointerUp={dropFocus}>
         <ThemeToggle />
       </div>
 
@@ -150,10 +154,10 @@ export default function LandingPage() {
             transition={{ duration: 0.7, ease: EASE, delay: atEnd ? 0.25 : 0 }}
           >
             <h1 className="text-[44px] leading-[1.02] font-bold tracking-[-0.045em] text-balance text-foreground sm:text-[80px]">
-              Now, the real thing.
+              Now, see it live.
             </h1>
             <p className="max-w-[34rem] text-[16px] leading-relaxed text-muted-foreground">
-              It started as a workflow builder. Open a workflow and see where it began, then everything built on the same engine.
+              It started as a workflow builder. Open one and see where it began, then everything else the same engine can do.
             </p>
             <Button size="lg" className="group h-12 px-6 text-[15px]" render={<Link {...workflowLink} />} data-testid="landing-get-started">
               {latest ? `Open ${latest.name}` : 'Open the workflow builder'}
@@ -184,7 +188,7 @@ export default function LandingPage() {
       </div>
 
       {/* the chapter rail: where you are, and a jump to any part (names on hover only; the top bar names the part in view) */}
-      <nav className="absolute top-1/2 right-4 z-20 hidden -translate-y-1/2 flex-col items-end gap-2.5 lg:flex" aria-label="Parts" data-testid="landing-rail">
+      <nav className="absolute top-1/2 right-4 z-20 hidden -translate-y-1/2 flex-col items-end gap-2.5 lg:flex" aria-label="Parts" data-testid="landing-rail" onPointerUp={dropFocus}>
         {[...PARTS, 'Open the studio'].map((name, i) => (
           <button key={name} type="button" onClick={() => go(i)} className="group flex items-center gap-2.5" aria-current={active === i ? 'step' : undefined}>
             <span

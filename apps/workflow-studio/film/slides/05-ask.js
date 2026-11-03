@@ -8,9 +8,9 @@ Film.slide({
   id: 'ask',
   name: 'Ask',
   word: 'Data analysis',
-  kicker: '05 · Use case 1 · data analysis',
+  kicker: '05 · Idea 1 · data analysis',
   captions: [
-    { at: 0.6, text: 'Use case 1 we are targeting: data analysis.' },
+    { at: 0.6, text: 'Ask your data a question in plain words.' },
     { at: 3.4, text: 'AI drafts the cells. The engine runs them.' },
     { at: 8.4, text: 'Nothing writes until a person says so.' },
     { at: 12.4, text: 'Written once. On the record.' },
