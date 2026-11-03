@@ -1,0 +1,30 @@
+{
+  "name": "landing-film",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "film": "cd film && python3 build.py --strict --ship"
+  },
+  "dependencies": {
+    "clsx": "2.1.1",
+    "lucide-react": "0.460.0",
+    "motion": "12.36.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "tailwind-merge": "3.4.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.1.17",
+    "@types/react": "18.3.27",
+    "@types/react-dom": "18.3.7",
+    "@vitejs/plugin-react-swc": "4.2.2",
+    "playwright": "1.62.1",
+    "tailwindcss": "4.1.17",
+    "typescript": "5.9.3",
+    "vite": "7.2.7"
+  }
+}

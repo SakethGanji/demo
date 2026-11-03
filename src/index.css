@@ -1,0 +1,81 @@
+/* The landing page's styles: only the studio tokens and glass recipes the page itself uses
+   (taken from workflow-studio's index.css, with its landing-only values). */
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+@font-face { font-family: 'Inter Var'; src: url("/fonts/inter-v4.woff2") format('woff2'); font-weight: 100 900; font-display: block; }
+
+:root {
+  --background: #eef2fa;
+  --foreground: #0d1430;
+  --muted-foreground: #363f63;
+  --primary: #09318d;
+  --brand-1: #0b3a9e;
+  --brand-2: #2f8fe0;
+  --brand-gradient: linear-gradient(135deg, var(--brand-1), var(--brand-2));
+  --hover-fill: color-mix(in srgb, var(--foreground) 9%, transparent);
+  --r-panel: 20px;
+  /* landing glass: clear, no backdrop filter (the film behind repaints every frame) */
+  --glass-fill: rgb(255 255 255 / .52);
+  --glass-fill-hover: rgb(255 255 255 / .62);
+  --chrome-fill: rgb(255 255 255 / .48);
+  --glass-sheen: linear-gradient(180deg, rgb(255 255 255 / .40), rgb(255 255 255 / 0) 46%);
+  --glass-elevation: inset 0 1px 0 rgb(255 255 255 / .9), inset 0 0 0 .5px rgb(255 255 255 / .55), 0 24px 60px -30px rgb(40 50 120 / .35);
+  --btn-glow: inset 0 .5px 0 rgb(255 255 255 / .35), 0 4px 14px -6px rgb(59 91 230 / .5);
+  color-scheme: light;
+}
+.dark {
+  --background: #050b10;
+  --foreground: #f4f4f7;
+  --muted-foreground: #a3a3af;
+  --primary: #0297de;
+  --brand-1: #0297de;
+  --brand-2: #5cc0f0;
+  --glass-fill: rgb(22 22 34 / .58);
+  --glass-fill-hover: rgb(32 32 48 / .66);
+  --chrome-fill: rgb(14 14 22 / .56);
+  --glass-sheen: linear-gradient(180deg, rgb(255 255 255 / .045), rgb(255 255 255 / 0) 46%);
+  --glass-elevation: inset 0 1px 0 rgb(255 255 255 / .12), inset 0 0 0 .5px rgb(255 255 255 / .08), 0 30px 70px -30px rgb(0 0 0 / .7);
+  --btn-glow: inset 0 .5px 0 rgb(255 255 255 / .2), 0 4px 16px -6px rgb(59 91 230 / .55);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-primary: var(--primary);
+  --font-sans: 'Inter Var', 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Tile: the card recipe. Clickable tiles lift the fill a step on hover. */
+@utility tile {
+  border-radius: var(--r-panel);
+  background-color: var(--glass-fill);
+  background-image: var(--glass-sheen);
+  box-shadow: var(--glass-elevation);
+  &:is(a, button, [role="button"]):hover { background-color: var(--glass-fill-hover); }
+}
+
+/* Strip: frosted only, no rim. */
+@utility glass-strip {
+  background: var(--chrome-fill);
+  box-shadow: none;
+}
+
+/* The primary button: the brand gradient, a lit top edge and a soft glow under it. */
+@utility brand-fill {
+  background: var(--brand-gradient);
+  color: #ffffff;
+  box-shadow: var(--btn-glow);
+}
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
