@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
+import wordmark from './assets/ensemble-wordmark-on-shell.svg'
 import { Icon, VelaCrest } from './components/icons'
+import { ToolGlyph } from './components/Strings'
+import { PrefsContext, loadPrefs, savePrefs, type Prefs } from './prefs'
+import { Settings } from './screens/Settings'
+import { TOOLS } from './tools'
 import { VelaSidecar, type Patch } from './components/Vela'
 import { Experiments } from './screens/Experiments'
 import { Home } from './screens/Home'
 import { ModelLibrary, PreprocessingLibrary, Registry } from './screens/Library'
-import { Placeholder } from './screens/Placeholder'
 import { RUNS } from './data'
 import { DEFAULTS, TrainingGym, type Params } from './screens/TrainingGym'
 
@@ -16,13 +20,16 @@ const NAV: { id: Route | 'vela'; label: string; icon: keyof typeof Icon }[][] = 
 ]
 const TITLES: Record<Route, string> = { home: 'Home', gym: 'Training Gym', experiments: 'Experiments', models: 'Model Library', preprocessing: 'Preprocessing Library', registry: 'Model Registry', settings: 'Settings' }
 
-const readRoute = (): Route => { const h = location.hash.replace('#/', '') as Route; return h in TITLES ? h : 'gym' }
+const readRoute = (): Route => { const h = location.hash.replace('#/', '') as Route; return h in TITLES ? h : 'home' }
 
 export default function App() {
   const [route, setRoute] = useState<Route>(readRoute)
   const [collapsed, setCollapsed] = useState(false)
-  const [vela, setVela] = useState(true)
-  const [guided, setGuided] = useState(true)
+  const [prefs, setPrefs] = useState<Prefs>(loadPrefs)
+  const setPref = (p: Partial<Prefs>) => setPrefs((old) => { const n = { ...old, ...p }; savePrefs(n); return n })
+  const [vela, setVela] = useState(prefs.velaOpen === 'Open')
+  const [guided, setGuided] = useState(prefs.mode === 'Guided')
+  useEffect(() => setGuided(prefs.mode === 'Guided'), [prefs.mode])
   const [params, setParams] = useState<Params>(DEFAULTS)
   const [palette, setPalette] = useState(false)
 
@@ -34,7 +41,7 @@ export default function App() {
     }
     addEventListener('keydown', k); return () => removeEventListener('keydown', k)
   }, [])
-  const go = (r: string) => { location.hash = `#/${r}` }
+  const go = (r: string) => { if (r === 'vela') setVela(true); else location.hash = `#/${r}` }
 
   const patches: Patch[] = [
     {
@@ -52,10 +59,15 @@ export default function App() {
   ]
 
   return (
-    <div className="frame">
+    <PrefsContext.Provider value={{ prefs, set: setPref }}>
+    <div className={`frame density-${prefs.density.toLowerCase()} ${prefs.motion === 'Still' ? 'still' : ''}`}>
     <div className={`shell ${collapsed ? 'collapsed' : ''}`}>
       <nav className="sidebar" aria-label="Primary">
-        <div className="lockup"><span className="eyebrow">PROJECT</span><span className="word">ENSEMBLE</span></div>
+        <button className="lockup" onClick={() => go('home')} aria-label="Project ENSEMBLE home">
+          <span className="eyebrow">PROJECT</span>
+          <img className="mark" src={wordmark} alt="ENSEMBLE" height={32} />
+          <span className="word">ENSEMBLE</span>
+        </button>
         <div className="nav">
           {NAV.map((g, gi) => (
             <div key={gi} className="nav-group">
@@ -71,6 +83,16 @@ export default function App() {
               })}
             </div>
           ))}
+          {prefs.pinned.length > 0 && (
+            <div className="nav-group belt">
+              <div className="belt-label">Toolbelt</div>
+              {TOOLS.filter((t) => prefs.pinned.includes(t.id)).map((t) => (
+                <button key={t.id} className="nav-item belt-item" title={`${t.verb} · ${t.name}`} onClick={() => go(t.route)}>
+                  <span className="belt-g"><ToolGlyph id={t.id} /></span><span>{t.verb}<small>{t.name}</small></span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <div className="sidebar-footer">
           <div className="avatar">ML</div>
@@ -92,13 +114,13 @@ export default function App() {
           <button className={`btn vela ${vela ? 'on' : ''}`} onClick={() => setVela(!vela)}><VelaCrest size={16} /> Ask Vela</button>
         </header>
         <main className="workspace" style={route === 'gym' ? { overflow: 'hidden' } : undefined}>
-          {route === 'home' && <Home go={go} />}
+          {route === 'home' && <Home go={go} openPalette={() => setPalette(true)} />}
           {route === 'gym' && <TrainingGym params={params} setParams={setParams} guided={guided} setGuided={setGuided} onStart={() => go('home')} />}
           {route === 'experiments' && <Experiments />}
           {route === 'models' && <ModelLibrary go={go} />}
           {route === 'preprocessing' && <PreprocessingLibrary />}
           {route === 'registry' && <Registry />}
-          {route === 'settings' && <Placeholder title="Settings" body="Workspace members, compute quotas and storage connections." />}
+          {route === 'settings' && <Settings />}
         </main>
       </div>
 
@@ -112,19 +134,19 @@ export default function App() {
       <span className="spacer" />
       <span>Draft saved 12s ago</span><span className="sb-sep" /><span>us-east-1</span><span className="sb-sep" /><span>v3.0.0-rc1</span><span className="sb-sep" /><span>ENSEMBLE 2.6.1</span>
     </footer>
-    {palette && <Palette onClose={() => setPalette(false)} go={go} openVela={() => setVela(true)} />}
+    {palette && <Palette onClose={() => setPalette(false)} go={go} />}
     </div>
+    </PrefsContext.Provider>
   )
 }
 
-function Palette({ onClose, go, openVela }: { onClose: () => void; go: (r: string) => void; openVela: () => void }) {
+function Palette({ onClose, go }: { onClose: () => void; go: (r: string) => void }) {
   const [q, setQ] = useState('')
   const [idx, setIdx] = useState(0)
   const items = useMemo(() => {
     const all: { group: string; label: string; hint: string; mono?: boolean; run: () => void }[] = [
       ...(Object.keys(TITLES) as Route[]).map((r) => ({ group: 'Go To', label: TITLES[r], hint: 'Page', run: () => go(r) })),
-      { group: 'Actions', label: 'Ask Vela', hint: 'Open sidecar', run: openVela },
-      { group: 'Actions', label: 'Start Training', hint: 'Training Gym', run: () => go('gym') },
+      ...TOOLS.map((t) => ({ group: 'Tools', label: `${t.verb} · ${t.name}`, hint: t.meta, run: () => go(t.route) })),
       ...RUNS.map((r) => ({ group: 'Runs', label: r.id, hint: `${r.pipeline} · ${r.status}`, mono: true, run: () => go('experiments') })),
     ]
     return all.filter((i) => `${i.label} ${i.hint}`.toLowerCase().includes(q.toLowerCase()))

@@ -44,7 +44,7 @@ export function Experiments() {
       {tab === 'Runs' && (
         <>
           <div className="card"><RunTable runs={runs} selected={sel} onToggle={toggle} /></div>
-          <PlotFrame title="Parallel Coordinates"
+          <PlotFrame title="String Plot"
             chips={<><ParamChip sym="n" value={`${runs.filter((r) => PC[r.id]).length} runs`} /><ParamChip sym="k" value="5" /></>}
             legend={[{ name: 'Selected', color: 'var(--accent-primary)', data: [] }, { name: 'Not selected', color: 'var(--border-track)', dash: '4 3', data: [] }]}
             caption={<span>One string per completed run. <span className="math" style={{ fontSize: 14 }}>d</span> = feature count; click a string to select it</span>}>

@@ -1,4 +1,5 @@
 import type { SVGProps } from 'react'
+import crest from '../assets/vela-crest.svg'
 
 // 1.75px-stroke line icons, 18px grid
 const base = (p: SVGProps<SVGSVGElement>) => ({
@@ -21,21 +22,7 @@ export const Icon = {
   send: (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><path d="M5 12h14" /><path d="M13 6l6 6-6 6" /></svg>,
 }
 
-/** Vela crest: three nested wave crests, teal into cyan. */
-export function VelaCrest({ size = 20, drift = false }: { size?: number; drift?: boolean }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <defs>
-        <linearGradient id="vela-g" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0" stopColor="#0D9488" />
-          <stop offset="1" stopColor="#0284C7" />
-        </linearGradient>
-      </defs>
-      <g stroke="url(#vela-g)" strokeWidth="1.9" strokeLinecap="round" className={drift ? 'crest-drift' : undefined}>
-        <path d="M3 17c3-8 6-11 9-11s6 3 9 11" />
-        <path d="M6.5 18c2-5 3.5-7 5.5-7s3.5 2 5.5 7" opacity="0.8" />
-        <path d="M10 19c.7-2 1.2-3 2-3s1.3 1 2 3" opacity="0.6" />
-      </g>
-    </svg>
-  )
+/** The Vela Crest, from the design system's logo files. Marks only Vela. */
+export function VelaCrest({ size = 20 }: { size?: number }) {
+  return <img src={crest} width={size} height={size} alt="" aria-hidden style={{ display: 'block', flex: 'none' }} />
 }

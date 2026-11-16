@@ -1,14 +1,39 @@
 import { useEffect, useState } from 'react'
+import wordmark from '../assets/ensemble-wordmark-on-shell.svg'
 import { LineChart, PlotFrame, type Series } from '../components/charts'
-import { ParamChip, ResonanceWave, SparkWave, StatusPill, type Status } from '../components/ui'
 import { Graph } from '../components/Graph'
-import { ACTIVITY, LOG_LINES, NODES, RUNS, UTIL, curve, type Run } from '../data'
+import { Icon } from '../components/icons'
+import { PluckString, RunString, StringField, ToolGlyph, type RunState } from '../components/Strings'
+import { ParamChip, ResonanceWave, StatusPill, type Status } from '../components/ui'
+import { ACTIVITY, LOG_LINES, NODES, UTIL, curve, type Run } from '../data'
+import { usePrefs } from '../prefs'
+import { TOOLS, type Tool } from '../tools'
 
 const TRAIN = curve(40, 1.2, 0.24, 0.12, 0.03, 7)
 const VAL = curve(40, 1.25, 0.29, 0.1, 0.04, 11)
 export const STATUS: Record<Run['status'], Status> = { Training: 'info', Completed: 'success', Queued: 'neutral', Failed: 'danger' }
 
-export function Home({ go }: { go: (r: string) => void }) {
+function ToolCard({ tool, pinned, onPin, onOpen }: { tool: Tool; pinned: boolean; onPin: () => void; onOpen: () => void }) {
+  const [pluck, setPluck] = useState(0)
+  return (
+    <div className="tool" onPointerEnter={() => setPluck((n) => n + 1)}>
+      <button className="tool-main" onClick={onOpen}>
+        <span className="tool-glyph"><ToolGlyph id={tool.id} /></span>
+        <span className="tool-text">
+          <span className="micro-label">{tool.verb}</span>
+          <b className="card-title">{tool.name}</b>
+          <span className="helper">{tool.desc}</span>
+        </span>
+      </button>
+      <button className={`pin ${pinned ? 'on' : ''}`} aria-pressed={pinned} title={pinned ? 'Remove from toolbelt' : 'Add to toolbelt'} onClick={onPin}>{pinned ? '● On Belt' : '○ Pin'}</button>
+      <div className="tool-foot"><span className="mono">{tool.meta}</span><span className="open">Open →</span></div>
+      <div className="tool-string"><PluckString pluck={pluck} at={0.3} height={12} /></div>
+    </div>
+  )
+}
+
+export function Home({ go, openPalette }: { go: (r: string) => void; openPalette: () => void }) {
+  const { prefs, set } = usePrefs()
   const [n, setN] = useState(14)
   const [logN, setLogN] = useState(5)
   useEffect(() => {
@@ -22,35 +47,72 @@ export function Home({ go }: { go: (r: string) => void }) {
     { name: 'Train loss', color: 'var(--viz-a)', data: TRAIN.slice(0, n) },
     { name: 'Validation loss', color: 'var(--viz-c)', dash: '6 4', data: VAL.slice(0, n) },
   ]
+  const live = 0.42 + ((n - 14) / 26) * 0.5
+  const strings: RunState[] = [
+    { id: 'run_8a10', label: 'TF-IDF → LogReg (OvR)', status: 'Training', progress: live, readout: `fold ${Math.min(5, Math.floor(live * 5) + 1)} of 5 · 06m 12s` },
+    { id: 'run_894a', label: 'TF-IDF → LogReg (OvR)', status: 'Completed', progress: 1, readout: 'F1: 0.914 ± 0.006' },
+    { id: 'run_8931', label: 'TF-IDF → SVD → GBM', status: 'Completed', progress: 1, readout: 'F1: 0.902 ± 0.009' },
+    { id: 'run_88f7', label: 'Tokenize → DistilBERT', status: 'Failed', progress: 0.47, readout: 'CUDA OOM · fold 3' },
+    { id: 'run_8b02', label: 'Counts → MultinomialNB', status: 'Queued', progress: 0, readout: 'position 1 · gym-default' },
+  ]
+  const togglePin = (id: string) => set({ pinned: prefs.pinned.includes(id) ? prefs.pinned.filter((p) => p !== id) : [...prefs.pinned, id] })
+  const open = (t: Tool) => go(t.route)
 
   return (
     <div className="page">
-      <div className="page-head">
-        <div>
-          <h1 className="page-title">Home</h1>
-          <p className="helper sub">Project ENSEMBLE · ml-platform workspace · 1 run training, 1 queued</p>
+      <section className="hero">
+        <div className="hero-top">
+          <div className="hero-lockup">
+            <span className="hero-eyebrow">PROJECT</span>
+            <img src={wordmark} alt="ENSEMBLE" height={44} />
+          </div>
+          <div className="hero-read">
+            <span><b>1</b> run on the strings</span><span><b>12</b> in Production</span><span>best F1: <b>0.914 ± 0.006</b></span>
+          </div>
         </div>
-        <button className="btn primary" onClick={() => go('gym')}>Train in Gym →</button>
+        <StringField height={104} />
+        <div className="hero-bottom">
+          <div>
+            <h1 className="hero-title">Many models, one framework.</h1>
+            <p className="hero-sub">A toolkit for training, comparing and shipping models. Pick up a tool, or tell the bench what you want to build.</p>
+          </div>
+          <button className="hero-cmd" onClick={openPalette}>
+            <Icon.search width={16} height={16} /><span>Find a tool, run or model</span><kbd>⌘K</kbd>
+          </button>
+        </div>
+      </section>
+
+      <div className="bench-head">
+        <h2 className="bench-title">Toolkit</h2>
+        <span className="helper">{TOOLS.length} tools · {prefs.pinned.length} on your belt · pin a tool to keep it in the sidebar</span>
+        <span className="spacer" />
+        <button className="btn sm" onClick={() => go('settings')}>Customize Workbench</button>
+      </div>
+      <div className="tool-grid">
+        {TOOLS.map((t) => <ToolCard key={t.id} tool={t} pinned={prefs.pinned.includes(t.id)} onPin={() => togglePin(t.id)} onOpen={() => open(t)} />)}
       </div>
 
-      <div className="grid kpis">
-        <Kpi label="Best Macro F1" value="0.914" extra="± 0.006" foot={<><span>n = 5 folds</span><span className="delta-up num">Δ +0.021 vs v2.4</span></>} spark={[0.86, 0.87, 0.875, 0.89, 0.893, 0.902, 0.907, 0.914]} />
-        <Kpi label="Active Training Runs" value="1" foot={<><span className="mono">run_8a10</span><StatusPill status="info">Training</StatusPill></>} spark={[2, 3, 1, 4, 2, 3, 2, 1]} />
-        <Kpi label="Compute Hours · 7d" value="312.4" foot={<><span>cpu + gpu</span><span className="delta-down num">Δ +18.2%</span></>} spark={[30, 42, 38, 51, 47, 55, 49]} />
-        <Kpi label="Models in Production" value="12" foot={<><span>3 in Staging</span><StatusPill status="success">Healthy</StatusPill></>} spark={[9, 9, 10, 10, 11, 11, 12]} />
+      <div className="bench-head">
+        <h2 className="bench-title">On the Strings</h2>
+        <span className="helper">Each run is one string. Frets are folds, the node is progress, a wave means it is computing.</span>
+        <span className="spacer" />
+        <button className="btn sm" onClick={() => go('experiments')}>Open String Plot →</button>
+      </div>
+      <div className="card run-strings">
+        {strings.map((r) => <RunString key={r.id} run={r} onClick={() => go('experiments')} />)}
       </div>
 
       <div className="grid two">
         <div className="stack">
-        <PlotFrame
-          title="Training Monitor"
-          right={<><span className="mono" style={{ fontSize: 12.5 }}>run_8a10</span><ResonanceWave width={56} height={14} /></>}
-          chips={<><ParamChip sym="C" value="2.0" /><ParamChip sym="k" value="5" /><ParamChip sym="seed" value="42" /></>}
-          legend={series}
-          caption={<span>Cross-entropy <span className="math" style={{ fontSize: 14 }}>ℒ = −Σ y log ŷ</span> per epoch <span className="math" style={{ fontSize: 14 }}>t</span></span>}
-        >
-          <LineChart series={series} xMax={40} yMin={0} yMax={1.4} yTicks={[0, 0.35, 0.7, 1.05, 1.4]} xTicks={[0, 10, 20, 30, 40]} xTitle="t" yTitle="ℒ" fmtY={(v) => v.toFixed(2)} live />
-        </PlotFrame>
+          <PlotFrame
+            title="Training Monitor"
+            right={<><span className="mono" style={{ fontSize: 12.5 }}>run_8a10</span><ResonanceWave width={56} height={14} /></>}
+            chips={<><ParamChip sym="C" value="2.0" /><ParamChip sym="k" value="5" /><ParamChip sym="seed" value="42" /></>}
+            legend={series}
+            caption={<span>Cross-entropy <span className="math" style={{ fontSize: 14 }}>ℒ = −Σ y log ŷ</span> per epoch <span className="math" style={{ fontSize: 14 }}>t</span></span>}
+          >
+            <LineChart series={series} xMax={40} yMin={0} yMax={1.4} yTicks={[0, 0.35, 0.7, 1.05, 1.4]} xTicks={[0, 10, 20, 30, 40]} xTitle="t" yTitle="ℒ" fmtY={(v) => v.toFixed(2)} live />
+          </PlotFrame>
           <div className="card">
             <div className="card-head"><h3 className="card-title">Activity</h3><span className="micro-label">Today</span></div>
             <div className="feed">
@@ -65,17 +127,17 @@ export function Home({ go }: { go: (r: string) => void }) {
           </div>
         </div>
         <div className="stack">
-        <div className="card">
-          <div className="card-head">
-            <div className="left"><h3 className="card-title">Live Log</h3><span className="mono" style={{ fontSize: 12.5 }}>run_8a10</span></div>
-            <StatusPill status="info">Streaming</StatusPill>
-          </div>
-          <div className="card-body">
-            <div className="log-panel" aria-live="polite">
-              {LOG_LINES.slice(0, logN).map(([c, l], i) => <div key={i} className={c}>{l}</div>)}
+          <div className="card">
+            <div className="card-head">
+              <div className="left"><h3 className="card-title">Live Log</h3><span className="mono" style={{ fontSize: 12.5 }}>run_8a10</span></div>
+              <StatusPill status="info">Streaming</StatusPill>
+            </div>
+            <div className="card-body">
+              <div className="log-panel" aria-live="polite">
+                {LOG_LINES.slice(0, logN).map(([c, l], i) => <div key={i} className={c}>{l}</div>)}
+              </div>
             </div>
           </div>
-        </div>
           <div className="card">
             <div className="card-head">
               <div className="left"><h3 className="card-title">Compute</h3><span className="mono" style={{ fontSize: 12.5 }}>gym-default</span></div>
@@ -83,10 +145,10 @@ export function Home({ go }: { go: (r: string) => void }) {
             </div>
             <div className="card-body">
               <div className="util">
-                {NODES.map((n, i) => [
-                  <span key={n} className="n">{n}</span>,
-                  ...UTIL[i].map((u, j) => <span key={`${n}-${j}`} className="c" title={`${n} · ${(u * 100).toFixed(0)}%`} style={{ background: `var(--heat-${u >= 0.8 ? 5 : u >= 0.6 ? 4 : u >= 0.4 ? 3 : u >= 0.2 ? 2 : 1})` }} />),
-                  <span key={`${n}-p`} className="p">{(UTIL[i][11] * 100).toFixed(0)}%</span>,
+                {NODES.map((nd, i) => [
+                  <span key={nd} className="n">{nd}</span>,
+                  ...UTIL[i].map((u, j) => <span key={`${nd}-${j}`} className="c" title={`${nd} · ${(u * 100).toFixed(0)}%`} style={{ background: `var(--heat-${u >= 0.8 ? 5 : u >= 0.6 ? 4 : u >= 0.4 ? 3 : u >= 0.2 ? 2 : 1})` }} />),
+                  <span key={`${nd}-p`} className="p">{(UTIL[i][11] * 100).toFixed(0)}%</span>,
                 ])}
               </div>
             </div>
@@ -115,26 +177,6 @@ export function Home({ go }: { go: (r: string) => void }) {
           ]}
           edges={[{ from: 'ds', to: 'pre' }, { from: 'ds2', to: 'pre' }, { from: 'pre', to: 'run' }, { from: 'pre', to: 'run2', kind: 'active' }, { from: 'run', to: 'ver', kind: 'warn' }]} />
       </div>
-      <div className="card">
-        <div className="card-head">
-          <div className="left"><h3 className="card-title">Recent Runs</h3><span className="micro-label">Enterprise Support Ticket Classifier</span></div>
-          <button className="btn sm" onClick={() => go('experiments')}>Open Experiments →</button>
-        </div>
-        <RunTable runs={RUNS.slice(0, 6)} />
-      </div>
-    </div>
-  )
-}
-
-function Kpi({ label, value, extra, foot, spark }: { label: string; value: string; extra?: string; foot: React.ReactNode; spark: number[] }) {
-  return (
-    <div className="card kpi">
-      <span className="micro-label">{label}</span>
-      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-end' }}>
-        <span style={{ whiteSpace: 'nowrap' }}><span className="metric-hero">{value}</span>{extra && <span className="num" style={{ marginLeft: 6, color: 'var(--text-body)', fontSize: 12, whiteSpace: 'nowrap' }}>{extra}</span>}</span>
-        <SparkWave data={spark} />
-      </div>
-      <div className="foot">{foot}</div>
     </div>
   )
 }
