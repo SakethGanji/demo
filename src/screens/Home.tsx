@@ -64,7 +64,7 @@ export function Home({ go, openPalette }: { go: (r: string) => void; openPalette
         <div className="hero-top">
           <div className="hero-lockup">
             <span className="hero-eyebrow">PROJECT</span>
-            <img src={wordmark} alt="ENSEMBLE" height={44} />
+            <img src={wordmark} alt="ENSEMBLE" height={36} />
           </div>
           <div className="hero-read">
             <span><b>1</b> run on the strings</span><span><b>12</b> in Production</span><span>best F1: <b>0.914 ± 0.006</b></span>
@@ -76,9 +76,12 @@ export function Home({ go, openPalette }: { go: (r: string) => void; openPalette
             <h1 className="hero-title">Many models, one framework.</h1>
             <p className="hero-sub">A toolkit for training, comparing and shipping models. Pick up a tool, or tell the bench what you want to build.</p>
           </div>
+          <div className="row" style={{ gap: 12 }}>
+          <button className="btn primary" style={{ height: 40, padding: '0 16px' }} onClick={() => go('workflow')}>Quick Train →</button>
           <button className="hero-cmd" onClick={openPalette}>
             <Icon.search width={16} height={16} /><span>Find a tool, run or model</span><kbd>⌘K</kbd>
           </button>
+          </div>
         </div>
       </section>
 

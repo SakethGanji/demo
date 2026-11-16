@@ -4,6 +4,7 @@ import { Icon, VelaCrest } from './components/icons'
 import { ToolGlyph } from './components/Strings'
 import { PrefsContext, loadPrefs, savePrefs, type Prefs } from './prefs'
 import { Settings } from './screens/Settings'
+import { Workflow } from './screens/Workflow'
 import { TOOLS } from './tools'
 import { VelaSidecar, type Patch } from './components/Vela'
 import { Experiments } from './screens/Experiments'
@@ -12,13 +13,13 @@ import { ModelLibrary, PreprocessingLibrary, Registry } from './screens/Library'
 import { RUNS } from './data'
 import { DEFAULTS, TrainingGym, type Params } from './screens/TrainingGym'
 
-type Route = 'home' | 'gym' | 'experiments' | 'models' | 'preprocessing' | 'registry' | 'settings'
+type Route = 'home' | 'workflow' | 'gym' | 'experiments' | 'models' | 'preprocessing' | 'registry' | 'settings'
 const NAV: { id: Route | 'vela'; label: string; icon: keyof typeof Icon }[][] = [
   [{ id: 'home', label: 'Home', icon: 'home' }, { id: 'gym', label: 'Training Gym', icon: 'gym' }, { id: 'experiments', label: 'Experiments', icon: 'experiments' }],
   [{ id: 'models', label: 'Model Library', icon: 'models' }, { id: 'preprocessing', label: 'Preprocessing Library', icon: 'preprocess' }, { id: 'registry', label: 'Model Registry', icon: 'registry' }],
   [{ id: 'vela', label: 'Vela AI Assistant', icon: 'vela' }, { id: 'settings', label: 'Settings', icon: 'settings' }],
 ]
-const TITLES: Record<Route, string> = { home: 'Home', gym: 'Training Gym', experiments: 'Experiments', models: 'Model Library', preprocessing: 'Preprocessing Library', registry: 'Model Registry', settings: 'Settings' }
+const TITLES: Record<Route, string> = { home: 'Home', workflow: 'Quick Train', gym: 'Training Gym', experiments: 'Experiments', models: 'Model Library', preprocessing: 'Preprocessing Library', registry: 'Model Registry', settings: 'Settings' }
 
 const readRoute = (): Route => { const h = location.hash.replace('#/', '') as Route; return h in TITLES ? h : 'home' }
 
@@ -65,7 +66,7 @@ export default function App() {
       <nav className="sidebar" aria-label="Primary">
         <button className="lockup" onClick={() => go('home')} aria-label="Project ENSEMBLE home">
           <span className="eyebrow">PROJECT</span>
-          <img className="mark" src={wordmark} alt="ENSEMBLE" height={32} />
+          <img className="mark" src={wordmark} alt="ENSEMBLE" height={26} />
           <span className="word">ENSEMBLE</span>
         </button>
         <div className="nav">
@@ -113,9 +114,10 @@ export default function App() {
           <span className="cluster" title="Attached compute"><span className="g">●</span>gym-default · cpu-8x</span>
           <button className={`btn vela ${vela ? 'on' : ''}`} onClick={() => setVela(!vela)}><VelaCrest size={16} /> Ask Vela</button>
         </header>
-        <main className="workspace" style={route === 'gym' ? { overflow: 'hidden' } : undefined}>
+        <main className="workspace" style={route === 'gym' || route === 'workflow' ? { overflow: 'hidden' } : undefined}>
           {route === 'home' && <Home go={go} openPalette={() => setPalette(true)} />}
-          {route === 'gym' && <TrainingGym params={params} setParams={setParams} guided={guided} setGuided={setGuided} onStart={() => go('home')} />}
+          {route === 'gym' && <TrainingGym params={params} setParams={setParams} guided={guided} setGuided={setGuided} onStart={() => go('workflow')} />}
+          {route === 'workflow' && <Workflow go={go} />}
           {route === 'experiments' && <Experiments />}
           {route === 'models' && <ModelLibrary go={go} />}
           {route === 'preprocessing' && <PreprocessingLibrary />}

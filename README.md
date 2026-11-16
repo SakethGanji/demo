@@ -12,6 +12,7 @@ npm run build
 
 | Route | What it shows |
 | --- | --- |
+| `#/workflow` | Quick Train: drop a CSV (profiled in the browser) or pick a sample, choose a recipe (TF-IDF → LogReg (OvR), XGBoost, LinearSVC), and watch a simulated run: the pipeline as one string, one ringing string per one-vs-rest classifier or a damped residual wave per boosting round, fold strings, loss, log, then results |
 | `#/gym` | Training Gym: live Fit Estimate and Validation Curve that follow the sliders, a console dock (Validation checks, Dry Run), 10-step tension stepper, Guided / Advanced hyperparameters with fret-track sliders and exact numeric inputs, the objective as a Formula with its where-list, a catenary pipeline on graph paper, a live-diffed run config, label distribution, sticky footer |
 | `#/home` | The Workbench: the Project ENSEMBLE lockup over an interactive string field, the Toolkit (eight tools you can pin to the sidebar toolbelt), runs drawn as strings, a live Training Monitor plot, a streaming log, compute utilization heatmap, activity feed, lineage graph, recent runs |
 | `#/experiments` | Parallel coordinates of runs, runs table with selection and an `F1 ≥ 0.90` filter, multi-run comparison plot with crosshair hover, parameter diff, confusion matrix on the heat ramp and per-class recall |
