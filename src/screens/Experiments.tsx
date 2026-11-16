@@ -1,12 +1,19 @@
 import { useMemo, useState } from 'react'
-import { ConfusionMatrix, LineChart, PlotFrame, type Series } from '../components/charts'
+import { ConfusionMatrix, LineChart, ParallelCoords, PlotFrame, type PCAxis, type Series } from '../components/charts'
 import { ParamChip, StatusPill, Tabs } from '../components/ui'
-import { CLASSES, CONFUSION, RUNS, curve } from '../data'
+import { CLASSES, CONFUSION, PC, RUNS, curve } from '../data'
 import { RunTable } from './Home'
 
 const COLORS = ['var(--viz-a)', 'var(--viz-c)', 'var(--viz-d)', 'var(--viz-b)', 'var(--viz-e)']
 const DASH = [undefined, '6 4', '2 3', '10 3 2 3', '1 3']
-const FINAL: Record<string, number> = { run_894a: 0.914, run_8931: 0.902, run_8912: 0.907, run_8870: 0.893 }
+const FINAL: Record<string, number> = Object.fromEntries(Object.entries(PC).map(([k, v]) => [k, v.f1]))
+const AXES: PCAxis[] = [
+  { key: 'd', label: 'd', min: 0, max: 450, fmt: (v) => `${v < 1 ? v.toFixed(1) : v.toFixed(0)}k` },
+  { key: 't', label: 'fit time', min: 0, max: 900, fmt: (v) => `${v.toFixed(0)}s` },
+  { key: 'auc', label: 'AUC', min: 0.9, max: 0.95, fmt: (v) => v.toFixed(3) },
+  { key: 'rec', label: 'recall Security', min: 0.7, max: 0.9, fmt: (v) => v.toFixed(2) },
+  { key: 'f1', label: 'F1', min: 0.86, max: 0.92, fmt: (v) => v.toFixed(3) },
+]
 
 export function Experiments() {
   const [tab, setTab] = useState<'Runs' | 'Compare' | 'Confusion Matrix & Errors'>('Runs')
@@ -35,7 +42,15 @@ export function Experiments() {
       <Tabs tabs={['Runs', 'Compare', 'Confusion Matrix & Errors']} value={tab} onChange={setTab} />
 
       {tab === 'Runs' && (
-        <div className="card"><RunTable runs={runs} selected={sel} onToggle={toggle} /></div>
+        <>
+          <div className="card"><RunTable runs={runs} selected={sel} onToggle={toggle} /></div>
+          <PlotFrame title="Parallel Coordinates"
+            chips={<><ParamChip sym="n" value={`${runs.filter((r) => PC[r.id]).length} runs`} /><ParamChip sym="k" value="5" /></>}
+            legend={[{ name: 'Selected', color: 'var(--accent-primary)', data: [] }, { name: 'Not selected', color: 'var(--border-track)', dash: '4 3', data: [] }]}
+            caption={<span>One string per completed run. <span className="math" style={{ fontSize: 14 }}>d</span> = feature count; click a string to select it</span>}>
+            <ParallelCoords axes={AXES} rows={runs.filter((r) => PC[r.id]).map((r) => ({ id: r.id, v: PC[r.id] }))} selected={sel} onPick={toggle} />
+          </PlotFrame>
+        </>
       )}
 
       {tab === 'Compare' && (

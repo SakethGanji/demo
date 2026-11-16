@@ -42,6 +42,8 @@ export const RUNS: Run[] = [
   { id: 'run_8912', model: 'Linear SVM', pipeline: 'TF-IDF → LinearSVC', status: 'Completed', f1: 0.907, spread: 0.005, auc: 0.928, duration: '02m 18s', owner: 'Maya Lin', params: 'C=0.5  ngram=(1,3)' },
   { id: 'run_88f7', model: 'DistilBERT', pipeline: 'Tokenize → DistilBERT', status: 'Failed', f1: null, spread: null, auc: null, duration: '22m 40s', owner: 'Jo Kim', params: 'η=3e-5  epochs=4' },
   { id: 'run_8b02', model: 'Naive Bayes', pipeline: 'Counts → MultinomialNB', status: 'Queued', f1: null, spread: null, auc: null, duration: '—', owner: 'Arun Patel', params: 'α=0.1' },
+  { id: 'run_8855', model: 'Linear SVM', pipeline: 'TF-IDF → LinearSVC', status: 'Completed', f1: 0.899, spread: 0.006, auc: 0.921, duration: '01m 58s', owner: 'Jo Kim', params: 'C=0.1  ngram=(1,2)' },
+  { id: 'run_8841', model: 'Naive Bayes', pipeline: 'Counts → MultinomialNB', status: 'Completed', f1: 0.871, spread: 0.008, auc: 0.905, duration: '00m 24s', owner: 'Arun Patel', params: 'α=1.0' },
   { id: 'run_8870', model: 'Logistic Regression', pipeline: 'TF-IDF → LogReg (OvR)', status: 'Completed', f1: 0.893, spread: 0.007, auc: 0.925, duration: '01m 31s', owner: 'Maya Lin', params: 'C=0.1  ngram=(1,1)' },
 ]
 
@@ -59,4 +61,26 @@ export const LOG_LINES: [string, string][] = [
   ['li', '[FIT ] fold=5 lbfgs iter=205 converged'],
   ['lm', '[METRIC] fold=5 macro_f1=0.917 loss=0.276'],
   ['lt', '[INFO] writing artifacts s3://ensemble/runs/run_8a10/'],
+]
+
+// d features (thousands), fit seconds, AUC, Security recall, macro F1
+export const PC: Record<string, { d: number; t: number; auc: number; rec: number; f1: number }> = {
+  run_894a: { d: 150, t: 102, auc: 0.941, rec: 0.84, f1: 0.914 },
+  run_8931: { d: 0.3, t: 845, auc: 0.936, rec: 0.87, f1: 0.902 },
+  run_8912: { d: 412, t: 138, auc: 0.928, rec: 0.82, f1: 0.907 },
+  run_8855: { d: 150, t: 118, auc: 0.921, rec: 0.79, f1: 0.899 },
+  run_8841: { d: 61, t: 24, auc: 0.905, rec: 0.71, f1: 0.871 },
+  run_8870: { d: 38, t: 91, auc: 0.925, rec: 0.80, f1: 0.893 },
+}
+
+export const NODES = ['gym-cpu-01', 'gym-cpu-02', 'gym-cpu-03', 'gym-cpu-04', 'gym-gpu-01', 'gym-gpu-02']
+const ur = rng(99)
+export const UTIL = NODES.map((_, i) => Array.from({ length: 12 }, (_, j) => Math.min(0.98, Math.max(0.02, (i === 5 ? 0.08 : i === 4 ? 0.75 : 0.45) + (ur() - 0.5) * 0.5 + (j > 7 && i < 4 ? 0.25 : 0)))))
+
+export const ACTIVITY: { kind: 'ok' | 'live' | 'bad'; who: string; what: string; obj: string; at: string }[] = [
+  { kind: 'live', who: 'Maya Lin', what: 'started', obj: 'run_8a10', at: '06m ago' },
+  { kind: 'ok', who: 'Vela', what: 'proposed a patch on', obj: 'run_894a', at: '21m ago' },
+  { kind: 'ok', who: 'Arun Patel', what: 'promoted to Staging', obj: 'v3.0.0-rc1', at: '02h ago' },
+  { kind: 'bad', who: 'Jo Kim', what: 'run failed (CUDA OOM)', obj: 'run_88f7', at: '03h ago' },
+  { kind: 'ok', who: 'Maya Lin', what: 'registered dataset', obj: 'zendesk_tickets_2026_q3.parquet', at: '05h ago' },
 ]

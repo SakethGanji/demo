@@ -1,6 +1,13 @@
 import { useState } from 'react'
+import { LineChart, PlotFrame, type Series } from '../components/charts'
+import { Graph } from '../components/Graph'
 import { FretSlider, ParamChip, Segmented, StatusPill, sup } from '../components/ui'
 import { CLASSES, CLASS_COUNTS } from '../data'
+
+// Illustrative response surface for the live preview: validation F1 peaks near C = 2, train keeps rising.
+const logC = (i: number) => -3 + i / 10
+const trainF1 = (x: number) => 0.80 + 0.195 / (1 + Math.exp(-1.5 * (x + 0.9)))
+const valF1 = (x: number, p: Params) => 0.916 - 0.017 * (x - 0.3) ** 2 + (p.ngram === 1 ? -0.012 : p.ngram === 3 ? -0.002 : 0) + (p.classWeight === 'balanced' ? 0.004 : 0) - 0.0006 * Math.abs(p.minDf - 3)
 
 export type Params = { C: number; maxIter: number; tol: number; ngram: number; minDf: number; classWeight: 'None' | 'balanced' }
 export const DEFAULTS: Params = { C: 1.0, maxIter: 1000, tol: 1e-4, ngram: 2, minDf: 3, classWeight: 'None' }
@@ -51,6 +58,8 @@ export function TrainingGym({ params, setParams, guided, setGuided, onStart }: {
         )}
       </div>
 
+      <Dock params={params} />
+
       <div className="gym-footer">
         <div><button className="btn ghost" onClick={() => setStep(Math.max(0, step - 1))} disabled={step === 0}>← Back</button></div>
         <div className="valid"><span className="dot">●</span> Schema Valid · Ready</div>
@@ -71,7 +80,7 @@ function Hyperparameters({ params, set, guided, setGuided }: {
   params: Params; set: <K extends keyof Params>(k: K) => (v: Params[K]) => void; guided: boolean; setGuided: (g: boolean) => void
 }) {
   return (
-    <div className="page" style={{ maxWidth: 1320 }}>
+    <div className="page">
       <div className="grid two">
         <div className="stack">
           <div className="card">
@@ -126,10 +135,12 @@ function Hyperparameters({ params, set, guided, setGuided }: {
             </div>
           </div>
 
-          <Pipeline />
+          <Pipeline params={params} />
         </div>
 
         <div className="stack">
+          <FitEstimate params={params} />
+          <ValidationCurve params={params} />
           <ConfigBlock params={params} />
           <ClassBalance />
         </div>
@@ -206,24 +217,7 @@ function ClassBalance() {
 }
 
 /** Pipeline on graph paper: catenary strings between ports. Solid = valid, dashed = warning. */
-function Pipeline() {
-  const nodes = [
-    { id: 'text', x: 24, y: 28, title: 'ticket_body', sub: 'Text column', sig: 'str[ ]' },
-    { id: 'meta', x: 24, y: 140, title: 'priority, channel', sub: 'Metadata', sig: 'cat[ ]', warn: true },
-    { id: 'tfidf', x: 290, y: 28, title: 'TF-IDF', sub: 'ngram=(1,2) · min_df=3', sig: 'str[ ] → sparse ℝⁿˣᵈ' },
-    { id: 'onehot', x: 290, y: 140, title: 'OneHotEncoder', sub: 'handle_unknown=ignore', sig: 'cat[ ] → ℝⁿˣ¹²' },
-    { id: 'model', x: 556, y: 84, title: 'LogReg (OvR)', sub: 'Step 7 · editing', sig: 'ℝⁿˣᵈ → ŷ ∈ ℝⁿˣ⁶', active: true },
-  ]
-  const W = 190, H = 72
-  const port = (id: string, side: 'in' | 'out') => {
-    const n = nodes.find((n) => n.id === id)!
-    return { x: side === 'out' ? n.x + W : n.x, y: n.y + H / 2 }
-  }
-  const edge = (a: string, b: string) => {
-    const p = port(a, 'out'), q = port(b, 'in')
-    const mx = (p.x + q.x) / 2, sag = 18
-    return `M${p.x},${p.y} C${mx},${p.y + sag} ${mx},${q.y + sag} ${q.x},${q.y}`
-  }
+function Pipeline({ params }: { params: Params }) {
   return (
     <div className="card">
       <div className="card-head">
@@ -233,29 +227,100 @@ function Pipeline() {
           <span className="legend"><svg width="20" height="6"><line x1="0" x2="20" y1="3" y2="3" stroke="var(--status-warning)" strokeWidth="2" strokeDasharray="4 3" /></svg>Warning</span>
         </div>
       </div>
-      <div className="graph-paper">
-        <svg className="edges" aria-hidden>
-          <defs>
-            <linearGradient id="edge-active" x1="0" x2="1"><stop offset="0" stopColor="#0D9488" /><stop offset="1" stopColor="#38BDF8" /></linearGradient>
-          </defs>
-          <path d={edge('text', 'tfidf')} stroke="var(--accent-primary)" strokeWidth="2" fill="none" />
-          <path d={edge('meta', 'onehot')} stroke="var(--status-warning)" strokeWidth="2" strokeDasharray="5 4" fill="none" />
-          <path d={edge('tfidf', 'model')} stroke="url(#edge-active)" strokeWidth="2" fill="none" />
-          <path d={edge('onehot', 'model')} stroke="var(--accent-primary)" strokeWidth="2" fill="none" />
-        </svg>
-        {nodes.map((n) => (
-          <div key={n.id} className={`pnode ${n.active ? 'active' : ''}`} style={{ left: n.x, top: n.y, height: H }}>
-            {n.id !== 'text' && n.id !== 'meta' && <span className="port in" />}
-            {n.id !== 'model' && <span className={`port out ${n.warn ? 'warn' : ''}`} />}
-            <div className="row" style={{ gap: 6 }}>
-              <b className="card-title" style={{ fontSize: 13 }}>{n.title}</b>
-              {n.warn && <span style={{ color: 'var(--status-warning)', fontSize: 11 }} title="3.1% nulls in priority">▲</span>}
-            </div>
-            <div className="table-cell" style={{ color: 'var(--text-body)', fontSize: 11.5 }}>{n.sub}</div>
-            <div className="sig">{n.sig}</div>
-          </div>
-        ))}
+      <Graph width={770} height={230}
+        nodes={[
+          { id: 'text', x: 24, y: 24, title: 'ticket_body', sub: 'Text column', sig: 'str[ ]' },
+          { id: 'meta', x: 24, y: 134, title: 'priority, channel', sub: 'Metadata', sig: 'cat[ ]', warn: '3.1% nulls in priority' },
+          { id: 'tfidf', x: 290, y: 24, title: 'TF-IDF', sub: `ngram=(1,${params.ngram}) · min_df=${params.minDf}`, sig: 'str[ ] → sparse ℝⁿˣᵈ' },
+          { id: 'onehot', x: 290, y: 134, title: 'OneHotEncoder', sub: 'handle_unknown=ignore', sig: 'cat[ ] → ℝⁿˣ¹²' },
+          { id: 'model', x: 556, y: 79, title: 'LogReg (OvR)', sub: 'Step 7 · editing', sig: 'ℝⁿˣᵈ → ŷ ∈ ℝⁿˣ⁶', active: true },
+        ]}
+        edges={[
+          { from: 'text', to: 'tfidf' }, { from: 'meta', to: 'onehot', kind: 'warn' },
+          { from: 'tfidf', to: 'model', kind: 'active' }, { from: 'onehot', to: 'model' },
+        ]} />
+    </div>
+  )
+}
+
+/** Live preview: where the current C sits on the validation curve. */
+function ValidationCurve({ params }: { params: Params }) {
+  const series: Series[] = [
+    { name: 'Validation', color: 'var(--viz-a)', data: Array.from({ length: 51 }, (_, i) => valF1(logC(i), params)) },
+    { name: 'Train', color: 'var(--viz-c)', dash: '6 4', data: Array.from({ length: 51 }, (_, i) => trainF1(logC(i))) },
+  ]
+  const x = Math.log10(params.C)
+  return (
+    <PlotFrame title="Validation Curve" legend={series}
+      chips={<><ParamChip sym="k" value="5" /><ParamChip sym="n" value="20k" /></>}
+      caption={<span>Macro <span className="math" style={{ fontSize: 14 }}>F1</span> against <span className="math" style={{ fontSize: 14 }}>C</span> on a 20k-row subsample, estimated</span>}>
+      <LineChart series={series} xMax={50} yMin={0.75} yMax={1} yTicks={[0.75, 0.8, 0.85, 0.9, 0.95, 1]} xTicks={[0, 10, 20, 30, 40, 50]}
+        fmtX={(i) => (Number.isInteger(logC(i)) ? pow10(10 ** logC(i)) : `10^${logC(i).toFixed(1)}`)} xTitle="C" yTitle="F1" height={210}
+        marker={{ x: (x + 3) * 10, label: `C=${fmtSci(params.C)}` }} />
+    </PlotFrame>
+  )
+}
+
+function FitEstimate({ params }: { params: Params }) {
+  const d = Math.round(([0, 38.2, 150.42, 412.6][params.ngram] * 1000 * 3) / params.minDf)
+  const secs = Math.round(40 + (d / 1000) * 0.35 * (1 + Math.log10(params.C) * 0.18 + 1) * (params.maxIter / 1000) ** 0.4 * (1 - Math.log10(params.tol / 1e-4) * 0.12))
+  const mem = (1.2 + d / 60000).toFixed(1)
+  const x = Math.log10(params.C)
+  return (
+    <div className="card">
+      <div className="card-head"><h3 className="card-title">Fit Estimate</h3><span className="micro-label">Updates As You Tune</span></div>
+      <div className="minis">
+        <div className="mini"><span className="micro-label">Features <span className="math" style={{ fontSize: 13, textTransform: 'none' }}>d</span></span><span className="v">{d.toLocaleString()}</span><span className="u">sparse ℝⁿˣᵈ</span></div>
+        <div className="mini"><span className="micro-label">Fit Time</span><span className="v">{String(Math.floor(secs / 60)).padStart(2, '0')}m {String(secs % 60).padStart(2, '0')}s</span><span className="u">5 folds · {mem} GiB</span></div>
+        <div className="mini"><span className="micro-label">Expected F1</span><span className="v">{valF1(x, params).toFixed(3)}</span><span className="u">± 0.006 · n = 5</span></div>
       </div>
+    </div>
+  )
+}
+
+function Dock({ params }: { params: Params }) {
+  const [open, setOpen] = useState(true)
+  const [tab, setTab] = useState<'Validation' | 'Dry Run'>('Validation')
+  const imbalanced = params.classWeight === 'None'
+  const overfit = params.C > 20
+  const checks: [boolean, string, string, string][] = [
+    [true, 'Schema', '9 columns typed · target category has K = 6 classes', 'Step 2'],
+    [true, 'Port Contracts', 'str[ ] → sparse ℝⁿˣᵈ → ŷ ∈ ℝⁿˣ⁶ · all strings connect', 'Step 4'],
+    [false, 'Null Values', 'priority has 3.1% nulls · imputed with most_frequent', 'Step 4'],
+    [!imbalanced, 'Class Balance', imbalanced ? "Security is 7.2% of rows · set class_weight='balanced'" : "class_weight='balanced' · rare classes weighted up", 'Step 7'],
+    [!overfit, 'Regularization', overfit ? `C=${fmtSci(params.C)} is past the validation peak · train–validation gap widening` : `C=${fmtSci(params.C)} within C ∈ [10⁻³, 10²]`, 'Step 7'],
+  ]
+  const warns = checks.filter((c) => !c[0]).length
+  return (
+    <div className={`dock ${open ? '' : 'closed'}`}>
+      <div className="dock-head">
+        {(['Validation', 'Dry Run'] as const).map((t) => (
+          <button key={t} className={`tab ${open && tab === t ? 'on' : ''}`} onClick={() => { setTab(t); setOpen(true) }}>
+            {t}{t === 'Validation' && <span className={`count ${warns ? 'warn' : ''}`}>{warns ? `▲ ${warns}` : '● 0'}</span>}
+          </button>
+        ))}
+        <span className="spacer" />
+        <button className="btn sm ghost" onClick={() => setOpen(!open)} aria-expanded={open}>{open ? 'Hide ↓' : 'Show ↑'}</button>
+      </div>
+      {open && (
+        <div className="dock-body">
+          {tab === 'Validation' ? checks.map(([ok, name, msg, at]) => (
+            <div key={name} className="check">
+              <span className={ok ? 'g-ok' : 'g-warn'}>{ok ? '●' : '▲'}</span><b>{name}</b><span className="table-cell" style={{ color: 'var(--text-body)' }}>{msg}</span><span className="micro-label">{at}</span>
+            </div>
+          )) : (
+            <div className="log-panel">
+              <div className="lt">$ ensemble gym dry-run --project support-ticket-classifier --rows 2000</div>
+              <div className="li">[PLAN] TfidfVectorizer(ngram_range=(1, {params.ngram}), min_df={params.minDf})</div>
+              <div className="li">[PLAN] LogisticRegression(C={fmtSci(params.C)}, max_iter={params.maxIter}, tol={fmtSci(params.tol)}, class_weight={params.classWeight === 'None' ? 'None' : "'balanced'"})</div>
+              <div className="lm">[OK  ] pipeline compiled · 2 transforms · 1 estimator</div>
+              <div className="lm">[OK  ] dry-run fit on 2,000 rows in 00m 03s</div>
+              {imbalanced && <div className="lw">[WARN] class=Security support=144 rows · recall unstable</div>}
+              <div className="lt">[INFO] ready to submit to queue gym-default</div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

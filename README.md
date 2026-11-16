@@ -12,10 +12,15 @@ npm run build
 
 | Route | What it shows |
 | --- | --- |
-| `#/gym` | Training Gym: 10-step tension stepper, Guided / Advanced hyperparameters with fret-track sliders and exact numeric inputs, the objective as a Formula with its where-list, a catenary pipeline on graph paper, a live-diffed run config, label distribution, sticky footer |
-| `#/home` | KPIs with spark-waves, a live Training Monitor plot, a streaming log, recent runs |
-| `#/experiments` | Runs table with selection and an `F1 ≥ 0.90` filter, multi-run comparison plot with crosshair hover, parameter diff, confusion matrix on the heat ramp and per-class recall |
-| `#/models`, `#/preprocessing`, `#/registry`, `#/settings` | Empty states |
+| `#/gym` | Training Gym: live Fit Estimate and Validation Curve that follow the sliders, a console dock (Validation checks, Dry Run), 10-step tension stepper, Guided / Advanced hyperparameters with fret-track sliders and exact numeric inputs, the objective as a Formula with its where-list, a catenary pipeline on graph paper, a live-diffed run config, label distribution, sticky footer |
+| `#/home` | KPIs with spark-waves, a live Training Monitor plot, a streaming log, compute utilization heatmap, activity feed, lineage graph, recent runs |
+| `#/experiments` | Parallel coordinates of runs, runs table with selection and an `F1 ≥ 0.90` filter, multi-run comparison plot with crosshair hover, parameter diff, confusion matrix on the heat ramp and per-class recall |
+| `#/models` | Model Library: cards with each model's equation, port signature and defaults, filter by family |
+| `#/preprocessing` | Preprocessing Library: transforms with port contracts, a detail panel, a transform × model compatibility matrix |
+| `#/registry` | Model Registry: stage KPIs, version lineage graph, versions table |
+| `#/settings` | Empty state |
+
+The shell adds a status bar (compute, live run, current config) and a command palette on ⌘K / Ctrl+K.
 
 Vela, the AI companion, is a collapsible sidecar that gives PatchCards; applying one changes the Training Gym config.
 
@@ -26,8 +31,9 @@ Vela, the AI companion, is a collapsible sidecar that gives PatchCards; applying
 | `src/tokens.css` | Design tokens (colour, type, space, radius, motion) as CSS variables |
 | `src/app.css` | Every component style |
 | `src/components/ui.tsx` | StatusPill, ParamChip, Segmented, Tabs, ResonanceWave, SparkWave, FretSlider |
-| `src/components/charts.tsx` | PlotFrame, LineChart, ConfusionMatrix |
+| `src/components/charts.tsx` | PlotFrame, LineChart, ConfusionMatrix, ParallelCoords |
+| `src/components/Graph.tsx` | Pipeline and lineage graphs on graph paper, scaled to fit |
 | `src/components/Vela.tsx` | Vela sidecar and PatchCards |
 | `src/components/icons.tsx` | 1.75px line icons and the Vela crest |
-| `src/screens/` | Home, TrainingGym, Experiments, Placeholder |
+| `src/screens/` | Home, TrainingGym, Experiments, Library (Model Library, Preprocessing Library, Registry), Placeholder |
 | `src/data.ts` | Deterministic sample data |
