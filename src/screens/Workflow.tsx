@@ -152,7 +152,7 @@ function ClassStrings({ classes, conv, f1, active }: { classes: string[]; conv: 
   const paths = useRef<(SVGPathElement | null)[]>([])
   const live = useRef({ conv, active }); live.current = { conv, active }
   const { prefs } = usePrefs()
-  const rowH = Math.max(30, Math.min(44, 264 / classes.length))
+  const rowH = Math.max(34, Math.min(56, 300 / classes.length))
   useEffect(() => {
     const still = prefs.motion === 'Still' || reducedMotion()
     let raf = 0
@@ -160,12 +160,12 @@ function ClassStrings({ classes, conv, f1, active }: { classes: string[]; conv: 
       const t = now / 1000
       classes.forEach((_, k) => {
         const c = live.current.conv[k] ?? 0
-        const amp = live.current.active ? (rowH / 2 - 3) * Math.pow(1 - c, 1.6) : 0
+        const amp = live.current.active ? (rowH / 2 - 2) * Math.pow(1 - c, 0.9) : 0
         const n = 2 + (k % 3)
         let d = ''
         for (let i = 0; i <= 80; i++) {
           const f = i / 80
-          const yv = amp * (Math.sin(Math.PI * n * f) * Math.cos(t * (5 + k * 0.7)) * 0.7 + Math.sin(Math.PI * (n + 3) * f) * Math.sin(t * (9 + k)) * 0.3 * (1 - c))
+          const yv = amp * (Math.sin(Math.PI * n * f) * Math.cos(t * (5 + k * 0.7)) * 0.8 + Math.sin(Math.PI * (n + 3) * f) * Math.sin(t * (9 + k)) * 0.35 * (1 - c))
           d += `${i ? 'L' : 'M'}${(f * w).toFixed(1)},${(rowH / 2 + (still ? yv * 0.5 : yv)).toFixed(2)}`
         }
         paths.current[k]?.setAttribute('d', d)
@@ -292,10 +292,10 @@ export function Workflow({ go }: { go: (r: string) => void }) {
     const base = ds.kind === 'tabular' ? (recipe.id === 'xgb' ? 0.887 : 0.842) : recipe.f1
     const cls = ds.classes.map((c) => Math.min(0.985, base + (r() - 0.5) * 0.05 - (c.share < 0.1 ? 0.06 : 0)))
     const folds = Array.from({ length: FOLDS }, () => base + (r() - 0.5) * 0.014)
-    const rates = ds.classes.map(() => 0.75 + r() * 0.6)
+    const rates = ds.classes.map(() => 0.95 + r() * 0.5)
     return { cls, folds, rates, base }
   }, [ds, recipe.id, K])
-  const conv = finals.rates.map((rt) => (phase < 3 ? 0 : phase > 3 ? 1 : Math.min(1, inFold * 1.25 * rt)))
+  const conv = finals.rates.map((rt) => (phase < 3 ? 0 : phase > 3 ? 1 : Math.min(1, inFold * 1.08 * rt)))
   const f1k = finals.cls.map((v, k) => v * (0.55 + 0.45 * Math.pow(conv[k], 0.6)))
   const meanF1 = finals.folds.reduce((a, b) => a + b, 0) / FOLDS
   const spread = Math.sqrt(finals.folds.reduce((a, b) => a + (b - meanF1) ** 2, 0) / FOLDS)
