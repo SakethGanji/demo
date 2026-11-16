@@ -1,0 +1,69 @@
+/* Project ENSEMBLE design tokens (from the design system's tokens.json) */
+:root {
+  --bg-shell: #0A1120;
+  --bg-shell-hover: #131E36;
+  --bg-canvas: #F6F8FB;
+  --bg-surface: #FFFFFF;
+  --bg-subtle: #F0F4F8;
+  --bg-table-header: #F8FAFC;
+  --bg-wave-tint: rgba(56, 189, 248, 0.06);
+  --bg-wave-tint-shell: rgba(56, 189, 248, 0.08);
+  --border-default: #E2E8F0;
+  --border-focus: #0D9488;
+  --border-row: #F1F5F9;
+  --border-track: #CBD5E1;
+  --border-shell: #1E293B;
+  --text-primary: #0F172A;
+  --text-body: #475569;
+  --text-muted: #64748B;
+  --text-on-shell: #F8FAFC;
+  --text-on-shell-muted: #94A3B8;
+  --accent-primary: #0D9488;
+  --accent-primary-hover: #0F766E;
+  --on-accent: #FFFFFF;
+  --accent-primary-shell: #2DD4BF;
+  --accent-secondary: #0284C7;
+  --accent-secondary-shell: #38BDF8;
+  --logo-teal: #14B8A6;
+  --status-success: #059669;
+  --status-success-bg: #ECFDF5;
+  --status-warning: #D97706;
+  --status-warning-bg: #FFFBEB;
+  --status-danger: #DC2626;
+  --status-danger-bg: #FEF2F2;
+  --status-info: #0284C7;
+  --status-info-bg: #F0F9FF;
+  --viz-a: #0D9488;
+  --viz-b: #0284C7;
+  --viz-c: #6366F1;
+  --viz-d: #D97706;
+  --viz-e: #EC4899;
+  --plot-grid: var(--border-default);
+  --plot-axis: var(--border-track);
+  --bg-grid-dot: var(--border-track);
+  --heat-1: #F0FDFA;
+  --heat-2: #CCFBF1;
+  --heat-3: #99F6E4;
+  --heat-4: #2DD4BF;
+  --heat-5: #115E59;
+
+  --font-sans: Inter, system-ui, sans-serif;
+  --font-display: "Plus Jakarta Sans", Inter, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-math: "STIX Two Text", "Cambria Math", "Times New Roman", serif;
+
+  --space-4: 4px; --space-8: 8px; --space-12: 12px; --space-16: 16px;
+  --space-20: 20px; --space-24: 24px; --space-32: 32px; --space-48: 48px;
+
+  --radius-card: 8px; --radius-control: 6px; --radius-badge: 4px; --radius-full: 999px;
+  --shadow-float: 0 10px 30px -10px rgba(10, 17, 32, 0.14);
+  --grad-string: linear-gradient(90deg, #0D9488 0%, #38BDF8 100%);
+
+  --size-sidebar: 232px; --size-sidebar-collapsed: 64px; --size-context-bar: 48px;
+  --size-footer: 56px; --size-sidecar: 360px; --size-row-compact: 36px;
+  --size-row-comfortable: 44px; --size-numeric-input: 68px;
+
+  --ease-pluck: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-snap-min: 180ms; --duration-snap-max: 240ms;
+  --duration-wave: 4s; --duration-vela-drift: 3s; --duration-reduced: 80ms;
+}

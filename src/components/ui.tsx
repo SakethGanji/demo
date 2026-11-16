@@ -1,0 +1,163 @@
+import { useCallback, useRef, useState, type ReactNode } from 'react'
+
+export type Status = 'success' | 'warning' | 'danger' | 'info' | 'neutral'
+const GLYPH: Record<Status, string> = { success: '●', warning: '▲', danger: '✕', info: '', neutral: '○' }
+
+/** Status is never colour alone: a glyph (or pulsing node) plus a word. */
+export function StatusPill({ status, children }: { status: Status; children: ReactNode }) {
+  return (
+    <span className={`pill ${status}`}>
+      {status === 'info' ? <span className="live-dot" /> : <span aria-hidden>{GLYPH[status]}</span>}
+      {children}
+    </span>
+  )
+}
+
+/** A parameter with its symbol: `C = 1.0`. */
+export function ParamChip({ sym, value }: { sym: string; value: string }) {
+  return (
+    <span className="chip"><span className="sym">{sym}</span>=<span>{value}</span></span>
+  )
+}
+
+export function Segmented<T extends string>({ options, value, onChange }: { options: T[]; value: T; onChange: (v: T) => void }) {
+  return (
+    <div className="seg" role="tablist">
+      {options.map((o) => (
+        <button key={o} role="tab" aria-selected={o === value} className={o === value ? 'on' : ''} onClick={() => onChange(o)}>{o}</button>
+      ))}
+    </div>
+  )
+}
+
+export function Tabs<T extends string>({ tabs, value, onChange }: { tabs: T[]; value: T; onChange: (v: T) => void }) {
+  return (
+    <div className="tabs" role="tablist">
+      {tabs.map((t) => (
+        <button key={t} role="tab" aria-selected={t === value} className={`tab ${t === value ? 'on' : ''}`} onClick={() => onChange(t)}>{t}</button>
+      ))}
+    </div>
+  )
+}
+
+/* ---------------- waves ---------------- */
+
+function sinePath(w: number, h: number, cycles: number, amp: number) {
+  const pts: string[] = []
+  const steps = Math.max(40, Math.round(cycles * 24))
+  for (let i = 0; i <= steps; i++) {
+    const x = (i / steps) * w
+    const y = h / 2 - Math.sin((i / steps) * cycles * Math.PI * 2) * amp
+    pts.push(`${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`)
+  }
+  return pts.join(' ')
+}
+
+/** Loading / live computation. Replaces every spinner. */
+export function ResonanceWave({ width = 120, height = 20, color = 'var(--accent-secondary)', fast = false }: { width?: number; height?: number; color?: string; fast?: boolean }) {
+  const d = sinePath(width * 2, height, 6, height / 2 - 2)
+  const d2 = sinePath(width * 2, height, 6, height / 4)
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-label="Working" role="img" style={{ overflow: 'hidden' }}>
+      <path className={`wave-path ${fast ? 'fast' : ''}`} d={d2} stroke={color} strokeOpacity={0.35} strokeWidth={1.5} fill="none" />
+      <path className={`wave-path ${fast ? 'fast' : ''}`} d={d} stroke={color} strokeWidth={1.75} fill="none" />
+    </svg>
+  )
+}
+
+/** Inline telemetry: a small series drawn as a string with a live end node. */
+export function SparkWave({ data, width = 96, height = 28, color = 'var(--accent-primary)' }: { data: number[]; width?: number; height?: number; color?: string }) {
+  const min = Math.min(...data), max = Math.max(...data)
+  const sx = (i: number) => (i / (data.length - 1)) * (width - 6) + 1
+  const sy = (v: number) => height - 3 - ((v - min) / (max - min || 1)) * (height - 6)
+  const d = data.map((v, i) => `${i ? 'L' : 'M'}${sx(i).toFixed(1)},${sy(v).toFixed(1)}`).join(' ')
+  const lx = sx(data.length - 1), ly = sy(data[data.length - 1])
+  return (
+    <svg width={width} height={height} aria-hidden>
+      <path d={d} stroke={color} strokeWidth={1.5} fill="none" strokeLinejoin="round" />
+      <circle cx={lx} cy={ly} r={2.5} fill={color} />
+    </svg>
+  )
+}
+
+/* ---------------- fret slider ---------------- */
+
+export type FretProps = {
+  sym: string
+  name: string
+  help: string
+  min: number
+  max: number
+  value: number
+  onChange: (v: number) => void
+  log?: boolean
+  step?: number
+  ticks: number[]
+  tickLabel?: (v: number) => string
+  format?: (v: number) => string
+  domain: ReactNode
+  guided: boolean
+}
+
+export function FretSlider(p: FretProps) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [drag, setDrag] = useState(false)
+  const [draft, setDraft] = useState<string | null>(null)
+  const fmt = p.format ?? ((v: number) => String(v))
+  const toT = (v: number) => (p.log ? (Math.log10(v) - Math.log10(p.min)) / (Math.log10(p.max) - Math.log10(p.min)) : (v - p.min) / (p.max - p.min))
+  const fromT = (t: number) => {
+    let v = p.log ? 10 ** (Math.log10(p.min) + t * (Math.log10(p.max) - Math.log10(p.min))) : p.min + t * (p.max - p.min)
+    if (p.step) v = Math.round(v / p.step) * p.step
+    else if (p.log) v = Number(v.toPrecision(2))
+    return Math.min(p.max, Math.max(p.min, v))
+  }
+  const pick = useCallback((clientX: number) => {
+    const r = ref.current!.getBoundingClientRect()
+    p.onChange(fromT(Math.min(1, Math.max(0, (clientX - r.left) / r.width))))
+  }, [p])
+  const t = toT(p.value)
+  const onKey = (e: React.KeyboardEvent) => {
+    const d = e.key === 'ArrowRight' || e.key === 'ArrowUp' ? 0.02 : e.key === 'ArrowLeft' || e.key === 'ArrowDown' ? -0.02 : 0
+    if (d) { e.preventDefault(); p.onChange(fromT(Math.min(1, Math.max(0, t + d)))) }
+  }
+  return (
+    <div className="param">
+      <div className="label">
+        {p.guided ? (
+          <><b>{p.name} <span className="math">{p.sym}</span></b><small>{p.help}</small></>
+        ) : (
+          <><b><span className="math">{p.sym}</span> <span className="micro-label">{p.name}</span></b><small className="math" style={{ fontSize: 13 }}>{p.domain}</small></>
+        )}
+      </div>
+      <div
+        ref={ref}
+        className={`fret ${drag ? 'drag' : ''}`}
+        role="slider" tabIndex={0} aria-label={p.name} aria-valuemin={p.min} aria-valuemax={p.max} aria-valuenow={p.value}
+        onKeyDown={onKey}
+        onPointerDown={(e) => { (e.target as HTMLElement).setPointerCapture(e.pointerId); setDrag(true); pick(e.clientX) }}
+        onPointerMove={(e) => drag && pick(e.clientX)}
+        onPointerUp={() => setDrag(false)}
+      >
+        <div className="track" />
+        <div className="fill" style={{ width: `${t * 100}%` }} />
+        {p.ticks.map((v, i) => (
+          <div key={v}>
+            <div className="tick major" style={{ left: `${toT(v) * 100}%` }} />
+            <div className="tick-label" style={{ left: `${toT(v) * 100}%`, transform: i === 0 ? 'none' : i === p.ticks.length - 1 ? 'translateX(-100%)' : undefined }}>{(p.tickLabel ?? String)(v)}</div>
+          </div>
+        ))}
+        {Array.from({ length: 21 }, (_, i) => <div key={`f${i}`} className="tick" style={{ left: `${i * 5}%` }} />)}
+        <div className="thumb" style={{ left: `${t * 100}%` }} />
+      </div>
+      <input
+        className="num-input" aria-label={`${p.name} value`}
+        value={draft ?? fmt(p.value)}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => { const v = Number(draft); if (draft !== null && !Number.isNaN(v)) p.onChange(Math.min(p.max, Math.max(p.min, v))); setDraft(null) }}
+        onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+      />
+    </div>
+  )
+}
+
+export const sup = (n: number) => String(n).split('').map((c) => '⁰¹²³⁴⁵⁶⁷⁸⁹'['0123456789'.indexOf(c)] ?? (c === '-' ? '⁻' : c)).join('')
