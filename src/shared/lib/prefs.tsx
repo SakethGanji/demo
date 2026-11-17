@@ -9,9 +9,10 @@ export type Prefs = {
   tension: 'Loose' | 'Taut' | 'Tight'
   mode: 'Guided' | 'Advanced'
   velaOpen: 'Open' | 'Closed'
+  layout: 'Inset' | 'Flush'
   pinned: string[]
 }
-export const DEFAULT_PREFS: Prefs = { density: 'Compact', motion: 'Live', tension: 'Taut', mode: 'Guided', velaOpen: 'Open', pinned: ['quick', 'autopilot', 'train'] }
+export const DEFAULT_PREFS: Prefs = { density: 'Compact', motion: 'Live', tension: 'Taut', mode: 'Guided', velaOpen: 'Open', layout: 'Inset', pinned: ['quick', 'autopilot', 'train'] }
 
 export function loadPrefs(): Prefs {
   try {

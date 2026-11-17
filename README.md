@@ -18,7 +18,7 @@ npm run build
 | `#/home` | The Workbench: the Project ENSEMBLE lockup over an interactive string field, the Toolkit (six tools you can pin to the sidebar toolbelt), runs drawn as strings, a live Training Monitor plot and a streaming log |
 | `#/experiments` | Parallel coordinates of runs, runs table with selection and an `F1 ≥ 0.90` filter, multi-run comparison plot with crosshair hover, parameter diff, confusion matrix on the heat ramp and per-class recall |
 | `#/registry` | Model Registry: stage KPIs, version lineage graph, versions table |
-| `#/settings` | Customization, kept in the browser: string tension, string motion, density, default Guided / Advanced mode, Vela sidecar, toolbelt |
+| `#/settings` | Customization, kept in the browser: layout (inset or flush), string tension, string motion, density, default Guided / Advanced mode, Vela sidecar, toolbelt |
 
 The shell adds a status bar (compute, live run, current config) and a command palette on ⌘K / Ctrl+K.
 

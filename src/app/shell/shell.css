@@ -80,3 +80,16 @@
 .sidebar .belt-g svg [fill="var(--accent-secondary)"] { fill: var(--accent-secondary-shell); }
 .sidebar .belt-g svg [fill="var(--bg-surface)"] { fill: var(--bg-shell); }
 .sidebar .belt-g svg [stroke="var(--border-track)"] { stroke: #334155; }
+
+/* ---------- inset layout: the sidebar joins the navy frame, the workspace floats inside it ---------- */
+.layout-inset { background: var(--bg-shell); }
+.layout-inset .shell { padding: var(--space-8) var(--space-8) var(--space-8) 0; }
+.layout-inset .sidebar { border-right: 0; }
+.layout-inset .lockup, .layout-inset .sidebar-footer { border-color: transparent; }
+.layout-inset .lockup { padding-top: var(--space-12); }
+.layout-inset .main { background: var(--bg-canvas); border-radius: 12px; overflow: hidden; }
+.layout-inset .shell:has(.sidecar) .main { border-radius: 12px 0 0 12px; }
+.layout-inset .sidecar { border-radius: 0 12px 12px 0; overflow: hidden; box-shadow: none; }
+.layout-inset .statusbar { border-top: 0; }
+/* the Vela header is navy too, so lift it one step or its rounded corner disappears into the frame */
+.layout-inset .sidecar-head { background: var(--bg-shell-hover); }

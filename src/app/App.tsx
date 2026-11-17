@@ -54,7 +54,7 @@ export default function App() {
 
   return (
     <PrefsContext.Provider value={{ prefs, set: setPref }}>
-    <div className={`frame density-${prefs.density.toLowerCase()} ${prefs.motion === 'Still' ? 'still' : ''}`}>
+    <div className={`frame layout-${prefs.layout.toLowerCase()} density-${prefs.density.toLowerCase()} ${prefs.motion === 'Still' ? 'still' : ''}`}>
     <div className={`shell ${collapsed ? 'collapsed' : ''}`}>
       <Sidebar route={route} collapsed={collapsed} velaOpen={vela} go={go} onToggle={() => setCollapsed(!collapsed)} />
 

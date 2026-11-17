@@ -24,6 +24,7 @@ export function SettingsPage() {
               <span className="micro-label">Try It · hover or click</span>
               <PluckString pluck={pluck} height={30} at={0.25} />
             </div>
+            <SettingRow k="layout" name="Layout" help="Inset floats the workspace as a rounded panel inside the navy frame. Flush runs it edge to edge." options={['Inset', 'Flush']} />
             <SettingRow k="motion" name="String Motion" help="Still freezes every wave and string. Your system's reduced-motion setting always wins." options={['Live', 'Still']} />
             <SettingRow k="density" name="Density" help="Row height and spacing in tables and panels." options={['Compact', 'Comfortable']} />
             <SettingRow k="mode" name="Default Mode" help="Which side of the Guided | Advanced switch configuration surfaces open on." options={['Guided', 'Advanced']} />
