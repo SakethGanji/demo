@@ -350,7 +350,7 @@ export function Autopilot({ go }: { go: (r: string) => void }) {
                       <div key={s.id} className={`patch ${s.kind === 'branch' ? 'applied' : ''}`}>
                         <div className="ph">
                           <VelaCrest size={16} /><b className="card-title" style={{ fontSize: 13 }}>{s.title}</b><span className="spacer" />
-                          {s.kind === 'branch' ? <StatusPill status="neutral">Dropped</StatusPill> : s.kind === 'ask' ? (s.answer ? <StatusPill status={s.auto ? 'neutral' : 'success'}>{s.auto ? 'Vela Decided' : 'You Answered'}</StatusPill> : <StatusPill status="warning">Needs You</StatusPill>) : <StatusPill status="success">Kept</StatusPill>}
+                          {s.kind === 'branch' ? <StatusPill status="neutral">Dropped</StatusPill> : s.kind === 'ask' ? (s.answer ? <StatusPill status={s.auto ? 'neutral' : 'success'}>{s.auto ? 'Vela Decided' : 'You Answered'}</StatusPill> : <StatusPill status="warning">Needs You</StatusPill>) : s.id === 'done' ? <StatusPill status={met ? 'success' : 'warning'}>{met ? 'Done' : 'Not Met'}</StatusPill> : <StatusPill status="success">Kept</StatusPill>}
                         </div>
                         <p>{s.finding}</p>
                         {s.action && <div className="diffline">{s.action}</div>}
