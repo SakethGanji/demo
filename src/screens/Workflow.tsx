@@ -9,9 +9,9 @@ import { reducedMotion, usePrefs } from '../prefs'
 /* ------------------------------------------------------------------ data */
 
 type Col = { name: string; type: 'text' | 'category' | 'number' | 'id'; sample: string }
-type Dataset = { name: string; rows: number; cols: Col[]; target: string; classes: { name: string; share: number }[]; kind: 'text' | 'tabular'; note: string }
+export type Dataset = { name: string; rows: number; cols: Col[]; target: string; classes: { name: string; share: number }[]; kind: 'text' | 'tabular'; note: string }
 
-const SAMPLES: Dataset[] = [
+export const SAMPLES: Dataset[] = [
   {
     name: 'zendesk_tickets_2026_q3.parquet', rows: 124500, kind: 'text', target: 'category', note: 'Support tickets · Text + Metadata',
     cols: [

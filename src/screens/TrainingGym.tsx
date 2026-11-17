@@ -22,8 +22,8 @@ const fmtSci = (v: number) => {
 }
 const pow10 = (v: number) => `10${sup(Math.round(Math.log10(v)))}`
 
-export function TrainingGym({ params, setParams, guided, setGuided, onStart }: {
-  params: Params; setParams: (p: Params) => void; guided: boolean; setGuided: (g: boolean) => void; onStart: () => void
+export function TrainingGym({ params, setParams, guided, setGuided, onStart, onAutopilot }: {
+  params: Params; setParams: (p: Params) => void; guided: boolean; setGuided: (g: boolean) => void; onStart: () => void; onAutopilot: () => void
 }) {
   const [step, setStep] = useState(HYPER)
   const set = <K extends keyof Params>(k: K) => (v: Params[K]) => setParams({ ...params, [k]: v })
@@ -38,6 +38,7 @@ export function TrainingGym({ params, setParams, guided, setGuided, onStart }: {
           <span className="chip">v3.0.0-rc1</span>
           <span className="spacer" />
           <span className="helper" style={{ fontSize: 12 }}>124,500 rows × 9 cols · Text + Metadata</span>
+          <Segmented options={['Manual', 'Autopilot']} value="Manual" onChange={(v) => v === 'Autopilot' && onAutopilot()} />
         </div>
         <div className="stepper" role="list">
           {STEPS.map((s, i) => (

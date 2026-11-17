@@ -8,7 +8,7 @@ export type Prefs = {
   velaOpen: 'Open' | 'Closed'
   pinned: string[]
 }
-export const DEFAULT_PREFS: Prefs = { density: 'Compact', motion: 'Live', tension: 'Taut', mode: 'Guided', velaOpen: 'Open', pinned: ['quick', 'train', 'compare'] }
+export const DEFAULT_PREFS: Prefs = { density: 'Compact', motion: 'Live', tension: 'Taut', mode: 'Guided', velaOpen: 'Open', pinned: ['quick', 'autopilot', 'train'] }
 
 export function loadPrefs(): Prefs {
   try { return { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem('ensemble.prefs') ?? '{}') } } catch { return DEFAULT_PREFS }
