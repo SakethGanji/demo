@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react'
 import wordmark from '../assets/ensemble-wordmark-on-shell.svg'
 import { LineChart, PlotFrame, type Series } from '../components/charts'
-import { Graph } from '../components/Graph'
 import { Icon } from '../components/icons'
 import { PluckString, RunString, StringField, ToolGlyph, type RunState } from '../components/Strings'
 import { ParamChip, ResonanceWave, StatusPill, type Status } from '../components/ui'
-import { ACTIVITY, LOG_LINES, NODES, UTIL, curve, type Run } from '../data'
+import { LOG_LINES, curve, type Run } from '../data'
 import { usePrefs } from '../prefs'
 import { TOOLS, type Tool } from '../tools'
 
@@ -114,20 +113,8 @@ export function Home({ go, openPalette }: { go: (r: string) => void; openPalette
             legend={series}
             caption={<span>Cross-entropy <span className="math" style={{ fontSize: 14 }}>ℒ = −Σ y log ŷ</span> per epoch <span className="math" style={{ fontSize: 14 }}>t</span></span>}
           >
-            <LineChart series={series} xMax={40} yMin={0} yMax={1.4} yTicks={[0, 0.35, 0.7, 1.05, 1.4]} xTicks={[0, 10, 20, 30, 40]} xTitle="t" yTitle="ℒ" fmtY={(v) => v.toFixed(2)} live />
+            <LineChart series={series} xMax={40} yMin={0} yMax={1.4} yTicks={[0, 0.35, 0.7, 1.05, 1.4]} xTicks={[0, 10, 20, 30, 40]} xTitle="t" yTitle="ℒ" fmtY={(v) => v.toFixed(2)} live height={196} />
           </PlotFrame>
-          <div className="card">
-            <div className="card-head"><h3 className="card-title">Activity</h3><span className="micro-label">Today</span></div>
-            <div className="feed">
-              {ACTIVITY.map((a, i) => (
-                <div key={i} className="feed-item">
-                  <span className={`nd ${a.kind === 'live' ? 'live' : a.kind === 'bad' ? 'bad' : ''}`} />
-                  <p><b>{a.who}</b> {a.what} <span className="mono" style={{ color: 'var(--text-primary)', fontSize: 12 }}>{a.obj}</span></p>
-                  <time>{a.at}</time>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
         <div className="stack">
           <div className="card">
@@ -141,45 +128,9 @@ export function Home({ go, openPalette }: { go: (r: string) => void; openPalette
               </div>
             </div>
           </div>
-          <div className="card">
-            <div className="card-head">
-              <div className="left"><h3 className="card-title">Compute</h3><span className="mono" style={{ fontSize: 12.5 }}>gym-default</span></div>
-              <StatusPill status="success">6 / 6 Nodes</StatusPill>
-            </div>
-            <div className="card-body">
-              <div className="util">
-                {NODES.map((nd, i) => [
-                  <span key={nd} className="n">{nd}</span>,
-                  ...UTIL[i].map((u, j) => <span key={`${nd}-${j}`} className="c" title={`${nd} · ${(u * 100).toFixed(0)}%`} style={{ background: `var(--heat-${u >= 0.8 ? 5 : u >= 0.6 ? 4 : u >= 0.4 ? 3 : u >= 0.2 ? 2 : 1})` }} />),
-                  <span key={`${nd}-p`} className="p">{(UTIL[i][11] * 100).toFixed(0)}%</span>,
-                ])}
-              </div>
-            </div>
-            <div className="caption" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px 12px', borderTop: '1px solid var(--border-row)', fontSize: 12 }}>
-              <span style={{ whiteSpace: 'nowrap' }}>Utilization · 5m buckets · last 60m</span>
-              <span className="ramp" style={{ marginLeft: 'auto' }}>{[1, 2, 3, 4, 5].map((i) => <i key={i} style={{ background: `var(--heat-${i})` }} />)}</span>
-              <span className="mono" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>0–100%</span>
-            </div>
-          </div>
         </div>
       </div>
 
-      <div className="card">
-        <div className="card-head">
-          <div className="left"><h3 className="card-title">Lineage</h3><span className="micro-label">Enterprise Support Ticket Classifier</span></div>
-          <button className="btn sm" onClick={() => go('registry')}>Open Registry →</button>
-        </div>
-        <Graph width={860} height={172} nodeW={176} nodeH={64}
-          nodes={[
-            { id: 'ds', x: 20, y: 20, title: 'zendesk_tickets_q3', sub: '124,500 rows × 9 cols' },
-            { id: 'ds2', x: 20, y: 96, title: 'label_taxonomy_v4', sub: 'K = 6 classes' },
-            { id: 'pre', x: 236, y: 54, title: 'TF-IDF', sub: 'ngram=(1,2) · min_df=3' },
-            { id: 'run', x: 452, y: 20, title: 'run_894a', sub: 'F1: 0.914 ± 0.006' },
-            { id: 'run2', x: 452, y: 96, title: 'run_8a10', sub: 'Training · fold 3 of 5', active: true },
-            { id: 'ver', x: 668, y: 20, title: 'v3.0.0-rc1', sub: 'Staging · awaiting approval' },
-          ]}
-          edges={[{ from: 'ds', to: 'pre' }, { from: 'ds2', to: 'pre' }, { from: 'pre', to: 'run' }, { from: 'pre', to: 'run2', kind: 'active' }, { from: 'run', to: 'ver', kind: 'warn' }]} />
-      </div>
     </div>
   )
 }

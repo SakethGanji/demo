@@ -26,6 +26,8 @@ export function TrainingGym({ params, setParams, guided, setGuided, onStart, onA
   params: Params; setParams: (p: Params) => void; guided: boolean; setGuided: (g: boolean) => void; onStart: () => void; onAutopilot: () => void
 }) {
   const [step, setStep] = useState(HYPER)
+  const [saved, setSaved] = useState(false)
+  const save = () => { setSaved(true); setTimeout(() => setSaved(false), 1800) }
   const set = <K extends keyof Params>(k: K) => (v: Params[K]) => setParams({ ...params, [k]: v })
   const last = step === STEPS.length - 1
 
@@ -65,7 +67,7 @@ export function TrainingGym({ params, setParams, guided, setGuided, onStart, onA
         <div><button className="btn ghost" onClick={() => setStep(Math.max(0, step - 1))} disabled={step === 0}>← Back</button></div>
         <div className="valid"><span className="dot">●</span> Schema Valid · Ready</div>
         <div className="right">
-          <button className="btn">Save Draft</button>
+          <button className="btn" onClick={save}>{saved ? '● Draft Saved' : 'Save Draft'}</button>
           {last ? (
             <button className="btn primary" onClick={onStart}>Start Training</button>
           ) : (

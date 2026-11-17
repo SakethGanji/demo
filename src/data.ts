@@ -72,15 +72,3 @@ export const PC: Record<string, { d: number; t: number; auc: number; rec: number
   run_8841: { d: 61, t: 24, auc: 0.905, rec: 0.71, f1: 0.871 },
   run_8870: { d: 38, t: 91, auc: 0.925, rec: 0.80, f1: 0.893 },
 }
-
-export const NODES = ['gym-cpu-01', 'gym-cpu-02', 'gym-cpu-03', 'gym-cpu-04', 'gym-gpu-01', 'gym-gpu-02']
-const ur = rng(99)
-export const UTIL = NODES.map((_, i) => Array.from({ length: 12 }, (_, j) => Math.min(0.98, Math.max(0.02, (i === 5 ? 0.08 : i === 4 ? 0.75 : 0.45) + (ur() - 0.5) * 0.5 + (j > 7 && i < 4 ? 0.25 : 0)))))
-
-export const ACTIVITY: { kind: 'ok' | 'live' | 'bad'; who: string; what: string; obj: string; at: string }[] = [
-  { kind: 'live', who: 'Maya Lin', what: 'started', obj: 'run_8a10', at: '06m ago' },
-  { kind: 'ok', who: 'Vela', what: 'proposed a patch on', obj: 'run_894a', at: '21m ago' },
-  { kind: 'ok', who: 'Arun Patel', what: 'promoted to Staging', obj: 'v3.0.0-rc1', at: '02h ago' },
-  { kind: 'bad', who: 'Jo Kim', what: 'run failed (CUDA OOM)', obj: 'run_88f7', at: '03h ago' },
-  { kind: 'ok', who: 'Maya Lin', what: 'registered dataset', obj: 'zendesk_tickets_2026_q3.parquet', at: '05h ago' },
-]

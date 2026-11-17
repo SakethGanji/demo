@@ -568,3 +568,28 @@ button { cursor: pointer; }
 .stage .btn:disabled { opacity: 0.45; cursor: default; }
 
 .page-title { white-space: nowrap; }
+
+/* ---------- narrow workspace (small laptop with Vela open) ---------- */
+.workspace { container-type: inline-size; }
+@container (max-width: 860px) {
+  .grid.two, .page > .grid[style] { grid-template-columns: minmax(0, 1fr) !important; }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .hero-top, .hero-bottom, .stage-head { flex-wrap: wrap; }
+  .hero-read, .stage-read { flex-wrap: wrap; gap: var(--space-12) var(--space-20); }
+  .hero-cmd { width: auto; flex: 1; min-width: 200px; }
+  .run-string { grid-template-columns: 82px minmax(80px, 1fr) 100px 150px; }
+  .run-string .rs-label { display: none; }
+  .stepper .step span:last-child { font-size: 10.5px; }
+  .stepper-title { flex-wrap: wrap; row-gap: var(--space-8); }
+  .gauges { grid-template-columns: 1fr; gap: var(--space-12); }
+  .lib-grid[style] { grid-template-columns: minmax(0, 1fr) !important; }
+  .ds-pick { grid-template-columns: 1fr; }
+  .param { grid-template-columns: 130px 1fr var(--size-numeric-input); }
+  .check { grid-template-columns: 20px 120px 1fr; } .check .micro-label { display: none; }
+  .cls-row { grid-template-columns: 84px 1fr 96px; }
+  .bench-head { flex-wrap: wrap; }
+}
+.cmd { white-space: nowrap; overflow: hidden; flex: 0 1 300px; min-width: 150px; }
+.cmd svg, .cmd kbd { flex: none; }
+.crumbs { flex: 0 1 auto; overflow: hidden; }
+.context-bar .cluster, .context-bar .btn { flex: none; }

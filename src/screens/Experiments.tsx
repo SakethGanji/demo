@@ -15,7 +15,7 @@ const AXES: PCAxis[] = [
   { key: 'f1', label: 'F1', min: 0.86, max: 0.92, fmt: (v) => v.toFixed(3) },
 ]
 
-export function Experiments() {
+export function Experiments({ go }: { go: (r: string) => void }) {
   const [tab, setTab] = useState<'Runs' | 'Compare' | 'Confusion Matrix & Errors'>('Runs')
   const [sel, setSel] = useState<Set<string>>(new Set(['run_894a', 'run_8931', 'run_8912']))
   const [onlyGood, setOnlyGood] = useState(false)
@@ -35,7 +35,7 @@ export function Experiments() {
         </div>
         <div className="row">
           <button className={`btn ${onlyGood ? 'vela on' : ''}`} onClick={() => setOnlyGood(!onlyGood)}><span className="math" style={{ fontSize: 14 }}>F1</span> ≥ 0.90</button>
-          <button className="btn primary">Register Model Version</button>
+          <button className="btn primary" onClick={() => go('registry')}>Register Model Version</button>
         </div>
       </div>
 

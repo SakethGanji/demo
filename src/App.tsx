@@ -10,17 +10,17 @@ import { TOOLS } from './tools'
 import { VelaSidecar, type Patch } from './components/Vela'
 import { Experiments } from './screens/Experiments'
 import { Home } from './screens/Home'
-import { ModelLibrary, PreprocessingLibrary, Registry } from './screens/Library'
+import { Registry } from './screens/Registry'
 import { RUNS } from './data'
 import { DEFAULTS, TrainingGym, type Params } from './screens/TrainingGym'
 
-type Route = 'home' | 'workflow' | 'autopilot' | 'gym' | 'experiments' | 'models' | 'preprocessing' | 'registry' | 'settings'
+type Route = 'home' | 'workflow' | 'autopilot' | 'gym' | 'experiments' | 'registry' | 'settings'
 const NAV: { id: Route | 'vela'; label: string; icon: keyof typeof Icon }[][] = [
   [{ id: 'home', label: 'Home', icon: 'home' }, { id: 'gym', label: 'Training Gym', icon: 'gym' }, { id: 'experiments', label: 'Experiments', icon: 'experiments' }],
-  [{ id: 'models', label: 'Model Library', icon: 'models' }, { id: 'preprocessing', label: 'Preprocessing Library', icon: 'preprocess' }, { id: 'registry', label: 'Model Registry', icon: 'registry' }],
+  [{ id: 'registry', label: 'Model Registry', icon: 'registry' }],
   [{ id: 'vela', label: 'Vela AI Assistant', icon: 'vela' }, { id: 'settings', label: 'Settings', icon: 'settings' }],
 ]
-const TITLES: Record<Route, string> = { home: 'Home', workflow: 'Quick Train', autopilot: 'Vela Autopilot', gym: 'Training Gym', experiments: 'Experiments', models: 'Model Library', preprocessing: 'Preprocessing Library', registry: 'Model Registry', settings: 'Settings' }
+const TITLES: Record<Route, string> = { home: 'Home', workflow: 'Quick Train', autopilot: 'Vela Autopilot', gym: 'Training Gym', experiments: 'Experiments', registry: 'Model Registry', settings: 'Settings' }
 
 const readRoute = (): Route => { const h = location.hash.replace('#/', '') as Route; return h in TITLES ? h : 'home' }
 
@@ -120,10 +120,8 @@ export default function App() {
           {route === 'gym' && <TrainingGym params={params} setParams={setParams} guided={guided} setGuided={setGuided} onStart={() => go('workflow')} onAutopilot={() => go('autopilot')} />}
           {route === 'workflow' && <Workflow go={go} />}
           {route === 'autopilot' && <Autopilot go={go} />}
-          {route === 'experiments' && <Experiments />}
-          {route === 'models' && <ModelLibrary go={go} />}
-          {route === 'preprocessing' && <PreprocessingLibrary />}
-          {route === 'registry' && <Registry />}
+          {route === 'experiments' && <Experiments go={go} />}
+          {route === 'registry' && <Registry go={go} />}
           {route === 'settings' && <Settings />}
         </main>
       </div>

@@ -1,6 +1,6 @@
 # Project ENSEMBLE · UI
 
-A fresh React 18 + Vite build of the Project ENSEMBLE interface, built on the ENSEMBLE design system: dark shell, light canvas, 1px borders, monospace metrics, and the Harmonic Thread (strings for connection and progress, waves for live computation).
+A front-end mock (all data and training runs are simulated in the browser). A fresh React 18 + Vite build of the Project ENSEMBLE interface, built on the ENSEMBLE design system: dark shell, light canvas, 1px borders, monospace metrics, and the Harmonic Thread (strings for connection and progress, waves for live computation).
 
 ```
 npm install
@@ -15,10 +15,8 @@ npm run build
 | `#/workflow` | Quick Train: drop a CSV (profiled in the browser) or pick a sample, choose a recipe (TF-IDF → LogReg (OvR), XGBoost, LinearSVC), and watch a simulated run: the pipeline as one string, one ringing string per one-vs-rest classifier or a damped residual wave per boosting round, fold strings, loss, log, then results |
 | `#/autopilot` | Vela Autopilot (prototype, scripted): a brief with requirements and an autonomy level, Vela's plan, then a run drawn as one string with dropped experiments hanging off it, requirement gauges, a decision log, a ground-truth inbox that is the only place it stops for you, and a data-changes panel |
 | `#/gym` | Training Gym: live Fit Estimate and Validation Curve that follow the sliders, a console dock (Validation checks, Dry Run), 10-step tension stepper, Guided / Advanced hyperparameters with fret-track sliders and exact numeric inputs, the objective as a Formula with its where-list, a catenary pipeline on graph paper, a live-diffed run config, label distribution, sticky footer |
-| `#/home` | The Workbench: the Project ENSEMBLE lockup over an interactive string field, the Toolkit (eight tools you can pin to the sidebar toolbelt), runs drawn as strings, a live Training Monitor plot, a streaming log, compute utilization heatmap, activity feed, lineage graph, recent runs |
+| `#/home` | The Workbench: the Project ENSEMBLE lockup over an interactive string field, the Toolkit (six tools you can pin to the sidebar toolbelt), runs drawn as strings, a live Training Monitor plot and a streaming log |
 | `#/experiments` | Parallel coordinates of runs, runs table with selection and an `F1 ≥ 0.90` filter, multi-run comparison plot with crosshair hover, parameter diff, confusion matrix on the heat ramp and per-class recall |
-| `#/models` | Model Library: cards with each model's equation, port signature and defaults, filter by family |
-| `#/preprocessing` | Preprocessing Library: transforms with port contracts, a detail panel, a transform × model compatibility matrix |
 | `#/registry` | Model Registry: stage KPIs, version lineage graph, versions table |
 | `#/settings` | Customization, kept in the browser: string tension, string motion, density, default Guided / Advanced mode, Vela sidecar, toolbelt |
 
@@ -40,5 +38,5 @@ Vela, the AI companion, is a collapsible sidecar that gives PatchCards; applying
 | `src/components/Graph.tsx` | Pipeline and lineage graphs on graph paper, scaled to fit |
 | `src/components/Vela.tsx` | Vela sidecar and PatchCards |
 | `src/components/icons.tsx` | 1.75px line icons and the Vela crest |
-| `src/screens/` | Home, TrainingGym, Experiments, Library (Model Library, Preprocessing Library, Registry), Settings |
+| `src/screens/` | Home, TrainingGym, Experiments, Workflow, Autopilot, Registry, Settings |
 | `src/data.ts` | Deterministic sample data |
