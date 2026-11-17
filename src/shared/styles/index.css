@@ -1,0 +1,14 @@
+/* One entry point so the cascade order is explicit: tokens, base, shared, shell, features, then the overrides. */
+@import './tokens.css';
+@import './base.css';
+@import '../primitives/primitives.css';
+@import '../components/components.css';
+@import '../../app/shell/shell.css';
+@import '../../features/vela/vela.css';
+@import '../../features/home/home.css';
+@import '../../features/quick-train/quick-train.css';
+@import '../../features/autopilot/autopilot.css';
+@import '../../features/training-gym/training-gym.css';
+@import '../../features/settings/settings.css';
+@import './surfaces.css';
+@import './responsive.css';

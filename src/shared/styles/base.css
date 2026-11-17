@@ -1,0 +1,31 @@
+*, *::before, *::after { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body {
+  font-family: var(--font-sans); font-size: 13px; line-height: 19px;
+  color: var(--text-body); background: var(--bg-canvas);
+  -webkit-font-smoothing: antialiased;
+}
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
+.num, .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.math { font-family: var(--font-math); font-style: italic; font-size: 15px; line-height: 20px; color: var(--text-primary); }
+.math .up { font-style: normal; }
+
+/* ---------- typography ---------- */
+.page-title { font-family: var(--font-display); font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: -0.02em; color: var(--text-primary); margin: 0; }
+.section-header { font-size: 15px; line-height: 20px; font-weight: 600; color: var(--text-primary); margin: 0; padding-bottom: var(--space-8); border-bottom: 1px solid var(--border-default); }
+.card-title { white-space: nowrap; font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text-primary); margin: 0; }
+.micro-label { font-size: 11px; line-height: 14px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
+.metric-hero { font-family: var(--font-mono); font-size: 24px; line-height: 30px; font-weight: 500; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.table-cell { font-family: var(--font-mono); font-size: 12.5px; line-height: 18px; font-variant-numeric: tabular-nums; }
+.helper { color: var(--text-body); margin: 0; }
+
+/* ---------- preferences ---------- */
+.density-comfortable { --size-row-compact: var(--size-row-comfortable); }
+.density-comfortable .page { gap: var(--space-24); padding: var(--space-32); }
+.density-comfortable .card-head { padding: var(--space-16) var(--space-20); }
+.density-comfortable .run-string { height: 52px; }
+.still *, .still *::before, .still *::after { animation: none !important; }
+.collapsed .belt-item span:last-child { display: none; }
+.collapsed .belt-item .belt-g { display: grid; }

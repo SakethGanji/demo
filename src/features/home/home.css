@@ -1,0 +1,37 @@
+/* ---------- workbench hero ---------- */
+.hero { background: var(--bg-shell); border-radius: var(--radius-card); color: var(--text-on-shell); overflow: hidden; display: flex; flex-direction: column; }
+.hero-top { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-24); padding: var(--space-24) var(--space-24) 0; }
+.hero-lockup { display: flex; flex-direction: column; gap: 6px; }
+.hero-lockup img { height: 36px; width: auto; display: block; }
+.hero-eyebrow { font-size: 11px; line-height: 14px; font-weight: 600; letter-spacing: 0.36em; color: var(--text-on-shell-muted); padding-left: 9px; }
+.hero-read { display: flex; gap: var(--space-20); font-family: var(--font-mono); font-size: 12px; color: var(--text-on-shell-muted); font-variant-numeric: tabular-nums; white-space: nowrap; padding-bottom: 6px; }
+.hero-read b { color: var(--text-on-shell); font-weight: 500; }
+.string-field { position: relative; width: 100%; cursor: crosshair; touch-action: none; }
+.string-field-read { position: absolute; right: var(--space-24); bottom: 2px; font-family: var(--font-math); font-size: 13px; color: var(--text-on-shell-muted); pointer-events: none; }
+.string-field-read i { font-style: italic; }
+.hero-bottom { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-24); padding: 0 var(--space-24) var(--space-24); }
+.hero-title { font-family: var(--font-display); font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: -0.02em; margin: 0; color: var(--text-on-shell); }
+.hero-sub { margin: var(--space-4) 0 0; color: var(--text-on-shell-muted); max-width: 520px; }
+.hero-cmd { display: flex; align-items: center; gap: var(--space-8); height: 40px; width: 340px; flex: none; padding: 0 var(--space-12); background: var(--bg-shell-hover); border: 1px solid var(--border-shell); border-radius: var(--radius-control); color: var(--text-on-shell-muted); font-size: 13px; transition: border-color var(--duration-snap-min) var(--ease-pluck); }
+.hero-cmd:hover { border-color: var(--accent-primary-shell); color: var(--text-on-shell); }
+.hero-cmd kbd { margin-left: auto; font-family: var(--font-mono); font-size: 11px; border: 1px solid var(--border-shell); border-radius: var(--radius-badge); padding: 0 5px; }
+
+/* ---------- toolkit ---------- */
+.bench-head { display: flex; align-items: baseline; gap: var(--space-12); margin-top: var(--space-8); }
+.bench-title { font-family: var(--font-display); font-size: 17px; line-height: 24px; font-weight: 600; letter-spacing: -0.01em; color: var(--text-primary); margin: 0; }
+.tool-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: var(--space-16); }
+.tool { position: relative; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-card); display: flex; flex-direction: column; transition: border-color var(--duration-snap-min) var(--ease-pluck), background var(--duration-snap-min) var(--ease-pluck); }
+.tool:hover { border-color: var(--border-track); }
+.tool-main { display: flex; flex-direction: column; gap: var(--space-12); padding: var(--space-16) var(--space-16) var(--space-8); background: none; border: 0; text-align: left; flex: 1; border-radius: var(--radius-card); }
+.tool-glyph { width: 48px; height: 48px; display: grid; place-items: center; background: var(--bg-canvas); background-image: radial-gradient(var(--bg-grid-dot) 1px, transparent 1px); background-size: 8px 8px; background-position: 4px 4px; border: 1px solid var(--border-default); border-radius: var(--radius-control); transition: transform var(--duration-snap-max) var(--ease-pluck); }
+.tool:hover .tool-glyph { transform: translateY(-2px); }
+.tool-text { display: flex; flex-direction: column; gap: 2px; }
+.tool-text .helper { font-size: 12.5px; line-height: 18px; margin-top: 2px; }
+.pin { position: absolute; top: var(--space-12); right: var(--space-12); height: 22px; padding: 0 var(--space-8); border: 1px solid var(--border-default); border-radius: var(--radius-badge); background: var(--bg-surface); font-size: 11px; font-weight: 600; color: var(--text-body); opacity: 0; transition: opacity var(--duration-snap-min) var(--ease-pluck); white-space: nowrap; }
+.tool:hover .pin, .pin:focus-visible, .pin.on { opacity: 1; }
+.pin.on { color: var(--accent-primary-hover); border-color: transparent; background: var(--status-success-bg); }
+.tool-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-8); padding: 0 var(--space-16) var(--space-8); font-size: 11.5px; color: var(--text-body); white-space: nowrap; pointer-events: none; }
+.tool-foot .mono { overflow: hidden; text-overflow: ellipsis; }
+.tool-foot .open { font-weight: 600; color: var(--text-primary); opacity: 0; transition: opacity var(--duration-snap-min) var(--ease-pluck); }
+.tool:hover .open { opacity: 1; }
+.tool-string { padding: 0 var(--space-16) var(--space-8); pointer-events: none; }

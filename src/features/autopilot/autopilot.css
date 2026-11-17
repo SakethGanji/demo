@@ -1,0 +1,32 @@
+/* ---------- autopilot ---------- */
+.goal { width: 100%; resize: vertical; border: 1px solid var(--border-default); border-radius: var(--radius-control); padding: var(--space-8) var(--space-12); font: inherit; color: var(--text-primary); background: var(--bg-surface); line-height: 19px; }
+.goal:focus { outline: none; border-color: var(--border-focus); box-shadow: 0 0 0 1px var(--border-focus); }
+.ds-pick { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-8); }
+.filter.ds { height: auto; padding: var(--space-8) var(--space-12); display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; min-width: 0; }
+.filter.ds b { font-size: 12px; font-weight: 500; color: var(--text-primary); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filter.ds span { font-weight: 400; font-size: 11.5px; }
+.plan { color: var(--text-on-shell-muted); min-height: 96px; }
+.plan p { margin: 0; }
+.plan ol { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+.plan b { color: var(--text-on-shell); font-weight: 600; }
+.iter-string { border-bottom: 1px solid var(--border-shell); padding-top: var(--space-12); }
+.gauges { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-24); padding: var(--space-16) var(--space-24) var(--space-4); }
+.gauge-top { display: flex; justify-content: space-between; align-items: baseline; font-size: 12.5px; color: var(--text-on-shell-muted); }
+.gauge-top b { font-family: var(--font-mono); font-size: 18px; font-weight: 500; color: var(--text-on-shell); font-variant-numeric: tabular-nums; }
+.gauge-track { position: relative; height: 22px; margin-top: 4px; }
+.gauge-track::before { content: ""; position: absolute; left: 0; right: 0; top: 8px; height: 2px; background: #334155; }
+.gauge-track .fill { position: absolute; left: 0; top: 8px; height: 2px; transition: width 600ms var(--ease-pluck); }
+.gauge-track .fret { position: absolute; top: 12px; width: 1px; height: 4px; background: #475569; }
+.gauge-track .target { position: absolute; top: 0; width: 2px; height: 18px; margin-left: -1px; background: #F8FAFC; border-radius: 1px; }
+.gauge-track .node { position: absolute; top: 3px; width: 12px; height: 12px; margin-left: -6px; border-radius: var(--radius-full); background: var(--bg-shell); border: 2px solid; transition: left 600ms var(--ease-pluck); }
+.gauge-bot { display: flex; justify-content: space-between; font-size: 11.5px; }
+.g-met { color: var(--accent-primary-shell); font-weight: 600; } .g-open { color: var(--text-on-shell-muted); }
+.log-cards { padding: var(--space-12); display: flex; flex-direction: column; gap: var(--space-12); background: var(--bg-canvas); border-radius: 0 0 var(--radius-card) var(--radius-card); }
+.log-cards .patch { background: var(--bg-surface); animation: card-in var(--duration-snap-max) var(--ease-pluck); }
+.log-cards .patch.applied { background: var(--bg-table-header); }
+@keyframes card-in { from { transform: translateY(-6px); opacity: 0; } to { transform: none; opacity: 1; } }
+.inbox.open { border-color: var(--status-warning); }
+.inbox.open .card-head { background: var(--status-warning-bg); }
+.stage .btn:disabled { opacity: 0.45; cursor: default; }
+
+.page-title { white-space: nowrap; }

@@ -1,0 +1,18 @@
+/* ---------- config block ---------- */
+.config { background: var(--bg-subtle); border: 1px solid var(--border-default); border-radius: var(--radius-control); padding: var(--space-12); font-family: var(--font-mono); font-size: 12px; line-height: 20px; color: var(--text-primary); white-space: pre; overflow-x: auto; font-variant-numeric: tabular-nums; }
+.config .k { color: var(--text-body); }
+.config > span { display: block; margin: 0 -12px; padding: 0 12px; }
+.config .diff { background: rgba(56, 189, 248, 0.14); }
+
+/* ---------- console dock ---------- */
+.dock { flex: none; background: var(--bg-surface); border-top: 1px solid var(--border-default); display: flex; flex-direction: column; }
+.dock-head { display: flex; align-items: center; gap: var(--space-20); padding: 0 var(--space-24); height: 34px; border-bottom: 1px solid var(--border-default); }
+.dock.closed .dock-head { border-bottom: 0; }
+.dock-head .tab { height: 34px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
+.dock-head .count { font-family: var(--font-mono); font-size: 10.5px; padding: 0 5px; border-radius: var(--radius-badge); background: var(--bg-subtle); color: var(--text-body); }
+.dock-head .count.warn { background: var(--status-warning-bg); color: var(--status-warning); }
+.dock-body { height: 148px; overflow: auto; }
+.dock-body .log-panel { height: 100%; border-radius: 0; justify-content: flex-start; }
+.check { display: grid; grid-template-columns: 20px 190px 1fr auto; align-items: center; gap: var(--space-8); height: 30px; padding: 0 var(--space-24); border-bottom: 1px solid var(--border-row); font-size: 12.5px; }
+.check b { color: var(--text-primary); font-weight: 500; }
+.check .g-ok { color: var(--status-success); } .check .g-warn { color: var(--status-warning); }

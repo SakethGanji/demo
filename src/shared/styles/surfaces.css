@@ -1,0 +1,61 @@
+/* ---------- tonal depth: canvas → surface → well, plus navy readouts ----------
+   No new hue. bg-table-header bands the tops and bottoms of cards, bg-subtle is the
+   inset "well" for anything read-only or instrument-like, navy marks live readouts. */
+/* the band: halfway between surface and well, so it reads without shouting */
+.frame { --bg-band: color-mix(in srgb, var(--bg-subtle) 60%, var(--bg-surface)); }
+.card-head { background: var(--bg-band); border-radius: var(--radius-card) var(--radius-card) 0 0; }
+.card-head .micro-label, .minis .micro-label, .formula .micro-label, .set-try .micro-label, .tool-foot, .plot-frame .caption { color: var(--text-body); }
+.plot-frame .caption, .card > .caption { background: var(--bg-band); border-radius: 0 0 var(--radius-card) var(--radius-card); }
+.lib-card .bot { background: var(--bg-band); border-radius: 0 0 var(--radius-card) var(--radius-card); }
+.minis { background: var(--bg-subtle); border-radius: 0 0 var(--radius-card) var(--radius-card); }
+.mini { background: var(--bg-surface); margin: var(--space-8) 0 var(--space-8) var(--space-8); border: 1px solid var(--border-default); border-radius: var(--radius-control); }
+.mini:last-child { margin-right: var(--space-8); border-right: 1px solid var(--border-default); }
+.well { background: var(--bg-subtle); border: 1px solid var(--border-default); border-radius: var(--radius-control); }
+.param { padding-left: var(--space-12); padding-right: var(--space-12); margin: 0 calc(-1 * var(--space-12)); border-radius: var(--radius-control); border-bottom: 0; transition: background var(--duration-snap-min) var(--ease-pluck); }
+.param:hover, .param:focus-within { background: var(--bg-subtle); }
+.param + .param { margin-top: 2px; }
+.num-input { background: var(--bg-surface); }
+.dock-head { background: var(--bg-band); }
+.stepper-bar { background: linear-gradient(var(--bg-surface), var(--bg-table-header)); }
+.gym-footer { background: var(--bg-band); }
+.table tbody tr:nth-child(even):not(.sel) { background: color-mix(in srgb, var(--bg-table-header) 60%, transparent); }
+.table tbody tr:hover:not(.sel) { background: var(--bg-subtle); }
+.kpi { background: linear-gradient(var(--bg-surface) 62%, var(--bg-band) 62%); }
+.kpi .foot { padding-top: var(--space-8); }
+.tool-foot { background: var(--bg-band); border-top: 1px solid var(--border-row); padding: var(--space-8) var(--space-16) 2px; margin-top: var(--space-8); }
+.tool-string { background: var(--bg-band); border-radius: 0 0 var(--radius-card) var(--radius-card); }
+.tool-glyph { background-color: var(--bg-subtle); }
+.run-string .rs-id { background: var(--bg-subtle); border-radius: var(--radius-badge); padding: 2px 6px; justify-self: start; }
+.drop { background: var(--bg-subtle); }
+.cm { background: var(--bg-subtle); border: 1px solid var(--border-default); border-radius: var(--radius-control); padding: var(--space-12); }
+.set-row .seg, .card-head .seg { background: var(--bg-subtle); }
+.sidecar-body { background: var(--bg-canvas); }
+.sidecar-body .patch { background: var(--bg-surface); }
+.sidecar-body .patch.applied { background: var(--bg-table-header); }
+.sidecar-input { background: var(--bg-surface); }
+.patch .diffline { border: 1px solid var(--border-default); }
+.palette-input { background: var(--bg-band); }
+.belt-row .belt-glyph { background: var(--bg-subtle); border-radius: var(--radius-control); padding: 4px; display: grid; place-items: center; }
+.belt-row { grid-template-columns: 48px 1fr auto; }
+
+/* navy: live readouts and Vela's header only */
+.sidecar-head { background: var(--bg-shell); border-bottom-color: var(--border-shell); color: var(--text-on-shell-muted); }
+.sidecar-head .card-title { color: var(--text-on-shell); }
+.sidecar-head .micro-label { color: var(--text-on-shell-muted); }
+.sidecar-head .icon-btn:hover { background: var(--bg-shell-hover); color: var(--text-on-shell); }
+.card.navy { background: var(--bg-shell); border-color: var(--bg-shell); color: var(--text-on-shell-muted); }
+.card.navy .card-head { background: none; border-bottom-color: var(--border-shell); }
+.card.navy .card-title { color: var(--text-on-shell); }
+.card.navy .card-head .micro-label, .card.navy .micro-label { color: var(--text-on-shell-muted); }
+.card.navy .minis { background: none; }
+.card.navy .mini { background: var(--bg-shell-hover); border-color: var(--border-shell); }
+.card.navy .mini .v { color: var(--text-on-shell); }
+.card.navy .mini .u { color: var(--text-on-shell-muted); }
+.card.navy .math { color: var(--accent-primary-shell); }
+.card.navy .card-body { border-top-color: var(--border-shell) !important; }
+.card.navy .btn:not(.primary) { background: var(--bg-shell-hover); border-color: var(--border-shell); color: var(--text-on-shell); }
+.card.navy .btn.ghost { background: none; border-color: transparent; color: var(--text-on-shell-muted); }
+.card.navy .pill.success { background: rgba(45, 212, 191, 0.12); color: var(--accent-primary-shell); }
+
+.mini { padding: 10px var(--space-12); }
+.mini .micro-label { white-space: nowrap; }
