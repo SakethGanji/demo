@@ -496,10 +496,10 @@ export function Workflow({ go }: { go: (r: string) => void }) {
                   <div className="card-body"><div className="log-panel" style={{ height: 250 }} aria-live="polite">{logs.slice(-12).map((l, i) => <div key={i} className={l[1]}>{l[2]}</div>)}</div></div>
                 </div>
                 {done && (
-                  <div className="card">
+                  <div className="card navy">
                     <div className="card-head"><h3 className="card-title">Result</h3><StatusPill status="success">Ready To Register</StatusPill></div>
                     <div className="minis">
-                      <div className="mini"><span className="micro-label">Macro F1</span><span className="v">{meanF1.toFixed(3)}</span><span className="u">± {spread.toFixed(3)} · n = {FOLDS} folds</span></div>
+                      <div className="mini"><span className="micro-label">Macro F1</span><span className="v">{meanF1.toFixed(3)}</span><span className="u">± {spread.toFixed(3)} · n = {FOLDS}</span></div>
                       <div className="mini"><span className="micro-label">Weakest Class</span><span className="v">{Math.min(...finals.cls).toFixed(3)}</span><span className="u">{ds.classes[finals.cls.indexOf(Math.min(...finals.cls))].name}</span></div>
                       <div className="mini"><span className="micro-label">Fit Time</span><span className="v">{mmss(elapsed)}</span><span className="u">cpu-8x</span></div>
                     </div>
