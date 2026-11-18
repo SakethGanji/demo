@@ -48,6 +48,10 @@
 .statusbar b { color: var(--text-on-shell); font-weight: 400; }
 .statusbar .ok { color: var(--accent-primary-shell); }
 .statusbar .live { color: var(--accent-secondary-shell); display: inline-flex; align-items: center; gap: 6px; }
+.statusbar .api-mode { all: unset; cursor: pointer; font: inherit; color: var(--text-on-shell-muted); }
+.statusbar .api-mode.live { color: var(--accent-primary-shell); }
+.statusbar .api-mode.mock { color: var(--status-warning); }
+.statusbar .api-mode:focus-visible { outline: 1px solid var(--accent-secondary-shell); outline-offset: 2px; }
 .statusbar .sb-sep { width: 1px; height: 12px; background: var(--border-shell); }
 .cluster { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 var(--space-8); border: 1px solid var(--border-default); border-radius: var(--radius-control); background: var(--bg-surface); font-family: var(--font-mono); font-size: 12px; color: var(--text-primary); white-space: nowrap; }
 .cluster .g { color: var(--status-success); font-size: 9px; }

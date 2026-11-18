@@ -1,8 +1,27 @@
-// Sample datasets and the in-browser CSV profiler.
+// Sample datasets, the in-browser CSV profiler (mock mode), and the adapter for profiles from the API (live mode).
 
-export type Col = { name: string; type: 'text' | 'category' | 'number' | 'id'; sample: string }
+import type { DatasetDetail, Profile } from '@/shared/api/types'
 
-export type Dataset = { name: string; rows: number; cols: Col[]; target: string; classes: { name: string; share: number }[]; kind: 'text' | 'tabular'; note: string }
+export type Col = { name: string; type: 'text' | 'category' | 'number' | 'id'; sample: string; missing?: number }
+
+export type Dataset = {
+  name: string; rows: number; cols: Col[]; target: string; classes: { name: string; share: number }[]; kind: 'text' | 'tabular'; note: string
+  /** Set when the dataset lives on the API; absent for the built-in mock samples and browser-profiled files. */
+  id?: string
+  sample?: boolean
+  profile?: Profile
+}
+
+/** A dataset profiled by the API, in the shape the pages already use. */
+export function fromServer(d: DatasetDetail): Dataset {
+  const p = d.profile
+  return {
+    id: d.id, sample: d.sample, profile: p, name: d.filename, rows: p.rows, kind: p.kind, note: d.note,
+    target: p.target ?? '',
+    cols: p.columns.map((c) => ({ name: c.name, type: c.type, sample: c.example.slice(0, 48), missing: c.missing })),
+    classes: p.classes.map((c) => ({ name: c.name, share: c.share })),
+  }
+}
 
 export const SAMPLES: Dataset[] = [
   {

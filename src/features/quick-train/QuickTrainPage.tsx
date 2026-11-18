@@ -200,8 +200,10 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
       {step < 2 && (
         <div className="wizard-footer">
           <div>{step === 1 && <button className="btn ghost" onClick={() => setStep(0)}>← Back</button>}</div>
-          <div className="valid"><span className="dot">●</span> {step === 0 ? `Schema Valid · target ${ds.target} · K = ${K}` : `${recipe.pipeline(ds)} · Ready`}</div>
-          <div className="right">{step === 0 ? <button className="btn primary" onClick={() => setStep(1)}>Continue →</button> : <button className="btn primary" onClick={start}>Start Training</button>}</div>
+          {step === 0 && K < 2
+            ? <div className="valid" style={{ color: 'var(--status-warning)' }}><span className="dot">▲</span> No label column with two or more classes</div>
+            : <div className="valid"><span className="dot">●</span> {step === 0 ? `Schema Valid · target ${ds.target} · K = ${K}` : `${recipe.pipeline(ds)} · Ready`}</div>}
+          <div className="right">{step === 0 ? <button className="btn primary" disabled={K < 2} onClick={() => setStep(1)}>Continue →</button> : <button className="btn primary" onClick={start}>Start Training</button>}</div>
         </div>
       )}
     </div>

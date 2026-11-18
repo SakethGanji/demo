@@ -9,6 +9,7 @@ import { TrainingGymPage } from '@/features/training-gym/TrainingGymPage'
 import { DEFAULTS, type Params } from '@/features/training-gym/params'
 import { VelaSidecar } from '@/features/vela/VelaSidecar'
 import type { Patch } from '@/features/vela/components/PatchCard'
+import { ApiProvider } from '@/shared/api/mode'
 import { MEAN_RECALL } from '@/shared/data/runs'
 import { PrefsContext, loadPrefs, savePrefs, type Prefs } from '@/shared/lib/prefs'
 import { FULL_HEIGHT, TITLES, readRoute, type Route } from './routes'
@@ -56,6 +57,7 @@ export default function App() {
   ]
 
   return (
+    <ApiProvider>
     <PrefsContext.Provider value={{ prefs, set: setPref }}>
     <div className={`frame layout-${prefs.layout.toLowerCase()} density-${prefs.density.toLowerCase()} ${prefs.motion === 'Still' ? 'still' : ''}`}>
     <div className={`shell ${collapsed ? 'collapsed' : ''}`}>
@@ -80,5 +82,6 @@ export default function App() {
     {palette && <CommandPalette onClose={() => setPalette(false)} go={go} />}
     </div>
     </PrefsContext.Provider>
+    </ApiProvider>
   )
 }
