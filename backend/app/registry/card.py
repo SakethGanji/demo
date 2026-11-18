@@ -132,7 +132,9 @@ def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, 
             "stage": version["stage"], "approval": version["approval"], "registered_at": version["created_at"],
             "registered_by": version["created_by"], "model_sha256": version.get("model_hash"),
             "problem_type": res.get("problem_type"), "label": label, "positive_class": res.get("positive_class"),
-            "eval_metric": (res.get("eval_metric") or {}).get("name"), "engine": "AutoGluon TabularPredictor",
+            "eval_metric": (res.get("eval_metric") or {}).get("name"),
+            "engine": {"forecast": "AutoGluon TimeSeriesPredictor", "anomaly": "scikit-learn IsolationForest (+ LOF)"}.get(
+                cfg.get("kind"), "AutoGluon TabularPredictor (imported)" if cfg.get("import") else "AutoGluon TabularPredictor"),
             "best_model": ver.get("best_model"), "source_run": run["id"], "source_run_name": run["name"],
             "mlflow": vres.get("mlflow"), "path": version.get("path"),
         },
@@ -181,6 +183,47 @@ def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, 
                        "bands": "PSI < 0.10 stable · 0.10–0.25 watch · > 0.25 shift"},
         "approval": {"stage": version["stage"], "approval": version["approval"], "rules": STAGE_RULES,
                      "reviews": reviews, "audit": audit},
+        "kind": cfg.get("kind") or "tabular",
+        "forecasting": _forecast_section(cfg, res) if cfg.get("kind") == "forecast" else None,
+        "anomaly_detection": _anomaly_section(cfg, res) if cfg.get("kind") == "anomaly" else None,
+        "imported": res.get("imported"),
+    }
+
+
+def _forecast_section(cfg: dict[str, Any], res: dict[str, Any]) -> dict[str, Any]:
+    d, h, fc, bt = res.get("data") or {}, res.get("holdout") or {}, res.get("forecast") or {}, res.get("backtests") or {}
+    best = res.get("best_model")
+    return {
+        "setup": {"items": d.get("items"), "freq": d.get("freq"), "seasonal_period_m": d.get("seasonal_period"),
+                  "prediction_length_H": d.get("prediction_length"), "start": d.get("start"), "end": d.get("end"),
+                  "known_covariates": d.get("known_covariates"), "static_features": d.get("static_features"),
+                  "past_covariates": d.get("past_covariates"), "eval_metric": (res.get("eval_metric") or {}).get("name"),
+                  "metric_formula": (res.get("eval_metric") or {}).get("formula"),
+                  "quantile_levels": (res.get("resolved") or {}).get("predictor_kwargs", {}).get("quantile_levels"),
+                  "presets": cfg.get("presets"), "num_val_windows": cfg.get("num_val_windows")},
+        "validation": "the last H steps of every series held out (never seen in fit or model selection); "
+                      f"{len(bt.get('windows') or [])} backtest window(s) inside the training range for model selection",
+        "holdout_metrics": h.get("metrics"), "coverage": h.get("coverage"), "interval": h.get("interval"),
+        "items": (h.get("items") or [])[:20],
+        "backtests": {"windows": bt.get("windows"), "best": (bt.get("models") or {}).get(best)},
+        "forecast": fc, "ensemble": res.get("ensemble"),
+        "limitations": ["Known covariates past the data come from the file's future rows; when absent they repeat the "
+                        "value one season back (said in forecast.known_covariates_source).",
+                        "Structural breaks (new branches, policy changes) after the training window are not anticipated."],
+    }
+
+
+def _anomaly_section(cfg: dict[str, Any], res: dict[str, Any]) -> dict[str, Any]:
+    a = res.get("anomaly") or {}
+    return {
+        "method": "IsolationForest: s(x,n) = 2^(−E[h(x)]/c(n)), c(n) = 2H(n−1) − 2(n−1)/n; flagged when s ≥ the (1 − contamination) quantile",
+        "params": (res.get("resolved") or {}).get("iforest_kwargs"), "contamination": a.get("contamination"),
+        "threshold": a.get("threshold"), "n_flagged": a.get("n_flagged"), "psi": a.get("psi"), "c_n": a.get("c_n"),
+        "n_trees": a.get("n_trees"), "lof": a.get("lof"), "features": res.get("features"),
+        "truth_check": a.get("truth"),
+        "validation": "Unsupervised: no labels. On the sample only, precision@k against planted anomalies that the model never saw.",
+        "limitations": ["Scores rank unusualness, not fraud: a flag needs human review.",
+                        "The threshold is a share of rows (contamination), not a calibrated probability."],
     }
 
 
@@ -275,6 +318,42 @@ def to_markdown(c: dict[str, Any]) -> str:
     for x in a["audit"]:
         st = f"{x.get('from_stage') or ''} → {x.get('to_stage') or ''}" if x.get("to_stage") else ""
         L.append(f"| {x['ts']} | {x['actor']} | {x['action']} | {st} | {(x.get('comment') or '').replace('|', '/')} | `{(x.get('model_hash') or '')[:12]}` |")
+    if c.get("forecasting"):
+        f = c["forecasting"]
+        st = f["setup"]
+        L += ["", "## 11. Forecasting", "", f"ŷ_{{t+h|t}} for h = 1…H, H = {st['prediction_length_H']}, freq `{st['freq']}`, "
+              f"season m = {st['seasonal_period_m']}, {st['items']} series from {st['start']} to {st['end']}.", "",
+              f"Metric {st['eval_metric']}: {st.get('metric_formula') or ''}", "", f"Validation: {f['validation']}.", "",
+              "| Holdout metric | Value |", "| --- | ---: |"]
+        for k, val in (f.get("holdout_metrics") or {}).items():
+            L.append(f"| {k} | {_fmt(val)} |")
+        if f.get("coverage") is not None:
+            L.append(f"| coverage of [q{f['interval'][0]}, q{f['interval'][1]}] | {_fmt(f['coverage'])} |")
+        L += ["", "| Item | MASE | WQL | sMAPE | coverage |", "| --- | ---: | ---: | ---: | ---: |"]
+        for it in f.get("items") or []:
+            L.append(f"| {it['item_id']} | {_fmt(it.get('MASE'))} | {_fmt(it.get('WQL'))} | {_fmt(it.get('sMAPE'))} | {_fmt(it.get('coverage'))} |")
+        ens = (f.get("ensemble") or {}).get("weights") or {}
+        if ens:
+            L += ["", "Ensemble: ŷ = Σ wₘ ŷₘ with " + ", ".join(f"w({k}) = {_fmt(v, 3)}" for k, v in ens.items()) + "."]
+        L += ["", "Limitations:"] + [f"- {x}" for x in f["limitations"]]
+    if c.get("anomaly_detection"):
+        a = c["anomaly_detection"]
+        L += ["", "## 11. Anomaly detection", "", a["method"] + ".", "",
+              f"n = ψ = {a.get('psi')} rows per tree, c(n) = {_fmt(a.get('c_n'))}, {a.get('n_trees')} trees, "
+              f"contamination {_fmt(a.get('contamination'))}, threshold s* = {_fmt(a.get('threshold'))}, {a.get('n_flagged')} rows flagged.", "",
+              f"Validation: {a['validation']}"]
+        tc = a.get("truth_check") or {}
+        if tc:
+            L += ["", "| k | hits | precision@k | recall |", "| ---: | ---: | ---: | ---: |"]
+            for r in tc.get("precision_at_k") or []:
+                L.append(f"| {r['k']} | {r['hits']} | {_fmt(r['precision'])} | {_fmt(r['recall'])} |")
+            L.append(f"\nROC AUC on the planted rows {_fmt(tc.get('roc_auc'))}, AP {_fmt(tc.get('average_precision'))}.")
+        L += ["", "Limitations:"] + [f"- {x}" for x in a["limitations"]]
+    if c.get("imported"):
+        im = c["imported"]
+        L += ["", "## 11. Imported predictor", "", f"Imported from {im.get('source_kind')} `{im.get('source')}`, AutoGluon "
+              f"{im.get('autogluon_version')}, {im.get('n_models')} models. Not refit. Holdout rows may have been in its "
+              "training data, so holdout scores may be optimistic."]
     L += ["", "Sign-off", "", "| Role | Name | Date | Signature |", "| --- | --- | --- | --- |",
           "| Model owner | | | |", "| Independent validator | | | |", "| Model risk management | | | |", ""]
     return "\n".join(L)

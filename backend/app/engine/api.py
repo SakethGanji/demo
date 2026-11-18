@@ -88,12 +88,15 @@ def run_out(rec: dict[str, Any], store: RunStore, full: bool = True) -> dict[str
     out = {
         "id": rec["id"], "name": rec["name"], "dataset_id": rec["dataset_id"], "label": rec["label"],
         "status": rec["status"], "created_at": rec["created_at"], "started_at": rec["started_at"],
-        "finished_at": rec["finished_at"], "error": rec["error"], "config": rec["config"],
+        "finished_at": rec["finished_at"], "error": rec["error"],
+        "config": {k: v for k, v in rec["config"].items() if k not in ("truth", "profile")},
+        "kind": rec["config"].get("kind") or ("import" if rec["config"].get("import") else "tabular"),
         "predictor_path": rec["config"].get("predictor_path"), "n_events": store.count_events(rec["id"]),
     }
     for key in ("problem_type", "eval_metric", "classes", "positive_class", "best_model", "fit_seconds",
                 "elapsed_seconds", "data", "features", "ensemble", "ensembles", "holdout", "oof", "text_models",
-                "feature_importance", "leaderboard", "resolved", "custom_ensembles", "threshold", "mlflow"):
+                "feature_importance", "leaderboard", "resolved", "custom_ensembles", "threshold", "mlflow",
+                "forecast", "backtests", "anomaly", "imported"):
         out[key] = res.get(key)
     out["feature_importance"] = explain.importance_with_ci(out["feature_importance"])
     if not full:
@@ -207,9 +210,13 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
 
 
 @router.get("/runs")
-def list_runs(request: Request, dataset_id: str | None = None, full: bool = False) -> dict[str, Any]:
+def list_runs(request: Request, dataset_id: str | None = None, full: bool = False,
+              kind: str = Query("tabular", description="tabular (includes imports) | forecast | anomaly | all")) -> dict[str, Any]:
+    """Runs, newest first. Forecast and anomaly runs are listed only with kind=forecast / anomaly / all, so pages
+    built for tabular runs never see them."""
     store = _store(request)
-    recs = [r for r in store.list() if dataset_id is None or r["dataset_id"] == dataset_id]
+    recs = [r for r in store.list() if (dataset_id is None or r["dataset_id"] == dataset_id)
+            and (kind == "all" or (r["config"].get("kind") or "tabular") == kind)]
     return {"runs": [run_out(r, store, full=full) for r in recs]}
 
 

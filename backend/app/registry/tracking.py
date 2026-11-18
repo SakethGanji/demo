@@ -96,7 +96,7 @@ def log_run(data_dir: Path, rec: dict[str, Any], run_dir: Path) -> dict[str, Any
         tags = {"ensemble.run_id": rec["id"], "ensemble.dataset_id": rec["dataset_id"], "ensemble.label": rec["label"],
                 "ensemble.predictor_path": rec["config"].get("predictor_path", ""), "ensemble.best_model": str(res.get("best_model")),
                 "ensemble.problem_type": str(res.get("problem_type")), "mlflow.runName": rec["name"][:250],
-                "engine": "autogluon.tabular"}
+                "engine": {"forecast": "autogluon.timeseries", "anomaly": "scikit-learn"}.get(rec["config"].get("kind"), "autogluon.tabular")}
         run = c.create_run(exp_id, run_name=rec["name"][:250], tags=tags)
         rid = run.info.run_id
         from mlflow.entities import Metric, Param, RunTag  # noqa: F401
@@ -145,14 +145,14 @@ def log_run(data_dir: Path, rec: dict[str, Any], run_dir: Path) -> dict[str, Any
 
 
 def register_version(data_dir: Path, model_name: str, mlflow_run_id: str, source: str, tags: dict[str, str],
-                     description: str = "") -> dict[str, Any]:
+                     description: str = "", engine: str = "autogluon.tabular") -> dict[str, Any]:
     with client(data_dir) as (c, _):
         from mlflow.exceptions import MlflowException
 
         try:
             c.get_registered_model(model_name)
         except MlflowException:
-            c.create_registered_model(model_name, tags={"engine": "autogluon.tabular"}, description=description)
+            c.create_registered_model(model_name, tags={"engine": engine}, description=description)
         mv = c.create_model_version(model_name, source=source, run_id=mlflow_run_id,
                                     tags={k: str(v)[:5000] for k, v in tags.items()}, description=description)
         return {"name": model_name, "version": int(mv.version), "source": mv.source, "run_id": mlflow_run_id,

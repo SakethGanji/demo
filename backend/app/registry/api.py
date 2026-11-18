@@ -370,6 +370,17 @@ async def try_it(vid: str, body: TryRequest, request: Request) -> dict[str, Any]
     v = _version(request, vid)
     _ready(v)
     run = request.app.state.runs.get(v["run_id"])
+    kind = run["config"].get("kind")
+    if kind == "forecast":
+        raise HTTPException(400, "A forecasting version forecasts series, not rows: use POST /api/forecast/runs/{run}/predict.")
+    if kind == "anomaly":
+        from ..anomaly import core as an
+
+        try:
+            out = await request.app.state.heavy.run(an.score_one, v["path"], body.row)
+        except an.AnomalyError as e:
+            raise HTTPException(400, str(e)) from e
+        return {"version_id": vid, "model_name": v["model_name"], "version": v["version"], "kind": "anomaly", **out}
     try:
         out = await request.app.state.heavy.run(scoring.try_it, run["config"], v["path"], body.row, body.target, body.explain)
     except explain.ExplainError as e:
@@ -391,6 +402,10 @@ async def create_batch(vid: str, request: Request, file: UploadFile = File(...),
     v = _version(request, vid)
     _ready(v)
     who = _name_ok(created_by, "created_by")
+    kind = (request.app.state.runs.get(v["run_id"]) or {}).get("config", {}).get("kind")
+    if kind in ("forecast", "anomaly"):
+        raise HTTPException(400, f"Batch scoring for {kind} versions is on its own page: "
+                                 f"POST /api/{kind}/runs/{v['run_id']}/{'predict' if kind == 'forecast' else 'score'}.")
     content = await file.read(config.MAX_UPLOAD_BYTES + 1)
     if len(content) > config.MAX_UPLOAD_BYTES:
         raise HTTPException(413, f"The file is larger than {config.MAX_UPLOAD_BYTES // (1024 * 1024)} MB.")

@@ -56,7 +56,7 @@ class DatasetStore:
     # -- create -----------------------------------------------------------
 
     def _register(self, dataset_id: str, df: pd.DataFrame, *, name: str, filename: str, source: str, note: str,
-                  size_bytes: int, target: str | None = None) -> dict[str, Any]:
+                  size_bytes: int, target: str | None = None, kind: str | None = None) -> dict[str, Any]:
         try:
             profile = profile_frame(df, target)
         except ValueError as e:
@@ -69,10 +69,15 @@ class DatasetStore:
         rec = {
             "id": dataset_id, "name": name, "filename": filename, "source": source, "note": note,
             "created_at": now(), "size_bytes": size_bytes, "rows": len(df), "target": tgt,
-            "kind": profile["kind"], "profile": profile,
+            "kind": kind or profile["kind"], "profile": profile,
         }
         self.db.insert_dataset(rec)
         return rec
+
+    def sidecar(self, dataset_id: str, name: str) -> dict[str, Any] | None:
+        """A sample's ground-truth / spec file (forecast_spec.json, anomaly_truth.json, …), or None."""
+        p = self.dir(dataset_id) / name
+        return json.loads(p.read_text()) if p.exists() else None
 
     def ensure_samples(self) -> list[str]:
         """Generate the sample datasets if they are missing. Returns the IDs generated."""
@@ -90,7 +95,7 @@ class DatasetStore:
             written = pd.read_csv(self.csv_path(dataset_id))
             self._register(dataset_id, written, name=spec["name"], filename=spec["filename"], source="sample",
                            note=spec["note"], size_bytes=self.csv_path(dataset_id).stat().st_size,
-                           target=sidecar["label_column"])
+                           target=sidecar["label_column"], kind=spec.get("kind"))
             made.append(dataset_id)
         return made
 

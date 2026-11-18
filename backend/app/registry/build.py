@@ -226,6 +226,8 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
     work, dest = vdir / "work", vdir / "predictor"
     data_dir = Path(db_path).parent
     step = lambda name, status, **kw: reg.step(version_id, name, status, **kw)  # noqa: E731
+    if cfg.get("kind") in ("forecast", "anomaly"):
+        return build_other(db_path, version_id, registry_dir)
     try:
         from autogluon.tabular import TabularPredictor
 
@@ -395,4 +397,128 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
                 reg.step(version_id, s["name"], "failed", error=str(e)[:500])
         (vdir / "build_error.txt").write_text(tb)
         shutil.rmtree(work, ignore_errors=True)
+        return {"ok": False, "error": str(e)}
+
+
+def build_other(db_path: str, version_id: str, registry_dir: str) -> dict[str, Any]:
+    """A forecast (TimeSeriesPredictor) or anomaly (IsolationForest pipeline) run as a version: copy the model folder,
+    measure its own scoring latency on the run's data, hash, register in MLflow. No refit or infer_limit (they are
+    TabularPredictor features), and the build says so."""
+    db = Database(Path(db_path))
+    reg, runs = RegistryStore(db), RunStore(db)
+    v = reg.get_version(version_id)
+    run = runs.get(v["run_id"])
+    cfg, res = run["config"], run.get("result") or {}
+    kind = cfg["kind"]
+    vdir = Path(registry_dir) / v["model_name"] / f"v{v['version']}"
+    dest = vdir / "predictor"
+    data_dir = Path(db_path).parent
+    step = lambda name, status, **kw: reg.step(version_id, name, status, **kw)  # noqa: E731
+    try:
+        step("clone", "running")
+        t0 = time.time()
+        vdir.mkdir(parents=True, exist_ok=True)
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.copytree(cfg["predictor_path"], dest)
+        step("clone", "done", seconds=time.time() - t0, how="copy of the run's model folder")
+        step("refit_full", "skipped", reason=f"not used for {kind} models")
+        step("infer_limit", "skipped", reason=f"not used for {kind} models")
+        step("deploy_copy", "done", how="the copied folder is the deployable model")
+        step("measure", "running")
+        t0 = time.time()
+        lat: dict[str, Any] = {}
+        if kind == "forecast":
+            from autogluon.timeseries import TimeSeriesPredictor
+
+            from ..forecast import core as fc
+
+            p = TimeSeriesPredictor.load(str(dest))
+            obs, fut, static, _ = fc.read_long(cfg)
+            data = fc.to_tsdf(obs, static)
+            if p.freq and data.freq != p.freq:
+                data = data.convert_frequency(p.freq)
+            kc, _src = fc.future_covariates(p, data, fut, list(cfg["mapping"].get("known_covariates") or []),
+                                            fc.seasonal_period(p.freq))
+            p.predict(data, known_covariates=kc)  # warm-up
+            ts = []
+            for _ in range(3):
+                t1 = time.perf_counter()
+                p.predict(data, known_covariates=kc)
+                ts.append(time.perf_counter() - t1)
+            lat = {"forecast_all_items_s_p50": _pct(ts, 50), "items": int(data.num_items),
+                   "ms_per_item_p50": _pct(ts, 50) * 1e3 / max(int(data.num_items), 1)}
+            best = p.model_best
+            holdout = (res.get("holdout") or {}).get("metrics")
+            problem = "forecast"
+            metric = (res.get("eval_metric") or {}).get("name")
+        else:
+            from ..anomaly import core as an
+
+            df = pd.read_csv(cfg["csv_path"])
+            an.score_frame(str(dest), df.head(50), explain_top=0)
+            import joblib
+
+            model = joblib.load(dest / "model.joblib")
+            ts, single = [], []
+            for _ in range(3):
+                t1 = time.perf_counter()
+                model.score(df)
+                ts.append((time.perf_counter() - t1) / len(df) * 1e6)
+            for i in range(20):
+                t1 = time.perf_counter()
+                model.score(df.iloc[[i % len(df)]])
+                single.append((time.perf_counter() - t1) * 1e3)
+            lat = {"us_per_row_p50": _pct(ts, 50), "us_per_row_p95": _pct(ts, 95), "single_ms_p50": _pct(single, 50),
+                   "single_ms_p95": _pct(single, 95), "batch_rows": len(df)}
+            best = "IsolationForest"
+            a = res.get("anomaly") or {}
+            holdout = {"threshold": a.get("threshold"), "contamination": a.get("contamination"),
+                       **({f"precision@{r['k']}": r["precision"] for r in ((a.get("truth") or {}).get("precision_at_k") or [])})}
+            problem = "anomaly"
+            metric = "isolation score"
+        step("measure", "done", seconds=time.time() - t0)
+        step("hash", "running")
+        model_hash = dir_hash(dest)
+        data_hash = file_hash(Path(cfg["csv_path"]))
+        step("hash", "done", model_hash=model_hash[:12])
+        size = dir_size(dest)
+        result = {
+            "source": {"run_id": run["id"], "best_model": best, "size_bytes": dir_size(Path(cfg["predictor_path"])),
+                       "latency": lat, "holdout": holdout},
+            "version": {"best_model": best, "size_bytes": size, "latency": lat, "holdout": holdout,
+                        "problem_type": problem, "eval_metric": metric, "features": res.get("features") or [],
+                        "n_models": len(res.get("leaderboard") or [])},
+            "kind": kind, "tradeoff": {"size_ratio": 1.0},
+            "hashes": {"model_sha256": model_hash, "data_sha256": data_hash, "data_file": Path(cfg["csv_path"]).name},
+            "path": str(dest),
+        }
+        reg.update_version(version_id, result=result, path=str(dest), model_hash=model_hash)
+        step("mlflow", "running")
+        try:
+            from . import tracking
+
+            mlr = res.get("mlflow")
+            if not mlr:
+                mlr = tracking.log_run(data_dir, runs.get(run["id"]), Path(cfg["run_dir"]))
+                runs.merge_result(run["id"], mlflow=mlr)
+            mv = tracking.register_version(data_dir, v["model_name"], mlr["run_id"], str(dest), {
+                "ensemble.version_id": version_id, "ensemble.run_id": run["id"], "model_sha256": model_hash,
+                "data_sha256": data_hash, "best_model": best, "kind": kind, "approval": "pending",
+                "registered_by": v["created_by"]}, description=v["options"].get("description") or "",
+                engine="autogluon.timeseries" if kind == "forecast" else "scikit-learn")
+            reg.merge_version_result(version_id, mlflow={**mv, "experiment_id": mlr["experiment_id"]})
+            step("mlflow", "done", version=mv["version"])
+        except Exception as e:  # noqa: BLE001
+            step("mlflow", "failed", error=f"{type(e).__name__}: {e}")
+        reg.update_version(version_id, status="ready")
+        v = reg.get_version(version_id)
+        reg.audit(actor=v["created_by"], action="registered", version=v, to_stage="None",
+                  comment=v["options"].get("description") or "", details={"kind": kind, "best_model": best, "size_bytes": size})
+        return {"ok": True, "version_id": version_id}
+    except Exception as e:  # noqa: BLE001
+        tb = traceback.format_exc()
+        reg.update_version(version_id, status="failed", error=f"{type(e).__name__}: {e}")
+        vdir.mkdir(parents=True, exist_ok=True)
+        (vdir / "build_error.txt").write_text(tb)
         return {"ok": False, "error": str(e)}

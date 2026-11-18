@@ -15,6 +15,9 @@ from .db import Database
 from .autopilot import api as autopilot_api
 from .autopilot.engine import Manager as AutopilotManager
 from .engine import api as engine_api
+from .engine import importer as import_api
+from .forecast import api as forecast_api
+from .anomaly import api as anomaly_api
 from .gym import api as gym_api
 from .vela import api as vela_api
 from .engine.runner import JobRunner
@@ -36,6 +39,7 @@ def _summary(rec: dict[str, Any]) -> dict[str, Any]:
         "sample": rec["source"] == "sample", "note": rec["note"], "created_at": rec["created_at"],
         "size_bytes": rec["size_bytes"], "rows": rec["rows"], "n_cols": p["n_cols"], "kind": rec["kind"],
         "target": rec["target"], "n_classes": p["n_classes"],
+        "flows": {"timeseries": ["forecast"], "transactions": ["anomaly"]}.get(rec["kind"], ["tabular", "anomaly"]),
     }
 
 
@@ -101,7 +105,32 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
             raise HTTPException(400, str(e)) from e
         return {**_summary(rec), "profile": rec["profile"]}
 
+    @app.post("/api/admin/reset")
+    def admin_reset(request: Request, body: dict[str, Any]) -> dict[str, Any]:
+        """Delete every run, registry entry, batch, autopilot and upload; regenerate the samples. Body {"confirm": "reset"}.
+        Refused while a run is queued or running."""
+        from . import reset as reset_mod
+
+        if (body or {}).get("confirm") != "reset":
+            raise HTTPException(400, 'Send {"confirm": "reset"} to delete all runs, models and uploads.')
+        st = request.app.state
+        if st.runs.list_active():
+            raise HTTPException(409, "A run is queued or running; cancel it first.")
+        if any(getattr(a, "is_alive", lambda: False)() for a in getattr(st.autopilot, "threads", {}).values()):
+            raise HTTPException(409, "An autopilot is running; cancel it first.")
+        st.predictors = PredictorCache()
+        out = reset_mod.reset(settings)
+        st.autopilot.store.root.mkdir(parents=True, exist_ok=True)
+        st.autopilot.threads.clear()
+        st.heavy.shutdown()
+        st.heavy = HeavyPool()
+        st.heavy.start()
+        return out
+
+    app.include_router(import_api.router)
     app.include_router(engine_api.router)
+    app.include_router(forecast_api.router)
+    app.include_router(anomaly_api.router)
     app.include_router(registry_api.router)
     app.include_router(gym_api.router)
     app.include_router(vela_api.router)

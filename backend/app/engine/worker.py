@@ -359,6 +359,8 @@ def run(run_dir: Path) -> int:
         return store.emit(run_id, type_, **data)
 
     started = time.time()
+    if cfg.get("kind") in ("forecast", "anomaly"):
+        return run_other(cfg, run_dir, store, emit, started)
     try:
         emit("run_started", pid=os.getpid())
         train, holdout, info = load_frames(cfg)
@@ -374,59 +376,63 @@ def run(run_dir: Path) -> int:
         ag_logger = logging.getLogger("autogluon")
         ag_logger.addHandler(EventLogHandler(emit))
 
-        feature_metadata = apply_column_types(cfg, train, holdout)
+        if cfg.get("import"):
+            predictor, fit_seconds = import_predictor(cfg, emit, store, run_id)
+            progress = ProgressCallback(emit)
+        else:
+            feature_metadata = apply_column_types(cfg, train, holdout)
 
-        add_text = bool(cfg.get("custom_text_models", True)) and bool(cfg.get("text_columns")) \
-            and cfg.get("task") != "regression" and cfg.get("problem_type") not in ("regression", "quantile")
-        fit_kwargs, notes = resolve_fit_kwargs(cfg, add_text_models=add_text)
-        if feature_metadata is not None and "feature_metadata" not in fit_kwargs:
-            fit_kwargs["feature_metadata"] = feature_metadata
-            notes.append("column types from the wizard passed as feature_metadata "
-                         f"({', '.join(f'{c}: {t}' for c, t in cfg['column_types'].items())})")
-        predictor_kwargs = {"label": cfg["label"], "problem_type": cfg.get("problem_type"),
-                            "eval_metric": cfg.get("eval_metric"), **(cfg.get("predictor_kwargs") or {})}
-        resolved = {"predictor_kwargs": predictor_kwargs, "fit_kwargs": fit_kwargs, "notes": notes,
-                    "path": cfg["predictor_path"]}
-        store.merge_result(run_id, resolved=resolved)
-        emit("config_resolved", **resolved)
-
-        progress = ProgressCallback(emit)
-        call_kwargs = dict(fit_kwargs)
-        call_kwargs["callbacks"] = list(call_kwargs.get("callbacks") or []) + [progress]
-        if "feature_metadata" in call_kwargs:
-            call_kwargs["feature_metadata"] = feature_metadata_object(call_kwargs["feature_metadata"])
-        unlabeled = load_unlabeled(cfg, train) if cfg.get("pseudolabel") else None
-        pl_method = (cfg.get("pseudolabel") or {}).get("method", "fit_pseudolabel")
-        post_fit = []
-        if unlabeled is not None:
-            if pl_method == "unlabeled_data":
-                call_kwargs["unlabeled_data"] = unlabeled
-                resolved["data_args"] = {"unlabeled_data": {"dataset_id": cfg["pseudolabel"].get("dataset_id"), "rows": len(unlabeled)}}
-            else:
-                post_fit.append({"call": "fit_pseudolabel",
-                                 "kwargs": {"pseudo_data": f"<{len(unlabeled)} unlabeled rows>",
-                                            "max_iter": int(cfg["pseudolabel"].get("max_iter", 3))}})
-        if cfg.get("distill"):
-            dk = dict(cfg["distill"])
-            dk.setdefault("time_limit", max(30.0, 0.5 * float(cfg.get("time_limit") or 120)))
-            post_fit.append({"call": "distill", "kwargs": dk})
-        if post_fit or "data_args" in resolved:
-            resolved["post_fit"] = post_fit
+            add_text = bool(cfg.get("custom_text_models", True)) and bool(cfg.get("text_columns")) \
+                and cfg.get("task") != "regression" and cfg.get("problem_type") not in ("regression", "quantile")
+            fit_kwargs, notes = resolve_fit_kwargs(cfg, add_text_models=add_text)
+            if feature_metadata is not None and "feature_metadata" not in fit_kwargs:
+                fit_kwargs["feature_metadata"] = feature_metadata
+                notes.append("column types from the wizard passed as feature_metadata "
+                             f"({', '.join(f'{c}: {t}' for c, t in cfg['column_types'].items())})")
+            predictor_kwargs = {"label": cfg["label"], "problem_type": cfg.get("problem_type"),
+                                "eval_metric": cfg.get("eval_metric"), **(cfg.get("predictor_kwargs") or {})}
+            resolved = {"predictor_kwargs": predictor_kwargs, "fit_kwargs": fit_kwargs, "notes": notes,
+                        "path": cfg["predictor_path"]}
             store.merge_result(run_id, resolved=resolved)
-        predictor = TabularPredictor(path=cfg["predictor_path"], **predictor_kwargs)
-        t0 = time.time()
-        predictor.fit(train, **call_kwargs)
-        for step in post_fit:
-            emit("post_fit", step=step["call"], status="started")
-            s0 = time.time()
-            if step["call"] == "fit_pseudolabel":
-                predictor.fit_pseudolabel(pseudo_data=unlabeled, max_iter=step["kwargs"]["max_iter"])
-            elif step["call"] == "distill":
-                np.random.seed(0)  # distill's data augmentation draws from the global generator; seeded so it reproduces
-                predictor.distill(**step["kwargs"])
-            emit("post_fit", step=step["call"], status="finished", seconds=time.time() - s0,
-                 models=list(predictor.model_names()), best_model=predictor.model_best)
-        fit_seconds = time.time() - t0
+            emit("config_resolved", **resolved)
+
+            progress = ProgressCallback(emit)
+            call_kwargs = dict(fit_kwargs)
+            call_kwargs["callbacks"] = list(call_kwargs.get("callbacks") or []) + [progress]
+            if "feature_metadata" in call_kwargs:
+                call_kwargs["feature_metadata"] = feature_metadata_object(call_kwargs["feature_metadata"])
+            unlabeled = load_unlabeled(cfg, train) if cfg.get("pseudolabel") else None
+            pl_method = (cfg.get("pseudolabel") or {}).get("method", "fit_pseudolabel")
+            post_fit = []
+            if unlabeled is not None:
+                if pl_method == "unlabeled_data":
+                    call_kwargs["unlabeled_data"] = unlabeled
+                    resolved["data_args"] = {"unlabeled_data": {"dataset_id": cfg["pseudolabel"].get("dataset_id"), "rows": len(unlabeled)}}
+                else:
+                    post_fit.append({"call": "fit_pseudolabel",
+                                     "kwargs": {"pseudo_data": f"<{len(unlabeled)} unlabeled rows>",
+                                                "max_iter": int(cfg["pseudolabel"].get("max_iter", 3))}})
+            if cfg.get("distill"):
+                dk = dict(cfg["distill"])
+                dk.setdefault("time_limit", max(30.0, 0.5 * float(cfg.get("time_limit") or 120)))
+                post_fit.append({"call": "distill", "kwargs": dk})
+            if post_fit or "data_args" in resolved:
+                resolved["post_fit"] = post_fit
+                store.merge_result(run_id, resolved=resolved)
+            predictor = TabularPredictor(path=cfg["predictor_path"], **predictor_kwargs)
+            t0 = time.time()
+            predictor.fit(train, **call_kwargs)
+            for step in post_fit:
+                emit("post_fit", step=step["call"], status="started")
+                s0 = time.time()
+                if step["call"] == "fit_pseudolabel":
+                    predictor.fit_pseudolabel(pseudo_data=unlabeled, max_iter=step["kwargs"]["max_iter"])
+                elif step["call"] == "distill":
+                    np.random.seed(0)  # distill's data augmentation draws from the global generator; seeded so it reproduces
+                    predictor.distill(**step["kwargs"])
+                emit("post_fit", step=step["call"], status="finished", seconds=time.time() - s0,
+                     models=list(predictor.model_names()), best_model=predictor.model_best)
+            fit_seconds = time.time() - t0
 
         threshold_source, threshold_metric, threshold_seconds = _decide_threshold(cfg, predictor, train, emit)
 
@@ -500,6 +506,74 @@ def run(run_dir: Path) -> int:
         if store.finish(run_id, "succeeded"):
             emit("run_succeeded", best_model=best, score_test=leaderboard[0].get("score_test") if leaderboard else None,
                  elapsed_seconds=time.time() - started)
+        return 0
+    except Exception as e:  # noqa: BLE001
+        tb = traceback.format_exc()
+        log.error("run %s failed:\n%s", run_id, tb)
+        msg = f"{type(e).__name__}: {e}"
+        if store.finish(run_id, "failed", error=msg):
+            emit("run_failed", error=msg, traceback=tb[-4000:])
+        return 1
+
+
+def import_predictor(cfg: dict[str, Any], emit, store: RunStore, run_id: str):
+    """An imported TabularPredictor (already unpacked into the run's predictor folder by the API): load and check it.
+    Nothing is refit; the run is scored on the chosen dataset's holdout like a trained one."""
+    from autogluon.tabular import TabularPredictor
+
+    emit("importing", path=cfg["predictor_path"])
+    t0 = time.time()
+    p = TabularPredictor.load(cfg["predictor_path"], require_version_match=False, require_py_version_match=False,
+                              verbosity=0)
+    info = p.info()
+    fit_seconds = float(info.get("time_fit_training") or 0) or None
+    imp = dict(cfg.get("import") or {})
+    imp.update({"autogluon_version": info.get("version"), "load_seconds": time.time() - t0,
+                "n_models": len(p.model_names()), "label": p.label, "problem_type": p.problem_type,
+                "eval_metric": p.eval_metric.name, "features": list(p.original_features)})
+    fk = {k: v for k, v in (getattr(p._learner, "_fit_kwargs", None) or {}).items() if isinstance(v, (int, float, str, bool, type(None)))} \
+        if hasattr(p, "_learner") else {}
+    resolved = {"predictor_kwargs": {"label": p.label, "problem_type": p.problem_type, "eval_metric": p.eval_metric.name},
+                "fit_kwargs": fk, "path": cfg["predictor_path"],
+                "notes": [f"imported from {imp.get('source_kind')}: {imp.get('source')}", "not refit: the predictor as it was saved",
+                          "the holdout rows of this dataset may have been in the imported predictor's training data; "
+                          "if so, holdout scores are optimistic"]}
+    store.merge_result(run_id, resolved=resolved, imported=imp)
+    emit("config_resolved", **resolved)
+    emit("fit_started", problem_type=p.problem_type, eval_metric=p.eval_metric.name, imported=True)
+    for name in p.model_names():
+        lvl = p._trainer.get_model_attribute(name, "level")
+        val = p._trainer.get_model_attribute(name, "val_score")
+        emit("model_finished", model=name, stack_level=lvl, val_score=val, val_score_natural=_natural(p.eval_metric, val),
+             fit_time=p._trainer.get_model_attribute(name, "fit_time"), imported=True)
+    return p, fit_seconds
+
+
+def run_other(cfg: dict[str, Any], run_dir: Path, store: RunStore, emit, started: float) -> int:
+    """Forecast and anomaly runs: the same process, events and terminal states as a tabular fit."""
+    run_id = cfg["run_id"]
+
+    def merge(**parts: Any) -> None:
+        store.merge_result(run_id, **parts)
+
+    try:
+        emit("run_started", pid=os.getpid(), kind=cfg["kind"])
+        if cfg["kind"] == "forecast":
+            from ..forecast import core
+        else:
+            from ..anomaly import core
+        out = core.run(cfg, run_dir, emit, merge)
+        merge(elapsed_seconds=time.time() - started)
+        try:
+            from ..registry import tracking
+
+            mlr = tracking.log_run(Path(cfg["db_path"]).parent, store.get(run_id), run_dir)
+            merge(mlflow=mlr)
+            emit("tracked", **{("mlflow_run_id" if k == "run_id" else k): v for k, v in mlr.items()})
+        except Exception as e:  # noqa: BLE001
+            emit("log", level="warning", logger="ensemble", message=f"MLflow logging failed: {e}")
+        if store.finish(run_id, "succeeded"):
+            emit("run_succeeded", elapsed_seconds=time.time() - started, **out)
         return 0
     except Exception as e:  # noqa: BLE001
         tb = traceback.format_exc()

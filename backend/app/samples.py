@@ -447,6 +447,8 @@ def generate_loan_amount(n: int = 8_000, seed: int = 42, n_missing_labels: int =
     return df, sidecar
 
 
+from .samples_s8 import generate_card_transactions, generate_transaction_volume  # noqa: E402
+
 SAMPLES = {
     "support-tickets": {
         "name": "Support tickets (sample)",
@@ -475,5 +477,21 @@ SAMPLES = {
         "note": "Generated sample · regression, a few rows without a label",
         "generate": generate_loan_amount,
         "sidecar": "signal.json",
+    },
+    "transaction-volume": {
+        "name": "Transaction volume (sample)",
+        "filename": "transaction_volume_sample.csv",
+        "note": "Generated sample · daily volume for 6 branches/products, 2 years, holidays + paydays as known covariates",
+        "generate": generate_transaction_volume,
+        "sidecar": "forecast_spec.json",
+        "kind": "timeseries",
+    },
+    "card-transactions": {
+        "name": "Card transactions (sample)",
+        "filename": "card_transactions_sample.csv",
+        "note": "Generated sample · 6,000 unlabeled card transactions, 1.5% planted anomalies (ground truth hidden)",
+        "generate": generate_card_transactions,
+        "sidecar": "anomaly_truth.json",
+        "kind": "transactions",
     },
 }

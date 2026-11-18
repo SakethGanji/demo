@@ -6,7 +6,7 @@ PY := $(VENV)/bin/python
 API_PORT ?= 8000
 UI_PORT ?= 5190
 
-.PHONY: setup lock dev api ui smoke test test-full test-backend test-backend-full test-ui e2e clean-data
+.PHONY: setup lock dev api ui smoke reset test test-full test-backend test-backend-full test-ui e2e clean-data
 
 ## Create the Python venv, install the pinned backend deps and the npm packages.
 setup:
@@ -68,6 +68,18 @@ test-backend-full:
 
 e2e:
 	npx playwright test --trace off
+
+## Reset the workbench: delete every run, registered model, batch, autopilot, MLflow record and uploaded dataset, and
+## regenerate the (seeded) samples. Through the running API when it answers on :$(API_PORT) (POST /api/admin/reset; refused
+## while a run is active), else offline with python -m app.reset.
+reset:
+	@if curl -sf http://127.0.0.1:$(API_PORT)/api/health >/dev/null; then \
+		curl -sf -X POST http://127.0.0.1:$(API_PORT)/api/admin/reset -H 'content-type: application/json' -d '{"confirm":"reset"}' \
+		| $(PY) -c 'import json,sys; d=json.load(sys.stdin); print("reset via the API:", d["deleted"], "· samples regenerated:", ", ".join(d["samples"]))' \
+		|| { echo "reset refused (is a run active?)"; exit 1; }; \
+	else \
+		cd backend && .venv/bin/python -m app.reset; \
+	fi
 
 ## Delete the local data folder (datasets, database). The samples are regenerated on the next start.
 clean-data:
