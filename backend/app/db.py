@@ -47,6 +47,67 @@ CREATE TABLE IF NOT EXISTS run_events (
     data    TEXT NOT NULL,
     PRIMARY KEY (run_id, seq)
 );
+
+-- The model registry (S5). MLflow's registry mirrors it (see app/registry/tracking.py); this is what the UI reads.
+CREATE TABLE IF NOT EXISTS registered_models (
+    name         TEXT PRIMARY KEY,
+    created_at   TEXT NOT NULL,
+    description  TEXT NOT NULL DEFAULT '',
+    dataset_id   TEXT NOT NULL,
+    label        TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS model_versions (
+    id           TEXT PRIMARY KEY,
+    model_name   TEXT NOT NULL REFERENCES registered_models(name),
+    version      INTEGER NOT NULL,
+    run_id       TEXT NOT NULL,
+    status       TEXT NOT NULL CHECK (status IN ('building', 'ready', 'failed')),
+    stage        TEXT NOT NULL DEFAULT 'None' CHECK (stage IN ('None', 'Staging', 'Production', 'Archived')),
+    approval     TEXT NOT NULL DEFAULT 'pending' CHECK (approval IN ('pending', 'approved', 'rejected')),
+    created_at   TEXT NOT NULL,
+    created_by   TEXT NOT NULL,
+    options      TEXT NOT NULL,
+    progress     TEXT,
+    result       TEXT,
+    card         TEXT,
+    error        TEXT,
+    path         TEXT,
+    model_hash   TEXT,
+    UNIQUE (model_name, version)
+);
+
+-- Append-only: who did what to which version, when, with the model's hash at that moment.
+CREATE TABLE IF NOT EXISTS audit_log (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts           TEXT NOT NULL,
+    actor        TEXT NOT NULL,
+    action       TEXT NOT NULL,
+    model_name   TEXT,
+    version      INTEGER,
+    version_id   TEXT,
+    run_id       TEXT,
+    from_stage   TEXT,
+    to_stage     TEXT,
+    comment      TEXT NOT NULL DEFAULT '',
+    model_hash   TEXT,
+    details      TEXT
+);
+
+CREATE TABLE IF NOT EXISTS batch_jobs (
+    id           TEXT PRIMARY KEY,
+    version_id   TEXT NOT NULL,
+    status       TEXT NOT NULL CHECK (status IN ('queued', 'running', 'succeeded', 'failed')),
+    created_at   TEXT NOT NULL,
+    finished_at  TEXT,
+    created_by   TEXT NOT NULL DEFAULT '',
+    filename     TEXT NOT NULL,
+    n_rows       INTEGER,
+    progress     REAL NOT NULL DEFAULT 0,
+    stage        TEXT NOT NULL DEFAULT 'queued',
+    result       TEXT,
+    error        TEXT
+);
 """
 
 

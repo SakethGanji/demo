@@ -22,7 +22,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from .. import config
 from ..splits import load_splits
-from . import catalogue, explain, serving, threshold
+from . import catalogue, explain, heavy, serving, threshold
 from .runner import JobRunner
 from .store import TERMINAL_EVENTS, RunStore, now
 
@@ -84,7 +84,7 @@ def run_out(rec: dict[str, Any], store: RunStore, full: bool = True) -> dict[str
     }
     for key in ("problem_type", "eval_metric", "classes", "positive_class", "best_model", "fit_seconds",
                 "elapsed_seconds", "data", "features", "ensemble", "ensembles", "holdout", "oof", "text_models",
-                "feature_importance", "leaderboard", "resolved", "custom_ensembles", "threshold"):
+                "feature_importance", "leaderboard", "resolved", "custom_ensembles", "threshold", "mlflow"):
         out[key] = res.get(key)
     out["feature_importance"] = explain.importance_with_ci(out["feature_importance"])
     if not full:
@@ -271,8 +271,7 @@ async def predict(run_id: str, body: PredictRequest, request: Request) -> dict[s
     if len(body.rows) > 10_000:
         raise HTTPException(413, "At most 10,000 rows per request.")
     try:
-        p = await run_in_threadpool(request.app.state.predictors.get, rec["config"]["predictor_path"])
-        out = await run_in_threadpool(serving.predict, p, body.rows, body.model)
+        out = await request.app.state.heavy.run(heavy.predict_rows, rec["config"]["predictor_path"], body.rows, body.model)
     except serving.ServingError as e:
         raise HTTPException(400, str(e)) from e
     return {"run_id": run_id, **out}
@@ -283,8 +282,7 @@ async def out_of_fold(run_id: str, request: Request, model: str | None = None) -
     rec = _get_run(request, run_id)
     _require_succeeded(rec)
     try:
-        p = await run_in_threadpool(request.app.state.predictors.get, rec["config"]["predictor_path"])
-        out = await run_in_threadpool(serving.oof, p, model)
+        out = await request.app.state.heavy.run(heavy.out_of_fold, rec["config"]["predictor_path"], model)
     except serving.ServingError as e:
         raise HTTPException(400, str(e)) from e
     return {"run_id": run_id, **out}
@@ -305,13 +303,8 @@ async def feature_importance(run_id: str, request: Request,
         cfg = rec["config"]
         n_sets = shuffles or 5
 
-        def compute():
-            p = request.app.state.predictors.get(cfg["predictor_path"])
-            h = serving.holdout_frame(cfg["csv_path"], load_splits(Path(cfg["splits_path"])),
-                                      cfg["label"], cfg["drop_columns"])
-            return serving.feature_importance(p, h, num_shuffle_sets=n_sets, time_limit=120), min(2000, len(h))
-
-        fi, sub = await run_in_threadpool(compute)
+        # In a worker process: permutation importance re-predicts the holdout many times (CPU-bound).
+        fi, sub = await request.app.state.heavy.run(heavy.permutation_importance, cfg, n_sets)
         meta = {"num_shuffle_sets": n_sets, "subsample_size": sub}
         _store(request).merge_result(run_id, feature_importance=fi, feature_importance_meta=meta)
     return {"run_id": run_id, "features": explain.importance_with_ci(fi), "meta": meta,
@@ -540,6 +533,10 @@ async def fairness(run_id: str, request: Request, group: str = Query(..., min_le
         raise HTTPException(400, str(e)) from e
     except ValueError as e:
         raise HTTPException(400, f"No column named {group!r} in the dataset." if "not in list" in str(e) or "Usecols" in str(e) else str(e)) from e
+    reports = dict(res.get("fairness_reports") or {})
+    reports[group] = {"gaps": out.get("gaps"), "threshold": thr_value, "computed_at": now(),
+                      "binning": out.get("binning"), "by_group": (out.get("by_group") or [])[:20]}
+    _store(request).merge_result(run_id, fairness_reports=reports)
     return {"run_id": run_id, "model": res.get("best_model"), **out}
 
 
@@ -553,13 +550,9 @@ async def shap_values(run_id: str, request: Request, row: int = Query(..., ge=0)
     cfg = rec["config"]
     app = request.app
 
-    def work():
-        with _run_lock(run_id):
-            p = app.state.predictors.get(cfg["predictor_path"])
-            return explain.shap_row(p, cfg, Path(cfg["run_dir"]), row, target)
-
     try:
-        out = await run_in_threadpool(work)
+        # In a worker process (Kernel SHAP evaluates thousands of coalitions); cached per row in the run folder.
+        out = await app.state.heavy.run(heavy.shap_holdout_row, cfg, row, target)
     except explain.ExplainError as e:
         raise HTTPException(400, str(e)) from e
     return {"run_id": run_id, **out}
@@ -624,4 +617,5 @@ def status(request: Request) -> dict[str, Any]:
     return {"version": __version__, "engine": engine_info(), "cpu_count": os.cpu_count(), "memory_gb": mem,
             "python": platform.python_version(), "host": platform.node(), "active": cur,
             "queued": sum(1 for r in active if r["status"] == "queued"), "runs": store.count(),
+            "registry": request.app.state.registry.counts(), "pool": request.app.state.heavy.info(),
             "max_parallel_runs": getattr(request.app.state.runner, "max_parallel", None)}

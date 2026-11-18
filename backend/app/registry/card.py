@@ -1,0 +1,345 @@
+"""The model card of a registered version: one structured document (JSON for the page) rendered to Markdown and
+standalone HTML for download.
+
+It is written for a bank's model risk reviewer, in the spirit of SR 11-7 (Federal Reserve / OCC guidance on model
+risk management): what the model is for and not for, the data and its provenance, how it was built, how it was
+validated and with what uncertainty, its limits, and who approved it. It documents; it does not replace independent
+validation, and it says so.
+"""
+
+from __future__ import annotations
+
+import html
+import json
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+DISCLAIMER = ("This card is generated from the run's recorded artefacts to support model risk review. It documents the "
+              "model's development and the developer's own testing; it does not replace independent model validation, "
+              "ongoing monitoring or the effective challenge expected under SR 11-7 / OCC 2011-12.")
+
+TEMPLATE_FIELDS = [
+    ("purpose", "Business purpose", "What decision does this model support, for which product and portfolio?"),
+    ("intended_users", "Intended users", "Who uses the output, and how (score, flag, ranking)?"),
+    ("intended_use", "Intended use", "The population and conditions the model is approved for."),
+    ("out_of_scope", "Out of scope", "Populations, products or decisions the model must not be used for."),
+    ("limitations", "Known limitations and assumptions", "Data gaps, proxies, stability assumptions, expert overrides."),
+    ("monitoring", "Monitoring plan", "Metrics, frequency, owners and triggers (e.g. PSI > 0.25 on any input, AUC drop > 0.03)."),
+    ("owner", "Model owner", "Name and team accountable for the model."),
+    ("validator", "Independent validator", "Name and team performing independent validation."),
+    ("risk_tier", "Model risk tier", "Tier per the bank's model risk policy (e.g. 1 = high materiality)."),
+]
+
+STAGE_RULES = "None → Staging → Production → Archived. Production requires an approval; rejecting archives a live version."
+
+
+def _fmt(v: Any, d: int = 4) -> str:
+    if v is None:
+        return "—"
+    if isinstance(v, bool):
+        return str(v)
+    if isinstance(v, int):
+        return f"{v:,}"
+    if isinstance(v, float):
+        if not np.isfinite(v):
+            return "—"
+        if abs(v) >= 1000:
+            return f"{v:,.1f}"
+        if v != 0 and abs(v) < 1e-3:
+            return f"{v:.3g}"
+        return f"{v:.{d}f}".rstrip("0").rstrip(".")
+    return str(v)
+
+
+def _bytes(n: int | None) -> str:
+    if n is None:
+        return "—"
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.1f} {unit}" if unit != "B" else f"{n} B"
+        n /= 1024
+    return str(n)
+
+
+def fit_call(resolved: dict[str, Any]) -> str:
+    pk = dict(resolved.get("predictor_kwargs") or {})
+    fk = {k: v for k, v in (resolved.get("fit_kwargs") or {}).items() if k != "callbacks"}
+
+    def r(v: Any) -> str:
+        return json.dumps(v, default=str).replace("null", "None").replace("true", "True").replace("false", "False")
+
+    a = ", ".join(f"{k}={r(v)}" for k, v in pk.items() if v is not None)
+    b = ",\n    ".join(f"{k}={r(v)}" for k, v in fk.items())
+    return f"predictor = TabularPredictor({a}, path=...)\npredictor.fit(\n    train_data,\n    {b},\n)"
+
+
+def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, Any] | None,
+               audit: list[dict[str, Any]], batches: list[dict[str, Any]]) -> dict[str, Any]:
+    res = run.get("result") or {}
+    cfg = run["config"]
+    vres = version.get("result") or {}
+    ver = vres.get("version") or {}
+    src = vres.get("source") or {}
+    hashes = vres.get("hashes") or {}
+    data = res.get("data") or {}
+    label = run["label"]
+
+    # Label balance on the rows the model saw (training) and on the holdout.
+    balance = None
+    try:
+        df = pd.read_csv(cfg["csv_path"], usecols=[label])
+        splits = json.loads(Path(cfg["splits_path"]).read_text())
+        is_h = np.zeros(len(df), dtype=bool)
+        is_h[np.asarray(splits["holdout"], dtype=int)] = True
+        y = df[label]
+        if res.get("problem_type") in ("binary", "multiclass"):
+            tr = y[~is_h].dropna().astype(str).value_counts()
+            ho = y[is_h].dropna().astype(str).value_counts()
+            balance = [{"class": k, "train": int(tr.get(k, 0)), "train_share": float(tr.get(k, 0) / tr.sum()),
+                        "holdout": int(ho.get(k, 0)), "holdout_share": float(ho.get(k, 0) / max(ho.sum(), 1))} for k in tr.index]
+        else:
+            yy = pd.to_numeric(y, errors="coerce").dropna()
+            balance = {"mean": float(yy.mean()), "std": float(yy.std()), "min": float(yy.min()), "median": float(yy.median()),
+                       "max": float(yy.max())}
+    except Exception:  # noqa: BLE001
+        pass
+
+    prof = (dataset or {}).get("profile") or {}
+    cols = prof.get("columns") or []
+    features = ver.get("features") or res.get("features") or []
+    feat_rows = [{"name": c["name"], "type": (cfg.get("column_types") or {}).get(c["name"], c["type"]),
+                  "missing_share": c.get("missing_share"), "unique": c.get("unique")}
+                 for c in cols if c["name"] in features]
+    fi = res.get("feature_importance")
+    from ..engine.explain import importance_with_ci
+
+    fi = importance_with_ci(fi) or []
+    ens = res.get("ensemble") or {}
+    fairness = res.get("fairness_reports") or {}
+    thr = res.get("threshold")
+    user = version.get("card") or {}
+    reviews = [a for a in audit if a["action"] in ("approved", "rejected")]
+    li = vres.get("infer_limit")
+
+    return {
+        "title": f"Model card · {version['model_name']} v{version['version']}",
+        "model_name": version["model_name"], "version": version["version"], "version_id": version["id"],
+        "generated_note": DISCLAIMER,
+        "summary": {
+            "stage": version["stage"], "approval": version["approval"], "registered_at": version["created_at"],
+            "registered_by": version["created_by"], "model_sha256": version.get("model_hash"),
+            "problem_type": res.get("problem_type"), "label": label, "positive_class": res.get("positive_class"),
+            "eval_metric": (res.get("eval_metric") or {}).get("name"), "engine": "AutoGluon TabularPredictor",
+            "best_model": ver.get("best_model"), "source_run": run["id"], "source_run_name": run["name"],
+            "mlflow": vres.get("mlflow"), "path": version.get("path"),
+        },
+        "data": {
+            "dataset_id": run["dataset_id"], "name": (dataset or {}).get("name"), "source": (dataset or {}).get("source"),
+            "filename": (dataset or {}).get("filename"), "rows": data.get("rows") or (dataset or {}).get("rows"),
+            "columns": prof.get("n_cols"), "features": len(features), "train_rows": data.get("train_rows"),
+            "holdout_rows": data.get("holdout_rows"), "dropped_missing_label": data.get("dropped_missing_label"),
+            "dropped_columns": data.get("dropped_columns"), "sha256": hashes.get("data_sha256"),
+            "splits_sha256": hashes.get("splits_sha256"), "label_balance": balance, "feature_table": feat_rows,
+            "split": "a fixed stratified 20% holdout (seed 42) never seen in training or model selection; "
+                     "AutoGluon validates on its own split of the remaining rows (or out-of-fold when bagging)",
+            "missing_cells_share": (prof.get("missing") or {}).get("share"), "duplicates": (prof.get("duplicates") or {}).get("rows"),
+            "warnings": prof.get("warnings") or [],
+        },
+        "training": {
+            "call": fit_call(res.get("resolved") or {}), "resolved": res.get("resolved"),
+            "notes": (res.get("resolved") or {}).get("notes") or [], "fit_seconds": res.get("fit_seconds"),
+            "n_models": len(res.get("leaderboard") or []), "presets": cfg.get("presets"), "time_limit": cfg.get("time_limit"),
+            "registration": {k: version["options"].get(k) for k in ("refit_full", "infer_limit", "infer_limit_batch_size", "clone_for_deployment")},
+            "refit": vres.get("refit"),
+        },
+        "validation": {
+            "holdout_ci": ver.get("holdout_ci"), "source_holdout_ci": src.get("holdout_ci"), "threshold": thr,
+            "version_threshold": ver.get("decision_threshold"), "confusion_matrix": ver.get("confusion_matrix"),
+            "classes": ver.get("classes"),
+            "validation_score": next((r.get("score_val_natural") for r in res.get("leaderboard") or []
+                                      if r.get("model") == res.get("best_model")), None),
+        },
+        "importance": {"features": fi[:20], "method": "permutation importance on the holdout (AutoGluon feature_importance), 95% t-intervals"},
+        "fairness": {"reports": fairness,
+                     "note": None if fairness else "Not computed. Open Explain → Fairness for a group column (e.g. region, age band) to add it."},
+        "ensemble": {"model": ens.get("model"), "weights": ens.get("weights"), "stack_level": ens.get("stack_level"),
+                     "version_best": ver.get("best_model"), "dependencies": ver.get("dependencies"),
+                     "leaderboard": [{k: r.get(k) for k in ("model", "family", "stack_level", "score_val_natural", "score_test_natural", "fit_time", "pred_time_test")}
+                                     for r in (res.get("leaderboard") or [])[:12]]},
+        "deployment": {"source": {k: src.get(k) for k in ("best_model", "size_bytes", "n_models", "latency")},
+                       "version": {k: ver.get(k) for k in ("best_model", "size_bytes", "n_models", "latency")},
+                       "tradeoff": vres.get("tradeoff"), "infer_limit": li},
+        "use": {"fields": [{"key": k, "label": lab, "hint": hint, "value": user.get(k, "")} for k, lab, hint in TEMPLATE_FIELDS]},
+        "monitoring": {"batches": [{"id": b["id"], "created_at": b["created_at"], "n_rows": b.get("n_rows"),
+                                    "max_psi": ((b.get("result") or {}).get("drift") or {}).get("max_psi"),
+                                    "prediction_psi": (((b.get("result") or {}).get("drift") or {}).get("prediction") or {}).get("psi"),
+                                    "counts": ((b.get("result") or {}).get("drift") or {}).get("counts")}
+                                   for b in batches if b["status"] == "succeeded"][:10],
+                       "bands": "PSI < 0.10 stable · 0.10–0.25 watch · > 0.25 shift"},
+        "approval": {"stage": version["stage"], "approval": version["approval"], "rules": STAGE_RULES,
+                     "reviews": reviews, "audit": audit},
+    }
+
+
+# --------------------------------------------------------------------------- Markdown
+
+
+def _ci(m: dict[str, Any]) -> str:
+    if m.get("ci_low") is None:
+        return _fmt(m.get("value"))
+    return f"{_fmt(m['value'])} [{_fmt(m['ci_low'])}, {_fmt(m['ci_high'])}]"
+
+
+def to_markdown(c: dict[str, Any]) -> str:
+    s, d, t, v = c["summary"], c["data"], c["training"], c["validation"]
+    L: list[str] = [f"# {c['title']}", "", f"> {c['generated_note']}", ""]
+    L += ["## 1. Summary", "", "| Field | Value |", "| --- | --- |"]
+    for k, lab in (("stage", "Stage"), ("approval", "Approval"), ("problem_type", "Problem type"), ("label", "Label"),
+                   ("positive_class", "Positive class"), ("eval_metric", "Selection metric"), ("engine", "Engine"),
+                   ("best_model", "Model served"), ("source_run", "Source run"), ("registered_by", "Registered by"),
+                   ("registered_at", "Registered at"), ("model_sha256", "Model SHA-256")):
+        L.append(f"| {lab} | `{s.get(k)}` |" if k in ("model_sha256", "source_run", "best_model") else f"| {lab} | {s.get(k) if s.get(k) is not None else '—'} |")
+    if s.get("mlflow"):
+        L.append(f"| MLflow | model `{s['mlflow'].get('name')}` version {s['mlflow'].get('version')}, run `{s['mlflow'].get('run_id')}` |")
+    L += ["", "## 2. Intended use and limitations", "", "_To be completed by the model owner._", ""]
+    for f in c["use"]["fields"]:
+        L += [f"**{f['label']}.** {f['value'] or '_' + f['hint'] + '_'}", ""]
+    L += ["## 3. Data", "", "| Field | Value |", "| --- | --- |"]
+    for k, lab in (("name", "Dataset"), ("source", "Source"), ("filename", "File"), ("rows", "Rows"), ("columns", "Columns"),
+                   ("features", "Features used"), ("train_rows", "Training rows"), ("holdout_rows", "Holdout rows"),
+                   ("dropped_missing_label", "Rows dropped (no label)"), ("sha256", "File SHA-256"), ("splits_sha256", "Split SHA-256")):
+        L.append(f"| {lab} | {_fmt(d.get(k)) if isinstance(d.get(k), (int, float)) else (d.get(k) or '—')} |")
+    L += ["", f"Split: {d['split']}.", ""]
+    if isinstance(d.get("label_balance"), list):
+        L += ["**Label balance**", "", "| Class | Train | Share | Holdout | Share |", "| --- | ---: | ---: | ---: | ---: |"]
+        for b in d["label_balance"]:
+            L.append(f"| {b['class']} | {b['train']:,} | {b['train_share']:.2%} | {b['holdout']:,} | {b['holdout_share']:.2%} |")
+    elif isinstance(d.get("label_balance"), dict):
+        b = d["label_balance"]
+        L.append(f"Label: mean {_fmt(b['mean'])}, σ {_fmt(b['std'])}, range [{_fmt(b['min'])}, {_fmt(b['max'])}].")
+    if d.get("feature_table"):
+        L += ["", "**Features**", "", "| Feature | Type | Missing | Distinct |", "| --- | --- | ---: | ---: |"]
+        for f in d["feature_table"]:
+            L.append(f"| {f['name']} | {f['type']} | {(f['missing_share'] or 0):.1%} | {f['unique']:,} |")
+    for w in d.get("warnings") or []:
+        L.append(f"- Data warning: {w}")
+    L += ["", "## 4. Development", "", "The resolved AutoGluon call (every argument as passed):", "", "```python", t["call"], "```", ""]
+    for n in t["notes"]:
+        L.append(f"- {n}")
+    r = t["registration"]
+    L += ["", f"Registration options: refit_full = {r.get('refit_full')}, infer_limit = {r.get('infer_limit')} s/row, "
+              f"clone_for_deployment = {r.get('clone_for_deployment')}.", ""]
+    e = c["ensemble"]
+    if e.get("weights"):
+        L += ["**Stacked ensemble** ŷ(x) = Σₘ wₘ fₘ(x)", "", "| Base model fₘ | Weight wₘ |", "| --- | ---: |"]
+        for m, w in e["weights"].items():
+            L.append(f"| {m} | {w:.3f} |")
+        L.append("")
+    L += [f"Model served by this version: `{e.get('version_best')}` (with {len(e.get('dependencies') or [])} model(s) it depends on).", ""]
+    L += ["## 5. Validation (holdout)", "", "Point estimates on the untouched holdout with 95% percentile-bootstrap intervals.", "",
+          "| Metric | Definition | Version | Source run |", "| --- | --- | ---: | ---: |"]
+    hc = (v.get("holdout_ci") or {}).get("metrics") or {}
+    sc = (v.get("source_holdout_ci") or {}).get("metrics") or {}
+    for k, m in hc.items():
+        L.append(f"| {k} | {m['formula']} | {_ci(m)} | {_ci(sc[k]) if k in sc else '—'} |")
+    if v.get("threshold"):
+        th = v["threshold"]
+        L += ["", f"Decision threshold t = {_fmt(th.get('value'))} ({th.get('source')}{', ' + th['metric'] if th.get('metric') else ''}); "
+                  f"predict positive when p̂ > t.", ""]
+    L += ["## 6. Feature importance", "", "| Feature | Importance | 95% CI | p |", "| --- | ---: | --- | ---: |"]
+    for f in c["importance"]["features"][:15]:
+        L.append(f"| {f['feature']} | {_fmt(f.get('importance'))} | [{_fmt(f.get('ci_low'))}, {_fmt(f.get('ci_high'))}] | {_fmt(f.get('p_value'))} |")
+    L += ["", "## 7. Fairness", ""]
+    if c["fairness"]["reports"]:
+        for g, rep in c["fairness"]["reports"].items():
+            gaps = rep.get("gaps") or {}
+            L.append(f"- Group `{g}`: " + ", ".join(f"{k} = {_fmt(val)}" for k, val in gaps.items() if isinstance(val, (int, float))))
+    else:
+        L.append(c["fairness"]["note"])
+    dp = c["deployment"]
+    L += ["", "## 8. Deployment trade-off (measured)", "", "| | Source run | This version |", "| --- | ---: | ---: |"]
+    for k, lab, f in (("best_model", "Model", str), ("n_models", "Models on disk", str), ("size_bytes", "Size on disk", _bytes)):
+        L.append(f"| {lab} | {f(dp['source'].get(k))} | {f(dp['version'].get(k))} |")
+    for k, lab in (("us_per_row_p50", "Batch µs/row p50"), ("us_per_row_p95", "Batch µs/row p95"),
+                   ("single_ms_p50", "Single-row ms p50"), ("single_ms_p95", "Single-row ms p95")):
+        L.append(f"| {lab} | {_fmt((dp['source'].get('latency') or {}).get(k), 3)} | {_fmt((dp['version'].get('latency') or {}).get(k), 3)} |")
+    L += ["", "## 9. Monitoring", "", f"Bands: {c['monitoring']['bands']}.", ""]
+    for b in c["monitoring"]["batches"]:
+        L.append(f"- Batch `{b['id']}` ({b['created_at']}): {b['n_rows']:,} rows, max feature PSI {_fmt(b['max_psi'])}, prediction PSI {_fmt(b['prediction_psi'])}")
+    a = c["approval"]
+    L += ["", "## 10. Approval", "", f"Stage **{a['stage']}**, approval **{a['approval']}**. {a['rules']}", "",
+          "| When (UTC) | Who | Action | Stage | Comment | Model SHA-256 |", "| --- | --- | --- | --- | --- | --- |"]
+    for x in a["audit"]:
+        st = f"{x.get('from_stage') or ''} → {x.get('to_stage') or ''}" if x.get("to_stage") else ""
+        L.append(f"| {x['ts']} | {x['actor']} | {x['action']} | {st} | {(x.get('comment') or '').replace('|', '/')} | `{(x.get('model_hash') or '')[:12]}` |")
+    L += ["", "Sign-off", "", "| Role | Name | Date | Signature |", "| --- | --- | --- | --- |",
+          "| Model owner | | | |", "| Independent validator | | | |", "| Model risk management | | | |", ""]
+    return "\n".join(L)
+
+
+# --------------------------------------------------------------------------- HTML
+
+
+CSS = """body{font:14px/1.55 'IBM Plex Sans',system-ui,sans-serif;color:#1f2937;max-width:960px;margin:32px auto;padding:0 24px}
+h1{font-size:24px;border-bottom:2px solid #0b1f3a;padding-bottom:8px}h2{font-size:17px;margin-top:28px;color:#0b1f3a;border-bottom:1px solid #e5e7eb;padding-bottom:4px}
+table{border-collapse:collapse;width:100%;margin:8px 0;font-size:13px}th,td{border:1px solid #e5e7eb;padding:4px 8px;text-align:left;vertical-align:top}
+th{background:#f3f4f6}td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}code,pre{font-family:'IBM Plex Mono',monospace;font-size:12px}
+pre{background:#0b1f3a;color:#e5e7eb;padding:12px;border-radius:4px;overflow:auto}blockquote{border-left:3px solid #d97706;margin:12px 0;padding:6px 12px;background:#fffbeb}
+em{color:#6b7280}"""
+
+
+def _inline(s: str) -> str:
+    out = html.escape(s)
+    import re
+
+    out = re.sub(r"`([^`]+)`", r"<code>\1</code>", out)
+    out = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", out)
+    out = re.sub(r"(?<![\w*])_([^_]+)_(?!\w)", r"<em>\1</em>", out)
+    return out
+
+
+def to_html(c: dict[str, Any]) -> str:
+    """The Markdown rendered by a small converter (headings, tables, code, quotes, lists, paragraphs)."""
+    md = to_markdown(c).splitlines()
+    out: list[str] = [f"<!doctype html><html><head><meta charset='utf-8'><title>{html.escape(c['title'])}</title>"
+                      f"<style>{CSS}</style></head><body>"]
+    i = 0
+    while i < len(md):
+        ln = md[i]
+        if ln.startswith("```"):
+            j = i + 1
+            block = []
+            while j < len(md) and not md[j].startswith("```"):
+                block.append(md[j])
+                j += 1
+            out.append("<pre>" + html.escape("\n".join(block)) + "</pre>")
+            i = j + 1
+            continue
+        if ln.startswith("|"):
+            rows = []
+            while i < len(md) and md[i].startswith("|"):
+                rows.append([x.strip() for x in md[i].strip("|").split("|")])
+                i += 1
+            head, align, body = rows[0], rows[1] if len(rows) > 1 else [], rows[2:]
+            right = [a.endswith(":") for a in align]
+            out.append("<table><thead><tr>" + "".join(f"<th{' class=r' if right[k:k+1] == [True] else ''}>{_inline(h)}</th>" for k, h in enumerate(head)) + "</tr></thead><tbody>")
+            for r in body:
+                out.append("<tr>" + "".join(f"<td{' class=r' if right[k:k+1] == [True] else ''}>{_inline(x)}</td>" for k, x in enumerate(r)) + "</tr>")
+            out.append("</tbody></table>")
+            continue
+        if ln.startswith("# "):
+            out.append(f"<h1>{_inline(ln[2:])}</h1>")
+        elif ln.startswith("## "):
+            out.append(f"<h2>{_inline(ln[3:])}</h2>")
+        elif ln.startswith("> "):
+            out.append(f"<blockquote>{_inline(ln[2:])}</blockquote>")
+        elif ln.startswith("- "):
+            out.append(f"<ul><li>{_inline(ln[2:])}</li></ul>")
+        elif ln.strip():
+            out.append(f"<p>{_inline(ln)}</p>")
+        i += 1
+    out.append("</body></html>")
+    return "\n".join(out)

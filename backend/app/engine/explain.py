@@ -409,25 +409,21 @@ SHAP_BACKGROUND = 50
 SHAP_NSAMPLES = 2048
 
 
-def shap_row(predictor, cfg: dict[str, Any], run_dir: Path, row: int, target: str | None = None,
-             background: int = SHAP_BACKGROUND, nsamples: int = SHAP_NSAMPLES) -> dict[str, Any]:
-    """Kernel SHAP for one holdout row on `predictor.predict_proba` (classification: the probability of `target`,
-    default the predicted class; binary default the positive class) or `predictor.predict` (regression).
-
-    Background: `background` training rows sampled with a fixed seed (shap.sample). φ₀ = E_bg[f], and Kernel SHAP's
-    efficiency constraint makes f(x) = φ₀ + Σᵢ φᵢ exact. Cached per (row, target) in <run_dir>/shap/."""
+def _shap_background(cfg: dict[str, Any], features: list[str], background: int):
+    """The fixed background sample: `background` training rows (data.csv minus the holdout, labelled), seed 0."""
     import shap
 
-    holdout = load_holdout(run_dir)
-    if row not in set(holdout["row"].astype(int)):
-        raise ExplainError(f"Row {row} is not in this run's holdout.")
-    features = list(predictor.original_features)
+    df = pd.read_csv(cfg["csv_path"])
+    splits = json.loads(Path(cfg["splits_path"]).read_text())
+    is_h = np.zeros(len(df), dtype=bool)
+    is_h[np.asarray(splits["holdout"], dtype=int)] = True
+    train = df.loc[~is_h & df[cfg["label"]].notna(), features]
+    return df, train, shap.sample(train, min(background, len(train)), random_state=0)
+
+
+def resolve_target(predictor, x: pd.DataFrame, target: str | None) -> tuple[str | None, list[str] | None]:
     pt = predictor.problem_type
     classes = [_as_str(c) for c in predictor.class_labels] if pt in ("binary", "multiclass") else None
-    model = predictor.model_best
-
-    df = pd.read_csv(cfg["csv_path"])
-    x = df.loc[[row], features]
     if classes is not None:
         if target is None:
             if pt == "binary":
@@ -437,20 +433,13 @@ def shap_row(predictor, cfg: dict[str, Any], run_dir: Path, row: int, target: st
                 target = _as_str(pr.columns[int(np.argmax(pr.to_numpy()[0]))])
         if target not in classes:
             raise ExplainError(f"No class {target!r}; the classes are {', '.join(classes)}.")
-    cache_dir = Path(run_dir) / "shap"
-    cache_dir.mkdir(exist_ok=True)
-    key = f"{row}_{target or 'value'}_{background}_{nsamples}_{model}.json".replace("/", "_")
-    path = cache_dir / key
-    if path.exists():
-        out = json.loads(path.read_text())
-        out["cached"] = True
-        return out
+    return target, classes
 
-    splits = json.loads(Path(cfg["splits_path"]).read_text())
-    is_h = np.zeros(len(df), dtype=bool)
-    is_h[np.asarray(splits["holdout"], dtype=int)] = True
-    train = df.loc[~is_h & df[cfg["label"]].notna(), features]
-    bg = shap.sample(train, min(background, len(train)), random_state=0)
+
+def shap_explain(predictor, train: pd.DataFrame, bg: pd.DataFrame, x: pd.DataFrame, target: str | None,
+                 classes: list[str] | None, nsamples: int = SHAP_NSAMPLES) -> dict[str, Any]:
+    """Kernel SHAP for the one-row frame `x` against the background `bg`. f(x) = φ₀ + Σᵢ φᵢ exactly."""
+    import shap
 
     dtypes = train.dtypes
     col_index = list(train.columns)
@@ -475,14 +464,42 @@ def shap_row(predictor, cfg: dict[str, Any], run_dir: Path, row: int, target: st
     vals = jsonable(x.iloc[0].to_dict())
     contrib = sorted(({"feature": c, "value": vals.get(c), "phi": float(phi[i])} for i, c in enumerate(col_index)),
                      key=lambda d: -abs(d["phi"]))
-    out = {
-        "row": row, "model": model, "problem_type": pt, "target": target,
+    return {
+        "model": predictor.model_best, "problem_type": predictor.problem_type, "target": target,
         "output": "probability" if classes is not None else "prediction",
         "base_value": base, "fx": fx, "sum_phi": float(phi.sum()), "additivity_error": float(fx - base - phi.sum()),
         "contributions": contrib, "background_size": int(len(bg)), "nsamples": nsamples, "seconds": elapsed,
-        "classes": classes, "y_true": jsonable(df.loc[row, cfg["label"]]), "cached": False,
+        "classes": classes,
         "method": "shap.KernelExplainer(f, background, link='identity'): Kernel SHAP, a weighted linear regression over "
                   "feature coalitions; features outside a coalition take background values",
     }
+
+
+def shap_row(predictor, cfg: dict[str, Any], run_dir: Path, row: int, target: str | None = None,
+             background: int = SHAP_BACKGROUND, nsamples: int = SHAP_NSAMPLES) -> dict[str, Any]:
+    """Kernel SHAP for one holdout row on `predictor.predict_proba` (classification: the probability of `target`,
+    default the predicted class; binary default the positive class) or `predictor.predict` (regression).
+
+    Background: `background` training rows sampled with a fixed seed (shap.sample). φ₀ = E_bg[f], and Kernel SHAP's
+    efficiency constraint makes f(x) = φ₀ + Σᵢ φᵢ exact. Cached per (row, target) in <run_dir>/shap/."""
+    holdout = load_holdout(run_dir)
+    if row not in set(holdout["row"].astype(int)):
+        raise ExplainError(f"Row {row} is not in this run's holdout.")
+    features = list(predictor.original_features)
+    model = predictor.model_best
+    df = pd.read_csv(cfg["csv_path"])
+    x = df.loc[[row], features]
+    target, classes = resolve_target(predictor, x, target)
+    cache_dir = Path(run_dir) / "shap"
+    cache_dir.mkdir(exist_ok=True)
+    key = f"{row}_{target or 'value'}_{background}_{nsamples}_{model}.json".replace("/", "_")
+    path = cache_dir / key
+    if path.exists():
+        out = json.loads(path.read_text())
+        out["cached"] = True
+        return out
+    _, train, bg = _shap_background(cfg, features, background)
+    out = {"row": row, **shap_explain(predictor, train, bg, x, target, classes, nsamples),
+           "y_true": jsonable(df.loc[row, cfg["label"]]), "cached": False}
     path.write_text(json.dumps(out))
     return out

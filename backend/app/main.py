@@ -14,6 +14,9 @@ from .datasets import DatasetError, DatasetStore
 from .db import Database
 from .engine import api as engine_api
 from .engine.runner import JobRunner
+from .engine.pool import HeavyPool
+from .registry import api as registry_api
+from .registry.store import RegistryStore
 from .engine.serving import PredictorCache
 from .engine.store import RunStore
 from .samples import SAMPLES
@@ -46,8 +49,14 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         app.state.runner = JobRunner(settings, app.state.runs)
         app.state.runner.start()  # marks runs interrupted by a previous stop as failed
         app.state.predictors = PredictorCache()
+        app.state.registry = RegistryStore(db)
+        app.state.registry.recover()  # builds and batches cut off by a previous stop are marked failed
+        app.state.jobs = {}
+        app.state.heavy = HeavyPool()
+        app.state.heavy.start()  # SHAP, importance, predictions, version builds and batch scoring run here
         yield
         app.state.runner.shutdown()
+        app.state.heavy.shutdown()
 
     app = FastAPI(title="ENSEMBLE demo API", version=__version__, lifespan=lifespan)
 
@@ -87,6 +96,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         return {**_summary(rec), "profile": rec["profile"]}
 
     app.include_router(engine_api.router)
+    app.include_router(registry_api.router)
     return app
 
 

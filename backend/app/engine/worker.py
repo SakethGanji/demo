@@ -435,6 +435,14 @@ def run(run_dir: Path) -> int:
                 emit("log", level="warning", logger="ensemble", message=f"feature importance failed: {e}")
 
         store.merge_result(run_id, elapsed_seconds=time.time() - started)
+        try:  # MLflow tracking: parameters, metrics and light artifacts (S5); never fails the run
+            from ..registry import tracking
+
+            mlr = tracking.log_run(Path(cfg["db_path"]).parent, store.get(run_id), run_dir)
+            store.merge_result(run_id, mlflow=mlr)
+            emit("tracked", **mlr)
+        except Exception as e:  # noqa: BLE001
+            emit("log", level="warning", logger="ensemble", message=f"MLflow logging failed: {e}")
         if store.finish(run_id, "succeeded"):
             emit("run_succeeded", best_model=best, score_test=leaderboard[0].get("score_test") if leaderboard else None,
                  elapsed_seconds=time.time() - started)
