@@ -45,3 +45,44 @@ def monotone_check(predictor_path: str, cfg: dict[str, Any], constraints: dict[s
             "score": "P(" + str(p.positive_class) + ")" if p.problem_type == "binary" else "ŷ",
             "rows": min(rows, len(h)), "columns": out, "monotone": all(x.get("monotone", False) for x in out.values()),
             "eps": monotone.EPS}
+
+
+_SCORECARDS: dict[str, Any] = {}
+
+
+def scorecard_score(cfg: dict[str, Any], rows: list[dict[str, Any]] | None, holdout_index: list[int] | None,
+                    top_k: int) -> dict[str, Any]:
+    """F11: the run's deployable scorecard on raw rows (or holdout rows by position): points per feature, score,
+    P(event), reason codes (points lost against each feature's best bin), and the served model's P for the same rows."""
+    import pandas as pd
+
+    from . import scorecard as sc
+
+    p = load_predictor(cfg["predictor_path"])
+    run_dir = Path(cfg["run_dir"])
+    key = str(run_dir)
+    if key not in _SCORECARDS:
+        _SCORECARDS[key] = sc.load_deployed(run_dir)
+    m = _SCORECARDS[key]
+    if holdout_index is not None:
+        h = serving.holdout_frame(cfg["csv_path"], load_splits(Path(cfg["splits_path"])), cfg["label"], cfg["drop_columns"])
+        bad = [i for i in holdout_index if not 0 <= i < len(h)]
+        if bad:
+            raise serving.ServingError(f"holdout_index {bad[0]} is out of range (0–{len(h) - 1}).")
+        X = h.iloc[holdout_index]
+        truth = [str(v) for v in X[cfg["label"]]] if cfg["label"] in X.columns else None
+    else:
+        X = pd.DataFrame(rows or [])
+        truth = None
+    if not len(X):
+        raise serving.ServingError("Give rows or holdout_index.")
+    out = sc.score_rows(p, m, X, top_k)
+    served = p.predict_proba(X.reindex(columns=list(p.original_features)), as_multiclass=False).to_numpy(dtype=float)
+    for i, r in enumerate(out["rows"]):
+        r["served_p_event"] = float(served[i])
+        r["served_adverse"] = bool(served[i] >= p.decision_threshold)
+        if truth is not None:
+            r["truth"] = truth[i]
+    out.update({"positive_class": str(p.positive_class), "served_model": p.model_best,
+                "served_threshold": float(p.decision_threshold), "top_k": top_k})
+    return out

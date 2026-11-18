@@ -173,6 +173,13 @@ def _pack_rows(rows: list[int], n: int) -> str:
     return base64.b64encode(zlib.compress(np.packbits(bits).tobytes(), 9)).decode()
 
 
+def _has_key(hp: Any, key: str) -> bool:
+    """`key` in a hyperparameters dict, flat or keyed by stack level."""
+    if not isinstance(hp, dict):
+        return False
+    return key in hp or any(isinstance(v, dict) and key in v for v in hp.values())
+
+
 def _wrap(s: str, width: int = 100) -> str:
     return "(\n" + "\n".join(f'    "{s[i:i + width]}"' for i in range(0, len(s), width)) + "\n)"
 
@@ -195,6 +202,7 @@ def build_script(rec: dict[str, Any], *, backend_dir: Path, unlabeled_csv: str |
     hp = fk.get("hyperparameters")
     needs_text = isinstance(hp, dict) and any(k in ("TFIDF_LR", "TFIDF_SVM") for k in hp)
     needs_mono = isinstance(hp, dict) and any(str(k).endswith("_MONO") for k in hp)  # F8: monotone subclasses
+    needs_sc = _has_key(hp, "SCORECARD")  # F11: the scorecard challenger
     cm = resolved.get("cost_metric")
     cost = {k: cm[k] for k in ("kind", "c_fp", "c_fn", "g_tp", "classes", "matrix") if k in cm} if cm else None
     thr = res.get("threshold") or None
@@ -211,7 +219,8 @@ def build_script(rec: dict[str, Any], *, backend_dir: Path, unlabeled_csv: str |
                          ag=ag_version or "?", fname=fname,
                          text_note=" (its TF-IDF models need ENSEMBLE's `ensemble_models` package on the path)" if needs_text else
                          " (its monotone-constrained GBM_MONO / CAT_MONO / XGB_MONO models need ENSEMBLE's `ensemble_models` "
-                         "package on the path)" if needs_mono else "")
+                         "package on the path)" if needs_mono else
+                         " (its SCORECARD model needs ENSEMBLE's `ensemble_models` package on the path)" if needs_sc else "")
     lines = [
         head,
         "from __future__ import annotations\n",
@@ -239,7 +248,7 @@ def build_script(rec: dict[str, Any], *, backend_dir: Path, unlabeled_csv: str |
         "# F7: the business cost the run optimised (None: a standard metric). Multiclass matrices are in AutoGluon's",
         "# class order (the sorted labels): matrix[i][j] = cost of deciding class j when the truth is class i.",
         f"COST = {pycode.py(cost)}",
-        f"NEEDS_ENSEMBLE_MODELS = {pycode.py(needs_text or needs_mono or cost is not None)}",
+        f"NEEDS_ENSEMBLE_MODELS = {pycode.py(needs_text or needs_mono or needs_sc or cost is not None)}",
         f"ENSEMBLE_BACKEND = {pycode.py(str(backend_dir))}",
         "",
         "# The run's leaderboard: model → (validation score, holdout score), AutoGluon's higher-is-better scale.",

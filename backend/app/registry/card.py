@@ -195,7 +195,24 @@ def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, 
         "constraints": _monotone_section(cfg, res, vres),
         "quantile": _quantile_section(cfg, res, vres),
         "reasons": _reasons_section(reasons, batches),
+        "scorecard": _scorecard_section(res),
     }
+
+
+def _scorecard_section(res: dict[str, Any]) -> dict[str, Any] | None:
+    """F11: the interpretable benchmark: the scorecard's holdout AUC next to the served model's, and ΔAUC with its CI."""
+    sc = res.get("scorecard") or {}
+    if not sc.get("available"):
+        return None
+    h = sc["holdout"]
+    t = sc["table"]
+    return {"model": sc["model"], "served": h["served"], "scorecard": h["scorecard"], "delta_auc": h["delta_auc"],
+            "n_features": t["n_features"], "scaling": {k: t["scaling"][k] for k in ("pdo", "base_score", "base_odds")},
+            "iv": [{"feature": f["feature"], "iv": f["iv"], "in_model": f["in_model"]} for f in sorted(t["features"], key=lambda f: -f["iv"])],
+            "cost": sc.get("cost"),
+            "method": "binning on the training rows (monotone event rate, ≥ min share per bin) → WoE → logistic "
+                      "regression (coefficients ≤ 0) → points; refitted on all training rows; ΔAUC = AUC(served) − "
+                      "AUC(scorecard) on the holdout, paired bootstrap 95% CI"}
 
 
 def _reasons_section(r: dict[str, Any] | None, batches: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -447,6 +464,23 @@ def to_markdown(c: dict[str, Any]) -> str:
             L += ["", f"Latest batch: {lb.get('n_adverse')} adverse rows explained at {_fmt(lb.get('rows_per_s'))} rows/s; "
                       f"codes consistent with the SHAP signs: {'yes' if lb.get('signs_consistent') else 'no'}."]
         L += ["", rc["monotone_note"], ""]
+    scd = c.get("scorecard")
+    if scd:
+        d = scd["delta_auc"]
+        sc_ = scd["scaling"]
+        L += ["**Scorecard benchmark (interpretable challenger)**", "", f"Method: {scd['method']}.", "",
+              "| Model | Holdout AUC | Gini | KS |", "| --- | ---: | ---: | ---: |",
+              f"| {scd['served']['model']} (served) | {_fmt(scd['served']['auc'])} | {_fmt(scd['served']['gini'])} | {_fmt(scd['served']['ks'])} |",
+              f"| Scorecard ({scd['n_features']} features; PDO {sc_['pdo']:g}, {sc_['base_score']:g} at {sc_['base_odds']:g}:1) "
+              f"| {_fmt(scd['scorecard']['auc'])} | {_fmt(scd['scorecard']['gini'])} | {_fmt(scd['scorecard']['ks'])} |", "",
+              f"ΔAUC (served − scorecard) = {_fmt(d['delta'])}, 95% CI [{_fmt(d['ci'][0])}, {_fmt(d['ci'][1])}] "
+              f"({d['B']} paired bootstrap resamples; P(Δ ≤ 0) = {_fmt(d['p_le_0'])}).", "",
+              "IV per feature: " + ", ".join(f"{x['feature']} {x['iv']:.3f}{'' if x['in_model'] else ' (out)'}" for x in scd["iv"]) + "."]
+        if scd.get("cost"):
+            cc = scd["cost"]
+            L += ["", f"Expected cost per 1,000 decisions (c_FP = {cc['c_fp']:g}, c_FN = {cc['c_fn']:g}): served "
+                      f"{_fmt(cc['served_per_1000'])}, scorecard {_fmt(cc['scorecard_per_1000'])}."]
+        L.append("")
     L += ["## 6. Feature importance", "", "| Feature | Importance | 95% CI | p |", "| --- | ---: | --- | ---: |"]
     for f in c["importance"]["features"][:15]:
         L.append(f"| {f['feature']} | {_fmt(f.get('importance'))} | [{_fmt(f.get('ci_low'))}, {_fmt(f.get('ci_high'))}] | {_fmt(f.get('p_value'))} |")

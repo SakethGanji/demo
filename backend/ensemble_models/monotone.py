@@ -204,6 +204,11 @@ def translate_hyperparameters(hp: dict[str, Any], constraints: dict[str, int], *
     other: list[str] = []
     for key, cfg in hp.items():
         base = BASE_OF.get(key, key)
+        if key == "SCORECARD":  # F11: monotone by its binning (see ensemble_models.scorecard); kept, not counted here
+            variants = cfg if isinstance(cfg, list) else [cfg]
+            new = [{**(c or {}), PARAM: spec} for c in variants]
+            out[key] = new if isinstance(cfg, list) else new[0]
+            continue
         if base in COMPLIANT:
             variants = cfg if isinstance(cfg, list) else [cfg]
             new = [{**(c or {}), PARAM: spec} for c in variants]

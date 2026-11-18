@@ -33,7 +33,7 @@ VALID_PREDICTOR_KWARGS = {"problem_type", "eval_metric", "sample_weight", "weigh
 
 # Seconds per (row · feature) for one model fit (one fold model when bagged), before any history exists.
 PRIOR_RATE = {"GBM": 2e-5, "CAT": 5e-5, "XGB": 2e-5, "RF": 1e-5, "XT": 5e-6, "KNN": 1e-6, "LR": 5e-6,
-              "NN_TORCH": 2e-4, "FASTAI": 1.5e-4, "TFIDF_LR": 1e-5, "TFIDF_SVM": 1e-5}
+              "NN_TORCH": 2e-4, "FASTAI": 1.5e-4, "TFIDF_LR": 1e-5, "TFIDF_SVM": 1e-5, "SCORECARD": 1e-5}
 OVERHEAD_S = 3.0
 
 
@@ -403,8 +403,15 @@ def validate(body: dict[str, Any], ds: dict[str, Any] | None, unlabeled: dict[st
     text_cols = [c["name"] for c in profile["columns"] if (body.get("column_types") or {}).get(c["name"], c["type"]) == "text"
                  and c["name"] not in drop and c["name"] != label]
     add_text = bool(body.get("custom_text_models", True)) and bool(text_cols) and problem_type not in ("regression", "quantile")
+    card = None
+    try:  # F11: the scorecard challenger (on by default for binary)
+        from ..engine import scorecard as sc_
+
+        card = sc_.normalise(body.get("scorecard"), problem_type)
+    except ValueError as e:
+        _err(errors, "scorecard", str(e))
     cfg = {"presets": body.get("presets", "medium_quality"), "time_limit": body.get("time_limit", 120), "fit_kwargs": fk,
-           "monotone": mono}
+           "monotone": mono, "scorecard": card}
     resolved_fk: dict[str, Any] = {}
     notes: list[str] = []
     merged: dict[str, Any] = {}
@@ -509,8 +516,8 @@ def validate(body: dict[str, Any], ds: dict[str, Any] | None, unlabeled: dict[st
     if mono:
         hp_r = resolved_fk.get("hyperparameters") if isinstance(resolved_fk.get("hyperparameters"), dict) else {}
         flat = {k for sub in (hp_r.values() if hp_r and all(str(k).isdigit() for k in hp_r) else [hp_r]) for k in sub}
-        compliant = sorted({str(k).removesuffix("_MONO") for k in flat if str(k).endswith("_MONO")})
-        others = sorted(str(k) for k in flat if not str(k).endswith("_MONO"))
+        compliant = sorted({str(k).removesuffix("_MONO") for k in flat if str(k).endswith("_MONO") or k == "SCORECARD"})
+        others = sorted(str(k) for k in flat if not str(k).endswith("_MONO") and k != "SCORECARD")
         hp_before = fk.get("hyperparameters")
         if hp_before is None:
             try:
@@ -544,7 +551,7 @@ def validate(body: dict[str, Any], ds: dict[str, Any] | None, unlabeled: dict[st
                                    "monotone when every base model is." + ("" if not others else
                                    " Unconstrained base models break that."))
         mono_out = {**mono, "compliant": compliant, "unconstrained": others, "left_out": left_out,
-                    "families": {"GBM": "LightGBM", "CAT": "CatBoost", "XGB": "XGBoost"}}
+                    "families": {"GBM": "LightGBM", "CAT": "CatBoost", "XGB": "XGBoost", "SCORECARD": "Scorecard (monotone binning)"}}
     call = ("from autogluon.tabular import TabularPredictor\n\n"
             + "predictor = " + pycode.call("TabularPredictor", [], {k: v for k, v in predictor_kwargs.items() if v is not None} | {"path": "…"})
             + "\npredictor.fit(\n    train_data,\n"
@@ -559,7 +566,7 @@ def validate(body: dict[str, Any], ds: dict[str, Any] | None, unlabeled: dict[st
         "resolved": {"predictor_kwargs": predictor_kwargs, "fit_kwargs": fit_shown, "post_fit": post_fit, "notes": notes,
                      "preset_expansion": merged},
         "call": call, "diff": diff, "effective": eff, "estimate": est, "families": fams, "monotone": mono_out,
-        "quantile": quant_out,
+        "quantile": quant_out, "scorecard": card,
     }
 
 

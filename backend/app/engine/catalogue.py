@@ -126,6 +126,23 @@ FAMILIES: list[dict[str, Any]] = [
         "explains": "top words per class (largest w_c)",
     },
     {
+        "key": "SCORECARD", "name": "Scorecard (WoE logistic regression)", "kind": "interpretable · linear",
+        "custom": True,
+        "description": "The credit scorecard: each feature binned (monotone event rate, ≥ 5 % of rows per bin, missing "
+                       "on its own), bins replaced by their weight of evidence, a logistic regression on the WoE "
+                       "columns, and points per bin. Binary only; on by default as the interpretable benchmark.",
+        "objective": "logit P(y=1|x) = β₀ + Σⱼ βⱼ·WoEⱼ(xⱼ),  WoEᵢⱼ = ln((gᵢ+α)/(G+kα)) − ln((bᵢ+α)/(B+kα)),  βⱼ ≤ 0;  "
+                     "score = offset − factor·(β₀ + Σⱼ βⱼ·WoEⱼ),  factor = PDO/ln 2",
+        "objective_tex": r"\operatorname{logit} P(y{=}1\mid x) = \beta_0 + \sum_j \beta_j\,\mathrm{WoE}_j(x_j),\quad "
+                         r"\mathrm{WoE}_{ij} = \ln\frac{(g_i+\alpha)/(G+k\alpha)}{(b_i+\alpha)/(B+k\alpha)}",
+        "symbols": {"gᵢ, bᵢ": "non-events and events in bin i (training folds only)", "G, B": "their totals",
+                    "α": "smoothing (0.5)", "k": "bins of the feature", "βⱼ": "coefficient of feature j (kept ≤ 0)",
+                    "PDO": "points that double the odds of a non-event (default 20)",
+                    "offset": "base score − factor·ln(base odds) (default 600 at 50 : 1)"},
+        "problem_types": ["binary"],
+        "explains": "the scorecard table (points per bin), IV per feature, ΔAUC of the ensemble over it",
+    },
+    {
         "key": "ENS_WEIGHTED", "name": "Weighted ensemble", "kind": "ensemble",
         "description": "Caruana greedy ensemble selection over the models' out-of-fold (or validation) predictions; the weights sum to 1.",
         "objective": "ŷ(x) = Σₘ wₘ·fₘ(x),  w = arg min L(y, Σₘ wₘ fₘ(Xᵥₐₗ)) over wₘ ∈ {0, 1/K, …, 1},  Σₘ wₘ = 1",
@@ -142,7 +159,7 @@ CLASS_TO_KEY = {
     "LGBModel": "GBM", "CatBoostModel": "CAT", "XGBoostModel": "XGB", "RFModel": "RF", "XTModel": "XT",
     "KNNModel": "KNN", "LinearModel": "LR", "TabularNeuralNetTorchModel": "NN_TORCH",
     "NNFastAiTabularModel": "FASTAI", "RealMLPModel": "REALMLP", "TabMModel": "TABM",
-    "TfidfLogRegModel": "TFIDF_LR", "TfidfSVMModel": "TFIDF_SVM",
+    "TfidfLogRegModel": "TFIDF_LR", "TfidfSVMModel": "TFIDF_SVM", "ScorecardModel": "SCORECARD",
     # F8: the monotone-constrained subclasses are the same families (their runs say they are constrained)
     "MonotoneLGBModel": "GBM", "MonotoneCatBoostModel": "CAT", "MonotoneXGBoostModel": "XGB",
     "GreedyWeightedEnsembleModel": "ENS_WEIGHTED", "WeightedEnsembleModel": "ENS_WEIGHTED",

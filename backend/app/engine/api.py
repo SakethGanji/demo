@@ -87,6 +87,13 @@ class RunCreate(BaseModel):
                           "the fit every model is checked with ICE / partial dependence on raw holdout rows.")
 
 
+    scorecard: bool | dict[str, Any] | None = Field(
+        None, description="F11: the scorecard challenger, a SCORECARD model (ensemble_models.scorecard: binning → weight "
+                          "of evidence → logistic regression → points) trained with the other models as the "
+                          "interpretable benchmark. On by default for binary runs (None or true); false leaves it out; "
+                          "{pdo, base_score, base_odds, max_bins, min_bin_share, min_iv, monotone_bins, fine_bins, C} "
+                          "sets its binning and points scaling. After the fit: the scorecard table (refitted on all "
+                          "training rows), IV per feature, and ΔAUC of the served model over it with a bootstrap CI.")
     quantile_levels: list[Any] | None = Field(
         None, description="F9: predict a range. The quantile levels τ (0 < τ < 1) of TabularPredictor(problem_type="
                           "'quantile', quantile_levels=...); giving them makes problem_type 'quantile'. Default for a "
@@ -240,6 +247,7 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
                                  "(binary) or {classes, matrix} (multiclass).")
     quant = check_quantile(body, label, cols)
     mono = check_monotone(body, ds, label, cols, drop, types)
+    card = check_scorecard(body, ds, label)
     allowed_cal = (None, "auto", *threshold.CALIBRATION_METRICS, *((costs.METRIC_NAME,) if cost and cost["kind"] == "binary" else ()))
     if body.calibrate_threshold not in allowed_cal:
         raise HTTPException(400, f"calibrate_threshold: use 'auto' or one of {', '.join(a for a in allowed_cal if a and a != 'auto')}.")
@@ -276,7 +284,7 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
     run_dir = settings.runs_dir / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
     cfg = {
-        **body.model_dump(exclude={"label", "name", "drop_columns", "column_types", "cost", "monotone"}),
+        **body.model_dump(exclude={"label", "name", "drop_columns", "column_types", "cost", "monotone", "scorecard"}),
         "column_types": {c: t for c, t in types.items() if c not in drop},
         "problem_type": None if body.problem_type == "auto" else body.problem_type,
         "label": label, "drop_columns": drop, "text_columns": text_cols, "task": task,
@@ -292,6 +300,8 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
             cfg["calibrate_threshold"] = costs.METRIC_NAME
     if mono is not None:
         cfg["monotone"] = mono
+    if card is not None:
+        cfg["scorecard"] = card
     if quant is not None:
         cfg["quantile"] = quant
         cfg["problem_type"] = "quantile"
@@ -375,6 +385,18 @@ def check_monotone(body: RunCreate, ds: dict[str, Any], label: str, cols: dict[s
     return m
 
 
+def check_scorecard(body: RunCreate, ds: dict[str, Any], label: str) -> dict[str, Any] | bool | None:
+    """F11: the scorecard's hyperparameters (on: binary runs by default), False (switched off) or None (not binary)."""
+    from . import scorecard as sc
+    from ..gym.validate import infer_problem_type
+
+    pt = infer_problem_type(body.model_dump(), ds, label)
+    try:
+        return sc.normalise(body.scorecard, pt)
+    except ValueError as e:
+        raise HTTPException(400, f"scorecard: {e}") from e
+
+
 def check_cost(body: RunCreate, app: Any, ds: dict[str, Any], label: str, cols: dict[str, Any]) -> dict[str, Any]:
     """F7: the run's cost request, checked and normalised: {kind: binary, c_fp, c_fn, g_tp, positive_class} or
     {kind: multiclass, classes, matrix} (classes in AutoGluon's order, the sorted labels)."""
@@ -418,7 +440,8 @@ class SplitTwin(BaseModel):
 
 
 FAIR_KEYS = ("presets", "time_limit", "fit_kwargs", "predictor_kwargs", "eval_metric", "problem_type", "drop_columns",
-             "column_types", "custom_text_models", "calibrate_threshold", "cost", "monotone", "quantile_levels", "conformal")
+             "column_types", "custom_text_models", "calibrate_threshold", "cost", "monotone", "quantile_levels", "conformal",
+             "scorecard")
 
 
 @router.post("/runs/{run_id}/split-twin", status_code=201)
@@ -622,6 +645,64 @@ async def monotone_check(run_id: str, request: Request, model: str | None = None
         raise HTTPException(400, f"Monotone checks apply to binary and regression runs, not {out['problem_type']}.")
     return {"run_id": run_id, "constraints": cons, "request": rec["config"].get("monotone"),
             "report": (rec.get("result") or {}).get("monotone"), **out}
+
+
+def _scorecard_report(rec: dict[str, Any]) -> dict[str, Any]:
+    _require_succeeded(rec)
+    sc = (rec.get("result") or {}).get("scorecard")
+    if not sc:
+        pt = (rec.get("result") or {}).get("problem_type")
+        raise HTTPException(400, "The scorecard challenger applies to binary runs." if pt != "binary" else
+                                 "This run has no scorecard (it was switched off, or the run predates F11).")
+    if not sc.get("available"):
+        raise HTTPException(400, f"This run's scorecard is not available: {sc.get('error') or sc.get('reason')}")
+    return sc
+
+
+@router.get("/runs/{run_id}/scorecard")
+def scorecard_report(run_id: str, request: Request) -> dict[str, Any]:
+    """F11: the scorecard challenger. The deployable scorecard's table (points per bin, refitted on all training rows),
+    IV and coefficient per feature, its holdout AUC / Gini / KS next to the served model's, and ΔAUC (served −
+    scorecard) with a paired bootstrap CI. With an F7 cost: both models' expected cost per 1,000 decisions."""
+    rec = _get_run(request, run_id)
+    sc = _scorecard_report(rec)
+    return {"run_id": run_id, **sc, "family": catalogue.get("SCORECARD"),
+            "export": f"/api/runs/{run_id}/scorecard.csv"}
+
+
+@router.get("/runs/{run_id}/scorecard.csv")
+def scorecard_csv(run_id: str, request: Request):
+    """F11: the exported scorecard: feature, bin, points (rounded and exact), WoE, counts, event rate, IV, coefficient;
+    a last `_scaling` row with PDO, base score / odds, factor, offset and intercept."""
+    from fastapi.responses import FileResponse
+
+    rec = _get_run(request, run_id)
+    _scorecard_report(rec)
+    path = Path(rec["config"]["run_dir"]) / "scorecard" / "scorecard.csv"
+    if not path.exists():
+        raise HTTPException(404, "The scorecard table was not saved.")
+    return FileResponse(path, media_type="text/csv", filename=f"scorecard_{run_id}.csv")
+
+
+class ScorecardScore(BaseModel):
+    rows: list[dict[str, Any]] | None = None
+    holdout_index: list[int] | None = Field(None, description="Holdout rows by position (0 … n−1) instead of rows.")
+    top_k: int = Field(4, ge=1, le=10)
+
+
+@router.post("/runs/{run_id}/scorecard/score")
+async def scorecard_score(run_id: str, body: ScorecardScore, request: Request) -> dict[str, Any]:
+    """F11: score rows with the deployable scorecard: points per feature (and the bin), the total score, P(event), and
+    the scorecard's own reason codes: features ranked by points lost against their best bin."""
+    rec = _get_run(request, run_id)
+    _scorecard_report(rec)
+    if (body.rows is None) == (body.holdout_index is None):
+        raise HTTPException(400, "Give rows or holdout_index (one of them).")
+    try:
+        out = await request.app.state.heavy.run(heavy.scorecard_score, rec["config"], body.rows, body.holdout_index, body.top_k)
+    except (serving.ServingError, FileNotFoundError) as e:
+        raise HTTPException(400, str(e)) from e
+    return {"run_id": run_id, **out}
 
 
 @router.get("/runs/{run_id}/oof")

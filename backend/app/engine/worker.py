@@ -141,7 +141,9 @@ def resolve_fit_kwargs(cfg: dict[str, Any], *, add_text_models: bool) -> tuple[d
     2. If the data has a text column and `custom_text_models` is on: TFIDF_LR and TFIDF_SVM are added to the
        hyperparameters the presets would have used (or to the given ones), and raw text is kept for them
        (`_feature_generator_kwargs.enable_raw_text_features`). Skipped if `feature_generator` is given.
-    3. F8: with `monotone` constraints, GBM / CAT / XGB in those hyperparameters become GBM_MONO / CAT_MONO /
+    3. F11: binary runs with the scorecard on (`scorecard` = its hyperparameters): SCORECARD is added at stack
+       level 1 of those hyperparameters (it is never a stacker).
+    3b. F8: with `monotone` constraints, GBM / CAT / XGB in those hyperparameters become GBM_MONO / CAT_MONO /
        XGB_MONO with the constraints as their `monotone` hyperparameter; other families are left out
        (`compliant_only`, the default) or kept and reported.
     4. Our progress callback is appended to the callbacks the presets would have used, so preset callbacks
@@ -183,6 +185,22 @@ def resolve_fit_kwargs(cfg: dict[str, Any], *, add_text_models: bool) -> tuple[d
                     kw["_feature_generator_kwargs"] = fg
                     if not added:
                         notes.append("kept raw text for the TF-IDF models")
+    card = cfg.get("scorecard")
+    if isinstance(card, dict):  # F11: the scorecard challenger, at level 1 of whatever the run trains
+        from .scorecard import add_to_hyperparameters
+
+        hp = kw.get("hyperparameters", merged.get("hyperparameters", "default"))
+        if isinstance(hp, str):
+            hp = get_hyperparameter_config(hp)
+        if isinstance(hp, dict):
+            hp, added = add_to_hyperparameters(dict(hp), card)
+            if added:
+                kw["hyperparameters"] = hp
+                notes.append(f"added SCORECARD (ensemble_models.scorecard) as the interpretable benchmark: binning "
+                             f"(≤ {card['max_bins']} bins, ≥ {card['min_bin_share']:.0%} of rows each, monotone event rate) "
+                             f"→ weight of evidence → logistic regression → points (PDO {card['pdo']:g}, "
+                             f"{card['base_score']:g} at odds {card['base_odds']:g}:1); bins are fitted on each fold's "
+                             "training rows only")
     mono = cfg.get("monotone")
     if mono:  # F8: GBM / CAT / XGB → their monotone subclasses, carrying the constraints
         from ensemble_models.monotone import translate_hyperparameters
@@ -198,6 +216,9 @@ def resolve_fit_kwargs(cfg: dict[str, Any], *, add_text_models: bool) -> tuple[d
                      f"{', '.join(k + '_MONO' for k in kept) or '—'} (ensemble_models.monotone), which map each "
                      "constraint onto the columns AutoGluon's pipeline gives the model and constrain stack features "
                      "(base-model predictions) to +1, so stack levels stay monotone")
+        if any("SCORECARD" in (sub or {}) for sub in ([hp] if "SCORECARD" in hp else hp.values()) if isinstance(sub, dict)):
+            notes.append("monotone: SCORECARD bins each constrained column with a monotone event rate and keeps its "
+                         "coefficient ≤ 0, so its points (and probability) are monotone by construction")
         if other:
             notes.append((f"monotone: left out {', '.join(other)} (they cannot honour a monotone constraint)")
                          if mono["compliant_only"] else
@@ -645,6 +666,21 @@ def run(run_dir: Path) -> int:
             except Exception as e:  # noqa: BLE001 — reported, not fatal: GET /runs/{id}/monotone recomputes it
                 emit("log", level="warning", logger="ensemble", message=f"monotone check failed: {type(e).__name__}: {e}")
                 store.merge_result(run_id, monotone={**cfg["monotone"], "error": f"{type(e).__name__}: {e}"})
+
+        if cfg.get("scorecard") and predictor.problem_type == "binary":  # F11: table, IV, ΔAUC vs the served model
+            emit("explaining", what="scorecard")
+            try:
+                from . import scorecard as sc
+
+                sr = sc.report(predictor, train, holdout, cfg["label"], cfg, run_dir)
+                store.merge_result(run_id, scorecard=sr)
+                if sr.get("available"):
+                    h = sr["holdout"]
+                    emit("scorecard", model=sr["model"], features=sr["table"]["n_features"], auc=h["scorecard"]["auc"],
+                         served_auc=h["served"]["auc"], delta_auc=h["delta_auc"]["delta"], ci=h["delta_auc"]["ci"])
+            except Exception as e:  # noqa: BLE001 — reported, not fatal
+                emit("log", level="warning", logger="ensemble", message=f"scorecard report failed: {type(e).__name__}: {e}")
+                store.merge_result(run_id, scorecard={"available": False, "error": f"{type(e).__name__}: {e}"})
 
         bagged = bool(predictor._trainer.bagged_mode)
         oof = {"available": bagged,
