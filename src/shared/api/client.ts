@@ -1,6 +1,6 @@
 // Typed client for the ENSEMBLE API. Every call goes through the Vite proxy at /api.
 
-import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck } from './types'
+import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ReasonsConfig, ReasonMapping, ReasonStability } from './types'
 
 export class ApiError extends Error {
   /** 0 when the API could not be reached at all (network error, timeout, or the dev proxy's 503). */
@@ -182,6 +182,12 @@ export const api = {
     editCard: (id: string, actor: string, fields: Record<string, string>) =>
       json<{ card: Record<string, string>; changed: string[] }>(`/registry/versions/${encodeURIComponent(id)}/card`, 'PUT', { actor, fields }),
     mlflow: (id: string) => request<Record<string, unknown>>(`/registry/versions/${encodeURIComponent(id)}/mlflow`, { timeoutMs: 60_000 }),
+    /** F10: reason codes: the adverse class, the served threshold, the attribution method and the mapping table. */
+    reasons: (id: string) => request<ReasonsConfig>(`/registry/versions/${encodeURIComponent(id)}/reasons`, { timeoutMs: 120_000 }),
+    editReasons: (id: string, actor: string, body: { mapping?: Partial<ReasonMapping>[]; adverse_class?: string; reference?: 'approved' | 'population' }) =>
+      json<ReasonsConfig>(`/registry/versions/${encodeURIComponent(id)}/reasons`, 'PUT', { actor, ...body }, 120_000),
+    reasonStability: (id: string, body: { rows?: number; noise?: number; repeats?: number } = {}) =>
+      json<ReasonStability & { version_id: string }>(`/registry/versions/${encodeURIComponent(id)}/reasons/stability`, 'POST', body, 600_000),
     /** Try It: the prediction, probabilities and Kernel SHAP reasons for one row (computed in a worker). */
     tryIt: (id: string, row: Record<string, unknown>, target?: string) =>
       json<TryResult>(`/registry/versions/${encodeURIComponent(id)}/predict`, 'POST', { row, explain: true, target }, 180_000),

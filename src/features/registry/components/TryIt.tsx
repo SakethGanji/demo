@@ -6,6 +6,7 @@ import { ShapEquation, ShapWaterfall } from '@/shared/components/ShapWaterfall'
 import { fmtScore } from '@/shared/lib/metrics'
 import { ParamChip } from '@/shared/primitives/ParamChip'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
+import { ReasonList } from './ReasonCodes'
 
 type Field = { name: string; kind: 'number' | 'category' | 'text'; options: string[]; example: string; stats?: { min: number; max: number; mean: number } }
 
@@ -116,6 +117,23 @@ export function TryIt({ v, run, ds }: { v: ModelVersion; run: Run | null; ds: Da
           </div>
         </div>
       </div>
+
+      {out?.reasons && 'error' in out.reasons && <p className="helper">Reason codes: {out.reasons.error}</p>}
+      {out?.reasons && !('error' in out.reasons) && (() => {
+        const r = out.reasons
+        return (
+          <div className="card" data-testid="try-reason-codes">
+            <div className="card-head">
+              <div className="left"><h3 className="card-title">Reason Codes</h3><span className="helper" style={{ fontSize: 12 }}>adverse ⟺ ŷ = {r.adverse_class} ⟺ p̂ {r.s > 0 ? '≥' : '<'} t = {r.threshold.toFixed(4)} · top {r.top_k} features with s·φⱼ &gt; 0</span></div>
+              <span className={`mono`} style={{ fontSize: 12, color: r.adverse ? 'var(--status-danger)' : 'var(--status-success)' }} data-testid="try-adverse">{r.adverse ? `● adverse (p̂ = ${r.p_positive.toFixed(4)})` : `● not adverse (p̂ = ${r.p_positive.toFixed(4)})`}</span>
+            </div>
+            <div className="card-body">
+              <ReasonList codes={r.codes} adverse={r.adverse} adverseClass={r.adverse_class} testId="try-reason-list" />
+              <p className="helper" style={{ fontSize: 12 }}>The codes a notice, /score and batch scoring give for this applicant: {r.attribution.name}, B = {r.attribution.background} {r.reference === 'approved' ? 'approved' : ''} reference applicants (φ₀ = {r.base_value?.toFixed(4)}){r.attribution.coalitions ? `, M = ${r.attribution.coalitions} coalitions` : ''}; {r.reasons_ms.toFixed(0)} ms. They can differ from the Top Reasons below, which rank |φᵢ| against all training rows with 2,048 coalitions. Statements are edited in the Reason Codes tab.</p>
+            </div>
+          </div>
+        )
+      })()}
 
       {sh && (
         <div className="grid try-why">

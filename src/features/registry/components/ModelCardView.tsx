@@ -113,6 +113,16 @@ export function ModelCardView({ v, actor, onEdited }: { v: ModelVersion; actor: 
               <td>{r.monotone == null ? '—' : r.monotone ? <span style={{ color: 'var(--status-success)' }}>● yes</span> : <span style={{ color: 'var(--status-danger)' }}>✕ no</span>}</td></tr>)}</tbody></table>
           <p className="helper" style={{ fontSize: 12 }}>Checked on <span className="mono">{c.constraints.served_model ?? '—'}</span>, as this version serves it: sⱼ·(f(x with xⱼ = g₊₁) − f(x with xⱼ = g)) ≥ −ε for every holdout row x and consecutive grid points g of xⱼ's quantiles, ε = 10⁻⁹. Method: {c.constraints.method}.{c.constraints.unconstrained_models?.length ? ` Unconstrained models in the run: ${c.constraints.unconstrained_models.join(', ')}.` : ''}</p>
         </div>}
+        {c.reasons && <div data-testid="card-reasons" style={{ marginTop: 8 }}>
+          <h4 className="micro-label" style={{ margin: '8px 0 4px' }}>Reason codes (adverse action)</h4>
+          <p className="helper" style={{ fontSize: 12 }}>{c.reasons.rule}. Reference applicants: {c.reasons.reference === 'approved' ? 'training rows the served model approves' : 'all training rows'}.{c.reasons.method ? ` Attribution: ${c.reasons.method.name}, B = ${c.reasons.method.background}${c.reasons.method.coalitions ? `, M = ${c.reasons.method.coalitions}` : ''}.` : ''}</p>
+          <table className="table compact"><thead><tr><th>code</th><th>feature</th><th>statement (high · category)</th><th>statement (low)</th></tr></thead>
+            <tbody>{c.reasons.mapping.map((r) => <tr key={r.feature}><td className="mono">{r.code}</td><td className="mono">{r.feature}{r.constraint ? ` ${r.constraint > 0 ? '↑' : '↓'}` : ''}</td><td>{r.high ?? r.category}</td><td>{r.low ?? '—'}</td></tr>)}</tbody></table>
+          <p className="helper" style={{ fontSize: 12 }}>{c.reasons.stability && !c.reasons.stability.error
+            ? `Stability (ε = ${c.reasons.stability.noise}·σ, ${c.reasons.stability.rows} adverse holdout rows × ${c.reasons.stability.repeats}): top-${c.reasons.top_k} set unchanged ${((c.reasons.stability.same_set ?? 0) * 100).toFixed(0)}%, first reason ${((c.reasons.stability.same_top1 ?? 0) * 100).toFixed(0)}%.`
+            : 'Stability: not run yet (Reason Codes tab).'}
+            {c.reasons.last_batch ? ` Latest batch: ${c.reasons.last_batch.n_adverse} adverse rows at ${c.reasons.last_batch.rows_per_s?.toFixed(1)} rows/s, codes consistent with the SHAP signs: ${c.reasons.last_batch.signs_consistent ? 'yes' : 'no'}.` : ''} {c.reasons.monotone_note}</p>
+        </div>}
       </section>}
 
       <section className="mc-sec"><h3><i>6</i> Feature importance <small>{c.importance.method}</small></h3>

@@ -717,6 +717,31 @@ export type TryResult = {
   /** F9: quantile versions: every level, the centre level (the prediction) and the main interval. */
   quantile_levels?: number[]; quantiles?: Record<string, number>; centre?: number; interval?: { lo: number; hi: number; nominal: number } | null
   shap?: ShapResult & { reasons: (ShapContribution & { direction: 'raises' | 'lowers' })[] }
+  /** F10: the decision at the version's threshold and its reason codes (the same estimator as batch and /score). */
+  reasons?: TryReasons | { error: string }
+}
+
+/** F10: reason codes for adverse decisions. */
+export type ReasonCode = { rank: number; code: string; feature: string; statement: string; side: 'high' | 'low' | 'category' | 'missing'; value: unknown; phi: number; push: number }
+export type ReasonMapping = { feature: string; code: string; kind: 'number' | 'category'; constraint: number; high?: string; low?: string; category?: string; missing: string; edited?: boolean }
+export type ReasonAttribution = { method: 'tree' | 'kernel'; name: string; background: number; coalitions?: number; exact: boolean; why: string; d: number; evals_per_row: number | null; models?: string[]; seed?: number }
+export type ReasonMonotone = Record<string, { sign: number; rows_above_background: number; rows_below_background: number; violations: number; cited_side: 'high' | 'low' }>
+export type ReasonsBase = {
+  adverse_class: string; positive_class: string; threshold: number; top_k: number; s: number; rule: string
+  reference: 'approved' | 'population'; reference_pool: { rows: number; of?: number; kind: string }; constraints: Record<string, number>; attribution: ReasonAttribution
+}
+export type TryReasons = ReasonsBase & { adverse: boolean; p_positive: number; codes: ReasonCode[] | null; method: 'tree' | 'kernel'; note: string | null; reasons_ms: number; additivity_max: number; base_value: number | null; monotone: ReasonMonotone }
+export type ReasonStability = {
+  rows: number; repeats: number; noise: number; same_set: number | null; same_top1: number | null; same_order: number | null; mean_jaccard: number | null
+  decision_flips: number; comparisons: number; seconds: number; holdout_rows: number; computed_at: string; error?: string
+  vs_reference?: { coalitions: number; exact: boolean; same_set: number; mean_overlap: number; cited_positive: number | null; what: string }
+  method: ReasonAttribution
+}
+export type ReasonsConfig = ReasonsBase & { version_id: string; model_name: string; mapping: ReasonMapping[]; features: string[]; classes: string[]; saved: boolean; updated_by?: string; updated_at?: string; stability: ReasonStability | null }
+export type BatchReasons = ReasonsBase & {
+  n_adverse: number; adverse_share: number; n_explained: number; seconds: number; setup_seconds: number; rows_per_s: number | null; methods: string[]; notes: string[]
+  additivity_max: number; codes_per_row: Record<string, number>; signs_consistent: boolean; monotone: ReasonMonotone; rows_fewer_than_k: number
+  top_codes: { code: string; feature: string | null; rows: number; share: number }[]; columns: string[]
 }
 
 export type PsiBin = { label: string; expected_count: number; actual_count: number; expected: number; actual: number; term: number }
@@ -742,6 +767,8 @@ export type BatchJob = {
       /** Forecast and anomaly versions. */
       quantile_levels?: number[]; prediction_is?: string; interval?: { lo: number; hi: number; nominal: number; mean_width: number; median_width: number; mean_width_reference?: number }
       flag_rule?: string; expected_share?: number; n_flagged?: number; prediction_symbol?: string; items?: number; forecast_rows?: number; known_covariates_source?: string
+      /** F10: reason codes for the adverse decisions. */
+      reasons?: BatchReasons
     }
     drift: DriftReport; preview: Record<string, unknown>[]; columns: string[]; output_file: string
   } | null
@@ -765,6 +792,11 @@ export type ModelCard = {
   monitoring: { batches: { id: string; created_at: string; n_rows: number; max_psi: number | null; prediction_psi: number | null; counts: DriftReport['counts'] | null }[]; bands: string }
   approval: { stage: Stage; approval: Approval; rules: string; reviews: AuditEntry[]; audit: AuditEntry[] }
   /** F8: the monotone constraints and the served model's ICE check. */
+  reasons?: {
+    adverse_class: string; positive_class: string; threshold: number; top_k: number; mapping: ReasonMapping[]; constraints: Record<string, number>; reference: string
+    stability: ReasonStability | null; method: ReasonAttribution | null; rule: string; monotone_note: string
+    last_batch: Pick<BatchReasons, 'n_adverse' | 'rows_per_s' | 'methods' | 'additivity_max' | 'signs_consistent' | 'codes_per_row' | 'top_codes' | 'monotone'> | null
+  } | null
   constraints?: {
     columns: { column: string; direction: MonotoneDirection; sign: number; features: string[] | null; status: string | null; monotone: boolean | null
       pd_monotone: boolean | null; curves_violating: number | null; n_curves: number | null; grid_points: number; max_violation: number | null; pd_range: number | null }[]
