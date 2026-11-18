@@ -13,11 +13,12 @@ import { Curves, PerClass } from './components/Curves'
 import { Errors } from './components/Errors'
 import { FairnessPanel } from './components/FairnessPanel'
 import { MonotonePanel } from './components/MonotonePanel'
+import { ScorecardPanel } from './components/ScorecardPanel'
 import { Importance } from './components/Importance'
 import { ShapPanel } from './components/ShapPanel'
 import { ThresholdPanel } from './components/ThresholdPanel'
 
-type Tab = 'Performance' | 'Threshold' | 'Features & SHAP' | 'Errors' | 'Fairness' | 'Monotonicity' | 'Text'
+type Tab = 'Performance' | 'Threshold' | 'Features & SHAP' | 'Errors' | 'Fairness' | 'Monotonicity' | 'Scorecard' | 'Text'
 
 export const runParam = () => new URLSearchParams(location.hash.split('?')[1] ?? '').get('run')
 const tabParam = () => new URLSearchParams(location.hash.split('?')[1] ?? '').get('tab')
@@ -61,6 +62,7 @@ export function ExplainPage({ go }: { go: (r: string) => void }) {
     if (run.problem_type === 'binary') t.push('Threshold')
     t.push('Features & SHAP', 'Errors', 'Fairness')
     if (run.problem_type === 'binary' || run.problem_type === 'regression') t.push('Monotonicity')
+    if (run.scorecard?.available) t.push('Scorecard')
     if (run.text_models && Object.keys(run.text_models).length) t.push('Text')
     return t
   }, [run])
@@ -141,6 +143,7 @@ export function ExplainPage({ go }: { go: (r: string) => void }) {
       {tab === 'Errors' && <Errors ex={ex} run={run} part="worst" onRow={(r) => { setShapRow(r); pickTab('Features & SHAP') }} />}
       {tab === 'Fairness' && <FairnessPanel run={run} ex={ex} />}
       {tab === 'Monotonicity' && <MonotonePanel run={run} ex={ex} />}
+      {tab === 'Scorecard' && <ScorecardPanel run={run} />}
       {tab === 'Text' && <TopWords run={run} />}
 
       <div className="chips-row">

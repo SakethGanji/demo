@@ -186,6 +186,8 @@ export type RunCreate = {
   monotone?: MonotoneRequest | null
   /** F9: predict a range: the quantile levels τ (problem_type 'quantile'). */
   quantile_levels?: number[] | null
+  /** F11: the scorecard challenger (binary): null/true on with defaults, false off, or its binning and points scaling. */
+  scorecard?: boolean | Partial<ScorecardParams> | null
   /** F9: conformal recalibration (AutoGluon's calibrate): true, false, or null = AutoGluon's 'auto'. */
   conformal?: boolean | null
 }
@@ -207,6 +209,33 @@ export type QuantileReport = {
   formulas: Record<string, string>
   error?: string
 }
+
+// -- Scorecard challenger (F11) ---------------------------------------------------------------------------------
+
+export type ScorecardParams = { pdo: number; base_score: number; base_odds: number; max_bins: number; fine_bins: number; min_bin_share: number; min_iv: number; monotone_bins: 'auto' | 'none'; C: number }
+export type ScorecardBin = { feature: string; bin: number; label: string; n: number; share: number; events: number; event_rate: number | null; woe: number; iv: number; points: number | null; points_rounded: number | null; in_model: boolean }
+export type ScorecardFeature = { feature: string; kind: 'numeric' | 'categorical'; bins: number; iv: number; in_model: boolean; coefficient: number | null; dropped: string | null; direction: number | null; constraint: number | null; cuts: number[] | null; has_missing: boolean; points_range: [number, number] | null }
+export type ScorecardAuc = { auc: number; gini: number; ks?: number; model?: string }
+export type DeltaAuc = { delta: number; ci: [number, number]; se: number; p_le_0: number; B: number; level: number; method: string }
+export type ScorecardReport = {
+  run_id: string; available: boolean; model: string; served_model: string; positive_class: string; params: ScorecardParams
+  monotone: Record<string, number>; n_train: number; n_holdout: number; export: string
+  table: { rows: ScorecardBin[]; features: ScorecardFeature[]; intercept: number; n_features: number; n_train: number; event_rate: number
+    scaling: { pdo: number; base_score: number; base_odds: number; factor: number; offset: number } }
+  holdout: { scorecard: ScorecardAuc; served: ScorecardAuc & { model: string }; scorecard_in_run: ScorecardAuc & { model: string; score_val: number | null; bagged: boolean }
+    delta_auc: DeltaAuc; delta_auc_in_run: DeltaAuc; bands: { lo: number; hi: number; n: number; events: number; event_rate: number }[]; proba_check: number
+    score: { min: number; max: number; mean_event: number | null; mean_non_event: number | null } }
+  monotone_check: Record<string, { sign: number; in_model: boolean; monotone: boolean; points: number[] }>
+  cost?: { threshold_scorecard: number; threshold_served: number; scorecard_per_1000: number; served_per_1000: number; c_fp: number; c_fn: number; g_tp: number }
+  family?: ModelFamily | null
+}
+export type ScorecardRowScore = {
+  score: number; p_event: number; served_p_event: number; served_adverse: boolean; truth?: string
+  points: { feature: string; value: unknown; bin: string; points: number; max_points: number; points_lost: number }[]
+  reasons: { feature: string; points_lost: number }[]
+}
+export type ScorecardScore = { run_id: string; rows: ScorecardRowScore[]; scaling: { factor: number; offset: number; pdo: number; base_score: number; base_odds: number }
+  positive_class: string; served_model: string; served_threshold: number; top_k: number }
 
 // -- Monotone constraints (F8) -----------------------------------------------------------------------------------
 
@@ -312,6 +341,8 @@ export type GymValidation = {
   families?: Record<string, number>
   /** F8: the normalised constraints and what they do to the zoo. */
   monotone?: { constraints: Record<string, number>; compliant_only: boolean; stack: boolean; compliant: string[]; unconstrained: string[]; left_out: string[]; families: Record<string, string> } | null
+  /** F11: the scorecard's hyperparameters (on), false (switched off) or null (not a binary label). */
+  scorecard?: ScorecardParams | false | null
 }
 
 // -- Vela (S6) ---------------------------------------------------------------------------------------------------
@@ -419,6 +450,8 @@ export type Run = {
   threshold?: ThresholdRecord | null
   /** F8: monotone constraints, where they landed and the ICE / PD check of every model. */
   monotone?: MonotoneReport | null
+  /** F11: the scorecard challenger's report (read in full from GET /runs/{id}/scorecard). */
+  scorecard?: { available: boolean; error?: string; reason?: string } | null
   /** F9: quantile runs: the levels, and the holdout report (the list keeps only levels, pinball and coverage). */
   quantile_levels?: number[] | null
   quantile?: QuantileReport | null

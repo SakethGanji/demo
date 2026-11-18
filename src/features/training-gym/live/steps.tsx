@@ -3,6 +3,7 @@ import { api } from '@/shared/api/client'
 import type { DatasetDetail, DatasetSummary, GymSchema, GymValidation, Run } from '@/shared/api/types'
 import { FretSlider } from '@/shared/components/FretSlider'
 import { StatusPill } from '@/shared/primitives/StatusPill'
+import { NumberInput } from '@/shared/primitives/NumberInput'
 import { sup } from '@/shared/lib/format'
 import { MathText } from '@/shared/components/MathText'
 import { type Body, effectiveHp, fmtNum, getPath, setHp, toggleFamily, variants } from './body'
@@ -176,8 +177,61 @@ export function GoalStep({ body, set, schema, v }: StepProps) {
 export function ModelsStep(props: StepProps) {
   return <>
     <ModelFamilies {...props} />
+    {props.v?.problem_type === 'binary' && <ScorecardCard {...props} />}
     {!props.guided && <MonotoneCard {...props} />}
   </>
+}
+
+/** F11: the scorecard challenger (binary labels): on by default as the interpretable benchmark. Guided: on / off.
+ * Advanced: its points scaling and binning, written to the body's `scorecard`. */
+function ScorecardCard({ body, setBody, v, guided }: StepProps) {
+  const raw = body.scorecard as boolean | Record<string, number | string> | null | undefined
+  const on = raw !== false
+  const p = (v?.scorecard || null) as Record<string, number | string> | null
+  const val = (k: string, d: number) => Number((typeof raw === 'object' && raw && raw[k] != null ? raw[k] : p?.[k]) ?? d)
+  const put = (k: string, x: number) => setBody({ ...body, scorecard: { ...(typeof raw === 'object' && raw ? raw : {}), [k]: x } })
+  const issues = (v?.errors ?? []).filter((e) => e.path === 'scorecard')
+  const pdo = val('pdo', 20), base = val('base_score', 600), odds = val('base_odds', 50)
+  const factor = pdo / Math.LN2
+  return (
+    <div className="grid hp-grid" data-testid="gym-scorecard">
+      <div className="card"><div className="card-head">
+        <div className="left"><h2 className="card-title">Scorecard challenger</h2><span className="helper" style={{ fontSize: 12 }}><span className="mono">scorecard</span> · SCORECARD, trained beside the other models as the interpretable benchmark</span></div>
+        <span className="chip">{on ? 'on' : 'off'}</span>
+      </div>
+        <div className="card-body">
+          <Row label="Train the scorecard" sub="binning → weight of evidence → logistic regression → points; Explain → Scorecard shows its table and ΔAUC" testid="gym-scorecard-on">
+            <Seg value={on} onChange={(x) => setBody({ ...body, scorecard: x ? null : false })} options={[{ v: true, label: 'on' }, { v: false, label: 'off' }]} />
+          </Row>
+          {on && !guided && <>
+            <Row label={<>Points to double the odds (PDO)</>} sub="every PDO points doubles the odds of a non-event" testid="gym-scorecard-pdo">
+              <NumberInput value={pdo} min={1} max={200} step={1} onChange={(x) => put('pdo', x)} label="PDO" /></Row>
+            <Row label="Base score" sub="the score at the base odds" testid="gym-scorecard-base">
+              <NumberInput value={base} min={0} max={2000} step={1} onChange={(x) => put('base_score', x)} label="Base score" /></Row>
+            <Row label="Base odds (non-event : event)" sub="e.g. 50 for 50 : 1" testid="gym-scorecard-odds">
+              <NumberInput value={odds} min={1} max={1000} step={1} onChange={(x) => put('base_odds', x)} label="Base odds" /></Row>
+            <Row label="Max bins per feature" sub="adjacent bins are merged until the event rate is monotone and each holds ≥ the minimum share" testid="gym-scorecard-bins">
+              <NumberInput value={val('max_bins', 6)} min={2} max={20} step={1} onChange={(x) => put('max_bins', x)} label="Max bins" /></Row>
+            <Row label="Min share per bin" sub="of the training rows">
+              <NumberInput value={val('min_bin_share', 0.05)} min={0.01} max={0.45} step={0.01} onChange={(x) => put('min_bin_share', x)} label="Min share per bin" /></Row>
+            <Row label="Min IV to enter" sub="features with a lower information value are left out">
+              <NumberInput value={val('min_iv', 0.02)} min={0} max={0.5} step={0.005} onChange={(x) => put('min_iv', x)} label="Min IV" /></Row>
+          </>}
+          {issues.map((e) => <p key={e.message} className="helper" style={{ fontSize: 12, color: 'var(--status-danger)' }}>✕ {e.message}</p>)}
+        </div>
+      </div>
+      <div className="formula">
+        <div className="micro-label">Points</div>
+        <div className="eq">score = <i>offset</i> + <i>factor</i> · ln odds<sub>non-event</sub></div>
+        <dl className="where">
+          <dt>factor</dt><dd>PDO ⁄ ln 2 = {fmtNum(pdo)} ⁄ 0.6931 = <b>{factor.toFixed(3)}</b></dd>
+          <dt>offset</dt><dd>base score − factor · ln base odds = {fmtNum(base)} − {factor.toFixed(3)} · ln {fmtNum(odds)} = <b>{(base - factor * Math.log(odds)).toFixed(3)}</b></dd>
+          <dt>odds<sub>non-event</sub></dt><dd>(1 − P(event)) ⁄ P(event) from the logistic regression on the WoE columns</dd>
+        </dl>
+        <p className="helper" style={{ fontSize: 12, marginTop: 8 }}>Bins and WoE are fitted on each fold's training rows only. A feature with a monotone constraint is binned in that direction and keeps a coefficient ≤ 0, so the scorecard honours it by construction.</p>
+      </div>
+    </div>
+  )
 }
 
 /** F8 (Advanced): ↑ / ↓ / none per numeric feature, written to the body's `monotone`. The API swaps LightGBM, XGBoost
@@ -221,7 +275,7 @@ function MonotoneCard({ body, setBody, v, ds }: StepProps) {
           {n > 0 && <Row label="Compliant families only" sub="leave out the families that cannot honour a constraint (RF, XT, KNN, LR, NN, TF-IDF); off keeps them and reports which models break it" testid="gym-mono-compliant">
             <Seg value={mono?.compliant_only ?? true} onChange={(x) => write(cons, x)} options={[{ v: true, label: 'on' }, { v: false, label: 'off' }]} />
           </Row>}
-          {vm && <p className="helper" style={{ fontSize: 12 }} data-testid="gym-mono-families">Honour it: <b>{vm.compliant.map((k) => `${vm.families[k] ?? k} (${k}_MONO)`).join(', ') || 'none'}</b>
+          {vm && <p className="helper" style={{ fontSize: 12 }} data-testid="gym-mono-families">Honour it: <b>{vm.compliant.map((k) => (k === 'SCORECARD' ? vm.families[k] ?? k : `${vm.families[k] ?? k} (${k}_MONO)`)).join(', ') || 'none'}</b>
             {vm.left_out.length ? <> · left out: <span className="mono">{vm.left_out.join(', ')}</span></> : null}
             {vm.unconstrained.length ? <> · <span style={{ color: 'var(--status-warning)' }}>kept unconstrained: <span className="mono">{vm.unconstrained.join(', ')}</span></span></> : null}</p>}
           {issues.map((e) => <p key={e.message} className="helper" style={{ fontSize: 12, color: v?.errors.includes(e) ? 'var(--status-danger)' : v?.warnings.includes(e) ? 'var(--status-warning)' : undefined }}>{v?.errors.includes(e) ? '✕' : v?.warnings.includes(e) ? '▲' : '·'} {e.message}</p>)}

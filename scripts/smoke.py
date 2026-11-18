@@ -2631,6 +2631,8 @@ def scorecard(st: dict[str, Any]) -> None:
         n_train = rec["data"]["train_rows"]
         check(sc["n_train"] == n_train == t["n_train"], f"deployable scorecard fit on {sc['n_train']} rows, run trained on {n_train}")
         feats = {f["feature"]: f for f in t["features"]}
+        check(set(feats) == set(sc["in_run_features"]), f"refit bins {sorted(set(feats) ^ set(sc['in_run_features']))} differently from the run")
+        check(not any(f.startswith("application_date") for f in feats), "a date feature in the scorecard")
         for f in feats.values():  # every row of the training data is in exactly one bin of every feature: no holdout row
             n = sum(r["n"] for r in t["rows"] if r["feature"] == f["feature"])
             check(n == n_train, f"{f['feature']}: bins hold {n} rows, training has {n_train}")

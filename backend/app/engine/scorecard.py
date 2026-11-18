@@ -185,7 +185,8 @@ def report(predictor, train: pd.DataFrame, holdout: pd.DataFrame, label: str, cf
     out_dir.mkdir(parents=True, exist_ok=True)
     m = ScorecardModel(path=str(out_dir) + "/", name="Scorecard_deploy", problem_type="binary",
                        eval_metric=predictor.eval_metric, hyperparameters=params)
-    m.fit(X=X, y=pd.Series(y, index=X.index))
+    # the predictor's feature metadata, so the refit sees the same feature types (dates, text) as the in-run model
+    m.fit(X=X, y=pd.Series(y, index=X.index), feature_metadata=predictor.feature_metadata)
     m.level_names = level_names(X, train)
     m.save()
     tbl = m.table()
@@ -208,6 +209,7 @@ def report(predictor, train: pd.DataFrame, holdout: pd.DataFrame, label: str, cf
         "params": {k: v for k, v in params.items() if k != "monotone"},
         "monotone": (params.get("monotone") or {}).get("constraints") or {},
         "table": tbl, "n_train": int(len(y)), "n_holdout": int(len(yh)),
+        "in_run_features": list(ch.features or []),  # what AutoGluon gave the in-run model: the refit bins the same
         "holdout": {
             "scorecard": {"auc": a_sc, "gini": 2 * a_sc - 1, "ks": ks(yh, p_sc)},
             "served": {"model": best, "auc": a_best, "gini": 2 * a_best - 1, "ks": ks(yh, p_best)},

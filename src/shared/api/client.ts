@@ -1,6 +1,6 @@
 // Typed client for the ENSEMBLE API. Every call goes through the Vite proxy at /api.
 
-import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ReasonsConfig, ReasonMapping, ReasonStability } from './types'
+import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ScorecardReport, ScorecardScore, ReasonsConfig, ReasonMapping, ReasonStability } from './types'
 
 export class ApiError extends Error {
   /** 0 when the API could not be reached at all (network error, timeout, or the dev proxy's 503). */
@@ -78,6 +78,11 @@ export const api = {
       Object.entries(q).forEach(([k, v]) => { if (v != null && v !== '') p.set(k, String(v)) })
       return request<MonotoneCheck>(`/runs/${encodeURIComponent(id)}/monotone${p.toString() ? `?${p}` : ''}`, { timeoutMs: 120_000 })
     },
+    /** F11: the scorecard challenger: table, IV, holdout AUC vs the served model, ΔAUC with a bootstrap CI. */
+    scorecard: (id: string) => request<ScorecardReport>(`/runs/${encodeURIComponent(id)}/scorecard`),
+    /** F11: the deployable scorecard on holdout rows (by position): points per feature, score, P, reason codes. */
+    scorecardScore: (id: string, holdout_index: number[], top_k = 4) =>
+      request<ScorecardScore>(`/runs/${encodeURIComponent(id)}/scorecard/score`, { method: 'POST', body: JSON.stringify({ holdout_index, top_k }), headers: { 'Content-Type': 'application/json' }, timeoutMs: 60_000 }),
     cancel: (id: string) => request<{ id: string; cancelling: boolean }>(`/runs/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
     /** Events recorded so far, once (no stream). */
     events: (id: string, from = 0) => request<{ events: RunEvent[]; next: number }>(`/runs/${encodeURIComponent(id)}/events?format=json&from=${from}`),
