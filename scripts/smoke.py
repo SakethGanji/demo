@@ -40,6 +40,13 @@ One line per step: ✓ or ✗, the step, a key number. Exits 1 if any step faile
              the rest by the SIMULATED oracle = the sample's hidden labels), each round a dataset version with lineage that
              trains, the holdout fixed and never queued; active vs random at equal budgets over 3 seeds (simulated
              oracle), reported with spread and a 95 % CI; the summary for F17; refusals, 409, cancel
+  annotators F14: ground-truth reliability on support-tickets: the sample's 5 SIMULATED annotators (3 per row on 1,500
+             training rows; one careless, one swapping Billing and Account) → p̂ out of fold (a quick bagged fit of the
+             run's call; a bagged run's own OOF) → Cohen's and Fleiss' κ (recomputed here from the votes), per-annotator
+             quality and the CROWDLAB consensus (cleanlab.multiannotator) against the hidden truth: the worst annotator found,
+             consensus vs majority vote (acceptance); the disagreement queue (a person's vote and adjudication, the
+             SIMULATED adjudicator), a dataset version with the holdout untouched; a long-format upload by ticket_id;
+             refusals; the summary for F17
   reset      a second API on a throwaway data folder: upload + run, POST /api/admin/reset, back to the samples only
 """
 
@@ -3049,6 +3056,227 @@ def active(st: dict[str, Any]) -> None:
     step("active: cancel", cancel)
 
 
+def _ann_wait(run_id: str, timeout: float = 900) -> dict[str, Any]:
+    return poll(f"/api/runs/{run_id}/annotations", lambda x: x["status"] != "computing", timeout, every=2)
+
+
+def _ann_votes(run_id: str) -> list[dict[str, Any]]:
+    """Every annotated row with its votes, paged as the UI pages the queue (include=all)."""
+    out: list[dict[str, Any]] = []
+    while True:
+        g = get(f"/api/runs/{run_id}/annotations", include="all", offset=len(out), limit=500)
+        out += g["queue"]["items"]
+        if len(out) >= g["queue"]["total"] or not g["queue"]["items"]:
+            return out
+
+
+def _fleiss(items: list[dict[str, Any]], classes: list[str]) -> float:
+    ci = {c: i for i, c in enumerate(classes)}
+    N = np.zeros((len(items), len(classes)))
+    for i, it in enumerate(items):
+        for v in it["votes"]:
+            N[i, ci[v["label"]]] += 1
+    N = N[N.sum(1) >= 2]
+    n = N.sum(1)
+    Pi = (N * (N - 1)).sum(1) / (n * (n - 1))
+    p = N.sum(0) / n.sum()
+    Pe = (p ** 2).sum()
+    return float((Pi.mean() - Pe) / (1 - Pe))
+
+
+def _cohen(items: list[dict[str, Any]], a: str, b: str, classes: list[str]) -> tuple[float, int]:
+    x, y = [], []
+    for it in items:
+        v = {q["annotator"]: q["label"] for q in it["votes"]}
+        if a in v and b in v:
+            x.append(classes.index(v[a]))
+            y.append(classes.index(v[b]))
+    x, y = np.array(x), np.array(y)
+    K = len(classes)
+    po = (x == y).mean()
+    pe = (np.bincount(x, minlength=K) / len(x)) @ (np.bincount(y, minlength=K) / len(y))
+    return float((po - pe) / (1 - pe)), len(x)
+
+
+def annotators(st: dict[str, Any]) -> None:
+    """F14: several annotators per row. The support-tickets sample's SIMULATED annotators (each mistake drawn from the
+    sample's hidden truth): ana 96 %, ben 90 %, chen 82 % (look-alike classes), dara 55 % (any class), eli swaps Billing
+    and Account 60 % of the time. 1,500 training rows, 3 annotators each. The run is not bagged, so p̂ comes from a quick
+    bagged fit of its call. Acceptance: the worst annotator by cleanlab's quality is the worst against the truth, and the
+    CROWDLAB consensus is more accurate than majority vote against the truth (paired, exact McNemar)."""
+    s: dict[str, Any] = {}
+
+    def refusals():
+        rec = wait_run(post("/api/runs", {"dataset_id": "support-tickets", "presets": "medium_quality", "time_limit": 300,
+                                          "fit_kwargs": {"hyperparameters": {"GBM": {"num_boost_round": 100}}},
+                                          "feature_importance": False, "source": "smoke-annotators"})["id"])
+        s["rec"] = rec
+        rid = rec["id"]
+        g = get(f"/api/runs/{rid}/annotations")
+        check(g["status"] == "none" and g["sample_available"] and g["sample_defaults"] == {"n_rows": 1500, "per_row": 3, "seed": 14}, g)
+        reg = wait_run(post("/api/runs", {"dataset_id": "loan-amount", "time_limit": 30, "source": "smoke-annotators",
+                                          "fit_kwargs": {"hyperparameters": {"GBM": {"num_boost_round": 20}}}, "feature_importance": False})["id"])
+        r = C.post(f"/api/runs/{reg['id']}/annotations/sample", json={})
+        check(r.status_code == 400 and "classification" in r.text, f"regression → {r.status_code} {r.text[:200]}")
+        hold = sorted(int(x) for x in get(f"/api/runs/{rid}/holdout-predictions")["rows"])
+        s["hold"] = hold
+
+        def up(df: pd.DataFrame) -> httpx.Response:
+            return C.post(f"/api/runs/{rid}/annotations/upload", files={"file": ("ann.csv", df.to_csv(index=False).encode(), "text/csv")},
+                          data={"mode": "replace"})
+        bad = [(pd.DataFrame({"row": [1], "who": ["a"], "label": ["Billing"]}), 400, "annotator column"),
+               (pd.DataFrame({"row": [1, 2], "annotator": ["a", "b"], "label": ["Billing", "Mortgages"]}), 400, "not classes"),
+               (pd.DataFrame({"row": hold[:3], "annotator": ["a", "b", "c"], "label": ["Billing"] * 3}), 400, "never relabelled"),
+               (pd.DataFrame({"name": ["x"], "annotator": ["a"], "label": ["Billing"]}), 400, "Name the rows")]
+        for df, code, words in bad:
+            r = up(df)
+            check(r.status_code == code and words in r.text, f"{list(df.columns)}: {r.status_code} {r.text[:200]}")
+        r = C.post(f"/api/runs/{rid}/annotations/answer", json={"answers": [{"row": 1, "action": "vote", "label": "Billing"}]})
+        check(r.status_code == 409, f"answer with no annotations → {r.status_code}")
+        r = C.post(f"/api/runs/{rid}/annotations/sample", json={"per_row": 9})
+        check(r.status_code == 422, f"per_row 9 → {r.status_code}")
+        return (f"{rid} (support-tickets, K = {len(rec['classes'])}, not bagged) · status none, sample offered · regression refused · "
+                f"{len(bad)} bad uploads refused (incl. holdout-only rows) · answer before loading → 409 · per_row 9 → 422")
+
+    if not step("annotators: refusals", refusals):
+        return
+
+    def sample():
+        rec = s["rec"]
+        rid = rec["id"]
+        t0 = time.time()
+        g = post(f"/api/runs/{rid}/annotations/sample", {})
+        check(g["status"] == "computing" and g["load"]["annotations"] == 4500 and g["load"]["rows"] == 1500, g.get("load"))
+        g = _ann_wait(rid)
+        check(g["status"] == "ready", f"{g['status']}: {g.get('error')}")
+        sm = g["summary"]
+        s["g"], s["sm"] = g, sm
+        pr = sm["probs"]
+        check(pr["source"] == "quick-bagged" and pr["n_oof"] == rec["data"]["train_rows"] and pr["n_predicted"] == 0, pr)
+        check(sm["schema"] == "annotations/1" and sm["n_rows"] == 1500 and sm["n_annotations"] == 4500 and sm["n_annotators"] == 5
+              and sm["annotations_per_row"] == {"mean": 3.0, "min": 3, "max": 3}, sm)
+        items = _ann_votes(rid)
+        check(len(items) == 1500 and not set(s["hold"]) & {i["row"] for i in items}, f"{len(items)} rows, or a holdout row")
+        fk = sm["agreement"]["fleiss_kappa"]
+        mine = _fleiss(items, g["classes"])
+        check(abs(mine - fk["value"]) < 1e-9 and fk["ci"][0] < fk["value"] < fk["ci"][1], f"Fleiss {fk} vs recomputed {mine}")
+        pw = {(p["a"], p["b"]): p for p in g["pairwise"]}
+        check(len(pw) == 10, f"{len(pw)} pairs")
+        a, b = next(iter(pw))
+        ck, n = _cohen(items, a, b, g["classes"])
+        check(abs(ck - pw[(a, b)]["kappa"]) < 1e-9 and n == pw[(a, b)]["n"], f"Cohen {a}/{b}: {pw[(a, b)]} vs {ck}")
+        diff = sum(it["consensus"] != it["majority_vote"] for it in items)
+        check(diff == sm["consensus"]["consensus_vs_majority_vote_differ"], f"{diff} vs {sm['consensus']}")
+        q = get(f"/api/runs/{rid}/annotations", limit=50)["queue"]
+        cqs = [i["consensus_quality"] for i in q["items"]]
+        check(q["total"] == sm["consensus"]["queue"] and cqs == sorted(cqs) and all(len(i["votes"]) == 3 for i in q["items"]), "queue order")
+        check(get(f"/api/runs/{rid}")["annotations"]["summary"]["schema"] == "annotations/1", "run payload has no summary")
+        s["items"] = items
+        return (f"p̂ {pr['source']} ({pr['model']}, {pr['n_oof']} OOF rows, fit {pr['fit_seconds']} s) · Fleiss κ = {fk['value']:.4f} "
+                f"[{fk['ci'][0]:.4f}, {fk['ci'][1]:.4f}] ({sm['agreement']['interpretation']}; recomputed here {mine:.4f}) · "
+                f"Cohen κ {a}/{b} = {ck:.4f} (n = {n}) · mean pairwise κ {sm['agreement']['cohen_kappa_mean']:.4f} · "
+                f"queue {q['total']} rows (lowest consensus quality first) · ready in {time.time() - t0:.0f} s")
+
+    if not step("annotators: sample → p̂ → κ + consensus", sample):
+        return
+
+    def acceptance():
+        sm, g = s["sm"], s["g"]
+        tr = sm["truth"]
+        check(tr and tr["simulated"] and tr["n"] == 1500, tr)
+        rank = sorted(g["annotators"], key=lambda x: x["quality"])
+        line = ", ".join(f"{x['name']} q {x['quality']:.3f} / true {x['truth']['accuracy']:.3f}" for x in rank)
+        check(sm["worst_annotator"]["name"] == tr["worst_by_truth"]["name"] == "dara" and tr["worst_identified"],
+              f"worst by quality {sm['worst_annotator']} vs truth {tr['worst_by_truth']}")
+        A = tr["accuracy"]
+        check(A["consensus"]["accuracy"] > A["majority_vote"]["accuracy"], f"consensus {A['consensus']} ≤ MV {A['majority_vote']}")
+        check(A["consensus"]["accuracy"] > A["majority_vote_cleanlab"]["accuracy"], f"consensus ≤ cleanlab's MV {A['majority_vote_cleanlab']}")
+        eli = next(x for x in g["annotators"] if x["name"] == "eli")
+        tc = eli["top_confusion"]
+        check({tc["consensus"], tc["given"]} == {"Billing", "Account"} and tc["share_of_class"] > 0.4, f"eli's bias not found: {tc}")
+        pd_ = tr["paired"]
+        st["annotators_acceptance"] = {"consensus": A["consensus"]["accuracy"], "mv": A["majority_vote"]["accuracy"]}
+        return (f"worst = {sm['worst_annotator']['name']} by quality and by truth ✓ ({line}) · against the hidden truth on 1,500 rows: "
+                f"consensus {A['consensus']['accuracy']:.4f} [{A['consensus']['ci'][0]:.4f}, {A['consensus']['ci'][1]:.4f}] vs majority vote "
+                f"{A['majority_vote']['accuracy']:.4f} [{A['majority_vote']['ci'][0]:.4f}, {A['majority_vote']['ci'][1]:.4f}] "
+                f"({sm['consensus']['majority_vote_ties']} ties at random) · cleanlab's MV (model breaks ties) {A['majority_vote_cleanlab']['accuracy']:.4f} · "
+                f"model alone {A['model']['accuracy']:.4f} · dataset label {A['given']['accuracy']:.4f} · paired: consensus right & MV wrong "
+                f"{pd_['consensus_right_mv_wrong']}, reverse {pd_['mv_right_consensus_wrong']}, exact McNemar p = {pd_['mcnemar_p']:.1e} · "
+                f"eli's bias found: {tc['consensus']} → {tc['given']} on {tc['share_of_class']:.0%} of consensus-{tc['consensus']} rows")
+
+    step("annotators: acceptance (worst annotator, consensus vs majority vote)", acceptance)
+
+    def queue_version():
+        rec = s["rec"]
+        rid = rec["id"]
+        q = get(f"/api/runs/{rid}/annotations", limit=5)["queue"]["items"]
+        r = C.post(f"/api/runs/{rid}/annotations/answer", json={"reviewer": "Smoke Reviewer", "answers": [
+            {"row": q[0]["row"], "action": "vote", "label": q[0]["consensus"]},
+            {"row": q[1]["row"], "action": "adjudicate", "label": q[1]["p_model"][0]["label"]}]})
+        check(r.status_code == 200 and r.json()["votes"] == 1, r.text)
+        r = C.post(f"/api/runs/{rid}/annotations/answer", json={"reviewer": "Smoke Reviewer", "answers": [{"row": s["hold"][0], "action": "vote", "label": "Billing"}]})
+        check(r.status_code == 400 and "never relabelled" in r.text, f"holdout vote → {r.status_code}")
+        r = C.post(f"/api/runs/{rid}/annotations/answer", json={"answers": [{"row": q[2]["row"], "action": "adjudicate", "label": "Nope"}]})
+        check(r.status_code == 400, f"bad class → {r.status_code}")
+        g = get(f"/api/runs/{rid}/annotations", include="all", limit=500)
+        it0 = next(i for i in _ann_votes(rid) if i["row"] == q[0]["row"])
+        check(any(v["annotator"] == "Smoke Reviewer" for v in it0["votes"]) and g["summary"]["n_annotators"] == 6
+              and g["summary"]["worst_annotator"]["name"] == "dara", "the reviewer's vote is not an annotation, or it changed the worst")
+        sim = post(f"/api/runs/{rid}/annotations/simulate-adjudication", {"n": 50})
+        g = get(f"/api/runs/{rid}/annotations", limit=5)
+        sm = g["summary"]
+        A = sm["truth"]["accuracy"]
+        check(sm["consensus"]["adjudicated"] == 51 and sim["adjudicated"] == 50, sm["consensus"])
+        check(A["final"]["accuracy"] >= A["consensus"]["accuracy"] - 1 / 1500, f"final {A['final']} vs consensus {A['consensus']}")
+        v = post(f"/api/runs/{rid}/annotations/version")["dataset_version"]
+        check(v["holdout_unchanged"] and v["relabelled"] == sm["consensus"]["changed_vs_given"] and v["rows"] == 20000, v)
+        ds = get(f"/api/datasets/{v['id']}")
+        lin = ds["profile"]["lineage"]
+        check(lin["parent"] == "support-tickets" and lin["relabelled"] == v["relabelled"] and lin["relabelled_holdout"] == 0
+              and lin["annotations"]["run_id"] == rid, lin)
+        sp_old = get("/api/datasets/support-tickets/splits")["splits"]
+        sp_new = get(f"/api/datasets/{v['id']}/splits")["splits"]
+        check({x["sha256"] for x in sp_new} <= {x["sha256"] for x in sp_old}, "the version's split differs")
+        check(get(f"/api/runs/{rid}/annotations")["versions"][-1]["id"] == v["id"], "version not listed")
+        return (f"a person's vote (6th annotator) + adjudication · holdout vote refused · SIMULATED adjudicator on the 50 lowest-quality "
+                f"queue rows → final labels {A['final']['accuracy']:.4f} vs consensus {A['consensus']['accuracy']:.4f} · version {v['id']}: "
+                f"{v['relabelled']} of {v['annotated_rows']} annotated rows relabelled, holdout labels and split SHA unchanged")
+
+    step("annotators: queue → votes → adjudication → version", queue_version)
+
+    def upload_bagged():
+        rec = wait_run(post("/api/runs", {"dataset_id": "support-tickets", "time_limit": 300, "feature_importance": False,
+                                          "fit_kwargs": {"num_bag_folds": 3, "hyperparameters": {"GBM": {"num_boost_round": 50}}},
+                                          "source": "smoke-annotators"})["id"])
+        rid = rec["id"]
+        rows = []
+        for it in s["items"]:
+            for v in it["votes"]:
+                if v["annotator"] != "Smoke Reviewer":
+                    rows.append({"ticket_id": f"T-{100000 + it['row']}", "annotator": v["annotator"], "category": v["label"]})
+        for i, h in enumerate(s["hold"][:5]):
+            rows.append({"ticket_id": f"T-{100000 + h}", "annotator": "ana", "category": "Billing"})
+        df = pd.DataFrame(rows)
+        r = C.post(f"/api/runs/{rid}/annotations/upload", files={"file": ("tickets_annotations.csv", df.to_csv(index=False).encode(), "text/csv")},
+                   data={"mode": "replace"})
+        check(r.status_code == 200, r.text[:300])
+        ld = r.json()["load"]
+        check(ld["row_key"] == "ticket_id" and ld["holdout_rows"] == 5 and ld["annotations"] == 4500 and ld["rows"] == 1500, ld)
+        g = _ann_wait(rid)
+        check(g["status"] == "ready", g.get("error"))
+        sm = g["summary"]
+        pr = sm["probs"]
+        check(pr["source"] == "run-oof" and pr["n_oof"] == rec["data"]["train_rows"] and sm["truth"] is None and not g["simulated"], pr)
+        items = _ann_votes(rid)
+        cons = {i["row"]: i["consensus"] for i in items}
+        same = np.mean([cons[i["row"]] == i["consensus"] for i in s["items"]])
+        return (f"{rid} (bagged k = 3): upload keyed by ticket_id, 5 holdout rows left out · p̂ = the run's own OOF ({pr['model']}) · "
+                f"Fleiss κ {sm['agreement']['fleiss_kappa']['value']:.4f} · worst {sm['worst_annotator']['name']} · consensus equals the "
+                f"quick-bagged one on {same:.1%} of rows · no truth shown for an upload")
+
+    step("annotators: upload + a bagged run's own OOF", upload_bagged)
+
+
 def main() -> int:
     global C, API
     ap = argparse.ArgumentParser()
@@ -3090,7 +3318,7 @@ def _main(args) -> int:
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
     sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
-                "import": importer, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "scorecard": scorecard, "learning": learning, "active": active, "reset": reset, "llm": llm}
+                "import": importer, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "reset": reset, "llm": llm}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")
