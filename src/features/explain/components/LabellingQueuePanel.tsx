@@ -14,11 +14,11 @@ const pct = (f: number) => `${+(f * 100).toFixed(1)}%`
 const nfmt = (n: number) => Math.round(n).toLocaleString()
 const PAGE = 40
 const VERDICT = {
-  'active-better': { pill: 'success', head: 'Active Beats Random', say: 'At the same number of labels, the rows picked by uncertainty + diversity gave a better model on every reading of the interval.' },
-  'no-clear-difference': { pill: 'neutral', head: 'No Clear Difference', say: 'The 95% interval of the gap contains 0: with these seeds the difference is within the noise of a refit.' },
-  'random-better': { pill: 'danger', head: 'Random Beats Active', say: 'Random rows gave a better model at the same budget: the uncertain rows here are mostly ambiguous, not informative.' },
+  'active-better': { pill: 'success', head: 'Active better', say: 'At the same number of labels, the rows picked by uncertainty + diversity gave a better model on every reading of the interval.' },
+  'no-clear-difference': { pill: 'neutral', head: 'Within noise', say: 'The 95% interval of the gap contains 0: with these seeds the difference is within the noise of a refit.' },
+  'random-better': { pill: 'danger', head: 'Random better', say: 'Random rows gave a better model at the same budget: the uncertain rows here are mostly ambiguous, not informative.' },
   pending: { pill: 'warning', head: 'Comparing…', say: 'The simulated comparison has not reached the last round yet.' },
-  'not-compared': { pill: 'neutral', head: 'Not Compared', say: '' },
+  'not-compared': { pill: 'neutral', head: 'Not compared', say: '' },
 } as const
 const U_FORMULA = {
   margin: <>u(x) = 1 − (p̂<sub>(1)</sub>(x) − p̂<sub>(2)</sub>(x))</>,
@@ -137,7 +137,7 @@ function Hero({ al, metric }: { al: ActiveLearning; metric: string }) {
     <div className="card navy explain-hero" data-testid="al-hero">
       <div className="eh-cell lead"><span className="micro-label">active vs random{s.comparison ? ' · simulated' : ''}</span><b data-testid="al-verdict">{meta.head}</b><small>{meta.say || v.reason}</small></div>
       {v.gap != null && <div className="eh-cell"><span className="micro-label">d̄ after round {v.round} (n = {nfmt(v.n ?? 0)})</span><b className="mono" data-testid="al-gap">{sgn(v.gap)}</b><small>95% CI {v.ci ? `[${sgn(v.ci[0])}, ${sgn(v.ci[1])}]` : '—'} · {v.wins}/{v.n_seeds} seeds</small></div>}
-      {fin && <div className="eh-cell"><span className="micro-label">{metric}, active · random</span><b className="mono">{fmtScore(fin.active.mean)} · {fmtScore(fin.random.mean)}</b><small>sd {fin.active.sd?.toFixed(4) ?? '—'} · {fin.random.sd?.toFixed(4) ?? '—'} over {fin.gap.n_seeds} seeds</small></div>}
+      {fin && <div className="eh-cell"><span className="micro-label">{metric}, active</span><b className="mono">{fmtScore(fin.active.mean)}</b><small>± {fin.active.sd?.toFixed(4) ?? '—'} · random {fmtScore(fin.random.mean)} ± {fin.random.sd?.toFixed(4) ?? '—'} ({fin.gap.n_seeds} seeds)</small></div>}
       <div className="eh-cell"><span className="micro-label">your queue · labels used</span><b className="mono" data-testid="al-labels">{nfmt(last?.n_labels ?? 0)}</b><small>{s.labels_used.map(nfmt).join(' → ')}</small></div>
       <div className="eh-cell"><span className="micro-label">your queue · {metric}</span><b className="mono">{fmtScore(last?.score)}</b><small>{q.map((p) => fmtScore(p.score)).join(' → ')}</small></div>
     </div>
@@ -175,7 +175,7 @@ function Chart({ al, metric }: { al: ActiveLearning; metric: string }) {
       caption={<>holdout {metric} of each refit against the labelled training rows n; every fit is the run's call and is scored on the same {al.holdout_rows?.toLocaleString()} holdout rows (<span className="mono">{al.holdout_sha}</span>). Simulated arms are labelled by the oracle (the hidden labels), with whiskers ±1 sd over seeds; active and random are drawn a little apart at each n.</>}>
       <div data-testid="al-chart">
         <XYPlot height={280} series={series}
-          x={{ min: x0 - pad, max: x1 + pad, ticks: [...new Set(xs)].sort((a, b) => a - b), title: 'labelled training rows n', fmt: (t) => nfmt(t) }}
+          x={{ min: x0 - pad, max: x1 + pad, ticks: [...new Set(xs)].sort((a, b) => a - b).filter((t, i, arr) => i === 0 || t - arr[i - 1] > (x1 - x0) * 0.04), title: 'labelled training rows n', fmt: (t) => nfmt(t) }}
           y={{ min: y0, max: y1, ticks: niceTicks(y0, y1, 5), title: metric, fmt: (t) => fmtScore(t, 3) }}>
           {(sx, sy) => <g>
             {rounds.flatMap((r) => (['active', 'random'] as const).map((k) => {
@@ -333,7 +333,7 @@ function Rounds({ al, metric }: { al: ActiveLearning; metric: string }) {
   const hist = q.history ?? []
   const rounds = al.summary?.comparison?.rounds ?? []
   return (
-    <div className="grid mono-grid">
+    <div className="stack" style={{ gap: 'var(--space-16)' }}>
       <div className="card" data-testid="al-rounds">
         <div className="card-head"><div className="left"><h3 className="card-title">Your Rounds</h3><span className="helper" style={{ fontSize: 12 }}>each submitted round is a dataset version with lineage, then a refit</span></div></div>
         <div className="card-body" style={{ overflowX: 'auto' }}>
