@@ -10,7 +10,8 @@ One line per step: ✓ or ✗, the step, a key number. Exits 1 if any step faile
   samples    loan-amount (regression) and support-tickets (text) through train and predict
   autopilot  a full Autopilot on support-tickets: start, inbox, bulk answers, retrain, requirements, inbox recall
   forecast   transaction-volume sample and an uploaded CSV: mapping → preview → TimeSeriesPredictor run + SSE →
-             leaderboard, weights, backtests → per-item errors → fan chart → CSV download → new-history forecast → register
+             leaderboard, weights, backtests (W auto) → per-item errors → interval calibration → conformal recalibration
+             (F1: raw → calibrated coverage, MASE, per-model coverage) → fan chart → CSV download → new-history forecast → register
   anomaly    card-transactions: IsolationForest + LOF run + SSE → top anomalies with reasons → precision@k against the
              hidden truth → batch score + download → register → Try It on a row
   import     fit a tiny TabularPredictor here, zip it, import it → leaderboard, explain, predict, register, Try It;
@@ -633,7 +634,7 @@ def forecast(st: dict[str, Any]) -> None:
     def run():
         r = post("/api/forecast/runs", {"dataset_id": "transaction-volume", "mapping": FC_MAP, "prediction_length": 28,
                                        "eval_metric": "MASE", "presets": "fast_training", "time_limit": 180,
-                                       "num_val_windows": 2, "hyperparameters": FC_HP,
+                                       "hyperparameters": FC_HP,
                                        "quantile_levels": [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95],
                                        "fit_kwargs": {"enable_ensemble": True}, "source": "smoke"})
         st["fc"] = r["id"]
@@ -653,11 +654,14 @@ def forecast(st: dict[str, Any]) -> None:
         w = (rec["ensemble"] or {}).get("weights") or {}
         check(abs(sum(w.values()) - 1) < 1e-6, w)
         bt = rec["backtests"]
-        check(len(bt["windows"]) == 2 and all(len(v) == 2 for v in bt["models"].values()), bt)
+        # F1: num_val_windows defaults to auto (≥ 3 where the history allows: 5 for these 6 series × 702 steps)
+        W = rec["data"]["num_val_windows"]
+        check(W >= 3 and len(bt["windows"]) == W and all(len(v) == W for v in bt["models"].values()), (W, bt.get("windows")))
         naive = next(r for r in lb if r["model"] == "SeasonalNaive")
         st["fc_rec"] = rec
-        return (f"best {rec['best_model']} holdout MASE {lb[0]['score_test_natural']:.3f} (SeasonalNaive {naive['score_test_natural']:.3f}) · "
-                "w = " + ", ".join(f"{k} {v:.2f}" for k, v in list(w.items())[:3]) + f" · {len(bt['windows'])} backtest windows")
+        best = next(r for r in lb if r["model"] == rec["best_model"])
+        return (f"best {rec['best_model']} holdout MASE {best['score_test_natural']:.3f} (SeasonalNaive {naive['score_test_natural']:.3f}) · "
+                "w = " + ", ".join(f"{k} {v:.2f}" for k, v in list(w.items())[:3]) + f" · W = {W} backtest windows ({rec['data']['num_val_windows_rule']})")
 
     step("forecast: leaderboard + weights", leaderboard)
 
@@ -683,6 +687,44 @@ def forecast(st: dict[str, Any]) -> None:
                 f"{main['nominal']:.0%} (95% CI {main['ci'][0]:.1%}–{main['ci'][1]:.1%}, P(K ≥ k) = {main['p_all_inside']:.1e}) → {cal['verdict']} · backtests: {bt}")
 
     step("forecast: interval calibration", calibration)
+
+    def conformal():
+        # F1 acceptance: the 90% interval's holdout coverage within [0.85, 0.95] after recalibration, MASE no more than
+        # 2% worse than round 1's 0.515 (W = 2, no recalibration), raw and calibrated both recorded, per-model coverage.
+        rec = st["fc_rec"]
+        h = rec["holdout"]
+        conf = h["conformal"]
+        check(h["recalibrated"] and conf and not conf.get("error") and conf["model"] == rec["best_model"], conf)
+        raw, cal = h["calibration_raw"]["intervals"][0], h["calibration"]["intervals"][0]
+        check(raw["nominal"] == cal["nominal"] and abs(cal["nominal"] - 0.9) < 1e-9, (raw, cal))
+        check(0.85 <= cal["empirical"] <= 0.95, f"calibrated coverage {cal['inside']}/{cal['n']} = {cal['empirical']:.3f}")
+        mase, base = h["metrics"]["MASE"], 0.515
+        check(mase <= base * 1.02, f"MASE {mase:.4f} vs round-1 {base} (+{mase / base - 1:.1%})")
+        check(h["metrics"]["MASE"] == h["metrics_raw"]["MASE"], "recalibration must not move the point forecast")
+        check(all(v is not None and v >= 0 for v in conf["factors"].values()), conf["factors"])
+        pm = {x["model"]: x for x in h["calibration"]["per_model"]}
+        check(set(pm) == {r["model"] for r in rec["leaderboard"]} and all(r.get("coverage_test") is not None for r in rec["leaderboard"]), pm.keys())
+        kinds = {e["kind"] for e in rec["ensembles"]}
+        check({"GreedyEnsemble", "LinearStackerEnsemble"} <= kinds, kinds)
+        lsq = next(e for e in rec["ensembles"] if e["kind"] == "LinearStackerEnsemble")
+        check(lsq["weights_per_quantile"] and all(abs(sum(v.values()) - 1) < 1e-4 for v in lsq["weights_per_quantile"].values()), lsq)
+        # the files and the chart carry both versions; the recalibrated quantiles never cross
+        for which in ("future", "future_raw", "holdout", "holdout_raw"):
+            r = C.get(f"/api/forecast/runs/{fid}/forecast.csv", params={"which": which})
+            check(r.status_code == 200 and len(pd.read_csv(io.BytesIO(r.content))) == 168, (which, r.status_code))
+        it = get(f"/api/forecast/runs/{fid}/chart")["items"]["cards-online"]
+        q, qr = it["holdout"]["q"], it["holdout"]["q_raw"]
+        check(all(q["0.05"][i] <= q["0.25"][i] <= q["0.5"][i] <= q["0.75"][i] <= q["0.95"][i] for i in range(28)), "calibrated quantiles cross")
+        check(q["0.5"] == qr["0.5"] and sum(q["0.95"][i] - q["0.05"][i] for i in range(28)) < sum(qr["0.95"][i] - qr["0.05"][i] for i in range(28)), "band")
+        o = get("/api/forecast/options")
+        check(o["defaults"]["conformal"] is True and o["defaults"]["num_val_windows"] is None and len(o["ensembles"]) == 3, o["defaults"])
+        cov = ", ".join(f"{m} {x['inside']}/{x['n']}" for m, x in pm.items())
+        return (f"[q0.05, q0.95] {raw['inside']}/{raw['n']} = {raw['empirical']:.1%} → {cal['inside']}/{cal['n']} = {cal['empirical']:.1%} "
+                f"(Wilson {cal['ci'][0]:.1%}–{cal['ci'][1]:.1%}) · c_τ " + " ".join(f"{k}:{v:.2f}" for k, v in conf["factors"].items())
+                + f" from {conf['n_scores']} backtest points · WQL {h['metrics_raw']['WQL']:.4f} → {h['metrics']['WQL']:.4f} · "
+                f"MASE {mase:.3f} vs {base} ({mase / base - 1:+.1%}) · per-model holdout coverage: {cov}")
+
+    step("forecast: conformal recalibration (F1)", conformal)
 
     def chart():
         c = get(f"/api/forecast/runs/{fid}/chart")
@@ -729,7 +771,8 @@ def forecast(st: dict[str, Any]) -> None:
         out = j(C.post(f"/api/forecast/runs/{fid}/predict", files={"file": ("history.csv", cut.to_csv(index=False).encode(), "text/csv")}))
         dl = C.get(out["download"])
         check(dl.status_code == 200 and len(pd.read_csv(io.BytesIO(dl.content))) == out["rows"] == 168, out)
-        return f"history to 2026-10-31 → {out['rows']} rows forecast by {out['model']} in {out['seconds']:.2f} s · covariates from {out['known_covariates_source']}"
+        check(out["recalibrated"] and out["conformal_factors"] == st["fc_rec"]["holdout"]["conformal"]["factors"], "new-history forecast not recalibrated")
+        return f"history to 2026-10-31 → {out['rows']} rows forecast by {out['model']} (recalibrated) in {out['seconds']:.2f} s · covariates from {out['known_covariates_source']}"
 
     step("forecast: forecast from new history", new_history)
 
@@ -740,7 +783,8 @@ def forecast(st: dict[str, Any]) -> None:
         card = get(f"/api/registry/versions/{v['id']}/card")
         check(card["forecasting"] and card["forecasting"]["holdout_metrics"]["MASE"] > 0, card.get("forecasting"))
         md = C.get(f"/api/registry/versions/{v['id']}/card", params={"format": "md"}).text
-        check("## 11. Forecasting" in md, "card section")
+        check("## 11. Forecasting" in md and "after conformal recalibration" in md, "card section")
+        check(card["forecasting"]["interval_calibration"]["recalibrated"], card["forecasting"].get("interval_calibration"))
         lat = v["result"]["version"]["latency"]
         st["fc_ver"] = v["id"]
         return f"{v['id']} · {v['model_name']} v{v['version']} · card §11 Forecasting · forecast all items {lat['forecast_all_items_s_p50'] * 1e3:.0f} ms"

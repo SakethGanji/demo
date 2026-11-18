@@ -7,7 +7,7 @@ import json
 import re
 import secrets
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pandas as pd
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
@@ -42,7 +42,16 @@ class ForecastCreate(BaseModel):
     presets: str | None = "medium_quality"
     time_limit: float | None = Field(300, gt=0)
     quantile_levels: list[float] = Field(default_factory=lambda: list(core.DEFAULT_QUANTILES))
-    num_val_windows: int | None = Field(2, ge=1, le=20)
+    num_val_windows: int | None = Field(None, ge=1, le=20, description="Backtest windows W; None = auto (AutoGluon's "
+                                        "recommendation with a floor of 3, capped by the shortest series).")
+    ensemble: Literal["greedy", "quantile", "both"] = Field(
+        "both", description="greedy = AutoGluon's WeightedEnsemble on eval_metric; quantile = LinearStackerEnsemble with "
+                            "a weight per model and quantile fitted by pinball loss; both = fit both, AutoGluon keeps "
+                            "the better on validation. fit_kwargs.ensemble_hyperparameters, if given, wins.")
+    conformal: bool = Field(True, description="Recalibrate the best model's quantiles from its backtest forecasts "
+                                              "(split-conformal scaling per quantile level). Raw and calibrated are both kept.")
+    conformal_scope: Literal["pooled", "item"] = Field("pooled", description="One c_τ for all series, or per series "
+                                                                            "(with ≥ 60 backtest points; pooled elsewhere).")
     hyperparameters: dict[str, Any] | str | None = None
     fit_kwargs: dict[str, Any] = Field(default_factory=dict, description="Passed to TimeSeriesPredictor.fit unchanged.")
     predictor_kwargs: dict[str, Any] = Field(default_factory=dict, description="Passed to TimeSeriesPredictor(...).")
@@ -67,7 +76,11 @@ def options() -> dict[str, Any]:
     return {"presets": [{"key": k, "info": core.PRESET_INFO[k]} for k in core.PRESETS],
             "metrics": [{"key": k, "formula": f, "quantile": k in core.QUANTILE_METRICS} for k, f in core.METRICS.items()],
             "defaults": {"prediction_length": 28, "eval_metric": "MASE", "presets": "medium_quality", "time_limit": 300,
-                         "quantile_levels": core.DEFAULT_QUANTILES, "num_val_windows": 2},
+                         "quantile_levels": core.DEFAULT_QUANTILES, "num_val_windows": None, "ensemble": "both",
+                         "conformal": True, "conformal_scope": "pooled"},
+            "ensembles": [{"key": k, "label": v["label"], "info": v["info"], "ensemble_hyperparameters": v["hp"]}
+                          for k, v in core.ENSEMBLES.items()],
+            "num_val_windows_auto": "W = min(5 if fewer than 20 series else 3, ⌊(n_min − 1)/H⌋ − 2), at least 1",
             "families": ["baseline", "statistical", "tabular", "deep", "foundation", "ensemble"]}
 
 
@@ -184,7 +197,9 @@ def chart(run_id: str, request: Request) -> dict[str, Any]:
 @router.get("/runs/{run_id}/forecast.csv")
 def download(run_id: str, request: Request, which: str = "future"):
     rec = _run(request, run_id)
-    name = "holdout_forecast.csv" if which == "holdout" else "forecast.csv"
+    # which = future | holdout (recalibrated when the run recalibrated) | future_raw | holdout_raw (AutoGluon's quantiles)
+    name = {"holdout": "holdout_forecast.csv", "future_raw": "forecast_raw.csv",
+            "holdout_raw": "holdout_forecast_raw.csv"}.get(which, "forecast.csv")
     p = Path(rec["config"]["run_dir"]) / name
     if not p.exists():
         raise HTTPException(409, "No forecast yet.")

@@ -385,14 +385,220 @@ def calibration(actual: pd.DataFrame, pred: pd.DataFrame, quantiles: list[float]
     return {"n": n, "levels": levels, "intervals": intervals, "verdict": verdict, "backtest": bt}
 
 
+# --------------------------------------------------------------------------- ensembles
+
+# The ensemble choices offered on top of AutoGluon's default. Keys go to fit(ensemble_hyperparameters=...).
+ENSEMBLES = {
+    "greedy": {"label": "Greedy (Caruana) on eval_metric", "hp": None,
+               "info": "AutoGluon's default WeightedEnsemble: greedy selection minimising the eval_metric on the backtests"},
+    "quantile": {"label": "Quantile-aware (pinball loss, a weight per model and quantile)",
+                 "hp": {"LinearStacker": {"weights_per": "mq"}},
+                 "info": "LinearStackerEnsemble(weights_per='mq'): softmax weights w_{m,τ} per model and quantile, fitted "
+                         "by minimising the mean pinball loss ρ_τ over the backtest windows"},
+    "both": {"label": "Both; AutoGluon keeps the better on validation",
+             "hp": {"Greedy": {}, "LinearStacker": {"weights_per": "mq"}},
+             "info": "fits the greedy and the quantile-aware ensemble; model_best is the one with the better validation score"},
+}
+
+
+def patch_array_ensembles() -> None:
+    """AutoGluon 1.6.3 bug: the array-based ensembles (LinearStacker, Median, Tabular) build their labels from every
+    column of the ground-truth windows, so with known covariates the label array has 1 + |x| columns and the fit fails
+    ('size of tensor a (3) must match … b (8)'). Give them the target column only. Idempotent."""
+    try:
+        from autogluon.timeseries.models.ensemble.array_based.abstract import ArrayBasedTimeSeriesEnsembleModel as A
+    except Exception:  # noqa: BLE001
+        return
+    if getattr(A._fit, "_target_only", False):
+        return
+    orig = A._fit
+
+    def _fit(self, predictions_per_window, data_per_window, model_scores=None, time_limit=None):
+        data_per_window = [d[[self.target]] if d.shape[1] > 1 else d for d in data_per_window]
+        return orig(self, predictions_per_window, data_per_window, model_scores, time_limit)
+
+    _fit._target_only = True  # type: ignore[attr-defined]
+    A._fit = _fit
+
+
+def ensemble_weights(mdl, quantiles: list[float]) -> tuple[dict[str, float] | None, dict[str, dict[str, float]] | None]:
+    """(w_m, w_{m,τ}) of an ensemble model: model_to_weight for the greedy kind; for LinearStacker the softmax weights,
+    averaged over outputs for w_m and per quantile level for w_{m,τ} (column 'mean' = the mean forecast)."""
+    w = getattr(mdl, "model_to_weight", None)
+    if w:
+        return {k: float(v) for k, v in sorted(w.items(), key=lambda kv: -kv[1])}, None
+    reg = getattr(mdl, "ensemble_regressor", None)
+    arr = getattr(reg, "weights", None)
+    names = list(getattr(mdl, "_model_names", None) or [])
+    if arr is None or not names:
+        return None, None
+    a = np.asarray(arr, dtype=float)
+    a = a.reshape(-1, a.shape[-2], a.shape[-1]).mean(axis=0)  # (outputs, models); 'm' has outputs = 1
+    wm = a.mean(axis=0)
+    w_m = {n: float(v) for n, v in sorted(zip(names, wm), key=lambda kv: -kv[1])}
+    per_q = None
+    if a.shape[0] == len(quantiles) + 1:
+        per_q = {lab: {n: float(v) for n, v in zip(names, a[i])} for i, lab in enumerate(["mean", *[str(q) for q in quantiles]])}
+    return w_m, per_q
+
+
+# --------------------------------------------------------------------------- conformal recalibration
+
+CONFORMAL_FILE = "ensemble_conformal.json"  # inside the predictor folder, so a registry version (a copy of it) keeps it
+
+
+def _center_col(cols, quantiles: list[float]) -> str:
+    """The band's centre: the median column when 0.5 is a quantile level, else the mean."""
+    return next((str(t) for t in quantiles if abs(t - 0.5) < 1e-9), "mean")
+
+
+def _order_stat(r: np.ndarray, level: float) -> tuple[float | None, int]:
+    """Split-conformal quantile: the ⌈(n + 1)·level⌉-th smallest score (None when n is too small for that level)."""
+    n = len(r)
+    k = int(math.ceil((n + 1) * level))
+    if n == 0 or k > n:
+        return None, k
+    return float(np.sort(r)[max(k, 1) - 1]), k
+
+
+def conformal_fit(preds: list, targets: list, quantiles: list[float], scope: str = "pooled",
+                  min_item_points: int = 60) -> dict[str, Any]:
+    """Scale factors c_τ per quantile level from backtest windows (split-conformal, CQR-style scaling about the median).
+
+    For every backtest point with centre m = q̂₀.₅ (or the mean), forecast quantile q̂_τ and actual y, the score is
+    r = (y − m) / (q̂_τ − m): how many band half-widths away from the centre the actual landed. The recalibrated quantile
+    is q̃_τ = m + c_τ (q̂_τ − m). For τ > ½, y ≤ q̃_τ ⟺ r ≤ c_τ, so c_τ = the ⌈(n+1)τ⌉-th smallest r; for τ < ½,
+    y ≤ q̃_τ ⟺ r ≥ c_τ, so c_τ = the ⌈(n+1)(1−τ)⌉-th smallest r. Then P(y ≤ q̃_τ) ≥ τ above the median and ≤ τ below
+    it, so [q̃_lo, q̃_hi] covers at least hi − lo of exchangeable new points. c_τ < 1 shrinks a band that was too wide,
+    c_τ > 1 widens one too narrow; c_τ ≥ 0 so a quantile never crosses the centre. scope 'item' fits c_τ per series
+    where it has at least `min_item_points` scores and falls back to the pooled c_τ elsewhere."""
+    rows = []
+    for p, tgt in zip(preds, targets):
+        df = p.to_data_frame() if hasattr(p, "to_data_frame") else p
+        y = tgt["target"].reindex(df.index)
+        part = df.copy()
+        part["__y"] = y.to_numpy(dtype=float)
+        rows.append(part)
+    if not rows:
+        return {"error": "no backtest predictions"}
+    allp = pd.concat(rows)
+    allp = allp[allp["__y"].notna()]
+    centre = _center_col(allp.columns, quantiles)
+    m = allp[centre].to_numpy(dtype=float)
+    y = allp["__y"].to_numpy(dtype=float)
+    items = allp.index.get_level_values(0).astype(str).to_numpy()
+
+    def fit_one(mask: np.ndarray) -> dict[str, Any]:
+        out = {}
+        for t in quantiles:
+            if str(t) == centre:
+                continue
+            d = allp[str(t)].to_numpy(dtype=float)[mask] - m[mask]
+            ok = np.abs(d) > 1e-9 * (np.abs(m[mask]) + 1)
+            r = (y[mask][ok] - m[mask][ok]) / d[ok]
+            level = t if t > 0.5 else 1 - t
+            c, k = _order_stat(r, level)
+            out[str(t)] = {"c": None if c is None else max(0.0, c), "n": int(ok.sum()), "k": k,
+                           "raw_below": float(np.mean(y[mask] <= allp[str(t)].to_numpy(dtype=float)[mask])) if mask.any() else None}
+        return out
+
+    pooled = fit_one(np.ones(len(y), dtype=bool))
+    per_item = {}
+    if scope == "item":
+        for it in np.unique(items):
+            mask = items == it
+            if mask.sum() >= min_item_points:
+                per_item[it] = {k: v["c"] for k, v in fit_one(mask).items()}
+    return {"method": "split-conformal scaling about the centre (CQR-style), one c_τ per quantile level",
+            "scope": scope, "centre": centre, "quantiles": quantiles, "n_scores": int(len(y)),
+            "windows": len(preds), "items": int(len(np.unique(items))),
+            "factors": {k: v["c"] for k, v in pooled.items()}, "levels": pooled, "per_item": per_item}
+
+
+def conformal_apply(pred, conf: dict[str, Any] | None):
+    """q̃_τ = m + c_τ (q̂_τ − m) for every quantile column, per item when fitted per item; then the quantiles are sorted
+    per row (rearrangement) so they never cross. The mean and the centre column are unchanged."""
+    if not conf or not conf.get("factors"):
+        return pred
+    out = pred.copy()
+    centre = conf["centre"]
+    m = out[centre].to_numpy(dtype=float)
+    items = out.index.get_level_values(0).astype(str).to_numpy()
+    qcols = [c for c in out.columns if c != "mean"]
+    for col, c in conf["factors"].items():
+        if col not in out.columns:
+            continue
+        cvec = np.full(len(out), np.nan if c is None else float(c))
+        for it, fac in (conf.get("per_item") or {}).items():
+            if fac.get(col) is not None:
+                cvec[items == it] = fac[col]
+        q = out[col].to_numpy(dtype=float)
+        out[col] = np.where(np.isnan(cvec), q, m + cvec * (q - m))
+    qs = sorted(qcols, key=float)
+    out[qs] = np.sort(out[qs].to_numpy(dtype=float), axis=1)
+    return out
+
+
+def auto_windows(min_len: int, H: int, items: int) -> tuple[int, str]:
+    """num_val_windows when none is given: AutoGluon's own 'auto' recommendation (5 windows under 20 series, else 3
+    or 2) with a floor of 3, capped by what the shortest series allows: n_min ≥ H(W + 2) + 1 (W windows, the holdout
+    and at least H + 1 steps to train on)."""
+    rec = 5 if items < 20 else 3
+    cap = max(1, (min_len - 1) // H - 2)
+    w = max(1, min(rec, cap))
+    why = (f"auto: {rec} for {items} series (AutoGluon's recommendation, at least 3)"
+           + (f", capped at {cap} by the shortest series (n_min = {min_len} ≥ H(W + 2) + 1)" if cap < rec else ""))
+    return w, why
+
+
+def wql(actual, pred, quantiles: list[float]) -> float:
+    """WQL = 2 Σ_τ Σ_t ρ_τ(y_t − q̂_τ,t) / (|T| Σ_t |y_t|), pooled over every series and step (AutoGluon's definition)."""
+    y = actual["target"].reindex(pred.index).to_numpy(dtype=float)
+    ok = ~np.isnan(y)
+    num = sum(pinball(y[ok], pred[str(t)].to_numpy(dtype=float)[ok], t).sum() for t in quantiles)
+    den = len(quantiles) * np.abs(y[ok]).sum()
+    return float(2 * num / den) if den > 0 else float("nan")
+
+
+def model_coverage(predictor, train, kc_h, actual, quantiles: list[float], backtests: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Every model's coverage of the widest central interval [q_lo, q_hi]: on the holdout (its own forecast from the
+    training data, with a 95% Wilson interval) and averaged over the backtest windows. AutoGluon's raw quantiles."""
+    lo, hi = min(quantiles), max(quantiles)
+    nominal = hi - lo
+    out = []
+    bt = (backtests or {}).get("models") or {}
+    for name in predictor.model_names():
+        try:
+            p = predictor.predict(train, known_covariates=kc_h, model=name)
+        except Exception as e:  # noqa: BLE001
+            out.append({"model": name, "error": f"{type(e).__name__}: {e}"})
+            continue
+        y = actual["target"].reindex(p.index).to_numpy(dtype=float)
+        ok = ~np.isnan(y)
+        inside = int(((y[ok] >= p[str(lo)].to_numpy(dtype=float)[ok]) & (y[ok] <= p[str(hi)].to_numpy(dtype=float)[ok])).sum())
+        n = int(ok.sum())
+        bcov = [w.get("coverage") for w in bt.get(name, []) if w.get("coverage") is not None]
+        out.append({"model": name, "family": family(name), "lo": lo, "hi": hi, "nominal": nominal, "inside": inside, "n": n,
+                    "empirical": inside / n if n else None, "ci": _wilson(inside, n),
+                    "backtest": float(np.mean(bcov)) if bcov else None})
+    return out
+
+
+def load_conformal(predictor_path: str) -> dict[str, Any] | None:
+    p = Path(predictor_path) / CONFORMAL_FILE
+    return json.loads(p.read_text()) if p.exists() else None
+
+
 def _fmt_ts(idx) -> list[str]:
     s = pd.DatetimeIndex(idx).strftime("%Y-%m-%d %H:%M:%S")
     return [x.replace(" 00:00:00", "") for x in s]
 
 
-def chart_payload(full, holdout_pred, future_pred, quantiles: list[float], history: int = 120) -> dict[str, Any]:
+def chart_payload(full, holdout_pred, future_pred, quantiles: list[float], history: int = 120,
+                  raw: tuple | None = None) -> dict[str, Any]:
     """Per item: the last `history` observed points, the holdout window's actuals with the forecast made without
-    them, and the future forecast; quantiles as columns 'q0.1' … plus the mean."""
+    them, and the future forecast; quantiles as columns 'q0.1' … plus the mean. With `raw` (holdout, future) before
+    conformal recalibration, each also carries `q_raw`."""
     items = {}
     for item in full.item_ids:
         s = full.loc[item]["target"]
@@ -404,6 +610,9 @@ def chart_payload(full, holdout_pred, future_pred, quantiles: list[float], histo
             p = pred.loc[item]
             rec[key] = {"t": _fmt_ts(p.index), "mean": [float(v) for v in p["mean"]],
                         "q": {str(t): [float(v) for v in p[str(t)]] for t in quantiles}}
+            if raw is not None:
+                r = raw[0 if key == "holdout" else 1].loc[item]
+                rec[key]["q_raw"] = {str(t): [float(v) for v in r[str(t)]] for t in quantiles}
             if key == "holdout":
                 rec[key]["actual"] = [None if pd.isna(v) else float(v) for v in s.reindex(p.index)]
         items[str(item)] = rec
@@ -430,6 +639,9 @@ def resolve(cfg: dict[str, Any], freq: str | None) -> tuple[dict[str, Any], dict
         fk["num_val_windows"] = cfg["num_val_windows"]
     if cfg.get("hyperparameters") is not None:
         fk["hyperparameters"] = cfg["hyperparameters"]
+    ens = ENSEMBLES.get(cfg.get("ensemble") or "greedy") or ENSEMBLES["greedy"]
+    if ens["hp"] is not None:
+        fk["ensemble_hyperparameters"] = json.loads(json.dumps(ens["hp"]))
     fk["random_seed"] = cfg.get("random_seed", 123)
     fk.update(cfg.get("fit_kwargs") or {})
     return pk, fk
@@ -482,23 +694,35 @@ def run(cfg: dict[str, Any], run_dir: Path, emit: Emit, merge: Callable[..., Any
     H = int(cfg["prediction_length"])
     m = int(cfg.get("eval_metric_seasonal_period") or seasonal_period(freq))
     min_len = int(full.num_timesteps_per_item().min())
+    nvw_rule = None
+    if cfg.get("num_val_windows") in (None, "auto"):
+        nvw, nvw_rule = auto_windows(min_len, H, int(full.num_items))
+        cfg = {**cfg, "num_val_windows": nvw}
     nvw = int(cfg.get("num_val_windows") or 1)
     if min_len < H * (nvw + 2) + 1:
         raise ForecastError(f"the shortest series has {min_len} steps; with prediction_length {H} and "
                             f"{nvw} backtest window(s) it needs at least {H * (nvw + 2) + 1}")
     train = full.slice_by_timestep(None, -H)
-    info.update({"freq": freq, "seasonal_period": m, "prediction_length": H, "train_end": str(train.index.get_level_values(1).max()),
+    info.update({"num_val_windows": nvw, "num_val_windows_rule": nvw_rule,
+                 "freq": freq, "seasonal_period": m, "prediction_length": H, "train_end": str(train.index.get_level_values(1).max()),
                  "holdout_start": str(full.slice_by_timestep(-H, None).index.get_level_values(1).min()),
                  "train_rows": int(len(train)), "holdout_rows": int(len(full) - len(train))})
     emit("data_ready", **info)
     merge(data=info)
 
     pk, fk = resolve(cfg, freq)
+    patch_array_ensembles()
     quantiles = [float(q) for q in pk["quantile_levels"]]
+    conf_on = bool(cfg.get("conformal", False))
+    conf_scope = cfg.get("conformal_scope") or "pooled"
     resolved = {"predictor_kwargs": pk, "fit_kwargs": fk, "path": cfg["predictor_path"],
                 "call": "TimeSeriesPredictor(**predictor_kwargs).fit(train_data, **fit_kwargs)",
                 "notes": [f"the last {H} steps of every series held out; fit on the rest",
-                          f"seasonal period m = {m} (from freq '{freq}')"]}
+                          f"seasonal period m = {m} (from freq '{freq}')"]
+                         + ([f"num_val_windows = {nvw}: {nvw_rule}"] if nvw_rule else [])
+                         + [f"ensemble: {(ENSEMBLES.get(cfg.get('ensemble') or 'greedy') or ENSEMBLES['greedy'])['info']}"]
+                         + ([f"conformal recalibration ({conf_scope}) of the best model's quantiles from its backtest forecasts"]
+                            if conf_on else ["no conformal recalibration: the quantiles are AutoGluon's"])}
     merge(resolved=resolved)
     emit("config_resolved", **resolved)
 
@@ -519,15 +743,17 @@ def run(cfg: dict[str, Any], run_dir: Path, emit: Emit, merge: Callable[..., Any
     weights = {}
     ens = []
     for name in predictor.model_names():
+        if "Ensemble" not in name:
+            continue
         try:
             mdl = predictor._trainer.load_model(name)
         except Exception:  # noqa: BLE001
             continue
-        w = getattr(mdl, "model_to_weight", None)
+        w, per_q = ensemble_weights(mdl, quantiles)
         if w:
-            w = {k: float(v) for k, v in sorted(w.items(), key=lambda kv: -kv[1])}
             weights[name] = w
-            ens.append({"model": name, "weights": w, "best": name == best, "stack_level": 2})
+            ens.append({"model": name, "weights": w, "weights_per_quantile": per_q, "kind": type(mdl).__name__,
+                        "best": name == best, "stack_level": 2})
     emit("fit_finished", best_model=best, fit_seconds=fit_seconds, n_models=len(predictor.model_names()),
          ensemble=next((e for e in ens if e["best"]), ens[0] if ens else None))
 
@@ -560,31 +786,66 @@ def run(cfg: dict[str, Any], run_dir: Path, emit: Emit, merge: Callable[..., Any
     emit("explaining", what="holdout")
     known = list(cfg["mapping"].get("known_covariates") or [])
     kc_h = full.slice_by_timestep(-H, None)[known] if known else None
-    hold_pred = predictor.predict(train, known_covariates=kc_h, model=best)
+    hold_raw = predictor.predict(train, known_covariates=kc_h, model=best)
     hist = {it: train.loc[it]["target"].to_numpy(dtype=float) for it in train.item_ids}
     actual = full.slice_by_timestep(-H, None)
+
+    # conformal recalibration: c_τ from the best model's own backtest forecasts (never the holdout)
+    conf = None
+    if conf_on:
+        emit("explaining", what="conformal recalibration")
+        try:
+            conf = conformal_fit(predictor.backtest_predictions(model=best), predictor.backtest_targets(), quantiles,
+                                 scope=conf_scope)
+            conf["model"] = best
+            if conf.get("error"):
+                conf = {"error": conf["error"]}
+            else:
+                (Path(cfg["predictor_path"]) / CONFORMAL_FILE).write_text(json.dumps(conf, indent=1))
+        except Exception as e:  # noqa: BLE001
+            conf = {"error": f"{type(e).__name__}: {e}"}
+    usable = conf if conf and not conf.get("error") else None
+    hold_pred = conformal_apply(hold_raw, usable)
+
     per_item = item_errors(hist, actual, hold_pred, quantiles, m)
     ev = predictor.evaluate(full, model=best, metrics=["MASE", "WQL", "SMAPE", "MAPE", "RMSE", "WAPE"])
-    hold_metrics = {k: -float(v) for k, v in ev.items()}
+    metrics_raw = {k: -float(v) for k, v in ev.items()}
+    hold_metrics = dict(metrics_raw)
+    if usable:  # point metrics are unchanged (the mean and the median are not moved); the quantile loss is recomputed
+        hold_metrics["WQL"] = wql(actual, hold_pred, quantiles)
     cov = [r["coverage"] for r in per_item]
-    holdout = {"model": best, "metrics": hold_metrics, "eval_metric": pk["eval_metric"],
+    cal_raw = calibration(actual, hold_raw, quantiles, backtests)
+    cal = calibration(actual, hold_pred, quantiles, backtests) if usable else cal_raw
+    per_model = model_coverage(predictor, train, kc_h, actual, quantiles, backtests)
+    cal["per_model"] = cal_raw["per_model"] = per_model
+    for r in rows:
+        pm = next((x for x in per_model if x["model"] == r["model"]), None)
+        r["coverage_test"] = pm["empirical"] if pm else None
+        r["coverage_val"] = pm["backtest"] if pm else None
+    merge(leaderboard=rows)
+    holdout = {"model": best, "metrics": hold_metrics, "metrics_raw": metrics_raw, "eval_metric": pk["eval_metric"],
                "coverage": float(np.mean(cov)) if cov else None, "interval": [min(quantiles), max(quantiles)],
                "n_items": len(per_item), "horizon": H, "items": per_item,
-               "calibration": calibration(actual, hold_pred, quantiles, backtests)}
+               "calibration": cal, "calibration_raw": cal_raw, "conformal": conf,
+               "recalibrated": usable is not None}
     merge(holdout=holdout)
     emit("evaluation", model=best, metrics=hold_metrics, coverage=holdout["coverage"])
 
     # the forecast past the end of the data
     emit("explaining", what="forecast")
     kc_f, kc_source = future_covariates(predictor, full, fut, known, m)
-    fpred = predictor.predict(full, known_covariates=kc_f, model=best)
+    fpred_raw = predictor.predict(full, known_covariates=kc_f, model=best)
+    fpred = conformal_apply(fpred_raw, usable)
     fpred.to_data_frame().reset_index().to_csv(run_dir / "forecast.csv", index=False)
     hold_pred.to_data_frame().reset_index().to_csv(run_dir / "holdout_forecast.csv", index=False)
-    chart = chart_payload(full, hold_pred, fpred, quantiles)
+    if usable:  # both versions are kept: AutoGluon's quantiles and the recalibrated ones
+        fpred_raw.to_data_frame().reset_index().to_csv(run_dir / "forecast_raw.csv", index=False)
+        hold_raw.to_data_frame().reset_index().to_csv(run_dir / "holdout_forecast_raw.csv", index=False)
+    chart = chart_payload(full, hold_pred, fpred, quantiles, raw=(hold_raw, fpred_raw) if usable else None)
     (run_dir / "chart.json").write_text(json.dumps(chart))
     fc = {"model": best, "horizon": H, "start": str(fpred.index.get_level_values(1).min()),
           "end": str(fpred.index.get_level_values(1).max()), "rows": int(len(fpred)),
-          "known_covariates_source": kc_source, "quantiles": quantiles}
+          "known_covariates_source": kc_source, "quantiles": quantiles, "recalibrated": usable is not None}
     merge(forecast=fc)
     emit("forecast_ready", **fc)
 
@@ -647,11 +908,15 @@ def predict_new(predictor_path: str, cfg: dict[str, Any], csv_path: str, out_pat
     kc, src = future_covariates(p, data, fut, known, m)
     t0 = time.perf_counter()
     pred = p.predict(data, known_covariates=kc)
+    conf = load_conformal(predictor_path)
+    conf = conf if conf and conf.get("model") == p.model_best else None
+    pred = conformal_apply(pred, conf)
     secs = time.perf_counter() - t0
     pred.to_data_frame().reset_index().to_csv(out_path, index=False)
     q = [float(x) for x in p.quantile_levels]
     return {"items": int(pred.num_items), "rows": int(len(pred)), "seconds": secs, "known_covariates_source": src,
-            "chart": chart_payload(data, None, pred, q, history=90), "model": p.model_best}
+            "chart": chart_payload(data, None, pred, q, history=90), "model": p.model_best,
+            "recalibrated": conf is not None, "conformal_factors": (conf or {}).get("factors")}
 
 
 def _nan_none(x):

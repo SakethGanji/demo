@@ -210,10 +210,25 @@ def _forecast_section(cfg: dict[str, Any], res: dict[str, Any]) -> dict[str, Any
         "items": (h.get("items") or [])[:20],
         "backtests": {"windows": bt.get("windows"), "best": (bt.get("models") or {}).get(best)},
         "forecast": fc, "ensemble": res.get("ensemble"),
+        "interval_calibration": _fc_calibration(h),
         "limitations": ["Known covariates past the data come from the file's future rows; when absent they repeat the "
                         "value one season back (said in forecast.known_covariates_source).",
                         "Structural breaks (new branches, policy changes) after the training window are not anticipated."],
     }
+
+
+def _fc_calibration(h: dict[str, Any]) -> dict[str, Any] | None:
+    """The widest central interval's holdout coverage before and after conformal recalibration, with c_τ."""
+    def main(c):
+        i = ((c or {}).get("intervals") or [None])[0]
+        return None if not i else {k: i[k] for k in ("lo", "hi", "nominal", "inside", "n", "empirical", "ci")}
+    if not h.get("calibration"):
+        return None
+    conf = h.get("conformal") or {}
+    return {"recalibrated": bool(h.get("recalibrated")), "raw": main(h.get("calibration_raw") or h.get("calibration")),
+            "calibrated": main(h.get("calibration")) if h.get("recalibrated") else None,
+            "method": conf.get("method"), "scope": conf.get("scope"), "factors": conf.get("factors"),
+            "n_scores": conf.get("n_scores"), "windows": conf.get("windows"), "error": conf.get("error")}
 
 
 def _anomaly_section(cfg: dict[str, Any], res: dict[str, Any]) -> dict[str, Any]:
@@ -332,6 +347,16 @@ def to_markdown(c: dict[str, Any]) -> str:
             L.append(f"| {k} | {_fmt(val)} |")
         if f.get("coverage") is not None:
             L.append(f"| coverage of [q{f['interval'][0]}, q{f['interval'][1]}] | {_fmt(f['coverage'])} |")
+        ic = f.get("interval_calibration") or {}
+        if ic.get("raw"):
+            r, c = ic["raw"], ic.get("calibrated")
+            L += ["", f"Interval calibration, [q{r['lo']}, q{r['hi']}] (nominal {_fmt(r['nominal'])}) on the holdout: "
+                  f"AutoGluon's quantiles cover {r['inside']}/{r['n']} = {_fmt(r['empirical'])}"
+                  + (f"; after conformal recalibration {c['inside']}/{c['n']} = {_fmt(c['empirical'])} "
+                     f"(95% Wilson CI {_fmt(c['ci'][0])}–{_fmt(c['ci'][1])}). q̃_τ = m + c_τ (q̂_τ − m) with "
+                     + ", ".join(f"c({k}) = {_fmt(v, 3)}" for k, v in (ic.get('factors') or {}).items())
+                     + f", fitted on {ic.get('n_scores')} backtest points ({ic.get('scope')})." if c else
+                     ". Not recalibrated" + (f" ({ic['error']})" if ic.get("error") else "") + ".")]
         L += ["", "| Item | MASE | WQL | sMAPE | coverage |", "| --- | ---: | ---: | ---: | ---: |"]
         for it in f.get("items") or []:
             L.append(f"| {it['item_id']} | {_fmt(it.get('MASE'))} | {_fmt(it.get('WQL'))} | {_fmt(it.get('sMAPE'))} | {_fmt(it.get('coverage'))} |")
