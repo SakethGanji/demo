@@ -51,8 +51,6 @@ export function LiveHome({ go }: { go: (r: string) => void }) {
     api.runs.list(undefined, 'all').then(setRuns).catch(() => {})
     api.registry.summary().then(setReg).catch(() => {})
   }, [tick, status?.active?.id])
-  const [datasets, setDatasets] = useState<DatasetSummary[]>([])
-  useEffect(() => { api.datasets.list().then(setDatasets).catch(() => {}) }, [])
 
   const active = status?.active ?? null
   // The monitor plots validation scores per model: tabular, imported and forecast runs have them; anomaly runs don't.
@@ -79,7 +77,7 @@ export function LiveHome({ go }: { go: (r: string) => void }) {
         <span className="spacer" />
         <button className="btn sm" onClick={() => go('experiments')}>Open Experiments →</button>
       </div>
-      {runs.length === 0 ? <FirstRun datasets={datasets} go={go} /> : (
+      {runs.length === 0 ? <p className="helper card card-body" style={{ margin: 0 }}>No runs yet: every run you start appears here as a string, taut when finished, waving while it fits.</p> : (
       <div className="card run-strings" data-testid="home-runs">
         {runs.slice(0, 6).map((r) => <RunString key={r.id} run={runState(r, active, now)} onClick={() => go(r.status === 'succeeded' && kindOf(r) === 'tabular' ? `explain?run=${r.id}` : runPage(r))} />)}
       </div>)}
@@ -142,7 +140,7 @@ function FirstRun({ datasets, go }: { datasets: DatasetSummary[]; go: (r: string
           return (
             <button key={d.id} className="fr-card" onClick={() => go(FLOW[flow].route(d.id))} data-testid={`home-sample-${d.id}`}>
               <span className="fr-name">{d.name}</span>
-              <span className="fr-meta mono">{d.rows.toLocaleString()} rows × {d.n_cols} cols{d.target ? ` · y = ${d.target}` : ''}</span>
+              <span className="fr-meta mono">{d.rows.toLocaleString()} rows × {d.n_cols} cols{flow === 'tabular' && d.target ? ` · y = ${d.target}` : flow === 'anomaly' ? ' · no label' : flow === 'forecast' ? ' · long format' : ''}</span>
               <span className="fr-note">{d.note}</span>
               <span className="fr-go">{FLOW[flow].label} →</span>
             </button>
@@ -152,6 +150,13 @@ function FirstRun({ datasets, go }: { datasets: DatasetSummary[]; go: (r: string
       </div>
     </div>
   )
+}
+
+/** The first-run panel with its own sample list (Home shows it above the toolkit while there are no runs). */
+export function FirstRunLive({ go }: { go: (r: string) => void }) {
+  const [datasets, setDatasets] = useState<DatasetSummary[]>([])
+  useEffect(() => { api.datasets.list().then(setDatasets).catch(() => {}) }, [])
+  return <FirstRun datasets={datasets} go={go} />
 }
 
 /** The hero's one-line readout in live mode: runs, what is in Production, the best score. */

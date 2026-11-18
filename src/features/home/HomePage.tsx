@@ -14,7 +14,7 @@ import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
 import { useApi } from '@/shared/api/mode'
 import { ToolCard } from './components/ToolCard'
-import { LiveHeroRead, LiveHome } from './LiveHome'
+import { FirstRunLive, LiveHeroRead, LiveHome } from './LiveHome'
 
 const TRAIN = curve(40, 1.2, 0.24, 0.12, 0.03, 7)
 
@@ -74,6 +74,8 @@ export function HomePage({ go, openPalette }: { go: (r: string) => void; openPal
           </div>
         </div>
       </section>
+
+      {live && status && status.runs === 0 && <FirstRunLive go={go} />}
 
       <div className="bench-head">
         <h2 className="bench-title">Toolkit</h2>
