@@ -24,6 +24,7 @@ from . import config
 from .db import Database
 from .profiling import profile_frame
 from .samples import SAMPLES
+from . import splits as splits_mod
 from .splits import RANDOM_STRATIFIED, load_splits, make_splits, save_splits, split_key, summarize
 
 log = logging.getLogger("ensemble.datasets")
@@ -64,8 +65,9 @@ class DatasetStore:
     def legacy_splits_path(self, dataset_id: str) -> Path:
         return self.dir(dataset_id) / "splits.json"
 
-    def split_path(self, dataset_id: str, target: str | None, strategy: str = RANDOM_STRATIFIED) -> Path:
-        return self.dir(dataset_id) / "splits" / f"{split_key(target, strategy)}.json"
+    def split_path(self, dataset_id: str, target: str | None, strategy: str = RANDOM_STRATIFIED,
+                   params: dict[str, Any] | None = None) -> Path:
+        return self.dir(dataset_id) / "splits" / f"{split_key(target, strategy, params)}.json"
 
     def splits_path(self, dataset_id: str, target: str | None = None) -> Path:
         """The split file for `target` (default: the dataset's current target), drawn if it doesn't exist yet."""
@@ -74,18 +76,24 @@ class DatasetStore:
             target = rec["target"] if rec else None
         return self.ensure_splits(dataset_id, target)[0]
 
-    def ensure_splits(self, dataset_id: str, target: str | None,
-                      strategy: str = RANDOM_STRATIFIED) -> tuple[Path, dict[str, Any], bool]:
-        """(path, splits, created) of the (target, strategy) split. An existing split is never redrawn. A new one is
-        drawn from data.csv with the fixed seed, so the same file and target always give the same holdout, whichever
-        target the profiler guessed. The legacy splits.json is adopted when it was drawn for this target (so the
-        samples, Autopilot's derived datasets and pre-F4 runs keep their exact holdout)."""
-        path = self.split_path(dataset_id, target, strategy)
+    def ensure_splits(self, dataset_id: str, target: str | None, strategy: str = RANDOM_STRATIFIED,
+                      params: dict[str, Any] | None = None) -> tuple[Path, dict[str, Any], bool]:
+        """(path, splits, created) of the (target, strategy, parameters) split. An existing split is never redrawn. A
+        new one is drawn from data.csv with the fixed seed, so the same file and target always give the same holdout,
+        whichever target the profiler guessed. The legacy splits.json is adopted when it was drawn for this target (so
+        the samples, Autopilot's derived datasets and pre-F4 runs keep their exact holdout). F6: group / time /
+        time-group splits take `params` (group_column, time_column, cutoff, tuning_share); bad ones raise
+        DatasetError."""
+        try:
+            params = splits_mod.normalize_params(strategy, params)
+            path = self.split_path(dataset_id, target, strategy, params)
+        except ValueError as e:
+            raise DatasetError(str(e)) from e
         with self._split_lock:
             if path.exists():
                 return path, load_splits(path), False
             legacy = self.legacy_splits_path(dataset_id)
-            sp = load_splits(legacy) if legacy.exists() else None
+            sp = load_splits(legacy) if legacy.exists() and strategy == RANDOM_STRATIFIED else None
             if sp is not None and sp.get("target") == target and sp.get("strategy", RANDOM_STRATIFIED) == strategy:
                 sp = {**sp, "strategy": strategy, "key": split_key(target, strategy), "adopted_from": "splits.json"}
             else:
@@ -93,7 +101,11 @@ class DatasetStore:
                 if target is not None and target not in df.columns:
                     raise DatasetError(f"Column '{target}' is not in the dataset.")
                 y = df[target] if target is not None else None
-                sp = make_splits(y, len(df), config.SEED, config.HOLDOUT_SHARE, config.N_FOLDS, strategy)
+                try:
+                    sp = make_splits(y, len(df), config.SEED, config.HOLDOUT_SHARE, config.N_FOLDS, strategy,
+                                     frame=df if strategy != RANDOM_STRATIFIED else None, params=params)
+                except ValueError as e:
+                    raise DatasetError(str(e)) from e
             sp["created_at"] = sp.get("created_at") or now()
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp = path.with_suffix(".tmp")
@@ -107,8 +119,62 @@ class DatasetStore:
         out = []
         for p in sorted(d.glob("*.json")) if d.exists() else []:
             sp = load_splits(p)
-            out.append({**summarize(sp, None), "created_at": sp.get("created_at"), "adopted_from": sp.get("adopted_from")})
+            out.append({**{k: v for k, v in summarize(sp, None).items() if k != "diagram"},
+                        "created_at": sp.get("created_at"), "adopted_from": sp.get("adopted_from")})
         return out
+
+    def split_options(self, dataset_id: str, target: str | None) -> dict[str, Any]:
+        """F6: the strategies this dataset supports and why. Date columns (≥ 95 % of values read as dates, at least
+        10 distinct) and entity columns (ID-like name or a high-cardinality category whose values repeat: several
+        rows per customer) are offered for time and group splits; a random split on data with either gets a
+        warning, because it lets the same customer, or the future, into training."""
+        df = self.load_frame(dataset_id)
+        n = len(df)
+        dates, groups = [], []
+        for c in df.columns:
+            if c == target:
+                continue
+            s = df[c]
+            nn = s.dropna()
+            if len(nn) == 0:
+                continue
+            if s.dtype == object:
+                sample = nn.astype(str).head(500)
+                looks = sample.str.match(r"^\d{4}[-/]\d{1,2}[-/]\d{1,2}") | sample.str.match(r"^\d{1,2}[-/]\d{1,2}[-/]\d{4}")
+                if looks.mean() >= 0.95:
+                    t = splits_mod.time_values(s)
+                    if t.notna().mean() >= 0.95 and t.nunique() >= 10:
+                        dates.append({"column": c, "from": splits_mod._fmt_time(t.min()), "to": splits_mod._fmt_time(t.max()),
+                                      "distinct": int(t.nunique()), "parsed_share": float(t.notna().mean())})
+                        continue
+            k = int(nn.nunique())
+            per = len(nn) / max(k, 1)
+            id_name = bool(re.search(r"(^id$|_id$|^id_|uuid|^key$|(customer|account|client|member)(_?(id|no|number|key|ref))?$)", str(c), re.I))
+            if per > 1.05 and k >= 20 and (id_name or (s.dtype == object and k >= max(50, 0.05 * n))):
+                groups.append({"column": c, "groups": k, "rows_per_group": round(per, 2),
+                               "max_rows": int(nn.value_counts().iloc[0]), "id_like_name": id_name})
+        groups.sort(key=lambda g: (not g["id_like_name"], -g["rows_per_group"]))
+        warnings = []
+        if dates:
+            warnings.append(f"'{dates[0]['column']}' is a date: a random split trains on rows from after the holdout's "
+                            "dates, so its score does not show how the model does on the future. Use an out-of-time split.")
+        if groups:
+            g = groups[0]
+            warnings.append(f"'{g['column']}' has {g['groups']:,} values with {g['rows_per_group']:.2f} rows each on average: "
+                            "a random split puts rows of the same entity in training and holdout. Use a group split.")
+        suggested = RANDOM_STRATIFIED
+        if dates and groups:
+            suggested = splits_mod.TIME_GROUP
+        elif dates:
+            suggested = splits_mod.TIME
+        elif groups:
+            suggested = splits_mod.GROUP
+        return {"strategies": list(splits_mod.STRATEGIES), "date_columns": dates, "group_columns": groups,
+                "warnings": warnings, "suggested": suggested, "holdout_share": config.HOLDOUT_SHARE,
+                "tuning_share": splits_mod.DEFAULT_TUNING_SHARE,
+                "suggested_params": {"group_column": groups[0]["column"] if groups else None,
+                                     "time_column": dates[0]["column"] if dates else None, "cutoff": None,
+                                     "tuning_share": splits_mod.DEFAULT_TUNING_SHARE}}
 
     def set_target(self, dataset_id: str, target: str) -> dict[str, Any]:
         """Confirm the column to predict: re-profile for it (classes, task, conflicts), draw or reuse its split, and

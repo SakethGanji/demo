@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from .. import config
+from ..datasets import DatasetError
 from ..splits import load_splits
 from . import catalogue, explain, heavy, serving, threshold
 from .runner import JobRunner
@@ -64,6 +65,11 @@ class RunCreate(BaseModel):
     parent_run_id: str | None = Field(None, description="The run this one was derived from (Gym, Vela patch).")
     patch: dict[str, Any] | None = Field(None, description="The Vela patch applied to the parent's config, if any.")
     source: str | None = Field(None, description="Where the run was started: wizard, gym, client, vela.")
+    split_spec: dict[str, Any] | None = Field(
+        None, description="F6: how the holdout is drawn. {strategy: random-stratified (default) | group | time | "
+                          "time-group, group_column, time_column, cutoff (YYYY-MM-DD; default: the latest 20 % of rows), "
+                          "tuning_share (default 0.2)}. Group splits pass group-disjoint folds to AutoGluon as groups=; "
+                          "time splits pass the latest slice of the training period as tuning_data.")
 
 
 class EnsembleRequest(BaseModel):
@@ -83,15 +89,22 @@ def _store(request: Request) -> RunStore:
     return request.app.state.runs
 
 
-def split_record(datasets: Any, dataset_id: str, label: str) -> dict[str, Any]:
-    """The (label, random-stratified) split of the dataset, drawn on first use, as a run records it."""
-    from ..splits import split_sha256
+def split_record(datasets: Any, dataset_id: str, label: str, spec: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The (label, strategy[, parameters]) split of the dataset, drawn on first use, as a run records it."""
+    from ..splits import RANDOM_STRATIFIED, split_sha256
 
-    path, sp, created = datasets.ensure_splits(dataset_id, label)
-    return {"path": str(path), "key": sp["key"], "target": sp["target"], "strategy": sp["strategy"],
-            "seed": sp["seed"], "stratified": sp["stratified"], "holdout_share": sp["holdout_share"],
-            "n_folds": sp["n_folds"], "holdout_rows": len(sp["holdout"]), "sha256": split_sha256(sp),
-            "drawn_for_this_run": created}
+    spec = dict(spec or {})
+    strategy = spec.pop("strategy", None) or RANDOM_STRATIFIED
+    path, sp, created = datasets.ensure_splits(dataset_id, label, strategy, spec)
+    rec = {"path": str(path), "key": sp["key"], "target": sp["target"], "strategy": sp["strategy"],
+           "seed": sp["seed"], "stratified": sp["stratified"], "holdout_share": sp["holdout_share"],
+           "n_folds": sp["n_folds"], "holdout_rows": len(sp["holdout"]), "sha256": split_sha256(sp),
+           "drawn_for_this_run": created}
+    if sp.get("params"):
+        rec.update(params=sp["params"], tuning_rows=len(sp.get("tuning") or []),
+                   excluded_rows=len(sp.get("excluded") or []), cutoff=sp.get("cutoff"),
+                   tuning_cutoff=sp.get("tuning_cutoff"))
+    return rec
 
 
 def run_out(rec: dict[str, Any], store: RunStore, full: bool = True) -> dict[str, Any]:
@@ -196,7 +209,25 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
         task = "regression" if cols[label]["type"] == "number" and cols[label]["unique"] > 50 else None
 
     # F4: the holdout belongs to the label, not to the dataset's (possibly guessed) target.
-    split = split_record(app.state.datasets, body.dataset_id, label)
+    # F6: and to the strategy (random, group, time, time + group) and its parameters.
+    spec = body.split_spec or {}
+    if spec.get("strategy") not in (None, "random-stratified"):
+        for k in ("tuning_data", "use_bag_holdout"):
+            if k in body.fit_kwargs:
+                raise HTTPException(400, f"fit_kwargs.{k} is set by the {spec['strategy']} split (its tuning slice).")
+        if "groups" in body.predictor_kwargs:
+            raise HTTPException(400, f"predictor_kwargs.groups is set by the {spec['strategy']} split (its folds).")
+        if "validation_structure" in body.fit_kwargs:
+            raise HTTPException(400, "Give split_spec or fit_kwargs.validation_structure, not both.")
+    try:
+        split = split_record(app.state.datasets, body.dataset_id, label, spec)
+    except DatasetError as e:
+        raise HTTPException(400, str(e)) from e
+    if body.drop_columns is None and (split.get("params") or {}).get("group_column"):
+        # The entity id is what the split keeps apart; as a feature it can only memorise customers.
+        g = split["params"]["group_column"]
+        if g != label and g not in drop:
+            drop = [*drop, g]
 
     run_id = "run_" + secrets.token_hex(4)
     settings = app.state.settings
@@ -238,6 +269,88 @@ def list_runs(request: Request, dataset_id: str | None = None, full: bool = Fals
 @router.get("/runs/{run_id}")
 def get_run(run_id: str, request: Request) -> dict[str, Any]:
     return run_out(_get_run(request, run_id), _store(request))
+
+
+class SplitTwin(BaseModel):
+    split_spec: dict[str, Any] = Field(..., description="The other split: {strategy, group_column, time_column, cutoff, tuning_share}.")
+    name: str | None = None
+
+
+FAIR_KEYS = ("presets", "time_limit", "fit_kwargs", "predictor_kwargs", "eval_metric", "problem_type", "drop_columns",
+             "column_types", "custom_text_models", "calibrate_threshold")
+
+
+@router.post("/runs/{run_id}/split-twin", status_code=201)
+async def split_twin(run_id: str, body: SplitTwin, request: Request) -> dict[str, Any]:
+    """F6: the same run again under another split: the body that started it (presets, budget, hyperparameters, metric,
+    dropped columns: kept explicitly, so the features are identical) with `split_spec` replaced. Compare the two
+    with GET /api/runs/{id}/split-comparison."""
+    from ..gym.api import run_body
+
+    rec = _get_run(request, run_id)
+    if rec["config"].get("kind") in ("forecast", "anomaly") or rec["config"].get("import"):
+        raise HTTPException(400, "Only trained tabular runs can be re-run under another split.")
+    b = run_body(rec)
+    b["split_spec"] = body.split_spec
+    b["parent_run_id"] = run_id
+    b["source"] = "split-twin"
+    strategy = body.split_spec.get("strategy") or "random-stratified"
+    b["name"] = body.name or f"{rec['name']} · {strategy} split"
+    return await run_in_threadpool(_create_run, RunCreate(**b), request)
+
+
+def _score(rec: dict[str, Any]) -> tuple[str | None, float | None, bool]:
+    h = (rec.get("result") or {}).get("holdout") or {}
+    em = (rec.get("result") or {}).get("eval_metric") or {}
+    m = em.get("name") or h.get("eval_metric")
+    v = (h.get("metrics") or {}).get(m)
+    return m, (None if v is None else float(v)), bool(em.get("greater_is_better", True))
+
+
+@router.get("/runs/{run_id}/split-comparison")
+def split_comparison(run_id: str, request: Request) -> dict[str, Any]:
+    """F6: this run's holdout score next to the same dataset and label scored under other splits (the latest
+    succeeded run per split), so the optimism of a random split is visible: Δ = score(random) − score(other) in the
+    metric's direction (positive: the random split looks better than the other split says). `same_config` says
+    whether the run's fit settings match this run's (only then is Δ about the split alone)."""
+    store = _store(request)
+    base = _get_run(request, run_id)
+    metric, _, gib = _score(base)
+    cfg0 = base["config"]
+    rows, seen = [], set()
+    for r in store.list():  # newest first
+        cfg = r["config"]
+        if r["dataset_id"] != base["dataset_id"] or r["label"] != base["label"] or r["status"] != "succeeded" \
+                or cfg.get("kind") in ("forecast", "anomaly") or cfg.get("import"):
+            continue
+        m, v, _ = _score(r)
+        sp = cfg.get("split") or {}
+        key = sp.get("key") or "legacy"
+        same = all(cfg.get(k) == cfg0.get(k) for k in FAIR_KEYS)
+        if m != metric or v is None or (key, same) in seen:
+            continue
+        if r["id"] != run_id and any(x["key"] == key and x["same_config"] for x in rows) and not same:
+            continue
+        seen.add((key, same))
+        data = (r.get("result") or {}).get("data") or {}
+        rows.append({"run_id": r["id"], "name": r["name"], "created_at": r["created_at"], "key": key,
+                     "strategy": sp.get("strategy", "random-stratified"), "params": sp.get("params"),
+                     "cutoff": sp.get("cutoff"), "tuning_cutoff": sp.get("tuning_cutoff"),
+                     "holdout_rows": data.get("holdout_rows"), "train_rows": data.get("train_rows"),
+                     "tuning_rows": data.get("tuning_rows", 0), "excluded_rows": data.get("excluded_rows", 0),
+                     "score": v, "same_config": same, "this_run": r["id"] == run_id,
+                     "best_model": (r.get("result") or {}).get("best_model")})
+    rows = [x for x in rows if x["same_config"] or x["this_run"]] + [x for x in rows if not (x["same_config"] or x["this_run"])]
+    rand = next((x for x in rows if x["strategy"] == "random-stratified" and (x["same_config"] or x["this_run"])), None)
+    for x in rows:
+        x["optimism"] = None
+        if rand is not None and x is not rand and x["strategy"] != "random-stratified":
+            d = rand["score"] - x["score"]
+            x["optimism"] = d if gib else -d
+    return {"run_id": run_id, "dataset_id": base["dataset_id"], "label": base["label"], "metric": metric,
+            "greater_is_better": gib, "random_run_id": rand["run_id"] if rand else None, "runs": rows,
+            "strategies_missing": [k for k in ("random-stratified", "time", "group", "time-group")
+                                   if not any(x["strategy"] == k and (x["same_config"] or x["this_run"]) for x in rows)]}
 
 
 @router.post("/runs/{run_id}/cancel")

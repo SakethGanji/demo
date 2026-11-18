@@ -37,18 +37,31 @@ CUSTOM_TEXT_KEYS = ("TFIDF_LR", "TFIDF_SVM")
 # --------------------------------------------------------------------------- data
 
 
-def load_frames(cfg: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any]]:
-    """(train, holdout, info). Row positions of data.csv are kept as the index of both frames."""
+GROUP_FOLD_COLUMN = "__ensemble_group_fold"
+
+
+def load_frames(cfg: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any], pd.DataFrame | None]:
+    """(train, holdout, info, tuning). Row positions of data.csv are kept as the index of the frames.
+
+    F6: with a group / time / time + group split, rows of the tuning slice (fold -3) form `tuning` (given to
+    fit(tuning_data=...)) and rows excluded by the split (fold -2) are in no frame. Group splits add their
+    group-disjoint fold id as GROUP_FOLD_COLUMN to `train`, for TabularPredictor(groups=...)."""
     df = pd.read_csv(cfg["csv_path"])
     splits = json.loads(Path(cfg["splits_path"]).read_text())
     label = cfg["label"]
+    fold = np.asarray(splits["fold"], dtype=int)
     holdout_rows = np.asarray(splits["holdout"], dtype=int)
     is_holdout = np.zeros(len(df), dtype=bool)
     is_holdout[holdout_rows] = True
+    structured = bool(splits.get("params"))
+    is_tuning = (fold == -3) if structured else np.zeros(len(df), dtype=bool)
+    is_excluded = (fold == -2) if structured else np.zeros(len(df), dtype=bool)
+    is_train = ~is_holdout & ~is_tuning & ~is_excluded
     has_label = df[label].notna().to_numpy()
     drop = [c for c in cfg.get("drop_columns") or [] if c in df.columns and c != label]
-    train = df.loc[~is_holdout & has_label].drop(columns=drop)
+    train = df.loc[is_train & has_label].drop(columns=drop)
     holdout = df.loc[is_holdout & has_label].drop(columns=drop)
+    tuning = df.loc[is_tuning & has_label].drop(columns=drop) if is_tuning.any() else None
     info = {
         "rows": len(df), "train_rows": len(train), "holdout_rows": len(holdout),
         "dropped_missing_label": int((~has_label).sum()),
@@ -56,12 +69,20 @@ def load_frames(cfg: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame, dict[s
         "dropped_missing_label_holdout": int((is_holdout & ~has_label).sum()),
         "dropped_columns": drop, "features": [c for c in train.columns if c != label], "label": label,
     }
+    if structured:
+        info["tuning_rows"] = 0 if tuning is None else len(tuning)
+        info["excluded_rows"] = int(is_excluded.sum())
+        if splits.get("strategy") in ("group", "time-group"):
+            train[GROUP_FOLD_COLUMN] = fold[train.index.to_numpy()]
+            info["group_folds"] = {"column": GROUP_FOLD_COLUMN, "group_column": splits["params"]["group_column"],
+                                   "rows": [int((train[GROUP_FOLD_COLUMN] == k).sum()) for k in range(splits["n_folds"])]}
     if cfg.get("split"):  # F4: the (label, strategy) split this run uses
         info["split"] = {k: v for k, v in cfg["split"].items() if k != "path"}
-    return train, holdout, info
+    return train, holdout, info, tuning
 
 
-def apply_column_types(cfg: dict[str, Any], train: pd.DataFrame, holdout: pd.DataFrame) -> dict[str, Any] | None:
+def apply_column_types(cfg: dict[str, Any], train: pd.DataFrame, holdout: pd.DataFrame,
+                       tuning: pd.DataFrame | None = None) -> dict[str, Any] | None:
     """Column types chosen in the wizard (`column_types`: number | category | text) become AutoGluon's
     `feature_metadata`: the columns are cast (number → float, category/text → str) in both frames and the
     inferred FeatureMetadata is overridden for them (text → special type "text"). Returns the metadata as JSON
@@ -71,13 +92,13 @@ def apply_column_types(cfg: dict[str, Any], train: pd.DataFrame, holdout: pd.Dat
     types = {c: t for c, t in (cfg.get("column_types") or {}).items() if c in train.columns and c != cfg["label"]}
     if not types:
         return None
-    for df in (train, holdout):
+    for df in (train, holdout) if tuning is None else (train, holdout, tuning):
         for col, t in types.items():
             if t == "number":
                 df[col] = pd.to_numeric(df[col], errors="coerce")
             else:
                 df[col] = df[col].map(lambda v: v if pd.isna(v) else str(v)).astype(object)
-    inferred = FeatureMetadata.from_df(train.drop(columns=[cfg["label"]]))
+    inferred = FeatureMetadata.from_df(train.drop(columns=[cfg["label"], GROUP_FOLD_COLUMN], errors="ignore"))
     special = {k: [f for f in v if f not in types] for k, v in inferred.type_group_map_special.items()}
     special = {k: v for k, v in special.items() if v}
     text = [c for c, t in types.items() if t == "text"]
@@ -99,7 +120,7 @@ def load_unlabeled(cfg: dict[str, Any], train: pd.DataFrame) -> pd.DataFrame:
     """Unlabeled rows for pseudo-labelling: the training frame's feature columns only (the label is dropped, so
     AutoGluon treats every row as unlabeled), with the same column types."""
     u = pd.read_csv(cfg["unlabeled_csv_path"])
-    feats = [c for c in train.columns if c != cfg["label"]]
+    feats = [c for c in train.columns if c not in (cfg["label"], GROUP_FOLD_COLUMN)]
     missing = [c for c in feats if c not in u.columns]
     if missing:
         raise ValueError(f"the unlabeled data lacks the feature column(s) {', '.join(missing)}")
@@ -365,7 +386,7 @@ def run(run_dir: Path) -> int:
         return run_other(cfg, run_dir, store, emit, started)
     try:
         emit("run_started", pid=os.getpid())
-        train, holdout, info = load_frames(cfg)
+        train, holdout, info, tuning = load_frames(cfg)
         emit("data_ready", **info)
         store.merge_result(run_id, data=info)
 
@@ -382,7 +403,7 @@ def run(run_dir: Path) -> int:
             predictor, fit_seconds = import_predictor(cfg, emit, store, run_id)
             progress = ProgressCallback(emit)
         else:
-            feature_metadata = apply_column_types(cfg, train, holdout)
+            feature_metadata = apply_column_types(cfg, train, holdout, tuning)
 
             add_text = bool(cfg.get("custom_text_models", True)) and bool(cfg.get("text_columns")) \
                 and cfg.get("task") != "regression" and cfg.get("problem_type") not in ("regression", "quantile")
@@ -393,8 +414,21 @@ def run(run_dir: Path) -> int:
                              f"({', '.join(f'{c}: {t}' for c, t in cfg['column_types'].items())})")
             predictor_kwargs = {"label": cfg["label"], "problem_type": cfg.get("problem_type"),
                                 "eval_metric": cfg.get("eval_metric"), **(cfg.get("predictor_kwargs") or {})}
+            data_args: dict[str, Any] = {}
+            if tuning is not None:  # F6: the split's tuning slice (group-disjoint, or the latest training period)
+                fit_kwargs["use_bag_holdout"] = True
+                data_args["tuning_data"] = {"rows": len(tuning), "split": cfg["split"]["key"]}
+                notes.append(f"tuning_data = the split's tuning slice ({len(tuning)} rows"
+                             + (f", {cfg['split'].get('tuning_cutoff')} onwards" if cfg["split"].get("tuning_cutoff") else "")
+                             + "); use_bag_holdout=True so bagged fits use it for the ensemble too")
+            if GROUP_FOLD_COLUMN in train.columns:
+                predictor_kwargs["groups"] = GROUP_FOLD_COLUMN
+                notes.append(f"groups='{GROUP_FOLD_COLUMN}': the split's {cfg['split']['n_folds']} folds, disjoint in "
+                             f"'{info['group_folds']['group_column']}', are AutoGluon's bagging folds (LeaveOneGroupOut)")
             resolved = {"predictor_kwargs": predictor_kwargs, "fit_kwargs": fit_kwargs, "notes": notes,
                         "path": cfg["predictor_path"]}
+            if data_args:
+                resolved["data_args"] = data_args
             store.merge_result(run_id, resolved=resolved)
             emit("config_resolved", **resolved)
 
@@ -409,7 +443,8 @@ def run(run_dir: Path) -> int:
             if unlabeled is not None:
                 if pl_method == "unlabeled_data":
                     call_kwargs["unlabeled_data"] = unlabeled
-                    resolved["data_args"] = {"unlabeled_data": {"dataset_id": cfg["pseudolabel"].get("dataset_id"), "rows": len(unlabeled)}}
+                    resolved["data_args"] = {**resolved.get("data_args", {}),
+                                             "unlabeled_data": {"dataset_id": cfg["pseudolabel"].get("dataset_id"), "rows": len(unlabeled)}}
                 else:
                     post_fit.append({"call": "fit_pseudolabel",
                                      "kwargs": {"pseudo_data": f"<{len(unlabeled)} unlabeled rows>",
@@ -421,6 +456,8 @@ def run(run_dir: Path) -> int:
             if post_fit or "data_args" in resolved:
                 resolved["post_fit"] = post_fit
                 store.merge_result(run_id, resolved=resolved)
+            if tuning is not None:
+                call_kwargs["tuning_data"] = tuning
             predictor = TabularPredictor(path=cfg["predictor_path"], **predictor_kwargs)
             t0 = time.time()
             predictor.fit(train, **call_kwargs)

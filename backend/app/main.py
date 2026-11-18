@@ -28,6 +28,7 @@ from .registry.store import RegistryStore
 from .engine.serving import PredictorCache
 from .engine.store import RunStore
 from .samples import SAMPLES
+from .splits import summarize as summarize_split
 from .schemas import Dataset, DatasetList, DatasetSummary, Health
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -132,6 +133,36 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         cur = rec["profile"].get("splits") or {}
         return {"dataset_id": dataset_id, "target": rec["target"], "current": cur.get("key"),
                 "splits": store(request).list_splits(dataset_id)}
+
+    @app.get("/api/datasets/{dataset_id}/split-options")
+    def split_options(dataset_id: str, request: Request, target: str | None = None) -> dict[str, Any]:
+        """F6: the split strategies (random, group, time, time + group), the date and entity columns found, the
+        suggested strategy, and warnings for a random split on data with a date or entity column."""
+        rec = request.app.state.db.get_dataset(dataset_id)
+        if not rec:
+            raise HTTPException(404, f"No dataset with id '{dataset_id}'.")
+        return {"dataset_id": dataset_id, "target": target or rec["target"],
+                **store(request).split_options(dataset_id, target or rec["target"])}
+
+    @app.post("/api/datasets/{dataset_id}/splits")
+    def draw_split(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
+        """F6: draw (or reuse) the split for {target, strategy, group_column?, time_column?, cutoff?, tuning_share?}
+        and describe it: rows, groups and dates per role (train, tuning, holdout, excluded), shared groups, and rows
+        per period for time splits. Runs that name the same split (POST /api/runs, `split_spec`) reuse it."""
+        from .splits import RANDOM_STRATIFIED
+
+        rec = request.app.state.db.get_dataset(dataset_id)
+        if not rec:
+            raise HTTPException(404, f"No dataset with id '{dataset_id}'.")
+        body = body or {}
+        target = body.get("target") or rec["target"]
+        strategy = body.get("strategy") or RANDOM_STRATIFIED
+        try:
+            path, sp, created = store(request).ensure_splits(dataset_id, target, strategy, body)
+            df = store(request).load_frame(dataset_id)
+        except DatasetError as e:
+            raise HTTPException(400, str(e)) from e
+        return {"dataset_id": dataset_id, "drawn_now": created, **summarize_split(sp, df[target] if target else None)}
 
     @app.post("/api/admin/reset")
     def admin_reset(request: Request, body: dict[str, Any]) -> dict[str, Any]:

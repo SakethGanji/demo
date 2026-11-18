@@ -17,7 +17,7 @@ def test_four_samples_in_order(client):
 def test_credit_default_profile(client, data_dir):
     d = client.get("/api/datasets/credit-default").json()
     p = d["profile"]
-    assert (d["rows"], d["n_cols"], d["kind"], d["target"], d["n_classes"]) == (12_000, 14, "tabular", "defaulted", 2)
+    assert (d["rows"], d["n_cols"], d["kind"], d["target"], d["n_classes"]) == (12_000, 16, "tabular", "defaulted", 2)
     assert p["task"] == "binary" and p["target_stats"] is None
     shares = {c["name"]: c["share"] for c in p["classes"]}
     assert 0.06 < shares["Yes"] < 0.10  # imbalanced

@@ -319,31 +319,73 @@ CREDIT_COEFS = {
 }
 
 
+# F6: the credit sample has customers (several applications each) and application dates with mild drift, so a
+# random split is optimistic twice: the same customer is in training and holdout, and training sees the holdout's
+# period. Out-of-time and group splits show it.
+CREDIT_START, CREDIT_END = "2022-01-01", "2024-12-31"
+CREDIT_DRIFT = {
+    "intercept_per_year": 0.20,          # defaults rise over the three years
+    "credit_score_per_100_per_year": 0.25,  # the score separates less and less (-1.05 → about -0.4 by the end)
+    "contract_from_mid_2023_per_year": 1.6,  # contract workers become risky from mid-2023 (a sector shock)
+    "customer_effect_sd": 0.9,           # unobserved customer quality, shared by a customer's applications
+}
+
+
 def generate_credit(n: int = 12_000, seed: int = 42) -> tuple[pd.DataFrame, dict[str, Any]]:
-    """Loan applicants and whether they defaulted within 12 months. ~8% default (imbalanced)."""
+    """Loan applications and whether they defaulted within 12 months. ~8% default (imbalanced). F6: about 7,000
+    customers with one to four applications each (`customer_id`), dated 2022–2024 (`application_date`), with mild
+    temporal drift (CREDIT_DRIFT) and a customer effect shared by a customer's applications."""
     rng = np.random.default_rng(seed + 2)
-    age = np.clip(rng.normal(41, 12, size=n), 19, 80).round().astype(int)
-    employment = rng.choice(["salaried", "self-employed", "contract", "unemployed", "retired"], size=n,
-                            p=[0.58, 0.14, 0.13, 0.05, 0.10])
-    income = np.round(np.exp(rng.normal(10.9, 0.5, size=n)) * np.select(
-        [employment == "unemployed", employment == "retired"], [0.35, 0.6], 1.0), -2)
-    home = rng.choice(["rent", "mortgage", "own", "other"], size=n, p=[0.42, 0.38, 0.17, 0.03])
+    # Customers and their applications: the first uniform over the three years, later ones 1–18 months after it.
+    start, end = pd.Timestamp(CREDIT_START), pd.Timestamp(CREDIT_END)
+    span = (end - start).days
+    n_cust = int(n / 1.55) + 400
+    per_cust = np.minimum(1 + rng.poisson(0.75, size=n_cust), 4)
+    first = rng.integers(0, span + 1, size=n_cust)
+    cust_of_row = np.repeat(np.arange(n_cust), per_cust)
+    gap = rng.integers(30, 540, size=len(cust_of_row))
+    k_in_cust = np.concatenate([np.arange(c) for c in per_cust])
+    day = first[cust_of_row] + np.where(k_in_cust == 0, 0, gap * k_in_cust)
+    keep = np.flatnonzero(day <= span)[:n]
+    cust_of_row, day, k_in_cust = cust_of_row[keep], day[keep], k_in_cust[keep]
+    n = len(keep)
+    order = np.lexsort((cust_of_row, day))  # the export is sorted by application date
+    cust_of_row, day, k_in_cust = cust_of_row[order], day[order], k_in_cust[order]
+    tau = day / 365.25  # years since the start
+
+    # Customer-level attributes (the same on every application of a customer).
+    c_age = np.clip(rng.normal(41, 12, size=n_cust), 19, 78)
+    c_employment = rng.choice(["salaried", "self-employed", "contract", "unemployed", "retired"], size=n_cust,
+                              p=[0.58, 0.14, 0.13, 0.05, 0.10])
+    c_income = np.round(np.exp(rng.normal(10.9, 0.5, size=n_cust)) * np.select(
+        [c_employment == "unemployed", c_employment == "retired"], [0.35, 0.6], 1.0), -2)
+    c_home = rng.choice(["rent", "mortgage", "own", "other"], size=n_cust, p=[0.42, 0.38, 0.17, 0.03])
+    c_region = rng.choice(["north", "south", "east", "west", "central"], size=n_cust).astype(object)
+    c_score = rng.normal(690, 58, size=n_cust)
+    c_months = np.where(np.isin(c_employment, ["unemployed", "retired"]), 0, np.clip(rng.gamma(1.8, 30, size=n_cust), 0, 480))
+    c_effect = rng.normal(0, CREDIT_DRIFT["customer_effect_sd"], size=n_cust)
+
+    c = cust_of_row
+    years_since_first = (day - first[c]) / 365.25
+    age = np.clip(c_age[c] + years_since_first, 19, 80).round().astype(int)
+    employment, home, region = c_employment[c], c_home[c], c_region[c].copy()
+    income = c_income[c]
     purpose = rng.choice(["debt consolidation", "home improvement", "car", "small business", "education", "medical", "other"],
                          size=n, p=[0.36, 0.17, 0.15, 0.07, 0.08, 0.06, 0.11])
-    region = rng.choice(["north", "south", "east", "west", "central"], size=n).astype(object)
-    credit_score = np.clip(rng.normal(690, 62, size=n), 450, 850).round().astype(int)
+    credit_score = np.clip(c_score[c] + rng.normal(0, 22, size=n), 450, 850).round().astype(int)
     dti = np.round(np.clip(rng.beta(2.2, 6.0, size=n), 0, 0.95), 3)
     utilization = np.round(np.clip(rng.beta(2.0, 3.2, size=n) + 0.15 * (credit_score < 620), 0, 1.0), 3)
     delinquencies = rng.poisson(np.where(credit_score < 640, 1.1, 0.25))
     months_employed = np.where(np.isin(employment, ["unemployed", "retired"]), 0,
-                               np.clip(rng.gamma(1.8, 30, size=n), 0, 480).round()).astype(int)
+                               np.clip(c_months[c] + 12 * years_since_first, 0, 480).round()).astype(int)
     loan_amount = np.round(np.clip(income * rng.uniform(0.05, 0.6, size=n), 1000, 250_000), -2)
 
     logit = (
-        CREDIT_COEFS["intercept"]
-        + CREDIT_COEFS["credit_score_per_100"] * (credit_score - 680) / 100
+        CREDIT_COEFS["intercept"] - 0.45 + CREDIT_DRIFT["intercept_per_year"] * (tau - 1.5)
+        + (CREDIT_COEFS["credit_score_per_100"] + CREDIT_DRIFT["credit_score_per_100_per_year"] * tau) * (credit_score - 680) / 100
         + CREDIT_COEFS["debt_to_income"] * dti
         + CREDIT_COEFS["utilization"] * utilization
+        + CREDIT_DRIFT["contract_from_mid_2023_per_year"] * np.maximum(tau - 1.5, 0) * (employment == "contract")
         + CREDIT_COEFS["delinquencies_2y"] * delinquencies
         + CREDIT_COEFS["months_employed_per_12"] * np.minimum(months_employed, 120) / 12
         + CREDIT_COEFS["employment=unemployed"] * (employment == "unemployed")
@@ -351,6 +393,7 @@ def generate_credit(n: int = 12_000, seed: int = 42) -> tuple[pd.DataFrame, dict
         + CREDIT_COEFS["home=rent"] * (home == "rent")
         + CREDIT_COEFS["purpose=debt consolidation"] * (purpose == "debt consolidation")
         + CREDIT_COEFS["purpose=small business"] * (purpose == "small business")
+        + c_effect[c]
     )
     p = 1 / (1 + np.exp(-logit))
     defaulted = np.where(rng.random(n) < p, "Yes", "No")
@@ -360,22 +403,33 @@ def generate_credit(n: int = 12_000, seed: int = 42) -> tuple[pd.DataFrame, dict
     months_out = months_employed.astype(float)
     months_out[rng.random(n) < 0.03] = np.nan
     region[rng.random(n) < 0.02] = None
+    dates = (start + pd.to_timedelta(day, unit="D")).strftime("%Y-%m-%d")
 
     df = pd.DataFrame({
         "applicant_id": [f"C-{500000 + i}" for i in range(n)],
+        "customer_id": [f"CU-{100000 + int(x)}" for x in c],
+        "application_date": dates,
         "age": age, "employment": employment, "income_usd": income_out, "home_ownership": home,
         "loan_purpose": purpose, "region": region, "loan_amount_usd": loan_amount, "credit_score": credit_score,
         "debt_to_income": dti, "utilization": utilization, "delinquencies_2y": delinquencies,
         "months_employed": months_out, "defaulted": defaulted,
     })
+    yes = defaulted == "Yes"
+    by_year = {str(y): float(yes[np.asarray(pd.DatetimeIndex(dates).year) == y].mean()) for y in (2022, 2023, 2024)}
     sidecar = {
         "dataset": "credit-default",
         "seed": seed,
         "rows": n,
         "label_column": "defaulted",
         "positive_class": "Yes",
-        "default_rate": float((defaulted == "Yes").mean()),
-        "signal": "logit(p) = intercept + Σ coef · feature (values before masking)",
+        "default_rate": float(yes.mean()),
+        "default_rate_by_year": by_year,
+        "customers": int(pd.Series(c).nunique()),
+        "group_column": "customer_id",
+        "time_column": "application_date",
+        "drift": CREDIT_DRIFT,
+        "signal": "logit(p) = intercept + Σ coef(t) · feature + customer effect (values before masking); "
+                  "coef(t) drifts linearly in t = years since 2022-01-01 (drift)",
         "coefficients": CREDIT_COEFS,
         "noise_features": ["age", "region", "income_usd", "loan_amount_usd"],
     }

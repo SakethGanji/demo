@@ -831,6 +831,144 @@ def targets(st: dict[str, Any]) -> None:
 # --------------------------------------------------------------------------- autopilot
 
 
+def splits(st: dict[str, Any]) -> None:
+    """F6: out-of-time and group splits on the credit-default sample (customers with several applications, dated
+    2022–2024, mild drift). Checks, from data.csv and the stored split files, that the group split shares no
+    customer between train, tuning and holdout and that the time split trains strictly before its cut-off; then
+    trains the wizard's run under the random split and its twins under the time, group and time + group splits
+    (identical body, only split_spec differs) and reads the side-by-side comparison: the out-of-time score is lower."""
+    ds, label, metric = "credit-default", "defaulted", "roc_auc"
+    data_dir = get("/api/health")["data_dir"]
+    df = pd.read_csv(os.path.join(data_dir, "datasets", ds, "data.csv"))
+    dates = pd.to_datetime(df["application_date"])
+    gcol, tcol = "customer_id", "application_date"
+    specs = {"time": {"strategy": "time", "time_column": tcol},
+             "group": {"strategy": "group", "group_column": gcol},
+             "time-group": {"strategy": "time-group", "group_column": gcol, "time_column": tcol}}
+    s: dict[str, Any] = {}
+
+    def split_file(key: str) -> dict[str, Any]:
+        return json.load(open(os.path.join(data_dir, "datasets", ds, "splits", f"{key}.json")))
+
+    def roles(sp: dict[str, Any]) -> dict[str, np.ndarray]:
+        f = np.asarray(sp["fold"])
+        return {"train": np.flatnonzero(f >= 0), "tuning": np.flatnonzero(f == -3), "holdout": np.asarray(sp["holdout"]),
+                "excluded": np.flatnonzero(f == -2)}
+
+    def options():
+        o = get(f"/api/datasets/{ds}/split-options")
+        check([c["column"] for c in o["date_columns"]] == [tcol], o["date_columns"])
+        check(o["group_columns"] and o["group_columns"][0]["column"] == gcol, o["group_columns"])
+        check(len(o["warnings"]) == 2 and o["suggested"] == "time-group", o)
+        quiet = get("/api/datasets/loan-amount/split-options")
+        check(not quiet["warnings"] and quiet["suggested"] == "random-stratified", quiet)
+        g = o["group_columns"][0]
+        return (f"date {tcol} {o['date_columns'][0]['from']} → {o['date_columns'][0]['to']} · entity {gcol} "
+                f"{g['groups']:,} customers × {g['rows_per_group']} rows · {len(o['warnings'])} warnings on random · "
+                f"suggested {o['suggested']} · loan-amount: none")
+
+    def draw():
+        out = []
+        for name, spec in specs.items():
+            r = post(f"/api/datasets/{ds}/splits", {"target": label, **spec})
+            again = post(f"/api/datasets/{ds}/splits", {"target": label, **spec})
+            check(again["sha256"] == r["sha256"] and not again["drawn_now"], "a stored split was redrawn")
+            sp = split_file(r["key"])
+            ro = roles(sp)
+            check(sum(len(v) for v in ro.values()) == len(df), "every row has exactly one role")
+            if "group" in name:
+                ids = {k: set(df[gcol].iloc[v]) for k, v in ro.items()}
+                shared = len(ids["train"] & ids["holdout"]) + len(ids["tuning"] & ids["holdout"]) + len(ids["train"] & ids["tuning"])
+                check(shared == 0, f"{name}: {shared} customers shared between train, tuning and holdout")
+                check(r["diagram"]["shared_groups"]["train_holdout"] == 0, r["diagram"]["shared_groups"])
+                folds = np.asarray(sp["fold"])
+                per_cust = df.assign(f=folds).loc[folds >= 0].groupby(gcol)["f"].nunique()
+                check(int(per_cust.max()) == 1, "a customer spans two bagging folds")
+            if "time" in name:
+                cut = pd.Timestamp(r["cutoff"])
+                check(dates.iloc[ro["train"]].max() < cut <= dates.iloc[ro["holdout"]].min(), "time: train is not before the cut-off")
+                check(dates.iloc[ro["tuning"]].min() >= pd.Timestamp(r["tuning_cutoff"]) > dates.iloc[ro["train"]].max()
+                      if name == "time" else dates.iloc[ro["tuning"]].min() >= pd.Timestamp(r["tuning_cutoff"]), "tuning slice")
+                check(len(r["diagram"]["timeline"]) >= 30, "timeline periods")
+            s[name] = r
+            out.append(f"{name} {r['key']}: train {len(ro['train'])} · tuning {len(ro['tuning'])} · holdout {len(ro['holdout'])}"
+                       + (f" · excluded {len(ro['excluded'])}" if len(ro["excluded"]) else "")
+                       + (f" · cut-off {r['cutoff']}" if r.get("cutoff") else "")
+                       + (" · 0 shared customers" if "group" in name else ""))
+        for bad in ({"strategy": "group", "group_column": "nope"}, {"strategy": "time", "time_column": "region"},
+                    {"strategy": "time", "time_column": tcol, "cutoff": "2031-01-01"}, {"strategy": "sideways"}):
+            r = C.post(f"/api/datasets/{ds}/splits", json={"target": label, **bad})
+            check(r.status_code == 400, f"{bad} → {r.status_code}")
+        return " | ".join(out) + " | 4 bad specs → 400"
+
+    if not step("splits: options + warnings", options) or not step("splits: draw group / time / time+group", draw):
+        return
+
+    def random_run():
+        prof = get(f"/api/datasets/{ds}")["profile"]
+        drop = [c["name"] for c in prof["columns"] if c["type"] == "id" and c["name"] != label]
+        r = post("/api/runs", {"dataset_id": ds, "label": label, "problem_type": "binary", "eval_metric": metric,
+                               "presets": "medium_quality", "time_limit": 120, "fit_kwargs": {"hyperparameters": HP},
+                               "drop_columns": drop, "feature_importance": False, "source": "smoke-splits"})
+        rec = wait_run(r["id"])
+        check(rec["split"]["strategy"] == "random-stratified", rec["split"])
+        s["random"] = rec
+        return f"{rec['id']} random-stratified · holdout {rec['split']['holdout_rows']} · {metric} {primary(rec)[1]:.4f}"
+
+    if not step("splits: random run (the wizard's body)", random_run):
+        return
+
+    def twin(name: str):
+        def fn():
+            r = post(f"/api/runs/{s['random']['id']}/split-twin", {"split_spec": specs[name]})
+            rec = wait_run(r["id"])
+            sp = split_file(rec["split"]["key"])
+            check(rec["split"]["key"] == s[name]["key"] and rec["split"]["sha256"] == s[name]["sha256"], "twin used another split")
+            check(rec["config"]["drop_columns"] == s["random"]["config"]["drop_columns"], "twin features differ")
+            res = rec["resolved"]
+            check(res["fit_kwargs"].get("use_bag_holdout") is True and res["data_args"]["tuning_data"]["rows"] == len(sp["tuning"]),
+                  res.get("data_args"))
+            hp = get(f"/api/runs/{rec['id']}/holdout-predictions")
+            hold = np.asarray(hp["rows"], dtype=int)
+            check(sorted(hold.tolist()) == sorted(sp["holdout"]), "the run scored other rows than its split's holdout")
+            ro = roles(sp)
+            fitted = np.concatenate([ro["train"], ro["tuning"]])
+            extra = ""
+            if "group" in name:
+                check(res["predictor_kwargs"].get("groups") == "__ensemble_group_fold", res["predictor_kwargs"])
+                check(all("_BAG_" in m["model"] or m["model"].startswith("Weighted") for m in rec["leaderboard"]),
+                      "groups= should bag every model")
+                shared = set(df[gcol].iloc[fitted]) & set(df[gcol].iloc[hold])
+                check(not shared, f"{len(shared)} customers in both the fitted rows and the holdout")
+                extra = f" · {len(set(df[gcol].iloc[hold])):,} holdout customers, 0 in train or tuning · groups= bagged"
+            if "time" in name:
+                check(dates.iloc[fitted].max() < pd.Timestamp(sp["cutoff"]) <= dates.iloc[hold].min(), "fitted rows after the cut-off")
+                extra += f" · fitted ≤ {dates.iloc[fitted].max().date()} < holdout ≥ {dates.iloc[hold].min().date()}"
+            s[f"run_{name}"] = rec
+            return (f"{rec['id']} {name} · train {rec['data']['train_rows']} · tuning_data {rec['data']['tuning_rows']} · "
+                    f"holdout {len(hold)} · {metric} {primary(rec)[1]:.4f}{extra}")
+        return fn
+
+    for name in specs:
+        step(f"splits: {name} twin", twin(name))
+
+    def compare():
+        check("run_time" in s, "no time run")
+        c = get(f"/api/runs/{s['run_time']['id']}/split-comparison")
+        by = {x["strategy"]: x for x in c["runs"] if x["same_config"] or x["this_run"]}
+        check({"random-stratified", "time"} <= set(by), list(by))
+        rnd, oot = by["random-stratified"], by["time"]
+        check(rnd["run_id"] == s["random"]["id"] and oot["run_id"] == s["run_time"]["id"], (rnd["run_id"], oot["run_id"]))
+        check(abs(oot["optimism"] - (rnd["score"] - oot["score"])) < 1e-12, oot["optimism"])
+        st["splits_compare"] = c
+        line = " · ".join(f"{k} {v['score']:.4f}" + (f" (Δ {v['optimism']:+.4f})" if v.get("optimism") is not None else "")
+                          for k, v in by.items())
+        check(oot["score"] < rnd["score"], f"out-of-time {oot['score']:.4f} is not lower than random {rnd['score']:.4f}")
+        return f"{metric} on the holdout: {line} · random is optimistic by {oot['optimism']:.4f} vs out-of-time"
+
+    step("splits: random vs out-of-time side by side", compare)
+
+
 def autopilot(st: dict[str, Any]) -> None:
     def start():
         a = post("/api/autopilot", {"dataset_id": "support-tickets", "label": "category",
@@ -1693,7 +1831,7 @@ def main() -> int:
     global C, API
     ap = argparse.ArgumentParser()
     ap.add_argument("--api", default=API)
-    ap.add_argument("--only", default="core,samples,autopilot,forecast,anomaly,import,fresh,latency,targets,llm,reset")
+    ap.add_argument("--only", default="core,samples,autopilot,forecast,anomaly,import,fresh,latency,targets,splits,llm,reset")
     ap.add_argument("--start-api", action="store_true", help="start uvicorn on the --api port if nothing answers there")
     args = ap.parse_args()
     API = args.api.rstrip("/")
@@ -1730,7 +1868,7 @@ def _main(args) -> int:
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
     sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
-                "import": importer, "fresh": fresh, "latency": latency, "targets": targets, "reset": reset, "llm": llm}
+                "import": importer, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "reset": reset, "llm": llm}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")
