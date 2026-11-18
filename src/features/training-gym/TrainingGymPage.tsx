@@ -16,7 +16,7 @@ export function TrainingGymPage({ params, setParams, guided, setGuided, onStart,
   const last = step === STEPS.length - 1
 
   return (
-    <div className="gym">
+    <div className="wizard">
       <div className="stepper-bar">
         <div className="stepper-title">
           <h1 className="page-title">Enterprise Support Ticket Classifier</h1>
@@ -37,7 +37,7 @@ export function TrainingGymPage({ params, setParams, guided, setGuided, onStart,
         </div>
       </div>
 
-      <div className="gym-scroll">
+      <div className="wizard-scroll">
         {step === HYPER ? (
           <Hyperparameters params={params} set={set} guided={guided} setGuided={setGuided} />
         ) : (
@@ -47,7 +47,7 @@ export function TrainingGymPage({ params, setParams, guided, setGuided, onStart,
 
       <ConsoleDock params={params} />
 
-      <div className="gym-footer">
+      <div className="wizard-footer">
         <div><button className="btn ghost" onClick={() => setStep(Math.max(0, step - 1))} disabled={step === 0}>← Back</button></div>
         <div className="valid"><span className="dot">●</span> Schema Valid · Ready</div>
         <div className="right">

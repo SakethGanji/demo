@@ -1,5 +1,8 @@
 import type { ReactNode } from 'react'
-import type { Dataset } from '@/features/quick-train/datasets'
+import { SAMPLES, type Dataset } from '@/features/quick-train/datasets'
+
+/** The script is written for text classification, so only the text samples are offered. */
+export const TEXT_SAMPLES = SAMPLES.filter((d) => d.kind === 'text')
 
 export type Autonomy = 'Ask First' | 'Ground Truth Only' | 'Fully Autonomous'
 

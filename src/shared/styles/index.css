@@ -9,6 +9,7 @@
 @import '../../features/quick-train/quick-train.css';
 @import '../../features/autopilot/autopilot.css';
 @import '../../features/training-gym/training-gym.css';
+@import '../../features/registry/registry.css';
 @import '../../features/settings/settings.css';
 @import './surfaces.css';
 @import './responsive.css';

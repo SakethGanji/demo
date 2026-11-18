@@ -37,8 +37,9 @@ src/
 │   └── shell/                   Sidebar, ContextBar, StatusBar, CommandPalette (+ shell.css)
 ├── features/                    one folder per page
 │   ├── home/                    HomePage · components/ToolCard
-│   ├── quick-train/             QuickTrainPage · components/{PipelineString, ClassStrings, Boosting} · datasets.ts · recipes.tsx
-│   ├── autopilot/               AutopilotPage · components/{IterationString, RequirementGauge} · run.tsx (the scripted run)
+│   ├── quick-train/             QuickTrainPage · components/{DatasetStep, RecipeStep, PipelineString, ClassStrings, Boosting} · datasets.ts · recipes.tsx
+│   ├── autopilot/               AutopilotPage · components/{BriefStep, IterationString, RequirementGauge, DecisionLog,
+│   │                              GroundTruthInbox, DataChanges} · run.tsx (the scripted run)
 │   ├── training-gym/            TrainingGymPage · components/{Hyperparameters, ConfigBlock, ClassBalance, PipelineCard,
 │   │                              ValidationCurve, FitEstimate, ConsoleDock, StepSummary} · params.ts
 │   ├── experiments/             ExperimentsPage · components/RunTable
@@ -47,7 +48,7 @@ src/
 │   └── vela/                    VelaSidecar · components/PatchCard (the assistant panel, shown on every page)
 └── shared/
     ├── primitives/              fundamentals: one small thing each, no layout of their own
-    │                              StatusPill, ParamChip, Segmented, Tabs, Icon, VelaCrest,
+    │                              StatusPill, ParamChip, Segmented, Tabs, NumberInput, Icon, VelaCrest,
     │                              ResonanceWave, SparkWave, PluckString, ToolGlyph
     ├── components/              larger pieces composed from primitives
     │                              FretSlider, PlotFrame, LineChart, ConfusionMatrix, StringPlot,
@@ -64,5 +65,6 @@ src/
 - **A page owns what only it uses.** A component, data file or stylesheet used by one page lives in that page's folder. Move it to `shared/` when a second page needs it.
 - **Primitives vs components.** `shared/primitives` are the fundamentals (a pill, a chip, a wave). `shared/components` are bigger and are built from primitives (a chart, a slider with its input, a graph).
 - **Imports.** `@/` is `src/`. Features import from `shared/`; `shared/` never imports from `features/`. The one cross-feature import is Autopilot reusing Quick Train's sample datasets.
-- **Styles.** Each folder keeps its own `.css` beside its code. `shared/styles/index.css` imports them all in a fixed order (tokens → base → shared → shell → features → overrides), so the cascade is explicit. Class names are global.
-- **Mock data.** Everything is simulated in the browser; there is no backend.
+- **Styles.** Each folder keeps its own `.css` beside its code, and the same ownership rule applies: a class used by two pages lives in `shared/` (for example the navy `.stage` panel and the `.wizard` page layout). `surfaces.css` is the one deliberate exception: it is the tonal layer (gray bands, wells, navy readouts) applied across everything. `shared/styles/index.css` imports them all in a fixed order (tokens → base → shared → shell → features → overrides), so the cascade is explicit. Class names are global.
+- **Mock data.** Everything is simulated in the browser; there is no backend. Numbers that appear on more than one page come from one place (`shared/data/runs.ts`, `quick-train/recipes.tsx`).
+- **Assets.** `ensemble-wordmark.svg` (for light surfaces) is kept although nothing uses it yet; the app only shows the on-shell wordmark.

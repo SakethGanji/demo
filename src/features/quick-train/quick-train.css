@@ -1,23 +1,8 @@
 /* ---------- quick train ---------- */
 .drop { border: 1px dashed var(--border-track); border-radius: var(--radius-card); background: var(--bg-surface); padding: var(--space-32) var(--space-20); display: flex; flex-direction: column; align-items: center; gap: var(--space-8); text-align: center; cursor: pointer; transition: border-color var(--duration-snap-min) var(--ease-pluck), background var(--duration-snap-min) var(--ease-pluck); }
 .drop:hover, .drop.over { border-color: var(--accent-secondary); background: var(--bg-wave-tint); }
-.dist-row { display: grid; grid-template-columns: 110px 1fr 52px; align-items: center; gap: var(--space-12); height: 24px; color: var(--text-primary); }
-.dist-row .table-cell { text-align: right; }
 .recipe { text-align: left; padding: 0; cursor: pointer; font: inherit; color: inherit; }
 .recipe.on { border-color: var(--accent-secondary); background: linear-gradient(var(--bg-wave-tint), var(--bg-wave-tint)), var(--bg-surface); }
-.stage { background: var(--bg-shell); border-radius: var(--radius-card); color: var(--text-on-shell); display: flex; flex-direction: column; overflow: hidden; }
-.stage-head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-24); padding: var(--space-20) var(--space-24) var(--space-8); }
-.stage-read { display: flex; align-items: flex-end; gap: var(--space-24); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-.stage-read span { display: flex; flex-direction: column; gap: 2px; }
-.stage-read small { font-family: var(--font-sans); font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-on-shell-muted); }
-.stage-read b { font-size: 20px; line-height: 26px; font-weight: 500; white-space: nowrap; }
-.stage-sim { font-size: 11px; color: var(--text-on-shell-muted); border: 1px solid var(--border-shell); border-radius: var(--radius-badge); padding: 2px 6px; align-self: center; white-space: nowrap; }
-.pipe-string { padding: var(--space-8) 0 0; border-bottom: 1px solid var(--border-shell); }
-.ps-name { font-family: var(--font-sans); font-size: 12.5px; font-weight: 600; }
-.ps-note { font-family: var(--font-mono); font-size: 11px; fill: #94A3B8; color: var(--text-on-shell-muted); }
-.stage-body { padding: var(--space-16) var(--space-24) var(--space-8); }
-.stage-cap { display: flex; align-items: baseline; gap: var(--space-12); margin-bottom: var(--space-8); flex-wrap: wrap; }
-.stage-cap .ps-note { font-family: var(--font-sans); font-size: 12px; }
 .cls-row { display: grid; grid-template-columns: 120px 1fr 120px; align-items: center; gap: var(--space-16); }
 .cls-name { font-size: 13px; font-weight: 500; color: var(--text-on-shell); display: flex; flex-direction: column; line-height: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cls-name small, .cls-read small { font-size: 10.5px; color: var(--text-on-shell-muted); font-weight: 400; font-family: var(--font-sans); }
@@ -28,12 +13,12 @@
 .trees { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; color: #2DD4BF; }
 .tree.new { color: #38BDF8; animation: tree-in var(--duration-snap-max) var(--ease-pluck); }
 @keyframes tree-in { from { transform: translateY(-8px) scale(0.6); opacity: 0; } to { transform: none; opacity: 1; } }
-.stage-foot { display: flex; align-items: center; gap: var(--space-12); padding: var(--space-12) var(--space-24) var(--space-16); }
-.stage-prog { flex: 1; height: 2px; background: var(--border-shell); position: relative; }
-.stage-prog i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--grad-string); transition: width 80ms linear; }
-.stage .btn { background: var(--bg-shell-hover); border-color: var(--border-shell); color: var(--text-on-shell); }
-.stage .btn:hover { border-color: var(--accent-primary-shell); background: var(--bg-shell-hover); }
-.stage-seg { background: var(--bg-shell-hover); border-color: var(--border-shell); }
-.stage-seg button { color: var(--text-on-shell-muted); }
-.stage-seg button.on { background: var(--bg-shell); color: var(--text-on-shell); box-shadow: 0 0 0 1px var(--border-shell); }
-.step:disabled { cursor: default; }
+
+/* ---------- recipe cards ---------- */
+.lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--space-16); }
+.lib-card { display: flex; flex-direction: column; transition: border-color var(--duration-snap-min) var(--ease-pluck); }
+.lib-card:hover { border-color: var(--border-track); }
+.lib-card .top { padding: var(--space-16); display: flex; flex-direction: column; gap: var(--space-8); flex: 1; }
+.lib-card .eqn { font-family: var(--font-math); font-size: 16px; line-height: 24px; color: var(--text-primary); background: var(--bg-subtle); border-radius: var(--radius-control); padding: var(--space-8) var(--space-12); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lib-card .eqn i { font-style: italic; }
+.lib-card .bot { border-top: 1px solid var(--border-default); padding: var(--space-8) var(--space-16); display: flex; align-items: center; justify-content: space-between; gap: var(--space-8); }

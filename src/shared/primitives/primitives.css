@@ -12,21 +12,14 @@
 /* ---------- cards ---------- */
 .card { background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-card); }
 .card.pad { padding: var(--space-20); }
-.card.compact { padding: var(--space-16); }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-12); padding: var(--space-12) var(--space-16); border-bottom: 1px solid var(--border-default); }
 .card-head .left { display: flex; align-items: center; gap: var(--space-8); min-width: 0; }
 .card-body { padding: var(--space-16); }
 .grid { display: grid; gap: var(--space-16); }
-.kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .two { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); align-items: start; }
 .stack { display: flex; flex-direction: column; gap: var(--space-16); }
 .row { display: flex; align-items: center; gap: var(--space-8); }
 .spacer { flex: 1; }
-
-.kpi { padding: var(--space-16); display: flex; flex-direction: column; gap: var(--space-4); }
-.kpi .foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-8); color: var(--text-body); font-size: 12px; }
-.delta-up { color: var(--status-success); }
-.delta-down { color: var(--status-danger); }
 
 /* ---------- pills & chips ---------- */
 .pill { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 var(--space-8); border-radius: var(--radius-badge); font-size: 11.5px; font-weight: 600; white-space: nowrap; }

@@ -34,3 +34,6 @@ button { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition-duration: var(--duration-reduced) !important; }
 }
+
+/* ---------- page title ---------- */
+.page-title { white-space: nowrap; }

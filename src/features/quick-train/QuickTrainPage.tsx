@@ -6,11 +6,12 @@ import { RunString, type RunState } from '@/shared/components/RunString'
 import { rng } from '@/shared/lib/random'
 import { ParamChip } from '@/shared/primitives/ParamChip'
 import { StatusPill } from '@/shared/primitives/StatusPill'
-import { VelaCrest } from '@/shared/primitives/VelaCrest'
 import { Boosting } from './components/Boosting'
+import { DatasetStep } from './components/DatasetStep'
+import { RecipeStep } from './components/RecipeStep'
 import { ClassStrings } from './components/ClassStrings'
 import { PipelineString } from './components/PipelineString'
-import { SAMPLES, profileCsv, type Dataset } from './datasets'
+import { SAMPLES, type Dataset } from './datasets'
 import { FOLDS, PH, RECIPES, expectedF1, fitFrac, fitSeconds, mmss, phaseOf, type Recipe } from './recipes'
 
 export function QuickTrainPage({ go }: { go: (r: string) => void }) {
@@ -21,18 +22,10 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
   const [t, setT] = useState(0)
   const [running, setRunning] = useState(fromGym)
   const [speed, setSpeed] = useState(1)
-  const [err, setErr] = useState('')
-  const [over, setOver] = useState(false)
-  const input = useRef<HTMLInputElement>(null)
   const recipe = RECIPES.find((r) => r.id === recipeId)!
   const K = ds.classes.length
 
-  const pick = (d: Dataset) => { setDs(d); setErr(''); setRecipeId(d.kind === 'tabular' ? 'xgb' : 'ovr') }
-  const onFile = async (f?: File) => {
-    if (!f) return
-    if (!/\.(csv|tsv|txt)$/i.test(f.name)) { setErr(`${f.name} is not a CSV. This demo profiles CSV files in your browser; pick a sample for Parquet.`); return }
-    try { pick(await profileCsv(f)) } catch (e) { setErr((e as Error).message) }
-  }
+  const pick = (d: Dataset) => { setDs(d); setRecipeId(d.kind === 'tabular' ? 'xgb' : 'ovr') }
 
   useEffect(() => {
     if (!running) return
@@ -105,7 +98,7 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
   const STEPS = ['Dataset', 'Recipe', 'Train', 'Results']
 
   return (
-    <div className="gym">
+    <div className="wizard">
       <div className="stepper-bar">
         <div className="stepper-title">
           <h1 className="page-title">Quick Train</h1>
@@ -122,93 +115,10 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
         </div>
       </div>
 
-      <div className="gym-scroll">
-        {step === 0 && (
-          <div className="page">
-            <div className="grid" style={{ gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.5fr)', alignItems: 'start' }}>
-              <div className="stack">
-                <div className={`drop ${over ? 'over' : ''}`} onDragOver={(e) => { e.preventDefault(); setOver(true) }} onDragLeave={() => setOver(false)}
-                  onDrop={(e) => { e.preventDefault(); setOver(false); onFile(e.dataTransfer.files[0]) }} onClick={() => input.current?.click()} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && input.current?.click()}>
-                  <svg width="120" height="34" viewBox="0 0 120 34" aria-hidden><path d="M2 17C20 -8 40 42 60 17S100 -8 118 17" stroke="var(--accent-secondary)" strokeWidth="1.75" fill="none" /><path d="M2 17C20 4 40 30 60 17S100 4 118 17" stroke="var(--accent-primary)" strokeWidth="1.75" fill="none" opacity=".6" /><circle cx="2" cy="17" r="3" fill="var(--accent-primary)" /><circle cx="118" cy="17" r="3" fill="var(--accent-primary)" /></svg>
-                  <b className="card-title">Drop a CSV here</b>
-                  <span className="helper">or click to browse. It is profiled in your browser and never uploaded.</span>
-                  <input ref={input} type="file" accept=".csv,.tsv,.txt" hidden onChange={(e) => onFile(e.target.files?.[0])} />
-                </div>
-                {err && <p className="helper" style={{ color: 'var(--status-danger)' }}>✕ {err}</p>}
-                <div className="card">
-                  <div className="card-head"><h3 className="card-title">Sample Datasets</h3><span className="micro-label">Workspace</span></div>
-                  {SAMPLES.map((s) => (
-                    <button key={s.name} className={`belt-row ${ds.name === s.name ? 'on' : ''}`} style={{ gridTemplateColumns: '1fr auto' }} onClick={() => pick(s)}>
-                      <span className="belt-text"><b className="mono" style={{ fontSize: 12.5, fontWeight: 500 }}>{s.name}</b><span className="helper" style={{ fontSize: 12 }}>{s.rows.toLocaleString()} rows × {s.cols.length} cols · {s.note}</span></span>
-                      <span className="pin-state">{ds.name === s.name ? '● Selected' : '○ Use'}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="card">
-                <div className="card-head">
-                  <div className="left"><h3 className="card-title">Profile</h3><span className="mono" style={{ fontSize: 12.5 }}>{ds.name}</span></div>
-                  <div className="row"><ParamChip sym="n" value={ds.rows.toLocaleString()} /><ParamChip sym="K" value={String(K)} /></div>
-                </div>
-                <div className="table-wrap"><table className="table">
-                  <thead><tr><th>Column</th><th>Type</th><th>Example</th><th>Role</th></tr></thead>
-                  <tbody>
-                    {ds.cols.map((c) => (
-                      <tr key={c.name} className={c.name === ds.target ? 'sel' : ''}>
-                        <td className="table-cell">{c.name}</td><td><span className="chip" style={{ fontSize: 11 }}>{c.type === 'text' ? 'str' : c.type === 'number' ? 'num' : c.type === 'id' ? 'id' : 'cat'}</span></td>
-                        <td className="muted" style={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.sample}</td>
-                        <td>{c.name === ds.target ? <StatusPill status="success">Target y</StatusPill> : c.type === 'id' ? <span className="muted">Ignored</span>
-                          : <span className="muted">Feature</span>}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table></div>
-                <div className="card-body" style={{ borderTop: '1px solid var(--border-default)' }}>
-                  <div className="micro-label" style={{ marginBottom: 8 }}>Classes of <span className="mono" style={{ textTransform: 'none' }}>{ds.target}</span></div>
-                  {ds.classes.map((c) => (
-                    <div key={c.name} className="dist-row">
-                      <span>{c.name}</span>
-                      <svg width="100%" height="10" aria-hidden><line x1="0" x2={`${(c.share / Math.max(...ds.classes.map((x) => x.share))) * 100}%`} y1="5" y2="5" stroke={c.share < 0.1 ? 'var(--status-warning)' : 'var(--accent-primary)'} strokeWidth="2" strokeDasharray={c.share < 0.1 ? '4 3' : undefined} /><circle cx={`${(c.share / Math.max(...ds.classes.map((x) => x.share))) * 100}%`} cy="5" r="3" fill={c.share < 0.1 ? 'var(--status-warning)' : 'var(--accent-primary)'} /></svg>
-                      <span className="table-cell">{(c.share * 100).toFixed(1)}%</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+      <div className="wizard-scroll">
+        {step === 0 && <DatasetStep ds={ds} onPick={pick} />}
 
-        {step === 1 && (
-          <div className="page">
-            <div className="patch" style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-              <VelaCrest size={20} />
-              <p>{ds.kind === 'text'
-                ? <>Your features are mostly text and <b>K = {K}</b>. A sparse linear model is the strong first string: <b>TF-IDF → LogReg (OvR)</b> usually lands within 0.01 F1 of boosted trees at a tenth of the fit time.</>
-                : <>Your features are numeric and categorical with no long text. <b>XGBoost</b> handles mixed scales and interactions without scaling; start there.</>}</p>
-            </div>
-            <div className="lib-grid" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
-              {RECIPES.filter((r) => ds.kind === 'text' || r.id !== 'svm').map((r) => {
-                const on = r.id === recipeId, rec = r.best === ds.kind && r.id !== 'svm'
-                const stages = r.stages(ds)
-                return (
-                  <button key={r.id} className={`card lib-card recipe ${on ? 'on' : ''}`} onClick={() => setRecipeId(r.id)} aria-pressed={on}>
-                    <div className="top">
-                      <div className="row" style={{ justifyContent: 'space-between' }}><h3 className="card-title">{r.pipeline(ds)}</h3>{rec ? <StatusPill status="info">Vela Pick</StatusPill> : <span className="pin-state">{on ? '● Selected' : '○ Select'}</span>}</div>
-                      <svg width="100%" height="40" aria-hidden>
-                        <line x1="6%" x2="94%" y1="12" y2="12" stroke={on ? 'var(--accent-primary)' : 'var(--border-track)'} strokeWidth="2" />
-                        {stages.map((s, i) => <g key={s}><circle cx={`${6 + (i / (stages.length - 1)) * 88}%`} cy="12" r="4" fill={on ? 'var(--accent-primary)' : 'var(--bg-surface)'} stroke={on ? 'var(--accent-primary)' : 'var(--border-track)'} strokeWidth="1.5" /><text x={`${6 + (i / (stages.length - 1)) * 88}%`} y="34" textAnchor={i === 0 ? 'start' : i === stages.length - 1 ? 'end' : 'middle'} className="tick-text" style={{ fontFamily: 'var(--font-sans)' }}>{i % 2 === 0 ? s : ''}</text></g>)}
-                      </svg>
-                      <div className="eqn">{r.eq}</div>
-                      <p className="helper" style={{ textAlign: 'left' }}>{r.where}</p>
-                      <div className="row" style={{ flexWrap: 'wrap' }}><span className="micro-label">Defaults</span>{r.chips.filter(([s]) => ds.kind === 'text' || s !== 'ngram').map(([s, v]) => <ParamChip key={s} sym={s} value={v} />)}</div>
-                    </div>
-                    <div className="bot"><span className="table-cell" style={{ color: 'var(--text-body)' }}>est. {mmss(fitSeconds(r, ds))}</span><span className="table-cell">expected F1: {expectedF1(r, ds).toFixed(3)}</span></div>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        )}
+        {step === 1 && <RecipeStep ds={ds} recipeId={recipeId} onPick={setRecipeId} />}
 
         {step >= 2 && (
           <div className="page">
@@ -288,7 +198,7 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
       </div>
 
       {step < 2 && (
-        <div className="gym-footer">
+        <div className="wizard-footer">
           <div>{step === 1 && <button className="btn ghost" onClick={() => setStep(0)}>← Back</button>}</div>
           <div className="valid"><span className="dot">●</span> {step === 0 ? `Schema Valid · target ${ds.target} · K = ${K}` : `${recipe.pipeline(ds)} · Ready`}</div>
           <div className="right">{step === 0 ? <button className="btn primary" onClick={() => setStep(1)}>Continue →</button> : <button className="btn primary" onClick={start}>Start Training</button>}</div>

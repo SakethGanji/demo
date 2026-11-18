@@ -28,5 +28,3 @@
 .inbox.open { border-color: var(--status-warning); }
 .inbox.open .card-head { background: var(--status-warning-bg); }
 .stage .btn:disabled { opacity: 0.45; cursor: default; }
-
-.page-title { white-space: nowrap; }

@@ -17,7 +17,7 @@
 .num-input { background: var(--bg-surface); }
 .dock-head { background: var(--bg-band); }
 .stepper-bar { background: linear-gradient(var(--bg-surface), var(--bg-table-header)); }
-.gym-footer { background: var(--bg-band); }
+.wizard-footer { background: var(--bg-band); }
 .table tbody tr:nth-child(even):not(.sel) { background: color-mix(in srgb, var(--bg-table-header) 60%, transparent); }
 .table tbody tr:hover:not(.sel) { background: var(--bg-subtle); }
 .kpi { background: linear-gradient(var(--bg-surface) 62%, var(--bg-band) 62%); }

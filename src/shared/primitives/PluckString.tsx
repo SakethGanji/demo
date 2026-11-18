@@ -1,13 +1,15 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useId, useRef } from 'react'
 import { useWidth } from '@/shared/hooks/useWidth'
 import { TENSION, reducedMotion, usePrefs } from '@/shared/lib/prefs'
 
 /** A taut string pinned at both ends. Change `pluck` to pluck it: a damped standing wave, then rest. */
-export function PluckString({ pluck, at = 0.35, height = 14, stroke = 'url(#pluck-grad)', width: sw = 2, rest = 'var(--border-track)' }: { pluck: number; at?: number; height?: number; stroke?: string; width?: number; rest?: string }) {
+export function PluckString({ pluck, at = 0.35, height = 14, stroke: strokeProp, width: sw = 2, rest = 'var(--border-track)' }: { pluck: number; at?: number; height?: number; stroke?: string; width?: number; rest?: string }) {
   const [ref, w] = useWidth<HTMLDivElement>()
   const path = useRef<SVGPathElement>(null)
   const { prefs } = usePrefs()
   const first = useRef(true)
+  const gid = `pluck-${useId().replace(/:/g, '')}` // one gradient per string, so ids never collide
+  const stroke = strokeProp ?? `url(#${gid})`
   useEffect(() => {
     const el = path.current!
     const mid = height / 2
@@ -40,7 +42,7 @@ export function PluckString({ pluck, at = 0.35, height = 14, stroke = 'url(#pluc
   return (
     <div ref={ref} style={{ height, width: '100%' }} aria-hidden>
       <svg width={w} height={height} style={{ display: 'block', overflow: 'visible' }}>
-        <defs><linearGradient id="pluck-grad" x1="0" x2="1"><stop offset="0" stopColor="#0D9488" /><stop offset="1" stopColor="#38BDF8" /></linearGradient></defs>
+        <defs><linearGradient id={gid} x1="0" x2="1"><stop offset="0" stopColor="#0D9488" /><stop offset="1" stopColor="#38BDF8" /></linearGradient></defs>
         <path ref={path} fill="none" stroke={rest} strokeWidth={sw} strokeLinecap="round" style={{ transition: 'stroke var(--duration-snap-max) var(--ease-pluck)' }} />
         <circle cx={1.5} cy={height / 2} r={2.5} fill="var(--accent-primary)" />
         <circle cx={w - 1.5} cy={height / 2} r={2.5} fill="var(--accent-primary)" />
