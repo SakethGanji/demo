@@ -1,0 +1,17 @@
+# Pinned for the ENSEMBLE demo backend. Python 3.11+.
+# Web
+fastapi==0.163.2
+starlette==1.10.0
+uvicorn[standard]==0.54.0
+python-multipart==0.0.34
+sse-starlette==3.7.0
+pydantic==2.14.3
+# Data and models (used from S2 on)
+numpy==2.5.5
+pandas==3.1.1
+scikit-learn==1.9.1
+xgboost==3.4.1
+mlflow==3.18.0
+# Tests
+httpx==0.28.1
+pytest==9.2.0
