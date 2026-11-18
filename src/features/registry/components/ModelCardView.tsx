@@ -113,6 +113,16 @@ export function ModelCardView({ v, actor, onEdited }: { v: ModelVersion; actor: 
               <td>{r.monotone == null ? '—' : r.monotone ? <span style={{ color: 'var(--status-success)' }}>● yes</span> : <span style={{ color: 'var(--status-danger)' }}>✕ no</span>}</td></tr>)}</tbody></table>
           <p className="helper" style={{ fontSize: 12 }}>Checked on <span className="mono">{c.constraints.served_model ?? '—'}</span>, as this version serves it: sⱼ·(f(x with xⱼ = g₊₁) − f(x with xⱼ = g)) ≥ −ε for every holdout row x and consecutive grid points g of xⱼ's quantiles, ε = 10⁻⁹. Method: {c.constraints.method}.{c.constraints.unconstrained_models?.length ? ` Unconstrained models in the run: ${c.constraints.unconstrained_models.join(', ')}.` : ''}</p>
         </div>}
+        {c.scorecard && <div data-testid="card-scorecard" style={{ marginTop: 8 }}>
+          <h4 className="micro-label" style={{ margin: '8px 0 4px' }}>Scorecard benchmark (interpretable challenger)</h4>
+          <table className="table compact"><thead><tr><th>model</th><th className="r">holdout AUC</th><th className="r">Gini</th><th className="r">KS</th></tr></thead>
+            <tbody>
+              <tr><td className="mono">{c.scorecard.served.model} (served)</td><td className="r mono">{fmtScore(c.scorecard.served.auc)}</td><td className="r mono">{fmtScore(c.scorecard.served.gini, 3)}</td><td className="r mono">{fmtScore(c.scorecard.served.ks, 3)}</td></tr>
+              <tr><td className="mono">Scorecard ({c.scorecard.n_features} features)</td><td className="r mono">{fmtScore(c.scorecard.scorecard.auc)}</td><td className="r mono">{fmtScore(c.scorecard.scorecard.gini, 3)}</td><td className="r mono">{fmtScore(c.scorecard.scorecard.ks, 3)}</td></tr>
+            </tbody></table>
+          <p className="helper" style={{ fontSize: 12 }}>ΔAUC (served − scorecard) = <b className="mono">{c.scorecard.delta_auc.delta >= 0 ? '+' : '−'}{Math.abs(c.scorecard.delta_auc.delta).toFixed(4)}</b>, 95% CI [{c.scorecard.delta_auc.ci[0].toFixed(4)}, {c.scorecard.delta_auc.ci[1].toFixed(4)}] over B = {c.scorecard.delta_auc.B} paired bootstrap resamples of the holdout. Points: PDO {c.scorecard.scaling.pdo}, {c.scorecard.scaling.base_score} at odds {c.scorecard.scaling.base_odds} : 1.
+            {c.scorecard.cost ? ` Cost per 1,000 decisions (c_FP = ${c.scorecard.cost.c_fp}, c_FN = ${c.scorecard.cost.c_fn}): served ${c.scorecard.cost.served_per_1000.toFixed(0)}, scorecard ${c.scorecard.cost.scorecard_per_1000.toFixed(0)}.` : ''} Method: {c.scorecard.method}.</p>
+        </div>}
         {c.reasons && <div data-testid="card-reasons" style={{ marginTop: 8 }}>
           <h4 className="micro-label" style={{ margin: '8px 0 4px' }}>Reason codes (adverse action)</h4>
           <p className="helper" style={{ fontSize: 12 }}>{c.reasons.rule}. Reference applicants: {c.reasons.reference === 'approved' ? 'training rows the served model approves' : 'all training rows'}.{c.reasons.method ? ` Attribution: ${c.reasons.method.name}, B = ${c.reasons.method.background}${c.reasons.method.coalitions ? `, M = ${c.reasons.method.coalitions}` : ''}.` : ''}</p>

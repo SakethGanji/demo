@@ -830,6 +830,10 @@ export type ModelCard = {
     stability: ReasonStability | null; method: ReasonAttribution | null; rule: string; monotone_note: string
     last_batch: Pick<BatchReasons, 'n_adverse' | 'rows_per_s' | 'methods' | 'additivity_max' | 'signs_consistent' | 'codes_per_row' | 'top_codes' | 'monotone'> | null
   } | null
+  /** F11: the scorecard benchmark of the source run. */
+  scorecard?: { model: string; served: ScorecardAuc & { model: string }; scorecard: ScorecardAuc; delta_auc: DeltaAuc; n_features: number
+    scaling: { pdo: number; base_score: number; base_odds: number }; iv: { feature: string; iv: number; in_model: boolean }[]
+    cost?: { scorecard_per_1000: number; served_per_1000: number; c_fp: number; c_fn: number } | null; method: string } | null
   constraints?: {
     columns: { column: string; direction: MonotoneDirection; sign: number; features: string[] | null; status: string | null; monotone: boolean | null
       pd_monotone: boolean | null; curves_violating: number | null; n_curves: number | null; grid_points: number; max_violation: number | null; pd_range: number | null }[]
