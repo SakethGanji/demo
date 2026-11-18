@@ -173,7 +173,7 @@ def _calibration(y: np.ndarray, p: np.ndarray, n_bins: int = 10) -> dict[str, An
     ece = float(np.sum(counts[nonempty] / len(p) * np.abs(frac_pos - mean_pred)))
     return {"n_bins": n_bins, "strategy": "uniform", "edges": edges.round(6).tolist(),
             "mean_predicted": mean_pred.tolist(), "fraction_positive": frac_pos.tolist(),
-            "counts": counts[nonempty].tolist(), "brier": float(brier_score_loss(y, p)), "ece": ece,
+            "counts": counts[nonempty].tolist(), "bins": np.flatnonzero(nonempty).tolist(), "brier": float(brier_score_loss(y, p)), "ece": ece,
             "brier_reference": float(y.mean() * (1 - y.mean()))}
 
 

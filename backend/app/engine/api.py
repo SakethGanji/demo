@@ -302,7 +302,7 @@ async def feature_importance(run_id: str, request: Request,
     meta = res.get("feature_importance_meta") or {"num_shuffle_sets": 3, "subsample_size": None}
     if fi is None or (shuffles is not None and shuffles != meta.get("num_shuffle_sets")):
         cfg = rec["config"]
-        n_sets = shuffles or 3
+        n_sets = shuffles or 5
 
         def compute():
             p = request.app.state.predictors.get(cfg["predictor_path"])
@@ -339,7 +339,7 @@ async def holdout_predictions(run_id: str, request: Request) -> dict[str, Any]:
                 "rows": jsonable(df["row"].tolist()), "y_true": jsonable(df["y_true"].tolist()),
                 "y_pred": jsonable(df["y_pred"].tolist()),
                 "classes": [c[2:] for c in prob_cols] or None,
-                "probabilities": jsonable(df[prob_cols].round(6).to_numpy()) if prob_cols else None}
+                "probabilities": jsonable(df[prob_cols].to_numpy()) if prob_cols else None}
 
     return await run_in_threadpool(read)
 
