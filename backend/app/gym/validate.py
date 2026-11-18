@@ -537,7 +537,7 @@ def validate(body: dict[str, Any], ds: dict[str, Any] | None, unlabeled: dict[st
             fams_before = set()
         left_out = sorted(f for f in fams_before if f not in compliant and f not in others) if mono["compliant_only"] else []
         if not compliant:
-            _err(errors, "monotone", "No model family that can honour a monotone constraint is switched on: switch on "
+            _err(errors, "monotone", "No model family that can honour a monotone constraint is switched on: switch on the scorecard, "
                                      "LightGBM (GBM), CatBoost (CAT) or XGBoost (XGB).")
         if others:
             _err(warnings, "monotone", f"{', '.join(others)} cannot honour monotone constraints and are kept; the served "

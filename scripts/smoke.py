@@ -1168,8 +1168,8 @@ def monotone(st: dict[str, Any]) -> None:
                ({**body, "label": "loan_purpose", "problem_type": "multiclass", "eval_metric": None,
                  "monotone": {"constraints": {col: 1}}}, "binary and regression"),
                ({**body, "monotone": {"constraints": cons}, "distill": {"time_limit": 30}}, "distill"),
-               ({**body, "fit_kwargs": {"hyperparameters": {"RF": {}, "LR": {}}}, "monotone": {"constraints": cons}},
-                "No model family that can honour")]
+               ({**body, "fit_kwargs": {"hyperparameters": {"RF": {}, "LR": {}}}, "monotone": {"constraints": cons},
+                 "scorecard": False}, "No model family that can honour")]  # F11: with the scorecard on, it honours it
         for b, words in bad:
             r = C.post("/api/runs", json=b)
             check(r.status_code == 400 and words in r.text, f"{words}: {r.status_code} {r.text[:300]}")
