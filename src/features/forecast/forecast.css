@@ -1,0 +1,25 @@
+/* New Forecast (features/forecast) */
+.forecast .fc-setup { grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); align-items: start; }
+.forecast .fc-two { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); align-items: start; }
+.fc-map { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-12); }
+.fc-map label, .fc-fields label, .forecast label { display: flex; flex-direction: column; gap: 4px; }
+.fc-map .fc-multi { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 4px; }
+.fc-map small, .forecast label small { font-size: 11.5px; }
+.fc-fields { display: flex; flex-wrap: wrap; gap: var(--space-12); }
+.fc-formula .eq { font-size: 16px; line-height: 24px; }
+.fc-call { background: var(--bg-shell); color: var(--text-on-shell); border-radius: var(--radius-control); padding: var(--space-8) var(--space-12); font-size: 11.5px; line-height: 17px; white-space: pre-wrap; margin: 0; }
+.fc-adv { border: 1px dashed var(--border-default); border-radius: var(--radius-control); padding: var(--space-8) var(--space-12); display: flex; flex-direction: column; gap: 8px; }
+.fc-adv summary { cursor: pointer; }
+.fc-adv textarea { width: 100%; height: auto; padding: 6px 8px; font-size: 12px; }
+.fc-sparks { border-top: 1px solid var(--border-row); padding-top: var(--space-8); display: flex; flex-direction: column; gap: 6px; }
+.fc-spark-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px var(--space-12); }
+.fc-spark { display: grid; grid-template-columns: 1fr; font-size: 11px; }
+.fc-spark .mono:first-child { color: var(--text-primary); }
+.fc-w { display: grid; grid-template-columns: 150px 1fr 56px; gap: var(--space-8); align-items: center; font-size: 12px; }
+.fc-w .bar { height: 6px; background: var(--border-row); border-radius: 3px; overflow: hidden; }
+.fc-w .bar i { display: block; height: 100%; background: var(--viz-d); }
+.fc-w .mono:last-child { text-align: right; }
+.dot-inline { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+.caption-pad { padding: var(--space-8) var(--space-16) var(--space-12); }
+.fc-items .chip-btn .muted { color: var(--text-muted); }
+@media (max-width: 1280px) { .forecast .fc-setup, .forecast .fc-two { grid-template-columns: 1fr; } }

@@ -1,0 +1,5 @@
+/* Import Predictor (features/import) */
+.import .imp-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+.imp-drop { border: 1px dashed var(--border-track); border-radius: var(--radius-card); padding: var(--space-20); text-align: center; cursor: pointer; color: var(--text-body); background: var(--bg-subtle); }
+.imp-drop:hover { border-color: var(--accent-primary); }
+@media (max-width: 1100px) { .import .imp-grid { grid-template-columns: 1fr; } }

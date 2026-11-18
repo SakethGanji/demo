@@ -226,3 +226,12 @@
 
 /* Live mode on a prototype page */
 .proto-banner { display: flex; align-items: center; gap: var(--space-12); margin: var(--space-12) var(--space-24) 0; padding: var(--space-8) var(--space-12); border: 1px solid #FDE68A; background: #FFFBEB; border-radius: var(--radius-control); font-size: 12.5px; color: var(--text-body); }
+
+/* ---------- live model rows and the register strip (forecast, anomaly, import pages: FlowParts) ---------- */
+.fc-live-row { display: grid; grid-template-columns: 10px minmax(150px, 1.2fr) 90px 2fr 70px 60px; gap: var(--space-8); align-items: center; font-size: 12px; }
+.fc-live-row .dot { width: 8px; height: 8px; border-radius: 50%; }
+.fc-live-row .name { color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fc-live-row .bar { height: 6px; background: var(--border-row); border-radius: 3px; overflow: hidden; display: flex; align-items: center; }
+.fc-live-row .bar i { display: block; height: 100%; min-width: 2px; }
+.fc-live-row .r { text-align: right; }
+.flow-register { flex-wrap: wrap; }

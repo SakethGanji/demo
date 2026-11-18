@@ -160,19 +160,26 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
             <StatusPill status={STAGE_STATUS[detail.stage]}>{detail.stage}</StatusPill><StatusPill status={APPROVAL_STATUS[detail.approval]}>{detail.approval}</StatusPill>
             <span className="helper mono" style={{ fontSize: 12 }}>from {detail.run_id} · registered by {detail.created_by}{detail.options.description ? ` · “${detail.options.description}”` : ''}</span>
             <span className="spacer" />
-            <button className="btn sm" onClick={() => go(`explain?run=${detail.run_id}`)}>Explain run →</button>
+            {flowOf(detail) === 'tabular'
+              ? <button className="btn sm" onClick={() => go(`explain?run=${detail.run_id}`)}>Explain run →</button>
+              : <button className="btn sm" onClick={() => go(`${flowOf(detail)}?run=${detail.run_id}`)} data-testid="vd-open-flow">Open {flowOf(detail)} run →</button>}
           </div>
           <Tabs tabs={TABS} value={tab} onChange={(t) => select(detail.id, t as Tab)} />
           {tab === 'Overview' && (detail.status !== 'ready'
             ? <BuildSteps v={detail} />
             : <>
               <div className="grid vd-top"><ReviewCard v={detail} actor={actor} onChanged={() => bump()} /><Provenance v={detail} /></div>
-              <Tradeoff v={detail} />
+              {flowOf(detail) === 'tabular' ? <Tradeoff v={detail} /> : <FlowMeasured v={detail} />}
               <BuildSteps v={detail} />
             </>)}
           {detail.status === 'ready' && tab === 'Model Card' && <ModelCardView v={detail} actor={actor} onEdited={bump} />}
-          {detail.status === 'ready' && tab === 'Try It' && <TryIt v={detail} run={run} ds={ds} />}
-          {detail.status === 'ready' && tab === 'Batch & Drift' && <BatchDrift v={detail} actor={actor} onScored={bump} />}
+          {detail.status === 'ready' && flowOf(detail) === 'tabular' && tab === 'Try It' && <TryIt v={detail} run={run} ds={ds} />}
+          {detail.status === 'ready' && flowOf(detail) === 'tabular' && tab === 'Batch & Drift' && <BatchDrift v={detail} actor={actor} onScored={bump} />}
+          {detail.status === 'ready' && flowOf(detail) !== 'tabular' && (tab === 'Try It' || tab === 'Batch & Drift') && (
+            <div className="card card-body"><p className="helper">{flowOf(detail) === 'forecast'
+              ? <>A forecasting version forecasts whole series: open the run to see its fan chart and upload new history to forecast from (no refit). </>
+              : <>An anomaly version scores rows: open the run to score a new batch with its threshold s* and get a reason per flag. Try It over HTTP: <span className="mono">POST /api/registry/versions/{detail.id}/predict</span>. </>}
+              <button className="btn sm" onClick={() => go(`${flowOf(detail)}?run=${detail.run_id}`)}>Open {flowOf(detail)} run →</button></p></div>)}
           {tab === 'Audit' && <div className="card"><AuditTable entries={audit.filter((a) => a.version_id === detail.id)} testId="version-audit" /></div>}
           {detail.status !== 'ready' && tab !== 'Overview' && tab !== 'Audit' && <div className="card card-body row"><ResonanceWave /> This version is {detail.status}; it is usable once ready.</div>}
         </div>
@@ -182,6 +189,23 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
         <div className="card-head"><div className="left"><h3 className="card-title">Audit Log</h3><span className="helper" style={{ fontSize: 12 }}>append-only · who, what, when, and the model’s SHA-256 at that moment</span></div>
           <span className="mono helper" style={{ fontSize: 12 }}>{audit.length} entr{audit.length === 1 ? 'y' : 'ies'}</span></div>
         <AuditTable entries={audit} onVersion={(id) => select(id)} />
+      </div>
+    </div>
+  )
+}
+
+const flowOf = (v: ModelVersion) => ((v.result as unknown as { kind?: string } | null)?.kind ?? 'tabular')
+
+/** Forecast and anomaly versions: what the build measured (no refit or infer_limit; those are TabularPredictor's). */
+function FlowMeasured({ v }: { v: ModelVersion }) {
+  const r = v.result as unknown as { kind: string; version: { best_model: string; size_bytes: number; latency: Record<string, number>; holdout: Record<string, number> | null; eval_metric: string } }
+  const lat = r.version.latency ?? {}
+  return (
+    <div className="card" data-testid="flow-measured">
+      <div className="card-head"><div className="left"><h3 className="card-title">Measured</h3><span className="helper" style={{ fontSize: 12 }}>{r.kind} · {r.version.best_model} · {(r.version.size_bytes / 1e6).toFixed(1)} MB on disk</span></div></div>
+      <div className="card-body row" style={{ flexWrap: 'wrap', gap: 24 }}>
+        {Object.entries(lat).filter(([, x]) => typeof x === 'number').map(([k, x]) => <div key={k}><span className="micro-label">{k.replace(/_/g, ' ')}</span><div className="mono">{Number(x).toPrecision(4)}</div></div>)}
+        {Object.entries(r.version.holdout ?? {}).filter(([, x]) => typeof x === 'number').slice(0, 8).map(([k, x]) => <div key={k}><span className="micro-label">{k}</span><div className="mono">{Number(x).toFixed(4)}</div></div>)}
       </div>
     </div>
   )

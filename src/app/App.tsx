@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react'
 import { AutopilotPage } from '@/features/autopilot/AutopilotPage'
 import { ExperimentsPage } from '@/features/experiments/ExperimentsPage'
+import { AnomalyPage } from '@/features/anomaly/AnomalyPage'
 import { ExplainPage } from '@/features/explain/ExplainPage'
+import { ForecastPage } from '@/features/forecast/ForecastPage'
+import { ImportPage } from '@/features/import/ImportPage'
 import { HomePage } from '@/features/home/HomePage'
 import { QuickTrainPage } from '@/features/quick-train/QuickTrainPage'
 import { RegistryPage } from '@/features/registry/RegistryPage'
@@ -88,6 +91,9 @@ export default function App() {
           {route === 'explain' && <ExplainPage go={go} />}
           {route === 'registry' && <RegistryPage go={go} approved={approved} onApprove={() => setApproved(true)} />}
           {route === 'settings' && <SettingsPage />}
+          {route === 'forecast' && <ForecastPage go={go} />}
+          {route === 'anomaly' && <AnomalyPage go={go} />}
+          {route === 'import' && <ImportPage go={go} />}
         </main>
       </div>
 

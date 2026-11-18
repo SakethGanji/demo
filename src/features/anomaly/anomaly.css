@@ -1,0 +1,18 @@
+/* Anomaly Detection (features/anomaly) */
+.anomaly .an-setup { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+.anomaly .an-two { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); align-items: start; }
+.an-formula .eq { font-size: 17px; line-height: 26px; }
+.an-slider { display: flex; flex-direction: column; gap: 4px; }
+.an-slider input[type=range] { accent-color: var(--status-danger); width: 100%; }
+.anomaly label.col, .import label.col { display: flex; flex-direction: column; gap: 4px; }
+.an-top-wrap { max-height: 460px; overflow-y: auto; }
+.an-why { font-size: 12px; color: var(--text-body); max-width: 360px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.an-reason-row { display: grid; grid-template-columns: minmax(120px, 1.1fr) 90px 1.4fr 60px 82px; gap: var(--space-8); align-items: center; font-size: 12px; }
+.an-reason-row .name { color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; }
+.an-reason-row .v { color: var(--text-primary); text-align: right; }
+.an-reason-row .bar { height: 7px; background: var(--border-row); border-radius: 3px; overflow: hidden; }
+.an-reason-row .bar i { display: block; height: 100%; }
+.an-reason-row .r { text-align: right; }
+.an-values { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; padding-top: 6px; }
+.an-kinds { display: flex; flex-direction: column; gap: 4px; }
+@media (max-width: 1280px) { .anomaly .an-setup, .anomaly .an-two { grid-template-columns: 1fr; } }

@@ -98,11 +98,12 @@ export function ModelCardView({ v, actor, onEdited }: { v: ModelVersion; actor: 
         )}
       </section>
 
-      <section className="mc-sec" data-testid="card-validation"><h3><i>5</i> Validation on the holdout <small>n_h = {d.holdout_rows?.toLocaleString()} rows never used for training or model selection; 95% percentile bootstrap, B = {val.holdout_ci?.B}</small></h3>
+      {flowKind(c) !== 'tabular' && <FlowCardSection c={c} />}
+      {flowKind(c) === 'tabular' && <section className="mc-sec" data-testid="card-validation"><h3><i>5</i> Validation on the holdout <small>n_h = {d.holdout_rows?.toLocaleString()} rows never used for training or model selection; 95% percentile bootstrap, B = {val.holdout_ci?.B}</small></h3>
         <table className="table compact"><thead><tr><th>metric</th><th>definition</th><th className="r">this version</th><th className="r">source run</th></tr></thead>
           <tbody>{Object.entries(hc).map(([k, m]) => <tr key={k} data-testid={`card-metric-${k}`}><td className="mono">{k}</td><td className="math-col">{m.formula}</td><td className="r mono">{ci(m)}</td><td className="r mono">{ci(sc[k])}</td></tr>)}</tbody></table>
         {val.threshold && <p className="helper" style={{ fontSize: 12.5 }}>Decision threshold <b className="mono">t = {val.threshold.value.toFixed(3)}</b> ({val.threshold.source}{val.threshold.metric ? `, ${val.threshold.metric}` : ''}): predict positive when p̂ &gt; t. Validation score of the source model: {fmtScore(val.validation_score)}.</p>}
-      </section>
+      </section>}
 
       <section className="mc-sec"><h3><i>6</i> Feature importance <small>{c.importance.method}</small></h3>
         <table className="table compact"><thead><tr><th className="nocase">feature j</th><th className="r nocase">Îⱼ</th><th className="r">95% CI</th><th className="r">p</th></tr></thead>
@@ -115,7 +116,7 @@ export function ModelCardView({ v, actor, onEdited }: { v: ModelVersion; actor: 
         )) : <p className="helper" style={{ fontSize: 12.5 }}>{c.fairness.note}</p>}
       </section>
 
-      <section className="mc-sec"><h3><i>8</i> Deployment trade-off <small>measured</small></h3>
+      {flowKind(c) === 'tabular' && <section className="mc-sec"><h3><i>8</i> Deployment trade-off <small>measured</small></h3>
         <table className="table compact"><thead><tr><th /><th className="r">source run</th><th className="r">this version</th></tr></thead>
           <tbody>
             <tr><td>served model</td><td className="r mono">{dep.source.best_model}</td><td className="r mono">{dep.version.best_model}</td></tr>
@@ -123,7 +124,7 @@ export function ModelCardView({ v, actor, onEdited }: { v: ModelVersion; actor: 
             <tr><td>batch t̂ p50 / p95 (µs/row)</td><td className="r mono">{us(dep.source.latency.us_per_row_p50)} / {us(dep.source.latency.us_per_row_p95)}</td><td className="r mono">{us(dep.version.latency.us_per_row_p50)} / {us(dep.version.latency.us_per_row_p95)}</td></tr>
             <tr><td>one row p50 / p95 (ms)</td><td className="r mono">{ms(dep.source.latency.single_ms_p50)} / {ms(dep.source.latency.single_ms_p95)}</td><td className="r mono">{ms(dep.version.latency.single_ms_p50)} / {ms(dep.version.latency.single_ms_p95)}</td></tr>
           </tbody></table>
-      </section>
+      </section>}
 
       <section className="mc-sec"><h3><i>9</i> Monitoring <small>{c.monitoring.bands}</small></h3>
         {c.monitoring.batches.length ? <table className="table compact"><thead><tr><th>batch</th><th>scored</th><th className="r">rows</th><th className="r">max PSI (features)</th><th className="r nocase">PSI(p̂)</th></tr></thead>
@@ -139,4 +140,45 @@ export function ModelCardView({ v, actor, onEdited }: { v: ModelVersion; actor: 
       </section>
     </div>
   )
+}
+
+type FlowCard = { kind?: string; imported?: Record<string, unknown> | null
+  forecasting?: { setup: Record<string, unknown> & { prediction_length_H: number; freq: string; seasonal_period_m: number; items: number; eval_metric: string; metric_formula: string; start: string; end: string; quantile_levels?: number[] }
+    validation: string; holdout_metrics: Record<string, number>; coverage: number | null; interval: [number, number]; items: { item_id: string; MASE: number | null; WQL: number | null; sMAPE: number; coverage: number }[]
+    ensemble: { weights?: Record<string, number> } | null; limitations: string[] } | null
+  anomaly_detection?: { method: string; contamination: number; threshold: number; n_flagged: number; psi: number; c_n: number; n_trees: number; validation: string; limitations: string[]
+    truth_check?: { precision_at_k: { k: number; hits: number; precision: number; recall: number }[]; roc_auc: number | null; planted: number } | null } | null }
+
+const flowKind = (c: ModelCard) => ((c as unknown as FlowCard).kind ?? 'tabular') === 'tabular' ? 'tabular' : (c as unknown as FlowCard).kind!
+
+/** §5 for forecasting and anomaly versions: what was validated and how, with the numbers. */
+function FlowCardSection({ c }: { c: ModelCard }) {
+  const x = c as unknown as FlowCard
+  if (x.forecasting) {
+    const f = x.forecasting, st = f.setup
+    return (
+      <section className="mc-sec" data-testid="card-forecasting"><h3><i>5</i> Forecasting <small>{f.validation}</small></h3>
+        <p className="helper" style={{ fontSize: 12.5 }}><span className="math">ŷ<sub>i,t+h|t</sub></span> for h = 1…H, <b className="mono">H = {st.prediction_length_H}</b>, freq <span className="mono">{st.freq}</span>, season <span className="math">m</span> = {st.seasonal_period_m}, {st.items} series from {String(st.start).slice(0, 10)} to {String(st.end).slice(0, 10)}; quantiles τ ∈ {'{'}{(st.quantile_levels ?? []).join(', ')}{'}'}. {st.eval_metric}: <span className="math-col">{st.metric_formula}</span></p>
+        <table className="table compact"><thead><tr><th>holdout metric</th><th className="r">value</th></tr></thead>
+          <tbody>{Object.entries(f.holdout_metrics ?? {}).map(([k, v]) => <tr key={k}><td className="mono">{k}</td><td className="r mono">{fmtScore(v)}</td></tr>)}
+            {f.coverage != null && <tr><td className="mono">coverage [q{f.interval[0]}, q{f.interval[1]}]</td><td className="r mono">{fmtScore(f.coverage)}</td></tr>}</tbody></table>
+        <table className="table compact"><thead><tr><th>series</th><th className="r">MASE</th><th className="r">WQL</th><th className="r">sMAPE</th><th className="r">coverage</th></tr></thead>
+          <tbody>{f.items.map((r) => <tr key={r.item_id}><td className="mono">{r.item_id}</td><td className="r mono">{fmtScore(r.MASE)}</td><td className="r mono">{fmtScore(r.WQL)}</td><td className="r mono">{fmtScore(r.sMAPE)}</td><td className="r mono">{fmtScore(r.coverage)}</td></tr>)}</tbody></table>
+        {f.ensemble?.weights && <p className="helper" style={{ fontSize: 12.5 }}>Ensemble q̂<sub>τ</sub> = Σ w<sub>m</sub> q̂<sub>τ</sub><sup>(m)</sup>: {Object.entries(f.ensemble.weights).map(([k, w]) => `${k} ${w.toFixed(3)}`).join(' · ')}</p>}
+        <ul className="helper" style={{ fontSize: 12.5 }}>{f.limitations.map((l) => <li key={l}>{l}</li>)}</ul>
+      </section>
+    )
+  }
+  if (x.anomaly_detection) {
+    const a = x.anomaly_detection
+    return (
+      <section className="mc-sec" data-testid="card-anomaly"><h3><i>5</i> Anomaly detection <small>{a.validation}</small></h3>
+        <p className="helper" style={{ fontSize: 12.5 }}>{a.method}. ψ = {a.psi}, c(ψ) = {a.c_n.toFixed(3)}, T = {a.n_trees} trees, contamination c = {a.contamination}, threshold s* = <b className="mono">{a.threshold.toFixed(4)}</b>, {a.n_flagged} rows flagged.</p>
+        {a.truth_check && <table className="table compact"><thead><tr><th className="r">k</th><th className="r">hits</th><th className="r">precision@k</th><th className="r">recall</th></tr></thead>
+          <tbody>{a.truth_check.precision_at_k.map((r) => <tr key={r.k}><td className="r mono">{r.k}</td><td className="r mono">{r.hits}</td><td className="r mono">{fmtScore(r.precision)}</td><td className="r mono">{fmtScore(r.recall)}</td></tr>)}</tbody></table>}
+        <ul className="helper" style={{ fontSize: 12.5 }}>{a.limitations.map((l) => <li key={l}>{l}</li>)}</ul>
+      </section>
+    )
+  }
+  return null
 }

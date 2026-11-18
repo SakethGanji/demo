@@ -64,9 +64,11 @@ export type DatasetSummary = {
   size_bytes: number
   rows: number
   n_cols: number
-  kind: 'text' | 'tabular'
+  kind: 'text' | 'tabular' | 'timeseries' | 'transactions'
   target: string | null
   n_classes: number
+  /** Which flows suit the dataset: tabular, forecast, anomaly. */
+  flows?: string[]
 }
 
 export type DatasetDetail = DatasetSummary & { profile: Profile }
@@ -291,7 +293,7 @@ export type HoldoutPredictions = {
 export type RunEventType =
   | 'run_queued' | 'run_started' | 'data_ready' | 'config_resolved' | 'fit_started'
   | 'model_started' | 'model_finished' | 'model_failed' | 'ensemble' | 'fit_finished'
-  | 'leaderboard' | 'evaluation' | 'text_models' | 'explaining' | 'feature_importance' | 'log' | 'calibrating' | 'threshold' | 'tracked' | 'post_fit'
+  | 'leaderboard' | 'evaluation' | 'text_models' | 'explaining' | 'feature_importance' | 'log' | 'calibrating' | 'threshold' | 'tracked' | 'post_fit' | 'forecast_ready' | 'importing'
   | 'run_succeeded' | 'run_failed' | 'run_cancelled'
 
 /** One event. `phase` is "main" or "dystack" (AutoGluon's dynamic-stacking sub-fit) on fit events. */

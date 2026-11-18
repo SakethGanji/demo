@@ -13,5 +13,8 @@
 @import '../../features/training-gym/training-gym.css';
 @import '../../features/registry/registry.css';
 @import '../../features/settings/settings.css';
+@import '../../features/forecast/forecast.css';
+@import '../../features/anomaly/anomaly.css';
+@import '../../features/import/import.css';
 @import './surfaces.css';
 @import './responsive.css';
