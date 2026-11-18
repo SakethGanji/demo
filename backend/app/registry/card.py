@@ -193,7 +193,32 @@ def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, 
         "anomaly_detection": _anomaly_section(cfg, res) if cfg.get("kind") == "anomaly" else None,
         "imported": res.get("imported"),
         "constraints": _monotone_section(cfg, res, vres),
+        "quantile": _quantile_section(cfg, res, vres),
     }
+
+
+def _quantile_section(cfg: dict[str, Any], res: dict[str, Any], vres: dict[str, Any]) -> dict[str, Any] | None:
+    """F9: a quantile model's levels, and the served version's pinball loss, calibration per level and interval
+    coverage on the holdout, raw and conformally calibrated."""
+    if res.get("problem_type") != "quantile":
+        return None
+    q = vres.get("quantile") or res.get("quantile") or {}
+
+    def ivs(e):
+        return [{k: iv.get(k) for k in ("lo", "hi", "nominal", "coverage", "coverage_ci", "mean_width", "below_lo", "above_hi")}
+                for iv in (e or {}).get("intervals") or []]
+
+    conf = q.get("conformal") or {}
+    return {"levels": q.get("levels") or res.get("quantile_levels"), "centre": q.get("centre"),
+            "served_model": q.get("model"), "served": q.get("served"), "pinball": (q.get("holdout") or {}).get("pinball"),
+            "per_level": [{k: x.get(k) for k in ("tau", "pinball", "below", "below_ci")} for x in (q.get("holdout") or {}).get("levels") or []],
+            "intervals": ivs(q.get("holdout")), "raw": ivs(q.get("raw")), "calibrated": ivs(q.get("calibrated")),
+            "crossing_share": (q.get("holdout") or {}).get("crossing_share"),
+            "conformal": {"applied": conf.get("applied"), "offsets": conf.get("offsets"), "source": conf.get("source")},
+            "requested_calibrate": (cfg.get("quantile") or {}).get("calibrate"),
+            "method": "AutoGluon quantile regression (pinball loss ρ_τ(y, q) = max(τ(y − q), (τ − 1)(y − q))); "
+                      "coverage = share of holdout rows inside [q̂_lo, q̂_hi]; F̂(τ) = share at or below q̂_τ; "
+                      "conformal recalibration is AutoGluon's CQR (q̃_τ = q̂_τ + c_τ)"}
 
 
 def _monotone_section(cfg: dict[str, Any], res: dict[str, Any], vres: dict[str, Any]) -> dict[str, Any] | None:
@@ -337,6 +362,28 @@ def to_markdown(c: dict[str, Any]) -> str:
         th = v["threshold"]
         L += ["", f"Decision threshold t = {_fmt(th.get('value'))} ({th.get('source')}{', ' + th['metric'] if th.get('metric') else ''}); "
                   f"predict positive when p̂ > t.", ""]
+    qc = c.get("quantile")
+    if qc:
+        L += ["**Quantile regression (range)**", "",
+              f"Levels τ = {', '.join(f'{t:g}' for t in qc.get('levels') or [])}; the point prediction is the centre "
+              f"level q̂_{(qc.get('centre') or 0.5):g}. Holdout pinball loss {_fmt(qc.get('pinball'))}; the version serves "
+              f"the {qc.get('served')} quantiles (conformal offsets {'applied' if (qc.get('conformal') or {}).get('applied') else 'not applied'}). "
+              f"Method: {qc['method']}.", "",
+              "| Level τ | Pinball loss | F̂(τ) = share of y ≤ q̂_τ | 95% CI |", "| ---: | ---: | ---: | --- |"]
+        for r in qc.get("per_level") or []:
+            ci = r.get("below_ci") or [None, None]
+            L.append(f"| {r['tau']:g} | {_fmt(r.get('pinball'))} | {_fmt(r.get('below'))} | [{_fmt(ci[0])}, {_fmt(ci[1])}] |")
+        L += ["", "| Interval | Nominal | Coverage (served) | 95% CI | Raw | Calibrated | Mean width |", "| --- | ---: | ---: | --- | ---: | ---: | ---: |"]
+        raw = {(r["lo"], r["hi"]): r for r in qc.get("raw") or []}
+        cal = {(r["lo"], r["hi"]): r for r in qc.get("calibrated") or []}
+        for r in qc.get("intervals") or []:
+            ci = r.get("coverage_ci") or [None, None]
+            k = (r["lo"], r["hi"])
+            L.append(f"| [q̂_{r['lo']:g}, q̂_{r['hi']:g}] | {_fmt(r.get('nominal'))} | {_fmt(r.get('coverage'))} | [{_fmt(ci[0])}, {_fmt(ci[1])}] "
+                     f"| {_fmt((raw.get(k) or {}).get('coverage'))} | {_fmt((cal.get(k) or {}).get('coverage'))} | {_fmt(r.get('mean_width'))} |")
+        if qc.get("crossing_share"):
+            L.append(f"\nQuantile crossing (q̂ out of order) on {qc['crossing_share']:.2%} of holdout rows.")
+        L.append("")
     mc = c.get("constraints")
     if mc:
         L += ["**Monotone constraints**", "", f"Method: {mc['method']}.", "",

@@ -45,6 +45,8 @@ def infer_problem_type(body: dict[str, Any], ds: dict[str, Any], label: str) -> 
     pt = body.get("problem_type") or "auto"
     if pt != "auto":
         return pt
+    if body.get("quantile_levels") is not None or (body.get("predictor_kwargs") or {}).get("quantile_levels") is not None:
+        return "quantile"  # F9: giving levels asks for a range
     profile = ds["profile"]
     col = next((c for c in profile["columns"] if c["name"] == label), None)
     if col is None:
@@ -364,6 +366,37 @@ def validate(body: dict[str, Any], ds: dict[str, Any] | None, unlabeled: dict[st
         if mono and dist:
             _err(errors, "distill", "distill trains unconstrained student models; leave it off with monotone constraints.")
 
+    # -- F9: quantile regression (the same checks POST /runs applies)
+    quant_out = None
+    if problem_type == "quantile":
+        from ..engine import quantile as qt
+
+        try:
+            levels = qt.normalise_levels(body.get("quantile_levels") if body.get("quantile_levels") is not None
+                                         else pk.get("quantile_levels"))
+            quant_out = {"levels": levels, "centre": qt.centre(levels), "intervals": qt.intervals(levels),
+                         "calibrate": body.get("conformal")}
+            pk.pop("quantile_levels", None)
+            pk["quantile_levels"] = levels
+        except ValueError as e:
+            _err(errors, "quantile_levels", str(e))
+        if cols[label]["type"] != "number":
+            _err(errors, "problem_type", f"Quantile regression needs a numeric label; '{label}' is {cols[label]['type']}.")
+        for key, why in (("cost", "a business cost applies to binary or multiclass labels"),
+                         ("distill", "distillation is not offered for quantile runs"),
+                         ("pseudolabel", "pseudo-labelling is not offered for quantile runs")):
+            if body.get(key):
+                _err(errors, key, f"{why}, not quantile regression.")
+        if body.get("conformal") is not None and "calibrate" in fk:
+            _err(errors, "conformal", "Give conformal or fit_kwargs.calibrate, not both (conformal is AutoGluon's calibrate).")
+        if quant_out:
+            _err(info, "quantile_levels", f"Predicts τ = {', '.join(f'{t:g}' for t in quant_out['levels'])}; scored by the "
+                                          "pinball loss; the holdout reports coverage raw and conformally calibrated.")
+    elif body.get("quantile_levels") is not None:
+        _err(errors, "quantile_levels", f"quantile_levels apply to problem_type 'quantile', not '{problem_type}'.")
+    elif body.get("conformal") is not None:
+        _err(errors, "conformal", "conformal recalibrates quantiles; it applies to problem_type 'quantile' only.")
+
     # -- resolve exactly as the worker will
     from ..engine.worker import resolve_fit_kwargs
 
@@ -388,7 +421,9 @@ def validate(body: dict[str, Any], ds: dict[str, Any] | None, unlabeled: dict[st
             _err(errors, "presets", f"{type(e).__name__}: {e}")
     resolved_fk.pop("callbacks", None)
     merged.pop("callbacks", None)
-    predictor_kwargs = {"label": label, "problem_type": None if (body.get("problem_type") in (None, "auto")) else body["problem_type"],
+    if quant_out and quant_out.get("calibrate") is not None and "calibrate" not in resolved_fk:
+        resolved_fk["calibrate"] = quant_out["calibrate"]
+    predictor_kwargs = {"label": label, "problem_type": "quantile" if quant_out else None if (body.get("problem_type") in (None, "auto")) else body["problem_type"],
                         "eval_metric": body.get("eval_metric"), **pk}
     post_fit = []
     if pl and pl.get("method", "fit_pseudolabel") == "fit_pseudolabel":
@@ -524,6 +559,7 @@ def validate(body: dict[str, Any], ds: dict[str, Any] | None, unlabeled: dict[st
         "resolved": {"predictor_kwargs": predictor_kwargs, "fit_kwargs": fit_shown, "post_fit": post_fit, "notes": notes,
                      "preset_expansion": merged},
         "call": call, "diff": diff, "effective": eff, "estimate": est, "families": fams, "monotone": mono_out,
+        "quantile": quant_out,
     }
 
 

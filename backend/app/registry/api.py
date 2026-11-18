@@ -100,6 +100,9 @@ async def register(run_id: str, body: RegisterRequest, request: Request) -> dict
     if body.distill and rec["config"].get("monotone"):
         raise HTTPException(400, "This run has monotone constraints; distill would serve an unconstrained student. "
                                  "Register without distill.")
+    if body.distill and (rec.get("result") or {}).get("problem_type") == "quantile":
+        raise HTTPException(400, "This is a quantile run; distill trains students on one prediction per row, not one "
+                                 "per quantile level. Register without distill.")
     who = _name_ok(body.created_by, "created_by")
     reg = _reg(request)
     name = (body.model_name or default_model_name(rec["dataset_id"], rec["label"])).strip()

@@ -304,13 +304,27 @@ def holdout_metrics(predictor, holdout: pd.DataFrame, label: str) -> dict[str, A
 
 def save_holdout_predictions(predictor, holdout: pd.DataFrame, label: str, path: Path) -> None:
     """data.csv row, the true label, the prediction and (classification) one probability column per class."""
+    holdout_prediction_frame(predictor, holdout, label).to_csv(path, index=False)
+
+
+def holdout_prediction_frame(predictor, holdout: pd.DataFrame, label: str) -> pd.DataFrame:
+    """data.csv row, y_true, y_pred; classification adds p_<class> per class; quantile (F9) adds q_<τ> per level and
+    y_pred is the centre level (τ = 0.5, or the closest level), so residual views read it like a regression."""
     out = pd.DataFrame({"row": holdout.index, "y_true": holdout[label].to_numpy()})
+    if predictor.problem_type == "quantile":
+        from . import quantile as qt
+
+        centre, cols = qt.holdout_columns(predictor, holdout)
+        out["y_pred"] = centre.to_numpy()
+        for k, v in cols.items():
+            out[k] = v
+        return out
     out["y_pred"] = predictor.predict(holdout).to_numpy()
     if predictor.problem_type in ("binary", "multiclass"):
         proba = predictor.predict_proba(holdout)
         for c in proba.columns:
             out[f"p_{c}"] = proba[c].to_numpy()
-    out.to_csv(path, index=False)
+    return out
 
 
 def text_top_words(predictor, k: int = 15) -> dict[str, Any]:
@@ -485,6 +499,15 @@ def run(run_dir: Path) -> int:
                              f"({', '.join(f'{c}: {t}' for c, t in cfg['column_types'].items())})")
             predictor_kwargs = {"label": cfg["label"], "problem_type": cfg.get("problem_type"),
                                 "eval_metric": cfg.get("eval_metric"), **(cfg.get("predictor_kwargs") or {})}
+            qcfg = cfg.get("quantile")
+            if qcfg:  # F9: quantile regression with the run's levels; conformal recalibration is AutoGluon's calibrate
+                predictor_kwargs["quantile_levels"] = qcfg["levels"]
+                if qcfg.get("calibrate") is not None and "calibrate" not in fit_kwargs:
+                    fit_kwargs["calibrate"] = qcfg["calibrate"]
+                notes.append(f"quantile regression at τ = {', '.join(f'{t:g}' for t in qcfg['levels'])} (pinball loss); "
+                             + ("conformal recalibration (CQR): AutoGluon's fit(calibrate=True)" if fit_kwargs.get("calibrate") is True
+                                else "no conformal recalibration (calibrate=False)" if fit_kwargs.get("calibrate") is False
+                                else "conformal recalibration left to AutoGluon (calibrate='auto': on with ≥ 1,000 validation rows)"))
             scorer = None
             if cfg.get("cost"):  # F7: the business cost is the eval_metric (an AutoGluon make_scorer)
                 scorer, cost_note = cost_scorer(cfg, train)
@@ -567,6 +590,7 @@ def run(run_dir: Path) -> int:
             "positive_class": jsonable(predictor.positive_class) if predictor.problem_type == "binary" else None,
             "best_model": best, "fit_seconds": fit_seconds, "features": list(predictor.features()),
             "ensembles": weights, "ensemble": best_weights,
+            "quantile_levels": [float(t) for t in predictor.quantile_levels] if predictor.problem_type == "quantile" else None,
         }
         emit("fit_finished", best_model=best, fit_seconds=fit_seconds, n_models=len(predictor.model_names()),
              ensemble=best_weights)
@@ -591,6 +615,21 @@ def run(run_dir: Path) -> int:
                              seconds=threshold_seconds)
             store.merge_result(run_id, threshold=rec)
             emit("threshold", **rec)
+
+        if predictor.problem_type == "quantile":  # F9: pinball per level, coverage raw / calibrated, fan chart
+            emit("explaining", what="quantile")
+            try:
+                from . import quantile as qt
+
+                qr = qt.report(predictor, holdout, cfg["label"])
+                store.merge_result(run_id, quantile=qr)
+                emit("quantile", levels=qr["levels"], pinball=qr["holdout"]["pinball"], served=qr["served"],
+                     intervals=[{k: iv[k] for k in ("lo", "hi", "nominal", "coverage", "mean_width")} for iv in qr["holdout"]["intervals"]],
+                     calibrated=[{k: iv[k] for k in ("lo", "hi", "nominal", "coverage")} for iv in (qr["calibrated"] or {}).get("intervals", [])],
+                     raw=[{k: iv[k] for k in ("lo", "hi", "nominal", "coverage")} for iv in (qr["raw"] or {}).get("intervals", [])])
+            except Exception as e:  # noqa: BLE001 — reported, not fatal
+                emit("log", level="warning", logger="ensemble", message=f"quantile report failed: {type(e).__name__}: {e}")
+                store.merge_result(run_id, quantile={"error": f"{type(e).__name__}: {e}"})
 
         if cfg.get("monotone"):  # F8: where the constraints landed, and ICE / PD of every model on raw holdout rows
             emit("explaining", what="monotone")

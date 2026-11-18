@@ -87,6 +87,17 @@ class RunCreate(BaseModel):
                           "the fit every model is checked with ICE / partial dependence on raw holdout rows.")
 
 
+    quantile_levels: list[Any] | None = Field(
+        None, description="F9: predict a range. The quantile levels τ (0 < τ < 1) of TabularPredictor(problem_type="
+                          "'quantile', quantile_levels=...); giving them makes problem_type 'quantile'. Default for a "
+                          "quantile run: [0.1, 0.5, 0.9]. The eval_metric is AutoGluon's pinball_loss.")
+    conformal: bool | None = Field(
+        None, description="F9: conformal recalibration of the quantiles (CQR), AutoGluon's fit(calibrate=...): true "
+                          "adds a constant c_τ per level fitted on the validation (or out-of-fold) rows; false never; "
+                          "None leaves it to AutoGluon ('auto': on with at least 1,000 validation rows). The holdout "
+                          "is reported raw and calibrated either way.")
+
+
 class EnsembleRequest(BaseModel):
     models: list[str] = Field(..., min_length=1, description="Base models the weighted ensemble may use.")
 
@@ -136,7 +147,7 @@ def run_out(rec: dict[str, Any], store: RunStore, full: bool = True) -> dict[str
     for key in ("problem_type", "eval_metric", "classes", "positive_class", "best_model", "fit_seconds",
                 "elapsed_seconds", "data", "features", "ensemble", "ensembles", "holdout", "oof", "text_models",
                 "feature_importance", "leaderboard", "resolved", "custom_ensembles", "threshold", "mlflow",
-                "forecast", "backtests", "anomaly", "imported", "monotone"):
+                "forecast", "backtests", "anomaly", "imported", "monotone", "quantile", "quantile_levels"):
         out[key] = res.get(key)
     out["feature_importance"] = explain.importance_with_ci(out["feature_importance"])
     if not full:
@@ -146,6 +157,11 @@ def run_out(rec: dict[str, Any], store: RunStore, full: bool = True) -> dict[str
         out["text_models"] = None
         if out["monotone"]:
             out["monotone"] = {k: out["monotone"].get(k) for k in ("constraints", "compliant_only", "best_monotone")}
+        if out["quantile"]:  # F9: the headline numbers only (no fan chart, no per-model table)
+            q = out["quantile"]
+            out["quantile"] = {"levels": q.get("levels"), "served": q.get("served"), "main_interval": q.get("main_interval"),
+                               "pinball": (q.get("holdout") or {}).get("pinball"),
+                               "coverage": ((q.get("holdout") or {}).get("intervals") or [{}])[0].get("coverage")}
     return out
 
 
@@ -222,6 +238,7 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
     elif body.eval_metric == costs.METRIC_NAME:
         raise HTTPException(400, "eval_metric 'expected_cost' needs the costs: give cost = {c_fp, c_fn, g_tp} "
                                  "(binary) or {classes, matrix} (multiclass).")
+    quant = check_quantile(body, label, cols)
     mono = check_monotone(body, ds, label, cols, drop, types)
     allowed_cal = (None, "auto", *threshold.CALIBRATION_METRICS, *((costs.METRIC_NAME,) if cost and cost["kind"] == "binary" else ()))
     if body.calibrate_threshold not in allowed_cal:
@@ -275,6 +292,11 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
             cfg["calibrate_threshold"] = costs.METRIC_NAME
     if mono is not None:
         cfg["monotone"] = mono
+    if quant is not None:
+        cfg["quantile"] = quant
+        cfg["problem_type"] = "quantile"
+        cfg["quantile_levels"] = quant["levels"]
+        cfg["predictor_kwargs"] = {k: v for k, v in (cfg.get("predictor_kwargs") or {}).items() if k != "quantile_levels"}
     if body.pseudolabel:
         cfg["unlabeled_csv_path"] = str(app.state.datasets.csv_path(body.pseudolabel["dataset_id"]))
     (run_dir / "config.json").write_text(json.dumps(cfg, indent=1))
@@ -286,6 +308,52 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
                eval_metric=body.eval_metric, presets=body.presets, time_limit=body.time_limit)
     _runner(request).submit(run_id)
     return run_out(store.get(run_id), store)
+
+
+QUANTILE_METRICS = (None, "pinball_loss", "pinball")
+
+
+def check_quantile(body: RunCreate, label: str, cols: dict[str, Any]) -> dict[str, Any] | None:
+    """F9: the run's quantile request, checked and normalised ({levels, calibrate}), or None for other runs. Giving
+    quantile_levels (here or in predictor_kwargs) makes an 'auto' problem type 'quantile'. Sets body.problem_type."""
+    from . import quantile as qt
+
+    pk = body.predictor_kwargs.get("quantile_levels")
+    if pk is not None and body.quantile_levels is not None and list(pk) != list(body.quantile_levels):
+        raise HTTPException(400, "Give quantile_levels or predictor_kwargs.quantile_levels, not both.")
+    given = body.quantile_levels if body.quantile_levels is not None else pk
+    if given is not None and body.problem_type == "auto":
+        body.problem_type = "quantile"
+    if body.problem_type != "quantile":
+        if given is not None:
+            raise HTTPException(400, f"quantile_levels apply to problem_type 'quantile', not '{body.problem_type}'.")
+        if body.conformal is not None:
+            raise HTTPException(400, "conformal recalibrates quantiles; it applies to problem_type 'quantile' only.")
+        return None
+    if cols[label]["type"] != "number":
+        raise HTTPException(400, f"Quantile regression predicts a range of a numeric label; '{label}' is "
+                                 f"{cols[label]['type']}. Pick a numeric column or another problem type.")
+    try:
+        levels = qt.normalise_levels(given)
+    except ValueError as e:
+        raise HTTPException(400, f"quantile_levels: {e}") from e
+    em = body.eval_metric or body.predictor_kwargs.get("eval_metric")
+    if em not in QUANTILE_METRICS:
+        raise HTTPException(400, f"A quantile run is scored by the pinball loss (eval_metric 'pinball_loss'); "
+                                 f"'{em}' is not a quantile metric in AutoGluon.")
+    if body.cost is not None:
+        raise HTTPException(400, "cost: a business cost applies to binary or multiclass labels, not quantile regression.")
+    if body.calibrate_threshold not in (None, "auto"):  # 'auto' is the wizard's default and means nothing here
+        raise HTTPException(400, "calibrate_threshold: a decision threshold applies to binary labels, not quantile regression.")
+    if body.distill:
+        raise HTTPException(400, "distill: distillation is not offered for quantile runs (its students learn one "
+                                 "prediction per row, not one per level).")
+    if body.pseudolabel:
+        raise HTTPException(400, "pseudolabel: pseudo-labelling is not offered for quantile runs (a range is not a label).")
+    if body.conformal is not None and "calibrate" in body.fit_kwargs:
+        raise HTTPException(400, "Give conformal or fit_kwargs.calibrate, not both (conformal is AutoGluon's calibrate).")
+    return {"levels": levels, "calibrate": body.conformal, "centre": qt.centre(levels),
+            "main_interval": qt.main_interval(levels)}
 
 
 def check_monotone(body: RunCreate, ds: dict[str, Any], label: str, cols: dict[str, Any], drop: list[str],
@@ -350,7 +418,7 @@ class SplitTwin(BaseModel):
 
 
 FAIR_KEYS = ("presets", "time_limit", "fit_kwargs", "predictor_kwargs", "eval_metric", "problem_type", "drop_columns",
-             "column_types", "custom_text_models", "calibrate_threshold", "cost", "monotone")
+             "column_types", "custom_text_models", "calibrate_threshold", "cost", "monotone", "quantile_levels", "conformal")
 
 
 @router.post("/runs/{run_id}/split-twin", status_code=201)
@@ -541,6 +609,9 @@ async def monotone_check(run_id: str, request: Request, model: str | None = None
     _require_succeeded(rec)
     if rec["config"].get("kind") or rec["config"].get("import"):
         raise HTTPException(400, "Monotone checks apply to tabular runs trained here.")
+    pt = (rec.get("result") or {}).get("problem_type")
+    if pt not in (None, "binary", "regression"):
+        raise HTTPException(400, f"Monotone checks apply to binary and regression runs, not {pt}.")
     cons = parse_constraints(constraints, rec)
     try:
         out = await request.app.state.heavy.run(heavy.monotone_check, rec["config"]["predictor_path"], rec["config"],
@@ -601,6 +672,7 @@ async def holdout_predictions(run_id: str, request: Request) -> dict[str, Any]:
     def read():
         import pandas as pd
 
+        from . import quantile as qt
         from .jsonsafe import jsonable
 
         df = pd.read_csv(path)
@@ -609,7 +681,8 @@ async def holdout_predictions(run_id: str, request: Request) -> dict[str, Any]:
                 "rows": jsonable(df["row"].tolist()), "y_true": jsonable(df["y_true"].tolist()),
                 "y_pred": jsonable(df["y_pred"].tolist()),
                 "classes": [c[2:] for c in prob_cols] or None,
-                "probabilities": jsonable(df[prob_cols].to_numpy()) if prob_cols else None}
+                "probabilities": jsonable(df[prob_cols].to_numpy()) if prob_cols else None,
+                **({"quantile_levels": saved[0], "quantiles": jsonable(saved[1])} if (saved := qt.from_saved(df)) else {})}
 
     return await run_in_threadpool(read)
 
@@ -968,6 +1041,9 @@ async def explain_run(run_id: str, request: Request) -> dict[str, Any]:
             body = explain.classification_report(df, [str(c) for c in explain._classes(df)], res.get("positive_class"), cfg)
         else:
             body = explain.regression_report(df, cfg)
+            if res.get("problem_type") == "quantile":  # F9: the residuals are about the centre level q̂₀.₅
+                body["centre_level"] = (res.get("quantile") or {}).get("centre")
+                body["quantile"] = {k: (res.get("quantile") or {}).get(k) for k in ("levels", "centre", "main_interval", "holdout", "served")}
         return body
 
     body = await run_in_threadpool(build)

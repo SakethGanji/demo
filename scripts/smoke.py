@@ -1301,6 +1301,191 @@ def monotone(st: dict[str, Any]) -> None:
     step("monotone: served model PD on a grid (registry /score)", served)
 
 
+def quantile(st: dict[str, Any]) -> None:
+    """F9: quantile regression ("predict a range"). On loan-amount, TabularPredictor(problem_type='quantile',
+    quantile_levels=[0.1, 0.5, 0.9]) as New Model sends it. The worker reports the pinball loss per level, F̂(τ), the
+    [q0.1, q0.9] holdout coverage (acceptance: close to 0.8) raw and conformally calibrated, and the fan chart. Every
+    path that assumed binary / multiclass / regression either serves the quantiles (predict, holdout predictions,
+    Explain, SHAP of one level, fairness coverage per group, registry build, Try It, /score, batch scoring, the model
+    card, latency, export.py) or refuses with a 400 (threshold, cost, monotone, distill, pseudo-labels). A second run
+    with conformal = true (AutoGluon's calibrate, CQR) serves the calibrated quantiles; both are reported."""
+    ds, label = "loan-amount", "loan_amount_usd"
+    levels = [0.1, 0.5, 0.9]
+    s: dict[str, Any] = {}
+    body = {"dataset_id": ds, "label": label, "problem_type": "quantile", "quantile_levels": levels, "eval_metric": None,
+            "presets": "medium_quality", "time_limit": 120, "source": "smoke-quantile"}
+
+    def refuse():
+        bad = [({**body, "quantile_levels": [0, 0.5]}, "outside (0, 1)"),
+               ({**body, "quantile_levels": [0.5, 0.5]}, "each quantile level once"),
+               ({**body, "quantile_levels": ["a"]}, "not a number"),
+               ({**body, "label": "purpose"}, "numeric label"),
+               ({**body, "problem_type": "regression"}, "apply to problem_type 'quantile'"),
+               ({**body, "eval_metric": "root_mean_squared_error"}, "not a quantile metric"),
+               ({**body, "cost": {"c_fp": 1, "c_fn": 5}}, "business cost"),
+               ({**body, "distill": {"time_limit": 30}}, "distill"),
+               ({**body, "pseudolabel": {"dataset_id": ds}}, "pseudo"),
+               ({**body, "monotone": {"constraints": {"income_usd": "increasing"}}}, "binary and regression"),
+               ({**body, "calibrate_threshold": "f1"}, "decision threshold"),
+               ({**body, "problem_type": "regression", "quantile_levels": None, "conformal": True}, "conformal"),
+               ({**body, "conformal": True, "fit_kwargs": {"calibrate": True}}, "not both")]
+        for b, words in bad:
+            r = C.post("/api/runs", json=b)
+            check(r.status_code == 400 and words in r.text, f"{words}: {r.status_code} {r.text[:300]}")
+        return f"{len(bad)} bad quantile requests → 400"
+
+    def gym():
+        v = post("/api/gym/validate", {**body, "problem_type": "auto", "conformal": True})
+        check(v["ok"], v["errors"])
+        check(v["problem_type"] == "quantile" and v["quantile"]["levels"] == levels, v.get("quantile"))
+        pk = v["resolved"]["predictor_kwargs"]
+        check(pk["problem_type"] == "quantile" and pk["quantile_levels"] == levels, pk)
+        check(v["resolved"]["fit_kwargs"].get("calibrate") is True, v["resolved"]["fit_kwargs"])
+        check("quantile_levels=[0.1, 0.5, 0.9]" in v["call"] and "calibrate=True" in v["call"], v["call"])
+        return (f"auto + levels → quantile · predictor_kwargs problem_type='quantile', quantile_levels={pk['quantile_levels']} · "
+                f"fit(calibrate=True) · info: {next(i['message'] for i in v['info'] if i['path'] == 'quantile_levels')[:90]}")
+
+    if not step("quantile: refused requests", refuse) or not step("quantile: Gym validate", gym):
+        return
+
+    def fit():
+        rec = wait_run(post("/api/runs", body)["id"])
+        check(rec["status"] == "succeeded", rec.get("error"))
+        check(rec["problem_type"] == "quantile" and rec["quantile_levels"] == levels, rec["problem_type"])
+        check(rec["eval_metric"]["name"] == "pinball_loss", rec["eval_metric"])
+        q = rec["quantile"]
+        check(q and not q.get("error"), q)
+        h = q["holdout"]
+        check([x["tau"] for x in h["levels"]] == levels and all(x["pinball"] > 0 for x in h["levels"]), h["levels"])
+        check(abs(h["pinball"] - rec["holdout"]["metrics"]["pinball_loss"]) < 1e-6 * max(1, h["pinball"]),
+              f"pinball {h['pinball']} vs AutoGluon's {rec['holdout']['metrics']['pinball_loss']}")
+        iv = h["intervals"][0]
+        check((iv["lo"], iv["hi"], iv["nominal"]) == (0.1, 0.9, 0.8), iv)
+        check(abs(iv["coverage"] - 0.8) <= 0.05, f"[q0.1, q0.9] holdout coverage {iv['coverage']:.4f}, not close to 0.8")
+        check(q["raw"] and q["calibrated"] and q["conformal"].get("offsets"), q["conformal"])
+        f = q["fan"]
+        check(len(f["y"]) == len(f["q"]["0.5"]) > 50 and f["q"]["0.5"] == sorted(f["q"]["0.5"]), "fan chart not sorted by q0.5")
+        check(q["models"] and all(m["pinball"] is not None for m in q["models"]), q["models"])
+        s["run"] = rec
+        raw, cal = q["raw"]["intervals"][0], q["calibrated"]["intervals"][0]
+        return (f"{rec['id']} · {len(rec['leaderboard'])} models, best {rec['best_model']} · holdout pinball {h['pinball']:.1f} · "
+                f"per level " + ", ".join(f"τ={x['tau']:g}: ρ {x['pinball']:.1f}, F̂ {x['below']:.3f}" for x in h["levels"])
+                + f" · [q0.1, q0.9] coverage {iv['coverage']:.4f} [{iv['coverage_ci'][0]:.3f}, {iv['coverage_ci'][1]:.3f}] "
+                f"(served {q['served']}; raw {raw['coverage']:.4f}, conformal would give {cal['coverage']:.4f}) · mean width "
+                f"{iv['mean_width']:,.0f} · crossing {h['crossing_share']:.2%} · c_τ {q['conformal']['offsets']}")
+
+    if not step("quantile: loan-amount run, τ = 0.1 / 0.5 / 0.9", fit):
+        return
+    rid = s["run"]["id"]
+
+    def paths():
+        hp = get(f"/api/runs/{rid}/holdout-predictions")
+        check(hp["quantile_levels"] == levels and len(hp["quantiles"]) == hp["n_rows"], "holdout-predictions quantiles")
+        Q = np.asarray(hp["quantiles"])
+        check(np.allclose(np.asarray(hp["y_pred"], dtype=float), Q[:, 1]), "y_pred is not q0.5")
+        ex = get(f"/api/runs/{rid}/explain")
+        check(ex["kind"] == "regression" and ex["centre_level"] == 0.5 and ex["quantile"]["levels"] == levels, ex.get("kind"))
+        sh = get(f"/api/runs/{rid}/shap", row=hp["rows"][0], target="0.9")
+        check(sh["quantile_level"] == 0.9 and abs(sh["additivity_error"]) < 1e-6 * max(1, abs(sh["fx"])) and
+              abs(sh["fx"] - Q[0, 2]) < 1e-3 * max(1, abs(Q[0, 2])), {k: sh[k] for k in ("fx", "base_value", "additivity_error")})
+        bad = C.get(f"/api/runs/{rid}/shap", params={"row": hp["rows"][0], "target": "0.33"})
+        check(bad.status_code == 400 and "No quantile level" in bad.text, bad.text[:200])
+        fr = get(f"/api/runs/{rid}/fairness", group="purpose")
+        check(fr["interval"]["lo"] == 0.1 and all(g.get("coverage") is not None for g in fr["by_group"]), fr.get("by_group"))
+        pr = post(f"/api/runs/{rid}/predict", {"rows": [{"income_usd": 60000, "credit_score": 720, "term_months": 36,
+                                                          "purpose": "car", "home_ownership": "rent"}]})
+        qq = pr["quantiles"][0]
+        check(set(qq) == {"0.1", "0.5", "0.9"} and qq["0.1"] <= qq["0.5"] <= qq["0.9"] and pr["predictions"][0] == qq["0.5"], pr)
+        refused = []
+        for path, params in (("threshold", {}), ("cost", {}), ("monotone", {"constraints": "income_usd:increasing"})):
+            r = C.get(f"/api/runs/{rid}/{path}", params=params)
+            check(r.status_code == 400, f"{path}: {r.status_code} {r.text[:200]}")
+            refused.append(path)
+        r = C.post(f"/api/runs/{rid}/register", json={"created_by": "Smoke Analyst", "distill": True})
+        check(r.status_code == 400 and "quantile" in r.text, r.text[:200])
+        lat = get(f"/api/runs/{rid}/latency")
+        check(lat.get("models") or lat.get("rows") or lat, "latency")
+        gaps = ", ".join(f"{g['group']} {g['coverage']:.2f}" for g in fr["by_group"])
+        return (f"holdout predictions q0.1/q0.5/q0.9 · Explain residuals on q0.5 · SHAP of q̂0.9 row {sh['row']}: "
+                f"φ₀ {sh['base_value']:,.0f} + Σφ = {sh['fx']:,.0f} · coverage by purpose: {gaps} · /predict → {qq} · "
+                f"400 for {', '.join(refused)}, register+distill · latency table ok")
+
+    step("quantile: explain, SHAP, fairness, predict, refusals", paths)
+
+    def conformal():
+        rec = wait_run(post("/api/runs", {**body, "conformal": True})["id"])
+        check(rec["status"] == "succeeded", rec.get("error"))
+        q = rec["quantile"]
+        check(q["conformal"]["applied"] and q["served"] == "calibrated", q["conformal"])
+        check(rec["split"]["sha256"] == s["run"]["split"]["sha256"], "twin used another split")
+        raw, cal = q["raw"]["intervals"][0], q["calibrated"]["intervals"][0]
+        check(abs(q["holdout"]["intervals"][0]["coverage"] - cal["coverage"]) < 1e-12, "served ≠ calibrated")
+        s["conformal"] = rec
+        return (f"{rec['id']} conformal=true · c_τ {q['conformal']['offsets']} ({q['conformal']['source']}) · [q0.1, q0.9] "
+                f"coverage raw {raw['coverage']:.4f} → calibrated {cal['coverage']:.4f} · width {raw['mean_width']:,.0f} → "
+                f"{cal['mean_width']:,.0f} · pinball raw {q['raw']['pinball']:.1f} → calibrated {q['calibrated']['pinball']:.1f}")
+
+    step("quantile: conformal recalibration (AutoGluon calibrate=True)", conformal)
+
+    def registry():
+        v = post(f"/api/runs/{rid}/register", {"created_by": "Smoke Analyst", "model_name": "smoke.loan.quantile"})
+        v = poll(f"/api/registry/versions/{v['id']}", lambda x: x["status"] in ("ready", "failed"), 900)
+        check(v["status"] == "ready", v.get("error"))
+        vid = v["id"]
+        res = v["result"]
+        hc = res["version"]["holdout_ci"]["metrics"]
+        check({"pinball_loss", "pinball_0.1", "pinball_0.5", "pinball_0.9", "coverage", "mean_width"} <= set(hc), list(hc))
+        check(abs(hc["coverage"]["value"] - 0.8) <= 0.05, hc["coverage"])
+        check(res["quantile"]["levels"] == levels, "version quantile report")
+        row = {"income_usd": 85000, "credit_score": 760, "existing_debt_usd": 4000, "term_months": 48, "purpose": "home improvement",
+               "home_ownership": "own", "region": "west", "open_accounts": 3}
+        t = post(f"/api/registry/versions/{vid}/predict", {"row": row, "target": "0.9"})
+        check(t["quantile_levels"] == levels and t["quantiles"]["0.1"] <= t["quantiles"]["0.5"] <= t["quantiles"]["0.9"], t.get("quantiles"))
+        check(t["prediction"] == t["quantiles"]["0.5"] and t["shap"]["quantile_level"] == 0.9, "Try It")
+        sc = post(f"/api/registry/versions/{vid}/score", {"rows": [row, {**row, "income_usd": 30000}], "where": "worker"})
+        check(len(sc["quantiles"]) == 2 and sc["predictions"][0] == sc["quantiles"][0]["0.5"], sc)
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend"))
+        from app.samples import generate_loan_amount
+
+        df, _ = generate_loan_amount()
+        batch = df.drop(columns=[label]).sample(500, random_state=5)
+        b = j(C.post(f"/api/registry/versions/{vid}/batches", files={"file": ("q.csv", batch.to_csv(index=False).encode(), "text/csv")},
+                     data={"created_by": "Smoke Analyst"}))
+        b = poll(f"/api/registry/batches/{b['id']}", lambda x: x["status"] in ("succeeded", "failed"), 600)
+        check(b["status"] == "succeeded", b.get("error"))
+        cols = b["result"]["columns"]
+        check({"prediction", "q_0.1", "q_0.5", "q_0.9"} <= set(cols), cols)
+        sm = b["result"]["summary"]
+        check(sm["interval"]["lo"] == 0.1 and sm["interval"]["mean_width"] > 0, sm.get("interval"))
+        bench = post(f"/api/registry/versions/{vid}/benchmark", {})
+        c = get(f"/api/registry/versions/{vid}/card")
+        qc = c["quantile"]
+        check(qc and qc["levels"] == levels and qc["intervals"][0]["coverage"] is not None, qc)
+        md = C.get(f"/api/registry/versions/{vid}/card", params={"format": "md"}).text
+        check("Quantile regression (range)" in md and "[q̂_0.1, q̂_0.9]" in md, "card markdown")
+        s["vid"] = vid
+        return (f"{vid} serves {res['version']['best_model']} · holdout coverage {hc['coverage']['value']:.4f} "
+                f"[{hc['coverage']['ci_low']:.3f}, {hc['coverage']['ci_high']:.3f}] · pinball {hc['pinball_loss']['value']:.1f} "
+                f"[{hc['pinball_loss']['ci_low']:.1f}, {hc['pinball_loss']['ci_high']:.1f}] · Try It {t['quantiles']} · "
+                f"/score {sc['predict_ms']:.1f} ms · batch 500 rows with q_0.1/q_0.5/q_0.9, mean width {sm['interval']['mean_width']:,.0f} · "
+                f"one-row p50 {bench['one_row']['ms_p50']:.1f} ms · card section ok")
+
+    step("quantile: registry, Try It, /score, batch, card", registry)
+
+    def export():
+        text = C.get(f"/api/runs/{rid}/export.py").text
+        check("quantile_levels" in text, "export lacks quantile_levels")
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "export_quantile.py")
+            open(p, "w").write(text)
+            out = subprocess.run([sys.executable, p], capture_output=True, text=True, timeout=900, cwd=d)
+        tail = (out.stdout.strip().splitlines() or [""])[-1]
+        check(out.returncode == 0, f"exit {out.returncode}: {(out.stderr or out.stdout)[-600:]}")
+        return f"export.py reproduced the quantile run · {tail[:90]}"
+
+    step("quantile: export.py → run in subprocess", export)
+
+
 def autopilot(st: dict[str, Any]) -> None:
     def start():
         a = post("/api/autopilot", {"dataset_id": "support-tickets", "label": "category",
@@ -2164,7 +2349,7 @@ def main() -> int:
     global C, API
     ap = argparse.ArgumentParser()
     ap.add_argument("--api", default=API)
-    ap.add_argument("--only", default="core,samples,autopilot,forecast,anomaly,import,fresh,latency,targets,splits,cost,monotone,llm,reset")
+    ap.add_argument("--only", default="core,samples,autopilot,forecast,anomaly,import,fresh,latency,targets,splits,cost,monotone,quantile,llm,reset")
     ap.add_argument("--start-api", action="store_true", help="start uvicorn on the --api port if nothing answers there")
     args = ap.parse_args()
     API = args.api.rstrip("/")
@@ -2201,7 +2386,7 @@ def _main(args) -> int:
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
     sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
-                "import": importer, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "reset": reset, "llm": llm}
+                "import": importer, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reset": reset, "llm": llm}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")

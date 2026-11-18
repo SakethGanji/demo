@@ -76,6 +76,15 @@ def predict(predictor, rows: list[dict[str, Any]], model: str | None = None) -> 
         out["probabilities"] = [{str(c): float(v) for c, v in r.items()} for r in proba.to_dict(orient="records")]
         if predictor.problem_type == "binary":
             out["positive_class"] = jsonable(predictor.positive_class)
+    elif predictor.problem_type == "quantile":  # F9: every level; `predictions` is the centre level
+        from . import quantile as qt
+
+        q = qt.qframe(predictor, X, model=model)
+        out["quantile_levels"] = [float(t) for t in q.columns]
+        out["centre"] = qt.centre(list(q.columns))
+        out["predictions"] = jsonable(qt.point(q).tolist())
+        out["quantiles"] = qt.as_records(q)
+        out["probabilities"] = None
     else:
         out["predictions"] = jsonable(predictor.predict(X, model=model).tolist())
         out["probabilities"] = None
@@ -97,6 +106,15 @@ def oof(predictor, model: str | None = None) -> dict[str, Any]:
         out["classes"] = jsonable(list(proba.columns))
         out["probabilities"] = jsonable(proba.to_numpy().round(6))
         out["predictions"] = jsonable(predictor.predict_from_proba(proba).tolist())
+    elif predictor.problem_type == "quantile":
+        from . import quantile as qt
+
+        q = predictor.predict_oof(model=model)
+        q.columns = [float(c) for c in q.columns]
+        out["rows"] = [int(i) for i in q.index]
+        out["quantile_levels"] = [float(t) for t in q.columns]
+        out["predictions"] = jsonable(qt.point(q).tolist())
+        out["quantiles"] = jsonable(q.to_numpy().round(6))
     else:
         pred = predictor.predict_oof(model=model)
         out["rows"] = [int(i) for i in pred.index]

@@ -50,6 +50,16 @@ def try_it(cfg: dict[str, Any], predictor_path: str, row: dict[str, Any], target
         if p.problem_type == "binary":
             out["positive_class"] = jsonable(p.positive_class)
             out["threshold"] = float(p.decision_threshold)
+    elif p.problem_type == "quantile":  # F9: every level, and the centre as the prediction
+        from ..engine import quantile as qt
+
+        q = qt.qframe(p, x)
+        out["quantile_levels"] = [float(t) for t in q.columns]
+        out["centre"] = qt.centre(list(q.columns))
+        out["quantiles"] = qt.as_records(q)[0]
+        out["prediction"] = float(qt.point(q).iloc[0])
+        out["interval"] = qt.main_interval(list(q.columns))
+        out["probabilities"] = None
     else:
         out["prediction"] = float(p.predict(x).iloc[0])
         out["probabilities"] = None
@@ -93,8 +103,11 @@ def score_batch(db_path: str, batch_id: str, predictor_path: str, cfg: dict[str,
         reg.update_batch(batch_id, n_rows=len(df), stage="scoring", progress=0.05)
         n = len(X)
         chunk = max(200, int(np.ceil(n / 20)))
-        preds, probas = [], []
+        preds, probas, quants = [], [], []
         clf = p.problem_type in ("binary", "multiclass")
+        quant = p.problem_type == "quantile"
+        if quant:
+            from ..engine import quantile as qt
         t0 = time.time()
         for i in range(0, n, chunk):
             part = X.iloc[i:i + chunk]
@@ -102,6 +115,10 @@ def score_batch(db_path: str, batch_id: str, predictor_path: str, cfg: dict[str,
                 pr = p.predict_proba(part)
                 probas.append(pr)
                 preds.append(p.predict_from_proba(pr))
+            elif quant:  # F9: one column per level; the prediction is the centre level
+                q = qt.qframe(p, part)
+                quants.append(q)
+                preds.append(qt.point(q))
             else:
                 preds.append(p.predict(part))
             reg.update_batch(batch_id, progress=0.05 + 0.75 * min(1.0, (i + len(part)) / n),
@@ -116,6 +133,10 @@ def score_batch(db_path: str, batch_id: str, predictor_path: str, cfg: dict[str,
             for c in pr.columns:
                 out[f"p_{c}"] = pr[c].to_numpy().round(6)
                 cur_pred[f"p_{c}"] = pr[c].to_numpy()
+        if quant:
+            qa = pd.concat(quants)
+            for t in qa.columns:
+                out[qt.col(t)] = qa[t].to_numpy()
         out_path = out_dir_p / "scored.csv"
         out.to_csv(out_path, index=False)
 
@@ -147,13 +168,23 @@ def score_batch(db_path: str, batch_id: str, predictor_path: str, cfg: dict[str,
         else:
             summary["mean_prediction"] = float(pred.mean())
             summary["std_prediction"] = float(pred.std())
+        if quant:
+            iv = qt.main_interval(list(qa.columns))
+            summary["quantile_levels"] = [float(t) for t in qa.columns]
+            summary["prediction_is"] = f"q̂_{qt.centre(list(qa.columns)):g} (the centre level)"
+            if iv:
+                w = qa[iv["hi"]].to_numpy() - qa[iv["lo"]].to_numpy()
+                summary["interval"] = {**iv, "mean_width": float(w.mean()), "median_width": float(np.median(w))}
+                if "q_" + f"{iv['lo']:g}" in ref_pred.columns:
+                    rw = ref_pred[qt.col(iv["hi"])] - ref_pred[qt.col(iv["lo"])]
+                    summary["interval"]["mean_width_reference"] = float(rw.mean())
         # A histogram of the output for the UI (batch vs reference)
         if p.problem_type == "binary":
             edges = np.linspace(0, 1, 21)
             a = np.histogram(cur_pred[f"p_{pos}"], bins=edges)[0]
             e = np.histogram(ref_pred[f"p_{pos}"], bins=edges)[0]
             summary["histogram"] = {"edges": edges.tolist(), "actual": a.tolist(), "expected": e.tolist()}
-        elif p.problem_type == "regression":
+        elif p.problem_type in ("regression", "quantile"):
             lo = float(min(ref_pred["y_pred"].min(), pred.min()))
             hi = float(max(ref_pred["y_pred"].max(), pred.max()))
             edges = np.linspace(lo, hi, 26)
@@ -311,6 +342,15 @@ def score_with(p, rows: list[dict[str, Any]], t_all: float | None = None) -> dic
         out["classes"] = jsonable(list(proba.columns))
         out["predictions"] = jsonable(pred.tolist())
         out["probabilities"] = [{str(c): float(v) for c, v in r.items()} for r in proba.to_dict(orient="records")]
+    elif p.problem_type == "quantile":  # F9
+        from ..engine import quantile as qt
+
+        q = qt.qframe(p, X)
+        out["predict_ms"] = (time.perf_counter() - t0) * 1e3
+        out["quantile_levels"] = [float(t) for t in q.columns]
+        out["predictions"] = jsonable(qt.point(q).tolist())
+        out["quantiles"] = qt.as_records(q)
+        out["probabilities"] = None
     else:
         pred = p.predict(X)
         out["predict_ms"] = (time.perf_counter() - t0) * 1e3

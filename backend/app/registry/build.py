@@ -147,6 +147,11 @@ def _metric_fns(problem_type: str, positive: Any, classes: list[Any]):
 def metrics_with_ci(hp: pd.DataFrame, problem_type: str, positive: Any, classes: list[Any] | None,
                     B: int = 500, seed: int = 0) -> dict[str, Any]:
     """Point estimates on the holdout and 95% percentile-bootstrap intervals (B resamples of the holdout rows)."""
+    if problem_type == "quantile":  # F9: pinball per level, the main interval's coverage and width
+        from ..engine import quantile as qt
+
+        saved = qt.from_saved(hp)
+        return qt.bootstrap(hp["y_true"].to_numpy(dtype=float), saved[1], saved[0], B=B, seed=seed)
     classes = [str(c) for c in classes] if classes else []
     pos = str(positive) if positive is not None else None
     y = hp["y_true"].astype(str).to_numpy() if problem_type != "regression" else hp["y_true"].to_numpy(dtype=float)
@@ -175,13 +180,9 @@ def metrics_with_ci(hp: pd.DataFrame, problem_type: str, positive: Any, classes:
 
 
 def holdout_predictions(predictor, holdout: pd.DataFrame, label: str) -> pd.DataFrame:
-    out = pd.DataFrame({"row": holdout.index, "y_true": holdout[label].to_numpy()})
-    out["y_pred"] = predictor.predict(holdout).to_numpy()
-    if predictor.problem_type in ("binary", "multiclass"):
-        proba = predictor.predict_proba(holdout)
-        for c in proba.columns:
-            out[f"p_{c}"] = proba[c].to_numpy()
-    return out
+    from ..engine.worker import holdout_prediction_frame
+
+    return holdout_prediction_frame(predictor, holdout, label)
 
 
 # --------------------------------------------------------------------------- the build
@@ -263,6 +264,19 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
                 which = "all" if many else (opts.get("serve_model") or "best")
                 mapping = p.refit_full(model=which)
                 refit_info = {"model": which, "mapping": mapping, "seconds": time.time() - t0, "best": p.model_best}
+                if p.problem_type == "quantile":
+                    # F9: AutoGluon's conformal offsets c_τ sit on the model it calibrated; at fit time it calibrates
+                    # the refit copy with its parent's out-of-fold scores, so the copies keep the parent's c_τ here too.
+                    carried = []
+                    for parent, full in mapping.items():
+                        c = getattr(p._trainer.load_model(parent), "conformalize", None)
+                        if c is not None and parent != full:
+                            fm = p._trainer.load_model(full)
+                            fm.conformalize = c
+                            fm.save()
+                            carried.append(full)
+                    if carried:
+                        refit_info["conformal_carried"] = carried
                 step("refit_full", "done", seconds=refit_info["seconds"], best=p.model_best, refit=len(mapping))
         else:
             step("refit_full", "skipped", reason="not requested")
@@ -475,6 +489,12 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
                          "served_model": final.model_best, "columns": chk, "eps": mono.EPS,
                          "monotone": all(x.get("monotone", False) for x in chk.values())}
 
+        quant_info = None
+        if final.problem_type == "quantile":  # F9: the served model's range on the holdout, raw and calibrated
+            from ..engine import quantile as qt
+
+            quant_info = qt.report(final, holdout, cfg["label"], per_model=False)
+
         deps = _deps(final, final.model_best)
         threshold = float(final.decision_threshold) if final.problem_type == "binary" else None
         result = {
@@ -491,7 +511,7 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
                          "latency_ratio_p50": lat_ver["us_per_row_p50"] / lat_src["us_per_row_p50"] if lat_src["us_per_row_p50"] else None,
                          "single_ratio_p50": lat_ver["single_ms_p50"] / lat_src["single_ms_p50"] if lat_src["single_ms_p50"] else None},
             "refit": refit_info, "infer_limit": limit_info, "distill": distill_info, "serving": serving_info,
-            "monotone": mono_info,
+            "monotone": mono_info, "quantile": quant_info,
             "hashes": {"model_sha256": model_hash, "data_sha256": data_hash, "splits_sha256": splits_hash,
                        "data_file": Path(cfg["csv_path"]).name},
             "path": str(dest),

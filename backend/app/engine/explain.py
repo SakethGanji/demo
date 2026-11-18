@@ -373,6 +373,26 @@ def fairness(df: pd.DataFrame, cfg: dict[str, Any], group: str, *, problem_type:
     out["overall"] = {k: float(v) for k, v in mf.overall.items()}
     out["by_group"] = [{"group": str(idx), **{k: (None if pd.isna(v) else float(v)) for k, v in row.items()}}
                        for idx, row in bg.iterrows()]
+    from . import quantile as qt
+
+    saved = qt.from_saved(df) if problem_type == "quantile" else None
+    iv = qt.main_interval(saved[0]) if saved else None
+    if iv:  # F9: does the interval hold its coverage in every group?
+        levels, Q = saved
+        yt = df["y_true"].to_numpy(dtype=float)
+        a, b = Q[:, levels.index(iv["lo"])], Q[:, levels.index(iv["hi"])]
+        inside = (yt >= a) & (yt <= b)
+        gl = g.astype(str).to_numpy()
+        cov = {str(k): float(inside[gl == str(k)].mean()) for k in bg.index if (gl == str(k)).any()}
+        wid = {str(k): float((b - a)[gl == str(k)].mean()) for k in bg.index if (gl == str(k)).any()}
+        for r in out["by_group"]:
+            r["coverage"] = cov.get(r["group"])
+            r["mean_width"] = wid.get(r["group"])
+        out["metrics"] += ["coverage", "mean_width"]
+        out["overall"]["coverage"] = float(inside.mean())
+        out["overall"]["mean_width"] = float((b - a).mean())
+        out["interval"] = iv
+        out["gaps"]["coverage_difference"] = (max(cov.values()) - min(cov.values())) if cov else None
     out["difference"] = {k: (None if pd.isna(v) else float(v)) for k, v in mf.difference().items()}
     out["ratio"] = {k: (None if pd.isna(v) or not np.isfinite(v) else float(v)) for k, v in mf.ratio().items()}
     return out
@@ -423,6 +443,20 @@ def _shap_background(cfg: dict[str, Any], features: list[str], background: int):
 
 def resolve_target(predictor, x: pd.DataFrame, target: str | None) -> tuple[str | None, list[str] | None]:
     pt = predictor.problem_type
+    if pt == "quantile":  # F9: explain one level's quantile q̂_τ(x); default the centre level
+        from . import quantile as qt
+
+        levels = [float(t) for t in predictor.quantile_levels]
+        if target is None:
+            return f"{qt.centre(levels):g}", None
+        try:
+            t = float(target)
+        except ValueError:
+            t = None
+        match = next((lv for lv in levels if t is not None and abs(lv - t) < 1e-9), None)
+        if match is None:
+            raise ExplainError(f"No quantile level {target!r}; the levels are {', '.join(f'{lv:g}' for lv in levels)}.")
+        return f"{match:g}", None
     classes = [_as_str(c) for c in predictor.class_labels] if pt in ("binary", "multiclass") else None
     if classes is not None:
         if target is None:
@@ -444,6 +478,7 @@ def shap_explain(predictor, train: pd.DataFrame, bg: pd.DataFrame, x: pd.DataFra
     dtypes = train.dtypes
     col_index = list(train.columns)
     k = classes.index(target) if classes is not None else None
+    tau = float(target) if predictor.problem_type == "quantile" and target is not None else None
 
     def f(arr: np.ndarray) -> np.ndarray:
         frame = pd.DataFrame(arr, columns=col_index)
@@ -452,6 +487,9 @@ def shap_explain(predictor, train: pd.DataFrame, bg: pd.DataFrame, x: pd.DataFra
                 frame[c] = pd.to_numeric(frame[c], errors="coerce")
         if k is not None:
             return predictor.predict_proba(frame, as_multiclass=True).to_numpy()[:, k]
+        if tau is not None:
+            q = predictor.predict(frame)
+            return q[next(c for c in q.columns if abs(float(c) - tau) < 1e-9)].to_numpy(dtype=float)
         return predictor.predict(frame).to_numpy(dtype=float)
 
     t0 = time.time()
@@ -466,7 +504,8 @@ def shap_explain(predictor, train: pd.DataFrame, bg: pd.DataFrame, x: pd.DataFra
                      key=lambda d: -abs(d["phi"]))
     return {
         "model": predictor.model_best, "problem_type": predictor.problem_type, "target": target,
-        "output": "probability" if classes is not None else "prediction",
+        "output": "probability" if classes is not None else (f"quantile τ = {tau:g}" if tau is not None else "prediction"),
+        "quantile_level": tau,
         "base_value": base, "fx": fx, "sum_phi": float(phi.sum()), "additivity_error": float(fx - base - phi.sum()),
         "contributions": contrib, "background_size": int(len(bg)), "nsamples": nsamples, "seconds": elapsed,
         "classes": classes,
