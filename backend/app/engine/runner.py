@@ -134,7 +134,9 @@ class JobRunner:
             return
         d = self.run_dir(run_id)
         env = {**os.environ, "PYTHONUNBUFFERED": "1", "MLFLOW_DISABLE_AGENT_HINT": "1",
-               "ENSEMBLE_DATA_DIR": str(self.settings.data_dir)}
+               "ENSEMBLE_DATA_DIR": str(self.settings.data_dir),
+               # Ray workers (parallel folds, dynamic stacking) must import app.* and ensemble_models too.
+               "PYTHONPATH": os.pathsep.join(p for p in (str(config.BACKEND_DIR), os.environ.get("PYTHONPATH", "")) if p)}
         with open(d / "worker.log", "ab") as out:
             p = subprocess.Popen([sys.executable, "-m", "app.engine.worker", str(d), str(os.getpid())],
                                  cwd=config.BACKEND_DIR, env=env, stdout=out, stderr=subprocess.STDOUT,
