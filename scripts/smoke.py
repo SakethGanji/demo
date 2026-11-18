@@ -29,6 +29,9 @@ One line per step: ✓ or ✗, the step, a key number. Exits 1 if any step faile
   monotone   F8: credit-default with debt_to_income ↑: refused requests, Gym exclude / warn, a bagged + stacked run of
              the monotone subclasses (every model checked by ICE), the unconstrained twin (before), the registered
              version's served model checked on a grid through its own /score, and the constraint on the model card
+  scorecard  F11: the SCORECARD challenger on credit-default (bagged, stacked): refusals, Gym, table / IV / ΔAUC with a
+             bootstrap CI, CSV export re-scores the holdout, points → score → P, reason codes; with F7 cost + F8 monotone;
+             registry card; switched off
   reset      a second API on a throwaway data folder: upload + run, POST /api/admin/reset, back to the samples only
 """
 
@@ -1176,14 +1179,15 @@ def monotone(st: dict[str, Any]) -> None:
         v = post("/api/gym/validate", {**body, "monotone": {"constraints": cons}})
         check(v["ok"], v["errors"])
         m = v["monotone"]
-        check(m["constraints"] == {col: 1} and m["compliant"] == ["CAT", "GBM", "XGB"] and m["left_out"] == ["LR", "RF"], m)
+        # F11: SCORECARD is added to binary runs and honours the constraint by monotone binning
+        check(m["constraints"] == {col: 1} and m["compliant"] == ["CAT", "GBM", "SCORECARD", "XGB"] and m["left_out"] == ["LR", "RF"], m)
         hpr = v["resolved"]["fit_kwargs"]["hyperparameters"]
-        check(set(hpr) == {"GBM_MONO", "XGB_MONO", "CAT_MONO"}, list(hpr))
+        check(set(hpr) == {"GBM_MONO", "XGB_MONO", "CAT_MONO", "SCORECARD"}, list(hpr))
         check(all(c["monotone"]["constraints"] == {col: 1} for c in hpr.values()), hpr)
         check(any("Stacking" in i["message"] for i in v["info"] if i["path"] == "monotone"), v["info"])
         w = post("/api/gym/validate", {**body, "monotone": {"constraints": cons, "compliant_only": False}})
         check(w["ok"] and any(x["path"] == "monotone" and "RF" in x["message"] and "LR" in x["message"] for x in w["warnings"]), w["warnings"])
-        check(set(w["resolved"]["fit_kwargs"]["hyperparameters"]) == {"GBM_MONO", "XGB_MONO", "CAT_MONO", "RF", "LR"}, "kept")
+        check(set(w["resolved"]["fit_kwargs"]["hyperparameters"]) == {"GBM_MONO", "XGB_MONO", "CAT_MONO", "SCORECARD", "RF", "LR"}, "kept")
         return (f"resolved {', '.join(sorted(hpr))} (monotone {col}: +1) · RF, LR left out · compliant_only=false warns: "
                 f"{w['warnings'][0]['message'][:60]}…")
 
@@ -1199,7 +1203,7 @@ def monotone(st: dict[str, Any]) -> None:
         check(mr["columns"][col]["status"] == "constrained" and mr["columns"][col]["features"] == [col], mr["columns"])
         models = {m["model"]: m for m in mr["models"]}
         fams = {m["family"] for m in mr["models"] if m["kind"] == "model"}
-        check(fams == {"GBM", "XGB", "CAT"}, f"families trained: {fams} (a monotone subclass failed?)")
+        check(fams == {"GBM", "XGB", "CAT", "SCORECARD"}, f"families trained: {fams} (a monotone subclass failed?)")
         check(not mr["unconstrained_models"], mr["unconstrained_models"])
         l2 = [m for m in mr["models"] if m["kind"] == "model" and m["stack_level"] == 2]
         check(l2, "no stack level 2 models: the stack was not exercised")
@@ -2544,7 +2548,8 @@ def reasons(st: dict[str, Any]) -> None:
         dropped = [c["name"] for c in prof["columns"] if c["name"] not in num + [label]]
         b2 = {"dataset_id": ds, "label": label, "problem_type": "binary", "presets": "medium_quality", "time_limit": 300,
               "fit_kwargs": {"hyperparameters": {"GBM": {"num_boost_round": 150}}}, "drop_columns": dropped,
-              "feature_importance": False, "cost": {"c_fp": 1, "c_fn": 10}, "calibrate_threshold": "auto", "source": "smoke-reasons"}
+              "feature_importance": False, "cost": {"c_fp": 1, "c_fn": 10}, "calibrate_threshold": "auto", "source": "smoke-reasons",
+              "scorecard": False}  # F11: a LightGBM-only version, so no scorecard challenger beside it
         rec = wait_run(post("/api/runs", b2)["id"])
         check(rec["status"] == "succeeded", rec.get("error"))
         v = post(f"/api/runs/{rec['id']}/register", {"created_by": "Smoke Analyst", "model_name": "smoke.credit.reasons-gbm"})
@@ -2570,11 +2575,165 @@ def reasons(st: dict[str, Any]) -> None:
     step("reasons: exact TreeSHAP for a LightGBM version", tree)
 
 
+def scorecard(st: dict[str, Any]) -> None:
+    """F11: the scorecard challenger. Refusals; the Gym resolves SCORECARD into a binary run's hyperparameters (and
+    leaves it out when switched off or for other problem types). credit-default, bagged (k = 3) and stacked (L = 1):
+    SCORECARD trains in the folds at level 1 only; the deployable scorecard (refitted on the training rows, never the
+    holdout) has its table, IV per feature, points that add up to the score, P(event) = the logistic of the score; the
+    CSV export re-scores the holdout to the same scores; ΔAUC of the served model over it with a bootstrap CI; its own
+    reason codes (points lost) per row. Then with the F7 cost (FN = 10 × FP) and F8 debt_to_income ↑: the scorecard is
+    monotone by construction and by ICE, and reports its expected cost next to the served model's. Registered: the model
+    card carries the benchmark, and Try It works on the version (F3)."""
+    ds, label, col = "credit-default", "defaulted", "debt_to_income"
+    s: dict[str, Any] = {}
+    prof = get(f"/api/datasets/{ds}")["profile"]
+    drop = [c["name"] for c in prof["columns"] if c["type"] == "id" and c["name"] != label]
+    hp = {"GBM": {"num_boost_round": 150}, "CAT": {"iterations": 150}, "LR": {}}
+    body = {"dataset_id": ds, "label": label, "problem_type": "binary", "eval_metric": "roc_auc", "presets": "medium_quality",
+            "time_limit": 600, "fit_kwargs": {"hyperparameters": hp, "num_bag_folds": 3, "num_stack_levels": 1,
+                                              "dynamic_stacking": False},
+            "drop_columns": drop, "feature_importance": False, "source": "smoke-scorecard"}
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend"))
+    from app.samples import generate_credit
+
+    df, _ = generate_credit()
+
+    def refuse_and_gym():
+        bad = [({**body, "scorecard": {"pdo": 0}}, "points to double the odds"),
+               ({**body, "scorecard": {"bins": 5}}, "no field 'bins'"),
+               ({**body, "scorecard": {"monotone_bins": "sometimes"}}, "monotone_bins"),
+               ({**body, "label": "loan_purpose", "problem_type": "multiclass", "eval_metric": None, "scorecard": True},
+                "binary model")]
+        for b, words in bad:
+            r = C.post("/api/runs", json=b)
+            check(r.status_code == 400 and words in r.text, f"{words}: {r.status_code} {r.text[:300]}")
+        v = post("/api/gym/validate", body)
+        hpr = v["resolved"]["fit_kwargs"]["hyperparameters"]
+        check(v["ok"] and "SCORECARD" in hpr and hpr["SCORECARD"]["pdo"] == 20 and v["scorecard"]["base_score"] == 600, list(hpr))
+        check(any("SCORECARD" in n for n in v["resolved"]["notes"]), v["resolved"]["notes"])
+        off = post("/api/gym/validate", {**body, "scorecard": False})
+        check("SCORECARD" not in off["resolved"]["fit_kwargs"]["hyperparameters"], "scorecard: false still adds it")
+        mc = post("/api/gym/validate", {**body, "label": "loan_purpose", "problem_type": "multiclass", "eval_metric": None})
+        check("SCORECARD" not in mc["resolved"]["fit_kwargs"]["hyperparameters"], "added to a multiclass run")
+        return f"{len(bad)} bad requests → 400 · Gym: SCORECARD added for binary (PDO 20, 600 at 50:1), not when off or multiclass"
+
+    if not step("scorecard: refusals + Gym", refuse_and_gym):
+        return
+
+    def run():
+        rec = wait_run(post("/api/runs", body)["id"])
+        lb = {r["model"]: r for r in rec["leaderboard"]}
+        check("Scorecard_BAG_L1" in lb, list(lb))
+        check(not any(m.startswith("Scorecard") and m.endswith("_L2") for m in lb), "scorecard trained as a stacker")
+        check(lb["Scorecard_BAG_L1"]["family"] == "SCORECARD", lb["Scorecard_BAG_L1"].get("family"))
+        sc = get(f"/api/runs/{rec['id']}/scorecard")
+        t = sc["table"]
+        n_train = rec["data"]["train_rows"]
+        check(sc["n_train"] == n_train == t["n_train"], f"deployable scorecard fit on {sc['n_train']} rows, run trained on {n_train}")
+        feats = {f["feature"]: f for f in t["features"]}
+        for f in feats.values():  # every row of the training data is in exactly one bin of every feature: no holdout row
+            n = sum(r["n"] for r in t["rows"] if r["feature"] == f["feature"])
+            check(n == n_train, f"{f['feature']}: bins hold {n} rows, training has {n_train}")
+            if f["in_model"]:
+                check(f["coefficient"] <= 0, f)
+                if f["kind"] == "numeric" and f["direction"]:  # monotone event rate ⇒ points monotone over x
+                    pts = [r["points"] for r in t["rows"] if r["feature"] == f["feature"] and r["label"] != "missing"]
+                    check(all(-f["direction"] * (b - a) >= -1e-9 for a, b in zip(pts, pts[1:])), f"{f['feature']} points {pts}")
+            else:
+                check(f["dropped"], f)
+        h = sc["holdout"]
+        d = h["delta_auc"]
+        check(h["proba_check"] < 1e-6, f"P(event) from points ≠ the model's probability ({h['proba_check']})")
+        check(d["ci"][0] <= d["delta"] <= d["ci"][1] and d["B"] >= 900, d)
+        check(abs(h["served"]["auc"] - h["scorecard"]["auc"] - d["delta"]) < 1e-9, "ΔAUC ≠ AUC difference")
+        check(sc["served_model"] == rec["best_model"], sc["served_model"])
+        # The exported table re-scores the holdout: Σ points_exact of each row's bins = the API's score.
+        csv = pd.read_csv(io.BytesIO(C.get(f"/api/runs/{rec['id']}/scorecard.csv").content))
+        check(set(csv["feature"]) - {"_scaling"} == {f for f, x in feats.items() if x["in_model"]}, "CSV features")
+        out = post(f"/api/runs/{rec['id']}/scorecard/score", {"holdout_index": list(range(300))})
+        ok = 0
+        for r in out["rows"]:
+            tot = sum(float(csv[(csv["feature"] == p["feature"]) & (csv["bin"].astype(str) == p["bin"])]["points_exact"].iloc[0])
+                      if p["bin"] != "no bin (WoE 0)" else p["points"] for p in r["points"])
+            ok += abs(tot - r["score"]) < 1e-3
+            check(abs(sum(p["points"] for p in r["points"]) - r["score"]) < 1e-6, "points do not add up to the score")
+            sca = out["scaling"]
+            check(abs(r["p_event"] - 1 / (1 + np.exp((r["score"] - sca["offset"]) / sca["factor"]))) < 1e-9, "P ≠ logistic(score)")
+            lost = [x["points_lost"] for x in r["reasons"]]
+            check(lost == sorted(lost, reverse=True) and all(x > 0 for x in lost) and len(lost) <= 4, r["reasons"])
+        check(ok == len(out["rows"]), f"CSV re-scores {ok}/{len(out['rows'])} holdout rows to the API's score")
+        s.update(run=rec, sc=sc)
+        iv = sorted(t["features"], key=lambda f: -f["iv"])
+        return (f"{rec['id']} · Scorecard_BAG_L1 val AUC {lb['Scorecard_BAG_L1']['score_val']:.4f} (level 1 only) · deployable "
+                f"scorecard: {t['n_features']} of {len(feats)} features, {sum(1 for r in t['rows'] if r['in_model'])} bins, fit on "
+                f"{n_train} training rows · IV: {', '.join(f'{f['feature']} {f['iv']:.3f}' for f in iv[:4])} · holdout AUC "
+                f"scorecard {h['scorecard']['auc']:.4f} (Gini {h['scorecard']['gini']:.3f}, KS {h['scorecard']['ks']:.3f}) vs "
+                f"{h['served']['model']} {h['served']['auc']:.4f} · ΔAUC {d['delta']:+.4f} [{d['ci'][0]:+.4f}, {d['ci'][1]:+.4f}] "
+                f"(B = {d['B']}, P(Δ ≤ 0) = {d['p_le_0']:.3f}) · CSV re-scores 300/300 holdout rows · points = score, P = σ")
+
+    if not step("scorecard: bagged + stacked run, table, ΔAUC", run):
+        return
+
+    def coexist():
+        b = {**body, "eval_metric": None, "cost": {"c_fp": 1, "c_fn": 10}, "calibrate_threshold": "auto",
+             "monotone": {"constraints": {col: "increasing"}},
+             "fit_kwargs": {**body["fit_kwargs"], "hyperparameters": {"GBM": {"num_boost_round": 150}}},
+             "scorecard": {"pdo": 40, "base_score": 500, "base_odds": 20}}
+        rec = wait_run(post("/api/runs", b)["id"])
+        sc = get(f"/api/runs/{rec['id']}/scorecard")
+        f = next(x for x in sc["table"]["features"] if x["feature"] == col)
+        check(f["constraint"] == 1 and f["direction"] == 1, f)
+        check(sc["monotone_check"][col]["monotone"], sc["monotone_check"])
+        mr = rec["monotone"]
+        mm = {m["model"]: m for m in mr["models"]}
+        check(mm["Scorecard_BAG_L1"]["monotone_by_construction"] and mm["Scorecard_BAG_L1"].get("monotone_checked"), mm["Scorecard_BAG_L1"])
+        check(mr["best_monotone"], "served model not monotone")
+        c = sc["cost"]
+        check(c and c["c_fn"] == 10 and abs(c["threshold_scorecard"] - 1 / 11) < 1e-9, c)
+        sca = sc["table"]["scaling"]
+        check(sca["pdo"] == 40 and sca["base_score"] == 500 and abs(sca["factor"] - 40 / np.log(2)) < 1e-9, sca)
+        pts = sc["monotone_check"][col]["points"]
+        return (f"{rec['id']} (cost FN = 10 × FP, {col} ↑, PDO 40, 500 at 20:1): {col} binned ↑, points "
+                f"{pts[0]:.1f} → {pts[-1]:.1f} non-increasing · Scorecard_BAG_L1 monotone by construction and by ICE "
+                f"({mm['Scorecard_BAG_L1']['check'][col]['curves_violating']}/100 curves) · served {mr['best_model']} monotone · "
+                f"cost per 1,000 decisions: scorecard {c['scorecard_per_1000']:.0f} (t* = 1/11) vs served {c['served_per_1000']:.0f} "
+                f"(t = {c['threshold_served']:.4f}) · ΔAUC {sc['holdout']['delta_auc']['delta']:+.4f}")
+
+    step("scorecard: with F7 cost + F8 monotone", coexist)
+
+    def registry():
+        rec = s["run"]
+        v = post(f"/api/runs/{rec['id']}/register", {"created_by": "Smoke Analyst", "model_name": "smoke.credit.scorecard"})
+        v = poll(f"/api/registry/versions/{v['id']}", lambda x: x["status"] in ("ready", "failed"), 900)
+        check(v["status"] == "ready", v.get("error"))
+        c = get(f"/api/registry/versions/{v['id']}/card")
+        scd = c["scorecard"]
+        check(scd and abs(scd["delta_auc"]["delta"] - s["sc"]["holdout"]["delta_auc"]["delta"]) < 1e-12, scd)
+        md = C.get(f"/api/registry/versions/{v['id']}/card", params={"format": "md"}).text
+        check("Scorecard benchmark" in md and "ΔAUC (served − scorecard)" in md, "card markdown")
+        row = json.loads(df.drop(columns=[label]).iloc[[5]].to_json(orient="records"))[0]
+        p = post(f"/api/registry/versions/{v['id']}/predict", {"row": row})
+        check(p.get("prediction") in ("Yes", "No"), p)
+        return f"{v['id']} ready (serves {v['result']['version']['best_model']}) · card: scorecard benchmark + Markdown · Try It {p['prediction']}"
+
+    step("scorecard: registry card + Try It", registry)
+
+    def off():
+        rec = wait_run(post("/api/runs", {**body, "scorecard": False,
+                                          "fit_kwargs": {"hyperparameters": {"GBM": {"num_boost_round": 50}}}})["id"])
+        check(not any(r["model"].startswith("Scorecard") for r in rec["leaderboard"]), "scorecard trained while off")
+        r = C.get(f"/api/runs/{rec['id']}/scorecard")
+        check(r.status_code == 400, r.status_code)
+        return f"{rec['id']}: scorecard: false → no SCORECARD model, GET …/scorecard → 400"
+
+    step("scorecard: switched off", off)
+
+
 def main() -> int:
     global C, API
     ap = argparse.ArgumentParser()
     ap.add_argument("--api", default=API)
-    ap.add_argument("--only", default="core,samples,autopilot,forecast,anomaly,import,fresh,latency,targets,splits,cost,monotone,quantile,reasons,llm,reset")
+    ap.add_argument("--only", default="core,samples,autopilot,forecast,anomaly,import,fresh,latency,targets,splits,cost,monotone,quantile,reasons,scorecard,llm,reset")
     ap.add_argument("--start-api", action="store_true", help="start uvicorn on the --api port if nothing answers there")
     args = ap.parse_args()
     API = args.api.rstrip("/")
@@ -2611,7 +2770,7 @@ def _main(args) -> int:
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
     sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
-                "import": importer, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "reset": reset, "llm": llm}
+                "import": importer, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "scorecard": scorecard, "reset": reset, "llm": llm}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")
