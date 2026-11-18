@@ -155,7 +155,7 @@ def run_out(rec: dict[str, Any], store: RunStore, full: bool = True) -> dict[str
                 "elapsed_seconds", "data", "features", "ensemble", "ensembles", "holdout", "oof", "text_models",
                 "feature_importance", "leaderboard", "resolved", "custom_ensembles", "threshold", "mlflow",
                 "forecast", "backtests", "anomaly", "imported", "monotone", "quantile", "quantile_levels",
-                "learning_curve", "active_learning", "annotations"):
+                "learning_curve", "active_learning", "annotations", "shift"):
         out[key] = res.get(key)
     out["feature_importance"] = explain.importance_with_ci(out["feature_importance"])
     sc = res.get("scorecard")  # F11: the headline only; the table is GET /runs/{id}/scorecard
