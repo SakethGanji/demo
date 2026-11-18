@@ -59,7 +59,7 @@ export function LiveExperiments({ go }: { go: (r: string) => void }) {
   const selRuns = (runs ?? []).filter((r) => sel.includes(r.id))
 
   if (err && !runs) return <div className="page"><div className="card card-body" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {err}</div></div>
-  if (!runs) return <div className="page"><div className="card card-body row"><ResonanceWave /> Reading runs…</div></div>
+  if (!runs) return <div className="page"><div className="card card-body row"><ResonanceWave /> Reading the runs from the API: their scores, parameters and thresholds…</div></div>
   const counts = (k: (r: Run) => string) => (runs ?? []).reduce<Record<string, number>>((a, r) => { a[k(r)] = (a[k(r)] ?? 0) + 1; return a }, {})
   const byStatus = counts((r) => r.status)
   const byType = counts((r) => r.problem_type ?? 'pending')

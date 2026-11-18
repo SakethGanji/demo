@@ -14,8 +14,10 @@ Conventions
 from __future__ import annotations
 
 import json
+import logging
 import math
 import time
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +25,9 @@ import numpy as np
 import pandas as pd
 
 from .jsonsafe import jsonable
+
+
+logging.getLogger("shap").setLevel(logging.WARNING)
 
 
 class ExplainError(ValueError):
@@ -200,7 +205,7 @@ def classification_report(df: pd.DataFrame, classes: list[str], positive: Any | 
     out: dict[str, Any] = {"kind": "classification", "classes": classes, "n": int(len(df)),
                            "confusion_matrix": cm.tolist(), "per_class": per_class,
                            "accuracy": float((y_true == y_pred).mean()),
-                           "log_loss": float(log_loss(y_true, P, labels=classes))}
+                           "log_loss": _log_loss(log_loss, y_true, P, classes)}
 
     if len(classes) == 2 and positive is not None:
         y, p = binary_arrays(df, positive)
@@ -238,6 +243,13 @@ def classification_report(df: pd.DataFrame, classes: list[str], positive: Any | 
                      "probabilities": {c: float(P[i, j]) for j, c in enumerate(classes)},
                      "features": feats.get(int(df["row"].iloc[i]), {})} for i in order]
     return out
+
+
+def _log_loss(fn, y_true, P, classes) -> float:
+    # Saved probabilities can miss Σ = 1 by ~1e-7 (CSV round trip); sklearn renormalises them and warns. Same value.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        return float(fn(y_true, P, labels=classes))
 
 
 def regression_report(df: pd.DataFrame, cfg: dict[str, Any], worst_k: int = 12, max_points: int = 3000) -> dict[str, Any]:
