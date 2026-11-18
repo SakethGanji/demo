@@ -1,6 +1,6 @@
 // Typed client for the ENSEMBLE API. Every call goes through the Vite proxy at /api.
 
-import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer } from './types'
+import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer } from './types'
 
 export class ApiError extends Error {
   /** 0 when the API could not be reached at all (network error, timeout, or the dev proxy's 503). */
@@ -43,6 +43,9 @@ export const api = {
       if (target) form.append('target', target)
       return request<DatasetDetail>('/datasets', { method: 'POST', body: form, timeoutMs: 120_000 })
     },
+    /** F4: confirm the column to predict; the API re-profiles and draws (or reuses) that target's own holdout. */
+    setTarget: (id: string, target: string) => request<DatasetDetail>(`/datasets/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ target }), headers: { 'Content-Type': 'application/json' }, timeoutMs: 120_000 }),
+    splits: (id: string) => request<DatasetSplits>(`/datasets/${encodeURIComponent(id)}/splits`),
   },
   models: () => request<{ families: ModelFamily[] }>('/models').then((r) => r.families),
   runs: {

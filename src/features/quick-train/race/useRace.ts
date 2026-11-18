@@ -19,6 +19,8 @@ export type RaceState = {
   /** Server timestamps (s since epoch) of run_started and the terminal event. */
   startTs: number | null; endTs: number | null; queuedTs: number | null
   trainRows: number | null; holdoutRows: number | null; features: string[]; droppedColumns: string[]; droppedMissing: number
+  /** F4: the (label, strategy) split the run trains and is scored on. */
+  split?: { key: string; target: string; strategy: string; sha256: string; holdout_rows: number } | null
   problemType: string | null; metric: string | null; greater: boolean; numClasses: number | null; kFold: number | null
   timeLimit: number | null; notes: string[]
   models: Record<string, ModelRow>; order: string[]
@@ -48,6 +50,7 @@ export function applyEvent(s: RaceState, e: RunEvent, shownAt: number): RaceStat
     case 'data_ready': return {
       ...s, trainRows: e.train_rows as number, holdoutRows: e.holdout_rows as number, features: (e.features as string[]) ?? [],
       droppedColumns: (e.dropped_columns as string[]) ?? [], droppedMissing: (e.dropped_missing_label as number) ?? 0,
+      split: (e.split as RaceState['split']) ?? null,
     }
     case 'config_resolved': return { ...s, notes: (e.notes as string[]) ?? [] }
     case 'fit_started': return {

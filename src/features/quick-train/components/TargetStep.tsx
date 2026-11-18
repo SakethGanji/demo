@@ -1,6 +1,9 @@
+import { useEffect, useState } from 'react'
+import { api } from '@/shared/api/client'
+import type { DatasetSplits } from '@/shared/api/types'
 import { ParamChip } from '@/shared/primitives/ParamChip'
 import { StatusPill } from '@/shared/primitives/StatusPill'
-import type { Dataset } from '../datasets'
+import { fromServer, type Dataset } from '../datasets'
 import { useWidth } from '@/shared/hooks/useWidth'
 import { effectiveType, inferTask, labelClasses, labelOptions, type Choices, type ColType, type Task } from '../wizard'
 
@@ -8,7 +11,10 @@ const TYPE_LABEL: Record<ColType, string> = { number: 'number', category: 'categ
 const AG_RAW: Record<ColType, string> = { number: 'float', category: 'object', text: 'object', id: '—' }
 
 /** Step 2: which column to predict, what kind of problem that is, and how each column is read (AutoGluon feature_metadata). */
-export function TargetStep({ ds, ch, set }: { ds: Dataset; ch: Choices; set: (p: Partial<Choices>) => void }) {
+/** Is y = label confirmed for this server dataset? (Mock datasets have no server split: nothing to confirm.) */
+export const targetConfirmed = (ds: Dataset, label: string) => !ds.id || (ds.target === label && ds.profile?.target_source !== 'guessed')
+
+export function TargetStep({ ds, ch, set, onConfirmed }: { ds: Dataset; ch: Choices; set: (p: Partial<Choices>) => void; onConfirmed?: (d: Dataset) => void }) {
   const inferred = inferTask(ds, ch.label)
   const task: Task | null = ch.problemType ?? inferred
   const classes = labelClasses(ds, ch.label)
@@ -47,7 +53,7 @@ export function TargetStep({ ds, ch, set }: { ds: Dataset; ch: Choices; set: (p:
               <label className="field">
                 <span className="micro-label">Label column</span>
                 <select className="select" data-testid="label-select" value={ch.label} onChange={(e) => pickLabel(e.target.value)}>
-                  {options.map((c) => <option key={c.name} value={c.name}>{c.name}{c.name === ds.target ? '  (suggested)' : ''} · {c.type}</option>)}
+                  {options.map((c) => <option key={c.name} value={c.name}>{c.name}{c.name === ds.target && targetConfirmed(ds, c.name) && ds.id ? '  (confirmed)' : c.name === (ds.profile?.suggested_target ?? ds.target) ? '  (suggested)' : ''} · {c.type}</option>)}
                 </select>
               </label>
               <div className="field">
@@ -109,6 +115,8 @@ export function TargetStep({ ds, ch, set }: { ds: Dataset; ch: Choices; set: (p:
           </div>
         </div>
 
+        <div className="stack">
+        {ds.id && <ConfirmTarget ds={ds} label={ch.label} onConfirmed={onConfirmed} />}
         <div className="card" data-testid="column-types">
           <div className="card-head">
             <div className="left"><h3 className="card-title">Columns</h3><span className="helper" style={{ fontSize: 12 }}>how AutoGluon reads each one · edit to override</span></div>
@@ -150,7 +158,86 @@ export function TargetStep({ ds, ch, set }: { ds: Dataset; ch: Choices; set: (p:
             </p>
           </div>
         </div>
+        </div>
       </div>
+    </div>
+  )
+}
+
+/**
+ * F4: confirming the target is an explicit step. The holdout H and the folds are drawn per target (and strategy),
+ * so the split shown here is the one every run with this y trains and is scored on, whether it starts here or over the API.
+ */
+function ConfirmTarget({ ds, label, onConfirmed }: { ds: Dataset; label: string; onConfirmed?: (d: Dataset) => void }) {
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [stored, setStored] = useState<DatasetSplits | null>(null)
+  const ok = targetConfirmed(ds, label)
+  const sp = ds.profile?.splits
+  const src = ds.profile?.target_source
+  const guess = ds.profile?.suggested_target
+  useEffect(() => {
+    let alive = true
+    api.datasets.splits(ds.id!).then((x) => { if (alive) setStored(x) }).catch(() => {})
+    return () => { alive = false }
+  }, [ds.id, ds.target, sp?.key])
+  const confirm = async () => {
+    setBusy(true); setErr('')
+    try { onConfirmed?.(fromServer(await api.datasets.setTarget(ds.id!, label))) } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+  }
+  const pct = sp ? Math.round(sp.holdout_share * 100) : 20
+  return (
+    <div className="card" data-testid="confirm-target" data-confirmed={ok ? 'yes' : 'no'}>
+      <div className="card-head">
+        <h3 className="card-title">Confirm The Target</h3>
+        {ok ? <StatusPill status="success">{src === 'given' ? 'Named on upload' : 'Confirmed'}</StatusPill> : <StatusPill status="warning">Not confirmed</StatusPill>}
+      </div>
+      <div className="card-body stack" style={{ gap: 'var(--space-12)' }}>
+        {ok && sp ? (
+          <>
+            <div className="formula">
+              <div className="eq"><i>H</i> ⊂ {'{'}1, …, <i>n</i>{'}'}, &nbsp;|<i>H</i>| = {pct}% · <i>n</i> = {sp.holdout_rows.toLocaleString()}</div>
+              <div className="eq"><i>F</i><sub>1</sub> ∪ … ∪ <i>F</i><sub>{sp.n_folds}</sub> = {'{'}1, …, <i>n</i>{'}'} ∖ <i>H</i></div>
+              <dl className="where">
+                <dt>H</dt><dd>the holdout rows of data.csv: every run with y = <b className="mono">{label}</b> is scored on exactly these</dd>
+                <dt>Fₖ</dt><dd>fold k of the remaining rows ({sp.fold_rows?.map((x) => x.toLocaleString()).join(' · ')})</dd>
+                <dt>n</dt><dd>rows in the file: {ds.rows.toLocaleString()}</dd>
+                <dt>seed</dt><dd>{sp.seed}; {sp.stratified ? <>stratified on <b className="mono">{label}</b> (each class keeps its share in H and every Fₖ)</> : <>random (a numeric target, or a class with fewer than {sp.n_folds + 1} rows)</>}</dd>
+              </dl>
+            </div>
+            <div className="row" style={{ flexWrap: 'wrap', gap: 6 }} data-testid="confirmed-split">
+              <ParamChip sym="strategy" value={sp.strategy ?? 'random-stratified'} />
+              <ParamChip sym="key" value={sp.key ?? '—'} />
+              <ParamChip sym="sha256" value={(sp.sha256 ?? '').slice(0, 12)} />
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="helper" style={{ fontSize: 12.5 }} data-testid="confirm-note">
+              {src === 'guessed' && ds.target === label
+                ? <>The profiler guessed <b className="mono">{guess}</b>. Confirm it, or pick another label column above.</>
+                : <>The dataset's target is <b className="mono">{ds.target || '—'}</b>{src === 'guessed' ? ' (a guess)' : ''}. Confirming <b className="mono">{label}</b> re-profiles the file for it and draws its own holdout and folds (seed {sp?.seed ?? 42}, {pct}%, stratified on y when every class can be), or reuses them if they were drawn before. Other targets' splits stay as they are.</>}
+            </p>
+            <div className="row"><button className="btn primary" data-testid="confirm-target-btn" disabled={busy || !label} onClick={confirm}>{busy ? 'Drawing the split…' : <>Confirm y = {label}</>}</button></div>
+          </>
+        )}
+        {err && <p className="helper" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {err}</p>}
+      </div>
+      {stored && stored.splits.length > 0 && (
+        <div className="table-wrap" style={{ borderTop: '1px solid var(--border-default)' }}>
+          <table className="table" data-testid="stored-splits">
+            <thead><tr><th>Target</th><th>Strategy</th><th>|H|</th><th>SHA-256</th><th /></tr></thead>
+            <tbody>{stored.splits.map((x) => (
+              <tr key={x.key} className={x.key === stored.current ? 'sel' : ''}>
+                <td className="table-cell mono">{x.target ?? '—'}</td><td className="muted">{x.strategy}</td>
+                <td className="table-cell">{x.holdout_rows.toLocaleString()}</td><td className="mono muted" style={{ fontSize: 12 }}>{x.sha256?.slice(0, 12)}</td>
+                <td className="muted" style={{ fontSize: 12 }}>{x.key === stored.current ? 'current' : ''}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+          <p className="helper" style={{ fontSize: 12, padding: '6px 12px' }}>One split per target and strategy, drawn the first time it is used and never redrawn. A run records the key and SHA-256 of the split it used.</p>
+        </div>
+      )}
     </div>
   )
 }

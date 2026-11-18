@@ -51,6 +51,9 @@ async function main() {
     await page.getByRole('button', { name: 'Continue →' }).click()
     await page.getByTestId('label-select').selectOption(f.label)
     await page.getByTestId('problem-type').locator('button.on', { hasText: f.task }).waitFor({ timeout: 10_000 })
+    // F4: confirming the target is an explicit step (draws that target's own holdout)
+    const confirm = page.getByTestId('confirm-target-btn')
+    if (await confirm.count()) { await confirm.click(); await page.getByTestId('confirm-target').and(page.locator('[data-confirmed="yes"]')).waitFor({ timeout: 60_000 }) }
     await shot(`${f.tag}-02-target`)
     // 3. Goal: the metric, the preset, a fast fit for the walkthrough
     await page.getByRole('button', { name: 'Continue →' }).click()

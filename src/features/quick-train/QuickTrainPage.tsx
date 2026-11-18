@@ -4,7 +4,7 @@ import { useApi } from '@/shared/api/mode'
 import type { Run } from '@/shared/api/types'
 import { DatasetStep } from './components/DatasetStep'
 import { GoalStep } from './components/GoalStep'
-import { TargetStep } from './components/TargetStep'
+import { TargetStep, targetConfirmed } from './components/TargetStep'
 import { SAMPLES, fromServer, type Dataset } from './datasets'
 import { mockSource, simulate } from './race/mockRun'
 import { RaceStage } from './race/RaceStage'
@@ -131,6 +131,8 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
   const K = ds.classes.length
   const usable = !!inferred
   const preset = PRESETS.find((p) => p.key === ch.preset)
+  // F4: in live mode the target is confirmed explicitly; its own holdout is drawn for it.
+  const confirmed = !live || targetConfirmed(ds, ch.label)
   const nFeat = useMemo(() => ds.cols.filter((c) => c.name !== ch.label && (ch.types[c.name] ?? c.type) !== 'id').length, [ds, ch])
 
   return (
@@ -156,7 +158,7 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
 
       <div className="wizard-scroll" ref={scroller}>
         {step === 0 && <DatasetStep ds={ds} onPick={pick} />}
-        {step === 1 && <TargetStep ds={ds} ch={ch} set={set} />}
+        {step === 1 && <TargetStep ds={ds} ch={ch} set={set} onConfirmed={setDs} />}
         {step === 2 && task && <GoalStep ds={ds} ch={ch} set={set} task={task} />}
         {step === 3 && runId && (
           <div className="page">
@@ -175,14 +177,17 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
           <div className="valid" data-testid="wizard-status">
             {err ? <span style={{ color: 'var(--status-danger)' }} role="alert">✕ {err}</span>
               : step === 0 ? (usable ? <><span className="dot">●</span> Schema Valid · target {ch.label} · {inferred === 'regression' ? 'regression' : `K = ${K}`}</> : <span style={{ color: 'var(--status-warning)' }}><span className="dot">▲</span> No label column with two or more values</span>)
-              : step === 1 ? (task ? <><span className="dot">●</span> y = {ch.label} · {task} · d = {nFeat} features</> : <span style={{ color: 'var(--status-warning)' }}>▲ pick a label with two or more values</span>)
+              : step === 1 ? (!task ? <span style={{ color: 'var(--status-warning)' }}>▲ pick a label with two or more values</span>
+                : !confirmed ? <span style={{ color: 'var(--status-warning)' }} data-testid="confirm-needed">▲ confirm y = {ch.label} to draw its holdout</span>
+                : <><span className="dot">●</span> y = {ch.label} (confirmed) · {task} · d = {nFeat} features · |H| = {ds.profile?.splits.holdout_rows.toLocaleString() ?? '—'}</>)
+              : step === 2 && !confirmed ? <span style={{ color: 'var(--status-warning)' }}>▲ go back and confirm y = {ch.label}</span>
               : step === 2 ? (kw.ok ? <><span className="dot">●</span> {preset?.name} · τ = {fmtBudget(ch.budget)} · {ch.metric}{live && ds.id ? '' : ' · simulated (mock mode)'}</> : <span style={{ color: 'var(--status-danger)' }}>✕ fit_kwargs: {kw.error}</span>)
               : done ? <><span className="dot">●</span> Run complete · {race.bestModel}</> : race.status === 'failed' ? <span style={{ color: 'var(--status-danger)' }}>✕ {race.error}</span> : race.status === 'cancelled' ? <span>Cancelled</span> : <span>Training…</span>}
           </div>
           <div className="right">
             {step === 0 && <button className="btn primary" disabled={!usable} onClick={() => setStep(1)}>Continue →</button>}
-            {step === 1 && <button className="btn primary" disabled={!task} onClick={() => setStep(2)}>Continue →</button>}
-            {step === 2 && <button className="btn primary" data-testid="start-training" disabled={!kw.ok || starting || !task} onClick={start}>{starting ? 'Starting…' : 'Start Training'}</button>}
+            {step === 1 && <button className="btn primary" data-testid="target-continue" disabled={!task || !confirmed} onClick={() => setStep(2)}>Continue →</button>}
+            {step === 2 && <button className="btn primary" data-testid="start-training" disabled={!kw.ok || starting || !task || !confirmed} onClick={start}>{starting ? 'Starting…' : 'Start Training'}</button>}
             {step === 3 && <button className={`btn primary ${done ? 'pulse' : ''}`} data-testid="see-results" disabled={!done} onClick={() => setStep(4)}>Results →</button>}
           </div>
         </div>
@@ -200,6 +205,7 @@ function RaceSide({ race }: { race: ReturnType<typeof useRace>['state'] }) {
         <dl className="where race-facts">
           <dt>n</dt><dd>{race.trainRows != null ? `${race.trainRows.toLocaleString()} training rows` : '…'}{race.droppedMissing ? ` (${race.droppedMissing} without a label dropped)` : ''}</dd>
           <dt>n<sub>h</sub></dt><dd>{race.holdoutRows != null ? `${race.holdoutRows.toLocaleString()} holdout rows, never trained on, scored at the end` : '…'}</dd>
+          {race.split && <><dt>H</dt><dd data-testid="race-split">the holdout drawn for y = <b className="mono">{race.split.target}</b> ({race.split.strategy}, sha {race.split.sha256.slice(0, 12)})</dd></>}
           <dt>d</dt><dd>{race.features.length ? `${race.features.length} features: ${race.features.slice(0, 8).join(', ')}${race.features.length > 8 ? ', …' : ''}` : '…'}</dd>
           <dt>k</dt><dd>{race.kFold ? `${race.kFold}-fold bagging: each model is k models, scored out of fold` : race.metric ? 'no bagging: scored on a tuning split AutoGluon holds out' : '…'}</dd>
           <dt>metric</dt><dd>{race.metric ?? '…'}{race.metric ? ` (${race.greater ? 'higher' : 'lower'} is better)` : ''}</dd>

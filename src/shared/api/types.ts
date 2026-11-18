@@ -24,6 +24,12 @@ export type ClassShare = { name: string; count: number; share: number }
 export type Splits = {
   seed: number
   target: string | null
+  /** F4: splits are stored per (target, strategy); only "random-stratified" so far. */
+  strategy?: string
+  /** File key of the (target, strategy) split. */
+  key?: string
+  /** SHA-256 of the holdout rows and fold assignment: equal hashes mean the same split. */
+  sha256?: string
   stratified: boolean
   holdout_share: number
   holdout_rows: number
@@ -51,7 +57,18 @@ export type Profile = {
   duplicates: { rows: number; share: number; text: Record<string, number>; conflicting_labels: number; ignoring: string[] }
   warnings: string[]
   splits: Splits
+  /** given: named on upload (or a sample's label) · guessed: the profiler's pick, not yet confirmed · confirmed: by the user */
+  target_source?: 'given' | 'guessed' | 'confirmed'
+  target_history?: { target: string; at: string }[]
 }
+
+/** The split a run used (F4): its target's holdout and folds, recorded at run creation. */
+export type RunSplit = {
+  path: string; key: string; target: string; strategy: string; seed: number; stratified: boolean
+  holdout_share: number; n_folds: number; holdout_rows: number; sha256: string; drawn_for_this_run: boolean
+}
+
+export type DatasetSplits = { dataset_id: string; target: string | null; current: string | null; splits: (Splits & { created_at?: string; adopted_from?: string | null })[] }
 
 export type DatasetSummary = {
   id: string
@@ -228,6 +245,8 @@ export type Holdout = {
 export type Run = {
   /** tabular | import | forecast | anomaly */
   kind?: string
+  /** F4: the (label, strategy) split this run trained and scored on; absent on runs made before F4. */
+  split?: RunSplit | null
   mlflow?: { experiment_id: string; run_id: string; artifact_uri: string } | null
   id: string
   name: string
