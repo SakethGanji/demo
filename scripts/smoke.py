@@ -1216,7 +1216,7 @@ def monotone(st: dict[str, Any]) -> None:
         lb = rec["leaderboard"]
         return (f"{rec['id']} · {len(mr['models'])} models (L2 stackers: {', '.join(m['model'] for m in l2)}), all monotone by "
                 f"construction and by ICE · best {rec['best_model']} · PD {sv['pd'][0]:.3f} → {sv['pd'][-1]:.3f} over "
-                f"{len(sv['grid'])} points · 0/{sv['n_curves']} curves violate · holdout ROC AUC {lb[0]['score_test']:.4f}")
+                f"{len(sv['grid'])} points · 0/{sv['n_curves']} curves violate · served model's holdout ROC AUC {rec['holdout']['metrics']['roc_auc']:.4f}")
 
     if not step(f"monotone: run with {col} ↑ (bagged, stacked)", constrained):
         return
@@ -1236,7 +1236,7 @@ def monotone(st: dict[str, Any]) -> None:
         s["before_models"] = per
         return (f"{rec['id']} unconstrained · best {rec['best_model']} · {x['curves_violating']}/{x['n_curves']} ICE curves "
                 f"decrease somewhere (max drop {x['max_violation']:.4f}), PD monotone: {x['pd_monotone']} · holdout ROC AUC "
-                f"{rec['leaderboard'][0]['score_test']:.4f} · per model: {'; '.join(per)}")
+                f"{rec['holdout']['metrics']['roc_auc']:.4f} · per model: {'; '.join(per)}")
 
     step("monotone: before = same body unconstrained", before)
 
@@ -1246,12 +1246,11 @@ def monotone(st: dict[str, Any]) -> None:
         rec = wait_run(post("/api/runs", b)["id"])
         check(rec["status"] == "succeeded", rec.get("error"))
         x = get(f"/api/runs/{rec['id']}/monotone", constraints=f"{col}:increasing")["columns"][col]
-        auc = {k: s[k]["leaderboard"][0]["score_test"] if k == "run" else s[k]["rec"]["leaderboard"][0]["score_test"]
-               for k in ("run", "before")}
-        a = rec["leaderboard"][0]["score_test"]
+        auc = {k: (s[k] if k == "run" else s[k]["rec"])["holdout"]["metrics"]["roc_auc"] for k in ("run", "before")}
+        a = rec["holdout"]["metrics"]["roc_auc"]
         s["price"] = {"rec": rec, "check": x}
         return (f"{rec['id']} GBM + XGB + CAT unconstrained · {x['curves_violating']}/{x['n_curves']} curves violate · "
-                f"holdout ROC AUC {a:.4f} · constrained {auc['run']:.4f} (Δ {auc['run'] - a:+.4f}) · all families "
+                f"served model's holdout ROC AUC {a:.4f} · constrained {auc['run']:.4f} (Δ {auc['run'] - a:+.4f}) · all families "
                 f"unconstrained {auc['before']:.4f}")
 
     step("monotone: price of the constraint (same families, unconstrained)", price)

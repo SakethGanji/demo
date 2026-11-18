@@ -84,7 +84,10 @@ def main() -> int:
     args = ap.parse_args()
 
     if NEEDS_ENSEMBLE_MODELS:  # the run used ENSEMBLE's TF-IDF models or its cost metric: put them on the path
-        sys.path.insert(0, os.environ.get("ENSEMBLE_BACKEND", ENSEMBLE_BACKEND))
+        backend = os.environ.get("ENSEMBLE_BACKEND", ENSEMBLE_BACKEND)
+        sys.path.insert(0, backend)
+        # and for the fold-fitting processes AutoGluon starts (Ray workers do not inherit sys.path)
+        os.environ["PYTHONPATH"] = os.pathsep.join(p for p in (backend, os.environ.get("PYTHONPATH")) if p)
         import ensemble_models  # noqa: F401
     predictor_kwargs = dict(PREDICTOR_KWARGS)
     cost_class_scorer = None
