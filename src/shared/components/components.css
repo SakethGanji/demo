@@ -235,3 +235,11 @@
 .fc-live-row .bar i { display: block; height: 100%; min-width: 2px; }
 .fc-live-row .r { text-align: right; }
 .flow-register { flex-wrap: wrap; }
+
+/* EmptyState: a string at rest, what will appear, and the actions that make it appear */
+.empty-state { padding: 28px 28px 24px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.empty-state .es-string { width: 160px; margin-bottom: 6px; }
+.empty-state .es-title { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+.empty-state .es-body { font-size: 13px; line-height: 1.55; color: var(--text-body); max-width: 68ch; }
+.empty-state .es-body p { margin: 0 0 6px; }
+.empty-state .es-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }

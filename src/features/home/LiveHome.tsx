@@ -9,6 +9,8 @@ import { fmtScore, metricInfo } from '@/shared/lib/metrics'
 import { ParamChip } from '@/shared/primitives/ParamChip'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
+import type { DatasetSummary } from '@/shared/api/types'
+import { headline, kindOf, problemLine, runPage } from '@/shared/lib/runKinds'
 
 const ACTION: Record<AuditEntry['action'], string> = { registered: 'registered', stage_changed: 'moved', approved: 'approved', rejected: 'rejected', card_edited: 'edited the card of', batch_scored: 'scored a batch with' }
 const ago = (iso: string | null) => {
@@ -19,10 +21,11 @@ const ago = (iso: string | null) => {
 
 /** One run as a string: completed runs are taut, running ones carry a wave up to elapsed / τ. */
 function runState(r: Run, active: { id: string; models_finished: number; models_started: number; best_val: number | null } | null, now: number): RunState {
-  const m = r.eval_metric?.name ?? ''
   if (r.status === 'succeeded') {
-    const v = r.holdout?.metrics[m]
-    return { id: r.id, label: r.name, status: 'Completed', progress: 1, readout: `${metricInfo(m)?.name ?? m} ${fmtScore(v, 4)} · ${r.best_model ?? ''}` }
+    const h = headline(r)
+    const k = kindOf(r)
+    const name = k === 'anomaly' ? h.label : metricInfo(h.label)?.name ?? h.label
+    return { id: r.id, label: `${r.name}${k !== 'tabular' ? ` · ${k === 'import' ? 'imported' : k}` : ''}`, status: 'Completed', progress: 1, readout: `${name} ${h.text} · ${r.best_model ?? ''}` }
   }
   if (r.status === 'running') {
     const tl = Number(r.config?.time_limit ?? 0) || null
@@ -45,21 +48,25 @@ export function LiveHome({ go }: { go: (r: string) => void }) {
   const [now, setNow] = useState(Date.now())
   useEffect(() => { const t = setInterval(() => { setTick((x) => x + 1); setNow(Date.now()) }, 4000); return () => clearInterval(t) }, [])
   useEffect(() => {
-    api.runs.list().then(setRuns).catch(() => {})
+    api.runs.list(undefined, 'all').then(setRuns).catch(() => {})
     api.registry.summary().then(setReg).catch(() => {})
   }, [tick, status?.active?.id])
+  const [datasets, setDatasets] = useState<DatasetSummary[]>([])
+  useEffect(() => { api.datasets.list().then(setDatasets).catch(() => {}) }, [])
 
   const active = status?.active ?? null
-  const monitorRun = active ? runs.find((r) => r.id === active.id) ?? null : runs.find((r) => r.status === 'succeeded') ?? null
+  // The monitor plots validation scores per model: tabular, imported and forecast runs have them; anomaly runs don't.
+  const monitorRun = active ? runs.find((r) => r.id === active.id) ?? null : runs.find((r) => r.status === 'succeeded' && kindOf(r) !== 'anomaly' && kindOf(r) !== 'import') ?? null
   const best = useMemo(() => {
     const by = new Map<string, Run>()
     for (const r of runs) {
-      if (r.status !== 'succeeded' || !r.eval_metric) continue
-      const key = `${r.dataset_id}|${r.label}|${r.eval_metric.name}`
+      if (r.status !== 'succeeded') continue
+      const h = headline(r)
+      if (h.value == null || h.dir === '') continue
+      const key = `${r.dataset_id}|${r.label}|${kindOf(r)}|${h.label}`
       const cur = by.get(key)
-      const v = r.holdout?.metrics[r.eval_metric.name], cv = cur?.holdout?.metrics[cur.eval_metric!.name]
-      if (v == null) continue
-      if (!cur || cv == null || (r.eval_metric.greater_is_better ? v > cv : v < cv)) by.set(key, r)
+      const cv = cur ? headline(cur).value : null
+      if (!cur || cv == null || (h.dir === '↑' ? h.value > cv : h.value < cv)) by.set(key, r)
     }
     return [...by.values()]
   }, [runs])
@@ -72,22 +79,22 @@ export function LiveHome({ go }: { go: (r: string) => void }) {
         <span className="spacer" />
         <button className="btn sm" onClick={() => go('experiments')}>Open Experiments →</button>
       </div>
+      {runs.length === 0 ? <FirstRun datasets={datasets} go={go} /> : (
       <div className="card run-strings" data-testid="home-runs">
-        {runs.length === 0 && <p className="helper" style={{ padding: 16 }}>No runs yet. <button className="btn sm primary" onClick={() => go('quick-train')}>Train your first model →</button></p>}
-        {runs.slice(0, 6).map((r) => <RunString key={r.id} run={runState(r, active, now)} onClick={() => go(r.status === 'succeeded' ? `explain?run=${r.id}` : `quick-train?run=${r.id}`)} />)}
-      </div>
+        {runs.slice(0, 6).map((r) => <RunString key={r.id} run={runState(r, active, now)} onClick={() => go(r.status === 'succeeded' && kindOf(r) === 'tabular' ? `explain?run=${r.id}` : runPage(r))} />)}
+      </div>)}
 
       <div className="grid two">
         <TrainingMonitor run={monitorRun} live={!!active && monitorRun?.id === active.id} />
         <div className="stack">
           <div className="card" data-testid="home-best">
             <div className="card-head"><div className="left"><h3 className="card-title">Best Scores</h3><span className="helper" style={{ fontSize: 12 }}>per dataset, label and metric · holdout</span></div></div>
-            {best.length ? <table className="table compact best-table"><tbody>{best.slice(0, 5).map((r) => {
-              const m = r.eval_metric!.name
-              return <tr key={r.id} onClick={() => go(`explain?run=${r.id}`)} style={{ cursor: 'pointer' }}>
-                <td className="bt-name" title={r.name}>{r.name}</td><td className="mono muted bt-model" title={r.best_model ?? ''}>{r.best_model}</td>
-                <td className="r mono bt-score"><span className="muted">{metricInfo(m)?.name ?? m}</span> <b>{fmtScore(r.holdout?.metrics[m], 4)}</b></td></tr>
-            })}</tbody></table> : <p className="helper card-body">Nothing finished yet.</p>}
+            {best.length ? <table className="table compact best-table"><tbody>{best.slice(0, 6).map((r) => {
+              const h = headline(r)
+              return <tr key={r.id} onClick={() => go(kindOf(r) === 'tabular' ? `explain?run=${r.id}` : runPage(r))} style={{ cursor: 'pointer' }} title={h.note}>
+                <td className="bt-name" title={r.name}>{r.name}<small className="bt-kind">{problemLine(r)}</small></td><td className="mono muted bt-model" title={r.best_model ?? ''}>{r.best_model}</td>
+                <td className="r mono bt-score"><span className="muted">{kindOf(r) === 'anomaly' ? 'AUC' : metricInfo(h.label)?.name ?? h.label} {h.dir}</span> <b>{h.text}</b></td></tr>
+            })}</tbody></table> : <p className="helper card-body">Nothing finished yet: the best holdout score per dataset and label appears here.</p>}
           </div>
           <div className="card" data-testid="home-registry">
             <div className="card-head wrap"><div className="left"><h3 className="card-title nowrap">Registry</h3></div>
@@ -112,6 +119,41 @@ export function LiveHome({ go }: { go: (r: string) => void }) {
   )
 }
 
+/** First run: no runs yet. The samples on this API, each with the flow it suits, so the first click trains. */
+const FLOW: Record<string, { label: string; route: (id: string) => string }> = {
+  tabular: { label: 'New Model', route: (id) => `quick-train?dataset=${id}` },
+  forecast: { label: 'New Forecast', route: () => 'forecast' },
+  anomaly: { label: 'Find anomalies', route: () => 'anomaly' },
+}
+function FirstRun({ datasets, go }: { datasets: DatasetSummary[]; go: (r: string) => void }) {
+  const samples = datasets.filter((d) => d.sample)
+  return (
+    <div className="card first-run" data-testid="home-first-run">
+      <div className="fr-head">
+        <div>
+          <b className="fr-title">No runs yet. Start with a sample.</b>
+          <p className="helper">Every sample is generated with a fixed seed on this machine. Pick one and AutoGluon trains on it here; the run then appears on these strings, in Experiments and in Vela.</p>
+        </div>
+        <button className="btn primary" onClick={() => go('quick-train')} data-testid="home-first-new-model">New Model →</button>
+      </div>
+      <div className="fr-grid">
+        {samples.map((d) => {
+          const flow = (d.flows ?? ['tabular']).find((f) => f in FLOW) ?? 'tabular'
+          return (
+            <button key={d.id} className="fr-card" onClick={() => go(FLOW[flow].route(d.id))} data-testid={`home-sample-${d.id}`}>
+              <span className="fr-name">{d.name}</span>
+              <span className="fr-meta mono">{d.rows.toLocaleString()} rows × {d.n_cols} cols{d.target ? ` · y = ${d.target}` : ''}</span>
+              <span className="fr-note">{d.note}</span>
+              <span className="fr-go">{FLOW[flow].label} →</span>
+            </button>
+          )
+        })}
+        {!samples.length && <p className="helper">Reading the samples…</p>}
+      </div>
+    </div>
+  )
+}
+
 /** The hero's one-line readout in live mode: runs, what is in Production, the best score. */
 export function LiveHeroRead() {
   const { status } = useApi()
@@ -119,15 +161,16 @@ export function LiveHeroRead() {
   const [prod, setProd] = useState<ModelVersion | null>(null)
   useEffect(() => {
     // The latest finished run, read with the metric it was optimised for (its own eval_metric), as everywhere else.
-    api.runs.list().then((rs) => setBest(rs.find((r) => r.status === 'succeeded' && r.holdout) ?? null)).catch(() => {})
+    api.runs.list(undefined, 'all').then((rs) => setBest(rs.find((r) => r.status === 'succeeded' && headline(r).value != null) ?? null)).catch(() => {})
     api.registry.summary().then((x) => setProd(x.production[0] ?? null)).catch(() => {})
   }, [status?.runs, status?.registry?.stages.Production])
-  const m = best?.eval_metric?.name ?? ''
+  const h = best ? headline(best) : null
+  const m = h?.label ?? ''
   return (
     <div className="hero-read" data-testid="home-read">
       <span><b>{status?.runs ?? 0}</b> runs{status?.active ? <> · <b>1</b> on the strings</> : ''}</span>
       <span><b>{status?.registry?.stages.Production ?? 0}</b> in Production{prod ? <> · <b>{prod.model_name} v{prod.version}</b></> : ''}</span>
-      {best && <span title={`${best.id}: holdout ${m}, the metric the run optimised`}>latest · {best.name.split(' · ')[0]} · {metricInfo(m)?.name ?? m} <b>{fmtScore(best.holdout?.metrics[m], 4)}</b></span>}
+      {best && h && <span title={`${best.id}: ${h.note ?? `holdout ${m}, the metric the run optimised`}`}>latest · {best.name.split(' · ')[0]} · {kindOf(best) === 'anomaly' ? 'AUC' : metricInfo(m)?.name ?? m} <b>{h.text}</b></span>}
     </div>
   )
 }

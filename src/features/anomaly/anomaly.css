@@ -16,3 +16,7 @@
 .an-values { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; padding-top: 6px; }
 .an-kinds { display: flex; flex-direction: column; gap: 4px; }
 @media (max-width: 1280px) { .anomaly .an-setup, .anomaly .an-two { grid-template-columns: 1fr; } }
+
+.an-group { display: flex; flex-direction: column; gap: 10px; padding: var(--space-12); border: 1px solid var(--border-default); border-radius: var(--radius-control); background: var(--bg-subtle); }
+.an-group .col { display: flex; flex-direction: column; gap: 4px; }
+.an-gformula { background: var(--bg-surface); }

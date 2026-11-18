@@ -226,6 +226,8 @@ export type Holdout = {
 }
 
 export type Run = {
+  /** tabular | import | forecast | anomaly */
+  kind?: string
   mlflow?: { experiment_id: string; run_id: string; artifact_uri: string } | null
   id: string
   name: string
@@ -498,11 +500,15 @@ export type AuditEntry = {
 export type RegisterRequest = {
   created_by: string; model_name?: string; description?: string; refit_full?: boolean; infer_limit?: number | null
   infer_limit_batch_size?: number | null; clone_for_deployment?: boolean
+  /** Serve this model of the run (set_model_best) instead of AutoGluon's best. */
+  serve_model?: string | null
 }
 
 export type LatencyModel = {
   model: string; us_per_row: number; us_per_row_all: number[]; score_val_natural: number | null; score_test_natural: number | null
   n_models: number; size_bytes: number; stack_level: number; refit_full: boolean; best: boolean; ag_predict_1_time_us: number | null
+  /** One-row calls (what Try It or an online API sees): ms per call, p50 / p95, and how many calls were timed. */
+  single_ms_p50?: number | null; single_ms_p95?: number | null; single_calls?: number
 }
 export type LatencyProfile = {
   run_id: string; batch_rows: number; models: LatencyModel[]; eval_metric: string; greater_is_better: boolean; best_model: string

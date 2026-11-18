@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '@/shared/api/client'
-import { flows, type AnBatch, type AnRow, type AnScores, type AnTop, type FlowRun } from '@/shared/api/flows'
+import { flows, type AnBatch, type AnRow, type AnScores, type AnTop, type FlowRun, type AnGroup } from '@/shared/api/flows'
 import { useApi } from '@/shared/api/mode'
 import type { DatasetDetail, DatasetSummary } from '@/shared/api/types'
 import { LiveModels, Register } from '@/shared/components/FlowParts'
@@ -63,14 +63,22 @@ function AnomalySetup() {
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const [past, setPast] = useState<FlowRun[]>([])
+  const [grp, setGrp] = useState<AnGroup>({ entity_column: null, time_column: null, relative_columns: [], source: '' })
+  const [useGrp, setUseGrp] = useState(true)
   const ref = useRef<HTMLInputElement>(null)
   useEffect(() => { api.datasets.list().then(setDatasets).catch((e) => setErr(e.message)); flows.runs('anomaly').then(setPast).catch(() => {}) }, [])
-  useEffect(() => { api.datasets.get(dsId).then((d) => { setDs(d); setFeats(d.profile.columns.filter((x) => x.type !== 'id' && x.type !== 'text').map((x) => x.name)) }).catch((e) => setErr(e.message)) }, [dsId])
+  useEffect(() => {
+    flows.anomaly.mapping(dsId).then((g) => {
+      setGrp(g); setUseGrp(!!g.entity_column)
+      api.datasets.get(dsId).then((d) => { setDs(d); setFeats(d.profile.columns.filter((x) => x.type !== 'id' && x.type !== 'text' && x.name !== g.entity_column && x.name !== g.time_column).map((x) => x.name)) }).catch((e) => setErr(e.message))
+    }).catch((e) => setErr(e.message))
+  }, [dsId])
   const n = ds?.rows ?? 0
   const psi = Math.min(256, n || 256)
   const start = async () => {
     setBusy(true); setErr('')
-    try { const r = await flows.anomaly.create({ dataset_id: dsId, features: feats, contamination: c, n_estimators: trees, lof, lof_neighbors: k, source: 'anomaly-page' }); location.hash = `#/anomaly?run=${r.id}` }
+    try { const r = await flows.anomaly.create({ dataset_id: dsId, features: feats, contamination: c, n_estimators: trees, lof, lof_neighbors: k, source: 'anomaly-page',
+      group_features: useGrp && !!grp.entity_column, entity_column: grp.entity_column, time_column: grp.time_column, relative_columns: grp.relative_columns }); location.hash = `#/anomaly?run=${r.id}` }
     catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
   const upload = async (f: File) => { try { const d = await api.datasets.upload(f); setDatasets(await api.datasets.list()); setDsId(d.id) } catch (e) { setErr((e as Error).message) } }
@@ -98,6 +106,7 @@ function AnomalySetup() {
                   onClick={() => setFeats(on ? feats.filter((f) => f !== col.name) : [...feats, col.name])}>{on ? '✓ ' : ''}{col.name} <span className="muted">{col.type}</span></button>
               })}</div>
               <p className="helper" style={{ fontSize: 12, marginTop: 6 }}>Numbers: median-imputed (+ a missing flag). Categories: one-hot of the 20 most frequent values. IDs and free text are left out by default.</p></div>
+            <GroupFeatures ds={ds} grp={grp} setGrp={setGrp} on={useGrp} setOn={setUseGrp} />
           </div>
         </div>
         <div className="card">
@@ -124,6 +133,41 @@ function AnomalySetup() {
           <tbody>{past.slice(0, 10).map((r) => <tr key={r.id}><td className="table-cell">{r.id}</td><td>{r.name}</td><td><StatusPill status={r.status === 'succeeded' ? 'success' : r.status === 'failed' ? 'danger' : 'info'}>{r.status}</StatusPill></td>
             <td className="r table-cell">{r.anomaly?.n_flagged ?? '—'}</td><td className="r table-cell">{f3(r.anomaly?.threshold, 4)}</td>
             <td><button className="chip-btn" onClick={() => { location.hash = `#/anomaly?run=${r.id}` }}>Open</button></td></tr>)}</tbody></table></div>
+      </div>}
+    </div>
+  )
+}
+
+/** Group-relative features: amounts that are unusual only for this card / account. Mapped from the sample's spec or
+ *  guessed from names; the user can change the entity, the time column and which amounts are compared. */
+function GroupFeatures({ ds, grp, setGrp, on, setOn }: { ds: DatasetDetail | null; grp: AnGroup; setGrp: (g: AnGroup) => void; on: boolean; setOn: (v: boolean) => void }) {
+  const cols = ds?.profile.columns ?? []
+  const nums = cols.filter((c) => c.type === 'number')
+  return (
+    <div className="an-group" data-testid="an-group">
+      <label className="row" style={{ gap: 8 }}><input type="checkbox" checked={on && !!grp.entity_column} disabled={!grp.entity_column} onChange={(e) => setOn(e.target.checked)} data-testid="an-group-on" />
+        <b style={{ fontSize: 13 }}>Group-relative features</b><span className="helper" style={{ fontSize: 12 }}>{grp.source ? `mapping: ${grp.source}` : ''}</span></label>
+      <div className="row" style={{ flexWrap: 'wrap', gap: 12 }}>
+        <label className="col"><span className="micro-label">entity e</span>
+          <select className="select sm" value={grp.entity_column ?? ''} onChange={(e) => { setGrp({ ...grp, entity_column: e.target.value || null }); setOn(!!e.target.value) }} data-testid="an-entity">
+            <option value="">none</option>{cols.filter((c) => c.type !== 'number' && c.type !== 'text').map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}</select></label>
+        <label className="col"><span className="micro-label">time t</span>
+          <select className="select sm" value={grp.time_column ?? ''} onChange={(e) => setGrp({ ...grp, time_column: e.target.value || null })} data-testid="an-time">
+            <option value="">none</option>{cols.filter((c) => c.type !== 'number').map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}</select></label>
+        <div className="col"><span className="micro-label">compared within e</span>
+          <div className="row" style={{ gap: 4, flexWrap: 'wrap' }}>{nums.map((c) => {
+            const sel = grp.relative_columns.includes(c.name)
+            return <button key={c.name} className={`chip-btn ${sel ? 'on' : ''}`} onClick={() => setGrp({ ...grp, relative_columns: sel ? grp.relative_columns.filter((x) => x !== c.name) : [...grp.relative_columns, c.name] })}>{sel ? '✓ ' : ''}{c.name}</button>
+          })}</div></div>
+      </div>
+      {on && grp.entity_column && <div className="formula an-gformula">
+        <div className="eq">r<sub>i</sub> = x<sub>i</sub> / x̄<sub>e,−i</sub>, &nbsp; z<sub>i</sub> = (x<sub>i</sub> − x̄<sub>e,−i</sub>) / s̃<sub>e,−i</sub>{grp.time_column ? <>, &nbsp; Δt<sub>i</sub> = ln(1 + hours since e’s previous row)</> : null}</div>
+        <dl className="where">
+          <dt>e</dt><dd>the row’s {grp.entity_column}: its own history is the baseline</dd>
+          <dt>x</dt><dd>{grp.relative_columns.join(', ') || '(pick a column)'}</dd>
+          <dt>x̄<sub>e,−i</sub></dt><dd>mean of x over e’s other rows (leave-one-out, so a spike does not raise its own baseline)</dd>
+          <dt>s̃<sub>e,−i</sub></dt><dd>their standard deviation, floored at 0.1·|x̄<sub>e,−i</sub>|; one-row entities have no baseline (imputed + flagged)</dd>
+        </dl>
       </div>}
     </div>
   )

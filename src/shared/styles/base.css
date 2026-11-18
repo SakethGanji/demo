@@ -37,3 +37,6 @@ button { cursor: pointer; }
 
 /* ---------- page title ---------- */
 .page-title { white-space: nowrap; }
+
+/* good / bad / warning tints for a number in running text (Δ against a baseline, a verdict) */
+.g-ok { color: var(--status-success); } .g-bad { color: var(--status-danger); } .g-warn { color: var(--status-warning); }

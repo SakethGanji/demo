@@ -22,6 +22,7 @@ export function RegisterPanel({ runs, initialRun, actor, onRegistered, onCancel 
   const [useLimit, setUseLimit] = useState(false)
   const [limitUs, setLimitUs] = useState(50)
   const [deploy, setDeploy] = useState(true)
+  const [serve, setServe] = useState<string | null>(null)
   const [lp, setLp] = useState<LatencyProfile | null>(null)
   const [lpErr, setLpErr] = useState('')
   const [busy, setBusy] = useState(false)
@@ -31,7 +32,7 @@ export function RegisterPanel({ runs, initialRun, actor, onRegistered, onCancel 
   useEffect(() => {
     if (!runId) return
     let alive = true
-    setLp(null); setLpErr('')
+    setLp(null); setLpErr(''); setServe(null)
     api.registry.latency(runId).then((p) => {
       if (!alive) return
       setLp(p)
@@ -46,12 +47,13 @@ export function RegisterPanel({ runs, initialRun, actor, onRegistered, onCancel 
   const better = (a: number, b: number) => (greater ? a > b : a < b)
   const chosen = useMemo(() => {
     if (!lp) return null
+    if (serve) return lp.models.find((m) => m.model === serve) ?? null
     if (!useLimit) return lp.models.find((m) => m.best) ?? null
     const ok = lp.models.filter((m) => m.us_per_row <= limitUs && m.score_val_natural != null)
     if (!ok.length) return [...lp.models].sort((a, b) => a.us_per_row - b.us_per_row)[0]
     return ok.reduce((a, b) => (better(b.score_val_natural!, a.score_val_natural!) ? b : a))
-  }, [lp, useLimit, limitUs]) // eslint-disable-line react-hooks/exhaustive-deps
-  const met = !useLimit || (chosen != null && chosen.us_per_row <= limitUs)
+  }, [lp, useLimit, limitUs, serve]) // eslint-disable-line react-hooks/exhaustive-deps
+  const met = serve != null || !useLimit || (chosen != null && chosen.us_per_row <= limitUs)
 
   const submit = async () => {
     if (!run) return
@@ -59,7 +61,7 @@ export function RegisterPanel({ runs, initialRun, actor, onRegistered, onCancel 
     try {
       const v = await api.registry.register(run.id, {
         created_by: actor, model_name: name || undefined, description: desc, refit_full: refit,
-        infer_limit: useLimit ? limitUs / 1e6 : null, clone_for_deployment: deploy,
+        infer_limit: useLimit && !serve ? limitUs / 1e6 : null, clone_for_deployment: deploy, serve_model: serve,
       })
       onRegistered(v)
     } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
@@ -112,10 +114,12 @@ export function RegisterPanel({ runs, initialRun, actor, onRegistered, onCancel 
             </label>
           </div>
 
+          {lp && <OneRowLatency lp={lp} serve={serve} onServe={(m) => { setServe(m); if (m) setUseLimit(false) }} refit={refit} />}
+
           <pre className="reg-call" data-testid="register-call">{[
             `clone = TabularPredictor.load("${run?.id ?? 'run'}/predictor").clone(path)`,
             refit ? `clone.refit_full(model=${useLimit ? "'all'" : "'best'"})` : null,
-            useLimit ? `clone.set_model_best(best { m : t̂(m) ≤ ${us(limitUs)} µs/row })   # measured` : null,
+            serve ? `clone.set_model_best("${serve}${refit && !serve.endsWith('_FULL') ? '_FULL' : ''}")   # one-row p95 ${fmtMs(lp?.models.find((m) => m.model === serve)?.single_ms_p95)}` : useLimit ? `clone.set_model_best(best { m : t̂(m) ≤ ${us(limitUs)} µs/row })   # measured` : null,
             deploy ? 'clone.clone_for_deployment(version_path)' : 'clone.clone(version_path)',
           ].filter(Boolean).join('\n')}</pre>
 
@@ -170,6 +174,41 @@ export function RegisterPanel({ runs, initialRun, actor, onRegistered, onCancel 
           )}
         </PlotFrame>
       </div>
+    </div>
+  )
+}
+
+const fmtMs = (v: number | null | undefined) => (v == null ? '—' : v >= 100 ? `${v.toFixed(0)} ms` : v >= 10 ? `${v.toFixed(1)} ms` : `${v.toFixed(2)} ms`)
+
+/** One-row latency, measured: what Try It, a REST call or a stream scoring one event at a time waits for. Batch
+ *  µs/row (the frontier) hides it: a text GBM ensemble featurises n-grams and runs every bagged child on each call.
+ *  Offers the fastest model whose holdout score is close, with its measured score cost, as the model to serve. */
+function OneRowLatency({ lp, serve, onServe, refit }: { lp: LatencyProfile; serve: string | null; onServe: (m: string | null) => void; refit: boolean }) {
+  const best = lp.models.find((m) => m.best)
+  if (!best || best.single_ms_p95 == null) return null
+  const g = lp.greater_is_better
+  const info = metricInfo(lp.eval_metric)
+  // A faster option: at most half the best model's one-row p95, best holdout score among those.
+  const fast = lp.models.filter((m) => !m.best && m.single_ms_p95 != null && m.single_ms_p95 <= best.single_ms_p95! * 0.5 && m.score_test_natural != null)
+  const alt = fast.length ? fast.reduce((a, b) => ((g ? b.score_test_natural! > a.score_test_natural! : b.score_test_natural! < a.score_test_natural!) ? b : a)) : null
+  const d = alt && best.score_test_natural != null ? alt.score_test_natural! - best.score_test_natural : null
+  const slow = best.single_ms_p95 > 50
+  return (
+    <div className={`reg-onerow ${slow ? 'warn' : ''}`} data-testid="register-onerow">
+      <span className="micro-label">one-row latency · measured</span>
+      <div className="math ro-eq">τ<sub>95</sub>(<span className="mono">{best.model}</span>) = <b data-testid="onerow-best-p95">{fmtMs(best.single_ms_p95)}</b> <span className="muted">(p50 {fmtMs(best.single_ms_p50)}, {best.single_calls ?? '—'} calls)</span></div>
+      <p className="helper">τ₉₅ = the 95th percentile of wall time over one-row <span className="mono">predict_proba</span> calls on holdout rows, in a worker process: what Try It or an online API waits for. The frontier’s t̂ is batch time ÷ rows and hides it{lp.bagged ? `; this run is bagged, so every call runs each fold model` : ''}.{slow ? ' Above 50 ms this model is a batch scorer, not an online one.' : ''}</p>
+      {alt && d != null && (
+        <div className="ro-alt" data-testid="register-faster">
+          <div><b>Faster to serve:</b> <span className="mono">{alt.model}</span> · τ₉₅ <b>{fmtMs(alt.single_ms_p95)}</b> <span className="muted">({(alt.single_ms_p95! / best.single_ms_p95).toFixed(2)}×)</span> · holdout {info?.name ?? lp.eval_metric} {fmtScore(alt.score_test_natural, 4)} vs {fmtScore(best.score_test_natural, 4)} → <b className={(g ? d >= 0 : d <= 0) ? 'g-ok' : 'g-bad'} data-testid="register-faster-delta">Δ {d >= 0 ? '+' : ''}{fmtScore(d, 4)}</b></div>
+          <div className="row" style={{ gap: 8 }}>
+            {serve === alt.model
+              ? <><span className="pill info">serving {alt.model}{refit && !alt.model.endsWith('_FULL') ? '_FULL' : ''}</span><button className="btn sm ghost" onClick={() => onServe(null)}>Serve the best model</button></>
+              : <button className="btn sm" onClick={() => onServe(alt.model)} data-testid="register-serve-faster">Serve {alt.model}</button>}
+            {lp.bagged && !refit && <span className="helper" style={{ fontSize: 12 }}>or tick refit_full: one model per family instead of k folds (measured after the build)</span>}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

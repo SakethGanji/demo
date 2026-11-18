@@ -47,7 +47,11 @@ export const api = {
   models: () => request<{ families: ModelFamily[] }>('/models').then((r) => r.families),
   runs: {
     create: (body: RunCreate) => request<Run>('/runs', { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } }),
-    list: (datasetId?: string) => request<{ runs: Run[] }>(`/runs${datasetId ? `?dataset_id=${encodeURIComponent(datasetId)}` : ''}`).then((r) => r.runs),
+    /** Tabular runs and imports by default; kind 'all' adds forecast and anomaly runs. */
+    list: (datasetId?: string, kind: 'tabular' | 'forecast' | 'anomaly' | 'all' = 'tabular') => {
+      const q = new URLSearchParams(); if (datasetId) q.set('dataset_id', datasetId); if (kind !== 'tabular') q.set('kind', kind)
+      return request<{ runs: Run[] }>(`/runs${q.toString() ? `?${q}` : ''}`).then((r) => r.runs)
+    },
     get: (id: string) => request<Run>(`/runs/${encodeURIComponent(id)}`),
     cancel: (id: string) => request<{ id: string; cancelling: boolean }>(`/runs/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
     /** Events recorded so far, once (no stream). */

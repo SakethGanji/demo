@@ -1,3 +1,4 @@
+import { EmptyState } from '@/shared/components/EmptyState'
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '@/shared/api/client'
 import { useApi } from '@/shared/api/mode'
@@ -71,7 +72,11 @@ export function ExplainPage({ go }: { go: (r: string) => void }) {
   if (mode === 'checking') return <div className="page"><div className="card card-body row"><ResonanceWave /> Connecting…</div></div>
   if (!runId && !runs.length) return (
     <div className="page explain"><div className="page-head"><div><h1 className="page-title">Explain</h1></div></div>
-      <div className="card card-body"><p className="helper">No finished runs yet. Train one in <button className="btn ghost" onClick={() => go('quick-train')}>New Model</button></p></div></div>
+      <EmptyState testId="explain-empty" title="Nothing to explain yet"
+        actions={<><button className="btn primary" onClick={() => go('quick-train')}>New Model →</button><button className="btn" onClick={() => go('import')}>Import a predictor</button></>}>
+        <p>Explain reads a finished tabular run: ROC and PR on the fixed holdout, the reliability diagram with Brier and ECE, the decision threshold t with its cost C(t), permutation importance with 95% intervals, Kernel SHAP f(x) = φ₀ + Σφᵢ for any row, the worst errors and fairness by group.</p>
+        <p>Train a model on one of the samples (about a minute on medium_quality) and it appears here.</p>
+      </EmptyState></div>
   )
   if (err) return <div className="page"><div className="card card-body" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {err}</div></div>
   if (!run || !ex) return <div className="page"><div className="card card-body row"><ResonanceWave /> Reading run {runId}: curves, calibration and errors from the holdout…</div></div>

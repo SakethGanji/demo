@@ -55,7 +55,8 @@ export type AnSummary = {
 export type AnTop = { run_id: string; contamination: number; threshold: number; n_flagged: number; rows: AnRow[]; truth: AnTruth | null; n_rows: number }
 export type AnScores = { edges: number[]; counts: number[]; n: number; sorted_sample: number[]; scatter?: { row: number; s: number; lof: number }[] }
 export type AnBatch = { id: string; filename: string; summary: { rows: number; n_flagged: number; threshold: number; flagged_share: number; expected_share: number; mean_score: number }; top: { row: number; s: number; percentile: number; flagged: boolean; reasons: AnReason[]; why: string }[]; histogram: { edges: number[]; counts: number[] }; download: string }
-export type AnCreate = { dataset_id: string; features?: string[] | null; contamination: number; n_estimators: number; max_samples?: number | string; max_features?: number; lof: boolean; lof_neighbors?: number; iforest_kwargs?: Record<string, unknown>; random_state?: number; source?: string }
+export type AnGroup = { entity_column: string | null; time_column: string | null; relative_columns: string[]; source: string }
+export type AnCreate = { group_features?: boolean; entity_column?: string | null; time_column?: string | null; relative_columns?: string[]; dataset_id: string; features?: string[] | null; contamination: number; n_estimators: number; max_samples?: number | string; max_features?: number; lof: boolean; lof_neighbors?: number; iforest_kwargs?: Record<string, unknown>; random_state?: number; source?: string }
 
 export type FlowRun = Omit<Run, 'holdout' | 'data'> & FcRunExtra & { kind?: string; anomaly?: AnSummary | null; imported?: Record<string, unknown> | null }
 
@@ -78,6 +79,7 @@ export const flows = {
     },
   },
   anomaly: {
+    mapping: (ds: string) => request<AnGroup>(`/anomaly/mapping/${encodeURIComponent(ds)}`),
     create: (body: AnCreate) => request<FlowRun>('/anomaly/runs', { ...J(body), timeoutMs: 30_000 }),
     top: (id: string, contamination?: number, limit = 100) => request<AnTop>(`/anomaly/runs/${encodeURIComponent(id)}/top?limit=${limit}${contamination ? `&contamination=${contamination}` : ''}`),
     scores: (id: string) => request<AnScores>(`/anomaly/runs/${encodeURIComponent(id)}/scores`),

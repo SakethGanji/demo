@@ -72,17 +72,17 @@ export function LiveVela({ open, preferredRun, appliedKey, onApply, onRun }: {
 
   return (
     <>
-      <div className="vela-ctx" data-testid="vela-context">
+      {runs.length > 0 && <div className="vela-ctx" data-testid="vela-context">
         <span className="micro-label">Run</span>
         <select className="select sm" value={runId ?? ''} onChange={(e) => setPicked(e.target.value)} aria-label="Run Vela reads" data-testid="vela-run">
           {runs.map((r) => <option key={r.id} value={r.id}>{r.id} · {r.name}</option>)}
         </select>
-      </div>
+      </div>}
       <div className="vela-source" data-testid="vela-source">
         {wordingBusy ? <><ResonanceWave width={40} height={12} fast /> wording with the Claude CLI…</>
           : wording ? <>wording: <b>{SOURCE[wording.source]}</b>{wording.model ? <span className="mono"> · {wording.model}</span> : null}{wording.source === 'computed' && wording.attempts.length ? <span className="muted"> ({wording.attempts.map((a) => `${SOURCE[a.source]}: ${a.error ?? 'ok'}`).join('; ')})</span> : null}{wording.disabled ? <span className="muted"> (LLM off)</span> : null}</>
             : res ? <>wording: <b>computed text</b></> : null}
-        <span className="muted"> · numbers always computed from the run</span>
+        {(wordingBusy || wording || res) && <span className="muted"> · </span>}<span className="muted">numbers always computed from the run</span>
       </div>
       {!runs.length && !err && <p className="helper" style={{ fontSize: 12 }}>No finished runs yet: train one in New Model or the Gym, and Vela reads it.</p>}
       {err && <p className="helper" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {err}</p>}

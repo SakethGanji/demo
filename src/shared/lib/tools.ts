@@ -12,7 +12,7 @@ export const TOOLS: Tool[] = [
 ]
 
 /** The footer line of each tool: real counts from GET /api/status in live mode, the scripted line in mock mode.
- *  Autopilot is still a prototype (S7) and says so instead of showing made-up numbers. */
+ */
 export function liveMeta(t: Tool, status: ApiStatus | null): string {
   if (!status) return t.meta
   const r = status.registry
@@ -22,6 +22,7 @@ export function liveMeta(t: Tool, status: ApiStatus | null): string {
     case 'register': return r ? `${r.stages.Production} live · ${r.approvals.pending} pending` : 'registry'
     case 'train': return 'every fit() argument'
     case 'vela': return `computed from ${status.runs} run${status.runs === 1 ? '' : 's'}`
-    default: return 'prototype · simulated'
+    case 'autopilot': return 'real runs · cleanlab inbox · requirements'
+    default: return t.meta
   }
 }

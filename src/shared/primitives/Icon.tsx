@@ -8,6 +8,8 @@ const base = (p: SVGProps<SVGSVGElement>) => ({
 
 export const Icon = {
   home: (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><path d="M3 11l9-7 9 7" /><path d="M5 10v10h14V10" /></svg>,
+  model: (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><path d="M3 7c3 0 4 4 9 4s6-4 9-4" /><path d="M3 12h18" /><path d="M3 17c3 0 4-4 9-4s6 4 9 4" /><path d="M12 3v3M12 18v3" /></svg>,
+  autopilot: (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><circle cx="4" cy="12" r="1.6" /><path d="M5.6 12h3.4" /><path d="M12 8.5l3.5 3.5-3.5 3.5-3.5-3.5z" /><path d="M15.5 12h3" /><circle cx="20" cy="12" r="1.6" /></svg>,
   gym: (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><path d="M3 12h3l3-7 4 14 3-7h5" /></svg>,
   experiments: (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><path d="M9 3v6l-5 9a2 2 0 0 0 2 3h12a2 2 0 0 0 2-3l-5-9V3" /><path d="M8 3h8" /><path d="M7 15h10" /></svg>,
   registry: (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" /><path d="M12 12l8-4.5" /><path d="M12 12v9" /><path d="M12 12L4 7.5" /></svg>,

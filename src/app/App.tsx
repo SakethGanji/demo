@@ -30,7 +30,7 @@ export default function App() {
   const [collapsed, setCollapsed] = useState(false)
   const [prefs, setPrefs] = useState<Prefs>(loadPrefs)
   const setPref = (p: Partial<Prefs>) => setPrefs((old) => { const n = { ...old, ...p }; savePrefs(n); return n })
-  const [vela, setVela] = useState(prefs.velaOpen === 'Open')
+  const [vela, setVela] = useState(prefs.velaOpen === 'Open' && window.innerWidth >= 1600)
   const [guided, setGuided] = useState(prefs.mode === 'Guided')
   useEffect(() => setGuided(prefs.mode === 'Guided'), [prefs.mode])
   const [params, setParams] = useState<Params>(DEFAULTS)

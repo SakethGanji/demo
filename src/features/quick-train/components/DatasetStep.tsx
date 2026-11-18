@@ -42,7 +42,9 @@ export function DatasetStep({ ds, onPick }: { ds: Dataset; onPick: (d: Dataset) 
     api.datasets.list().then((list) => {
       if (!alive) return
       setServer(list)
-      if (!ds.id && list.length) pickServer(list[0].id)
+      // #/quick-train?dataset=<id> (Home's first-run cards) starts on that dataset.
+      const want = new URLSearchParams(location.hash.split('?')[1] ?? '').get('dataset')
+      if (!ds.id && list.length) pickServer(want && list.some((x) => x.id === want) ? want : list[0].id)
     }).catch((e) => { if (alive && !offline(e)) setErr((e as Error).message) })
     return () => { alive = false }
   }, [live])
