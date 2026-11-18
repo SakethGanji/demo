@@ -8,6 +8,8 @@ import { curve } from '@/shared/lib/random'
 import { ParamChip } from '@/shared/primitives/ParamChip'
 import { StatusPill } from '@/shared/primitives/StatusPill'
 import { Tabs } from '@/shared/primitives/Tabs'
+import { useApi } from '@/shared/api/mode'
+import { LiveExperiments } from './LiveExperiments'
 import { RunTable } from './components/RunTable'
 
 const COLORS = ['var(--viz-a)', 'var(--viz-c)', 'var(--viz-d)', 'var(--viz-b)', 'var(--viz-e)']
@@ -25,6 +27,12 @@ const AXES: PCAxis[] = [
 ]
 
 export function ExperimentsPage({ go }: { go: (r: string) => void }) {
+  const { mode } = useApi()
+  return mode === 'live' ? <LiveExperiments go={go} /> : <MockExperiments go={go} />
+}
+
+/** Mock mode (API offline): the simulated runs. */
+function MockExperiments({ go }: { go: (r: string) => void }) {
   const [tab, setTab] = useState<'Runs' | 'Compare' | 'Confusion Matrix & Errors'>('Runs')
   const [sel, setSel] = useState<Set<string>>(new Set(['run_894a', 'run_8931', 'run_8912']))
   const [onlyGood, setOnlyGood] = useState(false)
@@ -40,7 +48,7 @@ export function ExperimentsPage({ go }: { go: (r: string) => void }) {
       <div className="page-head">
         <div>
           <h1 className="page-title">Experiments</h1>
-          <p className="helper sub">Enterprise Support Ticket Classifier · {onlyGood ? `${runs.length} of ${RUNS.length} runs shown` : `${RUNS.length} runs`} · {runs.filter((r) => sel.has(r.id)).length} selected</p>
+          <p className="helper sub"><span className="mono" data-testid="exp-simulated">▲ SIMULATED</span> · Enterprise Support Ticket Classifier · {onlyGood ? `${runs.length} of ${RUNS.length} runs shown` : `${RUNS.length} runs`} · {runs.filter((r) => sel.has(r.id)).length} selected</p>
         </div>
         <div className="row">
           <button className={`btn ${onlyGood ? 'vela on' : ''}`} onClick={() => setOnlyGood(!onlyGood)}><span className="math" style={{ fontSize: 14 }}>F1</span> ≥ 0.90</button>

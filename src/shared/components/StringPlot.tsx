@@ -3,7 +3,7 @@ import { useState } from 'react'
 export type PCAxis = { key: string; label: string; min: number; max: number; fmt: (v: number) => string }
 
 /** Parallel coordinates: every run is one string plucked across the axes. */
-export function StringPlot({ axes, rows, selected, onPick }: { axes: PCAxis[]; rows: { id: string; v: Record<string, number> }[]; selected: Set<string>; onPick?: (id: string) => void }) {
+export function StringPlot({ axes, rows, selected, onPick, colorOf }: { axes: PCAxis[]; rows: { id: string; v: Record<string, number> }[]; selected: Set<string>; onPick?: (id: string) => void; colorOf?: (id: string) => string | undefined }) {
   const [hover, setHover] = useState<string | null>(null)
   const W = 900, H = 230, L = 50, R = 50, T = 30, B = 26
   const ax = (i: number) => L + (i / (axes.length - 1)) * (W - L - R)
@@ -28,8 +28,8 @@ export function StringPlot({ axes, rows, selected, onPick }: { axes: PCAxis[]; r
           <g key={r.id} onPointerEnter={() => setHover(r.id)} onClick={() => onPick?.(r.id)}>
             <path d={d} stroke="transparent" strokeWidth={12} fill="none" style={{ cursor: 'pointer' }} />
             <path className="pc-line" d={d} fill="none" strokeLinejoin="round"
-              stroke={h ? 'var(--accent-secondary)' : on ? 'var(--accent-primary)' : 'var(--border-track)'} strokeWidth={h ? 2.5 : on ? 2 : 1.25} strokeDasharray={on || h ? undefined : '4 3'} opacity={hover && !h ? 0.45 : 1} />
-            {(on || h) && axes.map((a, i) => <circle key={a.key} cx={ax(i)} cy={ay(a, r.v[a.key])} r={3} fill={h ? 'var(--accent-secondary)' : 'var(--accent-primary)'} />)}
+              stroke={h ? 'var(--accent-secondary)' : on ? colorOf?.(r.id) ?? 'var(--accent-primary)' : 'var(--border-track)'} strokeWidth={h ? 2.5 : on ? 2 : 1.25} strokeDasharray={on || h ? undefined : '4 3'} opacity={hover && !h ? 0.45 : 1} />
+            {(on || h) && axes.map((a, i) => <circle key={a.key} cx={ax(i)} cy={ay(a, r.v[a.key])} r={3} fill={h ? 'var(--accent-secondary)' : colorOf?.(r.id) ?? 'var(--accent-primary)'} />)}
           </g>
         )
       })}
