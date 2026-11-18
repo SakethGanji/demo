@@ -11,7 +11,7 @@ import { mockSource, simulate } from './race/mockRun'
 import { RaceStage } from './race/RaceStage'
 import { liveSource, useRace, type EventSourceFn } from './race/useRace'
 import { ResultsStep } from './results/ResultsStep'
-import { columnTypesPayload, defaultMetric, defaultThreshold, labelImbalance, fmtBudget, inferTask, labelOptions, METRICS, parseKwargs, PRESETS, type Choices, type Task } from './wizard'
+import { COST_METRIC, costPayload, columnTypesPayload, defaultMetric, defaultThreshold, labelImbalance, fmtBudget, inferTask, labelOptions, METRICS, parseKwargs, PRESETS, type Choices, type Task } from './wizard'
 
 const STEPS = ['Dataset', 'Target', 'Goal', 'Train', 'Results']
 
@@ -102,12 +102,13 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
     if (live && ds.id) {
       if (!kw.ok) { setErr(kw.error); return }
       const { types, drop } = columnTypesPayload(ds, ch)
+      const cost = costPayload(ds, ch, task)
       setStarting(true)
       try {
         const run = await api.runs.create({
-          dataset_id: ds.id, label: ch.label, problem_type: task, eval_metric: ch.metric, presets: ch.preset, time_limit: ch.budget,
+          dataset_id: ds.id, label: ch.label, problem_type: task, eval_metric: cost ? null : ch.metric, presets: ch.preset, time_limit: ch.budget,
           fit_kwargs: kw.value, column_types: Object.keys(types).length ? types : null, drop_columns: drop, feature_importance: false,
-          calibrate_threshold: task === 'binary' ? ch.threshold : null, split_spec: ch.split ?? null,
+          calibrate_threshold: task === 'binary' ? (cost ? COST_METRIC : ch.threshold) : null, split_spec: ch.split ?? null, cost,
         })
         setSource({ fn: liveSource, run: null })
         setRunId(run.id)

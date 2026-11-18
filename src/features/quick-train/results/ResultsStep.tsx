@@ -10,6 +10,7 @@ import { CustomEnsemble } from './CustomEnsemble'
 import { ClassReport, Residuals, TopWords } from './Diagnostics'
 import { Leaderboard, ModelCard, ScoreScatter } from './Leaderboard'
 import { SplitCompare } from './SplitCompare'
+import { CostCompare } from './CostCompare'
 import { MetricCards } from './MetricCards'
 import { residuals } from './stats'
 import { TryPrediction } from './TryPrediction'
@@ -87,6 +88,8 @@ export function ResultsStep({ runId, mockRun, ds, live, go, onAgain }: {
       </div>
 
       <MetricCards run={run} preds={preds} />
+
+      {live && run.config.cost ? <CostCompare run={run} go={go} /> : null}
 
       {live && <SplitCompare run={run} go={go} />}
 

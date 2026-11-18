@@ -23,6 +23,29 @@ export type Choices = {
   threshold: string | null
   /** F6: how the holdout is drawn (null: random, stratified on y). */
   split?: SplitSpec | null
+  /** F7: the business cost, used when metric = 'expected_cost'. */
+  cost?: CostChoice | null
+}
+
+/** F7: binary costs per decision (c_FP, c_FN, gain g_TP) and, for multiclass, the K × K matrix (rows: truth). */
+export type CostChoice = { c_fp: number; c_fn: number; g_tp: number; matrix: number[][] | null }
+export const DEFAULT_COST: CostChoice = { c_fp: 1, c_fn: 10, g_tp: 0, matrix: null }
+export const COST_METRIC = 'expected_cost'
+
+/** The Bayes threshold of a binary cost: predict positive when p̂ > t* = c_FP / (c_FP + c_FN + g_TP). */
+export const bayesThreshold = (c: CostChoice) => (c.c_fp + c.c_fn + c.g_tp > 0 ? c.c_fp / (c.c_fp + c.c_fn + c.g_tp) : 0.5)
+
+/** A multiclass matrix for these classes: the one given if it fits, else 0 on the diagonal and 1 elsewhere. */
+export const costMatrix = (c: CostChoice, k: number) =>
+  c.matrix && c.matrix.length === k && c.matrix.every((r) => r.length === k) ? c.matrix : Array.from({ length: k }, (_, i) => Array.from({ length: k }, (_, j) => (i === j ? 0 : 1)))
+
+/** The `cost` field of POST /runs for the wizard's choices, or null when the metric is not the cost. */
+export function costPayload(ds: Dataset, ch: Choices, task: Task | null) {
+  if (ch.metric !== COST_METRIC || !task) return null
+  const c = ch.cost ?? DEFAULT_COST
+  if (task === 'binary') return { c_fp: c.c_fp, c_fn: c.c_fn, g_tp: c.g_tp }
+  const classes = labelClasses(ds, ch.label).map((x) => x.name)
+  return { classes, matrix: costMatrix(c, classes.length) }
 }
 
 /** Share of the rarest class of the label (1 when unknown). */

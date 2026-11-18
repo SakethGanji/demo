@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { FretSlider } from '@/shared/components/FretSlider'
 import { ParamChip } from '@/shared/primitives/ParamChip'
 import type { Dataset } from '../datasets'
-import { BUDGETS, METRICS, PRESETS, columnTypesPayload, defaultMetric, defaultThreshold, fmtBudget, labelImbalance, minorityShare, parseKwargs, type Choices, type Task } from '../wizard'
+import { CostCard } from './CostCard'
+import { COST_METRIC, DEFAULT_COST, BUDGETS, METRICS, PRESETS, columnTypesPayload, defaultMetric, defaultThreshold, fmtBudget, labelImbalance, minorityShare, parseKwargs, type Choices, type Task } from '../wizard'
 
 /** Step 3: the metric to optimise, the preset ladder (speed ↔ accuracy), the time budget, and raw fit kwargs. */
 export function GoalStep({ ds, ch, set, task }: { ds: Dataset; ch: Choices; set: (p: Partial<Choices>) => void; task: Task }) {
@@ -15,14 +16,19 @@ export function GoalStep({ ds, ch, set, task }: { ds: Dataset; ch: Choices; set:
   const userCal = kw.ok && 'calibrate_decision_threshold' in kw.value
   const minority = minorityShare(ds, ch.label)
   const recT = defaultThreshold(ds, ch.label, task)
+  const isCost = ch.metric === COST_METRIC
+  const cc = ch.cost ?? DEFAULT_COST
+  const metricCode = !isCost ? q(ch.metric) : task === 'binary' ? `binary_cost_scorer(c_fp=${cc.c_fp}, c_fn=${cc.c_fn}, g_tp=${cc.g_tp})` : 'multiclass_cost_scorer(matrix=C)'
   const call = [
-    `predictor = TabularPredictor(label=${q(ch.label)}, problem_type=${q(task)}, eval_metric=${q(ch.metric)})`,
+    ...(isCost ? ['from ensemble_models.cost import ' + (task === 'binary' ? 'binary_cost_scorer, binary_cost_class_scorer' : 'multiclass_cost_scorer')] : []),
+    `predictor = TabularPredictor(label=${q(ch.label)}, problem_type=${q(task)}, eval_metric=${metricCode})`,
     `predictor.fit(train,  # ${ds.rows.toLocaleString()} rows minus the 20% holdout`,
     `    presets=${q(ch.preset)}, time_limit=${ch.budget},`,
     ...(Object.keys(types).length ? [`    feature_metadata=FeatureMetadata(…${Object.keys(types).length} override${Object.keys(types).length > 1 ? 's' : ''}),`] : []),
     ...(kw.ok ? Object.entries(kw.value).map(([k, v]) => `    ${k}=${JSON.stringify(v)},`) : ['    # fit_kwargs: invalid JSON']),
     ')',
-    ...(task === 'binary' && ch.threshold && !userCal ? [`predictor.set_decision_threshold(predictor.calibrate_decision_threshold(metric=${q(ch.threshold)}))`] : []),
+    ...(task === 'binary' && isCost && !userCal ? [`predictor.set_decision_threshold(predictor.calibrate_decision_threshold(metric=binary_cost_class_scorer(${cc.c_fp}, ${cc.c_fn}, ${cc.g_tp})))`]
+      : task === 'binary' && ch.threshold && !userCal ? [`predictor.set_decision_threshold(predictor.calibrate_decision_threshold(metric=${q(ch.threshold)}))`] : []),
     ...(drop.length ? [`# dropped columns: ${drop.join(', ')}`] : []),
   ]
 
@@ -73,7 +79,16 @@ export function GoalStep({ ds, ch, set, task }: { ds: Dataset; ch: Choices; set:
             </div>
           </div>
 
-          {task === 'binary' && (
+          {isCost && <CostCard ds={ds} ch={ch} set={set} task={task} />}
+
+          {task === 'binary' && isCost && (
+            <div className="card" data-testid="threshold-card">
+              <div className="card-head"><h3 className="card-title">Decision Threshold</h3><span className="micro-label nocase">ŷ = positive when p̂ &gt; t</span></div>
+              <div className="card-body"><p className="helper" style={{ fontSize: 12 }}>Chosen on the business cost: after the fit, <span className="mono">calibrate_decision_threshold(metric=binary_cost_class_scorer(…))</span> searches t on AutoGluon's validation predictions to minimise the expected cost, then <span className="mono">set_decision_threshold(t)</span>. With calibrated probabilities it lands near t* = {(cc.c_fp / Math.max(cc.c_fp + cc.c_fn + cc.g_tp, 1e-9)).toFixed(4)}.{userCal && <><br /><b>fit_kwargs.calibrate_decision_threshold is set below: AutoGluon's own setting wins.</b></>}</p></div>
+            </div>
+          )}
+
+          {task === 'binary' && !isCost && (
             <div className="card" data-testid="threshold-card">
               <div className="card-head"><h3 className="card-title">Decision Threshold</h3><span className="micro-label nocase">ŷ = positive when p̂ &gt; t</span></div>
               <div className="card-body stack" style={{ gap: 'var(--space-8)' }}>

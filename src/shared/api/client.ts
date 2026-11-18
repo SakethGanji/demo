@@ -1,6 +1,6 @@
 // Typed client for the ENSEMBLE API. Every call goes through the Vite proxy at /api.
 
-import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec } from './types'
+import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest } from './types'
 
 export class ApiError extends Error {
   /** 0 when the API could not be reached at all (network error, timeout, or the dev proxy's 503). */
@@ -64,6 +64,14 @@ export const api = {
     splitTwin: (id: string, split_spec: SplitSpec) => request<Run>(`/runs/${encodeURIComponent(id)}/split-twin`, { method: 'POST', body: JSON.stringify({ split_spec }), headers: { 'Content-Type': 'application/json' }, timeoutMs: 60_000 }),
     /** F6: this run's holdout score beside the same data and label under other splits. */
     splitComparison: (id: string) => request<SplitComparison>(`/runs/${encodeURIComponent(id)}/split-comparison`),
+    /** F7: expected cost per 1,000 decisions (the run's own cost, or c_fp / c_fn for any binary run). */
+    cost: (id: string, q?: { c_fp: number; c_fn: number; g_tp?: number }) =>
+      request<CostAnalysis>(`/runs/${encodeURIComponent(id)}/cost${q ? `?c_fp=${q.c_fp}&c_fn=${q.c_fn}&g_tp=${q.g_tp ?? 0}` : ''}`, { timeoutMs: 120_000 }),
+    /** F7: the same fit trained to other metrics, all costed with this run's cost on the same holdout rows. */
+    costComparison: (id: string) => request<CostComparison>(`/runs/${encodeURIComponent(id)}/cost-comparison`, { timeoutMs: 180_000 }),
+    /** F7: the same run trained to another metric (or cost); only the metric differs. */
+    metricTwin: (id: string, body: { eval_metric?: string; cost?: CostRequest; calibrate_threshold?: string | null }) =>
+      request<Run>(`/runs/${encodeURIComponent(id)}/metric-twin`, { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' }, timeoutMs: 60_000 }),
     cancel: (id: string) => request<{ id: string; cancelling: boolean }>(`/runs/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
     /** Events recorded so far, once (no stream). */
     events: (id: string, from = 0) => request<{ events: RunEvent[]; next: number }>(`/runs/${encodeURIComponent(id)}/events?format=json&from=${from}`),

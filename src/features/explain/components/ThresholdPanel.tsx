@@ -24,8 +24,10 @@ const CAL_METRICS = [
  * calibrate_decision_threshold(metric) and keeps the result in the predictor.
  */
 export function ThresholdPanel({ run, onChanged }: { run: Run; onChanged: () => void }) {
-  const [costFp, setCostFp] = useState(1)
-  const [costFn, setCostFn] = useState(5)
+  // F7: a run trained on a business cost starts from its own costs
+  const runCost = run.config.cost as { kind?: string; c_fp?: number; c_fn?: number } | undefined
+  const [costFp, setCostFp] = useState(runCost?.kind === 'binary' ? runCost.c_fp ?? 1 : 1)
+  const [costFn, setCostFn] = useState(runCost?.kind === 'binary' ? runCost.c_fn ?? 5 : 5)
   const [a, setA] = useState<ThresholdAnalysis | null>(null)
   const [t, setT] = useState<number>(run.threshold?.value ?? 0.5)
   const [exact, setExact] = useState<ThresholdPoint | null>(null)

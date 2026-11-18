@@ -180,6 +180,43 @@ export type RunCreate = {
   source?: string | null
   /** F6: the split strategy (default random-stratified) and its columns. */
   split_spec?: SplitSpec | null
+  /** F7: a business cost as the eval_metric ('expected_cost'). */
+  cost?: CostRequest | null
+}
+
+// -- Business cost (F7) ------------------------------------------------------------------------------------------
+
+export type CostRequest = { c_fp: number; c_fn: number; g_tp?: number } | { classes: string[]; matrix: number[][] }
+/** The cost as the run stored it (normalised by the API). */
+export type RunCost =
+  | { kind: 'binary'; c_fp: number; c_fn: number; g_tp: number; classes: string[]; positive_class: string; bayes_threshold: number }
+  | { kind: 'multiclass'; classes: string[]; matrix: number[][] }
+/** Expected cost per 1,000 decisions with its 95% percentile-bootstrap interval. */
+export type CostStat = { per_decision: number; per_1000: number; ci_per_1000: [number, number]; n: number; B: number; level: number }
+export type CostPoint = CostStat & { t: number; tp: number; fp: number; fn: number; tn: number }
+export type CostAnalysis = {
+  run_id: string; model: string | null; eval_metric: string | null; trained_on_cost: boolean; threshold: ThresholdRecord | null
+  cost: RunCost; n: number; per: number; B: number; level: number
+  // binary
+  positive_class?: string | number; prevalence?: number; n_positive?: number; bayes_threshold?: number; rule?: string
+  deployed: CostStat & Partial<CostPoint>; bayes: CostStat & Partial<CostPoint>; default?: CostPoint; validation?: CostPoint | null
+  hindsight?: { t: number; per_1000: number; note: string }; flag_none?: CostStat; flag_all?: CostStat
+  curve?: { t: number; per_1000: number; tp: number; fp: number; fn: number; flagged: number }[]
+  // multiclass
+  counts?: number[][]; cost_by_cell?: number[][]; best_constant?: CostStat & { class: string }
+}
+export type CostDelta = { per_1000: number; ci_per_1000: [number, number]; B: number; level: number; share_positive: number }
+export type CostComparisonRow = {
+  run_id: string; name: string; this_run: boolean; created_at: string; eval_metric: string | null; trained_on_cost: boolean
+  best_model: string | null; holdout_rows: number
+  threshold: { value: number; source: string | null; metric: string | null } | null
+  validation_threshold: number | null; deployed: CostStat; validation: CostPoint | null; bayes: CostStat
+  roc_auc: number | null; accuracy: number | null; curve: [number, number][]
+  delta: CostDelta | null; delta_validation: CostDelta | null
+}
+export type CostComparison = {
+  run_id: string; cost: RunCost; per: number; B: number; level: number; problem_type: ProblemType | null
+  runs: CostComparisonRow[]; trained_on_cost_present: boolean; metrics_missing: string[]
 }
 
 // -- Training Gym (S6) -------------------------------------------------------------------------------------------
