@@ -87,8 +87,11 @@ def suggest_mapping(request: Request, dataset_id: str) -> dict[str, Any]:
         ts = next((c["name"] for c in cols if c["type"] != "number"
                    and pd.to_datetime(df[c["name"]], errors="coerce").notna().mean() > 0.9), None)
     nums = [c for c in cols if c["type"] == "number" and c["name"] != ts]
-    target = next((c["name"] for c in nums if re.search(r"volume|amount|sales|count|value|target|demand|y$", c["name"], re.I)),
-                  nums[0]["name"] if nums else None)
+    cov_rx = r"holiday|promo|payday|event|open|price|flag|^is_|^has_"
+    cands = [c for c in nums if not re.search(cov_rx, c["name"], re.I)]
+    target = next((c["name"] for c in cands if re.search(r"volume|amount|sales|count|value|target|demand|txn|transaction|qty|quantity|revenue|balance",
+                                                          c["name"], re.I)),
+                  max(cands, key=lambda c: c.get("unique", 0))["name"] if cands else None)
     items = [c for c in cols if c["type"] in ("category", "id") and c["name"] != ts and 1 < c.get("unique", 0) <= max(2, ds["rows"] // 8)]
     item = items[0]["name"] if items else None
     statics, known = [], []
@@ -96,7 +99,7 @@ def suggest_mapping(request: Request, dataset_id: str) -> dict[str, Any]:
         g = df.groupby(item)
         statics = [c["name"] for c in cols if c["name"] not in (item, ts, target) and c["type"] == "category"
                    and (g[c["name"]].nunique() <= 1).all()]
-    known = [c["name"] for c in nums if c["name"] != target and re.search(r"holiday|promo|payday|event|open|price", c["name"], re.I)]
+    known = [c["name"] for c in nums if c["name"] != target and re.search(cov_rx, c["name"], re.I)]
     return {"mapping": {"item_id": item, "timestamp": ts, "target": target, "known_covariates": known,
                         "static_features": statics, "past_covariates": []}, "source": "inferred from column names and types",
             "prediction_length": None}

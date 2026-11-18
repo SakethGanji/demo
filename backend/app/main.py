@@ -122,9 +122,6 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         out = reset_mod.reset(settings)
         st.autopilot.store.root.mkdir(parents=True, exist_ok=True)
         st.autopilot.threads.clear()
-        st.heavy.shutdown()
-        st.heavy = HeavyPool()
-        st.heavy.start()
         return out
 
     app.include_router(import_api.router)

@@ -183,7 +183,7 @@ class HeavyPool:
             ex, self._ex = self._ex, None
         if ex is not None:
             ex.shutdown(wait=False, cancel_futures=True)
-            for p in list(getattr(ex, "_processes", {}).values() or []):
+            for p in list((getattr(ex, "_processes", None) or {}).values()):
                 try:
                     p.terminate()
                 except Exception:  # noqa: BLE001

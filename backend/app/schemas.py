@@ -27,9 +27,10 @@ class DatasetSummary(BaseModel):
     size_bytes: int
     rows: int
     n_cols: int
-    kind: Literal["text", "tabular"]
+    kind: Literal["text", "tabular", "timeseries", "transactions"]
     target: str | None
     n_classes: int
+    flows: list[str] = []
 
 
 class Dataset(DatasetSummary):

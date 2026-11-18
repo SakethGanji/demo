@@ -9,6 +9,13 @@ One line per step: ✓ or ✗, the step, a key number. Exits 1 if any step faile
              → retrain → compare → export.py run in a subprocess
   samples    loan-amount (regression) and support-tickets (text) through train and predict
   autopilot  a full Autopilot on support-tickets: start, inbox, bulk answers, retrain, requirements, inbox recall
+  forecast   transaction-volume sample and an uploaded CSV: mapping → preview → TimeSeriesPredictor run + SSE →
+             leaderboard, weights, backtests → per-item errors → fan chart → CSV download → new-history forecast → register
+  anomaly    card-transactions: IsolationForest + LOF run + SSE → top anomalies with reasons → precision@k against the
+             hidden truth → batch score + download → register → Try It on a row
+  import     fit a tiny TabularPredictor here, zip it, import it → leaderboard, explain, predict, register, Try It;
+             also by server path
+  reset      a second API on a throwaway data folder: upload + run, POST /api/admin/reset, back to the samples only
 """
 
 from __future__ import annotations
@@ -487,11 +494,314 @@ def autopilot(st: dict[str, Any]) -> None:
     step("autopilot: layer 1 only (no LLM), auto", layer1)
 
 
+FC_MAP = {"item_id": "item_id", "timestamp": "timestamp", "target": "volume", "known_covariates": ["holiday", "payday"],
+          "static_features": ["segment"], "past_covariates": []}
+FC_HP = {"SeasonalNaive": {}, "ETS": {}, "DirectTabular": {}, "Chronos": {"model_path": "bolt_tiny"}}
+
+
+def forecast(st: dict[str, Any]) -> None:
+    def mapping():
+        m = get("/api/forecast/mapping/transaction-volume")
+        check(m["mapping"]["target"] == "volume" and m["mapping"]["known_covariates"] == ["holiday", "payday"], m)
+        p = post("/api/forecast/preview", {"dataset_id": "transaction-volume", "mapping": m["mapping"]})
+        check(p["items"] == 6 and p["freq"] == "D" and p["seasonal_period"] == 7 and p["future_rows"] == 168, p)
+        o = get("/api/forecast/options")
+        check("bolt_tiny" in [x["key"] for x in o["presets"]] and "MASE" in [x["key"] for x in o["metrics"]], o)
+        return f"{p['items']} series × {p['length_min']} days · freq {p['freq']} · m = {p['seasonal_period']} · {p['future_rows']} future rows (known covariates)"
+
+    step("forecast: mapping + preview", mapping)
+
+    def run():
+        r = post("/api/forecast/runs", {"dataset_id": "transaction-volume", "mapping": FC_MAP, "prediction_length": 28,
+                                       "eval_metric": "MASE", "presets": "fast_training", "time_limit": 180,
+                                       "num_val_windows": 2, "hyperparameters": FC_HP,
+                                       "quantile_levels": [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95],
+                                       "fit_kwargs": {"enable_ensemble": True}, "source": "smoke"})
+        st["fc"] = r["id"]
+        sse = follow_sse(r["id"], 900)
+        c = sse["counts"]
+        check(c.get("model_finished", 0) >= 4 and c.get("ensemble", 0) >= 1, c)
+        return f"{r['id']} · {c.get('model_started')} started / {c.get('model_finished')} finished · ensemble event · SSE → run_succeeded"
+
+    if not step("forecast: run + SSE", run):
+        return
+    fid = st["fc"]
+
+    def leaderboard():
+        rec = get(f"/api/runs/{fid}")
+        lb = rec["leaderboard"]
+        check(rec["kind"] == "forecast" and len(lb) >= 4 and all(r["score_test_natural"] is not None for r in lb), lb)
+        w = (rec["ensemble"] or {}).get("weights") or {}
+        check(abs(sum(w.values()) - 1) < 1e-6, w)
+        bt = rec["backtests"]
+        check(len(bt["windows"]) == 2 and all(len(v) == 2 for v in bt["models"].values()), bt)
+        naive = next(r for r in lb if r["model"] == "SeasonalNaive")
+        st["fc_rec"] = rec
+        return (f"best {rec['best_model']} holdout MASE {lb[0]['score_test_natural']:.3f} (SeasonalNaive {naive['score_test_natural']:.3f}) · "
+                "w = " + ", ".join(f"{k} {v:.2f}" for k, v in list(w.items())[:3]) + f" · {len(bt['windows'])} backtest windows")
+
+    step("forecast: leaderboard + weights", leaderboard)
+
+    def errors():
+        h = st["fc_rec"]["holdout"]
+        items = h["items"]
+        check(len(items) == 6 and all(i["MASE"] is not None for i in items), items)
+        worst = items[0]
+        return (f"MASE {h['metrics']['MASE']:.3f} · WQL {h['metrics']['WQL']:.4f} · coverage of [q{h['interval'][0]}, q{h['interval'][1]}] "
+                f"{h['coverage']:.1%} · worst item {worst['item_id']} MASE {worst['MASE']:.3f}")
+
+    step("forecast: per-item errors", errors)
+
+    def chart():
+        c = get(f"/api/forecast/runs/{fid}/chart")
+        it = c["items"]["cards-online"]
+        f = it["future"]
+        check(len(f["t"]) == 28 and len(it["history"]["y"]) == 120 and len(it["holdout"]["actual"]) == 28, it.keys())
+        q = f["q"]
+        mono = all(q["0.05"][i] <= q["0.5"][i] <= q["0.95"][i] for i in range(28))
+        check(mono, "quantiles cross")
+        return f"6 items · history 120 + holdout 28 + future 28 · q0.05 ≤ q0.5 ≤ q0.95 everywhere · {f['t'][0]} → {f['t'][-1]}"
+
+    step("forecast: fan chart data", chart)
+
+    def download():
+        r = C.get(f"/api/forecast/runs/{fid}/forecast.csv")
+        check(r.status_code == 200, r.status_code)
+        df = pd.read_csv(io.BytesIO(r.content))
+        check(len(df) == 168 and {"item_id", "timestamp", "mean", "0.5"} <= set(df.columns), df.columns)
+        st["fc_csv"] = df
+        return f"forecast.csv · {len(df)} rows × {df.shape[1]} cols (mean + {df.shape[1] - 3} quantiles)"
+
+    step("forecast: download CSV", download)
+
+    def upload():
+        # the same kind of data as an upload with other column names: date / branch / txns / is_holiday, no future rows
+        src = pd.read_csv(os.path.join(st.get("data_dir") or get("/api/health")["data_dir"], "datasets", "transaction-volume", "data.csv"))
+        src = src[src["volume"].notna() & src["item_id"].isin(["branch-north", "branch-city", "cards-online"])]
+        up = src.rename(columns={"timestamp": "date", "item_id": "branch", "volume": "txns", "holiday": "is_holiday"})[["date", "branch", "txns", "is_holiday", "segment"]]
+        ds = j(C.post("/api/datasets", files={"file": ("branch_txns.csv", up.to_csv(index=False).encode(), "text/csv")}))
+        m = get(f"/api/forecast/mapping/{ds['id']}")["mapping"]
+        check(m["timestamp"] == "date" and m["item_id"] == "branch" and m["target"] == "txns" and m["known_covariates"] == ["is_holiday"], m)
+        r = post("/api/forecast/runs", {"dataset_id": ds["id"], "mapping": m, "prediction_length": 14, "eval_metric": "WQL",
+                                       "time_limit": 120, "num_val_windows": 1, "hyperparameters": {"SeasonalNaive": {}, "ETS": {}}})
+        rec = wait_run(r["id"], 600)
+        st["fc_up"] = rec
+        return (f"{ds['id']} mapped {m['item_id']}/{m['timestamp']}/{m['target']} + known {m['known_covariates']} + static {m['static_features']} · "
+                f"{r['id']} WQL {rec['holdout']['metrics']['WQL']:.4f} · future covariates: {rec['forecast']['known_covariates_source']}")
+
+    step("forecast: CSV upload + mapping + run", upload)
+
+    def new_history():
+        src = pd.read_csv(os.path.join(get("/api/health")["data_dir"], "datasets", "transaction-volume", "data.csv"))
+        cut = src[src["timestamp"] <= "2026-10-31"]
+        out = j(C.post(f"/api/forecast/runs/{fid}/predict", files={"file": ("history.csv", cut.to_csv(index=False).encode(), "text/csv")}))
+        dl = C.get(out["download"])
+        check(dl.status_code == 200 and len(pd.read_csv(io.BytesIO(dl.content))) == out["rows"] == 168, out)
+        return f"history to 2026-10-31 → {out['rows']} rows forecast by {out['model']} in {out['seconds']:.2f} s · covariates from {out['known_covariates_source']}"
+
+    step("forecast: forecast from new history", new_history)
+
+    def register():
+        v = post(f"/api/runs/{fid}/register", {"created_by": "Smoke Analyst", "model_name": "smoke.transaction-volume.forecast"})
+        v = poll(f"/api/registry/versions/{v['id']}", lambda x: x["status"] in ("ready", "failed"), 600)
+        check(v["status"] == "ready", v.get("error"))
+        card = get(f"/api/registry/versions/{v['id']}/card")
+        check(card["forecasting"] and card["forecasting"]["holdout_metrics"]["MASE"] > 0, card.get("forecasting"))
+        md = C.get(f"/api/registry/versions/{v['id']}/card", params={"format": "md"}).text
+        check("## 11. Forecasting" in md, "card section")
+        lat = v["result"]["version"]["latency"]
+        return f"{v['id']} · {v['model_name']} v{v['version']} · card §11 Forecasting · forecast all items {lat['forecast_all_items_s_p50'] * 1e3:.0f} ms"
+
+    step("forecast: register + model card", register)
+
+
+def anomaly(st: dict[str, Any]) -> None:
+    def run():
+        r = post("/api/anomaly/runs", {"dataset_id": "card-transactions", "contamination": 0.015, "lof": True,
+                                      "n_estimators": 300, "source": "smoke"})
+        check("truth" not in r["config"], "ground truth leaked into the run config")
+        st["an"] = r["id"]
+        sse = follow_sse(r["id"], 300)
+        rec = get(f"/api/runs/{r['id']}")
+        a = rec["anomaly"]
+        check(rec["kind"] == "anomaly" and a["n_flagged"] == 90, a)
+        st["an_rec"] = rec
+        return (f"{r['id']} · ψ = {a['psi']} · c(ψ) = {a['c_n']:.3f} · {a['n_trees']} trees · s* = {a['threshold']:.4f} · "
+                f"{a['n_flagged']} flagged · LOF ρ = {a['lof']['spearman_vs_iforest']:.2f} · {sse['counts'].get('model_finished')} models")
+
+    if not step("anomaly: run + SSE", run):
+        return
+    aid = st["an"]
+
+    def top():
+        t = get(f"/api/anomaly/runs/{aid}/top", contamination=0.02, limit=20)
+        check(t["n_flagged"] == 120 and len(t["rows"]) == 20, t["n_flagged"])
+        r0 = t["rows"][0]
+        check(r0["reasons"] and r0["why"] and r0["s"] >= t["threshold"], r0)
+        d = get(f"/api/anomaly/runs/{aid}/scores")
+        check(sum(d["counts"]) == 6000, d["n"])
+        return f"c = 0.02 → s* = {t['threshold']:.4f}, 120 flagged · #1 row {r0['row']} s = {r0['s']:.3f}: {r0['why'][:90]}"
+
+    step("anomaly: top anomalies + reasons", top)
+
+    def precision():
+        tr = st["an_rec"]["anomaly"]["truth"]
+        p = {r["k"]: r for r in tr["precision_at_k"]}
+        check(p[10]["precision"] >= 0.7 and tr["roc_auc"] >= 0.85, tr)
+        lof = st["an_rec"]["anomaly"]["truth_lof"]
+        pl = {r["k"]: r for r in lof["precision_at_k"]}
+        return (f"IF P@10 {p[10]['precision']:.2f} · P@50 {p[50]['precision']:.2f} · P@90 {p[90]['precision']:.2f} · AUC {tr['roc_auc']:.3f} · "
+                f"LOF P@90 {pl[90]['precision']:.2f} (sample only)")
+
+    step("anomaly: precision@k (hidden truth)", precision)
+
+    def batch():
+        src = pd.read_csv(os.path.join(get("/api/health")["data_dir"], "datasets", "card-transactions", "data.csv")).sample(500, random_state=3)
+        src.loc[src.index[:5], "amount_usd"] = 25_000.0
+        src.loc[src.index[:5], "hour"] = 3
+        out = j(C.post(f"/api/anomaly/runs/{aid}/score", files={"file": ("new_batch.csv", src.to_csv(index=False).encode(), "text/csv")}))
+        dl = pd.read_csv(io.BytesIO(C.get(out["download"]).content))
+        check(len(dl) == 500 and {"anomaly_score", "flagged", "percentile"} <= set(dl.columns), dl.columns)
+        pct = dl["percentile"].iloc[:5]
+        check((pct >= 0.9).all(), f"injected rows' percentiles {pct.round(3).tolist()}")
+        return (f"{out['id']} · 500 rows · {out['summary']['n_flagged']} flagged at s* · 5 injected rows ($25k at 03:00) at percentiles "
+                f"{', '.join(f'{v:.3f}' for v in pct)} · downloaded")
+
+    step("anomaly: score a new batch", batch)
+
+    def register():
+        v = post(f"/api/runs/{aid}/register", {"created_by": "Smoke Analyst", "model_name": "smoke.card-transactions.anomaly"})
+        v = poll(f"/api/registry/versions/{v['id']}", lambda x: x["status"] in ("ready", "failed"), 300)
+        check(v["status"] == "ready", v.get("error"))
+        row = pd.read_csv(os.path.join(get("/api/health")["data_dir"], "datasets", "card-transactions", "data.csv")).iloc[0].to_dict()
+        row.update({"amount_usd": 9000.0, "hour": 3, "foreign": 1, "distance_from_home_km": 4000.0})
+        out = post(f"/api/registry/versions/{v['id']}/predict", {"row": row})
+        check(out["kind"] == "anomaly" and out["flagged"], out)
+        card = get(f"/api/registry/versions/{v['id']}/card")
+        check(card["anomaly_detection"]["truth_check"], "card")
+        return f"{v['id']} · v{v['version']} ready · card §11 · Try It: s = {out['anomaly_score']:.3f} (pct {out['percentile']:.3f}) flagged — {out['why'][:60]}"
+
+    step("anomaly: register + Try It", register)
+
+
+def importer(st: dict[str, Any]) -> None:
+    def imp():
+        data_dir = get("/api/health")["data_dir"]
+        ddir = os.path.join(data_dir, "datasets", "credit-default")
+        df = pd.read_csv(os.path.join(ddir, "data.csv"))
+        hold = set(json.load(open(os.path.join(ddir, "splits.json")))["holdout"])
+        train = df.loc[[i for i in range(len(df)) if i not in hold]].drop(columns=["applicant_id"])
+        tmp = tempfile.mkdtemp(prefix="smoke-import-")
+        code = (
+            "import sys, pandas as pd\n"
+            "from autogluon.tabular import TabularPredictor\n"
+            "df = pd.read_csv(sys.argv[1])\n"
+            "p = TabularPredictor(label='defaulted', path=sys.argv[2], eval_metric='roc_auc', verbosity=0)\n"
+            "p.fit(df, hyperparameters={'GBM': {'num_boost_round': 60}, 'LR': {}}, time_limit=60)\n"
+            "print(p.model_best)\n")
+        train.to_csv(os.path.join(tmp, "train.csv"), index=False)
+        pdir = os.path.join(tmp, "my_predictor")
+        out = subprocess.run([sys.executable, "-c", code, os.path.join(tmp, "train.csv"), pdir], capture_output=True, text=True, timeout=300)
+        check(out.returncode == 0, out.stderr[-500:])
+        import shutil
+
+        zpath = shutil.make_archive(os.path.join(tmp, "my_predictor"), "zip", tmp, "my_predictor")
+        with open(zpath, "rb") as fh:
+            r = j(C.post("/api/runs/import", files={"file": ("my_predictor.zip", fh.read(), "application/zip")},
+                         data={"dataset_id": "credit-default", "created_by": "Smoke Analyst"}))
+        check(r["inspected"]["label"] == "defaulted", r["inspected"])
+        st["imp"] = r["id"]
+        st["imp_dir"] = pdir
+        follow_sse(r["id"], 600)
+        rec = get(f"/api/runs/{r['id']}")
+        check(rec["kind"] == "import" and rec["holdout"] and rec["leaderboard"], rec.get("error"))
+        st["imp_rec"] = rec
+        return (f"tiny predictor fit here ({out.stdout.strip()}) · zipped · {r['id']} · {len(rec['leaderboard'])} models · "
+                f"holdout ROC AUC {rec['holdout']['metrics'].get('roc_auc', float('nan')):.4f}")
+
+    if not step("import: fit + zip + import", imp):
+        return
+    rid = st["imp"]
+
+    def explain_predict():
+        e = get(f"/api/runs/{rid}/explain")
+        check(e.get("roc") or e.get("confusion_matrix"), e.keys())
+        fi = get(f"/api/runs/{rid}/feature-importance")
+        row = pd.read_csv(os.path.join(get("/api/health")["data_dir"], "datasets", "credit-default", "data.csv")).drop(columns=["defaulted"]).iloc[:3]
+        p = post(f"/api/runs/{rid}/predict", {"rows": row.to_dict(orient="records")})
+        check(len(p["predictions"]) == 3, p)
+        return f"explain ✓ · importance top {fi['features'][0]['feature']} · predict 3 rows → {p['predictions']}"
+
+    step("import: explain + predict", explain_predict)
+
+    def register():
+        v = post(f"/api/runs/{rid}/register", {"created_by": "Smoke Analyst", "model_name": "smoke.imported.credit"})
+        v = poll(f"/api/registry/versions/{v['id']}", lambda x: x["status"] in ("ready", "failed"), 600)
+        check(v["status"] == "ready", v.get("error"))
+        row = pd.read_csv(os.path.join(get("/api/health")["data_dir"], "datasets", "credit-default", "data.csv")).drop(columns=["defaulted"]).iloc[0].to_dict()
+        out = post(f"/api/registry/versions/{v['id']}/predict", {"row": row, "explain": True})
+        card = get(f"/api/registry/versions/{v['id']}/card")
+        check(card["imported"] and "imported" in card["summary"]["engine"], card["summary"])
+        return f"{v['id']} ready · card engine '{card['summary']['engine']}' · Try It {out['prediction']} p(Yes) {out['probabilities']['Yes']:.3f}"
+
+    step("import: register + Try It", register)
+
+    def by_path():
+        r = j(C.post("/api/runs/import", data={"dataset_id": "credit-default", "path": st["imp_dir"]}))
+        rec = wait_run(r["id"], 600)
+        bad = C.post("/api/runs/import", data={"dataset_id": "loan-amount", "path": st["imp_dir"]})
+        check(bad.status_code == 400, bad.text)
+        return f"{r['id']} from a server path · {len(rec['leaderboard'])} models · wrong dataset refused: {bad.json()['detail'][:70]}"
+
+    step("import: server path + validation", by_path)
+
+
+def reset(st: dict[str, Any]) -> None:
+    def run():
+        port = 8077
+        tmp = tempfile.mkdtemp(prefix="smoke-reset-")
+        backend = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend")
+        env = {**os.environ, "ENSEMBLE_DATA_DIR": tmp}
+        proc = subprocess.Popen([os.path.join(backend, ".venv", "bin", "python"), "-m", "uvicorn", "app.main:app", "--port", str(port)],
+                                cwd=backend, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            base = f"http://127.0.0.1:{port}"
+            for _ in range(180):
+                try:
+                    httpx.get(f"{base}/api/health", timeout=2).raise_for_status()
+                    break
+                except Exception:  # noqa: BLE001
+                    time.sleep(1)
+            c = httpx.Client(base_url=base, timeout=120)
+            n0 = j(c.get("/api/health"))["datasets"]
+            j(c.post("/api/datasets", files={"file": ("x.csv", make_binary_csv(200).to_csv(index=False).encode(), "text/csv")}))
+            r = j(c.post("/api/anomaly/runs", json={"dataset_id": "card-transactions", "lof": False, "n_estimators": 50}))
+            for _ in range(120):
+                if j(c.get(f"/api/runs/{r['id']}"))["status"] in ("succeeded", "failed"):
+                    break
+                time.sleep(1)
+            before = j(c.get("/api/health"))
+            refused = c.post("/api/admin/reset", json={})
+            check(refused.status_code == 400, refused.text)
+            out = j(c.post("/api/admin/reset", json={"confirm": "reset"}))
+            after = j(c.get("/api/health"))
+            check(after["runs"] == 0 and after["datasets"] == n0 and not os.path.exists(os.path.join(tmp, "runs", r["id"])), after)
+            names = [d["id"] for d in j(c.get("/api/datasets"))["datasets"]]
+            check("transaction-volume" in names and "card-transactions" in names, names)
+            return (f"throwaway API · before: {before['runs']} run(s), {before['datasets']} datasets → reset "
+                    f"(deleted {out['deleted']['runs']} run, {out['deleted']['datasets']} dataset rows) → {after['runs']} runs, {after['datasets']} samples regenerated")
+        finally:
+            proc.terminate()
+            proc.wait(30)
+
+    step("reset: POST /api/admin/reset", run)
+
+
 def main() -> int:
     global C, API
     ap = argparse.ArgumentParser()
     ap.add_argument("--api", default=API)
-    ap.add_argument("--only", default="core,samples,autopilot")
+    ap.add_argument("--only", default="core,samples,autopilot,forecast,anomaly,import,reset")
     ap.add_argument("--start-api", action="store_true", help="start uvicorn on the --api port if nothing answers there")
     args = ap.parse_args()
     API = args.api.rstrip("/")
@@ -526,7 +836,8 @@ def _main(args) -> int:
     C = httpx.Client(base_url=API, timeout=httpx.Timeout(600, connect=10))
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
-    sections = {"core": core, "samples": samples, "autopilot": autopilot}
+    sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
+                "import": importer, "reset": reset}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")

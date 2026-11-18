@@ -367,7 +367,7 @@ def score_frame(model_dir: str, df: pd.DataFrame, explain_top: int = 50) -> tupl
     if "lof" in sc:
         out["lof_score"] = sc["lof"]
     order = np.argsort(-sc["s"], kind="stable")[:explain_top]
-    expl = explain_rows(model, df.iloc[order])
+    expl = explain_rows(model, df.iloc[order]) if len(order) else []
     top = [{"row": int(r), "s": float(sc["s"][r]), "percentile": float(out["percentile"].iloc[r]),
             "flagged": bool(sc["s"][r] >= model.threshold), "reasons": e["reasons"],
             "why": "; ".join(_text(x) for x in e["reasons"][:3])} for r, e in zip(order, expl)]
