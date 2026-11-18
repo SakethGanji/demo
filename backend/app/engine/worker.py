@@ -93,6 +93,21 @@ def feature_metadata_object(fm: Any):
     return fm
 
 
+def load_unlabeled(cfg: dict[str, Any], train: pd.DataFrame) -> pd.DataFrame:
+    """Unlabeled rows for pseudo-labelling: the training frame's feature columns only (the label is dropped, so
+    AutoGluon treats every row as unlabeled), with the same column types."""
+    u = pd.read_csv(cfg["unlabeled_csv_path"])
+    feats = [c for c in train.columns if c != cfg["label"]]
+    missing = [c for c in feats if c not in u.columns]
+    if missing:
+        raise ValueError(f"the unlabeled data lacks the feature column(s) {', '.join(missing)}")
+    u = u[feats].copy()
+    for col, t in (cfg.get("column_types") or {}).items():
+        if col in u.columns:
+            u[col] = pd.to_numeric(u[col], errors="coerce") if t == "number" else u[col].map(lambda v: v if pd.isna(v) else str(v)).astype(object)
+    return u
+
+
 # --------------------------------------------------------------------------- kwargs
 
 
@@ -330,7 +345,7 @@ def run(run_dir: Path) -> int:
     run_id = cfg["run_id"]
     store = RunStore(Database(Path(cfg["db_path"])))
 
-    def emit(type_: str, **data: Any) -> int:
+    def emit(type_: str, /, **data: Any) -> int:
         return store.emit(run_id, type_, **data)
 
     started = time.time()
@@ -370,9 +385,37 @@ def run(run_dir: Path) -> int:
         call_kwargs["callbacks"] = list(call_kwargs.get("callbacks") or []) + [progress]
         if "feature_metadata" in call_kwargs:
             call_kwargs["feature_metadata"] = feature_metadata_object(call_kwargs["feature_metadata"])
+        unlabeled = load_unlabeled(cfg, train) if cfg.get("pseudolabel") else None
+        pl_method = (cfg.get("pseudolabel") or {}).get("method", "fit_pseudolabel")
+        post_fit = []
+        if unlabeled is not None:
+            if pl_method == "unlabeled_data":
+                call_kwargs["unlabeled_data"] = unlabeled
+                resolved["data_args"] = {"unlabeled_data": {"dataset_id": cfg["pseudolabel"].get("dataset_id"), "rows": len(unlabeled)}}
+            else:
+                post_fit.append({"call": "fit_pseudolabel",
+                                 "kwargs": {"pseudo_data": f"<{len(unlabeled)} unlabeled rows>",
+                                            "max_iter": int(cfg["pseudolabel"].get("max_iter", 3))}})
+        if cfg.get("distill"):
+            dk = dict(cfg["distill"])
+            dk.setdefault("time_limit", max(30.0, 0.5 * float(cfg.get("time_limit") or 120)))
+            post_fit.append({"call": "distill", "kwargs": dk})
+        if post_fit or "data_args" in resolved:
+            resolved["post_fit"] = post_fit
+            store.merge_result(run_id, resolved=resolved)
         predictor = TabularPredictor(path=cfg["predictor_path"], **predictor_kwargs)
         t0 = time.time()
         predictor.fit(train, **call_kwargs)
+        for step in post_fit:
+            emit("post_fit", step=step["call"], status="started")
+            s0 = time.time()
+            if step["call"] == "fit_pseudolabel":
+                predictor.fit_pseudolabel(pseudo_data=unlabeled, max_iter=step["kwargs"]["max_iter"])
+            elif step["call"] == "distill":
+                np.random.seed(0)  # distill's data augmentation draws from the global generator; seeded so it reproduces
+                predictor.distill(**step["kwargs"])
+            emit("post_fit", step=step["call"], status="finished", seconds=time.time() - s0,
+                 models=list(predictor.model_names()), best_model=predictor.model_best)
         fit_seconds = time.time() - t0
 
         threshold_source, threshold_metric, threshold_seconds = _decide_threshold(cfg, predictor, train, emit)
@@ -440,7 +483,8 @@ def run(run_dir: Path) -> int:
 
             mlr = tracking.log_run(Path(cfg["db_path"]).parent, store.get(run_id), run_dir)
             store.merge_result(run_id, mlflow=mlr)
-            emit("tracked", **mlr)
+            # The MLflow run id goes out as `mlflow_run_id`: `run_id` names the ENSEMBLE run in every event.
+            emit("tracked", **{("mlflow_run_id" if k == "run_id" else k): v for k, v in mlr.items()})
         except Exception as e:  # noqa: BLE001
             emit("log", level="warning", logger="ensemble", message=f"MLflow logging failed: {e}")
         if store.finish(run_id, "succeeded"):

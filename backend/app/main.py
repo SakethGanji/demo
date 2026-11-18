@@ -13,6 +13,7 @@ from . import __version__, config
 from .datasets import DatasetError, DatasetStore
 from .db import Database
 from .engine import api as engine_api
+from .gym import api as gym_api
 from .engine.runner import JobRunner
 from .engine.pool import HeavyPool
 from .registry import api as registry_api
@@ -97,6 +98,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
 
     app.include_router(engine_api.router)
     app.include_router(registry_api.router)
+    app.include_router(gym_api.router)
     return app
 
 

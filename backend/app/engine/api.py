@@ -55,6 +55,15 @@ class RunCreate(BaseModel):
         None, description="Binary only: after the fit, predictor.calibrate_decision_threshold(metric=...) and keep it. "
                           "A metric name (f1, balanced_accuracy, mcc, …) or 'auto' (f1 when the minority class < 20%). "
                           "Ignored when fit_kwargs.calibrate_decision_threshold is given.")
+    pseudolabel: dict[str, Any] | None = Field(
+        None, description="Pseudo-labelling with unlabeled rows: {dataset_id, method: fit_pseudolabel | unlabeled_data, "
+                          "max_iter=3}. fit_pseudolabel runs predictor.fit_pseudolabel(pseudo_data=...) after the fit; "
+                          "unlabeled_data passes the rows to fit(unlabeled_data=...).")
+    distill: dict[str, Any] | None = Field(
+        None, description="After the fit, predictor.distill(**distill) (time_limit defaults to half the budget).")
+    parent_run_id: str | None = Field(None, description="The run this one was derived from (Gym, Vela patch).")
+    patch: dict[str, Any] | None = Field(None, description="The Vela patch applied to the parent's config, if any.")
+    source: str | None = Field(None, description="Where the run was started: wizard, gym, client, vela.")
 
 
 class EnsembleRequest(BaseModel):
@@ -118,7 +127,15 @@ def engine_info() -> dict[str, Any]:
 
 
 @router.post("/runs", status_code=201)
-def create_run(body: RunCreate, request: Request) -> dict[str, Any]:
+async def create_run(body: RunCreate, request: Request) -> dict[str, Any]:
+    from ..gym.api import check_run_body
+
+    app = request.app
+    await check_run_body(request, body.model_dump())
+    return await run_in_threadpool(_create_run, body, request)
+
+
+def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
     app = request.app
     ds = app.state.db.get_dataset(body.dataset_id)
     if not ds:
@@ -176,6 +193,8 @@ def create_run(body: RunCreate, request: Request) -> dict[str, Any]:
         "splits_path": str(app.state.datasets.splits_path(body.dataset_id)), "run_dir": str(run_dir),
         "predictor_path": str(run_dir / "predictor"),
     }
+    if body.pseudolabel:
+        cfg["unlabeled_csv_path"] = str(app.state.datasets.csv_path(body.pseudolabel["dataset_id"]))
     (run_dir / "config.json").write_text(json.dumps(cfg, indent=1))
     name = body.name or f"{ds['name'].replace(' (sample)', '')} · {label}"
     store = _store(request)

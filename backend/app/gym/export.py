@@ -1,0 +1,214 @@
+"""`GET /api/runs/{id}/export.py`: a standalone script that reproduces a run with plain AutoGluon.
+
+The script carries everything the run used: the data file (path and SHA-256), the exact holdout rows (a zlib +
+base64 bitmask of data.csv positions, so no re-splitting can drift), the dropped columns and column types, the
+resolved `TabularPredictor(...)` and `.fit(...)` arguments, the post-fit steps (pseudo-labelling, distillation),
+and the decision threshold step. It ends by scoring the holdout and comparing its leaderboard with the run's,
+model by model, and exits non-zero if they differ (`--no-check` skips that).
+"""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import json
+import time
+import zlib
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+from . import pycode
+
+HEADER = '''#!/usr/bin/env python
+"""Reproduce ENSEMBLE run {run_id} ("{name}") with plain AutoGluon.
+
+Generated {ts} by ENSEMBLE with AutoGluon {ag}. Nothing here needs ENSEMBLE running{text_note}.
+
+    python {fname} [--data path/to/data.csv] [--out folder] [--no-check]
+
+Steps: load the data (checked against its SHA-256), take out the exact holdout rows the run held out, drop rows
+without a label and the dropped columns, cast the column types, fit TabularPredictor with the run's resolved
+arguments, run the post-fit steps, set the decision threshold the same way, then score the holdout and compare
+the leaderboard with the run's.
+"""
+'''
+
+BODY = r'''
+
+def _rows(packed: str, n: int) -> np.ndarray:
+    """Positions of data.csv held out by the run (a zlib-compressed bitmask)."""
+    bits = np.unpackbits(np.frombuffer(zlib.decompress(base64.b64decode(packed)), dtype=np.uint8))[:n]
+    return np.flatnonzero(bits)
+
+
+def _cast(df: pd.DataFrame) -> pd.DataFrame:
+    for col, t in COLUMN_TYPES.items():
+        if col not in df.columns:
+            continue
+        if t == "number":
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        else:
+            df[col] = df[col].map(lambda v: v if pd.isna(v) else str(v)).astype(object)
+    return df
+
+
+def load(path: str, check_hash: bool = True) -> tuple[pd.DataFrame, pd.DataFrame]:
+    raw = Path(path).read_bytes()
+    digest = hashlib.sha256(raw).hexdigest()
+    if check_hash and digest != DATA_SHA256:
+        sys.exit(f"{path}: SHA-256 {digest[:12]}… is not the run's data ({DATA_SHA256[:12]}…). Use --no-check to go on.")
+    df = pd.read_csv(path)
+    is_holdout = np.zeros(len(df), dtype=bool)
+    is_holdout[_rows(HOLDOUT_ROWS, N_ROWS)] = True
+    has_label = df[LABEL].notna().to_numpy()
+    drop = [c for c in DROP_COLUMNS if c in df.columns and c != LABEL]
+    train = _cast(df.loc[~is_holdout & has_label].drop(columns=drop))
+    holdout = _cast(df.loc[is_holdout & has_label].drop(columns=drop))
+    return train, holdout
+
+
+def load_unlabeled(path: str, features: list[str]) -> pd.DataFrame:
+    u = pd.read_csv(path)
+    return _cast(u[[c for c in features if c in u.columns]])
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[1])
+    ap.add_argument("--data", default=DATA_CSV, help="the dataset CSV (default: the run's own file)")
+    ap.add_argument("--unlabeled", default=UNLABELED_CSV, help="unlabeled rows for pseudo-labelling, if the run used them")
+    ap.add_argument("--out", default=f"reproduced_{RUN_ID}", help="folder for the predictor")
+    ap.add_argument("--no-check", action="store_true", help="skip the data hash and the leaderboard comparison")
+    args = ap.parse_args()
+
+    if NEEDS_ENSEMBLE_MODELS:  # the run used ENSEMBLE's TF-IDF models: register them with AutoGluon
+        sys.path.insert(0, os.environ.get("ENSEMBLE_BACKEND", ENSEMBLE_BACKEND))
+        import ensemble_models  # noqa: F401
+
+    train, holdout = load(args.data, check_hash=not args.no_check)
+    print(f"train {len(train):,} rows · holdout {len(holdout):,} rows · {len(train.columns) - 1} features")
+    fit_kwargs = dict(FIT_KWARGS)
+    if FEATURE_METADATA is not None:
+        from autogluon.common.features.feature_metadata import FeatureMetadata
+
+        fit_kwargs["feature_metadata"] = FeatureMetadata(type_map_raw=FEATURE_METADATA["type_map_raw"],
+                                                         type_group_map_special=FEATURE_METADATA.get("type_group_map_special") or {})
+    unlabeled = None
+    if PSEUDOLABEL:
+        unlabeled = load_unlabeled(args.unlabeled, [c for c in train.columns if c != LABEL])
+        if PSEUDOLABEL["method"] == "unlabeled_data":
+            fit_kwargs["unlabeled_data"] = unlabeled
+
+    predictor = TabularPredictor(path=args.out, **PREDICTOR_KWARGS)
+    predictor.fit(train, **fit_kwargs)
+
+    if PSEUDOLABEL and PSEUDOLABEL["method"] == "fit_pseudolabel":
+        predictor.fit_pseudolabel(pseudo_data=unlabeled, max_iter=PSEUDOLABEL.get("max_iter", 3))
+    if DISTILL is not None:
+        np.random.seed(0)  # as the run did: distill's augmentation draws from the global generator
+        predictor.distill(**DISTILL)
+
+    if THRESHOLD and THRESHOLD.get("source") == "calibrated":
+        t = predictor.calibrate_decision_threshold(metric=THRESHOLD["metric"], verbose=False)
+        predictor.set_decision_threshold(float(t))
+        predictor.save()
+    elif THRESHOLD and THRESHOLD.get("source") in ("user", "manual", "set"):
+        predictor.set_decision_threshold(float(THRESHOLD["value"]))
+        predictor.save()
+    if THRESHOLD:
+        print(f"decision threshold t = {predictor.decision_threshold:.6f} (run: {THRESHOLD['value']:.6f})")
+
+    lb = predictor.leaderboard(holdout, silent=True)
+    lb.to_csv(Path(args.out) / "leaderboard.csv", index=False)
+    with pd.option_context("display.width", 160, "display.max_columns", 8):
+        print(lb[["model", "score_test", "score_val", "fit_time", "stack_level"]].to_string(index=False))
+    print(json.dumps(predictor.evaluate(holdout, silent=True), default=float))
+    if args.no_check:
+        return 0
+    got = {r["model"]: r for r in lb.to_dict(orient="records")}
+    worst = 0.0
+    for m, (val, test) in RUN_LEADERBOARD.items():
+        if m not in got:
+            print(f"MISMATCH: model {m} is in the run but not here")
+            return 1
+        for a, b in ((val, got[m]["score_val"]), (test, got[m]["score_test"])):
+            if a is not None and b is not None:
+                worst = max(worst, abs(float(a) - float(b)))
+    print(f"leaderboard check: {len(RUN_LEADERBOARD)} models, max |Δ score| = {worst:.3g}")
+    return 0 if worst <= 1e-6 else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+'''
+
+
+def _pack_rows(rows: list[int], n: int) -> str:
+    bits = np.zeros(n, dtype=np.uint8)
+    bits[np.asarray(rows, dtype=int)] = 1
+    return base64.b64encode(zlib.compress(np.packbits(bits).tobytes(), 9)).decode()
+
+
+def _wrap(s: str, width: int = 100) -> str:
+    return "(\n" + "\n".join(f'    "{s[i:i + width]}"' for i in range(0, len(s), width)) + "\n)"
+
+
+def build_script(rec: dict[str, Any], *, backend_dir: Path, unlabeled_csv: str | None, ag_version: str | None) -> str:
+    cfg = rec["config"]
+    res = rec.get("result") or {}
+    resolved = res.get("resolved") or {}
+    if not resolved:
+        raise ValueError("This run has no resolved fit call yet (it has not started fitting).")
+    csv_path = cfg["csv_path"]
+    raw = Path(csv_path).read_bytes()
+    import pandas as pd
+
+    n_rows = len(pd.read_csv(csv_path, usecols=[cfg["label"]]))
+    splits = json.loads(Path(cfg["splits_path"]).read_text())
+    fk = {k: v for k, v in (resolved.get("fit_kwargs") or {}).items() if k not in ("callbacks", "unlabeled_data")}
+    fm = fk.pop("feature_metadata", None)
+    pk = {k: v for k, v in (resolved.get("predictor_kwargs") or {}).items() if v is not None}
+    hp = fk.get("hyperparameters")
+    needs_text = isinstance(hp, dict) and any(k in ("TFIDF_LR", "TFIDF_SVM") for k in hp)
+    thr = res.get("threshold") or None
+    thr_out = {"source": thr.get("source"), "metric": thr.get("metric"), "value": thr.get("value")} if thr else None
+    post = {p["call"]: p["kwargs"] for p in resolved.get("post_fit") or []}
+    pl = cfg.get("pseudolabel")
+    pseudo = {"method": pl.get("method", "fit_pseudolabel"), "max_iter": int(pl.get("max_iter", 3))} if pl else None
+    distill = post.get("distill") if "distill" in post else None
+    lb = {r["model"]: [r.get("score_val"), r.get("score_test")] for r in res.get("leaderboard") or [] if not r.get("custom")}
+    fname = f"export_{rec['id']}.py"
+    head = HEADER.format(run_id=rec["id"], name=rec["name"].replace('"', "'"), ts=time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
+                         ag=ag_version or "?", fname=fname,
+                         text_note=" (its TF-IDF models need ENSEMBLE's `ensemble_models` package on the path)" if needs_text else "")
+    lines = [
+        head,
+        "from __future__ import annotations\n",
+        "import argparse\nimport base64\nimport hashlib\nimport json\nimport os\nimport sys\nimport zlib\nfrom pathlib import Path\n",
+        "import numpy as np\nimport pandas as pd\nfrom autogluon.tabular import TabularPredictor\n",
+        f"RUN_ID = {pycode.py(rec['id'])}",
+        f"DATA_CSV = {pycode.py(csv_path)}",
+        f"DATA_SHA256 = {pycode.py(hashlib.sha256(raw).hexdigest())}",
+        f"N_ROWS = {n_rows}",
+        f"LABEL = {pycode.py(cfg['label'])}",
+        f"DROP_COLUMNS = {pycode.py(cfg.get('drop_columns') or [])}",
+        f"COLUMN_TYPES = {pycode.py(cfg.get('column_types') or {})}",
+        f"# {len(splits['holdout'])} holdout rows (seed {splits.get('seed')}, "
+        f"{'stratified' if splits.get('stratified') else 'random'}, share {splits.get('holdout_share')})",
+        f"HOLDOUT_ROWS = {_wrap(_pack_rows(splits['holdout'], n_rows))}",
+        "",
+        f"PREDICTOR_KWARGS = {pycode.py(pk)}",
+        f"FIT_KWARGS = {pycode.py(fk)}",
+        f"FEATURE_METADATA = {pycode.py(fm)}",
+        f"PSEUDOLABEL = {pycode.py(pseudo)}",
+        f"UNLABELED_CSV = {pycode.py(unlabeled_csv)}",
+        f"DISTILL = {pycode.py(distill)}",
+        f"THRESHOLD = {pycode.py(thr_out)}",
+        f"NEEDS_ENSEMBLE_MODELS = {pycode.py(needs_text)}",
+        f"ENSEMBLE_BACKEND = {pycode.py(str(backend_dir))}",
+        "",
+        "# The run's leaderboard: model → (validation score, holdout score), AutoGluon's higher-is-better scale.",
+        f"RUN_LEADERBOARD = {pycode.py(lb)}",
+    ]
+    return "\n".join(lines) + BODY

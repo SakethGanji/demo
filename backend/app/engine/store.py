@@ -90,8 +90,8 @@ class RunStore:
 
     # -- events -------------------------------------------------------------
 
-    def emit(self, run_id: str, type_: str, **data: Any) -> int:
-        """Append an event. seq is assigned atomically inside the INSERT, so several writers stay ordered."""
+    def emit(self, run_id: str, type_: str, /, **data: Any) -> int:
+        """Append an event (run_id and type_ are positional-only, so a payload may carry its own `run_id`). seq is assigned atomically inside the INSERT, so several writers stay ordered."""
         ts = time.time()
         payload = json.dumps(jsonable(data))
         with self.db.connect() as con:
