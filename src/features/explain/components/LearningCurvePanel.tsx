@@ -136,7 +136,7 @@ function Verdict({ lc }: { lc: LearningCurve }) {
     </div>
     <p className="helper" style={{ fontSize: 12.5 }} data-testid="lc-reason">
       <StatusPill status={meta.pill}>{v.label}</StatusPill>{' '}Because {v.reason}.
-      {ev.observed_last_step && <> Measured directly, {pct(ev.observed_last_step.from_fraction)} → 100% of the rows changed {v.metric} by {sgn(ev.observed_last_step.gain)} (95% CI [{sgn(ev.observed_last_step.ci[0])}, {sgn(ev.observed_last_step.ci[1])}], + = better).</>}
+      {ev.observed_last_step && <> Measured directly, going from {pct(ev.observed_last_step.from_fraction)} to 100% of the rows gained {sgn(ev.observed_last_step.gain)} in {v.metric} ({v.greater_is_better ? 'higher' : 'lower'} is better; + = better; 95% CI [{sgn(ev.observed_last_step.ci[0])}, {sgn(ev.observed_last_step.ci[1])}]).</>}
     </p>
   </>
 }
@@ -150,7 +150,8 @@ function Chart({ lc, metric }: { lc: LearningCurve; metric: string }) {
   const sum = lc.summary ?? []
   const v = lc.verdict
   const ys = [...pts.map((p) => p.score), ...band.flatMap((b) => [b[1], b[2]]), ...sum.flatMap((s) => s.ci ?? [])]
-  const [y0, y1] = padDomain(ys, 0.08)
+  const flat = Math.max(...ys) - Math.min(...ys) < 1e-9
+  const [y0, y1] = flat ? [ys[0] - Math.max(0.005, Math.abs(ys[0]) * 0.01), ys[0] + Math.max(0.005, Math.abs(ys[0]) * 0.01)] : padDomain(ys, 0.08)
   const xmin = lg(Math.min(...pts.map((p) => p.n), ...(curve.length ? [curve[0][0]] : []))) - 0.25
   const xmax = lg(curve.length ? curve[curve.length - 1][0] : N) + 0.25
   const xt = [...new Set([...sum.map((s) => s.n), ...(v ? [v.extrapolation.x2.n, v.extrapolation.x4.n] : [])])].map(lg)
@@ -158,7 +159,7 @@ function Chart({ lc, metric }: { lc: LearningCurve; metric: string }) {
   const ext = useMemo(() => curve.filter(([n]) => n >= N * 0.9999).map(([n, y]) => [lg(n), y] as [number, number]), [curve, N])
   const series = [
     { name: 'subsample fits', color: 'var(--viz-b)', width: 0, dots: true, dotR: () => 2.5, points: pts.filter((p) => p.source === 'subsample').map((p) => [lg(p.n), p.score] as [number, number]).sort((a, b) => a[0] - b[0]), tip: () => 'one seed' },
-    { name: 'mean per n', color: 'var(--text-primary)', width: 0, dots: true, dotR: () => 4, points: sum.map((s) => [lg(s.n), s.mean] as [number, number]), tip: (i: number) => `k = ${sum[i]?.k}${sum[i]?.ci ? ` · 95% t [${fmtScore(sum[i].ci![0])}, ${fmtScore(sum[i].ci![1])}]` : ' · the run itself'}` },
+    { name: 'mean per n', color: 'var(--text-primary)', width: 0, dots: true, dotR: () => 4, points: sum.length ? sum.map((s) => [lg(s.n), s.mean] as [number, number]) : pts.filter((p) => p.source === 'run').map((p) => [lg(p.n), p.score] as [number, number]), tip: (i: number) => `k = ${sum[i]?.k}${sum[i]?.ci ? ` · 95% t [${fmtScore(sum[i].ci![0])}, ${fmtScore(sum[i].ci![1])}]` : ' · the run itself'}` },
     ...(fit.length ? [{ name: 'power law', color: 'var(--viz-a)', points: fit }] : []),
     ...(ext.length ? [{ name: 'extrapolation', color: 'var(--viz-a)', dash: '5 4', points: ext }] : []),
   ]
@@ -204,7 +205,7 @@ function Formula({ lc, metric }: { lc: LearningCurve; metric: string }) {
         <dl className="where">
           <dt>u</dt><dd>{gib ? <>the holdout {metric} (greater is better)</> : <>−{metric}: the holdout {metric} with its sign flipped, so up is better</>}</dd>
           <dt>n, N</dt><dd>training rows of a fit; N = {nfmt(lc.n_full ?? 0)}, the run's own training rows</dd>
-          <dt>A</dt><dd>the plateau u(∞) = <b className="mono">{A.toFixed(4)}</b>{lc.fit?.u_optimum != null ? <> (capped at the optimum u* = {lc.fit.u_optimum})</> : null}</dd>
+          <dt>A</dt><dd>the plateau u(∞) = <b className="mono">{A.toFixed(4)}</b>{lc.fit?.u_optimum != null ? <> (held at or below the optimum u* = {lc.fit.u_optimum}){Math.abs(A - lc.fit.u_optimum) < 1e-9 ? <>: the fit hit it</> : null}</> : null}</dd>
           <dt>b, c</dt><dd>how far below the plateau the curve starts, b = <b className="mono">{b.toFixed(4)}</b> ≥ 0, and how fast it closes, c = <b className="mono">{c.toFixed(2)}</b> ∈ (0, 2]; least squares through the {lc.summary?.length} means (fit RMSE {ev.fit_rmse.toFixed(4)})</dd>
           <dt>CI</dt><dd>95% over B = {ev.B.toLocaleString()} replicates: each mean redrawn from N(mean, σ<sub>pop</sub>(f)² ⁄ k), σ<sub>pop</sub>(f) = sd<sub>f</sub> ⁄ √(1 − f) (seeds share one pool of N rows), the 100% point with σ<sub>pop</sub> = {ev.sd_population_full.toFixed(4)}; the curve refitted each time</dd>
           <dt>ε</dt><dd><b className="mono">{ev.min_gain.toFixed(4)}</b>, the smallest gain per doubling that counts: {ev.min_gain_rule}</dd>
